@@ -1,0 +1,349 @@
+# Algebraic Data Types Demo for Einlang
+# ====================================
+# 
+# This demo showcases the proposed ADT features for Einlang,
+# including enums, structs, pattern matching, and their integration
+# with tensor operations.
+
+# =============================================================================
+# BASIC ENUMS (Sum Types)
+# =============================================================================
+
+# Simple enum
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+# Enum with associated data
+enum Shape {
+    Circle(radius: f32),
+    Rectangle(width: f32, height: f32),
+    Triangle(base: f32, height: f32)
+}
+
+# Create some shapes
+let circle = Circle(5.0);
+let rectangle = Rectangle(4.0, 6.0);
+let triangle = Triangle(3.0, 8.0);
+
+# Calculate areas using pattern matching
+fn area(shape: Shape) -> f32 {
+    match shape {
+        Circle(r) => 3.14159 * r * r,
+        Rectangle(w, h) => w * h,
+        Triangle(b, h) => 0.5 * b * h,
+    }
+}
+
+let circle_area = area(circle);
+let rectangle_area = area(rectangle);
+let triangle_area = area(triangle);
+
+print("Circle area:", circle_area);
+print("Rectangle area:", rectangle_area);
+print("Triangle area:", triangle_area);
+
+# =============================================================================
+# STRUCTS (Product Types)
+# =============================================================================
+
+# Named struct
+struct Point {
+    x: f32,
+    y: f32
+}
+
+# Tuple struct
+struct RGB(r: f32, g: f32, b: f32);
+
+# Create struct instances
+let point = Point { x: 1.0, y: 2.0 };
+let color = RGB(0.8, 0.2, 0.5);
+
+# Pattern matching on structs
+fn distance_from_origin(point: Point) -> f32 {
+    match point {
+        Point { x, y } => sqrt(x * x + y * y),
+    }
+}
+
+let dist = distance_from_origin(point);
+print("Distance from origin:", dist);
+
+# =============================================================================
+# GENERIC ADTS
+# =============================================================================
+
+# Option type for safe null handling
+enum Option<T> {
+    None,
+    Some(value: T)
+}
+
+# Result type for error handling
+enum Result<T, E> {
+    Ok(value: T),
+    Err(error: E)
+}
+
+# Safe division function
+fn safe_divide(a: f32, b: f32) -> Result<f32, str> {
+    if b == 0.0 {
+        Err("Division by zero")
+    } else {
+        Ok(a / b)
+    }
+}
+
+# Using result types
+let division_result = safe_divide(10.0, 3.0);
+let final_value = match division_result {
+    Ok(value) => value,
+    Err(error) => {
+        print("Error:", error);
+        0.0
+    }
+};
+
+print("Division result:", final_value);
+
+# =============================================================================
+# TENSOR INTEGRATION WITH ADTS
+# =============================================================================
+
+# Activation functions as enums
+enum Activation {
+    ReLU,
+    Sigmoid,
+    Tanh,
+    LeakyReLU(alpha: f32),
+    ELU(alpha: f32)
+}
+
+# Neural network layer struct
+struct DenseLayer {
+    weights: tensor[f32; 128, 64],
+    bias: tensor[f32; 64],
+    activation: Activation
+}
+
+# Apply activation function to tensor
+fn apply_activation(input: tensor[f32], activation: Activation) -> tensor[f32] {
+    match activation {
+        ReLU => [if x > 0.0 { x } else { 0.0 } | x in input],
+        Sigmoid => [1.0 / (1.0 + exp(-x)) | x in input],
+        Tanh => [tanh(x) | x in input],
+        LeakyReLU(alpha) => [if x > 0.0 { x } else { alpha * x } | x in input],
+        ELU(alpha) => [if x > 0.0 { x } else { alpha * (exp(x) - 1.0) } | x in input]
+    }
+}
+
+# Forward pass through dense layer
+fn forward_dense(input: tensor[f32; 128], layer: DenseLayer) -> tensor[f32; 64] {
+    let linear[j] = sum[k](input[k] * layer.weights[k, j]) + layer.bias[j];
+    apply_activation(linear, layer.activation)
+}
+
+# Create a layer and process input
+let layer = DenseLayer {
+    weights: random_normal([128, 64]),
+    bias: zeros([64]),
+    activation: ReLU
+};
+
+let input_tensor = random_normal([128]);
+let output = forward_dense(input_tensor, layer);
+
+print("Output shape:", shape(output));
+print("Output mean:", mean(output));
+
+# =============================================================================
+# PATTERN MATCHING WITH GUARDS
+# =============================================================================
+
+# Classify points by quadrant
+fn classify_point(point: Point) -> str {
+    match point {
+        Point { x, y } where x > 0.0, y > 0.0 => "first_quadrant",
+        Point { x, y } where x < 0.0, y > 0.0 => "second_quadrant", 
+        Point { x, y } where x < 0.0, y < 0.0 => "third_quadrant",
+        Point { x, y } where x > 0.0, y < 0.0 => "fourth_quadrant",
+        Point { x: 0.0, y } => "y_axis",
+        Point { x, y: 0.0 } => "x_axis",
+        _ => "origin"
+    }
+}
+
+let test_points = [
+    Point { x: 1.0, y: 2.0 },
+    Point { x: -1.0, y: 3.0 },
+    Point { x: -2.0, y: -1.0 },
+    Point { x: 3.0, y: -2.0 },
+    Point { x: 0.0, y: 5.0 },
+    Point { x: 4.0, y: 0.0 },
+    Point { x: 0.0, y: 0.0 }
+];
+
+for point in test_points {
+    let classification = classify_point(point);
+    print(f"Point ({point.x}, {point.y}): {classification}");
+}
+
+# =============================================================================
+# TENSOR SHAPE VALIDATION WITH ADTS
+# =============================================================================
+
+enum TensorError {
+    ShapeMismatch { expected: [i32], actual: [i32] },
+    IndexOutOfBounds { index: [i32], shape: [i32] },
+    EmptyTensor,
+    IncompatibleDimensions { op: str, dims: [[i32]] }
+}
+
+fn validate_matrix_multiply(a: tensor[f32], b: tensor[f32]) -> Result<(), TensorError> {
+    let shape_a = shape(a);
+    let shape_b = shape(b);
+    
+    if len(shape_a) != 2 || len(shape_b) != 2 {
+        Err(IncompatibleDimensions { 
+            op: "matrix_multiply", 
+            dims: [shape_a, shape_b] 
+        })
+    }
+    
+    if shape_a[1] != shape_b[0] {
+        Err(ShapeMismatch { 
+            expected: [shape_a[0], shape_a[1], shape_a[1]], 
+            actual: shape_b 
+        })
+    }
+    
+    Ok(())
+}
+
+fn safe_matrix_multiply(a: tensor[f32], b: tensor[f32]) -> Result<tensor[f32], TensorError> {
+    let validation = validate_matrix_multiply(a, b);
+    
+    match validation {
+        Ok(()) => {
+            let result[i, j] = sum[k](a[i, k] * b[k, j])
+            Ok(result)
+        },
+        Err(error) => Err(error)
+    };
+}
+
+# Test tensor operations
+let matrix_a = random_normal([3, 4]);
+let matrix_b = random_normal([4, 5]);
+let matrix_c = random_normal([3, 5]); # Wrong shape for multiplication
+
+let result_ab = safe_matrix_multiply(matrix_a, matrix_b);
+let result_ac = safe_matrix_multiply(matrix_a, matrix_c);
+
+match result_ab {
+    Ok(matrix) => print("Matrix multiplication successful, shape:", shape(matrix)),
+    Err(error) => print("Matrix multiplication failed:", error)
+}
+
+match result_ac {
+    Ok(matrix) => print("Matrix multiplication successful, shape:", shape(matrix)),
+    Err(TensorError::ShapeMismatch { expected, actual }) => 
+        print(f"Shape mismatch: expected compatible with {expected}, got {actual}"),
+    Err(error) => print("Other error:", error)
+}
+
+# =============================================================================
+# NESTED PATTERNS AND COMPLEX MATCHING
+# =============================================================================
+
+enum DataPoint {
+    Scalar(value: f32),
+    Vector(data: [f32]),
+    Matrix(rows: i32, cols: i32, data: [[f32]]),
+    Tensor3D(shape: [i32], data: [[[f32]]])
+}
+
+fn process_data(data: DataPoint) -> f32 {
+    match data {
+        Scalar(value) => value,
+        Vector(vec) => sum(vec),
+        Matrix(rows, cols, matrix) => {
+            let total[i, j] = sum[i, j](matrix[i, j])
+            total / (rows * cols)
+        },
+        Tensor3D(shape, tensor) => {
+            # Complex tensor processing
+            let flattened = flatten(tensor);
+            sum(flattened) / size(tensor)
+        }
+    };
+}
+
+# =============================================================================
+# ML PIPELINE WITH ADTS
+# =============================================================================
+
+enum LayerType {
+    Dense {
+        input_dim: i32,
+        output_dim: i32,
+        weights: tensor[f32],
+        bias: tensor[f32],
+        activation: Activation
+    },
+    Conv2D {
+        in_channels: i32,
+        out_channels: i32,
+        kernel_size: i32,
+        weights: tensor[f32],
+        bias: tensor[f32]
+    },
+    BatchNorm {
+        num_features: i32,
+        weight: tensor[f32],
+        bias: tensor[f32],
+        running_mean: tensor[f32],
+        running_var: tensor[f32]
+    }
+}
+
+struct NeuralNetwork {
+    layers: [LayerType],
+    name: str
+}
+
+fn forward_layer(input: tensor[f32], layer: LayerType) -> tensor[f32] {
+    match layer {
+        Dense { weights, bias, activation, .. } => {
+            let linear = matmul(input, weights) + bias
+            apply_activation(linear, activation)
+        },
+        Conv2D { weights, bias, .. } => {
+            conv2d(input, weights) + bias
+        },
+        BatchNorm { weight, bias, running_mean, running_var, .. } => {
+            batch_norm(input, weight, bias, running_mean, running_var)
+        }
+    };
+}
+
+fn forward(network: NeuralNetwork, input: tensor[f32]) -> tensor[f32] {
+    let mut current = input;
+    for layer in network.layers {
+        current = forward_layer(current, layer);
+    }
+    current
+}
+
+print("ADT Demo completed successfully!");
+print("Features demonstrated:");
+print("  ✓ Enum declarations with data");
+print("  ✓ Struct declarations");
+print("  ✓ Pattern matching with guards");
+print("  ✓ Generic types (Option, Result)");
+print("  ✓ Tensor integration");
+print("  ✓ Error handling with ADTs");
+print("  ✓ Complex ML pipeline modeling");

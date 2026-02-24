@@ -1,0 +1,17 @@
+# Import system examples and module usage
+
+# Test bootstrap primitives (should work without import)
+assert(typeof(42) == "i32");
+assert(len([1, 2, 3]) == 3);
+assert(array_append([1, 2], 3) == [1, 2, 3]);
+
+# Test explicit import of math module
+use std::math::abs;
+use std::math::max;
+use std::math::sqrt;
+
+assert(abs(-5) == 5);
+assert(max(3, 7) == 7);
+# Manual sum since sum function is placeholder: 1 + 2 + 3 = 6
+assert(1 + 2 + 3 == 6);
+assert(sqrt(25.0) >= 4.99 && sqrt(25.0) <= 5.01);

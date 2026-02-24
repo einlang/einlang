@@ -1,0 +1,312 @@
+# Einlang Language Syntax Showcase
+# Complete demonstration of all important language features and syntax
+
+print("=== EINLANG LANGUAGE SYNTAX SHOWCASE ===");
+print("Complete guide to Einlang's mathematical programming syntax");
+print();
+
+# =============================================================================
+# 1. BASIC VALUES AND EXPRESSIONS
+# =============================================================================
+
+print("=== 1. BASIC VALUES AND EXPRESSIONS ===");
+
+# Variable declarations and basic arithmetic
+let x = 42;
+let y = 3.14159;
+let z = x + 10;
+
+print("Variables and arithmetic:");
+print("x =", x);
+print("y =", y);
+print("z = x + 10 =", z);
+
+# Mathematical operations
+let power = x * x;
+let ratio = x / 5;
+let remainder = x % 7;
+let negation = -x;
+
+print("Mathematical operations:");
+print("x² =", power);
+print("x/5 =", ratio);
+print("x mod 7 =", remainder);
+print("-x =", negation);
+print();
+
+# =============================================================================
+# 2. ARRAY LITERALS AND OPERATIONS
+# =============================================================================
+
+print("=== 2. ARRAY LITERALS AND OPERATIONS ===");
+
+# Array literals
+let numbers = [1, 2, 3, 4, 5];
+let floats = [1.0, 2.5, 3.14, 4.7];
+let mixed = [10, 20, 30];
+
+print("Array literals:");
+print("numbers =", numbers);
+print("floats =", floats);
+print("mixed =", mixed);
+
+# Array indexing
+let first = numbers[0];
+let second = numbers[1];
+let last = numbers[4];
+
+print("Array indexing:");
+print("numbers[0] =", first);
+print("numbers[1] =", second);
+print("numbers[4] =", last);
+print();
+
+# =============================================================================
+# 3. ARRAY COMPREHENSIONS
+# =============================================================================
+
+print("=== 3. ARRAY COMPREHENSIONS ===");
+
+# Basic range comprehensions
+let squares = [i * i | i in 0..5];
+let doubled = [i * 2 | i in 1..4];
+let cubes = [i * i * i | i in 0..4];
+
+print("Range comprehensions:");
+print("Squares [0²..4²] =", squares);
+print("Doubled [2,4,6] =", doubled);
+print("Cubes [0³..3³] =", cubes);
+
+# Filtered comprehensions
+let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+let evens = [data[i] | i in 0..len(data), data[i] % 2 == 0];
+let odds = [data[i] | i in 0..len(data), data[i] % 2 == 1];
+let big_numbers = [data[i] | i in 0..len(data), data[i] > 5];
+
+print("Filtered comprehensions:");
+print("data =", data);
+print("evens =", evens);
+print("odds =", odds);
+print("big numbers (>5) =", big_numbers);
+
+# Complex expressions in comprehensions
+let complex_expr = [i * (i + 1) / 2 | i in 1..6];  # Triangular numbers;
+let conditional_values = [if i % 2 == 0 { i * 10 } else { i } | i in 1..6];
+
+print("Complex comprehensions:");
+print("Triangular numbers =", complex_expr);
+print("Conditional values =", conditional_values);
+print();
+
+# =============================================================================
+# 4. CONDITIONAL EXPRESSIONS
+# =============================================================================
+
+print("=== 4. CONDITIONAL EXPRESSIONS ===");
+
+# Simple if-else
+let simple_condition = if x > 40 { x * 2 } else { x / 2 };
+let sign = if x > 0 { 1 } else if x < 0 { -1 } else { 0 };
+
+print("Simple conditionals:");
+print("if x > 40 then x*2 else x/2 =", simple_condition);
+print("sign(x) =", sign);
+
+# Boolean logic
+let and_result = if x > 30 && y > 3 { "both true" } else { "not both true" };
+let or_result = if x < 30 || y > 4 { "at least one true" } else { "both false" };
+
+print("Boolean logic:");
+print("x > 30 && y > 3 =", and_result);
+print("x < 30 || y > 4 =", or_result);
+
+# Nested conditionals
+let nested = if x > 50 { 
+    "very large" 
+} else if x > 30 { 
+    if y > 3 { "medium with good y" } else { "medium with low y" }
+} else { 
+    "small" 
+};
+
+print("Nested conditional result =", nested);
+print();
+
+# =============================================================================
+# 5. MATHEMATICAL FUNCTIONS AND REDUCTIONS
+# =============================================================================
+
+print("=== 5. MATHEMATICAL FUNCTIONS AND REDUCTIONS ===");
+
+# Built-in reductions
+let vector = [1, 4, 2, 8, 5, 3];
+let total = sum[i](vector[i]);
+let maximum = max[i](vector[i]);
+let minimum = min[i](vector[i]);
+
+print("Vector reductions:");
+print("vector =", vector);
+print("sum =", total);
+print("max =", maximum);
+print("min =", minimum);
+
+# Statistical operations
+let length = 6;  # len(vector) when available;
+let mean = total / length;
+let range_val = maximum - minimum;
+
+print("Statistical measures:");
+print("length =", length);
+print("mean =", mean);
+print("range =", range_val);
+print();
+
+# =============================================================================
+# 6. TENSOR OPERATIONS
+# =============================================================================
+
+print("=== 6. TENSOR OPERATIONS ===");
+
+# Matrix definition
+let matrix_a = [[1, 2, 3], [4, 5, 6]];
+let matrix_b = [[7, 8], [9, 10], [11, 12]];
+let vector_2d = [[1], [2], [3]];
+
+print("Matrix operations:");
+print("matrix_a =", matrix_a);
+print("matrix_b =", matrix_b);
+print("vector_2d =", vector_2d);
+
+# Matrix element access
+let element = matrix_a[0,1];  # Using correct tensor indexing syntax;
+let first_row_0 = matrix_a[0,0];
+let first_row_1 = matrix_a[0,1];
+let first_row_2 = matrix_a[0,2];
+
+print("Matrix access:");
+print("matrix_a[0,1] =", element);
+print("First row elements:", first_row_0, first_row_1, first_row_2);
+
+# Matrix comprehensions (simplified due to syntax limitations)
+let scaled_elements = [matrix_a[0,j] * 2 | j in 0..3];
+let second_row_scaled = [matrix_a[1,j] * 2 | j in 0..3];
+
+print("Matrix comprehensions:");
+print("First row scaled (×2) =", scaled_elements);
+print("Second row scaled (×2) =", second_row_scaled);
+print();
+
+# =============================================================================
+# 7. FUNCTION DEFINITIONS
+# =============================================================================
+
+print("=== 7. FUNCTION DEFINITIONS ===");
+
+# Simple functions
+fn square(n) {
+    n * n
+}
+
+fn absolute_value(n) {
+    if n >= 0 { n } else { -n }
+}
+
+# Function with multiple parameters
+fn distance_2d(x1, y1, x2, y2) {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    sqrt(dx * dx + dy * dy)
+}
+
+print("Function examples:");
+print("square(7) =", square(7));
+print("absolute_value(-15) =", absolute_value(-15));
+# print("distance((0,0), (3,4)) =", distance_2d(0, 0, 3, 4));  # When sqrt is available
+
+# Array processing function
+fn sum_of_squares(arr) {
+    sum[i](arr[i] * arr[i])
+}
+
+let test_array = [1, 2, 3, 4];
+print("sum_of_squares([1,2,3,4]) =", sum_of_squares(test_array));
+print();
+
+# =============================================================================
+# 8. ADVANCED PATTERNS
+# =============================================================================
+
+print("=== 8. ADVANCED PATTERNS ===");
+
+# Nested array comprehensions
+let multiplication_table = [[i * j | j in 1..4] | i in 1..4];
+print("Multiplication table (3×3):");
+print(multiplication_table);
+
+# Conditional array generation
+let fibonacci_like = [;
+    if i <= 1 { i } 
+    else { (i-1) + (i-2) }  # Simplified fibonacci approximation
+    | i in 0..8
+];
+print("Fibonacci-like sequence =", fibonacci_like);
+
+# Complex filtering with multiple conditions
+let special_numbers = [
+    i * 10 + j 
+    | i in 1..5,
+          j in 0..10,
+          i + j == 6,
+          i * j < 10
+];
+print("Special numbers (i+j=6, i*j<10) =", special_numbers);
+
+# Combining operations
+let input_values = [3, 4, 5, 6, 9, 12, 15];
+let processed_data = [;
+    if input_values[i] % 3 == 0 { input_values[i] / 3 }
+    else if input_values[i] % 2 == 0 { input_values[i] * 2 }
+    else { input_values[i] + 1 } | i in 0..7];
+print("Processed data =", processed_data);
+print();
+
+# =============================================================================
+# 9. PATTERN MATCHING AND ADVANCED CONDITIONALS
+# =============================================================================
+
+print("=== 9. ADVANCED CONDITIONALS ===");
+
+# Multi-condition logic
+let test_numbers = [5, 25, 125, 1250];
+let classification = [;
+    if test_numbers[i] < 10 { "single digit" }
+    else if test_numbers[i] < 100 { "double digit" } 
+    else if test_numbers[i] < 1000 { "triple digit" }
+    else { "large number" } | i in 0..4];
+print("Number classifications =", classification);
+
+# Complex boolean expressions (simplified - OR not supported in where clauses)
+let even_filter = [num | num in 1..13, num % 2 == 0, num > 4];
+let mod3_filter = [num | num in 1..13, num % 3 == 0, num < 8];
+print("Even numbers > 4 =", even_filter);
+print("Multiples of 3 < 8 =", mod3_filter);
+print();
+
+# =============================================================================
+# 10. SUMMARY
+# =============================================================================
+
+print("=== SYNTAX SHOWCASE COMPLETE ===");
+print("✓ Variables and expressions");
+print("✓ Array literals and indexing");
+print("✓ Array comprehensions with ranges and filters");
+print("✓ Conditional expressions (if-else)");
+print("✓ Boolean logic (&&, ||)");
+print("✓ Mathematical operations (+, -, *, /, %)");
+print("✓ Reduction operations (sum, max, min)");
+print("✓ Matrix and tensor operations");
+print("✓ Function definitions");
+print("✓ Advanced patterns and nested operations");
+print("✓ Complex filtering and transformations");
+print();
+print("🎯 This showcases all essential Einlang syntax patterns!");

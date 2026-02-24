@@ -1,0 +1,44 @@
+# Pooling Operations with Einstein Notation
+# Shows how Einstein notation naturally expresses neural network pooling
+
+let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+# Average pooling with window size 3, stride 1
+let avg_pool[i in 0..8] = sum[k in i..i+3](data[k]) / 3;
+print("Average pooling (3x1):", avg_pool);
+# Expected: [2, 3, 4, 5, 6, 7, 8, 9]
+
+# Max pooling with window size 3, stride 1  
+let max_pool[i in 0..8] = max[k in i..i+3](data[k]);
+print("Max pooling (3x1):", max_pool);
+# Expected: [3, 4, 5, 6, 7, 8, 9, 10]
+
+# Strided pooling (stride 2)
+let strided_avg[i in 0..4] = sum[k in i*2..i*2+3](data[k]) / 3;
+print("Strided average pooling:", strided_avg);
+# Expected: [2, 4, 6, 8]
+
+# 2D pooling on a matrix
+let matrix = [[1, 2, 3, 4], 
+              [5, 6, 7, 8], 
+              [9, 10, 11, 12],
+              [13, 14, 15, 16]];
+
+# 2x2 max pooling with stride 2
+let max_pool_2d[i in 0..2, j in 0..2] = max[di in 0..2, dj in 0..2](matrix[i*2+di, j*2+dj]);
+print("2D max pooling:", max_pool_2d);
+# Expected: [[6, 8], [14, 16]]
+
+# Average pooling 2D
+let avg_pool_2d[i in 0..2, j in 0..2] = sum[di in 0..2, dj in 0..2](matrix[i*2+di, j*2+dj]) / 4;
+print("2D average pooling:", avg_pool_2d);
+# Expected: [[3.5, 5.5], [11.5, 13.5]]
+
+# Global average pooling (entire feature map)
+let global_avg = sum[i in 0..4, j in 0..4](matrix[i,j]) / 16;
+print("Global average pooling:", global_avg);
+# Expected: 8.5
+
+# Overlapping pooling with padding behavior
+let padded_max[i in 0..10] = max[k in max(0, i-1)..min(10, i+2)](data[k]);
+print("Padded max pooling:", padded_max);

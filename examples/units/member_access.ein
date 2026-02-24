@@ -1,0 +1,83 @@
+# CORE FEATURE: Member Access Patterns
+# PURPOSE: Tests dot notation property access on arrays and strings
+# VALUE: Essential for accessing metadata and properties of data structures
+
+# Test array property access
+let data_array = [1, 2, 3, 4, 5];
+let nested_array = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+let string_data = "hello world";
+
+# Test .length property access
+let array_length = data_array.length;
+let string_length = string_data.length;
+let nested_length = nested_array.length;
+
+assert(array_length == 5, "Array length should be 5");
+assert(string_length == 11, "String length should be 11");
+assert(nested_length == 3, "Nested array length should be 3");
+
+# Test .size property access (total elements)
+let array_size = data_array.size;
+let nested_size = nested_array.size;
+
+assert(array_size == 5, "Array size should be 5");
+assert(nested_size == 9, "Nested array total size should be 9");
+
+# Test .shape property access (tensor dimensions)
+let array_shape = data_array.shape;
+let nested_shape = nested_array.shape;
+
+assert(array_shape[0] == 5, "1D array shape should be [5]");
+assert(nested_shape[0] == 3, "2D array first dimension should be 3");
+assert(nested_shape[1] == 3, "2D array second dimension should be 3");
+
+# Test chained property access
+let first_row = nested_array[0];
+let first_row_length = first_row.length;
+let first_row_size = first_row.size;
+
+assert(first_row_length == 3, "First row length should be 3");
+assert(first_row_size == 3, "First row size should be 3");
+
+# Test properties on computed expressions
+let source_data = [1, 2, 3, 4];
+let computed_array = [x | x in source_data];
+let computed_length = computed_array.length;
+
+assert(computed_length == 4, "Computed array length should be 4");
+
+# Test edge cases with single element arrays
+let single_element = [42];
+let single_length = single_element.length;
+let single_size = single_element.size;
+let single_shape = single_element.shape;
+
+assert(single_length == 1, "Single element length should be 1");
+assert(single_size == 1, "Single element size should be 1");
+assert(single_shape[0] == 1, "Single element shape should be [1]");
+
+# Test string properties
+let short_string = "hi";
+let long_string = "testing123";
+let short_len = short_string.length;
+let long_len = long_string.length;
+
+assert(short_len == 2, "Short string length should be 2");
+assert(long_len == 10, "Long string length should be 10");
+
+# Test property access on nested structures
+let matrix = [[10, 20], [30, 40], [50, 60]];
+let matrix_rows = matrix.length;
+let first_row_cols = matrix[0].length;
+let matrix_total_size = matrix.size;
+
+assert(matrix_rows == 3, "Matrix should have 3 rows");
+assert(first_row_cols == 2, "First row should have 2 columns");
+assert(matrix_total_size == 6, "Matrix total size should be 6");
+
+print("=== Member Access Tests ===");
+print("Array properties - length:", array_length, "size:", array_size, "shape:", array_shape);
+print("Nested properties - length:", nested_length, "size:", nested_size, "shape:", nested_shape);
+print("String length:", string_length);
+print("Matrix properties - rows:", matrix_rows, "cols:", first_row_cols, "total:", matrix_total_size);
+print("✓ All member access patterns working correctly!");

@@ -1,0 +1,58 @@
+# Functions Sample
+# Demonstrates function definition, recursion, and higher-order concepts
+
+# Simple utility functions
+fn square(x) {
+    x * x
+}
+
+fn is_even(n) {
+    n % 2 == 0
+}
+
+# Function working with arrays
+fn dot_product(a, b) {
+    sum[i](a[i] * b[i])
+}
+
+# Statistical function
+fn mean(arr, n) {
+    let total = sum[i](arr[i]) as f32;  # Cast to preserve float type
+    total / n
+}
+
+fn variance(arr, n) {
+    let avg = mean(arr, n);
+    let sum_sq_diff = sum[i]((arr[i] - avg) * (arr[i] - avg)) as f32;
+    sum_sq_diff / n
+}
+
+# Test the functions
+let numbers = [1.0, 4.0, 2.0, 8.0, 5.0];  # Float literals;
+let vec_a = [1, 2, 3];
+let vec_b = [4, 5, 6];
+
+let squared_5 = square(5);
+let four_is_even = is_even(4);
+let five_is_even = is_even(5);
+let dot_result = dot_product(vec_a, vec_b);
+let numbers_mean = mean(numbers, 5.0);
+let numbers_var = variance(numbers, 5.0);
+
+# Verify function results
+assert(squared_5 == 25, "square(5) should be 25");
+assert(four_is_even == true, "4 should be even");
+assert(five_is_even == false, "5 should not be even");
+assert(dot_result == 32, "dot product should be 1*4 + 2*5 + 3*6 = 32");
+assert(numbers_mean == 4.0, "mean should be (1+4+2+8+5)/5 = 4");
+assert(numbers_var == 6.0, "variance should be 6");
+
+print("=== Functions Sample ===");
+print("square(5) =", squared_5);
+print("is_even(4) =", four_is_even);
+print("is_even(5) =", five_is_even);
+print("dot_product([1,2,3], [4,5,6]) =", dot_result);
+print("Array:", numbers);
+print("  Mean:", numbers_mean);
+print("  Variance:", numbers_var);
+print("✅ All function calls verified!");

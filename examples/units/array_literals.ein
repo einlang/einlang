@@ -1,0 +1,17 @@
+# CORE FEATURE: Array Literals and Indexing  
+# PURPOSE: Tests array creation and element access - fundamental data structure
+# VALUE: Essential for any array-based computations in Einlang
+
+let arr = [10, 20, 30];
+let first = arr[0];
+let last = arr[2];
+
+# Verify array indexing with assertions
+assert(first == 10, "First element should be 10");
+assert(last == 30, "Last element should be 30");
+assert(arr[1] == 20, "Middle element should be 20");
+
+print("Array:", arr);
+print("First element:", first);
+print("Last element:", last);
+print("✓ All array indexing assertions passed!");

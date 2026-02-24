@@ -1,0 +1,305 @@
+# Missing Built-in Function Definitions
+# This shows what the missing built-in functions should look like if implemented
+
+# ===== ACTIVATION FUNCTIONS =====
+
+fn relu(x) {
+    # Rectified Linear Unit
+    if x > 0 { x } else { 0 }
+}
+
+fn gelu(x) {
+    # Gaussian Error Linear Unit
+    # Approximation: 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
+    let sqrt_2_over_pi = 0.7978845608028654;  # sqrt(2/π);
+    let a = 0.044715;
+    let inner = sqrt_2_over_pi * (x + a * x * x * x);
+    0.5 * x * (1.0 + tanh(inner))
+}
+
+fn sigmoid(x) {
+    # Sigmoid activation: 1 / (1 + exp(-x))
+    1.0 / (1.0 + exp(-x))
+}
+
+fn tanh(x) {
+    # Hyperbolic tangent: (exp(x) - exp(-x)) / (exp(x) + exp(-x))
+    let exp_x = exp(x);
+    let exp_neg_x = exp(-x);
+    (exp_x - exp_neg_x) / (exp_x + exp_neg_x)
+}
+
+fn swish(x) {
+    # Swish activation: x * sigmoid(x)
+    x * sigmoid(x)
+}
+
+fn leaky_relu(x, negative_slope) {
+    # Leaky ReLU: max(0, x) + negative_slope * min(0, x)
+    if x > 0 { x } else { negative_slope * x }
+}
+
+fn elu(x, alpha) {
+    # Exponential Linear Unit
+    if x > 0 { x } else { alpha * (exp(x) - 1.0) }
+}
+
+# ===== MATHEMATICAL FUNCTIONS =====
+
+fn sqrt(x) {
+    # Square root - should be implemented as primitive
+    # This is a placeholder showing the signature
+    x ** 0.5  # Using ** operator
+}
+
+fn exp(x) {
+    # Exponential function - should be implemented as primitive
+    # e^x where e ≈ 2.718281828
+    2.718281828 ** x  # Using ** operator
+}
+
+fn log(x) {
+    # Natural logarithm - should be implemented as primitive
+    # Placeholder implementation using change of base
+    log_base_10(x) / log_base_10(2.718281828)  # ❌ log_base_10 not available
+}
+
+fn pow(x, exponent) {
+    # Power function: x^exponent
+    x ** exponent  # Using ** operator
+}
+
+fn sin(x) {
+    # Sine function - should be implemented as primitive
+    # Taylor series approximation (for demonstration)
+    let x2 = x * x;
+    let x3 = x2 * x;
+    let x5 = x3 * x2;
+    let x7 = x5 * x2;
+    x - x3/6.0 + x5/120.0 - x7/5040.0  # Truncated series
+}
+
+fn cos(x) {
+    # Cosine function - should be implemented as primitive  
+    # Taylor series approximation (for demonstration)
+    let x2 = x * x;
+    let x4 = x2 * x2;
+    let x6 = x4 * x2;
+    1.0 - x2/2.0 + x4/24.0 - x6/720.0  # Truncated series
+}
+
+fn abs(x) {
+    # Absolute value
+    if x >= 0 { x } else { -x }
+}
+
+# ===== TENSOR OPERATIONS =====
+
+fn softmax(x, dim) {
+    # Softmax along specified dimension
+    # ❌ This requires advanced tensor operations not available
+    
+    # For 1D case (simplified):
+    let max_val = max(x);  # Find maximum for numerical stability
+    
+    # Subtract max and exponentiate
+    let shifted[i] = x[i] - max_val;
+    let exp_vals[i] = exp(shifted[i]);
+    
+    # Sum all exponentials  
+    let sum_exp = sum(exp_vals);
+    
+    # Normalize
+    let result[i] = exp_vals[i] / sum_exp;
+    
+    result
+}
+
+fn log_softmax(x, dim) {
+    # Log-softmax: log(softmax(x))
+    # More numerically stable than log(softmax(x))
+    let max_val = max(x);
+    let sum_exp = sum[i](exp(x[i] - max_val));
+    let log_sum_exp = log(sum_exp);
+    
+    let result[i] = x[i] - max_val - log_sum_exp;
+    result
+}
+
+fn layer_norm(input, gamma, beta, eps) {
+    # Layer normalization
+    # input: [..., features], gamma: [features], beta: [features]
+    
+    # Compute mean and variance along last dimension
+    let mean = sum(input) / len(input);  # ❌ Simplified, needs proper tensor ops
+    
+    # Compute variance
+    let centered[i] = input[i] - mean;
+    let variance = sum[i](centered[i] * centered[i]) / len(input);
+    
+    # Normalize
+    let std = sqrt(variance + eps);
+    let normalized[i] = centered[i] / std;
+    
+    # Scale and shift
+    let output[i] = gamma[i] * normalized[i] + beta[i];
+    
+    output
+}
+
+# ===== TENSOR CREATION FUNCTIONS =====
+
+fn zeros(tensor_shape, dtype) {
+    # Create tensor filled with zeros
+    # ❌ Shape handling and tensor creation not implemented
+    
+    # For 2D case (example):
+    let rows_val = tensor_shape[0];
+    let cols_val = tensor_shape[1];
+    
+    let result = if len(tensor_shape) == 2 {
+        [[0.0, 0.0], [0.0, 0.0]]  # 2x2 zero matrix
+    } else {
+        [0]  # 1D zero array
+    };
+    
+    result
+}
+
+fn ones(shape, dtype) {
+    # Create tensor filled with ones
+    # Similar to zeros but with value 1.0
+    
+    let result = if len(shape) == 2 {
+        [[1.0, 1.0], [1.0, 1.0]]  # 2x2 ones matrix
+    } else {
+        [1]  # 1D ones array
+    };
+    
+    result
+}
+
+fn random_normal(shape, mean, std) {
+    # Create tensor with random normal distribution
+    # ❌ Random number generation not implemented
+    
+    let result = if len(shape) == 2 {
+        [[0.0, 0.1], [-0.1, 0.2]]  # Mock random normal values
+    } else {
+        [0.0]  # Mock 1D random normal
+    };
+    
+    result
+}
+
+# ===== TENSOR MANIPULATION =====
+
+fn reshape(tensor, new_shape) {
+    # Reshape tensor to new shape
+    # ❌ Advanced tensor manipulation not supported
+    
+    # This requires complex tensor indexing and shape calculations
+    # that are not available in current implementation
+    tensor  # Placeholder
+}
+
+fn transpose(tensor, dims) {
+    # Transpose tensor dimensions
+    # ❌ Dimension manipulation not supported
+    
+    # For 2D case (matrix transpose) - simplified
+    let result = if len(dims) == 2 {
+        [[tensor[0, 0], tensor[1, 0]], [tensor[0, 1], tensor[1, 1]]]  # Mock 2x2 transpose
+    } else {
+        tensor  # Return as-is for non-2D
+    };
+    
+    result
+}
+
+fn concatenate(tensors, dim) {
+    # Concatenate tensors along specified dimension
+    # ❌ Tensor concatenation not supported
+    
+    tensors[0]  # Placeholder - just first tensor
+}
+
+# ===== I/O OPERATIONS =====
+
+fn load_tensor(filename) {
+    # Load tensor from file
+    # ❌ File I/O not implemented
+    
+    # This would need file system access and format parsing
+    zeros([1, 1], "f32")  # Placeholder
+}
+
+fn save_tensor(tensor, filename) {
+    # Save tensor to file  
+    # ❌ File I/O not implemented
+    
+    # This would need file system access and format writing
+    true  # Placeholder success indicator
+}
+
+fn load_numpy(filename) {
+    # Load NumPy array from .npy file
+    # ❌ NumPy integration and file I/O not implemented
+    
+    load_tensor(filename)  # Delegate to load_tensor
+}
+
+fn save_numpy(tensor, filename) {
+    # Save tensor as NumPy .npy file
+    # ❌ NumPy integration and file I/O not implemented
+    
+    save_tensor(tensor, filename)  # Delegate to save_tensor
+}
+
+# ===== NEURAL NETWORK LAYERS =====
+
+fn linear(input, weight, bias) {
+    # Linear/Dense layer: output = input @ weight + bias
+    # input: [batch, in_features]  
+    # weight: [in_features, out_features]
+    # bias: [out_features]
+    
+    # Matrix multiplication
+    let matmul_result[b, o] = sum[i](input[b, i] * weight[i, o])
+    
+    # Add bias (broadcasting)
+    let output[b, o] = matmul_result[b, o] + bias[o];
+    
+    output
+}
+
+fn conv2d(input, weight, bias, stride, padding) {
+    # 2D Convolution layer
+    # input: [batch, in_channels, height, width]
+    # weight: [out_channels, in_channels, kernel_h, kernel_w]
+    # bias: [out_channels]
+    
+    let output[b, oc, oh, ow] = sum[ic, kh, kw](
+        input[b, ic, ih, iw] * weight[oc, ic, kh, kw]
+    ) where ih = oh * stride[0] + kh - padding[0],
+            iw = ow * stride[1] + kw - padding[1];
+    
+    # Add bias (broadcasting across spatial dimensions)
+    let biased[b, oc, oh, ow] = output[b, oc, oh, ow] + bias[oc];
+    
+    biased
+}
+
+fn dropout(input, p, training) {
+    # Dropout regularization
+    # ❌ Random number generation and conditional execution not fully supported
+    
+    let result = if training {
+        # Simplified dropout - mock implementation
+        [input[0] * 0.5, input[1] * 1.5]  # Mock dropout result
+    } else {
+        input  # No dropout during inference
+    };
+    
+    result
+}

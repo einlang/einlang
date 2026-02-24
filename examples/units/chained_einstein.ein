@@ -1,0 +1,3 @@
+let A = [1, 2, 3];
+let B[i] = A[i] * 2;
+let C[i] = B[i] + 1;

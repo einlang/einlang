@@ -1,0 +1,145 @@
+# CORE FEATURE: Boolean Logic and Complex Expressions
+# PURPOSE: Tests complex boolean combinations, logical operators, and truth tables
+# VALUE: Essential for conditional logic and decision-making in programs
+
+# Basic boolean operations
+let bool_true = true;
+let bool_false = false;
+
+# AND operations
+let and_tt = true && true;
+let and_tf = true && false;
+let and_ft = false && true;
+let and_ff = false && false;
+
+assert(and_tt == true, "true && true should be true");
+assert(and_tf == false, "true && false should be false");
+assert(and_ft == false, "false && true should be false");
+assert(and_ff == false, "false && false should be false");
+
+# OR operations  
+let or_tt = true || true;
+let or_tf = true || false;
+let or_ft = false || true;
+let or_ff = false || false;
+
+assert(or_tt == true, "true || true should be true");
+assert(or_tf == true, "true || false should be true");
+assert(or_ft == true, "false || true should be true");
+assert(or_ff == false, "false || false should be false");
+
+# NOT operations
+let not_true = !true;
+let not_false = !false;
+let not_not_true = !!true;
+let not_not_false = !!false;
+
+assert(not_true == false, "!true should be false");
+assert(not_false == true, "!false should be true");
+assert(not_not_true == true, "!!true should be true");
+assert(not_not_false == false, "!!false should be false");
+
+# Complex boolean expressions
+let complex1 = (true && false) || (true && true);
+let complex2 = (false || true) && (false || false);
+let complex3 = !(true && false) && !(false || false);
+
+assert(complex1 == true, "Complex expression 1 should be true");
+assert(complex2 == false, "Complex expression 2 should be false");
+assert(complex3 == true, "Complex expression 3 should be true");
+
+# Boolean expressions with comparisons
+let num1 = 10;
+let num2 = 20;
+let num3 = 10;
+
+let comp_and = (num1 < num2) && (num3 == num1);
+let comp_or = (num1 > num2) || (num3 == num1);
+let comp_not = !(num1 == num2) && (num1 == num3);
+
+assert(comp_and == true, "Comparison AND should be true");
+assert(comp_or == true, "Comparison OR should be true");
+assert(comp_not == true, "Comparison NOT should be true");
+
+# Chained boolean operations
+let chain1 = true && true && true;
+let chain2 = false || false || true;
+let chain3 = true && false && true;
+let chain4 = false || true || false;
+
+assert(chain1 == true, "All true AND chain should be true");
+assert(chain2 == true, "Any true OR chain should be true");
+assert(chain3 == false, "Any false AND chain should be false");
+assert(chain4 == true, "Mixed OR chain should be true");
+
+# Mixed operator precedence
+let precedence1 = true || false && false;  # Should be: true || (false && false) = true;
+let precedence2 = false && true || true;   # Should be: (false && true) || true = true;
+let precedence3 = !false && true || false; # Should be: ((!false) && true) || false = true
+
+assert(precedence1 == true, "OR/AND precedence test 1 should be true");
+assert(precedence2 == true, "AND/OR precedence test 2 should be true");
+assert(precedence3 == true, "NOT/AND/OR precedence test should be true");
+
+# Boolean expressions in conditions
+fn boolean_test(condition) {
+    if (condition && true) {
+        "condition_true"
+    } else {
+        "condition_false"
+    }
+}
+
+let bool_result1 = boolean_test(true);
+let bool_result2 = boolean_test(false);
+
+assert(bool_result1 == "condition_true", "Boolean function with true should work");
+assert(bool_result2 == "condition_false", "Boolean function with false should work");
+
+# Boolean arrays and operations
+let bool_array = [true, false, true, false];
+let bool_indices = [0, 1, 2, 3];
+let bool_checks = [(bool_array[i] && true) | i in bool_indices];
+let or_checks = [(bool_array[i] || false) | i in bool_indices];
+
+assert(bool_checks.length == 4, "Boolean array operations should work");
+assert(bool_checks[0] == true, "First bool check should be true");
+assert(bool_checks[1] == false, "Second bool check should be false");
+assert(or_checks[2] == true, "Third OR check should be true");
+
+# Safe boolean evaluation patterns
+let safe_and = false && (10 > 1);  # Safe evaluation;
+let safe_or = true || (1 > 10);    # Safe evaluation
+
+# These should work with safe expressions
+assert(safe_and == false, "Safe AND should work");
+assert(safe_or == true, "Safe OR should work");
+
+# Complex nested boolean logic
+let nested_bool = ((true && false) || true) && (!(false || false) && true);
+
+assert(nested_bool == true, "Complex nested boolean should evaluate correctly");
+
+# Boolean expressions with variables
+let x = 5;
+let y = 10;
+let z = 5;
+
+let var_bool1 = (x < y) && (x == z) && (y > z);
+let var_bool2 = (x > y) || (x == z) || (y < z);
+let var_bool3 = !(x > y) && !(y < x) && (x == z);
+
+assert(var_bool1 == true, "Variable boolean 1 should be true");
+assert(var_bool2 == true, "Variable boolean 2 should be true");  
+assert(var_bool3 == true, "Variable boolean 3 should be true (!(5>10) && !(10<5) && (5==5))");
+
+print("=== Boolean Logic Tests ===");
+print("Basic operations - AND:", and_tt, "OR:", or_tt, "NOT:", not_true);
+print("Complex expressions:", complex1, complex2, complex3);
+print("Comparison combinations:", comp_and, comp_or, comp_not);
+print("Function results:", bool_result1, bool_result2);
+print("Array operations:", bool_checks, or_checks);
+print("Variable combinations:", var_bool1, var_bool2, var_bool3);
+print("✓ All boolean logic patterns working correctly!");
+
+# All boolean logic patterns verified with assertions

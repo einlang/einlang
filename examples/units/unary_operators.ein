@@ -1,0 +1,48 @@
+# SYNTAX COVERAGE: Unary Operators  
+# PURPOSE: Tests unary operators (+, -, !) - implemented but not thoroughly tested
+# VALUE: Essential for negation, positive marking, and logical not operations
+
+# Unary minus operator
+let x = 5;
+let negative_x = -x;
+assert(negative_x == -5, "Unary minus should negate value");
+
+# Unary plus operator (identity)
+let positive_x = +x;
+assert(positive_x == 5, "Unary plus should preserve value");
+
+# Multiple unary operators
+let double_negative = --x;  # Should be equivalent to +x;
+assert(double_negative == 5, "Double negative should be positive");
+
+# Logical not operator
+let flag = true;
+let not_flag = !flag;
+assert(not_flag == false, "Logical not should invert boolean");
+
+let false_flag = false;
+let not_false = !false_flag;
+assert(not_false == true, "Logical not of false should be true");
+
+# Unary operators with expressions
+let result = -(3 + 2);
+assert(result == -5, "Unary minus with expression should work");
+
+let complex_logic = !(x > 10);
+assert(complex_logic == true, "Logical not with comparison should work");
+
+# Unary operators with variables
+let a = -10;
+let abs_a = -a;  # Should make it positive;
+assert(abs_a == 10, "Negating negative should be positive");
+
+print("Original value:", x);
+print("Negative:", negative_x);
+print("Positive:", positive_x);
+print("Double negative:", double_negative);
+print("Not flag:", not_flag);
+print("Not false:", not_false);
+print("Negative expression:", result);
+print("Complex logic:", complex_logic);
+print("Absolute value:", abs_a);
+print("✓ All unary operator assertions passed!");

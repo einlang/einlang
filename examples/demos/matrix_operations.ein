@@ -1,0 +1,152 @@
+# Matrix Operations in Einlang
+# Comprehensive demonstration of matrix arithmetic and analysis
+
+use std::math::sqrt;
+use std::math::sum;
+use std::ml::shape_ops::shape;
+
+print("=== MATRIX OPERATIONS DEMO ===");
+print();
+
+# Define test matrices (use float literals for math operations)
+let A = [[1.0, 2.0], [3.0, 4.0]];
+let B = [[5.0, 6.0], [7.0, 8.0]];
+let scalar = 2.0;
+
+print("Input matrices:");
+print("A =", A);
+print("B =", B);
+print();
+
+# Basic matrix operations
+let matrix_sum = A + B;
+let element_wise_product = A * B;
+let scalar_product = A * scalar;
+
+print("Basic operations:");
+print("A + B =", matrix_sum);
+print("A * B (element-wise) =", element_wise_product);
+print("A * 2 =", scalar_product);
+
+print();
+
+print("=== MATRIX ANALYSIS ===");
+
+# Matrix properties
+let shape_A = shape(A);
+let elements_count = shape_A[0] * shape_A[1];
+let trace_A = A[0,0] + A[1,1];
+let trace_B = B[0,0] + B[1,1];
+let determinant_A = A[0,0] * A[1,1] - A[0,1] * A[1,0];
+let determinant_B = B[0,0] * B[1,1] - B[0,1] * B[1,0];
+
+print("Matrix properties:");
+print("shape(A) =", shape_A, "(", elements_count, "elements)");
+print("tr(A) =", trace_A, ", tr(B) =", trace_B);
+print("det(A) =", determinant_A, ", det(B) =", determinant_B);
+
+print();
+
+# Matrix norms
+# Mathematical notation: ||A||_F = √(Σᵢⱼ Aᵢⱼ²)
+let frobenius_A = sqrt(sum[i, j](A[i,j] * A[i,j]));
+let frobenius_B = sqrt(sum[i, j](B[i,j] * B[i,j]));
+let frobenius_sum = sqrt(sum[i, j](matrix_sum[i,j] * matrix_sum[i,j]));
+
+print("Frobenius norms:");
+print("||A||_F =", frobenius_A);
+print("||B||_F =", frobenius_B);
+print("||A+B||_F =", frobenius_sum);
+print();
+
+# Statistical measures
+# Mathematical notation: μ = (1/N) Σᵢⱼ Aᵢⱼ, σ² = (1/N) Σᵢⱼ (Aᵢⱼ - μ)²
+let sum_A = sum[i, j](A[i,j]);
+let sum_B = sum[i, j](B[i,j]);
+let count_f32 = 4.0;  # Cast to f32 for division
+let mean_A = sum_A / count_f32;
+let mean_B = sum_B / count_f32;
+# Variance computation: σ² = (1/N) Σᵢⱼ (Aᵢⱼ - μ)²
+let variance_A = sum[i, j]((A[i,j] - mean_A) * (A[i,j] - mean_A)) / count_f32;
+
+print("Statistical measures:");
+print("sum(A) =", sum_A, ", mean(A) =", mean_A);
+print("sum(B) =", sum_B, ", mean(B) =", mean_B);
+print("var(A) =", variance_A, ", std(A) =", sqrt(variance_A));
+
+print();
+
+print("=== ELEMENT-WISE FUNCTIONS ===");
+
+# Matrix power and comparisons
+let matrix_squared[i,j] = A[i,j] * A[i,j];
+let comparison_result[i,j] = A[i,j] > B[i,j];
+print("Element-wise operations:");
+print("A² (element-wise) =", matrix_squared);
+print("A > B (1=true, 0=false) =", comparison_result);
+print();
+
+# Mathematical functions
+let sigmoid_A[i,j] = 1.0 / (1.0 + A[i,j]);
+print("Mathematical functions:");
+print("sigmoid(A) ≈", sigmoid_A);
+print();
+
+# =============================================================================
+# MATRIX MULTIPLICATION (from matrix_multiply.ein)
+# =============================================================================
+
+print("=== MATRIX MULTIPLICATION ===");
+
+# Define matrix multiplication function
+fn matmul(a, b) {
+    let output[i,j] = sum[k](a[i,k] * b[k,j]);
+    output
+}
+
+# Matrix multiplication using Einstein notation
+let result[i,j] = sum[k](A[i,k] * B[k,j]);
+print("A @ B (matrix multiplication):", result);
+
+# Vector operations
+let vec_a = [1, 2, 3] as [f32];
+let vec_b = [4, 5, 6] as [f32];
+let dot_product = sum[i](vec_a[i] * vec_b[i]);
+
+print("Vector A:", vec_a);
+print("Vector B:", vec_b);
+print("A · B (dot product):", dot_product);
+
+# Matrix-vector multiplication
+let matrix_2x3 = [[1, 2, 3], [4, 5, 6]] as [f32];  
+let vector_3x1 = [1, 2, 3] as [f32];
+let matrix_vector_result[i] = sum[j](matrix_2x3[i,j] * vector_3x1[j]);
+
+print("Matrix 2x3:", matrix_2x3);
+print("Vector 3x1:", vector_3x1);
+print("Matrix × Vector result:", matrix_vector_result);
+
+# 3x3 matrix operations  
+let matrix_3x3_a = [[1, 2, 3], [4, 5, 6], [7, 8, 9]] as [f32];
+let matrix_3x3_b = [[9, 8, 7], [6, 5, 4], [3, 2, 1]] as [f32];
+let result_3x3[i,j] = sum[k](matrix_3x3_a[i,k] * matrix_3x3_b[k,j]);
+
+print("3x3 Matrix A:", matrix_3x3_a);
+print("3x3 Matrix B:", matrix_3x3_b);
+print("3x3 multiplication:", result_3x3);
+
+# Advanced matrix operations
+let identity_trace = matrix_3x3_a[0,0] + matrix_3x3_a[1,1] + matrix_3x3_a[2,2];
+let matrix_sum_elements = sum[i](sum[j](matrix_3x3_a[i,j]));
+
+print("Trace of 3x3 matrix A:", identity_trace);
+print("Sum of all elements in 3x3 A:", matrix_sum_elements);
+
+# Enhanced statistical operations
+let matrix_mean_3x3 = matrix_sum_elements / 9.0;
+let matrix_variance_3x3 = sum[i](sum[j]((matrix_3x3_a[i,j] - matrix_mean_3x3) * (matrix_3x3_a[i,j] - matrix_mean_3x3))) / 9.0;
+
+print("Mean of 3x3 matrix elements:", matrix_mean_3x3);
+print("Variance of 3x3 matrix elements:", matrix_variance_3x3);
+
+print("=== MATRIX OPERATIONS COMPLETE ===");

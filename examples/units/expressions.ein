@@ -1,0 +1,104 @@
+# CORE FEATURE: Expression Evaluation
+# PURPOSE: Tests expression patterns, operator precedence, and complex evaluations
+# VALUE: Comprehensive coverage of expression evaluation capabilities
+
+# Basic arithmetic operations
+let add_result = 10 + 5;
+let sub_result = 20 - 8;
+let mul_result = 6 * 7;
+let div_result = 24 / 6;
+let mod_result = 17 % 5;
+
+assert(add_result == 15, "Addition should work correctly");
+assert(sub_result == 12, "Subtraction should work correctly");
+assert(mul_result == 42, "Multiplication should work correctly");
+assert(div_result == 4, "Division should work correctly");
+assert(mod_result == 2, "Modulo should work correctly");
+
+# Operator precedence
+let precedence1 = 2 + 3 * 4;        # Should be 14 (not 20);
+let precedence2 = (2 + 3) * 4;      # Should be 20;
+let precedence3 = 2 * 3 + 4 * 5;    # Should be 26;
+let precedence4 = 2 + 3 * 4 - 5;    # Should be 9
+
+assert(precedence1 == 14, "Multiplication should have higher precedence than addition");
+assert(precedence2 == 20, "Parentheses should override precedence");
+assert(precedence3 == 26, "Left-to-right evaluation with same precedence");
+assert(precedence4 == 9, "Mixed operations should follow precedence rules");
+
+# Power operator precedence
+let power1 = 2 ** 3 ** 2;    # Should be 2^(3^2) = 2^9 = 512;
+let power2 = (2 ** 3) ** 2;  # Should be (2^3)^2 = 8^2 = 64;
+let power3 = 2 * 3 ** 2;     # Should be 2 * (3^2) = 2 * 9 = 18
+
+assert(power1 == 512, "Power operator should be right-associative");
+assert(power2 == 64, "Parentheses should override power associativity");
+assert(power3 == 18, "Power should have higher precedence than multiplication");
+
+# Parenthesized expressions
+let paren1 = (((5 + 3) * 2) - 1);
+let paren2 = ((10 / 2) + (3 * 4)) - ((8 - 3) * 2);
+let paren3 = (2 ** (3 + 1)) / (4 ** 2);
+
+assert(paren1 == 15, "Nested parentheses should work correctly");
+assert(paren2 == 7, "Complex parenthesized expression should evaluate correctly");
+assert(paren3 == 1, "Power operations in parentheses should work");
+
+# Unary operators
+let unary_minus = -5;
+let unary_plus = +7;
+let double_negative = -(-3);
+let unary_in_expr = 10 + (-5);
+
+assert(unary_minus == -5, "Unary minus should work");
+assert(unary_plus == 7, "Unary plus should work");
+assert(double_negative == 3, "Double negative should work");
+assert(unary_in_expr == 5, "Unary operators in expressions should work");
+
+# Boolean expressions
+let bool_and = true && false;
+let bool_or = true || false;
+let bool_not = !true;
+let bool_complex = (true && false) || (false || true);
+
+assert(bool_and == false, "Boolean AND should work correctly");
+assert(bool_or == true, "Boolean OR should work correctly");
+assert(bool_not == false, "Boolean NOT should work correctly");
+assert(bool_complex == true, "Complex boolean expressions should work");
+
+# Comparison operations
+let comp_eq = 5 == 5;
+let comp_ne = 5 != 3;
+let comp_lt = 3 < 5;
+let comp_gt = 7 > 4;
+let comp_le = 5 <= 5;
+let comp_ge = 6 >= 6;
+
+assert(comp_eq == true, "Equality comparison should work");
+assert(comp_ne == true, "Inequality comparison should work");
+assert(comp_lt == true, "Less than comparison should work");
+assert(comp_gt == true, "Greater than comparison should work");
+assert(comp_le == true, "Less than or equal comparison should work");
+assert(comp_ge == true, "Greater than or equal comparison should work");
+
+# Type-safe expressions (Rust-aligned: no implicit mixed types)
+let mixed1 = 5.0 + 3.5;
+let mixed2 = 10.0 - 3.0;
+let mixed3 = 2.5 * 4.0;
+let mixed4 = 15.0 / 3.0;
+
+assert(mixed1 == 8.5, "Float + float should work");
+assert(mixed2 == 7.0, "Float - float should work");
+assert(mixed3 == 10.0, "Float * float should work");
+assert(mixed4 == 5.0, "Float / float should work");
+
+# Complex nested expressions
+let complex1 = ((2.0 + 3.0) * (4.0 - 1.0)) / ((6.0 / 2.0) + 1.0);
+let complex2 = (2 ** 3) + (3 ** 2) - (4 ** 1);
+let complex3 = (10 % 3) * (8 % 5) + (15 % 4);
+
+assert(complex1 == 3.75, "Complex nested arithmetic should work");
+assert(complex2 == 13, "Complex power expressions should work");
+assert(complex3 == 6, "Complex modulo expressions should work");
+
+# All expression patterns tested successfully

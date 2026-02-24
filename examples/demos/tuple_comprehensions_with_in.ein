@@ -1,0 +1,106 @@
+# Tuple Comprehensions with 'in' Operator in Einlang
+# Demonstrates creating pairs, triples, and filtered combinations
+
+print("=== Tuple Comprehensions with In Operator ===");
+print();
+
+# =====================================================
+# Basic tuple pairs
+# =====================================================
+print("=== Basic Tuple Pairs ===");
+
+# Simple pairs from two ranges
+let basic_pairs = [(i, j) | i in 1..4, j in 5..8];
+print("Basic pairs (1-3) × (5-7):", basic_pairs);
+
+# Pairs with one element from an array
+let letters = [10, 20, 30];
+let mixed_pairs = [(num, arr_val) | num in 1..4, arr_val in letters];
+print("Numbers (1-3) × Array [10,20,30]:", mixed_pairs);
+
+print();
+
+# =====================================================
+# Filtered tuple pairs
+# =====================================================
+print("=== Filtered Pairs ===");
+
+# Pairs where sum is even
+let even_sum_pairs = [(i, j) | i in 1..5, j in 1..5, (i + j) % 2 == 0];
+print("Pairs where sum is even:", even_sum_pairs);
+
+# Pairs where first element is smaller
+let ordered_pairs = [(i, j) | i in 1..6, j in 1..6, i < j];
+print("Ordered pairs (i < j):", ordered_pairs);
+
+# Pairs excluding certain values
+let excluded = [2, 4];
+let filtered_pairs = [(i, j) | i in 1..5, j in 6..9, !(i in excluded)];
+print("Pairs excluding i ∈ [2,4]:", filtered_pairs);
+
+print();
+
+# =====================================================
+# Triple combinations
+# =====================================================
+print("=== Triple Combinations ===");
+
+# Simple triples
+let triples = [(i, j, k) | i in 1..3, j in 4..6, k in 7..9];
+print("Triples (1-2)×(4-5)×(7-8):", triples);
+
+# Filtered triples (Pythagorean-like condition)
+let small_triples = [(a, b, c) | a in 1..4, b in 1..4, c in 1..4, a + b > c];
+print("Triples where a+b>c:", small_triples);
+
+print();
+
+# =====================================================
+# Coordinate pairs for grids
+# =====================================================
+print("=== Grid Coordinates ===");
+
+# 3x3 grid coordinates
+let grid_coords = [(row, col) | row in 0..3, col in 0..3];
+print("3×3 grid coordinates:", grid_coords);
+
+# Chess-like coordinates (filtered)
+let valid_moves = [(x, y) | x in 0..8, y in 0..8, x + y <= 5];
+print("Valid positions where x+y≤5:", valid_moves);
+
+print();
+
+# =====================================================
+# Set operations with tuples
+# =====================================================
+print("=== Set Operations ===");
+
+# Pairs from intersecting sets
+let set_a = [1, 2, 3, 4];
+let set_b = [3, 4, 5, 6];
+let intersection_pairs = [(i, j) | i in set_a, j in set_b, i == j];
+print("Self-pairs from intersection:", intersection_pairs);
+
+# Cross product of different sets
+let colors = [1, 2];  # Representing Red=1, Blue=2;
+let sizes = [10, 20]; # Representing Small=10, Large=20;
+let product_combinations = [(color, size) | color in colors, size in sizes];
+print("Color×Size combinations:", product_combinations);
+
+print();
+
+# =====================================================
+# Matrix-like index pairs
+# =====================================================
+print("=== Matrix Indices ===");
+
+# Upper triangular indices
+let upper_triangular = [(i, j) | i in 0..4, j in 0..4, i <= j];
+print("Upper triangular indices (4×4):", upper_triangular);
+
+# Diagonal and near-diagonal elements
+let near_diagonal = [(i, j) | i in 0..4, j in 0..4, (i - j) * (i - j) <= 1];
+print("Near-diagonal indices (|i-j|≤1):", near_diagonal);
+
+print();
+print("=== Tuple Comprehensions Demo Complete ===");

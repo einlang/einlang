@@ -1,0 +1,121 @@
+# Shape Inference Advanced Cases
+# Demonstrates compile-time shape inference for high-rank tensors, array access, and conditional branches
+
+print("=== SHAPE INFERENCE ADVANCED CASES ===");
+print("Compile-time shape safety for tensor operations");
+print();
+
+# =============================================================================
+# HIGH-RANK TENSOR SHAPE INFERENCE
+# =============================================================================
+
+print("=== HIGH-RANK TENSOR SHAPE INFERENCE ===");
+
+# 3D tensor (rank 3) - shape automatically inferred as [2, 2, 2]
+let tensor3d = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+print("3D tensor shape: [2, 2, 2] (batch, height, width)");
+print("Tensor:", tensor3d);
+print();
+
+# 4D tensor (rank 4) - shape automatically inferred as [2, 2, 2, 2]
+let tensor4d = [[[[1, 2], [3, 4]], [[5, 6], [7, 8]]], [[[9, 10], [11, 12]], [[13, 14], [15, 16]]]];
+print("4D tensor shape: [2, 2, 2, 2] (batch, channels, height, width)");
+print("First batch, first channel:", tensor4d[0, 0]);
+print();
+
+# 5D tensor (rank 5) - shape automatically inferred as [2, 2, 2, 2, 2]
+let tensor5d = [
+    [[[[1, 2], [3, 4]], [[5, 6], [7, 8]]], [[[9, 10], [11, 12]], [[13, 14], [15, 16]]]],
+    [[[[2, 3], [4, 5]], [[6, 7], [8, 9]]], [[[10, 11], [12, 13]], [[14, 15], [16, 17]]]]
+];
+print("5D tensor shape: [2, 2, 2, 2, 2] (batch, channels, time, height, width)");
+print("First batch, first channel, first frame:", tensor5d[0, 0, 0]);
+print();
+
+# =============================================================================
+# ARRAY ACCESS RESULT SHAPES
+# =============================================================================
+
+print("=== ARRAY ACCESS RESULT SHAPES ===");
+
+# Matrix: shape [5, 3]
+let matrix = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9],
+    [10, 11, 12],
+    [13, 14, 15]
+];
+
+# Accessing a row: A[0] has shape [3]
+let first_row = matrix[0];
+print("Matrix shape: [5, 3]");
+print("matrix[0] shape: [3] (row access)");
+print("First row:", first_row);
+print();
+
+# Accessing an element: A[0, 1] has scalar shape
+let element = matrix[0, 1];
+print("matrix[0, 1] shape: scalar (element access)");
+print("Element at [0, 1]:", element);
+print();
+
+# 3D tensor access
+let tensor_3d = [[[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]]];  # Shape: [2, 2, 3]
+let slice_2d = tensor_3d[0];  # Shape: [2, 3] (first dimension removed)
+let row_1d = tensor_3d[0, 1];  # Shape: [3] (first two dimensions removed)
+let scalar = tensor_3d[0, 1, 2];  # Shape: scalar (all dimensions removed)
+
+print("3D tensor shape: [2, 2, 3]");
+print("tensor_3d[0] shape: [2, 3] (2D slice)");
+print("tensor_3d[0, 1] shape: [3] (1D row)");
+print("tensor_3d[0, 1, 2] shape: scalar (element)");
+print("Slice:", slice_2d);
+print("Row:", row_1d);
+print("Element:", scalar);
+print();
+
+# =============================================================================
+# IF-EXPRESSION BRANCH UNIFICATION
+# =============================================================================
+
+print("=== IF-EXPRESSION BRANCH UNIFICATION ===");
+
+# Compatible shapes: both branches return [2, 2]
+let compatible_result = if true {
+    [[1, 2], [3, 4]]  # Shape: [2, 2]
+} else {
+    [[5, 6], [7, 8]]  # Shape: [2, 2] - COMPATIBLE
+};
+print("Compatible branches (both [2, 2]):");
+print("Result:", compatible_result);
+print();
+
+# Compatible scalar branches
+let scalar_result = if true {
+    42  # Scalar
+} else {
+    100  # Scalar - COMPATIBLE
+};
+print("Compatible scalar branches:");
+print("Result:", scalar_result);
+print();
+
+# Note: Dynamic shapes with incompatible branch shapes
+# Currently, this would error, but the design should support inferring jagged types:
+# let dynamic_shape = if true {
+#     [[1, 2], [3, 4]]  # Shape: [2, 2] - rectangular
+# } else {
+#     [[5, 6]]          # Shape: [1, 2] - different shape
+# };
+# Future: Should infer jagged[i32; 2d] to support variable-length structures
+# This would allow runtime flexibility while maintaining type safety
+
+print("=== SHAPE INFERENCE FEATURES ===");
+print("✓ High-rank tensor shape inference (3D, 4D, 5D+)");
+print("✓ Array access result shape calculation");
+print("✓ If-expression branch shape compatibility checking");
+print("✓ Compile-time shape error detection");
+print();
+print("=== SHAPE INFERENCE ADVANCED CASES COMPLETE ===");
+

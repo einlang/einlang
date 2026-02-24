@@ -1,0 +1,14 @@
+# Math utilities module for rust_syntax_demo
+# Provides basic mathematical functions
+
+pub fn add(a, b) {
+    a + b
+}
+
+pub fn multiply(a, b) {
+    a * b
+}
+
+pub fn square(x) {
+    x * x
+}

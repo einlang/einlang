@@ -1,0 +1,44 @@
+# CORE FEATURE: Tuple Syntax
+# PURPOSE: Tests tuple syntax parsing that was previously problematic
+# VALUE: Ensures proper tuple creation and parsing in comprehensions
+
+# Basic tuple-like array structures (Einlang treats tuples as arrays)
+let coords = [1, 2];
+let point = [5, 10];
+let triple = [100, 200, 300];
+
+# Tuple with variables
+let x = 7;
+let y = 14;
+let var_point = [x, y];
+
+# Verify basic array/tuple structure
+assert(coords.length == 2, "Coords should have 2 elements");
+assert(point.length == 2, "Point should have 2 elements");
+assert(triple.length == 3, "Triple should have 3 elements");
+assert(var_point.length == 2, "Variable point should have 2 elements");
+
+# Test specific values
+assert(coords[0] == 1, "First coordinate should be 1");
+assert(coords[1] == 2, "Second coordinate should be 2");
+assert(point[0] == 5, "Point x should be 5");
+assert(point[1] == 10, "Point y should be 10");
+
+# Tuples in comprehensions (this is the main syntax being tested)
+let coord_pairs = [(i, i * 2) | i in 1..4];
+assert(coord_pairs.length == 3, "Should have 3 coordinate pairs");
+
+# Multi-dimensional coordinate tuples in comprehensions
+let matrix_coords = [(i, j) | i in 0..3, j in 0..3];
+assert(matrix_coords.length == 9, "Should have 9 coordinate pairs (3x3)");
+
+# Filtered tuple comprehensions
+let filtered_coords = [(i, j) | i in 0..4, j in 0..4, i < j];
+assert(filtered_coords.length >= 6, "Should have filtered coordinate pairs");
+
+print("Basic arrays (tuple-like):", coords, point, triple);
+print("Variable point:", var_point);
+print("Coordinate pairs length:", coord_pairs.length);
+print("Matrix coordinates length:", matrix_coords.length);
+print("Filtered coordinates length:", filtered_coords.length);
+print("✓ All tuple syntax tests passed!");

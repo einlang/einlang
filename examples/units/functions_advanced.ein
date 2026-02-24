@@ -1,0 +1,153 @@
+# CORE FEATURE: Advanced Function Patterns
+# PURPOSE: Comprehensive function testing including edge cases and complex scenarios
+# VALUE: Ensures robust function handling and parameter passing
+
+# Basic function definitions
+fn double(n) {
+    n * 2
+}
+
+fn add_three(a, b, c) {
+    a + b + c
+}
+
+let x = 7;
+let doubled = double(x);
+let sum = add_three(1, 2, 3);
+
+assert(doubled == 14, "double(7) should be 14");
+assert(sum == 6, "add_three(1, 2, 3) should be 6");
+assert(double(5) == 10, "double(5) should be 10");
+assert(add_three(0, 0, 1) == 1, "add_three(0, 0, 1) should be 1");
+
+# Functions with conditional logic
+fn max_of_two(a, b) {
+    if (a > b) {
+        a
+    } else {
+        b
+    }
+}
+
+fn abs_value(x) {
+    if (x < 0) {
+        -x
+    } else {
+        x
+    }
+}
+
+assert(max_of_two(5, 3) == 5, "max_of_two(5, 3) should be 5");
+assert(max_of_two(2, 8) == 8, "max_of_two(2, 8) should be 8");
+assert(abs_value(-5) == 5, "abs_value(-5) should be 5");
+assert(abs_value(3) == 3, "abs_value(3) should be 3");
+
+# Functions with array parameters
+fn sum_array(arr) {
+    arr[0] + arr[1] + arr[2]
+}
+
+fn get_first(arr) {
+    arr[0]
+}
+
+let test_array = [10, 20, 30];
+let array_sum = sum_array(test_array);
+let first_elem = get_first(test_array);
+
+assert(array_sum == 60, "sum_array([10, 20, 30]) should be 60");
+assert(first_elem == 10, "get_first([10, 20, 30]) should be 10");
+
+# Functions with multiple paths
+fn classify_number(n) {
+    if (n > 0) {
+        "positive"
+    } else {
+        if (n < 0) {
+            "negative"
+        } else {
+            "zero"
+        }
+    }
+}
+
+assert(classify_number(5) == "positive", "5 should be classified as positive");
+assert(classify_number(-3) == "negative", "-3 should be classified as negative");
+assert(classify_number(0) == "zero", "0 should be classified as zero");
+
+# Functions calling other functions
+fn square(n) {
+    n * n
+}
+
+fn sum_of_squares(a, b) {
+    square(a) + square(b)
+}
+
+assert(square(4) == 16, "square(4) should be 16");
+assert(sum_of_squares(3, 4) == 25, "sum_of_squares(3, 4) should be 25");
+
+# Functions with complex expressions
+fn complex_calc(x, y) {
+    (x + y) * (x - y) + x * y
+}
+
+let complex_result = complex_calc(5, 3);
+# (5+3) * (5-3) + 5*3 = 8 * 2 + 15 = 16 + 15 = 31
+
+assert(complex_result == 31, "complex_calc(5, 3) should be 31");
+
+# Functions with boolean logic
+fn is_even(n) {
+    n % 2 == 0
+}
+
+fn logical_and_func(a, b) {
+    a && b
+}
+
+assert(is_even(4) == true, "4 should be even");
+assert(is_even(5) == false, "5 should not be even");
+assert(logical_and_func(true, true) == true, "true && true should be true");
+assert(logical_and_func(true, false) == false, "true && false should be false");
+
+# Functions with string parameters
+fn string_length_check(str) {
+    str.length > 5
+}
+
+fn concat_strings(a, b) {
+    # Note: String concatenation may not be implemented, testing length
+    a.length + b.length
+}
+
+assert(string_length_check("hello world") == true, "Long string should pass length check");
+assert(string_length_check("hi") == false, "Short string should fail length check");
+assert(concat_strings("abc", "def") == 6, "Combined length should be 6");
+
+# Edge case: Function with zero parameters
+fn get_constant() {
+    42
+}
+
+assert(get_constant() == 42, "Constant function should 42");
+
+# Edge case: Function with single parameter
+fn identity(x) {
+    x
+}
+
+assert(identity(100) == 100, "Identity function should input");
+assert(identity("test") == "test", "Identity should work with strings");
+
+# Functions used in expressions
+fn increment(n) {
+    n + 1
+}
+
+let expr_result = increment(5) * 2 + increment(3);
+# increment(5) * 2 + increment(3) = 6 * 2 + 4 = 12 + 4 = 16
+
+assert(expr_result == 16, "Function calls in expressions should work");
+
+# All advanced function patterns tested successfully

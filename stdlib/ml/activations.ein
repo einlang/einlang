@@ -1,0 +1,250 @@
+# ml/activations.ein - Activations functions
+
+use std::math::{exp, ln, sqrt, tanh, abs, sign, min, max};
+
+pub fn relu(x) {
+    # ReLU(x) = max(0, x)
+    # Works on scalars and tensors (auto-broadcast)
+    # Element-wise: treat as scalar, auto-broadcast handles it
+    if x > 0.0 { x } else { 0.0 }
+}
+
+
+pub fn sigmoid(x) {
+    # σ(x) = 1 / (1 + exp(-x))
+    # Works on scalars and tensors (auto-broadcast)
+    1.0 / (1.0 + exp(-x))
+}
+
+
+pub fn softmax(x) {
+    # softmax(x_i) = exp(x_i - max(x)) / Σ_j exp(x_j - max(x))
+    # Generic: works with arbitrary batch dimensions (operators work directly on tensors)
+    # Input shape: [..batch, features], Output shape: [..batch, features]
+    # Using rest patterns in reduction outputs to support arbitrary batch dimensions
+    let max_val[..batch] = max[j](x[..batch, j]);
+    let shifted[..batch, j] = x[..batch, j] - max_val[..batch];
+    let exp_vals[..batch, j] = exp(shifted[..batch, j]);
+    let sums[..batch] = sum[k](exp_vals[..batch, k]);
+    let output[..batch, j] = exp_vals[..batch, j] / sums[..batch];
+    output
+}
+
+
+
+pub fn log_softmax(x) {
+    # Log Softmax: numerically stable log(softmax(x))
+    # log_softmax(x_i) = x_i - log(Σ_j exp(x_j))
+    # Generic: works with arbitrary batch dimensions
+    # Input shape: [..batch, features], Output shape: [..batch, features]
+    let max_val[..batch] = max[j](x[..batch, j]);
+    let shifted[..batch, j] = x[..batch, j] - max_val[..batch];
+    let exp_vals[..batch, j] = exp(shifted[..batch, j]);
+    let sum_exp[..batch] = sum[k](exp_vals[..batch, k]);
+    let log_sum[..batch] = ln(sum_exp[..batch]) + max_val[..batch];
+    let output[..batch, j] = x[..batch, j] - log_sum[..batch];
+    output
+}
+
+
+pub fn leaky_relu(x, alpha) {
+    # Leaky ReLU: LReLU(x) = max(αx, x) = x if x > 0 else αx
+    # Works on scalars and tensors (auto-broadcast)
+    # Element-wise: treat as scalar, auto-broadcast handles it
+    if x > 0 { x } else { alpha * x }
+}
+
+
+pub fn elu(x, alpha) {
+    # ELU: ELU(x) = x if x > 0 else α * (exp(x) - 1)
+    # Works on scalars and tensors (auto-broadcast)
+    # Element-wise: treat as scalar, auto-broadcast handles it
+    if x > 0 { x } else { alpha * (exp(x) - 1.0) }
+}
+
+
+pub fn gelu(x) {
+    # GELU: GELU(x) = x * Φ(x) where Φ is CDF of standard normal
+    # Approximation: GELU(x) ≈ 0.5 * x * (1 + tanh(√(2/π) * (x + 0.044715 * x³)))
+    # Works on scalars and tensors (auto-broadcast)
+    let sqrt_2_over_pi = 0.7978845608028654;  # sqrt(2/π)
+    let coeff = 0.044715;
+    let inner = sqrt_2_over_pi * (x + coeff * x ** 3.0);
+    0.5 * x * (1.0 + tanh(inner))
+}
+
+
+pub fn swish(x) {
+    # Swish: Swish(x) = x * sigmoid(x)
+    # Works on scalars and tensors (auto-broadcast)
+    x * sigmoid(x)
+}
+
+
+pub fn selu(x) {
+    # SELU (Scaled Exponential Linear Unit): self-normalizing activation
+    # SELU(x) = λ * (x if x > 0 else α * (exp(x) - 1))
+    # λ ≈ 1.0507, α ≈ 1.67326
+    # Works on scalars and tensors (auto-broadcast)
+    let lambda = 1.0507009873554804934193349852946;
+    let alpha = 1.6732632423543772848170429916717;
+    if x > 0 { 
+        lambda * x 
+    } else { 
+        lambda * alpha * (exp(x) - 1.0) 
+    }
+}
+
+
+pub fn softplus(x) {
+    # Softplus: smooth approximation of ReLU
+    # softplus(x) = ln(1 + exp(x))
+    # Numerically stable: use x for large x
+    # Works on scalars and tensors (auto-broadcast)
+    if x > 20.0 {
+        x
+    } else {
+        ln(1.0 + exp(x))
+    }
+}
+
+
+pub fn hardtanh(x, min_val, max_val) {
+    # Hard Tanh: bounded linear activation
+    # hardtanh(x) = max(min_val, min(max_val, x))
+    # Works on scalars and tensors (auto-broadcast)
+    if x < min_val {
+        min_val
+    } else if x > max_val {
+        max_val
+    } else {
+        x
+    }
+}
+
+
+pub fn relu6(x) {
+    # ReLU6: ReLU capped at 6 (used in MobileNets)
+    # ReLU6(x) = min(max(0, x), 6)
+    # Works on scalars and tensors (operators work directly on both)
+    if x <= 0.0 {
+        0.0
+    } else if x >= 6.0 {
+        6.0
+    } else {
+        x
+    }
+}
+
+
+pub fn prelu(x, alpha) {
+    # Parametric ReLU: x if x > 0 else alpha * x
+    # Works on scalars and tensors (operators work directly on both)
+    if x > 0.0 { x } else { alpha * x }
+}
+
+
+pub fn elu_alpha(x, alpha) {
+    # ELU with custom alpha: x if x > 0 else alpha * (exp(x) - 1)
+    # Works on scalars and tensors (operators work directly on both)
+    if x > 0.0 { x } else { alpha * (exp(x) - 1.0) }
+}
+
+
+pub fn celu(x, alpha) {
+    # CELU (Continuously Differentiable ELU)
+    # celu(x) = max(0, x) + min(0, alpha * (exp(x/alpha) - 1))
+    # Works on scalars and tensors (operators work directly on both)
+    if x > 0.0 {
+        x
+    } else {
+        alpha * (exp(x / alpha) - 1.0)
+    }
+}
+
+
+pub fn gelu_tanh(x) {
+    # GELU approximation using tanh (ONNX Gelu, fast variant)
+    # gelu(x) ≈ 0.5 * x * (1 + tanh(√(2/π) * (x + 0.044715 * x³)))
+    let x3 = x * x * x;
+    let inner = 0.7978845608028654 * (x + 0.044715 * x3);  # √(2/π) ≈ 0.7978845608
+    0.5 * x * (1.0 + tanh(inner))
+}
+
+
+pub fn softsign(x) {
+    # Softsign: x / (1 + |x|)
+    x / (1.0 + abs(x))
+}
+
+
+pub fn tanhshrink(x) {
+    # Tanhshrink: x - tanh(x)
+    x - tanh(x)
+}
+
+
+pub fn softshrink(x, lambda) {
+    # Softshrink: x - lambda if x > lambda, x + lambda if x < -lambda, else 0
+    # Works on scalars and tensors (operators work directly on both)
+    if x > lambda {
+        x - lambda
+    } else if x < -lambda {
+        x + lambda
+    } else {
+        0.0
+    }
+}
+
+
+pub fn hardshrink(x, lambda) {
+    # Hardshrink: x if |x| > lambda else 0
+    # Works on scalars and tensors (operators work directly on both)
+    let abs_x = if x < 0.0 { -x } else { x };
+    if abs_x > lambda { x } else { 0.0 }
+}
+
+
+pub fn threshold(x, threshold_val, value) {
+    # Threshold: value if x <= threshold else x
+    # Works on scalars and tensors (operators work directly on both)
+    if x <= threshold_val { value } else { x }
+}
+
+
+
+pub fn hardswish(x) {
+    # Hard Swish: x * relu6(x + 3) / 6
+    # Used in MobileNetV3
+    x * relu6(x + 3.0) / 6.0
+}
+
+
+pub fn thresholded_relu(x, alpha) {
+    # Thresholded ReLU: x if x > alpha else 0
+    # Used in some neural architectures with custom thresholds
+    # Element-wise: treat as scalar, auto-broadcast handles it
+    if x > alpha { x } else { 0.0 }
+}
+
+
+pub fn hardsigmoid(x) {
+    # Hard Sigmoid: relu6(x + 3) / 6
+    # Piecewise linear approximation of sigmoid
+    # Works on scalars and tensors (operators work directly on both)
+    let shifted = x + 3.0;
+    let clamped = if shifted < 0.0 { 0.0 } else if shifted > 6.0 { 6.0 } else { shifted };
+    clamped / 6.0
+}
+
+
+pub fn mish(x) {
+    # Mish activation: x * tanh(softplus(x))
+    # where softplus(x) = ln(1 + exp(x))
+    # Works on scalars and tensors (operators work directly on both)
+    let sp = softplus(x);
+    x * tanh(sp)
+}
+
+
+

@@ -1,0 +1,98 @@
+# CORE FEATURE: Advanced Indexing Patterns
+# PURPOSE: Tests complex array and tensor indexing scenarios beyond basic access
+# VALUE: Essential for multi-dimensional data access and tensor manipulation
+
+# Multi-dimensional indexing patterns
+let matrix = [[10, 20, 30], [40, 50, 60], [70, 80, 90]];
+let tensor3d = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+
+# Basic multi-dimensional access
+let matrix_element = matrix[1, 2];  # Second row, third column;
+let tensor_element = tensor3d[0, 1, 1];  # First layer, second row, second column
+
+assert(matrix_element == 60, "Matrix[1,2] should be 60");
+assert(tensor_element == 4, "Tensor3d[0,1,1] should be 4");
+
+# Sequential indexing patterns
+let row = matrix[0];  # Get entire first row;
+let first_in_row = row[0];  # Get first element of that row;
+let chained_access = matrix[0][1];  # Chain indexing
+
+assert(row[0] == 10, "First row first element should be 10");
+assert(row[2] == 30, "First row third element should be 30");
+assert(first_in_row == 10, "Sequential access should work");
+assert(chained_access == 20, "Chained access should work");
+
+# Dynamic indexing with variables
+let row_idx = 1;
+let col_idx = 0;
+let dynamic_access = matrix[row_idx, col_idx];
+let computed_idx = row_idx + 1;
+let computed_access = matrix[computed_idx, col_idx];
+
+assert(dynamic_access == 40, "Dynamic indexing should work");
+assert(computed_access == 70, "Computed index access should work");
+
+# Indexing with expressions
+let expr_row = 2 - 1;  # Should be 1;
+let expr_col = 1 + 1;  # Should be 2;
+let expr_access = matrix[expr_row, expr_col];
+
+assert(expr_access == 60, "Expression-based indexing should work");
+
+# Complex nested structure indexing
+let nested_data = [
+    [[100, 200], [300, 400]],
+    [[500, 600], [700, 800]]
+];
+
+let deep_access1 = nested_data[0, 0, 1];  # First layer, first row, second element;
+let deep_access2 = nested_data[1, 1, 0];  # Second layer, second row, first element
+
+assert(deep_access1 == 200, "Deep nested access should work");
+assert(deep_access2 == 700, "Complex deep access should work");
+
+# Indexing with computed coordinates
+let coords = [[0, 1], [1, 0], [1, 2]];
+let indexed_values = [matrix[coords[i,0], coords[i,1]] | i in 0..3];
+
+assert(indexed_values.length == 3, "Coordinate-based indexing should work");
+assert(indexed_values[0] == 20, "First coordinate value should be 20");
+assert(indexed_values[1] == 40, "Second coordinate value should be 40");
+assert(indexed_values[2] == 60, "Third coordinate value should be 60");
+
+# Edge case indexing
+let single_element = [[42]];
+let single_access = single_element[0, 0];
+let single_row_access = single_element[0];
+
+assert(single_access == 42, "Single element indexing should work");
+assert(single_row_access[0] == 42, "Single row access should work");
+
+# Boundary indexing tests
+let small_matrix = [[1, 2], [3, 4]];
+let corner1 = small_matrix[0, 0];  # Top-left;
+let corner2 = small_matrix[0, 1];  # Top-right  ;
+let corner3 = small_matrix[1, 0];  # Bottom-left;
+let corner4 = small_matrix[1, 1];  # Bottom-right
+
+assert(corner1 == 1, "Top-left corner should be 1");
+assert(corner2 == 2, "Top-right corner should be 2");
+assert(corner3 == 3, "Bottom-left corner should be 3");
+assert(corner4 == 4, "Bottom-right corner should be 4");
+
+# Indexing with comprehensions (simplified)
+let diagonal_values = [matrix[i, i] | i in 0..3];
+
+assert(diagonal_values.length == 3, "Diagonal indexing should work");
+assert(diagonal_values[0] == 10, "First diagonal element should be 10");
+assert(diagonal_values[2] == 90, "Third diagonal element should be 90");
+
+print("=== Advanced Indexing Tests ===");
+print("Matrix element [1,2]:", matrix_element);
+print("3D tensor element [0,1,1]:", tensor_element);
+print("Dynamic access [row_idx, col_idx]:", dynamic_access);
+print("Computed access:", computed_access);
+print("Coordinate-based values:", indexed_values);
+print("Diagonal values:", diagonal_values);
+print("✓ All advanced indexing patterns working correctly!");

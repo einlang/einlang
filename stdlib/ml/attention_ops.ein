@@ -1,0 +1,292 @@
+# ml/attention_ops.ein - ONNX Attention Operations
+# TensorRT ONNX Parser: ✅ Supported (via plugins)
+
+use std::ml::activations::softmax;
+use std::ml::linalg_ops::matmul;
+use std::math::{sqrt, exp};
+
+# ============================================================================
+# Dummy Attention (Simplified - Single Head)
+# ============================================================================
+
+pub fn attention_dummy(query, key, value, scale) {
+    # Dummy attention implementation - simplified single-head attention
+    # This is a simple version to verify the basic mechanism works
+    # 
+    # Inputs:
+    #   - query: [batch_size, seq_len_q, hidden_size] - query tensor
+    #   - key: [batch_size, seq_len_kv, hidden_size] - key tensor
+    #   - value: [batch_size, seq_len_kv, hidden_size] - value tensor
+    #   - scale: float - scaling factor
+    # 
+    # Outputs:
+    #   - output: [batch_size, seq_len_q, hidden_size] - attention output
+    # 
+    # Formula (simplified):
+    #   scores[b, i, j] = sum[d](query[b, i, d] * key[b, j, d]) * scale
+    #   attention_weights[b, i, j] = softmax(scores[b, i, :])[j]
+    #   output[b, i, d] = sum[j](attention_weights[b, i, j] * value[b, j, d])
+    
+    assert(typeof(query) == "rectangular", "attention_dummy: query must be rectangular");
+    assert(typeof(key) == "rectangular", "attention_dummy: key must be rectangular");
+    assert(typeof(value) == "rectangular", "attention_dummy: value must be rectangular");
+    
+    let batch_size = len(query);
+    let seq_len_q = len(query[0]);
+    let hidden_size = len(query[0][0]);
+    let seq_len_kv = len(key[0]);
+    
+    assert(len(key[0][0]) == hidden_size, "attention_dummy: key hidden_size must match query");
+    assert(len(value[0][0]) == hidden_size, "attention_dummy: value hidden_size must match query");
+    
+    # Copy to local variables for scoping
+    let Q = query;
+    let K = key;
+    let V = value;
+    
+    # Compute attention scores: Q @ K^T
+    # scores[b, i, j] = sum[d](Q[b, i, d] * K[b, j, d]) * scale
+    let scores[b in 0..batch_size, i in 0..seq_len_q, j in 0..seq_len_kv] = 
+        sum[d in 0..hidden_size](Q[b, i, d] * K[b, j, d]) * scale;
+    
+    # Apply softmax to get attention weights
+    # Softmax over j dimension (key sequence length)
+    let max_scores[b in 0..batch_size, i in 0..seq_len_q] = 
+        max[j in 0..seq_len_kv](scores[b, i, j]);
+    
+    let exp_scores[b in 0..batch_size, i in 0..seq_len_q, j in 0..seq_len_kv] = 
+        exp(scores[b, i, j] - max_scores[b, i]);
+    
+    let sum_exp[b in 0..batch_size, i in 0..seq_len_q] = 
+        sum[j in 0..seq_len_kv](exp_scores[b, i, j]);
+    
+    let attention_weights[b in 0..batch_size, i in 0..seq_len_q, j in 0..seq_len_kv] = 
+        exp_scores[b, i, j] / sum_exp[b, i];
+    
+    # Apply attention to values: output = attention_weights @ V
+    # output[b, i, d] = sum[j](attention_weights[b, i, j] * V[b, j, d])
+    let output[b in 0..batch_size, i in 0..seq_len_q, d in 0..hidden_size] = 
+        sum[j in 0..seq_len_kv](attention_weights[b, i, j] * V[b, j, d]);
+    
+    output
+}
+
+# ============================================================================
+# Simplified Multi-Head Attention (MHA)
+# ============================================================================
+
+pub fn multi_head_attention_simple(query, key, value, num_heads, scale) {
+    # Simplified Multi-Head Attention - avoids arithmetic in indexing
+    # This version works around scoping issues by using explicit head dimension splitting
+    # 
+    # Inputs:
+    #   - query: [batch_size, seq_len_q, hidden_size] - query tensor
+    #   - key: [batch_size, seq_len_kv, hidden_size] - key tensor
+    #   - value: [batch_size, seq_len_kv, hidden_size] - value tensor
+    #   - num_heads: int - number of attention heads
+    #   - scale: float - scaling factor (typically 1.0 / sqrt(head_dim))
+    #   - mask: [batch_size, seq_len_q, seq_len_kv] or [] - optional attention mask
+    #           mask[b, i, j] > 0.0 means position (i, j) is allowed, <= 0.0 means masked
+    #           Currently ignored (prepared for future implementation)
+    # 
+    # Outputs:
+    #   - output: [batch_size, seq_len_q, hidden_size] - attention output
+    # 
+    # Algorithm:
+    #   1. Split Q, K, V into num_heads heads (each head has head_dim = hidden_size / num_heads)
+    #   2. For each head: compute scaled dot-product attention
+    #   3. Concatenate all heads back together
+    #   Note: mask parameter is accepted but not yet used
+    
+    assert(typeof(query) == "rectangular", "multi_head_attention_simple: query must be rectangular");
+    assert(typeof(key) == "rectangular", "multi_head_attention_simple: key must be rectangular");
+    assert(typeof(value) == "rectangular", "multi_head_attention_simple: value must be rectangular");
+    
+    let batch_size = len(query);
+    let seq_len_q = len(query[0]);
+    let hidden_size = len(query[0][0]);
+    let seq_len_kv = len(key[0]);
+    
+    assert(len(key[0][0]) == hidden_size, "multi_head_attention_simple: key hidden_size must match query");
+    assert(len(value[0][0]) == hidden_size, "multi_head_attention_simple: value hidden_size must match query");
+    assert(hidden_size % num_heads == 0, "multi_head_attention_simple: hidden_size must be divisible by num_heads");
+    
+    let head_dim = hidden_size / num_heads;
+    
+    # Copy to local variables for scoping
+    let Q = query;
+    let K = key;
+    let V = value;
+    let local_num_heads = num_heads;
+    let local_head_dim = head_dim;
+    let local_batch_size = batch_size;
+    let local_seq_len_q = seq_len_q;
+    let local_seq_len_kv = seq_len_kv;
+    let local_hidden_size = hidden_size;
+    
+    # Compute head offsets: for head h, offset = h * head_dim
+    let head_offset[h in 0..local_num_heads] = h * local_head_dim;
+    
+    # Now extract Q_h, K_h, V_h using the offset
+    let Q_h[b in 0..local_batch_size, h in 0..local_num_heads, i in 0..local_seq_len_q, d in 0..local_head_dim] = 
+        Q[b, i, head_offset[h] + d];
+    
+    let K_h[b in 0..local_batch_size, h in 0..local_num_heads, j in 0..local_seq_len_kv, d in 0..local_head_dim] = 
+        K[b, j, head_offset[h] + d];
+    
+    let V_h[b in 0..local_batch_size, h in 0..local_num_heads, j in 0..local_seq_len_kv, d in 0..local_head_dim] = 
+        V[b, j, head_offset[h] + d];
+    
+    # Compute attention scores: Q @ K^T for each head
+    let scores[b in 0..local_batch_size, h in 0..local_num_heads, i in 0..local_seq_len_q, j in 0..local_seq_len_kv] = 
+        sum[d in 0..local_head_dim](Q_h[b, h, i, d] * K_h[b, h, j, d]) * scale;
+    
+    # Apply softmax to get attention weights
+    let max_scores[b in 0..local_batch_size, h in 0..local_num_heads, i in 0..local_seq_len_q] = 
+        max[j in 0..local_seq_len_kv](scores[b, h, i, j]);
+    
+    let exp_scores[b in 0..local_batch_size, h in 0..local_num_heads, i in 0..local_seq_len_q, j in 0..local_seq_len_kv] = 
+        exp(scores[b, h, i, j] - max_scores[b, h, i]);
+    
+    let sum_exp[b in 0..local_batch_size, h in 0..local_num_heads, i in 0..local_seq_len_q] = 
+        sum[j in 0..local_seq_len_kv](exp_scores[b, h, i, j]);
+    
+    let attention_weights[b in 0..local_batch_size, h in 0..local_num_heads, i in 0..local_seq_len_q, j in 0..local_seq_len_kv] = 
+        exp_scores[b, h, i, j] / sum_exp[b, h, i];
+    
+    # Apply attention to values: output = attention_weights @ V
+    let head_output[b in 0..local_batch_size, h in 0..local_num_heads, i in 0..local_seq_len_q, d in 0..local_head_dim] = 
+        sum[j in 0..local_seq_len_kv](attention_weights[b, h, i, j] * V_h[b, h, j, d]);
+    
+    # Concatenate heads: [batch, num_heads, seq_len_q, head_dim] -> [batch, seq_len_q, hidden_size]
+    # For dimension d in [0..hidden_size), it belongs to head = d / head_dim
+    # and has offset = d % head_dim within that head
+    # We compute this mapping explicitly:
+    let head_for_dim[d in 0..local_hidden_size] = d / local_head_dim;
+    let offset_in_head[d in 0..local_hidden_size] = d % local_head_dim;
+    
+    # Concatenate: output[b, i, d] = head_output[b, head_for_dim[d], i, offset_in_head[d]]
+    let output[b in 0..local_batch_size, i in 0..local_seq_len_q, d in 0..local_hidden_size] = 
+        head_output[b, head_for_dim[d], i, offset_in_head[d]];
+    
+    output
+}
+
+# ============================================================================
+# ONNX Operator: MultiHeadAttention
+# ============================================================================
+
+pub fn multi_head_attention(query, key, value, num_heads, scale, mask) {
+    # ONNX MultiHeadAttention operator
+    # Implements scaled dot-product multi-head attention mechanism
+    # 
+    # Inputs:
+    #   - query: [batch_size, seq_len_q, hidden_size] - query tensor
+    #   - key: [batch_size, seq_len_kv, hidden_size] - key tensor
+    #   - value: [batch_size, seq_len_kv, hidden_size] - value tensor
+    #   - num_heads: int - number of attention heads
+    #   - scale: float - scaling factor (typically 1.0 / sqrt(head_dim))
+    #   - mask: [batch_size, seq_len_q, seq_len_kv] or [] - optional attention mask
+    # 
+    # Outputs:
+    #   - output: [batch_size, seq_len_q, hidden_size] - attention output
+    # 
+    # Algorithm:
+    #   1. Split Q, K, V into num_heads heads
+    #   2. For each head: compute scaled dot-product attention
+    #      Attention(Q, K, V) = softmax(QK^T * scale) @ V
+    #   3. Concatenate all heads
+    #   4. Return output
+    # 
+    # Formula:
+    #   head_dim = hidden_size / num_heads
+    #   Q_h = Q reshaped to [batch, num_heads, seq_len_q, head_dim]
+    #   K_h = K reshaped to [batch, num_heads, seq_len_kv, head_dim]
+    #   V_h = V reshaped to [batch, num_heads, seq_len_kv, head_dim]
+    #   
+    #   scores[b, h, i, j] = sum[d](Q_h[b, h, i, d] * K_h[b, h, j, d]) * scale
+    #   attention_weights[b, h, i, j] = softmax(scores[b, h, i, :])[j]
+    #   output[b, h, i, d] = sum[j](attention_weights[b, h, i, j] * V_h[b, h, j, d])
+    #   output = concatenate heads and reshape to [batch, seq_len_q, hidden_size]
+    
+    assert(typeof(query) == "rectangular", "multi_head_attention: query must be rectangular");
+    assert(typeof(key) == "rectangular", "multi_head_attention: key must be rectangular");
+    assert(typeof(value) == "rectangular", "multi_head_attention: value must be rectangular");
+    
+    let batch_size = len(query);
+    let seq_len_q = len(query[0]);
+    let hidden_size = len(query[0][0]);
+    let seq_len_kv = len(key[0]);
+    
+    assert(len(key[0][0]) == hidden_size, "multi_head_attention: key hidden_size must match query");
+    assert(len(value[0][0]) == hidden_size, "multi_head_attention: value hidden_size must match query");
+    assert(hidden_size % num_heads == 0, "multi_head_attention: hidden_size must be divisible by num_heads");
+    
+    let head_dim = hidden_size / num_heads;
+    
+    # Copy function parameters to local variables to work around scoping issue
+    # This ensures they're in the correct scope for Einstein notation
+    let Q = query;
+    let K = key;
+    let V = value;
+    
+    # Reshape Q, K, V to [batch, num_heads, seq_len, head_dim]
+    # Q: [batch, seq_len_q, hidden_size] -> [batch, num_heads, seq_len_q, head_dim]
+    # Direct indexing with arithmetic: Q[b, i, h * head_dim + d]
+    let Q_h[b in 0..batch_size, h in 0..num_heads, i in 0..seq_len_q, d in 0..head_dim] = 
+        Q[b, i, h * head_dim + d];
+    
+    # K: [batch, seq_len_kv, hidden_size] -> [batch, num_heads, seq_len_kv, head_dim]
+    let K_h[b in 0..batch_size, h in 0..num_heads, j in 0..seq_len_kv, d in 0..head_dim] = 
+        K[b, j, h * head_dim + d];
+    
+    # V: [batch, seq_len_kv, hidden_size] -> [batch, num_heads, seq_len_kv, head_dim]
+    let V_h[b in 0..batch_size, h in 0..num_heads, j in 0..seq_len_kv, d in 0..head_dim] = 
+        V[b, j, h * head_dim + d];
+    
+    # Compute attention scores: Q @ K^T
+    # scores[b, h, i, j] = sum[d](Q_h[b, h, i, d] * K_h[b, h, j, d])
+    let scores[b in 0..batch_size, h in 0..num_heads, i in 0..seq_len_q, j in 0..seq_len_kv] = 
+        sum[d in 0..head_dim](Q_h[b, h, i, d] * K_h[b, h, j, d]) * scale;
+    
+    # Apply mask if provided
+    let masked_scores[b in 0..batch_size, h in 0..num_heads, i in 0..seq_len_q, j in 0..seq_len_kv] = 
+        if typeof(mask) == "rectangular" {
+            # mask: [batch, seq_len_q, seq_len_kv]
+            # Apply mask: set masked positions to large negative value (before softmax)
+            if mask[b, i, j] > 0.0 {
+                scores[b, h, i, j]
+            } else {
+                -1e9  # Large negative value to make softmax output ~0
+            }
+        } else {
+            scores[b, h, i, j]
+        };
+    
+    # Apply softmax to get attention weights
+    # Softmax over j dimension (key sequence length)
+    # attention_weights[b, h, i, j] = softmax(masked_scores[b, h, i, :])[j]
+    let max_scores[b in 0..batch_size, h in 0..num_heads, i in 0..seq_len_q] = 
+        max[j in 0..seq_len_kv](masked_scores[b, h, i, j]);
+    
+    let exp_scores[b in 0..batch_size, h in 0..num_heads, i in 0..seq_len_q, j in 0..seq_len_kv] = 
+        exp(masked_scores[b, h, i, j] - max_scores[b, h, i]);
+    
+    let sum_exp[b in 0..batch_size, h in 0..num_heads, i in 0..seq_len_q] = 
+        sum[j in 0..seq_len_kv](exp_scores[b, h, i, j]);
+    
+    let attention_weights[b in 0..batch_size, h in 0..num_heads, i in 0..seq_len_q, j in 0..seq_len_kv] = 
+        exp_scores[b, h, i, j] / sum_exp[b, h, i];
+    
+    # Apply attention to values: output = attention_weights @ V
+    # output[b, h, i, d] = sum[j](attention_weights[b, h, i, j] * V_h[b, h, j, d])
+    let head_output[b in 0..batch_size, h in 0..num_heads, i in 0..seq_len_q, d in 0..head_dim] = 
+        sum[j in 0..seq_len_kv](attention_weights[b, h, i, j] * V_h[b, h, j, d]);
+    
+    # Concatenate heads: [batch, num_heads, seq_len_q, head_dim] -> [batch, seq_len_q, hidden_size]
+    let output[b in 0..batch_size, i in 0..seq_len_q, d in 0..hidden_size] = 
+        head_output[b, d / head_dim, i, d % head_dim];
+    
+    output
+}
+

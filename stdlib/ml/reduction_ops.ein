@@ -1,0 +1,105 @@
+# ml/reduction_ops.ein - ONNX Reduction Operations
+# TensorRT ONNX Parser: ✅ Supported
+
+use std::math::{ln, sqrt, abs, min, max};
+
+# ============================================================================
+# Reduction Operations
+# ============================================================================
+
+pub fn reduce_mean(x) {
+    # Reduce mean over last dimension
+    # Input: [..batch, features], Output: [..batch]
+    # Note: Requires at least 2D input to determine feature count
+    assert(typeof(x) == "rectangular", "reduce_mean: input must be rectangular");
+    let sum_val[..batch] = sum[j](x[..batch, j]);
+    let count = len(x[0]) as f32;
+    let mean[..batch] = sum_val[..batch] / count;
+    mean
+}
+
+
+pub fn reduce_sum(x) {
+    # Reduce sum over last dimension (ONNX ReduceSum)
+    # Input: [..batch, features], Output: [..batch]
+    let result[..batch] = sum[j](x[..batch, j]);
+    result
+}
+
+
+pub fn reduce_max(x) {
+    # Reduce max over last dimension (ONNX ReduceMax)
+    # Input: [..batch, features], Output: [..batch]
+    let result[..batch] = max[j](x[..batch, j]);
+    result
+}
+
+
+pub fn reduce_min(x: [f32; *]) -> [f32; *] {
+    # Reduce min over last dimension (ONNX ReduceMin)
+    # Input: [..batch, features], Output: [..batch]
+    let result[..batch] = min[j](x[..batch, j]);
+    result
+}
+
+
+pub fn reduce_l1(x: [f32; *]) -> [f32; *] {
+    # L1 norm (sum of absolute values) over last dimension (ONNX ReduceL1)
+    let result[..batch] = sum[j](abs(x[..batch, j]));
+    result
+}
+
+
+pub fn reduce_l2(x: [f32; *]) -> [f32; *] {
+    # L2 norm over last dimension (ONNX ReduceL2)
+    let sum_squares[..batch] = sum[j](x[..batch, j] ** 2.0);
+    let result[..batch] = sqrt(sum_squares[..batch]);
+    result
+}
+
+
+pub fn reduce_sum_square(x: [f32; *]) -> [f32; *] {
+    # Sum of squares over last dimension (ONNX ReduceSumSquare)
+    # Input: [..batch, features], Output: [..batch]
+    let result[..batch] = sum[j](x[..batch, j] ** 2.0);
+    result
+}
+
+
+pub fn reduce_log_sum(x) {
+    # LogSum reduction over last dimension
+    # Input: [..batch, features], Output: [..batch]
+    # Formula: log(sum(x))
+    assert(typeof(x) == "rectangular", "reduce_log_sum: input must be rectangular");
+    let sum_val[..batch] = sum[j](x[..batch, j]);
+    let result[..batch] = ln(sum_val[..batch]);
+    result
+}
+
+
+pub fn reduce_log_sum_exp(x) {
+    # LogSumExp reduction over last dimension (numerically stable)
+    # Input: [..batch, features], Output: [..batch]
+    # Formula: log(sum(exp(x))) = max(x) + log(sum(exp(x - max(x))))
+    # This avoids overflow from exp(large_number)
+    assert(typeof(x) == "rectangular", "reduce_log_sum_exp: input must be rectangular");
+    
+    use std::ml::math_ops::exp;
+    # Numerically stable: subtract max before exp
+    let max_val[..batch] = max[j](x[..batch, j]);
+    let shifted[..batch, j] = x[..batch, j] - max_val[..batch];
+    let sum_exp[..batch] = sum[j](exp(shifted[..batch, j]));
+    let result[..batch] = max_val[..batch] + ln(sum_exp[..batch]);
+    result
+}
+
+
+pub fn reduce_prod(x) {
+    # Reduce by product along last axis
+    # x: [..., n] -> result: [...] (product of all elements in last dimension)
+    assert(typeof(x) == "rectangular", "reduce_prod: x must be rectangular");
+    
+    let result[..batch] = prod[j](x[..batch, j]);
+    result
+}
+

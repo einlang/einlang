@@ -1,0 +1,48 @@
+# CORE FEATURE: Modulo Operator Constraints
+# PURPOSE: Tests modulo operator in various contexts that were previously problematic
+# VALUE: Ensures modulo works in assignments, expressions, and WHERE clauses
+
+# Basic modulo operations
+let test1 = 7 % 2;
+let test2 = (8 % 3);
+let test3 = 9 % 2 == 1;
+let test4 = 10 % 5 == 0;
+
+# Verify modulo calculations
+assert(test1 == 1, "7 % 2 should be 1");
+assert(test2 == 2, "8 % 3 should be 2"); 
+assert(test3 == true, "9 % 2 == 1 should be true");
+assert(test4 == true, "10 % 5 == 0 should be true");
+
+# Modulo in expressions with variables
+let dividend = 15;
+let divisor = 4;
+let remainder = dividend % divisor;
+assert(remainder == 3, "15 % 4 should be 3");
+
+# Complex modulo expressions
+let complex_mod1 = (12 % 5) + (8 % 3);  # 2 + 2 = 4;
+let complex_mod2 = (20 % 7) * (15 % 4); # 6 * 3 = 18
+
+assert(complex_mod1 == 4, "Complex modulo 1 should be 4");
+assert(complex_mod2 == 18, "Complex modulo 2 should be 18");
+
+# Modulo in comprehensions and filtering
+let even_remainders = [i % 2 | i in 0..8];
+let odd_numbers = [i | i in 1..10, i % 2 == 1];
+let div_by_three = [i | i in 1..12, i % 3 == 0];
+
+# Verify modulo-based filtering
+assert(even_remainders.length == 8, "Should have 8 remainders");
+assert(even_remainders[1] == 1, "1 % 2 should be 1");
+assert(even_remainders[2] == 0, "2 % 2 should be 0");
+
+assert(odd_numbers.length == 5, "Should have 5 odd numbers");
+assert(div_by_three.length == 3, "Should have 3 numbers divisible by 3 in range 1..12");
+
+print("Basic modulo tests:", test1, test2, test3, test4);
+print("Complex modulo results:", complex_mod1, complex_mod2);
+print("Even remainders:", even_remainders);
+print("Odd numbers:", odd_numbers);
+print("Divisible by three:", div_by_three);
+print("✓ All modulo constraint tests passed!");

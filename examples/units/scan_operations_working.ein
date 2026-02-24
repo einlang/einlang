@@ -1,0 +1,73 @@
+# CORE FEATURE: Scan Operations with Einstein Notation (Working Version)
+# PURPOSE: Demonstrates cumulative operations using backward indexing pattern
+# VALUE: Shows Einstein notation for scan/prefix operations that work with current implementation
+
+
+# Cumulative Sum - running totals
+let data = [1, 2, 3, 4];
+let cumsum[i in 0..4] = sum[k in 0..i+1](data[i-k]);
+
+assert(cumsum[0] == 1, "cumsum[0] should be 1");
+assert(cumsum[1] == 3, "cumsum[1] should be 1+2=3");
+assert(cumsum[2] == 6, "cumsum[2] should be 1+2+3=6");
+assert(cumsum[3] == 10, "cumsum[3] should be 1+2+3+4=10");
+
+# Cumulative Product - running products
+let values = [2, 3, 1, 4];
+let cumprod[i in 0..4] = prod[k in 0..i+1](values[i-k]);
+
+assert(cumprod[0] == 2, "cumprod[0] should be 2");
+assert(cumprod[1] == 6, "cumprod[1] should be 2*3=6");
+assert(cumprod[2] == 6, "cumprod[2] should be 2*3*1=6");
+assert(cumprod[3] == 24, "cumprod[3] should be 2*3*1*4=24");
+
+# Cumulative Maximum - running max
+let prices = [3, 1, 4, 5];
+let cummax[i in 0..4] = max[k in 0..i+1](prices[i-k]);
+
+assert(cummax[0] == 3, "cummax[0] should be max(3)=3");
+assert(cummax[1] == 3, "cummax[1] should be max(1,3)=3");
+assert(cummax[2] == 4, "cummax[2] should be max(4,1,3)=4");
+assert(cummax[3] == 5, "cummax[3] should be max(5,4,1,3)=5");
+
+# Cumulative Minimum - running min
+let temps = [25, 18, 22, 15];
+let cummin[i in 0..4] = min[k in 0..i+1](temps[i-k]);
+
+assert(cummin[0] == 25, "cummin[0] should be min(25)=25");
+assert(cummin[1] == 18, "cummin[1] should be min(18,25)=18");
+assert(cummin[2] == 18, "cummin[2] should be min(22,18,25)=18");
+assert(cummin[3] == 15, "cummin[3] should be min(15,22,18,25)=15");
+
+# Financial example: Cumulative returns
+let returns = [1.02, 0.98, 1.05, 0.99];
+let cum_returns[i in 0..4] = prod[k in 0..i+1](returns[i-k]);
+
+# Portfolio multiplier after each day
+assert(cum_returns[0] > 1.019 && cum_returns[0] < 1.021, "Day 0 multiplier");
+# Day 1: 1.02 * 0.98 = 0.9996
+assert(cum_returns[1] < 1.0, "Day 1: Portfolio below initial");
+
+# Running average using cumsum
+let observations = [10, 20, 30, 40];
+let running_sum[i in 0..4] = sum[k in 0..i+1](observations[i-k]);
+let running_avg[i in 0..4] = running_sum[i] / (i + 1);
+
+assert(running_avg[0] == 10, "running_avg[0] should be 10/1=10");
+assert(running_avg[1] == 15, "running_avg[1] should be (10+20)/2=15");
+assert(running_avg[2] == 20, "running_avg[2] should be (10+20+30)/3=20");
+assert(running_avg[3] == 25, "running_avg[3] should be (10+20+30+40)/4=25");
+
+# Energy accumulation in signal processing
+let signal = [2, -1, 3, -2];
+let energy[i in 0..4] = sum[k in 0..i+1](signal[i-k] * signal[i-k]);
+
+assert(energy[0] == 4, "energy[0] should be 2²=4");
+assert(energy[1] == 5, "energy[1] should be 2²+(-1)²=5");
+assert(energy[2] == 14, "energy[2] should be 2²+(-1)²+3²=14");
+assert(energy[3] == 18, "energy[3] should be 2²+(-1)²+3²+(-2)²=18");
+
+# All working scan operations passed through assertions
+
+# Pattern demonstrated: result[i] = operation[k](data[i-k]) where k in 0..i+1
+# This backward indexing pattern is the key insight for scan operations

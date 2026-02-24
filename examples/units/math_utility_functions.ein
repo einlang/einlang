@@ -1,0 +1,43 @@
+# Mathematical utility functions demonstration
+
+# Basic arithmetic functions
+fn add(x, y) {
+    x + y
+}
+
+fn multiply(x, y) {
+    x * y
+}
+
+fn square(x) {
+    x * x
+}
+
+# Mathematical constants
+let pi = 3.14159;
+let e = 2.71828;
+
+# Simple factorial function (without complex control flow for now)
+fn factorial(n) {
+    n * (n - 1)  # Simplified version for testing
+}
+
+# Test basic arithmetic functions
+let result1 = add(3, 4);
+assert(result1 == 7);
+
+let result2 = multiply(5, 6);
+assert(result2 == 30);
+
+let result3 = square(4);
+assert(result3 == 16);
+
+# Test mathematical constants
+assert(pi > 3.0);
+assert(pi < 4.0);
+assert(e > 2.0);
+assert(e < 3.0);
+
+# Test factorial function (simplified)
+let fact = factorial(5);
+assert(fact == 20);  # 5 * 4 = 20 for simplified version

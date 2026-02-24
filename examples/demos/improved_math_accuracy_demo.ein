@@ -1,0 +1,79 @@
+# Demo showing accuracy of standard math functions
+# This demonstrates the precision of sin, cos, sqrt, and constants
+
+use std::math;
+
+fn main() {
+    print("=== Math Function Accuracy Demo ===\n");
+    
+    # Mathematical constants
+    print("Testing mathematical constants...");
+    
+    let e_constant = math::e();
+    assert(e_constant > 2.71828 && e_constant < 2.71829, "e constant within tolerance");
+    
+    let pi_val = math::pi();
+    assert(pi_val > 3.14159 && pi_val < 3.14160, "π within tolerance");
+    
+    # Square root accuracy
+    print("Testing square root functions...");
+    
+    let sqrt_2 = math::sqrt(2.0);
+    assert(sqrt_2 > 1.41421 && sqrt_2 < 1.41422, "sqrt(2) within tolerance");
+    
+    let sqrt_3 = math::sqrt(3.0);
+    assert(sqrt_3 > 1.73205 && sqrt_3 < 1.73206, "sqrt(3) within tolerance");
+    
+    let sqrt_5 = math::sqrt(5.0);
+    assert(sqrt_5 > 2.23606 && sqrt_5 < 2.23607, "sqrt(5) within tolerance");
+    
+    let sqrt_large = math::sqrt(1000.0);
+    assert(sqrt_large > 31.6227 && sqrt_large < 31.6228, "sqrt(1000) within tolerance");
+    
+    # Trigonometric functions
+    print("Testing trigonometric functions...");
+    
+    let pi = math::pi();
+    
+    let sin_pi_2 = math::sin(pi / 2.0);
+    assert(sin_pi_2 > 0.9999 && sin_pi_2 < 1.0001, "sin(π/2) ≈ 1.0");
+    
+    let cos_0 = math::cos(0.0);
+    assert(cos_0 > 0.9999 && cos_0 < 1.0001, "cos(0) ≈ 1.0");
+    
+    let sin_pi_4 = math::sin(pi / 4.0);
+    assert(sin_pi_4 > 0.70710 && sin_pi_4 < 0.70711, "sin(π/4) within tolerance");
+    
+    let cos_pi_3 = math::cos(pi / 3.0);
+    assert(cos_pi_3 > 0.4999 && cos_pi_3 < 0.5001, "cos(π/3) ≈ 0.5");
+    
+    # Mathematical relationship validation
+    print("Testing mathematical relationships...");
+    
+    # Test sin²(x) + cos²(x) = 1 (Pythagorean identity)
+    let angle = pi / 6.0;
+    let sin_val = math::sin(angle);
+    let cos_val = math::cos(angle);
+    let identity_check = sin_val * sin_val + cos_val * cos_val;
+    assert(identity_check > 0.9999 && identity_check < 1.0001, "sin²(x) + cos²(x) = 1");
+    
+    # Test sqrt(x²) = x for positive x
+    let sqrt_test = 7.5;
+    let sqrt_squared = math::sqrt(sqrt_test * sqrt_test);
+    let sqrt_error = sqrt_squared - sqrt_test;
+    assert(sqrt_error > -0.0001 && sqrt_error < 0.0001, "sqrt(x²) = x");
+    
+    # Test power function
+    let pow_result = math::pow(2.0, 10.0);
+    assert(pow_result == 1024, "2^10 = 1024");
+    
+    # Test min/max
+    let min_result = math::min(3.5, 2.1);
+    assert(min_result == 2.1, "min(3.5, 2.1) = 2.1");
+    
+    let max_result = math::max(3.5, 2.1);
+    assert(max_result == 3.5, "max(3.5, 2.1) = 3.5");
+    
+    print("\n=== All Tests Passed! ===");
+    print("All math functions have excellent accuracy!");
+}

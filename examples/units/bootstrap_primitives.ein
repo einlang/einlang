@@ -1,0 +1,43 @@
+# Bootstrap primitives testing and minimal pure functions
+
+# Test the 5 essential bootstrap primitives
+assert(true, "assert function working");
+
+# Test typeof
+let type_test = typeof(42);
+assert(type_test == "i32");
+
+# Test len
+let length_test = len([1, 2, 3, 4, 5]);
+assert(length_test == 5);
+
+# Test array_append
+let append_test = array_append([1, 2], 3);
+assert(append_test == [1, 2, 3]);
+
+# Test basic math that can be implemented without imports
+fn abs_pure(x) {
+    if x >= 0 { x } else { -x }
+}
+
+fn max_pure(a, b) {
+    if a >= b { a } else { b }
+}
+
+fn min_pure(a, b) {
+    if a <= b { a } else { b }
+}
+
+# Test pure function implementations
+assert(abs_pure(-7) == 7);
+assert(abs_pure(5) == 5);
+assert(max_pure(3, 7) == 7);
+assert(min_pure(3, 7) == 3);
+
+# Complex example using only bootstrap primitives
+let nums = [1, 2, 3, 4, 5];
+# Simple summation using only bootstrap + array comprehensions
+# Calculate sum manually since we don't have a sum function yet
+let sum = nums[0] + nums[1] + nums[2] + nums[3] + nums[4];
+
+assert(sum == 15);

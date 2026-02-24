@@ -1,0 +1,140 @@
+# CORE FEATURE: Range Expressions
+# PURPOSE: Showcases range syntax usage in various contexts and operations
+# VALUE: Demonstrates essential range patterns for iteration and bounds
+
+# Basic range usage in array comprehensions
+let basic_range = [x | x in 1..5];
+let zero_start_range = [x | x in 0..4];
+let large_range = [x | x in 10..13];
+
+assert(basic_range.length == 4, "Range 1..5 should have 4 elements");
+assert(basic_range[0] == 1, "First element should be 1");
+assert(basic_range[3] == 4, "Last element should be 4 (exclusive end)");
+
+assert(zero_start_range.length == 4, "Range 0..4 should have 4 elements");
+assert(zero_start_range[0] == 0, "Zero-start range first element should be 0");
+
+assert(large_range.length == 3, "Range 10..13 should have 3 elements");
+assert(large_range[0] == 10, "Large range first element should be 10");
+
+# Variable-based ranges
+let start = 2;
+let end = 6;
+let var_range = [x | x in start..end];
+
+assert(var_range.length == 4, "Variable range should have 4 elements");
+assert(var_range[0] == 2, "Variable range should start at 2");
+assert(var_range[3] == 5, "Variable range should end at 5 (exclusive)");
+
+# Expression-based range bounds
+let expr_start = 3 + 2;  # 5;
+let expr_end = 2 * 4;    # 8;
+let expr_range = [x | x in expr_start..expr_end];
+
+assert(expr_range.length == 3, "Expression range should have 3 elements");
+assert(expr_range[0] == 5, "Expression range should start at 5");
+assert(expr_range[2] == 7, "Expression range should include 7");
+
+# Ranges with mathematical operations
+let squared_range = [x * x | x in 1..4];
+let doubled_range = [x * 2 | x in 2..5];
+
+assert(squared_range.length == 3, "Squared range should have 3 elements");
+assert(squared_range[0] == 1, "First square should be 1²=1");
+assert(squared_range[2] == 9, "Third square should be 3²=9");
+
+assert(doubled_range.length == 3, "Doubled range should have 3 elements");
+assert(doubled_range[0] == 4, "First doubled should be 2*2=4");
+
+# Nested ranges in multi-dimensional patterns
+let nested_coords = [(i, j) | i in 1..3, j in 0..2];
+
+assert(nested_coords.length == 4, "Nested ranges should create 2*2=4 coordinates");
+
+# Range with step-like patterns using filtering
+let even_in_range = [x | x in 0..10, x % 2 == 0];
+let odd_in_range = [x | x in 1..8, x % 2 == 1];
+
+assert(even_in_range.length >= 4, "Should have even numbers in 0..10");
+assert(odd_in_range.length >= 3, "Should have odd numbers in 1..8");
+
+# Ranges in membership operations
+let test_val = 7;
+let in_small_range = test_val in 1..5;    # false;
+let in_large_range = test_val in 5..10;   # true;
+let in_exact_range = test_val in 7..8;    # true
+
+assert(in_small_range == false, "7 should not be in 1..5");
+assert(in_large_range == true, "7 should be in 5..10");
+assert(in_exact_range == true, "7 should be in 7..8");
+
+# Simple range with filtering
+let filtered_range = [x | x in 1..5, x % 2 == 0];
+
+assert(filtered_range.length >= 1, "Filtered range should have even numbers");
+
+# Range boundaries and edge cases
+let single_range = [x | x in 5..6];   # Single element range;
+let empty_range = [x | x in 5..5];    # Empty range (start == end);
+let reverse_range = [x | x in 6..4];  # Reverse range (should be empty)
+
+assert(single_range.length == 1, "Single range should have 1 element");
+assert(single_range[0] == 5, "Single range element should be 5");
+
+assert(empty_range.length == 0, "Empty range should have 0 elements");
+assert(reverse_range.length == 0, "Reverse range should be empty");
+
+# Range-based matrix indexing patterns
+let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+let matrix_row_indices = [i | i in 0..2];
+let matrix_col_indices = [j | j in 0..3];
+
+assert(matrix_row_indices.length == 2, "Matrix should have 2 row indices");
+assert(matrix_col_indices.length == 3, "Matrix should have 3 column indices");
+
+# Using ranges for tensor-like operations
+let tensor_values = [matrix[i,j] | i in 0..2, j in 0..3, i + j < 4];
+
+assert(tensor_values.length >= 3, "Tensor values should be filtered by condition");
+
+# Complex range expressions in functions
+fn generate_sequence(start_val, length) {
+    [start_val + i | i in 0..length]
+}
+
+let sequence_result = generate_sequence(10, 4);
+
+assert(sequence_result.length == 4, "Generated sequence should have 4 elements");
+assert(sequence_result[0] == 10, "Sequence should start at 10");
+assert(sequence_result[3] == 13, "Sequence should end at 13");
+
+# Range-based filtering with complex conditions
+let filtered_range_complex = [
+    x | x in 1..20, 
+    x % 3 == 0, 
+    x > 5
+];
+
+assert(filtered_range_complex.length >= 2, "Should have multiples of 3 > 5 in range");
+
+# Ranges in different contexts
+let range_sum = [i | i in 1..4];
+let manual_sum = range_sum[0] + range_sum[1] + range_sum[2];
+
+assert(manual_sum == 6, "Sum of range 1..4 should be 1+2+3=6");
+
+# Range patterns for coordinate generation
+let grid_points = [(x, y) | x in 0..3, y in 0..3, x <= y];
+
+assert(grid_points.length >= 6, "Grid points should be filtered by x <= y");
+
+# Dynamic range generation
+let dynamic_start = 2;
+let dynamic_length = 3;
+let dynamic_range = [dynamic_start + i | i in 0..dynamic_length];
+
+assert(dynamic_range.length == 3, "Dynamic range should have correct length");
+assert(dynamic_range[0] == 2, "Dynamic range should start correctly");
+assert(dynamic_range[2] == 4, "Dynamic range should increment correctly");
+
+# All range expression syntax showcased successfully

@@ -1,0 +1,227 @@
+# ml/transform_ops.ein - ONNX Tensor Transform Operations
+# TensorRT ONNX Parser: ✅ Supported
+
+# ============================================================================
+# ONNX Operator: Pad
+# Pads input tensor with constant value (constant mode only)
+# ============================================================================
+
+pub fn pad(data, pads, constant_value) {
+    # ONNX Pad operator (constant mode only)
+    # 
+    # ONNX spec: Pad(data, pads, constant_value, mode='constant')
+    #   - data: input tensor (any rank)
+    #   - pads: 1D tensor [x1_begin, x2_begin, ..., x1_end, x2_end, ...]
+    #   - constant_value: scalar float
+    #   - mode: 'constant', 'reflect', 'edge' (we only support constant)
+    # 
+    # Current implementation: Uniform padding from 1D tensor
+    #   - data: input tensor (1D or 2D)
+    #   - pads: 1D tensor (first element used as uniform padding amount)
+    #   - constant_value: scalar value to pad with
+    # 
+    # Limitations:
+    #   - Only 1D and 2D tensors supported
+    #   - Uniform padding only (same amount extracted from pads[0])
+    #   - Constant mode only (no reflect/edge modes)
+    
+    let rank = len(data.shape);
+    let pad_amt = pads[0];  # Extract uniform padding from 1D tensor
+    
+    if rank == 1 {
+        pad_1d_impl(data, pad_amt, constant_value)
+    } else if rank == 2 {
+        pad_2d_impl(data, pad_amt, constant_value)
+    } else {
+        data  # Fallback: return unchanged for unsupported ranks
+    }
+}
+
+fn pad_1d_impl(data, pad_amt, value) {
+    let n = len(data) as i32;
+    let new_len = pad_amt + n + pad_amt;
+    
+    let result[i in 0..pad_amt] = value;
+    let result[i in pad_amt..(pad_amt + n)] = data[i - pad_amt];
+    let result[i in (pad_amt + n)..new_len] = value;
+    result
+}
+
+fn pad_2d_impl(data, pad_amt, value) {
+    let m = len(data) as i32;
+    let n = len(data[0]) as i32;
+    let new_h = pad_amt + m + pad_amt;
+    let new_w = pad_amt + n + pad_amt;
+    
+    # Fill entire array with padding value
+    let result[i in 0..new_h, j in 0..new_w] = value;
+    # Overwrite interior with original data
+    let result[i in pad_amt..(pad_amt + m), j in pad_amt..(pad_amt + n)] = data[i - pad_amt, j - pad_amt];
+    result
+}
+
+
+# ============================================================================
+# ONNX Operator: DepthToSpace
+# ============================================================================
+
+pub fn depth_to_space(input, blocksize) {
+    # ONNX Operator: DepthToSpace
+    # Rearrange depth to spatial dimensions
+    # input: [batch, C*r*r, H, W] -> output: [batch, C, H*r, W*r]
+    assert(typeof(input) == "rectangular", "depth_to_space: input must be rectangular");
+    
+    let r = blocksize as i32;
+    
+    # ✅ ALL IMPLICIT! Constraint solver handles complex expressions:
+    # - c: from c*(r*r) + ... < input.shape[1] → c < ⌈input.shape[1]/(r*r)⌉
+    # - i: from i/r < input.shape[2] → i < input.shape[2]*r
+    # - j: from j/r < input.shape[3] → j < input.shape[3]*r
+    let result[b, c, i, j] = input[
+        b,
+        c * (r * r) + (i % r) * r + (j % r),
+        i / r,
+        j / r
+    ];
+    result
+}
+
+
+# ============================================================================
+# ONNX Operator: SpaceToDepth
+# ============================================================================
+
+pub fn space_to_depth(input, blocksize) {
+    # ONNX Operator: SpaceToDepth
+    # Rearrange spatial to depth dimensions
+    # input: [batch, C, H*r, W*r] -> output: [batch, C*r*r, H, W]
+    assert(typeof(input) == "rectangular", "space_to_depth: input must be rectangular");
+    
+    let r = blocksize as i32;
+    let s = input.shape;
+    let batch_size = s[0] as i32;
+    let c_in = s[1] as i32;
+    let h_in = s[2] as i32;
+    let w_in = s[3] as i32;
+    let c_out = c_in * r * r;
+    let h_out = h_in / r;
+    let w_out = w_in / r;
+    
+    # Explicit ranges for all dimensions
+    let result[b in 0..batch_size, c_new in 0..c_out, i in 0..h_out, j in 0..w_out] = input[
+        b,
+        c_new / (r * r),
+        i * r + (c_new / r) % r,
+        j * r + c_new % r
+    ];
+    result
+}
+
+
+# ============================================================================
+# ONNX Operator: Range
+# ============================================================================
+
+pub fn range(start, limit, delta) {
+    # ONNX Operator: Range
+    # Generate sequence [start, start+delta, ..., limit)
+    
+    let n = ((limit - start) / delta) as i32;
+    let result[i in 0..n] = start + (i as f32) * delta;
+    result
+}
+
+
+# ============================================================================
+# ONNX Operator: ConstantOfShape
+# ============================================================================
+
+pub fn constant_of_shape(input, value) {
+    # ONNX Operator: ConstantOfShape
+    # Inputs:
+    #   input: 1D tensor specifying the shape of output
+    #   value: scalar fill value (ONNX attribute, passed as parameter)
+    # Simplified for 1D output
+    
+    let n = input[0];
+    let result[i in 0..n] = value;
+    result
+}
+
+
+# ============================================================================
+# ONNX Operator: Concat
+# ============================================================================
+
+pub fn concat(a, b) {
+    # Concatenate two tensors along last axis
+    # For 2D: a: [batch, n_a], b: [batch, n_b]  -> [batch, n_a + n_b]
+    assert(typeof(a) == "rectangular", "concat: a must be rectangular");
+    assert(typeof(b) == "rectangular", "concat: b must be rectangular");
+    
+    let n_a = len(a[0]) as i32;
+    let n_b = len(b[0]) as i32;
+    
+    # First part: copy from a (indices 0..n_a)
+    let result[i, j in 0..n_a] = a[i, j];
+    
+    # Second part: copy from b (indices n_a..n_a+n_b)
+    let result[i, j in n_a..n_a+n_b] = b[i, j - n_a];
+    
+    result
+}
+
+
+# ============================================================================
+# ONNX Operator: Tile
+# ============================================================================
+
+pub fn tile(x, reps) {
+    # Tile tensor by repeating along last axis
+    # x: [batch, n], reps: number of times to repeat
+    # Output: [batch, n * reps]
+    # Formula: result[i, j] = x[i, j mod n]
+    assert(typeof(x) == "rectangular", "tile: x must be rectangular");
+    
+    let n = len(x[0]) as i32;
+    
+    # Direct formula: use modulo to repeat the pattern
+    let result[i, j in 0..(n*reps)] = x[i, j % n];
+    result
+}
+
+
+# ============================================================================
+# ONNX Operator: Transpose
+# ============================================================================
+
+pub fn transpose(x) {
+    # Transpose: swap last two dimensions
+    # Input: [..., m, n], Output: [..., n, m]
+    # Note: This requires Einstein notation with dimension swapping
+    assert(typeof(x) == "rectangular", "transpose: input must be rectangular");
+    
+    # For 2D case: transpose[i, j] = x[j, i]
+    # For general case with rest patterns: transpose[..batch, i, j] = x[..batch, j, i]
+    let result[..batch, i, j] = x[..batch, j, i];
+    result
+}
+
+
+# ============================================================================
+# ONNX Operator: Flatten
+# ============================================================================
+
+pub fn flatten(x) {
+    # Flatten 2D tensor to 1D
+    # x: [m, n] -> result: [m*n]
+    assert(typeof(x) == "rectangular", "flatten: input must be rectangular");
+    
+    let m = len(x) as i32;
+    let n = len(x[0]) as i32;
+    
+    # Flatten using row-major order: result[i*n + j] = x[i, j]
+    let result[k in 0..(m*n)] = x[k / n, k % n];
+    result
+}
+

@@ -1,0 +1,9 @@
+# Cumulative sum operations demonstration
+
+let data = [1, 2, 3, 4];
+
+# Basic cumulative sum - each element should be sum of all elements up to and including current position
+let cumulative[i in 0..4] = sum[k in 0..i+1](data[k]);
+
+assert(data == [1, 2, 3, 4]);
+assert(cumulative == [1, 3, 6, 10]);

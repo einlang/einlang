@@ -1,0 +1,129 @@
+# Quantifier Equivalences: Expressing all[i] and any[i] using other reductions
+# ============================================================================
+# 
+# This demonstrates that quantifiers can be expressed using sum, max, min, prod
+# However, all[i] and any[i] are more readable and mathematically aligned.
+
+# ============================================================================
+# UNIVERSAL QUANTIFIER (∀i: P(x[i])) - "For all i, P holds"
+# ============================================================================
+
+let x = [1, 2, 3, 4, 5];
+
+# Method 1: Using all[i] (recommended - mathematically aligned)
+let all_positive_1 = all[i](x[i] > 0);
+# Result: true
+
+# Method 2: Using min[i] with cast (simpler than if-else)
+# ∀i: P(x[i]) ≡ min[i]((P(x[i])) as i32) == 1
+let all_positive_2 = min[i]((x[i] > 0) as i32) == 1;
+# Result: true (if all are positive, min is 1)
+
+# Method 3: Using prod[i] with cast
+# ∀i: P(x[i]) ≡ prod[i]((P(x[i])) as i32) == 1
+# If any is false, prod becomes 0; if all are true, prod is 1
+let all_positive_3 = prod[i]((x[i] > 0) as i32) == 1;
+# Result: true (if all are positive, prod is 1; if any is 0, prod is 0)
+
+# Method 4: Using sum[i] with cast
+# ∀i: P(x[i]) ≡ sum[i]((P(x[i])) as i32) == len(x)
+let all_positive_4 = sum[i]((x[i] > 0) as i32) == len(x);
+# Result: true (if all are positive, sum equals length)
+
+# ============================================================================
+# EXISTENTIAL QUANTIFIER (∃i: P(x[i])) - "There exists i such that P holds"
+# ============================================================================
+
+let y = [-1, -2, 3, -4, -5];
+
+# Method 1: Using any[i] (recommended - mathematically aligned)
+let has_positive_1 = any[i](y[i] > 0);
+# Result: true
+
+# Method 2: Using max[i] with cast (simpler than if-else)
+# ∃i: P(x[i]) ≡ max[i]((P(x[i])) as i32) == 1
+let has_positive_2 = max[i]((y[i] > 0) as i32) == 1;
+# Result: true (if any is positive, max is 1)
+
+# Method 3: Using sum[i] with cast
+# ∃i: P(x[i]) ≡ sum[i]((P(x[i])) as i32) > 0
+let has_positive_3 = sum[i]((y[i] > 0) as i32) > 0;
+# Result: true (if any is positive, sum > 0)
+
+# Method 4: Using prod[i] - NOT suitable for existential
+# prod doesn't work well for "any" because prod of 0s is 0, prod of 1s is 1
+# But we can't distinguish "all false" from "some false"
+
+# ============================================================================
+# PRACTICAL EXAMPLES: When to use each method
+# ============================================================================
+
+# Example 1: All elements positive
+let data = [1, 2, 3, 4, 5];
+
+# ✅ Best: all[i] (readable, mathematical)
+let check1 = all[i](data[i] > 0);
+
+# ⚠️ Alternative: min[i] with cast (works but less readable)
+let check2 = min[i]((data[i] > 0) as i32) == 1;
+
+# ⚠️ Alternative: sum[i] with cast (works but requires length comparison)
+let check3 = sum[i]((data[i] > 0) as i32) == len(data);
+
+# Example 2: Any element positive
+let mixed = [-1, -2, 3, -4, -5];
+
+# ✅ Best: any[i] (readable, mathematical)
+let check4 = any[i](mixed[i] > 0);
+
+# ⚠️ Alternative: max[i] with cast (works but less readable)
+let check5 = max[i]((mixed[i] > 0) as i32) == 1;
+
+# ⚠️ Alternative: sum[i] with cast (works but requires > 0 check)
+let check6 = sum[i]((mixed[i] > 0) as i32) > 0;
+
+# ============================================================================
+# MATHEMATICAL EQUIVALENCES
+# ============================================================================
+
+# Universal quantifier (∀):
+#   all[i](P(x[i])) 
+#   ≡ min[i]((P(x[i])) as i32) == 1
+#   ≡ prod[i]((P(x[i])) as i32) == 1
+#   ≡ sum[i]((P(x[i])) as i32) == len(x)
+
+# Existential quantifier (∃):
+#   any[i](P(x[i]))
+#   ≡ max[i]((P(x[i])) as i32) == 1
+#   ≡ sum[i]((P(x[i])) as i32) > 0
+
+# ============================================================================
+# WHY all[i] AND any[i] ARE THE PRIMARY SYNTAX (Mathematical Alignment)
+# ============================================================================
+
+# Einlang follows "Mathematics First" philosophy:
+# "If a mathematical formula can be written, Einlang can express it in ASCII."
+
+# Mathematical Notation → Einlang Syntax:
+#   ∀i: P(x_i)  →  all[i](P(x[i]))
+#   ∃i: P(x_i)  →  any[i](P(x[i]))
+
+# 1. Mathematical alignment: Directly maps to ∀ and ∃ notation
+# 2. Readability: Clear intent without boolean conversions
+# 3. Efficiency: Can short-circuit (all stops at first false, any stops at first true)
+# 4. Type safety: Returns boolean directly, not numeric
+# 5. Consistency: Matches other reductions (sum[i], max[i], min[i], prod[i])
+
+# Example: Compare readability
+
+# ✅ Clear and mathematical (PRIMARY - aligns with ∀ notation)
+let valid1 = all[i](x[i] > 0);
+
+# ⚠️ Equivalent but less clear (requires understanding the trick)
+let valid2 = min[i]((x[i] > 0) as i32) == 1;
+
+# Both are equivalent, but all[i] is the recommended way!
+# 
+# Note: Industry (NumPy/PyTorch) uses function calls: np.all(x > 0)
+# But Einlang prioritizes mathematical notation alignment over industry conventions.
+

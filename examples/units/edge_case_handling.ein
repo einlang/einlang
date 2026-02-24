@@ -1,0 +1,197 @@
+# CORE FEATURE: Edge Case Handling and Boundary Conditions  
+# PURPOSE: Tests edge cases, boundary conditions, and error-prone scenarios
+# VALUE: Exercises error handling paths and edge case logic for better coverage
+
+# Boundary arithmetic operations
+let zero_operations = 0 + 0;
+let zero_multiply = 0 * 1000000;
+let one_operations = 1 * 1;
+let negative_zero = 0 - 0;
+
+assert(zero_operations == 0, "Zero operations should work");
+assert(zero_multiply == 0, "Zero multiplication should work");
+assert(one_operations == 1, "One operations should work");
+assert(negative_zero == 0, "Negative zero should be zero");
+
+# Large number operations
+let large_num1 = 999999;
+let large_num2 = 1000001;
+let large_add = large_num1 + large_num2;
+let large_multiply = 1000 * 1000;
+
+assert(large_add == 2000000, "Large number addition should work");
+assert(large_multiply == 1000000, "Large number multiplication should work");
+
+# Very small decimal operations
+let small_decimal1 = 0.001;
+let small_decimal2 = 0.002; 
+let small_add = small_decimal1 + small_decimal2;
+let small_multiply = 0.1 * 0.1;
+
+assert(small_add > 0.002 && small_add < 0.004, "Small decimal addition should work");
+assert(small_multiply > 0.009 && small_multiply < 0.011, "Small decimal multiplication should work");
+
+# Division edge cases (avoiding division by zero)
+let div_by_one = 42 / 1;
+let div_small_nums = 0.1 / 0.1;
+let div_negatives = (-10) / (-2);
+let div_mixed = (-15) / 3;
+
+assert(div_by_one == 42, "Division by 1 should original");
+assert(div_small_nums > 0.9 && div_small_nums < 1.1, "Small number division should work");
+assert(div_negatives == 5, "Negative division should work");
+assert(div_mixed == -5, "Mixed sign division should work");
+
+# Modulo edge cases
+let mod_by_large = 5 % 10;        # Result smaller than divisor;
+let mod_exact = 10 % 5;           # Exact division;
+let mod_negative = (-7) % 3;      # Negative numbers;
+let mod_by_one = 17 % 1;          # Modulo by 1
+
+assert(mod_by_large == 5, "Modulo by larger number should original");
+assert(mod_exact == 0, "Exact division modulo should be 0");
+assert(mod_by_one == 0, "Modulo by 1 should be 0");
+
+# Power operation edge cases
+let power_zero = 5 ** 0;          # Anything to power 0;
+let power_one = 7 ** 1;           # Anything to power 1  ;
+let power_of_zero = 0 ** 3;       # Zero to any positive power;
+let power_of_one = 1 ** 100;      # One to any power
+
+assert(power_zero == 1, "Any number to power 0 should be 1");
+assert(power_one == 7, "Any number to power 1 should be itself");
+assert(power_of_zero == 0, "Zero to positive power should be 0");
+assert(power_of_one == 1, "One to any power should be 1");
+
+# Array boundary access
+let boundary_array = [10, 20, 30, 40, 50];
+let first_elem = boundary_array[0];
+let last_elem = boundary_array[4];       # Last valid index;
+let array_length = boundary_array.length;
+
+assert(first_elem == 10, "First element access should work");
+assert(last_elem == 50, "Last element access should work"); 
+assert(array_length == 5, "Array length should be correct");
+
+# Empty array handling
+let empty_array = [];
+let empty_length = empty_array.length;
+let empty_size = empty_array.size;
+
+assert(empty_length == 0, "Empty array length should be 0");
+assert(empty_size == 0, "Empty array size should be 0");
+
+# Single element arrays
+let single_elem = [999];
+let single_access = single_elem[0];
+let single_length = single_elem.length;
+
+assert(single_access == 999, "Single element access should work");
+assert(single_length == 1, "Single element length should be 1");
+
+# String edge cases
+let empty_string = "";
+let empty_str_len = empty_string.length;
+let single_char = "x";
+let single_char_len = single_char.length;
+let whitespace_str = " ";
+let whitespace_len = whitespace_str.length;
+
+assert(empty_str_len == 0, "Empty string length should be 0");
+assert(single_char_len == 1, "Single character length should be 1");
+assert(whitespace_len == 1, "Whitespace string length should be 1");
+
+# Nested array edge cases
+# Note: Jagged arrays are not supported - using rectangular arrays instead
+let nested_empty = [[], [], []];
+# let nested_mixed = [[1], [2, 3], [4, 5, 6]];  # Jagged - not supported
+let nested_mixed = [[1, 0, 0], [2, 3, 0], [4, 5, 6]];  # Rectangular version;
+let deep_nested = [[[1]]];
+
+let nested_empty_len = nested_empty.length;
+let nested_mixed_len = nested_mixed.length;
+let deep_nested_access = deep_nested[0, 0, 0];
+
+assert(nested_empty_len == 3, "Nested empty arrays length should be 3");
+assert(nested_mixed_len == 3, "Nested mixed arrays length should be 3");
+assert(deep_nested_access == 1, "Deep nested access should work");
+
+# Boolean edge cases
+let bool_and_identity = true && true && true;
+let bool_or_identity = false || false || false;
+let bool_mixed_chain = true && false || true && true;
+let bool_negation_chain = !!!true;      # Triple negation
+
+assert(bool_and_identity == true, "All true AND should be true");
+assert(bool_or_identity == false, "All false OR should be false");
+assert(bool_mixed_chain == true, "Mixed boolean chain should work");
+assert(bool_negation_chain == false, "Triple negation should work");
+
+# Comparison edge cases
+let equal_types = 5 == 5;
+let equal_mixed = 5.0 == 5.0;       # Rust: must use same types
+let not_equal = 5 != 6;
+let boundary_compare1 = 0 < 1;
+let boundary_compare2 = (-1) < 0;
+
+assert(equal_types == true, "Same type equality should work");
+assert(equal_mixed == true, "Mixed type equality should work");
+assert(not_equal == true, "Not equal should work");
+assert(boundary_compare1 == true, "Boundary comparison 1 should work");
+assert(boundary_compare2 == true, "Boundary comparison 2 should work");
+
+# Range edge cases
+let min_range = [x | x in 1..2];     # Single element range;
+let zero_start_range = [x | x in 0..3];
+let negative_range = [x | x in (-2)..1];
+
+assert(min_range.length == 1, "Minimum range should have 1 element");
+assert(zero_start_range.length == 3, "Zero start range should work");
+assert(negative_range.length == 3, "Negative range should work");
+
+# Function edge cases
+fn identity(x) {
+    x
+}
+
+fn constant() {
+    42
+}
+
+fn conditional_return(flag) {
+    if (flag) {
+        "yes"
+    } else {
+        "no"
+    }
+}
+
+let identity_test = identity(123);
+let constant_test = constant();
+let cond_true = conditional_return(true);
+let cond_false = conditional_return(false);
+
+assert(identity_test == 123, "Identity function should work");
+assert(constant_test == 42, "Constant function should work");
+assert(cond_true == "yes", "Conditional true should work");
+assert(cond_false == "no", "Conditional false should work");
+
+# Comprehension edge cases
+let empty_comprehension = [x | x in [], x > 0];
+let single_result_comp = [x | x in [5], x == 5];
+let no_match_comp = [x | x in [1, 2, 3], x > 10];
+
+assert(empty_comprehension.length == 0, "Empty source comprehension should be empty");
+assert(single_result_comp.length == 1, "Single result comprehension should work");
+assert(no_match_comp.length == 0, "No match comprehension should be empty");
+
+print("=== Edge Case Handling Tests ===");
+print("Boundary arithmetic:", zero_operations, large_add, small_add);
+print("Division edge cases:", div_by_one, div_small_nums, div_negatives);
+print("Power edge cases:", power_zero, power_one, power_of_zero, power_of_one);
+print("Array boundaries:", first_elem, last_elem, empty_length);
+print("String edge cases:", empty_str_len, single_char_len, whitespace_len);
+print("Boolean edge cases:", bool_and_identity, bool_or_identity, bool_mixed_chain);
+print("Range edge cases:", min_range, zero_start_range, negative_range);
+print("Function edge cases:", identity_test, constant_test, cond_true);
+print("✓ All edge case handling working correctly!");

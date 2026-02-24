@@ -1,0 +1,77 @@
+# TopK Algorithm Showcase - Using stdlib::array
+# Demonstrates usage of stdlib topk functions
+
+use std::array::{topk, topk_with_indices};
+
+print("=== TOPK ALGORITHM SHOWCASE ===");
+print("Using stdlib::array topk functions");
+print();
+
+# Demo Data
+let demo_data = [85, 92, 78, 96, 87, 91, 83, 88, 94, 89];
+let demo_data2 = [15, 23, 8, 42, 16, 34, 12, 28, 31, 19];
+
+print("Demo datasets:");
+print("Data 1:", demo_data, "(size:", len(demo_data), ")");
+print("Data 2:", demo_data2, "(size:", len(demo_data2), ")");
+print("Reference sorted Data 1: [96, 94, 92, 91, 89, 88, 87, 85, 83, 78]");
+print("Reference sorted Data 2: [42, 34, 31, 28, 23, 19, 16, 15, 12, 8]");
+print();
+
+# Test 1: Top 4 Largest Elements
+print("=== Test 1: Top 4 Largest Elements ===");
+print("Expected: should include [96, 94, 92, 91] from data1");
+
+let top4 = topk(demo_data, 4);
+print("Result:", top4);
+
+# Verification
+let has_96 = len([top4[i] | i in 0..len(top4), top4[i] == 96]) > 0;
+let has_94 = len([top4[i] | i in 0..len(top4), top4[i] == 94]) > 0;
+let has_92 = len([top4[i] | i in 0..len(top4), top4[i] == 92]) > 0;
+let has_91 = len([top4[i] | i in 0..len(top4), top4[i] == 91]) > 0;
+
+print("Result contains [96, 94, 92, 91]:", has_96 && has_94 && has_92 && has_91);
+print();
+
+# Test 2: Top 3 Smallest Elements
+print("=== Test 2: Top 3 Smallest Elements (negative k) ===");
+print("Expected: [78, 83, 85] from data1");
+
+let top3_smallest = topk(demo_data, -3);
+print("Result:", top3_smallest);
+
+let has_8 = len([top3_smallest[i] | i in 0..len(top3_smallest), top3_smallest[i] == 8]) > 0;
+let has_12 = len([top3_smallest[i] | i in 0..len(top3_smallest), top3_smallest[i] == 12]) > 0;
+let has_15 = len([top3_smallest[i] | i in 0..len(top3_smallest), top3_smallest[i] == 15]) > 0;
+
+print("(Note: checking for presence of small values)");
+print();
+
+# Test 3: TopK with Indices
+print("=== Test 3: TopK with Indices ===");
+print("Getting top 5 elements from data2 with their original indices");
+
+let result_with_indices = topk_with_indices(demo_data2, 5);
+print("Result:", result_with_indices);
+print("Expected: top 5 largest values from [15, 23, 8, 42, 16, 34, 12, 28, 31, 19]");
+print("Should include: 42, 34, 31, 28, 23");
+print();
+
+# Test 4: Edge Cases
+print("=== Test 4: Edge Cases ===");
+
+# Empty result (k=0)
+let empty_result = topk(demo_data, 0);
+print("k=0 result:", empty_result, "(should be empty)");
+
+# All elements (k >= n)
+let all_elements = topk(demo_data, 20);
+print("k=20 result size:", len(all_elements), "(should be 10, all elements)");
+
+# Single element
+let single = topk(demo_data, 1);
+print("k=1 result:", single, "(should contain 96)");
+print();
+
+print("=== SHOWCASE COMPLETE ===");

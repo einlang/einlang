@@ -1,0 +1,78 @@
+# stdlib_v2/math/constants.ein - Mathematical constants
+
+use std::math::sqrt;
+
+pub fn pi() {
+    # Pi constant (π ≈ 3.141592653589793)
+    python::numpy::pi
+}
+
+pub fn e() {
+    # Euler's number (e ≈ 2.718281828459045)
+    python::numpy::e
+}
+
+pub fn tau() {
+    # Tau constant (τ = 2π ≈ 6.283185307179586)
+    2.0 * pi()
+}
+
+pub fn phi() {
+    # Golden ratio (φ ≈ 1.618033988749895)
+    (1.0 + sqrt(5.0)) / 2.0
+}
+
+pub fn sqrt2() {
+    # Square root of 2 (√2 ≈ 1.4142135623730951)
+    sqrt(2.0)
+}
+
+pub fn sqrt3() {
+    # Square root of 3 (√3 ≈ 1.7320508075688772)
+    sqrt(3.0)
+}
+
+pub fn ln2() {
+    # Natural logarithm of 2 (ln(2) ≈ 0.6931471805599453)
+    python::numpy::log(2.0)
+}
+
+pub fn ln10() {
+    # Natural logarithm of 10 (ln(10) ≈ 2.302585092994046)
+    python::numpy::log(10.0)
+}
+
+pub fn log2e() {
+    # Base-2 logarithm of e (log₂(e) ≈ 1.4426950408889634)
+    python::numpy::log2(e())
+}
+
+pub fn log10e() {
+    # Base-10 logarithm of e (log₁₀(e) ≈ 0.4342944819032518)
+    python::numpy::log10(e())
+}
+
+pub fn infinity() {
+    # Positive infinity
+    python::numpy::inf
+}
+
+pub fn nan() {
+    # Not a Number
+    python::numpy::nan
+}
+
+pub fn epsilon() {
+    # Machine epsilon for float64 (IEEE 754 standard)
+    2.220446049250313e-16
+}
+
+pub fn max_float() {
+    # Maximum representable float64 (IEEE 754 standard)
+    1.7976931348623157e+308
+}
+
+pub fn min_float() {
+    # Minimum positive normalized float64 (IEEE 754 standard)
+    2.2250738585072014e-308
+}

@@ -1,0 +1,124 @@
+# Minimal Builtins Demo
+# Demonstrates that mathematical functions work via stdlib imports, not builtins
+
+print("=== Minimal Builtins Demo ===");
+print();
+
+# =============================================================================
+# VERIFY ONLY ESSENTIAL BUILTINS EXIST
+# =============================================================================
+
+print("1. Essential Builtins Only:");
+print("Type of 42:", typeof(42));           # typeof - builtin
+print("Length of array:", len([1, 2, 3]));  # len - builtin
+assert(true, "Assertion works");             # assert - builtin
+# print is working obviously since we're using it - builtin
+
+print();
+
+# =============================================================================
+# IMPORT MATHEMATICAL FUNCTIONS FROM STDLIB
+# =============================================================================
+
+print("2. Import Mathematical Functions from Stdlib:");
+
+# Import mathematical functions from stdlib
+use std::math::abs;
+use std::math::sqrt;
+use std::math::pow;
+use std::math::max;
+use std::math::min;
+use python::math;
+# Note: relu and sigmoid are not available in basic stdlib, using Python math for exp/sin/cos
+
+print("Mathematical functions imported successfully!");
+print();
+
+# =============================================================================
+# TEST SCALAR OPERATIONS
+# =============================================================================
+
+print("3. Scalar Operations (from stdlib, not builtins):");
+
+let x = -5.0;
+print("abs(-5.0):", abs(x));                # Should print: 5.0
+
+let y = 16.0;
+print("sqrt(16.0):", sqrt(y));              # Should print: 4.0
+
+let z = 2.0;
+print("exp(2.0) from python::math:", math::exp(z));                 # Should print: ~7.389 (scalars only)
+
+let angle = 0.0;
+print("sin(0.0) from python::math:", math::sin(angle));             # Should print: 0.0 (scalars only)
+print("cos(0.0) from python::math:", math::cos(angle));             # Should print: 1.0 (scalars only)
+
+print();
+
+# =============================================================================
+# TEST TENSOR OPERATIONS
+# =============================================================================
+
+print("4. Tensor Operations (duck typing magic):");
+
+let vector = [-2, -1, 0, 1, 2];
+print("abs(vector):", abs(vector));         # Should print: [2, 1, 0, 1, 2]
+
+let matrix = [[1, 4], [9, 16]];
+print("sqrt(matrix):", sqrt(matrix));       # Should print: [[1, 2], [3, 4]]
+
+print("Note: python::math only works on scalars, use std::math for arrays");
+
+print();
+
+# =============================================================================
+# TEST BROADCASTING
+# =============================================================================
+
+print("5. Broadcasting Operations:");
+
+let base = 2.0;
+let exponents = [1.0, 2.0, 3.0, 4.0];
+print("pow(2, [1,2,3,4]):", pow(base, exponents)); # Should print: [2, 4, 8, 16]
+
+let vals1 = [1, 5, 3];
+let vals2 = [2, 3, 4];
+print("max([1,5,3], [2,3,4]):", max(vals1, vals2)); # Should print: [2, 5, 4]
+
+print();
+
+# =============================================================================
+# TEST ML FUNCTIONS (commented out - not available in basic stdlib)
+# =============================================================================
+
+print("6. Machine Learning Functions:");
+
+# Note: relu and sigmoid are not available in basic stdlib
+# let inputs = [-2, -1, 0, 1, 2];
+# print("relu(inputs):", relu(inputs));       # Should print: [0, 0, 0, 1, 2]
+
+# let logits = [-1, 0, 1];
+# print("sigmoid(logits):", sigmoid(logits)); # Should print: [0.269, 0.5, 0.731] (approx)
+
+print("ML functions (relu, sigmoid) not available in basic stdlib");
+
+print();
+
+# =============================================================================
+# COMPARISON: WHAT DOESN'T WORK WITHOUT IMPORTS
+# =============================================================================
+
+print("7. Verification - Functions are NOT builtins:");
+
+# If we comment out the imports above and try to use mathematical functions,
+# they would fail because they're not builtins anymore
+
+print("This works because we imported mathematical functions from stdlib!");
+print("Without imports, abs(), sqrt(), etc. would be undefined!");
+
+print();
+print("=== Demo Complete ===");
+print("✅ Builtins are minimal (print, assert, typeof, len, array_append)");
+print("✅ Mathematical functions come from stdlib with duck typing");
+print("✅ Functions work seamlessly on scalars and tensors");
+print("✅ Clean separation between essential builtins and stdlib functions");

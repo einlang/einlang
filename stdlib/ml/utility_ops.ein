@@ -1,0 +1,320 @@
+# ml/utility_ops.ein - ONNX Utility Operations
+# TensorRT ONNX Parser: ✅ Supported
+
+use std::math::sqrt;
+use std::ml::shape_ops::shape;
+
+# ============================================================================
+# Conditional Operations
+# ============================================================================
+
+pub fn where(condition, x, y) {
+    # Element-wise conditional: condition ? x : y
+    if condition { x } else { y }
+}
+
+
+# ============================================================================
+# Identity and Constant Operations
+# ============================================================================
+
+pub fn identity(x) {
+    # Identity function (pass-through)
+    x
+}
+
+
+pub fn constant(value) {
+    # Return constant value
+    value
+}
+
+
+# ============================================================================
+# Regularization Operations
+# ============================================================================
+
+pub fn dropout(x, ratio, training) {
+    # Dropout with training mode support
+    # training=0 (inference): return x unchanged
+    # training=1 (training): scale by (1-ratio) for deterministic behavior
+    # Note: Real dropout would use random masking in training
+    if training == 0 {
+        x  # Inference mode: no dropout
+    } else {
+        x * (1.0 - ratio)  # Training mode: deterministic scaling
+    }
+}
+
+
+pub fn l2_normalize(x, epsilon) {
+    # L2 Normalization: normalize vectors to unit length
+    # output = x / ||x||, where ||x|| is L2 norm
+    # Generic: works with arbitrary batch dimensions
+    # Input shape: [..batch, features], Output shape: [..batch, features]
+    assert(typeof(x) == "rectangular", "l2_normalize: input must be rectangular array");
+    
+    let norm_sq[..batch] = sum[j](x[..batch, j] * x[..batch, j]);
+    let norm[..batch] = sqrt(norm_sq[..batch] + epsilon);
+    let output[..batch, j] = x[..batch, j] / norm[..batch];
+    output
+}
+
+
+# ============================================================================
+# Size and Shape Operations
+# ============================================================================
+
+pub fn numel(x: [f32; *]) -> f32 {
+    # Return total number of elements in tensor
+    # Computes product of all dimensions
+    assert(typeof(x) == "rectangular", "numel: input must be rectangular");
+    
+    let shape_arr = shape(x);
+    let result = prod[i](shape_arr[i]);
+    result
+}
+
+
+pub fn size(data) {
+    # ONNX Size operator
+    # 
+    # ONNX spec: Size(data)
+    #   - data: input tensor
+    #   Returns: scalar containing the total number of elements
+    # 
+    # Implementation: Returns total number of elements
+    #   - For 0D scalars: returns 1
+    #   - For 1D+: uses numel (product of shape dimensions)
+    # 
+    # TensorRT Support: ✅ IShapeLayer
+    if typeof(data) == "rectangular" {
+        numel(data)
+    } else {
+        # Scalar (f32, i32, bool, etc.) - size is 1
+        1.0
+    }
+}
+
+
+# ============================================================================
+# Type Conversion Operations
+# ============================================================================
+
+pub fn cast(input, to) {
+    # ONNX Cast operator
+    # 
+    # ONNX spec: Cast(input, to: int attribute)
+    #   - input: tensor (any rank, any type)
+    #   - to: scalar int attribute (ONNX TensorProto.DataType enum)
+    #         FLOAT=1, INT8=3, INT16=5, INT32=6, INT64=7, BOOL=9, etc.
+    # 
+    # Simplified implementation using custom type codes:
+    #   - input: tensor (any rank, f32 or i32)
+    #   - to: scalar int (0=FLOAT, 1=INT32, 2=BOOL)
+    # 
+    # Limitations:
+    #   - All output is f32 for type system consistency (even for i32/bool casts)
+    #   - Only supports f32 ↔ i32 ↔ bool conversions
+    if to == 0 {
+        # Cast to FLOAT (already f32, return as-is)
+        input
+    } else if to == 1 {
+        # Cast to INT32 then back to f32 for type consistency
+        let result_i32[..dims] = input[..dims] as i32;
+        let result_f32[..dims] = result_i32[..dims] as f32;
+        result_f32
+    } else {
+        # Cast to BOOL (as f32: 0.0 or 1.0)
+        let bool_result[..dims] = if input[..dims] != 0.0 { 1.0 } else { 0.0 };
+        bool_result
+    }
+}
+
+
+# ============================================================================
+# Slice Operations
+# ============================================================================
+
+pub fn slice(data, starts, ends, axes, steps) {
+    # ONNX Slice operator
+    # 
+    # ONNX spec: Slice(data, starts, ends, axes, steps)
+    #   - data: input tensor (any rank)
+    #   - starts: 1D tensor of starting indices for each axis
+    #   - ends: 1D tensor of ending indices for each axis
+    #   - axes: 1D tensor of axis indices to slice
+    #   - steps: 1D tensor of step sizes for each axis
+    # 
+    # Implementation: Preprocess to expand sparse axes to full parameters
+    #   - Rank dispatch for 1D-4D tensors
+    #   - For unspecified axes: uses identity slice (0, shape[axis], 1)
+    #   - Negative indices not supported
+    assert(typeof(data) == "rectangular", "slice: data must be rectangular");
+    
+    let rank = len(data.shape);
+    
+    # Preprocess parameters: expand sparse axes to full per-axis parameters
+    if rank == 1 {
+        let full_start0 = starts[0];
+        let full_end0 = ends[0];
+        let full_step0 = steps[0];
+        slice_impl_1d(data, full_start0, full_end0, full_step0)
+    } else if rank == 2 {
+        # Expand sparse parameters inline for 2D
+        let num_axes = len(axes);
+        let s = data.shape;
+        
+        # Check first axis
+        let axis0_is_0 = num_axes >= 1 && axes[0] == 0;
+        let axis0_is_1 = num_axes >= 1 && axes[0] == 1;
+        
+        # Only check second axis if it exists
+        let axis1_val = if num_axes >= 2 { axes[1] } else { -1 };
+        let axis1_is_0 = axis1_val == 0;
+        let axis1_is_1 = axis1_val == 1;
+        
+        # Compute final parameters
+        let start0 = if axis0_is_0 { starts[0] } 
+                     else if axis1_is_0 { starts[1] } 
+                     else { 0 };
+        let end0 = if axis0_is_0 { ends[0] } 
+                   else if axis1_is_0 { ends[1] } 
+                   else { s[0] };
+        let step0 = if axis0_is_0 { steps[0] } 
+                    else if axis1_is_0 { steps[1] } 
+                    else { 1 };
+        
+        let start1 = if axis0_is_1 { starts[0] } 
+                     else if axis1_is_1 { starts[1] } 
+                     else { 0 };
+        let end1 = if axis0_is_1 { ends[0] } 
+                   else if axis1_is_1 { ends[1] } 
+                   else { s[1] };
+        let step1 = if axis0_is_1 { steps[0] } 
+                    else if axis1_is_1 { steps[1] } 
+                    else { 1 };
+        
+        slice_impl_2d(data, start0, end0, step0, start1, end1, step1)
+    } else if rank == 3 {
+        # Expand sparse parameters inline for 3D  
+        let num_axes = len(axes);
+        let s = data.shape;
+        
+        # Helper to get parameter value for given axis
+        let get_start = |axis| {
+            if num_axes >= 1 && axes[0] == axis { starts[0] }
+            else if num_axes >= 2 && axes[1] == axis { starts[1] }
+            else if num_axes >= 3 && axes[2] == axis { starts[2] }
+            else { 0 }
+        };
+        let get_end = |axis| {
+            if num_axes >= 1 && axes[0] == axis { ends[0] }
+            else if num_axes >= 2 && axes[1] == axis { ends[1] }
+            else if num_axes >= 3 && axes[2] == axis { ends[2] }
+            else { s[axis] }
+        };
+        let get_step = |axis| {
+            if num_axes >= 1 && axes[0] == axis { steps[0] }
+            else if num_axes >= 2 && axes[1] == axis { steps[1] }
+            else if num_axes >= 3 && axes[2] == axis { steps[2] }
+            else { 1 }
+        };
+        
+        slice_impl_3d(data, get_start(0), get_end(0), get_step(0),
+                           get_start(1), get_end(1), get_step(1),
+                           get_start(2), get_end(2), get_step(2))
+    } else {
+        # rank == 4
+        let num_axes = len(axes);
+        let s = data.shape;
+        
+        # Helper to get parameter value for given axis
+        let get_start = |axis| {
+            if num_axes >= 1 && axes[0] == axis { starts[0] }
+            else if num_axes >= 2 && axes[1] == axis { starts[1] }
+            else { 0 }
+        };
+        let get_end = |axis| {
+            if num_axes >= 1 && axes[0] == axis { ends[0] }
+            else if num_axes >= 2 && axes[1] == axis { ends[1] }
+            else { s[axis] }
+        };
+        let get_step = |axis| {
+            if num_axes >= 1 && axes[0] == axis { steps[0] }
+            else if num_axes >= 2 && axes[1] == axis { steps[1] }
+            else { 1 }
+        };
+        
+        slice_impl_4d(data, get_start(0), get_end(0), get_step(0),
+                           get_start(1), get_end(1), get_step(1),
+                           get_start(2), get_end(2), get_step(2),
+                           get_start(3), get_end(3), get_step(3))
+    }
+}
+
+fn slice_impl_1d(data, start0, end0, step0) {
+    let result[k] = data[start0 + k * step0] where k >= 0 && start0 + k * step0 < end0;
+    result
+}
+
+fn slice_impl_2d(data, start0, end0, step0, start1, end1, step1) {
+    let result[k0, k1] = data[start0 + k0 * step0, start1 + k1 * step1] 
+        where k0 >= 0 && start0 + k0 * step0 < end0 
+           && k1 >= 0 && start1 + k1 * step1 < end1;
+    result
+}
+
+fn slice_impl_3d(data, start0, end0, step0, start1, end1, step1, start2, end2, step2) {
+    let result[k0, k1, k2] = data[start0 + k0 * step0, start1 + k1 * step1, start2 + k2 * step2] 
+        where k0 >= 0 && start0 + k0 * step0 < end0 
+           && k1 >= 0 && start1 + k1 * step1 < end1
+           && k2 >= 0 && start2 + k2 * step2 < end2;
+    result
+}
+
+fn slice_impl_4d(data, start0, end0, step0, start1, end1, step1, start2, end2, step2, start3, end3, step3) {
+    let result[k0, k1, k2, k3] = data[start0 + k0 * step0, start1 + k1 * step1, start2 + k2 * step2, start3 + k3 * step3] 
+        where k0 >= 0 && start0 + k0 * step0 < end0 
+           && k1 >= 0 && start1 + k1 * step1 < end1
+           && k2 >= 0 && start2 + k2 * step2 < end2
+           && k3 >= 0 && start3 + k3 * step3 < end3;
+    result
+}
+
+
+# ============================================================================
+# Cumulative Operations
+# ============================================================================
+
+pub fn cumsum(x: [f32; *]) -> [f32; *] {
+    # Cumulative sum over last dimension (ONNX CumSum)
+    # Input: [features] (1D), [..batch, features] (2D), or [..batch, features, time] (3D)
+    # Output: same shape as input
+    # cumsum[j] = x[0] + x[1] + ... + x[j]
+    # Uses backward indexing pattern: sum[k in 0..j+1](x[j-k])
+    # This is the working pattern for scan operations in Einlang
+    assert(typeof(x) == "rectangular", "cumsum: input must be rectangular");
+    
+    let rank = len(x.shape);
+    
+    # Rank 1: 1D input [n]
+    if rank == 1 {
+        let result[j] = sum[k in 0..j+1](x[j-k]);
+        result
+    # Rank 2: 2D input [batch, features]
+    } else if rank == 2 {
+        let result[..batch, j] = sum[k in 0..j+1](x[..batch, j-k]);
+        result
+    # Rank 3: 3D input [batch, features, time]
+    } else if rank == 3 {
+        # Cumulative sum over last dimension (axis=-1 or axis=2)
+        # result[batch, j, k] = sum[l in 0..k+1](x[batch, j, k-l])
+        let result[..batch, j, k] = sum[l in 0..k+1](x[..batch, j, k-l]);
+        result
+    } else {
+        # Fallback for unsupported ranks
+        x
+    }
+}
+

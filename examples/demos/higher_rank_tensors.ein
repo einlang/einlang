@@ -1,0 +1,277 @@
+# Higher Rank Tensor Operations
+# Demonstrates 3D, 4D, and higher dimensional tensor manipulations
+
+print("=== HIGHER RANK TENSOR OPERATIONS ===");
+print("Exploring 3D, 4D, and beyond with real-world applications");
+print();
+
+# =============================================================================
+# 3D TENSORS: Time Series and Video Processing
+# =============================================================================
+
+print("=== 3D TENSOR OPERATIONS ===");
+
+# Time series data: (batch, time, features)
+let time_series = [
+    [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]], # Sample 1
+    [[2.0, 3.0, 4.0], [5.0, 6.0, 7.0], [8.0, 9.0, 10.0]], # Sample 2
+    [[1.5, 2.5, 3.5], [4.5, 5.5, 6.5], [7.5, 8.5, 9.5]]  # Sample 3
+];  # Shape: (3, 3, 3) - (batch, time, features)
+
+print("Time series data shape: (batch=3, time=3, features=3)");
+print("Sample 1:", time_series[0]);
+print();
+
+# 3D tensor operations using Einstein notation
+let batch_mean[b] = sum[t,f](time_series[b,t,f]) / (3 * 3);  # Mean over time and features;
+let temporal_mean[b,f] = sum[t](time_series[b,t,f]) / 3;     # Mean over time dimension;
+let feature_mean[b,t] = sum[f](time_series[b,t,f]) / 3;      # Mean over feature dimension
+
+print("Batch-wise means:", batch_mean);
+print("Temporal means (avg over time):");
+print("Sample 1:", temporal_mean[0]);
+print("Feature means (avg over features):");
+print("Sample 1:", feature_mean[0]);
+print();
+
+# Temporal convolution simulation (1D conv over time)
+let conv_kernel = [0.25, 0.5, 0.25];  # Simple smoothing kernel;
+let convolved[b,t in 0..1,f] = sum[k in 0..3](time_series[b,t+k,f] * conv_kernel[k]);  # Valid convolution: 3-3+1=1 output
+
+print("1D temporal convolution (smoothing):");
+print("Original sample 1, feature 0:", [time_series[0,t,0] | t >= 0, t < 3]);
+print("Convolved result:", convolved[0]);
+print();
+
+# =============================================================================
+# 4D TENSORS: Batch Image Processing (NCHW format)
+# =============================================================================
+
+print("=== 4D TENSOR OPERATIONS (BATCH IMAGES) ===");
+
+# Simulate batch of small images: (batch, channels, height, width)
+let image_batch = [
+    [[[1, 2], [3, 4]], [[5, 6], [7, 8]]], # Image 1: 2 channels, 2x2
+    [[[2, 3], [4, 5]], [[6, 7], [8, 9]]], # Image 2: 2 channels, 2x2
+    [[[1, 1], [2, 2]], [[3, 3], [4, 4]]]  # Image 3: 2 channels, 2x2
+];  # Shape: (3, 2, 2, 2) - (batch, channels, height, width)
+
+print("Image batch shape: (batch=3, channels=2, height=2, width=2)");
+print("Image 1, channel 0:", image_batch[0,0]);
+print("Image 1, channel 1:", image_batch[0,1]);
+print();
+
+# 4D tensor operations with Einstein notation
+let batch_channel_mean[b,c] = sum[h,w](image_batch[b,c,h,w]) / (2 * 2);  # Mean per channel;
+let spatial_mean[b,c] = sum[h,w](image_batch[b,c,h,w]) / 4;              # Same as above;
+let global_mean = sum(image_batch) / (3 * 2 * 2 * 2);                   # Global mean across all dims
+
+print("Channel-wise means per image:");
+print("Image 1:", batch_channel_mean[0]);
+print("Image 2:", batch_channel_mean[1]);
+print("Global mean across entire batch:", global_mean);
+print();
+
+# Spatial operations: max pooling simulation
+let max_pooled[b,c] = max[h,w](image_batch[b,c,h,w]);  # Global max pool;
+let channel_max[b] = max[c,h,w](image_batch[b,c,h,w]); # Max across channels and space
+
+print("Max pooling results:");
+print("Per-channel max (image 1):", max_pooled[0]);
+print("Global spatial max (image 1):", channel_max[0]);
+print();
+
+# =============================================================================
+# CONVOLUTION OPERATIONS ON 4D TENSORS
+# =============================================================================
+
+print("=== 4D CONVOLUTION OPERATIONS ===");
+
+# Convolution kernel: (out_channels, in_channels, kernel_h, kernel_w)
+let conv_kernel_4d = [[[[0.1, 0.2], [0.3, 0.4]], [[0.2, 0.1], [0.4, 0.3]]]]; # (1, 2, 2, 2);
+let bias = [0.1];
+
+print("Conv kernel shape: (out_channels=1, in_channels=2, height=2, width=2)");
+
+# Convolution operation using Einstein notation
+let conv_output[b,oc] = sum[ic,kh,kw](
+    image_batch[b,ic,kh,kw] * conv_kernel_4d[oc,ic,kh,kw]
+) + bias[oc];  # Valid convolution (output size 1x1)
+
+print("Convolution output (per batch):", conv_output);
+print();
+
+# Batch normalization simulation
+let channel_variance[b,c] = sum[h,w]((image_batch[b,c,h,w] - batch_channel_mean[b,c]) * 
+                                     (image_batch[b,c,h,w] - batch_channel_mean[b,c])) / 4;
+let normalized[b,c,h,w] = (image_batch[b,c,h,w] - batch_channel_mean[b,c]) / 
+                          sqrt(channel_variance[b,c] + 0.001);
+
+print("Batch normalization:");
+print("Channel variance (image 1):", channel_variance[0]);
+print("Normalized values (image 1, channel 0):", [[normalized[0,0,h,w] | w >= 0, w < 2] where h >= 0, h < 2]);
+print();
+
+# =============================================================================
+# 5D TENSORS: Video Processing (Batch, Channels, Time, Height, Width)
+# =============================================================================
+
+print("=== 5D TENSOR OPERATIONS (VIDEO BATCH) ===");
+
+# Video data: (batch, channels, time, height, width)
+let video_batch = [
+    [   # Video 1
+        [   # Channel 0
+            [[1, 2], [3, 4]], # Frame 0
+            [[2, 3], [4, 5]]  # Frame 1
+        ],
+        [   # Channel 1  
+            [[5, 6], [7, 8]], # Frame 0
+            [[6, 7], [8, 9]]  # Frame 1
+        ]
+    ],
+    [   # Video 2
+        [   # Channel 0
+            [[2, 1], [4, 3]], # Frame 0
+            [[3, 2], [5, 4]]  # Frame 1
+        ],
+        [   # Channel 1
+            [[6, 5], [8, 7]], # Frame 0
+            [[7, 6], [9, 8]]  # Frame 1
+        ]
+    ]
+];  # Shape: (2, 2, 2, 2, 2) - (batch, channels, time, height, width)
+
+print("Video batch shape: (batch=2, channels=2, time=2, height=2, width=2)");
+print("Video 1, channel 0, frame 0:", video_batch[0,0,0]);
+print();
+
+# 5D tensor operations
+let temporal_mean_5d[b,c,h,w] = sum[t](video_batch[b,c,t,h,w]) / 2;      # Average over time;
+let spatial_mean_5d[b,c,t] = sum[h,w](video_batch[b,c,t,h,w]) / 4;       # Average over space  ;
+let video_mean[b] = sum[c,t,h,w](video_batch[b,c,t,h,w]) / (2*2*2*2);    # Mean per video
+
+print("5D tensor operations:");
+print("Temporal average (video 1, ch 0):", [[temporal_mean_5d[0,0,h,w] | w >= 0, w < 2] where h >= 0, h < 2]);
+print("Spatial means (video 1, ch 0):", spatial_mean_5d[0,0]);
+print("Video means:", video_mean);
+print();
+
+# 3D convolution simulation (over time + space)
+let conv3d_kernel = [[[0.1, 0.1], [0.1, 0.1]], [[0.2, 0.2], [0.2, 0.2]]]; # (2, 2, 2) - (t, h, w);
+let conv3d_output[b,c] = sum[t,h,w](video_batch[b,c,t,h,w] * conv3d_kernel[t,h,w]);
+
+print("3D convolution output (spatiotemporal):", conv3d_output);
+print();
+
+# =============================================================================
+# ADVANCED HIGHER-RANK OPERATIONS
+# =============================================================================
+
+print("=== ADVANCED HIGHER-RANK OPERATIONS ===");
+
+# Attention mechanism with 4D tensors  
+let query = [[[1, 2], [3, 4]], [[2, 1], [4, 3]]];      # (batch=2, seq=2, dim=2);
+let key = [[[1, 1], [2, 2]], [[1, 2], [2, 1]]];        # (batch=2, seq=2, dim=2)  ;
+let value = [[[0.1, 0.2], [0.3, 0.4]], [[0.2, 0.1], [0.4, 0.3]]]; # (batch=2, seq=2, dim=2)
+
+# Attention scores: Q @ K^T
+let attention_scores[b,i,j] = sum[d](query[b,i,d] * key[b,j,d]);
+
+print("Multi-dimensional attention:");
+print("Query shape: (batch=2, seq=2, dim=2)");
+print("Attention scores (batch 1):", attention_scores[0]);
+print();
+
+# Simple uniform attention weights (avoiding softmax complexity for now)  
+let uniform_weights[b,i,j] = 0.0 * attention_scores[b,i,j] + 0.5;  # Uniform 0.5 weight, using attention_scores to infer shape
+
+# Attention output: weights @ values  
+let attention_output[b,i,d] = sum[j](uniform_weights[b,i,j] * value[b,j,d]);
+
+print("Attention weights (uniform):", uniform_weights[0,0]);
+print("Attention output (batch 1):", attention_output[0]);
+print();
+
+# =============================================================================
+# TENSOR RESHAPING AND BROADCASTING
+# =============================================================================
+
+print("=== TENSOR RESHAPING AND BROADCASTING ===");
+
+# Demonstrate broadcasting with higher rank tensors
+let matrix_3d = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];  # (2, 2, 2);
+let vector_1d = [10, 20];                              # (2,);
+let matrix_2d = [[1, 1], [2, 2]];                      # (2, 2)
+
+# Broadcasting operations
+let broadcast_add_1d[i,j,k] = matrix_3d[i,j,k] + vector_1d[k];  # Add vector to last dim;
+let broadcast_add_2d[i,j,k] = matrix_3d[i,j,k] + matrix_2d[j,k]; # Add matrix to last two dims
+
+print("Broadcasting examples:");
+print("Original 3D tensor:", matrix_3d);
+print("Vector to add:", vector_1d);
+print("After broadcasting vector (slice 0):", broadcast_add_1d[0]);
+print();
+
+# Tensor contraction (generalized matrix multiplication)
+let tensor_a = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];   # (2, 2, 2);
+let tensor_b = [[[1, 0], [0, 1]], [[2, 1], [1, 2]]];   # (2, 2, 2)
+
+# Contract over last dimension
+let contracted[i,j,k] = sum[l](tensor_a[i,j,l] * tensor_b[i,k,l]);
+
+print("Tensor contraction:");
+print("Contracted result (slice 0):", contracted[0]);
+print();
+
+# =============================================================================
+# PERFORMANCE PATTERNS FOR HIGH-RANK TENSORS
+# =============================================================================
+
+print("=== PERFORMANCE PATTERNS ===");
+
+# Simplified tensor for demonstration (manually created)
+let large_tensor = [;
+    [[0, 1, 2, 3], [1, 2, 3, 4], [2, 3, 4, 5]], # i=0;
+    [[1, 2, 3, 4], [2, 3, 4, 5], [3, 4, 5, 6]], # i=1  ;
+    [[2, 3, 4, 5], [3, 4, 5, 6], [4, 5, 6, 7]], # i=2;
+    [[3, 4, 5, 6], [4, 5, 6, 7], [5, 6, 7, 8]], # i=3;
+    [[4, 5, 6, 7], [5, 6, 7, 8], [6, 7, 8, 9]]  # i=4
+]; # (5, 3, 4)
+
+# Multiple reduction strategies
+let total_sum = sum(large_tensor);                           # All dimensions;
+let dim0_reduced[j,k] = sum[i](large_tensor[i,j,k]);        # Reduce first dim;
+let dim12_reduced[i] = sum[j,k](large_tensor[i,j,k]);       # Reduce last two dims;
+let partial_max[i] = max[j,k](large_tensor[i,j,k]);         # Max over last two dims
+
+print("Reduction patterns on (5,3,4) tensor:");
+print("Total sum:", total_sum);
+print("First dimension reduced (shape 3x4):", dim0_reduced);
+print("Last dims reduced (shape 5):", dim12_reduced);
+print("Partial max (shape 5):", partial_max);
+print();
+
+# Memory-efficient patterns
+let slice_operation[i] = sum[j,k](large_tensor[i,j,k] * large_tensor[i,j,k]); # L2 norm per slice;
+let diagonal_sum = sum[i](large_tensor[i,i%3,i%4]); # Diagonal-like access pattern
+
+print("Memory-efficient operations:");
+print("L2 norms per slice:", slice_operation);
+print("Diagonal sum:", diagonal_sum);
+print();
+
+print("=== KEY HIGHER-RANK CONCEPTS DEMONSTRATED ===");
+print("✓ 3D tensors: Time series and video frame processing");
+print("✓ 4D tensors: Batch image processing (NCHW format)"); 
+print("✓ 5D tensors: Video batch processing with temporal dimension");
+print("✓ Multi-dimensional Einstein notation: Complex reductions");
+print("✓ Broadcasting: Operations across different tensor ranks");
+print("✓ Attention mechanisms: Query-key-value with 3D tensors");
+print("✓ Convolutions: 2D and 3D spatiotemporal operations");
+print("✓ Tensor contractions: Generalized matrix multiplications");
+print("✓ Performance patterns: Efficient reduction strategies");
+print();
+
+print("=== HIGHER RANK TENSOR OPERATIONS COMPLETE ===");

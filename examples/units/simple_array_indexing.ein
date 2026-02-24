@@ -1,0 +1,7 @@
+# Simple array indexing with explicit ranges
+
+let arr = [10, 20, 30];
+let result[i in 0..3] = arr[i];
+
+assert(arr == [10, 20, 30]);
+assert(result == [10, 20, 30]);

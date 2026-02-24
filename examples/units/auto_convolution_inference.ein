@@ -1,0 +1,11 @@
+# Automatic range inference for convolution operations
+
+let signal = [1, 2, 3, 4, 5, 6] as [f32];  # 6 elements (indices 0-5);
+let kernel = [0.5, 0.5];          # 2 elements (indices 0-1)
+
+# Let system automatically infer safe range for i
+let convolved[i] = sum[k in 0..2](signal[i+k] * kernel[k]);
+
+assert(signal == [1, 2, 3, 4, 5, 6]);
+assert(kernel == [0.5, 0.5]);
+assert(convolved == [1.5, 2.5, 3.5, 4.5, 5.5]);

@@ -1,0 +1,6 @@
+# Pi constant
+# Provides pi constant for mathematical operations
+
+pub fn pi() {
+    3.141592653589793
+}

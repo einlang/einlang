@@ -1,0 +1,26 @@
+# stdlib_v2/math/special.ein - Special mathematical functions
+
+use std::math::{abs, exp, sign};
+
+pub fn erf(x) {
+    # Error function (ONNX Erf, TensorRT supported - used in GELU)
+    # Abramowitz and Stegun approximation
+    let a1 = 0.254829592;
+    let a2 = -0.284496736;
+    let a3 = 1.421413741;
+    let a4 = -1.453152027;
+    let a5 = 1.061405429;
+    let p = 0.3275911;
+    
+    let sign_x = sign(x);
+    let abs_x = abs(x);
+    let t = 1.0 / (1.0 + p * abs_x);
+    let t2 = t * t;
+    let t3 = t2 * t;
+    let t4 = t3 * t;
+    let t5 = t4 * t;
+    
+    let erf_approx = 1.0 - (a1 * t + a2 * t2 + a3 * t3 + a4 * t4 + a5 * t5) * exp(-(abs_x * abs_x));
+    sign_x * erf_approx
+}
+

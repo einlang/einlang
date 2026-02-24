@@ -1,0 +1,204 @@
+# Variable Binding in Where Clauses - Complete Demo
+# Showcases Einlang's powerful variable binding feature for clean, efficient code
+
+print("=== VARIABLE BINDING DEMO ===");
+print("Demonstrating where clause variable binding patterns");
+print();
+
+# =============================================================================
+# 1. BASIC VARIABLE BINDING
+# =============================================================================
+
+print("=== 1. BASIC VARIABLE BINDING ===");
+
+let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+let threshold = 3;
+let scale_factor = 2.5;
+
+# ❌ IMPORTANT: Filtering doesn't work in tensor operations!
+# let processed_values[i] = scaled_value where ..., condition;  # NO filtering!
+
+# ✅ CORRECT: Variable binding only (no filtering conditions)
+let processed_values[i] = scaled_value ;
+                          where raw_value = data[i] * scale_factor,
+                                scaled_value = if raw_value > threshold { raw_value } else { 0.0 };
+
+# ✅ CORRECT: Use array comprehensions for filtering
+let filtered_data = [data[i] * scale_factor | i in 0..len, data[i] < 50.0];
+
+print("Original data:", data);
+print("Processed with binding:", processed_values);
+print();
+
+# =============================================================================
+# 2. NEURAL NETWORK LAYER WITH VARIABLE BINDING
+# =============================================================================
+
+print("=== 2. NEURAL NETWORK LAYERS ===");
+
+# Simulate small neural network data
+let input_batch: tensor[f32; 2, 3] = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+let weight_matrix: tensor[f32; 3, 2] = [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]];
+let bias_vector: tensor[f32; 2] = [0.1, 0.2];
+
+# Clean ReLU layer using variable binding
+fn relu_layer_with_binding(input, weight, bias) {
+    let activated_output[i, k] = relu_value;
+                                 where linear_output = sum[l](input[i, l] * weight[l, k]) + bias[k],
+                                       relu_value = if linear_output > 0.0 { linear_output } else { 0.0 };
+    activated_output
+}
+
+let layer_result = relu_layer_with_binding(input_batch, weight_matrix, bias_vector);
+
+print("Input batch shape: [2, 3]");
+print("Weight matrix shape: [3, 2]");
+print("Layer output with ReLU:", layer_result);
+print();
+
+# =============================================================================
+# 3. MULTIPLE VARIABLE BINDINGS
+# =============================================================================
+
+print("=== 3. MULTIPLE VARIABLE BINDINGS ===");
+
+let complex_input: tensor[f32; 3, 3] = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]];
+let max_value = 10.0;
+let min_threshold = 2.0;
+
+# Complex processing with multiple intermediate variables (NO filtering!)
+let normalized_output[i, j] = final_result;
+                              where raw = complex_input[i, j],
+                                    squared = raw * raw,
+                                    normalized = squared / max_value,
+                                    clamped = if normalized > 1.0 { 1.0 } else { normalized },
+                                    scaled = clamped * 0.5,
+                                    final_result = if scaled > 0.1 { scaled } else { 0.0 };
+                                    # ❌ raw > min_threshold;  # NO filtering here!
+
+# ✅ CORRECT: Use array comprehensions for filtering
+let filtered_complex = [complex_input[i, j] | i in 0..3, j in 0..3, complex_input[i, j] > min_threshold];
+
+print("Complex input:", complex_input);
+print("Normalized output:", normalized_output);
+print();
+
+# =============================================================================
+# 4. ATTENTION MECHANISM SIMULATION
+# =============================================================================
+
+print("=== 4. ATTENTION MECHANISM ===");
+
+# Simplified attention mechanism using variable binding
+let query: tensor[f32; 2, 3] = [[1.0, 0.5, 0.2], [0.8, 1.0, 0.3]];
+let key: tensor[f32; 2, 3] = [[0.9, 0.1, 0.4], [0.2, 0.7, 1.0]];
+let d_model = 3.0;
+
+fn attention_scores(query, key, d_model) {
+    let attention[i, j] = normalized_score;
+                          where raw_similarity = sum[k](query[i, k] * key[j, k]),
+                                scaled_similarity = raw_similarity / sqrt(d_model),
+                                # Simplified softmax approximation
+                                exp_approx = 1.0 + scaled_similarity + (scaled_similarity * scaled_similarity / 2.0),
+                                max_exp = 2.0, # Simplified normalization;
+                                normalized_score = exp_approx / max_exp;
+    attention
+}
+
+let attention_weights = attention_scores(query, key, d_model);
+
+print("Query shape: [2, 3]");
+print("Key shape: [2, 3]");
+print("Attention weights:", attention_weights);
+print();
+
+# =============================================================================
+# 5. CONDITIONAL COMPUTATION WITH BINDING
+# =============================================================================
+
+print("=== 5. CONDITIONAL COMPUTATION ===");
+
+let sensor_data = [0.5, 2.3, -1.2, 4.7, 0.1, 6.8, -0.3, 3.4];
+let noise_threshold = 1.0;
+let amplification_factor = 3.0;
+
+# Signal processing with variable binding
+let processed_signals[i] = final_signal;
+                           where raw_signal = sensor_data[i],
+                                 abs_signal = if raw_signal < 0.0 { -raw_signal } else { raw_signal },
+                                 is_valid = abs_signal > noise_threshold,
+                                 amplified = raw_signal * amplification_factor,
+                                 final_signal = if is_valid { amplified } else { 0.0 };
+
+print("Raw sensor data:", sensor_data);
+print("Processed signals:", processed_signals);
+print();
+
+# =============================================================================
+# 6. BATCH PROCESSING WITH VARIABLE BINDING
+# =============================================================================
+
+print("=== 6. BATCH PROCESSING ===");
+
+# Simulate batch processing of image-like data
+let batch_data: tensor[f32; 2, 4] = [[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]];
+let kernel_weights = [0.25, 0.5, 0.25]; # Simple 1D kernel
+
+fn batch_convolution_1d(input, kernel) {
+    let conv_output[b, i] = convolved_value
+                            where # Simple 1D convolution approximation
+                                  left_val = if i > 0 { input[b, i-1] } else { 0.0 },
+                                  center_val = input[b, i],
+                                  right_val = if i < 3 { input[b, i+1] } else { 0.0 },
+                                  convolved_value = left_val * kernel[0] + center_val * kernel[1] + right_val * kernel[2],
+                                  i < 4; # Bounds check
+    conv_output
+}
+
+let convolved_batch = batch_convolution_1d(batch_data, kernel_weights);
+
+print("Batch input:", batch_data);
+print("1D Kernel:", kernel_weights);
+print("Convolved output:", convolved_batch);
+print();
+
+# =============================================================================
+# 7. PERFORMANCE COMPARISON
+# =============================================================================
+
+print("=== 7. PERFORMANCE BENEFITS ===");
+
+# Compare: with vs without variable binding
+let test_matrix: tensor[f32; 3, 3] = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]];
+
+# Without binding (inefficient - computes expensive_op multiple times)
+let inefficient_result[i, j] = if (test_matrix[i, j] * test_matrix[i, j]) > 10.0 { 
+                                    (test_matrix[i, j] * test_matrix[i, j]) * 2.0 
+                                } else { 
+                                    0.0 
+                                };
+
+# With binding (efficient - computes expensive_op once)
+let efficient_result[i, j] = final_value;
+                              where squared = test_matrix[i, j] * test_matrix[i, j],
+                                    doubled = squared * 2.0,
+                                    final_value = if squared > 10.0 { doubled } else { 0.0 };
+
+print("Test matrix:", test_matrix);
+print("Inefficient result:", inefficient_result);
+print("Efficient result (same computation):", efficient_result);
+print();
+
+# =============================================================================
+# SUMMARY
+# =============================================================================
+
+print("=== VARIABLE BINDING SUMMARY ===");
+print("✅ Basic binding: where var = computation");
+print("✅ Multiple bindings: where var1 = comp1, var2 = comp2, condition");
+print("✅ Neural network layers with clean, readable code");
+print("✅ Complex computations broken into named steps");
+print("✅ Performance benefits from avoiding repeated calculations");
+print("✅ Easier inspection with named intermediate values");
+print();
+print("🎯 Variable binding makes complex tensor operations readable and efficient!");

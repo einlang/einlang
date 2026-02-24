@@ -1,0 +1,94 @@
+# CORE FEATURE: Membership Operations and 'in' Operator
+# PURPOSE: Comprehensive membership testing with 'in' operator for ranges and arrays
+# VALUE: Demonstrates essential membership syntax for filtering and conditions
+
+# Range membership operations
+let test_val = 5;
+let in_range1 = test_val in 1..10;      # Should be true (1 <= 5 < 10);
+let in_range2 = test_val in 5..8;       # Should be true (5 <= 5 < 8);
+let in_range3 = test_val in 6..10;      # Should be false (5 < 6);
+let in_range4 = test_val in 1..5;       # Should be false (5 >= 5, exclusive end)
+
+assert(in_range1 == true, "5 should be in range 1..10");
+assert(in_range2 == true, "5 should be in range 5..8");
+assert(in_range3 == false, "5 should not be in range 6..10");
+assert(in_range4 == false, "5 should not be in range 1..5 (exclusive end)");
+
+# Array membership operations
+let test_array = [2, 4, 6, 8, 10];
+let in_array1 = 4 in test_array;        # Should be true;
+let in_array2 = 5 in test_array;        # Should be false;
+let in_array3 = 10 in test_array;       # Should be true;
+let in_array4 = 1 in test_array;        # Should be false
+
+assert(in_array1 == true, "4 should be in test array");
+assert(in_array2 == false, "5 should not be in test array");
+assert(in_array3 == true, "10 should be in test array");
+assert(in_array4 == false, "1 should not be in test array");
+
+# Membership in array comprehensions
+let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+let evens_in_range = [x | x in numbers, x in 2..8, x % 2 == 0];
+
+assert(evens_in_range.length >= 2, "Should have even numbers in range 2..8");
+
+# Membership with variables
+let start = 3;
+let end = 7;
+let var_range_test = 5 in start..end;   # Should be true
+
+assert(var_range_test == true, "5 should be in variable range 3..7");
+
+# Complex membership conditions
+let complex_test = 7;
+let complex_cond1 = complex_test in 1..10 && complex_test > 5;
+let complex_cond2 = complex_test in [7, 8, 9];
+
+assert(complex_cond1 == true, "Complex condition 1 should be true");
+assert(complex_cond2 == true, "Complex condition 2 should be true");
+
+# Negated membership
+let not_in_range = !(test_val in 10..20);
+let not_in_array = !(15 in test_array);
+
+assert(not_in_range == true, "5 should not be in range 10..20");
+assert(not_in_array == true, "15 should not be in test array");
+
+# Membership with different data types
+let string_array = ["hello", "world", "test"];
+let string_in_array = "world" in string_array;
+
+assert(string_in_array == true, "'world' should be in string array");
+
+# Membership in function parameters
+fn check_membership(val, check_array) {
+    let array_check = val in check_array;
+    array_check
+}
+
+let membership_result = check_membership(4, [2, 4, 6, 8]);
+assert(membership_result == true, "4 should be in array");
+
+# Array comprehensions with membership filtering
+let source_data = [1, 5, 10, 15, 20, 25, 30];
+let filtered_by_membership = [x | x in source_data, x in 10..25];
+
+assert(filtered_by_membership.length >= 2, "Should have values in range 10..25");
+
+# Multiple range membership
+let multi_range_val = 12;
+let in_first_range = multi_range_val in 1..10;   # false;
+let in_second_range = multi_range_val in 10..20; # true
+
+assert(in_first_range == false, "12 should not be in 1..10");
+assert(in_second_range == true, "12 should be in 10..20");
+
+# Edge cases for membership
+let edge_val = 0;
+let zero_in_positive = edge_val in 1..10;  # Should be false;
+let zero_in_inclusive = edge_val in 0..5;  # Should be true
+
+assert(zero_in_positive == false, "0 should not be in 1..10");
+assert(zero_in_inclusive == true, "0 should be in 0..5");
+
+# All membership operation syntax showcased successfully

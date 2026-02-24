@@ -1,0 +1,79 @@
+# ml/mod.ein - ONNX Machine Learning Operations
+# Standard ONNX operators supported by TensorRT
+
+# ONNX Convolution Operations
+pub use std::ml::conv_ops::{conv, conv_transpose, depthwise_conv};
+
+# ONNX Pooling Operations  
+pub use std::ml::pool_ops::{max_pool, average_pool, global_average_pool, global_max_pool, lp_pool, max_roi_pool};
+
+# ONNX Normalization Operations
+pub use std::ml::norm_ops::{batch_normalization, instance_normalization, layer_normalization, lrn, lp_normalization, mean_variance_normalization};
+
+# ONNX Activation Functions
+pub use std::ml::activations::{relu, sigmoid, softmax, log_softmax, leaky_relu, elu, elu_alpha, gelu, swish, selu, softplus, 
+                                hardtanh, relu6, prelu, celu, gelu_tanh, mish, softsign, tanhshrink, 
+                                softshrink, hardshrink, threshold, hardswish, thresholded_relu, hardsigmoid};
+
+# ONNX Layer Operations
+pub use std::ml::layers::{linear, gemm, conv2d};
+
+# ONNX Math Operations (Element-wise)
+pub use std::ml::math_ops::{add, subtract, multiply, divide, power, square, neg, abs, sign, min, max, reciprocal,
+                            sqrt, rsqrt, exp, log, log1p, expm1, floor, ceil, round, clip, mod, fmod};
+
+# ONNX Trigonometric Operations
+pub use std::ml::trig_ops::{sin, cos, tan, tanh, sinh, cosh, atan2};
+
+# ONNX Special Math Operations
+pub use std::ml::special_ops::{erf, is_nan, is_inf, einsum};
+
+# ONNX Comparison Operations
+pub use std::ml::comparison_ops::{equal, greater, greater_or_equal, less, less_or_equal, not_equal, not};
+
+# ONNX Logical Operations
+pub use std::ml::logical_ops::{logical_and, logical_or, logical_xor, logical_not};
+
+# ONNX Reduction Operations
+pub use std::ml::reduction_ops::{reduce_mean, reduce_sum, reduce_max, reduce_min, reduce_l1, reduce_l2, 
+                                 reduce_sum_square, reduce_log_sum, reduce_log_sum_exp, reduce_prod};
+
+# ONNX Linear Algebra Operations
+pub use std::ml::linalg_ops::{matmul, batch_matmul};
+
+# ONNX Utility Operations
+pub use std::ml::utility_ops::{where, identity, constant, dropout, l2_normalize, numel, size, cast, slice, cumsum};
+
+# Extended ML Operations (NOT TensorRT-supported ONNX operators)
+# These are composite operations, helper functions, or experimental features
+pub use std::ml::ml_ex::{image_scaler, eye, diag_extract, diag_construct, trace, 
+                         frobenius_norm, outer, kron, tril, triu, roll, repeat_interleave, flip,
+                         cross_entropy_loss, mse_loss, mae_loss, huber_loss, binary_cross_entropy, 
+                         softmax_cross_entropy_loss, cosine_similarity};
+
+# ONNX Indexing Operations
+pub use std::ml::indexing_ops::{gather, gather_elements, scatter_elements, onehot, gather_nd, scatter, scatter_nd};
+
+# ONNX Transform Operations
+pub use std::ml::transform_ops::{pad, depth_to_space, space_to_depth, range, constant_of_shape, 
+                                 concat, tile, transpose, flatten};
+
+# ONNX Shape Operations
+pub use std::ml::shape_ops::{reshape, squeeze, unsqueeze, split, expand, shape};
+
+# ONNX Resize Operations
+pub use std::ml::resize_ops::{resize, upsample};
+
+# ONNX Selection Operations
+pub use std::ml::selection_ops::{topk, nonzero, argmax, argmin};
+
+# ONNX Recurrent Operations
+pub use std::ml::recurrent_ops::{rnn, lstm, gru};
+
+# ONNX Attention Operations
+pub use std::ml::attention_ops::{attention_dummy, multi_head_attention_simple, multi_head_attention};
+
+
+# Trigonometric functions (from std::math)
+pub use std::math::trig::{asin, acos, atan};
+pub use std::math::hyperbolic::{asinh, acosh, atanh};

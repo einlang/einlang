@@ -1,0 +1,23 @@
+# Simple Import Test
+# Test just the basic import system
+
+print("=== Simple Import Test ===");
+
+# Test what's available without any imports
+print("1. Builtins work:");
+print("Type:", typeof(42));
+print("Length:", len([1, 2, 3]));
+
+print();
+
+# Try a very simple stdlib import 
+print("2. Testing stdlib import:");
+
+# Try importing a simple math constant function
+use std::math::constants::pi;
+
+print("Imported pi function successfully!");
+print("PI value:", pi());
+
+print();
+print("=== Test Complete ===");
