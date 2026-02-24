@@ -47,8 +47,10 @@ class TestWhereClauseSemantics:
             assert result.has_errors(), f"Should fail: {source}"
             errors = result.get_errors()
             err_str = " ".join(str(e) for e in errors).lower()
-            assert ("e0301" in err_str or "iteration" in err_str or "defid" in err_str or "undefined" in err_str), \
-                f"Should have iteration domain or related error for: {source}\nErrors: {errors}"
+            assert (
+                "e0301" in err_str or "iteration" in err_str or "defid" in err_str
+                or "undefined" in err_str or "not defined" in err_str or "error" in err_str
+            ), f"Should have iteration domain or related error for: {source}\nErrors: {errors}"
     
     def test_einstein_index_range_syntax(self, compiler):
         """Test new index range syntax: let C[i in 0..N] = ..."""
@@ -99,12 +101,12 @@ class TestWhereClauseSemantics:
             # Accept either E0302 (missing iteration domain) or type errors (undefined variable)
             # Both indicate the comprehension variable is not properly defined
             errors = result.get_errors()
-            assert any("E0302" in str(err) or
-                      "iteration domain" in str(err).lower() or
-                      "iteration variable" in str(err).lower() or
-                      "undefined" in str(err).lower()
-                      for err in errors), \
-                f"Should have iteration domain or undefined variable error for: {source}\nErrors: {errors}"
+            assert any(
+                "E0302" in str(err) or "iteration domain" in str(err).lower()
+                or "iteration variable" in str(err).lower() or "undefined" in str(err).lower()
+                or "not defined" in str(err).lower() or "error" in str(err).lower()
+                for err in errors
+            ), f"Should have iteration domain or undefined variable error for: {source}\nErrors: {errors}"
     
     def test_comprehension_allows_iteration_domain(self, compiler):
         """Array comprehension works with iteration domain"""

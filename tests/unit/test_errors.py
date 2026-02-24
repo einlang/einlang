@@ -4,6 +4,7 @@ Tests for error cases: syntax errors, empty programs.
 Tests execute and check error handling to ensure complete error coverage using system.
 """
 
+import re
 import pytest
 from tests.test_utils import compile_and_execute
 from einlang.shared.errors import (
@@ -13,6 +14,12 @@ from einlang.shared.errors import (
     ErrorReporter,
 )
 from einlang.shared.source_location import SourceLocation
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_ESCAPE.sub("", text)
 
 
 class TestErrorReporterProblematic:
@@ -107,8 +114,9 @@ class TestErrorReporterProblematic:
         )
         s = str(e)
         assert "division by zero" in s
-        assert "1 | let x = 1/0;" in s
-        assert "^" in s
+        plain = _strip_ansi(s)
+        assert "let x = 1/0" in plain and ("1 | " in plain or "| let x = 1/0" in plain)
+        assert "^" in plain
 
 
 class TestErrors:
@@ -136,7 +144,7 @@ class TestErrors:
         expected_line: int = None,
     ):
         """Verify that error pointer (^ or -) is positioned correctly (tolerance 1)."""
-        lines = error_msg.split('\n')
+        lines = [_strip_ansi(ln) for ln in error_msg.split('\n')]
         source_line = None
         annotation_line = None
 
@@ -171,12 +179,14 @@ class TestErrors:
 
         if not source_line or not annotation_line or error_token == "syntax":
             return
-        token_pos = source_line.find(error_token)
+        source_after_pipe = source_line.split('|', 1)[1]
+        annot_after_pipe = annotation_line.split('|', 1)[1] if '|' in annotation_line else annotation_line
+        token_pos = source_after_pipe.find(error_token)
         if token_pos < 0:
             return
-        caret_pos = annotation_line.find('^')
+        caret_pos = annot_after_pipe.find('^')
         if caret_pos < 0:
-            caret_pos = annotation_line.find('-')
+            caret_pos = annot_after_pipe.find('-')
         if caret_pos < 0:
             return
         assert abs(token_pos - caret_pos) <= 1, (
