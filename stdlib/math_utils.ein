@@ -1,0 +1,38 @@
+# Math Utilities Module
+# Provides common mathematical utility functions
+
+pub fn max(a: T, b: T) -> T {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
+pub fn min(a: T, b: T) -> T {
+    if a < b {
+        a
+    } else {
+        b
+    }
+}
+
+pub fn clamp(value: T, min_val: T, max_val: T) -> T {
+    if value < min_val {
+        min_val
+    } else if value > max_val {
+        max_val
+    } else {
+        value
+    }
+}
+
+pub fn sign(value: T) -> i32 {
+    if value > 0 {
+        1
+    } else if value < 0 {
+        -1
+    } else {
+        0
+    }
+}

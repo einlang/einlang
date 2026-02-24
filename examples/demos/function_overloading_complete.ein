@@ -1,0 +1,63 @@
+# Complete Function Overloading Demo
+# Shows mathematical function overloading working through actual Einlang imports
+
+print("=== Complete Function Overloading System ===");
+print();
+
+# Import mathematical functions from stdlib
+use std::math::abs;
+use std::math::sqrt;
+use std::math::sin;
+use std::math::cos;
+use std::math::pow;
+
+print("✓ All mathematical functions imported successfully!");
+print();
+
+# =============================================================================
+# SCALAR OPERATIONS
+# =============================================================================
+
+print("1. Scalar Operations:");
+
+let x = -5.0;
+print("abs(-5.0):", abs(x));           # Should print: 5.0
+
+let y = 16.0;
+print("sqrt(16.0):", sqrt(y));         # Should print: 4.0
+
+let angle = 0.0;
+print("sin(0.0):", sin(angle));        # Should print: 0.0
+print("cos(0.0):", cos(angle));        # Should print: 1.0
+
+print();
+
+# =============================================================================
+# TENSOR OPERATIONS - SAME FUNCTION NAMES!
+# =============================================================================
+
+print("2. Tensor Operations (same function names!):");
+
+let vector = [-2, -1, 0, 1, 2];
+print("abs(vector):", abs(vector));    # Should work element-wise
+
+let matrix = [[1.0, 4.0], [9.0, 16.0]];
+print("sqrt(matrix):", sqrt(matrix));  # Should work element-wise
+
+print();
+
+# =============================================================================
+# VERIFICATION
+# =============================================================================
+
+print("3. Verification:");
+
+# These should all work with the SAME function name
+assert(abs(-5) == 5, "Scalar abs works");
+assert(sqrt(4.0) == 2.0, "Scalar sqrt works");
+
+print("✓ All assertions passed!");
+print();
+print("🎉 COMPLETE SUCCESS!");
+print("Mathematical functions work on both scalars and tensors");
+print("using the SAME function names - exactly what mathematicians expect!");

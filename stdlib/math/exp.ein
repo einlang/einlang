@@ -1,0 +1,8 @@
+# Exponential function (e^x) using numpy for array support
+
+pub fn exp(x) {
+    # Exponential function (ONNX Exp, TensorRT supported)
+    # Uses numpy for array support
+    python::numpy::exp(x)
+}
+

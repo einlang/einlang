@@ -1,0 +1,345 @@
+# ml/pool_ops.ein - ONNX Pooling Operations
+# Public functions match ONNX semantics with rank dispatch
+
+use std::math::{max, min};
+
+# Private 1D max pooling
+fn max_pool1d(X, kernel_w, stride, pad) {
+    let output[..batch, c, i] = max[m in 0..kernel_w](
+        X[..batch, c, i * stride - pad + m]
+    );
+    output
+}
+
+# Private 2D max pooling
+fn max_pool2d(X, kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w) {
+    let output[..batch, c, i, j] = max[m in 0..kernel_h, n in 0..kernel_w](
+        X[..batch, c, i * stride_h - pad_h + m, j * stride_w - pad_w + n]
+    );
+    output
+}
+
+# Private 3D max pooling
+fn max_pool3d(X, kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w, pad_d, pad_h, pad_w) {
+    let output[..batch, c, i, j, k] = max[
+        m in 0..kernel_d,
+        n in 0..kernel_h,
+        p in 0..kernel_w
+    ](
+        X[..batch, c,
+          i * stride_d - pad_d + m,
+          j * stride_h - pad_h + n,
+          k * stride_w - pad_w + p]
+    );
+    output
+}
+
+# Public ONNX MaxPool operator
+pub fn max_pool(X, kernel_shape, strides, pads) {
+    # ONNX MaxPool operator (supports 1D, 2D, 3D)
+    # X: Input [N, C, spatial_dims...]
+    # kernel_shape: Kernel size for each spatial dimension
+    # strides: Stride for each spatial dimension
+    # pads: Padding for each spatial dimension (begin padding, symmetric)
+    #
+    # Examples:
+    #   1D: kernel_shape=[k], strides=[s], pads=[p]
+    #   2D: kernel_shape=[kH, kW], strides=[sH, sW], pads=[pH, pW]
+    #   3D: kernel_shape=[kD, kH, kW], strides=[sD, sH, sW], pads=[pD, pH, pW]
+    
+    assert(typeof(X) == "rectangular", "max_pool: X must be rectangular");
+    
+    # Dispatch based on rank
+    let rank = len(kernel_shape);
+    assert(rank == len(strides), "max_pool: kernel_shape and strides must have same length");
+    assert(rank == len(pads), "max_pool: kernel_shape and pads must have same length");
+    
+    if rank == 1 {
+        max_pool1d(X, kernel_shape[0], strides[0], pads[0])
+    } else if rank == 2 {
+        max_pool2d(X, kernel_shape[0], kernel_shape[1], strides[0], strides[1], pads[0], pads[1])
+    } else if rank == 3 {
+        max_pool3d(X, kernel_shape[0], kernel_shape[1], kernel_shape[2], strides[0], strides[1], strides[2], pads[0], pads[1], pads[2])
+    } else {
+        assert(false, "max_pool: unsupported rank (must be 1, 2, or 3)");
+        X  # Unreachable, but needed for type checking
+    }
+}
+
+
+# Private 1D average pooling
+fn average_pool1d(X, kernel_w, stride, pad) {
+    let output[..batch, c, i] = sum[m in 0..kernel_w](
+        X[..batch, c, i * stride - pad + m]
+    ) / (kernel_w as f32);
+    output
+}
+
+# Private 2D average pooling
+fn average_pool2d(X, kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w) {
+    let pool_area = kernel_h * kernel_w;
+    
+    let output[..batch, c, i, j] = sum[m in 0..kernel_h, n in 0..kernel_w](
+        X[..batch, c, i * stride_h - pad_h + m, j * stride_w - pad_w + n]
+    ) / (pool_area as f32);
+    output
+}
+
+# Private 3D average pooling
+fn average_pool3d(X, kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w, pad_d, pad_h, pad_w) {
+    let pool_volume = kernel_d * kernel_h * kernel_w;
+    
+    let output[..batch, c, i, j, k] = sum[
+        m in 0..kernel_d,
+        n in 0..kernel_h,
+        p in 0..kernel_w
+    ](
+        X[..batch, c,
+          i * stride_d - pad_d + m,
+          j * stride_h - pad_h + n,
+          k * stride_w - pad_w + p]
+    ) / (pool_volume as f32);
+    output
+}
+
+# Public ONNX AveragePool operator
+pub fn average_pool(X, kernel_shape, strides, pads) {
+    # ONNX AveragePool operator (supports 1D, 2D, 3D)
+    # X: Input [N, C, spatial_dims...]
+    # kernel_shape: Kernel size for each spatial dimension
+    # strides: Stride for each spatial dimension
+    # pads: Padding for each spatial dimension
+    #
+    # Examples:
+    #   1D: kernel_shape=[k], strides=[s], pads=[p]
+    #   2D: kernel_shape=[kH, kW], strides=[sH, sW], pads=[pH, pW]
+    #   3D: kernel_shape=[kD, kH, kW], strides=[sD, sH, sW], pads=[pD, pH, pW]
+    
+    assert(typeof(X) == "rectangular", "average_pool: X must be rectangular");
+    
+    # Dispatch based on rank
+    let rank = len(kernel_shape);
+    assert(rank == len(strides), "average_pool: kernel_shape and strides must have same length");
+    assert(rank == len(pads), "average_pool: kernel_shape and pads must have same length");
+    
+    if rank == 1 {
+        average_pool1d(X, kernel_shape[0], strides[0], pads[0])
+    } else if rank == 2 {
+        average_pool2d(X, kernel_shape[0], kernel_shape[1], strides[0], strides[1], pads[0], pads[1])
+    } else if rank == 3 {
+        average_pool3d(X, kernel_shape[0], kernel_shape[1], kernel_shape[2], strides[0], strides[1], strides[2], pads[0], pads[1], pads[2])
+    } else {
+        assert(false, "average_pool: unsupported rank (must be 1, 2, or 3)");
+        X  # Unreachable, but needed for type checking
+    }
+}
+
+
+# Public ONNX GlobalAveragePool operator
+pub fn global_average_pool(X) {
+    # ONNX GlobalAveragePool operator
+    # X: Input [N, C, spatial_dims...]
+    # Output: [N, C, 1, 1] for 2D spatial, [N, C, 1] for 1D, [N, C, 1, 1, 1] for 3D
+    # Averages over all spatial dimensions
+    
+    assert(typeof(X) == "rectangular", "global_average_pool: X must be rectangular");
+    
+    let rank = len(X.shape);
+    assert(rank >= 2, "global_average_pool: X must have at least rank 2 [N, C, ...]");
+    
+    # Average over all spatial dimensions and reshape to [N, C, 1, ...]
+    # TODO: Prefer literal indices (0, 0) for singleton dimensions once core lib supports it
+    # For now, using 'in 0..1' syntax to create singleton dimensions
+    if rank == 3 {
+        # 1D spatial: [N, C, H] -> [N, C, 1]
+        let spatial_size = X.shape[2] as f32;
+        let pooled[..batch, c] = sum[i](X[..batch, c, i]) / spatial_size;
+        let output[..batch, c, k in 0..1] = pooled[..batch, c];
+        output
+    } else if rank == 4 {
+        # 2D spatial: [N, C, H, W] -> [N, C, 1, 1]
+        let spatial_size = (X.shape[2] as f32) * (X.shape[3] as f32);
+        let pooled[..batch, c] = sum[i, j](X[..batch, c, i, j]) / spatial_size;
+        let output[..batch, c, k in 0..1, l in 0..1] = pooled[..batch, c];
+        output
+    } else {
+        # 3D spatial: [N, C, D, H, W] -> [N, C, 1, 1, 1]
+        assert(rank == 5, "global_average_pool: unsupported rank (must be 3, 4, or 5)");
+        let spatial_size = (X.shape[2] as f32) * (X.shape[3] as f32) * (X.shape[4] as f32);
+        let pooled[..batch, c] = sum[i, j, k](X[..batch, c, i, j, k]) / spatial_size;
+        let output[..batch, c, d in 0..1, h in 0..1, w in 0..1] = pooled[..batch, c];
+        output
+    }
+}
+
+
+# Public ONNX GlobalMaxPool operator
+pub fn global_max_pool(X) {
+    # ONNX GlobalMaxPool operator
+    # X: Input [N, C, spatial_dims...]
+    # Output: [N, C, 1, 1] for 2D spatial, [N, C, 1] for 1D, [N, C, 1, 1, 1] for 3D
+    # Max over all spatial dimensions
+    
+    assert(typeof(X) == "rectangular", "global_max_pool: X must be rectangular");
+    
+    let rank = len(X.shape);
+    assert(rank >= 2, "global_max_pool: X must have at least rank 2 [N, C, ...]");
+    
+    # Max over all spatial dimensions and reshape to [N, C, 1, ...]
+    # TODO: Prefer literal indices (0, 0) for singleton dimensions once core lib supports it
+    # For now, using 'in 0..1' syntax to create singleton dimensions
+    if rank == 3 {
+        # 1D spatial: [N, C, H] -> [N, C, 1]
+        let pooled[..batch, c] = max[i](X[..batch, c, i]);
+        let output[..batch, c, k in 0..1] = pooled[..batch, c];
+        output
+    } else if rank == 4 {
+        # 2D spatial: [N, C, H, W] -> [N, C, 1, 1]
+        let pooled[..batch, c] = max[i, j](X[..batch, c, i, j]);
+        let output[..batch, c, k in 0..1, l in 0..1] = pooled[..batch, c];
+        output
+    } else {
+        # 3D spatial: [N, C, D, H, W] -> [N, C, 1, 1, 1]
+        assert(rank == 5, "global_max_pool: unsupported rank (must be 3, 4, or 5)");
+        let pooled[..batch, c] = max[i, j, k](X[..batch, c, i, j, k]);
+        let output[..batch, c, d in 0..1, h in 0..1, w in 0..1] = pooled[..batch, c];
+        output
+    }
+}
+
+
+# Private 1D Lp pooling
+fn lp_pool1d(X, kernel_w, stride, p) {
+    let sum_powers[..batch, c, i] = sum[m in 0..kernel_w](
+        X[..batch, c, i * stride + m] ** (p as f32)
+    );
+    let output[..batch, c, i] = sum_powers[..batch, c, i] ** (1.0 / (p as f32));
+    output
+}
+
+# Private 2D Lp pooling
+fn lp_pool2d(X, kernel_h, kernel_w, stride_h, stride_w, p) {
+    let sum_powers[..batch, c, i, j] = sum[m in 0..kernel_h, n in 0..kernel_w](
+        X[..batch, c, i * stride_h + m, j * stride_w + n] ** (p as f32)
+    );
+    let output[..batch, c, i, j] = sum_powers[..batch, c, i, j] ** (1.0 / (p as f32));
+    output
+}
+
+# Private 3D Lp pooling
+fn lp_pool3d(X, kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w, p) {
+    let sum_powers[..batch, c, i, j, k] = sum[
+        m in 0..kernel_d,
+        n in 0..kernel_h,
+        p_idx in 0..kernel_w
+    ](
+        X[..batch, c,
+          i * stride_d + m,
+          j * stride_h + n,
+          k * stride_w + p_idx] ** (p as f32)
+    );
+    let output[..batch, c, i, j, k] = sum_powers[..batch, c, i, j, k] ** (1.0 / (p as f32));
+    output
+}
+
+# Public ONNX LpPool operator
+pub fn lp_pool(X, kernel_shape, strides, p) {
+    # ONNX LpPool operator (supports 1D, 2D, 3D)
+    # X: Input [N, C, spatial_dims...]
+    # kernel_shape: Kernel size for each spatial dimension
+    # strides: Stride for each spatial dimension
+    # p: p-value for Lp norm
+    #
+    # Formula: output = (sum(|x|^p))^(1/p) over pooling window
+    # Examples:
+    #   1D: kernel_shape=[k], strides=[s], p=2
+    #   2D: kernel_shape=[kH, kW], strides=[sH, sW], p=2
+    #   3D: kernel_shape=[kD, kH, kW], strides=[sD, sH, sW], p=2
+    
+    assert(typeof(X) == "rectangular", "lp_pool: X must be rectangular");
+    
+    # Dispatch based on rank
+    let rank = len(kernel_shape);
+    assert(rank == len(strides), "lp_pool: kernel_shape and strides must have same length");
+    
+    if rank == 1 {
+        lp_pool1d(X, kernel_shape[0], strides[0], p)
+    } else if rank == 2 {
+        lp_pool2d(X, kernel_shape[0], kernel_shape[1], strides[0], strides[1], p)
+    } else if rank == 3 {
+        lp_pool3d(X, kernel_shape[0], kernel_shape[1], kernel_shape[2], strides[0], strides[1], strides[2], p)
+    } else {
+        assert(false, "lp_pool: unsupported rank (must be 1, 2, or 3)");
+        X  # Unreachable, but needed for type checking
+    }
+}
+
+
+# Public ONNX MaxRoiPool operator
+pub fn max_roi_pool(X, rois, pooled_shape, spatial_scale) {
+    # ONNX MaxRoiPool operator
+    # X: Input [N, C, H, W]
+    # rois: ROIs [num_rois, 5] where each is [batch_index, x1, y1, x2, y2]
+    # pooled_shape: Output size [pooled_h, pooled_w]
+    # spatial_scale: Scaling factor for ROI coordinates
+    #
+    # Output: [num_rois, C, pooled_h, pooled_w]
+    # For each ROI, extracts the region and applies max pooling to pooled_shape
+    #
+    # TensorRT Support: ⚠️ Requires plugin (not natively supported by ONNX parser)
+    # 
+    # TODO: Full implementation requires proper multi-ROI handling
+    # Current implementation is a placeholder for single ROI case
+    
+    assert(typeof(X) == "rectangular", "max_roi_pool: X must be rectangular");
+    
+    let num_rois = len(rois);
+    let pooled_h = pooled_shape[0] as i32;
+    let pooled_w = pooled_shape[1] as i32;
+    
+    # For now, handle single ROI case
+    # TODO: Implement proper multi-ROI support
+    if num_rois == 1 {
+        let roi = rois[0];
+        let batch_idx = (roi[0] as f32) as i32;
+        let x1 = ((roi[1] as f32) * (spatial_scale as f32)) as i32;
+        let y1 = ((roi[2] as f32) * (spatial_scale as f32)) as i32;
+        let x2 = ((roi[3] as f32) * (spatial_scale as f32)) as i32;
+        let y2 = ((roi[4] as f32) * (spatial_scale as f32)) as i32;
+        
+        let roi_h = y2 - y1;
+        let roi_w = x2 - x1;
+        let bin_h = if roi_h > 0 { roi_h / pooled_h } else { 1 };
+        let bin_w = if roi_w > 0 { roi_w / pooled_w } else { 1 };
+        
+        # Output: [1, C, pooled_h, pooled_w]
+        let output[r in 0..1, c, i in 0..pooled_h, j in 0..pooled_w] = 
+            max[m in 0..bin_h, n in 0..bin_w](
+                X[batch_idx, c, y1 + i * bin_h + m, x1 + j * bin_w + n]
+            );
+        output
+    } else {
+        # Multiple ROIs: placeholder - return first ROI result repeated
+        # TODO: Implement proper multi-ROI processing
+        let roi = rois[0];
+        let batch_idx = (roi[0] as f32) as i32;
+        let x1 = ((roi[1] as f32) * (spatial_scale as f32)) as i32;
+        let y1 = ((roi[2] as f32) * (spatial_scale as f32)) as i32;
+        let x2 = ((roi[3] as f32) * (spatial_scale as f32)) as i32;
+        let y2 = ((roi[4] as f32) * (spatial_scale as f32)) as i32;
+        
+        let roi_h = y2 - y1;
+        let roi_w = x2 - x1;
+        let bin_h = if roi_h > 0 { roi_h / pooled_h } else { 1 };
+        let bin_w = if roi_w > 0 { roi_w / pooled_w } else { 1 };
+        
+        # Output: [num_rois, C, pooled_h, pooled_w] - repeat first ROI
+        let output[r in 0..num_rois, c, i in 0..pooled_h, j in 0..pooled_w] = 
+            max[m in 0..bin_h, n in 0..bin_w](
+                X[batch_idx, c, y1 + i * bin_h + m, x1 + j * bin_w + n]
+            );
+        output
+    }
+}
+
+

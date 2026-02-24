@@ -1,0 +1,24 @@
+# CORE FEATURE: Use Statements (Imports)
+# PURPOSE: Tests import statements and module access - essential for code modularity
+# VALUE: Import functionality is fundamental for accessing standard library modules
+
+# Import standard library modules
+use std::math::constants;
+use std::math;
+
+# Test basic module usage
+let pi_value = constants::pi();
+let sqrt_result = math::sqrt(16.0);
+
+# Verify import functionality with assertions
+assert(pi_value > 3.1, "math::pi() should be greater than 3.1");
+assert(sqrt_result == 4.0, "math::sqrt(16.0) should be 4.0");
+
+# Test fully qualified access (should work without import)
+let abs_result = math::abs(-5);
+assert(abs_result == 5, "math::abs(-5) should be 5");
+
+print("Pi value:", pi_value);
+print("Square root of 16:", sqrt_result); 
+print("Absolute value of -5:", abs_result);
+print("✓ All use statement assertions passed!");

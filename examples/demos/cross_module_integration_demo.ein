@@ -1,0 +1,195 @@
+# cross_module_integration_demo.ein - True cross-module integration demo
+# Demonstrates integration between local files, Python modules, and Einlang stdlib
+
+# Import from local Einlang module
+use demos::math_utils as utils;
+
+# Import Python modules
+use python::math as py_math;
+use python::random as rand;
+
+# Import Einlang standard library modules  
+use std::math as tsc_math;
+use std::array as tsc_array;
+
+print("=== Cross-Module Integration Demo ===");
+print("Testing integration between:");
+print("  • Local Einlang modules (demos::math_utils)");
+print("  • Python modules (python::math, python::random)");
+print("  • Einlang stdlib modules (std::math, std::array)");
+
+# Test 1: Local module + Python module integration
+print("\n--- Test 1: Local Einlang + Python Integration ---");
+
+# Use local utility to generate test data
+let fib_numbers = [];
+    let i = 0;
+while i < 8 {
+    let fib_val = utils::fibonacci(i);
+    fib_numbers = array_append(fib_numbers, fib_val);
+        i = i + 1;
+    }
+    
+print("Local Fibonacci sequence:", fib_numbers);
+
+# Use Python math on local data
+let python_log_fibs = [];
+i = 1; # Skip fib(0)=0 since log(0) is undefined
+while i < len(fib_numbers) {
+    let fib_val = fib_numbers[i];
+    let log_val = py_math::log(fib_val);
+    python_log_fibs = array_append(python_log_fibs, log_val);
+    i = i + 1;
+}
+
+print("Python log of Fibonacci:", python_log_fibs);
+
+# Test 2: Python random + Local processing + Stdlib analysis
+print("\n--- Test 2: Python → Local → Stdlib Pipeline ---");
+
+# Generate random integers with Python
+let random_numbers = [];
+i = 0;
+while i < 10 {
+    let rand_int = rand::randint(2, 50);
+    random_numbers = array_append(random_numbers, rand_int);
+    i = i + 1;
+}
+
+print("Python random integers:", random_numbers);
+
+# Check which are prime using local utility
+let prime_numbers = [];
+let composite_numbers = [];
+i = 0;
+while i < len(random_numbers) {
+    let num = random_numbers[i];
+    if utils::is_prime(num) {
+        prime_numbers = array_append(prime_numbers, num);
+    } else {
+        composite_numbers = array_append(composite_numbers, num);
+    }
+    i = i + 1;
+}
+
+print("Local prime detection - Primes:", prime_numbers);
+print("Local prime detection - Composites:", composite_numbers);
+
+# Analyze with stdlib functions
+let prime_sum = tsc_array::sum(prime_numbers);
+let composite_sum = tsc_array::sum(composite_numbers);
+let total_mean = tsc_array::mean(random_numbers);
+
+print("Stdlib analysis - Prime sum:", prime_sum);
+print("Stdlib analysis - Composite sum:", composite_sum);
+print("Stdlib analysis - Overall mean:", total_mean);
+
+# Test 3: Cross-module mathematical comparison
+print("\n--- Test 3: Cross-Module Mathematical Comparison ---");
+
+let test_number = 5;
+
+# Local factorial
+let local_factorial = utils::factorial(test_number);
+print("Local factorial(" + string(test_number) + "):", local_factorial);
+
+# Python gamma function (factorial approximation)
+let python_gamma = py_math::gamma(test_number + 1); # gamma(n+1) = n!
+print("Python gamma(" + string(test_number+1) + "):", python_gamma);
+
+# Einlang power calculation (manual factorial)
+let einlang_manual_factorial = 1;
+i = 1;
+while i <= test_number {
+    einlang_manual_factorial = einlang_manual_factorial * i;
+        i = i + 1;
+    }
+print("Einlang manual factorial:", einlang_manual_factorial);
+
+# Compare results
+let local_python_diff = tsc_math::abs(local_factorial - python_gamma);
+print("Difference (Local vs Python):", local_python_diff);
+
+# Test 4: Complex data flow across all module types
+print("\n--- Test 4: Complex Cross-Module Data Flow ---");
+
+# Step 1: Generate data with Python
+let seed_value = rand::randint(3, 10);
+print("Python seed value:", seed_value);
+
+# Step 2: Process with local utilities
+let factorial_result = utils::factorial(seed_value);
+let fibonacci_result = utils::fibonacci(seed_value);
+let local_results = [factorial_result, fibonacci_result];
+
+print("Local processing results:", local_results);
+
+# Step 3: Transform with Python math
+let python_transformed = [];
+i = 0;
+while i < len(local_results) {
+    let val = local_results[i];
+    let sqrt_val = py_math::sqrt(val);
+    let log_val = py_math::log(val);
+    python_transformed = array_append(python_transformed, sqrt_val);
+    python_transformed = array_append(python_transformed, log_val);
+        i = i + 1;
+    }
+    
+print("Python transformed data:", python_transformed);
+
+# Step 4: Analyze with stdlib
+let final_sum = tsc_array::sum(python_transformed);
+let final_mean = tsc_array::mean(python_transformed);
+let sum_of_squares = utils::sum_of_squares(python_transformed); # Back to local!
+
+print("Final stdlib analysis - Sum:", final_sum);
+print("Final stdlib analysis - Mean:", final_mean);
+print("Final local analysis - Sum of squares:", sum_of_squares);
+
+# Test 5: Explicit verification of imported function correctness
+print("\n--- Test 5: Imported Function Verification ---");
+
+# Test imported fibonacci function
+let fib_5 = utils::fibonacci(5);
+let fib_6 = utils::fibonacci(6);
+print("Imported fibonacci(5):", fib_5);
+print("Imported fibonacci(6):", fib_6);
+assert(fib_5 == 5, "fibonacci(5) should equal 5");
+assert(fib_6 == 8, "fibonacci(6) should equal 8");
+
+# Test imported is_prime function
+let prime_check_7 = utils::is_prime(7);
+let prime_check_8 = utils::is_prime(8);
+let prime_check_9 = utils::is_prime(9);
+print("Imported is_prime(7):", prime_check_7);
+print("Imported is_prime(8):", prime_check_8);
+print("Imported is_prime(9):", prime_check_9);
+assert(prime_check_7 == true, "7 should be prime");
+assert(prime_check_8 == false, "8 should not be prime");  
+assert(prime_check_9 == false, "9 should not be prime");
+
+# Test imported factorial function
+let fact_4 = utils::factorial(4);
+print("Imported factorial(4):", fact_4);
+assert(fact_4 == 24, "factorial(4) should equal 24");
+
+# Test imported sum_of_squares function  
+let test_squares = utils::sum_of_squares([3, 4]);
+print("Imported sum_of_squares([3,4]):", test_squares);
+assert(test_squares == 25, "sum_of_squares([3,4]) should equal 25 (9+16)");
+
+# Test imported find_max_index function
+let test_array = [10, 5, 30, 15];
+let max_idx = utils::find_max_index(test_array);
+print("Imported find_max_index([10,5,30,15]):", max_idx);
+assert(max_idx == 2, "max index should be 2 (value 30)");
+
+print("✅ All imported functions verified and working correctly!");
+
+print("\n✅ Cross-Module Integration Demo Complete!");
+print("Successfully demonstrated true cross-module integration:");
+print("  • Local Einlang modules providing custom functions");
+print("  • Python modules for external capabilities");
+print("  • Einlang stdlib for standard operations");
+print("  • Seamless data flow between all module types");

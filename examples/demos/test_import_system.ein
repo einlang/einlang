@@ -1,0 +1,27 @@
+# Test Import System
+# Simple test to see what's working
+
+print("=== Testing Import System ===");
+
+# Test basic builtins
+print("1. Basic builtins:");
+print("Type of 42:", typeof(42));
+print("Length:", len([1, 2, 3]));
+assert(true, "Assert works");
+
+print();
+
+# Test module import
+print("2. Testing module import:");
+
+# Try importing from math module (which re-exports from basic)
+use std::math::abs;
+
+print("Imported abs successfully!");
+
+# Test usage
+let x = -5.0;
+print("abs(-5.0):", abs(x));
+
+print();
+print("=== Test Complete ===");

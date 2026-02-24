@@ -1,0 +1,125 @@
+# CORE FEATURE: Data Transformation Patterns
+# PURPOSE: Tests advanced data manipulation and transformation operations
+# VALUE: Essential for data processing and array manipulation workflows
+
+# Array transformation patterns
+let source_data = [1, 2, 3, 4, 5];
+let doubled = [x * 2 | x in source_data];
+let squared = [x * x | x in source_data];
+let filtered_doubled = [x * 2 | x in source_data, x > 2];
+
+assert(doubled.length == 5, "Doubled array should have 5 elements");
+assert(doubled[0] == 2, "First doubled element should be 2");
+assert(doubled[4] == 10, "Last doubled element should be 10");
+
+assert(squared[2] == 9, "Third squared element should be 9");
+assert(filtered_doubled.length == 3, "Filtered doubled should have 3 elements");
+
+# Multi-step transformations
+let numbers = [10, 15, 20, 25, 30];
+let step1 = [x / 5 | x in numbers];  # Divide by 5;
+let step2 = [x + 1 | x in step1];    # Add 1;
+let step3 = [x * x | x in step2];    # Square
+
+assert(step1[0] == 2, "First step should divide correctly");
+assert(step2[0] == 3, "Second step should add correctly");
+assert(step3[0] == 9, "Third step should square correctly");
+
+# Conditional transformations
+let mixed_data = [-3, -1, 0, 2, 5];
+let absolute_values = [if (x < 0) { -x } else { x } | x in mixed_data];
+let positive_only = [x | x in mixed_data, x > 0];
+let negative_to_zero = [if (x < 0) { 0 } else { x } | x in mixed_data];
+
+assert(absolute_values[0] == 3, "Absolute value transformation should work");
+assert(absolute_values[1] == 1, "Second absolute value should be 1");
+assert(positive_only.length == 2, "Positive only should have 2 elements");
+assert(negative_to_zero[0] == 0, "Negative to zero transformation should work");
+
+# Matrix transformations
+let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+let transposed_elements = [matrix[j, i] | i in 0..3, j in 0..3];
+let matrix_doubled = [[matrix[i,j] * 2 | j in 0..3] | i in 0..3];
+let diagonal_elements = [matrix[i, i] | i in 0..3];
+
+assert(transposed_elements.length == 9, "Transposed elements should have 9 items");
+assert(matrix_doubled[0].length == 3, "Doubled matrix rows should have 3 elements");
+assert(diagonal_elements.length == 3, "Diagonal should have 3 elements");
+assert(diagonal_elements[1] == 5, "Second diagonal element should be 5");
+
+# String transformations
+let words = ["hello", "world", "test"];
+let word_lengths = [word.length | word in words];
+let uppercased_concept = [word | word in words, word.length > 4];  # Conceptual uppercase filter;
+let word_with_numbers = [word.length | word in words];
+
+assert(word_lengths.length == 3, "Word lengths should have 3 elements");
+assert(word_lengths[0] == 5, "First word length should be 5");
+assert(uppercased_concept.length == 2, "Long words should have 2 elements");
+
+# Aggregation transformations  
+# Note: Jagged arrays (inhomogeneous shapes) are not supported in rectangular numpy arrays
+# let data_groups = [[1, 2], [3, 4, 5], [6]];  # This would fail - different lengths
+# Using uniform length groups instead:
+let data_groups = [[1, 2, 0], [3, 4, 5], [6, 0, 0]];
+let group_sums = [group[0] + group[1] + group[2] | group in data_groups];
+
+assert(group_sums.length == 3, "Group sums should have 3 elements");
+assert(group_sums[0] == 3, "First group sum should be 3 (1+2+0)");
+assert(group_sums[1] == 12, "Second group sum should be 12 (3+4+5)");
+assert(group_sums[2] == 6, "Third group sum should be 6 (6+0+0)");
+
+# Coordinate transformations
+let points = [[0, 0], [1, 1], [2, 3], [3, 2]];
+let shifted_points = [[point[0] + 10, point[1] + 20] | point in points];
+let distances_from_origin = [point[0] * point[0] + point[1] * point[1] | point in points];
+
+assert(shifted_points.length == 4, "Shifted points should have 4 elements");
+assert(shifted_points[0][0] == 10, "First shifted point x should be 10");
+assert(shifted_points[0][1] == 20, "First shifted point y should be 20");
+assert(distances_from_origin[2] == 13, "Third distance should be 13 (2²+3²)");
+
+# Nested data flattening
+let nested_numbers = [[1, 2], [3, 4], [5, 6]];
+let flattened = [nested_numbers[i][j] | i in 0..3, j in 0..2];
+
+assert(flattened.length == 6, "Flattened should have 6 elements");
+assert(flattened[0] == 1, "First flattened element should be 1");
+assert(flattened[5] == 6, "Last flattened element should be 6");
+
+# Range-based transformations
+let indices = [i | i in 0..5];
+let index_squares = [i * i | i in 0..5];
+let even_indices = [i | i in 0..10, i % 2 == 0];
+
+assert(indices.length == 5, "Indices should have 5 elements");
+assert(index_squares[3] == 9, "Fourth index square should be 9");
+assert(even_indices.length == 5, "Even indices should have 5 elements");
+
+# Function-based transformations
+fn transform_value(x) {
+    if (x < 5) {
+        x * 2
+    } else {
+        x + 10
+    }
+}
+
+let test_values = [1, 3, 5, 7, 9];
+let transformed_values = [transform_value(x) | x in test_values];
+
+assert(transformed_values.length == 5, "Transformed values should have 5 elements");
+assert(transformed_values[0] == 2, "First transformed should be 2 (1*2)");
+assert(transformed_values[2] == 15, "Third transformed should be 15 (5+10)");
+assert(transformed_values[4] == 19, "Fifth transformed should be 19 (9+10)");
+
+print("=== Data Transformation Tests ===");
+print("Basic transformations - doubled:", doubled[0], "squared:", squared[2]);
+print("Multi-step result:", step3[1]);
+print("Conditional transformations:", absolute_values);
+print("Matrix transformations - diagonal:", diagonal_elements);
+print("String transformations:", word_lengths);
+print("Group aggregations:", group_sums);
+print("Coordinate transformations:", shifted_points[1]);
+print("Function transformations:", transformed_values);
+print("✓ All data transformation patterns working correctly!");

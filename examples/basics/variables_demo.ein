@@ -1,0 +1,41 @@
+# Variables and Collections Sample
+# Demonstrates basic variable assignment and simple collections
+
+# Basic variables
+let x = 42.0;  # Use float literal - type inferred as f32;
+let y = 3.14;
+let name = "Einlang";
+let is_ready = true;
+
+# Simple array
+let numbers = [1, 2, 3, 4, 5];
+let first = numbers[0];
+let last = numbers[4]; 
+
+# Basic calculations
+let sum_xy = x + y * 10.0;  # Clean: all floats;
+let product = x * 2.0;
+let is_positive = x > 0.0;  # Compare float with float
+
+# Simple operations
+let doubled_first = first * 2;
+let total_elements = 5;  # Would use len(numbers) when available
+
+# Verify basic operations  
+assert(x == 42.0, "x should be 42.0");
+assert(first == 1, "First element should be 1");
+assert(last == 5, "Last element should be 5");
+assert(product == 84.0, "42 * 2 should be 84");
+assert(is_positive == true, "42 should be positive");
+assert(doubled_first == 2, "1 * 2 should be 2");
+
+print("=== Variables and Collections Sample ===");
+print("x =", x);
+print("y =", y);
+print("name =", name);
+print("numbers =", numbers);
+print("first =", first, ", last =", last);
+print("sum_xy =", sum_xy);
+print("product =", product);
+print("doubled_first =", doubled_first);
+print("✅ All basic operations verified!");

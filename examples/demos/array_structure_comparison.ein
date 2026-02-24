@@ -1,0 +1,81 @@
+# Array Structure Comparison: Why Array of Pairs is More Intuitive
+
+print("=== Array of Pairs vs Nested Arrays ===");
+print();
+
+# =====================================================
+# Current behavior: Array of pairs (INTUITIVE!)
+# =====================================================
+print("=== Current: Array of Pairs (GOOD!) ===");
+
+let pairs = [(i, j) | i in 1..3, j in 4..6];
+print("Result:", pairs);
+print("Length:", len(pairs), "total combinations");
+print("Structure: [pair1, pair2, pair3, pair4]");
+print();
+
+# =====================================================
+# Why this is intuitive:
+# =====================================================
+print("=== Why Array of Pairs is More Intuitive ===");
+print();
+print("1. Mathematical correctness:");
+print("   - Matches Cartesian product A × B"); 
+print("   - Each element is exactly one combination");
+print();
+
+print("2. Predictable structure:");
+print("   - Flat array, no unexpected nesting");
+print("   - Length = total number of combinations");
+print("   - Each position contains exactly what you expect");
+print();
+
+print("3. Easy to work with:");
+let coords = [(x, y) | x in 0..2, y in 0..2];
+print("   - Grid coordinates:", coords);
+print("   - Simple iteration over all combinations");
+print("   - Length matches expectation:", len(coords), "= 2×2");
+print();
+
+# =====================================================
+# Alternative would be confusing
+# =====================================================  
+print("=== Why Nested Arrays Would Be Confusing ===");
+print();
+print("If we returned nested arrays like:");
+print("   [[(1,4), (1,5)], [(2,4), (2,5)]]");
+print();
+print("Problems:");
+print("   - Arbitrary grouping (why by first variable?)");
+print("   - Unexpected nesting in flat comprehension syntax");
+print("   - Length confusion (2 vs 4 combinations)");
+print("   - Harder to filter/process all combinations");
+print("   - Doesn't match [(expr) | ...] syntax expectation");
+print();
+
+# =====================================================
+# Real-world examples where flat is better
+# =====================================================
+print("=== Real Examples Where Flat Structure Wins ===");
+print();
+
+# Chess board positions
+let chess_squares = [(file, rank) | file in 0..8, rank in 0..8];
+print("Chess squares (64 total):", len(chess_squares));
+
+# Color combinations  
+let rgb_samples = [(r, g, b) | r in [0, 255], g in [0, 255], b in [0, 128]];
+print("RGB combinations:", len(rgb_samples));
+
+# Parameter grid for experiments
+let params = [(lr, batch) | lr in [1, 10], batch in [16, 32]];  
+print("Parameter combinations:", params);
+
+print();
+print("=== Conclusion ===");
+print("Array of pairs is:");
+print("✓ Mathematically correct");
+print("✓ Structurally predictable"); 
+print("✓ Easy to work with");
+print("✓ Matches syntax expectations");
+print("✓ Consistent with other languages");

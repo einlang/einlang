@@ -1,0 +1,25 @@
+# CORE FEATURE: Function Definitions
+# PURPOSE: Tests function definition, calls, and statements - essential modularity
+# VALUE: Functions are fundamental for code reuse and mathematical abstractions
+
+fn double(n) {
+    n * 2
+}
+
+fn add_three(a, b, c) {
+    a + b + c
+}
+
+let x = 7;
+let doubled = double(x);
+let sum = add_three(1, 2, 3);
+
+# Verify function results with assertions
+assert(doubled == 14, "double(7) should be 14");
+assert(sum == 6, "add_three(1, 2, 3) should be 6");
+assert(double(5) == 10, "double(5) should be 10");
+assert(add_three(0, 0, 1) == 1, "add_three(0, 0, 1) should be 1");
+
+print("double(7) =", doubled);
+print("add_three(1, 2, 3) =", sum);
+print("✓ All function assertions passed!");

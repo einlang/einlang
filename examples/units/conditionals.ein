@@ -1,0 +1,17 @@
+# CORE FEATURE: Conditional Expressions
+# PURPOSE: Tests if-else expressions and boolean logic - essential control flow
+# VALUE: Required for any conditional logic in mathematical computations
+
+let x = 10;
+let y = 5;
+let max_val = if x > y { x } else { y };
+let is_positive = x > 0;
+
+# Verify conditional results with assertions
+assert(max_val == 10, "Max should be 10 since x > y");
+assert(is_positive == true, "x should be positive");
+assert(x > y, "x should be greater than y");
+
+print("Max of", x, "and", y, "is:", max_val);
+print("Is x positive?", is_positive);
+print("✓ All conditional assertions passed!");

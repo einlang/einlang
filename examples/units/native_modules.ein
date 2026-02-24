@@ -1,0 +1,36 @@
+# CORE FEATURE: Native Module Imports
+# PURPOSE: Tests native Einlang module imports - essential for standard library access
+# VALUE: Native modules provide core mathematical and utility functions in pure Einlang
+
+# Import native Einlang modules
+use std::math;
+use std::array;
+
+# Test module function access
+let result1 = math::abs(-7);
+let result2 = math::min(5, 3);
+let result3 = math::max(2, 8);
+
+# Test array functions
+let numbers = [1, 2, 3, 4, 5];
+let sum_result = array::sum(numbers);
+
+# Test fully qualified standard library calls (without import)
+let more_numbers = [10, 20, 30];
+let qualified_sum = std::array::sum(more_numbers);
+
+# Verify native module functionality with assertions
+assert(result1 == 7, "math::abs(-7) should be 7");
+assert(result2 == 3, "math::min(5, 3) should be 3");
+assert(result3 == 8, "math::max(2, 8) should be 8");
+assert(sum_result == 15, "array::sum([1,2,3,4,5]) should be 15");
+assert(qualified_sum == 60, "std::array::sum([10,20,30]) should be 60");
+
+print("Absolute value of -7:", result1);
+print("Minimum of 5 and 3:", result2);
+print("Maximum of 2 and 8:", result3);
+print("Sum of [1,2,3,4,5]:", sum_result);
+print("Qualified sum of [10,20,30]:", qualified_sum);
+print("✓ All native module assertions passed!");
+
+# All native module functions tested successfully

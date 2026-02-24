@@ -1,0 +1,30 @@
+# ml/logical_ops.ein - ONNX Logical Operations
+# TensorRT ONNX Parser: ✅ Supported
+
+# ============================================================================
+# Logical Operations
+# ============================================================================
+
+pub fn logical_and(a, b) {
+    # Logical AND: element-wise on bool arrays
+    a && b
+}
+
+
+pub fn logical_or(a, b) {
+    # Logical OR: element-wise on bool arrays
+    a || b
+}
+
+
+pub fn logical_xor(a, b) {
+    # Logical XOR: element-wise on bool arrays
+    a != b
+}
+
+
+pub fn logical_not(x) {
+    # Logical NOT: element-wise on bool arrays
+    !x
+}
+

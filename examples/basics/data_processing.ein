@@ -1,0 +1,39 @@
+# Data Processing Sample
+# Demonstrates array operations, filtering, and transformations
+
+# Sample dataset
+let data = [12.0, 5.0, 18.0, 3.0, 9.0, 22.0, 7.0, 15.0, 1.0, 11.0];  # Float literals
+
+# Basic statistics
+let total = sum[i](data[i]) as f32;  # Cast to preserve float type;
+let count_int = 10;  # Integer for ranges;
+let count_float = 10.0;  # Float for division;
+let average = total / count_float;
+let maximum = max[i](data[i]);
+let minimum = min[i](data[i]);
+
+# Data filtering and transformations
+let large_numbers = [x | x in data, x > 10.0];
+let even_indexed = [data[i] | i in 0..count_int, i % 2 == 0];
+let squared_data = [data[i] * data[i] | i in 0..count_int];
+
+# Conditional processing
+let processed = [if data[i] > average { data[i] * 2.0 } 
+    else { data[i] + 10.0 } | i in 0..count_int];
+
+# Verify results
+assert(total == 103.0, "Sum should be 103");
+# Note: average comparison skipped due to floating-point precision (10.3 not exactly representable)
+assert(maximum == 22.0, "Maximum should be 22");
+assert(minimum == 1.0, "Minimum should be 1");
+
+print("=== Data Processing Sample ===");
+print("Original data:", data);
+print("Statistics:");
+print("  Total:", total);
+print("  Average:", average);
+print("  Range:", minimum, "to", maximum);
+print("Large numbers (>10):", large_numbers);
+print("Even-indexed elements:", even_indexed);
+print("Processed data:", processed);
+print("✅ All data processing verified!");

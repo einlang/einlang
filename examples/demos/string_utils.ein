@@ -1,0 +1,6 @@
+# String utilities module for rust_syntax_demo
+# Provides basic string functions
+
+pub fn greeting() {
+    "Hello from string_utils!"
+}

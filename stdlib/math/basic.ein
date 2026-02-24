@@ -1,0 +1,104 @@
+# stdlib_v2/math/basic.ein - Basic mathematical functions
+
+pub fn abs(x) {
+    # Absolute value (ONNX Abs, TensorRT supported). Explicit cast so comparison is valid for int or float x.
+    if (x as f32) >= 0.0 { x } else { -x }
+}
+
+pub fn sqrt(x) {
+    # Square root (ONNX Sqrt, TensorRT supported)
+    # Use power operator for tensor support
+    x ** 0.5
+}
+
+pub fn min(a, b) {
+    # Minimum of two values
+    if a < b { a } else { b }
+}
+
+pub fn max(a, b) {
+    # Maximum of two values
+    if a > b { a } else { b }
+}
+
+pub fn sign(x) {
+    # Sign function: -1 for negative, 0 for zero, 1 for positive. Explicit cast for comparison.
+    if (x as f32) > 0.0 {
+        1.0
+    } else if (x as f32) < 0.0 {
+        -1.0
+    } else {
+        0.0
+    }
+}
+
+pub fn pow(x, y) {
+    # Power function: x^y (ONNX Pow, TensorRT supported)
+    # Use Python's pow for automatic type coercion (scalar and arrays)
+    python::numpy::power(x, y)
+}
+
+pub fn floor(x) {
+    # Floor function (ONNX Floor, TensorRT supported)
+    python::numpy::floor(x)
+}
+
+pub fn ceil(x) {
+    # Ceiling function (ONNX Ceil, TensorRT supported)
+    python::numpy::ceil(x)
+}
+
+pub fn round(x) {
+    # Round to nearest integer (ties to even) (ONNX Round, TensorRT supported)
+    python::numpy::round(x)
+}
+
+pub fn trunc(x) {
+    # Truncate to integer
+    python::numpy::trunc(x)
+}
+
+pub fn fmod(x, y) {
+    # Floating point remainder
+    # Uses trunc instead of floor (different from mod)
+    python::numpy::fmod(x, y)
+}
+
+pub fn mod(x, y) {
+    # Modulo operation: x mod y
+    # Uses the % operator which implements: x - y * floor(x / y)
+    # Note: Different from fmod which uses trunc instead of floor
+    # This is the ONNX Mod operator behavior
+    x % y
+}
+
+pub fn gcd(a, b) {
+    # Greatest common divisor
+    python::numpy::gcd(a, b)
+}
+
+pub fn lcm(a, b) {
+    # Least common multiple
+    abs(a * b) / gcd(a, b)
+}
+
+pub fn factorial(n) {
+    # Factorial function
+    assert(n >= 0, "factorial: argument must be non-negative");
+    if n <= 1 { 1 } else { n * factorial(n - 1) }
+}
+
+pub fn square(x) {
+    # Square: x²
+    x * x
+}
+
+pub fn neg(x) {
+    # Negation: -x
+    -x
+}
+
+pub fn reciprocal(x) {
+    # Reciprocal: 1/x
+    1.0 / x
+}

@@ -1,0 +1,13 @@
+# import_private_function_demo.ein - EXPECTED TO FAIL: Test importing private functions 
+# This demo is INTENTIONALLY designed to fail to demonstrate private function visibility
+
+mod private_module_test;
+use private_module_test as private_mod;
+
+print("=== Testing Private Function Visibility (Expected to Fail) ===");
+
+# This should FAIL - attempting to access private function should cause ExecutionError
+print("Attempting to use private function (this should cause an error):");
+let result = private_mod::private_function(10);  # Should raise ExecutionError about private function
+print("ERROR: This line should never execute - private function should not be accessible!");
+print("Result:", result);

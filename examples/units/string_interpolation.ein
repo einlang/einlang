@@ -1,0 +1,64 @@
+# String Interpolation Examples
+# Demonstrates string interpolation feature with double brace escaping
+
+# Basic variable interpolation
+let name = "Einlang";
+let version = 1.0;
+let active = true;
+
+# Test basic interpolation
+assert(name == "Einlang");
+assert(version == 1.0);
+assert(active == true);
+
+# Mathematical expressions with formatting
+let pi = 3.14159265;
+let e = 2.71828;
+let golden_ratio = 1.618033988;
+
+# Test mathematical constants
+assert(pi > 3.0);
+assert(pi < 4.0);
+assert(e > 2.0);
+assert(e < 3.0);
+assert(golden_ratio > 1.5);
+assert(golden_ratio < 2.0);
+
+# Scientific notation
+let planck = 6.62607015e-34;
+let light_speed = 299792458;
+
+# Test scientific constants (float comparison: use 0.0)
+assert(planck > 0.0);
+assert(light_speed > 0);
+
+# Array and tensor display
+let matrix = [[1, 2, 3], [4, 5, 6]];
+let vector = [10, 20, 30];
+
+# Test data structures
+assert(matrix == [[1, 2, 3], [4, 5, 6]]);
+assert(vector == [10, 20, 30]);
+
+# Training simulation data
+let epochs = [1, 2, 3, 4, 5];
+let losses = [0.8, 0.6, 0.4, 0.3, 0.2];
+let accuracies = [0.6, 0.7, 0.8, 0.85, 0.9];
+
+# Test training data
+assert(epochs == [1, 2, 3, 4, 5]);
+assert(losses == [0.8, 0.6, 0.4, 0.3, 0.2]);
+assert(accuracies == [0.6, 0.7, 0.8, 0.85, 0.9]);
+
+# Environmental data
+let temperature = 23.456;
+let humidity = 0.67;
+let pressure = 1013.25;
+
+# Test environmental measurements
+assert(temperature > 20.0);
+assert(temperature < 30.0);
+assert(humidity > 0.5);
+assert(humidity < 1.0);
+assert(pressure > 1000.0);
+assert(pressure < 1020.0);

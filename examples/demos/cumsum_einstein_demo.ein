@@ -1,0 +1,39 @@
+# Cumulative Sum with Einstein Notation Demo
+# Shows how cumsum should work in Einstein notation
+
+# Basic 1D cumulative sum
+data = [1, 2, 3, 4, 5]
+
+# Traditional reduction would be: total = sum[i](data[i])
+# Cumsum should be: cumulative[i] = cumsum[k](data[k]) where k <= i
+cumulative[i in 0..len(data)] = cumsum[k](data[k]) where k <= i
+
+print("Original data:", data)
+print("Cumulative sum:", cumulative)
+# Expected: [1, 3, 6, 10, 15]
+
+# 2D matrix cumulative sum along rows (axis 0)
+matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+
+# Cumulative sum along first axis (rows)
+row_cumsum[i in 0..3, j in 0..3] = cumsum[k](matrix[k,j]) where k <= i
+
+print("Original matrix:", matrix)
+print("Row-wise cumsum:", row_cumsum)
+# Expected: [[1, 2, 3], [5, 7, 9], [12, 15, 18]]
+
+# Cumulative sum along second axis (columns)  
+col_cumsum[i in 0..3, j in 0..3] = cumsum[k](matrix[i,k]) where k <= j
+
+print("Column-wise cumsum:", col_cumsum)
+# Expected: [[1, 3, 6], [4, 9, 15], [7, 15, 24]]
+
+# 3D tensor cumulative sum example
+tensor3d = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+
+# Cumsum along first dimension
+depth_cumsum[i in 0..2, j in 0..2, k in 0..2] = cumsum[d](tensor3d[d,j,k]) where d <= i
+
+print("3D tensor:", tensor3d)
+print("Depth-wise cumsum:", depth_cumsum)
+# Expected: [[[1, 2], [3, 4]], [[6, 8], [10, 12]]]

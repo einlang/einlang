@@ -1,0 +1,108 @@
+# stdlib_v2/io.ein - Input/Output operations (single-file approach)
+
+pub fn current_dir() {
+    # Get current working directory
+    python::os::getcwd()
+}
+
+pub fn list_dir(path) {
+    # List directory contents
+    python::os::listdir(path)
+}
+
+pub fn file_exists(path) {
+    # Check if file exists
+    python::os::path::exists(path)
+}
+
+pub fn read_file(path) {
+    # Read file contents as string
+    python::builtins::open(path, "r").read()
+}
+
+pub fn write_file(path, content) {
+    # Write content to file
+    python::builtins::open(path, "w").write(content);
+    true
+}
+
+pub fn append_file(path, content) {
+    # Append content to file
+    python::builtins::open(path, "a").write(content);
+    true
+}
+
+pub fn delete_file(path) {
+    # Delete a file
+    python::os::remove(path);
+    true
+}
+
+pub fn create_dir(path) {
+    # Create directory
+    python::os::makedirs(path);
+    true
+}
+
+pub fn remove_dir(path) {
+    # Remove directory
+    python::os::rmdir(path);
+    true
+}
+
+pub fn copy_file(src, dst) {
+    # Copy file from src to dst
+    python::shutil::copy(src, dst);
+    true
+}
+
+pub fn move_file(src, dst) {
+    # Move file from src to dst
+    python::shutil::move(src, dst);
+    true
+}
+
+pub fn file_size(path) {
+    # Get file size in bytes
+    python::os::path::getsize(path)
+}
+
+pub fn is_file(path) {
+    # Check if path is a file
+    python::os::path::isfile(path)
+}
+
+pub fn is_dir(path) {
+    # Check if path is a directory
+    python::os::path::isdir(path)
+}
+
+pub fn join_path(parts) {
+    # Join path components
+    python::os::path::join(parts)
+}
+
+pub fn split_path(path) {
+    # Split path into components
+    python::os::path::split(path)
+}
+
+pub fn basename(path) {
+    # Get basename of path
+    python::os::path::basename(path)
+}
+
+pub fn dirname(path) {
+    # Get directory name of path
+    python::os::path::dirname(path)
+}
+
+pub fn absolute_path(path) {
+    # Get absolute path
+    python::os::path::abspath(path)
+}
+
+pub fn relative_path(path, start) {
+    # Get relative path from start
+    python::os::path::relpath(path, start)
+}

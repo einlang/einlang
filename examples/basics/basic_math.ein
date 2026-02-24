@@ -1,0 +1,26 @@
+# Basic Math Operations Sample
+# Demonstrates fundamental arithmetic and assertions
+
+let a = 15.0;  # Float literals - clean and clear;
+let b = 4.0;
+let sum = a + b;
+let difference = a - b;
+let product = a * b;
+let quotient = a / b;
+let remainder = 15 % 4;  # Integer operation stays integer
+
+# Verify calculations
+assert(sum == 19.0, "15 + 4 should equal 19");
+assert(difference == 11.0, "15 - 4 should equal 11");
+assert(product == 60.0, "15 * 4 should equal 60");
+assert(quotient == 3.75, "15 / 4 should equal 3.75");
+assert(remainder == 3, "15 % 4 should equal 3");
+
+print("=== Basic Math Sample ===");
+print("a =", a, ", b =", b);
+print("Sum:", sum);
+print("Difference:", difference);
+print("Product:", product);
+print("Quotient:", quotient);
+print("Remainder:", remainder);
+print("✅ All math operations verified!");

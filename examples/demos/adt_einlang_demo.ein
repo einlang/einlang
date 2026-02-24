@@ -1,0 +1,371 @@
+# Einlang ADT Demo - Mathematical Focus
+# ====================================
+# 
+# This demo shows ADT features designed specifically for Einlang's
+# mathematical and tensor-focused identity.
+
+# =============================================================================
+# MATHEMATICAL TYPE UNIONS
+# =============================================================================
+
+# Numerical value types common in scientific computing
+type Number = i32 | f32 | f64;
+type ScalarOrArray = f32 | [f32] | [[f32]];
+
+# Geometric shapes for mathematical modeling
+type Shape =
+    | circle { radius: f32 }
+    | rectangle { width: f32, height: f32 }
+    | triangle { base: f32, height: f32 };
+
+# Create shapes using mathematical notation
+let my_circle = circle { radius: 5.0 };
+let my_rectangle = rectangle { width: 4.0, height: 6.0 };
+let my_triangle = triangle { base: 3.0, height: 8.0 };
+
+# Mathematical case analysis for area calculation
+fn area(shape: Shape) -> f32 {
+    case shape {
+        circle { radius: r } => pi * r * r,
+        rectangle { width: w, height: h } => w * h,
+        triangle { base: b, height: h } => 0.5 * b * h
+    }
+}
+
+let areas = [area(my_circle), area(my_rectangle), area(my_triangle)];
+print("Areas:", areas);
+
+# =============================================================================
+# MATHEMATICAL RECORD TYPES
+# =============================================================================
+
+# Mathematical point structures
+type Point2D = { x: f32, y: f32 };
+type Point3D = { x: f32, y: f32, z: f32 };
+
+# Vector operations with record destructuring
+fn distance_2d(p1: Point2D, p2: Point2D) -> f32 {
+    case (p1, p2) {
+        ({ x: x1, y: y1 }, { x: x2, y: y2 }) => sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1))
+    }
+}
+
+let point_a = { x: 1.0, y: 2.0 };
+let point_b = { x: 4.0, y: 6.0 };
+let dist = distance_2d(point_a, point_b);
+print("Distance:", dist);
+
+# =============================================================================
+# TENSOR DIMENSION HANDLING
+# =============================================================================
+
+# Types for different tensor dimensionalities
+type TensorData = 
+    | scalar: f32
+    | vector: [f32]  
+    | matrix: [[f32]]
+    | tensor3d: [[[f32]]];
+
+# Normalize different tensor types to consistent form
+fn normalize_to_vector(data: TensorData) -> [f32] {
+    case data {
+        scalar: x => [x],
+        vector: v => v,
+        matrix: m => flatten(m),
+        tensor3d: t => flatten(flatten(t))
+    }
+}
+
+# Test with different data types
+let scalar_data = scalar: 42.0;
+let vector_data = vector: [1.0, 2.0, 3.0];
+let matrix_data = matrix: [[1.0, 2.0], [3.0, 4.0]];
+
+let normalized_scalar = normalize_to_vector(scalar_data);
+let normalized_vector = normalize_to_vector(vector_data);  
+let normalized_matrix = normalize_to_vector(matrix_data);
+
+print("Normalized scalar:", normalized_scalar);
+print("Normalized vector:", normalized_vector);
+print("Normalized matrix:", normalized_matrix);
+
+# =============================================================================
+# MATHEMATICAL ERROR HANDLING
+# =============================================================================
+
+# Mathematical result types
+type ComputeResult = success: f32 | error: str;
+type DivisionResult = finite: f32 | infinite | undefined;
+
+# Safe mathematical operations
+fn safe_divide(a: f32, b: f32) -> ComputeResult {
+    if b != 0.0 {
+        success: a / b
+    } else {
+        error: "division by zero"
+    }
+}
+
+fn mathematical_divide(a: f32, b: f32) -> DivisionResult {
+    if b > 0.0 {
+        finite: a / b
+    } else if b == 0.0 && a > 0.0 {
+        infinite
+    } else {
+        undefined
+    }
+}
+
+# Case analysis for mathematical results
+let compute_with_safety = fn(x: f32, y: f32) -> f32 {
+    case safe_divide(x, y) {
+        success: result => result * 2.0,
+        error: msg => {
+            print("Mathematical error: {msg}")
+            0.0
+        }
+    };
+};
+
+let math_result1 = compute_with_safety(10.0, 2.0);  # Should work;
+let math_result2 = compute_with_safety(10.0, 0.0);  # Should handle error
+
+print("Safe computation results:", [math_result1, math_result2]);
+
+# =============================================================================
+# ACTIVATION FUNCTIONS WITH EINSTEIN NOTATION
+# =============================================================================
+
+# Mathematical activation function types
+type ActivationFunction = 
+    | relu
+    | sigmoid  
+    | tanh
+    | leaky_relu { alpha: f32 }
+    | elu { alpha: f32 }
+    | softmax;
+
+# Apply activation functions using Einstein notation
+fn apply_activation(input: tensor[f32], activation: ActivationFunction) -> tensor[f32] {
+    let result[i] = case activation {
+        relu => if input[i] > 0.0 { input[i] } else { 0.0 },
+        sigmoid => 1.0 / (1.0 + exp(-input[i])),
+        tanh => tanh(input[i]),
+        leaky_relu { alpha } => if input[i] > 0.0 { input[i] } else { alpha * input[i] },
+        elu { alpha } => if input[i] > 0.0 { input[i] } else { alpha * (exp(input[i]) - 1.0) },
+        softmax => exp(input[i]) / sum[j](exp(input[j]))
+    } where i in shape(input);
+    result
+}
+
+# Test different activation functions
+let test_input = [-2.0, -1.0, 0.0, 1.0, 2.0];
+
+let relu_result = apply_activation(test_input, relu);
+let sigmoid_result = apply_activation(test_input, sigmoid);
+let leaky_relu_result = apply_activation(test_input, leaky_relu { alpha: 0.1 });
+
+print("ReLU result:", relu_result);
+print("Sigmoid result:", sigmoid_result);
+print("Leaky ReLU result:", leaky_relu_result);
+
+# =============================================================================
+# NEURAL NETWORK LAYERS
+# =============================================================================
+
+# Mathematical layer definition
+type Layer = {
+    weights: tensor[f32],
+    bias: tensor[f32],
+    activation: ActivationFunction
+};
+
+# Forward pass with mathematical case analysis
+fn forward_layer(input: tensor[f32], layer: Layer) -> tensor[f32] {
+    # Linear transformation (supports different tensor shapes)
+    let linear = case (shape(input), shape(layer.weights)) {
+        ([n], [n, m]) => {
+            # Vector-matrix multiplication
+            let result[j] = sum[k](input[k] * layer.weights[k, j]) + layer.bias[j];
+            result
+        },
+        ([batch, n], [n, m]) => {
+            # Batch matrix multiplication
+            let result[i, j] = sum[k](input[i, k] * layer.weights[k, j]) + layer.bias[j];
+            result
+        },
+        _ => {
+            print("Unsupported tensor shapes for layer forward pass");
+            zeros(shape(layer.bias));
+        }
+    };
+    
+    # Apply activation
+    apply_activation(linear, layer.activation)
+}
+
+# Create a simple layer
+let simple_layer = {
+    weights: random_normal([5, 3]),
+    bias: zeros([3]),
+    activation: relu
+};
+
+let layer_input = [1.0, -0.5, 2.0, 0.8, -1.2];
+let layer_output = forward_layer(layer_input, simple_layer);
+print("Layer output:", layer_output);
+
+# =============================================================================
+# MATHEMATICAL COORDINATE SYSTEMS
+# =============================================================================
+
+# Different coordinate system representations
+type Coordinate = 
+    | cartesian { x: f32, y: f32 }
+    | polar { r: f32, theta: f32 }
+    | complex { real: f32, imag: f32 };
+
+# Convert between coordinate systems
+fn to_cartesian(coord: Coordinate) -> { x: f32, y: f32 } {
+    case coord {
+        cartesian { x, y } => { x: x, y: y },
+        polar { r, theta } => { x: r * cos(theta), y: r * sin(theta) },
+        complex { real, imag } => { x: real, y: imag }
+    }
+}
+
+fn to_polar(coord: Coordinate) -> { r: f32, theta: f32 } {
+    let cart = to_cartesian(coord);
+    {
+        r: sqrt(cart.x * cart.x + cart.y * cart.y),
+        theta: atan2(cart.y, cart.x)
+    }
+}
+
+# Test coordinate conversions
+let cart_point = cartesian { x: 3.0, y: 4.0 };
+let polar_point = polar { r: 5.0, theta: pi/4 };
+let complex_point = complex { real: 2.0, imag: 3.0 };
+
+let cart_to_polar = to_polar(cart_point);
+let polar_to_cart = to_cartesian(polar_point);
+
+print("Cartesian to polar:", cart_to_polar);
+print("Polar to cartesian:", polar_to_cart);
+
+# =============================================================================
+# QUADRANT CLASSIFICATION WITH GUARDS
+# =============================================================================
+
+fn classify_quadrant(point: { x: f32, y: f32 }) -> str {
+    case point {
+        { x, y } where x > 0.0, y > 0.0 => "quadrant_1",
+        { x, y } where x < 0.0, y > 0.0 => "quadrant_2", 
+        { x, y } where x < 0.0, y < 0.0 => "quadrant_3",
+        { x, y } where x > 0.0, y < 0.0 => "quadrant_4",
+        { x: 0.0, y } where y != 0.0 => "y_axis",
+        { x, y: 0.0 } where x != 0.0 => "x_axis",
+        { x: 0.0, y: 0.0 } => "origin"
+    }
+}
+
+let test_points = [
+    { x: 1.0, y: 2.0 },
+    { x: -1.0, y: 3.0 },
+    { x: -2.0, y: -1.0 },
+    { x: 3.0, y: -2.0 },
+    { x: 0.0, y: 5.0 },
+    { x: 4.0, y: 0.0 },
+    { x: 0.0, y: 0.0 }
+];
+
+for point in test_points {
+    let classification = classify_quadrant(point);
+    print(f"Point ({point.x}, {point.y}): {classification}");
+}
+
+# =============================================================================
+# TENSOR SHAPE VALIDATION
+# =============================================================================
+
+type TensorOperation = 
+    | element_wise { op: str }
+    | matrix_multiply
+    | convolution { kernel_size: [i32] }
+    | reduction { axes: [i32] };
+
+type ValidationResult =
+    | valid
+    | shape_error { expected: [i32], actual: [i32] }
+    | dimension_error { message: str };
+
+fn validate_operation(a: tensor[f32], b: tensor[f32], operation: TensorOperation) -> ValidationResult {
+    let shape_a = shape(a);
+    let shape_b = shape(b);
+    
+    case operation {
+        element_wise { op } => {
+            if shape_a == shape_b {
+                valid
+            } else {
+                shape_error { expected: shape_a, actual: shape_b }
+            }
+        },
+        matrix_multiply => {
+            if len(shape_a) == 2 && len(shape_b) == 2 && shape_a[1] == shape_b[0] {
+                valid
+            } else if len(shape_a) != 2 || len(shape_b) != 2 {
+                dimension_error { message: "matrix multiplication requires 2D tensors" }
+            } else {
+                shape_error { expected: [shape_a[0], shape_a[1], shape_a[1]], actual: shape_b }
+            }
+        },
+        convolution { kernel_size } => {
+            # Simplified convolution validation
+            valid  # Would implement full validation logic
+        },
+        reduction { axes } => {
+            # Validate reduction axes
+            valid  # Would implement full validation logic
+        }
+    }
+}
+
+# Test tensor operation validation
+let tensor_a = random_normal([3, 4]);
+let tensor_b = random_normal([4, 5]);
+let tensor_c = random_normal([3, 5]);  # Wrong shape
+
+let validation1 = validate_operation(tensor_a, tensor_b, matrix_multiply);
+let validation2 = validate_operation(tensor_a, tensor_c, matrix_multiply);
+let validation3 = validate_operation(tensor_a, tensor_c, element_wise { op: "add" });
+
+print("Tensor validation results:");
+case validation1 {
+    valid => print("  Matrix multiply A×B: ✓ Valid"),
+    shape_error { expected, actual } => print("  Matrix multiply A×B: ✗ Shape error"),
+    dimension_error { message } => print("  Matrix multiply A×B: ✗ Dimension error")
+}
+
+case validation2 {
+    valid => print("  Matrix multiply A×C: ✓ Valid"),
+    shape_error { expected, actual } => print("  Matrix multiply A×C: ✗ Shape mismatch"),
+    dimension_error { message } => print("  Matrix multiply A×C: ✗ {message}")
+}
+
+case validation3 {
+    valid => print("  Element-wise A+C: ✓ Valid"),
+    shape_error { expected, actual } => print("  Element-wise A+C: ✗ Shape mismatch"),
+    dimension_error { message } => print("  Element-wise A+C: ✗ {message}")
+}
+
+print("Einlang ADT Demo completed successfully!");
+print("Mathematical ADT features demonstrated:");
+print("  ✓ Type unions with mathematical focus");
+print("  ✓ Record types for mathematical structures");
+print("  ✓ Case analysis instead of Rust-like matching");
+print("  ✓ Mathematical error handling");
+print("  ✓ Tensor integration with Einstein notation");
+print("  ✓ Scientific computing patterns");
+print("  ✓ Coordinate system transformations");
+print("  ✓ Tensor operation validation");

@@ -1,0 +1,45 @@
+# python_module_import_demo.ein - Demonstration of Python module imports in Einlang
+# Required Python modules: math (built-in), random (built-in), numpy (pip install numpy)
+
+# Import Python modules using python:: prefix
+use python::math;
+use python::random as rand;
+use python::numpy as np;
+
+# Use Python math functions
+let pi_value = math::pi;
+let sqrt_result = math::sqrt(16.0);
+let sin_result = math::sin(math::pi / 2.0);
+
+print("Pi value:", pi_value);
+print("Square root of 16:", sqrt_result);
+print("Sin(π/2):", sin_result);
+
+# Use Python random functions
+let random_int = rand::randint(1, 100);
+let random_float = rand::random();
+
+print("Random integer (1-100):", random_int);
+print("Random float (0-1):", random_float);
+
+# Use NumPy for array operations
+let array1 = np::array([1, 2, 3, 4, 5]);
+let array2 = np::array([10, 20, 30, 40, 50]);
+let sum_arrays = np::add(array1, array2);
+
+print("Array 1:", array1);
+print("Array 2:", array2);
+print("Sum of arrays:", sum_arrays);
+
+# Access NumPy constants
+let e_value = np::e;
+print("Euler's number (e):", e_value);
+
+# Demonstrate mixed Einlang and Python functionality
+let einlang_list = [1, 2, 3, 4, 5];
+let numpy_array = np::array(einlang_list);
+let mean_value = np::mean(numpy_array);
+
+print("Original Einlang list:", einlang_list);
+print("Converted to NumPy array:", numpy_array);
+print("Mean value:", mean_value);

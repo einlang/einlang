@@ -1,0 +1,25 @@
+# CORE FEATURE: Basic Arithmetic Operations
+# PURPOSE: Tests fundamental language features - variable declarations, basic math operators, assertions
+# VALUE: Essential baseline test for any programming language implementation
+
+let x = 5;
+let y = 3;
+let sum = x + y;
+let diff = x - y; 
+let prod = x * y;
+let quot = x / y;  # Integer division: 5 / 3 = 1 (Rust-aligned)
+
+# Verify results with assertions
+assert(sum == 8, "Sum should be 8");
+assert(diff == 2, "Difference should be 2");
+assert(prod == 15, "Product should be 15");
+assert(quot == 1, "Integer division: 5 / 3 = 1");  # Rust-aligned: int / int = int
+
+print("Basic arithmetic:");
+print("5 + 3 =", sum);
+print("5 - 3 =", diff);
+print("5 * 3 =", prod);
+print("5 / 3 =", quot);
+print("✓ All arithmetic assertions passed!");
+
+# All arithmetic operations verified with assertions

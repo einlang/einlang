@@ -1,0 +1,192 @@
+# ml/recurrent_ops.ein - ONNX Recurrent Operations
+# TensorRT ONNX Parser: ✅ Supported (IRNNv2Layer)
+
+use std::math::tanh;
+use std::ml::activations::sigmoid;
+
+# ============================================================================
+# ONNX Operator: RNN (Recurrent Neural Network)
+# ============================================================================
+
+pub fn rnn(X, W, R, B, initial_h, hidden_size, direction, activation) {
+    # ONNX Operator: RNN (Recurrent Neural Network)
+    # 
+    # Simplest recurrent operation - single hidden state update
+    # 
+    # Inputs:
+    #   - X: [seq_length, batch_size, input_size] - input sequence
+    #   - W: [hidden_size, input_size] - input weights (for forward direction)
+    #   - R: [hidden_size, hidden_size] - recurrent weights (for forward direction)
+    #   - B: [2*hidden_size] or [] - biases (optional, input bias + recurrent bias)
+    #   - initial_h: [batch_size, hidden_size] or [] - initial hidden state (optional, default zeros)
+    #   - hidden_size: int - number of hidden units
+    #   - direction: int - 0=forward, 1=backward, 2=bidirectional (currently only forward supported)
+    #   - activation: string - activation function ("Tanh", "Sigmoid", "Relu", etc.)
+    # 
+    # Outputs:
+    #   - Y: [seq_length, batch_size, hidden_size] - output sequence
+    #   - Y_h: [batch_size, hidden_size] - final hidden state
+    # 
+    # Formula: h_t = activation(W @ x_t + R @ h_{t-1} + B)
+    #   where B = [Wb; Rb] (input bias + recurrent bias concatenated)
+    
+    assert(typeof(X) == "rectangular", "rnn: X must be rectangular");
+    assert(typeof(W) == "rectangular", "rnn: W must be rectangular");
+    assert(typeof(R) == "rectangular", "rnn: R must be rectangular");
+    assert(direction == 0, "rnn: currently only forward direction (0) is supported");
+    
+    let seq_length = len(X);
+    let batch_size = len(X[0]);
+    let input_size = len(X[0][0]);
+    
+    # Base case and recurrence: two consecutive let hidden (merge). RHS of recurrence is a block.
+    let hidden[0, b in 0..batch_size, h in 0..hidden_size] = 
+        if typeof(initial_h) == "rectangular" { initial_h[b, h] } else { 0.0 };
+    let hidden[t in 1..seq_length, b in 0..batch_size, h in 0..hidden_size] = 
+        {
+            let z_cell = sum[i in 0..input_size](W[h, i] * X[t, b, i]) + 
+                sum[h_prev in 0..hidden_size](R[h, h_prev] * hidden[t-1, b, h_prev]) +
+                (if typeof(B) == "rectangular" { B[h] + B[h + hidden_size] } else { 0.0 });
+            if activation == "Tanh" { tanh(z_cell) } else if activation == "Sigmoid" { sigmoid(z_cell) } else if activation == "Relu" { if z_cell > 0.0 { z_cell } else { 0.0 } } else { tanh(z_cell) }
+        };
+    
+    let Y[t in 0..seq_length, b in 0..batch_size, h in 0..hidden_size] = hidden[t, b, h];
+    let Y_h[b in 0..batch_size, h in 0..hidden_size] = hidden[seq_length-1, b, h];
+    (Y, Y_h)
+}
+
+# ============================================================================
+# ONNX Operator: LSTM (Long Short-Term Memory)
+# ============================================================================
+
+pub fn lstm(X, W, R, B, initial_h, initial_c, hidden_size, direction, clip_threshold) {
+    # Full LSTM implementation matching ONNX specification
+    # Like Step 7, but adds:
+    #   - Biases (B): optional [8*hidden_size] - input bias + recurrent bias for each gate
+    #   - Optional initial states: initial_h and initial_c can be empty arrays (default to zeros)
+    #   - Direction support (currently only forward=0)
+    # 
+    # Inputs:
+    #   - X: [seq_length, batch_size, input_size] - input sequence
+    #   - W: [4*hidden_size, input_size] - input weights (concatenated gates)
+    #   - R: [4*hidden_size, hidden_size] - recurrent weights (concatenated gates)
+    #   - B: [8*hidden_size] or [] - biases (optional, input bias + recurrent bias for each gate)
+    #   - initial_h: [batch_size, hidden_size] or [] - initial hidden state (optional, default zeros)
+    #   - initial_c: [batch_size, hidden_size] or [] - initial cell state (optional, default zeros)
+    #   - hidden_size: int - number of hidden units
+    #   - direction: int - 0=forward, 1=backward, 2=bidirectional (currently only forward supported)
+    #   - clip_threshold: float - cell clipping threshold (0.0 = no clipping)
+    # 
+    # Outputs:
+    #   - Y: [seq_length, batch_size, hidden_size] - output sequence
+    #   - Y_h: [batch_size, hidden_size] - final hidden state
+    #   - Y_c: [batch_size, hidden_size] - final cell state
+    
+    assert(typeof(X) == "rectangular", "lstm: X must be rectangular");
+    assert(typeof(W) == "rectangular", "lstm: W must be rectangular");
+    assert(typeof(R) == "rectangular", "lstm: R must be rectangular");
+    assert(direction == 0, "lstm: currently only forward direction (0) is supported");
+    
+    let seq_length = len(X);
+    let batch_size = len(X[0]);
+    let input_size = len(X[0][0]);
+    
+    # Single array state[t, slot, b, h]: slot 0 = cell, slot 1 = hidden. All four clauses merge; execution order (0,0),(0,1),(t,0),(t,1) satisfies dependency.
+    let state[0, 0, b in 0..batch_size, h in 0..hidden_size] = 
+        if typeof(initial_c) == "rectangular" { initial_c[b, h] } else { 0.0 };
+    let state[0, 1, b in 0..batch_size, h in 0..hidden_size] = 
+        if typeof(initial_h) == "rectangular" { initial_h[b, h] } else { 0.0 };
+    let state[t in 1..seq_length, 0, b in 0..batch_size, h in 0..hidden_size] = 
+        {
+            let gate_i = sum[i in 0..input_size](W[h, i] * X[t, b, i]) + sum[h_prev in 0..hidden_size](R[h, h_prev] * state[t-1, 1, b, h_prev]) + (if typeof(B) == "rectangular" { B[h] + B[h + 4*hidden_size] } else { 0.0 });
+            let gate_f = sum[i in 0..input_size](W[h + hidden_size, i] * X[t, b, i]) + sum[h_prev in 0..hidden_size](R[h + hidden_size, h_prev] * state[t-1, 1, b, h_prev]) + (if typeof(B) == "rectangular" { B[h + hidden_size] + B[h + 5*hidden_size] } else { 0.0 });
+            let gate_g = sum[i in 0..input_size](W[h + 2*hidden_size, i] * X[t, b, i]) + sum[h_prev in 0..hidden_size](R[h + 2*hidden_size, h_prev] * state[t-1, 1, b, h_prev]) + (if typeof(B) == "rectangular" { B[h + 2*hidden_size] + B[h + 6*hidden_size] } else { 0.0 });
+            let i_val = sigmoid(gate_i);
+            let f_val = sigmoid(gate_f);
+            let g_val = tanh(gate_g);
+            f_val * state[t-1, 0, b, h] + i_val * g_val
+        };
+    let state[t in 1..seq_length, 1, b in 0..batch_size, h in 0..hidden_size] = 
+        {
+            let gate_o = sum[i in 0..input_size](W[h + 3*hidden_size, i] * X[t, b, i]) + sum[h_prev in 0..hidden_size](R[h + 3*hidden_size, h_prev] * state[t-1, 1, b, h_prev]) + (if typeof(B) == "rectangular" { B[h + 3*hidden_size] + B[h + 7*hidden_size] } else { 0.0 });
+            let o_val = sigmoid(gate_o);
+            let cell_val = state[t, 0, b, h];
+            let cell_clipped_val = if clip_threshold > 0.0 { if cell_val > clip_threshold { clip_threshold } else if cell_val < -clip_threshold { -clip_threshold } else { cell_val } } else { cell_val };
+            o_val * tanh(cell_clipped_val)
+        };
+    
+    let Y[t in 0..seq_length, b in 0..batch_size, h in 0..hidden_size] = state[t, 1, b, h];
+    let Y_h[b in 0..batch_size, h in 0..hidden_size] = state[seq_length-1, 1, b, h];
+    let Y_c[b in 0..batch_size, h in 0..hidden_size] = 
+        { let c = state[seq_length-1, 0, b, h]; if clip_threshold > 0.0 { if c > clip_threshold { clip_threshold } else if c < -clip_threshold { -clip_threshold } else { c } } else { c } };
+    
+    (Y, Y_h, Y_c)
+}
+
+# ============================================================================
+# ONNX Operator: GRU (Gated Recurrent Unit)
+# ============================================================================
+
+pub fn gru(X, W, R, B, initial_h, hidden_size, direction, linear_before_reset) {
+    # Full GRU implementation matching ONNX specification
+    # GRU is simpler than LSTM - has 2 gates (reset and update) instead of 4
+    # 
+    # Inputs:
+    #   - X: [seq_length, batch_size, input_size] - input sequence
+    #   - W: [3*hidden_size, input_size] - input weights (concatenated: reset, update, hidden)
+    #   - R: [3*hidden_size, hidden_size] - recurrent weights (concatenated: reset, update, hidden)
+    #   - B: [6*hidden_size] or [] - biases (optional, input bias + recurrent bias for each gate)
+    #   - initial_h: [batch_size, hidden_size] or [] - initial hidden state (optional, default zeros)
+    #   - hidden_size: int - number of hidden units
+    #   - direction: int - 0=forward, 1=backward, 2=bidirectional (currently only forward supported)
+    #   - linear_before_reset: int - 0=standard GRU, 1=linear before reset (currently only 0 supported)
+    # 
+    # Outputs:
+    #   - Y: [seq_length, batch_size, hidden_size] - output sequence
+    #   - Y_h: [batch_size, hidden_size] - final hidden state
+    # 
+    # GRU Formula:
+    #   r_t = sigmoid(W_r @ x_t + R_r @ h_{t-1} + b_r)  # reset gate
+    #   z_t = sigmoid(W_z @ x_t + R_z @ h_{t-1} + b_z)  # update gate
+    #   h_tilde = tanh(W_h @ x_t + R_h @ (r_t ⊙ h_{t-1}) + b_h)  # candidate hidden state
+    #   h_t = (1 - z_t) ⊙ h_{t-1} + z_t ⊙ h_tilde  # final hidden state
+    
+    assert(typeof(X) == "rectangular", "gru: X must be rectangular");
+    assert(typeof(W) == "rectangular", "gru: W must be rectangular");
+    assert(typeof(R) == "rectangular", "gru: R must be rectangular");
+    assert(direction == 0, "gru: currently only forward direction (0) is supported");
+    assert(linear_before_reset == 0, "gru: currently only standard GRU (linear_before_reset=0) is supported");
+    
+    let seq_length = len(X);
+    let batch_size = len(X[0]);
+    let input_size = len(X[0][0]);
+    
+    let hidden[0, b in 0..batch_size, h in 0..hidden_size] =
+        if typeof(initial_h) == "rectangular" { initial_h[b, h] } else { 0.0 };
+    let hidden[t in 1..seq_length, b in 0..batch_size, h in 0..hidden_size] =
+        (1.0 - sigmoid(
+            sum[i in 0..input_size](W[h + hidden_size, i] * X[t, b, i]) +
+            sum[h_prev in 0..hidden_size](R[h + hidden_size, h_prev] * hidden[t-1, b, h_prev]) +
+            (if typeof(B) == "rectangular" { B[h + hidden_size] + B[h + hidden_size + 3*hidden_size] } else { 0.0 })
+        )) * hidden[t-1, b, h] +
+        sigmoid(
+            sum[i in 0..input_size](W[h + hidden_size, i] * X[t, b, i]) +
+            sum[h_prev in 0..hidden_size](R[h + hidden_size, h_prev] * hidden[t-1, b, h_prev]) +
+            (if typeof(B) == "rectangular" { B[h + hidden_size] + B[h + hidden_size + 3*hidden_size] } else { 0.0 })
+        ) * tanh(
+            sum[i in 0..input_size](W[h + 2*hidden_size, i] * X[t, b, i]) +
+            sum[h_prev in 0..hidden_size](R[h + 2*hidden_size, h_prev] * (
+                sigmoid(
+                    sum[i in 0..input_size](W[h_prev, i] * X[t, b, i]) +
+                    sum[h2 in 0..hidden_size](R[h_prev, h2] * hidden[t-1, b, h2]) +
+                    (if typeof(B) == "rectangular" { B[h_prev] + B[h_prev + 3*hidden_size] } else { 0.0 })
+                ) * hidden[t-1, b, h_prev]
+            )) +
+            (if typeof(B) == "rectangular" { B[h + 2*hidden_size] + B[h + 2*hidden_size + 3*hidden_size] } else { 0.0 })
+        );
+    
+    let Y[t in 0..seq_length, b in 0..batch_size, h in 0..hidden_size] = hidden[t, b, h];
+    let Y_h[b in 0..batch_size, h in 0..hidden_size] = hidden[seq_length-1, b, h];
+    
+    (Y, Y_h)
+}

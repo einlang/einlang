@@ -1,0 +1,234 @@
+# Neural Network Training Example
+# Demonstrates practical deep learning concepts using Einlang's mathematical syntax
+
+use std::math::sum;
+use std::math::abs;
+use std::math::max;
+
+print("=== NEURAL NETWORK TRAINING SIMULATION ===");
+print("Building and training a simple feedforward network");
+print();
+
+# =============================================================================
+# NETWORK ARCHITECTURE
+# =============================================================================
+
+print("=== NETWORK SETUP ===");
+
+# Network dimensions
+let input_size = 4;
+let hidden_size = 6;
+let output_size = 3;
+let batch_size = 2.0;  # Float for division operations
+
+print("Architecture:", input_size, "->", hidden_size, "->", output_size);
+print("Batch size:", batch_size);
+print();
+
+# Initialize weights (simplified random-like values)
+let W1 = [[0.1, 0.2, 0.3, 0.4], [0.5, 0.6, 0.1, 0.2], [0.3, 0.4, 0.5, 0.6],
+          [0.2, 0.1, 0.4, 0.3], [0.6, 0.5, 0.2, 0.1], [0.4, 0.3, 0.6, 0.5]];
+let b1 = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1];
+
+let W2 = [[0.2, 0.3, 0.4, 0.1, 0.5, 0.2], [0.1, 0.4, 0.2, 0.3, 0.1, 0.4], 
+          [0.3, 0.1, 0.5, 0.2, 0.4, 0.1]];
+let b2 = [0.0, 0.0, 0.0];
+
+print("Initialized weights and biases");
+print("W1 shape: (6, 4), b1 shape: (6,)");
+print("W2 shape: (3, 6), b2 shape: (3,)");
+print();
+
+# =============================================================================
+# TRAINING DATA
+# =============================================================================
+
+print("=== TRAINING DATA ===");
+
+# Sample batch of training data
+let X_batch = [[1.0, 0.5, 0.2, 0.8], [0.3, 1.0, 0.7, 0.1]];  # (batch_size, input_size);
+let y_true = [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]];  # One-hot encoded targets
+
+print("Input batch X:");
+print("Sample 1:", X_batch[0]);
+print("Sample 2:", X_batch[1]);
+print("Target labels:", y_true);
+print();
+
+# =============================================================================
+# FORWARD PASS
+# =============================================================================
+
+print("=== FORWARD PASS ===");
+
+# Layer 1: Linear transformation + ReLU activation
+print("Layer 1 computation:");
+
+# Manual matrix multiplication for first sample
+let z1_sample1[i in 0..6] = sum[j](X_batch[0,j] * W1[i,j]) + b1[i];
+let a1_sample1[i in 0..6] = if z1_sample1[i] > 0.0 { z1_sample1[i] } else { 0.0 };
+
+let z1_sample2[i in 0..6] = sum[j](X_batch[1,j] * W1[i,j]) + b1[i];
+let a1_sample2[i in 0..6] = if z1_sample2[i] > 0.0 { z1_sample2[i] } else { 0.0 };
+
+print("Hidden layer output (after ReLU):");
+print("Sample 1:", a1_sample1);
+print("Sample 2:", a1_sample2);
+print();
+
+# Layer 2: Output layer
+print("Layer 2 computation:");
+
+let z2_sample1[i in 0..3] = sum[j](a1_sample1[j] * W2[i,j]) + b2[i];
+let z2_sample2[i in 0..3] = sum[j](a1_sample2[j] * W2[i,j]) + b2[i];
+
+print("Raw output logits:");
+print("Sample 1:", z2_sample1);
+print("Sample 2:", z2_sample2);
+print();
+
+# Softmax activation (simplified)
+# Find max value for numerical stability (manual since max() expects 2 args)
+let max1 = max(max(z2_sample1[0], z2_sample1[1]), z2_sample1[2]);
+let max2 = max(max(z2_sample2[0], z2_sample2[1]), z2_sample2[2]);
+let exp_sum1 = sum([if z2_sample1[i] - max1 < -5.0 { 0.01 } else { 1.0 + (z2_sample1[i] - max1) } | i in 0..3]);
+let exp_sum2 = sum([if z2_sample2[i] - max2 < -5.0 { 0.01 } else { 1.0 + (z2_sample2[i] - max2) } | i in 0..3]);
+
+let y_pred1[i] = if z2_sample1[i] - max1 < -5.0 { 0.01 / exp_sum1 } else { (1.0 + (z2_sample1[i] - max1)) / exp_sum1 };
+let y_pred2[i] = if z2_sample2[i] - max2 < -5.0 { 0.01 / exp_sum2 } else { (1.0 + (z2_sample2[i] - max2)) / exp_sum2 };
+
+print("Predicted probabilities (softmax):");
+print("Sample 1:", y_pred1);
+print("Sample 2:", y_pred2);
+print();
+
+# =============================================================================
+# LOSS COMPUTATION
+# =============================================================================
+
+print("=== LOSS COMPUTATION ===");
+
+# Cross-entropy loss (simplified)
+let true_class1 = 0;  # Class index for sample 1;
+let true_class2 = 2;  # Class index for sample 2
+
+let loss1 = -y_pred1[true_class1];  # Simplified: -log(predicted_prob_of_true_class);
+let loss2 = -y_pred2[true_class2];
+let avg_loss = (loss1 + loss2) / batch_size;
+
+print("Cross-entropy loss:");
+print("Sample 1 loss:", loss1);
+print("Sample 2 loss:", loss2);
+print("Average batch loss:", avg_loss);
+print();
+
+# =============================================================================
+# GRADIENT COMPUTATION (CONCEPTUAL)
+# =============================================================================
+
+print("=== GRADIENT COMPUTATION ===");
+print("Computing gradients for backpropagation...");
+
+# Gradient of loss w.r.t. output layer (simplified)
+let grad_z2_1 = [y_pred1[i] - (if i == true_class1 { 1.0 } else { 0.0 }) | i in 0..3];
+let grad_z2_2 = [y_pred2[i] - (if i == true_class2 { 1.0 } else { 0.0 }) | i in 0..3];
+
+print("Output layer gradients:");
+print("Sample 1:", grad_z2_1);
+print("Sample 2:", grad_z2_2);
+print();
+
+# Gradient w.r.t. W2 (simplified magnitude calculation)
+# Manual sum calculation since sum function is not fully implemented
+let grad_output_magnitude = abs(grad_z2_1[0]) + abs(grad_z2_1[1]) + abs(grad_z2_1[2]) + abs(grad_z2_2[0]) + abs(grad_z2_2[1]) + abs(grad_z2_2[2]);
+let hidden_activation_magnitude = abs(a1_sample1[0]) + abs(a1_sample1[1]) + abs(a1_sample1[2]) + abs(a1_sample1[3]) + abs(a1_sample1[4]) + abs(a1_sample1[5]) + abs(a1_sample2[0]) + abs(a1_sample2[1]) + abs(a1_sample2[2]) + abs(a1_sample2[3]) + abs(a1_sample2[4]) + abs(a1_sample2[5]);
+let grad_W2_magnitude = grad_output_magnitude * hidden_activation_magnitude / (3.0 * 6.0);
+print("Weight gradient magnitude (W2):", grad_W2_magnitude);
+print();
+
+# =============================================================================
+# PARAMETER UPDATE
+# =============================================================================
+
+print("=== PARAMETER UPDATE ===");
+
+let learning_rate = 0.01;
+print("Learning rate:", learning_rate);
+
+# Simplified weight update (conceptual - would need full gradients in practice)
+let delta_w = learning_rate * grad_W2_magnitude / ((hidden_size * output_size) as f32);
+print("Average weight update magnitude:", delta_w);
+print();
+
+print("Weight update: W_new = W_old - learning_rate * gradient");
+print("Bias update: b_new = b_old - learning_rate * gradient");
+print();
+
+# =============================================================================
+# TRAINING METRICS
+# =============================================================================
+
+print("=== TRAINING METRICS ===");
+
+# Accuracy calculation
+let predicted_class1 = if y_pred1[0] > y_pred1[1] && y_pred1[0] > y_pred1[2] { 0 } else { if y_pred1[1] > y_pred1[2] { 1 } else { 2 } };
+let predicted_class2 = if y_pred2[0] > y_pred2[1] && y_pred2[0] > y_pred2[2] { 0 } else { if y_pred2[1] > y_pred2[2] { 1 } else { 2 } };
+
+let correct1 = if predicted_class1 == true_class1 { 1.0 } else { 0.0 };
+let correct2 = if predicted_class2 == true_class2 { 1.0 } else { 0.0 };
+let accuracy = (correct1 + correct2) / batch_size;
+
+print("Predictions vs. True labels:");
+print("Sample 1: predicted=", predicted_class1, ", true=", true_class1, "(", if correct1 == 1.0 { "correct" } else { "incorrect" }, ")");
+print("Sample 2: predicted=", predicted_class2, ", true=", true_class2, "(", if correct2 == 1.0 { "correct" } else { "incorrect" }, ")");
+print("Batch accuracy:", accuracy * 100.0, "%");
+print();
+
+# =============================================================================
+# TRAINING LOOP SIMULATION
+# =============================================================================
+
+print("=== TRAINING PROGRESS SIMULATION ===");
+print("Simulating multiple training epochs...");
+print();
+
+# Simulate loss decrease over epochs
+let epochs = 5;
+let initial_loss = avg_loss;
+
+# Simulate training epochs
+let epoch0_loss = initial_loss * 1.0;
+let epoch0_accuracy = accuracy + 0.0 * 0.15;
+print("Epoch 1: loss=", epoch0_loss, ", accuracy=", epoch0_accuracy * 100.0, "%");
+
+let epoch1_loss = initial_loss * (0.9 - 1.0 * 0.1);  
+let epoch1_accuracy = accuracy + 1.0 * 0.15;
+print("Epoch 2: loss=", epoch1_loss, ", accuracy=", epoch1_accuracy * 100.0, "%");
+
+let epoch2_loss = initial_loss * (0.9 - 2.0 * 0.1);
+let epoch2_accuracy = accuracy + 2.0 * 0.15;
+print("Epoch 3: loss=", epoch2_loss, ", accuracy=", epoch2_accuracy * 100.0, "%");
+
+let epoch3_loss = initial_loss * (0.9 - 3.0 * 0.1);
+let epoch3_accuracy = accuracy + 3.0 * 0.15;
+print("Epoch 4: loss=", epoch3_loss, ", accuracy=", epoch3_accuracy * 100.0, "%");
+
+let epoch4_loss = initial_loss * (0.9 - 4.0 * 0.1);
+let epoch4_accuracy = accuracy + 4.0 * 0.15;
+print("Epoch 5: loss=", epoch4_loss, ", accuracy=", epoch4_accuracy * 100.0, "%");
+
+print();
+print("=== TRAINING SUMMARY ===");
+print("✓ Forward pass: Input -> Hidden -> Output");
+print("✓ Loss computation: Cross-entropy");
+print("✓ Backward pass: Gradient calculation");  
+print("✓ Parameter update: SGD with learning rate");
+print("✓ Metrics tracking: Loss and accuracy");
+print();
+print("Key Einlang features demonstrated:");
+print("• Einstein notation for matrix operations");
+print("• Array comprehensions for batch processing");
+print("• Conditional expressions for activations");
+print("• Mathematical operations for deep learning");
+print();
+print("=== NEURAL NETWORK TRAINING COMPLETE ===");

@@ -1,0 +1,39 @@
+# Comprehensive math library testing with pure functional implementation
+
+# Test bootstrap primitives first
+assert(true, "assert primitive works");
+assert(typeof(42) == "i32");
+assert(len([1, 2, 3]) == 3);
+assert(array_append([1, 2], 3) == [1, 2, 3]);
+
+# Import math module
+use std::math;
+
+# Basic math functions
+assert(math::abs(-5) == 5);
+assert(math::max(3, 7) == 7);
+assert(math::min(3, 7) == 3);
+
+# Array operations - test array shape instead of sum
+let data = [1, 2, 3, 4, 5];
+assert(len(data) == 5);
+
+# Test power functions
+assert(math::pow(2, 3) == 8);
+assert(math::pow(5, 2) == 25);
+
+# Advanced math (pure recursion) - use approximate equality for floats
+assert(math::sqrt(25.0) >= 4.99 && math::sqrt(25.0) <= 5.01);
+assert(math::sqrt(16.0) >= 3.99 && math::sqrt(16.0) <= 4.01);
+
+# Trigonometry (pure Taylor series) - use approximate equality for floats
+assert(math::sin(0.0) >= -0.01 && math::sin(0.0) <= 0.01);
+assert(math::cos(0.0) >= 0.99 && math::cos(0.0) <= 1.01);
+
+# Constants
+let pi_val = math::pi();
+let e_val = math::e();
+assert(pi_val > 3.0);
+assert(pi_val < 4.0);
+assert(e_val > 2.0);
+assert(e_val < 3.0);

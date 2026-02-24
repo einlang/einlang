@@ -1,0 +1,34 @@
+# basic_python_import_demo.ein - Basic Python imports that should always work
+# Required Python modules: math (built-in), random (built-in), os (built-in)
+
+# Import standard Python modules (these should always be available)
+use python::math;
+use python::random as rand;
+use python::os;
+
+# Use Python math functions
+let pi_value = math::pi;
+let sqrt_result = math::sqrt(16.0);
+let sin_result = math::sin(math::pi / 2.0);
+
+print("Pi value:", pi_value);
+print("Square root of 16:", sqrt_result);
+print("Sin(π/2):", sin_result);
+
+# Use Python random functions
+let random_int = rand::randint(1, 100);
+let random_float = rand::random();
+
+print("Random integer (1-100):", random_int);
+print("Random float (0-1):", random_float);
+
+# Use Python os functions
+let current_dir = os::getcwd();
+print("Current directory:", current_dir);
+
+# Demonstrate mixed operations
+let values = [1.0, 2.0, 3.0, 4.0, 5.0];
+let squared_values = [math::pow(x, 2.0) | x in values];
+
+print("Original values:", values);
+print("Squared values:", squared_values);

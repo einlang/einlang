@@ -1,0 +1,104 @@
+# Quickselect Algorithm - Finding k-th Element
+# Demonstrates the quickselect algorithm for finding the k-th smallest/largest element
+# Average time complexity: O(n), Worst case: O(n²)
+#
+# Note: For topk arrays, use std::array::topk() from the standard library
+# This demo focuses on the quickselect algorithm itself
+
+use std::array::topk;
+
+print("=== QUICKSELECT ALGORITHM DEMO ===");
+print();
+
+# Partition function - core of quickselect
+fn partition(arr, pivot_value) -> ([i32], [i32], [i32]) {
+    let smaller = [arr[i] | i in 0..len(arr), arr[i] < pivot_value];
+    let equal = [arr[i] | i in 0..len(arr), arr[i] == pivot_value];
+    let larger = [arr[i] | i in 0..len(arr), arr[i] > pivot_value];
+    (smaller, equal, larger)
+}
+
+# Quickselect to find k-th smallest element (0-indexed)
+# Returns the actual value of the k-th smallest element
+fn quickselect_kth_smallest(arr, k) -> i32 {
+    if len(arr) == 1 {
+        arr[0]
+    } else {
+        let pivot = arr[0];
+        let rest = [arr[i] | i in 1..len(arr)];
+        let smaller = [rest[i] | i in 0..len(rest), rest[i] < pivot];
+        let larger = [rest[i] | i in 0..len(rest), rest[i] >= pivot];
+        let m = len(smaller);
+        
+        if k < m {
+            quickselect_kth_smallest(smaller, k)
+        } else {
+            if k == m {
+                pivot
+            } else {
+                let new_k = k - m - 1;
+                quickselect_kth_smallest(larger, new_k)
+            }
+        }
+    }
+}
+
+# Quickselect to find k-th largest element (1-indexed)
+fn quickselect_kth_largest(arr, k) -> i32 {
+    let n = len(arr);
+    let smallest_k = n - k;
+    quickselect_kth_smallest(arr, smallest_k)
+}
+
+# Demo Data
+let test_data = [64, 34, 25, 12, 22, 11, 90, 88, 45, 50];
+
+print("Test data:", test_data);
+print("Sorted reference: [11, 12, 22, 25, 34, 45, 50, 64, 88, 90]");
+print();
+
+# Test quickselect for finding specific elements
+print("=== QUICKSELECT TESTS ===");
+
+let smallest_0 = quickselect_kth_smallest(test_data, 0);
+print("0-th smallest (minimum):", smallest_0, "(expected: 11)");
+
+let smallest_4 = quickselect_kth_smallest(test_data, 4);
+print("4-th smallest (5th element):", smallest_4, "(expected: 34)");
+
+let largest_1 = quickselect_kth_largest(test_data, 1);
+print("1st largest (maximum):", largest_1, "(expected: 90)");
+
+let largest_3 = quickselect_kth_largest(test_data, 3);
+print("3rd largest:", largest_3, "(expected: 64)");
+print();
+
+# Compare with stdlib topk for getting arrays of top elements
+print("=== COMPARISON WITH STDLIB TOPK ===");
+print("Using std::array::topk for getting arrays of top elements");
+
+let top_3_elements = topk(test_data, 3);
+print("Top 3 largest elements:", top_3_elements);
+print("(should contain 90, 88, 64)");
+
+let top_3_smallest = topk(test_data, -3);
+print("Top 3 smallest elements:", top_3_smallest);
+print("(should contain 11, 12, 22)");
+print();
+
+# Performance demo with larger dataset
+print("=== PERFORMANCE DEMO ===");
+let large_data = [85, 92, 78, 96, 87, 91, 83, 88, 94, 89, 75, 97, 82, 93, 86];
+print("Large dataset size:", len(large_data));
+
+let median_idx = len(large_data) / 2;
+let median_value = quickselect_kth_smallest(large_data, median_idx);
+print("Median value (using quickselect):", median_value);
+
+let top_5 = topk(large_data, 5);
+print("Top 5 elements (using stdlib):", top_5);
+print();
+
+print("=== DEMO COMPLETE ===");
+print("Key takeaway: Use quickselect for finding k-th element value,");
+print("              Use std::array::topk for getting arrays of top elements");

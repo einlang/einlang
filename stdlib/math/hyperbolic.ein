@@ -1,0 +1,38 @@
+# stdlib_v2/math/hyperbolic.ein - Hyperbolic functions
+
+pub fn sinh(x) {
+    # Hyperbolic sine (ONNX Sinh, TensorRT supported)
+    # Uses numpy for array support
+    python::numpy::sinh(x)
+}
+
+pub fn cosh(x) {
+    # Hyperbolic cosine (ONNX Cosh, TensorRT supported)
+    # Uses numpy for array support
+    python::numpy::cosh(x)
+}
+
+pub fn tanh(x) {
+    # Hyperbolic tangent (ONNX Tanh, TensorRT supported)
+    # Uses numpy for array support
+    python::numpy::tanh(x)
+}
+
+pub fn asinh(x) {
+    # Inverse hyperbolic sine (ONNX Asinh, TensorRT supported)
+    # Uses numpy for array support
+    python::numpy::arcsinh(x)
+}
+
+pub fn acosh(x) {
+    # Inverse hyperbolic cosine (ONNX Acosh, TensorRT supported)
+    # Uses numpy for array support
+    python::numpy::arccosh(x)
+}
+
+pub fn atanh(x) {
+    # Inverse hyperbolic tangent (ONNX Atanh, TensorRT supported)
+    # Uses numpy for array support
+    python::numpy::arctanh(x)
+}
+

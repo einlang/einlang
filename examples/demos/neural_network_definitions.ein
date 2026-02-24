@@ -1,0 +1,96 @@
+# Neural Network Function Definitions
+# NOTE: This file contains aspirational code demonstrating future language features.
+# Most functions use unimplemented features (array indexing, null, named args, dot notation)
+# and are commented out to avoid compilation errors.
+
+use std::math::sqrt;
+
+# ===== SIMPLE WORKING FUNCTIONS =====
+
+fn mse_loss(predictions, targets) {
+    # Mean squared error loss
+    let squared_diff[i] = (predictions[i] - targets[i]) * (predictions[i] - targets[i]);
+    sum[i](squared_diff[i])
+}
+
+fn sgd_update(param, grad, learning_rate) {
+    # Stochastic Gradient Descent parameter update
+    let new_param[i] = param[i] - learning_rate * grad[i];
+    new_param
+}
+
+fn batch_norm(input, running_mean, running_var, gamma, beta, eps) {
+    # Batch normalization
+    # input: [batch, channels, height, width]
+    # running_mean, running_var, gamma, beta: [channels]
+    
+    # Normalize using running statistics
+    let normalized[b, c, h, w] = (input[b, c, h, w] - running_mean[c]) / sqrt(running_var[c] + eps);
+    
+    # Scale and shift
+    let output[b, c, h, w] = gamma[c] * normalized[b, c, h, w] + beta[c];
+    
+    output
+}
+
+fn layer_norm(input, gamma, beta, eps, features) {
+    # Layer normalization
+    # Normalize over the last dimensions specified by normalized_shape
+    # features: number of features (parameter instead of shape introspection)
+    
+    # Compute mean and variance
+    let mean[b] = sum[f](input[b, f]) / features;
+    
+    # Compute variance
+    let centered[b, f] = input[b, f] - mean[b];
+    let variance[b] = sum[f](centered[b, f] * centered[b, f]) / features;
+    
+    # Normalize
+    let std[b] = sqrt(variance[b] + eps);
+    let normalized[b, f] = centered[b, f] / std[b];
+    
+    # Scale and shift
+    let output[b, f] = gamma[f] * normalized[b, f] + beta[f];
+    
+    output
+}
+
+# ===== ASPIRATIONAL FUNCTIONS (COMMENTED OUT) =====
+# The following use unimplemented features:
+# - Array indexing: stride[0], kernel_size[1], mask[b, i, j]
+# - null keyword
+# - Named arguments: padding=1, training=true, dim=-1
+# - Dot notation: self_attn_weights.w_q, bn1_params.gamma
+# - Conditional expressions: if-else
+# - String/array comparison: loss_fn == "cross_entropy", stride != [1, 1]
+# - Advanced indexing: targets[b], predictions[b, :]
+# - len() function
+
+# ===== CONVOLUTIONAL OPERATIONS (ASPIRATIONAL) =====
+# fn conv2d_basic(input, kernel, stride, padding) { ... }
+# fn max_pool2d(input, kernel_size, stride, padding) { ... }
+# fn avg_pool2d(input, kernel_size, stride, padding) { ... }
+
+# ===== ATTENTION MECHANISMS (ASPIRATIONAL) =====
+# fn scaled_dot_product_attention(query, key, value, mask) { ... }
+# fn multi_head_attention(query, key, value, num_heads, d_model, d_k, w_q, w_k, w_v, w_o, mask) { ... }
+
+# ===== TRANSFORMER COMPONENTS (ASPIRATIONAL) =====
+# fn transformer_encoder_layer(x, self_attn_weights, ff_weights, norm1_params, norm2_params, d_model, num_heads, d_ff, dropout_rate) { ... }
+# fn positional_encoding(seq_len, d_model) { ... }
+
+# ===== COMPLETE NEURAL NETWORK BLOCKS (ASPIRATIONAL) =====
+# fn resnet_block(input, conv1_weight, conv1_bias, bn1_params, conv2_weight, conv2_bias, bn2_params, downsample_weights, stride) { ... }
+# fn vision_transformer_patch_embed(input, patch_size, embed_dim, proj_weight, proj_bias) { ... }
+
+# ===== LOSS FUNCTIONS (ASPIRATIONAL) =====
+# fn cross_entropy_loss(predictions, targets) { ... }
+
+# ===== OPTIMIZER FUNCTIONS (ASPIRATIONAL) =====
+# fn adam_update(param, grad, m, v, learning_rate, beta1, beta2, eps, t) { ... }
+
+# ===== ATTENTION MECHANISM VARIANTS (ASPIRATIONAL) =====
+# fn self_attention(x, d_model, num_heads) { ... }
+# fn cross_attention(decoder_hidden, encoder_output, d_model, num_heads, mask) { ... }
+# fn feed_forward(x, d_ff) { ... }
+# fn transformer_block_simple(x, d_model, num_heads, d_ff, dropout_rate) { ... }

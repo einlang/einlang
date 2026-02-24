@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Environments
+.venv/
+venv/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.cursor/
+.cursorrules
+.cursorignore
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+
+# Parser cache
+*.cache

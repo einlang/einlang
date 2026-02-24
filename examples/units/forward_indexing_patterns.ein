@@ -1,0 +1,15 @@
+# Forward indexing patterns demonstration
+
+let data = [1, 2, 3, 4, 5];
+
+# Test 1: Simple backward indexing (should work)
+let backward[i] = data[i-0];  # Just data[i];
+assert(backward == [1, 2, 3, 4, 5]);
+
+# Test 2: Simple forward indexing with k=0 (should work)
+let forward_zero[i] = data[i+0];  # Just data[i]  ;
+assert(forward_zero == [1, 2, 3, 4, 5]);
+
+# Test 3: Forward indexing with small offset
+let forward_one[i in 0..4] = data[i+1];  # Explicit range
+assert(forward_one == [2, 3, 4, 5]);

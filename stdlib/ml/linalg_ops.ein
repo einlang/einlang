@@ -1,0 +1,33 @@
+# ml/linalg_ops.ein - ONNX Linear Algebra Operations
+# TensorRT ONNX Parser: ✅ Supported
+
+# ============================================================================
+# Linear Algebra Operations
+# ============================================================================
+
+pub fn matmul(a, b) {
+    # Matrix multiplication: C[i, j] = Σ_k A[i, k] * B[k, j]
+    # Generic: works with arbitrary batch dimensions (operators work directly on tensors)
+    # Input shapes: [..batch, m, k] and [..batch, k, n]
+    # Output shape: [..batch, m, n] (shape inferred automatically)
+    # Note: Requires at least 3D inputs for batched operations (batch, rows, cols)
+    # For unbatched 2D matmul, wrap inputs: [[[1, 2], [3, 4]]] instead of [[1, 2], [3, 4]]
+    assert(typeof(a) == "rectangular", "matmul: first argument must be rectangular array");
+    assert(typeof(b) == "rectangular", "matmul: second argument must be rectangular array");
+    
+    # Support batched and unbatched matmul with rest patterns
+    let output[..batch, i, j] = sum[k](a[..batch, i, k] * b[..batch, k, j]);
+    output
+}
+
+
+pub fn batch_matmul(a, b) {
+    # Batched matrix multiplication with rest patterns
+    # a: [...batch, m, k], b: [...batch, k, n] -> result: [...batch, m, n]
+    assert(typeof(a) == "rectangular", "batch_matmul: a must be rectangular");
+    assert(typeof(b) == "rectangular", "batch_matmul: b must be rectangular");
+    
+    let result[..batch, i, j] = sum[k](a[..batch, i, k] * b[..batch, k, j]);
+    result
+}
+
