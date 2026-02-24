@@ -11,7 +11,7 @@ from pathlib import Path
 from ..passes.base import TyCtxt, PassManager, BasePass
 from ..ir.nodes import ProgramIR
 from ..shared.errors import ErrorReporter
-from ..frontend.parser import Parser
+from ..frontend.parser import Parser, ParseError
 from ..passes.ast_to_ir import ASTToIRLoweringPass
 from ..passes.type_inference import TypeInferencePass
 from ..passes.range_analysis import RangeAnalysisPass
@@ -297,18 +297,37 @@ class CompilerDriver:
                     traceback.print_exc()
             return CompilationResult(ir=ir, tcx=tcx, success=True)
         
-        except Exception as e:
+        except ParseError as e:
             from ..shared.source_location import SourceLocation
-            location = SourceLocation(
-                file=source_file,
-                line=1,
-                column=1,
-                end_line=1,
-                end_column=1
-            )
-            tcx.reporter.report_error(
-                f"Compilation error: {str(e)}",
-                location
-            )
+            if e.location is not None:
+                loc = e.location
+                span = SourceLocation(
+                    file=getattr(loc, "file", source_file),
+                    line=getattr(loc, "line", 1),
+                    column=getattr(loc, "column", 1),
+                    end_line=getattr(loc, "line", 1),
+                    end_column=getattr(loc, "column", 1) + 1,
+                )
+            else:
+                span = SourceLocation(
+                    file=source_file, line=1, column=1,
+                    end_line=1, end_column=1,
+                )
+            tcx.reporter.report_error(e.message, span)
+            return CompilationResult(success=False, tcx=tcx)
+        except Exception as e:
+            if not tcx.reporter.has_errors():
+                from ..shared.source_location import SourceLocation
+                location = SourceLocation(
+                    file=source_file,
+                    line=1,
+                    column=1,
+                    end_line=1,
+                    end_column=1
+                )
+                tcx.reporter.report_error(
+                    str(e),
+                    location
+                )
             return CompilationResult(success=False, tcx=tcx)
 

@@ -2,7 +2,7 @@
 
 A compiled language for tensor computation. Write math, run math.
 
-```einlang
+```rust
 let A = [[1, 2], [3, 4]];
 let B = [[5, 6], [7, 8]];
 
@@ -17,7 +17,7 @@ Einlang is a statically-checked language where tensor operations are first-class
 
 **Where clauses for index algebra.** Derived indices, guards, and intermediate bindings attach directly to the computation. A 2D convolution that would be dozens of lines of index bookkeeping in Python:
 
-```einlang
+```rust
 let out[b, oc, oh, ow] = sum[ic, kh, kw](
     input[b, ic, ih, iw] * kernel[oc, ic, kh, kw]
 ) where ih = oh + kh, iw = ow + kw;
@@ -27,7 +27,7 @@ The compiler resolves `ih` and `iw` as functions of the output and kernel indice
 
 **Recurrence relations as declarations.** Define sequences the way you'd write them on paper — base cases, then a recursive rule. The compiler determines evaluation order automatically:
 
-```einlang
+```rust
 let fib[0] = 0;
 let fib[1] = 1;
 let fib[n in 2..20] = fib[n-1] + fib[n-2];
@@ -52,7 +52,7 @@ for i in range(A.shape[0]):
 # recurrence with base cases, or a filtered reduction.
 ```
 
-```einlang
+```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
 ```
 
@@ -62,7 +62,7 @@ let C[i, j] = sum[k](A[i, k] * B[k, j]);
 
 A neural network forward pass — linear layer, ReLU, softmax:
 
-```einlang
+```rust
 use std::math::exp::exp;
 
 fn softmax(logits) {
@@ -85,7 +85,7 @@ print(probs);
 
 Comprehensions and pattern matching:
 
-```einlang
+```rust
 let even_squares = [x * x | x in 1..50, x % 2 == 0];
 
 let label = match category {

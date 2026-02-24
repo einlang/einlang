@@ -188,7 +188,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
                     continue
                 shape = self._get_array_shape(array_defid, index_position)
                 if shape is not None:
-                    # Try to extract constraint and solve (handles both int and ExpressionIR)
                     constraint_result = self._extract_constraint_from_array_access_ir(
                         base_expr, index_position, index_expr, shape
                     )
@@ -380,10 +379,14 @@ class ImplicitRangeDetector(IRVisitor[None]):
                 return size
             current = var_def
             for dim in range(index_position):
+                if isinstance(current, CastExpressionIR) and getattr(current, 'expr', None) is not None:
+                    current = current.expr
                 if isinstance(current, ArrayLiteralIR) and len(current.elements) > 0:
                     current = current.elements[0]
                 else:
                     return None
+            if isinstance(current, CastExpressionIR) and getattr(current, 'expr', None) is not None:
+                current = current.expr
             if isinstance(current, ArrayLiteralIR):
                 return len(current.elements)
 
@@ -488,7 +491,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
         """Extract constraint and solve for target variable (by defid). Name resolved from clause for solver."""
         target_var = self._name_from_defid()
         if target_var is None:
-            raise ValueError("_extract_constraint_from_array_access_ir requires _current_clause and _target_defid to resolve name for solver")
+            return None
         shape_desc = shape if isinstance(shape, int) else f"<dynamic>"
         logger.debug(f"[ImplicitRangeDetector] [IRConstraintSolver] Extracting constraint for defid: {index_expr} < {shape_desc}")
         if isinstance(index_expr, BinaryOpIR):

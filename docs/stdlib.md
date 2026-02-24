@@ -8,7 +8,7 @@ All functions are implemented in pure Einlang (`.ein` files in `stdlib/`).
 
 ### `std::math::basic`
 
-```einlang
+```rust
 use std::math::basic::{abs, sqrt, min, max, sign, pow, floor, ceil, round, trunc,
                         fmod, mod, gcd, lcm, factorial, square, neg, reciprocal};
 
@@ -20,7 +20,7 @@ let f = factorial(5);        // 120
 
 ### `std::math::trig`
 
-```einlang
+```rust
 use std::math::trig::{sin, cos, tan, asin, acos, atan, atan2};
 
 let angle = pi() / 4;
@@ -30,7 +30,7 @@ let a = atan2(1.0, 1.0);    // ~0.785
 
 ### `std::math::exp`
 
-```einlang
+```rust
 use std::math::exp::exp;
 
 let e_power = exp(1.0);     // ~2.718
@@ -38,7 +38,7 @@ let e_power = exp(1.0);     // ~2.718
 
 ### `std::math::log`
 
-```einlang
+```rust
 use std::math::log::{log, ln, log10, log2, log1p, expm1, rsqrt};
 
 let natural = ln(10.0);     // ~2.303
@@ -47,7 +47,7 @@ let base10 = log10(1000.0); // ~3.0
 
 ### `std::math::hyperbolic`
 
-```einlang
+```rust
 use std::math::hyperbolic::{sinh, cosh, tanh, asinh, acosh, atanh};
 
 let h = tanh(1.0);          // ~0.762
@@ -55,7 +55,7 @@ let h = tanh(1.0);          // ~0.762
 
 ### `std::math::clamp`
 
-```einlang
+```rust
 use std::math::clamp::{clamp, clamp_min, clamp_max, saturate};
 
 let c = clamp(15.0, 0.0, 10.0);  // 10.0
@@ -64,7 +64,7 @@ let s = saturate(-0.5);           // 0.0 (clamps to 0..1)
 
 ### `std::math::constants`
 
-```einlang
+```rust
 use std::math::constants::{pi, e, tau, phi, sqrt2, sqrt3,
                             ln2, ln10, log2e, log10e,
                             infinity, nan, epsilon, max_float, min_float};
@@ -74,7 +74,7 @@ let circumference = 2.0 * pi() * radius;
 
 ### `std::math::special`
 
-```einlang
+```rust
 use std::math::special::erf;
 
 let x = erf(1.0);           // ~0.843
@@ -82,7 +82,7 @@ let x = erf(1.0);           // ~0.843
 
 ### `std::math::sum`
 
-```einlang
+```rust
 use std::math::sum::sum;
 
 let total = sum([1, 2, 3, 4]);  // 10
@@ -92,7 +92,7 @@ let total = sum([1, 2, 3, 4]);  // 10
 
 ## `std::array`
 
-```einlang
+```rust
 use std::array::{flatten, transpose, sum, concatenate,
                   argmax, argmin, argmax_all, argmin_all,
                   partition, partition_2d, topk_extract, topk_with_indices_extract};
@@ -110,7 +110,7 @@ let idx = argmax([3, 1, 4, 1, 5]);   // 4
 
 ### Activations (`std::ml::activations`)
 
-```einlang
+```rust
 use std::ml::activations::{relu, sigmoid, softmax, log_softmax, leaky_relu,
                             elu, gelu, swish, selu, softplus, mish,
                             hardtanh, relu6, prelu, hardsigmoid, hardswish,
@@ -123,7 +123,7 @@ let probs = softmax([1.0, 2.0, 3.0]);
 
 ### Layers (`std::ml::layers`)
 
-```einlang
+```rust
 use std::ml::layers::{linear, gemm, conv2d};
 
 let out = linear(input, weights, bias);
@@ -132,7 +132,7 @@ let mm = gemm(A, B, C, 1.0, 0.0, 0, 0);
 
 ### Convolution (`std::ml::conv_ops`)
 
-```einlang
+```rust
 use std::ml::conv_ops::{conv, conv_transpose, depthwise_conv};
 
 let out = conv(X, W, B, [1, 1], [0, 0, 0, 0], [1, 1]);
@@ -140,7 +140,7 @@ let out = conv(X, W, B, [1, 1], [0, 0, 0, 0], [1, 1]);
 
 ### Normalization (`std::ml::norm_ops`)
 
-```einlang
+```rust
 use std::ml::norm_ops::{batch_normalization, instance_normalization,
                          layer_normalization, lrn, lp_normalization,
                          mean_variance_normalization};
@@ -151,7 +151,7 @@ let ln = layer_normalization(X, scale, B, 1e-5, -1);
 
 ### Pooling (`std::ml::pool_ops`)
 
-```einlang
+```rust
 use std::ml::pool_ops::{max_pool, average_pool, global_average_pool,
                          global_max_pool, lp_pool, max_roi_pool};
 
@@ -161,7 +161,7 @@ let gap = global_average_pool(X);
 
 ### Loss Functions (`std::ml::ml_ex`)
 
-```einlang
+```rust
 use std::ml::ml_ex::{mse_loss, mae_loss, cross_entropy_loss,
                       binary_cross_entropy, softmax_cross_entropy_loss,
                       huber_loss, cosine_similarity};
@@ -173,7 +173,7 @@ Also in `std::ml::ml_ex`: linear algebra utilities — `eye`, `diag_extract`, `d
 
 ### Attention (`std::ml::attention_ops`)
 
-```einlang
+```rust
 use std::ml::attention_ops::{attention_dummy, multi_head_attention_simple,
                               multi_head_attention};
 
@@ -182,7 +182,7 @@ let out = multi_head_attention(query, key, value, 8, scale, mask);
 
 ### Recurrent (`std::ml::recurrent_ops`)
 
-```einlang
+```rust
 use std::ml::recurrent_ops::{rnn, lstm, gru};
 
 let out = lstm(X, W, R, B, initial_h, initial_c, hidden_size, "forward", 0.0);
@@ -190,7 +190,7 @@ let out = lstm(X, W, R, B, initial_h, initial_c, hidden_size, "forward", 0.0);
 
 ### Reduction (`std::ml::reduction_ops`)
 
-```einlang
+```rust
 use std::ml::reduction_ops::{reduce_mean, reduce_sum, reduce_max, reduce_min,
                               reduce_l1, reduce_l2, reduce_sum_square,
                               reduce_log_sum, reduce_log_sum_exp, reduce_prod};
@@ -200,7 +200,7 @@ let mean = reduce_mean(tensor);
 
 ### Shape (`std::ml::shape_ops`)
 
-```einlang
+```rust
 use std::ml::shape_ops::{reshape, squeeze, unsqueeze, split, expand, shape};
 
 let reshaped = reshape(data, [2, 3]);
@@ -209,7 +209,7 @@ let squeezed = squeeze(data, [1]);
 
 ### Transform (`std::ml::transform_ops`)
 
-```einlang
+```rust
 use std::ml::transform_ops::{pad, depth_to_space, space_to_depth,
                               range, constant_of_shape, concat, tile,
                               transpose, flatten};
@@ -220,7 +220,7 @@ let seq = range(0, 10, 1);
 
 ### Indexing (`std::ml::indexing_ops`)
 
-```einlang
+```rust
 use std::ml::indexing_ops::{gather, gather_elements, scatter_elements,
                              onehot, gather_nd, scatter, scatter_nd};
 
@@ -230,7 +230,7 @@ let encoded = onehot(indices, 10, [0.0, 1.0]);
 
 ### Linear Algebra (`std::ml::linalg_ops`)
 
-```einlang
+```rust
 use std::ml::linalg_ops::{matmul, batch_matmul};
 
 let product = matmul(A, B);
@@ -238,7 +238,7 @@ let product = matmul(A, B);
 
 ### Comparison & Logic
 
-```einlang
+```rust
 use std::ml::comparison_ops::{equal, greater, less, greater_or_equal,
                                less_or_equal, not_equal, not};
 use std::ml::logical_ops::{logical_and, logical_or, logical_xor, logical_not};
@@ -248,7 +248,7 @@ let mask = greater(tensor, 0.0);
 
 ### Selection (`std::ml::selection_ops`)
 
-```einlang
+```rust
 use std::ml::selection_ops::{topk, nonzero, argmax, argmin};
 
 let top = topk(X, 5, 0);
@@ -256,25 +256,25 @@ let top = topk(X, 5, 0);
 
 ### Math (`std::ml::math_ops`)
 
-```einlang
+```rust
 use std::ml::math_ops::{add, subtract, multiply, divide, rsqrt};
 ```
 
 ### Trig (`std::ml::trig_ops`)
 
-```einlang
+```rust
 use std::ml::trig_ops::{tanh, sinh, cosh};
 ```
 
 ### Special (`std::ml::special_ops`)
 
-```einlang
+```rust
 use std::ml::special_ops::{is_nan, is_inf, einsum};
 ```
 
 ### Utility (`std::ml::utility_ops`)
 
-```einlang
+```rust
 use std::ml::utility_ops::{where, identity, constant, dropout,
                             l2_normalize, numel, size, cast, slice, cumsum};
 
@@ -286,7 +286,7 @@ let sliced = slice(data, [0], [5], [0], [1]);
 
 ## `std::io`
 
-```einlang
+```rust
 use std::io::{current_dir, list_dir, file_exists, read_file, write_file,
                append_file, delete_file, create_dir, remove_dir,
                copy_file, move_file, file_size, is_file, is_dir,

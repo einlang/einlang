@@ -142,7 +142,9 @@ class EinlangTransformer(Transformer):
                 line=location_info['line'],
                 column=location_info['column'], 
                 start=location_info['start_pos'],
-                end=location_info['end_pos']
+                end=location_info['end_pos'],
+                end_line=location_info.get('end_line', 0),
+                end_column=location_info.get('end_column', 0),
             )
         return SourceLocation(
             file=self.current_file,

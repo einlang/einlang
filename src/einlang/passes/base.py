@@ -45,11 +45,11 @@ class TyCtxt:
         
         self._analysis_results: Dict[Type['BasePass'], Any] = {}
         
-        # Error reporter
-        self.reporter: ErrorReporter = ErrorReporter({})
-        
         # Source information
         self.source_files: Dict[str, str] = {}
+        
+        # Error reporter (shares source_files reference for code snippets)
+        self.reporter: ErrorReporter = ErrorReporter(self.source_files)
         
         # Module system (for lazy loading / tree-shaking)
         self.module_system: Optional[Any] = None  # ModuleSystem instance

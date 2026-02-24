@@ -62,7 +62,7 @@ class TestExhaustiveness:
         result = compiler.compile(source, "<test>")
         assert not result.success, "Should fail: missing false case"
         errors = result.get_errors()
-        assert any("not exhaustive" in str(err).lower() for err in errors)
+        assert any("non-exhaustive" in str(err).lower() for err in errors)
         assert any("false" in str(err).lower() for err in errors)
     
     def test_boolean_non_exhaustive_missing_true(self, compiler):
@@ -77,7 +77,7 @@ class TestExhaustiveness:
         result = compiler.compile(source, "<test>")
         assert not result.success, "Should fail: missing true case"
         errors = result.get_errors()
-        assert any("not exhaustive" in str(err).lower() for err in errors)
+        assert any("non-exhaustive" in str(err).lower() for err in errors)
         assert any("true" in str(err).lower() for err in errors)
     
     def test_integer_non_exhaustive_no_catch_all(self, compiler):
@@ -93,8 +93,8 @@ class TestExhaustiveness:
         result = compiler.compile(source, "<test>")
         assert not result.success, "Should fail: missing catch-all"
         errors = result.get_errors()
-        assert any("not exhaustive" in str(err).lower() for err in errors)
-        assert any("catch-all" in str(err).lower() for err in errors)
+        assert any("non-exhaustive" in str(err).lower() for err in errors)
+        assert any("other values" in str(err).lower() or "not covered" in str(err).lower() for err in errors)
     
     def test_integer_exhaustive_with_wildcard(self, compiler):
         """Test that integer match with wildcard is exhaustive"""

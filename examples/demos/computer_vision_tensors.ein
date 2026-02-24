@@ -202,7 +202,7 @@ print();
 print("=== MULTI-SCALE FEATURE EXTRACTION ===");
 
 # Different receptive field sizes (simplified for 2x2 input)
-let small_kernel = [[[1, -1]] as [f32], [[1, -1]] as [f32]];  # 1x2 kernel per channel  ;
+let small_kernel = [[[1, -1], [1, -1]] as [f32], [[1, -1], [1, -1]] as [f32]];  # 2x2 kernel per channel  ;
 let medium_kernel = [[[[1, -1], [1, -1]] as [f32], [[1, -1], [1, -1]] as [f32]], [[[1, 1], [-1, -1]] as [f32], [[1, 1], [-1, -1]] as [f32]]]; # 2x2 kernel per channel
 
 # Multi-scale convolution (different kernel sizes)

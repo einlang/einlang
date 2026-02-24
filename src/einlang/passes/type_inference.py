@@ -272,11 +272,11 @@ class TypeInferencer(IRVisitor[Type]):
             if not is_literal_coercion and not self._is_assignment_compatible(value_type, expected_type):
                 # Create error message matching Rust style
                 var_name = stmt.pattern if hasattr(stmt, 'pattern') else stmt.name
-                error_msg = f"mismatched types: expected `{expected_type}`, found `{value_type}`"
                 self.tcx.reporter.report_error(
-                    message=error_msg,
+                    message="mismatched types",
                     location=stmt.value.location if hasattr(stmt, 'value') and hasattr(stmt.value, 'location') else None,
-                    code="type_annotation_mismatch"
+                    code="E0308",
+                    label=f"expected `{expected_type}`, found `{value_type}`",
                 )
             # Use annotated type (it's more specific, or coerced from literal)
             value_type = expected_type
@@ -573,9 +573,11 @@ class TypeInferencer(IRVisitor[Type]):
             int_name = int_type.name if hasattr(int_type, 'name') else str(int_type)
             float_name = float_type.name if hasattr(float_type, 'name') else str(float_type)
             self.tcx.reporter.report_error(
-                message=f"Type mismatch: cannot mix integer type `{int_name}` and float type `{float_name}`. Use explicit cast.",
+                message=f"cannot mix `{int_name}` and `{float_name}` without explicit cast",
                 location=location,
-                code="E0308"  # Rust's type mismatch error code
+                code="E0308",
+                label=f"expected `{int_name}`, found `{float_name}`",
+                help="use an explicit cast: `x as f32` or `y as i32`",
             )
             return UNKNOWN
         
@@ -697,9 +699,10 @@ class TypeInferencer(IRVisitor[Type]):
         expected_params = self._get_callee_param_count(expr)
         if expected_params is not None and len(expr.arguments) != expected_params:
             self.tcx.reporter.report_error(
-                message=f"This call expects {expected_params} argument(s), got {len(expr.arguments)}",
+                message=f"this function takes {expected_params} argument{'s' if expected_params != 1 else ''} but {len(expr.arguments)} {'were' if len(expr.arguments) != 1 else 'was'} supplied",
                 location=expr.location,
                 code="E0061",
+                label=f"expected {expected_params} argument{'s' if expected_params != 1 else ''}, found {len(expr.arguments)}",
             )
             expr.type_info = UNKNOWN
             return UNKNOWN

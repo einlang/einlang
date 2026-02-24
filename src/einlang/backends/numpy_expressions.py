@@ -1,6 +1,7 @@
 """NumPy backend expression visitors. All lookup via env (no global table)."""
 
 from typing import Any, Dict, List, Optional
+import warnings
 
 import numpy as np
 
@@ -50,6 +51,24 @@ def _safe_mod(l, r):
         return l % r
 
 
+def _safe_eq(v, l, r):
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", category=DeprecationWarning)
+        try:
+            return l == r
+        except (DeprecationWarning, TypeError):
+            return False
+
+
+def _safe_ne(v, l, r):
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", category=DeprecationWarning)
+        try:
+            return l != r
+        except (DeprecationWarning, TypeError):
+            return True
+
+
 _BINARY_OP_MAP = {
     BinaryOp.ADD: lambda v, l, r: l + r,
     BinaryOp.SUB: lambda v, l, r: l - r,
@@ -57,8 +76,8 @@ _BINARY_OP_MAP = {
     BinaryOp.DIV: lambda v, l, r: l // r if isinstance(l, (int, np.integer)) and isinstance(r, (int, np.integer)) else _safe_true_divide(l, r),
     BinaryOp.MOD: lambda v, l, r: _safe_mod(l, r),
     BinaryOp.POW: lambda v, l, r: l ** r,
-    BinaryOp.EQ: lambda v, l, r: l == r,
-    BinaryOp.NE: lambda v, l, r: l != r,
+    BinaryOp.EQ: _safe_eq,
+    BinaryOp.NE: _safe_ne,
     BinaryOp.LT: lambda v, l, r: l < r,
     BinaryOp.LE: lambda v, l, r: l <= r,
     BinaryOp.GT: lambda v, l, r: l > r,
@@ -77,6 +96,26 @@ _UNARY_OP_MAP = {
 
 class ExpressionVisitorMixin:
     """Expression visit_*; function/builtin lookup via env only."""
+
+    def _raise_here(self, exc: Exception, expr) -> None:
+        """Re-raise *exc* as an EinlangSourceError pinned to *expr*.location."""
+        from ..shared.errors import EinlangSourceError
+        if isinstance(exc, EinlangSourceError):
+            raise
+        loc = getattr(expr, "location", None)
+        source_code = None
+        tcx = getattr(self, "_tcx", None)
+        if tcx and loc:
+            sf = getattr(tcx, "source_files", None)
+            if sf:
+                source_code = sf.get(loc.file)
+        raise EinlangSourceError(
+            message=str(exc),
+            location=loc,
+            error_code="E0007",
+            category="runtime",
+            source_code=source_code,
+        ) from exc
 
     @staticmethod
     def _to_bool(value: Any) -> bool:
@@ -119,7 +158,12 @@ class ExpressionVisitorMixin:
         fn = _BINARY_OP_MAP.get(op) if isinstance(op, BinaryOp) else None
         if fn is None:
             raise RuntimeError(f"Unknown operator: {getattr(expr, 'operator', None)}")
-        return fn(self, left, right)
+        try:
+            return fn(self, left, right)
+        except (ZeroDivisionError, FloatingPointError) as e:
+            self._raise_here(e, getattr(expr, "right", expr))
+        except Exception as e:
+            self._raise_here(e, expr)
 
     def visit_unary_op(self, expr: UnaryOpIR) -> Any:
         operand = expr.operand.accept(self)
@@ -127,9 +171,18 @@ class ExpressionVisitorMixin:
         fn = _UNARY_OP_MAP.get(op) if isinstance(op, UnaryOp) else None
         if fn is None:
             raise RuntimeError(f"Unknown unary operator: {getattr(expr, 'operator', None)}")
-        return fn(self, operand)
+        try:
+            return fn(self, operand)
+        except Exception as e:
+            self._raise_here(e, expr)
 
     def visit_function_call(self, expr: FunctionCallIR) -> Any:
+        try:
+            return self._visit_function_call_inner(expr)
+        except Exception as e:
+            self._raise_here(e, expr)
+
+    def _visit_function_call_inner(self, expr: FunctionCallIR) -> Any:
         callee_expr = getattr(expr, "callee_expr", None)
         if callee_expr is not None:
             callee_value = callee_expr.accept(self)
@@ -164,9 +217,6 @@ class ExpressionVisitorMixin:
                 raise RuntimeError(f"Lambda/function (DefId: {expr.function_defid}) not found")
         if hasattr(callee, "body") and hasattr(callee, "parameters"):
             return self._call_function(callee, args)
-        import threading
-        if callee == builtin_assert and getattr(expr, "location", None):
-            threading.current_thread().einlang_call_location = expr.location
         if callee == builtin_assert:
             if len(args) == 0:
                 raise RuntimeError("assert() called with no arguments")
@@ -178,11 +228,14 @@ class ExpressionVisitorMixin:
     def visit_rectangular_access(self, expr: RectangularAccessIR) -> Any:
         array = expr.array.accept(self)
         indices = [idx.accept(self) for idx in (expr.indices or []) if idx is not None]
-        if isinstance(array, np.ndarray):
-            return array[tuple(indices)]
-        if isinstance(array, (list, tuple, str)):
-            idx = indices[0] if indices else 0
-            return array[int(idx)]
+        try:
+            if isinstance(array, np.ndarray):
+                return array[tuple(indices)]
+            if isinstance(array, (list, tuple, str)):
+                idx = indices[0] if indices else 0
+                return array[int(idx)]
+        except (IndexError, KeyError) as e:
+            self._raise_here(e, expr)
         raise RuntimeError(f"rectangular_access: expected ndarray, list, or str, got {type(array).__name__}")
 
     def visit_jagged_access(self, expr: JaggedAccessIR) -> Any:
@@ -384,7 +437,10 @@ class ExpressionVisitorMixin:
                     if var_defid is not None:
                         self.env.set_value(var_defid, var_value)
                 return arm.body.accept(self)
-        raise RuntimeError(f"Match not exhaustive: no pattern matched {scrutinee_value}")
+        try:
+            raise RuntimeError(f"Match not exhaustive: no pattern matched {scrutinee_value}")
+        except RuntimeError as e:
+            self._raise_here(e, expr)
 
     def visit_reduction_expression(self, expr: ReductionExpressionIR) -> Any:
         _reject_non_lowered(type(expr).__name__)
@@ -500,14 +556,14 @@ class ExpressionVisitorMixin:
         if fn is None or not callable(fn):
             raise RuntimeError(f"Builtin not found (DefId: {defid})")
         args = [arg.accept(self) for arg in getattr(expr, "args", getattr(expr, "arguments", [])) or []]
-        import threading
-        if fn == builtin_assert and getattr(expr, "location", None):
-            threading.current_thread().einlang_call_location = expr.location
-        if fn == builtin_assert:
-            if len(args) == 0:
-                raise RuntimeError("assert() called with no arguments")
-            return builtin_assert(args[0], args[1] if len(args) > 1 else "Assertion failed")
-        return fn(*args)
+        try:
+            if fn == builtin_assert:
+                if len(args) == 0:
+                    raise RuntimeError("assert() called with no arguments")
+                return builtin_assert(args[0], args[1] if len(args) > 1 else "Assertion failed")
+            return fn(*args)
+        except Exception as e:
+            self._raise_here(e, expr)
 
     def visit_function_ref(self, expr: FunctionRefIR) -> Any:
         if getattr(expr, "function_defid", None) is None:

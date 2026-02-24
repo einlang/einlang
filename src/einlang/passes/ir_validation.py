@@ -468,7 +468,7 @@ class IRValidationPass(BasePass):
         
         # Log results
         if tcx.reporter.has_errors():
-            logger.error(f"IR validation failed: {visitor.nodes_validated} nodes validated")
+            logger.debug(f"IR validation failed: {visitor.nodes_validated} nodes validated")
         else:
             logger.debug(f"IR validation passed: {visitor.nodes_validated} nodes validated")
         

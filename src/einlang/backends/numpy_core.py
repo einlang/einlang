@@ -51,6 +51,7 @@ class CoreExecutionMixin:
     ) -> Any:
         from ..shared.defid import DefType
         self.resolver = resolver
+        self._tcx = tcx
         self.env = ExecutionEnvironment()
         _register_fixed_builtins(self.env)
         for func in program.functions:
@@ -97,10 +98,11 @@ class CoreExecutionMixin:
                         if defid not in outputs:
                             outputs[defid] = value
             return _get_execution_result()(outputs=outputs)
-        except (RuntimeError, ZeroDivisionError, ValueError, TypeError, KeyError, IndexError) as e:
-            return _get_execution_result()(error=RuntimeError(str(e)))
         except Exception as e:
-            return _get_execution_result()(error=RuntimeError(f"Unexpected error: {str(e)}"))
+            from ..shared.errors import EinlangSourceError
+            if isinstance(e, EinlangSourceError):
+                return _get_execution_result()(error=e)
+            return _get_execution_result()(error=RuntimeError(str(e)))
 
     def execute_expression(self, expr: ExpressionIR, env: Dict[DefId, Any]) -> Any:
         with self.env.scope():

@@ -172,9 +172,7 @@ class ExhaustivenessChecker:
                 if not has_false:
                     uncovered.append("false")
             elif scrutinee_type in ('int', 'i32', 'i64', 'f32', 'f64'):
-                # For numeric types, require a catch-all pattern
-                # (cannot enumerate all possible values)
-                uncovered.append("catch-all pattern")
+                uncovered.append("other values")
         
         return uncovered
 
@@ -204,13 +202,15 @@ class ExhaustivenessVisitor(IRVisitor[None]):
         if not is_exhaustive:
             uncovered = self.checker.find_uncovered_cases(expr)
             if uncovered:
-                # CRITICAL FIX: Report as ERROR not warning (Rust pattern)
-                # Non-exhaustive matches are compilation errors in Rust, OCaml, Swift
+                missing = ", ".join(f"`{u}`" for u in uncovered)
+                single = len(uncovered) == 1
+                label = f"pattern {missing} not covered" if single else f"patterns {missing} not covered"
                 self.checker.tcx.reporter.report_error(
-                    f"Match expression is not exhaustive: missing patterns for {', '.join(uncovered)}",
+                    f"non-exhaustive patterns: {missing} not covered",
                     location=expr.location,
-                    code="E0004",  # Rust error code for non-exhaustive patterns
-                    help="Add missing patterns or use a wildcard pattern (_) to match all cases"
+                    code="E0004",
+                    label=label,
+                    help="ensure that all possible cases are being handled by adding a match arm with a wildcard pattern `_`",
                 )
         
         # Process scrutinee and arms

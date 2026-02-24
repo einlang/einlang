@@ -752,9 +752,9 @@ class NameResolverVisitor(ASTVisitor[None]):
             object.__setattr__(node, "defid", binding.defid)
         else:
             loc = getattr(node, "location", None)
-            msg = f"undefined name '{name}'"
+            msg = f"cannot find value `{name}` in this scope"
             if self.tcx and self.tcx.reporter:
-                self.tcx.reporter.report_error(msg, loc)
+                self.tcx.reporter.report_error(msg, loc, code="E0425", label="not found in this scope")
             raise ValueError(msg)
     
     def visit_function_call(self, node: ASTFunctionCall) -> None:

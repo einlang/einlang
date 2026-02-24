@@ -199,7 +199,9 @@ def extract_location_info(meta: Any) -> Dict[str, Any]:
         'line': 0,
         'column': 0,
         'start_pos': 0,
-        'end_pos': 0
+        'end_pos': 0,
+        'end_line': 0,
+        'end_column': 0,
     }
     
     if meta is None:
@@ -212,7 +214,9 @@ def extract_location_info(meta: Any) -> Dict[str, Any]:
                 'line': meta.line or 0,
                 'column': meta.column or 0,
                 'start_pos': getattr(meta, 'start_pos', 0),
-                'end_pos': getattr(meta, 'end_pos', 0)
+                'end_pos': getattr(meta, 'end_pos', 0),
+                'end_line': getattr(meta, 'end_line', 0) or 0,
+                'end_column': getattr(meta, 'end_column', 0) or 0,
             })
     except AttributeError:
         pass

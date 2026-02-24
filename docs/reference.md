@@ -10,7 +10,7 @@ A program is a sequence of statements. Every statement ends with `;`.
 
 All bindings are immutable. The type annotation is optional; when omitted the type is inferred from the right-hand side.
 
-```einlang
+```rust
 let x = 42;                   // inferred i32
 let pi: f64 = 3.141592653589793;   // explicit f64
 let matrix: [f32; 2, 3] = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
@@ -20,7 +20,7 @@ If both annotation and value are present, the value must be assignment-compatibl
 
 Rectangular declarations bind a new tensor by iterating over index variables:
 
-```einlang
+```rust
 let scaled[i, j] = data[i, j] * 2.0;
 ```
 
@@ -28,7 +28,7 @@ This produces a new tensor whose shape matches `data`. Each element is computed 
 
 ### `fn` declarations
 
-```einlang
+```rust
 fn add(a, b) { a + b }
 
 fn clamp(x: f32, lo: f32, hi: f32) -> f32 {
@@ -50,7 +50,7 @@ Functions are hoisted: a function can be called before its textual definition in
 
 ### `use` declarations
 
-```einlang
+```rust
 use std::math::{sin, cos, pi};    // import specific names
 use std::array::*;                 // import all exports
 use std::math as m;                // import with alias; use as m::sqrt(4.0)
@@ -60,7 +60,7 @@ Imports bring names into the current scope. Module paths are resolved relative t
 
 `pub use` re-exports imported names, making them visible to importers of the current module:
 
-```einlang
+```rust
 pub use std::math::sin;
 ```
 
@@ -81,7 +81,7 @@ pub use std::math::sin;
 
 Integer literals default to `i32`, float literals to `f32`. To get `i64` or `f64`, use a type annotation:
 
-```einlang
+```rust
 let x: i64 = 42;       // literal coerced to i64
 let y: f64 = 3.14;     // literal coerced to f64
 ```
@@ -90,7 +90,7 @@ let y: f64 = 3.14;     // literal coerced to f64
 
 A rectangular array has a fixed element type and a fixed number of dimensions. All sub-arrays at the same depth have the same length. This is the array kind used by Einstein notation.
 
-```einlang
+```rust
 let v: [f32] = [1.0, 2.0, 3.0];           // 1D, size unknown at compile time
 let m: [f32; 3, 4] = load_matrix();        // 2D, compile-time known 3×4
 let t: [f32; ?, ?] = load_matrix();        // 2D, both dimensions unknown
@@ -105,13 +105,13 @@ Shape inference from literals: `[[1,2],[3,4]]` has shape `(2, 2)`. Inconsistent 
 
 Jagged arrays allow variable-length sub-arrays. They cannot be used with Einstein notation.
 
-```einlang
+```rust
 let ragged: jagged[i32] = [[1, 2], [3, 4, 5]];   // rows have different lengths
 ```
 
 ### Function types
 
-```einlang
+```rust
 let f: (f32, f32) -> f32 = add;
 ```
 
@@ -121,7 +121,7 @@ let f: (f32, f32) -> f32 = add;
 2. **`unknown`**: compatible with anything (gradual typing during inference).
 3. **Literal coercion**: numeric literals can be coerced at the binding site.
 
-```einlang
+```rust
 let a: i64 = 42;       // OK: 42 is a literal, coerced to i64
 let b: i32 = 42;
 let c: i64 = b;        // ERROR: b is not a literal, no implicit widening
@@ -130,7 +130,7 @@ let d: i64 = b as i64; // OK: explicit cast
 
 4. **Rectangular types**: element types must match exactly. Rank must match. Each dimension in the expected type must either equal the actual dimension or be `?`.
 
-```einlang
+```rust
 let m: [i32; ?, ?] = [[1, 2, 3], [4, 5, 6]];   // OK: ? matches 2 and 3
 let n: [i32; 2, ?] = [[1, 2, 3], [4, 5, 6]];   // OK: 2 matches, ? matches 3
 let p: [i32; 3, ?] = [[1, 2, 3], [4, 5, 6]];   // ERROR: first dim is 2, not 3
@@ -143,7 +143,7 @@ let q: [i32; ?] = [[1, 2], [3, 4]];             // ERROR: rank 1 vs rank 2
 
 Explicit conversion between numeric types. No implicit widening or narrowing.
 
-```einlang
+```rust
 let x: i32 = 42;
 let y = x as f64;       // 42.0
 let z = 3.14 as i32;    // 3 (truncates toward zero)
@@ -157,7 +157,7 @@ Everything in Einlang is an expression (except declarations). Blocks, `if`, and 
 
 ### Literals
 
-```einlang
+```rust
 42          // i32
 3.14        // f32
 true        // bool
@@ -169,7 +169,7 @@ true        // bool
 
 Strings support `{expr}` interpolation. Use `{{` and `}}` for literal braces. Format specifiers follow the expression after `:`.
 
-```einlang
+```rust
 let name = "world";
 let msg = "hello {name}";          // "hello world"
 let fmt = "pi = {pi:.4f}";        // "pi = 3.1416"
@@ -198,7 +198,7 @@ Subtleties:
 - All arithmetic operators require operands of the same type. `1 + 1.0` is an error; write `1.0 + 1.0` or `(1 as f32) + 1.0`.
 - `**` is the exception — it allows mixed base/exponent types, following Rust's `pow`/`powi`/`powf` pattern:
 
-```einlang
+```rust
 let a = 2 ** 10;        // i32 ** i32 → i32 (integer pow)
 let b = 2.0 ** 3;       // f32 ** i32 → f32 (like Rust's powi)
 let c = 2.0 ** 0.5;     // f32 ** f32 → f32 (like Rust's powf)
@@ -206,7 +206,7 @@ let c = 2.0 ** 0.5;     // f32 ** f32 → f32 (like Rust's powf)
 
 `sqrt` in the stdlib is `x ** 0.5`, so it requires a float argument — same as Rust where `sqrt` is only defined on `f32`/`f64`. Pass an integer and you get a type error; use `sqrt(x as f32)` to convert first.
 
-```einlang
+```rust
 use std::math::basic::sqrt;
 
 let r = sqrt(16.0);         // 4.0 — OK
@@ -220,7 +220,7 @@ The same applies to other `std::math` functions (`sin`, `cos`, `exp`, `ln`, etc.
 
 `if` is an expression that returns a value. Both branches must produce the same type.
 
-```einlang
+```rust
 let abs_x = if x >= 0 { x } else { -x };
 
 let category = if x > 100 { "large" }
@@ -234,7 +234,7 @@ When `if` is used as a statement (result discarded), the `else` branch can be om
 
 Arms are evaluated top-to-bottom; the first matching pattern wins. All arms must produce the same type.
 
-```einlang
+```rust
 let label = match n {
     0 => "zero",
     1 => "one",
@@ -253,7 +253,7 @@ The compiler checks exhaustiveness: a `match` without `_` or an identifier catch
 
 A block evaluates its statements in order, then returns its final expression. Variables declared inside are scoped to the block.
 
-```einlang
+```rust
 let result = {
     let a = compute_a();
     let b = compute_b();
@@ -267,7 +267,7 @@ If the last item in the block is a statement (ends with `;`), the block returns 
 
 For rectangular arrays, comma-separated indices in a single bracket operation. Each index reduces rank by one:
 
-```einlang
+```rust
 let matrix = [[1, 2, 3], [4, 5, 6]];
 let row = matrix[0];       // [1, 2, 3] — shape goes from (2,3) to (3,)
 let elem = matrix[0, 1];   // 2 — scalar
@@ -291,7 +291,7 @@ The core feature for tensor computation. Named index variables declare how to it
 
 Index variables on the left-hand side define the output tensor's dimensions. The compiler determines each index range by examining how the variable is used to index arrays in the body.
 
-```einlang
+```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
 ```
 
@@ -299,7 +299,7 @@ Here `i` ranges over `0..A.shape[0]`, `j` over `0..B.shape[1]`, and `k` over `0.
 
 Element-wise operations don't need a reduction:
 
-```einlang
+```rust
 let doubled[i, j] = matrix[i, j] * 2.0;
 let sum_AB[i, j] = A[i, j] + B[i, j];
 ```
@@ -308,7 +308,7 @@ let sum_AB[i, j] = A[i, j] + B[i, j];
 
 A reduction iterates over its index variables and combines values. Available operations: `sum`, `max`, `min`, `prod`.
 
-```einlang
+```rust
 let total = sum[i](data[i]);                         // scalar
 let row_sums[i] = sum[j](matrix[i, j]);              // 1D
 let explicit = sum[i in 0..10](data[i]);              // explicit range
@@ -321,7 +321,7 @@ Identity elements: `sum` starts from 0, `prod` from 1, `max` from negative infin
 
 When a reduction index `k` appears as `A[..., k, ...]` in the body, the compiler infers `k in 0..A.shape[axis]` where `axis` is the position of `k` in the indexing expression. If `k` indexes multiple arrays at different positions, the inferred ranges must agree; a mismatch is E004.
 
-```einlang
+```rust
 // k indexes A at axis 1 (shape[1]) and B at axis 0 (shape[0])
 // so A.shape[1] must equal B.shape[0]
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
@@ -335,7 +335,7 @@ Index variables introduced in `sum[k]` or on the left-hand side `let C[i, j]` ar
 
 They are **not** in scope outside the statement.
 
-```einlang
+```rust
 let row_sums[i] = sum[j](matrix[i, j]);
 // i and j are NOT available here
 let x = row_sums[0];   // access the result by concrete index
@@ -355,7 +355,7 @@ A where clause attaches to a rectangular declaration or a reduction. Constraints
 
 Binds a name to a computed value. Useful for avoiding repeated computation. Bindings are evaluated in order; later bindings can reference earlier ones.
 
-```einlang
+```rust
 let output[i, j] = activated
     where z = sum[k](input[i, k] * weight[k, j]) + bias[j],
           activated = if z > 0.0 { z } else { 0.0 };
@@ -367,7 +367,7 @@ Without the where clause, you'd have to write the `sum[k](...)` expression twice
 
 Bind derived indices to expressions of the output indices. The compiler uses these equalities to determine the valid iteration space.
 
-```einlang
+```rust
 let conv[b, oc, oh, ow] = sum[ic, kh, kw](
     input[b, ic, ih, iw] * weight[oc, ic, kh, kw]
 ) where ih = oh + kh, iw = ow + kw;
@@ -379,7 +379,7 @@ Here `ih` and `iw` are not free variables — they are computed from `oh + kh` a
 
 A bare expression in the where clause acts as a filter.
 
-```einlang
+```rust
 let pos_sum = sum[i](data[i]) where data[i] > 0;
 let upper[i, j] = matrix[i, j] where i <= j;
 ```
@@ -392,7 +392,7 @@ For reductions, elements where the guard is false are skipped (the identity elem
 
 Produces a new array by iterating over generators left-to-right (nested). Filters discard elements where the condition is false.
 
-```einlang
+```rust
 let squares = [i * i | i in 1..5];               // [1, 4, 9, 16, 25]
 let evens = [i | i in 1..100, i % 2 == 0];       // [2, 4, 6, ..., 100]
 let pairs = [(i, j) | i in 0..3, j in 0..3, i != j];
@@ -406,7 +406,7 @@ Unlike Einstein notation, comprehensions do not require rectangular inputs and c
 
 Self-referential rectangular declarations that define sequences. Base cases are evaluated first; the recursive case is evaluated in index order so earlier elements are available when computing later ones.
 
-```einlang
+```rust
 let fib[0] = 0;
 let fib[1] = 1;
 let fib[n] = fib[n-1] + fib[n-2] where n in 2..8;
@@ -415,7 +415,7 @@ let fib[n] = fib[n-1] + fib[n-2] where n in 2..8;
 
 Backward references (`n-1`, `n-2`) and forward definitions (`t+1`) are both supported and semantically equivalent:
 
-```einlang
+```rust
 let seq[0] = 1;
 let seq[t+1] = seq[t] * 2 where t in 0..5;
 // seq = [1, 2, 4, 8, 16, 32]
@@ -423,7 +423,7 @@ let seq[t+1] = seq[t] * 2 where t in 0..5;
 
 Multi-dimensional recurrences work the same way — the time axis advances while other axes iterate freely:
 
-```einlang
+```rust
 let hidden[0, i] = initial[i] where i in 0..H;
 let hidden[t+1, i] = tanh(hidden[t, i] + input[t, i])
     where t in 0..T, i in 0..H;
@@ -435,7 +435,7 @@ let hidden[t+1, i] = tanh(hidden[t, i] + input[t, i])
 
 Creates an anonymous function. The body is a single expression. Lambdas capture variables from the enclosing scope.
 
-```einlang
+```rust
 let double = |x| x * 2;
 let add = |a, b| a + b;
 let result = (|x| x + 1)(5);   // immediately invoked: 6
@@ -453,7 +453,7 @@ Lambdas can be stored in variables, passed to functions, and returned from funct
 
 Untyped function parameters cause the compiler to generate a specialized copy for each distinct set of argument types at the call site:
 
-```einlang
+```rust
 fn double(x) { x * 2 }
 let a = double(3);      // specializes for i32
 let b = double(3.14);   // specializes for f32
@@ -467,7 +467,7 @@ Both calls succeed. If the body doesn't make sense for a given type (e.g., calli
 
 A `let` binding or inner `fn` can shadow an outer name. The inner binding takes precedence within its scope.
 
-```einlang
+```rust
 let x = 10;
 let x = x + 1;     // shadows previous x; x is now 11
 
@@ -500,7 +500,7 @@ project/
 
 All declarations are private by default. `pub` makes them visible to importers.
 
-```einlang
+```rust
 pub fn exported(x) { x * 2 }   // visible to importers
 fn internal(x) { x + 1 }       // only visible in this file
 ```
@@ -557,14 +557,14 @@ The following are parsed by the grammar but not yet executed by the backend.
 
 **Pipeline operators**: `|>` (deterministic), `?>` (optional), `!>` (fallible), with `else` and `catch` clauses.
 
-```einlang
+```rust
 let result = data |> normalize |> transform;
 let safe = data !> parse !> validate catch |e| default;
 ```
 
 **Arrow combinators**: `>>>` (sequential), `***` (parallel), `&&&` (fanout), `|||` (choice) for ML graph construction.
 
-```einlang
+```rust
 let model = input >>> linear(784, 128) >>> relu >>> linear(128, 10);
 ```
 

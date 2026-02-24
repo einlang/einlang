@@ -28,9 +28,7 @@ def builtin_assert(condition: Any, message: str = "Assertion failed") -> None:
             return bool(v.all())
         return bool(v)
     if not _all_true(condition):
-        loc = getattr(__import__("threading").current_thread(), "einlang_call_location", None)
-        msg = f"assertion failed: {message}" + (f" at {loc}" if loc else "")
-        raise RuntimeError(msg)
+        raise RuntimeError(f"assertion failed: {message}")
 
 def builtin_print(*args: Any) -> None:
     out = []
