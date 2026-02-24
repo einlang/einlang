@@ -320,6 +320,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
             logger.debug(f"[_get_array_shape] No definition for defid {array_defid}")
             return None
         _name = getattr(var_def, 'name', None) or ''
+        _defid_for_id = array_defid
 
         if self._tcx:
             from .shape_analysis import UnifiedShapeAnalysisPass
@@ -342,8 +343,10 @@ class ImplicitRangeDetector(IRVisitor[None]):
         if isinstance(type_info, RectangularType) and type_info.shape and index_position < len(type_info.shape):
             dim = type_info.shape[index_position]
             if dim is None or dim == '?':
+                if not _name:
+                    return None
                 loc = getattr(var_def, 'location', None) or SourceLocation('<unknown>', 0, 0, 0, 0)
-                array_id = IdentifierIR(name=_name, location=loc, defid=getattr(var_def, 'defid', None))
+                array_id = IdentifierIR(name=_name, location=loc, defid=_defid_for_id)
                 shape_member = MemberAccessIR(object=array_id, member='shape', location=loc)
                 index_lit = LiteralIR(value=index_position, location=loc, type_info=PrimitiveType(name='i32'))
                 return RectangularAccessIR(array=shape_member, indices=[index_lit], location=loc)
@@ -353,7 +356,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
         from ..ir.nodes import ParameterIR
         if isinstance(var_def, ParameterIR) and (type_info is None or not isinstance(type_info, RectangularType)):
             loc = getattr(var_def, 'location', None) or SourceLocation('<unknown>', 0, 0, 0, 0)
-            array_id = IdentifierIR(name=_name, location=loc, defid=getattr(var_def, 'defid', None))
+            array_id = IdentifierIR(name=_name, location=loc, defid=_defid_for_id)
             shape_member = MemberAccessIR(object=array_id, member='shape', location=loc)
             index_lit = LiteralIR(value=index_position, location=loc, type_info=PrimitiveType(name='i32'))
             return RectangularAccessIR(array=shape_member, indices=[index_lit], location=loc)
@@ -415,8 +418,10 @@ class ImplicitRangeDetector(IRVisitor[None]):
             if num_dims == 0 and var_def.clauses and var_def.clauses[0].indices:
                 num_dims = len(var_def.clauses[0].indices)
             if index_position < num_dims:
+                if not _name:
+                    return None
                 loc = getattr(var_def, 'location', None) or SourceLocation('<unknown>', 0, 0, 0, 0)
-                array_id = IdentifierIR(name=_name, location=loc, defid=getattr(var_def, 'defid', None))
+                array_id = IdentifierIR(name=_name, location=loc, defid=_defid_for_id)
                 shape_member = MemberAccessIR(object=array_id, member='shape', location=loc)
                 index_lit = LiteralIR(value=index_position, location=loc, type_info=PrimitiveType(name='i32'))
                 return RectangularAccessIR(array=shape_member, indices=[index_lit], location=loc)
