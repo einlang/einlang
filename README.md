@@ -1,14 +1,98 @@
 # Einlang
 
-A programming language for tensor computations with Einstein notation.
-
-Write tensor operations as mathematical expressions — the compiler handles shape inference, index range analysis, and code generation. Currently backed by a NumPy interpreter.
+A compiled language for tensor computation. Write math, run math.
 
 ```einlang
-let a = [[1, 2], [3, 4]];
-let b = [[5, 6], [7, 8]];
+let A = [[1, 2], [3, 4]];
+let B = [[5, 6], [7, 8]];
 
-let c[i, j] = sum[k](a[i, k] * b[k, j]);
+let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply
+```
+
+Einlang is a statically-checked language where tensor operations are first-class syntax. The compiler infers index ranges from array shapes, verifies dimensions at compile time, and generates code. The current backend interprets via NumPy; the target is MLIR for native compiled execution.
+
+## What makes Einlang different
+
+**Einstein notation as language primitive.** Index variables are part of the syntax, not string arguments to a library function. The compiler sees `A[i, k] * B[k, j]`, knows `k` is a contraction index, and infers its range from both arrays — if `A` is 3x4 and `B` is 5x3, you get a compile-time error, not a runtime crash.
+
+**Where clauses for index algebra.** Derived indices, guards, and intermediate bindings attach directly to the computation. A 2D convolution that would be dozens of lines of index bookkeeping in Python:
+
+```einlang
+let out[b, oc, oh, ow] = sum[ic, kh, kw](
+    input[b, ic, ih, iw] * kernel[oc, ic, kh, kw]
+) where ih = oh + kh, iw = ow + kw;
+```
+
+The compiler resolves `ih` and `iw` as functions of the output and kernel indices and ensures all accesses stay in bounds.
+
+**Recurrence relations as declarations.** Define sequences the way you'd write them on paper — base cases, then a recursive rule. The compiler determines evaluation order automatically:
+
+```einlang
+let fib[0] = 0;
+let fib[1] = 1;
+let fib[n in 2..20] = fib[n-1] + fib[n-2];
+```
+
+This extends to multi-dimensional recurrences (RNN hidden states, dynamic programming tables).
+
+**Compile-time shape analysis.** Dimension mismatches, rank errors, and index range conflicts are caught before any code runs. No "shapes don't align" at runtime halfway through a training loop.
+
+## Why not NumPy / einsum?
+
+```python
+# NumPy: shape logic is manual and implicit
+C = np.zeros((A.shape[0], B.shape[1]))
+for i in range(A.shape[0]):
+    for j in range(B.shape[1]):
+        for k in range(A.shape[1]):
+            C[i, j] += A[i, k] * B[k, j]
+
+# np.einsum('ik,kj->ij', A, B) works for simple cases,
+# but try expressing a conv2d with index remapping, or a
+# recurrence with base cases, or a filtered reduction.
+```
+
+```einlang
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+```
+
+`einsum` is a string-based mini-language embedded in Python — no type checking, no shape errors at compile time, no support for conditionals, recurrences, or index algebra. Einlang makes all of that part of the language itself.
+
+## Examples
+
+A neural network forward pass — linear layer, ReLU, softmax:
+
+```einlang
+use std::math::exp::exp;
+
+fn softmax(logits) {
+    let m = max[i](logits[i]);
+    let e[i] = exp(logits[i] - m);
+    let s = sum[i](e[i]);
+    let out[i] = e[i] / s;
+    out
+}
+
+let input = [[1.0, 0.5], [0.3, 0.8], [0.7, 0.2]];
+let weight = [[0.4, 0.6, 0.1], [0.2, 0.3, 0.9]];
+let bias = [0.1, -0.1, 0.0];
+
+let z[i, j] = sum[k](input[i, k] * weight[k, j]) + bias[j];
+let activated[i, j] = if z[i, j] > 0.0 { z[i, j] } else { 0.0 };
+let probs = softmax(activated[0]);
+print(probs);
+```
+
+Comprehensions and pattern matching:
+
+```einlang
+let even_squares = [x * x | x in 1..50, x % 2 == 0];
+
+let label = match category {
+    0 => "cat",
+    1 => "dog",
+    _ => "unknown",
+};
 ```
 
 ## Install
@@ -19,26 +103,15 @@ cd einlang
 pip install -e .
 ```
 
-Requires Python 3.7+. Dependencies: `numpy`, `lark`.
+Python 3.7+. Dependencies: `numpy`, `lark`, `sexpdata`.
 
-## Usage
-
-Write a `.ein` file:
-
-```einlang
-let data = [1, -2, 3, -4, 5];
-let pos_sum = sum[i in 0..5](data[i] where data[i] > 0);
-assert(pos_sum == 9);
-print("positive sum:", pos_sum);
-```
-
-Run it:
+## Run
 
 ```bash
 python3 -m einlang program.ein
 ```
 
-### Python API
+Or from Python:
 
 ```python
 from einlang.compiler.driver import CompilerDriver
@@ -47,77 +120,35 @@ from einlang.runtime.runtime import EinlangRuntime
 compiler = CompilerDriver()
 runtime = EinlangRuntime()
 
-result = compiler.compile(source_code, "<input>")
+result = compiler.compile(source, "<input>")
 output = runtime.execute(result)
+# output.outputs["C"] → numpy array
 ```
 
-`CompilerDriver.compile(source, source_file, root_path=None)` returns a `CompilationResult`:
-- `.success` — whether compilation succeeded
-- `.ir` — the compiled IR program
-- `.get_errors()` — list of formatted error strings
+## Docs
 
-`EinlangRuntime.execute(compilation_result, inputs=None)` returns an `ExecutionResult`:
-- `.success` — whether execution succeeded
-- `.value` — result of the last expression
-- `.outputs` — dict of all named outputs
-
-Inputs and outputs are NumPy arrays:
-
-```python
-import numpy as np
-
-code = "let result[i, j] = matrix[i, j] * 2;"
-result = compiler.compile(code, "scale.ein")
-output = runtime.execute(result, inputs={"matrix": np.array([[1, 2], [3, 4]])})
-print(output.outputs["result"])  # [[2, 4], [6, 8]]
-```
-
-## Architecture
-
-```
-Source (.ein) → Frontend (Lark → AST) → Passes → IR → Backend (NumPy)
-```
-
-- **`frontend/`** — Lark grammar, parser, AST transformers
-- **`passes/`** — Name resolution, type inference, Einstein lowering, range/shape analysis, AST-to-IR, IR validation
-- **`ir/`** — IR node definitions, S-expression serialization
-- **`backends/`** — NumPy evaluator, Einstein executor
-- **`runtime/`** — Scope stack, reduction engine
-- **`analysis/`** — Module system, monomorphization
-- **`compiler/`** — Driver orchestrating the pipeline
-- **`shared/`** — DefId system, types, AST/IR nodes, error codes
-
-## Tests
-
-```bash
-python3 -m pytest tests/ --tb=short -q
-```
-
-80 test files across `tests/unit/`, `tests/integration/`, `tests/examples/`, and `tests/stdlib/`. 62 `.ein` programs under `examples/units/` are run end-to-end through `tests/examples/test_units.py`.
-
-## Documentation
-
-- [Language Reference](docs/reference.md) — Syntax, types, Einstein notation, error codes
-- [Standard Library](docs/stdlib.md) — `std::math`, `std::array`, `std::ml`, `std::io`
-- [Development](docs/DEVELOPMENT.md) — Project structure, contributing
+- [Language Reference](docs/reference.md) — full syntax and semantics
+- [Standard Library](docs/stdlib.md) — `std::math`, `std::array`, `std::ml`, `std::io` (300+ functions)
+- [Development](docs/DEVELOPMENT.md) — project structure, how to contribute
 
 ## Roadmap
 
-**Near-term**
-- Lambda execution
+**Working now**
+- Einstein notation with automatic range and shape inference
+- Where clauses: guards, variable bindings, index remapping
+- Recurrence relations, array comprehensions, pattern matching
+- Functions with monomorphization, module system, 300+ stdlib functions
+- Type inference, compile-time shape checking
+- NumPy interpreter backend (prototype)
+
+**Next**
+- Lambda execution as first-class values
 - Pipeline operators: `data |> normalize |> transform`
-- Try expressions
 
-**Medium-term**
-- Arrow combinators: `linear(784, 256) >>> relu >>> linear(256, 10)`
-- Generic types
-- Automatic differentiation
-- GPU dispatch via CuPy
-
-**Long-term**
-- MLIR backend
-- Native compilation
-- Distributed tensor operations
+**Target**
+- Arrow combinators for ML graphs: `>>>` (sequential), `***` (parallel), `&&&` (fanout), `|||` (choice)
+- MLIR backend for compiled native execution
+- GPU acceleration
 
 ## License
 
