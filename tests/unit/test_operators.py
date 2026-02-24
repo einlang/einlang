@@ -82,6 +82,14 @@ class TestOperators:
         """
         self._run(source, compiler, runtime)
 
+    def test_pow_mixed_types(self, compiler, runtime):
+        source = """
+        let a = 2.0 ** 3;
+        let b: f32 = 2.0; let n: i32 = 3; let c = b ** n;
+        let d = 2.0 ** 0.5;
+        """
+        self._run(source, compiler, runtime)
+
     def test_equality(self, compiler, runtime):
         source = """
         let o34 = 5 == 5; assert(o34 == true);

@@ -511,6 +511,12 @@ class TypeInferencer(IRVisitor[Type]):
                 expr.type_info = target_float_type
                 return target_float_type
         
+        # POW special case: float ** int → float (Rust's powi)
+        if hasattr(expr, 'operator') and expr.operator == BinaryOp.POW:
+            if left_type in {F32, F64} and right_type in {I32, I64}:
+                expr.type_info = left_type
+                return left_type
+        
         inferred_type = self._promote_types(left_type, right_type, location=expr.location)
         
         # Set type_info on IR node

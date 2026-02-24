@@ -196,6 +196,25 @@ Subtleties:
 - `%` returns the remainder with the sign of the dividend: `-7 % 3` is `-1`.
 - `**` is right-associative: `2 ** 3 ** 2` is `2 ** 9 = 512`, not `8 ** 2 = 64`.
 - All arithmetic operators require operands of the same type. `1 + 1.0` is an error; write `1.0 + 1.0` or `(1 as f32) + 1.0`.
+- `**` is the exception — it allows mixed base/exponent types, following Rust's `pow`/`powi`/`powf` pattern:
+
+```einlang
+let a = 2 ** 10;        // i32 ** i32 → i32 (integer pow)
+let b = 2.0 ** 3;       // f32 ** i32 → f32 (like Rust's powi)
+let c = 2.0 ** 0.5;     // f32 ** f32 → f32 (like Rust's powf)
+```
+
+`sqrt` in the stdlib is `x ** 0.5`, so it requires a float argument — same as Rust where `sqrt` is only defined on `f32`/`f64`. Pass an integer and you get a type error; use `sqrt(x as f32)` to convert first.
+
+```einlang
+use std::math::basic::sqrt;
+
+let r = sqrt(16.0);         // 4.0 — OK
+let s = sqrt(16 as f32);    // 4.0 — OK, explicit cast
+let t = sqrt(16);            // ERROR: i32 has no sqrt
+```
+
+The same applies to other `std::math` functions (`sin`, `cos`, `exp`, `ln`, etc.) — they operate on floats only.
 
 ### `if` expressions
 
@@ -258,7 +277,7 @@ For jagged arrays, use chained brackets: `A[i][j]`.
 
 ### Ranges
 
-`a..b` produces the integer sequence from `a` to `b` inclusive: `0..3` is `[0, 1, 2, 3]`.
+`a..b` produces the integer sequence from `a` to `b` exclusive: `0..3` is `[0, 1, 2]`.
 
 Used in comprehension generators, explicit Einstein index domains, and recurrence bounds.
 
