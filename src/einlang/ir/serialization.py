@@ -400,10 +400,12 @@ class IRSerializer:
     # === Range Expressions ===
     
     def _serialize_RangeIR(self, node) -> list:
-        """Serialize range: (range start end)"""
+        """Serialize range: (range start end [:inclusive true])"""
         start = self.serialize_to_sexpr(node.start) if node.start else [self._sym("nil")]
         end = self.serialize_to_sexpr(node.end) if node.end else [self._sym("nil")]
         core = [self._sym("range"), start, end]
+        if getattr(node, 'inclusive', False):
+            core.extend([self._sym(":inclusive"), self._sym("true")])
         return self._add_expr_metadata(node, core)
     
     # === Einstein Declarations ===
@@ -1092,8 +1094,10 @@ class IRDeserializer:
         loc = self._loc_from_opts(opts)
         start = self.deserialize(tail[0]) if tail else None
         end = self.deserialize(tail[1]) if len(tail) > 1 else None
+        inclusive = _sym_val(opts.get(":inclusive", "")) == "true" if ":inclusive" in opts else False
         ty = self._opts_type(tail, 2)
-        return RangeIR(start=start or LiteralIR(0, loc), end=end or LiteralIR(0, loc), location=loc, type_info=ty)
+        return RangeIR(start=start or LiteralIR(0, loc), end=end or LiteralIR(0, loc), location=loc,
+                       inclusive=inclusive, type_info=ty)
 
     def _deserialize_rectangular_access(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import RectangularAccessIR

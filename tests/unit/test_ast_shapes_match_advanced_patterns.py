@@ -219,6 +219,19 @@ class TestArrayPatterns:
         """
         self._compile_and_execute(source, compiler, runtime)
 
+    def test_array_pattern_rest_in_middle(self, compiler, runtime):
+        """Test array pattern with rest in middle [first, ..mid, last]"""
+        source = """
+        let arr = [10, 20, 30, 40];
+        let result = match arr {
+            [first, ..mid, last] => first + last + len(mid),
+            [] => 0,
+            _ => -1
+        };
+        assert(result == 10 + 40 + 2);
+        """
+        self._compile_and_execute(source, compiler, runtime)
+
 
 class TestGuardClauses:
     """Test guard clauses with where syntax"""
@@ -929,6 +942,37 @@ class TestRangePatterns:
         self._compile_and_execute(source, compiler, runtime)
 
 
+class TestInclusiveRangeOutsidePattern:
+    """Test inclusive range (..=) in expressions, not in match patterns."""
+
+    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
+        context = compiler.compile(source, "<test>")
+        assert context.success, f"Compilation failed: {context.get_errors()}"
+        apply_ir_round_trip(context)
+        exec_result = runtime.execute(context, inputs or {})
+        assert exec_result.success, f"Execution failed: {exec_result.error}"
+        return exec_result
+
+    def test_inclusive_range_comprehension(self, compiler, runtime):
+        source = """
+        let arr = [i | i in 0..=5];
+        assert(len(arr) == 6);
+        assert(arr[0] == 0);
+        assert(arr[5] == 5);
+        """
+        self._compile_and_execute(source, compiler, runtime)
+
+    def test_inclusive_range_vs_exclusive(self, compiler, runtime):
+        source = """
+        let inclusive = [i | i in 0..=4];
+        let exclusive = [i | i in 0..4];
+        assert(len(inclusive) == 5);
+        assert(len(exclusive) == 4);
+        assert(inclusive[4] == 4);
+        """
+        self._compile_and_execute(source, compiler, runtime)
+
+
 class TestBindingPatterns:
     """Test binding pattern matching (name @ pattern)"""
     
@@ -980,6 +1024,28 @@ class TestBindingPatterns:
             _ => 0
         };
         assert(result == 1);
+        """
+        self._compile_and_execute(source, compiler, runtime)
+
+    def test_binding_with_range(self, compiler, runtime):
+        source = """
+        let x = 5;
+        let result = match x {
+            n @ 0..=9 => n * 2,
+            _ => 0
+        };
+        assert(result == 10);
+        """
+        self._compile_and_execute(source, compiler, runtime)
+
+    def test_binding_with_range_no_match(self, compiler, runtime):
+        source = """
+        let x = 15;
+        let result = match x {
+            n @ 0..=9 => n,
+            _ => -1
+        };
+        assert(result == -1);
         """
         self._compile_and_execute(source, compiler, runtime)
 

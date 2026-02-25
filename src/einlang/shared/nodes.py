@@ -206,11 +206,13 @@ class Range(Expression):
     """Range expression for Einstein notation constraints and tensor operations"""
     start: 'Expression'
     end: 'Expression'
+    inclusive: bool = False
     
-    def __init__(self, start: 'Expression', end: 'Expression', location: Optional['SourceLocation'] = None):
+    def __init__(self, start: 'Expression', end: 'Expression', inclusive: bool = False, location: Optional['SourceLocation'] = None):
         super().__init__(NodeType.RANGE, location)
         self.start = start
         self.end = end
+        self.inclusive = inclusive
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_range(self)

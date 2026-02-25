@@ -278,7 +278,8 @@ class ExpressionVisitorMixin:
     def visit_range(self, expr: RangeIR) -> Any:
         start = expr.start.accept(self)
         end = expr.end.accept(self)
-        return range(int(start), int(end))
+        end_int = int(end) + 1 if getattr(expr, 'inclusive', False) else int(end)
+        return range(int(start), end_int)
 
     def visit_array_comprehension(self, expr: ArrayComprehensionIR) -> Any:
         _reject_non_lowered(type(expr).__name__)

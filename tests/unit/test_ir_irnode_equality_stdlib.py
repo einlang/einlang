@@ -108,7 +108,7 @@ class TestStdlibIntegration:
         from einlang.passes.base import TyCtxt
         
         tcx = TyCtxt()
-        root_path = Path(__file__).parent.parent.parent  # Go to project root
+        root_path = Path(__file__).resolve().parent.parent.parent
         module_system = ModuleSystem(root_path, tcx.resolver)
         
         assert module_system.stdlib_root is not None, "Stdlib root should be found"
@@ -129,7 +129,7 @@ class TestStdlibIntegration:
         # Use qualified stdlib call (Rust-aligned pattern)
         source = 'let x = std::math::sqrt(4.0);'
         compiler = CompilerDriver()
-        root_path = Path(__file__).parent.parent.parent
+        root_path = Path(__file__).resolve().parent.parent.parent
         result = compiler.compile(source, 'test.ein', root_path=root_path)
         
         # Compilation may fail due to stdlib function body resolution issues;
@@ -150,7 +150,7 @@ class TestStdlibIntegration:
         # Use qualified stdlib call (Rust-aligned pattern)
         source = 'let x = std::math::sqrt(4.0);'
         compiler = CompilerDriver()
-        root_path = Path(__file__).parent.parent.parent
+        root_path = Path(__file__).resolve().parent.parent.parent
         result = compiler.compile(source, 'test.ein', root_path=root_path)
         
         assert result.success, f"Compilation failed: {result.get_errors()}"
@@ -175,7 +175,7 @@ class TestStdlibIntegration:
         # Use qualified stdlib call (Rust-aligned pattern)
         source = "let x = std::math::sqrt(4.0);"
         compiler = CompilerDriver()
-        root_path = Path(__file__).parent.parent.parent
+        root_path = Path(__file__).resolve().parent.parent.parent
         result = compiler.compile(source, "test.ein", root_path=root_path)
         
         assert result.success, f"Compilation failed: {result.get_errors()}"
@@ -207,7 +207,7 @@ class TestStdlibIntegration:
         # Use a function that calls another stdlib function (qualified call)
         source = "let x = std::math::pow(2.0, 3.0);"
         compiler = CompilerDriver()
-        root_path = Path(__file__).parent.parent.parent
+        root_path = Path(__file__).resolve().parent.parent.parent
         result = compiler.compile(source, "test.ein", root_path=root_path)
         
         assert result.success, f"Compilation failed: {result.get_errors()}"

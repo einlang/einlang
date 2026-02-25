@@ -980,16 +980,16 @@ class EinlangTransformer(Transformer):
     # =========================================================================
     
     def range_expr(self, meta: LarkMeta, *args: Union[ASTNode, Token]) -> Union[ASTNode, Range]:
-        """Handle range expression: additive_expr (DOTDOT additive_expr)?"""
+        """Handle range expression: additive_expr ((DOTDOT | DOTDOTEQ) additive_expr)?"""
         if len(args) == 1:
-            # Single additive expression, no range operator
             return args[0]
         elif len(args) == 3:
-            # Range: additive_expr DOTDOT additive_expr
             location = self._extract_location(meta)
+            inclusive = str(args[1]) == '..='
             return Range(
                 start=args[0],
                 end=args[2],
+                inclusive=inclusive,
                 location=location
             )
         else:

@@ -1025,14 +1025,14 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                         from ..shared.nodes import ArrayLiteral as ASTArrayLiteral
                         
                         if isinstance(constraint.right, ASTRange):
-                            # Lower the range
                             start_ir = constraint.right.start.accept(self)
                             end_ir = constraint.right.end.accept(self)
                             if isinstance(start_ir, ExpressionIR) and isinstance(end_ir, ExpressionIR):
                                 range_expr_for_var = RangeIR(
                                     start=start_ir,
                                     end=end_ir,
-                                    location=self._get_source_location(constraint.right)
+                                    location=self._get_source_location(constraint.right),
+                                    inclusive=getattr(constraint.right, 'inclusive', False)
                                 )
                         elif isinstance(constraint.right, (Identifier, ASTArrayLiteral)):
                             # Right side is an array - use array expression as iterable so we bind var to each element
@@ -1462,7 +1462,8 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         return RangeIR(
             start=start_ir,
             end=end_ir,
-            location=location
+            location=location,
+            inclusive=getattr(node, 'inclusive', False),
         )
     
     def visit_index_var(self, node) -> Optional[ExpressionIR]:

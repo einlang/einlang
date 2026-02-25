@@ -333,14 +333,16 @@ class FunctionCallIR(ExpressionIR):
 
 
 class RangeIR(ExpressionIR):
-    """Range expression: start..end (exclusive end)"""
-    __slots__ = ('start', 'end')
+    """Range expression: start..end (exclusive) or start..=end (inclusive)"""
+    __slots__ = ('start', 'end', 'inclusive')
 
     def __init__(self, start: ExpressionIR, end: ExpressionIR, location: SourceLocation,
+                 inclusive: bool = False,
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location, type_info, shape_info)
         self.start = start
         self.end = end
+        self.inclusive = inclusive
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_range(self)

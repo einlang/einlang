@@ -51,7 +51,7 @@ logical_or_expr: logical_and_expr (logical_or_op logical_and_expr)*
 logical_and_expr: equality_expr (logical_and_op equality_expr)*
 equality_expr: relational_expr (equality_op relational_expr)*
 relational_expr: range_expr (relational_op range_expr)*
-range_expr: additive_expr (DOTDOT additive_expr)?
+range_expr: additive_expr ((DOTDOT | DOTDOTEQ) additive_expr)?
 additive_expr: multiplicative_expr (additive_op multiplicative_expr)*
 multiplicative_expr: power_expr (multiplicative_op power_expr)*
 power_expr: cast_expr (power_op cast_expr)*
