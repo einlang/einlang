@@ -247,6 +247,20 @@ class _EinsteinGroupReplacementVisitor:
         node.pattern.accept(self)
         node.guard.accept(self)
 
+    def visit_or_pattern(self, node) -> None:
+        for alt in node.alternatives:
+            alt.accept(self)
+
+    def visit_binding_pattern(self, node) -> None:
+        node.pattern.accept(self)
+
+    def visit_range_pattern(self, node) -> None:
+        pass
+
+    def visit_constructor_pattern(self, node) -> None:
+        for p in node.patterns:
+            p.accept(self)
+
 
 def _replace_einstein_groups_with_blocks(statements: list) -> None:
     """Merge consecutive EinsteinDeclaration groups (same array_name) into one with multiple clauses."""
@@ -2354,6 +2368,34 @@ class NameResolverVisitor(ASTVisitor[None]):
             for p in node.patterns:
                 if p is not None and hasattr(p, 'accept'):
                     p.accept(self)
+
+    def visit_or_pattern(self, node) -> None:
+        """Resolve or pattern — each alternative must bind the same set of names."""
+        if hasattr(node, 'alternatives'):
+            for alt in node.alternatives:
+                if hasattr(alt, 'accept'):
+                    alt.accept(self)
+
+    def visit_binding_pattern(self, node) -> None:
+        """Resolve binding pattern: name @ inner — allocate DefId for the binding name."""
+        from ..shared.scope import Binding, BindingType
+        current_scope = self.scope_manager.current_scope()
+        if current_scope:
+            defid = self.resolver.allocate_for_local()
+            binding = Binding(
+                name=node.name,
+                binding_type=BindingType.VARIABLE,
+                definition=node,
+                defid=defid,
+                scope=current_scope
+            )
+            _define_in_scope(current_scope, node.name, binding, node, self.tcx.reporter)
+            object.__setattr__(node, 'defid', defid)
+        if hasattr(node, 'pattern') and node.pattern:
+            node.pattern.accept(self)
+
+    def visit_range_pattern(self, node) -> None:
+        pass
 
     def _resolve_function_from_module(self, module_path: Tuple[str, ...], function_name: str) -> Optional[DefId]:
         """

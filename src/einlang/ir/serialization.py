@@ -722,6 +722,48 @@ class IRSerializer:
             core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return core
 
+    def _serialize_OrPatternIR(self, node) -> list:
+        alts = [self._serialize_pattern(a) for a in node.alternatives]
+        core = [self._sym("or-pattern"), alts]
+        if self.include_location and getattr(node, 'location', None):
+            loc = node.location
+            core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
+        if getattr(node, 'defid', None) is not None:
+            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
+        return core
+
+    def _serialize_ConstructorPatternIR(self, node) -> list:
+        patterns = [self._serialize_pattern(p) for p in node.patterns]
+        core = [self._sym("constructor-pattern"), node.constructor_name, patterns]
+        if node.is_struct_literal:
+            core.extend([self._sym(":struct"), self._sym("true")])
+        if self.include_location and getattr(node, 'location', None):
+            loc = node.location
+            core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
+        if getattr(node, 'defid', None) is not None:
+            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
+        return core
+
+    def _serialize_BindingPatternIR(self, node) -> list:
+        inner = self._serialize_pattern(node.inner_pattern)
+        core = [self._sym("binding-pattern"), node.name, inner]
+        if self.include_location and getattr(node, 'location', None):
+            loc = node.location
+            core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
+        if getattr(node, 'defid', None) is not None:
+            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
+        return core
+
+    def _serialize_RangePatternIR(self, node) -> list:
+        core = [self._sym("range-pattern"), node.start, node.end,
+                self._sym("inclusive" if node.inclusive else "exclusive")]
+        if self.include_location and getattr(node, 'location', None):
+            loc = node.location
+            core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
+        if getattr(node, 'defid', None) is not None:
+            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
+        return core
+
     # === Function Definitions ===
     
     def _serialize_FunctionDefIR(self, node) -> list:
@@ -1255,6 +1297,46 @@ class IRDeserializer:
         loc = self._loc_from_opts(opts)
         defid = _parse_defid(opts.get(":defid"))
         return GuardPatternIR(inner_pattern=inner, guard_expr=guard, location=loc, defid=defid)
+
+    def _deserialize_or_pattern(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import OrPatternIR
+        alts_raw = tail[0] if tail and isinstance(tail[0], list) else []
+        alts = [self.deserialize(a) for a in alts_raw]
+        _, opts = _plist(tail[1:])
+        loc = self._loc_from_opts(opts)
+        defid = _parse_defid(opts.get(":defid"))
+        return OrPatternIR(alternatives=alts, location=loc, defid=defid)
+
+    def _deserialize_constructor_pattern(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import ConstructorPatternIR
+        name = str(tail[0]).strip('"') if tail else ""
+        patterns_raw = tail[1] if len(tail) > 1 and isinstance(tail[1], list) else []
+        patterns = [self.deserialize(p) for p in patterns_raw]
+        _, opts = _plist(tail[2:])
+        loc = self._loc_from_opts(opts)
+        defid = _parse_defid(opts.get(":defid"))
+        is_struct = _sym_val(opts.get(":struct", "")) == "true" if ":struct" in opts else False
+        return ConstructorPatternIR(constructor_name=name, patterns=patterns,
+                                    is_struct_literal=is_struct, location=loc, defid=defid)
+
+    def _deserialize_binding_pattern(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import BindingPatternIR
+        name = str(tail[0]).strip('"') if tail else ""
+        inner = self.deserialize(tail[1]) if len(tail) > 1 else None
+        _, opts = _plist(tail[2:])
+        loc = self._loc_from_opts(opts)
+        defid = _parse_defid(opts.get(":defid"))
+        return BindingPatternIR(name=name, inner_pattern=inner, location=loc, defid=defid)
+
+    def _deserialize_range_pattern(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import RangePatternIR
+        start = tail[0] if tail else 0
+        end = tail[1] if len(tail) > 1 else 0
+        inclusive = _sym_val(tail[2]) == "inclusive" if len(tail) > 2 else True
+        _, opts = _plist(tail[3:])
+        loc = self._loc_from_opts(opts)
+        defid = _parse_defid(opts.get(":defid"))
+        return RangePatternIR(start=start, end=end, inclusive=inclusive, location=loc, defid=defid)
 
     def _deserialize_let_binding(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import VariableDeclarationIR

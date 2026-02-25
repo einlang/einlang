@@ -383,6 +383,18 @@ class ASTVisitor(ABC, Generic[T]):
         """Visit constructor pattern: Circle(r), Point { x, y }"""
         return [p.accept(self) for p in node.patterns]
     
+    def visit_or_pattern(self, node) -> T:
+        """Visit or pattern: pat1 | pat2 | ..."""
+        return [alt.accept(self) for alt in node.alternatives]
+    
+    def visit_binding_pattern(self, node) -> T:
+        """Visit binding pattern: name @ pattern"""
+        return node.pattern.accept(self)
+    
+    def visit_range_pattern(self, node) -> T:
+        """Visit range pattern: start..end or start..=end"""
+        pass
+    
     @abstractmethod
     def visit_use_statement(self, node) -> T:
         raise NotImplementedError(f"{self.__class__.__name__} must implement visit_use_statement()")

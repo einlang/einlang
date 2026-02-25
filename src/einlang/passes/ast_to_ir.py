@@ -23,6 +23,7 @@ from ..ir.nodes import (
     PipelineExpressionIR, BuiltinCallIR, FunctionRefIR,
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
+    OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR,
     MatchArmIR, WhereClauseIR, EinsteinIR, EinsteinDeclarationIR, PatternIR,
     RangeIR, ArrayComprehensionIR, VariableDeclarationIR,
     IndexVarIR,
@@ -1685,9 +1686,54 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         
         return GuardPatternIR(inner_pattern=inner_pattern, guard_expr=guard_expr, location=location)
     
+    def visit_or_pattern(self, node) -> Optional[PatternIR]:
+        """Lower or pattern: pat1 | pat2 | ..."""
+        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
+        alternatives = []
+        if hasattr(node, 'alternatives'):
+            for alt in node.alternatives:
+                alt_ir = alt.accept(self) if hasattr(alt, 'accept') else self._lower_pattern(alt)
+                if isinstance(alt_ir, PatternIR):
+                    alternatives.append(alt_ir)
+        if len(alternatives) < 2:
+            raise RuntimeError(f"Or pattern requires at least 2 alternatives at {location}")
+        return OrPatternIR(alternatives=alternatives, location=location)
+    
+    def visit_constructor_pattern(self, node) -> Optional[PatternIR]:
+        """Lower constructor pattern: Some(x), Circle(r)"""
+        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
+        patterns = []
+        if hasattr(node, 'patterns'):
+            for p in node.patterns:
+                p_ir = p.accept(self) if hasattr(p, 'accept') else self._lower_pattern(p)
+                if isinstance(p_ir, PatternIR):
+                    patterns.append(p_ir)
+        is_struct = getattr(node, 'is_struct_literal', False)
+        return ConstructorPatternIR(
+            constructor_name=node.constructor_name,
+            patterns=patterns,
+            is_struct_literal=is_struct,
+            location=location,
+        )
+    
+    def visit_binding_pattern(self, node) -> Optional[PatternIR]:
+        """Lower binding pattern: name @ pattern"""
+        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
+        inner_ir = node.pattern.accept(self) if hasattr(node.pattern, 'accept') else self._lower_pattern(node.pattern)
+        if not isinstance(inner_ir, PatternIR):
+            raise RuntimeError(f"Failed to lower binding pattern inner pattern at {location}")
+        defid = getattr(node, 'defid', None)
+        return BindingPatternIR(name=node.name, inner_pattern=inner_ir, location=location, defid=defid)
+    
+    def visit_range_pattern(self, node) -> Optional[PatternIR]:
+        """Lower range pattern: start..end or start..=end"""
+        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
+        start_val = node.start.value if hasattr(node.start, 'value') else node.start
+        end_val = node.end.value if hasattr(node.end, 'value') else node.end
+        return RangePatternIR(start=start_val, end=end_val, inclusive=node.inclusive, location=location)
+    
     def _lower_pattern(self, pattern_node) -> Optional[PatternIR]:
         """Helper to lower pattern node (fallback if accept() not available)"""
-        # Try to determine pattern type and lower accordingly
         if hasattr(pattern_node, 'node_type'):
             node_type = pattern_node.node_type
             if node_type == 'literal_pattern':
@@ -1704,9 +1750,17 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 return self.visit_rest_pattern(pattern_node)
             elif node_type == 'guard_pattern':
                 return self.visit_guard_pattern(pattern_node)
+            elif node_type == 'or_pattern':
+                return self.visit_or_pattern(pattern_node)
+            elif node_type == 'constructor_pattern':
+                return self.visit_constructor_pattern(pattern_node)
+            elif node_type == 'binding_pattern':
+                return self.visit_binding_pattern(pattern_node)
+            elif node_type == 'range_pattern':
+                return self.visit_range_pattern(pattern_node)
         location = self._get_source_location(pattern_node) if hasattr(pattern_node, 'location') else self._get_default_location()
         raise RuntimeError(
-            f"Unknown pattern type: {node_type} at {location}"
+            f"Unknown pattern type: {getattr(pattern_node, 'node_type', '?')} at {location}"
         )
     
     def _get_default_location(self) -> SourceLocation:

@@ -182,6 +182,48 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
     def visit_guard_pattern(self, node: GuardPatternIR) -> Optional[Dict[DefId, Any]]:
         return node.inner_pattern.accept(_PatternMatcher(self.value, self.backend))
 
+    def visit_or_pattern(self, node) -> Optional[Dict[DefId, Any]]:
+        for alt in node.alternatives:
+            result = alt.accept(_PatternMatcher(self.value, self.backend))
+            if result is not None:
+                return result
+        return None
+
+    def visit_constructor_pattern(self, node) -> Optional[Dict[DefId, Any]]:
+        if not isinstance(self.value, tuple) or len(self.value) < 1:
+            return None
+        tag = self.value[0] if isinstance(self.value, tuple) else None
+        if tag != node.constructor_name:
+            return None
+        fields = self.value[1:] if len(self.value) > 1 else ()
+        if len(fields) != len(node.patterns):
+            return None
+        bindings: Dict[DefId, Any] = {}
+        for p, v in zip(node.patterns, fields):
+            r = p.accept(_PatternMatcher(v, self.backend))
+            if r is None:
+                return None
+            bindings.update(r)
+        return bindings
+
+    def visit_binding_pattern(self, node) -> Optional[Dict[DefId, Any]]:
+        result = node.inner_pattern.accept(_PatternMatcher(self.value, self.backend))
+        if result is None:
+            return None
+        did = getattr(node, "defid", None)
+        if did is not None:
+            result[did] = self.value
+        return result
+
+    def visit_range_pattern(self, node) -> Optional[Dict[DefId, Any]]:
+        try:
+            val = float(self.value) if not isinstance(self.value, (int, float)) else self.value
+        except (TypeError, ValueError):
+            return None
+        if node.inclusive:
+            return {} if node.start <= val <= node.end else None
+        return {} if node.start <= val < node.end else None
+
     def visit_literal(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_identifier(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_binary_op(self, node: Any) -> Optional[Dict[DefId, Any]]: return None

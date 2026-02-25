@@ -195,15 +195,35 @@ def _format_diagnostic(
 
 
 def _guess_span(code_line: str, col_start: int) -> int:
-    """Guess token length when end_column is unavailable."""
+    """Guess token length when end_column is unavailable.
+    
+    Tracks balanced delimiters so `assert(result == 5)` spans the full call.
+    """
     if col_start >= len(code_line):
         return 1
     rest = code_line[col_start:]
     length = 0
+    depth = 0
+    _open = {"(": ")", "[": "]", "{": "}"}
+    _close = set(_open.values())
     for ch in rest:
-        if ch in (" ", "\t", ";", ",", ")", "]", "}"):
+        if ch in _open:
+            depth += 1
+            length += 1
+        elif ch in _close:
+            if depth > 0:
+                depth -= 1
+                length += 1
+                if depth == 0:
+                    break
+            else:
+                break
+        elif depth > 0:
+            length += 1
+        elif ch in (" ", "\t", ";", ","):
             break
-        length += 1
+        else:
+            length += 1
     return max(1, length)
 
 

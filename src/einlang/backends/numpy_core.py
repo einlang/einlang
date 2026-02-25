@@ -168,3 +168,11 @@ class CoreExecutionMixin:
         raise NotImplementedError("Patterns are matched, not executed")
     def visit_guard_pattern(self, node: Any) -> Any:
         raise NotImplementedError("Patterns are matched, not executed")
+    def visit_or_pattern(self, node: Any) -> Any:
+        raise NotImplementedError("Patterns are matched, not executed")
+    def visit_constructor_pattern(self, node: Any) -> Any:
+        raise NotImplementedError("Patterns are matched, not executed")
+    def visit_binding_pattern(self, node: Any) -> Any:
+        raise NotImplementedError("Patterns are matched, not executed")
+    def visit_range_pattern(self, node: Any) -> Any:
+        raise NotImplementedError("Patterns are matched, not executed")

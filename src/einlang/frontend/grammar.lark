@@ -98,24 +98,29 @@ else_clause: "else" block | "else" if_expr
 
 match_expr: "match" expr "{" match_arm_list? "}"
 match_arm_list: match_arm ("," match_arm)*
-match_arm: pattern "=>" expr
+match_arm: pattern (PIPE pattern)* ("where" expr)? "=>" expr
 
-?pattern: guard_pattern | tuple_pattern | array_pattern | literal_pattern | identifier_pattern | wildcard_pattern | constructor_pattern | struct_pattern
-literal_pattern: literal
-identifier_pattern: NAME
+?pattern: tuple_pattern | array_pattern | literal_or_range_pattern | name_pattern | wildcard_pattern | struct_pattern
+
+# LALR-safe: after NAME, one-token lookahead resolves binding (@), constructor (LPAR), or plain identifier
+?name_pattern: NAME "@" pattern -> binding_pattern
+             | NAME LPAR pattern_list? RPAR -> constructor_pattern
+             | NAME -> identifier_pattern
+
+# LALR-safe: after literal, one-token lookahead resolves range (DOTDOTEQ/DOTDOT) or plain literal
+?literal_or_range_pattern: literal DOTDOTEQ literal -> range_pattern_inclusive
+                         | literal DOTDOT literal -> range_pattern_exclusive
+                         | literal -> literal_pattern
+
 wildcard_pattern: "_"
-constructor_pattern: NAME "(" pattern_list? ")"  # Enum constructor: Circle(r)
 struct_pattern: NAME "{" struct_field_pattern_list? "}"  # Struct pattern: Point { x, y }
 struct_field_pattern_list: struct_field_pattern ("," struct_field_pattern)* ","?
 struct_field_pattern: NAME (":" pattern)?  # x or x: pattern
 tuple_pattern: "(" pattern ("," pattern)+ ")"
 array_pattern: "[" array_pattern_elements? "]"
-# Following Rust's approach: parse all patterns as a flat list, rest_pattern is just another pattern
-# The transformer will identify rest pattern position and validate (only one allowed)
 ?array_pattern_elements: array_pattern_item ("," array_pattern_item)*
 array_pattern_item: pattern | rest_pattern
 rest_pattern: ".." pattern
-guard_pattern: pattern "where" expr
 pattern_list: pattern ("," pattern)*
 
 
@@ -275,6 +280,7 @@ ARROW_CHOICE: "|||"
 
 # Custom number that doesn't conflict with DOTDOT
 INTEGER_OR_FLOAT: /[+-]?(?:\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)/
+DOTDOTEQ: "..="
 DOTDOT: ".."
 DOT: "."
 DOUBLECOLON: "::"

@@ -213,6 +213,23 @@ class IRValidationVisitor(IRVisitor[None]):
         node.inner_pattern.accept(self)
         node.guard_expr.accept(self)
     
+    def visit_or_pattern(self, node) -> None:
+        self.nodes_validated += 1
+        for alt in node.alternatives:
+            alt.accept(self)
+    
+    def visit_constructor_pattern(self, node) -> None:
+        self.nodes_validated += 1
+        for p in node.patterns:
+            p.accept(self)
+    
+    def visit_binding_pattern(self, node) -> None:
+        self.nodes_validated += 1
+        node.inner_pattern.accept(self)
+    
+    def visit_range_pattern(self, node) -> None:
+        self.nodes_validated += 1
+    
     def visit_cast_expression(self, node: CastExpressionIR) -> None:
         self.nodes_validated += 1
         self._check_type(node)

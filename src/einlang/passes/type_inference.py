@@ -1502,6 +1502,8 @@ class TypeInferencer(IRVisitor[Type]):
 
     def _bind_pattern_vars(self, pattern, scrutinee_type: Type) -> None:
         """Bind identifier variables in a pattern to their inferred types."""
+        from ..ir.nodes import (OrPatternIR, ConstructorPatternIR,
+                                BindingPatternIR, RangePatternIR)
         if isinstance(pattern, IdentifierPatternIR):
             did = getattr(pattern, 'defid', None)
             if did is not None:
@@ -1519,6 +1521,19 @@ class TypeInferencer(IRVisitor[Type]):
                 did = getattr(pattern.pattern, 'defid', None)
                 if did is not None:
                     self._set_var(did, UNKNOWN)
+        elif isinstance(pattern, OrPatternIR):
+            for alt in pattern.alternatives:
+                self._bind_pattern_vars(alt, scrutinee_type)
+        elif isinstance(pattern, BindingPatternIR):
+            did = getattr(pattern, 'defid', None)
+            if did is not None:
+                self._set_var(did, scrutinee_type)
+            self._bind_pattern_vars(pattern.inner_pattern, scrutinee_type)
+        elif isinstance(pattern, ConstructorPatternIR):
+            for elem in pattern.patterns:
+                self._bind_pattern_vars(elem, UNKNOWN)
+        elif isinstance(pattern, RangePatternIR):
+            pass
     
     def visit_reduction_expression(self, expr) -> Type:
         """Infer type of reduction. Bind loop var DefIds; visit range exprs so they get type_info; then body."""
@@ -1817,6 +1832,18 @@ class TypeInferencer(IRVisitor[Type]):
         raise NotImplementedError("TypeInferencer only handles expressions, not patterns")
     
     def visit_guard_pattern(self, node) -> Type:
+        raise NotImplementedError("TypeInferencer only handles expressions, not patterns")
+    
+    def visit_or_pattern(self, node) -> Type:
+        raise NotImplementedError("TypeInferencer only handles expressions, not patterns")
+    
+    def visit_constructor_pattern(self, node) -> Type:
+        raise NotImplementedError("TypeInferencer only handles expressions, not patterns")
+    
+    def visit_binding_pattern(self, node) -> Type:
+        raise NotImplementedError("TypeInferencer only handles expressions, not patterns")
+    
+    def visit_range_pattern(self, node) -> Type:
         raise NotImplementedError("TypeInferencer only handles expressions, not patterns")
     
     def _collect_module_functions(self, mod: Any) -> List[FunctionDefIR]:

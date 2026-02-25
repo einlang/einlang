@@ -12,6 +12,7 @@ from ..ir.nodes import (
     ProgramIR, ExpressionIR, MatchExpressionIR, MatchArmIR,
     PatternIR, LiteralPatternIR, WildcardPatternIR,
     IdentifierPatternIR, TuplePatternIR, ArrayPatternIR,
+    OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR,
     IRVisitor
 )
 from ..shared.defid import DefId
@@ -80,44 +81,46 @@ class ExhaustivenessChecker:
         
         return None
     
+    def _flatten_patterns(self, patterns: List[PatternIR]) -> List[PatternIR]:
+        """Flatten or-patterns into individual alternatives for coverage analysis."""
+        flat: List[PatternIR] = []
+        for p in patterns:
+            if isinstance(p, OrPatternIR):
+                flat.extend(self._flatten_patterns(p.alternatives))
+            else:
+                flat.append(p)
+        return flat
+    
     def _patterns_cover_type(self, patterns: List[PatternIR], type_name: str) -> bool:
         """Check if patterns cover all cases for type"""
-        # Direct attribute access - check for wildcard
-        for pattern in patterns:
-            if hasattr(pattern, 'inner_pattern'):  # GuardPatternIR
+        flat = self._flatten_patterns(patterns)
+        for pattern in flat:
+            if isinstance(pattern, BindingPatternIR):
+                if self._is_wildcard(pattern) or self._is_wildcard(pattern.inner_pattern):
+                    return True
+            elif hasattr(pattern, 'inner_pattern'):  # GuardPatternIR
                 if self._is_wildcard(pattern.inner_pattern):
                     return True
             elif self._is_wildcard(pattern):
                 return True
         
-        # For integer types, check if all values are covered
         if type_name in ('int', 'i32', 'i64'):
-            return self._check_integer_exhaustiveness(patterns)
+            return self._check_integer_exhaustiveness(flat)
         
-        # For boolean types, check if both true and false are covered
         if type_name in ('bool', 'boolean'):
-            return self._check_boolean_exhaustiveness(patterns)
+            return self._check_boolean_exhaustiveness(flat)
         
         return False
     
     def _is_wildcard(self, pattern: PatternIR) -> bool:
-        """
-        Check if pattern is a catch-all (wildcard or identifier).
-        
-        Both WildcardPattern and IdentifierPattern are catch-all.
-        In pattern matching, identifiers bind to any value, so they act as wildcards.
-        """
-        # Check for WildcardPatternIR (has no special attributes)
-        is_wildcard_pattern = not (hasattr(pattern, 'value') or hasattr(pattern, 'name') or 
-                                    hasattr(pattern, 'patterns') or hasattr(pattern, 'inner_pattern'))
-        
-        # Check for IdentifierPatternIR (has 'name' attribute but no 'value', 'patterns', or 'inner_pattern')
-        is_identifier_pattern = (hasattr(pattern, 'name') and 
-                                 not hasattr(pattern, 'value') and 
-                                 not hasattr(pattern, 'patterns') and 
-                                 not hasattr(pattern, 'inner_pattern'))
-        
-        return is_wildcard_pattern or is_identifier_pattern
+        """Check if pattern is a catch-all (wildcard, identifier, or binding-of-wildcard)."""
+        if isinstance(pattern, WildcardPatternIR):
+            return True
+        if isinstance(pattern, IdentifierPatternIR):
+            return True
+        if isinstance(pattern, BindingPatternIR):
+            return self._is_wildcard(pattern.inner_pattern)
+        return False
     
     def _check_integer_exhaustiveness(self, patterns: List[PatternIR]) -> bool:
         """Check if integer patterns are exhaustive"""
@@ -151,16 +154,15 @@ class ExhaustivenessChecker:
             return []
         
         patterns = [arm.pattern for arm in match_expr.arms]
+        flat = self._flatten_patterns(patterns)
         
         uncovered = []
         
-        # Check for wildcard (catch-all pattern)
-        if not any(self._is_wildcard(p) for p in patterns):
+        if not any(self._is_wildcard(p) for p in flat):
             if scrutinee_type in ('bool', 'boolean'):
-                # For booleans, check if both true and false are covered
                 has_true = False
                 has_false = False
-                for p in patterns:
+                for p in flat:
                     if hasattr(p, 'value'):
                         if p.value is True:
                             has_true = True
@@ -317,6 +319,23 @@ class ExhaustivenessVisitor(IRVisitor[None]):
         pass
     
     def visit_guard_pattern(self, node) -> None:
+        pass
+    
+    def visit_or_pattern(self, node) -> None:
+        if hasattr(node, 'alternatives'):
+            for alt in node.alternatives:
+                alt.accept(self)
+    
+    def visit_constructor_pattern(self, node) -> None:
+        if hasattr(node, 'patterns'):
+            for p in node.patterns:
+                p.accept(self)
+    
+    def visit_binding_pattern(self, node) -> None:
+        if hasattr(node, 'inner_pattern'):
+            node.inner_pattern.accept(self)
+    
+    def visit_range_pattern(self, node) -> None:
         pass
     
     def visit_function_def(self, node) -> None:

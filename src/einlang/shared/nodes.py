@@ -86,6 +86,9 @@ class NodeType(Enum):
     ARRAY_PATTERN = "array_pattern"
     REST_PATTERN = "rest_pattern"  # Rest pattern ..pattern
     GUARD_PATTERN = "guard_pattern"
+    OR_PATTERN = "or_pattern"
+    BINDING_PATTERN = "binding_pattern"
+    RANGE_PATTERN = "range_pattern"
     ENUM_DEF = "enum_def"
     STRUCT_DEF = "struct_def"
     CONSTRUCTOR_PATTERN = "constructor_pattern"
@@ -1258,6 +1261,48 @@ class ConstructorPattern(Pattern):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_constructor_pattern(self)
+
+@dataclass
+class OrPattern(Pattern):
+    """Or pattern: matches if any alternative matches (pat1 | pat2 | ...)"""
+    alternatives: List[Pattern]
+    
+    def __init__(self, alternatives: List[Pattern], location: SourceLocation = None):
+        super().__init__(NodeType.OR_PATTERN, location)
+        self.alternatives = alternatives
+    
+    def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
+        return visitor.visit_or_pattern(self)
+
+@dataclass
+class BindingPattern(Pattern):
+    """Binding pattern: binds value to name while also matching a sub-pattern (name @ pattern)"""
+    name: str
+    pattern: Pattern
+    
+    def __init__(self, name: str, pattern: Pattern, location: SourceLocation = None):
+        super().__init__(NodeType.BINDING_PATTERN, location)
+        self.name = name
+        self.pattern = pattern
+    
+    def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
+        return visitor.visit_binding_pattern(self)
+
+@dataclass
+class RangePattern(Pattern):
+    """Range pattern: matches values in a range (start..end or start..=end)"""
+    start: 'Literal'
+    end: 'Literal'
+    inclusive: bool
+    
+    def __init__(self, start: 'Literal', end: 'Literal', inclusive: bool, location: SourceLocation = None):
+        super().__init__(NodeType.RANGE_PATTERN, location)
+        self.start = start
+        self.end = end
+        self.inclusive = inclusive
+    
+    def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
+        return visitor.visit_range_pattern(self)
 
 @dataclass
 class MatchArm(ASTNode):

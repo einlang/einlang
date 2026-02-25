@@ -1748,18 +1748,38 @@ class EinlangTransformer(Transformer):
         # Just return the list of arms
         return list(arms)
     
-    def match_arm(self, meta, pattern, expr_or_block):
-        """Handle match arms (pattern => expr or pattern => block)"""
-        from ...shared.nodes import MatchArm, BlockExpression
+    def match_arm(self, meta, *args):
+        """Handle match arms: pattern (| pattern)* (where guard)? => body
+        
+        Lark filters anonymous terminals ("where", "=>"), so args contains only
+        patterns (Pattern), PIPE tokens, and expressions. If a guard is present
+        there are 2 trailing expressions (guard, body); otherwise just 1 (body).
+        """
+        from ...shared.nodes import MatchArm, GuardPattern, OrPattern, Pattern
+        from lark import Token
         location = self._extract_location(meta)
         
-        # expr_or_block is already a BlockExpression or an Expression
-        if isinstance(expr_or_block, BlockExpression):
-            body = expr_or_block
-        else:
-            body = expr_or_block
+        patterns = []
+        exprs = []
+        for arg in args:
+            if isinstance(arg, Token) and str(arg) == '|':
+                continue
+            if isinstance(arg, Pattern):
+                patterns.append(arg)
+            else:
+                exprs.append(arg)
         
-        return MatchArm(pattern=pattern, body=body, location=location)
+        if len(exprs) >= 2:
+            guard_expr, body = exprs[-2], exprs[-1]
+        else:
+            guard_expr, body = None, exprs[0] if exprs else None
+        
+        pat = patterns[0] if len(patterns) == 1 else OrPattern(alternatives=patterns, location=location)
+        
+        if guard_expr is not None:
+            pat = GuardPattern(pattern=pat, guard=guard_expr, location=location)
+        
+        return MatchArm(pattern=pat, body=body, location=location)
     
     def literal_pattern(self, meta, literal):
         """Handle literal patterns"""
@@ -1850,11 +1870,23 @@ class EinlangTransformer(Transformer):
         pattern_list = [p for p in patterns if not (isinstance(p, str) and p in ('[', ']', ','))]
         return pattern_list
     
-    def guard_pattern(self, meta, pattern, guard_expr):
-        """Handle guard patterns: pattern where condition"""
-        from ...shared.nodes import GuardPattern
+    def binding_pattern(self, meta, name, pattern):
+        """Handle binding patterns: name @ pattern"""
+        from ...shared.nodes import BindingPattern
         location = self._extract_location(meta)
-        return GuardPattern(pattern=pattern, guard=guard_expr, location=location)
+        return BindingPattern(name=str(name), pattern=pattern, location=location)
+    
+    def range_pattern_inclusive(self, meta, start_lit, _dotdoteq, end_lit):
+        """Handle inclusive range patterns: start..=end"""
+        from ...shared.nodes import RangePattern
+        location = self._extract_location(meta)
+        return RangePattern(start=start_lit, end=end_lit, inclusive=True, location=location)
+    
+    def range_pattern_exclusive(self, meta, start_lit, _dotdot, end_lit):
+        """Handle exclusive range patterns: start..end"""
+        from ...shared.nodes import RangePattern
+        location = self._extract_location(meta)
+        return RangePattern(start=start_lit, end=end_lit, inclusive=False, location=location)
     
     def pattern_list(self, meta, *patterns):
         """Handle pattern lists in constructor patterns"""

@@ -832,6 +832,64 @@ class GuardPatternIR(PatternIR):
         return visitor.visit_guard_pattern(self)
 
 
+class OrPatternIR(PatternIR):
+    """Or pattern: pat1 | pat2 | ..."""
+    __slots__ = ('alternatives',)
+    
+    def __init__(self, alternatives: List[PatternIR], location: SourceLocation,
+                 defid: Optional[DefId] = None):
+        super().__init__(location, defid)
+        self.alternatives = alternatives
+    
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_or_pattern(self)
+
+
+class ConstructorPatternIR(PatternIR):
+    """Constructor pattern: Some(x), Circle(r)"""
+    __slots__ = ('constructor_name', 'patterns', 'is_struct_literal')
+    
+    def __init__(self, constructor_name: str, patterns: List[PatternIR],
+                 is_struct_literal: bool = False, location: SourceLocation = None,
+                 defid: Optional[DefId] = None):
+        super().__init__(location or SourceLocation("", 0, 0), defid)
+        self.constructor_name = constructor_name
+        self.patterns = patterns
+        self.is_struct_literal = is_struct_literal
+    
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_constructor_pattern(self)
+
+
+class BindingPatternIR(PatternIR):
+    """Binding pattern: name @ inner_pattern"""
+    __slots__ = ('name', 'inner_pattern')
+    
+    def __init__(self, name: str, inner_pattern: PatternIR, location: SourceLocation,
+                 defid: Optional[DefId] = None):
+        super().__init__(location, defid)
+        self.name = name
+        self.inner_pattern = inner_pattern
+    
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_binding_pattern(self)
+
+
+class RangePatternIR(PatternIR):
+    """Range pattern: start..end (exclusive) or start..=end (inclusive)"""
+    __slots__ = ('start', 'end', 'inclusive')
+    
+    def __init__(self, start: Union[int, float], end: Union[int, float], inclusive: bool,
+                 location: SourceLocation, defid: Optional[DefId] = None):
+        super().__init__(location, defid)
+        self.start = start
+        self.end = end
+        self.inclusive = inclusive
+    
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_range_pattern(self)
+
+
 class MatchArmIR:
     """Match arm: pattern + body"""
     __slots__ = ('pattern', 'body')
@@ -1454,6 +1512,26 @@ class IRVisitor(ABC, Generic[T]):
     def visit_guard_pattern(self, node: GuardPatternIR) -> T:
         """Visit guard pattern"""
         raise NotImplementedError
+    
+    def visit_or_pattern(self, node: 'OrPatternIR') -> T:
+        """Visit or pattern: pat1 | pat2. Default: visit first alternative."""
+        if node.alternatives:
+            return node.alternatives[0].accept(self)
+        return None  # type: ignore[return-value]
+    
+    def visit_constructor_pattern(self, node: 'ConstructorPatternIR') -> T:
+        """Visit constructor pattern: Some(x). Default: visit sub-patterns."""
+        for p in node.patterns:
+            p.accept(self)
+        return None  # type: ignore[return-value]
+    
+    def visit_binding_pattern(self, node: 'BindingPatternIR') -> T:
+        """Visit binding pattern: name @ pat. Default: visit inner pattern."""
+        return node.inner_pattern.accept(self)
+    
+    def visit_range_pattern(self, node: 'RangePatternIR') -> T:
+        """Visit range pattern: start..=end. Default: no-op."""
+        return None  # type: ignore[return-value]
     
     # Statement visitors
     @abstractmethod
