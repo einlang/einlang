@@ -524,10 +524,10 @@ class TryExpressionIR(ExpressionIR):
 
 
 class ReductionExpressionIR(ExpressionIR):
-    """Reduction expression: sum[i](A[i]). Loop vars are IdentifierIRs (each has .name and .defid). No defid; identity comes from binding when reduction is RHS."""
+    """Reduction expression: sum[i](A[i]). Loop vars are IndexVarIR or IdentifierIR (each has .name and .defid). No defid on node; identity comes from binding when reduction is RHS."""
     __slots__ = ('operation', 'loop_vars', 'body', 'where_clause', 'loop_var_ranges')
 
-    def __init__(self, operation: str, loop_vars: Optional[List['IdentifierIR']], body: ExpressionIR,
+    def __init__(self, operation: str, loop_vars: Optional[List[Union['IndexVarIR', 'IdentifierIR']]], body: ExpressionIR,
                  location: SourceLocation, where_clause: Optional['WhereClauseIR'] = None,
                  loop_var_ranges: Optional[Dict[DefId, 'RangeIR']] = None,
                  type_info: Optional[Any] = None,
@@ -536,12 +536,12 @@ class ReductionExpressionIR(ExpressionIR):
         self.operation = operation
         self.body = body
         self.where_clause = where_clause
-        self.loop_var_ranges = loop_var_ranges if loop_var_ranges is not None else {}  # DefId -> RangeIR
-        self.loop_vars = loop_vars if loop_vars is not None else []  # List[IdentifierIR], each has .name and .defid
+        self.loop_var_ranges = loop_var_ranges if loop_var_ranges is not None else {}
+        self.loop_vars = loop_vars if loop_vars is not None else []
 
     @property
     def loop_var_names(self) -> List[str]:
-        return [ident.name for ident in self.loop_vars]
+        return [getattr(ident, 'name', '') for ident in self.loop_vars]
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_reduction_expression(self)
@@ -937,11 +937,11 @@ class LoopStructure:
         return f"{self.variable.name} in {self.iterable}"
 
 
-class LocalBinding(IRNode):
-    """Canonical binding shape (name = expr). Variable identity is DefId."""
+class BindingIR(IRNode):
+    """Canonical binding (name = expr). Only LHS (defid/name) is the reference; expr is rvalue."""
     __slots__ = ('name', 'expr', 'type_info', 'defid')
 
-    def __init__(self, name: str, expr: ExpressionIR, type_info: Optional[Any] = None,
+    def __init__(self, name: str, expr: Any, type_info: Optional[Any] = None,
                  location: Optional[SourceLocation] = None,
                  defid: Optional[DefId] = None):
         super().__init__(location or SourceLocation('', 0, 0))
@@ -951,9 +951,22 @@ class LocalBinding(IRNode):
         self.type_info = type_info
         self.defid = defid
 
+    @property
+    def pattern(self) -> str:
+        return self.name
+
+    @property
+    def value(self) -> Any:
+        return self.expr
+
+    def get_defid_binding(self) -> Optional[tuple]:
+        if self.defid is not None:
+            return (self.defid, self.expr)
+        return None
+
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
-        return visitor.visit_local_binding(self)
-    
+        return visitor.visit_binding(self)
+
     def __str__(self) -> str:
         type_str = f": {self.type_info}" if self.type_info else ""
         return f"{self.name}{type_str} = {self.expr}"
@@ -991,7 +1004,7 @@ class LoweredIteration:
         self,
         body: ExpressionIR,
         loops: Optional[List[LoopStructure]] = None,
-        bindings: Optional[List[LocalBinding]] = None,
+        bindings: Optional[List['BindingIR']] = None,
         guards: Optional[List[GuardCondition]] = None,
         reduction_ranges: Optional[Dict[DefId, LoopStructure]] = None,
         shape: Optional[List[ExpressionIR]] = None,
@@ -1039,7 +1052,7 @@ class LoweredEinsteinClauseIR:
         body: ExpressionIR,
         loops: Optional[List[LoopStructure]] = None,
         reduction_ranges: Optional[Dict[DefId, LoopStructure]] = None,
-        bindings: Optional[List[LocalBinding]] = None,
+        bindings: Optional[List['BindingIR']] = None,
         guards: Optional[List[GuardCondition]] = None,
         indices: Optional[List[Any]] = None,
     ):
@@ -1087,7 +1100,7 @@ class LoweredReductionIR(ExpressionIR):
         body: ExpressionIR,
         operation: str,
         loops: Optional[List[LoopStructure]] = None,
-        bindings: Optional[List[LocalBinding]] = None,
+        bindings: Optional[List['BindingIR']] = None,
         guards: Optional[List[GuardCondition]] = None,
         location: Optional[SourceLocation] = None,
         type_info: Optional[Any] = None,
@@ -1134,7 +1147,7 @@ class LoweredComprehensionIR(ExpressionIR):
         self,
         body: ExpressionIR,
         loops: Optional[List[LoopStructure]] = None,
-        bindings: Optional[List[LocalBinding]] = None,
+        bindings: Optional[List['BindingIR']] = None,
         guards: Optional[List[GuardCondition]] = None,
         location: Optional[SourceLocation] = None,
         type_info: Optional[Any] = None,
@@ -1160,7 +1173,7 @@ class LoweredComprehensionIR(ExpressionIR):
 
 
 # Variable Declaration IR (Statement)
-# Under the hood shares LocalBinding shape so execution/lowering can treat both the same.
+# Under the hood shares BindingIR shape so execution/lowering can treat both the same.
 
 class VariableDeclarationIR(IRNode):
     """
@@ -1176,7 +1189,7 @@ class VariableDeclarationIR(IRNode):
                  defid: Optional[DefId] = None):
         loc = location if location is not None else SourceLocation('', 0, 0)
         super().__init__(loc)
-        self._binding = LocalBinding(
+        self._binding = BindingIR(
             name=pattern,
             expr=value,
             type_info=type_annotation,
@@ -1212,7 +1225,7 @@ class VariableDeclarationIR(IRNode):
     def defid(self) -> Optional[DefId]:
         return getattr(self._binding, 'defid', None)
 
-    def to_binding(self) -> LocalBinding:
+    def to_binding(self) -> 'BindingIR':
         """Same shape as where-clause bindings; execution can treat uniformly."""
         return self._binding
 
@@ -1538,11 +1551,11 @@ class IRVisitor(ABC, Generic[T]):
         return None  # type: ignore[return-value]
 
     def visit_variable_declaration(self, node: 'VariableDeclarationIR') -> T:
-        """Visit variable declaration. Default: forward to visit_local_binding (same shape under the hood)."""
-        return self.visit_local_binding(node.to_binding())
-    
-    def visit_local_binding(self, node: 'LocalBinding') -> T:
-        """Visit local binding (where-clause or let). Default: no-op (return None)."""
+        """Visit variable declaration. Default: forward to visit_binding (same shape under the hood)."""
+        return self.visit_binding(node.to_binding())
+
+    def visit_binding(self, node: 'BindingIR') -> T:
+        """Visit binding (name = expr). Default: no-op (return None)."""
         return None  # type: ignore[return-value]
     
     # Program visitor

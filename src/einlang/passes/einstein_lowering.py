@@ -18,7 +18,7 @@ from ..shared.types import BinaryOp, infer_literal_type, UNKNOWN, PrimitiveType
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, IdentifierIR, IndexVarIR, IndexRestIR, ReductionExpressionIR,
     WhereClauseIR, RangeIR, LiteralIR, EinsteinIR, EinsteinDeclarationIR,
-    LoopStructure, LocalBinding, GuardCondition,
+    LoopStructure, BindingIR, GuardCondition,
     LoweredEinsteinClauseIR, LoweredEinsteinIR, LoweredReductionIR, LoweredComprehensionIR,
     IRVisitor, RectangularAccessIR, MemberAccessIR,
     ArrayComprehensionIR, VariableDeclarationIR, BinaryOpIR,
@@ -747,7 +747,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                             "Ensure name resolution sets defid on constraint left-hand side."
                         )
                     right_lowered = right.accept(self) if right is not None else right
-                    bindings.append(LocalBinding(name=left.name, expr=right_lowered if right_lowered is not None else right, defid=defid, location=getattr(c, 'location', None)))
+                    bindings.append(BindingIR(name=left.name, expr=right_lowered if right_lowered is not None else right, defid=defid, location=getattr(c, 'location', None)))
                     continue
             cond_lowered = c.accept(self) if c is not None else c
             guards.append(GuardCondition(cond_lowered if cond_lowered is not None else c))
@@ -1253,7 +1253,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         
         return reduction_ranges
     
-    def _extract_bindings_and_guards(self, where_clause: Optional[WhereClauseIR]) -> Tuple[List[LocalBinding], List[GuardCondition]]:
+    def _extract_bindings_and_guards(self, where_clause: Optional[WhereClauseIR]) -> Tuple[List[BindingIR], List[GuardCondition]]:
         """Extract bindings and guards from where clause"""
         bindings = []
         guards = []

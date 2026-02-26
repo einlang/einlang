@@ -436,8 +436,8 @@ class IRSerializer:
             var_sexpr = [self._sym("variable"), str(var)]
         return [self._sym("loop"), var_sexpr, iterable]
     
-    def _serialize_LocalBinding(self, binding) -> list:
-        """Serialize LocalBinding: (binding "name" expr type :defid [...] :loc [...])."""
+    def _serialize_BindingIR(self, binding) -> list:
+        """Serialize BindingIR: (binding "name" expr type :defid [...] :loc [...])."""
         expr = self.serialize_to_sexpr(binding.expr)
         typ = self._serialize_type(binding.type_info) if getattr(binding, 'type_info', None) else [self._sym("nil")]
         core = [self._sym("binding"), binding.name, expr, typ]
@@ -459,7 +459,7 @@ class IRSerializer:
             d = getattr(loop.variable, "defid", None)
             if d is not None:
                 loop_var_ranges.append([self._brackets([d.krate, d.index]), self.serialize_to_sexpr(loop.iterable)])
-        bindings = [self._serialize_LocalBinding(b) for b in node.bindings]
+        bindings = [self._serialize_BindingIR(b) for b in node.bindings]
         guards = [self.serialize_to_sexpr(g.condition) for g in node.guards]
         red_ranges = node.reduction_ranges or {}
         red_defids_str = ",".join(f"{d.krate}:{d.index}" for d in red_ranges.keys())
@@ -498,7 +498,7 @@ class IRSerializer:
             d = getattr(loop.variable, "defid", None)
             if d is not None:
                 loop_var_ranges.append([self._brackets([d.krate, d.index]), self.serialize_to_sexpr(loop.iterable)])
-        bindings = [self._serialize_LocalBinding(b) for b in node.bindings]
+        bindings = [self._serialize_BindingIR(b) for b in node.bindings]
         guards = [self.serialize_to_sexpr(g.condition) for g in node.guards]
         core = [self._sym("lowered-comprehension"),
                 self._sym(":body"), body,
@@ -517,7 +517,7 @@ class IRSerializer:
             d = getattr(loop.variable, "defid", None)
             if d is not None:
                 loop_var_ranges.append([self._brackets([d.krate, d.index]), self.serialize_to_sexpr(loop.iterable)])
-        bindings = [self._serialize_LocalBinding(b) for b in node.bindings]
+        bindings = [self._serialize_BindingIR(b) for b in node.bindings]
         guards = [self.serialize_to_sexpr(g.condition) for g in node.guards]
         def _defid_str(loop):
             d = getattr(loop.variable, "defid", None)
@@ -1411,7 +1411,7 @@ class IRDeserializer:
         return LoopStructure(variable=variable, iterable=iterable)
 
     def _deserialize_local_binding(self, sexpr: Any) -> Any:
-        from ..ir.nodes import LocalBinding
+        from ..ir.nodes import BindingIR
         if not isinstance(sexpr, list) or len(sexpr) < 4 or _sym_val(sexpr[0]) != "binding":
             return None
         name = sexpr[1]
@@ -1421,7 +1421,7 @@ class IRDeserializer:
         _, opts = _plist(sexpr[4:])
         defid = _parse_defid(opts.get(":defid"))
         loc = self._loc_from_opts(opts)
-        return LocalBinding(name=name, expr=expr, type_info=typ, location=loc, defid=defid)
+        return BindingIR(name=name, expr=expr, type_info=typ, location=loc, defid=defid)
 
     def _deserialize_lowered_reduction(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LoweredReductionIR, GuardCondition

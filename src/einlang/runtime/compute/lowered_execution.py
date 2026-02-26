@@ -50,7 +50,7 @@ def execute_lowered_loops(
 
 
 def execute_lowered_bindings(
-    bindings: List[Any],  # List[LocalBinding]
+    bindings: List[Any],  # List[BindingIR]
     context: Dict[DefId, Any],
     evaluator: Callable[[Any], Any]
 ) -> Dict[DefId, Any]:

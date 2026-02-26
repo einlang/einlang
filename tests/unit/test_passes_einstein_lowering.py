@@ -24,7 +24,7 @@ from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
 from einlang.ir.nodes import (
     ProgramIR, EinsteinDeclarationIR, LoweredIteration,
-    LoopStructure, LocalBinding, GuardCondition, ReductionExpressionIR,
+    LoopStructure, BindingIR, GuardCondition, ReductionExpressionIR,
     LoweredEinsteinIR, LoweredReductionIR,
 )
 from einlang.passes.einstein_lowering import EinsteinLoweringPass

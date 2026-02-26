@@ -39,7 +39,7 @@ class EinsteinExecutionMixin:
         variable_decl = stack[-1] if stack else None
         return self._execute_lowered_einstein(node, variable_decl)
 
-    def visit_local_binding(self, node: Any) -> Any:
+    def visit_binding(self, node: Any) -> Any:
         return None
 
     def _primitive_type_to_numpy_dtype(self, type_obj: Any) -> Optional[Any]:
