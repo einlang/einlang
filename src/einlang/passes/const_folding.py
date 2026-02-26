@@ -333,10 +333,9 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         folded_constraints = [c.accept(self) for c in expr.constraints] if expr.constraints else []
         return ArrayComprehensionIR(
             body=folded_body,
-            variables=expr.variables,
+            loop_vars=expr.loop_vars,
             ranges=folded_ranges,
             constraints=folded_constraints,
-            variable_defids=expr.variable_defids,
             location=expr.location,
             type_info=expr.type_info,
             shape_info=expr.shape_info

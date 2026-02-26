@@ -349,75 +349,54 @@ class RangeIR(ExpressionIR):
 class ArrayComprehensionIR(ExpressionIR):
     """
     Array comprehension: [expr | var in range, ...]
-    
-    Supports multiple variables for cartesian product:
-    - [expr | i in 0..3, j in 0..3] → cartesian product (flat array)
-    - [[expr | j in 0..3] | i in 0..3] → nested (jagged array, body is another comprehension)
-    
-    Semantics:
-    - Multiple variables in ONE comprehension = cartesian product = flat array
-    - Nested comprehensions (body IS a comprehension) = jagged array
+    Loop vars are IndexVarIR or IdentifierIR (name + defid per variable).
     """
-    __slots__ = ('body', 'variables', 'variable_defids', 'ranges', 'constraints')
-    
-    def __init__(self, body: ExpressionIR, 
-                 variables: Union[str, List[str]],  # Support single var (backward compat) or list
-                 ranges: Union[RangeIR, List[RangeIR]],  # Support single range or list
-                 location: SourceLocation, 
+    __slots__ = ('body', 'loop_vars', 'ranges', 'constraints')
+
+    def __init__(self, body: ExpressionIR,
+                 loop_vars: List[Union['IndexVarIR', 'IdentifierIR']],
+                 ranges: List[ExpressionIR],
+                 location: SourceLocation,
                  constraints: Optional[List[ExpressionIR]] = None,
-                 variable_defids: Optional[Union[DefId, List[DefId]]] = None,
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location, type_info, shape_info)
         self.body = body
-        
-        # Normalize to lists for multiple variables (backward compatible with single variable)
-        if isinstance(variables, str):
-            self.variables = [variables]
-            # Single range/iterable: always store as list of one (ranges can be RangeIR or array expr e.g. ArrayLiteralIR)
-            self.ranges = [ranges] if not isinstance(ranges, list) else ranges
-            self.variable_defids = [variable_defids] if variable_defids and not isinstance(variable_defids, list) else (variable_defids if variable_defids else [])
-        else:
-            self.variables = variables
-            self.ranges = ranges if isinstance(ranges, list) else [ranges]
-            self.variable_defids = variable_defids if isinstance(variable_defids, list) else ([variable_defids] if variable_defids else [])
-        
-        # Ensure lists are same length
-        if len(self.variables) != len(self.ranges):
-            raise ValueError(f"Mismatch: {len(self.variables)} variables but {len(self.ranges)} ranges")
-        if self.variable_defids and len(self.variable_defids) != len(self.variables):
-            while len(self.variable_defids) < len(self.variables):
-                self.variable_defids.append(None)
-        for d in self.variable_defids:
-            assert_defid(d)
+        self.loop_vars = loop_vars if loop_vars is not None else []
+        self.ranges = ranges if ranges is not None else []
+        if len(self.loop_vars) != len(self.ranges):
+            raise ValueError(f"Mismatch: {len(self.loop_vars)} loop_vars but {len(self.ranges)} ranges")
         self.constraints = constraints if constraints is not None else []
-    
-    # Backward compatibility properties
+
+    @property
+    def variables(self) -> List[str]:
+        return [getattr(v, 'name', '') for v in self.loop_vars]
+
+    @property
+    def variable_defids(self) -> List[Optional[DefId]]:
+        return [getattr(v, 'defid', None) for v in self.loop_vars]
+
     @property
     def variable(self) -> str:
-        """Backward compatibility: return first variable if single, else raise"""
-        if len(self.variables) == 1:
-            return self.variables[0]
+        if len(self.loop_vars) == 1:
+            return getattr(self.loop_vars[0], 'name', '')
         raise AttributeError("ArrayComprehensionIR has multiple variables, use .variables")
-    
+
     @property
     def variable_defid(self) -> Optional[DefId]:
-        """Backward compatibility: return first variable_defid if single, else raise"""
-        if len(self.variables) == 1:
-            return self.variable_defids[0] if self.variable_defids else None
+        if len(self.loop_vars) == 1:
+            return getattr(self.loop_vars[0], 'defid', None)
         raise AttributeError("ArrayComprehensionIR has multiple variables, use .variable_defids")
-    
+
     @property
-    def range_expr(self) -> RangeIR:
-        """Backward compatibility: return first range if single, else raise"""
+    def range_expr(self) -> ExpressionIR:
         if len(self.ranges) == 1:
             return self.ranges[0]
         raise AttributeError("ArrayComprehensionIR has multiple ranges, use .ranges")
-    
+
     @property
     def expr(self) -> ExpressionIR:
-        """Backward compatibility: return body (expr is alias for body)"""
         return self.body
-    
+
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_array_comprehension(self)
 

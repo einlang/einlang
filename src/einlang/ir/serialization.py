@@ -1087,6 +1087,28 @@ class IRDeserializer:
         shape_info = self._opts_shape_info(tail, 1)
         return ArrayLiteralIR(elements=elements, location=loc, type_info=ty, shape_info=shape_info)
 
+    def _deserialize_array_comprehension(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import ArrayComprehensionIR, IdentifierIR
+        _, opts = _plist(tail[1:])
+        loc = self._loc_from_opts(opts)
+        body = self.deserialize(tail[0]) if tail else None
+        if body is None:
+            from ..ir.nodes import LiteralIR
+            body = LiteralIR(value=None, location=loc)
+        vars_raw = opts.get(":vars") or []
+        if isinstance(vars_raw, str):
+            vars_list = [vars_raw]
+        else:
+            vars_list = [str(_sym_val(v)).strip('"') for v in vars_raw] if vars_raw else []
+        ranges_raw = opts.get(":ranges") or []
+        ranges_list = [self.deserialize(r) for r in ranges_raw] if isinstance(ranges_raw, list) else []
+        constraints_raw = opts.get(":constraints") or []
+        constraints_list = [self.deserialize(c) for c in constraints_raw] if isinstance(constraints_raw, list) else []
+        loop_vars = [IdentifierIR(name=v, location=loc, defid=None) for v in vars_list]
+        ty = self._opts_type(tail, 1)
+        shape_info = self._opts_shape_info(tail, 1)
+        return ArrayComprehensionIR(body=body, loop_vars=loop_vars, ranges=ranges_list, location=loc, constraints=constraints_list or None, type_info=ty, shape_info=shape_info)
+
     def _deserialize_range(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LiteralIR, RangeIR
         _, opts = _plist(tail[2:])

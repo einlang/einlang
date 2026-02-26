@@ -1068,34 +1068,27 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         is_nested = isinstance(body_ir, ArrayComprehensionIR)
         
         if is_nested:
-            # True nesting: [[expr | j in 0..3] | i in 0..3]
-            # Create outer comprehension with single variable
-            # The inner comprehension (body_ir) already exists
             if len(variables) != 1:
-                # This shouldn't happen, but handle gracefully
                 self.tcx.reporter.report_error(
                     message="Nested comprehension should have single outer variable",
                     location=location
                 )
                 return None
-            
+            loop_vars = [IdentifierIR(name=variables[0], location=location, defid=variable_defids[0])]
             return ArrayComprehensionIR(
                 body=body_ir,
-                variables=variables[0],  # Single variable for outer
-                ranges=ranges[0],
+                loop_vars=loop_vars,
+                ranges=[ranges[0]],
                 constraints=constraints_ir,
-                variable_defids=variable_defids[0],
                 location=location
             )
         else:
-            # Cartesian product: [expr | i in 0..3, j in 0..3]
-            # Create single comprehension with all variables
+            loop_vars = [IdentifierIR(name=var_name, location=location, defid=did) for var_name, did in zip(variables, variable_defids or [None] * len(variables))]
             return ArrayComprehensionIR(
                 body=body_ir,
-                variables=variables,
+                loop_vars=loop_vars,
                 ranges=ranges,
                 constraints=constraints_ir,
-                variable_defids=variable_defids if variable_defids else None,
                 location=location
             )
     
