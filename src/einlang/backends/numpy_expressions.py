@@ -270,10 +270,15 @@ class ExpressionVisitorMixin:
         return None
 
     def visit_lambda(self, expr) -> Any:
-        if getattr(expr, "defid", None) is None:
-            raise RuntimeError("Lambda has no DefId")
-        self.env.set_value(expr.defid, expr)
-        return FunctionValue(defid=expr.defid, closure_env=self.env)
+        defid = getattr(expr, "defid", None)
+        if defid is None:
+            resolver = getattr(self, "resolver", None)
+            if resolver is not None:
+                defid = resolver.allocate_for_local()
+            else:
+                raise RuntimeError("Lambda has no DefId and backend has no resolver to allocate one")
+        self.env.set_value(defid, expr)
+        return FunctionValue(defid=defid, closure_env=self.env)
 
     def visit_range(self, expr: RangeIR) -> Any:
         start = expr.start.accept(self)

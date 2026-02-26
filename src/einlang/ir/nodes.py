@@ -21,7 +21,7 @@ class IRNode:
     Implementation Alignment: Follows Rust's `rustc_hir::Node` structure:
     - Every node has `Span` (source location) - we use `SourceLocation`
     - Nodes are mutable (can be modified in place by passes)
-    - DefId is NOT on the base; add to subclasses that need it (FunctionDefIR, etc.)
+    - DefId is NOT on the base; add to subclasses that need it (FunctionValueIR, etc.)
 
     Reference: `rustc_hir::Node` has `span: Span` and optional `hir_id`
 
@@ -294,15 +294,13 @@ class IfExpressionIR(ExpressionIR):
 
 
 class LambdaIR(ExpressionIR):
-    """Lambda expression. Rust: closure has DefId (definition)."""
-    __slots__ = ('parameters', 'body', 'defid')
+    """Lambda expression (rvalue). No defid; closure identity is at use/call site."""
+    __slots__ = ('parameters', 'body')
 
     def __init__(self, parameters: List['ParameterIR'], body: ExpressionIR,
-                 location: SourceLocation, defid: Optional[DefId] = None,
+                 location: SourceLocation,
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location, type_info, shape_info)
-        assert_defid(defid)
-        self.defid = defid
         self.parameters = parameters
         self.body = body
 

@@ -927,12 +927,10 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 f"Failed to lower lambda body: expected ExpressionIR, got {type(body_ir).__name__} at {location}"
             )
         
-        defid = getattr(ast_lambda, 'defid', None)
         return LambdaIR(
             parameters=parameters,
             body=body_ir,
-            location=location,
-            defid=defid
+            location=location
         )
     
     def _get_source_location(self, node: ASTExpression) -> SourceLocation:

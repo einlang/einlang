@@ -299,7 +299,6 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
             parameters=expr.parameters,
             body=folded_body,
             location=expr.location,
-            defid=expr.defid,
             type_info=expr.type_info,
             shape_info=expr.shape_info
         )

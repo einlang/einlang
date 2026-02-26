@@ -600,12 +600,10 @@ class IRSerializer:
     # === Lambda/Arrow Expressions ===
     
     def _serialize_LambdaIR(self, node) -> list:
-        """Serialize lambda: (lambda ((param "x" :defid [...])...) body :defid [...])"""
+        """Serialize lambda: (lambda ((param "x" :defid [...])...) body). No defid on lambda."""
         params = [self._serialize_param(p) for p in node.parameters]
         body = self.serialize_to_sexpr(node.body)
         core = [self._sym("lambda"), params, body]
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return self._add_expr_metadata(node, core)
     
     def _serialize_ArrowExpressionIR(self, node) -> list:
@@ -1202,8 +1200,7 @@ class IRDeserializer:
         body = self.deserialize(tail[1]) if len(tail) > 1 else None
         body = body if body is not None else LiteralIR(value=None, location=loc)
         ty = self._opts_type(tail, 2)
-        defid = _parse_defid(opts.get(":defid"))
-        return LambdaIR(parameters=params, body=body, location=loc, defid=defid, type_info=ty)
+        return LambdaIR(parameters=params, body=body, location=loc, type_info=ty)
 
     def _deserialize_arrow(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LiteralIR, ArrowExpressionIR
