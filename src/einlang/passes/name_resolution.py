@@ -2377,7 +2377,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                     alt.accept(self)
 
     def visit_binding_pattern(self, node) -> None:
-        """Resolve binding pattern: name @ inner — allocate DefId for the binding name."""
+        """Resolve binding pattern: name @ inner (AST) or identifier_pattern @ inner_pattern (IR)."""
         from ..shared.scope import Binding, BindingType
         current_scope = self.scope_manager.current_scope()
         if current_scope:
@@ -2390,9 +2390,11 @@ class NameResolverVisitor(ASTVisitor[None]):
                 scope=current_scope
             )
             _define_in_scope(current_scope, node.name, binding, node, self.tcx.reporter)
-            object.__setattr__(node, 'defid', defid)
-        if hasattr(node, 'pattern') and node.pattern:
-            node.pattern.accept(self)
+            target = getattr(node, 'identifier_pattern', node)
+            object.__setattr__(target, 'defid', defid)
+        inner = getattr(node, 'inner_pattern', None) or getattr(node, 'pattern', None)
+        if inner and hasattr(inner, 'accept'):
+            inner.accept(self)
 
     def visit_range_pattern(self, node) -> None:
         pass

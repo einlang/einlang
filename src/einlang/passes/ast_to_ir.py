@@ -1724,7 +1724,8 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         if not isinstance(inner_ir, PatternIR):
             raise RuntimeError(f"Failed to lower binding pattern inner pattern at {location}")
         defid = getattr(node, 'defid', None)
-        return BindingPatternIR(name=node.name, inner_pattern=inner_ir, location=location, defid=defid)
+        ident_pat = IdentifierPatternIR(name=node.name, location=location, defid=defid)
+        return BindingPatternIR(identifier_pattern=ident_pat, inner_pattern=inner_ir, location=location)
     
     def visit_range_pattern(self, node) -> Optional[PatternIR]:
         """Lower range pattern: start..end or start..=end"""

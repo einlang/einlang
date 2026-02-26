@@ -466,7 +466,6 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
             where_clause=folded_where,
             loop_var_ranges=folded_loop_var_ranges if folded_loop_var_ranges else expr.loop_var_ranges,
             location=expr.location,
-            defid=expr.defid,
             type_info=expr.type_info,
             shape_info=expr.shape_info
         )

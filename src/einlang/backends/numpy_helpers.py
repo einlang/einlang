@@ -210,7 +210,7 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
         result = node.inner_pattern.accept(_PatternMatcher(self.value, self.backend))
         if result is None:
             return None
-        did = getattr(node, "defid", None)
+        did = getattr(node.identifier_pattern, "defid", None)
         if did is not None:
             result[did] = self.value
         return result

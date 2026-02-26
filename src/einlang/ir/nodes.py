@@ -526,18 +526,16 @@ class TryExpressionIR(ExpressionIR):
 
 
 class ReductionExpressionIR(ExpressionIR):
-    """Reduction expression: sum[i](A[i]). Loop vars are IdentifierIRs (each has .name and .defid)."""
-    __slots__ = ('operation', 'loop_vars', 'body', 'where_clause', 'loop_var_ranges', 'defid')
+    """Reduction expression: sum[i](A[i]). Loop vars are IdentifierIRs (each has .name and .defid). No defid; identity comes from binding when reduction is RHS."""
+    __slots__ = ('operation', 'loop_vars', 'body', 'where_clause', 'loop_var_ranges')
 
     def __init__(self, operation: str, loop_vars: Optional[List['IdentifierIR']], body: ExpressionIR,
                  location: SourceLocation, where_clause: Optional['WhereClauseIR'] = None,
                  loop_var_ranges: Optional[Dict[DefId, 'RangeIR']] = None,
-                 defid: Optional[DefId] = None, type_info: Optional[Any] = None,
+                 type_info: Optional[Any] = None,
                  shape_info: Optional[Any] = None):
         super().__init__(location, type_info, shape_info)
-        assert_defid(defid)
-        self.defid = defid
-        self.operation = operation  # "sum", "product", "min", "max"
+        self.operation = operation
         self.body = body
         self.where_clause = where_clause
         self.loop_var_ranges = loop_var_ranges if loop_var_ranges is not None else {}  # DefId -> RangeIR
@@ -736,22 +734,19 @@ class ModuleIR(IRNode):
 # Pattern IR Nodes (for Match expressions)
 
 class PatternIR(IRNode):
-    """Base class for pattern IR nodes. defid for pattern bindings."""
-    __slots__ = ('defid',)
+    """Base class for pattern IR nodes. Only IdentifierPatternIR has defid (for bindings)."""
+    __slots__ = ()
 
-    def __init__(self, location: SourceLocation, defid: Optional[DefId] = None):
+    def __init__(self, location: SourceLocation):
         super().__init__(location)
-        assert_defid(defid)
-        self.defid = defid
 
 
 class LiteralPatternIR(PatternIR):
     """Literal pattern: 42"""
     __slots__ = ('value',)
-    
-    def __init__(self, value: Union[int, float, bool, str], location: SourceLocation,
-                 defid: Optional[DefId] = None):
-        super().__init__(location, defid)
+
+    def __init__(self, value: Union[int, float, bool, str], location: SourceLocation):
+        super().__init__(location)
         self.value = value
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
@@ -759,12 +754,14 @@ class LiteralPatternIR(PatternIR):
 
 
 class IdentifierPatternIR(PatternIR):
-    """Identifier pattern: x (binds value to variable)"""
-    __slots__ = ('name',)
-    
+    """Identifier pattern: x (binds value to variable). Only pattern type with defid."""
+    __slots__ = ('name', 'defid')
+
     def __init__(self, name: str, location: SourceLocation, defid: Optional[DefId] = None):
-        super().__init__(location, defid)
+        super().__init__(location)
         self.name = name
+        assert_defid(defid)
+        self.defid = defid
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_identifier_pattern(self)
@@ -773,9 +770,9 @@ class IdentifierPatternIR(PatternIR):
 class WildcardPatternIR(PatternIR):
     """Wildcard pattern: _ (matches anything, no binding)"""
     __slots__ = ()
-    
-    def __init__(self, location: SourceLocation, defid: Optional[DefId] = None):
-        super().__init__(location, defid)
+
+    def __init__(self, location: SourceLocation):
+        super().__init__(location)
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_wildcard_pattern(self)
@@ -784,10 +781,9 @@ class WildcardPatternIR(PatternIR):
 class TuplePatternIR(PatternIR):
     """Tuple pattern: (a, b, c)"""
     __slots__ = ('patterns',)
-    
-    def __init__(self, patterns: List[PatternIR], location: SourceLocation,
-                 defid: Optional[DefId] = None):
-        super().__init__(location, defid)
+
+    def __init__(self, patterns: List[PatternIR], location: SourceLocation):
+        super().__init__(location)
         self.patterns = patterns
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
@@ -797,10 +793,9 @@ class TuplePatternIR(PatternIR):
 class ArrayPatternIR(PatternIR):
     """Array pattern: [a, b, ..rest]"""
     __slots__ = ('patterns',)
-    
-    def __init__(self, patterns: List[PatternIR], location: SourceLocation,
-                 defid: Optional[DefId] = None):
-        super().__init__(location, defid)
+
+    def __init__(self, patterns: List[PatternIR], location: SourceLocation):
+        super().__init__(location)
         self.patterns = patterns
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
@@ -810,10 +805,9 @@ class ArrayPatternIR(PatternIR):
 class RestPatternIR(PatternIR):
     """Rest pattern: ..rest"""
     __slots__ = ('pattern',)
-    
-    def __init__(self, pattern: IdentifierPatternIR, location: SourceLocation,
-                 defid: Optional[DefId] = None):
-        super().__init__(location, defid)
+
+    def __init__(self, pattern: IdentifierPatternIR, location: SourceLocation):
+        super().__init__(location)
         self.pattern = pattern
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
@@ -823,10 +817,9 @@ class RestPatternIR(PatternIR):
 class GuardPatternIR(PatternIR):
     """Guard pattern: x where x > 0"""
     __slots__ = ('inner_pattern', 'guard_expr')
-    
-    def __init__(self, inner_pattern: PatternIR, guard_expr: ExpressionIR, location: SourceLocation,
-                 defid: Optional[DefId] = None):
-        super().__init__(location, defid)
+
+    def __init__(self, inner_pattern: PatternIR, guard_expr: ExpressionIR, location: SourceLocation):
+        super().__init__(location)
         self.inner_pattern = inner_pattern
         self.guard_expr = guard_expr
     
@@ -837,10 +830,9 @@ class GuardPatternIR(PatternIR):
 class OrPatternIR(PatternIR):
     """Or pattern: pat1 | pat2 | ..."""
     __slots__ = ('alternatives',)
-    
-    def __init__(self, alternatives: List[PatternIR], location: SourceLocation,
-                 defid: Optional[DefId] = None):
-        super().__init__(location, defid)
+
+    def __init__(self, alternatives: List[PatternIR], location: SourceLocation):
+        super().__init__(location)
         self.alternatives = alternatives
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
@@ -850,11 +842,10 @@ class OrPatternIR(PatternIR):
 class ConstructorPatternIR(PatternIR):
     """Constructor pattern: Some(x), Circle(r)"""
     __slots__ = ('constructor_name', 'patterns', 'is_struct_literal')
-    
+
     def __init__(self, constructor_name: str, patterns: List[PatternIR],
-                 is_struct_literal: bool = False, location: SourceLocation = None,
-                 defid: Optional[DefId] = None):
-        super().__init__(location or SourceLocation("", 0, 0), defid)
+                 is_struct_literal: bool = False, location: SourceLocation = None):
+        super().__init__(location or SourceLocation("", 0, 0))
         self.constructor_name = constructor_name
         self.patterns = patterns
         self.is_struct_literal = is_struct_literal
@@ -864,15 +855,18 @@ class ConstructorPatternIR(PatternIR):
 
 
 class BindingPatternIR(PatternIR):
-    """Binding pattern: name @ inner_pattern"""
-    __slots__ = ('name', 'inner_pattern')
-    
-    def __init__(self, name: str, inner_pattern: PatternIR, location: SourceLocation,
-                 defid: Optional[DefId] = None):
-        super().__init__(location, defid)
-        self.name = name
+    """Binding pattern: identifier_pattern @ inner_pattern (name binding + sub-pattern)."""
+    __slots__ = ('identifier_pattern', 'inner_pattern')
+
+    def __init__(self, identifier_pattern: 'IdentifierPatternIR', inner_pattern: PatternIR, location: SourceLocation):
+        super().__init__(location)
+        self.identifier_pattern = identifier_pattern
         self.inner_pattern = inner_pattern
-    
+
+    @property
+    def name(self) -> str:
+        return self.identifier_pattern.name
+
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_binding_pattern(self)
 
@@ -880,10 +874,10 @@ class BindingPatternIR(PatternIR):
 class RangePatternIR(PatternIR):
     """Range pattern: start..end (exclusive) or start..=end (inclusive)"""
     __slots__ = ('start', 'end', 'inclusive')
-    
+
     def __init__(self, start: Union[int, float], end: Union[int, float], inclusive: bool,
-                 location: SourceLocation, defid: Optional[DefId] = None):
-        super().__init__(location, defid)
+                 location: SourceLocation):
+        super().__init__(location)
         self.start = start
         self.end = end
         self.inclusive = inclusive

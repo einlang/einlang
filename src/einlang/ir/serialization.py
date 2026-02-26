@@ -752,8 +752,9 @@ class IRSerializer:
         if self.include_location and getattr(node, 'location', None):
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
+        defid = getattr(node.identifier_pattern, 'defid', None)
+        if defid is not None:
+            core.extend([self._sym(":defid"), self._brackets([defid.krate, defid.index])])
         return core
 
     def _serialize_RangePatternIR(self, node) -> list:
@@ -1246,8 +1247,7 @@ class IRDeserializer:
         if sexpdata and isinstance(val, sexpdata.Symbol):
             v = val.value()
             val = True if v == "true" else False if v == "false" else v
-        defid = _parse_defid(opts.get(":defid"))
-        return LiteralPatternIR(value=val, location=loc, defid=defid)
+        return LiteralPatternIR(value=val, location=loc)
 
     def _deserialize_identifier_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import IdentifierPatternIR
@@ -1264,8 +1264,7 @@ class IRDeserializer:
         from ..ir.nodes import WildcardPatternIR
         _, opts = _plist(tail)
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
-        return WildcardPatternIR(location=loc, defid=defid)
+        return WildcardPatternIR(location=loc)
 
     def _deserialize_tuple_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import TuplePatternIR
@@ -1273,8 +1272,7 @@ class IRDeserializer:
         _, opts = _plist(tail[1:])
         loc = self._loc_from_opts(opts)
         patterns = [self.deserialize(p) for p in patterns_sexpr]
-        defid = _parse_defid(opts.get(":defid"))
-        return TuplePatternIR(patterns=patterns, location=loc, defid=defid)
+        return TuplePatternIR(patterns=patterns, location=loc)
 
     def _deserialize_array_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import ArrayPatternIR
@@ -1282,16 +1280,14 @@ class IRDeserializer:
         _, opts = _plist(tail[1:])
         loc = self._loc_from_opts(opts)
         patterns = [self.deserialize(p) for p in patterns_sexpr]
-        defid = _parse_defid(opts.get(":defid"))
-        return ArrayPatternIR(patterns=patterns, location=loc, defid=defid)
+        return ArrayPatternIR(patterns=patterns, location=loc)
 
     def _deserialize_rest_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import RestPatternIR
         inner = self.deserialize(tail[0]) if tail else None
         _, opts = _plist(tail[1:])
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
-        return RestPatternIR(pattern=inner, location=loc, defid=defid)
+        return RestPatternIR(pattern=inner, location=loc)
 
     def _deserialize_guard_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import GuardPatternIR
@@ -1299,8 +1295,7 @@ class IRDeserializer:
         guard = self.deserialize(tail[1]) if len(tail) > 1 else None
         _, opts = _plist(tail[2:])
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
-        return GuardPatternIR(inner_pattern=inner, guard_expr=guard, location=loc, defid=defid)
+        return GuardPatternIR(inner_pattern=inner, guard_expr=guard, location=loc)
 
     def _deserialize_or_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import OrPatternIR
@@ -1308,8 +1303,7 @@ class IRDeserializer:
         alts = [self.deserialize(a) for a in alts_raw]
         _, opts = _plist(tail[1:])
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
-        return OrPatternIR(alternatives=alts, location=loc, defid=defid)
+        return OrPatternIR(alternatives=alts, location=loc)
 
     def _deserialize_constructor_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import ConstructorPatternIR
@@ -1318,19 +1312,19 @@ class IRDeserializer:
         patterns = [self.deserialize(p) for p in patterns_raw]
         _, opts = _plist(tail[2:])
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
         is_struct = _sym_val(opts.get(":struct", "")) == "true" if ":struct" in opts else False
         return ConstructorPatternIR(constructor_name=name, patterns=patterns,
-                                    is_struct_literal=is_struct, location=loc, defid=defid)
+                                    is_struct_literal=is_struct, location=loc)
 
     def _deserialize_binding_pattern(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import BindingPatternIR
+        from ..ir.nodes import BindingPatternIR, IdentifierPatternIR
         name = str(tail[0]).strip('"') if tail else ""
         inner = self.deserialize(tail[1]) if len(tail) > 1 else None
         _, opts = _plist(tail[2:])
         loc = self._loc_from_opts(opts)
         defid = _parse_defid(opts.get(":defid"))
-        return BindingPatternIR(name=name, inner_pattern=inner, location=loc, defid=defid)
+        ident_pat = IdentifierPatternIR(name=name, location=loc, defid=defid)
+        return BindingPatternIR(identifier_pattern=ident_pat, inner_pattern=inner, location=loc)
 
     def _deserialize_range_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import RangePatternIR
@@ -1339,8 +1333,7 @@ class IRDeserializer:
         inclusive = _sym_val(tail[2]) == "inclusive" if len(tail) > 2 else True
         _, opts = _plist(tail[3:])
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
-        return RangePatternIR(start=start, end=end, inclusive=inclusive, location=loc, defid=defid)
+        return RangePatternIR(start=start, end=end, inclusive=inclusive, location=loc)
 
     def _deserialize_let_binding(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import VariableDeclarationIR

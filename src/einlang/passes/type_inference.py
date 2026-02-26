@@ -1525,7 +1525,7 @@ class TypeInferencer(IRVisitor[Type]):
             for alt in pattern.alternatives:
                 self._bind_pattern_vars(alt, scrutinee_type)
         elif isinstance(pattern, BindingPatternIR):
-            did = getattr(pattern, 'defid', None)
+            did = getattr(pattern.identifier_pattern, 'defid', None)
             if did is not None:
                 self._set_var(did, scrutinee_type)
             self._bind_pattern_vars(pattern.inner_pattern, scrutinee_type)
