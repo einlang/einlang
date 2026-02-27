@@ -18,4 +18,6 @@ DefId is the canonical identity for definitions (variables, functions, parameter
 
 No defid on: LiteralIR, BinaryOpIR, BlockExpressionIR, LambdaIR, RangeIR, ReductionExpressionIR, WhereExpressionIR, ArrowExpressionIR, PipelineExpressionIR, EinsteinClauseIR, EinsteinIR (value), MatchExpressionIR, TuplePatternIR, LiteralPatternIR, WildcardPatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR, OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR, etc. — these are pure expressions or structural nodes; reduction identity comes from the binding when the reduction is the RHS; loop vars use IndexVarIR/IdentifierIR.defid.
 
+**Function references:** First-class function values (e.g. `let f = mean`) are represented as **IdentifierIR** (name + defid); there is no separate FunctionRefIR.
+
 **Module reference in calls:** The *reference* to a module (e.g. in `np.sum(x)`) is currently **FunctionCallIR.module_path** (`Optional[Tuple[str, ...]]`), i.e. a name path like `("np",)` or `("python", "numpy")`, not an IdentifierIR. So: definition = ModuleIR.defid; reference = module_path (tuple). A possible future alignment would be an optional **module_ref: IdentifierIR** on FunctionCallIR (IdentifierIR.defid → ModuleIR when resolved; defid None for Python/external modules).

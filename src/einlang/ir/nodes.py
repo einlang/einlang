@@ -960,7 +960,7 @@ class LoweredIteration:
     """
     Unified lowered representation for all iteration constructs.
     
-    Used by EinsteinDeclarationIR via composition.
+    Used by EinsteinDeclarationIR (or BindingIR + EinsteinIR) via composition.
     
     Provides shared iteration structure:
     - body: The expression being iterated

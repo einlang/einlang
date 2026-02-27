@@ -202,10 +202,9 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         
         Rust Pattern: Visitor pattern for function calls
         """
-        folded_callee = expr.callee_expr.accept(self) if expr.callee_expr else expr.callee_expr
         folded_args = [arg.accept(self) for arg in expr.arguments]
         return FunctionCallIR(
-            callee_expr=folded_callee,
+            callee_expr=expr.callee_expr,
             location=expr.location,
             arguments=folded_args,
             module_path=expr.module_path,

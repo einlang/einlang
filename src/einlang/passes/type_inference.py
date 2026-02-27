@@ -695,6 +695,13 @@ class TypeInferencer(IRVisitor[Type]):
         4. Look up function signature from registry (NOT by visiting definition)
         5. Return function's return type from signature
         """
+        callee_expr = getattr(expr, 'callee_expr', None)
+        if isinstance(callee_expr, IdentifierIR) and getattr(callee_expr, 'type_info', None) is None:
+            object.__setattr__(callee_expr, 'type_info', UNKNOWN)
+        module_path = getattr(expr, 'module_path', None) or ()
+        is_python_module_call = bool(module_path and len(module_path) >= 1 and module_path[0] == "python")
+        if callee_expr is not None and not is_python_module_call:
+            callee_expr.accept(self)
         # Compile-time arity check for lambdas and callees resolvable from program
         expected_params = self._get_callee_param_count(expr)
         if expected_params is not None and len(expr.arguments) != expected_params:

@@ -321,9 +321,10 @@ class RestPatternReplacer(IRVisitor[ExpressionIR]):
         return node
     
     def visit_arrow_expression(self, node) -> ExpressionIR:
-        node.body = node.body.accept(self)
-        return node
-    
+        from ..ir.nodes import ArrowExpressionIR
+        folded = [comp.accept(self) for comp in node.components]
+        return ArrowExpressionIR(components=folded, operator=node.operator, location=node.location, type_info=getattr(node, 'type_info', None), shape_info=getattr(node, 'shape_info', None))
+
     def visit_builtin_call(self, node) -> ExpressionIR:
         node.args = [arg.accept(self) for arg in node.args]
         return node
@@ -1651,11 +1652,9 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         return node
 
     def visit_arrow_expression(self, node) -> Any:
-        if node.left is not None:
-            node.left = node.left.accept(self)
-        if node.right is not None:
-            node.right = node.right.accept(self)
-        return node
+        from ..ir.nodes import ArrowExpressionIR
+        new_components = [c.accept(self) if c is not None else c for c in node.components]
+        return ArrowExpressionIR(components=new_components, operator=node.operator, location=node.location, type_info=getattr(node, 'type_info', None), shape_info=getattr(node, 'shape_info', None))
 
     def visit_cast_expression(self, node) -> Any:
         if node.expr is not None:

@@ -96,6 +96,8 @@ class IRValidationVisitor(IRVisitor[None]):
         self._check_type(node)
         if node.callee_expr is None:
             self._report_error("Function call missing callee_expr.", node.location)
+        else:
+            node.callee_expr.accept(self)
         for arg in node.arguments:
             arg.accept(self)
     
