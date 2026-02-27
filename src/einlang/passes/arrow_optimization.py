@@ -245,11 +245,10 @@ class ArrowOptimizationVisitor(IRVisitor[ExpressionIR]):
                     all_args.extend(comp.arguments)
             
             return FunctionCallIR(
-                function_name=fused_name,
-                function_defid=first_comp.function_defid,  # Use first component's DefId
-                arguments=all_args,
-                module_path=first_comp.module_path,  # Preserve module_path for Python module calls
+                callee_expr=first_comp.callee_expr,
                 location=first_comp.location,
+                arguments=all_args,
+                module_path=first_comp.module_path,
                 type_info=first_comp.type_info,
                 shape_info=first_comp.shape_info
             )

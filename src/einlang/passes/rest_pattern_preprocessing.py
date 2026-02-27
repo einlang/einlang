@@ -1215,9 +1215,8 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
         from ..ir.nodes import FunctionCallIR
         new_arguments = [arg.accept(self) if hasattr(arg, 'accept') else arg for arg in node.arguments]
         new_node = FunctionCallIR(
-            function_name=node.function_name,
+            callee_expr=node.callee_expr,
             location=node.location,
-            function_defid=node.function_defid,
             arguments=new_arguments,
             module_path=node.module_path if hasattr(node, 'module_path') else None
         )

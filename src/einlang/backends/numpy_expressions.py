@@ -183,6 +183,10 @@ class ExpressionVisitorMixin:
             self._raise_here(e, expr)
 
     def _visit_function_call_inner(self, expr: FunctionCallIR) -> Any:
+        module_path = getattr(expr, "module_path", None) or ()
+        if expr.function_defid is None and module_path and len(module_path) > 0 and module_path[0] == "python":
+            args = [arg.accept(self) for arg in expr.arguments]
+            return self._call_python_module(module_path, getattr(expr, "function_name", ""), args)
         callee_expr = getattr(expr, "callee_expr", None)
         if callee_expr is not None:
             callee_value = callee_expr.accept(self)
@@ -202,10 +206,6 @@ class ExpressionVisitorMixin:
                 raise RuntimeError(f"Function (DefId: {effective_defid}) not found")
             return self._call_function(func_def, args)
         if expr.function_defid is None:
-            module_path = getattr(expr, "module_path", None) or ()
-            if module_path and len(module_path) > 0 and module_path[0] == "python":
-                args = [arg.accept(self) for arg in expr.arguments]
-                return self._call_python_module(module_path, getattr(expr, "function_name", ""), args)
             raise RuntimeError("Function call has no DefId")
         args = [arg.accept(self) for arg in expr.arguments]
         callee = self.env.get_value(expr.function_defid)

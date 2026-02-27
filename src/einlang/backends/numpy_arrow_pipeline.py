@@ -27,10 +27,9 @@ class ArrowComponentApplier(IRVisitor[Any]):
 
     def visit_function_call(self, expr: FunctionCallIR) -> Any:
         new_call = FunctionCallIR(
-            function_name=expr.function_name,
-            function_defid=expr.function_defid,
-            arguments=[LiteralIR(value=self.result, location=self.location)] + expr.arguments,
+            callee_expr=expr.callee_expr,
             location=self.location,
+            arguments=[LiteralIR(value=self.result, location=self.location)] + expr.arguments,
         )
         return new_call.accept(self.backend)
 
@@ -131,10 +130,9 @@ class PipelineApplier(IRVisitor[Any]):
 
     def visit_function_call(self, expr: FunctionCallIR) -> Any:
         new_call = FunctionCallIR(
-            function_name=expr.function_name,
-            function_defid=expr.function_defid,
-            arguments=[LiteralIR(value=self.left_value, location=self.location)] + expr.arguments,
+            callee_expr=expr.callee_expr,
             location=self.location,
+            arguments=[LiteralIR(value=self.left_value, location=self.location)] + expr.arguments,
         )
         return new_call.accept(self.backend)
 

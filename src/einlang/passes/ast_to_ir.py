@@ -633,9 +633,8 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             if not isinstance(callee_ir, ExpressionIR):
                 return None
             return FunctionCallIR(
-                function_name="<callable>",
-                location=location,
                 callee_expr=callee_ir,
+                location=location,
                 arguments=arguments,
             )
 
@@ -821,21 +820,19 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             )
         
         # Regular function call (module_path already extracted at the beginning)
-        
         # CRITICAL FIX: For python:: paths, function_defid MUST be None
-        # Otherwise, the backend will look up by DefId and find the wrong function (causing recursion)
         if module_path and len(module_path) > 0 and module_path[0] == 'python':
-            function_defid = None  # Force None for Python module calls
+            function_defid = None
 
         if function_defid is not None:
             function_defid = getattr(self, '_resolver_defid_to_lowered', {}).get(function_defid, function_defid)
 
+        callee_expr = IdentifierIR(name=function_name, location=location, defid=function_defid)
         return FunctionCallIR(
-            function_name=function_name,
-            function_defid=function_defid,
+            callee_expr=callee_expr,
+            location=location,
             arguments=arguments,
             module_path=module_path,
-            location=location
         )
     
     def visit_block_expression(self, ast_block: ASTBlock) -> Optional[BlockExpressionIR]:
@@ -1242,11 +1239,11 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 arguments.append(arg_ir)
         # Get method name from method_expr if it's an identifier
         method_name = getattr(method_ir, 'name', 'method') if isinstance(method_ir, IdentifierIR) else 'method'
+        callee_expr = IdentifierIR(name=method_name, location=location, defid=None)
         return FunctionCallIR(
-            function_name=method_name,
-            function_defid=None,  # TODO: Resolve method DefId
+            callee_expr=callee_expr,
+            location=location,
             arguments=arguments,
-            location=location
         )
     
     def visit_arrow_expression(self, node: ASTArrowExpression) -> Optional[ExpressionIR]:
@@ -1937,10 +1934,10 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         # For property access, create FunctionCallIR with zero arguments
         # This will be handled by the backend as a property lookup or stdlib function call
         
+        callee_expr = IdentifierIR(name=property_name, location=location, defid=function_defid)
         return FunctionCallIR(
-            function_name=property_name,
-            function_defid=function_defid,  # DefId for stdlib functions, None for Python modules
-            arguments=[],  # Zero arguments for property access
-            module_path=module_path,  # Store module path for Python module property access (None for stdlib)
-            location=location
+            callee_expr=callee_expr,
+            location=location,
+            arguments=[],
+            module_path=module_path,
         )

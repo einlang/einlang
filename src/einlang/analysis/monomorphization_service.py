@@ -90,7 +90,7 @@ class MonomorphizationService:
             if required_passes:
                 self._run_required_passes(existing, required_passes)
             if call is not None and existing and getattr(existing, "defid", None):
-                object.__setattr__(call, "function_defid", existing.defid)
+                call.set_callee_defid(existing.defid)
             return existing
         if generic_defid in self._monomorphizing:
             return None
@@ -104,7 +104,7 @@ class MonomorphizationService:
                     self._pending_partial_specializations[generic_defid] = []
                 self._pending_partial_specializations[generic_defid].append(out)
             if call is not None and out and getattr(out, "defid", None):
-                object.__setattr__(call, "function_defid", out.defid)
+                call.set_callee_defid(out.defid)
             return out
         finally:
             self._monomorphizing.discard(generic_defid)
@@ -732,7 +732,7 @@ class MonomorphizationService:
         if isinstance(node, FunctionCallIR) and getattr(
             node, "function_defid", None
         ) == generic_defid:
-            object.__setattr__(node, "function_defid", specialized_defid)
+            node.set_callee_defid(specialized_defid)
         if isinstance(node, IRNode):
             for attr in getattr(node, "__slots__", ()) or []:
                 if hasattr(node, attr):
@@ -782,7 +782,7 @@ class MonomorphizationService:
             fd = getattr(node, "function_defid", None)
             sid = self.get_specialized_defid_for_call(node, enclosing_function)
             if sid is not None:
-                object.__setattr__(node, "function_defid", sid)
+                node.set_callee_defid(sid)
             else:
                 from ..shared.types import UNKNOWN
                 args_list = getattr(node, "arguments", []) or []
@@ -805,7 +805,7 @@ class MonomorphizationService:
                         node, tuple(arg_types_list), "rewrite", required_passes=["range", "type"]
                     )
                     if spec and getattr(spec, "defid", None):
-                        object.__setattr__(node, "function_defid", spec.defid)
+                        node.set_callee_defid(spec.defid)
             for arg in getattr(node, "arguments", []) or []:
                 self._rewrite_calls_in_node(arg, visited, enclosing_function)
             return

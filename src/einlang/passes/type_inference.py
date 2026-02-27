@@ -782,7 +782,7 @@ class TypeInferencer(IRVisitor[Type]):
                 specialized_func = None
             if specialized_func and specialized_func.defid:
                 assert_defid(specialized_func.defid, allow_none=False)
-                expr.function_defid = specialized_func.defid
+                expr.set_callee_defid(specialized_func.defid)
                 logger.debug(f"Updated call {expr.function_name} to use specialized DefId {specialized_func.defid}")
                 # Get return type from specialized function signature
                 if hasattr(specialized_func, 'return_type') and specialized_func.return_type:
@@ -802,20 +802,20 @@ class TypeInferencer(IRVisitor[Type]):
             if spec_defid is None and self.mono_service._is_generic_function(generic_defid):
                 if expr.function_defid != generic_defid:
                     assert_defid(generic_defid, allow_none=False)
-                    expr.function_defid = generic_defid
+                    expr.set_callee_defid(generic_defid)
                 specialized_func = self.mono_service.incremental_monomorphize(
                     expr, arg_types, "type_inference", required_passes=['range', 'type']
                 )
                 if specialized_func and getattr(specialized_func, 'defid', None):
                     spec_defid = specialized_func.defid
                     assert_defid(spec_defid, allow_none=False)
-                    expr.function_defid = spec_defid
+                    expr.set_callee_defid(spec_defid)
             if spec_defid is not None:
                 assert_defid(spec_defid, allow_none=False)
                 spec_sig = self._get_function(spec_defid)
                 if spec_sig is not None:
                     signature = spec_sig
-                    expr.function_defid = spec_defid
+                    expr.set_callee_defid(spec_defid)
 
         if signature is None:
             module_path = getattr(expr, "module_path", None) or ()

@@ -309,22 +309,35 @@ class LambdaIR(ExpressionIR):
 
 
 class FunctionCallIR(ExpressionIR):
-    """Function call. Uses function_defid for callee (DefId reference). Expression has no DefId."""
-    __slots__ = ('function_name', 'function_defid', 'arguments', 'module_path', 'callee_expr')
+    """Function call. Callee is an expression (IdentifierIR for name-based calls, LambdaIR for callables)."""
+    __slots__ = ('callee_expr', 'arguments', 'module_path')
 
-    def __init__(self, function_name: str, location: SourceLocation,
-                 function_defid: Optional[DefId] = None,
+    def __init__(self, callee_expr: ExpressionIR, location: SourceLocation,
                  arguments: Optional[List[ExpressionIR]] = None,
                  module_path: Optional[Tuple[str, ...]] = None,
-                 callee_expr: Optional[ExpressionIR] = None,
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location, type_info, shape_info)
-        assert_defid(function_defid)
-        self.function_name = function_name
-        self.function_defid = function_defid
+        self.callee_expr = callee_expr
         self.arguments = arguments if arguments is not None else []
-        self.module_path = module_path  # For Python module calls (e.g., ('math',) for math::sqrt)
-        self.callee_expr = callee_expr  # Inline callable, e.g. LambdaIR for (|x| x+1)(5)
+        self.module_path = module_path
+
+    @property
+    def function_name(self) -> str:
+        if isinstance(self.callee_expr, IdentifierIR):
+            return getattr(self.callee_expr, 'name', '') or ''
+        return '<callable>'
+
+    @property
+    def function_defid(self) -> Optional[DefId]:
+        if isinstance(self.callee_expr, IdentifierIR):
+            return getattr(self.callee_expr, 'defid', None)
+        return None
+
+    def set_callee_defid(self, defid: DefId) -> None:
+        if isinstance(self.callee_expr, IdentifierIR):
+            self.callee_expr.defid = defid
+        else:
+            raise TypeError("set_callee_defid requires callee_expr to be IdentifierIR")
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_function_call(self)
@@ -917,7 +930,7 @@ class LoopStructure:
 
 
 class BindingIR(IRNode):
-    """Canonical binding (name = expr). Only LHS (defid/name) is the reference; expr is rvalue."""
+    """Canonical binding (name = expr). Only LHS (defid/name) is the reference; expr is rvalue. IR has only bindings."""
     __slots__ = ('name', 'expr', 'type_info', 'defid')
 
     def __init__(self, name: str, expr: Any, type_info: Optional[Any] = None,

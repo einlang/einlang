@@ -330,18 +330,12 @@ class IRSerializer:
     # === Function Calls ===
     
     def _serialize_FunctionCallIR(self, node) -> list:
-        """Serialize function call: (function-call "name" (args...) :function-defid [...])"""
+        """Serialize function call: (function-call [callee callee_sexpr] (args...) :module_path ...)."""
         args = [self.serialize_to_sexpr(arg) for arg in node.arguments]
-        core = [self._sym("function-call"), node.function_name, args]
-        if getattr(node, 'callee_expr', None) is not None:
-            callee = self.serialize_to_sexpr(node.callee_expr)
-            core = [self._sym("function-call"), [self._sym("callee"), callee], args]
-        if getattr(node, 'function_defid', None) is not None:
-            core.extend([self._sym(":function-defid"), self._brackets([node.function_defid.krate, node.function_defid.index])])
+        callee = self.serialize_to_sexpr(node.callee_expr)
+        core = [self._sym("function-call"), [self._sym("callee"), callee], args]
         if getattr(node, 'module_path', None):
             core.extend([self._sym(":module_path"), list(node.module_path)])
-        if hasattr(node, 'defid') and node.defid:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return self._add_expr_metadata(node, core)
     
     def _serialize_BuiltinCallIR(self, node) -> list:
@@ -1042,15 +1036,15 @@ class IRDeserializer:
         return IfExpressionIR(condition=cond, then_expr=then_e, else_expr=else_e, location=loc, type_info=ty)
 
     def _deserialize_function_call(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import FunctionCallIR
+        from ..ir.nodes import FunctionCallIR, IdentifierIR
         pos, opts = _plist(tail)
         loc = self._loc_from_opts(opts)
-        callee, name, args = None, "", []
+        callee_expr = None
+        name, args = "", []
         if pos:
             first = pos[0]
             if isinstance(first, list) and first and _sym_val(first[0]) == "callee":
-                callee = self.deserialize(first[1]) if len(first) > 1 else None
-                name = '<callable>'
+                callee_expr = self.deserialize(first[1]) if len(first) > 1 else None
                 if len(pos) > 1 and isinstance(pos[1], list):
                     args = [self.deserialize(a) for a in pos[1]]
             else:
@@ -1059,11 +1053,15 @@ class IRDeserializer:
                     name = name.strip('"')
                 if len(pos) > 1 and isinstance(pos[1], list):
                     args = [self.deserialize(a) for a in pos[1]]
-        func_defid = _parse_defid(opts.get(":function-defid"))
+                func_defid = _parse_defid(opts.get(":function-defid"))
+                if callee_expr is None:
+                    callee_expr = IdentifierIR(name=name or "", location=loc, defid=func_defid)
+        if callee_expr is None:
+            callee_expr = IdentifierIR(name="", location=loc, defid=None)
         module_path_raw = opts.get(":module_path")
         module_path = tuple(module_path_raw) if isinstance(module_path_raw, list) else None
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return FunctionCallIR(function_name=name or "", location=loc, function_defid=func_defid, arguments=args, module_path=module_path, callee_expr=callee, type_info=ty)
+        return FunctionCallIR(callee_expr=callee_expr, location=loc, arguments=args, module_path=module_path, type_info=ty)
 
     def _deserialize_builtin_call(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import BuiltinCallIR

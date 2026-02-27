@@ -202,19 +202,13 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         
         Rust Pattern: Visitor pattern for function calls
         """
-        # Fold arguments (visitor pattern)
-        folded_args = [arg.accept(self) for arg in expr.arguments]  # Visitor pattern
-        
-        # Check if all arguments are literals and function is pure/const
-        # (This would require checking function attributes - simplified here)
-        # For now, return function call with folded arguments
-        # No kind field - visitor pattern handles dispatch
+        folded_callee = expr.callee_expr.accept(self) if expr.callee_expr else expr.callee_expr
+        folded_args = [arg.accept(self) for arg in expr.arguments]
         return FunctionCallIR(
-            function_name=expr.function_name,
-            function_defid=expr.function_defid,
-            arguments=folded_args,
-            module_path=expr.module_path,  # Preserve module_path for Python module calls
+            callee_expr=folded_callee,
             location=expr.location,
+            arguments=folded_args,
+            module_path=expr.module_path,
             type_info=expr.type_info,
             shape_info=expr.shape_info
         )

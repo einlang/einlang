@@ -146,13 +146,7 @@ class PassManager:
                     serializer = IRSerializer(include_type_info=False)
                     ir_sexpr = serializer.serialize(ir)
                     
-                    # Find first Einstein declaration to show
-                    einstein_start = ir_sexpr.find('(einstein-declaration')
-                    if einstein_start >= 0:
-                        einstein_end = min(einstein_start + 1500, len(ir_sexpr))
-                        snippet = ir_sexpr[einstein_start:einstein_end]
-                    else:
-                        snippet = ir_sexpr[:1000] if len(ir_sexpr) > 1000 else ir_sexpr
+                    snippet = ir_sexpr[:1500] if len(ir_sexpr) > 1500 else ir_sexpr
                     
                     print(f"\n{'='*80}")
                     print(f"After {pass_name}:")
