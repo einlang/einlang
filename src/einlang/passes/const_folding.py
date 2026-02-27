@@ -15,7 +15,7 @@ from ..ir.nodes import (
     RectangularAccessIR, JaggedAccessIR, ArrayLiteralIR, TupleExpressionIR,
     TupleAccessIR, InterpolatedStringIR, CastExpressionIR, MemberAccessIR,
     TryExpressionIR, MatchExpressionIR, ReductionExpressionIR, WhereExpressionIR,
-    ArrowExpressionIR, PipelineExpressionIR, BuiltinCallIR, FunctionRefIR,
+    ArrowExpressionIR, PipelineExpressionIR, BuiltinCallIR,
     EinsteinDeclarationIR
 )
 from typing import Optional, Any
@@ -511,10 +511,6 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
             shape_info=expr.shape_info
         )
     
-    def visit_function_ref(self, expr: FunctionRefIR) -> ExpressionIR:
-        """Visit function reference - cannot fold"""
-        return expr
-    
     def visit_einstein_declaration(self, node) -> ExpressionIR:
         """Einstein declarations are not expressions - should not be called"""
         raise NotImplementedError("ConstantFolder only handles expressions, not Einstein declarations")
@@ -741,9 +737,6 @@ class ConstantFoldingVisitor(IRVisitor[None]):
     def visit_builtin_call(self, node) -> None:
         pass
     
-    def visit_function_ref(self, node) -> None:
-        pass
-    
     def visit_literal_pattern(self, node) -> None:
         pass
     
@@ -896,10 +889,6 @@ class LiteralExtractor(IRVisitor[Optional[Any]]):
     
     def visit_builtin_call(self, expr) -> Optional[Any]:
         """Builtin calls are not literals"""
-        return None
-    
-    def visit_function_ref(self, expr) -> Optional[Any]:
-        """Function references are not literals"""
         return None
     
     def visit_einstein_declaration(self, node) -> Optional[Any]:

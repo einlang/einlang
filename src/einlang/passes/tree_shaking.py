@@ -3,7 +3,7 @@ Tree Shaking Pass — removes unreachable functions from ProgramIR.
 
 Walks the IR starting from entry points (top-level statements) and
 transitively collects all reachable function DefIds via FunctionCallIR
-and FunctionRefIR references.  Functions not in the reachable set are
+and identifier (function) references.  Functions not in the reachable set are
 pruned from ProgramIR.functions.
 
 This runs as the LAST pass, after monomorphization and lowering, so
@@ -15,7 +15,7 @@ from typing import Set
 
 from ..ir.nodes import (
     ExpressionIR, ProgramIR, FunctionDefIR,
-    FunctionCallIR, FunctionRefIR, BuiltinCallIR,
+    FunctionCallIR, BuiltinCallIR,
     IdentifierIR, LiteralIR, BinaryOpIR, UnaryOpIR,
     RectangularAccessIR, JaggedAccessIR, MemberAccessIR, TupleAccessIR,
     ArrayLiteralIR, ArrayComprehensionIR,
@@ -44,10 +44,6 @@ def _collect_defid_refs(node, refs: Set[DefId]) -> None:
 
     if isinstance(node, IdentifierIR) and getattr(node, 'defid', None) is not None:
         refs.add(node.defid)
-        return
-
-    if isinstance(node, FunctionRefIR):
-        refs.add(node.function_defid)
         return
 
     if isinstance(node, BuiltinCallIR):
@@ -211,7 +207,7 @@ def tree_shake(ir: ProgramIR) -> ProgramIR:
     """Remove unreachable functions from the program IR.
 
     1. Seed the reachable set from top-level statements.
-    2. Transitively follow FunctionCallIR / FunctionRefIR edges.
+    2. Transitively follow FunctionCallIR / IdentifierIR (callee) edges.
     3. Filter ProgramIR.functions to the reachable set.
     """
     func_by_defid = {}

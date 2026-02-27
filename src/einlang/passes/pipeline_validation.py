@@ -346,9 +346,6 @@ class PipelineTypeValidator(IRVisitor[None]):
         for arg in node.args:
             arg.accept(self)
     
-    def visit_function_ref(self, node) -> None:
-        pass
-    
     def visit_constant_def(self, node) -> None:
         if node.value:
             node.value.accept(self)

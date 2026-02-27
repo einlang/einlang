@@ -11,7 +11,7 @@ from ..ir.nodes import (
     BlockExpressionIR, RangeIR, ArrayComprehensionIR, RectangularAccessIR, JaggedAccessIR,
     ArrayLiteralIR, TupleExpressionIR, TupleAccessIR, InterpolatedStringIR, CastExpressionIR,
     MemberAccessIR, TryExpressionIR, MatchExpressionIR, ReductionExpressionIR, WhereExpressionIR,
-    ArrowExpressionIR, PipelineExpressionIR, BuiltinCallIR, FunctionRefIR,
+    ArrowExpressionIR, PipelineExpressionIR, BuiltinCallIR,
     MatchArmIR, ExpressionIR, LoweredComprehensionIR, LoweredReductionIR,
 )
 from ..runtime.environment import FunctionValue
@@ -571,7 +571,3 @@ class ExpressionVisitorMixin:
         except Exception as e:
             self._raise_here(e, expr)
 
-    def visit_function_ref(self, expr: FunctionRefIR) -> Any:
-        if getattr(expr, "function_defid", None) is None:
-            raise RuntimeError("Function reference has no DefId")
-        return FunctionValue(defid=expr.function_defid, closure_env=self.env)

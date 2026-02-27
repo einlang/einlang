@@ -236,9 +236,6 @@ class ConstraintClassificationVisitor(IRVisitor[None]):
     def visit_builtin_call(self, node) -> None:
         pass
     
-    def visit_function_ref(self, node) -> None:
-        pass
-    
     def visit_einstein_declaration(self, node) -> None:
         pass
     
@@ -376,9 +373,6 @@ class ConstraintTypeClassifier(IRVisitor[ConstraintType]):
     def visit_builtin_call(self, node) -> ConstraintType:
         return ConstraintType.UNKNOWN
     
-    def visit_function_ref(self, node) -> ConstraintType:
-        return ConstraintType.UNKNOWN
-    
     def visit_einstein_declaration(self, node) -> ConstraintType:
         return ConstraintType.UNKNOWN
     
@@ -501,9 +495,6 @@ class IndexVarChecker(IRVisitor[bool]):
         return False
     
     def visit_builtin_call(self, node) -> bool:
-        return False
-    
-    def visit_function_ref(self, node) -> bool:
         return False
     
     def visit_einstein_declaration(self, node) -> bool:
@@ -634,9 +625,6 @@ class BindingExtractor(IRVisitor):
     def visit_builtin_call(self, node) -> Optional[tuple[str, Set[str]]]:
         return None
     
-    def visit_function_ref(self, node) -> Optional[tuple[str, Set[str]]]:
-        return None
-    
     def visit_einstein_declaration(self, node) -> Optional[tuple[str, Set[str]]]:
         return None
     
@@ -763,9 +751,6 @@ class VariableExtractor(IRVisitor):
         return set()
     
     def visit_builtin_call(self, node) -> Set[str]:
-        return set()
-    
-    def visit_function_ref(self, node) -> Set[str]:
         return set()
     
     def visit_einstein_declaration(self, node) -> Set[str]:

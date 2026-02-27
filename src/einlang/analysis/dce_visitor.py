@@ -21,7 +21,7 @@ from ..ir.nodes import (
     TryExpressionIR, MatchExpressionIR,
     ReductionExpressionIR, WhereExpressionIR,
     ArrowExpressionIR, PipelineExpressionIR,
-    BuiltinCallIR, FunctionRefIR, EinsteinDeclarationIR,
+    BuiltinCallIR, EinsteinDeclarationIR,
     VariableDeclarationIR,
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
@@ -184,7 +184,6 @@ class DCEVisitor(ScopedIRVisitor[Any]):
     def visit_arrow_expression(self, node: ArrowExpressionIR): return node
     def visit_pipeline_expression(self, node: PipelineExpressionIR): return node
     def visit_builtin_call(self, node: BuiltinCallIR): return node
-    def visit_function_ref(self, node: FunctionRefIR): return node
     def visit_einstein_declaration(self, node: EinsteinDeclarationIR): return node
     def visit_literal_pattern(self, node: LiteralPatternIR): return node
     def visit_identifier_pattern(self, node: IdentifierPatternIR): return node

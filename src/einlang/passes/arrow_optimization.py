@@ -482,9 +482,6 @@ class ArrowOptimizationVisitor(IRVisitor[ExpressionIR]):
     def visit_interpolated_string(self, node) -> ExpressionIR:
         return node
     
-    def visit_function_ref(self, node) -> ExpressionIR:
-        return node
-    
     def visit_member_access(self, node) -> ExpressionIR:
         return node
     
@@ -647,9 +644,6 @@ class ArrowOptimizationInPlaceVisitor(IRVisitor[None]):
         pass
     
     def visit_builtin_call(self, node) -> None:
-        pass
-    
-    def visit_function_ref(self, node) -> None:
         pass
     
     def visit_literal_pattern(self, node) -> None:

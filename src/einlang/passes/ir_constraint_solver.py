@@ -214,8 +214,6 @@ class IRConstraintSolver(IRVisitor):
         return None
     def visit_function_def(self, node) -> Optional[RangeInfo]:
         return None
-    def visit_function_ref(self, node) -> Optional[RangeInfo]:
-        return None
     def visit_guard_pattern(self, node) -> Optional[RangeInfo]:
         return None
     def visit_identifier_pattern(self, node) -> Optional[RangeInfo]:

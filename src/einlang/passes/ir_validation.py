@@ -37,7 +37,7 @@ from ..ir.nodes import (
     ReductionExpressionIR, IfExpressionIR, MatchExpressionIR, CastExpressionIR,
     TryExpressionIR, LambdaIR, RangeIR, ArrayComprehensionIR, InterpolatedStringIR,
     TupleAccessIR, BuiltinCallIR, BlockExpressionIR, ArrowExpressionIR,
-    PipelineExpressionIR, FunctionRefIR, MemberAccessIR,
+    PipelineExpressionIR, MemberAccessIR,
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
     MatchArmIR, IndexRestIR,
@@ -280,17 +280,6 @@ class IRValidationVisitor(IRVisitor[None]):
         for part in node.parts:
             if hasattr(part, 'accept'):
                 part.accept(self)
-    
-    def visit_function_ref(self, node: FunctionRefIR) -> None:
-        self.nodes_validated += 1
-        self._check_type(node)
-        # Validate function_defid is present
-        if node.function_defid is None:
-            self._report_error(
-                "FunctionRefIR missing function_defid. "
-                "Function references must have DefId for definition table lookup.",
-                node.location
-            )
     
     def visit_member_access(self, node: MemberAccessIR) -> None:
         self.nodes_validated += 1

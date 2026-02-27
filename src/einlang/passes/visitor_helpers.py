@@ -97,9 +97,6 @@ class VariableExtractor(IRVisitor[Set[str]]):
     def visit_builtin_call(self, node) -> Set[str]:
         return set()
     
-    def visit_function_ref(self, node) -> Set[str]:
-        return set()
-    
     def visit_einstein_declaration(self, node) -> Set[str]:
         return set()
     
@@ -217,9 +214,6 @@ class ConstantEvaluator(IRVisitor[Optional[int]]):
         return None
     
     def visit_builtin_call(self, node) -> Optional[int]:
-        return None
-    
-    def visit_function_ref(self, node) -> Optional[int]:
         return None
     
     def visit_einstein_declaration(self, node) -> Optional[int]:
@@ -361,9 +355,6 @@ class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
         return []
     
     def visit_builtin_call(self, node) -> List[RectangularAccessIR]:
-        return []
-    
-    def visit_function_ref(self, node) -> List[RectangularAccessIR]:
         return []
     
     def visit_einstein_declaration(self, node) -> List[RectangularAccessIR]:

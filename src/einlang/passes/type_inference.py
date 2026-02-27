@@ -17,7 +17,7 @@ from ..ir.nodes import (
     ArrayLiteralIR, TupleExpressionIR, ReductionExpressionIR, IfExpressionIR,
     MatchExpressionIR, CastExpressionIR, TryExpressionIR, LambdaIR, RangeIR,
     ArrayComprehensionIR, InterpolatedStringIR, TupleAccessIR, BuiltinCallIR,
-    ArrowExpressionIR, PipelineExpressionIR, FunctionRefIR, MemberAccessIR,
+    ArrowExpressionIR, PipelineExpressionIR, MemberAccessIR,
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR, TuplePatternIR,
     IndexVarIR, IndexRestIR,
     ArrayPatternIR, RestPatternIR, GuardPatternIR, MatchArmIR,
@@ -1627,16 +1627,6 @@ class TypeInferencer(IRVisitor[Type]):
             result = result(arg_types)
         expr.type_info = result
         return result
-    
-    def visit_function_ref(self, expr) -> Type:
-        """Infer type of function reference"""
-        # Function reference returns FunctionType
-        # TODO: Lookup function type from DefId
-        inferred_type = UNKNOWN
-        
-        # Set type_info on IR node
-        expr.type_info = inferred_type
-        return inferred_type
     
     def _collect_identifier_defids_in_expr(self, expr, names: Optional[Set[str]] = None):
         """Collect (defid, name) for all IdentifierIR in expr. If names is set, only include those names."""

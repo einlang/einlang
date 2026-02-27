@@ -332,9 +332,6 @@ class RestPatternReplacer(IRVisitor[ExpressionIR]):
         node.expr = node.expr.accept(self)
         return node
     
-    def visit_function_ref(self, node) -> ExpressionIR:
-        return node
-    
     def visit_interpolated_string(self, node) -> ExpressionIR:
         return node
     
@@ -1113,7 +1110,6 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             def visit_variable_declaration(self, node): pass
             def visit_einstein_declaration(self, node): pass
             def visit_function_def(self, node): pass
-            def visit_function_ref(self, node): pass
             def visit_program(self, node): pass
             def visit_module(self, node): pass
             def visit_identifier_pattern(self, node): pass
@@ -1193,7 +1189,6 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             def visit_program(self, node) -> None: pass
             def visit_pipeline_expression(self, node) -> None: pass
             def visit_builtin_call(self, node) -> None: pass
-            def visit_function_ref(self, node) -> None: pass
             def visit_literal_pattern(self, node) -> None: pass
             def visit_identifier_pattern(self, node) -> None: pass
             def visit_wildcard_pattern(self, node) -> None: pass
@@ -1737,9 +1732,6 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 if arg is None:
                     raise ValueError("IR builtin call argument is None")
                 node.args[i] = arg.accept(self)
-        return node
-
-    def visit_function_ref(self, node) -> Any:
         return node
 
     def visit_literal_pattern(self, node) -> Any:

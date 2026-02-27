@@ -87,8 +87,6 @@ class ArrowComponentApplier(IRVisitor[Any]):
         return _delegate(node, self.backend)
     def visit_builtin_call(self, node: Any) -> Any:
         return _delegate(node, self.backend)
-    def visit_function_ref(self, node: Any) -> Any:
-        return _delegate(node, self.backend)
     def visit_einstein_declaration(self, node: Any) -> Any:
         return _delegate(node, self.backend)
     def visit_variable_declaration(self, node: Any) -> Any:
@@ -189,8 +187,6 @@ class PipelineApplier(IRVisitor[Any]):
     def visit_pipeline_expression(self, node: Any) -> Any:
         return _delegate(node, self.backend)
     def visit_builtin_call(self, node: Any) -> Any:
-        return _delegate(node, self.backend)
-    def visit_function_ref(self, node: Any) -> Any:
         return _delegate(node, self.backend)
     def visit_einstein_declaration(self, node: Any) -> Any:
         return _delegate(node, self.backend)

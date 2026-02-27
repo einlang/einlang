@@ -20,7 +20,7 @@ from ..ir.nodes import (
     ArrayLiteralIR, TupleExpressionIR, TupleAccessIR, InterpolatedStringIR,
     CastExpressionIR, MemberAccessIR, TryExpressionIR, MatchExpressionIR,
     ReductionExpressionIR, WhereExpressionIR, ArrowExpressionIR,
-    PipelineExpressionIR, BuiltinCallIR, FunctionRefIR,
+    PipelineExpressionIR, BuiltinCallIR,
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
     OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR,

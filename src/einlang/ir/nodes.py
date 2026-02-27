@@ -600,26 +600,6 @@ class BuiltinCallIR(ExpressionIR):
         return visitor.visit_builtin_call(self)
 
 
-class FunctionRefIR(ExpressionIR):
-    """Function reference (first-class functions). Rust: references function DefId."""
-    __slots__ = ('function_defid',)
-
-    def __init__(self, function_defid: DefId, location: SourceLocation,
-                 type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
-        super().__init__(location, type_info, shape_info)
-        assert_defid(function_defid, allow_none=False)
-        self.function_defid = function_defid
-
-    @property
-    def defid(self) -> DefId:
-        """Backend uses expr.defid for def_table; same as function_defid."""
-        return self.function_defid
-    
-    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
-        return visitor.visit_function_ref(self)
-
-
-
 class ParameterIR(IRNode):
     """Function parameter. Variable identity is DefId."""
     __slots__ = ('name', 'param_type', 'defid')
@@ -1469,11 +1449,6 @@ class IRVisitor(ABC, Generic[T]):
     @abstractmethod
     def visit_builtin_call(self, node: BuiltinCallIR) -> T:
         """Visit builtin call"""
-        raise NotImplementedError
-    
-    @abstractmethod
-    def visit_function_ref(self, node: FunctionRefIR) -> T:
-        """Visit function reference"""
         raise NotImplementedError
     
     # Pattern visitors

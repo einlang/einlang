@@ -294,9 +294,6 @@ class ExhaustivenessVisitor(IRVisitor[None]):
     def visit_builtin_call(self, node) -> None:
         pass
     
-    def visit_function_ref(self, node) -> None:
-        pass
-    
     def visit_einstein_declaration(self, node) -> None:
         pass
     

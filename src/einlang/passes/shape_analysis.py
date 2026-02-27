@@ -927,9 +927,6 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
     def visit_builtin_call(self, node) -> None:
         pass
     
-    def visit_function_ref(self, node) -> None:
-        pass
-    
     def visit_literal_pattern(self, node) -> None:
         pass
     

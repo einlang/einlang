@@ -785,9 +785,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_function_def(self, node) -> bool:
                 return False
 
-            def visit_function_ref(self, node) -> bool:
-                return False
-
             def visit_constant_def(self, node) -> bool:
                 return False
 
@@ -1126,9 +1123,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_function_def(self, node) -> bool:
                 return False
             
-            def visit_function_ref(self, node) -> bool:
-                return False
-            
             def visit_guard_pattern(self, node) -> bool:
                 return False
             
@@ -1315,9 +1309,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
         pass
     
     def visit_function_def(self, node) -> None:
-        pass
-    
-    def visit_function_ref(self, node) -> None:
         pass
     
     def visit_guard_pattern(self, node) -> None:
@@ -1623,9 +1614,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
                 def visit_builtin_call(self, node) -> Optional[int]:
                     return self.max_val
 
-                def visit_function_ref(self, node) -> Optional[int]:
-                    return self.max_val
-
                 def visit_module(self, node) -> Optional[int]:
                     return self.max_val
 
@@ -1713,7 +1701,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
             'visit_where_expression', 'visit_function_call', 'visit_if_expression',
             'visit_array_literal', 'visit_array_comprehension', 'visit_block_expression',
             'visit_arrow_expression', 'visit_pipeline_expression', 'visit_builtin_call',
-            'visit_function_def', 'visit_function_ref', 'visit_constant_def',
+            'visit_function_def', 'visit_constant_def',
             'visit_einstein_declaration', 'visit_module', 'visit_program',
             'visit_match_expression', 'visit_try_expression', 'visit_interpolated_string',
             'visit_tuple_expression', 'visit_tuple_access', 'visit_jagged_access',
@@ -1799,8 +1787,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
                     for arg in node.arguments:
                         arg.accept(self)
             def visit_function_def(self, node) -> None:
-                pass
-            def visit_function_ref(self, node) -> None:
                 pass
             def visit_guard_pattern(self, node) -> None:
                 pass
@@ -2716,10 +2702,6 @@ class _ComplexityCounter(IRVisitor[int]):
         return self.count
     
     def visit_function_def(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_function_ref(self, node) -> int:
         self.count += 1
         return self.count
     

@@ -468,9 +468,6 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                 if hasattr(arg, 'accept'):
                     arg.accept(self)
 
-    def visit_function_ref(self, node) -> None:
-        pass
-    
     def visit_einstein_declaration(self, node) -> None:
         """Analyze ranges for Einstein declaration variables. Process every clause."""
         clauses = getattr(node, 'clauses', None) or []
@@ -911,9 +908,6 @@ class VariableInvolvementChecker(IRVisitor[bool]):
     def visit_builtin_call(self, node) -> bool:
         return False
     
-    def visit_function_ref(self, node) -> bool:
-        return False
-    
     def visit_literal_pattern(self, node) -> bool:
         return False
     
@@ -996,9 +990,6 @@ class VariableInvolvementChecker(IRVisitor[bool]):
         return False
     
     def visit_builtin_call(self, node) -> bool:
-        return False
-    
-    def visit_function_ref(self, node) -> bool:
         return False
     
     def visit_einstein_declaration(self, node) -> bool:
