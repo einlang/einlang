@@ -94,14 +94,8 @@ class IRValidationVisitor(IRVisitor[None]):
     def visit_function_call(self, node: FunctionCallIR) -> None:
         self.nodes_validated += 1
         self._check_type(node)
-        # Validate function_defid is present (needed for function lookup)
-        # Exception: Python module calls (e.g., math::sqrt, np::array) may not have DefId
-        # because Python modules are resolved at runtime, not compile time
-        # These will be handled by the backend's Python interop system
-        if node.function_defid is None:
-            # Allow None function_defid for Python module calls (handled at runtime)
-            # TODO: Add a flag to FunctionCallIR to mark Python module calls explicitly
-            pass  # Backend will handle Python module calls at runtime
+        if node.callee_expr is None:
+            self._report_error("Function call missing callee_expr.", node.location)
         for arg in node.arguments:
             arg.accept(self)
     
@@ -255,6 +249,9 @@ class IRValidationVisitor(IRVisitor[None]):
         self.nodes_validated += 1
         self._check_type(node)
         node.body.accept(self)
+        for v in node.loop_vars:
+            if hasattr(v, 'accept'):
+                v.accept(self)
         for range_expr in node.ranges:
             range_expr.accept(self)
         for constraint in node.constraints:

@@ -37,11 +37,13 @@ def _collect_defid_refs(node, refs: Set[DefId]) -> None:
         return
 
     if isinstance(node, FunctionCallIR):
-        if node.function_defid is not None:
-            refs.add(node.function_defid)
         for arg in node.arguments:
             _collect_defid_refs(arg, refs)
         _collect_defid_refs(getattr(node, 'callee_expr', None), refs)
+        return
+
+    if isinstance(node, IdentifierIR) and getattr(node, 'defid', None) is not None:
+        refs.add(node.defid)
         return
 
     if isinstance(node, FunctionRefIR):
@@ -108,7 +110,12 @@ def _collect_defid_refs(node, refs: Set[DefId]) -> None:
 
     if isinstance(node, ArrayComprehensionIR):
         _collect_defid_refs(getattr(node, 'body', None), refs)
-        _collect_defid_refs(getattr(node, 'iterable', None), refs)
+        for r in getattr(node, 'ranges', None) or []:
+            _collect_defid_refs(r, refs)
+        for v in getattr(node, 'loop_vars', None) or []:
+            _collect_defid_refs(v, refs)
+        for c in getattr(node, 'constraints', None) or []:
+            _collect_defid_refs(c, refs)
         return
 
     if isinstance(node, TupleExpressionIR):
