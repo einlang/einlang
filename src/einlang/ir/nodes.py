@@ -503,7 +503,7 @@ class TryExpressionIR(ExpressionIR):
 
 
 class ReductionExpressionIR(ExpressionIR):
-    """Reduction expression: sum[i](A[i]). Loop vars are IndexVarIR or IdentifierIR (each has .name and .defid). No defid on node; identity comes from binding when reduction is RHS."""
+    """Reduction expression: sum[i](A[i]). Loop vars are IndexVarIR or IdentifierIR (each has .name and .defid)."""
     __slots__ = ('operation', 'loop_vars', 'body', 'where_clause', 'loop_var_ranges')
 
     def __init__(self, operation: str, loop_vars: Optional[List[Union['IndexVarIR', 'IdentifierIR']]], body: ExpressionIR,
@@ -520,7 +520,7 @@ class ReductionExpressionIR(ExpressionIR):
 
     @property
     def loop_var_names(self) -> List[str]:
-        return [getattr(ident, 'name', '') for ident in self.loop_vars]
+        return [ident.name for ident in self.loop_vars]
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_reduction_expression(self)
