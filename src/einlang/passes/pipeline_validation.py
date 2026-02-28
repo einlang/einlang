@@ -346,10 +346,6 @@ class PipelineTypeValidator(IRVisitor[None]):
             for constraint in node.where_clause.constraints:
                 constraint.accept(self)
     
-    def visit_arrow_expression(self, node) -> None:
-        for comp in node.components:
-            comp.accept(self)
-    
     def visit_builtin_call(self, node) -> None:
         for arg in node.args:
             arg.accept(self)

@@ -927,9 +927,6 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
     def visit_where_expression(self, node) -> None:
         pass
     
-    def visit_arrow_expression(self, node) -> None:
-        pass
-    
     def visit_pipeline_expression(self, node) -> None:
         pass
     

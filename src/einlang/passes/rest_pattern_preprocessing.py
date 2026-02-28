@@ -809,10 +809,6 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         if node.expr:
             node.expr.accept(self)
     
-    def visit_arrow_expression(self, node) -> None:
-        for comp in node.components:
-            comp.accept(self)
-    
     def visit_pipeline_expression(self, node) -> None:
         if node.left:
             node.left.accept(self)
@@ -999,12 +995,6 @@ class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
         if node.body:
             return node.body.accept(self)
         return []
-    
-    def visit_arrow_expression(self, node) -> List[RectangularAccessIR]:
-        accesses = []
-        for comp in node.components:
-            accesses.extend(comp.accept(self))
-        return accesses
     
     def visit_pipeline_expression(self, node) -> List[RectangularAccessIR]:
         accesses = []
@@ -1303,9 +1293,6 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
         return node
     
     def visit_where_expression(self, node) -> ExpressionIR:
-        return node
-    
-    def visit_arrow_expression(self, node) -> ExpressionIR:
         return node
     
     def visit_pipeline_expression(self, node) -> ExpressionIR:

@@ -448,9 +448,6 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
     def visit_where_expression(self, node) -> None:
         pass
     
-    def visit_arrow_expression(self, node) -> None:
-        pass
-    
     def visit_pipeline_expression(self, node) -> None:
         pass
     
@@ -870,9 +867,6 @@ class VariableInvolvementChecker(IRVisitor[bool]):
     def visit_where_expression(self, node) -> bool:
         return False
     
-    def visit_arrow_expression(self, node) -> bool:
-        return False
-    
     def visit_pipeline_expression(self, node) -> bool:
         return False
     
@@ -950,9 +944,6 @@ class VariableInvolvementChecker(IRVisitor[bool]):
         return False
     
     def visit_where_expression(self, node) -> bool:
-        return False
-    
-    def visit_arrow_expression(self, node) -> bool:
         return False
     
     def visit_pipeline_expression(self, node) -> bool:

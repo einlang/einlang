@@ -572,20 +572,6 @@ class WhereExpressionIR(ExpressionIR):
         return visitor.visit_where_expression(self)
 
 
-class ArrowExpressionIR(ExpressionIR):
-    """Arrow expression: f >>> g >>> h"""
-    __slots__ = ('components', 'operator')
-    
-    def __init__(self, components: List[ExpressionIR], operator: str, location: SourceLocation,
-                 type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
-        super().__init__(location, type_info, shape_info)
-        self.components = components
-        self.operator = operator  # ">>>", "***", "&&&", "|||"
-    
-    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
-        return visitor.visit_arrow_expression(self)
-
-
 class PipelineExpressionIR(ExpressionIR):
     """Pipeline expression: x |> f |> g"""
     __slots__ = ('left', 'right', 'operator')
@@ -1390,11 +1376,6 @@ class IRVisitor(ABC, Generic[T]):
     @abstractmethod
     def visit_where_expression(self, node: WhereExpressionIR) -> T:
         """Visit where expression"""
-        raise NotImplementedError
-    
-    @abstractmethod
-    def visit_arrow_expression(self, node: ArrowExpressionIR) -> T:
-        """Visit arrow expression"""
         raise NotImplementedError
     
     @abstractmethod

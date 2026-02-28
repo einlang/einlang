@@ -249,7 +249,6 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
     def visit_match_expression(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_reduction_expression(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_where_expression(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
-    def visit_arrow_expression(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_pipeline_expression(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_builtin_call(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_program(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
@@ -320,7 +319,6 @@ class FunctionDefRegistrar(IRVisitor[None]):
     def visit_match_expression(self, n: Any) -> None: pass
     def visit_reduction_expression(self, n: Any) -> None: pass
     def visit_where_expression(self, n: Any) -> None: pass
-    def visit_arrow_expression(self, n: Any) -> None: pass
     def visit_pipeline_expression(self, n: Any) -> None: pass
     def visit_builtin_call(self, n: Any) -> None: pass
     def visit_literal_pattern(self, n: Any) -> None: pass
@@ -386,7 +384,6 @@ class NameToDefIdLookup(IRVisitor[Optional[DefId]]):
     def visit_try_expression(self, n: Any) -> Optional[DefId]: return None
     def visit_match_expression(self, n: Any) -> Optional[DefId]: return None
     def visit_reduction_expression(self, n: Any) -> Optional[DefId]: return None
-    def visit_arrow_expression(self, n: Any) -> Optional[DefId]: return None
     def visit_pipeline_expression(self, n: Any) -> Optional[DefId]: return None
     def visit_builtin_call(self, n: Any) -> Optional[DefId]: return None
     def visit_literal_pattern(self, n: Any) -> Optional[DefId]: return None
@@ -446,7 +443,6 @@ class DefIdToNameLookup(IRVisitor[Optional[str]]):
     def visit_match_expression(self, n: Any) -> Optional[str]: return None
     def visit_reduction_expression(self, n: Any) -> Optional[str]: return None
     def visit_where_expression(self, n: Any) -> Optional[str]: return None
-    def visit_arrow_expression(self, n: Any) -> Optional[str]: return None
     def visit_pipeline_expression(self, n: Any) -> Optional[str]: return None
     def visit_builtin_call(self, n: Any) -> Optional[str]: return None
     def visit_literal_pattern(self, n: Any) -> Optional[str]: return None
@@ -489,7 +485,6 @@ class BindingExtractor(IRVisitor[Optional[Tuple[DefId, ExpressionIR]]]):
     def visit_match_expression(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
     def visit_reduction_expression(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
     def visit_where_expression(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
-    def visit_arrow_expression(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
     def visit_pipeline_expression(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
     def visit_builtin_call(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
     def visit_literal_pattern(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None

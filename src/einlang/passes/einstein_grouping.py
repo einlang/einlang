@@ -339,10 +339,6 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
             if getattr(guard, 'condition', None):
                 guard.condition.accept(self)
     
-    def visit_arrow_expression(self, node) -> None:
-        for comp in node.components:
-            comp.accept(self)
-    
     def visit_pipeline_expression(self, node) -> None:
         if node.left:
             node.left.accept(self)

@@ -17,7 +17,7 @@ from ..ir.nodes import (
     ArrayLiteralIR, TupleExpressionIR, ReductionExpressionIR, IfExpressionIR,
     MatchExpressionIR, CastExpressionIR, TryExpressionIR, LambdaIR, RangeIR,
     ArrayComprehensionIR, InterpolatedStringIR, TupleAccessIR, BuiltinCallIR,
-    ArrowExpressionIR, PipelineExpressionIR, MemberAccessIR,
+    PipelineExpressionIR, MemberAccessIR,
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR, TuplePatternIR,
     IndexVarIR, IndexRestIR,
     ArrayPatternIR, RestPatternIR, GuardPatternIR, MatchArmIR,
@@ -1641,19 +1641,6 @@ class TypeInferencer(IRVisitor[Type]):
         # Visit all constraints
         for constraint in expr.constraints:
             constraint.accept(self)
-        
-        # Set type_info on IR node
-        expr.type_info = inferred_type
-        return inferred_type
-    
-    def visit_arrow_expression(self, expr) -> Type:
-        """Infer type of arrow expression"""
-        # Visit all components
-        for component in expr.components:
-            component.accept(self)
-        # Arrow expression returns function type
-        # For now, return UNKNOWN (complex composition)
-        inferred_type = UNKNOWN
         
         # Set type_info on IR node
         expr.type_info = inferred_type

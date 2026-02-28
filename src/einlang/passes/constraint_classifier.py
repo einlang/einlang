@@ -228,9 +228,6 @@ class ConstraintClassificationVisitor(IRVisitor[None]):
     def visit_match_expression(self, node) -> None:
         pass
     
-    def visit_arrow_expression(self, node) -> None:
-        pass
-    
     def visit_pipeline_expression(self, node) -> None:
         pass
     
@@ -359,9 +356,6 @@ class ConstraintTypeClassifier(IRVisitor[ConstraintType]):
     def visit_where_expression(self, node) -> ConstraintType:
         return ConstraintType.UNKNOWN
     
-    def visit_arrow_expression(self, node) -> ConstraintType:
-        return ConstraintType.UNKNOWN
-    
     def visit_pipeline_expression(self, node) -> ConstraintType:
         return ConstraintType.UNKNOWN
     
@@ -475,9 +469,6 @@ class IndexVarChecker(IRVisitor[bool]):
         return False
     
     def visit_where_expression(self, node) -> bool:
-        return False
-    
-    def visit_arrow_expression(self, node) -> bool:
         return False
     
     def visit_pipeline_expression(self, node) -> bool:
@@ -599,9 +590,6 @@ class BindingExtractor(IRVisitor):
     def visit_where_expression(self, node) -> Optional[tuple[str, Set[str]]]:
         return None
     
-    def visit_arrow_expression(self, node) -> Optional[tuple[str, Set[str]]]:
-        return None
-    
     def visit_pipeline_expression(self, node) -> Optional[tuple[str, Set[str]]]:
         return None
     
@@ -719,9 +707,6 @@ class VariableExtractor(IRVisitor):
         return set()
     
     def visit_where_expression(self, node) -> Set[str]:
-        return set()
-    
-    def visit_arrow_expression(self, node) -> Set[str]:
         return set()
     
     def visit_pipeline_expression(self, node) -> Set[str]:

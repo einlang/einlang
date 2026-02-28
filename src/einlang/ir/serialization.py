@@ -29,7 +29,7 @@ _KNOWN_SYMBOLS = frozenset({
     "index", "index-var", "index-rest",
     "array-comprehension", "range", "loop", "binding", "lowered-einstein", "lowered-einstein-clause",
     "lowered-comprehension", "lowered-reduction", "lowered-iteration",
-    "param", "block", "if", "tuple", "tuple-access", "lambda", "arrow", "reduction",
+    "param", "block", "if", "tuple", "tuple-access", "lambda", "reduction",
     "function-value", "einstein-value", "type", "unknown", "rectangular-type", "jagged-type",
     "tuple-type", "function-type", "callee", "true", "false", "...",
     "i32", "i64", "f32", "f64", "bool", "str", "+", "-", "*", "/", "%", "**",
@@ -588,12 +588,6 @@ class IRSerializer:
             core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return self._add_expr_metadata(node, core)
     
-    def _serialize_ArrowExpressionIR(self, node) -> list:
-        """Serialize arrow expression: (arrow-expression (components...) operator)"""
-        components = [self.serialize_to_sexpr(c) for c in (node.components or [])]
-        core = [self._sym("arrow-expression"), components, node.operator]
-        return self._add_expr_metadata(node, core)
-
     def _serialize_PipelineExpressionIR(self, node) -> list:
         """Serialize pipeline expression: (pipeline-expression left right operator)"""
         left = self.serialize_to_sexpr(node.left)
@@ -1166,32 +1160,6 @@ class IRDeserializer:
         body = body if body is not None else LiteralIR(value=None, location=loc)
         ty = self._opts_type(tail, 2)
         return LambdaIR(parameters=params, body=body, location=loc, type_info=ty)
-
-    def _deserialize_arrow(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import LiteralIR, ArrowExpressionIR
-        _, opts = _plist(tail[2:])
-        loc = self._loc_from_opts(opts)
-        body = self.deserialize(tail[1]) if len(tail) > 1 else None
-        body = body if body is not None else LiteralIR(value=None, location=loc)
-        ty = self._opts_type(tail, 2)
-        return ArrowExpressionIR(components=[body], operator=">>>", location=loc, type_info=ty)
-
-    def _deserialize_arrow_expression(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import ArrowExpressionIR
-        components_sexpr = tail[0] if tail and isinstance(tail[0], list) else []
-        components = [self.deserialize(c) for c in components_sexpr]
-        operator = tail[1] if len(tail) > 1 else ">>>"
-        if hasattr(operator, "value"):
-            operator = operator.value()
-        elif isinstance(operator, list) and operator and hasattr(operator[0], "value"):
-            operator = operator[0].value()
-        else:
-            operator = str(operator) if operator else ">>>"
-        _, opts = _plist(tail[2:])
-        loc = self._loc_from_opts(opts)
-        ty = self._opts_type(tail, 2)
-        shape_info = self._opts_shape_info(tail, 2)
-        return ArrowExpressionIR(components=components, operator=operator, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_pipeline_expression(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import PipelineExpressionIR

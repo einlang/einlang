@@ -37,7 +37,7 @@ from ..ir.nodes import (
     RectangularAccessIR, JaggedAccessIR, ArrayLiteralIR, TupleExpressionIR,
     ReductionExpressionIR, IfExpressionIR, MatchExpressionIR, CastExpressionIR,
     TryExpressionIR, LambdaIR, RangeIR, ArrayComprehensionIR, InterpolatedStringIR,
-    TupleAccessIR, BuiltinCallIR, BlockExpressionIR, ArrowExpressionIR,
+    TupleAccessIR, BuiltinCallIR, BlockExpressionIR,
     PipelineExpressionIR, MemberAccessIR,
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
@@ -259,12 +259,6 @@ class IRValidationVisitor(IRVisitor[None]):
             range_expr.accept(self)
         for constraint in node.constraints:
             constraint.accept(self)
-    
-    def visit_arrow_expression(self, node: ArrowExpressionIR) -> None:
-        self.nodes_validated += 1
-        self._check_type(node)
-        for component in node.components:
-            component.accept(self)
     
     def visit_pipeline_expression(self, node: PipelineExpressionIR) -> None:
         self.nodes_validated += 1

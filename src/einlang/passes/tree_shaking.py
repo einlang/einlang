@@ -20,7 +20,7 @@ from ..ir.nodes import (
     RectangularAccessIR, JaggedAccessIR, MemberAccessIR, TupleAccessIR,
     ArrayLiteralIR, ArrayComprehensionIR,
     BlockExpressionIR, IfExpressionIR, MatchExpressionIR,
-    LambdaIR, ArrowExpressionIR, PipelineExpressionIR,
+    LambdaIR, PipelineExpressionIR,
     CastExpressionIR, InterpolatedStringIR, TupleExpressionIR,
     ReductionExpressionIR, WhereExpressionIR,
     RangeIR, TryExpressionIR,
@@ -133,10 +133,6 @@ def _collect_defid_refs(node, refs: Set[DefId]) -> None:
 
     if isinstance(node, LambdaIR):
         _collect_defid_refs(node.body, refs)
-        return
-
-    if isinstance(node, ArrowExpressionIR):
-        _collect_defid_refs(getattr(node, 'body', None), refs)
         return
 
     if isinstance(node, PipelineExpressionIR):

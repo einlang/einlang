@@ -239,9 +239,6 @@ class CastValidationVisitor(IRVisitor[None]):
         for constraint in node.constraints:
             constraint.accept(self)
     
-    def visit_arrow_expression(self, node) -> None:
-        pass
-    
     def visit_pipeline_expression(self, node) -> None:
         pass
     

@@ -19,7 +19,7 @@ from ..ir.nodes import (
     ModuleIR, IRNode, RectangularAccessIR, JaggedAccessIR,
     ArrayLiteralIR, TupleExpressionIR, TupleAccessIR, InterpolatedStringIR,
     CastExpressionIR, MemberAccessIR, TryExpressionIR, MatchExpressionIR,
-    ReductionExpressionIR, WhereExpressionIR, ArrowExpressionIR,
+    ReductionExpressionIR, WhereExpressionIR,
     PipelineExpressionIR, BuiltinCallIR,
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
@@ -89,7 +89,6 @@ from ..shared.nodes import (
     CastExpression as ASTCastExpression,
     MemberAccess as ASTMemberAccess,
     MethodCall as ASTMethodCall,
-    ArrowExpression as ASTArrowExpression,
     PipelineExpression as ASTPipelineExpression,
     TryExpression as ASTTryExpression,
     MatchExpression as ASTMatchExpression,
@@ -1221,22 +1220,6 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             callee_expr=callee_expr,
             location=location,
             arguments=arguments,
-        )
-    
-    def visit_arrow_expression(self, node: ASTArrowExpression) -> Optional[ExpressionIR]:
-        """Lower arrow expression - visitor pattern"""
-        location = self._get_source_location(node)
-        components = []
-        for component in node.components:
-            comp_ir = component.accept(self)
-            if isinstance(comp_ir, ExpressionIR):
-                components.append(comp_ir)
-        # Get operator from AST
-        operator = node.operator.value if hasattr(node.operator, 'value') else str(node.operator)
-        return ArrowExpressionIR(
-            components=components,
-            operator=operator,
-            location=location
         )
     
     def visit_pipeline_expression(self, node: ASTPipelineExpression) -> Optional[ExpressionIR]:

@@ -195,8 +195,6 @@ class IRConstraintSolver(IRVisitor):
         return None
     def visit_array_pattern(self, node) -> Optional[RangeInfo]:
         return None
-    def visit_arrow_expression(self, node) -> Optional[RangeInfo]:
-        return None
     def visit_block_expression(self, node) -> Optional[RangeInfo]:
         return None
     def visit_builtin_call(self, node) -> Optional[RangeInfo]:

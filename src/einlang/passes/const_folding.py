@@ -15,7 +15,7 @@ from ..ir.nodes import (
     RectangularAccessIR, JaggedAccessIR, ArrayLiteralIR, TupleExpressionIR,
     TupleAccessIR, InterpolatedStringIR, CastExpressionIR, MemberAccessIR,
     TryExpressionIR, MatchExpressionIR, ReductionExpressionIR, WhereExpressionIR,
-    ArrowExpressionIR, PipelineExpressionIR, BuiltinCallIR,
+    PipelineExpressionIR, BuiltinCallIR,
 )
 from typing import Optional, Any
 
@@ -471,17 +471,6 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
             shape_info=expr.shape_info
         )
     
-    def visit_arrow_expression(self, expr: ArrowExpressionIR) -> ExpressionIR:
-        """Visit arrow expression - fold components"""
-        folded_components = [comp.accept(self) for comp in expr.components]
-        return ArrowExpressionIR(
-            components=folded_components,
-            operator=expr.operator,
-            location=expr.location,
-            type_info=expr.type_info,
-            shape_info=expr.shape_info
-        )
-    
     def visit_pipeline_expression(self, expr: PipelineExpressionIR) -> ExpressionIR:
         """Visit pipeline expression - fold left and right"""
         folded_left = expr.left.accept(self)
@@ -688,9 +677,6 @@ class ConstantFoldingVisitor(IRVisitor[None]):
     def visit_where_expression(self, node) -> None:
         pass
     
-    def visit_arrow_expression(self, node) -> None:
-        pass
-    
     def visit_pipeline_expression(self, node) -> None:
         pass
     
@@ -834,10 +820,6 @@ class LiteralExtractor(IRVisitor[Optional[Any]]):
     
     def visit_where_expression(self, expr) -> Optional[Any]:
         """Where expressions are not literals"""
-        return None
-    
-    def visit_arrow_expression(self, expr) -> Optional[Any]:
-        """Arrow expressions are not literals"""
         return None
     
     def visit_pipeline_expression(self, expr) -> Optional[Any]:

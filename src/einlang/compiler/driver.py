@@ -123,8 +123,6 @@ class CompilerDriver:
         self.pass_manager.register_pass(IRValidationPass)
         
         # 9. Optimizations (validation)
-        from ..passes.arrow_optimization import ArrowOptimizationPass
-        self.pass_manager.register_pass(ArrowOptimizationPass)
 
     def _run_name_resolution_pass(self, ast, tcx: TyCtxt):
         """Run the name resolution pass on AST (its own pass; allocates DefIds, resolves names). Returns AST with DefIds attached."""

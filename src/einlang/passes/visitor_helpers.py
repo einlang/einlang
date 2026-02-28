@@ -89,9 +89,6 @@ class VariableExtractor(IRVisitor[Set[str]]):
     def visit_where_expression(self, node) -> Set[str]:
         return set()
     
-    def visit_arrow_expression(self, node) -> Set[str]:
-        return set()
-    
     def visit_pipeline_expression(self, node) -> Set[str]:
         return set()
     
@@ -200,9 +197,6 @@ class ConstantEvaluator(IRVisitor[Optional[int]]):
         return None
     
     def visit_where_expression(self, node) -> Optional[int]:
-        return None
-    
-    def visit_arrow_expression(self, node) -> Optional[int]:
         return None
     
     def visit_pipeline_expression(self, node) -> Optional[int]:
@@ -332,9 +326,6 @@ class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
         return []
     
     def visit_where_expression(self, node) -> List[RectangularAccessIR]:
-        return []
-    
-    def visit_arrow_expression(self, node) -> List[RectangularAccessIR]:
         return []
     
     def visit_pipeline_expression(self, node) -> List[RectangularAccessIR]:

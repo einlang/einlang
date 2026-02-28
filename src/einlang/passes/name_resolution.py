@@ -213,10 +213,6 @@ class _EinsteinGroupReplacementVisitor:
         if node.end:
             node.end.accept(self)
 
-    def visit_arrow_expression(self, node) -> None:
-        for c in node.components:
-            c.accept(self)
-
     def visit_match_expression(self, node) -> None:
         node.scrutinee.accept(self)
         for arm in node.arms:
@@ -1167,15 +1163,6 @@ class NameResolverVisitor(ASTVisitor[None]):
         if operand:
             operand.accept(self)
 
-    def visit_arrow_expression(self, node) -> None:
-        """Resolve names in arrow expression (all components)."""
-        components = getattr(node, 'components', None)
-        if components:
-            for c in components:
-                if c is not None and hasattr(c, 'accept'):
-                    c.accept(self)
-        elif hasattr(node, 'body') and node.body:
-            node.body.accept(self)
     
     def visit_array_comprehension(self, node) -> None:
         """
@@ -1321,10 +1308,6 @@ class NameResolverVisitor(ASTVisitor[None]):
         node.method_expr.accept(self)
         for arg in node.arguments:
             arg.accept(self)
-    
-    def visit_arrow_expression(self, node) -> None:
-        for component in node.components:
-            component.accept(self)
     
     def visit_pipeline_expression(self, node) -> None:
         node.left.accept(self)

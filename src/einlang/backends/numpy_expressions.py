@@ -11,7 +11,7 @@ from ..ir.nodes import (
     BlockExpressionIR, RangeIR, ArrayComprehensionIR, RectangularAccessIR, JaggedAccessIR,
     ArrayLiteralIR, TupleExpressionIR, TupleAccessIR, InterpolatedStringIR, CastExpressionIR,
     MemberAccessIR, TryExpressionIR, MatchExpressionIR, ReductionExpressionIR, WhereExpressionIR,
-    ArrowExpressionIR, PipelineExpressionIR, BuiltinCallIR,
+    PipelineExpressionIR, BuiltinCallIR,
     MatchArmIR, ExpressionIR, LoweredComprehensionIR, LoweredReductionIR,
 )
 from ..runtime.environment import FunctionValue
@@ -531,16 +531,6 @@ class ExpressionVisitorMixin:
             if not self._to_bool(c.accept(self)):
                 return None
         return expr.expr.accept(self)
-
-    def visit_arrow_expression(self, expr: ArrowExpressionIR) -> Any:
-        result = None
-        for comp in expr.components:
-            if result is None:
-                result = comp.accept(self)
-            else:
-                from .numpy_arrow_pipeline import apply_arrow_component
-                result = apply_arrow_component(comp, result, expr.location, self)
-        return result
 
     def visit_pipeline_expression(self, expr: PipelineExpressionIR) -> Any:
         left_value = expr.left.accept(self)

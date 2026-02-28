@@ -316,11 +316,6 @@ class RestPatternReplacer(IRVisitor[ExpressionIR]):
     def visit_array_comprehension(self, node) -> ExpressionIR:
         return node
     
-    def visit_arrow_expression(self, node) -> ExpressionIR:
-        from ..ir.nodes import ArrowExpressionIR
-        folded = [comp.accept(self) for comp in node.components]
-        return ArrowExpressionIR(components=folded, operator=node.operator, location=node.location, type_info=getattr(node, 'type_info', None), shape_info=getattr(node, 'shape_info', None))
-
     def visit_builtin_call(self, node) -> ExpressionIR:
         node.args = [arg.accept(self) for arg in node.args]
         return node
@@ -1115,7 +1110,6 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             def visit_tuple_access(self, node):
                 if getattr(node, 'tuple_expr', None) is not None:
                     node.tuple_expr.accept(self)
-            def visit_arrow_expression(self, node): pass
             def visit_binding(self, node): pass
             def visit_program(self, node): pass
             def visit_module(self, node): pass
@@ -1173,7 +1167,6 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             def visit_range(self, node) -> None: pass
             def visit_where_expression(self, node) -> None:
                 if node.expr: node.expr.accept(self)
-            def visit_arrow_expression(self, node) -> None: pass
             def visit_cast_expression(self, node) -> None:
                 if node.expr: node.expr.accept(self)
             def visit_member_access(self, node) -> None:
@@ -1654,11 +1647,6 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             return lowered
         node.expr = node.expr.accept(self)
         return node
-
-    def visit_arrow_expression(self, node) -> Any:
-        from ..ir.nodes import ArrowExpressionIR
-        new_components = [c.accept(self) if c is not None else c for c in node.components]
-        return ArrowExpressionIR(components=new_components, operator=node.operator, location=node.location, type_info=getattr(node, 'type_info', None), shape_info=getattr(node, 'shape_info', None))
 
     def visit_cast_expression(self, node) -> Any:
         if node.expr is not None:
