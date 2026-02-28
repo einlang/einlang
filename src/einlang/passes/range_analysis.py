@@ -13,9 +13,8 @@ from ..passes.shape_analysis import UnifiedShapeAnalysisPass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BinaryOpIR, IdentifierIR, IndexVarIR, IndexRestIR,
     ReductionExpressionIR, WhereClauseIR, RangeIR, IRVisitor, LiteralIR,
-    EinsteinDeclarationIR, FunctionDefIR, ParameterIR, IfExpressionIR,
+    BindingIR, is_einstein_binding, FunctionDefIR, ParameterIR, IfExpressionIR,
     RectangularAccessIR, MemberAccessIR, TupleAccessIR, BuiltinCallIR,
-    VariableDeclarationIR,
 )
 from ..ir.scoped_visitor import ScopedIRVisitor
 from ..shared.defid import DefId, fixed_builtin_defid
@@ -253,7 +252,7 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         self._current_function_einstein_decls = []
 
     @contextmanager
-    def _einstein_scope(self, node: EinsteinDeclarationIR):
+    def _einstein_scope(self, node: BindingIR):
         """Scope for processing an Einstein declaration; pops stack on exit."""
         self._current_einstein_stack.append(node)
         try:
@@ -264,15 +263,8 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
     
     def visit_program(self, node: ProgramIR) -> None:
         """Visit program and analyze ranges in all statements and functions"""
-        # Visit all statements
         for stmt in node.statements:
             stmt.accept(self)
-        # Visit all functions
-        for func in node.functions:
-            func.accept(self)
-        # Visit all constants
-        for const in node.constants:
-            const.accept(self)
     
     def visit_range(self, expr: RangeIR) -> None:
         """Extract range from RangeIR"""
@@ -299,17 +291,17 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         if program:
             program_scope: Dict[DefId, Any] = {}
             for stmt in program.statements:
-                if isinstance(stmt, VariableDeclarationIR) and getattr(stmt, 'defid', None) is not None:
-                    program_scope[stmt.defid] = stmt.value
-                    val_did = getattr(stmt.value, 'defid', None)
+                if isinstance(stmt, BindingIR) and not isinstance(stmt, FunctionDefIR) and getattr(stmt, 'defid', None) is not None:
+                    program_scope[stmt.defid] = stmt.expr
+                    val_did = getattr(stmt.expr, 'defid', None)
                     if val_did is not None and val_did != stmt.defid:
-                        program_scope[val_did] = stmt.value
+                        program_scope[val_did] = stmt.expr
             scope_stack.append(program_scope)
         scope_stack.extend(self._scope_stack)
         detector = ImplicitRangeDetector(scope_stack, self.analyzer.tcx)
         detector._current_clause = None
         detector.infer_reduction_ranges_from_where(expr)
-        from ..ir.nodes import EinsteinDeclarationIR, EinsteinIR, IdentifierIR, IndexVarIR
+        from ..ir.nodes import EinsteinIR, IdentifierIR, IndexVarIR
         for loop_var_ident in (expr.loop_vars or []):
             if not isinstance(loop_var_ident, (IdentifierIR, IndexVarIR)):
                 continue
@@ -479,7 +471,7 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
 
     def _process_einstein_clause(self, declaration, clause) -> None:
         """Process one Einstein clause: set variable_ranges on the clause and register in analyzer."""
-        from ..ir.nodes import EinsteinDeclarationIR, IdentifierIR, IndexVarIR, IndexRestIR, RectangularAccessIR, ArrayLiteralIR, LiteralIR
+        from ..ir.nodes import IdentifierIR, IndexVarIR, IndexRestIR, RectangularAccessIR, ArrayLiteralIR, LiteralIR
         import numpy as np
         node = declaration
         # variable_ranges is keyed by DefId (index variable identity), not by name
@@ -502,11 +494,10 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
             return d
         clause_scope_stack: List[Dict[DefId, Any]] = []
         if program:
-            from ..ir.nodes import VariableDeclarationIR
             program_scope: Dict[DefId, Any] = {}
             for stmt in program.statements:
-                if isinstance(stmt, VariableDeclarationIR) and getattr(stmt, 'defid', None) is not None:
-                    val = stmt.value
+                if isinstance(stmt, BindingIR) and not isinstance(stmt, FunctionDefIR) and getattr(stmt, 'defid', None) is not None:
+                    val = stmt.expr
                     key = _defid_key(stmt.defid)
                     if key is not None:
                         program_scope[key] = val
@@ -526,11 +517,10 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                 pass
         elif program:
             for stmt in program.statements:
-                decl = stmt.value if isinstance(stmt, VariableDeclarationIR) and getattr(stmt, 'value', None) else stmt
-                if decl is node:
+                if stmt is node:
                     break
-                if isinstance(decl, EinsteinDeclarationIR):
-                    prior_decls.append(decl)
+                if is_einstein_binding(stmt):
+                    prior_decls.append(stmt)
         detector.set_prior_declarations(prior_decls)
         detector._current_clause = clause
         detector.set_current_declaration(node)
@@ -771,12 +761,11 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
             return
 
         logger.debug(f"[RangeAnalysis] Visiting function {node.name}, parameters: {[p.name for p in node.parameters]}")
-        # ALIGNED: Collect all Einstein declarations in function body (in order)
-        from ..ir.nodes import EinsteinDeclarationIR
         einstein_decls = []
-        if hasattr(node, 'body') and node.body and hasattr(node.body, 'statements'):
-            for stmt in node.body.statements:
-                if isinstance(stmt, EinsteinDeclarationIR):
+        body = getattr(node, 'body', None)
+        if body and hasattr(body, 'statements'):
+            for stmt in body.statements:
+                if is_einstein_binding(stmt):
                     einstein_decls.append(stmt)
         
         self._current_function_einstein_decls = einstein_decls

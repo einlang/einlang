@@ -556,19 +556,19 @@ class ArrowOptimizationInPlaceVisitor(IRVisitor[None]):
         """Optimize function body in place"""
         optimized_body = node.body.accept(self.optimizer)
         if optimized_body is not node.body:
-            node.body = optimized_body
+            object.__setattr__(node.expr, 'body', optimized_body)
     
     def visit_constant_def(self, node: ConstantDefIR) -> None:
         """Optimize constant value in place"""
         optimized_value = node.value.accept(self.optimizer)
         if optimized_value is not node.value:
-            node.value = optimized_value
+            object.__setattr__(node, 'expr', optimized_value)
     
     def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> None:
         """Optimize Einstein declaration value in place"""
         optimized_value = node.value.accept(self.optimizer)
         if optimized_value is not node.value:
-            node.value = optimized_value
+            object.__setattr__(node, 'expr', optimized_value)
     
     # Required visitor methods (void visitor, no-op for expressions)
     def visit_literal(self, node) -> None:

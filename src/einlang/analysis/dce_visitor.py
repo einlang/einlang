@@ -112,7 +112,7 @@ class DCEVisitor(ScopedIRVisitor[Any]):
             if node.body:
                 new_body = node.body.accept(self)
                 if new_body is not None and new_body is not node.body:
-                    object.__setattr__(node, 'body', new_body)
+                    object.__setattr__(node.expr, 'body', new_body)
         return node
 
     def visit_if_expression(self, node: IfExpressionIR):
@@ -152,7 +152,7 @@ class DCEVisitor(ScopedIRVisitor[Any]):
                 if cv is not None:
                     self.set_var(did, cv)
             if new_val is not node.value:
-                object.__setattr__(node, 'value', new_val)
+                object.__setattr__(node, 'expr', new_val)
         return node
 
     # ------------------------------------------------------------------

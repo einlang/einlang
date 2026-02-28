@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from ..passes.base import BasePass, TyCtxt
 from ..passes.ast_to_ir import ASTToIRLoweringPass
 from ..ir.nodes import (
-    ProgramIR, EinsteinDeclarationIR, IRVisitor, IRNode,
+    ProgramIR, BindingIR, is_einstein_binding, IRVisitor, IRNode,
     FunctionDefIR, BlockExpressionIR, IfExpressionIR
 )
 from ..shared.source_location import SourceLocation
@@ -34,7 +34,7 @@ class DeclarationGroup:
     Rust Pattern: N/A (Einlang-specific)
     """
     array_name: str
-    declarations: List[EinsteinDeclarationIR]
+    declarations: List[BindingIR]
     max_dimensions: List[int]
     has_simple_assignments: bool = False
     has_einstein_assignments: bool = False
@@ -75,14 +75,11 @@ class EinsteinDeclarationGroupingPass(BasePass):
         for func in ir.functions:
             func.body.accept(visitor)
         
-        # Visit constant values
         for const in ir.constants:
             const.value.accept(visitor)
         
-        # Visit top-level statements (may include Einstein declarations)
         for stmt in ir.statements:
-            # Statements can be ExpressionIR or EinsteinDeclarationIR
-            if isinstance(stmt, EinsteinDeclarationIR):
+            if is_einstein_binding(stmt):
                 visitor.declarations.append(stmt)
             elif hasattr(stmt, 'accept'):
                 stmt.accept(visitor)
@@ -113,11 +110,11 @@ class EinsteinDeclarationGroupingPass(BasePass):
     
     def _group_declarations_by_array(
         self,
-        declarations: List[EinsteinDeclarationIR],
+        declarations: List[BindingIR],
         tcx: TyCtxt,
     ) -> Dict[str, DeclarationGroup]:
         """Group declarations by array name (same name in same scope = same variable)."""
-        groups: Dict[str, List[EinsteinDeclarationIR]] = {}
+        groups: Dict[str, List[BindingIR]] = {}
 
         for decl in declarations:
             key = decl.name
@@ -193,8 +190,8 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
     """
     
     def __init__(self):
-        self.declarations: List[EinsteinDeclarationIR] = []
-    
+        self.declarations: List[BindingIR] = []
+
     def visit_program(self, node: ProgramIR) -> None:
         """Visit program and collect from all statements"""
         # Visit all statements (visitor pattern handles dispatch)
@@ -204,7 +201,7 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
         for func in node.functions:
             func.accept(self)
     
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> None:
+    def visit_einstein_declaration(self, node: BindingIR) -> None:
         """Collect Einstein declaration"""
         # DefId identifies the variable - declarations with same DefId are grouped together
         self.declarations.append(node)

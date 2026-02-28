@@ -14,7 +14,7 @@ import logging
 from typing import Set
 
 from ..ir.nodes import (
-    ExpressionIR, ProgramIR, FunctionDefIR,
+    ExpressionIR, ProgramIR, FunctionDefIR, BindingIR,
     FunctionCallIR, BuiltinCallIR,
     IdentifierIR, LiteralIR, BinaryOpIR, UnaryOpIR,
     RectangularAccessIR, JaggedAccessIR, MemberAccessIR, TupleAccessIR,
@@ -25,6 +25,7 @@ from ..ir.nodes import (
     ReductionExpressionIR, WhereExpressionIR,
     EinsteinDeclarationIR, VariableDeclarationIR,
     RangeIR, TryExpressionIR, ConstantDefIR,
+    is_function_binding,
 )
 from ..shared.defid import DefId
 
@@ -241,12 +242,17 @@ def tree_shake(ir: ProgramIR) -> ProgramIR:
                 worklist.append(ref)
 
     before = len(ir.functions)
+    kept_defids = {f.defid for f in ir.functions
+                   if getattr(f, 'defid', None) is not None and f.defid in reachable}
     kept = [f for f in ir.functions
-            if getattr(f, 'defid', None) is not None and f.defid in reachable]
+            if getattr(f, 'defid', None) is not None and f.defid in kept_defids]
     after = len(kept)
 
     if before != after:
         logger.debug(f"[TreeShaking] {before} → {after} functions ({before - after} pruned)")
 
-    ir.functions = kept
+    new_statements = [s for s in (ir.statements or [])
+                      if not is_function_binding(s) or (getattr(s, 'defid', None) in kept_defids)]
+    object.__setattr__(ir, 'statements', new_statements)
+    object.__setattr__(ir, '_bindings', [s for s in new_statements if isinstance(s, BindingIR)])
     return ir

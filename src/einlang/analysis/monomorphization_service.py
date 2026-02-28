@@ -453,10 +453,8 @@ class MonomorphizationService:
             return specialized_func
         self._analysis_cache[cache_key] = "running"
         mini = ProgramIR(
+            statements=[specialized_func],
             modules=[],
-            functions=[specialized_func],
-            constants=[],
-            statements=[],
             source_files={},
             defid_to_name=None,
         )
@@ -511,10 +509,11 @@ class MonomorphizationService:
                 if result_ir.functions:
                     new_func = result_ir.functions[0]
                     if new_func is not specialized_func and getattr(new_func, "defid", None) == getattr(specialized_func, "defid", None):
-                        object.__setattr__(specialized_func, "body", getattr(new_func, "body", specialized_func.body))
+                        object.__setattr__(specialized_func.expr, "body", getattr(new_func, "body", specialized_func.body))
                         if hasattr(specialized_func, "return_type"):
-                            object.__setattr__(specialized_func, "return_type", getattr(new_func, "return_type", specialized_func.return_type))
-                        mini.functions = [specialized_func]
+                            object.__setattr__(specialized_func.expr, "return_type", getattr(new_func, "return_type", specialized_func.return_type))
+                        object.__setattr__(mini, 'statements', [specialized_func])
+                        object.__setattr__(mini, '_bindings', [specialized_func])
                     else:
                         if new_func is not specialized_func and new_func.defid:
                             for inst, fn in list(self._registry.items()):
@@ -545,7 +544,8 @@ class MonomorphizationService:
                                 ):
                                     self.tcx.function_ir_map[extra.defid] = extra
                             iso_mono.clear_pending_specialized_functions()
-                    mini.functions = [specialized_func]
+                    object.__setattr__(mini, 'statements', [specialized_func])
+                    object.__setattr__(mini, '_bindings', [specialized_func])
             except Exception as e:
                 logger.warning("Pass %s failed for %s: %s", pass_name, specialized_func.name, e)
         self._analysis_cache[cache_key] = True
@@ -810,19 +810,21 @@ class MonomorphizationService:
                 self._rewrite_calls_in_node(arg, visited, enclosing_function)
             return
         if isinstance(node, IRNode):
-            for attr in getattr(node, "__slots__", ()) or []:
-                if hasattr(node, attr):
-                    self._rewrite_calls_in_node(
-                        getattr(node, attr), visited, enclosing_function
-                    )
+            for cls in type(node).__mro__:
+                for attr in getattr(cls, "__slots__", ()):
+                    if hasattr(node, attr):
+                        self._rewrite_calls_in_node(
+                            getattr(node, attr), visited, enclosing_function
+                        )
         elif hasattr(node, "__slots__") and not isinstance(
             node, (list, tuple, dict)
         ):
-            for attr in node.__slots__:
-                if hasattr(node, attr):
-                    self._rewrite_calls_in_node(
-                        getattr(node, attr), visited, enclosing_function
-                    )
+            for cls in type(node).__mro__:
+                for attr in getattr(cls, "__slots__", ()):
+                    if hasattr(node, attr):
+                        self._rewrite_calls_in_node(
+                            getattr(node, attr), visited, enclosing_function
+                        )
         elif isinstance(node, (list, tuple)):
             for x in node:
                 self._rewrite_calls_in_node(x, visited, enclosing_function)

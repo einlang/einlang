@@ -308,6 +308,27 @@ class LambdaIR(ExpressionIR):
         return visitor.visit_lambda(self)
 
 
+class FunctionValueIR(ExpressionIR):
+    """Function value (rvalue). Name and defid live on BindingIR; this holds parameters, body, return_type."""
+    __slots__ = ('parameters', 'return_type', 'body', '_is_partially_specialized', '_generic_defid')
+
+    def __init__(self, parameters: List['ParameterIR'], body: ExpressionIR,
+                 location: SourceLocation, return_type: Optional[Any] = None,
+                 shape_info: Optional[Any] = None, type_info: Optional[Any] = None,
+                 _is_partially_specialized: bool = False,
+                 _generic_defid: Optional[DefId] = None):
+        super().__init__(location, type_info, shape_info)
+        assert_defid(_generic_defid)
+        self.parameters = parameters
+        self.return_type = return_type
+        self.body = body
+        self._is_partially_specialized = _is_partially_specialized
+        self._generic_defid = _generic_defid
+
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_function_value_expr(self)
+
+
 class FunctionCallIR(ExpressionIR):
     """Function call. Callee is an expression (IdentifierIR for name-based calls, LambdaIR for callables)."""
     __slots__ = ('callee_expr', 'arguments', 'module_path')
@@ -613,72 +634,38 @@ class ParameterIR(IRNode):
         self.param_type = param_type
 
 
-class FunctionDefIR(IRNode):
-    """Function definition in IR"""
-    __slots__ = ('name', 'parameters', 'return_type', 'body', 'shape_info', 'type_info', 'defid', '_is_partially_specialized', '_generic_defid')
-
-    def __init__(self, name: str, parameters: List[ParameterIR], body: ExpressionIR,
-                 location: SourceLocation, return_type: Optional[Any] = None,
-                 shape_info: Optional[Any] = None, type_info: Optional[Any] = None,
-                 defid: Optional[DefId] = None, _is_partially_specialized: bool = False,
-                 _generic_defid: Optional[DefId] = None):
-        super().__init__(location)
-        assert_defid(defid)
-        assert_defid(_generic_defid)
-        self.defid = defid
-        self.name = name
-        self.parameters = parameters
-        self.return_type = return_type
-        self.body = body
-        self.shape_info = shape_info
-        self.type_info = type_info
-        self._is_partially_specialized = _is_partially_specialized
-        self._generic_defid = _generic_defid
-    
-    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
-        return visitor.visit_function_def(self)
-
-
-class ConstantDefIR(IRNode):
-    """Constant definition in IR. Rust: DefId for items."""
-    __slots__ = ('name', 'value', 'type_info', 'defid')
-
-    def __init__(self, name: str, value: ExpressionIR, location: SourceLocation,
-                 type_info: Optional[Any] = None, defid: Optional[DefId] = None):
-        super().__init__(location)
-        assert_defid(defid)
-        self.defid = defid
-        self.name = name
-        self.value = value
-        self.type_info = type_info
-
-    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
-        return visitor.visit_constant_def(self)
-
-
 class ProgramIR:
     """
-    Complete program in IR.
-    
-    Rust Pattern: rustc_hir::Crate
+    Complete program in IR. statements is the preserved list (BindingIR and expression statements).
+    functions and constants are derived from bindings in statements.
     """
-    __slots__ = ('modules', 'functions', 'constants', 'statements', 'source_files', 'defid_to_name')
-    
-    def __init__(self, modules: List['ModuleIR'], functions: List[FunctionDefIR],
-                 constants: List[ConstantDefIR], statements: List[ExpressionIR],
-                 source_files: dict, defid_to_name: Optional[Dict[DefId, str]] = None):
-        self.modules = modules
-        self.functions = functions
-        self.constants = constants
-        self.statements = statements  # Top-level statements (variable declarations, etc.)
-        self.source_files = source_files
-        d2n = defid_to_name or {}
+    __slots__ = ('modules', 'statements', 'source_files', 'defid_to_name', '_bindings')
+
+    def __init__(self, statements: List[Any],
+                 source_files: Optional[dict] = None, modules: Optional[List['ModuleIR']] = None,
+                 defid_to_name: Optional[Dict[DefId, str]] = None):
+        self.statements = statements
+        self.source_files = source_files if source_files is not None else {}
+        self.modules = modules if modules is not None else []
+        self._bindings = [s for s in statements if isinstance(s, BindingIR)]
+        d2n = dict(defid_to_name) if defid_to_name is not None else {}
+        for s in self._bindings:
+            did = getattr(s, 'defid', None)
+            if did is not None and did not in d2n:
+                d2n[did] = getattr(s, 'name', '')
         for k in d2n:
             assert_defid(k, allow_none=False)
         self.defid_to_name = d2n
 
+    @property
+    def functions(self) -> List['BindingIR']:
+        return [b for b in self._bindings if is_function_binding(b)]
+
+    @property
+    def constants(self) -> List['BindingIR']:
+        return [b for b in self._bindings if is_constant_binding(b)]
+
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
-        """Accept visitor (Rust pattern: visitor pattern)."""
         return visitor.visit_program(self)
 
 
@@ -687,7 +674,7 @@ class ModuleIR(IRNode):
     __slots__ = ('path', 'functions', 'constants', 'submodules', 'defid')
 
     def __init__(self, path: Tuple[str, ...], location: SourceLocation,
-                 functions: List[FunctionDefIR], constants: List[ConstantDefIR],
+                 functions: List['BindingIR'], constants: List['BindingIR'],
                  submodules: List['ModuleIR'], defid: Optional[DefId] = None):
         super().__init__(location)
         assert_defid(defid)
@@ -931,6 +918,10 @@ class BindingIR(IRNode):
     def value(self) -> Any:
         return self.expr
 
+    @property
+    def clauses(self) -> List[Any]:
+        return getattr(getattr(self, 'expr', None), 'clauses', []) or []
+
     def get_defid_binding(self) -> Optional[tuple]:
         if self.defid is not None:
             return (self.defid, self.expr)
@@ -942,6 +933,56 @@ class BindingIR(IRNode):
     def __str__(self) -> str:
         type_str = f": {self.type_info}" if self.type_info else ""
         return f"{self.name}{type_str} = {self.expr}"
+
+
+def is_function_binding(binding: Any) -> bool:
+    """True if binding is a function definition (expr is FunctionValueIR)."""
+    return isinstance(getattr(binding, 'expr', None), FunctionValueIR)
+
+
+def is_einstein_binding(binding: Any) -> bool:
+    """True if binding is an Einstein declaration (expr is EinsteinExprIR)."""
+    expr = getattr(binding, 'expr', None)
+    return expr is not None and type(expr).__name__ == 'EinsteinExprIR'
+
+
+def is_constant_binding(binding: Any) -> bool:
+    """True if binding has defid and is not a function (variable or constant)."""
+    if not isinstance(binding, BindingIR):
+        return False
+    return getattr(binding, 'defid', None) is not None and not is_function_binding(binding)
+
+
+class FunctionDefIR(BindingIR):
+    """Function definition (binding whose expr is FunctionValueIR)."""
+    __slots__ = ()
+
+    @property
+    def parameters(self):
+        return getattr(self.expr, 'parameters', []) if isinstance(self.expr, FunctionValueIR) else []
+
+    @property
+    def body(self):
+        return getattr(self.expr, 'body', None) if isinstance(self.expr, FunctionValueIR) else None
+
+    @property
+    def return_type(self):
+        return getattr(self.expr, 'return_type', None) if isinstance(self.expr, FunctionValueIR) else None
+
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_function_def(self)
+
+
+class ConstantDefIR(BindingIR):
+    """Constant definition (binding that is not a function)."""
+    __slots__ = ()
+
+    @property
+    def value(self) -> Any:
+        return self.expr
+
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_constant_def(self)
 
 
 class GuardCondition:
@@ -960,7 +1001,7 @@ class LoweredIteration:
     """
     Unified lowered representation for all iteration constructs.
     
-    Used by EinsteinDeclarationIR (or BindingIR + EinsteinIR) via composition.
+    Used by BindingIR + EinsteinExprIR via composition.
     
     Provides shared iteration structure:
     - body: The expression being iterated
@@ -1144,79 +1185,11 @@ class LoweredComprehensionIR(ExpressionIR):
         return "LoweredComprehensionIR(" + ", ".join(parts) + ")"
 
 
-# Variable Declaration IR (Statement)
-# Under the hood shares BindingIR shape so execution/lowering can treat both the same.
-
-class VariableDeclarationIR(IRNode):
-    """
-    Variable declaration: let x = expr  or  let x: i32 = expr
-
-    Rust Pattern: rustc_hir::Local (let statement). Lookup by defid.
-    """
-    __slots__ = ('_binding',)
-
-    def __init__(self, pattern: str, value: ExpressionIR,
-                 type_annotation: Optional[Any] = None,
-                 location: SourceLocation = None,
-                 defid: Optional[DefId] = None):
-        loc = location if location is not None else SourceLocation('', 0, 0)
-        super().__init__(loc)
-        self._binding = BindingIR(
-            name=pattern,
-            expr=value,
-            type_info=type_annotation,
-            location=loc,
-            defid=defid
-        )
-    
-    @property
-    def pattern(self) -> str:
-        return self._binding.name
-    
-    @pattern.setter
-    def pattern(self, v: str) -> None:
-        self._binding.name = v
-    
-    @property
-    def value(self) -> ExpressionIR:
-        return self._binding.expr
-    
-    @value.setter
-    def value(self, v: ExpressionIR) -> None:
-        self._binding.expr = v
-    
-    @property
-    def type_annotation(self) -> Optional[Any]:
-        return self._binding.type_info
-    
-    @type_annotation.setter
-    def type_annotation(self, v: Optional[Any]) -> None:
-        self._binding.type_info = v
-    
-    @property
-    def defid(self) -> Optional[DefId]:
-        return getattr(self._binding, 'defid', None)
-
-    def to_binding(self) -> 'BindingIR':
-        """Same shape as where-clause bindings; execution can treat uniformly."""
-        return self._binding
-
-    def get_defid_binding(self):
-        """Return (defid, value) for scope registration, or None. Lets block register bindings without isinstance."""
-        did = self.defid
-        if did is not None:
-            return (did, self.value)
-        return None
-
-    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
-        return visitor.visit_variable_declaration(self)
-
-
-# Einstein IR: one clause (indices, value, where_clause). Declaration holds list of these.
+# Einstein IR: one clause (indices, value, where_clause). EinsteinExprIR holds list of these.
 
 class EinsteinIR(IRNode):
     """One Einstein clause. Holds indices, value, where_clause, and variable_ranges.
-    Ranges are only on the clause (not on EinsteinDeclarationIR). variable_ranges is keyed by DefId.
+    Ranges are only on the clause (not on the binding). variable_ranges is keyed by DefId.
     Precision (element_type) is on the declaration; runtime receives it and passes it in."""
     __slots__ = ('indices', 'value', 'where_clause', 'variable_ranges')
 
@@ -1246,26 +1219,21 @@ class EinsteinIR(IRNode):
         return visitor.visit_einstein(self)
 
 
-class EinsteinDeclarationIR(IRNode):
-    """Einstein declaration: name, defid, clauses, and type info only.
-    No ranges on the declaration: only types (element_type, precision) and shapes (shape).
-    Ranges (variable_ranges) live on each clause (EinsteinIR)."""
-    __slots__ = ('name', 'defid', 'clauses', 'shape', 'element_type')
+class EinsteinExprIR(IRNode):
+    """Einstein expression (RHS of binding): clauses list, shape, element_type. Used as BindingIR.expr for Einstein declarations."""
+    __slots__ = ('clauses', 'shape', 'element_type')
 
-    def __init__(self, name: str, location: SourceLocation, defid: Optional[DefId] = None,
-                 clauses: Optional[List[EinsteinIR]] = None,
+    def __init__(self, clauses: Optional[List[EinsteinIR]] = None,
                  shape: Optional[List[ExpressionIR]] = None,
-                 element_type: Optional[Any] = None):
-        super().__init__(location)
-        assert_defid(defid)
-        self.name = name
-        self.defid = defid
+                 element_type: Optional[Any] = None,
+                 location: Optional[SourceLocation] = None):
+        super().__init__(location or SourceLocation('', 0, 0))
         self.clauses = clauses if clauses is not None else []
         self.shape = shape
         self.element_type = element_type
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
-        return visitor.visit_einstein_declaration(self)
+        return visitor.visit_einstein_declaration_expr(self)
 
 
 # Type variable for visitor pattern
@@ -1309,15 +1277,17 @@ class IRVisitor(ABC, Generic[T]):
         """Visit function call"""
         raise NotImplementedError
     
-    @abstractmethod
+    def visit_function_value_expr(self, node: 'FunctionValueIR') -> T:
+        """Visit function value expression (body of a function binding). Default: no-op."""
+        return None  # type: ignore[return-value]
+
     def visit_function_def(self, node: FunctionDefIR) -> T:
-        """Visit function definition"""
-        raise NotImplementedError
-    
-    @abstractmethod
+        """Visit function definition (BindingIR with expr=FunctionValueIR). Default: no-op."""
+        return None  # type: ignore[return-value]
+
     def visit_constant_def(self, node: ConstantDefIR) -> T:
-        """Visit constant definition"""
-        raise NotImplementedError
+        """Visit constant definition (BindingIR). Default: delegate to visit_variable_declaration."""
+        return self.visit_variable_declaration(node)
     
     @abstractmethod
     def visit_rectangular_access(self, node: RectangularAccessIR) -> T:
@@ -1508,26 +1478,35 @@ class IRVisitor(ABC, Generic[T]):
         return None  # type: ignore[return-value]
     
     # Statement visitors
-    @abstractmethod
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> T:
-        """Visit Einstein declaration (clauses list). Default: recurse into each clause."""
-        raise NotImplementedError
+    def visit_einstein_declaration(self, node: 'BindingIR') -> T:
+        """Visit Einstein declaration (BindingIR with expr=EinsteinExprIR). Default: no-op."""
+        return None  # type: ignore[return-value]
+
+    def visit_einstein_declaration_expr(self, node: 'EinsteinExprIR') -> T:
+        """Visit Einstein expression (clauses list). Default: no-op."""
+        return None  # type: ignore[return-value]
 
     def visit_einstein(self, node: EinsteinIR) -> T:
         """Visit one Einstein clause. Default: no-op."""
         return None  # type: ignore[return-value]
 
-    def visit_variable_declaration(self, node: 'VariableDeclarationIR') -> T:
-        """Visit variable declaration. Default: forward to visit_binding (same shape under the hood)."""
-        return self.visit_binding(node.to_binding())
+    def visit_variable_declaration(self, node: 'BindingIR') -> T:
+        """Visit variable declaration (BindingIR). Default: no-op."""
+        return None  # type: ignore[return-value]
 
     def visit_binding(self, node: 'BindingIR') -> T:
-        """Visit binding (name = expr). Default: no-op (return None)."""
-        return None  # type: ignore[return-value]
+        """Visit binding (name = expr). Default: dispatch to specific visitor based on binding type."""
+        if is_einstein_binding(node):
+            return self.visit_einstein_declaration(node)
+        return self.visit_variable_declaration(node)
     
     # Program visitor
     @abstractmethod
     def visit_program(self, node: 'ProgramIR') -> T:
         """Visit program"""
         raise NotImplementedError
+
+
+VariableDeclarationIR = BindingIR
+EinsteinDeclarationIR = BindingIR
 

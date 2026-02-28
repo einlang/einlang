@@ -13,7 +13,7 @@ from typing import Optional, List, Union, Dict, Tuple, Any
 logger = logging.getLogger(__name__)
 from ..passes.base import BasePass, TyCtxt
 from ..ir.nodes import (
-    ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR,
+    ProgramIR, ExpressionIR, BindingIR, FunctionDefIR, FunctionValueIR, ConstantDefIR, EinsteinExprIR,
     LiteralIR, IdentifierIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     ParameterIR, BlockExpressionIR, IfExpressionIR, LambdaIR,
     ModuleIR, IRNode, RectangularAccessIR, JaggedAccessIR,
@@ -24,8 +24,8 @@ from ..ir.nodes import (
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
     OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR,
-    MatchArmIR, WhereClauseIR, EinsteinIR, EinsteinDeclarationIR, PatternIR,
-    RangeIR, ArrayComprehensionIR, VariableDeclarationIR,
+    MatchArmIR, WhereClauseIR, EinsteinIR, PatternIR,
+    RangeIR, ArrayComprehensionIR,
     IndexVarIR,
 )
 from ..shared.source_location import SourceLocation
@@ -198,6 +198,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     def __init__(self, tcx: TyCtxt):
         self.tcx = tcx
         self._all_functions: List[FunctionDefIR] = []
+        self._all_bindings: List[BindingIR] = []
     
     def lower_program(self, ast: ASTProgram) -> ProgramIR:
         """Lower entire program"""
@@ -205,64 +206,47 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         # Extract functions and constants from statements
         # Reset nested function tracking for this program
         self._all_functions = []
+        self._all_bindings = []
         self._resolver_defid_to_lowered = {}
         self._build_resolver_defid_to_lowered()
-        functions = []
-        constants = []
-        statements = []  # Top-level statements (variable declarations, etc.)
-        defid_to_name: Dict[DefId, str] = {}  # Map DefId to variable name for outputs
+        statements: List[Any] = []
+        defid_to_name: Dict[DefId, str] = {}
 
-        # Import AST node types to check
-        from ..shared.nodes import FunctionDefinition, VariableDeclaration
+        from ..shared.nodes import FunctionDefinition
         from ..shared.nodes import ExpressionStatement, EinsteinDeclaration as ASTEinsteinDeclaration
 
         for stmt_idx, stmt in enumerate(ast.statements):
-            # Visitor pattern: dispatch to appropriate visit method based on AST node type
             stmt_ir = stmt.accept(self)
 
-            # Handle list: tuple destructuring or multiple Einstein clauses (both as VariableDeclarationIR)
             if isinstance(stmt_ir, list):
                 for sub_stmt in stmt_ir:
-                    if isinstance(sub_stmt, VariableDeclarationIR):
+                    if isinstance(sub_stmt, BindingIR):
                         statements.append(sub_stmt)
                 continue
-            
-            # Check IR result type (not AST type) to determine handling
-            if isinstance(stmt_ir, FunctionDefIR):
-                # Function definition
-                functions.append(stmt_ir)
-                if stmt_ir.defid:
-                    defid_to_name[stmt_ir.defid] = stmt_ir.name
-                    
-            elif isinstance(stmt_ir, VariableDeclarationIR):
-                statements.append(stmt_ir)
 
+            if isinstance(stmt_ir, (FunctionDefIR, ConstantDefIR, BindingIR)):
+                statements.append(stmt_ir)
+                if isinstance(stmt_ir, BindingIR) and getattr(stmt_ir, 'defid', None):
+                    defid_to_name[stmt_ir.defid] = getattr(stmt_ir, 'name', '')
             elif isinstance(stmt_ir, ExpressionIR):
-                # Expression statement (e.g., function call like assert)
                 statements.append(stmt_ir)
 
-        # Lower modules (if any)
-        modules = []
-        
-        # Lower all module functions (stdlib and user modules)
-        # Rust alignment: All modules (stdlib and user) are treated the same - they're all part of the crate
-        # Functions registered in resolver during name resolution should be lowered to IR
+        modules: List[Any] = []
         module_functions = self._lower_module_functions()
-        functions.extend(module_functions)
-        
-        # Add all nested functions that were collected during lowering
-        # Nested functions are lowered when their parent's body is lowered, but we need to
-        # register them at the program level so they're available at runtime
-        nested_functions = [f for f in self._all_functions if f not in functions]
-        if nested_functions:
-            functions.extend(nested_functions)
+        for f in module_functions:
+            statements.append(f)
+            if getattr(f, 'defid', None):
+                defid_to_name[f.defid] = getattr(f, 'name', '')
+        nested_functions = [f for f in self._all_functions if f not in statements]
+        for f in nested_functions:
+            statements.append(f)
+            if getattr(f, 'defid', None):
+                defid_to_name[f.defid] = getattr(f, 'name', '')
 
         return ProgramIR(
-            modules=modules,
-            functions=functions,
-            constants=constants,
             statements=statements,
             source_files=self.tcx.source_files,
+            modules=modules,
             defid_to_name=defid_to_name
         )
     
@@ -528,15 +512,18 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         if hasattr(ast_func, 'return_type') and ast_func.return_type:
             return_type = ast_func.return_type
         
-        func_ir = FunctionDefIR(
-            name=ast_func.name,
+        func_value = FunctionValueIR(
             parameters=parameters,
-            return_type=return_type,  # Extract from AST return_type
             body=body_ir,
             location=location,
-            defid=defid
+            return_type=return_type,
         )
-        
+        func_ir = FunctionDefIR(
+            name=ast_func.name,
+            expr=func_value,
+            location=location,
+            defid=defid,
+        )
         self._all_functions.append(func_ir)
         return func_ir
 
@@ -553,9 +540,9 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         
         return ConstantDefIR(
             name=ast_const.name,
-            value=value_ir,
+            expr=value_ir,
             location=location,
-            defid=defid
+            defid=defid,
         )
     
     def visit_parameter(self, ast_param: ASTParameter) -> Optional[ParameterIR]:
@@ -1498,8 +1485,8 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         """Lower expression statement - visitor pattern"""
         return node.expr.accept(self)  # Just lower the expression
     
-    def visit_einstein_declaration(self, node: ASTEinsteinDeclaration) -> Optional[IRNode]:
-        """Lower Einstein declaration. VariableDeclarationIR with value=EinsteinDeclarationIR(clauses=[...])."""
+    def visit_einstein_declaration(self, node: ASTEinsteinDeclaration) -> Optional[BindingIR]:
+        """Lower Einstein declaration to BindingIR with expr=EinsteinExprIR(clauses=[...])."""
         array_defid = getattr(node, 'defid', None)
         clause_irs: List[IRNode] = []
         for clause in node.clauses:
@@ -1509,17 +1496,12 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         if not clause_irs:
             return None
         loc = self._get_source_location(node)
-        einstein_decl = EinsteinDeclarationIR(
+        einstein_expr = EinsteinExprIR(clauses=clause_irs, location=loc)
+        return BindingIR(
             name=node.array_name,
+            expr=einstein_expr,
             location=loc,
             defid=array_defid,
-            clauses=clause_irs
-        )
-        return VariableDeclarationIR(
-            pattern=node.array_name,
-            value=einstein_decl,
-            location=loc,
-            defid=array_defid
         )
 
     def _lower_einstein_clause(self, array_name: str, clause, node: ASTEinsteinDeclaration, array_defid: Optional[Any]) -> Optional[IRNode]:
@@ -1769,33 +1751,22 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         """Visit program - handled by lower_program"""
         return None
     
-    def visit_variable_declaration(self, node) -> Optional[Union[VariableDeclarationIR, List[VariableDeclarationIR]]]:
+    def visit_variable_declaration(self, node) -> Optional[Union[BindingIR, List[BindingIR]]]:
         """
-        Lower variable declaration to VariableDeclarationIR.
-        
-        Rust Pattern: rustc_hir::Local (let statement)
-        
-        For tuple destructuring: let (x, y) = (10, 20)
-        Expands to multiple statements:
-          1. __tuple_tmp_N = (10, 20)
-          2. x = __tuple_tmp_N[0]
-          3. y = __tuple_tmp_N[1]
+        Lower variable declaration to BindingIR.
+        For tuple destructuring returns list of BindingIR.
         """
         from ..shared.nodes import TupleDestructurePattern
         from ..ir.nodes import TupleAccessIR, IdentifierIR
-        
-        # Lower the value expression
+
         value_ir = node.value.accept(self) if node.value else None
         if not isinstance(value_ir, ExpressionIR):
             return None
-        
+
         location = self._get_source_location(node)
-        
-        # Check if this is tuple destructuring
+
         if isinstance(node.pattern, TupleDestructurePattern):
-            # Expand tuple destructuring to multiple statements
-            statements = []
-            
+            statements: List[BindingIR] = []
             if not hasattr(self, '_tuple_tmp_counter'):
                 self._tuple_tmp_counter = 0
             self._tuple_tmp_counter += 1
@@ -1803,54 +1774,43 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             temp_defid = None
             if self.tcx.resolver:
                 temp_defid = self.tcx.resolver.allocate_for_local()
-            
-            temp_var_decl = VariableDeclarationIR(
-                pattern=temp_name,
-                value=value_ir,
-                type_annotation=None,
+
+            statements.append(BindingIR(
+                name=temp_name,
+                expr=value_ir,
                 location=location,
-                defid=temp_defid
-            )
-            statements.append(temp_var_decl)
-            
-            # 2. Create individual variables extracting each element
+                defid=temp_defid,
+            ))
+
             for index, annotated_var in enumerate(node.pattern.variables):
                 var_name = annotated_var.name
                 var_defid = getattr(annotated_var, 'defid', None)
-                
                 temp_identifier = IdentifierIR(
                     name=temp_name,
                     location=location,
                     defid=temp_defid
                 )
-                
-                # Create TupleAccessIR to extract the element
                 tuple_access = TupleAccessIR(
                     tuple_expr=temp_identifier,
                     index=index,
                     location=location
                 )
-                
-                var_decl = VariableDeclarationIR(
-                    pattern=var_name,
-                    value=tuple_access,
-                    type_annotation=annotated_var.type_annotation,
+                statements.append(BindingIR(
+                    name=var_name,
+                    expr=tuple_access,
+                    type_info=annotated_var.type_annotation,
                     location=location,
-                    defid=var_defid
-                )
-                statements.append(var_decl)
-            
-            # Return list of statements (caller must handle this)
+                    defid=var_defid,
+                ))
             return statements
-        else:
-            defid = getattr(node, 'defid', None)
-            return VariableDeclarationIR(
-                pattern=node.name,
-                value=value_ir,
-                type_annotation=node.type_annotation,
-                location=location,
-                defid=defid
-            )
+        defid = getattr(node, 'defid', None)
+        return BindingIR(
+            name=node.name,
+            expr=value_ir,
+            type_info=node.type_annotation,
+            location=location,
+            defid=defid,
+        )
     
     def visit_use_statement(self, node) -> Optional[IRNode]:
         """Use statements not lowered to IR (handled in name resolution)"""

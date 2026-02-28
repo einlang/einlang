@@ -17,11 +17,11 @@ from ..shared.source_location import SourceLocation
 from ..shared.types import BinaryOp, infer_literal_type, UNKNOWN, PrimitiveType
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, IdentifierIR, IndexVarIR, IndexRestIR, ReductionExpressionIR,
-    WhereClauseIR, RangeIR, LiteralIR, EinsteinIR, EinsteinDeclarationIR,
-    LoopStructure, BindingIR, GuardCondition,
+    WhereClauseIR, RangeIR, LiteralIR, EinsteinIR,
+    LoopStructure, BindingIR, GuardCondition, is_einstein_binding,
     LoweredEinsteinClauseIR, LoweredEinsteinIR, LoweredReductionIR, LoweredComprehensionIR,
     IRVisitor, RectangularAccessIR, MemberAccessIR,
-    ArrayComprehensionIR, VariableDeclarationIR, BinaryOpIR,
+    ArrayComprehensionIR, BinaryOpIR,
 )
 
 
@@ -86,6 +86,9 @@ class EinsteinLoweringPass(BasePass):
             result = stmt.accept(visitor)
             if result is None:
                 raise ValueError("Einstein lowering returned None for statement")
+            if isinstance(stmt, BindingIR) and not isinstance(result, BindingIR):
+                object.__setattr__(stmt, 'expr', result)
+                result = stmt
             new_statements.append(result)
         ir.statements = new_statements
 
@@ -97,7 +100,7 @@ class EinsteinLoweringPass(BasePass):
             if node is None or id(node) in seen:
                 return False
             seen.add(id(node))
-            if type(node).__name__ in ('ArrayComprehensionIR', 'EinsteinDeclarationIR', 'ReductionExpressionIR'):
+            if type(node).__name__ in ('ArrayComprehensionIR', 'ReductionExpressionIR') or is_einstein_binding(node):
                 return True
             for attr in ('body', 'final_expr', 'then_expr', 'else_expr', 'condition', 'value', 'expr', 'array', 'left', 'right', 'object', 'scrutinee'):
                 if hasattr(node, attr) and body_contains_lowerable(getattr(node, attr), seen):
@@ -119,7 +122,10 @@ class EinsteinLoweringPass(BasePass):
             result = func.body.accept(visitor)
             if result is None:
                 raise ValueError("Einstein lowering returned None for function body")
-            func.body = result
+            if hasattr(func, 'expr') and func.expr is not None:
+                object.__setattr__(func.expr, 'body', result)
+            else:
+                object.__setattr__(func, 'body', result)
 
         from ..ir.nodes import FunctionDefIR
         lowered_ids = set()
@@ -411,10 +417,15 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
     def __init__(self, range_accessor: Any, tcx: TyCtxt):
         self.range_analyzer = range_accessor  # RangeAccessor with get_range method
         self.tcx = tcx
-        self._current_function = None  # Set during function traversal for param-based range fallback
-        self._current_einstein_clause = None  # Enclosing clause when lowering; used for variable_ranges fallback
+        self._current_function = None
+        self._current_einstein_clause = None
 
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> Optional[Any]:
+    def visit_binding(self, node: BindingIR) -> Any:
+        if is_einstein_binding(node):
+            return self.visit_einstein_declaration(node)
+        return self.visit_variable_declaration(node)
+
+    def visit_einstein_declaration(self, node: BindingIR) -> Optional[Any]:
         """Lower Einstein declaration (clauses list); returns LoweredEinsteinIR."""
         clauses = node.clauses or []
         if not clauses:
@@ -437,12 +448,10 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                     if lhs_shape is not None:
                         all_shapes.append(lhs_shape)
             if items:
-                # Prefer declaration's promoted element_type (from type inference) over first clause's type
-                decl_element_type = getattr(node, 'element_type', None)
+                decl_element_type = getattr(getattr(node, 'expr', node), 'element_type', None)
                 if decl_element_type is not None and decl_element_type is not UNKNOWN:
                     element_type = decl_element_type
-                # Prefer shape stored on IR by shape pass; else union of clause ranges
-                tensor_shape = getattr(node, 'shape', None) if isinstance(getattr(node, 'shape', None), list) else None
+                tensor_shape = getattr(getattr(node, 'expr', node), 'shape', None) if isinstance(getattr(getattr(node, 'expr', node), 'shape', None), list) else None
                 if tensor_shape is None and all_shapes:
                     tensor_shape = self._compute_shape_union(all_shapes, loc)
                 if tensor_shape is None and items[0].loops:
@@ -451,7 +460,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             return None
         return self._lower_einstein_clause_to_lowered(node, clauses[0])
 
-    def _lower_einstein_clause_to_lowered(self, decl: EinsteinDeclarationIR, clause: EinsteinIR) -> Optional[LoweredEinsteinIR]:
+    def _lower_einstein_clause_to_lowered(self, decl: BindingIR, clause: EinsteinIR) -> Optional[LoweredEinsteinIR]:
         """Lower one Einstein clause (EinsteinIR) to LoweredEinsteinIR. Uses decl for rest expansion key and shape."""
         import logging
         logger = logging.getLogger("einlang.passes.einstein_lowering")
@@ -1290,7 +1299,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 return None
         return out if out else None
 
-    def _get_shape_from_analysis(self, node: EinsteinDeclarationIR) -> Optional[List[ExpressionIR]]:
+    def _get_shape_from_analysis(self, node: BindingIR) -> Optional[List[ExpressionIR]]:
         """
         Get shape from UnifiedShapeAnalysisPass results.
         
@@ -1542,10 +1551,10 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             if stmt is None:
                 raise ValueError("IR block statement is None")
             result = stmt.accept(self)
-            if isinstance(stmt, EinsteinDeclarationIR) and isinstance(result, LoweredEinsteinIR):
-                node.statements[i] = VariableDeclarationIR(
-                    getattr(stmt, "name", ""),
-                    result,
+            if is_einstein_binding(stmt) and isinstance(result, LoweredEinsteinIR):
+                node.statements[i] = BindingIR(
+                    name=getattr(stmt, "name", ""),
+                    expr=result,
                     location=getattr(stmt, "location", None),
                     defid=getattr(stmt, "defid", None),
                 )
@@ -1696,12 +1705,12 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             logger.debug(f"Skipping Einstein lowering for generic function: {node.name}")
             return node
         if node.body is not None:
-            node.body = node.body.accept(self)
+            object.__setattr__(node.expr, 'body', node.body.accept(self))
         return node
 
     def visit_constant_def(self, node) -> Any:
         if node.value is not None:
-            node.value = node.value.accept(self)
+            object.__setattr__(node, 'expr', node.value.accept(self))
         return node
 
     def _visit_statements(self, node) -> Any:
@@ -1764,8 +1773,9 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             node.guard = node.guard.accept(self)
         return node
 
-    def visit_variable_declaration(self, node) -> Any:
-        if hasattr(node, 'value') and node.value is not None:
-            node.value = node.value.accept(self)
+    def visit_variable_declaration(self, node: BindingIR) -> Any:
+        if hasattr(node, 'expr') and node.expr is not None:
+            new_expr = node.expr.accept(self)
+            object.__setattr__(node, 'expr', new_expr)
         return node
 

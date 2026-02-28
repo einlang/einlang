@@ -9,14 +9,13 @@ from ..passes.base import BasePass, TyCtxt
 from ..passes.type_inference import TypeInferencePass
 from ..passes.exhaustiveness import ExhaustivenessPass
 from ..ir.nodes import (
-    ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR,
+    ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR, BindingIR, is_einstein_binding, is_function_binding, is_constant_binding,
     LiteralIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     BlockExpressionIR, IfExpressionIR, LambdaIR, IRVisitor,
     RectangularAccessIR, JaggedAccessIR, ArrayLiteralIR, TupleExpressionIR,
     TupleAccessIR, InterpolatedStringIR, CastExpressionIR, MemberAccessIR,
     TryExpressionIR, MatchExpressionIR, ReductionExpressionIR, WhereExpressionIR,
     ArrowExpressionIR, PipelineExpressionIR, BuiltinCallIR,
-    EinsteinDeclarationIR
 )
 from typing import Optional, Any
 
@@ -579,19 +578,14 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
 
     def visit_variable_declaration(self, node):
         """Visit variable declaration - fold value but keep declaration"""
-        from ..ir.nodes import VariableDeclarationIR
-        
-        # Fold the value expression
-        folded_value = node.value.accept(self) if hasattr(node, 'value') and node.value else None
-        
-        # Return a new VariableDeclarationIR with the folded value
-        # CRITICAL: We must preserve the variable declaration, not just return the value!
-        return VariableDeclarationIR(
-            pattern=node.pattern,
-            value=folded_value,
-            type_annotation=node.type_annotation,
-            location=node.location,
-            defid=node.defid
+        from ..ir.nodes import BindingIR
+        folded_value = node.expr.accept(self) if hasattr(node, 'expr') and node.expr else None
+        return BindingIR(
+            name=getattr(node, 'name', ''),
+            expr=folded_value,
+            type_info=getattr(node, 'type_info', None),
+            location=getattr(node, 'location', None),
+            defid=getattr(node, 'defid', None),
         )
 
 class ConstantFoldingVisitor(IRVisitor[None]):
@@ -625,30 +619,30 @@ class ConstantFoldingVisitor(IRVisitor[None]):
         # Fold top-level statements in place - use visitor pattern
         for stmt in node.statements:
             stmt.accept(self)
+
+    def visit_binding(self, stmt: BindingIR) -> None:
+        if is_einstein_binding(stmt):
+            self.visit_einstein_declaration(stmt)
+        elif is_function_binding(stmt):
+            self.visit_function_def(stmt)
+        elif is_constant_binding(stmt):
+            self.visit_constant_def(stmt)
+        else:
+            if hasattr(stmt, 'expr') and stmt.expr is not None:
+                stmt.expr.accept(self.folder)
     
     def visit_function_def(self, stmt: FunctionDefIR) -> None:
-        """
-        Fold function body in place.
-        
-        Rust Pattern: Visitor pattern for function definitions
-        """
-        # Use visitor pattern: folder is also a visitor
-        folded_body = stmt.body.accept(self.folder)  # Visitor pattern
-        # Modify in place
-        stmt.body = folded_body
-    
+        folded_body = stmt.body.accept(self.folder)
+        if hasattr(stmt, 'expr') and stmt.expr is not None:
+            object.__setattr__(stmt.expr, 'body', folded_body)
+        else:
+            object.__setattr__(stmt, 'body', folded_body)
+
     def visit_constant_def(self, stmt: ConstantDefIR) -> None:
-        """
-        Fold constant value in place.
-        
-        Rust Pattern: Visitor pattern for constant definitions
-        """
-        # Use visitor pattern: folder is also a visitor
-        folded_value = stmt.value.accept(self.folder)  # Visitor pattern
-        # Modify in place
-        stmt.value = folded_value
+        folded_value = stmt.value.accept(self.folder)
+        object.__setattr__(stmt, 'expr', folded_value)
     
-    def visit_einstein_declaration(self, stmt: EinsteinDeclarationIR) -> None:
+    def visit_einstein_declaration(self, stmt: BindingIR) -> None:
         """
         Fold Einstein declaration: fold each clause's value in place.
         

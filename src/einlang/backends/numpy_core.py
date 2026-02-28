@@ -4,8 +4,9 @@ from typing import Dict, Any, Optional, List, Union
 
 from ..backends.base import Backend
 from ..ir.nodes import (
-    ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR,
+    ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR, BindingIR,
     LiteralIR, FunctionCallIR, IRVisitor,
+    is_einstein_binding,
 )
 from ..shared.defid import DefId, Resolver, FIXED_BUILTIN_ORDER, _BUILTIN_CRATE
 from ..runtime.environment import ExecutionEnvironment, FunctionValue
@@ -88,10 +89,15 @@ class CoreExecutionMixin:
                         if stmt is None:
                             raise ValueError("IR statement is None")
                         result_value = stmt.accept(self)
-                        binding = getattr(stmt, "_binding", None)
-                        variable_defid = getattr(binding, "defid", None) if binding else None
+                        variable_defid = None
+                        if isinstance(stmt, BindingIR) and not isinstance(stmt, FunctionDefIR):
+                            variable_defid = getattr(stmt, "defid", None)
+                        if variable_defid is None:
+                            binding = getattr(stmt, "_binding", None)
+                            if binding is not None and isinstance(binding, BindingIR):
+                                variable_defid = getattr(binding, "defid", None)
                         if variable_defid is not None:
-                            var_name = getattr(binding, "name", None) or getattr(stmt, "name", None)
+                            var_name = getattr(stmt, "name", None) or (getattr(getattr(stmt, "_binding", None), "name", None) if getattr(stmt, "_binding", None) else None)
                             self.env.set_value(variable_defid, result_value, name=var_name)
                             outputs[variable_defid] = result_value
                     for defid, value in self.env.get_current_scope().items():
@@ -152,6 +158,18 @@ class CoreExecutionMixin:
         value = node.value.accept(self)
         if node.defid:
             self.env.set_value(node.defid, value, name=node.name)
+        return value
+
+    def visit_binding(self, node: Any) -> Any:
+        if is_einstein_binding(node):
+            return self.visit_einstein_declaration(node)
+        from ..ir.nodes import LoweredEinsteinIR
+        expr = getattr(node, 'expr', None)
+        if isinstance(expr, LoweredEinsteinIR):
+            return self.visit_variable_declaration(node)
+        value = node.value.accept(self)
+        if getattr(node, "defid", None) is not None:
+            self.env.set_value(node.defid, value, name=getattr(node, "name", None))
         return value
 
     def visit_literal_pattern(self, node: Any) -> Any:

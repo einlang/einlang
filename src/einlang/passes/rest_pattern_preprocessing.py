@@ -18,11 +18,11 @@ from typing import List, Optional, Tuple, Dict, Any
 from ..passes.base import BasePass, TyCtxt
 from ..passes.einstein_grouping import EinsteinDeclarationGroupingPass
 from ..ir.nodes import (
-    ProgramIR, EinsteinIR, EinsteinDeclarationIR, IRVisitor, IRNode,
+    ProgramIR, EinsteinIR, IRVisitor, IRNode, is_einstein_binding,
     FunctionDefIR, BlockExpressionIR, IfExpressionIR,
     IdentifierIR, IndexVarIR, IndexRestIR, RectangularAccessIR, ReductionExpressionIR,
     ExpressionIR, BinaryOpIR, UnaryOpIR, LiteralIR,
-    VariableDeclarationIR, RangeIR, MemberAccessIR
+    BindingIR, RangeIR, MemberAccessIR
 )
 from ..ir.scoped_visitor import ScopedIRVisitor
 from ..shared.defid import DefId
@@ -63,7 +63,7 @@ class RestPatternPreprocessingPass(BasePass):
         visitor = RestPatternPreprocessor(tcx, einstein_groups, program=ir)
         
         for stmt in ir.statements:
-            if isinstance(stmt, VariableDeclarationIR) and stmt.defid is not None:
+            if isinstance(stmt, BindingIR) and getattr(stmt, 'defid', None) is not None:
                 visitor.set_var(stmt.defid, stmt)
         
         for func in ir.functions:
@@ -75,9 +75,8 @@ class RestPatternPreprocessingPass(BasePass):
         for const in ir.constants:
             const.value.accept(visitor)
         
-        # Visit top-level statements
         for stmt in ir.statements:
-            if isinstance(stmt, EinsteinDeclarationIR):
+            if is_einstein_binding(stmt):
                 visitor.visit_einstein_declaration(stmt)
             elif hasattr(stmt, 'accept'):
                 stmt.accept(visitor)
@@ -108,7 +107,7 @@ class RestPatternPreprocessingPass(BasePass):
             einstein_groups = {}
         visitor = RestPatternPreprocessor(tcx, einstein_groups, program=ir)
         for stmt in ir.statements:
-            if isinstance(stmt, VariableDeclarationIR) and stmt.defid is not None:
+            if isinstance(stmt, BindingIR) and getattr(stmt, 'defid', None) is not None:
                 visitor.set_var(stmt.defid, stmt)
         for func in specialized_funcs:
             try:
@@ -145,7 +144,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         for func in node.functions:
             func.accept(self)
     
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> None:
+    def visit_einstein_declaration(self, node: BindingIR) -> None:
         """
         Expand rest patterns in each clause. Uses first clause for rank/validation; applies to all clauses.
         """
@@ -506,7 +505,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                 return True
         return False
 
-    def _infer_rank_from_body(self, node: EinsteinDeclarationIR) -> Optional[int]:
+    def _infer_rank_from_body(self, node: BindingIR) -> Optional[int]:
         """
         Infer rank from body expression. prioritize arrays that use the same
         rest patterns as the output (LHS), then fall back to any array. Rank comes from
@@ -558,14 +557,14 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         Priority: scope stack (Einstein output rank / var decl) → param type → type_info.
         """
         from ..shared.types import RectangularType, JaggedType
-        from ..ir.nodes import FunctionDefIR, VariableDeclarationIR
+        from ..ir.nodes import FunctionDefIR, BindingIR
         if isinstance(arr, IdentifierIR):
             defid = getattr(arr, 'defid', None)
             if defid is not None:
                 val = self.get_var(defid)
                 if isinstance(val, int):
                     return val
-                if isinstance(val, VariableDeclarationIR):
+                if isinstance(val, BindingIR):
                     r = self._try_infer_rank_from_var_def(arr.name, val)
                     if r is not None:
                         return r
@@ -603,7 +602,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         # Return the collected accesses from accept() return value, not collector.accesses
         return accesses if accesses else []
     
-    def _try_infer_rank_from_var_def(self, var_name: str, var_def: VariableDeclarationIR) -> Optional[int]:
+    def _try_infer_rank_from_var_def(self, var_name: str, var_def: BindingIR) -> Optional[int]:
         """
         Try to infer rank from a variable definition.
         
@@ -683,7 +682,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
 
         self._current_function = prev_function
     
-    def visit_variable_declaration(self, node: VariableDeclarationIR) -> None:
+    def visit_variable_declaration(self, node: BindingIR) -> None:
         """Track variable declarations in scope stack by DefId for rank inference."""
         if node.defid is not None:
             self.set_var(node.defid, node)
@@ -697,7 +696,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         with self.scope():
             if hasattr(node, 'statements'):
                 for stmt in node.statements:
-                    if isinstance(stmt, EinsteinDeclarationIR):
+                    if is_einstein_binding(stmt):
                         self.visit_einstein_declaration(stmt)
                     elif hasattr(stmt, 'accept'):
                         stmt.accept(self)
@@ -1313,13 +1312,13 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
     def visit_einstein_declaration(self, node) -> ExpressionIR:
         return node
     
-    def visit_variable_declaration(self, node: VariableDeclarationIR) -> ExpressionIR:
-        new_value = node.value.accept(self) if getattr(node, 'value', None) else None
-        return VariableDeclarationIR(
-            pattern=node.pattern,
-            value=new_value,
-            type_annotation=getattr(node, 'type_annotation', None),
-            location=node.location,
+    def visit_variable_declaration(self, node: BindingIR) -> ExpressionIR:
+        new_value = node.expr.accept(self) if getattr(node, 'expr', None) else None
+        return BindingIR(
+            name=getattr(node, 'name', None) or getattr(node, 'pattern', ''),
+            expr=new_value,
+            type_info=getattr(node, 'type_info', None),
+            location=getattr(node, 'location', None),
             defid=getattr(node, 'defid', None),
         )
     

@@ -11,7 +11,7 @@ from ..passes.base import BasePass, TyCtxt
 from ..passes.rest_pattern_preprocessing import RestPatternPreprocessingPass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, ArrayLiteralIR, ArrayComprehensionIR,
-    FunctionCallIR, EinsteinDeclarationIR, RectangularAccessIR,
+    FunctionCallIR, BindingIR, is_einstein_binding, RectangularAccessIR,
     IRVisitor, RangeIR, IdentifierIR, LiteralIR, MemberAccessIR,
 )
 from ..shared.defid import DefId
@@ -343,7 +343,7 @@ class ShapeAnalyzer:
             return int(size)
         return None
 
-    def _resolve_dependent_ranges_on_decl(self, decl: EinsteinDeclarationIR) -> None:
+    def _resolve_dependent_ranges_on_decl(self, decl: BindingIR) -> None:
         """
         Resolve dependent ranges on clauses when shape is known.
         Range pass leaves 0..array.shape[dim]; we replace end with LiteralIR(size) when we know the shape.
@@ -369,7 +369,7 @@ class ShapeAnalyzer:
                     object.__setattr__(rng, 'end', new_end)
                     logger.debug("[ShapeAnalysis] Resolved dependent range end to %s", resolved)
 
-    def infer_einstein_shape(self, decl: EinsteinDeclarationIR) -> Optional[tuple]:
+    def infer_einstein_shape(self, decl: BindingIR) -> Optional[tuple]:
         """Infer shape as max of output indices of each clause (per dimension)."""
         from ..passes.range_info import StaticRange
         import logging
@@ -712,7 +712,7 @@ class ShapeAnalyzer:
         # Unable to determine offset
         return None
     
-    def check_perfect_partition(self, declarations: List[EinsteinDeclarationIR]) -> bool:
+    def check_perfect_partition(self, declarations: List[BindingIR]) -> bool:
         """Check if declarations form perfect partition"""
         # Collect all index combinations
         all_combinations: Set[Tuple] = set()
@@ -728,7 +728,7 @@ class ShapeAnalyzer:
         
         return True
     
-    def _get_index_combinations(self, decl: EinsteinDeclarationIR) -> Set[Tuple]:
+    def _get_index_combinations(self, decl: BindingIR) -> Set[Tuple]:
         """Get all index combinations for declaration. Uses clause variable_ranges only (no global dict)."""
         combinations: Set[Tuple] = set()
         clauses = decl.clauses or []
@@ -820,7 +820,7 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
         for range_expr in expr.ranges:
             range_expr.accept(self)
     
-    def visit_einstein_declaration(self, expr: EinsteinDeclarationIR) -> None:
+    def visit_einstein_declaration(self, expr: BindingIR) -> None:
         """Infer shape for Einstein declaration; store on IR and in analyzer; resolve dependent ranges when shape is known."""
         from ..shared.types import infer_literal_type
         shape_tuple = self.analyzer.infer_einstein_shape(expr)
@@ -838,7 +838,7 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
                         type_info=infer_literal_type(dim),
                     ))
             if shape_list:
-                expr.shape = shape_list
+                expr.expr.shape = shape_list
         # Resolve dependent ranges (0..array.shape[dim]) to literals when we know array shape
         self.analyzer._resolve_dependent_ranges_on_decl(expr)
         # Process each clause's value

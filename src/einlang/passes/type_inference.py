@@ -116,11 +116,16 @@ class TypeInferencePass(BasePass):
             pending_funcs = inferencer.mono_service.get_pending_specialized_functions()
             if not pending_funcs:
                 break
+            existing_ids = {id(s) for s in ir.statements}
             for f in pending_funcs:
-                if f not in ir.functions:
-                    ir.functions.append(f)
+                if id(f) not in existing_ids:
+                    ir.statements.append(f)
+                    ir._bindings.append(f)
+                    existing_ids.add(id(f))
                     if f.defid:
                         tcx.function_ir_map[f.defid] = f
+                        if f.defid not in ir.defid_to_name:
+                            ir.defid_to_name[f.defid] = getattr(f, 'name', '')
                     logger.debug(f"Added specialized function {f.name} with DefId {f.defid} to program IR and function_ir_map")
             inferencer.mono_service.clear_pending_specialized_functions()
             ir.accept(inferencer)
@@ -128,7 +133,8 @@ class TypeInferencePass(BasePass):
         specialized_funcs = getattr(tcx, 'specialized_functions', [])
         if specialized_funcs:
             inferencer.mono_service.rewrite_calls_in_specialized_bodies()
-        inferencer.mono_service.rewrite_calls_in_statements(ir.statements)
+        non_func_stmts = [s for s in ir.statements if not isinstance(s, FunctionDefIR)]
+        inferencer.mono_service.rewrite_calls_in_statements(non_func_stmts)
         inferencer.mono_service.unify_local_var_defids_in_program(ir)
         return ir
 
@@ -169,7 +175,8 @@ class TypeInferencer(IRVisitor[Type]):
         # When this is the mini-program (single function, no top-level statements),
         # merge into existing function_ir_map so inner calls (e.g. max_pool1d) can be specialized.
         # Otherwise build DefId → FunctionDefIR from current program.
-        is_mini_program = (len(node.functions) == 1 and len(node.statements) == 0 and
+        non_func_stmt_count = sum(1 for s in node.statements if not isinstance(s, FunctionDefIR))
+        is_mini_program = (len(node.functions) == 1 and non_func_stmt_count == 0 and
                           hasattr(self.tcx, 'function_ir_map') and self.tcx.function_ir_map is not None)
         if is_mini_program:
             for func in node.functions:
@@ -261,8 +268,9 @@ class TypeInferencer(IRVisitor[Type]):
         value_type = stmt.value.accept(self)
         
         # Check type annotation compatibility (Rust pattern: strict checking with literal coercion)
-        if stmt.type_annotation and stmt.type_annotation != UNKNOWN:
-            expected_type = stmt.type_annotation
+        _type_ann = getattr(stmt, 'type_info', None)
+        if _type_ann and _type_ann != UNKNOWN:
+            expected_type = _type_ann
             
             # Rust special case: numeric literals can be coerced to any numeric type
             # In Rust: `let x: i64 = 42;` works (literal inference)
@@ -292,6 +300,14 @@ class TypeInferencer(IRVisitor[Type]):
         # Rust Pattern: Don't set type_info on statements - only expressions have types
         
         return value_type
+
+    def visit_binding(self, node) -> Type:
+        from ..ir.nodes import is_function_binding, is_einstein_binding
+        if is_function_binding(node):
+            return self.visit_function_def(node)
+        if is_einstein_binding(node):
+            return self.visit_einstein_declaration(node)
+        return self.visit_variable_declaration(node)
     
     def _is_literal_coercion(self, expr, value_type: Type, expected_type: Type) -> bool:
         """
@@ -835,8 +851,12 @@ class TypeInferencer(IRVisitor[Type]):
             expr.type_info = inferred_type
             return inferred_type
 
-        # Never type-check a generic call against the generic's signature (may be wrong/unset).
-        if expr.function_defid is not None and self.mono_service._is_generic_function(expr.function_defid):
+        enclosing_is_generic = (
+            self._current_function is not None
+            and getattr(self._current_function, 'defid', None) is not None
+            and self.mono_service._is_generic_function(self._current_function.defid)
+        )
+        if enclosing_is_generic or (expr.function_defid is not None and self.mono_service._is_generic_function(expr.function_defid)):
             signature = FunctionSignature(
                 name=signature.name,
                 parameter_types=tuple(UNKNOWN for _ in signature.parameter_types),
@@ -858,10 +878,8 @@ class TypeInferencer(IRVisitor[Type]):
         # This ensures type safety - mismatches are compile-time errors
         for i, (arg_type, param_type) in enumerate(zip(arg_types, signature.parameter_types)):
             if param_type != UNKNOWN and arg_type != UNKNOWN:
-                # Check type compatibility
                 if not self._types_compatible(arg_type, param_type):
                     param_name = signature.parameter_names[i] if i < len(signature.parameter_names) else f"arg{i+1}"
-                    # Report error and mark compilation as failed
                     self.tcx.reporter.report_error(
                         message=f"Type mismatch for argument '{param_name}' in call to '{expr.function_name}': expected {param_type}, got {arg_type}",
                         location=expr.location,
@@ -1194,7 +1212,7 @@ class TypeInferencer(IRVisitor[Type]):
         is_generic = node.defid is not None and self.mono_service._is_generic_function(node.defid)
         if not is_generic and return_type is not None and return_type != UNKNOWN:
             if not getattr(node, 'return_type', None) or node.return_type == UNKNOWN:
-                node.return_type = return_type
+                object.__setattr__(node.expr, 'return_type', return_type)
         
         param_types = tuple(
             param.param_type if param.param_type else UNKNOWN
@@ -1204,8 +1222,12 @@ class TypeInferencer(IRVisitor[Type]):
         return FunctionType(param_types, return_type if return_type is not None else UNKNOWN)
     
     def visit_constant_def(self, node: ConstantDefIR) -> Type:
-        """Visit constant definition"""
-        return node.value.accept(self)
+        """Visit constant definition; infer value type and bind name in scope."""
+        value_type = node.value.accept(self)
+        stmt_defid = getattr(node, 'defid', None)
+        if stmt_defid is not None:
+            self._set_var(stmt_defid, value_type)
+        return value_type
 
     def _extract_int_from_shape_expr(self, expr: Any) -> Optional[int]:
         """Extract a single int from a shape dimension expression (LiteralIR, or RangeIR.end as literal)."""
@@ -1744,9 +1766,10 @@ class TypeInferencer(IRVisitor[Type]):
                 if not _is_unknown_type(element_type):
                     source = "clauses_promoted"
         
-        # 2. Last resort: Check node's element_type attribute (if set by shape analysis)
-        if element_type is None and hasattr(node, 'element_type') and node.element_type:
-            et = node.element_type
+        # 2. Last resort: Check EinsteinExprIR's element_type attribute (if set by shape analysis)
+        ein_expr_2 = getattr(node, 'expr', node)
+        if element_type is None and hasattr(ein_expr_2, 'element_type') and ein_expr_2.element_type:
+            et = ein_expr_2.element_type
             if not _is_unknown_type(et):
                 element_type = et
                 source = "node_attribute"
@@ -1783,7 +1806,8 @@ class TypeInferencer(IRVisitor[Type]):
                     location=node.location,
                 )
             num_dimensions = ranks[0]
-        shape_exprs = getattr(node, 'shape', []) or []
+        ein_expr = getattr(node, 'expr', node)
+        shape_exprs = getattr(ein_expr, 'shape', []) or []
         concrete = self._concrete_shape_from_exprs(shape_exprs)
         if concrete is not None:
             elem = element_type if not _is_unknown_type(element_type) else UNKNOWN
@@ -1801,10 +1825,8 @@ class TypeInferencer(IRVisitor[Type]):
             )
         self._set_var(decl_defid, array_type)
         
-        # Store element_type on the IR node so EinsteinLoweringPass can use it
-        # This is what the pass ordering expects (TypeInference before EinsteinLowering)
-        if not hasattr(node, 'element_type') or node.element_type is None:
-            object.__setattr__(node, 'element_type', element_type)
+        if not hasattr(ein_expr, 'element_type') or ein_expr.element_type is None:
+            object.__setattr__(ein_expr, 'element_type', element_type)
         
         # Return the array type (statements don't have type_info, but visitor needs return value)
         return array_type

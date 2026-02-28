@@ -414,12 +414,11 @@ class IRSerializer:
         out.extend([self._sym(":variable_ranges"), var_ranges])
         return out
 
-    def _serialize_EinsteinDeclarationIR(self, node) -> list:
-        """Serialize Einstein declaration (name + clauses list)."""
+    def _serialize_EinsteinExprIR(self, node) -> list:
+        """Serialize EinsteinExprIR (clauses list)."""
         clauses_sexpr = [self.serialize_to_sexpr(c) for c in (getattr(node, 'clauses', None) or [])]
-        core = [self._sym("einstein-declaration"), node.name, self._sym(":clauses"), clauses_sexpr]
-        return core
-    
+        return [self._sym("einstein-expr"), self._sym(":clauses"), clauses_sexpr]
+
     def _serialize_LoopStructure(self, loop) -> list:
         """Serialize loop structure: (loop (variable "name" :defid [...]) iterable)."""
         iterable = self.serialize_to_sexpr(loop.iterable)
@@ -791,11 +790,9 @@ class IRSerializer:
     # === Programs ===
     
     def _serialize_ProgramIR(self, node) -> list:
-        """Serialize program: (program (stmts...) (funcs...) (constants...) :defid_to_name (...) :source_files (...))"""
+        """Serialize program: (program (stmts...) () () :defid_to_name (...) :source_files (...))"""
         stmts = [self.serialize_to_sexpr(stmt) for stmt in node.statements]
-        funcs = [self.serialize_to_sexpr(f) for f in node.functions]
-        constants = [self.serialize_to_sexpr(c) for c in getattr(node, "constants", []) or []]
-        core = [self._sym("program"), stmts, funcs, constants]
+        core = [self._sym("program"), stmts, [], []]
         d2n = getattr(node, "defid_to_name", None) or {}
         if d2n:
             pairs = [[self._brackets([d.krate, d.index]), name] for d, name in d2n.items()]
@@ -1352,8 +1349,17 @@ class IRDeserializer:
         loc = self._loc_from_opts(opts)
         return RangePatternIR(start=start, end=end, inclusive=inclusive, location=loc)
 
+    def _deserialize_einstein_expr(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import EinsteinExprIR
+        _, opts = _plist(tail)
+        clauses_sexpr = opts.get(":clauses")
+        if not isinstance(clauses_sexpr, list):
+            clauses_sexpr = []
+        clauses = [self.deserialize(c) for c in clauses_sexpr]
+        return EinsteinExprIR(clauses=clauses)
+
     def _deserialize_let_binding(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import VariableDeclarationIR
+        from ..ir.nodes import BindingIR
         rest = tail[2:] if len(tail) > 2 else []
         try:
             rest = list(rest)
@@ -1372,10 +1378,10 @@ class IRDeserializer:
                 if isinstance(k, str) and k == ":defid":
                     defid = _parse_defid(rest[i + 1])
                     break
-        return VariableDeclarationIR(pattern=pattern, value=value, type_annotation=type_annotation, location=loc, defid=defid)
+        return BindingIR(name=pattern, expr=value, type_info=type_annotation, location=loc, defid=defid)
 
     def _deserialize_function_definition(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import FunctionDefIR
+        from ..ir.nodes import FunctionDefIR, FunctionValueIR
         _, opts = _plist(tail[3:])
         loc = self._loc_from_opts(opts)
         name = self._name_from_tail(tail)
@@ -1385,7 +1391,8 @@ class IRDeserializer:
         opts = _plist(tail[3:])[1]
         defid = _parse_defid(opts.get(":defid"))
         return_type = self._deserialize_type(opts.get(":return_type"))
-        return FunctionDefIR(name=name, parameters=params, body=body, location=loc, return_type=return_type, defid=defid)
+        func_value = FunctionValueIR(parameters=params, body=body, location=loc, return_type=return_type)
+        return FunctionDefIR(name=name, expr=func_value, location=loc, defid=defid)
 
     def _deserialize_constant_def(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import ConstantDefIR
@@ -1396,17 +1403,13 @@ class IRDeserializer:
         opts = _plist(tail[2:])[1]
         ty = self._deserialize_type(opts.get(":ty"))
         defid = _parse_defid(opts.get(":defid"))
-        return ConstantDefIR(name=name, value=value, location=loc, type_info=ty, defid=defid)
+        return ConstantDefIR(name=name, expr=value, location=loc, type_info=ty, defid=defid)
 
     def _deserialize_program(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import ProgramIR
         pos, opts = _plist(tail)
         stmts_sexpr = pos[0] if len(pos) > 0 and isinstance(pos[0], list) else []
-        funcs_sexpr = pos[1] if len(pos) > 1 and isinstance(pos[1], list) else []
-        constants_sexpr = pos[2] if len(pos) > 2 and isinstance(pos[2], list) else []
         stmts = [self.deserialize(s) for s in stmts_sexpr]
-        funcs = [self.deserialize(f) for f in funcs_sexpr]
-        constants = [self.deserialize(c) for c in constants_sexpr]
         d2n = {}
         for pair in opts.get(":defid_to_name") or []:
             if isinstance(pair, list) and len(pair) >= 2:
@@ -1417,7 +1420,7 @@ class IRDeserializer:
         for item in opts.get(":source_files") or []:
             if isinstance(item, list) and len(item) >= 2:
                 sf[item[0]] = item[1]
-        return ProgramIR(modules=[], functions=funcs, constants=constants, statements=stmts, source_files=sf, defid_to_name=d2n)
+        return ProgramIR(statements=stmts, source_files=sf, modules=[], defid_to_name=d2n)
 
     def _deserialize_loop_structure(self, sexpr: Any) -> Any:
         from ..ir.nodes import LoopStructure
@@ -1442,6 +1445,9 @@ class IRDeserializer:
         defid = _parse_defid(opts.get(":defid"))
         loc = self._loc_from_opts(opts)
         return BindingIR(name=name, expr=expr, type_info=typ, location=loc, defid=defid)
+
+    def _deserialize_binding(self, tag: str, tail: list, full: list) -> Any:
+        return self._deserialize_local_binding(full)
 
     def _deserialize_lowered_reduction(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LoweredReductionIR, GuardCondition
