@@ -30,24 +30,9 @@ def _resolve_input_defid(program: ProgramIR, name: str) -> Optional[DefId]:
 
 def _get_name_from_defid(program: ProgramIR, defid: DefId) -> Optional[str]:
     assert_defid(defid, allow_none=False)
-    for f in getattr(program, "functions", []) or []:
-        if getattr(f, "defid", None) == defid:
-            return getattr(f, "name", None)
-    for c in getattr(program, "constants", []) or []:
-        if getattr(c, "defid", None) == defid:
-            return getattr(c, "name", None)
-    for stmt in getattr(program, "statements", []) or []:
-        binding = getattr(stmt, "_binding", None)
-        vdefid = (getattr(binding, "defid", None) if binding else None) or getattr(stmt, "defid", None)
-        if vdefid == defid:
-            pat = getattr(stmt, "pattern", None)
-            name = getattr(pat, "name", None) if pat else None
-            if name is None and binding:
-                name = getattr(binding, "name", None)
-            if name is not None:
-                return name
-    if getattr(program, "defid_to_name", None):
-        return program.defid_to_name.get(defid)
+    for b in getattr(program, "bindings", []) or []:
+        if getattr(b, "defid", None) == defid and getattr(b, "name", None):
+            return b.name
     return None
 
 

@@ -1008,6 +1008,8 @@ class IRDeserializer:
         module_path_raw = opts.get(":module_path")
         module_path = tuple(module_path_raw) if isinstance(module_path_raw, list) else None
         ty = self._deserialize_type(opts.get(":inferred_type"))
+        if callee is None:
+            callee = IdentifierIR(name="", location=loc, defid=None)
         return FunctionCallIR(callee_expr=callee, location=loc, arguments=args, module_path=module_path, type_info=ty)
 
     def _deserialize_builtin_call(self, _tag: str, tail: list, _full: list) -> Any:
