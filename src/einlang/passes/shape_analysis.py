@@ -245,13 +245,6 @@ class ShapeAnalyzer:
                     and element_shape is not None
                     and elem_shape != element_shape
                 ):
-                    self.tcx.reporter.report_error(
-                        "Array literal has inconsistent shapes: "
-                        "element 0 has shape {}, but element {} has shape {}".format(
-                            element_shape, i, elem_shape
-                        ),
-                        location=getattr(elem, "location", loc) or loc,
-                    )
                     return None
             if element_shape is not None:
                 return (len(expr.elements),) + (element_shape if isinstance(element_shape, tuple) else tuple(element_shape))

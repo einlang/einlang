@@ -5,7 +5,7 @@ import warnings
 
 import numpy as np
 
-from ..shared.types import BinaryOp, UnaryOp
+from ..shared.types import BinaryOp, UnaryOp, TypeKind
 from ..ir.nodes import (
     LiteralIR, IdentifierIR, IndexVarIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     BlockExpressionIR, RangeIR, ArrayComprehensionIR, RectangularAccessIR, JaggedAccessIR,
@@ -240,7 +240,7 @@ class ExpressionVisitorMixin:
 
     def visit_jagged_access(self, expr: JaggedAccessIR) -> Any:
         array = expr.base.accept(self)
-        for idx in expr.indices or []:
+        for idx in (getattr(expr, 'index_chain', None) or []):
             array = array[idx.accept(self)]
         return array
 
@@ -310,7 +310,11 @@ class ExpressionVisitorMixin:
         return np.array(results) if results else np.array([])
 
     def visit_array_literal(self, expr: ArrayLiteralIR) -> Any:
-        return np.array([e.accept(self) for e in expr.elements])
+        evaluated = [e.accept(self) for e in expr.elements]
+        type_info = getattr(expr, "type_info", None)
+        if type_info is not None and getattr(type_info, "kind", None) == TypeKind.JAGGED:
+            return list(evaluated)
+        return np.array(evaluated)
 
     def visit_tuple_expression(self, expr: TupleExpressionIR) -> Any:
         return tuple(e.accept(self) for e in expr.elements)

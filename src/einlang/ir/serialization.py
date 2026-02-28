@@ -1577,6 +1577,27 @@ class IRDeserializer:
                 elem_sexprs = sexpr[1] if isinstance(sexpr[1], list) else []
                 element_types = tuple(self._deserialize_type(e) for e in elem_sexprs)
                 return TupleType(element_types=element_types)
+            if tag == "jagged-type" and len(sexpr) >= 2:
+                from ..shared.types import JaggedType
+                element = self._deserialize_type(sexpr[1])
+                if element is None:
+                    return None
+                depth = 1
+                is_dynamic = False
+                if len(sexpr) >= 3:
+                    third = sexpr[2]
+                    if sexpdata and isinstance(third, sexpdata.Symbol):
+                        if _sym_val(third) == "?":
+                            is_dynamic = True
+                            depth = None
+                        else:
+                            try:
+                                depth = int(third)
+                            except (TypeError, ValueError):
+                                depth = 1
+                    elif isinstance(third, int):
+                        depth = third
+                return JaggedType(element_type=element, nesting_depth=depth, is_dynamic_depth=is_dynamic)
         return None
 
 

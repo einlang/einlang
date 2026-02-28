@@ -25,7 +25,7 @@ from ..ir.nodes import (
     BindingIR,
     is_function_binding,
 )
-from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, TupleType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp
+from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, JaggedType, TupleType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp
 from ..shared.defid import DefId, assert_defid
 from ..utils.config import DEFAULT_INT_TYPE, DEFAULT_FLOAT_TYPE
 from typing import Optional, Tuple, List, Dict, Any, Set
@@ -629,7 +629,8 @@ class TypeInferencer(IRVisitor[Type]):
                 
                 # If not dynamic and shapes don't match, incompatible
                 return False
-        
+            if value_t.kind == TypeKind.JAGGED and expected_t.kind == TypeKind.JAGGED:
+                return value_t.element_type == expected_t.element_type
         # Rust semantics: ALL other type differences require explicit cast
         # No implicit widening, no cross-category, no narrowing
         return False
@@ -1438,26 +1439,18 @@ class TypeInferencer(IRVisitor[Type]):
         return inferred_type
 
     def visit_array_literal(self, expr) -> Type:
-        """Infer type of array literal (: infer concrete shapes with flat element types)"""
+        """Infer type of array literal: rectangular (uniform shape) or jagged (inconsistent row lengths)."""
         if not expr.elements:
             inferred_type = UNKNOWN
         else:
-            # Infer element types and unify
             element_types = [elem.accept(self) for elem in expr.elements]
-            # Get the common element type (first element for now - could add unification logic)
             element_type = element_types[0] if element_types else UNKNOWN
-            
-            # Infer shape from array literal structure
-            shape = self._infer_array_literal_shape(expr)
-            
-            # Flatten element type for multidimensional arrays
-            # [[1, 2, 3], [4, 5, 6]] → [i32; 2, 3] with element_type=i32 (not [[i32; 3]; 2, 3])
-            # This ensures compatibility with type annotations like [i32; 2, 3]
             base_element_type = self._get_base_element_type(element_type)
-            
-            inferred_type = RectangularType(element_type=base_element_type, shape=shape)
-        
-        # Set type_info on IR node
+            shape = self._infer_array_literal_shape(expr)
+            if shape is None:
+                inferred_type = JaggedType(element_type=base_element_type, nesting_depth=1, is_dynamic_depth=False)
+            else:
+                inferred_type = RectangularType(element_type=base_element_type, shape=shape)
         expr.type_info = inferred_type
         return inferred_type
     
@@ -1469,19 +1462,22 @@ class TypeInferencer(IRVisitor[Type]):
         return elem_type
     
     def _infer_array_literal_shape(self, array_lit) -> Optional[Tuple[int, ...]]:
-        """Infer shape from array literal recursively"""
+        """Infer shape from array literal recursively. Returns None if jagged (inconsistent row lengths)."""
         if not hasattr(array_lit, 'elements') or not array_lit.elements:
             return (0,)
-        
-        shape = [len(array_lit.elements)]
-        
-        # Check if first element is also an array literal (nested)
         from ..ir.nodes import ArrayLiteralIR
+        shape = [len(array_lit.elements)]
         if array_lit.elements and isinstance(array_lit.elements[0], ArrayLiteralIR):
             first_elem_shape = self._infer_array_literal_shape(array_lit.elements[0])
-            if first_elem_shape:
-                shape.extend(first_elem_shape)
-        
+            if first_elem_shape is None:
+                return None
+            for elem in array_lit.elements[1:]:
+                if not isinstance(elem, ArrayLiteralIR):
+                    return None
+                sub = self._infer_array_literal_shape(elem)
+                if sub != first_elem_shape:
+                    return None
+            shape.extend(first_elem_shape)
         return tuple(shape)
     
     def visit_tuple_expression(self, expr) -> Type:

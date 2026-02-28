@@ -1,10 +1,50 @@
 # Julia Syntax and Design — Examples in Einlang
 
-Key Julia concepts and how they map to Einlang, with side-by-side or equivalent examples.
+Key Julia concepts and how they map to Einlang, with side-by-side or equivalent examples. This document aims to cover Julia syntax so you can translate code and know what exists in both languages.
 
 ---
 
-## 1. Arrays and literals
+## 1. Variables and assignment
+
+**Julia:** Assignment with `=`. No keyword; variables are created on first assignment. Type is inferred.
+
+```julia
+x = 5
+name = "Julia"
+```
+
+**Einlang:** Explicit **`let`** binding; semicolon terminates the statement. Type inferred or annotated.
+
+```rust
+let x = 5;
+let name: str = "Einlang";
+```
+
+---
+
+## 2. Primitive types and literals
+
+**Julia:** Common types: `Int64`, `Float64`, `Bool`, `String`. Literals: `42`, `3.14`, `true`, `"hi"`. Rationals: `2//3`. Complex: `1 + 2im`. Type annotation: `x::Int`.
+
+```julia
+n = 42
+x = 3.14
+r = 2//3
+z = 1 + 2im
+y::Float64 = 1.0
+```
+
+**Einlang:** Primitives: `i32`, `i64`, `f32`, `f64`, `bool`, `str`. Literals: `42`, `3.14`, `true`, `"hi"`. Annotation: `x: i32`. No rational or complex in the current reference.
+
+```rust
+let n = 42;
+let x: f64 = 3.14;
+let b: bool = true;
+```
+
+---
+
+## 3. Arrays and literals
 
 **Julia:** 1-based indexing by default; `[1, 2, 3]` for vectors, `[1 2; 3 4]` or `[1 2 3; 4 5 6]` for matrices.
 
@@ -20,9 +60,34 @@ let v = [1, 2, 3];
 let M = [[1, 2, 3], [4, 5, 6]];
 ```
 
+**Julia rectangular access** (matrix `Matrix{T}` — comma-separated indices, 1-based). The colon `:` means “all indices along this dimension”:
+
+```julia
+M = [1 2 3; 4 5 6]   # 2×3 matrix
+M[1, 2]              # 2  (row 1, col 2) — scalar
+M[2, :]              # [4, 5, 6]  (row 2: fix row, all cols)
+M[:, 3]              # [3, 6]     (col 3: all rows, fix col)
+M[1:2, 2:3]          # submatrix (range slice)
+```
+
+So `M[i,:]` is used to get **row i** (a vector); `M[:,j]` to get **column j** (a vector). Without the colon, `M[i,j]` is a single element. These slices are normal expressions and can be used inside other expressions (e.g. `M[i,:] .+ 1`, `sum(M[:,j])`, or as function arguments). You can chain indexing: `M[1,:][2]` is the second element of row 1 (same as `M[1,2]`).
+
+**Einlang rectangular access** (0-based, comma in one bracket; no colon-slices):
+
+```rust
+let M = [[1, 2, 3], [4, 5, 6]];
+let elem = M[0, 1];   // 2
+let row = M[1];       // [4, 5, 6]
+// Col or slice: use comprehensions or explicit loops
+```
+
+In Einlang, `M[i]` (row `i`) is also a normal expression and can be used in other expressions (e.g. `M[0] * 2.0`, or as an argument to a function). Chained indexing is supported: `M[i][j]` is the same as `M[i,j]` (row `i`, then element `j`).
+
+**Single index on a matrix:** Julia uses **linear indexing** (column-major): `M[1]` on a 2×3 matrix is the first element (scalar), `M[2]` the second element down the first column, etc. To get a row or column in Julia you use slices: `M[i,:]`, `M[:,j]`. Einlang uses **one index = one dimension**: `M[i]` is row `i` (a vector), not a linear index; there is no linear index for rectangular arrays.
+
 ---
 
-## 2. Ranges
+## 4. Ranges
 
 **Julia:** `a:b` is inclusive on both ends; `a:s:b` is step. Often used for loops and comprehensions.
 
@@ -41,7 +106,7 @@ let odds = [i | i in 1..11, i % 2 == 1];
 
 ---
 
-## 3. Array comprehensions
+## 5. Array comprehensions
 
 **Julia:** `[expr for x in range]` or `[expr for x in r1, y in r2]` for multidimensional; optional filter with `if`.
 
@@ -61,7 +126,7 @@ let grid = [(i + j) | i in 1..4, j in 1..4];
 
 ---
 
-## 4. Element-wise operations (Julia’s “broadcasting”)
+## 6. Element-wise operations (Julia’s “broadcasting”)
 
 **Julia:** Dot syntax applies a function or operator element-wise; chained dots fuse into one loop.
 
@@ -74,22 +139,15 @@ a .+ b
 **Einlang:** Operators support **broadcasting by default** (no dot) only for **same rank** (same-shape tensor with tensor) or **tensor vs scalar**. In those cases explicit indexing is not required (e.g. `A + 5`, `A + B`). For different-rank combinations, use rectangular `let` with indices.
 
 ```rust
-use std::math::sin;
-let doubled[i, j] = matrix[i, j] * 2.0;
-let summed[i, j] = A[i, j] + B[i, j];
-let applied[i] = sin(x[i]);
-let formula[i, j] = 2.0 * matrix[i, j] * matrix[i, j] + 1.0;
+let A = [[1.0, 2.0], [3.0, 4.0]];
+let scaled = A * 2.0;           // scalar * tensor (no indexing)
+let B = [[1.0, 1.0], [1.0, 1.0]];
+let summed = A + B;             // same rank, same shape (no indexing)
+let with_bias[i, j] = A[i, j] + bias[j];  // different rank: explicit indices
 ```
 
-Scalar + tensor: index the tensor and add the scalar in the body (scalar is “broadcast” by repetition over indices):
 
-```rust
-let result[i, j] = tensor[i, j] + 5;
-```
-
----
-
-## 5. Matrix multiplication vs element-wise
+## 7. Matrix multiplication vs element-wise
 
 **Julia:** `*` is matrix multiply; `.*` is element-wise.
 
@@ -107,7 +165,7 @@ let C[i, j] = sum[k](A[i, k] * B[k, j]);  // matrix multiply
 
 ---
 
-## 6. Reductions (sum, max, min)
+## 8. Reductions (sum, max, min)
 
 **Julia:** `sum(A)`, `sum(A, dims=1)`, `maximum(A)`, etc. Dimensions are often specified by keyword.
 
@@ -127,7 +185,33 @@ let col_max[j] = max[i](A[i, j]);
 
 ---
 
-## 7. Where clauses / index algebra (Einlang strength)
+## 8b. Jagged (ragged) arrays
+
+**Julia:** Rectangular vs jagged are **different types**. Rectangular: `Matrix{T}` (or `Array{T,2}`) — fixed shape, indexing `A[i, j]`. Jagged: `Vector{Vector{T}}` — each row can have a different length, indexing `A[i][j]`. You choose the type; the compiler does not infer “this literal is jagged” from row lengths.
+
+```julia
+# Vector of vectors — rows have different lengths
+jagged = [[1, 2], [3, 4, 5], [6]]
+jagged[1]          # [1, 2]
+jagged[2][3]       # 5
+length(jagged)     # 3
+length(jagged[i])  # length of row i
+```
+
+**Einlang:** `jagged[T]` type; literal with rows of different lengths. Access with chained brackets `A[i][j]`. Cannot use Einstein notation on jagged arrays.
+
+```rust
+let ragged: jagged[i32] = [[1, 2], [3, 4, 5], [6]];
+let row0 = ragged[0];       // [1, 2]
+let elem = ragged[1][2];    // 5
+let n = len(ragged);        // 3
+```
+
+Both languages: jagged data is “array of arrays”; use loops or comprehensions to iterate. Einstein notation and shape inference apply only to rectangular arrays.
+
+---
+
+## 9. Where clauses / index algebra (Einlang strength)
 
 **Julia:** Index arithmetic is usually manual (loop bounds, `CartesianIndex`, or comprehensions with computed indices).
 
@@ -160,7 +244,7 @@ The compiler resolves `ih`, `iw` from `oh`, `ow`, `kh`, `kw` and enforces in-bou
 
 ---
 
-## 8. Recurrence relations (Einlang strength)
+## 10. Recurrence relations (Einlang strength)
 
 **Julia:** Recurrences are written as loops or recursive functions; you manage base case and order yourself.
 
@@ -202,7 +286,7 @@ let hidden[t in 1..seq_length, b in 0..batch_size, h in 0..hidden_size] =
 
 ---
 
-## 9. Functions and “dispatch” (Julia vs Einlang)
+## 11. Functions and “dispatch” (Julia vs Einlang)
 
 **Julia:** Multiple dispatch — one function name, many methods by argument types; dispatch on all arguments.
 
@@ -224,7 +308,7 @@ Einlang does **not** support multiple `fn` with the same name (overloading by ty
 
 ---
 
-## 10. Structs / composite types
+## 12. Structs / composite types
 
 **Julia:** `struct` with optional field types; dot access; works with multiple dispatch.
 
@@ -249,7 +333,7 @@ Or a small array: `let p = [1.0, 2.0];` and index by position. Once struct/recor
 
 ---
 
-## 11. Mathematical notation (dense formulas)
+## 13. Mathematical notation (dense formulas)
 
 **Julia:** Looks like math; `*` for matrix multiply, `'` for transpose; good for linear algebra.
 
@@ -269,14 +353,253 @@ let dot = sum[i](x[i] * y[i]);
 
 ---
 
-## 12. Quick reference table
+## 14. Control flow: if, for, while
+
+**Julia:** `if` / `elseif` / `else` / `end`; `for x in iter ... end`; `while cond ... end`. No expression form for if (use ternary for expressions).
+
+```julia
+if x > 0
+    y = sqrt(x)
+elseif x == 0
+    y = 0.0
+else
+    y = -1.0
+end
+for i in 1:10
+    println(i)
+end
+while n > 0
+    n -= 1
+end
+```
+
+**Einlang:** `if` / `else if` / `else` with braces `{}`; **if is an expression** (returns a value). No `for` or `while`; use comprehensions, recurrence, or Einstein notation for iteration.
+
+```rust
+let y = if x > 0.0 { sqrt(x) } else if x == 0.0 { 0.0 } else { -1.0 };
+let squared = [i * i | i in 1..11];
+```
+
+---
+
+## 15. Blocks and statements
+
+**Julia:** Blocks use `end`; statements separated by newlines or `;`. No block expression returning a value (use `begin ... end` for a sequence that returns the last expression).
+
+```julia
+begin
+    a = 1
+    b = 2
+    a + b
+end
+```
+
+**Einlang:** Block with `{ }`; semicolons terminate statements. Block **returns** its final expression.
+
+```rust
+let result = {
+    let a = 1;
+    let b = 2;
+    a + b
+};
+```
+
+---
+
+## 16. Function definition forms
+
+**Julia:** Long form `function f(x) ... end`; short form `f(x) = x + 1`. Optional `return`; without it, the last expression is returned. Multiple methods (same name, different signatures).
+
+```julia
+function add(x, y)
+    x + y
+end
+double(x) = 2 * x
+```
+
+**Einlang:** Single form `fn name(params) { body }`. Body is an expression or block; no `return` keyword for final expression. One function name per scope (no overloading).
+
+```rust
+fn add(x, y) { x + y }
+fn double(x) { x * 2 }
+```
+
+---
+
+## 17. Anonymous functions (lambdas)
+
+**Julia:** `x -> x^2` or multi-line `function (x) x^2 end`. Used for callbacks and higher-order functions.
+
+```julia
+map(x -> x^2, [1, 2, 3])
+```
+
+**Einlang:** Lambda `|params| body` or `|params| { statements; expr }`. Immediately invoked: `(|x| x + 1)(5)`.
+
+```rust
+let sq = |x| x * x;
+let y = (|x| x + 1)(5);
+```
+
+---
+
+## 18. Modules and imports
+
+**Julia:** `module M ... end`; `using M` (bring names into scope) or `import M: f, g`. Namespaced: `M.f`.
+
+```julia
+module MyMod
+export foo
+foo(x) = x + 1
+end
+using .MyMod
+foo(2)
+```
+
+**Einlang:** File = module. `use path::name` or `use path::*`; `pub` for visibility. Namespaced: `std::math::sin`.
+
+```rust
+use std::math::{ sin, cos };
+use std::array::*;
+let x = sin(0.0);
+```
+
+---
+
+## 19. Operators (summary)
+
+**Julia:** Arithmetic `+ - * / % ^`; comparison `== != < > <= >=`; logical `&& || !`; string `*` (concat). Dot for broadcasting: `.+`, `.*`, etc.
+
+**Einlang:** Same arithmetic and comparison; `**` for power (not `^`). Logical `&&`, `||`, `!`. No string concat operator in reference (use interpolation or library). Broadcasting is default for same-rank/scalar; no dot.
+
+| Operator | Julia | Einlang |
+|----------|--------|---------|
+| Power | `^` | `**` |
+| Integer div | `÷` or `div` | `/` (truncates) |
+| And/Or/Not | `&&` `\|\|` `!` | same |
+| Equality | `==`, `!=` | same |
+
+---
+
+## 20. Comments
+
+**Julia:** `#` to end of line. No block comments in base syntax.
+
+**Einlang:** `#` and `//` to end of line (per reference).
+
+---
+
+## 21. Pattern matching
+
+**Julia:** No built-in pattern matching on values. Use `if`/`elseif`, or multiple dispatch on types.
+
+**Einlang:** **`match`** expression with arms: literals, wildcard `_`, identifiers. Exhaustiveness checked.
+
+```rust
+let label = match n { 0 => "zero", 1 => "one", _ => "other" };
+```
+
+---
+
+## 22. Exceptions and try
+
+**Julia:** `try` / `catch` / `finally`; `throw(ErrorException("msg"))`.
+
+**Einlang:** **Try expressions** are planned (`try expr` wrapping in Result). Not yet in the core reference.
+
+---
+
+## 23. Tuples
+
+**Julia:** `(a, b)` or `(1, "two", 3.0)`; immutable; index with `t[1]` (1-based). Named tuples: `(x=1, y=2)`.
+
+**Einlang:** `(a, b)`; immutable; access **only** with **dot**: `t.0`, `t.1` (0-based). No `t[0]`. No named tuples in reference.
+
+```rust
+let p = (1.0, 2.0);
+let x = p.0;
+let y = p.1;
+```
+
+---
+
+## 24. Other Julia syntax
+
+**Ternary**
+
+Julia: `cond ? a : b`. Einlang: use `if` as an expression: `if cond { a } else { b }`.
+
+```julia
+# Julia
+y = x > 0 ? sqrt(x) : 0.0
+```
+
+```rust
+// Einlang
+let y = if x > 0.0 { sqrt(x) } else { 0.0 };
+```
+
+**String interpolation**
+
+Julia: `"x = $x"` or `"sum = $(a + b)"`. Einlang: `"x = {x}"` or `"sum = {a + b}"`; format with `{expr:.4f}`.
+
+```rust
+let name = "world";
+let msg = "hello {name}";
+let fmt = "pi = {pi:.4f}";
+```
+
+**Do block (passing a block as first argument)**
+
+Julia: `open("file") do io ... end` passes a lambda as the first argument. Einlang: pass a lambda explicitly: `open("file", |io| { ... })`. No dedicated do-block syntax.
+
+**Pipe**
+
+Julia: `x |> f` or `x |> f |> g`. Einlang: pipeline operator `|>` is planned (e.g. `data |> normalize |> transform`). Not yet implemented.
+
+**Short-circuit**
+
+Julia: `a && b` (b evaluated only if a is true), `a || b`. Einlang: same; `&&` and `||` short-circuit.
+
+**Splat / varargs**
+
+Julia: `f(a, b...)` to accept or pass variable arguments. Einlang: no splat syntax in the current reference; use fixed-arity or arrays.
+
+---
+
+## 25. What Julia has that Einlang doesn’t
+
+- **Multiple dispatch**: many methods per function name; Einlang has one name per scope (monomorphization for untyped params).
+- **for / while loops**: Julia has both; Einlang uses comprehensions, recurrence, and Einstein notation instead.
+- **Linear indexing**: `M[1]` on a matrix is scalar in Julia; Einlang uses `M[i]` for row.
+- **Colon slices**: `M[:, j]`, `M[i, :]`; Einlang has `M[i]` for row, column via comprehension.
+- **Rational/complex literals**: `2//3`, `1+2im`; not in Einlang reference.
+- **Macros**: `@macro`; Einlang has no macro system.
+- **do-block**: `open(f) do io ... end`; Einlang uses explicit lambda.
+- **Named tuples**: `(x=1, y=2)`; Einlang has positional tuples only.
+- **1-based indexing**: Julia default; Einlang is 0-based.
+
+---
+
+## 26. What Einlang has that Julia doesn’t
+
+- **Where clauses**: index binding and guards in tensor expressions; Julia uses manual index math.
+- **Recurrence declarations**: `let fib[n] = ... where n in 2..N`; Julia uses loops or recursion.
+- **Einstein notation**: first-class `let C[i,j] = sum[k](A[i,k]*B[k,j])` with shape inference; Julia uses `*` and manual dims.
+- **Pattern matching**: `match x { ... }`; Julia uses dispatch or if.
+- **Tuple access**: only `.0`, `.1` (no `t[0]`); enforces distinction from arrays.
+- **Explicit let**: every binding is `let`; no implicit global assignment.
+
+---
+
+## 27. Quick reference table
 
 | Concept            | Julia                    | Einlang                                      |
 |--------------------|--------------------------|----------------------------------------------|
 | Vector/matrix      | `[1,2,3]`, `[1 2; 3 4]`  | `[1,2,3]`, `[[1,2],[3,4]]`                    |
 | Range              | `1:10` (inclusive)       | `1..11` (end exclusive)                      |
 | Comprehension      | `[x^2 for x in 1:10]`   | `[x*x \| x in 1..11]`                        |
-| Element-wise       | `f.(x)`, `a .+ b`       | `let out[i] = f(x[i]);` / `let out[i,j] = A[i,j]+B[i,j];` |
+| Element-wise       | `f.(x)`, `a .+ b`       | Same rank or scalar: `A + B`, `A * 2.0` (no explicit indexing); different rank: `let out[i,j] = A[i,j] + bias[j];` |
 | Matrix multiply    | `A * B`                 | `sum[k](A[i,k]*B[k,j])`                      |
 | Reduction          | `sum(A)`, `sum(A,dims=1)` | `sum[i,j](A[i,j])`, `sum[j](A[i,j])`       |
 | Index algebra      | Manual loops/indices     | `where ih = oh+kh, iw = ow+kw`               |
@@ -286,7 +609,7 @@ let dot = sum[i](x[i] * y[i]);
 
 ---
 
-## 13. Summary
+## 28. Summary
 
 - **Arrays, ranges, comprehensions:** Einlang uses 0-based exclusive ranges and `[expr \| gen, filter]` comprehensions; the ideas align with Julia.
 - **“Broadcasting”:** In Einlang, element-wise and scalar-tensor behavior is expressed with rectangular `let` and index variables; no separate dot operator.
