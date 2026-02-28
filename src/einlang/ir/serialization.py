@@ -1575,7 +1575,7 @@ class IRDeserializer:
             if tag == "tuple-type" and len(sexpr) >= 2:
                 from ..shared.types import TupleType
                 elem_sexprs = sexpr[1] if isinstance(sexpr[1], list) else []
-                element_types = [self._deserialize_type(e) for e in elem_sexprs]
+                element_types = tuple(self._deserialize_type(e) for e in elem_sexprs)
                 return TupleType(element_types=element_types)
         return None
 

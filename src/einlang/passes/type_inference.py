@@ -25,7 +25,7 @@ from ..ir.nodes import (
     BindingIR,
     is_function_binding,
 )
-from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp
+from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, TupleType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp
 from ..shared.defid import DefId, assert_defid
 from ..utils.config import DEFAULT_INT_TYPE, DEFAULT_FLOAT_TYPE
 from typing import Optional, Tuple, List, Dict, Any, Set
@@ -961,6 +961,13 @@ class TypeInferencer(IRVisitor[Type]):
         for idx in indices:
             if idx is not None and hasattr(idx, 'accept'):
                 idx.accept(self)
+        if isinstance(array_type, TupleType):
+            self.tcx.reporter.report_error(
+                "tuple access must use .0, .1, ... only; do not use bracket notation for tuples",
+                location=expr.location,
+            )
+            expr.type_info = UNKNOWN
+            return UNKNOWN
         if not isinstance(array_type, RectangularType):
             inferred_type = UNKNOWN
         else:
@@ -1478,15 +1485,12 @@ class TypeInferencer(IRVisitor[Type]):
         return tuple(shape)
     
     def visit_tuple_expression(self, expr) -> Type:
-        """Infer type of tuple expression"""
-        # Visit all elements to infer their types
+        """Infer type of tuple expression as TupleType so tuple access must use .0, .1 only."""
+        element_types: List[Type] = []
         for elem in expr.elements:
-            elem.accept(self)
-        # Tuples have heterogeneous types - return UNKNOWN for now
-        # TODO: Implement tuple type
-        inferred_type = UNKNOWN
-        
-        # Set type_info on IR node
+            et = elem.accept(self)
+            element_types.append(et if et is not None else UNKNOWN)
+        inferred_type = TupleType(tuple(element_types))
         expr.type_info = inferred_type
         return inferred_type
     
