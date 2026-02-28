@@ -25,16 +25,16 @@ Notes on well-designed syntax from Rust and Julia to inform Einlang. Not a spec�
 
 **Focus: inference first.** Backend will be MLIR, so **fusion is handled by the backend** (linalg, tiling, loop fusion). No need to express fusion in language syntax.
 
-**For inference + MLIR backend, no new language features are required.** The language already has what's needed for the forward pass (Einstein, stdlib, layers, activations). The work is lowering/export to MLIR, not new syntax. The list below is **optional improvements** (ergonomics, safety), not blockers. **Inference score:** 1 = low value for inference, 5 = high.
+**For inference + MLIR backend, no new language features are required.** The language already has what's needed for the forward pass (Einstein, stdlib, layers, activations). The work is lowering/export to MLIR, not new syntax. The list below is **optional improvements** (ergonomics, safety), not blockers. **Inference score:** 1 = low value for inference, 5 = high. **For deep learning** (training and inference): named dimensions are **critical**—batch/channel/sequence/head dims and clear errors matter at scale. Compile failures (type/shape errors) are not for user handling; the compiler rejects invalid programs.
 
 | Item | Inference score | Why |
 |------|------------------|-----|
 | **Arrows / pipelines** (already supported) | **5** | High. `input \|> preprocess \|> model \|> postprocess` is the natural inference composition pattern; pipeline `else`/`catch` fit error handling. Use them; no new feature needed. |
-| **Result type and `?`** | 4 | Load failures, shape errors, backend errors—typed propagation helps inference pipelines and tooling. |
+| **Named dimensions** | **4** | **Critical for deep learning.** batch/channels/sequence/heads in types and errors instead of dim 0/1/2; clearer debugging and IR for models and backends. |
 | **Patterns in function parameters** | 3 | Cleaner APIs for `fn forward((batch, dim), x)`-style; not required. |
 | **`if let`** | 2 | Occasional optional/config handling; full `match` is fine. |
 | **Refutability** | 2 | Catches bad destructuring at compile time; inference often fixed shapes, so lower impact. |
-| **Named dimensions** | 2 | Better diagnostics (e.g. "batch" vs "channels" in errors) and optional IR/backend metadata; not required for correctness—numeric shapes and inference already suffice. |
+| **Result type and `?`** | 1 | Only for *runtime* recoverable failures (e.g. I/O); not for compile failure. No high priority. |
 | **Automatic differentiation** | 1 | Not used in inference; forward only. |
 | **Mutation convention** | 1 | Inference is mostly pure; in-place matters more for training / buffer reuse. |
 
@@ -54,9 +54,9 @@ Notes on well-designed syntax from Rust and Julia to inform Einlang. Not a spec�
 - **Relevance:** Einlang has match exhaustiveness (pass), tuple/array/range/binding patterns. Consider: `if let pat = expr { ... }`, pattern in `for`/parameters, and consistent `..`/`_` semantics.
 
 ### Error handling: Result and `?`
-- `Result<T, E>` with `Ok`/`Err`. Recoverable errors in the type system.
+- `Result<T, E>` with `Ok`/`Err`. Recoverable *runtime* errors in the type system.
 - `?` on expressions that return `Result`: unwraps `Ok`, early-returns `Err` (with conversion). Keeps "happy path" readable.
-- **Relevance:** Einlang has `try expr` and catch. Could align with a Result-like type and a `?`-style operator for propagation.
+- **Relevance:** Einlang has `try expr` and catch. Result/`?` are for runtime failures (I/O, optional backend), not for compile failure—shape/type errors must stay compile-time; users do not handle them.
 
 ### Module and visibility
 - `mod`/`pub`/`use` with path-based namespacing (`std::math::sqrt`). Clear public API and discovery.
@@ -89,13 +89,19 @@ Notes on well-designed syntax from Rust and Julia to inform Einlang. Not a spec�
 
 ---
 
+## Implement later
+
+- **First-class generic function + auto infer:** When a generic function is assigned to a variable and passed to a higher-order function (e.g. `let f = id; apply_once(f, 42)`), infer the concrete instantiation from the call site (Rust-style). Mental model: the variable holds one concrete member of the generic family; inference picks which one from how it is used. Implement in monomorphization/type inference when prioritizing first-class generics.
+
+---
+
 ## Summary table
 
 | Area           | Rust                         | Julia                        | Einlang: supported → gap              |
 |----------------|------------------------------|------------------------------|--------------------------------------|
 | Control flow   | Expressions everywhere       | —                            | Supported: `if`/`match` as expressions |
 | Match          | Exhaustive, refutability      | —                            | Exhaustive ✓; gap: refutability, `if let` |
-| Errors         | `Result` + `?`               | —                            | Gap: `try`/catch only; no Result/`?`  |
+| Errors         | `Result` + `?` (runtime only) | —                            | Gap: `try`/catch only; Result/`?` only for runtime, not compile failure |
 | Modules        | `mod`/`pub`/paths             | —                            | Supported: `std::`, `pub fn`, `use`  |
 | Arrays/tensors | —                             | Multiple dispatch, broadcast | Supported: generics, Einstein; fusion via MLIR backend |
 | Comprehensions| —                             | `[f(x) for x in r]`, product  | Supported: `[expr \| i in range, guard]` |

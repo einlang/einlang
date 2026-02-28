@@ -142,11 +142,9 @@ output = runtime.execute(result)
 - NumPy interpreter backend (prototype)
 
 **Next**
-- Lambda execution as first-class values
-- Pipeline operators: `data |> normalize |> transform`
+- pymlir — lower Einlang to MLIR via Python (next step toward compiled execution)
 
 **Target**
-- Arrow combinators for ML graphs: `>>>` (sequential), `***` (parallel), `&&&` (fanout), `|||` (choice)
 - MLIR backend for compiled native execution
 - GPU acceleration
 
