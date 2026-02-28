@@ -456,7 +456,6 @@ class MonomorphizationService:
             statements=[specialized_func],
             modules=[],
             source_files={},
-            defid_to_name=None,
         )
         isolated = TyCtxt()
         isolated.resolver = self.tcx.resolver
@@ -513,7 +512,7 @@ class MonomorphizationService:
                         if hasattr(specialized_func, "return_type"):
                             object.__setattr__(specialized_func.expr, "return_type", getattr(new_func, "return_type", specialized_func.return_type))
                         object.__setattr__(mini, 'statements', [specialized_func])
-                        object.__setattr__(mini, '_bindings', [specialized_func])
+                        object.__setattr__(mini, 'bindings', [specialized_func])
                     else:
                         if new_func is not specialized_func and new_func.defid:
                             for inst, fn in list(self._registry.items()):
@@ -545,7 +544,7 @@ class MonomorphizationService:
                                     self.tcx.function_ir_map[extra.defid] = extra
                             iso_mono.clear_pending_specialized_functions()
                     object.__setattr__(mini, 'statements', [specialized_func])
-                    object.__setattr__(mini, '_bindings', [specialized_func])
+                    object.__setattr__(mini, 'bindings', [specialized_func])
             except Exception as e:
                 logger.warning("Pass %s failed for %s: %s", pass_name, specialized_func.name, e)
         self._analysis_cache[cache_key] = True

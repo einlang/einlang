@@ -121,12 +121,10 @@ class TypeInferencePass(BasePass):
             for f in pending_funcs:
                 if id(f) not in existing_ids:
                     ir.statements.append(f)
-                    ir._bindings.append(f)
+                    ir.bindings.append(f)
                     existing_ids.add(id(f))
                     if f.defid:
                         tcx.function_ir_map[f.defid] = f
-                        if f.defid not in ir.defid_to_name:
-                            ir.defid_to_name[f.defid] = getattr(f, 'name', '')
                     logger.debug(f"Added specialized function {f.name} with DefId {f.defid} to program IR and function_ir_map")
             inferencer.mono_service.clear_pending_specialized_functions()
             ir.accept(inferencer)

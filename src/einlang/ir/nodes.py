@@ -357,8 +357,6 @@ class FunctionCallIR(ExpressionIR):
     def set_callee_defid(self, defid: DefId) -> None:
         if isinstance(self.callee_expr, IdentifierIR):
             self.callee_expr.defid = defid
-        else:
-            raise TypeError("set_callee_defid requires callee_expr to be IdentifierIR")
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_function_call(self)
@@ -636,34 +634,35 @@ class ParameterIR(IRNode):
 
 class ProgramIR:
     """
-    Complete program in IR. statements is the preserved list (BindingIR and expression statements).
-    functions and constants are derived from bindings in statements.
+    Complete program in IR. statements is the preserved list (includes BindingIR and may include other statement types).
+    bindings/functions/constants are derived from statements.
     """
-    __slots__ = ('modules', 'statements', 'source_files', 'defid_to_name', '_bindings')
+    __slots__ = ('modules', 'statements', 'source_files', 'bindings')
 
     def __init__(self, statements: List[Any],
                  source_files: Optional[dict] = None, modules: Optional[List['ModuleIR']] = None,
-                 defid_to_name: Optional[Dict[DefId, str]] = None):
+                 **_kw: Any):
         self.statements = statements
+        self.bindings = [s for s in statements if isinstance(s, BindingIR)]
         self.source_files = source_files if source_files is not None else {}
         self.modules = modules if modules is not None else []
-        self._bindings = [s for s in statements if isinstance(s, BindingIR)]
-        d2n = dict(defid_to_name) if defid_to_name is not None else {}
-        for s in self._bindings:
+
+    @property
+    def defid_to_name(self) -> Dict[DefId, str]:
+        d2n: Dict[DefId, str] = {}
+        for s in self.bindings:
             did = getattr(s, 'defid', None)
-            if did is not None and did not in d2n:
+            if did is not None:
                 d2n[did] = getattr(s, 'name', '')
-        for k in d2n:
-            assert_defid(k, allow_none=False)
-        self.defid_to_name = d2n
+        return d2n
 
     @property
     def functions(self) -> List['BindingIR']:
-        return [b for b in self._bindings if is_function_binding(b)]
+        return [b for b in self.bindings if is_function_binding(b)]
 
     @property
     def constants(self) -> List['BindingIR']:
-        return [b for b in self._bindings if is_constant_binding(b)]
+        return [b for b in self.bindings if is_constant_binding(b)]
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_program(self)
@@ -1263,10 +1262,6 @@ class IRVisitor(ABC, Generic[T]):
         """Visit function call"""
         raise NotImplementedError
     
-    def visit_function_value_expr(self, node: 'FunctionValueIR') -> T:
-        """Visit function value expression (body of a function binding). Default: no-op."""
-        return None  # type: ignore[return-value]
-    
     @abstractmethod
     def visit_rectangular_access(self, node: RectangularAccessIR) -> T:
         """Visit rectangular array access"""
@@ -1455,12 +1450,20 @@ class IRVisitor(ABC, Generic[T]):
         """Visit range pattern: start..=end. Default: no-op."""
         return None  # type: ignore[return-value]
     
+    def visit_function_value_expr(self, node: 'FunctionValueIR') -> T:
+        if node.body is not None:
+            return node.body.accept(self)
+        return None  # type: ignore[return-value]
+
     def visit_einstein_value_expr(self, node: 'EinsteinIR') -> T:
-        """Visit Einstein expression (clauses list). Default: no-op."""
         return None  # type: ignore[return-value]
 
     def visit_einstein(self, node: EinsteinClauseIR) -> T:
         """Visit one Einstein clause. Default: no-op."""
+        return None  # type: ignore[return-value]
+
+    def visit_function_ref(self, node: Any) -> T:
+        """No longer used (FunctionRefIR removed; use visit_identifier). Default: no-op."""
         return None  # type: ignore[return-value]
 
     def visit_binding(self, node: 'BindingIR') -> T:

@@ -259,7 +259,6 @@ class CompilerDriver:
                             statements=all_stmts,
                             modules=getattr(ir, "modules", []) or [],
                             source_files=getattr(ir, "source_files", {}) or {},
-                            defid_to_name=getattr(ir, "defid_to_name", None),
                         )
                         (dump_dir / "after_einstein_lowering.sexpr").write_text(serialize_ir(combined), encoding="utf-8")
                     except Exception as e:
@@ -280,11 +279,8 @@ class CompilerDriver:
             for f in function_ir_map.values():
                 if f is not None and id(f) not in func_set:
                     ir.statements.append(f)
-                    ir._bindings.append(f)
+                    ir.bindings.append(f)
                     func_set.add(id(f))
-                    did = getattr(f, 'defid', None)
-                    if did is not None and did not in ir.defid_to_name:
-                        ir.defid_to_name[did] = getattr(f, 'name', '')
             
             from ..passes.tree_shaking import tree_shake
             ir = tree_shake(ir)

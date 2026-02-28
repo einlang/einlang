@@ -254,5 +254,5 @@ def tree_shake(ir: ProgramIR) -> ProgramIR:
     new_statements = [s for s in (ir.statements or [])
                       if not is_function_binding(s) or (getattr(s, 'defid', None) in kept_defids)]
     object.__setattr__(ir, 'statements', new_statements)
-    object.__setattr__(ir, '_bindings', [s for s in new_statements if isinstance(s, BindingIR)])
+    object.__setattr__(ir, 'bindings', [s for s in new_statements if isinstance(s, BindingIR)])
     return ir

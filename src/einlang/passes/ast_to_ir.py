@@ -210,7 +210,6 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         self._resolver_defid_to_lowered = {}
         self._build_resolver_defid_to_lowered()
         statements: List[Any] = []
-        defid_to_name: Dict[DefId, str] = {}
 
         from ..shared.nodes import FunctionDefinition
         from ..shared.nodes import ExpressionStatement, EinsteinDeclaration as ASTEinsteinDeclaration
@@ -226,28 +225,19 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
 
             if isinstance(stmt_ir, (FunctionDefIR, ConstantDefIR, BindingIR)):
                 statements.append(stmt_ir)
-                if isinstance(stmt_ir, BindingIR) and getattr(stmt_ir, 'defid', None):
-                    defid_to_name[stmt_ir.defid] = getattr(stmt_ir, 'name', '')
             elif isinstance(stmt_ir, ExpressionIR):
                 statements.append(stmt_ir)
 
         modules: List[Any] = []
         module_functions = self._lower_module_functions()
-        for f in module_functions:
-            statements.append(f)
-            if getattr(f, 'defid', None):
-                defid_to_name[f.defid] = getattr(f, 'name', '')
+        statements.extend(module_functions)
         nested_functions = [f for f in self._all_functions if f not in statements]
-        for f in nested_functions:
-            statements.append(f)
-            if getattr(f, 'defid', None):
-                defid_to_name[f.defid] = getattr(f, 'name', '')
+        statements.extend(nested_functions)
 
         return ProgramIR(
             statements=statements,
             source_files=self.tcx.source_files,
             modules=modules,
-            defid_to_name=defid_to_name
         )
     
     def _lower_module_functions(self) -> List[FunctionDefIR]:
