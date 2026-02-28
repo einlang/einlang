@@ -301,7 +301,7 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         detector = ImplicitRangeDetector(scope_stack, self.analyzer.tcx)
         detector._current_clause = None
         detector.infer_reduction_ranges_from_where(expr)
-        from ..ir.nodes import EinsteinIR, IdentifierIR, IndexVarIR
+        from ..ir.nodes import EinsteinClauseIR, IdentifierIR, IndexVarIR
         for loop_var_ident in (expr.loop_vars or []):
             if not isinstance(loop_var_ident, (IdentifierIR, IndexVarIR)):
                 continue

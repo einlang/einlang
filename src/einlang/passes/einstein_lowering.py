@@ -17,7 +17,7 @@ from ..shared.source_location import SourceLocation
 from ..shared.types import BinaryOp, infer_literal_type, UNKNOWN, PrimitiveType
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, IdentifierIR, IndexVarIR, IndexRestIR, ReductionExpressionIR,
-    WhereClauseIR, RangeIR, LiteralIR, EinsteinIR,
+    WhereClauseIR, RangeIR, LiteralIR, EinsteinClauseIR,
     LoopStructure, BindingIR, GuardCondition, is_einstein_binding, is_function_binding,
     LoweredEinsteinClauseIR, LoweredEinsteinIR, LoweredReductionIR, LoweredComprehensionIR,
     IRVisitor, RectangularAccessIR, MemberAccessIR,
@@ -285,7 +285,7 @@ class RestPatternReplacer(IRVisitor[ExpressionIR]):
         raise NotImplementedError("RestPatternReplacer should not visit BindingIR")
 
     def visit_einstein(self, node) -> ExpressionIR:
-        raise NotImplementedError("RestPatternReplacer should not visit EinsteinIR")
+        raise NotImplementedError("RestPatternReplacer should not visit EinsteinClauseIR")
     
     def visit_module(self, node) -> ExpressionIR:
         raise NotImplementedError("RestPatternReplacer should not visit Module")
@@ -460,8 +460,8 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             return None
         return self._lower_einstein_clause_to_lowered(node, clauses[0])
 
-    def _lower_einstein_clause_to_lowered(self, decl: BindingIR, clause: EinsteinIR) -> Optional[LoweredEinsteinIR]:
-        """Lower one Einstein clause (EinsteinIR) to LoweredEinsteinIR. Uses decl for rest expansion key and shape."""
+    def _lower_einstein_clause_to_lowered(self, decl: BindingIR, clause: EinsteinClauseIR) -> Optional[LoweredEinsteinIR]:
+        """Lower one Einstein clause (EinsteinClauseIR) to LoweredEinsteinIR. Uses decl for rest expansion key and shape."""
         import logging
         logger = logging.getLogger("einlang.passes.einstein_lowering")
         node = clause  # Use clause for indices, value, where_clause, variable_ranges
@@ -1355,7 +1355,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 return None
         return shape if shape else None
 
-    def _shape_from_clause_indices(self, clause: EinsteinIR, location: SourceLocation) -> Optional[List[ExpressionIR]]:
+    def _shape_from_clause_indices(self, clause: EinsteinClauseIR, location: SourceLocation) -> Optional[List[ExpressionIR]]:
         """Shape from LHS indices: per-dimension end (exclusive) so union of consecutive clauses is max(ends)."""
         out = []
         var_ranges = getattr(clause, "variable_ranges", None) or {}

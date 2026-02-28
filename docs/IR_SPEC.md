@@ -24,13 +24,13 @@ Convenience properties (delegate to `self.expr`):
 - `parameters` → `self.expr.parameters` (when `expr` is `FunctionValueIR`)
 - `body` → `self.expr.body` (when `expr` is `FunctionValueIR`)
 - `return_type` → `self.expr.return_type` (when `expr` is `FunctionValueIR`)
-- `clauses` → `self.expr.clauses` (when `expr` is `EinsteinExprIR`)
+- `clauses` → `self.expr.clauses` (when `expr` is `EinsteinIR`)
 
 ### Binding Kind Predicates
 
 ```python
 is_function_binding(b)   # expr is FunctionValueIR
-is_einstein_binding(b)   # expr is EinsteinExprIR
+is_einstein_binding(b)   # expr is EinsteinIR
 is_constant_binding(b)   # has defid, not function, not einstein
 ```
 
@@ -64,7 +64,7 @@ The default delegates to `node.expr.accept(self)`, which dispatches to the appro
 | `node.expr` type | Dispatches to |
 |---|---|
 | `FunctionValueIR` | `visit_function_value_expr` |
-| `EinsteinExprIR` | `visit_einstein_declaration_expr` |
+| `EinsteinIR` | `visit_einstein_value_expr` |
 | `LiteralIR` | `visit_literal` |
 | other `ExpressionIR` | the corresponding `visit_*` |
 
@@ -78,7 +78,7 @@ def visit_binding(self, node: BindingIR) -> T:
         # function-specific logic using node.name, node.defid, node.expr (FunctionValueIR)
         ...
     elif is_einstein_binding(node):
-        # einstein-specific logic using node.expr (EinsteinExprIR)
+        # einstein-specific logic using node.expr (EinsteinIR)
         ...
     else:
         # constant/variable logic
@@ -105,7 +105,7 @@ All expression nodes inherit from `ExpressionIR(IRNode)` with `__slots__ = ('typ
 
 Key value types for bindings:
 - `FunctionValueIR(ExpressionIR)` — `__slots__ = ('parameters', 'return_type', 'body', '_is_partially_specialized', '_generic_defid')`
-- `EinsteinExprIR(IRNode)` — `__slots__ = ('clauses', 'shape', 'element_type')`
+- `EinsteinIR(ExpressionIR)` — `__slots__ = ('clauses', 'shape', 'element_type')`
 - Any other expression for constants/variables
 
 ## Mutation Rules

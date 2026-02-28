@@ -18,7 +18,7 @@ from typing import List, Optional, Tuple, Dict, Any
 from ..passes.base import BasePass, TyCtxt
 from ..passes.einstein_grouping import EinsteinDeclarationGroupingPass
 from ..ir.nodes import (
-    ProgramIR, EinsteinIR, IRVisitor, IRNode, is_einstein_binding, is_function_binding,
+    ProgramIR, EinsteinClauseIR, IRVisitor, IRNode, is_einstein_binding, is_function_binding,
     FunctionDefIR, BlockExpressionIR, IfExpressionIR,
     IdentifierIR, IndexVarIR, IndexRestIR, RectangularAccessIR, ReductionExpressionIR,
     ExpressionIR, BinaryOpIR, UnaryOpIR, LiteralIR,
@@ -384,7 +384,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
             self.set_var(node.defid, len(clauses[0].indices) if clauses else 0)
         self.patterns_preprocessed += len(rest_pattern_indices)
     
-    def _validate_rest_patterns(self, node: EinsteinIR, output_rest_names: set) -> Optional[str]:
+    def _validate_rest_patterns(self, node: EinsteinClauseIR, output_rest_names: set) -> Optional[str]:
         """
         Validate rest patterns follow the determination-first rule.
         

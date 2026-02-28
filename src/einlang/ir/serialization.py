@@ -404,7 +404,7 @@ class IRSerializer:
     
     # === Einstein Declarations ===
     
-    def _serialize_EinsteinIR(self, node) -> list:
+    def _serialize_EinsteinClauseIR(self, node) -> list:
         """Serialize one Einstein clause (indices + value + variable_ranges)."""
         indices = [idx.name if hasattr(idx, 'name') else self.serialize_to_sexpr(idx) for idx in (getattr(node, 'indices', None) or [])]
         value = self.serialize_to_sexpr(node.value) if getattr(node, 'value', None) else [self._sym("nil")]
@@ -414,8 +414,8 @@ class IRSerializer:
         out.extend([self._sym(":variable_ranges"), var_ranges])
         return out
 
-    def _serialize_EinsteinExprIR(self, node) -> list:
-        """Serialize EinsteinExprIR (clauses list)."""
+    def _serialize_EinsteinIR(self, node) -> list:
+        """Serialize EinsteinIR (clauses list)."""
         clauses_sexpr = [self.serialize_to_sexpr(c) for c in (getattr(node, 'clauses', None) or [])]
         return [self._sym("einstein-expr"), self._sym(":clauses"), clauses_sexpr]
 
@@ -1353,13 +1353,13 @@ class IRDeserializer:
         return RangePatternIR(start=start, end=end, inclusive=inclusive, location=loc)
 
     def _deserialize_einstein_expr(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import EinsteinExprIR
+        from ..ir.nodes import EinsteinIR
         _, opts = _plist(tail)
         clauses_sexpr = opts.get(":clauses")
         if not isinstance(clauses_sexpr, list):
             clauses_sexpr = []
         clauses = [self.deserialize(c) for c in clauses_sexpr]
-        return EinsteinExprIR(clauses=clauses)
+        return EinsteinIR(clauses=clauses)
 
     def _deserialize_let_binding(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import BindingIR

@@ -21,7 +21,7 @@ from ..ir.nodes import (
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR, TuplePatternIR,
     IndexVarIR, IndexRestIR,
     ArrayPatternIR, RestPatternIR, GuardPatternIR, MatchArmIR,
-    EinsteinIR, EinsteinDeclarationIR,
+    EinsteinClauseIR, EinsteinDeclarationIR,
     VariableDeclarationIR,
     is_function_binding, is_einstein_binding, is_constant_binding,
 )
@@ -1679,7 +1679,7 @@ class TypeInferencer(IRVisitor[Type]):
                         out.extend(self._collect_identifier_defids_in_expr(sub, names))
         return out
 
-    def visit_einstein(self, node: EinsteinIR) -> Type:
+    def visit_einstein(self, node: EinsteinClauseIR) -> Type:
         """Infer type of one Einstein clause. Bind index DefIds; delegate to visit_index_var/visit_index_rest."""
         index_names = set()
         for idx in node.indices or []:
@@ -1766,7 +1766,7 @@ class TypeInferencer(IRVisitor[Type]):
                 if not _is_unknown_type(element_type):
                     source = "clauses_promoted"
         
-        # 2. Last resort: Check EinsteinExprIR's element_type attribute (if set by shape analysis)
+        # 2. Last resort: Check EinsteinIR's element_type attribute (if set by shape analysis)
         ein_expr_2 = getattr(node, 'expr', node)
         if element_type is None and hasattr(ein_expr_2, 'element_type') and ein_expr_2.element_type:
             et = ein_expr_2.element_type

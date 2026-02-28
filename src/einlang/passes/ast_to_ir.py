@@ -13,7 +13,7 @@ from typing import Optional, List, Union, Dict, Tuple, Any
 logger = logging.getLogger(__name__)
 from ..passes.base import BasePass, TyCtxt
 from ..ir.nodes import (
-    ProgramIR, ExpressionIR, BindingIR, FunctionDefIR, FunctionValueIR, ConstantDefIR, EinsteinExprIR,
+    ProgramIR, ExpressionIR, BindingIR, FunctionDefIR, FunctionValueIR, ConstantDefIR, EinsteinIR,
     LiteralIR, IdentifierIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     ParameterIR, BlockExpressionIR, IfExpressionIR, LambdaIR,
     ModuleIR, IRNode, RectangularAccessIR, JaggedAccessIR,
@@ -24,7 +24,7 @@ from ..ir.nodes import (
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
     OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR,
-    MatchArmIR, WhereClauseIR, EinsteinIR, PatternIR,
+    MatchArmIR, WhereClauseIR, EinsteinClauseIR, PatternIR,
     RangeIR, ArrayComprehensionIR,
     IndexVarIR,
 )
@@ -1486,7 +1486,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         return node.expr.accept(self)  # Just lower the expression
     
     def visit_einstein_declaration(self, node: ASTEinsteinDeclaration) -> Optional[BindingIR]:
-        """Lower Einstein declaration to BindingIR with expr=EinsteinExprIR(clauses=[...])."""
+        """Lower Einstein declaration to BindingIR with expr=EinsteinIR(clauses=[...])."""
         array_defid = getattr(node, 'defid', None)
         clause_irs: List[IRNode] = []
         for clause in node.clauses:
@@ -1496,7 +1496,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         if not clause_irs:
             return None
         loc = self._get_source_location(node)
-        einstein_expr = EinsteinExprIR(clauses=clause_irs, location=loc)
+        einstein_expr = EinsteinIR(clauses=clause_irs, location=loc)
         return BindingIR(
             name=node.array_name,
             expr=einstein_expr,
@@ -1505,7 +1505,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         )
 
     def _lower_einstein_clause(self, array_name: str, clause, node: ASTEinsteinDeclaration, array_defid: Optional[Any]) -> Optional[IRNode]:
-        """Lower one Einstein clause to EinsteinIR."""
+        """Lower one Einstein clause to EinsteinClauseIR."""
         location = self._get_source_location(clause) or self._get_source_location(node)
         value_ir = clause.value.accept(self)
         if not isinstance(value_ir, ExpressionIR):
@@ -1548,7 +1548,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             if constraints_ir:
                 where_clause_ir = WhereClauseIR(constraints=constraints_ir)
 
-        return EinsteinIR(
+        return EinsteinClauseIR(
             indices=indices_ir,
             value=value_ir,
             location=location,

@@ -953,9 +953,8 @@ def is_function_binding(binding: Any) -> bool:
 
 
 def is_einstein_binding(binding: Any) -> bool:
-    """True if binding is an Einstein declaration (expr is EinsteinExprIR)."""
-    expr = getattr(binding, 'expr', None)
-    return expr is not None and type(expr).__name__ == 'EinsteinExprIR'
+    """True if binding is an Einstein declaration (expr is EinsteinIR)."""
+    return isinstance(binding, BindingIR) and isinstance(getattr(binding, 'expr', None), EinsteinIR)
 
 
 def is_constant_binding(binding: Any) -> bool:
@@ -985,7 +984,7 @@ class LoweredIteration:
     """
     Unified lowered representation for all iteration constructs.
     
-    Used by BindingIR + EinsteinExprIR via composition.
+    Used by BindingIR + EinsteinIR via composition.
     
     Provides shared iteration structure:
     - body: The expression being iterated
@@ -1169,9 +1168,9 @@ class LoweredComprehensionIR(ExpressionIR):
         return "LoweredComprehensionIR(" + ", ".join(parts) + ")"
 
 
-# Einstein IR: one clause (indices, value, where_clause). EinsteinExprIR holds list of these.
+# Einstein IR: one clause (indices, value, where_clause). EinsteinIR holds list of EinsteinClauseIR.
 
-class EinsteinIR(IRNode):
+class EinsteinClauseIR(IRNode):
     """One Einstein clause. Holds indices, value, where_clause, and variable_ranges.
     Ranges are only on the clause (not on the binding). variable_ranges is keyed by DefId.
     Precision (element_type) is on the declaration; runtime receives it and passes it in."""
@@ -1203,21 +1202,24 @@ class EinsteinIR(IRNode):
         return visitor.visit_einstein(self)
 
 
-class EinsteinExprIR(IRNode):
-    """Einstein expression (RHS of binding): clauses list, shape, element_type. Used as BindingIR.expr for Einstein declarations."""
+class EinsteinIR(ExpressionIR):
+    """Einstein value (rvalue). Name/defid on BindingIR; this holds clauses, shape, element_type."""
     __slots__ = ('clauses', 'shape', 'element_type')
 
-    def __init__(self, clauses: Optional[List[EinsteinIR]] = None,
+    def __init__(self, clauses: Optional[List[EinsteinClauseIR]] = None,
                  shape: Optional[List[ExpressionIR]] = None,
                  element_type: Optional[Any] = None,
-                 location: Optional[SourceLocation] = None):
-        super().__init__(location or SourceLocation('', 0, 0))
+                 location: Optional[SourceLocation] = None,
+                 type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
+        super().__init__(location or SourceLocation('', 0, 0), type_info, shape_info)
         self.clauses = clauses if clauses is not None else []
         self.shape = shape
         self.element_type = element_type
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
-        return visitor.visit_einstein_declaration_expr(self)
+        return visitor.visit_einstein_value_expr(self)
+
+EinsteinExprIR = EinsteinIR
 
 
 # Type variable for visitor pattern
@@ -1453,11 +1455,11 @@ class IRVisitor(ABC, Generic[T]):
         """Visit range pattern: start..=end. Default: no-op."""
         return None  # type: ignore[return-value]
     
-    def visit_einstein_declaration_expr(self, node: 'EinsteinExprIR') -> T:
+    def visit_einstein_value_expr(self, node: 'EinsteinIR') -> T:
         """Visit Einstein expression (clauses list). Default: no-op."""
         return None  # type: ignore[return-value]
 
-    def visit_einstein(self, node: EinsteinIR) -> T:
+    def visit_einstein(self, node: EinsteinClauseIR) -> T:
         """Visit one Einstein clause. Default: no-op."""
         return None  # type: ignore[return-value]
 
