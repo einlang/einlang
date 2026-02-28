@@ -518,49 +518,6 @@ class EinlangTransformer(Transformer):
         """Handle logical AND binary expressions"""
         return self.expression_parser.parse_logical_and(meta, left, operator, right)
         
-    # =========================================================================  
-    # ARROW EXPRESSIONS FOR DL GRAPH CONSTRUCTION ✅
-    # =========================================================================
-    
-    def arrow_sequential_expr(self, meta: LarkMeta, *args) -> Union[ASTNode, ArrowExpression]:
-        """Handle sequential arrow expressions (A >>> B >>> C)"""
-        return self._build_arrow_expression(meta, ArrowOperator.SEQUENTIAL, *args)
-    
-    def arrow_parallel_expr(self, meta: LarkMeta, *args) -> Union[ASTNode, ArrowExpression]:
-        """Handle parallel arrow expressions (A *** B *** C)"""
-        return self._build_arrow_expression(meta, ArrowOperator.PARALLEL, *args)
-    
-    def arrow_fanout_expr(self, meta: LarkMeta, *args) -> Union[ASTNode, ArrowExpression]:
-        """Handle fanout arrow expressions (A &&& B &&& C)"""
-        return self._build_arrow_expression(meta, ArrowOperator.FANOUT, *args)
-    
-    def arrow_choice_expr(self, meta: LarkMeta, *args) -> Union[ASTNode, ArrowExpression]:
-        """Handle choice arrow expressions (A ||| B ||| C)"""
-        return self._build_arrow_expression(meta, ArrowOperator.CHOICE, *args)
-    
-    def _build_arrow_expression(self, meta: LarkMeta, operator: ArrowOperator, *args) -> Union[ASTNode, ArrowExpression]:
-        """Helper to build arrow expressions - reduces code duplication"""
-        if len(args) == 1:
-            # Single expression, no arrow operation
-            return args[0]
-        
-        # Multiple expressions connected by arrow operators
-        # args will be [expr, op, expr, op, expr, ...] for left-associative parsing
-        components = []
-        i = 0
-        while i < len(args):
-            if i % 2 == 0:  # Even indices are expressions
-                components.append(args[i])
-            # Odd indices are operators, skip them
-            i += 1
-        
-        location = self._extract_location(meta)
-        return ArrowExpression(operator=operator, components=components, location=location)
-    
-    def arrow_expr(self, meta: LarkMeta, child: ASTNode) -> ASTNode:
-        """Handle arrow_expr passthrough (arrow_expr: arrow_choice_expr)"""
-        return child
-        
     def equality_binary(self, meta: LarkMeta, left: ASTNode, operator: Token, right: ASTNode) -> BinaryExpression:
         """Handle equality binary expressions"""
         return self.expression_parser.parse_equality(meta, left, operator, right)

@@ -79,6 +79,7 @@ Local = int  # Deprecated: variable identity is DefId; kept for runtime/environm
 _LOCAL_CRATE = 0
 BUILTIN_CRATE = 1
 _BUILTIN_CRATE = BUILTIN_CRATE
+RUNTIME_CRATE = -1
 
 FIXED_BUILTIN_ORDER = (
     "assert", "print", "len", "typeof", "array_append", "shape", "sum", "max", "min",

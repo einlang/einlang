@@ -1,52 +1,52 @@
-# ml/shape_ops.ein - ONNX Shape Manipulation Operations
-# TensorRT ONNX Parser: ✅ Supported
+// ml/shape_ops.ein - ONNX Shape Manipulation Operations
+// TensorRT ONNX Parser: ✅ Supported
 
-# ============================================================================
-# ONNX Operator: Reshape
-# ============================================================================
+// ============================================================================
+// ONNX Operator: Reshape
+// ============================================================================
 
 pub fn reshape(data, shape) {
-    # ONNX Operator: Reshape
-    # 
-    # ONNX spec: Reshape(data, shape)
-    #   - data: input tensor
-    #   - shape: target shape (1D tensor of ints, or list)
-    #     Special values: 0 = copy from input, -1 = infer from other dimensions
-    # 
-    # Implementation: Supports common reshape patterns
-    #   - 1D to 2D: [N] -> [H, W] where N = H * W
-    #   - 2D to 1D: [H, W] -> [H*W]
-    #   - 2D to 2D: [H1, W1] -> [H2, W2] where H1*W1 = H2*W2
-    #   - 3D to 2D: [D, H, W] -> [D*H, W] or [D, H*W]
-    #   - 2D to 3D: [H, W] -> [D, H1, W1] where H*W = D*H1*W1
-    # 
-    # Limitations:
-    #   - shape must be provided as 1D array or explicit dimensions
-    #   - Total elements must match
-    #   - -1 inference limited to simple cases
-    # 
-    # TensorRT Support: ✅ Supported
+    // ONNX Operator: Reshape
+    // 
+    // ONNX spec: Reshape(data, shape)
+    //   - data: input tensor
+    //   - shape: target shape (1D tensor of ints, or list)
+    //     Special values: 0 = copy from input, -1 = infer from other dimensions
+    // 
+    // Implementation: Supports common reshape patterns
+    //   - 1D to 2D: [N] -> [H, W] where N = H * W
+    //   - 2D to 1D: [H, W] -> [H*W]
+    //   - 2D to 2D: [H1, W1] -> [H2, W2] where H1*W1 = H2*W2
+    //   - 3D to 2D: [D, H, W] -> [D*H, W] or [D, H*W]
+    //   - 2D to 3D: [H, W] -> [D, H1, W1] where H*W = D*H1*W1
+    // 
+    // Limitations:
+    //   - shape must be provided as 1D array or explicit dimensions
+    //   - Total elements must match
+    //   - -1 inference limited to simple cases
+    // 
+    // TensorRT Support: ✅ Supported
     
     assert(typeof(data) == "rectangular", "reshape: data must be rectangular");
     
     let data_rank = len(data.shape);
     let target_rank = len(shape);
     
-    # Rank-specific implementations
+    // Rank-specific implementations
     if data_rank == 1 && target_rank == 2 {
-        # 1D to 2D: [N] -> [H, W]
+        // 1D to 2D: [N] -> [H, W]
         let h = shape[0] as i32;
         let w = shape[1] as i32;
         let result[i in 0..h, j in 0..w] = data[i * w + j];
         result
     } else if data_rank == 2 && target_rank == 1 {
-        # 2D to 1D: [H, W] -> [H*W]
+        // 2D to 1D: [H, W] -> [H*W]
         let h = data.shape[0] as i32;
         let w = data.shape[1] as i32;
         let result[i in 0..(h * w)] = data[i / w, i % w];
         result
     } else if data_rank == 2 && target_rank == 2 {
-        # 2D to 2D: [H1, W1] -> [H2, W2]
+        // 2D to 2D: [H1, W1] -> [H2, W2]
         let h1 = data.shape[0] as i32;
         let w1 = data.shape[1] as i32;
         let h2 = shape[0] as i32;
@@ -54,7 +54,7 @@ pub fn reshape(data, shape) {
         let result[i in 0..h2, j in 0..w2] = data[(i * w2 + j) / w1, (i * w2 + j) % w1];
         result
     } else if data_rank == 3 && target_rank == 2 {
-        # 3D to 2D: [D, H, W] -> [D*H, W] or [D, H*W]
+        // 3D to 2D: [D, H, W] -> [D*H, W] or [D, H*W]
         let d = data.shape[0] as i32;
         let h = data.shape[1] as i32;
         let w = data.shape[2] as i32;
@@ -67,7 +67,7 @@ pub fn reshape(data, shape) {
         let result[i in 0..h2, j in 0..w2] = data[d_idx[i, j], h_idx[i, j], w_idx[i, j]];
         result
     } else if data_rank == 2 && target_rank == 3 {
-        # 2D to 3D: [H, W] -> [D, H1, W1]
+        // 2D to 3D: [H, W] -> [D, H1, W1]
         let h = data.shape[0] as i32;
         let w = data.shape[1] as i32;
         let d = shape[0] as i32;
@@ -77,34 +77,34 @@ pub fn reshape(data, shape) {
         let result[i in 0..d, j in 0..h1, k in 0..w1] = data[flat_idx[i, j, k] / w, flat_idx[i, j, k] % w];
         result
     } else {
-        # Fallback: return data unchanged for unsupported patterns
+        // Fallback: return data unchanged for unsupported patterns
         data
     }
 }
 
 
-# ============================================================================
-# ONNX Operator: Squeeze
-# ============================================================================
+// ============================================================================
+// ONNX Operator: Squeeze
+// ============================================================================
 
 pub fn squeeze(data, axes) {
-    # ONNX Operator: Squeeze
-    # 
-    # ONNX spec: Squeeze(data, axes)
-    #   - data: input tensor
-    #   - axes: axes to squeeze (1D tensor of ints, optional)
-    #     If not provided, squeeze all axes of size 1
-    # 
-    # Implementation: Supports common squeeze patterns
-    #   - Squeeze last axis: [N, M, 1] -> [N, M]
-    #   - Squeeze first axis: [1, N, M] -> [N, M]
-    #   - Squeeze middle axis: [N, 1, M] -> [N, M]
-    # 
-    # Limitations:
-    #   - axes must be provided as 1D array (first element used)
-    #   - Supports up to 4D tensors
-    # 
-    # TensorRT Support: ✅ Supported
+    // ONNX Operator: Squeeze
+    // 
+    // ONNX spec: Squeeze(data, axes)
+    //   - data: input tensor
+    //   - axes: axes to squeeze (1D tensor of ints, optional)
+    //     If not provided, squeeze all axes of size 1
+    // 
+    // Implementation: Supports common squeeze patterns
+    //   - Squeeze last axis: [N, M, 1] -> [N, M]
+    //   - Squeeze first axis: [1, N, M] -> [N, M]
+    //   - Squeeze middle axis: [N, 1, M] -> [N, M]
+    // 
+    // Limitations:
+    //   - axes must be provided as 1D array (first element used)
+    //   - Supports up to 4D tensors
+    // 
+    // TensorRT Support: ✅ Supported
     
     assert(typeof(data) == "rectangular", "squeeze: data must be rectangular");
     
@@ -112,13 +112,13 @@ pub fn squeeze(data, axes) {
     let axis = if len(axes) > 0 { axes[0] } else { -1 };
     let normalized_axis = if axis < 0 { axis + rank } else { axis };
     
-    # Rank-specific implementations
+    // Rank-specific implementations
     if rank == 2 {
-        # Squeeze axis 0: [1, N] -> [N]
+        // Squeeze axis 0: [1, N] -> [N]
         if normalized_axis == 0 && data.shape[0] == 1 {
             let result[i] = data[0, i];
             result
-        # Squeeze axis 1: [N, 1] -> [N]
+        // Squeeze axis 1: [N, 1] -> [N]
         } else if normalized_axis == 1 && data.shape[1] == 1 {
             let result[i] = data[i, 0];
             result
@@ -126,15 +126,15 @@ pub fn squeeze(data, axes) {
             data
         }
     } else if rank == 3 {
-        # Squeeze axis 0: [1, H, W] -> [H, W]
+        // Squeeze axis 0: [1, H, W] -> [H, W]
         if normalized_axis == 0 && data.shape[0] == 1 {
             let result[i, j] = data[0, i, j];
             result
-        # Squeeze axis 1: [H, 1, W] -> [H, W]
+        // Squeeze axis 1: [H, 1, W] -> [H, W]
         } else if normalized_axis == 1 && data.shape[1] == 1 {
             let result[i, j] = data[i, 0, j];
             result
-        # Squeeze axis 2: [H, W, 1] -> [H, W]
+        // Squeeze axis 2: [H, W, 1] -> [H, W]
         } else if normalized_axis == 2 && data.shape[2] == 1 {
             let result[i, j] = data[i, j, 0];
             result
@@ -142,19 +142,19 @@ pub fn squeeze(data, axes) {
             data
         }
     } else if rank == 4 {
-        # Squeeze axis 0: [1, C, H, W] -> [C, H, W]
+        // Squeeze axis 0: [1, C, H, W] -> [C, H, W]
         if normalized_axis == 0 && data.shape[0] == 1 {
             let result[i, j, k] = data[0, i, j, k];
             result
-        # Squeeze axis 1: [N, 1, H, W] -> [N, H, W]
+        // Squeeze axis 1: [N, 1, H, W] -> [N, H, W]
         } else if normalized_axis == 1 && data.shape[1] == 1 {
             let result[i, j, k] = data[i, 0, j, k];
             result
-        # Squeeze axis 2: [N, C, 1, W] -> [N, C, W]
+        // Squeeze axis 2: [N, C, 1, W] -> [N, C, W]
         } else if normalized_axis == 2 && data.shape[2] == 1 {
             let result[i, j, k] = data[i, j, 0, k];
             result
-        # Squeeze axis 3: [N, C, H, 1] -> [N, C, H]
+        // Squeeze axis 3: [N, C, H, 1] -> [N, C, H]
         } else if normalized_axis == 3 && data.shape[3] == 1 {
             let result[i, j, k] = data[i, j, k, 0];
             result
@@ -162,23 +162,23 @@ pub fn squeeze(data, axes) {
             data
         }
     } else if rank == 5 {
-        # Squeeze axis 0: [1, N, C, H, W] -> [N, C, H, W]
+        // Squeeze axis 0: [1, N, C, H, W] -> [N, C, H, W]
         if normalized_axis == 0 && data.shape[0] == 1 {
             let result[i, j, k, l] = data[0, i, j, k, l];
             result
-        # Squeeze axis 1: [N, 1, C, H, W] -> [N, C, H, W]
+        // Squeeze axis 1: [N, 1, C, H, W] -> [N, C, H, W]
         } else if normalized_axis == 1 && data.shape[1] == 1 {
             let result[i, j, k, l] = data[i, 0, j, k, l];
             result
-        # Squeeze axis 2: [N, C, 1, H, W] -> [N, C, H, W]
+        // Squeeze axis 2: [N, C, 1, H, W] -> [N, C, H, W]
         } else if normalized_axis == 2 && data.shape[2] == 1 {
             let result[i, j, k, l] = data[i, j, 0, k, l];
             result
-        # Squeeze axis 3: [N, C, H, 1, W] -> [N, C, H, W]
+        // Squeeze axis 3: [N, C, H, 1, W] -> [N, C, H, W]
         } else if normalized_axis == 3 && data.shape[3] == 1 {
             let result[i, j, k, l] = data[i, j, k, 0, l];
             result
-        # Squeeze axis 4: [N, C, H, W, 1] -> [N, C, H, W]
+        // Squeeze axis 4: [N, C, H, W, 1] -> [N, C, H, W]
         } else if normalized_axis == 4 && data.shape[4] == 1 {
             let result[i, j, k, l] = data[i, j, k, l, 0];
             result
@@ -191,26 +191,26 @@ pub fn squeeze(data, axes) {
 }
 
 
-# ============================================================================
-# ONNX Operator: Unsqueeze
-# ============================================================================
+// ============================================================================
+// ONNX Operator: Unsqueeze
+// ============================================================================
 
 pub fn unsqueeze(data, axes) {
-    # ONNX Operator: Unsqueeze
-    # 
-    # ONNX spec: Unsqueeze(data, axes)
-    #   - data: input tensor
-    #   - axes: axes to add (1D tensor of ints, required)
-    # 
-    # Implementation: Supports common unsqueeze patterns
-    #   - Unsqueeze at axis 0: [N, M] -> [1, N, M]
-    #   - Unsqueeze at axis -1: [N, M] -> [N, M, 1]
-    # 
-    # Limitations:
-    #   - axes must be provided as 1D array (first element used)
-    #   - Supports up to 4D tensors
-    # 
-    # TensorRT Support: ✅ Supported
+    // ONNX Operator: Unsqueeze
+    // 
+    // ONNX spec: Unsqueeze(data, axes)
+    //   - data: input tensor
+    //   - axes: axes to add (1D tensor of ints, required)
+    // 
+    // Implementation: Supports common unsqueeze patterns
+    //   - Unsqueeze at axis 0: [N, M] -> [1, N, M]
+    //   - Unsqueeze at axis -1: [N, M] -> [N, M, 1]
+    // 
+    // Limitations:
+    //   - axes must be provided as 1D array (first element used)
+    //   - Supports up to 4D tensors
+    // 
+    // TensorRT Support: ✅ Supported
     
     assert(typeof(data) == "rectangular", "unsqueeze: data must be rectangular");
     assert(len(axes) > 0, "unsqueeze: axes must be provided");
@@ -219,33 +219,33 @@ pub fn unsqueeze(data, axes) {
     let axis = axes[0];
     let normalized_axis = if axis < 0 { axis + rank + 1 } else { axis };
     
-    # Rank-specific implementations
+    // Rank-specific implementations
     if rank == 1 {
-        # Unsqueeze at 0: [N] -> [1, N]
+        // Unsqueeze at 0: [N] -> [1, N]
         if normalized_axis == 0 {
             let n = data.shape[0] as i32;
             let result[i in 0..1, j in 0..n] = data[j];
             result
-        # Unsqueeze at 1: [N] -> [N, 1]
+        // Unsqueeze at 1: [N] -> [N, 1]
         } else {
             let n = data.shape[0] as i32;
             let result[i in 0..n, j in 0..1] = data[i];
             result
         }
     } else if rank == 2 {
-        # Unsqueeze at 0: [H, W] -> [1, H, W]
+        // Unsqueeze at 0: [H, W] -> [1, H, W]
         if normalized_axis == 0 {
             let h = data.shape[0] as i32;
             let w = data.shape[1] as i32;
             let result[i in 0..1, j in 0..h, k in 0..w] = data[j, k];
             result
-        # Unsqueeze at 1: [H, W] -> [H, 1, W]
+        // Unsqueeze at 1: [H, W] -> [H, 1, W]
         } else if normalized_axis == 1 {
             let h = data.shape[0] as i32;
             let w = data.shape[1] as i32;
             let result[i in 0..h, j in 0..1, k in 0..w] = data[i, k];
             result
-        # Unsqueeze at 2: [H, W] -> [H, W, 1]
+        // Unsqueeze at 2: [H, W] -> [H, W, 1]
         } else {
             let h = data.shape[0] as i32;
             let w = data.shape[1] as i32;
@@ -253,28 +253,28 @@ pub fn unsqueeze(data, axes) {
             result
         }
     } else if rank == 3 {
-        # Unsqueeze at 0: [D, H, W] -> [1, D, H, W]
+        // Unsqueeze at 0: [D, H, W] -> [1, D, H, W]
         if normalized_axis == 0 {
             let d = data.shape[0] as i32;
             let h = data.shape[1] as i32;
             let w = data.shape[2] as i32;
             let result[i in 0..1, j in 0..d, k in 0..h, l in 0..w] = data[j, k, l];
             result
-        # Unsqueeze at 1: [D, H, W] -> [D, 1, H, W]
+        // Unsqueeze at 1: [D, H, W] -> [D, 1, H, W]
         } else if normalized_axis == 1 {
             let d = data.shape[0] as i32;
             let h = data.shape[1] as i32;
             let w = data.shape[2] as i32;
             let result[i in 0..d, j in 0..1, k in 0..h, l in 0..w] = data[i, k, l];
             result
-        # Unsqueeze at 2: [D, H, W] -> [D, H, 1, W]
+        // Unsqueeze at 2: [D, H, W] -> [D, H, 1, W]
         } else if normalized_axis == 2 {
             let d = data.shape[0] as i32;
             let h = data.shape[1] as i32;
             let w = data.shape[2] as i32;
             let result[i in 0..d, j in 0..h, k in 0..1, l in 0..w] = data[i, j, l];
             result
-        # Unsqueeze at 3: [D, H, W] -> [D, H, W, 1]
+        // Unsqueeze at 3: [D, H, W] -> [D, H, W, 1]
         } else {
             let d = data.shape[0] as i32;
             let h = data.shape[1] as i32;
@@ -288,31 +288,31 @@ pub fn unsqueeze(data, axes) {
 }
 
 
-# ============================================================================
-# ONNX Operator: Split
-# ============================================================================
+// ============================================================================
+// ONNX Operator: Split
+// ============================================================================
 
 pub fn split(data, split_sizes, axis) {
-    # ONNX Operator: Split
-    # 
-    # ONNX spec: Split(data, split, axis=0)
-    #   - data: input tensor
-    #   - split: lengths of splits (1D tensor, optional)
-    #   - axis: axis to split on (default 0)
-    # 
-    # Implementation: Supports splitting along common axes
-    #   - Split along axis 0: [N, M] -> [N1, M], [N2, M] where N1+N2=N
-    #   - Split along axis -1: [N, M] -> [N, M1], [N, M2] where M1+M2=M
-    # 
-    # Limitations:
-    #   - Returns first split only (Einlang limitation: single return value)
-    #   - split_sizes must be provided as 1D array (first element used)
-    #   - Supports up to 4D tensors
-    # 
-    # TensorRT Support: ✅ Supported
-    # 
-    # Note: ONNX Split returns multiple outputs. This implementation returns
-    # the first split. For multiple splits, call multiple times with adjusted indices.
+    // ONNX Operator: Split
+    // 
+    // ONNX spec: Split(data, split, axis=0)
+    //   - data: input tensor
+    //   - split: lengths of splits (1D tensor, optional)
+    //   - axis: axis to split on (default 0)
+    // 
+    // Implementation: Supports splitting along common axes
+    //   - Split along axis 0: [N, M] -> [N1, M], [N2, M] where N1+N2=N
+    //   - Split along axis -1: [N, M] -> [N, M1], [N, M2] where M1+M2=M
+    // 
+    // Limitations:
+    //   - Returns first split only (Einlang limitation: single return value)
+    //   - split_sizes must be provided as 1D array (first element used)
+    //   - Supports up to 4D tensors
+    // 
+    // TensorRT Support: ✅ Supported
+    // 
+    // Note: ONNX Split returns multiple outputs. This implementation returns
+    // the first split. For multiple splits, call multiple times with adjusted indices.
     
     assert(typeof(data) == "rectangular", "split: data must be rectangular");
     assert(len(split_sizes) > 0, "split: split_sizes must be provided");
@@ -321,49 +321,49 @@ pub fn split(data, split_sizes, axis) {
     let a = if axis < 0 { axis + rank } else { axis };
     let split_size = split_sizes[0] as i32;
     
-    # Rank-specific implementations
+    // Rank-specific implementations
     if rank == 1 {
-        # Split along axis 0
+        // Split along axis 0
         let result[i in 0..split_size] = data[i];
         result
     } else if rank == 2 {
-        # Split along axis 0: [N, M] -> [split_size, M]
+        // Split along axis 0: [N, M] -> [split_size, M]
         if a == 0 {
             let result[i in 0..split_size, j] = data[i, j];
             result
-        # Split along axis 1: [N, M] -> [N, split_size]
+        // Split along axis 1: [N, M] -> [N, split_size]
         } else {
             let result[i, j in 0..split_size] = data[i, j];
             result
         }
     } else if rank == 3 {
-        # Split along axis 0: [N, H, W] -> [split_size, H, W]
+        // Split along axis 0: [N, H, W] -> [split_size, H, W]
         if a == 0 {
             let result[i in 0..split_size, j, k] = data[i, j, k];
             result
-        # Split along axis 1: [N, H, W] -> [N, split_size, W]
+        // Split along axis 1: [N, H, W] -> [N, split_size, W]
         } else if a == 1 {
             let result[i, j in 0..split_size, k] = data[i, j, k];
             result
-        # Split along axis 2: [N, H, W] -> [N, H, split_size]
+        // Split along axis 2: [N, H, W] -> [N, H, split_size]
         } else {
             let result[i, j, k in 0..split_size] = data[i, j, k];
             result
         }
     } else if rank == 4 {
-        # Split along axis 0: [N, C, H, W] -> [split_size, C, H, W]
+        // Split along axis 0: [N, C, H, W] -> [split_size, C, H, W]
         if a == 0 {
             let result[i in 0..split_size, j, k, l] = data[i, j, k, l];
             result
-        # Split along axis 1: [N, C, H, W] -> [N, split_size, H, W]
+        // Split along axis 1: [N, C, H, W] -> [N, split_size, H, W]
         } else if a == 1 {
             let result[i, j in 0..split_size, k, l] = data[i, j, k, l];
             result
-        # Split along axis 2: [N, C, H, W] -> [N, C, split_size, W]
+        // Split along axis 2: [N, C, H, W] -> [N, C, split_size, W]
         } else if a == 2 {
             let result[i, j, k in 0..split_size, l] = data[i, j, k, l];
             result
-        # Split along axis 3: [N, C, H, W] -> [N, C, H, split_size]
+        // Split along axis 3: [N, C, H, W] -> [N, C, H, split_size]
         } else {
             let result[i, j, k, l in 0..split_size] = data[i, j, k, l];
             result
@@ -374,28 +374,28 @@ pub fn split(data, split_sizes, axis) {
 }
 
 
-# ============================================================================
-# ONNX Operator: Expand
-# ============================================================================
+// ============================================================================
+// ONNX Operator: Expand
+// ============================================================================
 
 pub fn expand(data, shape) {
-    # ONNX Operator: Expand
-    # 
-    # ONNX spec: Expand(data, shape)
-    #   - data: input tensor
-    #   - shape: target shape (1D tensor of ints)
-    # 
-    # Implementation: Broadcasts data to target shape
-    #   - [1, N] -> [M, N] (broadcast first dimension)
-    #   - [N, 1] -> [N, M] (broadcast second dimension)
-    #   - [1, 1] -> [M, N] (broadcast both dimensions)
-    # 
-    # Limitations:
-    #   - shape must be provided as 1D array
-    #   - Supports up to 4D tensors
-    #   - Broadcasting follows NumPy rules
-    # 
-    # TensorRT Support: ✅ Supported
+    // ONNX Operator: Expand
+    // 
+    // ONNX spec: Expand(data, shape)
+    //   - data: input tensor
+    //   - shape: target shape (1D tensor of ints)
+    // 
+    // Implementation: Broadcasts data to target shape
+    //   - [1, N] -> [M, N] (broadcast first dimension)
+    //   - [N, 1] -> [N, M] (broadcast second dimension)
+    //   - [1, 1] -> [M, N] (broadcast both dimensions)
+    // 
+    // Limitations:
+    //   - shape must be provided as 1D array
+    //   - Supports up to 4D tensors
+    //   - Broadcasting follows NumPy rules
+    // 
+    // TensorRT Support: ✅ Supported
     
     assert(typeof(data) == "rectangular", "expand: data must be rectangular");
     
@@ -403,47 +403,47 @@ pub fn expand(data, shape) {
     let target_rank = len(shape);
     assert(target_rank >= data_rank, "expand: target rank must be >= data rank");
     
-    # Rank-specific implementations
+    // Rank-specific implementations
     if data_rank == 1 && target_rank == 2 {
-        # [N] -> [M, N] (broadcast along first dimension)
+        // [N] -> [M, N] (broadcast along first dimension)
         let m = shape[0] as i32;
         let n = shape[1] as i32;
         let result[i in 0..m, j in 0..n] = data[j];
         result
     } else if data_rank == 2 && target_rank == 2 {
-        # [H1, W1] -> [H2, W2] (broadcast if size is 1)
+        // [H1, W1] -> [H2, W2] (broadcast if size is 1)
         let h1 = data.shape[0] as i32;
         let w1 = data.shape[1] as i32;
         let h2 = shape[0] as i32;
         let w2 = shape[1] as i32;
-        # Compute source indices with broadcasting: if dimension is 1, always use index 0
+        // Compute source indices with broadcasting: if dimension is 1, always use index 0
         let src_i[i in 0..h2, j in 0..w2] = if h1 == 1 { 0 } else { i % h1 };
         let src_j[i in 0..h2, j in 0..w2] = if w1 == 1 { 0 } else { j % w1 };
         let result[i in 0..h2, j in 0..w2] = data[src_i[i, j], src_j[i, j]];
         result
     } else if data_rank == 2 && target_rank == 3 {
-        # [H, W] -> [D, H, W] (broadcast along first dimension)
+        // [H, W] -> [D, H, W] (broadcast along first dimension)
         let h = data.shape[0] as i32;
         let w = data.shape[1] as i32;
         let d = shape[0] as i32;
         let result[i in 0..d, j in 0..h, k in 0..w] = data[j, k];
         result
     } else if data_rank == 3 && target_rank == 3 {
-        # [C1, H1, W1] -> [C2, H2, W2] (broadcast if size is 1)
+        // [C1, H1, W1] -> [C2, H2, W2] (broadcast if size is 1)
         let c1 = data.shape[0] as i32;
         let h1 = data.shape[1] as i32;
         let w1 = data.shape[2] as i32;
         let c2 = shape[0] as i32;
         let h2 = shape[1] as i32;
         let w2 = shape[2] as i32;
-        # Compute source indices with broadcasting: if dimension is 1, always use index 0
+        // Compute source indices with broadcasting: if dimension is 1, always use index 0
         let src_c[i in 0..c2, j in 0..h2, k in 0..w2] = if c1 == 1 { 0 } else { i % c1 };
         let src_h[i in 0..c2, j in 0..h2, k in 0..w2] = if h1 == 1 { 0 } else { j % h1 };
         let src_w[i in 0..c2, j in 0..h2, k in 0..w2] = if w1 == 1 { 0 } else { k % w1 };
         let result[i in 0..c2, j in 0..h2, k in 0..w2] = data[src_c[i, j, k], src_h[i, j, k], src_w[i, j, k]];
         result
     } else if data_rank == 3 && target_rank == 4 {
-        # [C, H, W] -> [N, C, H, W] (broadcast along first dimension)
+        // [C, H, W] -> [N, C, H, W] (broadcast along first dimension)
         let c = data.shape[0] as i32;
         let h = data.shape[1] as i32;
         let w = data.shape[2] as i32;
@@ -451,37 +451,37 @@ pub fn expand(data, shape) {
         let result[i in 0..n, j in 0..c, k in 0..h, l in 0..w] = data[j, k, l];
         result
     } else {
-        # Fallback: return data unchanged for unsupported patterns
+        // Fallback: return data unchanged for unsupported patterns
         data
     }
 }
 
 
-# ============================================================================
-# ONNX Operator: Shape
-# ============================================================================
+// ============================================================================
+// ONNX Operator: Shape
+// ============================================================================
 
 pub fn shape(data) {
-    # ONNX Operator: Shape
-    # 
-    # ONNX spec: Shape(data)
-    #   - data: input tensor
-    #   Returns: 1D tensor containing the shape of input
-    # 
-    # Implementation: Returns shape as 1D tensor
-    #   - [N, M] -> [N, M] (shape tensor)
-    # 
-    # Limitations:
-    #   - Returns shape as 1D array of floats (ONNX uses INT64)
-    #   - Limited by Einlang's dynamic shape support
-    # 
-    # TensorRT Support: ✅ IShapeLayer
+    // ONNX Operator: Shape
+    // 
+    // ONNX spec: Shape(data)
+    //   - data: input tensor
+    //   Returns: 1D tensor containing the shape of input
+    // 
+    // Implementation: Returns shape as 1D tensor
+    //   - [N, M] -> [N, M] (shape tensor)
+    // 
+    // Limitations:
+    //   - Returns shape as 1D array of floats (ONNX uses INT64)
+    //   - Limited by Einlang's dynamic shape support
+    // 
+    // TensorRT Support: ✅ IShapeLayer
     
     assert(typeof(data) == "rectangular", "shape: data must be rectangular");
     
     let rank = len(data.shape);
     
-    # Rank-specific implementations (Einlang limitation: cannot dynamically create arrays)
+    // Rank-specific implementations (Einlang limitation: cannot dynamically create arrays)
     if rank == 1 {
         let result[i in 0..1] = data.shape[i] as f32;
         result
@@ -495,7 +495,7 @@ pub fn shape(data) {
         let result[i in 0..4] = data.shape[i] as f32;
         result
     } else {
-        # Fallback: return first dimension only
+        // Fallback: return first dimension only
         let result[i in 0..1] = data.shape[0] as f32;
         result
     }

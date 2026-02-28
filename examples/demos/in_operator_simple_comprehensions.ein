@@ -1,70 +1,70 @@
-# Simple demonstration of 'in' operator in Einlang array comprehensions
-# Uses clean, working syntax patterns
+// Simple demonstration of 'in' operator in Einlang array comprehensions
+// Uses clean, working syntax patterns
 
 print("=== In Operator in Array Comprehensions ===");
 print();
 
-# =====================================================
-# Basic range filtering with 'in'
-# =====================================================
+// =====================================================
+// Basic range filtering with 'in'
+// =====================================================
 print("=== Range Filtering ===");
 
-# Numbers in a specific subrange
+// Numbers in a specific subrange
 let subrange = [x | x in 1..20, x in 5..15];
 print("Numbers 1-19 that are also in 5-14:", subrange);
 
-# Even numbers in a range
+// Even numbers in a range
 let evens_in_range = [x | x in 1..20, x % 2 == 0, x in 8..16]; 
 print("Even numbers 1-19 that are also in 8-15:", evens_in_range);
 
 print();
 
-# =====================================================
-# Array membership filtering
-# =====================================================
+// =====================================================
+// Array membership filtering
+// =====================================================
 print("=== Array Membership Filtering ===");
 
-# Filter by membership in another array
+// Filter by membership in another array
 let allowed = [2, 4, 6, 8, 10];
 let filtered_by_membership = [x | x in 1..12, x in allowed];
 print("Numbers 1-11 that are in [2,4,6,8,10]:", filtered_by_membership);
 
-# Exclude certain values
+// Exclude certain values
 let excluded = [3, 7, 9];
 let without_excluded = [x | x in 1..12, !(x in excluded)];
 print("Numbers 1-11 excluding [3,7,9]:", without_excluded);
 
 print();
 
-# =====================================================
-# Combining multiple 'in' conditions
-# =====================================================
+// =====================================================
+// Combining multiple 'in' conditions
+// =====================================================
 print("=== Multiple In Conditions ===");
 
-# Numbers that are in multiple sets
+// Numbers that are in multiple sets
 let set1 = [1, 2, 3, 4, 5, 6];
 let set2 = [4, 5, 6, 7, 8, 9];
 let intersection = [x | x in 1..10, x in set1, x in set2];
 print("Numbers 1-9 in both [1,2,3,4,5,6] and [4,5,6,7,8,9]:", intersection);
 
-# Numbers in range and specific set
+// Numbers in range and specific set
 let primes = [2, 3, 5, 7, 11, 13, 17, 19];
 let small_primes = [x | x in 1..15, x in primes, x < 10];
 print("Primes less than 10 in range 1-14:", small_primes);
 
 print();
 
-# =====================================================
-# Practical examples
-# =====================================================
+// =====================================================
+// Practical examples
+// =====================================================
 print("=== Practical Examples ===");
 
-# Filter valid scores
+// Filter valid scores
 let valid_grades = [60, 65, 70, 75, 80, 85, 90, 95];
 let passing_scores = [score | score in 0..101, score in valid_grades, score >= 70];
 print("Valid passing scores (>=70):", passing_scores);
 
-# Filter data within bounds and conditions  
+// Filter data within bounds and conditions  
 let bounds_and_condition = [x | x in 10..50, x % 5 == 0, x in [15, 25, 35, 45]];
 print("Multiples of 5 in range 10-49 that are also in [15,25,35,45]:", bounds_and_condition);
 

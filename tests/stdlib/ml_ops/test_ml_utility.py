@@ -137,19 +137,19 @@ def test_utility_clustered_accuracy(compiler, runtime):
 def test_size_all_ranks(compiler, runtime):
     """Test size operation across all supported ranks (0D, 1D, 2D, 3D)"""
     source = """use std::ml;
-    # 0D (scalar)
+    // 0D (scalar)
     let x_0d = 42.0;
     let size_0d = std::ml::size(x_0d);
     
-    # 1D
+    // 1D
     let x_1d = [1.0, 2.0, 3.0, 4.0];
     let size_1d = std::ml::size(x_1d);
     
-    # 2D
+    // 2D
     let x_2d = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
     let size_2d = std::ml::size(x_2d);
     
-    # 3D
+    // 3D
     let x_3d = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];
     let size_3d = std::ml::size(x_3d);
     """

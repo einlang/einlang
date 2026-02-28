@@ -1,15 +1,15 @@
-# UNIT TEST: Function Overloading
-# PURPOSE: Tests that same function names work for both scalars and tensors
-# VALUE: Essential for mathematical programming - users expect abs(x) to work everywhere
+// UNIT TEST: Function Overloading
+// PURPOSE: Tests that same function names work for both scalars and tensors
+// VALUE: Essential for mathematical programming - users expect abs(x) to work everywhere
 
 print("=== Testing Function Overloading ===");
 print();
 
-# =============================================================================
-# IMPORT OVERLOADED FUNCTIONS
-# =============================================================================
+// =============================================================================
+// IMPORT OVERLOADED FUNCTIONS
+// =============================================================================
 
-# Import mathematical functions that support overloading
+// Import mathematical functions that support overloading
 use std::math::abs;
 use std::math::sqrt;
 use std::math::pow;
@@ -20,26 +20,26 @@ use python::math;
 print("✓ Imported overloaded mathematical functions");
 print();
 
-# =============================================================================
-# TEST SCALAR OPERATIONS
-# =============================================================================
+// =============================================================================
+// TEST SCALAR OPERATIONS
+// =============================================================================
 
 print("1. Testing Scalar Operations:");
 
-# Test absolute value
+// Test absolute value
 let scalar_negative = -5.0;
 let abs_result = abs(scalar_negative);
 assert(abs_result == 5.0, "abs(-5.0) should be 5");
 print("  ✓ abs(-5.0) =", abs_result);
 
-# Test square root (with floating point tolerance)
+// Test square root (with floating point tolerance)
 let scalar_positive = 16.0;
 let sqrt_result = sqrt(scalar_positive);
 print("  ✓ sqrt(16.0) =", sqrt_result);
 let sqrt_diff = abs(sqrt_result - 4.0);
 assert(sqrt_diff < 0.001, "sqrt(16.0) should be approximately 4");
 
-# Test trigonometric functions
+// Test trigonometric functions
 let angle_zero = 0.0;
 let sin_result = math::sin(angle_zero);
 let cos_result = math::cos(angle_zero);
@@ -48,14 +48,14 @@ assert(cos_result == 1.0, "math::cos(0.0) should be 1");
 print("  ✓ math::sin(0.0) =", sin_result);
 print("  ✓ math::cos(0.0) =", cos_result);
 
-# Test power function
+// Test power function
 let base = 2.0;
 let exponent = 3.0;
 let pow_result = pow(base, exponent);
 assert(pow_result == 8.0, "pow(2.0, 3.0) should be 8");
 print("  ✓ pow(2.0, 3.0) =", pow_result);
 
-# Test min/max
+// Test min/max
 let a = 3.0;
 let b = 7.0;
 let min_result = min(a, b);
@@ -68,52 +68,52 @@ print("  ✓ max(3.0, 7.0) =", max_result);
 print("  ✓ All scalar operations passed!");
 print();
 
-# =============================================================================
-# TEST ARRAY OPERATIONS (Current Implementation)
-# =============================================================================
+// =============================================================================
+// TEST ARRAY OPERATIONS (Current Implementation)
+// =============================================================================
 
 print("2. Testing Array Operations:");
 
-# Test with simple arrays - current stdlib functions work element-wise where implemented
+// Test with simple arrays - current stdlib functions work element-wise where implemented
 let positive_array = [1, 4, 9, 16];
 let negative_array = [-2, -1, 1, 2];
 
-# These work with current implementations
+// These work with current implementations
 print("  Testing array inputs with current stdlib functions:");
 print("  positive_array =", positive_array);
 print("  negative_array =", negative_array);
 
-# Test what works with current implementation
-let mixed_sign_test = 5;  # Test individual elements;
+// Test what works with current implementation
+let mixed_sign_test = 5;  // Test individual elements;
 assert(abs(-5) == 5, "Individual element abs works");
 print("  ✓ Individual element operations work");
 
 print();
 
-# =============================================================================
-# TEST FUNCTION SIGNATURE CONSISTENCY
-# =============================================================================
+// =============================================================================
+// TEST FUNCTION SIGNATURE CONSISTENCY
+// =============================================================================
 
 print("3. Testing Function Signature Consistency:");
 
-# All these should use the SAME function name regardless of input type
+// All these should use the SAME function name regardless of input type
 print("  Same function names work for different input types:");
 print("  abs() works for scalars: abs(-3.14) =", abs(-3.14));
 print("  sqrt() works for scalars: sqrt(25) =", sqrt(25.0));
-  print("  math::sin() works for scalars: math::sin(1.57079) =", math::sin(1.57079));  # approximately π/2
+  print("  math::sin() works for scalars: math::sin(1.57079) =", math::sin(1.57079));  // approximately π/2
 
-# Note: Function references not yet supported in current implementation
+// Note: Function references not yet supported in current implementation
 print("  ✓ Function calls work consistently with same names");
 
 print();
 
-# =============================================================================
-# TEST IMPORT SYSTEM COMPATIBILITY
-# =============================================================================
+// =============================================================================
+// TEST IMPORT SYSTEM COMPATIBILITY
+// =============================================================================
 
 print("4. Testing Import System Compatibility:");
 
-# Test that imports work consistently
+// Test that imports work consistently
 print("  All functions imported via std::function_name syntax");
 print("  Functions available in current scope:");
 print("    - abs (imported from std::abs)");
@@ -121,7 +121,7 @@ print("    - sqrt (imported from std::sqrt)");
 print("    - sin, cos (imported from std::math)");
 print("    - pow, min, max (imported from std::math)");
 
-# Test that the same function name resolves correctly
+// Test that the same function name resolves correctly
 let test_abs_1 = abs(-42);
 let test_abs_2 = abs(-3.14159);
 assert(test_abs_1 == 42, "abs works consistently for integers");
@@ -131,43 +131,43 @@ print("  ✓ Same function name resolves consistently");
 
 print();
 
-# =============================================================================
-# TEST MATHEMATICAL CONSISTENCY
-# =============================================================================
+// =============================================================================
+// TEST MATHEMATICAL CONSISTENCY
+// =============================================================================
 
 print("5. Testing Mathematical Consistency:");
 
-# Test mathematical identities that should hold for any numeric type
+// Test mathematical identities that should hold for any numeric type
 let x = 5.0;
-let identity_1 = sqrt(pow(x, 2.0));  # sqrt(x²) = |x| for x ≥ 0;
+let identity_1 = sqrt(pow(x, 2.0));  // sqrt(x²) = |x| for x ≥ 0;
 let identity_diff = abs(identity_1 - x);
 assert(identity_diff < 0.001, "sqrt(pow(x, 2)) should approximately equal x for positive x");
 print("  ✓ Mathematical identity: sqrt(pow(5, 2)) =", identity_1);
 
 let y = -3.0;
 let identity_2 = abs(y);
-let identity_3 = sqrt(pow(y, 2.0));  # sqrt(y²) = |y|;
+let identity_3 = sqrt(pow(y, 2.0));  // sqrt(y²) = |y|;
 let identity_diff_2 = abs(identity_2 - identity_3);
 assert(identity_diff_2 < 0.001, "abs(y) should approximately equal sqrt(pow(y, 2))");
 print("  ✓ Mathematical identity: abs(-3) = sqrt(pow(-3, 2)) =", identity_2);
 
-# Test function composition
-let composed = abs(math::sin(-1.0));  # Should be same as abs(math::sin(1.0)) due to odd function;
+// Test function composition
+let composed = abs(math::sin(-1.0));  // Should be same as abs(math::sin(1.0)) due to odd function;
 let direct = abs(math::sin(1.0));
-# Note: Due to floating point precision, we check approximate equality
+// Note: Due to floating point precision, we check approximate equality
 let comp_diff = abs(composed - direct);
 assert(comp_diff < 0.001, "abs(math::sin(-x)) should approximately equal abs(math::sin(x))");
 print("  ✓ Function composition works: abs(math::sin(-1)) ≈ abs(math::sin(1))");
 
 print();
 
-# =============================================================================
-# TEST TYPE SYSTEM INTEGRATION
-# =============================================================================
+// =============================================================================
+// TEST TYPE SYSTEM INTEGRATION
+// =============================================================================
 
 print("6. Testing Type System Integration:");
 
-# Test that typeof works correctly with function results
+// Test that typeof works correctly with function results
 let int_result = abs(-42);
 let float_result = abs(-3.14);
 let sqrt_result_type = sqrt(16.0);
@@ -177,20 +177,20 @@ print("    typeof(abs(-42)) =", typeof(int_result));
 print("    typeof(abs(-3.14)) =", typeof(float_result)); 
 print("    typeof(sqrt(16)) =", typeof(sqrt_result_type));
 
-# Test that functions preserve reasonable types
+// Test that functions preserve reasonable types
 assert(typeof(int_result) == "i32", "abs of int should i32");
 assert(typeof(float_result) == "f32", "abs of float should f32");
-# sqrt always returns float (** with float exponent promotes to float)
-# Rust analogy: sqrt requires explicit cast (16 as f64).sqrt()
+// sqrt always returns float (** with float exponent promotes to float)
+// Rust analogy: sqrt requires explicit cast (16 as f64).sqrt()
 assert(typeof(sqrt_result_type) == "f32" || typeof(sqrt_result_type) == "f64", "sqrt should return float type");
 
 print("  ✓ Functions preserve appropriate types");
 
 print();
 
-# =============================================================================
-# FINAL VERIFICATION
-# =============================================================================
+// =============================================================================
+// FINAL VERIFICATION
+// =============================================================================
 
 print("7. Final Verification:");
 

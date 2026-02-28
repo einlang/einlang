@@ -30,7 +30,7 @@ class NumPyBackend(
     """
     NumPy backend (facade). Composes:
     - CoreExecutionMixin: execute, env, _call_function, resolve, program/module/function_def/constant_def
-    - ExpressionVisitorMixin: expression visit_* (literal through builtin_call, match, where, arrow, pipeline)
+    - ExpressionVisitorMixin: expression visit_* (literal through builtin_call, match, where, pipeline)
     - EinsteinExecutionMixin: lowered einstein, reduction, comprehension
     Env is DefId-keyed.
     """

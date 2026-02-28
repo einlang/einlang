@@ -1,8 +1,8 @@
-# CORE FEATURE: Scan Operations with Einstein Notation
-# PURPOSE: Demonstrates cumulative operations (cumsum, cumprod, cummax, etc.) using backward indexing
-# VALUE: Shows how Einstein notation naturally expresses scan/prefix operations
+// CORE FEATURE: Scan Operations with Einstein Notation
+// PURPOSE: Demonstrates cumulative operations (cumsum, cumprod, cummax, etc.) using backward indexing
+// VALUE: Shows how Einstein notation naturally expresses scan/prefix operations
 
-# Cumulative Sum - running totals
+// Cumulative Sum - running totals
 let data = [1, 2, 3, 4, 5];
 let cumsum[i in 0..5] = sum[k in 0..i+1](data[i-k]);
 
@@ -12,7 +12,7 @@ assert(cumsum[2] == 6, "cumsum[2] should be 1+2+3=6");
 assert(cumsum[3] == 10, "cumsum[3] should be 1+2+3+4=10");
 assert(cumsum[4] == 15, "cumsum[4] should be 1+2+3+4+5=15");
 
-# Cumulative Product - running products
+// Cumulative Product - running products
 let values = [2, 3, 1, 4];
 let cumprod[i in 0..4] = prod[k in 0..i+1](values[i-k]);
 
@@ -21,10 +21,10 @@ assert(cumprod[1] == 6, "cumprod[1] should be 2*3=6");
 assert(cumprod[2] == 6, "cumprod[2] should be 2*3*1=6");
 assert(cumprod[3] == 24, "cumprod[3] should be 2*3*1*4=24");
 
-# Cumulative Maximum - running max
+// Cumulative Maximum - running max
 let prices = [3, 1, 4, 1, 5, 9, 2];
-# Using fixed range approach for cummax
-let cummax = [3, 3, 4, 4, 5, 9, 9]; # Pre-computed for now due to dynamic range issues
+// Using fixed range approach for cummax
+let cummax = [3, 3, 4, 4, 5, 9, 9]; // Pre-computed for now due to dynamic range issues
 
 assert(cummax[0] == 3, "cummax[0] should be max(3)=3");
 assert(cummax[1] == 3, "cummax[1] should be max(1,3)=3");
@@ -34,10 +34,10 @@ assert(cummax[4] == 5, "cummax[4] should be max(5,1,4,1,3)=5");
 assert(cummax[5] == 9, "cummax[5] should be max(9,5,1,4,1,3)=9");
 assert(cummax[6] == 9, "cummax[6] should be max(2,9,5,1,4,1,3)=9");
 
-# Cumulative Minimum - running min
+// Cumulative Minimum - running min
 let temps = [25, 30, 18, 22, 15, 28];
-# Using fixed range approach for cummin
-let cummin = [25, 25, 18, 18, 15, 15]; # Pre-computed for now due to dynamic range issues
+// Using fixed range approach for cummin
+let cummin = [25, 25, 18, 18, 15, 15]; // Pre-computed for now due to dynamic range issues
 
 assert(cummin[0] == 25, "cummin[0] should be min(25)=25");
 assert(cummin[1] == 25, "cummin[1] should be min(30,25)=25");
@@ -46,20 +46,20 @@ assert(cummin[3] == 18, "cummin[3] should be min(22,18,30,25)=18");
 assert(cummin[4] == 15, "cummin[4] should be min(15,22,18,30,25)=15");
 assert(cummin[5] == 15, "cummin[5] should be min(28,15,22,18,30,25)=15");
 
-# Financial example: Cumulative returns
+// Financial example: Cumulative returns
 let daily_returns = [1.02, 0.98, 1.05, 0.99, 1.03];
-# Using fixed range approach for cum_returns
-let cum_returns = [1.02, 0.9996, 1.04958, 1.0390842, 1.0702567]; # Pre-computed for now
+// Using fixed range approach for cum_returns
+let cum_returns = [1.02, 0.9996, 1.04958, 1.0390842, 1.0702567]; // Pre-computed for now
 
-# Starting with $100, track portfolio value
+// Starting with $100, track portfolio value
 let initial_value = 100.0;
-let portfolio_value = [102.0, 99.96, 104.958, 103.90842, 107.02567]; # Pre-computed
+let portfolio_value = [102.0, 99.96, 104.958, 103.90842, 107.02567]; // Pre-computed
 
 assert(portfolio_value[0] == 102.0, "Day 0: $100 * 1.02 = $102");
-# Day 1: $100 * (1.02 * 0.98) = $100 * 0.9996 = $99.96
+// Day 1: $100 * (1.02 * 0.98) = $100 * 0.9996 = $99.96
 assert(portfolio_value[1] < 100.0, "Day 1: Portfolio should be below initial");
 
-# Statistical scan: Running average (using cumsum)
+// Statistical scan: Running average (using cumsum)
 let observations = [10, 20, 30, 40] as [f32];
 let running_avg[i in 0..4] = sum[k in 0..i+1](observations[k]) / (i as f32 + 1.0);
 
@@ -68,36 +68,36 @@ assert(running_avg[1] == 15.0, "running_avg[1] should be (10+20)/2=15");
 assert(running_avg[2] == 20.0, "running_avg[2] should be (10+20+30)/3=20");
 assert(running_avg[3] == 25.0, "running_avg[3] should be (10+20+30+40)/4=25");
 
-# Windowed scan: 3-element cumulative sum (sliding window)
+// Windowed scan: 3-element cumulative sum (sliding window)
 let stream = [1.0, 3.0, 2.0, 4.0, 6.0, 1.0, 5.0];
 let windowed_cumsum[i in 0..5] = sum[k in 0..3](stream[i-k]);
 
-# Each position sums the current element plus previous 2
+// Each position sums the current element plus previous 2
 assert(windowed_cumsum[2] == 6.0, "windowed_cumsum[2] should be 2+3+1=6");
 assert(windowed_cumsum[3] == 9.0, "windowed_cumsum[3] should be 4+2+3=9");
 assert(windowed_cumsum[4] == 12.0, "windowed_cumsum[4] should be 6+4+2=12");
 
-# Text processing: Cumulative character count
+// Text processing: Cumulative character count
 let words = ["hi", "bye", "hello"];
-let word_lengths = [2, 3, 5];  # len(words[i])
-# Using fixed range approach for total_chars
-let total_chars = [2, 5, 10]; # Pre-computed for now due to dynamic range issues
+let word_lengths = [2, 3, 5];  // len(words[i])
+// Using fixed range approach for total_chars
+let total_chars = [2, 5, 10]; // Pre-computed for now due to dynamic range issues
 
 assert(total_chars[0] == 2, "total_chars[0] should be 2");
 assert(total_chars[1] == 5, "total_chars[1] should be 2+3=5");
 assert(total_chars[2] == 10, "total_chars[2] should be 2+3+5=10");
 
-# Signal processing: Cumulative energy
+// Signal processing: Cumulative energy
 let signal_values = [2, -1, 3, -2, 4];
-# Using fixed range approach for signal_energy
-let signal_energy = [4, 5, 14, 18, 34]; # Pre-computed for now due to dynamic range issues
+// Using fixed range approach for signal_energy
+let signal_energy = [4, 5, 14, 18, 34]; // Pre-computed for now due to dynamic range issues
 
 assert(signal_energy[0] == 4, "signal_energy[0] should be 2²=4");
 assert(signal_energy[1] == 5, "signal_energy[1] should be 2²+(-1)²=5");
 assert(signal_energy[2] == 14, "signal_energy[2] should be 2²+(-1)²+3²=14");
 
-# All scan operations demonstrate the power of backward indexing pattern
-# Pattern: result[i] = operation[k](data[i-k]) where k in 0..i+1
+// All scan operations demonstrate the power of backward indexing pattern
+// Pattern: result[i] = operation[k](data[i-k]) where k in 0..i+1
 print("✅ All scan operation tests passed!");
 
-# All scan operation tests verified with assertions
+// All scan operation tests verified with assertions

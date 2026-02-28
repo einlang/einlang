@@ -1,8 +1,8 @@
-# CORE FEATURE: Object Method Patterns and Function Calls
-# PURPOSE: Tests function call patterns and object operation methods
-# VALUE: Essential for function invocation and object manipulation patterns
+// CORE FEATURE: Object Method Patterns and Function Calls
+// PURPOSE: Tests function call patterns and object operation methods
+// VALUE: Essential for function invocation and object manipulation patterns
 
-# Test function call patterns
+// Test function call patterns
 fn double(n) {
     n * 2
 }
@@ -15,7 +15,7 @@ fn multiply_array(arr, factor) {
     [x * factor | x in arr]
 }
 
-# Test basic function calls
+// Test basic function calls
 let doubled_val = double(7);
 let sum_result = add_numbers(1, 2, 3);
 let test_data = [1, 2, 3, 4];
@@ -26,7 +26,7 @@ assert(sum_result == 6, "add_numbers(1,2,3) should be 6");
 assert(multiplied_data[0] == 3, "First multiplied element should be 3");
 assert(multiplied_data[3] == 12, "Fourth multiplied element should be 12");
 
-# Test function calls with computed values
+// Test function calls with computed values
 let computed_input = [x | x in 1..4];
 let computed_result = multiply_array(computed_input, 2);
 
@@ -34,7 +34,7 @@ assert(len(computed_result) == 3, "Computed result should have 3 elements");
 assert(computed_result[0] == 2, "First computed result should be 2");
 assert(computed_result[2] == 6, "Third computed result should be 6");
 
-# Test nested function calls
+// Test nested function calls
 fn square(n) {
     n * n
 }
@@ -46,9 +46,9 @@ fn sum_of_squares(a, b) {
 let nested_result = sum_of_squares(3, 4);
 assert(nested_result == 25, "sum_of_squares(3,4) should be 25 (9+16)");
 
-# Test function calls with arrays
+// Test function calls with arrays
 fn array_sum(arr) {
-    # Functional approach without assignments
+    // Functional approach without assignments
     let sum1 = if (len(arr) > 0) { arr[0] } else { 0 };
     let sum2 = if (len(arr) > 1) { sum1 + arr[1] } else { sum1 };
     let sum3 = if (len(arr) > 2) { sum2 + arr[2] } else { sum2 };
@@ -59,7 +59,7 @@ fn array_sum(arr) {
 let sum_test = array_sum([10, 20, 30, 40]);
 assert(sum_test == 100, "array_sum should 100");
 
-# Test function calls with string parameters
+// Test function calls with string parameters
 fn string_processor(str, multiplier) {
     str.length * multiplier
 }
@@ -67,12 +67,12 @@ fn string_processor(str, multiplier) {
 let string_result = string_processor("hello", 3);
 assert(string_result == 15, "String processor should 15 (5*3)");
 
-# Test conditional function calls
+// Test conditional function calls
 fn conditional_processor(value, threshold) {
     if (value > threshold) {
         (value * 2) as f32
     } else {
-        (value as f32) / 2.0  # Cast value to f32 before division
+        (value as f32) / 2.0  // Cast value to f32 before division
     }
 }
 
@@ -82,7 +82,7 @@ let cond_result2 = conditional_processor(3, 5);
 assert(cond_result1 == 20.0, "Value > threshold should double (10*2=20)");
 assert(cond_result2 == 1.5, "Value <= threshold should halve (3/2=1.5)");
 
-# Test function calls returning arrays
+// Test function calls returning arrays
 fn create_range(start, end) {
     [x | x in start..end]
 }

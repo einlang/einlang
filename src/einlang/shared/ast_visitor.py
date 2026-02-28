@@ -303,10 +303,6 @@ class ASTVisitor(ABC, Generic[T]):
         if node.end:
             node.end.accept(self)
     
-    def visit_arrow_expression(self, node) -> T:
-        for component in node.components:
-            component.accept(self)
-    
     # Pattern matching
     def visit_match_expression(self, node) -> T:
         """Visit match expression - default implementation visits scrutinee and patterns only"""

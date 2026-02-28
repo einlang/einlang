@@ -1,47 +1,47 @@
-# ml/indexing_ops.ein - ONNX Indexing Operations
-# TensorRT ONNX Parser: ✅ Supported
+// ml/indexing_ops.ein - ONNX Indexing Operations
+// TensorRT ONNX Parser: ✅ Supported
 
-# ============================================================================
-# ONNX Operator: Gather
-# Pattern: result[..., i_axis, ...] = data[..., indices[i_axis], ...]
-# ============================================================================
+// ============================================================================
+// ONNX Operator: Gather
+// Pattern: result[..., i_axis, ...] = data[..., indices[i_axis], ...]
+// ============================================================================
 
 pub fn gather(data, indices, axis) {
-    # ONNX Gather operator
-    # 
-    # ONNX spec: Gather(data, indices, axis=0)
-    #   - data: tensor (rank r >= 1)
-    #   - indices: tensor (any rank q >= 0)
-    #   - axis: scalar int attribute (default 0, can be negative)
-    # 
-    # Implementation: Supports 1D indices with rank dispatch
-    #   - data: tensor (rank 1-4)
-    #   - indices: 1D tensor
-    #   - axis: scalar int (supports negative indexing)
-    # 
-    # Limitations:
-    #   - indices must be 1D
-    #   - data rank limited to 1-4
+    // ONNX Gather operator
+    // 
+    // ONNX spec: Gather(data, indices, axis=0)
+    //   - data: tensor (rank r >= 1)
+    //   - indices: tensor (any rank q >= 0)
+    //   - axis: scalar int attribute (default 0, can be negative)
+    // 
+    // Implementation: Supports 1D indices with rank dispatch
+    //   - data: tensor (rank 1-4)
+    //   - indices: 1D tensor
+    //   - axis: scalar int (supports negative indexing)
+    // 
+    // Limitations:
+    //   - indices must be 1D
+    //   - data rank limited to 1-4
     
     let rank = len(data.shape);
     let a = if axis < 0 { axis + rank } else { axis };
     
-    # Rank 1
+    // Rank 1
     if rank == 1 {
         let result[i] = data[indices[i]]; result
-    # Rank 2: axis ∈ {0, 1}
+    // Rank 2: axis ∈ {0, 1}
     } else if rank == 2 && a == 0 {
         let result[i, j] = data[indices[i], j]; result
     } else if rank == 2 {
         let result[i, j] = data[i, indices[j]]; result
-    # Rank 3: axis ∈ {0, 1, 2}
+    // Rank 3: axis ∈ {0, 1, 2}
     } else if rank == 3 && a == 0 {
         let result[i, j, k] = data[indices[i], j, k]; result
     } else if rank == 3 && a == 1 {
         let result[i, j, k] = data[i, indices[j], k]; result
     } else if rank == 3 {
         let result[i, j, k] = data[i, j, indices[k]]; result
-    # Rank 4: axis ∈ {0, 1, 2, 3}
+    // Rank 4: axis ∈ {0, 1, 2, 3}
     } else if rank == 4 && a == 0 {
         let result[i, j, k, l] = data[indices[i], j, k, l]; result
     } else if rank == 4 && a == 1 {
@@ -54,34 +54,34 @@ pub fn gather(data, indices, axis) {
 }
 
 
-# ============================================================================
-# ONNX Operator: GatherElements  
-# Pattern: result[i, j, ...] = data[..., indices[i, j, ...], ...]
-# ============================================================================
+// ============================================================================
+// ONNX Operator: GatherElements  
+// Pattern: result[i, j, ...] = data[..., indices[i, j, ...], ...]
+// ============================================================================
 
 pub fn gather_elements(data, indices, axis) {
-    # Gathers elements using same-rank indices tensor
-    # Supports ranks 1-4; axis can be positive or normalized negative
+    // Gathers elements using same-rank indices tensor
+    // Supports ranks 1-4; axis can be positive or normalized negative
     
     let rank = len(data.shape);
     let a = if axis < 0 { axis + rank } else { axis };
     
-    # Rank 1
+    // Rank 1
     if rank == 1 {
         let result[i] = data[indices[i]]; result
-    # Rank 2: axis ∈ {0, 1}
+    // Rank 2: axis ∈ {0, 1}
     } else if rank == 2 && a == 0 {
         let result[i, j] = data[indices[i, j], j]; result
     } else if rank == 2 {
         let result[i, j] = data[i, indices[i, j]]; result
-    # Rank 3: axis ∈ {0, 1, 2}
+    // Rank 3: axis ∈ {0, 1, 2}
     } else if rank == 3 && a == 0 {
         let result[i, j, k] = data[indices[i, j, k], j, k]; result
     } else if rank == 3 && a == 1 {
         let result[i, j, k] = data[i, indices[i, j, k], k]; result
     } else if rank == 3 {
         let result[i, j, k] = data[i, j, indices[i, j, k]]; result
-    # Rank 4: axis ∈ {0, 1, 2, 3}
+    // Rank 4: axis ∈ {0, 1, 2, 3}
     } else if rank == 4 && a == 0 {
         let result[i, j, k, l] = data[indices[i, j, k, l], j, k, l]; result
     } else if rank == 4 && a == 1 {
@@ -94,28 +94,28 @@ pub fn gather_elements(data, indices, axis) {
 }
 
 
-# ============================================================================
-# ONNX Operator: ScatterElements
-# Pattern: output = copy(data); for each idx: output[..., indices[idx], ...] = updates[idx]
-# ============================================================================
+// ============================================================================
+// ONNX Operator: ScatterElements
+// Pattern: output = copy(data); for each idx: output[..., indices[idx], ...] = updates[idx]
+// ============================================================================
 
 pub fn scatter_elements(data, indices, updates, axis) {
-    # Scatters updates into data using indicator function (cannot use direct write in Einstein)
-    # Supports ranks 1-3 (4D would require 4 nested sums - prohibitively expensive)
+    // Scatters updates into data using indicator function (cannot use direct write in Einstein)
+    // Supports ranks 1-3 (4D would require 4 nested sums - prohibitively expensive)
     
     let rank = len(data.shape);
     let a = if axis < 0 { axis + rank } else { axis };
     
-    # Rank 1
+    // Rank 1
     if rank == 1 {
         let n_updates = len(updates) as i32;
         let n_data = len(data) as i32;
-        # Use scatter_nd pattern (sum-based) which works with outer variables
-        # For "last wins" semantics, we process updates in order and each update replaces the previous
-        # Since sum processes in order, the last update that matches will be the final value
-        # Strategy: result[i] = data[i] + sum of (updates[k] - data[i]) for all k where indices[k] == i
-        # This effectively replaces data[i] with the last update (since later updates overwrite earlier ones in the sum)
-        # Note: This accumulates all updates, not just the last one - but for now this is a workaround
+        // Use scatter_nd pattern (sum-based) which works with outer variables
+        // For "last wins" semantics, we process updates in order and each update replaces the previous
+        // Since sum processes in order, the last update that matches will be the final value
+        // Strategy: result[i] = data[i] + sum of (updates[k] - data[i]) for all k where indices[k] == i
+        // This effectively replaces data[i] with the last update (since later updates overwrite earlier ones in the sum)
+        // Note: This accumulates all updates, not just the last one - but for now this is a workaround
         let result[i in 0..n_data] = data[i] + sum[k in 0..n_updates](
             if (indices[k] as i32) == i {
                 updates[k] - data[i]
@@ -124,13 +124,13 @@ pub fn scatter_elements(data, indices, updates, axis) {
             }
         );
         result
-    # Rank 2: axis ∈ {0, 1}
+    // Rank 2: axis ∈ {0, 1}
     } else if rank == 2 && a == 0 {
         let n_updates_0 = len(updates) as i32;
         let n_data_0 = len(data) as i32;
         let n_data_1 = len(data[0]) as i32;
-        # Find last update k that targets position (i,j) along axis 0
-        # Since we require l==j, we can use j directly instead of iterating over l
+        // Find last update k that targets position (i,j) along axis 0
+        // Since we require l==j, we can use j directly instead of iterating over l
         let last_k[i in 0..n_data_0, j in 0..n_data_1] = max[k in 0..n_updates_0](
             if indices[k, j] == i { k } else { -1 }
         );
@@ -144,8 +144,8 @@ pub fn scatter_elements(data, indices, updates, axis) {
         let n_updates_1 = len(updates[0]) as i32;
         let n_data_0 = len(data) as i32;
         let n_data_1 = len(data[0]) as i32;
-        # Find last update l that targets position (i,j) along axis 1
-        # Since we require k==i, we can use i directly instead of iterating over k
+        // Find last update l that targets position (i,j) along axis 1
+        // Since we require k==i, we can use i directly instead of iterating over k
         let last_l[i in 0..n_data_0, j in 0..n_data_1] = max[l in 0..n_updates_1](
             if indices[i, l] == j { l } else { -1 }
         );
@@ -155,14 +155,14 @@ pub fn scatter_elements(data, indices, updates, axis) {
             data[i, j]
         };
         result
-    # Rank 3: axis ∈ {0, 1, 2}
+    // Rank 3: axis ∈ {0, 1, 2}
     } else if rank == 3 && a == 0 {
         let n_updates_0 = len(updates) as i32;
         let n_data_0 = len(data) as i32;
         let n_data_1 = len(data[0]) as i32;
         let n_data_2 = len(data[0][0]) as i32;
-        # Find last update m that targets position (i,j,k) along axis 0
-        # Since we require n==j && p==k, we can use j and k directly
+        // Find last update m that targets position (i,j,k) along axis 0
+        // Since we require n==j && p==k, we can use j and k directly
         let last_m[i in 0..n_data_0, j in 0..n_data_1, k in 0..n_data_2] = max[m in 0..n_updates_0](
             if indices[m, j, k] == i { m } else { -1 }
         );
@@ -177,8 +177,8 @@ pub fn scatter_elements(data, indices, updates, axis) {
         let n_data_0 = len(data) as i32;
         let n_data_1 = len(data[0]) as i32;
         let n_data_2 = len(data[0][0]) as i32;
-        # Find last update n that targets position (i,j,k) along axis 1
-        # Since we require m==i && p==k, we can use i and k directly
+        // Find last update n that targets position (i,j,k) along axis 1
+        // Since we require m==i && p==k, we can use i and k directly
         let last_n[i in 0..n_data_0, j in 0..n_data_1, k in 0..n_data_2] = max[n in 0..n_updates_1](
             if indices[i, n, k] == j { n } else { -1 }
         );
@@ -193,8 +193,8 @@ pub fn scatter_elements(data, indices, updates, axis) {
         let n_data_0 = len(data) as i32;
         let n_data_1 = len(data[0]) as i32;
         let n_data_2 = len(data[0][0]) as i32;
-        # Find last update p that targets position (i,j,k) along axis 2
-        # Since we require m==i && n==j, we can use i and j directly
+        // Find last update p that targets position (i,j,k) along axis 2
+        // Since we require m==i && n==j, we can use i and j directly
         let last_p[i in 0..n_data_0, j in 0..n_data_1, k in 0..n_data_2] = max[p in 0..n_updates_2](
             if indices[i, j, p] == k { p } else { -1 }
         );
@@ -208,16 +208,16 @@ pub fn scatter_elements(data, indices, updates, axis) {
 }
 
 
-# ============================================================================
-# ONNX Operator: OneHot
-# ============================================================================
+// ============================================================================
+// ONNX Operator: OneHot
+// ============================================================================
 
 pub fn onehot(indices, depth, values) {
-    # ONNX Operator: OneHot
-    # Create one-hot encoded vectors
-    # indices: 1D array of class indices
-    # depth: number of classes
-    # values: [off_value, on_value]
+    // ONNX Operator: OneHot
+    // Create one-hot encoded vectors
+    // indices: 1D array of class indices
+    // depth: number of classes
+    // values: [off_value, on_value]
     
     let off_value = values[0];
     let on_value = values[1];
@@ -232,27 +232,27 @@ pub fn onehot(indices, depth, values) {
 }
 
 
-# ============================================================================
-# ONNX Operator: GatherND
-# Gather elements using N-dimensional indices
-# ============================================================================
+// ============================================================================
+// ONNX Operator: GatherND
+// Gather elements using N-dimensional indices
+// ============================================================================
 
 pub fn gather_nd(data, indices) {
-    # ONNX Operator: GatherND
-    # 
-    # ONNX spec: GatherND(data, indices, batch_dims=0)
-    #   - data: tensor (rank r >= 1)
-    #   - indices: tensor (rank q >= 1) with last dimension <= r
-    #   - batch_dims: number of batch dimensions (default 0)
-    # 
-    # Implementation: Supports 2D and 3D data with 2D indices
-    #   - For 2D data: indices shape [N, 2] where each row is [i, j]
-    #   - For 3D data: indices shape [N, 3] where each row is [i, j, k]
-    # 
-    # Limitations:
-    #   - Supports 2D and 3D data only
-    #   - Indices must be 2D with shape [N, rank]
-    #   - batch_dims=0 only
+    // ONNX Operator: GatherND
+    // 
+    // ONNX spec: GatherND(data, indices, batch_dims=0)
+    //   - data: tensor (rank r >= 1)
+    //   - indices: tensor (rank q >= 1) with last dimension <= r
+    //   - batch_dims: number of batch dimensions (default 0)
+    // 
+    // Implementation: Supports 2D and 3D data with 2D indices
+    //   - For 2D data: indices shape [N, 2] where each row is [i, j]
+    //   - For 3D data: indices shape [N, 3] where each row is [i, j, k]
+    // 
+    // Limitations:
+    //   - Supports 2D and 3D data only
+    //   - Indices must be 2D with shape [N, rank]
+    //   - batch_dims=0 only
     
     assert(typeof(data) == "rectangular", "gather_nd: data must be rectangular");
     assert(typeof(indices) == "rectangular", "gather_nd: indices must be rectangular");
@@ -262,11 +262,11 @@ pub fn gather_nd(data, indices) {
     assert(indices_rank == 2, "gather_nd: indices must be 2D [N, rank]");
     assert(indices.shape[1] == data_rank, "gather_nd: indices last dim must match data rank");
     
-    # 2D data: indices[i] = [row, col]
+    // 2D data: indices[i] = [row, col]
     if data_rank == 2 {
         let result[i] = data[indices[i, 0] as i32, indices[i, 1] as i32];
         result
-    # 3D data: indices[i] = [dim0, dim1, dim2]
+    // 3D data: indices[i] = [dim0, dim1, dim2]
     } else if data_rank == 3 {
         let result[i] = data[
             indices[i, 0] as i32,
@@ -275,58 +275,58 @@ pub fn gather_nd(data, indices) {
         ];
         result
     } else {
-        # Fallback for unsupported ranks
+        // Fallback for unsupported ranks
         data
     }
 }
 
 
-# ============================================================================
-# ONNX Operator: Scatter
-# Scatter updates into data (simplified version, uses ScatterElements pattern)
-# ============================================================================
+// ============================================================================
+// ONNX Operator: Scatter
+// Scatter updates into data (simplified version, uses ScatterElements pattern)
+// ============================================================================
 
 pub fn scatter(data, indices, updates, axis) {
-    # ONNX Operator: Scatter
-    # 
-    # ONNX spec: Scatter(data, indices, updates, axis=0)
-    #   - data: tensor to scatter into
-    #   - indices: indices tensor (same rank as updates)
-    #   - updates: values to scatter
-    #   - axis: axis along which to scatter (default 0)
-    # 
-    # Note: Scatter is similar to ScatterElements but with different semantics
-    # For simplicity, we delegate to ScatterElements with axis parameter
-    # 
-    # TensorRT Support: ✅ IScatterLayer
+    // ONNX Operator: Scatter
+    // 
+    // ONNX spec: Scatter(data, indices, updates, axis=0)
+    //   - data: tensor to scatter into
+    //   - indices: indices tensor (same rank as updates)
+    //   - updates: values to scatter
+    //   - axis: axis along which to scatter (default 0)
+    // 
+    // Note: Scatter is similar to ScatterElements but with different semantics
+    // For simplicity, we delegate to ScatterElements with axis parameter
+    // 
+    // TensorRT Support: ✅ IScatterLayer
     
     scatter_elements(data, indices, updates, axis)
 }
 
 
-# ============================================================================
-# ONNX Operator: ScatterND
-# Scatter updates using N-dimensional indices
-# ============================================================================
+// ============================================================================
+// ONNX Operator: ScatterND
+// Scatter updates using N-dimensional indices
+// ============================================================================
 
 pub fn scatter_nd(data, indices, updates) {
-    # ONNX Operator: ScatterND
-    # 
-    # ONNX spec: ScatterND(data, indices, updates)
-    #   - data: tensor to scatter into (rank r)
-    #   - indices: N-dimensional indices (rank q, last dim <= r)
-    #   - updates: values to scatter (rank q-1 + r - indices.shape[-1])
-    # 
-    # Implementation: Supports 2D and 3D data with 2D indices
-    #   - For 2D data: indices shape [N, 2], updates shape [N]
-    #   - For 3D data: indices shape [N, 3], updates shape [N]
-    # 
-    # Limitations:
-    #   - Supports 2D and 3D data only
-    #   - Indices must be 2D with shape [N, rank]
-    #   - Updates must be 1D with shape [N]
-    # 
-    # TensorRT Support: ✅ IScatterLayer
+    // ONNX Operator: ScatterND
+    // 
+    // ONNX spec: ScatterND(data, indices, updates)
+    //   - data: tensor to scatter into (rank r)
+    //   - indices: N-dimensional indices (rank q, last dim <= r)
+    //   - updates: values to scatter (rank q-1 + r - indices.shape[-1])
+    // 
+    // Implementation: Supports 2D and 3D data with 2D indices
+    //   - For 2D data: indices shape [N, 2], updates shape [N]
+    //   - For 3D data: indices shape [N, 3], updates shape [N]
+    // 
+    // Limitations:
+    //   - Supports 2D and 3D data only
+    //   - Indices must be 2D with shape [N, rank]
+    //   - Updates must be 1D with shape [N]
+    // 
+    // TensorRT Support: ✅ IScatterLayer
     
     assert(typeof(data) == "rectangular", "scatter_nd: data must be rectangular");
     assert(typeof(indices) == "rectangular", "scatter_nd: indices must be rectangular");
@@ -339,7 +339,7 @@ pub fn scatter_nd(data, indices, updates) {
     assert(len(updates.shape) == 1, "scatter_nd: updates must be 1D");
     assert(updates.shape[0] == indices.shape[0], "scatter_nd: updates length must match indices count");
     
-    # 2D data: scatter updates[i] to data[indices[i, 0], indices[i, 1]]
+    // 2D data: scatter updates[i] to data[indices[i, 0], indices[i, 1]]
     if data_rank == 2 {
         let n_indices = len(indices) as i32;
         let result[i, j] = data[i, j] + sum[k in 0..n_indices](
@@ -350,7 +350,7 @@ pub fn scatter_nd(data, indices, updates) {
             }
         );
         result
-    # 3D data: scatter updates[i] to data[indices[i, 0], indices[i, 1], indices[i, 2]]
+    // 3D data: scatter updates[i] to data[indices[i, 0], indices[i, 1], indices[i, 2]]
     } else if data_rank == 3 {
         let n_indices = len(indices) as i32;
         let result[i, j, k] = data[i, j, k] + sum[m in 0..n_indices](
@@ -364,7 +364,7 @@ pub fn scatter_nd(data, indices, updates) {
         );
         result
     } else {
-        # Fallback for unsupported ranks
+        // Fallback for unsupported ranks
         data
     }
 }

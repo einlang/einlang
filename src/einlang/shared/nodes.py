@@ -33,13 +33,6 @@ ITERATION_DOMAIN_CONSTRAINT: Final = "iteration_domain"
 INDEX_RELATIONAL_CONSTRAINT: Final = "index_relational"
 VALUE_RELATIONAL_CONSTRAINT: Final = "value_relational"
 
-class ArrowOperator(Enum):
-    """Arrow operators for ML/DL computation graph construction"""
-    SEQUENTIAL = ">>>"  # A >>> B >>> C - Sequential composition
-    PARALLEL = "***"    # A *** B *** C - Parallel composition
-    FANOUT = "&&&"      # A &&& B &&& C - Fanout composition
-    CHOICE = "|||"      # A ||| B ||| C - Choice composition
-
 class NodeType(Enum):
     """AST node types"""
     PROGRAM = "program"
@@ -72,7 +65,6 @@ class NodeType(Enum):
     LAMBDA_EXPR = "lambda_expr"
     TRY_EXPR = "try_expr"
     BLOCK_EXPR = "block_expr"
-    ARROW_EXPR = "arrow_expr"  # Consolidated arrow expression
     TUPLE_DESTRUCTURE_PATTERN = "tuple_destructure_pattern"
     CONSTRAINT = "constraint"
     RANGE = "range"
@@ -1121,34 +1113,6 @@ class TupleDestructurePattern(ASTNode):
         super().__init__(NodeType.TUPLE_DESTRUCTURE_PATTERN, location)
         self.variables = variables
     
-
-# =====================================================================
-# ARROW EXPRESSIONS FOR DL GRAPH CONSTRUCTION
-# =====================================================================
-
-@dataclass
-class ArrowExpression(Expression):
-    """
-    Arrow operator expression for ML/DL computation graphs.
-    
-    Note: Arrows compose FUNCTIONS only, not data. The composed function is then applied to data separately.
-    
-    Supports four types of composition:
-    - SEQUENTIAL (>>>): A >>> B >>> C - sequential composition (output of A -> input of B)
-    - PARALLEL (***): A *** B *** C - parallel composition (different inputs to each: (a, b, c) -> (A(a), B(b), C(c)))
-    - FANOUT (&&&): A &&& B &&& C - fanout composition (same input to all: x -> (A(x), B(x), C(x)))
-    - CHOICE (|||): A ||| B ||| C - choice composition (conditional routing)
-    """
-    operator: ArrowOperator
-    components: List[Expression]
-    
-    def __init__(self, operator: ArrowOperator, components: List[Expression], location: SourceLocation = None):
-        super().__init__(NodeType.ARROW_EXPR, location)
-        self.operator = operator
-        self.components = components
-    
-    def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
-        return visitor.visit_arrow_expression(self)
 
 # =====================================================================
 # PATTERN MATCHING - PATTERNS AND MATCH EXPRESSIONS

@@ -1,22 +1,22 @@
-# CORE FEATURE: Array Comprehension Syntax Fixes
-# PURPOSE: Tests array comprehension 'in' syntax that was previously problematic
-# VALUE: Ensures robust comprehension parsing with various patterns
+// CORE FEATURE: Array Comprehension Syntax Fixes
+// PURPOSE: Tests array comprehension 'in' syntax that was previously problematic
+// VALUE: Ensures robust comprehension parsing with various patterns
 
-# Basic comprehensions with range syntax
+// Basic comprehensions with range syntax
 let sequence = [i * i | i in 0..5];
 let doubled = [i * 2 | i in 1..4];
 let numbers = [i | i in 0..10];
 let range_sum = [i + 1 | i in 0..10];
 let squares = [i * i | i in 0..5];
 
-# Verify the comprehensions work correctly
+// Verify the comprehensions work correctly
 assert(sequence.length == 5, "Sequence should have 5 elements");
 assert(doubled.length == 3, "Doubled should have 3 elements");
 assert(numbers.length == 10, "Numbers should have 10 elements");
 assert(range_sum.length == 10, "Range sum should have 10 elements");
 assert(squares.length == 5, "Squares should have 5 elements");
 
-# Check specific values
+// Check specific values
 assert(sequence[0] == 0, "First square should be 0");
 assert(sequence[4] == 16, "Last square should be 16");
 assert(doubled[0] == 2, "First doubled should be 2");

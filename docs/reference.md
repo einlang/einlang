@@ -163,6 +163,7 @@ Everything in Einlang is an expression (except declarations). Blocks, `if`, and 
 true        // bool
 "hello"     // str
 [1, 2, 3]  // array literal
+(1, 2)      // tuple literal; access with .0, .1 only
 ```
 
 ### String interpolation
@@ -196,6 +197,23 @@ Subtleties:
 - `%` returns the remainder with the sign of the dividend: `-7 % 3` is `-1`.
 - `**` is right-associative: `2 ** 3 ** 2` is `2 ** 9 = 512`, not `8 ** 2 = 64`.
 - All arithmetic operators require operands of the same type. `1 + 1.0` is an error; write `1.0 + 1.0` or `(1 as f32) + 1.0`.
+- **Broadcasting:** Operators support broadcasting by default only for **same rank** (tensor with same-shape tensor) or **tensor vs scalar**. In those cases explicit indexing is not required.
+
+**Broadcasting examples (no explicit indexing):**
+
+```rust
+let A = [[1.0, 2.0], [3.0, 4.0]];
+
+let scaled = A * 2.0;                       // scalar * tensor: every element doubled
+let shifted = A + 10.0;                     // scalar + tensor
+let normalized = (A - 2.5) / 1.5;           // scalar mean/std broadcast
+
+let B = [[1.0, 1.0], [1.0, 1.0]];
+let sum_AB = A + B;                         // same rank, same shape: element-wise add
+```
+
+For different-rank combinations (e.g. vector with matrix), use rectangular `let` with explicit indices: `let out[i, j] = A[i, j] + bias[j];`.
+
 - `**` is the exception — it allows mixed base/exponent types, following Rust's `pow`/`powi`/`powf` pattern:
 
 ```rust
@@ -274,6 +292,16 @@ let elem = matrix[0, 1];   // 2 — scalar
 ```
 
 For jagged arrays, use chained brackets: `A[i][j]`.
+
+### Tuple expressions and tuple access
+
+Tuple literals: `(a, b)` or `(1, 2, 3)`. Tuple elements are accessed **only** by dot and a zero-based field index: `t.0`, `t.1`, `t.2`, and so on. Do not use bracket notation for tuples; `t[0]` is array access.
+
+```rust
+let p = (1.0, 2.0);
+let x = p.0;
+let y = p.1;
+```
 
 ### Ranges
 

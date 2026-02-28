@@ -1,5 +1,5 @@
-# Math Utilities Module
-# Provides common mathematical utility functions
+// Math Utilities Module
+// Provides common mathematical utility functions
 
 pub fn max(a: T, b: T) -> T {
     if a > b {

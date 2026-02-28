@@ -1,29 +1,29 @@
-# ml/norm_ops.ein - ONNX Normalization Operations
-# Exact ONNX operator names (snake_case)
+// ml/norm_ops.ein - ONNX Normalization Operations
+// Exact ONNX operator names (snake_case)
 
 use std::math::{sqrt, exp, max};
 
 pub fn batch_normalization(X, scale, B, input_mean, input_var, epsilon) {
-    # ONNX BatchNormalization operator
-    # X: Input [N, C, D1, D2, ..., Dn] where N is batch, C is channels
-    # scale: Scale (gamma) [C] - ONNX defines as tensor, not scalar
-    # B: Bias (beta) [C] - ONNX defines as tensor, not scalar
-    # input_mean: Mean [C] - ONNX defines as tensor, not scalar
-    # input_var: Variance [C] - ONNX defines as tensor, not scalar
-    # epsilon: Small constant for numerical stability (default: 1e-5)
-    # TensorRT: Supported via INormalizationLayer
-    #
-    # Formula: Y = scale[c] * (X - mean[c]) / sqrt(var[c] + epsilon) + B[c]
-    # Supports ranks 2-5: [N,C], [N,C,D1], [N,C,D1,D2], [N,C,D1,D2,D3]
+    // ONNX BatchNormalization operator
+    // X: Input [N, C, D1, D2, ..., Dn] where N is batch, C is channels
+    // scale: Scale (gamma) [C] - ONNX defines as tensor, not scalar
+    // B: Bias (beta) [C] - ONNX defines as tensor, not scalar
+    // input_mean: Mean [C] - ONNX defines as tensor, not scalar
+    // input_var: Variance [C] - ONNX defines as tensor, not scalar
+    // epsilon: Small constant for numerical stability (default: 1e-5)
+    // TensorRT: Supported via INormalizationLayer
+    //
+    // Formula: Y = scale[c] * (X - mean[c]) / sqrt(var[c] + epsilon) + B[c]
+    // Supports ranks 2-5: [N,C], [N,C,D1], [N,C,D1,D2], [N,C,D1,D2,D3]
     assert(typeof(X) == "rectangular", "batch_normalization: X must be rectangular");
     
     let rank = len(X.shape);
-    # Compute std per channel - ONNX defines input_var as tensor [C]
+    // Compute std per channel - ONNX defines input_var as tensor [C]
     let std[c] = sqrt(input_var[c] + epsilon);
     
-    # For rank 2 (most common case)
+    // For rank 2 (most common case)
     if rank == 2 {
-        # ONNX spec: scale, B, input_mean, input_var are all tensors [C]
+        // ONNX spec: scale, B, input_mean, input_var are all tensors [C]
         let output[n, c] = scale[c] * (X[n, c] - input_mean[c]) / std[c] + B[c];
         output
     } else if rank == 3 {
@@ -36,8 +36,8 @@ pub fn batch_normalization(X, scale, B, input_mean, input_var, epsilon) {
         let output[n, c, d1, d2, d3] = scale[c] * (X[n, c, d1, d2, d3] - input_mean[c]) / std[c] + B[c];
         output
     } else {
-        # For unsupported ranks, return rank 2 output as fallback (type system limitation)
-        # This ensures type compatibility - actual execution will use rank 2 path
+        // For unsupported ranks, return rank 2 output as fallback (type system limitation)
+        // This ensures type compatibility - actual execution will use rank 2 path
         let output[n, c] = scale[c] * (X[n, c] - input_mean[c]) / std[c] + B[c];
         output
     }
@@ -45,29 +45,29 @@ pub fn batch_normalization(X, scale, B, input_mean, input_var, epsilon) {
 
 
 pub fn instance_normalization(X, scale, B, epsilon) {
-    # ONNX InstanceNormalization operator
-    # X: Input [batch, channels, height, width] (or other spatial dims)
-    # scale: Scale (gamma) [channels]
-    # B: Bias (beta) [channels]
-    # epsilon: Small constant (default: 1e-5)
-    # TensorRT: Supported via INormalizationLayer
-    #
-    # Normalizes over spatial dimensions per channel per sample
+    // ONNX InstanceNormalization operator
+    // X: Input [batch, channels, height, width] (or other spatial dims)
+    // scale: Scale (gamma) [channels]
+    // B: Bias (beta) [channels]
+    // epsilon: Small constant (default: 1e-5)
+    // TensorRT: Supported via INormalizationLayer
+    //
+    // Normalizes over spatial dimensions per channel per sample
     assert(typeof(X) == "rectangular", "instance_normalization: X must be rectangular");
     
-    # For 4D input [batch, channels, height, width]
+    // For 4D input [batch, channels, height, width]
     let h = len(X[0, 0]) as f32;
     let w = len(X[0, 0, 0]) as f32;
     let n = h * w;
     
-    # Compute mean over spatial dimensions for each (batch, channel)
+    // Compute mean over spatial dimensions for each (batch, channel)
     let mean[b, c] = sum[i, j](X[b, c, i, j]) / n;
     
-    # Compute variance over spatial dimensions
+    // Compute variance over spatial dimensions
     let variance[b, c] = sum[i, j]((X[b, c, i, j] - mean[b, c]) ** 2.0) / n;
     let std_dev[b, c] = sqrt(variance[b, c] + epsilon);
     
-    # Normalize and scale
+    // Normalize and scale
     let normalized[b, c, i, j] = (X[b, c, i, j] - mean[b, c]) / std_dev[b, c];
     let output[b, c, i, j] = scale[c] * normalized[b, c, i, j] + B[c];
     output
@@ -75,15 +75,15 @@ pub fn instance_normalization(X, scale, B, epsilon) {
 
 
 pub fn layer_normalization(X, scale, B, epsilon, axis) {
-    # ONNX LayerNormalization operator (opset 17+)
-    # X: Input [..., normalized_shape]
-    # scale: Scale (gamma) [normalized_shape]
-    # B: Bias (beta) [normalized_shape]
-    # epsilon: Small constant (default: 1e-5)
-    # axis: Axis to normalize from (typically -1 for last dimension)
-    # TensorRT: Supported via plugin or INormalizationLayer
-    #
-    # Normalizes over the last dimension
+    // ONNX LayerNormalization operator (opset 17+)
+    // X: Input [..., normalized_shape]
+    // scale: Scale (gamma) [normalized_shape]
+    // B: Bias (beta) [normalized_shape]
+    // epsilon: Small constant (default: 1e-5)
+    // axis: Axis to normalize from (typically -1 for last dimension)
+    // TensorRT: Supported via plugin or INormalizationLayer
+    //
+    // Normalizes over the last dimension
     assert(typeof(X) == "rectangular", "layer_normalization: X must be rectangular");
     
     let n = len(X[0]) as f32;
@@ -96,48 +96,48 @@ pub fn layer_normalization(X, scale, B, epsilon, axis) {
 
 
 pub fn lrn(X, size, alpha, beta, bias) {
-    # ONNX LRN (Local Response Normalization) operator
-    # X: Input [batch, channels, height, width]
-    # size: Number of channels to sum over (must be odd)
-    # alpha: Scaling parameter (default: 0.0001)
-    # beta: Exponent (default: 0.75)
-    # bias: Additive bias (default: 1.0)
-    # TensorRT: Supported via ILRNLayer
-    #
-    # Formula: Y[c] = X[c] / (bias + alpha * sum(X[c']^2))^beta
-    # where sum is over channels in range [max(0, c - floor(size/2)), min(C, c + ceil(size/2))]
-    # NOTE: Simplified implementation that sums ALL channels (not position-dependent window)
-    # This is a limitation of Einstein notation which cannot reference outer indices in reduction bodies
+    // ONNX LRN (Local Response Normalization) operator
+    // X: Input [batch, channels, height, width]
+    // size: Number of channels to sum over (must be odd)
+    // alpha: Scaling parameter (default: 0.0001)
+    // beta: Exponent (default: 0.75)
+    // bias: Additive bias (default: 1.0)
+    // TensorRT: Supported via ILRNLayer
+    //
+    // Formula: Y[c] = X[c] / (bias + alpha * sum(X[c']^2))^beta
+    // where sum is over channels in range [max(0, c - floor(size/2)), min(C, c + ceil(size/2))]
+    // NOTE: Simplified implementation that sums ALL channels (not position-dependent window)
+    // This is a limitation of Einstein notation which cannot reference outer indices in reduction bodies
     assert(typeof(X) == "rectangular", "lrn: X must be rectangular");
     
-    # Compute squared values  
+    // Compute squared values  
     let squared[b, c, i, j] = X[b, c, i, j] ** 2.0;
     
-    # Sum over ALL channels (simplified - full LRN would need per-position windowing)
-    # This is equivalent to global response normalization
+    // Sum over ALL channels (simplified - full LRN would need per-position windowing)
+    // This is equivalent to global response normalization
     let sum_squared[b, i, j] = sum[c](squared[b, c, i, j]);
     
-    # Compute unnormalized scale factor (3D)
-    # Note: Standard LRN does NOT divide by size
+    // Compute unnormalized scale factor (3D)
+    // Note: Standard LRN does NOT divide by size
     let scale_factor[b, i, j] = (bias + alpha * sum_squared[b, i, j]) ** beta;
     
-    # Apply scale to each channel (broadcast scale_factor across c dimension)
+    // Apply scale to each channel (broadcast scale_factor across c dimension)
     let output[b, c, i, j] = X[b, c, i, j] / scale_factor[b, i, j];
     output
 }
 
 
 pub fn lp_normalization(X, axis, p) {
-    # ONNX LpNormalization operator
-    # X: Input tensor
-    # axis: Axis to normalize along (default: -1)
-    # p: p-value for Lp norm (default: 2 for L2 normalization)
-    # TensorRT: Supported via plugin or custom implementation
-    #
-    # Formula: Y = X / ||X||_p where ||X||_p = (sum(|X|^p))^(1/p)
+    // ONNX LpNormalization operator
+    // X: Input tensor
+    // axis: Axis to normalize along (default: -1)
+    // p: p-value for Lp norm (default: 2 for L2 normalization)
+    // TensorRT: Supported via plugin or custom implementation
+    //
+    // Formula: Y = X / ||X||_p where ||X||_p = (sum(|X|^p))^(1/p)
     assert(typeof(X) == "rectangular", "lp_normalization: X must be rectangular");
     
-    # L2 normalization (p=2) over last dimension
+    // L2 normalization (p=2) over last dimension
     let norm_sq[..batch] = sum[j](X[..batch, j] ** 2.0);
     let norm[..batch] = sqrt(norm_sq[..batch]);
     let output[..batch, j] = X[..batch, j] / norm[..batch];
@@ -146,13 +146,13 @@ pub fn lp_normalization(X, axis, p) {
 
 
 pub fn mean_variance_normalization(X, axes) {
-    # ONNX MeanVarianceNormalization operator
-    # X: Input tensor
-    # axes: Axes to normalize over (default: [0, 2, 3] for NCHW)
-    # TensorRT: May require plugin
-    #
-    # Formula: Y = (X - mean(X)) / sqrt(var(X) + epsilon)
-    # Simplified version: normalize over last dimension
+    // ONNX MeanVarianceNormalization operator
+    // X: Input tensor
+    // axes: Axes to normalize over (default: [0, 2, 3] for NCHW)
+    // TensorRT: May require plugin
+    //
+    // Formula: Y = (X - mean(X)) / sqrt(var(X) + epsilon)
+    // Simplified version: normalize over last dimension
     assert(typeof(X) == "rectangular", "mean_variance_normalization: X must be rectangular");
     
     let n = len(X[0]) as f32;

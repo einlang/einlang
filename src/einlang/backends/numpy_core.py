@@ -4,8 +4,9 @@ from typing import Dict, Any, Optional, List, Union
 
 from ..backends.base import Backend
 from ..ir.nodes import (
-    ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR,
+    ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR, BindingIR,
     LiteralIR, FunctionCallIR, IRVisitor,
+    is_einstein_binding, is_function_binding,
 )
 from ..shared.defid import DefId, Resolver, FIXED_BUILTIN_ORDER, _BUILTIN_CRATE
 from ..runtime.environment import ExecutionEnvironment, FunctionValue
@@ -65,7 +66,7 @@ class CoreExecutionMixin:
             function_ir_map = getattr(tcx, "function_ir_map", None)
             if function_ir_map:
                 for func in function_ir_map.values():
-                    if isinstance(func, FunctionDefIR) and getattr(func, "defid", None):
+                    if is_function_binding(func) and getattr(func, "defid", None):
                         self.env.set_value(func.defid, func, name=getattr(func, 'name', None))
         if resolver:
             for defid, (def_type, definition) in resolver._def_registry.items():
@@ -88,10 +89,15 @@ class CoreExecutionMixin:
                         if stmt is None:
                             raise ValueError("IR statement is None")
                         result_value = stmt.accept(self)
-                        binding = getattr(stmt, "_binding", None)
-                        variable_defid = getattr(binding, "defid", None) if binding else None
+                        variable_defid = None
+                        if isinstance(stmt, BindingIR) and not is_function_binding(stmt):
+                            variable_defid = getattr(stmt, "defid", None)
+                        if variable_defid is None:
+                            binding = getattr(stmt, "_binding", None)
+                            if binding is not None and isinstance(binding, BindingIR):
+                                variable_defid = getattr(binding, "defid", None)
                         if variable_defid is not None:
-                            var_name = getattr(binding, "name", None) or getattr(stmt, "name", None)
+                            var_name = getattr(stmt, "name", None) or (getattr(getattr(stmt, "_binding", None), "name", None) if getattr(stmt, "_binding", None) else None)
                             self.env.set_value(variable_defid, result_value, name=var_name)
                             outputs[variable_defid] = result_value
                     for defid, value in self.env.get_current_scope().items():
@@ -143,15 +149,39 @@ class CoreExecutionMixin:
     def visit_module(self, node: Any) -> Any:
         raise NotImplementedError("Module execution not yet implemented")
 
-    def visit_function_def(self, node: FunctionDefIR) -> Any:
-        if node.defid:
-            self.env.set_value(node.defid, node, name=node.name)
-        return None
-
-    def visit_constant_def(self, node: ConstantDefIR) -> Any:
+    def visit_binding(self, node: Any) -> Any:
+        if is_function_binding(node):
+            if node.defid:
+                self.env.set_value(node.defid, node, name=node.name)
+            return None
+        if is_einstein_binding(node):
+            from ..ir.nodes import LoweredEinsteinIR
+            expr = getattr(node, 'expr', None)
+            if not isinstance(expr, LoweredEinsteinIR):
+                raise RuntimeError(
+                    f"Non-lowered EinsteinDeclaration reached backend. "
+                    f"EinsteinLoweringPass must run before codegen. (node type: {type(node).__name__})"
+                )
+        from ..ir.nodes import LoweredEinsteinIR
+        expr = getattr(node, 'expr', None)
+        if isinstance(expr, LoweredEinsteinIR):
+            if not (hasattr(node, "value") and node.value):
+                return None
+            stack = getattr(self, "_variable_decl_stack", None)
+            if stack is None:
+                self._variable_decl_stack = []
+                stack = self._variable_decl_stack
+            stack.append(node)
+            try:
+                result = node.value.accept(self)
+            finally:
+                stack.pop()
+            if getattr(node, "defid", None) is not None:
+                self.env.set_value(node.defid, result, name=getattr(node, "name", None))
+            return result
         value = node.value.accept(self)
-        if node.defid:
-            self.env.set_value(node.defid, value, name=node.name)
+        if getattr(node, "defid", None) is not None:
+            self.env.set_value(node.defid, value, name=getattr(node, "name", None))
         return value
 
     def visit_literal_pattern(self, node: Any) -> Any:

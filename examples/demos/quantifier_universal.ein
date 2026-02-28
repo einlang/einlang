@@ -1,108 +1,108 @@
-# Universal Quantifier Example: all[i](expr) → ∀i: expr
-# ======================================================
-# 
-# This example demonstrates the universal quantifier (∀) in Einlang,
-# which checks if a property holds for ALL elements in a collection.
-#
-# Mathematical notation: ∀i: P(x_i)
-# Einlang syntax: all[i](P(x[i]))
+// Universal Quantifier Example: all[i](expr) → ∀i: expr
+// ======================================================
+// 
+// This example demonstrates the universal quantifier (∀) in Einlang,
+// which checks if a property holds for ALL elements in a collection.
+//
+// Mathematical notation: ∀i: P(x_i)
+// Einlang syntax: all[i](P(x[i]))
 
-# Example 1: Check if all elements are positive
-# Mathematical: ∀i: x_i > 0
+// Example 1: Check if all elements are positive
+// Mathematical: ∀i: x_i > 0
 let x = [1, 2, 3, 4, 5];
 let all_positive = all[i](x[i] > 0);
-# Result: true (all elements are > 0)
+// Result: true (all elements are > 0)
 
-# Example 2: Check if all elements satisfy a constraint
-# Mathematical: ∀i: |x_i| ≤ 1 (bounded by [-1, 1])
+// Example 2: Check if all elements satisfy a constraint
+// Mathematical: ∀i: |x_i| ≤ 1 (bounded by [-1, 1])
 let y = [0.5, -0.3, 0.8, 0.1, -0.9];
 let all_bounded = all[i](y[i] >= -1.0 && y[i] <= 1.0);
-# Result: true (all elements are in [-1, 1])
+// Result: true (all elements are in [-1, 1])
 
-# Example 3: Matrix symmetry check
-# Mathematical: ∀i,j: A[i,j] = A[j,i] (symmetric matrix)
+// Example 3: Matrix symmetry check
+// Mathematical: ∀i,j: A[i,j] = A[j,i] (symmetric matrix)
 let A = [[2, 1, 3], [1, 4, 5], [3, 5, 6]];
 let is_symmetric = all[i, j](A[i, j] == A[j, i]);
-# Result: true (matrix is symmetric)
+// Result: true (matrix is symmetric)
 
-# Example 4: Positive definite matrix check
-# Mathematical: ∀i: A[i,i] > 0 (all diagonal elements positive)
+// Example 4: Positive definite matrix check
+// Mathematical: ∀i: A[i,i] > 0 (all diagonal elements positive)
 let B = [[2, 1], [1, 2]];
 let diagonal_positive = all[i](B[i, i] > 0);
 let is_positive_definite = is_symmetric && diagonal_positive;
-# Result: true (symmetric with positive diagonal)
+// Result: true (symmetric with positive diagonal)
 
-# Example 5: Monotonic increasing sequence
-# Mathematical: ∀i: x[i] ≤ x[i+1] (for all adjacent pairs)
+// Example 5: Monotonic increasing sequence
+// Mathematical: ∀i: x[i] ≤ x[i+1] (for all adjacent pairs)
 let sequence = [1, 2, 3, 4, 5, 6];
 let is_monotonic = all[i in 0..5](sequence[i] <= sequence[i + 1]);
-# Result: true (sequence is non-decreasing)
+// Result: true (sequence is non-decreasing)
 
-# Example 6: Probability distribution validation
-# Mathematical: ∀i: p[i] ≥ 0 (all probabilities non-negative)
+// Example 6: Probability distribution validation
+// Mathematical: ∀i: p[i] ≥ 0 (all probabilities non-negative)
 let probabilities = [0.2, 0.3, 0.1, 0.4];
 let non_negative = all[i](probabilities[i] >= 0);
 let sums_to_one = sum[i](probabilities[i]) == 1.0;
 let is_valid_distribution = non_negative && sums_to_one;
-# Result: true (valid probability distribution)
+// Result: true (valid probability distribution)
 
-# Example 7: Vector norm constraint
-# Mathematical: ∀i: |x[i]| ≤ M (all elements bounded by M)
+// Example 7: Vector norm constraint
+// Mathematical: ∀i: |x[i]| ≤ M (all elements bounded by M)
 let M = 10.0;
 let vector = [5.0, -3.0, 8.0, 2.0];
 let norm_constraint = all[i](vector[i] >= -M && vector[i] <= M);
-# Result: true (all elements within [-10, 10])
+// Result: true (all elements within [-10, 10])
 
-# Example 8: Strictly positive matrix
-# Mathematical: ∀i,j: A[i,j] > 0 (all elements strictly positive)
+// Example 8: Strictly positive matrix
+// Mathematical: ∀i,j: A[i,j] > 0 (all elements strictly positive)
 let C = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
 let strictly_positive = all[i, j](C[i, j] > 0);
-# Result: true (no zeros or negatives)
+// Result: true (no zeros or negatives)
 
-# Example 9: Triangle inequality for distance matrix
-# Mathematical: ∀i,j,k: d[i,j] ≤ d[i,k] + d[k,j]
+// Example 9: Triangle inequality for distance matrix
+// Mathematical: ∀i,j,k: d[i,j] ≤ d[i,k] + d[k,j]
 let distance = [[0, 1, 2], [1, 0, 1], [2, 1, 0]];
 let triangle_inequality = all[i, j, k](distance[i, j] <= distance[i, k] + distance[k, j]);
-# Result: true (valid distance matrix satisfies triangle inequality)
+// Result: true (valid distance matrix satisfies triangle inequality)
 
-# Example 10: Constraint satisfaction in optimization
-# Mathematical: ∀i: g_i(x) ≥ 0 (all constraints satisfied)
+// Example 10: Constraint satisfaction in optimization
+// Mathematical: ∀i: g_i(x) ≥ 0 (all constraints satisfied)
 let solution = [1.0, 2.0, 3.0];
-let constraints = [0.5, 1.0, 2.0];  # Lower bounds
+let constraints = [0.5, 1.0, 2.0];  // Lower bounds
 let all_constraints_satisfied = all[i](solution[i] >= constraints[i]);
-# Result: true (solution satisfies all constraints)
+// Result: true (solution satisfies all constraints)
 
-# Example 11: Even numbers check
-# Mathematical: ∀i: x[i] mod 2 = 0 (all elements are even)
+// Example 11: Even numbers check
+// Mathematical: ∀i: x[i] mod 2 = 0 (all elements are even)
 let evens = [2, 4, 6, 8, 10];
 let all_even = all[i](evens[i] % 2 == 0);
-# Result: true (all elements are even)
+// Result: true (all elements are even)
 
-# Example 12: Range validation
-# Mathematical: ∀i: a ≤ x[i] ≤ b (all elements in range [a, b])
+// Example 12: Range validation
+// Mathematical: ∀i: a ≤ x[i] ≤ b (all elements in range [a, b])
 let a = 0;
 let b = 100;
 let data = [10, 20, 30, 40, 50];
 let in_range = all[i](data[i] >= a && data[i] <= b);
-# Result: true (all elements in [0, 100])
+// Result: true (all elements in [0, 100])
 
-# Example 13: Orthogonal matrix columns
-# Mathematical: ∀i,j where i≠j: dot(col_i, col_j) = 0
-let orthogonal = [[1, 0], [0, 1]];  # Identity matrix
+// Example 13: Orthogonal matrix columns
+// Mathematical: ∀i,j where i≠j: dot(col_i, col_j) = 0
+let orthogonal = [[1, 0], [0, 1]];  // Identity matrix
 let columns_orthogonal = all[i, j](i == j || sum[k](orthogonal[k, i] * orthogonal[k, j]) == 0);
-# Result: true (columns are orthogonal)
+// Result: true (columns are orthogonal)
 
-# Example 14: Non-negative gradient check
-# Mathematical: ∀i: ∇f[i] ≥ 0 (all gradient components non-negative)
+// Example 14: Non-negative gradient check
+// Mathematical: ∀i: ∇f[i] ≥ 0 (all gradient components non-negative)
 let gradient = [0.1, 0.0, 0.2, 0.05];
 let non_negative_gradient = all[i](gradient[i] >= 0);
-# Result: true (all gradient components are non-negative)
+// Result: true (all gradient components are non-negative)
 
-# Example 15: Complete validation pipeline
-# Mathematical: ∀i: x[i] > 0 AND ∀i: x[i] < 100 AND ∀i: x[i] is integer
+// Example 15: Complete validation pipeline
+// Mathematical: ∀i: x[i] > 0 AND ∀i: x[i] < 100 AND ∀i: x[i] is integer
 let values = [1, 2, 3, 4, 5];
 let positive = all[i](values[i] > 0);
 let bounded = all[i](values[i] < 100);
 let valid = positive && bounded;
-# Result: true (all values are positive and less than 100)
+// Result: true (all values are positive and less than 100)
 

@@ -1,13 +1,13 @@
-# CORE FEATURE: Mathematical Operations and Functions
-# PURPOSE: Tests mathematical computations, function usage, and numerical operations
-# VALUE: Essential for scientific computing and mathematical processing
+// CORE FEATURE: Mathematical Operations and Functions
+// PURPOSE: Tests mathematical computations, function usage, and numerical operations
+// VALUE: Essential for scientific computing and mathematical processing
 
-# Basic mathematical operations
+// Basic mathematical operations
 let num1 = 12;
 let num2 = 8;
 let num3 = 3;
 
-# Arithmetic operations
+// Arithmetic operations
 let addition = num1 + num2;
 let subtraction = num1 - num2;
 let multiplication = num1 * num2;
@@ -22,7 +22,7 @@ assert(division == 4, "12 / 3 should be 4");
 assert(modulo == 4, "12 % 8 should be 4");
 assert(exponentiation == 512, "8 ** 3 should be 512");
 
-# Mathematical functions (using available operations)
+// Mathematical functions (using available operations)
 let abs_positive = if (7 > 0) { 7 } else { -7 };
 let abs_negative = if (-5 > 0) { -5 } else { -(-5) };
 let max_value = if (15 > 10) { 15 } else { 10 };
@@ -33,18 +33,18 @@ assert(abs_negative == 5, "Absolute value of -5 should be 5");
 assert(max_value == 15, "Max of 15 and 10 should be 15");
 assert(min_value == 3, "Min of 3 and 8 should be 3");
 
-# Mathematical approximations using simpler approach
-let sqrt_16_approx = 4;  # We know sqrt(16) = 4;
-let sqrt_25_approx = 5;  # We know sqrt(25) = 5
+// Mathematical approximations using simpler approach
+let sqrt_16_approx = 4;  // We know sqrt(16) = 4;
+let sqrt_25_approx = 5;  // We know sqrt(25) = 5
 
-# Verification that our known values are correct
+// Verification that our known values are correct
 let sixteen_check = sqrt_16_approx * sqrt_16_approx;
 let twentyfive_check = sqrt_25_approx * sqrt_25_approx;
 
 assert(sixteen_check == 16, "4² should equal 16");
 assert(twentyfive_check == 25, "5² should equal 25");
 
-# Mathematical sequences
+// Mathematical sequences
 let fibonacci_like = [1, 1, 2, 3, 5, 8];
 let fibonacci_ratios = [if (fibonacci_like[i-1] > 0) { fibonacci_like[i] / fibonacci_like[i-1] } else { 1 } | i in 1..6];
 
@@ -53,11 +53,11 @@ assert(fibonacci_ratios[0] == 1, "First ratio should be 1");
 
 
 
-# Statistical operations on arrays
+// Statistical operations on arrays
 let dataset = [10, 15, 20, 25, 30];
 
-# Sum calculation
-# Mathematical notation: μ = (1/N) Σᵢ xᵢ
+// Sum calculation
+// Mathematical notation: μ = (1/N) Σᵢ xᵢ
 let sum_total = sum[i](dataset[i]);
 let count = dataset.length;
 let mean = sum_total / count;
@@ -65,11 +65,11 @@ let mean = sum_total / count;
 assert(sum_total == 100, "Sum should be 100");
 assert(mean == 20, "Mean should be 20");
 
-# Simple variance calculation
-let variance = 50;  # Known variance for [10,15,20,25,30];
+// Simple variance calculation
+let variance = 50;  // Known variance for [10,15,20,25,30];
 assert(variance == 50, "Variance should be 50");
 
-# Geometric calculations
+// Geometric calculations
 let rectangle_width = 6;
 let rectangle_height = 4;
 let rectangle_area = rectangle_width * rectangle_height;
@@ -78,7 +78,7 @@ let rectangle_perimeter = 2 * (rectangle_width + rectangle_height);
 assert(rectangle_area == 24, "Rectangle area should be 24");
 assert(rectangle_perimeter == 20, "Rectangle perimeter should be 20");
 
-# Circle calculations (using pi approximation)
+// Circle calculations (using pi approximation)
 let pi_approx = 3.14159;
 let radius = 5.0;
 let circle_area = pi_approx * radius * radius;
@@ -87,7 +87,7 @@ let circle_circumference = 2.0 * pi_approx * radius;
 assert(circle_area > 78.0 && circle_area < 79.0, "Circle area should be approximately 78.5");
 assert(circle_circumference > 31.0 && circle_circumference < 32.0, "Circumference should be approximately 31.4");
 
-# Number theory operations
+// Number theory operations
 let prime_candidates = [2, 3, 5, 7, 11, 13];
 let is_even = [(n % 2 == 0) | n in prime_candidates];
 let squares = [n * n | n in prime_candidates];
@@ -96,33 +96,33 @@ assert(is_even[0] == true, "2 should be even");
 assert(is_even[1] == false, "3 should not be even");
 assert(squares[2] == 25, "5² should be 25");
 
-# Simple factorial values
-let fact_3 = 6;   # 3!;
-let fact_4 = 24;  # 4!
+// Simple factorial values
+let fact_3 = 6;   // 3!;
+let fact_4 = 24;  // 4!
 
 assert(fact_3 == 6, "3! should be 6");
 assert(fact_4 == 24, "4! should be 24");
 
-# Mathematical constants and computations
+// Mathematical constants and computations
 let pi_value = 3.14159;
 let e_value = 2.718;
 let golden_ratio = 1.618;
 
-# Using mathematical constants in calculations
-let constant_products = e_value * pi_value;  # e × π;
+// Using mathematical constants in calculations
+let constant_products = e_value * pi_value;  // e × π;
 let ratio_squared = golden_ratio * golden_ratio;
 
 assert(constant_products > 8.0 && constant_products < 9.0, "e × π should be approximately 8.5");
 assert(ratio_squared > 2.6 && ratio_squared < 2.7, "φ² should be approximately 2.6");
 
-# Mathematical Operations Tests Completed Successfully
-# All operations verified through assertions above
-# - Basic arithmetic: addition, subtraction, multiplication, division
-# - Advanced operations: modulo, exponentiation
-# - Mathematical approximations: sqrt calculations
-# - Statistical calculations: mean and variance
-# - Geometric calculations: areas and perimeters
-# - Number theory: squares and factorials
-# - Mathematical constants: pi, e, golden ratio
+// Mathematical Operations Tests Completed Successfully
+// All operations verified through assertions above
+// - Basic arithmetic: addition, subtraction, multiplication, division
+// - Advanced operations: modulo, exponentiation
+// - Mathematical approximations: sqrt calculations
+// - Statistical calculations: mean and variance
+// - Geometric calculations: areas and perimeters
+// - Number theory: squares and factorials
+// - Mathematical constants: pi, e, golden ratio
 
-# All mathematical operations verified with assertions
+// All mathematical operations verified with assertions

@@ -1,13 +1,13 @@
-# Index Conditions vs Value Conditions - Critical Distinction
-# Shows what works where in Einlang's where clauses
+// Index Conditions vs Value Conditions - Critical Distinction
+// Shows what works where in Einlang's where clauses
 
 print("=== INDEX CONDITIONS VS VALUE CONDITIONS ===");
 print("Demonstrating the crucial difference between index and value constraints");
 print();
 
-# =============================================================================
-# 1. TENSOR OPERATIONS: INDEX CONDITIONS ALLOWED
-# =============================================================================
+// =============================================================================
+// 1. TENSOR OPERATIONS: INDEX CONDITIONS ALLOWED
+// =============================================================================
 
 print("=== 1. TENSOR OPERATIONS - INDEX CONDITIONS ===");
 
@@ -18,13 +18,13 @@ let input_data: tensor[f32; 4, 4] = [
     [13.0, 14.0, 15.0, 16.0]
 ];
 
-# ❌ PROBLEMATIC: What happens to elements that don't satisfy the condition?
-# let upper_triangle[i, j] = input_data[i, j] where i <= j;  # What about i > j?
-# let diagonal_plus_one[i, j] = input_data[i, j] + 1.0 where i == j;  # What about i != j?
+// ❌ PROBLEMATIC: What happens to elements that don't satisfy the condition?
+// let upper_triangle[i, j] = input_data[i, j] where i <= j;  # What about i > j?
+// let diagonal_plus_one[i, j] = input_data[i, j] + 1.0 where i == j;  # What about i != j?
 
-# ✅ CORRECT: Define ALL elements explicitly  
+// ✅ CORRECT: Define ALL elements explicitly  
 let upper_triangle[i in 0..4, j in 0..4] = if i <= j { input_data[i, j] } else { 0.0 };
-let bounded_region[i in 0..3, j in 0..3] = input_data[i, j];  # Bounds checking via domain definition
+let bounded_region[i in 0..3, j in 0..3] = input_data[i, j];  // Bounds checking via domain definition
 let diagonal_conditional[i in 0..4, j in 0..4] = if i == j { input_data[i, j] + 1.0 } else { input_data[i, j] };
 
 print("Original matrix:", input_data);
@@ -33,27 +33,27 @@ print("Bounded region (i < 3, j < 3):", bounded_region);
 print("Diagonal conditional:", diagonal_conditional);
 print();
 
-# =============================================================================
-# 2. TENSOR OPERATIONS: VALUE CONDITIONS NOT ALLOWED
-# =============================================================================
+// =============================================================================
+// 2. TENSOR OPERATIONS: VALUE CONDITIONS NOT ALLOWED
+// =============================================================================
 
 print("=== 2. TENSOR OPERATIONS - VALUE CONDITIONS FORBIDDEN ===");
 
-# ❌ BAD: Value conditions don't work in tensor operations
-# let filtered_values[i, j] = input_data[i, j] where input_data[i, j] > 8.0;  # ❌ ERROR!
-# let positive_only[i, j] = input_data[i, j] where input_data[i, j] > 0.0;   # ❌ ERROR!
+// ❌ BAD: Value conditions don't work in tensor operations
+// let filtered_values[i, j] = input_data[i, j] where input_data[i, j] > 8.0;  # ❌ ERROR!
+// let positive_only[i, j] = input_data[i, j] where input_data[i, j] > 0.0;   # ❌ ERROR!
 
 print("❌ Value conditions like 'input_data[i, j] > 8.0' DON'T work in tensor operations!");
 print("❌ Use array comprehensions instead for value-based filtering");
 print();
 
-# =============================================================================
-# 3. ARRAY COMPREHENSIONS: ALL CONDITIONS ALLOWED
-# =============================================================================
+// =============================================================================
+// 3. ARRAY COMPREHENSIONS: ALL CONDITIONS ALLOWED
+// =============================================================================
 
 print("=== 3. ARRAY COMPREHENSIONS - ALL CONDITIONS WORK ===");
 
-# ✅ GOOD: Both index AND value conditions work in array comprehensions
+// ✅ GOOD: Both index AND value conditions work in array comprehensions
 let large_values = [input_data[i, j] | i in 0..4, j in 0..4, input_data[i, j] > 8.0];
 let upper_triangle_positives = [input_data[i, j] | i in 0..4, j in 0..4, i <= j, input_data[i, j] > 5.0];
 let corner_elements = [input_data[i, j] | i in [0, 3], j in [0, 3]];
@@ -63,9 +63,9 @@ print("Upper triangle positives (i <= j, > 5.0):", upper_triangle_positives);
 print("Corner elements:", corner_elements);
 print();
 
-# =============================================================================
-# 4. PRACTICAL EXAMPLE: NEURAL NETWORK WITH INDEX CONSTRAINTS
-# =============================================================================
+// =============================================================================
+// 4. PRACTICAL EXAMPLE: NEURAL NETWORK WITH INDEX CONSTRAINTS
+// =============================================================================
 
 print("=== 4. NEURAL NETWORK WITH INDEX CONSTRAINTS ===");
 
@@ -77,13 +77,13 @@ let weights: tensor[f32; 3, 4] = [
 ];
 let bias: tensor[f32; 4] = [0.1, 0.2, 0.3, 0.4];
 
-# ✅ GOOD: Variable binding with index constraints
+// ✅ GOOD: Variable binding with index constraints
 fn constrained_layer(input, w, b, max_batch, max_features) {
     let output[i, k] = activated;
                        where linear = sum[j](input[i, j] * w[j, k]) + b[k],
                              activated = if linear > 0.0 { linear } else { 0.0 },
-                             i < max_batch,    # ✅ Index constraint allowed
-                             k < max_features; # ✅ Index constraint allowed
+                             i < max_batch,    // ✅ Index constraint allowed
+                             k < max_features; // ✅ Index constraint allowed
     output
 }
 
@@ -93,22 +93,22 @@ print("Batch input:", batch_input);
 print("Constrained layer output (max 2 batches, 3 features):", constrained_result);
 print();
 
-# =============================================================================
-# 5. REDUCTIONS WITH INDEX CONDITIONS
-# =============================================================================
+// =============================================================================
+// 5. REDUCTIONS WITH INDEX CONDITIONS
+// =============================================================================
 
 print("=== 5. REDUCTIONS WITH INDEX CONDITIONS ===");
 
 let matrix = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]];
 
-# ✅ GOOD: Index constraints in reductions (where clause inside parentheses)
-let partial_sum = sum[i, j](matrix[i, j] where i < 2, j > 0);  # First 2 rows, skip first column
-let diagonal_sum = sum[i](matrix[i, i] where i < 3);           # Diagonal elements only
+// ✅ GOOD: Index constraints in reductions (where clause inside parentheses)
+let partial_sum = sum[i, j](matrix[i, j] where i < 2, j > 0);  // First 2 rows, skip first column
+let diagonal_sum = sum[i](matrix[i, i] where i < 3);           // Diagonal elements only
 
-# ✅ GOOD: Value conditions in reductions (where clause INSIDE parentheses)
+// ✅ GOOD: Value conditions in reductions (where clause INSIDE parentheses)
 let large_sum = sum[i in 0..3, j in 0..4](matrix[i, j] where matrix[i, j] > 6);
 
-# Alternative: Use array comprehension for value filtering, then reduce
+// Alternative: Use array comprehension for value filtering, then reduce
 let large_elements = [matrix[i, j] | i in 0..3, j in 0..4, matrix[i, j] > 6];
 let large_sum_alt = sum(large_elements);
 
@@ -120,9 +120,9 @@ print("Sum of large elements (direct reduction):", large_sum);
 print("Sum of large elements (via comprehension):", large_sum_alt);
 print();
 
-# =============================================================================
-# 6. SUMMARY OF RULES
-# =============================================================================
+// =============================================================================
+// 6. SUMMARY OF RULES
+// =============================================================================
 
 print("=== SUMMARY OF WHERE CLAUSE RULES ===");
 print();

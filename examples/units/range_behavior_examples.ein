@@ -1,15 +1,15 @@
-# Range behavior examples and validation
+// Range behavior examples and validation
 
 let arr = [10, 20, 30, 40];
 
-# Test what indices i in 0..2 gives us
+// Test what indices i in 0..2 gives us
 let test1[i in 0..2] = arr[i];
 assert(test1 == [10, 20]);
 
-# Test what indices i in 0..3 gives us  
+// Test what indices i in 0..3 gives us  
 let test2[i in 0..3] = arr[i];
 assert(test2 == [10, 20, 30]);
 
-# Test what indices i in 0..4 gives us
+// Test what indices i in 0..4 gives us
 let test3[i in 0..4] = arr[i];
 assert(test3 == [10, 20, 30, 40]);

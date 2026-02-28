@@ -12,7 +12,7 @@ from ..ir.scoped_visitor import ScopedIRVisitor
 from ..ir.nodes import (
     ExpressionIR,
     LiteralIR, IdentifierIR, BinaryOpIR, UnaryOpIR,
-    FunctionCallIR, FunctionDefIR, ConstantDefIR,
+    FunctionCallIR, BindingIR,
     RectangularAccessIR, JaggedAccessIR,
     BlockExpressionIR, IfExpressionIR, LambdaIR,
     RangeIR, ArrayComprehensionIR, ArrayLiteralIR,
@@ -20,9 +20,9 @@ from ..ir.nodes import (
     CastExpressionIR, MemberAccessIR,
     TryExpressionIR, MatchExpressionIR,
     ReductionExpressionIR, WhereExpressionIR,
-    ArrowExpressionIR, PipelineExpressionIR,
-    BuiltinCallIR, FunctionRefIR, EinsteinDeclarationIR,
-    VariableDeclarationIR,
+    PipelineExpressionIR,
+    BuiltinCallIR,
+    is_function_binding, is_einstein_binding,
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
     ProgramIR,
@@ -103,16 +103,29 @@ class DCEVisitor(ScopedIRVisitor[Any]):
     # Core transforming visitors
     # ------------------------------------------------------------------
 
-    def visit_function_def(self, node: FunctionDefIR):
-        with self.scope():
-            for p in node.parameters:
-                pt = getattr(p, 'param_type', None)
-                if pt is not None and p.defid is not None:
-                    self.set_var(p.defid, pt)
-            if node.body:
-                new_body = node.body.accept(self)
-                if new_body is not None and new_body is not node.body:
-                    object.__setattr__(node, 'body', new_body)
+    def visit_binding(self, node: BindingIR):
+        if is_function_binding(node):
+            with self.scope():
+                for p in node.parameters:
+                    pt = getattr(p, 'param_type', None)
+                    if pt is not None and p.defid is not None:
+                        self.set_var(p.defid, pt)
+                if node.body:
+                    new_body = node.body.accept(self)
+                    if new_body is not None and new_body is not node.body:
+                        object.__setattr__(node.expr, 'body', new_body)
+            return node
+        if is_einstein_binding(node):
+            return node
+        if node.value:
+            new_val = node.value.accept(self)
+            did = getattr(node, 'defid', None)
+            if did is not None:
+                cv = self._try_eval(new_val)
+                if cv is not None:
+                    self.set_var(did, cv)
+            if new_val is not node.value:
+                object.__setattr__(node, 'expr', new_val)
         return node
 
     def visit_if_expression(self, node: IfExpressionIR):
@@ -143,18 +156,6 @@ class DCEVisitor(ScopedIRVisitor[Any]):
             shape_info=getattr(node, 'shape_info', None),
         )
 
-    def visit_variable_declaration(self, node: VariableDeclarationIR):
-        if node.value:
-            new_val = node.value.accept(self)
-            did = getattr(node, 'defid', None)
-            if did is not None:
-                cv = self._try_eval(new_val)
-                if cv is not None:
-                    self.set_var(did, cv)
-            if new_val is not node.value:
-                object.__setattr__(node, 'value', new_val)
-        return node
-
     # ------------------------------------------------------------------
     # Identity visitors — return node unchanged, required by IRVisitor ABC
     # ------------------------------------------------------------------
@@ -164,7 +165,6 @@ class DCEVisitor(ScopedIRVisitor[Any]):
     def visit_binary_op(self, node: BinaryOpIR): return node
     def visit_unary_op(self, node: UnaryOpIR): return node
     def visit_function_call(self, node: FunctionCallIR): return node
-    def visit_constant_def(self, node: ConstantDefIR): return node
     def visit_rectangular_access(self, node: RectangularAccessIR): return node
     def visit_jagged_access(self, node: JaggedAccessIR): return node
     def visit_lambda(self, node: LambdaIR): return node
@@ -181,11 +181,8 @@ class DCEVisitor(ScopedIRVisitor[Any]):
     def visit_match_expression(self, node: MatchExpressionIR): return node
     def visit_reduction_expression(self, node: ReductionExpressionIR): return node
     def visit_where_expression(self, node: WhereExpressionIR): return node
-    def visit_arrow_expression(self, node: ArrowExpressionIR): return node
     def visit_pipeline_expression(self, node: PipelineExpressionIR): return node
     def visit_builtin_call(self, node: BuiltinCallIR): return node
-    def visit_function_ref(self, node: FunctionRefIR): return node
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR): return node
     def visit_literal_pattern(self, node: LiteralPatternIR): return node
     def visit_identifier_pattern(self, node: IdentifierPatternIR): return node
     def visit_wildcard_pattern(self, node: WildcardPatternIR): return node

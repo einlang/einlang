@@ -1,25 +1,25 @@
-# rust_syntax_demo.ein - Demonstration of Rust-style module syntax in Einlang
+// rust_syntax_demo.ein - Demonstration of Rust-style module syntax in Einlang
 
-# Basic use statements (no 'mod' declarations needed - Rust-style!)
+// Basic use statements (no 'mod' declarations needed - Rust-style!)
 use math_utils;
 use string_utils as strings;
 
-# Function calls with :: syntax
-let sum = math_utils::add(10.0, 5.0);           # Module function call
-let product = math_utils::multiply(4.0, 3.0);   # Another module function call
-let greeting = strings::greeting();             # Module function access
+// Function calls with :: syntax
+let sum = math_utils::add(10.0, 5.0);           // Module function call
+let product = math_utils::multiply(4.0, 3.0);   // Another module function call
+let greeting = strings::greeting();             // Module function access
 
-# Direct function calls (function references not supported yet)
-let result1 = math_utils::add(7.0, 8.0);        # Direct function call
-let result2 = math_utils::square(9.0);          # Direct function call
+// Direct function calls (function references not supported yet)
+let result1 = math_utils::add(7.0, 8.0);        // Direct function call
+let result2 = math_utils::square(9.0);          // Direct function call
 
-# Complex expressions
+// Complex expressions
 let complex_calc = math_utils::add(
     math_utils::multiply(2.0, 3.0),
     math_utils::square(4.0)
 );
 
-# Print results
+// Print results
 print("Sum:", sum);
 print("Product:", product);
 print("Greeting:", greeting);
@@ -27,16 +27,16 @@ print("Result from reference 1:", result1);
 print("Result from reference 2:", result2);
 print("Complex calculation:", complex_calc);
 
-# Simple calculation using available module functions
+// Simple calculation using available module functions
 let power_calc = math_utils::square(5.0);
 print("5^2 =", power_calc);
 
-# Demonstrate the clear distinction between module and object access
-# NOTE: Object property access (dot notation) not yet implemented
-# let my_array = [1, 2, 3, 4, 5];
-# let array_length = my_array.length;         # Object property (dot notation)
+// Demonstrate the clear distinction between module and object access
+// NOTE: Object property access (dot notation) not yet implemented
+// let my_array = [1, 2, 3, 4, 5];
+// let array_length = my_array.length;         # Object property (dot notation)
 
-let simple_calc = math_utils::add(1.0, 1.0);    # Module function call (:: notation)
+let simple_calc = math_utils::add(1.0, 1.0);    // Module function call (:: notation)
 
-# print("Array length:", array_length);
+// print("Array length:", array_length);
 print("Simple calculation:", simple_calc);

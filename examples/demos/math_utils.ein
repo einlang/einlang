@@ -1,5 +1,5 @@
-# Math utilities module for rust_syntax_demo
-# Provides basic mathematical functions
+// Math utilities module for rust_syntax_demo
+// Provides basic mathematical functions
 
 pub fn add(a, b) {
     a + b

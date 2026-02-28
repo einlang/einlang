@@ -123,8 +123,6 @@ class CompilerDriver:
         self.pass_manager.register_pass(IRValidationPass)
         
         # 9. Optimizations (validation)
-        from ..passes.arrow_optimization import ArrowOptimizationPass
-        self.pass_manager.register_pass(ArrowOptimizationPass)
 
     def _run_name_resolution_pass(self, ast, tcx: TyCtxt):
         """Run the name resolution pass on AST (its own pass; allocates DefIds, resolves names). Returns AST with DefIds attached."""
@@ -254,13 +252,11 @@ class CompilerDriver:
                     try:
                         func_map = getattr(tcx, "function_ir_map", None) or {}
                         extra = [f for f in func_map.values() if f is not None and f not in ir.functions]
+                        all_stmts = list(getattr(ir, "statements", []) or []) + extra
                         combined = ProgramIR(
+                            statements=all_stmts,
                             modules=getattr(ir, "modules", []) or [],
-                            functions=list(ir.functions) + extra,
-                            constants=getattr(ir, "constants", []) or [],
-                            statements=getattr(ir, "statements", []) or [],
                             source_files=getattr(ir, "source_files", {}) or {},
-                            defid_to_name=getattr(ir, "defid_to_name", None),
                         )
                         (dump_dir / "after_einstein_lowering.sexpr").write_text(serialize_ir(combined), encoding="utf-8")
                     except Exception as e:
@@ -280,7 +276,8 @@ class CompilerDriver:
             func_set = {id(f) for f in ir.functions}
             for f in function_ir_map.values():
                 if f is not None and id(f) not in func_set:
-                    ir.functions.append(f)
+                    ir.statements.append(f)
+                    ir.bindings.append(f)
                     func_set.add(id(f))
             
             from ..passes.tree_shaking import tree_shake

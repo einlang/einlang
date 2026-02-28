@@ -1,15 +1,15 @@
-# Basic Math Operations Sample
-# Demonstrates fundamental arithmetic and assertions
+// Basic Math Operations Sample
+// Demonstrates fundamental arithmetic and assertions
 
-let a = 15.0;  # Float literals - clean and clear;
+let a = 15.0;  // Float literals - clean and clear;
 let b = 4.0;
 let sum = a + b;
 let difference = a - b;
 let product = a * b;
 let quotient = a / b;
-let remainder = 15 % 4;  # Integer operation stays integer
+let remainder = 15 % 4;  // Integer operation stays integer
 
-# Verify calculations
+// Verify calculations
 assert(sum == 19.0, "15 + 4 should equal 19");
 assert(difference == 11.0, "15 - 4 should equal 11");
 assert(product == 60.0, "15 * 4 should equal 60");

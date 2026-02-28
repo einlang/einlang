@@ -1,13 +1,13 @@
-# Quicksort Algorithm - Sorting Arrays
-# Demonstrates the quicksort algorithm for sorting arrays
-# Average time complexity: O(n log n), Worst case: O(n²)
-#
-# This is a classic recursive algorithm useful for testing IR generation
+// Quicksort Algorithm - Sorting Arrays
+// Demonstrates the quicksort algorithm for sorting arrays
+// Average time complexity: O(n log n), Worst case: O(n²)
+//
+// This is a classic recursive algorithm useful for testing IR generation
 
 print("=== QUICKSORT ALGORITHM DEMO ===");
 print();
 
-# Quicksort function - recursive sorting algorithm
+// Quicksort function - recursive sorting algorithm
 fn quicksort(arr) {
     if len(arr) <= 1 {
         arr
@@ -18,7 +18,7 @@ fn quicksort(arr) {
         let larger = [rest[i] | i in 0..len(rest), rest[i] >= pivot];
         let sorted_smaller = quicksort(smaller);
         let sorted_larger = quicksort(larger);
-        # Concatenate using Einstein notation: sorted_smaller + [pivot] + sorted_larger
+        // Concatenate using Einstein notation: sorted_smaller + [pivot] + sorted_larger
         let total_len = len(sorted_smaller) + 1 + len(sorted_larger);
         let result[i in 0..total_len] = if i < len(sorted_smaller) {
             sorted_smaller[i]
@@ -33,49 +33,49 @@ fn quicksort(arr) {
     }
 }
 
-# Demo Data
+// Demo Data
 let test_data = [64, 34, 25, 12, 22, 11, 90, 88, 45, 50];
 
 print("Original array:", test_data);
 print("Expected sorted: [11, 12, 22, 25, 34, 45, 50, 64, 88, 90]");
 print();
 
-# Test quicksort
+// Test quicksort
 print("=== QUICKSORT TESTS ===");
 
 let sorted_result = quicksort(test_data);
 print("Sorted result:", sorted_result);
 print();
 
-# Test with already sorted array
+// Test with already sorted array
 let sorted_input = [1, 2, 3, 4, 5];
 let sorted_output = quicksort(sorted_input);
 print("Already sorted input:", sorted_input);
 print("Quicksort result:", sorted_output);
 print();
 
-# Test with reverse sorted array
+// Test with reverse sorted array
 let reverse_input = [5, 4, 3, 2, 1];
 let reverse_output = quicksort(reverse_input);
 print("Reverse sorted input:", reverse_input);
 print("Quicksort result:", reverse_output);
 print();
 
-# Test with duplicates
+// Test with duplicates
 let duplicate_input = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3];
 let duplicate_output = quicksort(duplicate_input);
 print("Input with duplicates:", duplicate_input);
 print("Quicksort result:", duplicate_output);
 print();
 
-# Test with single element
+// Test with single element
 let single_input = [42];
 let single_output = quicksort(single_input);
 print("Single element input:", single_input);
 print("Quicksort result:", single_output);
 print();
 
-# Test with empty array
+// Test with empty array
 let empty_input = [];
 let empty_output = quicksort(empty_input);
 print("Empty input:", empty_input);

@@ -5,13 +5,13 @@ import warnings
 
 import numpy as np
 
-from ..shared.types import BinaryOp, UnaryOp
+from ..shared.types import BinaryOp, UnaryOp, TypeKind
 from ..ir.nodes import (
     LiteralIR, IdentifierIR, IndexVarIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     BlockExpressionIR, RangeIR, ArrayComprehensionIR, RectangularAccessIR, JaggedAccessIR,
     ArrayLiteralIR, TupleExpressionIR, TupleAccessIR, InterpolatedStringIR, CastExpressionIR,
     MemberAccessIR, TryExpressionIR, MatchExpressionIR, ReductionExpressionIR, WhereExpressionIR,
-    ArrowExpressionIR, PipelineExpressionIR, BuiltinCallIR, FunctionRefIR,
+    PipelineExpressionIR, BuiltinCallIR,
     MatchArmIR, ExpressionIR, LoweredComprehensionIR, LoweredReductionIR,
 )
 from ..runtime.environment import FunctionValue
@@ -183,6 +183,10 @@ class ExpressionVisitorMixin:
             self._raise_here(e, expr)
 
     def _visit_function_call_inner(self, expr: FunctionCallIR) -> Any:
+        module_path = getattr(expr, "module_path", None) or ()
+        if expr.function_defid is None and module_path and len(module_path) > 0 and module_path[0] == "python":
+            args = [arg.accept(self) for arg in expr.arguments]
+            return self._call_python_module(module_path, getattr(expr, "function_name", ""), args)
         callee_expr = getattr(expr, "callee_expr", None)
         if callee_expr is not None:
             callee_value = callee_expr.accept(self)
@@ -202,10 +206,6 @@ class ExpressionVisitorMixin:
                 raise RuntimeError(f"Function (DefId: {effective_defid}) not found")
             return self._call_function(func_def, args)
         if expr.function_defid is None:
-            module_path = getattr(expr, "module_path", None) or ()
-            if module_path and len(module_path) > 0 and module_path[0] == "python":
-                args = [arg.accept(self) for arg in expr.arguments]
-                return self._call_python_module(module_path, getattr(expr, "function_name", ""), args)
             raise RuntimeError("Function call has no DefId")
         args = [arg.accept(self) for arg in expr.arguments]
         callee = self.env.get_value(expr.function_defid)
@@ -240,7 +240,7 @@ class ExpressionVisitorMixin:
 
     def visit_jagged_access(self, expr: JaggedAccessIR) -> Any:
         array = expr.base.accept(self)
-        for idx in expr.indices or []:
+        for idx in (getattr(expr, 'index_chain', None) or []):
             array = array[idx.accept(self)]
         return array
 
@@ -270,10 +270,15 @@ class ExpressionVisitorMixin:
         return None
 
     def visit_lambda(self, expr) -> Any:
-        if getattr(expr, "defid", None) is None:
-            raise RuntimeError("Lambda has no DefId")
-        self.env.set_value(expr.defid, expr)
-        return FunctionValue(defid=expr.defid, closure_env=self.env)
+        defid = getattr(expr, "defid", None)
+        if defid is None:
+            resolver = getattr(self, "resolver", None)
+            if resolver is not None:
+                defid = resolver.allocate_for_local()
+            else:
+                raise RuntimeError("Lambda has no DefId and backend has no resolver to allocate one")
+        self.env.set_value(defid, expr)
+        return FunctionValue(defid=defid, closure_env=self.env)
 
     def visit_range(self, expr: RangeIR) -> Any:
         start = expr.start.accept(self)
@@ -305,7 +310,11 @@ class ExpressionVisitorMixin:
         return np.array(results) if results else np.array([])
 
     def visit_array_literal(self, expr: ArrayLiteralIR) -> Any:
-        return np.array([e.accept(self) for e in expr.elements])
+        evaluated = [e.accept(self) for e in expr.elements]
+        type_info = getattr(expr, "type_info", None)
+        if type_info is not None and getattr(type_info, "kind", None) == TypeKind.JAGGED:
+            return list(evaluated)
+        return np.array(evaluated)
 
     def visit_tuple_expression(self, expr: TupleExpressionIR) -> Any:
         return tuple(e.accept(self) for e in expr.elements)
@@ -527,16 +536,6 @@ class ExpressionVisitorMixin:
                 return None
         return expr.expr.accept(self)
 
-    def visit_arrow_expression(self, expr: ArrowExpressionIR) -> Any:
-        result = None
-        for comp in expr.components:
-            if result is None:
-                result = comp.accept(self)
-            else:
-                from .numpy_arrow_pipeline import apply_arrow_component
-                result = apply_arrow_component(comp, result, expr.location, self)
-        return result
-
     def visit_pipeline_expression(self, expr: PipelineExpressionIR) -> Any:
         left_value = expr.left.accept(self)
         from .numpy_arrow_pipeline import apply_pipeline_right
@@ -566,7 +565,3 @@ class ExpressionVisitorMixin:
         except Exception as e:
             self._raise_here(e, expr)
 
-    def visit_function_ref(self, expr: FunctionRefIR) -> Any:
-        if getattr(expr, "function_defid", None) is None:
-            raise RuntimeError("Function reference has no DefId")
-        return FunctionValue(defid=expr.function_defid, closure_env=self.env)

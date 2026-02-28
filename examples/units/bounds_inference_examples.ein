@@ -1,28 +1,28 @@
-# Bounds inference examples and automatic range detection
+// Bounds inference examples and automatic range detection
 
-# Test 1: Automatic bounds inference without explicit constraints
-let arr1 = [1, 2, 3];  # 3 elements (indices 0-2)
+// Test 1: Automatic bounds inference without explicit constraints
+let arr1 = [1, 2, 3];  // 3 elements (indices 0-2)
 
-# Let system infer safe range for i automatically
-# Pattern: arr[i+1] should infer i can only be 0,1 (not 2)
+// Let system infer safe range for i automatically
+// Pattern: arr[i+1] should infer i can only be 0,1 (not 2)
 let result1[i] = arr1[i+1];
 
 assert(arr1 == [1, 2, 3]);
 assert(result1 == [2, 3]);
 
-# Test 2: Simple bounds inference case
-let arr2 = [1, 2, 3, 4];  # 4 elements (indices 0-3)
+// Test 2: Simple bounds inference case
+let arr2 = [1, 2, 3, 4];  // 4 elements (indices 0-3)
 
-# This should infer that i can only be 0,1,2 since i+1 must be <= 3
+// This should infer that i can only be 0,1,2 since i+1 must be <= 3
 let result2[i in 0..3] = arr2[i] + arr2[i+1];
 
 assert(arr2 == [1, 2, 3, 4]);
 assert(result2 == [3, 5, 7]);
 
-# Test 3: Automatic bounds inference without any explicit constraints
-let arr3 = [10, 20, 30];  # 3 elements (indices 0-2)
+// Test 3: Automatic bounds inference without any explicit constraints
+let arr3 = [10, 20, 30];  // 3 elements (indices 0-2)
 
-# No explicit constraints - let system infer safe range for i automatically  
+// No explicit constraints - let system infer safe range for i automatically  
 let result3[i] = arr3[i+1];
 
 assert(result3 == [20, 30]);

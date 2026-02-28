@@ -30,14 +30,15 @@ import logging
 from typing import Optional, Any
 from ..passes.base import BasePass, TyCtxt
 from ..ir.nodes import (
-    ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR, EinsteinDeclarationIR,
+    ProgramIR, ExpressionIR, BindingIR,
+    is_function_binding, is_einstein_binding, is_constant_binding,
     IRVisitor, IRNode,
     LiteralIR, IdentifierIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     RectangularAccessIR, JaggedAccessIR, ArrayLiteralIR, TupleExpressionIR,
     ReductionExpressionIR, IfExpressionIR, MatchExpressionIR, CastExpressionIR,
     TryExpressionIR, LambdaIR, RangeIR, ArrayComprehensionIR, InterpolatedStringIR,
-    TupleAccessIR, BuiltinCallIR, BlockExpressionIR, ArrowExpressionIR,
-    PipelineExpressionIR, FunctionRefIR, MemberAccessIR,
+    TupleAccessIR, BuiltinCallIR, BlockExpressionIR,
+    PipelineExpressionIR, MemberAccessIR,
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
     MatchArmIR, IndexRestIR,
@@ -94,14 +95,10 @@ class IRValidationVisitor(IRVisitor[None]):
     def visit_function_call(self, node: FunctionCallIR) -> None:
         self.nodes_validated += 1
         self._check_type(node)
-        # Validate function_defid is present (needed for function lookup)
-        # Exception: Python module calls (e.g., math::sqrt, np::array) may not have DefId
-        # because Python modules are resolved at runtime, not compile time
-        # These will be handled by the backend's Python interop system
-        if node.function_defid is None:
-            # Allow None function_defid for Python module calls (handled at runtime)
-            # TODO: Add a flag to FunctionCallIR to mark Python module calls explicitly
-            pass  # Backend will handle Python module calls at runtime
+        if node.callee_expr is None:
+            self._report_error("Function call missing callee_expr.", node.location)
+        else:
+            node.callee_expr.accept(self)
         for arg in node.arguments:
             arg.accept(self)
     
@@ -255,16 +252,13 @@ class IRValidationVisitor(IRVisitor[None]):
         self.nodes_validated += 1
         self._check_type(node)
         node.body.accept(self)
+        for v in node.loop_vars:
+            if hasattr(v, 'accept'):
+                v.accept(self)
         for range_expr in node.ranges:
             range_expr.accept(self)
         for constraint in node.constraints:
             constraint.accept(self)
-    
-    def visit_arrow_expression(self, node: ArrowExpressionIR) -> None:
-        self.nodes_validated += 1
-        self._check_type(node)
-        for component in node.components:
-            component.accept(self)
     
     def visit_pipeline_expression(self, node: PipelineExpressionIR) -> None:
         self.nodes_validated += 1
@@ -284,30 +278,43 @@ class IRValidationVisitor(IRVisitor[None]):
             if hasattr(part, 'accept'):
                 part.accept(self)
     
-    def visit_function_ref(self, node: FunctionRefIR) -> None:
-        self.nodes_validated += 1
-        self._check_type(node)
-        # Validate function_defid is present
-        if node.function_defid is None:
-            self._report_error(
-                "FunctionRefIR missing function_defid. "
-                "Function references must have DefId for definition table lookup.",
-                node.location
-            )
-    
     def visit_member_access(self, node: MemberAccessIR) -> None:
         self.nodes_validated += 1
         self._check_type(node)
         node.object.accept(self)
     
     # Statement/Definition visitors
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> None:
-        """Validate Einstein declaration: check each clause."""
+    def visit_binding(self, node: BindingIR) -> None:
         self.nodes_validated += 1
-        for clause in (node.clauses or []):
-            clause.accept(self)
+        if is_einstein_binding(node):
+            for clause in (node.clauses or []):
+                clause.accept(self)
+        elif is_function_binding(node):
+            # Validate function has DefId
+            if node.defid is None:
+                self._report_error(
+                    f"FunctionDefIR '{node.name}' missing DefId. "
+                    "Functions must have DefId for definition table lookup.",
+                    node.location
+                )
+            # Skip validation of generic functions — they are templates that get
+            # specialized; only the specialized copies need full validation.
+            from ..analysis.analysis_guard import is_generic_function
+            if is_generic_function(node):
+                return
+            # Validate function body
+            node.body.accept(self)
+        else:
+            if node.defid is None:
+                self._report_error(
+                    f"Binding '{node.name}' missing DefId. "
+                    "Bindings must have DefId for definition table lookup.",
+                    node.location
+                )
+            if hasattr(node, 'value') and node.value:
+                node.value.accept(self)
 
-    def visit_einstein(self, node) -> None:
+    def visit_einstein_clause(self, node) -> None:
         """Validate one Einstein clause has required metadata."""
         if node.value and hasattr(node.value, 'type_info') and node.value.type_info is None:
             self._report_error(
@@ -325,35 +332,6 @@ class IRValidationVisitor(IRVisitor[None]):
             )
         if node.value:
             node.value.accept(self)
-    
-    def visit_function_def(self, node: FunctionDefIR) -> None:
-        self.nodes_validated += 1
-        # Validate function has DefId
-        if node.defid is None:
-            self._report_error(
-                f"FunctionDefIR '{node.name}' missing DefId. "
-                "Functions must have DefId for definition table lookup.",
-                node.location
-            )
-        # Skip validation of generic functions — they are templates that get
-        # specialized; only the specialized copies need full validation.
-        from ..analysis.analysis_guard import is_generic_function
-        if is_generic_function(node):
-            return
-        # Validate function body
-        node.body.accept(self)
-    
-    def visit_constant_def(self, node: ConstantDefIR) -> None:
-        self.nodes_validated += 1
-        # Validate constant has DefId
-        if node.defid is None:
-            self._report_error(
-                f"ConstantDefIR '{node.name}' missing DefId. "
-                "Constants must have DefId for definition table lookup.",
-                node.location
-            )
-        # Validate constant value
-        node.value.accept(self)
     
     def visit_program(self, node: ProgramIR) -> None:
         # Validate all functions
@@ -384,12 +362,6 @@ class IRValidationVisitor(IRVisitor[None]):
         for constraint in node.constraints:
             constraint.accept(self)
     
-
-    def visit_variable_declaration(self, node) -> Any:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 
     def visit_lowered_einstein(self, node: Any) -> None:
         """Visit all lowered Einstein clauses (not just last)."""

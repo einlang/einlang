@@ -1,34 +1,34 @@
-# ml/recurrent_ops.ein - ONNX Recurrent Operations
-# TensorRT ONNX Parser: ✅ Supported (IRNNv2Layer)
+// ml/recurrent_ops.ein - ONNX Recurrent Operations
+// TensorRT ONNX Parser: ✅ Supported (IRNNv2Layer)
 
 use std::math::tanh;
 use std::ml::activations::sigmoid;
 
-# ============================================================================
-# ONNX Operator: RNN (Recurrent Neural Network)
-# ============================================================================
+// ============================================================================
+// ONNX Operator: RNN (Recurrent Neural Network)
+// ============================================================================
 
 pub fn rnn(X, W, R, B, initial_h, hidden_size, direction, activation) {
-    # ONNX Operator: RNN (Recurrent Neural Network)
-    # 
-    # Simplest recurrent operation - single hidden state update
-    # 
-    # Inputs:
-    #   - X: [seq_length, batch_size, input_size] - input sequence
-    #   - W: [hidden_size, input_size] - input weights (for forward direction)
-    #   - R: [hidden_size, hidden_size] - recurrent weights (for forward direction)
-    #   - B: [2*hidden_size] or [] - biases (optional, input bias + recurrent bias)
-    #   - initial_h: [batch_size, hidden_size] or [] - initial hidden state (optional, default zeros)
-    #   - hidden_size: int - number of hidden units
-    #   - direction: int - 0=forward, 1=backward, 2=bidirectional (currently only forward supported)
-    #   - activation: string - activation function ("Tanh", "Sigmoid", "Relu", etc.)
-    # 
-    # Outputs:
-    #   - Y: [seq_length, batch_size, hidden_size] - output sequence
-    #   - Y_h: [batch_size, hidden_size] - final hidden state
-    # 
-    # Formula: h_t = activation(W @ x_t + R @ h_{t-1} + B)
-    #   where B = [Wb; Rb] (input bias + recurrent bias concatenated)
+    // ONNX Operator: RNN (Recurrent Neural Network)
+    // 
+    // Simplest recurrent operation - single hidden state update
+    // 
+    // Inputs:
+    //   - X: [seq_length, batch_size, input_size] - input sequence
+    //   - W: [hidden_size, input_size] - input weights (for forward direction)
+    //   - R: [hidden_size, hidden_size] - recurrent weights (for forward direction)
+    //   - B: [2*hidden_size] or [] - biases (optional, input bias + recurrent bias)
+    //   - initial_h: [batch_size, hidden_size] or [] - initial hidden state (optional, default zeros)
+    //   - hidden_size: int - number of hidden units
+    //   - direction: int - 0=forward, 1=backward, 2=bidirectional (currently only forward supported)
+    //   - activation: string - activation function ("Tanh", "Sigmoid", "Relu", etc.)
+    // 
+    // Outputs:
+    //   - Y: [seq_length, batch_size, hidden_size] - output sequence
+    //   - Y_h: [batch_size, hidden_size] - final hidden state
+    // 
+    // Formula: h_t = activation(W @ x_t + R @ h_{t-1} + B)
+    //   where B = [Wb; Rb] (input bias + recurrent bias concatenated)
     
     assert(typeof(X) == "rectangular", "rnn: X must be rectangular");
     assert(typeof(W) == "rectangular", "rnn: W must be rectangular");
@@ -39,7 +39,7 @@ pub fn rnn(X, W, R, B, initial_h, hidden_size, direction, activation) {
     let batch_size = len(X[0]);
     let input_size = len(X[0][0]);
     
-    # Base case and recurrence: two consecutive let hidden (merge). RHS of recurrence is a block.
+    // Base case and recurrence: two consecutive let hidden (merge). RHS of recurrence is a block.
     let hidden[0, b in 0..batch_size, h in 0..hidden_size] = 
         if typeof(initial_h) == "rectangular" { initial_h[b, h] } else { 0.0 };
     let hidden[t in 1..seq_length, b in 0..batch_size, h in 0..hidden_size] = 
@@ -55,32 +55,32 @@ pub fn rnn(X, W, R, B, initial_h, hidden_size, direction, activation) {
     (Y, Y_h)
 }
 
-# ============================================================================
-# ONNX Operator: LSTM (Long Short-Term Memory)
-# ============================================================================
+// ============================================================================
+// ONNX Operator: LSTM (Long Short-Term Memory)
+// ============================================================================
 
 pub fn lstm(X, W, R, B, initial_h, initial_c, hidden_size, direction, clip_threshold) {
-    # Full LSTM implementation matching ONNX specification
-    # Like Step 7, but adds:
-    #   - Biases (B): optional [8*hidden_size] - input bias + recurrent bias for each gate
-    #   - Optional initial states: initial_h and initial_c can be empty arrays (default to zeros)
-    #   - Direction support (currently only forward=0)
-    # 
-    # Inputs:
-    #   - X: [seq_length, batch_size, input_size] - input sequence
-    #   - W: [4*hidden_size, input_size] - input weights (concatenated gates)
-    #   - R: [4*hidden_size, hidden_size] - recurrent weights (concatenated gates)
-    #   - B: [8*hidden_size] or [] - biases (optional, input bias + recurrent bias for each gate)
-    #   - initial_h: [batch_size, hidden_size] or [] - initial hidden state (optional, default zeros)
-    #   - initial_c: [batch_size, hidden_size] or [] - initial cell state (optional, default zeros)
-    #   - hidden_size: int - number of hidden units
-    #   - direction: int - 0=forward, 1=backward, 2=bidirectional (currently only forward supported)
-    #   - clip_threshold: float - cell clipping threshold (0.0 = no clipping)
-    # 
-    # Outputs:
-    #   - Y: [seq_length, batch_size, hidden_size] - output sequence
-    #   - Y_h: [batch_size, hidden_size] - final hidden state
-    #   - Y_c: [batch_size, hidden_size] - final cell state
+    // Full LSTM implementation matching ONNX specification
+    // Like Step 7, but adds:
+    //   - Biases (B): optional [8*hidden_size] - input bias + recurrent bias for each gate
+    //   - Optional initial states: initial_h and initial_c can be empty arrays (default to zeros)
+    //   - Direction support (currently only forward=0)
+    // 
+    // Inputs:
+    //   - X: [seq_length, batch_size, input_size] - input sequence
+    //   - W: [4*hidden_size, input_size] - input weights (concatenated gates)
+    //   - R: [4*hidden_size, hidden_size] - recurrent weights (concatenated gates)
+    //   - B: [8*hidden_size] or [] - biases (optional, input bias + recurrent bias for each gate)
+    //   - initial_h: [batch_size, hidden_size] or [] - initial hidden state (optional, default zeros)
+    //   - initial_c: [batch_size, hidden_size] or [] - initial cell state (optional, default zeros)
+    //   - hidden_size: int - number of hidden units
+    //   - direction: int - 0=forward, 1=backward, 2=bidirectional (currently only forward supported)
+    //   - clip_threshold: float - cell clipping threshold (0.0 = no clipping)
+    // 
+    // Outputs:
+    //   - Y: [seq_length, batch_size, hidden_size] - output sequence
+    //   - Y_h: [batch_size, hidden_size] - final hidden state
+    //   - Y_c: [batch_size, hidden_size] - final cell state
     
     assert(typeof(X) == "rectangular", "lstm: X must be rectangular");
     assert(typeof(W) == "rectangular", "lstm: W must be rectangular");
@@ -91,7 +91,7 @@ pub fn lstm(X, W, R, B, initial_h, initial_c, hidden_size, direction, clip_thres
     let batch_size = len(X[0]);
     let input_size = len(X[0][0]);
     
-    # Single array state[t, slot, b, h]: slot 0 = cell, slot 1 = hidden. All four clauses merge; execution order (0,0),(0,1),(t,0),(t,1) satisfies dependency.
+    // Single array state[t, slot, b, h]: slot 0 = cell, slot 1 = hidden. All four clauses merge; execution order (0,0),(0,1),(t,0),(t,1) satisfies dependency.
     let state[0, 0, b in 0..batch_size, h in 0..hidden_size] = 
         if typeof(initial_c) == "rectangular" { initial_c[b, h] } else { 0.0 };
     let state[0, 1, b in 0..batch_size, h in 0..hidden_size] = 
@@ -123,33 +123,33 @@ pub fn lstm(X, W, R, B, initial_h, initial_c, hidden_size, direction, clip_thres
     (Y, Y_h, Y_c)
 }
 
-# ============================================================================
-# ONNX Operator: GRU (Gated Recurrent Unit)
-# ============================================================================
+// ============================================================================
+// ONNX Operator: GRU (Gated Recurrent Unit)
+// ============================================================================
 
 pub fn gru(X, W, R, B, initial_h, hidden_size, direction, linear_before_reset) {
-    # Full GRU implementation matching ONNX specification
-    # GRU is simpler than LSTM - has 2 gates (reset and update) instead of 4
-    # 
-    # Inputs:
-    #   - X: [seq_length, batch_size, input_size] - input sequence
-    #   - W: [3*hidden_size, input_size] - input weights (concatenated: reset, update, hidden)
-    #   - R: [3*hidden_size, hidden_size] - recurrent weights (concatenated: reset, update, hidden)
-    #   - B: [6*hidden_size] or [] - biases (optional, input bias + recurrent bias for each gate)
-    #   - initial_h: [batch_size, hidden_size] or [] - initial hidden state (optional, default zeros)
-    #   - hidden_size: int - number of hidden units
-    #   - direction: int - 0=forward, 1=backward, 2=bidirectional (currently only forward supported)
-    #   - linear_before_reset: int - 0=standard GRU, 1=linear before reset (currently only 0 supported)
-    # 
-    # Outputs:
-    #   - Y: [seq_length, batch_size, hidden_size] - output sequence
-    #   - Y_h: [batch_size, hidden_size] - final hidden state
-    # 
-    # GRU Formula:
-    #   r_t = sigmoid(W_r @ x_t + R_r @ h_{t-1} + b_r)  # reset gate
-    #   z_t = sigmoid(W_z @ x_t + R_z @ h_{t-1} + b_z)  # update gate
-    #   h_tilde = tanh(W_h @ x_t + R_h @ (r_t ⊙ h_{t-1}) + b_h)  # candidate hidden state
-    #   h_t = (1 - z_t) ⊙ h_{t-1} + z_t ⊙ h_tilde  # final hidden state
+    // Full GRU implementation matching ONNX specification
+    // GRU is simpler than LSTM - has 2 gates (reset and update) instead of 4
+    // 
+    // Inputs:
+    //   - X: [seq_length, batch_size, input_size] - input sequence
+    //   - W: [3*hidden_size, input_size] - input weights (concatenated: reset, update, hidden)
+    //   - R: [3*hidden_size, hidden_size] - recurrent weights (concatenated: reset, update, hidden)
+    //   - B: [6*hidden_size] or [] - biases (optional, input bias + recurrent bias for each gate)
+    //   - initial_h: [batch_size, hidden_size] or [] - initial hidden state (optional, default zeros)
+    //   - hidden_size: int - number of hidden units
+    //   - direction: int - 0=forward, 1=backward, 2=bidirectional (currently only forward supported)
+    //   - linear_before_reset: int - 0=standard GRU, 1=linear before reset (currently only 0 supported)
+    // 
+    // Outputs:
+    //   - Y: [seq_length, batch_size, hidden_size] - output sequence
+    //   - Y_h: [batch_size, hidden_size] - final hidden state
+    // 
+    // GRU Formula:
+    //   r_t = sigmoid(W_r @ x_t + R_r @ h_{t-1} + b_r)  // reset gate
+    //   z_t = sigmoid(W_z @ x_t + R_z @ h_{t-1} + b_z)  // update gate
+    //   h_tilde = tanh(W_h @ x_t + R_h @ (r_t ⊙ h_{t-1}) + b_h)  // candidate hidden state
+    //   h_t = (1 - z_t) ⊙ h_{t-1} + z_t ⊙ h_tilde  // final hidden state
     
     assert(typeof(X) == "rectangular", "gru: X must be rectangular");
     assert(typeof(W) == "rectangular", "gru: W must be rectangular");

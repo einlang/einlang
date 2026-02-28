@@ -1,20 +1,20 @@
-# stdlib/math/clamp.ein - Value clamping functions
-# Essential for gradient clipping, image processing, and numerical stability
+// stdlib/math/clamp.ein - Value clamping functions
+// Essential for gradient clipping, image processing, and numerical stability
 
 pub fn clamp(x, min_val, max_val) {
-    # Clamp value to range [min_val, max_val]
-    # Broadcasting handles batched inputs automatically
-    # Args:
-    #   x: Value to clamp
-    #   min_val: Minimum value
-    #   max_val: Maximum value
-    # Returns:
-    #   Clamped value
-    #
-    # Example:
-    #   clamp(10, 0, 5) => 5
-    #   clamp(-3, 0, 5) => 0
-    #   clamp(2, 0, 5) => 2
+    // Clamp value to range [min_val, max_val]
+    // Broadcasting handles batched inputs automatically
+    // Args:
+    //   x: Value to clamp
+    //   min_val: Minimum value
+    //   max_val: Maximum value
+    // Returns:
+    //   Clamped value
+    //
+    // Example:
+    //   clamp(10, 0, 5) => 5
+    //   clamp(-3, 0, 5) => 0
+    //   clamp(2, 0, 5) => 2
     
     if x < min_val {
         min_val
@@ -27,26 +27,26 @@ pub fn clamp(x, min_val, max_val) {
     }
 }
 
-# clip is re-exported as alias in mod.ein
+// clip is re-exported as alias in mod.ein
 
 pub fn clamp_min(x, min_val) {
-    # Clamp value to minimum only
-    # Broadcasting handles batched inputs automatically
-    # Equivalent to max(x, min_val)
+    // Clamp value to minimum only
+    // Broadcasting handles batched inputs automatically
+    // Equivalent to max(x, min_val)
     if x < min_val { min_val } else { x }
 }
 
 pub fn clamp_max(x, max_val) {
-    # Clamp value to maximum only
-    # Broadcasting handles batched inputs automatically
-    # Equivalent to min(x, max_val)
+    // Clamp value to maximum only
+    // Broadcasting handles batched inputs automatically
+    // Equivalent to min(x, max_val)
     if x > max_val { max_val } else { x }
 }
 
 pub fn saturate(x) {
-    # Clamp to [0, 1] range
-    # Broadcasting handles batched inputs automatically
-    # Common in graphics/image processing
+    // Clamp to [0, 1] range
+    // Broadcasting handles batched inputs automatically
+    // Common in graphics/image processing
     clamp(x, 0.0, 1.0)
 }
 

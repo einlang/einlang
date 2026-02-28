@@ -11,7 +11,7 @@ from ..passes.base import BasePass, TyCtxt
 from ..passes.rest_pattern_preprocessing import RestPatternPreprocessingPass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, ArrayLiteralIR, ArrayComprehensionIR,
-    FunctionCallIR, EinsteinDeclarationIR, RectangularAccessIR,
+    FunctionCallIR, BindingIR, is_einstein_binding, is_function_binding, RectangularAccessIR,
     IRVisitor, RangeIR, IdentifierIR, LiteralIR, MemberAccessIR,
 )
 from ..shared.defid import DefId
@@ -245,13 +245,6 @@ class ShapeAnalyzer:
                     and element_shape is not None
                     and elem_shape != element_shape
                 ):
-                    self.tcx.reporter.report_error(
-                        "Array literal has inconsistent shapes: "
-                        "element 0 has shape {}, but element {} has shape {}".format(
-                            element_shape, i, elem_shape
-                        ),
-                        location=getattr(elem, "location", loc) or loc,
-                    )
                     return None
             if element_shape is not None:
                 return (len(expr.elements),) + (element_shape if isinstance(element_shape, tuple) else tuple(element_shape))
@@ -343,7 +336,7 @@ class ShapeAnalyzer:
             return int(size)
         return None
 
-    def _resolve_dependent_ranges_on_decl(self, decl: EinsteinDeclarationIR) -> None:
+    def _resolve_dependent_ranges_on_decl(self, decl: BindingIR) -> None:
         """
         Resolve dependent ranges on clauses when shape is known.
         Range pass leaves 0..array.shape[dim]; we replace end with LiteralIR(size) when we know the shape.
@@ -369,7 +362,7 @@ class ShapeAnalyzer:
                     object.__setattr__(rng, 'end', new_end)
                     logger.debug("[ShapeAnalysis] Resolved dependent range end to %s", resolved)
 
-    def infer_einstein_shape(self, decl: EinsteinDeclarationIR) -> Optional[tuple]:
+    def infer_einstein_shape(self, decl: BindingIR) -> Optional[tuple]:
         """Infer shape as max of output indices of each clause (per dimension)."""
         from ..passes.range_info import StaticRange
         import logging
@@ -712,7 +705,7 @@ class ShapeAnalyzer:
         # Unable to determine offset
         return None
     
-    def check_perfect_partition(self, declarations: List[EinsteinDeclarationIR]) -> bool:
+    def check_perfect_partition(self, declarations: List[BindingIR]) -> bool:
         """Check if declarations form perfect partition"""
         # Collect all index combinations
         all_combinations: Set[Tuple] = set()
@@ -728,7 +721,7 @@ class ShapeAnalyzer:
         
         return True
     
-    def _get_index_combinations(self, decl: EinsteinDeclarationIR) -> Set[Tuple]:
+    def _get_index_combinations(self, decl: BindingIR) -> Set[Tuple]:
         """Get all index combinations for declaration. Uses clause variable_ranges only (no global dict)."""
         combinations: Set[Tuple] = set()
         clauses = decl.clauses or []
@@ -820,31 +813,40 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
         for range_expr in expr.ranges:
             range_expr.accept(self)
     
-    def visit_einstein_declaration(self, expr: EinsteinDeclarationIR) -> None:
-        """Infer shape for Einstein declaration; store on IR and in analyzer; resolve dependent ranges when shape is known."""
-        from ..shared.types import infer_literal_type
-        shape_tuple = self.analyzer.infer_einstein_shape(expr)
-        if shape_tuple:
-            self.analyzer.set_shape(expr, shape_tuple)
-            # Store shape on the IR node so lowering/backend can read it without lookup
-            shape_list = []
-            loc = getattr(expr, 'location', None)
-            for dim in shape_tuple:
-                if isinstance(dim, int):
-                    shape_list.append(LiteralIR(
-                        value=dim,
-                        location=loc,
-                        shape_info=None,
-                        type_info=infer_literal_type(dim),
-                    ))
-            if shape_list:
-                expr.shape = shape_list
-        # Resolve dependent ranges (0..array.shape[dim]) to literals when we know array shape
-        self.analyzer._resolve_dependent_ranges_on_decl(expr)
-        # Process each clause's value
-        for clause in (expr.clauses or []):
-            if clause.value:
-                clause.value.accept(self)
+    def visit_binding(self, node: BindingIR) -> None:
+        if is_einstein_binding(node):
+            from ..shared.types import infer_literal_type
+            shape_tuple = self.analyzer.infer_einstein_shape(node)
+            if shape_tuple:
+                self.analyzer.set_shape(node, shape_tuple)
+                # Store shape on the IR node so lowering/backend can read it without lookup
+                shape_list = []
+                loc = getattr(node, 'location', None)
+                for dim in shape_tuple:
+                    if isinstance(dim, int):
+                        shape_list.append(LiteralIR(
+                            value=dim,
+                            location=loc,
+                            shape_info=None,
+                            type_info=infer_literal_type(dim),
+                        ))
+                if shape_list:
+                    node.expr.shape = shape_list
+            # Resolve dependent ranges (0..array.shape[dim]) to literals when we know array shape
+            self.analyzer._resolve_dependent_ranges_on_decl(node)
+            # Process each clause's value
+            for clause in (node.clauses or []):
+                if clause.value:
+                    clause.value.accept(self)
+        elif is_function_binding(node):
+            pass
+        else:
+            if hasattr(node, 'value') and node.value:
+                node.value.accept(self)
+                if hasattr(node, 'defid') and node.defid:
+                    shape = self.analyzer.get_shape(node.value)
+                    if shape:
+                        self.analyzer.defid_to_shape[node.defid] = shape
     
     # Required visitor methods (no-op for other nodes)
     def visit_literal(self, node) -> None:
@@ -918,16 +920,10 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
     def visit_where_expression(self, node) -> None:
         pass
     
-    def visit_arrow_expression(self, node) -> None:
-        pass
-    
     def visit_pipeline_expression(self, node) -> None:
         pass
     
     def visit_builtin_call(self, node) -> None:
-        pass
-    
-    def visit_function_ref(self, node) -> None:
         pass
     
     def visit_literal_pattern(self, node) -> None:
@@ -951,24 +947,8 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
     def visit_guard_pattern(self, node) -> None:
         pass
     
-    def visit_function_def(self, node) -> None:
-        pass
-    
-    def visit_constant_def(self, node) -> None:
-        pass
     
     def visit_module(self, node) -> None:
         pass
 
-    def visit_variable_declaration(self, node) -> Any:
-        """Visit variable declaration - recurse into value and store shape by DefId"""
-        if hasattr(node, 'value') and node.value:
-            node.value.accept(self)
-            # CRITICAL FIX: Store shape by DefId for later lookup
-            # This allows get_shape() to find shapes for IdentifierIR nodes
-            if hasattr(node, 'defid') and node.defid:
-                shape = self.analyzer.get_shape(node.value)
-                if shape:
-                    self.analyzer.defid_to_shape[node.defid] = shape
-        return None
 

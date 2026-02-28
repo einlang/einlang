@@ -17,8 +17,8 @@ from dataclasses import dataclass
 from ..passes.base import BasePass, TyCtxt
 from ..passes.ast_to_ir import ASTToIRLoweringPass
 from ..ir.nodes import (
-    ProgramIR, EinsteinDeclarationIR, IRVisitor, IRNode,
-    FunctionDefIR, BlockExpressionIR, IfExpressionIR
+    ProgramIR, BindingIR, is_einstein_binding, is_function_binding,
+    IRVisitor, IRNode, BlockExpressionIR, IfExpressionIR
 )
 from ..shared.source_location import SourceLocation
 from ..shared.defid import DefId
@@ -34,7 +34,7 @@ class DeclarationGroup:
     Rust Pattern: N/A (Einlang-specific)
     """
     array_name: str
-    declarations: List[EinsteinDeclarationIR]
+    declarations: List[BindingIR]
     max_dimensions: List[int]
     has_simple_assignments: bool = False
     has_einstein_assignments: bool = False
@@ -75,14 +75,11 @@ class EinsteinDeclarationGroupingPass(BasePass):
         for func in ir.functions:
             func.body.accept(visitor)
         
-        # Visit constant values
         for const in ir.constants:
             const.value.accept(visitor)
         
-        # Visit top-level statements (may include Einstein declarations)
         for stmt in ir.statements:
-            # Statements can be ExpressionIR or EinsteinDeclarationIR
-            if isinstance(stmt, EinsteinDeclarationIR):
+            if is_einstein_binding(stmt):
                 visitor.declarations.append(stmt)
             elif hasattr(stmt, 'accept'):
                 stmt.accept(visitor)
@@ -113,11 +110,11 @@ class EinsteinDeclarationGroupingPass(BasePass):
     
     def _group_declarations_by_array(
         self,
-        declarations: List[EinsteinDeclarationIR],
+        declarations: List[BindingIR],
         tcx: TyCtxt,
     ) -> Dict[str, DeclarationGroup]:
         """Group declarations by array name (same name in same scope = same variable)."""
-        groups: Dict[str, List[EinsteinDeclarationIR]] = {}
+        groups: Dict[str, List[BindingIR]] = {}
 
         for decl in declarations:
             key = decl.name
@@ -193,8 +190,8 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
     """
     
     def __init__(self):
-        self.declarations: List[EinsteinDeclarationIR] = []
-    
+        self.declarations: List[BindingIR] = []
+
     def visit_program(self, node: ProgramIR) -> None:
         """Visit program and collect from all statements"""
         # Visit all statements (visitor pattern handles dispatch)
@@ -204,24 +201,20 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
         for func in node.functions:
             func.accept(self)
     
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> None:
-        """Collect Einstein declaration"""
-        # DefId identifies the variable - declarations with same DefId are grouped together
-        self.declarations.append(node)
-        # Einstein declarations use 'array_name', not 'name'
-        node_name = getattr(node, 'array_name', None) or getattr(node, 'name', None) or '<unknown>'
-        clause_counts = [len(c.indices) for c in (node.clauses or [])]
-        logger.debug(f"  - {node_name} with {len(node.clauses or [])} clause(s), indices per clause: {clause_counts}")
-    
-    def visit_variable_declaration(self, node) -> None:
-        """Visit variable declaration - recurse into value"""
-        if node.value:
-            node.value.accept(self)
-    
-    def visit_function_def(self, node: FunctionDefIR) -> None:
-        """Collect from function bodies"""
-        if node.body:
-            node.body.accept(self)
+    def visit_binding(self, node: BindingIR) -> None:
+        if is_einstein_binding(node):
+            # DefId identifies the variable - declarations with same DefId are grouped together
+            self.declarations.append(node)
+            # Einstein declarations use 'array_name', not 'name'
+            node_name = getattr(node, 'array_name', None) or getattr(node, 'name', None) or '<unknown>'
+            clause_counts = [len(c.indices) for c in (node.clauses or [])]
+            logger.debug(f"  - {node_name} with {len(node.clauses or [])} clause(s), indices per clause: {clause_counts}")
+        elif is_function_binding(node):
+            if node.body:
+                node.body.accept(self)
+        else:
+            if node.value:
+                node.value.accept(self)
     
     def visit_block_expression(self, node: BlockExpressionIR) -> None:
         """Visit block expressions"""
@@ -346,10 +339,6 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
             if getattr(guard, 'condition', None):
                 guard.condition.accept(self)
     
-    def visit_arrow_expression(self, node) -> None:
-        for comp in node.components:
-            comp.accept(self)
-    
     def visit_pipeline_expression(self, node) -> None:
         if node.left:
             node.left.accept(self)
@@ -359,13 +348,6 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
     def visit_builtin_call(self, node) -> None:
         for arg in node.args:
             arg.accept(self)
-    
-    def visit_function_ref(self, node) -> None:
-        pass
-    
-    def visit_constant_def(self, node) -> None:
-        if node.value:
-            node.value.accept(self)
     
     def visit_module(self, node) -> None:
         pass

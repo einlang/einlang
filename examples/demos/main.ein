@@ -1,4 +1,4 @@
-# Main entry point for demos crate
-# Declares all modules in this directory
+// Main entry point for demos crate
+// Declares all modules in this directory
 
 mod private_module_test;

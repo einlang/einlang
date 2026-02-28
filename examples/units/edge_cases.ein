@@ -1,8 +1,8 @@
-# CORE FEATURE: Edge Cases and Boundary Conditions
-# PURPOSE: Tests boundary conditions, operator edge cases, and unusual scenarios
-# VALUE: Ensures robustness and proper handling of edge cases
+// CORE FEATURE: Edge Cases and Boundary Conditions
+// PURPOSE: Tests boundary conditions, operator edge cases, and unusual scenarios
+// VALUE: Ensures robustness and proper handling of edge cases
 
-# Arithmetic edge cases
+// Arithmetic edge cases
 let div_by_one = 10 / 1;
 let mult_by_zero = 5 * 0;
 let power_of_zero = 0 ** 5;
@@ -15,7 +15,7 @@ assert(power_of_zero == 0, "0 to any positive power should be 0");
 assert(power_of_one == 1, "1 to any power should be 1");
 assert(zero_power == 1, "Any number to power 0 should be 1");
 
-# Boolean boundary conditions
+// Boolean boundary conditions
 let bool_true_and_true = true && true;
 let bool_false_or_false = false || false;
 let bool_not_not_true = !(!true);
@@ -24,7 +24,7 @@ assert(bool_true_and_true == true, "true && true should be true");
 assert(bool_false_or_false == false, "false || false should be false");
 assert(bool_not_not_true == true, "!!true should be true");
 
-# Array boundary access
+// Array boundary access
 let test_array = [10, 20, 30];
 let first_element = test_array[0];
 let last_element = test_array[2];
@@ -33,11 +33,11 @@ assert(first_element == 10, "First element should be accessible");
 assert(last_element == 30, "Last element should be accessible");
 assert(test_array.length == 3, "Array length should be correct");
 
-# Empty array handling
+// Empty array handling
 let empty_array = [];
 assert(empty_array.length == 0, "Empty array should have length 0");
 
-# String boundary conditions
+// String boundary conditions
 let empty_string = "";
 let single_char = "a";
 let long_string = "abcdefghijklmnopqrstuvwxyz";
@@ -46,18 +46,18 @@ assert(empty_string.length == 0, "Empty string should have length 0");
 assert(single_char.length == 1, "Single char string should have length 1");
 assert(long_string.length == 26, "Long string should have correct length");
 
-# String indexing edge cases
+// String indexing edge cases
 assert(single_char[0] == "a", "Single char should be indexable");
 assert(long_string[0] == "a", "First char should be 'a'");
 assert(long_string[25] == "z", "Last char should be 'z'");
 
-# Operator precedence edge cases
+// Operator precedence edge cases
 let precedence_complex = 2 + 3 * 4 ** 2 - 5 / 1;
-# Should be: 2 + 3 * 16 - 5 = 2 + 48 - 5 = 45
+// Should be: 2 + 3 * 16 - 5 = 2 + 48 - 5 = 45
 
 assert(precedence_complex == 45, "Complex precedence should work correctly");
 
-# Unary operator edge cases
+// Unary operator edge cases
 let negative_zero = -0;
 let positive_negative = +(-5);
 let double_unary = -(-(-3));
@@ -66,28 +66,28 @@ assert(negative_zero == 0, "Negative zero should be zero");
 assert(positive_negative == -5, "Positive of negative should be negative");
 assert(double_unary == -3, "Triple negative should be negative");
 
-# Comparison edge cases
+// Comparison edge cases
 let equal_floats = 3.0 == 3.0;
-let equal_mixed = 3.0 == 3.0;  # Rust: must use same types
+let equal_mixed = 3.0 == 3.0;  // Rust: must use same types
 let zero_comparison = 0 == -0;
 
 assert(equal_floats == true, "Equal floats should be equal");
 assert(equal_mixed == true, "Equal floats should be equal");
 assert(zero_comparison == true, "Zero and negative zero should be equal");
 
-# Large number handling
+// Large number handling
 let large_int = 1000000;
 let large_calc = large_int * 2;
 
 assert(large_calc == 2000000, "Large number calculations should work");
 
-# Small number handling
+// Small number handling
 let small_float = 0.001;
 let small_calc = small_float * 1000.0;
 
 assert(small_calc == 1.0, "Small number calculations should work");
 
-# Function edge cases
+// Function edge cases
 fn edge_function(x) {
     if (x == 0) {
         1
@@ -102,31 +102,31 @@ let edge_normal = edge_function(5);
 assert(edge_zero == 1, "Function should handle zero case");
 assert(edge_normal == 10, "Function should handle normal case");
 
-# Range edge cases
-let single_range = [x | x in 5..6];   # Single element range;
-let empty_range = [x | x in 5..5];    # Empty range (start == end)
+// Range edge cases
+let single_range = [x | x in 5..6];   // Single element range;
+let empty_range = [x | x in 5..5];    // Empty range (start == end)
 
 assert(single_range.length == 1, "Single range should have 1 element");
 assert(single_range[0] == 5, "Single range element should be 5");
 assert(empty_range.length == 0, "Empty range should have 0 elements");
 
-# Membership edge cases
+// Membership edge cases
 let edge_val = 0;
-let zero_in_positive = edge_val in 1..10;  # Should be false;
-let zero_in_inclusive = edge_val in 0..5;  # Should be true
+let zero_in_positive = edge_val in 1..10;  // Should be false;
+let zero_in_inclusive = edge_val in 0..5;  // Should be true
 
 assert(zero_in_positive == false, "0 should not be in 1..10");
 assert(zero_in_inclusive == true, "0 should be in 0..5");
 
-# Tensor edge cases
+// Tensor edge cases
 let single_element_matrix = [[42]];
 let single_access = single_element_matrix[0, 0];
 
 assert(single_access == 42, "Single element matrix access should work");
 
-# Complex boolean combinations
+// Complex boolean combinations
 let complex_bool = (true && false) || (false || true) && !(false && true);
 
 assert(complex_bool == true, "Complex boolean expression should evaluate correctly");
 
-# All edge cases and boundary conditions tested successfully
+// All edge cases and boundary conditions tested successfully

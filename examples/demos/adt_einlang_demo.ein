@@ -1,29 +1,29 @@
-# Einlang ADT Demo - Mathematical Focus
-# ====================================
-# 
-# This demo shows ADT features designed specifically for Einlang's
-# mathematical and tensor-focused identity.
+// Einlang ADT Demo - Mathematical Focus
+// ====================================
+// 
+// This demo shows ADT features designed specifically for Einlang's
+// mathematical and tensor-focused identity.
 
-# =============================================================================
-# MATHEMATICAL TYPE UNIONS
-# =============================================================================
+// =============================================================================
+// MATHEMATICAL TYPE UNIONS
+// =============================================================================
 
-# Numerical value types common in scientific computing
+// Numerical value types common in scientific computing
 type Number = i32 | f32 | f64;
 type ScalarOrArray = f32 | [f32] | [[f32]];
 
-# Geometric shapes for mathematical modeling
+// Geometric shapes for mathematical modeling
 type Shape =
     | circle { radius: f32 }
     | rectangle { width: f32, height: f32 }
     | triangle { base: f32, height: f32 };
 
-# Create shapes using mathematical notation
+// Create shapes using mathematical notation
 let my_circle = circle { radius: 5.0 };
 let my_rectangle = rectangle { width: 4.0, height: 6.0 };
 let my_triangle = triangle { base: 3.0, height: 8.0 };
 
-# Mathematical case analysis for area calculation
+// Mathematical case analysis for area calculation
 fn area(shape: Shape) -> f32 {
     case shape {
         circle { radius: r } => pi * r * r,
@@ -35,15 +35,15 @@ fn area(shape: Shape) -> f32 {
 let areas = [area(my_circle), area(my_rectangle), area(my_triangle)];
 print("Areas:", areas);
 
-# =============================================================================
-# MATHEMATICAL RECORD TYPES
-# =============================================================================
+// =============================================================================
+// MATHEMATICAL RECORD TYPES
+// =============================================================================
 
-# Mathematical point structures
+// Mathematical point structures
 type Point2D = { x: f32, y: f32 };
 type Point3D = { x: f32, y: f32, z: f32 };
 
-# Vector operations with record destructuring
+// Vector operations with record destructuring
 fn distance_2d(p1: Point2D, p2: Point2D) -> f32 {
     case (p1, p2) {
         ({ x: x1, y: y1 }, { x: x2, y: y2 }) => sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1))
@@ -55,18 +55,18 @@ let point_b = { x: 4.0, y: 6.0 };
 let dist = distance_2d(point_a, point_b);
 print("Distance:", dist);
 
-# =============================================================================
-# TENSOR DIMENSION HANDLING
-# =============================================================================
+// =============================================================================
+// TENSOR DIMENSION HANDLING
+// =============================================================================
 
-# Types for different tensor dimensionalities
+// Types for different tensor dimensionalities
 type TensorData = 
     | scalar: f32
     | vector: [f32]  
     | matrix: [[f32]]
     | tensor3d: [[[f32]]];
 
-# Normalize different tensor types to consistent form
+// Normalize different tensor types to consistent form
 fn normalize_to_vector(data: TensorData) -> [f32] {
     case data {
         scalar: x => [x],
@@ -76,7 +76,7 @@ fn normalize_to_vector(data: TensorData) -> [f32] {
     }
 }
 
-# Test with different data types
+// Test with different data types
 let scalar_data = scalar: 42.0;
 let vector_data = vector: [1.0, 2.0, 3.0];
 let matrix_data = matrix: [[1.0, 2.0], [3.0, 4.0]];
@@ -89,15 +89,15 @@ print("Normalized scalar:", normalized_scalar);
 print("Normalized vector:", normalized_vector);
 print("Normalized matrix:", normalized_matrix);
 
-# =============================================================================
-# MATHEMATICAL ERROR HANDLING
-# =============================================================================
+// =============================================================================
+// MATHEMATICAL ERROR HANDLING
+// =============================================================================
 
-# Mathematical result types
+// Mathematical result types
 type ComputeResult = success: f32 | error: str;
 type DivisionResult = finite: f32 | infinite | undefined;
 
-# Safe mathematical operations
+// Safe mathematical operations
 fn safe_divide(a: f32, b: f32) -> ComputeResult {
     if b != 0.0 {
         success: a / b
@@ -116,7 +116,7 @@ fn mathematical_divide(a: f32, b: f32) -> DivisionResult {
     }
 }
 
-# Case analysis for mathematical results
+// Case analysis for mathematical results
 let compute_with_safety = fn(x: f32, y: f32) -> f32 {
     case safe_divide(x, y) {
         success: result => result * 2.0,
@@ -127,16 +127,16 @@ let compute_with_safety = fn(x: f32, y: f32) -> f32 {
     };
 };
 
-let math_result1 = compute_with_safety(10.0, 2.0);  # Should work;
-let math_result2 = compute_with_safety(10.0, 0.0);  # Should handle error
+let math_result1 = compute_with_safety(10.0, 2.0);  // Should work;
+let math_result2 = compute_with_safety(10.0, 0.0);  // Should handle error
 
 print("Safe computation results:", [math_result1, math_result2]);
 
-# =============================================================================
-# ACTIVATION FUNCTIONS WITH EINSTEIN NOTATION
-# =============================================================================
+// =============================================================================
+// ACTIVATION FUNCTIONS WITH EINSTEIN NOTATION
+// =============================================================================
 
-# Mathematical activation function types
+// Mathematical activation function types
 type ActivationFunction = 
     | relu
     | sigmoid  
@@ -145,7 +145,7 @@ type ActivationFunction =
     | elu { alpha: f32 }
     | softmax;
 
-# Apply activation functions using Einstein notation
+// Apply activation functions using Einstein notation
 fn apply_activation(input: tensor[f32], activation: ActivationFunction) -> tensor[f32] {
     let result[i] = case activation {
         relu => if input[i] > 0.0 { input[i] } else { 0.0 },
@@ -158,7 +158,7 @@ fn apply_activation(input: tensor[f32], activation: ActivationFunction) -> tenso
     result
 }
 
-# Test different activation functions
+// Test different activation functions
 let test_input = [-2.0, -1.0, 0.0, 1.0, 2.0];
 
 let relu_result = apply_activation(test_input, relu);
@@ -169,28 +169,28 @@ print("ReLU result:", relu_result);
 print("Sigmoid result:", sigmoid_result);
 print("Leaky ReLU result:", leaky_relu_result);
 
-# =============================================================================
-# NEURAL NETWORK LAYERS
-# =============================================================================
+// =============================================================================
+// NEURAL NETWORK LAYERS
+// =============================================================================
 
-# Mathematical layer definition
+// Mathematical layer definition
 type Layer = {
     weights: tensor[f32],
     bias: tensor[f32],
     activation: ActivationFunction
 };
 
-# Forward pass with mathematical case analysis
+// Forward pass with mathematical case analysis
 fn forward_layer(input: tensor[f32], layer: Layer) -> tensor[f32] {
-    # Linear transformation (supports different tensor shapes)
+    // Linear transformation (supports different tensor shapes)
     let linear = case (shape(input), shape(layer.weights)) {
         ([n], [n, m]) => {
-            # Vector-matrix multiplication
+            // Vector-matrix multiplication
             let result[j] = sum[k](input[k] * layer.weights[k, j]) + layer.bias[j];
             result
         },
         ([batch, n], [n, m]) => {
-            # Batch matrix multiplication
+            // Batch matrix multiplication
             let result[i, j] = sum[k](input[i, k] * layer.weights[k, j]) + layer.bias[j];
             result
         },
@@ -200,11 +200,11 @@ fn forward_layer(input: tensor[f32], layer: Layer) -> tensor[f32] {
         }
     };
     
-    # Apply activation
+    // Apply activation
     apply_activation(linear, layer.activation)
 }
 
-# Create a simple layer
+// Create a simple layer
 let simple_layer = {
     weights: random_normal([5, 3]),
     bias: zeros([3]),
@@ -215,17 +215,17 @@ let layer_input = [1.0, -0.5, 2.0, 0.8, -1.2];
 let layer_output = forward_layer(layer_input, simple_layer);
 print("Layer output:", layer_output);
 
-# =============================================================================
-# MATHEMATICAL COORDINATE SYSTEMS
-# =============================================================================
+// =============================================================================
+// MATHEMATICAL COORDINATE SYSTEMS
+// =============================================================================
 
-# Different coordinate system representations
+// Different coordinate system representations
 type Coordinate = 
     | cartesian { x: f32, y: f32 }
     | polar { r: f32, theta: f32 }
     | complex { real: f32, imag: f32 };
 
-# Convert between coordinate systems
+// Convert between coordinate systems
 fn to_cartesian(coord: Coordinate) -> { x: f32, y: f32 } {
     case coord {
         cartesian { x, y } => { x: x, y: y },
@@ -242,7 +242,7 @@ fn to_polar(coord: Coordinate) -> { r: f32, theta: f32 } {
     }
 }
 
-# Test coordinate conversions
+// Test coordinate conversions
 let cart_point = cartesian { x: 3.0, y: 4.0 };
 let polar_point = polar { r: 5.0, theta: pi/4 };
 let complex_point = complex { real: 2.0, imag: 3.0 };
@@ -253,9 +253,9 @@ let polar_to_cart = to_cartesian(polar_point);
 print("Cartesian to polar:", cart_to_polar);
 print("Polar to cartesian:", polar_to_cart);
 
-# =============================================================================
-# QUADRANT CLASSIFICATION WITH GUARDS
-# =============================================================================
+// =============================================================================
+// QUADRANT CLASSIFICATION WITH GUARDS
+// =============================================================================
 
 fn classify_quadrant(point: { x: f32, y: f32 }) -> str {
     case point {
@@ -284,9 +284,9 @@ for point in test_points {
     print(f"Point ({point.x}, {point.y}): {classification}");
 }
 
-# =============================================================================
-# TENSOR SHAPE VALIDATION
-# =============================================================================
+// =============================================================================
+// TENSOR SHAPE VALIDATION
+// =============================================================================
 
 type TensorOperation = 
     | element_wise { op: str }
@@ -321,20 +321,20 @@ fn validate_operation(a: tensor[f32], b: tensor[f32], operation: TensorOperation
             }
         },
         convolution { kernel_size } => {
-            # Simplified convolution validation
-            valid  # Would implement full validation logic
+            // Simplified convolution validation
+            valid  // Would implement full validation logic
         },
         reduction { axes } => {
-            # Validate reduction axes
-            valid  # Would implement full validation logic
+            // Validate reduction axes
+            valid  // Would implement full validation logic
         }
     }
 }
 
-# Test tensor operation validation
+// Test tensor operation validation
 let tensor_a = random_normal([3, 4]);
 let tensor_b = random_normal([4, 5]);
-let tensor_c = random_normal([3, 5]);  # Wrong shape
+let tensor_c = random_normal([3, 5]);  // Wrong shape
 
 let validation1 = validate_operation(tensor_a, tensor_b, matrix_multiply);
 let validation2 = validate_operation(tensor_a, tensor_c, matrix_multiply);

@@ -1,21 +1,21 @@
-# Automatic range inference for Einstein notation
+// Automatic range inference for Einstein notation
 
 let data = [1, 2, 3, 4];
 
-# Test 1: Simple cumsum with automatic range inference (no manual i range)
+// Test 1: Simple cumsum with automatic range inference (no manual i range)
 let cumsum[i] = sum[k in 0..i+1](data[i-k]);
 
 assert(data == [1, 2, 3, 4]);
 assert(cumsum == [1, 3, 6, 10]);
 
-# Test 2: Matrix diagonal extraction
+// Test 2: Matrix diagonal extraction
 let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
-let diagonal[i] = matrix[i, i];  # Should auto-infer i range
+let diagonal[i] = matrix[i, i];  // Should auto-infer i range
 
 assert(matrix == [[1, 2, 3], [4, 5, 6], [7, 8, 9]]);
 assert(diagonal == [1, 5, 9]);
 
-# Test 3: Row sums
+// Test 3: Row sums
 let row_sums[i] = sum[j in 0..3](matrix[i, j]);
 
 assert(row_sums == [6, 15, 24]);

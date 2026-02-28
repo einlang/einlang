@@ -15,6 +15,9 @@ dependencies = [
     "typing_extensions>=3.7",
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

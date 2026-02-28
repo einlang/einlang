@@ -22,7 +22,7 @@ from .nodes import (
     RectangularAccess, JaggedAccess, ArrayComprehension, ReductionExpression,
     WhereExpression, TupleExpression, IfExpression, PipelineExpression,
     LambdaExpression, TryExpression, BlockExpression, Range,
-    MatchExpression, MatchArm, ArrowExpression, ArrowOperator,
+    MatchExpression, MatchArm,
     Parameter, TupleDestructurePattern, AnnotatedVariable,
     Pattern, LiteralPattern, IdentifierPattern, WildcardPattern,
     TuplePattern, ArrayPattern, RestPattern, GuardPattern,
