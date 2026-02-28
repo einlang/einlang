@@ -1,211 +1,147 @@
 # Design Influences for Einlang — Tensor/Array DSLs
 
-Einlang’s scope is a **tensor/array DSL with shape and index guarantees**, not a general-purpose scientific language like Julia. This document lists systems that align with that scope and what Einlang can learn from them: key concepts, code or API examples, and concrete takeaways.
+Einlang's scope is a **tensor/array DSL with shape and index guarantees**, not a general-purpose scientific language like Julia. This document has two focuses: **focus on what** (the language describes what is computed, not how) and **learn from what** (what to take from each influence to inform Einlang's *new* syntax and language design—concepts, structure, and design—not to adopt the existing syntax of the systems below). Sections 1–6 and the summary table are the main "learn from what" reference.
 
-See also: [JULIA_SYNTAX_AND_DESIGN_IN_EINLANG.md](JULIA_SYNTAX_AND_DESIGN_IN_EINLANG.md) for Julia comparison; that doc covers syntax and migration gaps. Here we focus on **alternative influences** (Halide, Futhark, JAX, MLIR Linalg, TVM, Dex, Rust) for language and compiler design.
+See also: [JULIA_SYNTAX_AND_DESIGN_IN_EINLANG.md](JULIA_SYNTAX_AND_DESIGN_IN_EINLANG.md) for Julia comparison; that doc covers syntax and migration gaps. Here we focus on **alternative influences** (Taichi, Triton, Accelerate, Tensor Comprehensions, Weld, ONNX) for language and compiler design.
 
 ---
 
-## 1. Halide
+## Design principle: what, not how
 
-**Scope:** DSL for image processing and stencil/conv-style code. **Algorithm vs schedule** are separate.
+**Einlang focuses on describing *what* is computed, not *how* it is executed.**
+
+- **What:** Declarative tensor expressions (Einstein notation, reductions, comprehensions, where-clauses), shapes, and types. The language specifies the mathematical meaning and shape of the result.
+- **How:** Execution strategy (tiling, vectorization, parallelism, memory layout, backend) is **not** part of the language. It belongs to the compiler, the backend, or optional schedule metadata that backends may interpret. The same "what" can be executed in different ways without changing the source.
+
+This keeps the language small, portable, and backend-agnostic. New backends can choose their own "how" without new syntax.
+
+---
+
+## 1. Taichi
+
+**Scope:** Embedded DSL for **GPU and sparse computation**; Python front end; **kernel (what) vs schedule (how)** are separate.
 
 ### Key concepts
 
-- **Algorithm:** What is computed (pure functions over infinite integer domain; images as functions).
-- **Schedule:** How and in what order (tiling, vectorization, parallelism, storage); can change without touching the algorithm.
-- **Scheduling primitives:** `reorder`, `split`, `fuse`, `tile`, `vectorize`, `parallel`, `unroll`.
-
-### Example (algorithm + schedule)
-
-```cpp
-// Algorithm: one line
-Func gradient("gradient");
-gradient(x, y) = x + y;
-
-// Schedule: separate from algorithm
-Var x_outer, y_outer, x_inner, y_inner, tile_index;
-gradient.tile(x, y, x_outer, y_outer, x_inner, y_inner, 4, 4)
-        .fuse(x_outer, y_outer, tile_index)
-        .parallel(tile_index);
-
-Buffer output = gradient.realize({8, 8});
-```
-
-Default schedule is row-major; changing to `reorder(y, x)` gives column-major. Same algorithm, different codegen.
+- **Kernel:** What is computed (element-wise, reduction, or structured access); written in a restricted, traceable subset.
+- **Schedule:** Placement (CPU/GPU), block/thread layout, and memory hierarchy are chosen by the compiler or user separately from the kernel.
+- **Sparse and dense:** Same "what" can target dense arrays or hierarchical sparse structures; backend decides layout.
 
 ### What Einlang can learn
 
-- **Keep “what” separate from “how”.** Einstein + where clauses already express “what”; a future backend (or schedule layer) can own “how” (tiling, vectorize, parallel).
-- **Stencil/conv patterns** and boundary handling: Halide’s patterns validate that where-clause index algebra is the right level of abstraction.
-- Even without a full schedule API today, design IR and lowering so that **schedule hints or a separate schedule pass** could be added later without rewriting the algorithm.
+- **Kernel = "what".** Keeping the language to a declarative kernel (Einstein, reductions, where-clauses) and leaving placement/tiling to the backend matches Taichi's split.
+- **Stencil and reduction patterns** at the kernel level validate that index algebra and shape are the right abstraction; no schedule syntax in the language.
 
 ---
 
-## 2. Futhark
+## 2. Triton
 
-**Scope:** Purely functional **parallel array language**; compiles to GPU (CUDA/OpenCL) and multicore.
+**Scope:** **GPU kernel DSL**; tile-based programming; used in PyTorch for fused kernels.
 
 ### Key concepts
 
-- **Size parameters** in types: `[n]` constrains array sizes and is inferred at call sites.
-- **Second-order array combinators:** map, reduce, scan, etc., as the main abstraction (no raw loops).
-- **Shape polymorphism:** Functions generic over dimensions; compiler enforces shape consistency.
-
-### Example (size parameters)
-
-```futhark
-def dotprod [n] (xs: [n]i32) (ys: [n]i32): i32 =
-  reduce (+) 0 (map2 (*) xs ys)
-
-def res = dotprod [1,2,3] [4,5,6]
-```
-
-`[n]` is a size parameter: both inputs must have the same length; `n` is inferred, not passed. Result type can be constrained too, e.g. `[1]i32` for singleton.
+- **Block-level "what":** Programs describe computation at the granularity of tiles (blocks); the compiler handles mapping to warps and threads.
+- **Declarative loads/stores:** Operations on blocks (e.g. matrix multiply over tiles) are expressed; layout and synchronization are inferred or constrained, not hand-written at the thread level.
+- **One description, many GPU targets:** Triton IR is lowered to different GPU backends; the same tile-level program can target different architectures.
 
 ### What Einlang can learn
 
-- **Shape polymorphism:** Expose size/rank in the type system (e.g. `[n]` or named dimensions) so generic tensor code can be typed; your shape inference is a step toward that.
-- **Small, predictable primitives** that map cleanly to parallel/GPU (map, reduce, scan, scatter/gather); your Einstein + reductions are in the same family.
-- **No raw for/while:** Futhark’s choice matches Einlang’s (comprehensions, recurrence, Einstein); their type/shape rules and backend story are a good reference for future evolution.
+- **Tile-level or tensor-level "what"** instead of thread-level "how"; Einlang's Einstein and reductions are at a similar semantic level—good for portability.
+- **Structured ops (matmul, reduction, element-wise)** as the vocabulary; backends can map them to tiles; no need for user-facing schedule syntax.
 
 ---
 
-## 3. JAX / XLA
+## 3. Accelerate (Haskell)
 
-**Scope:** NumPy-like front end; **tracing + compilation** to XLA; AD, JIT, multiple backends.
+**Scope:** **Embedded array language** in Haskell; compiles to CPU/GPU via LLVM; purely functional.
 
 ### Key concepts
 
-- **Pure functions:** Traced and compiled; side-effect-free code is easy to optimize and transform.
-- **Composable transforms:** `grad`, `jit`, `vmap`, `pmap`; can be stacked (e.g. `jit(vmap(grad(f)))`).
-- **Single abstraction:** Array + primitives; many backends implement the same ops.
-
-### Example (transforms)
-
-```python
-import jax.numpy as jnp
-from jax import jit, grad, vmap
-
-def loss(params, x, y):
-    pred = predict(params, x)
-    return jnp.sum((pred - y) ** 2)
-
-# Composed: vectorized gradients, then JIT-compiled
-grad_loss = jit(vmap(grad(loss), in_axes=(None, 0, 0)))
-```
-
-Tracing turns the Python function into a Jaxpr; each transform operates on that representation. Same program can run on CPU, GPU, or TPU.
+- **Array combinators:** `map`, `zipWith`, `fold`, `scan`, stencil; no raw loops; shape is part of the type (e.g. `Array DIM2 Float`).
+- **Shape in types:** Dimensions and extent are tracked; mismatches are type errors; fusion and rewriting are done on the combinator tree.
+- **Embedded "what":** The Haskell host expresses control flow; the embedded array language expresses only data-parallel "what"; codegen is separate.
 
 ### What Einlang can learn
 
-- **Purity and tracing:** Explicit `let` and value-oriented style already fit “traceable”; avoid hidden state so future AD or JIT can transform the program.
-- **Transform pipeline:** Think in “transform over a tensor program” (e.g. vmap = add batch dim, grad = backward pass); even without AD yet, this guides IR design.
-- **One IR, many backends:** Your backend interface is in the same spirit; JAX’s mental model (one high-level description, many targets) is a good fit for Einlang’s goals.
+- **Combinator-style "what"** (map, reduce, scan) aligns with Einstein and comprehensions; shape in the type system supports Einlang's shape guarantees.
+- **Fusion and one IR:** Accelerate fuses combinators into a single kernel; Einlang's single declarative form and lowering are in the same spirit—one "what," backend chooses "how."
 
 ---
 
-## 4. MLIR (Linalg, Tensor dialects)
+## 4. Tensor Comprehensions (Meta)
 
-**Scope:** Compiler IR and dialects for **tensor/linear algebra**; targets CPU, GPU, TPU, etc.
+**Scope:** **Declarative tensor expressions** with reduction formulas; C++/Python front end; compiles to optimized CUDA.
 
 ### Key concepts
 
-- **Indexing maps:** Each operand has an affine map from loop indices to tensor dimensions; they define the “structure” of the op.
-- **Structured ops:** Matmul, conv, reduction as first-class; iteration space derived from operands.
-- **Contraction detection:** Ops are identified as contractions via indexing maps, not op names; enables generic fusion and codegen.
-
-### Example (concept)
-
-`linalg.generic` expresses a custom contraction: you specify indexing maps for inputs/output; the iteration space is derived. Matrix multiply: one map uses `(i, k)`, another `(k, j)`, output `(i, j)`; the missing `k` in the output = reduction. Same idea as Einstein notation: indices that appear only on the RHS are reduction axes.
+- **Reduction formula:** You write a mathematical expression over index variables; reductions (sum, max, etc.) are explicit in the formula; the compiler infers iteration space and memory access.
+- **No explicit loops:** Indices and bounds come from the tensor shapes and the formula; same idea as Einstein notation—indices define structure.
+- **Codegen as backend:** The "what" is the formula; tiling, parallelization, and memory layout are chosen by the compiler, not the user.
 
 ### What Einlang can learn
 
-- **Einstein → Linalg:** Your `sum[k](A[i,k]*B[k,j])` is a natural source for Linalg-style generic ops; a future native/GPU lowering could target MLIR.
-- **Named dimensions and indexing maps** instead of ad-hoc loop nests; your shape analysis already produces structure that can map to affine maps.
-- **Structured op vocabulary:** Matmul, conv, reduction, broadcast as first-class in IR so backends can recognize and optimize them.
+- **Formula as "what":** Tensor Comprehensions validate that index-based, reduction-style expressions (like Einlang's Einstein + where) are a good portable "what"; no need to expose loop or schedule syntax.
+- **Shape and index consistency:** Bounds are derived from shapes and index use; similar to Einlang's shape/range inference for safety and lowering.
 
 ---
 
-## 5. TVM / Apache TVM
+## 5. Weld
 
-**Scope:** Compiler stack for **tensor expressions** and ML; many backends (CPU, GPU, accelerators).
+**Scope:** **Parallel data IR**; libraries expose operations that build a Weld IR; **one IR, many backends** (CPU, GPU); fusion across library boundaries.
 
 ### Key concepts
 
-- **Tensor expression IR (TeLang):** Describe compute; separate **schedule** (tile, split, bind to thread/block, etc.).
-- **Auto-tuning:** Search over schedules for a given target; shows how a high-level DSL can stay portable and still get performance.
-- **Reduction and broadcast** as first-class; same semantic level as Einlang’s reductions and same-rank broadcast.
+- **Lazy IR construction:** Operations (map, filter, merge, etc.) build a Weld IR tree; execution is deferred; optimizer fuses and schedules the whole tree.
+- **Single abstraction:** Many libraries (NumPy-like, pandas-like, etc.) can target the same IR; the backend compiles the fused tree to the target.
+- **"What" in the IR:** The IR describes the computation (reductions, scans, builders); the compiler decides parallelism, vectorization, and memory.
 
 ### What Einlang can learn
 
-- **“What” vs “how” again:** Same as Halide; your Einstein form is the “what”; a schedule layer (current or future) is the “how.”
-- **Op vocabulary:** TVM’s set of primitives (compute, reduce, broadcast) aligns with what you already have; their scheduling and codegen are a reference for a future native backend.
+- **One IR for "what":** Einlang's IR can be the single representation of the computation; multiple front ends or backends can target it; Weld shows the benefit of a small, fusion-friendly "what" IR.
+- **Fusion and backend:** Keeping the language declarative allows the backend to fuse and schedule without language-level schedule primitives.
 
 ---
 
-## 6. Dex
+## 6. ONNX
 
-**Scope:** Typed **array language** with **index and shape in the type system**; research language.
+**Scope:** **Portable graph format** for tensor ops; used for inference and cross-framework export; **ops as declarative "what".**
 
 ### Key concepts
 
-- **Indices as types:** `Fin n` = indices 0..n-1; you cannot index with an arbitrary integer.
-- **Shapes in types:** Array type reflects dimensions and their index types, e.g. `(Fin 3) => (Fin 8) => Float32`.
-- **Inferred loop bounds:** When iterating over arrays with known shape, ranges come from types; no explicit size passing.
-
-### Example (concept)
-
-```text
-for i j.  -- i, j inferred from context (e.g. array shape)
-  ...
-```
-
-Array type carries the “size” so that loops and indexing are checked at compile time. Flattened or reshaped arrays can be typed with product indices `(Fin 3 & Fin 8) => Float32`.
+- **Op-centric:** Nodes are named ops (MatMul, ReduceSum, Conv, etc.) with typed inputs/outputs and attributes; the graph is the "what"—no execution order or schedule in the spec.
+- **Shape and type:** Tensors have element type and shape; shape inference is defined per op; runtimes implement the op semantics and choose "how."
+- **Many runtimes:** Same graph runs on CPU, GPU, NPU, etc.; the graph describes structure and semantics; backends handle codegen and scheduling.
 
 ### What Einlang can learn
 
-- **Index and shape in types:** For “what could Einlang’s type system grow into?”, Dex is a reference: indices and bounds as first-class, leading to safe indexing and inferred ranges.
-- **Where clauses:** Your index algebra (e.g. `where ih = oh+kh`) is in the same spirit as Dex’s index sets; both avoid hand-written bounds and improve safety.
+- **Structured op vocabulary:** A small set of well-defined ops (contraction, reduction, broadcast, element-wise) as the semantic building blocks; Einlang's Einstein and reductions map naturally to such a vocabulary for a future backend or export.
+- **Shape and type in the "what":** ONNX's shape inference and type rules reinforce that the graph (or IR) should carry shape and type so that backends and tools can reason about the computation without running it.
 
 ---
 
-## 7. Rust (ndarray, burn)
-
-**Scope:** General language with **explicit tensor/array** libraries; no GC, zero-cost.
-
-### Key concepts
-
-- **Explicit dimensions:** `Array2`, `Dim<[I, J]>`; shape mismatches are compile-time errors.
-- **No hidden allocation:** APIs make when and where memory is used clear; fusion in Einlang has the same goal.
-- **Fallible APIs, no implicit broadcast by default:** Aligns with Einlang’s “explicit when ranks differ.”
-
-### What Einlang can learn
-
-- **API design:** How to expose shape and layout without sacrificing safety; how to avoid implicit behavior that breaks tracing or optimization.
-- **If you add a native backend:** Rust’s array libraries show how to keep zero-cost and predictable performance while staying shape-safe.
-
----
-
-## 8. Summary table
+## 7. Summary table
 
 | System       | Main lesson for Einlang                                      |
 |-------------|---------------------------------------------------------------|
-| **Halide**  | Separate algorithm (what) from schedule (how); tiling/vectorize/parallel as separate layer. |
-| **Futhark** | Size parameters and shape polymorphism; second-order combinators; no raw loops. |
-| **JAX**     | Purity and tracing; composable transforms (grad, jit, vmap); one abstraction, many backends. |
-| **MLIR Linalg** | Indexing maps and contractions; Einstein notation maps naturally; target for future codegen. |
-| **TVM**     | Tensor expr + schedule; “what” vs “how”; op vocabulary and auto-tuning. |
-| **Dex**     | Indices and shapes in types; inferred bounds; index sets. |
-| **Rust ndarray** | Explicit shapes and no implicit behavior; API design for safety and zero-cost. |
+| **Taichi**  | Kernel (what) vs schedule (how); stencil/reduction at kernel level; no schedule in the language. |
+| **Triton**  | Tile-level "what"; structured ops as vocabulary; one description, many GPU targets. |
+| **Accelerate** | Array combinators and shape in types; fusion and one IR; embedded "what" vs host control. |
+| **Tensor Comprehensions** | Formula as "what"; index-based reductions; bounds from shapes; codegen as backend. |
+| **Weld**    | One IR for "what"; lazy IR, fusion across boundaries; backend chooses parallelism and memory. |
+| **ONNX**    | Op-centric graph as "what"; shape/type in the spec; many runtimes, portable semantics. |
+
+---
+
+## 8. No new syntax proposed
+
+The influences above are used for **learn from what** (concepts, IR design, backend targets). None of the corresponding feature ideas (size parameters, schedule hints, vmap, index/dimension in type, named dimensions, pure/traceable annotation, grad) are proposed or needed for Einlang's current scope; existing shape inference, comprehensions, Einstein, and where-clauses already cover the "what." Execution strategy stays out of the language.
 
 ---
 
 ## 9. Suggested directions
 
-- **Short term:** Keep algorithm/schedule separation in mind in IR and lowering; avoid baking “how” into the language so a future backend or schedule pass can own it.
-- **Type system:** Consider size/shape parameters (Futhark) or index types (Dex) for shape-polymorphic and bounds-safe APIs.
-- **Transforms:** Design so that “transform over tensor program” (e.g. vmap, grad) is possible later without reworking the core language.
-- **Native/GPU:** Use MLIR Linalg (and Halide/TVM schedule ideas) as the target and vocabulary when you add a non-NumPy backend.
+- **Focus on what:** Declarative tensor expressions, shapes, and types. Leave **how** (tiling, parallelism, codegen) to the backend.
+- **Learn from what:** Use the summary table and sections 1–6 to inform Einlang's *new* syntax and language—take concepts, structure, IR, safety from each system; do not copy their existing syntax or add "how" into the language.
+- **Native/GPU:** If you add a non-NumPy backend, MLIR Linalg or a similar structured-op vocabulary is a natural target; schedule and codegen stay in the backend.
 
-This document can be updated as Einlang’s backend or type system evolves; treat it as a living reference for tensor/array DSL design.
+This document can be updated as Einlang's backend or type system evolves; treat it as a living reference for tensor/array DSL design.

@@ -34,6 +34,7 @@ Notes on well-designed syntax from Rust and Julia to inform Einlang. Not a specâ
 | **Patterns in function parameters** | 3 | Cleaner APIs for `fn forward((batch, dim), x)`-style; not required. |
 | **`if let`** | 2 | Occasional optional/config handling; full `match` is fine. |
 | **Refutability** | 2 | Catches bad destructuring at compile time; inference often fixed shapes, so lower impact. |
+| **Named dimensions** | 2 | Better diagnostics (e.g. "batch" vs "channels" in errors) and optional IR/backend metadata; not required for correctnessâ€”numeric shapes and inference already suffice. |
 | **Automatic differentiation** | 1 | Not used in inference; forward only. |
 | **Mutation convention** | 1 | Inference is mostly pure; in-place matters more for training / buffer reuse. |
 
