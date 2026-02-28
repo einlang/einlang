@@ -1218,7 +1218,6 @@ class EinsteinIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_einstein_value_expr(self)
 
-EinsteinExprIR = EinsteinIR
 
 
 # Type variable for visitor pattern
@@ -1462,10 +1461,6 @@ class IRVisitor(ABC, Generic[T]):
         """Visit one Einstein clause. Default: no-op."""
         return None  # type: ignore[return-value]
 
-    def visit_function_ref(self, node: Any) -> T:
-        """No longer used (FunctionRefIR removed; use visit_identifier). Default: no-op."""
-        return None  # type: ignore[return-value]
-
     def visit_binding(self, node: 'BindingIR') -> T:
         """Visit binding (name = expr). Default: delegate to node.expr.accept(self)."""
         expr = getattr(node, 'expr', None)
@@ -1480,6 +1475,4 @@ class IRVisitor(ABC, Generic[T]):
         raise NotImplementedError
 
 
-VariableDeclarationIR = BindingIR
-EinsteinDeclarationIR = BindingIR
 

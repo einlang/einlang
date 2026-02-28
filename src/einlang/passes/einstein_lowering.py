@@ -1,7 +1,7 @@
 """
 Einstein Lowering Pass
 
-Converts EinsteinDeclarationIR nodes to LoweredIteration structures.
+Converts Einstein bindings to LoweredIteration structures.
 This aligns with architecture where all ranges are computed at compile time
 and execution uses pure loop structures.
 
@@ -65,7 +65,7 @@ class EinsteinLoweringPass(BasePass):
     """
     Einstein lowering pass.
     
-    Converts EinsteinDeclarationIR nodes to LoweredIteration structures.
+    Converts Einstein bindings to LoweredIteration structures.
     All ranges are pre-computed by RangeAnalysisPass.
     """
     requires = [RangeAnalysisPass]  # Depends on range analysis

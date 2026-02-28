@@ -54,14 +54,11 @@ from .nodes import (
     MatchArmIR,
     EinsteinClauseIR,
     EinsteinIR,
-    EinsteinExprIR,
     WhereClauseIR,
     ProgramIR,
     is_einstein_binding,
     is_function_binding,
     is_constant_binding,
-    VariableDeclarationIR,
-    EinsteinDeclarationIR,
 )
 
 # Export IR serialization
@@ -123,14 +120,11 @@ __all__ = [
     'MatchArmIR',
     'EinsteinClauseIR',
     'EinsteinIR',
-    'EinsteinExprIR',
     'WhereClauseIR',
     'ProgramIR',
     'is_einstein_binding',
     'is_function_binding',
     'is_constant_binding',
-    'VariableDeclarationIR',
-    'EinsteinDeclarationIR',
     # Serialization
     'serialize_ir',
     'deserialize_ir',

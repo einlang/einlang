@@ -2,7 +2,7 @@
 Unit tests for Einstein Lowering Pass
 
 Tests that verify:
-1. EinsteinDeclarationIR nodes are correctly lowered to LoweredIteration structures
+1. Einstein bindings are correctly lowered to LoweredIteration structures
 2. Loop structures are created correctly from range analysis
 3. Bindings and guards are properly extracted
 4. Backend execution works with lowered iterations
@@ -23,9 +23,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
 from einlang.ir.nodes import (
-    ProgramIR, EinsteinDeclarationIR, LoweredIteration,
+    ProgramIR, LoweredIteration,
     LoopStructure, BindingIR, GuardCondition, ReductionExpressionIR,
-    LoweredEinsteinIR, LoweredReductionIR,
+    LoweredEinsteinIR, LoweredReductionIR, is_einstein_binding,
 )
 from einlang.passes.einstein_lowering import EinsteinLoweringPass
 from einlang.passes.range_analysis import RangeAnalysisPass
@@ -156,7 +156,7 @@ class TestEinsteinLoweringPass:
         np.testing.assert_array_equal(result.outputs['doubled'], expected)
     
     def test_ir_structure_has_lowered_iteration(self, compiler):
-        """Test that IR structure contains lowered iteration (EinsteinDeclarationIR or LoweredEinsteinIR)"""
+        """Test that IR structure contains lowered iteration (Einstein binding or LoweredEinsteinIR)"""
         source = """
         let result[i] = i * 2 where i in 0..5;
         result;
@@ -169,7 +169,7 @@ class TestEinsteinLoweringPass:
         def find_lowered_einstein(node):
             if isinstance(node, LoweredEinsteinIR):
                 lowered_einstein_nodes.append(node)
-            if isinstance(node, EinsteinDeclarationIR):
+            if is_einstein_binding(node):
                 if hasattr(node, 'lowered_iteration') and node.lowered_iteration is not None:
                     lowered_einstein_nodes.append(node.lowered_iteration)
             if hasattr(node, 'value'):
@@ -189,7 +189,7 @@ class TestEinsteinLoweringPass:
         
         find_lowered_einstein(compile_result.ir)
         
-        assert len(lowered_einstein_nodes) > 0, "Should have lowered Einstein in IR (LoweredEinsteinIR or EinsteinDeclarationIR with lowered_iteration)"
+        assert len(lowered_einstein_nodes) > 0, "Should have lowered Einstein in IR (LoweredEinsteinIR or Einstein binding with lowered_iteration)"
         first = lowered_einstein_nodes[0]
         if isinstance(first, LoweredEinsteinIR):
             assert hasattr(first, 'items') and len(first.items) > 0, "LoweredEinsteinIR should have items"
@@ -212,7 +212,7 @@ class TestEinsteinLoweringPass:
                 for clause in node.items:
                     if getattr(clause, 'loops', None):
                         lowered_clauses_or_loops.append(clause)
-            if isinstance(node, EinsteinDeclarationIR) and getattr(node, 'lowered_iteration', None):
+            if is_einstein_binding(node) and getattr(node, 'lowered_iteration', None):
                 lo = node.lowered_iteration
                 if getattr(lo, 'loops', None):
                     lowered_clauses_or_loops.append(lo)
@@ -381,7 +381,7 @@ class TestEinsteinLoweringPassIntegration:
     """Integration tests for Einstein Lowering Pass with full compilation pipeline"""
     
     def test_pass_runs_in_pipeline(self, compiler):
-        """Test that Einstein lowering runs in the compilation pipeline (LoweredEinsteinIR or EinsteinDeclarationIR)"""
+        """Test that Einstein lowering runs in the compilation pipeline (LoweredEinsteinIR or Einstein binding)"""
         source = """
         let result[i] = i * 2 where i in 0..5;
         result;
@@ -394,7 +394,7 @@ class TestEinsteinLoweringPassIntegration:
         def find_lowered(node):
             if isinstance(node, LoweredEinsteinIR):
                 lowered.append(node)
-            if isinstance(node, EinsteinDeclarationIR) and getattr(node, 'lowered_iteration', None):
+            if is_einstein_binding(node) and getattr(node, 'lowered_iteration', None):
                 lowered.append(node.lowered_iteration)
             if hasattr(node, 'value'):
                 find_lowered(node.value)
@@ -420,7 +420,7 @@ class TestEinsteinLoweringPassIntegration:
                 for clause in node.items:
                     if getattr(clause, 'loops', None):
                         loops_list.append(clause.loops)
-            if isinstance(node, EinsteinDeclarationIR) and getattr(node, 'lowered_iteration', None):
+            if is_einstein_binding(node) and getattr(node, 'lowered_iteration', None):
                 lo = node.lowered_iteration
                 if getattr(lo, 'loops', None):
                     loops_list.append(lo.loops)

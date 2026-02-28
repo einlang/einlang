@@ -23,9 +23,8 @@ from ..ir.nodes import (
     LambdaIR, ArrowExpressionIR, PipelineExpressionIR,
     CastExpressionIR, InterpolatedStringIR, TupleExpressionIR,
     ReductionExpressionIR, WhereExpressionIR,
-    EinsteinDeclarationIR, VariableDeclarationIR,
-    RangeIR, TryExpressionIR, ConstantDefIR,
-    is_function_binding,
+    RangeIR, TryExpressionIR,
+    is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
 
@@ -58,8 +57,11 @@ def _collect_defid_refs(node, refs: Set[DefId]) -> None:
         _collect_defid_refs(node.final_expr, refs)
         return
 
-    if isinstance(node, VariableDeclarationIR):
+    if isinstance(node, BindingIR):
         _collect_defid_refs(getattr(node, 'value', None), refs)
+        if is_einstein_binding(node):
+            for clause in (getattr(getattr(node, 'expr', None), 'clauses', None) or []):
+                _collect_defid_refs(getattr(clause, 'value', None), refs)
         return
 
     if isinstance(node, IfExpressionIR):
@@ -127,11 +129,6 @@ def _collect_defid_refs(node, refs: Set[DefId]) -> None:
     if isinstance(node, WhereExpressionIR):
         _collect_defid_refs(node.expr, refs)
         _collect_defid_refs(getattr(node, 'condition', None), refs)
-        return
-
-    if isinstance(node, EinsteinDeclarationIR):
-        for clause in (getattr(node, 'clauses', None) or []):
-            _collect_defid_refs(getattr(clause, 'value', None), refs)
         return
 
     if isinstance(node, LambdaIR):

@@ -14,8 +14,8 @@ from ..ir.nodes import (
     ExpressionIR, IdentifierIR, IndexVarIR, RectangularAccessIR, ArrayLiteralIR,
     BinaryOpIR, UnaryOpIR, ReductionExpressionIR, WhereExpressionIR,
     IRVisitor, LiteralIR, MemberAccessIR, CastExpressionIR,
-    EinsteinDeclarationIR, FunctionCallIR, IfExpressionIR, RangeIR,
-    TupleAccessIR, VariableDeclarationIR, BuiltinCallIR,
+    BindingIR, FunctionCallIR, IfExpressionIR, RangeIR,
+    TupleAccessIR, BuiltinCallIR,
     is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
@@ -65,7 +65,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
             program = getattr(self._tcx, 'program_ir', None)
             if program:
                 for stmt in program.statements:
-                    if isinstance(stmt, VariableDeclarationIR):
+                    if isinstance(stmt, BindingIR):
                         if getattr(stmt, 'defid', None) == array_defid:
                             return stmt.value
         return None
@@ -75,9 +75,8 @@ class ImplicitRangeDetector(IRVisitor[None]):
         Register prior Einstein declarations in this function (by DefId only).
         ALIGNED: Enables range inference from prior declarations (e.g. shifted[..batch, j] then doubled[...] = shifted[...] * 2).
         """
-        from ..ir.nodes import EinsteinDeclarationIR
         for decl in decls:
-            if isinstance(decl, EinsteinDeclarationIR):
+            if is_einstein_binding(decl):
                 did = getattr(decl, 'defid', None)
                 if did is not None:
                     self._function_decls_by_defid[did] = decl
@@ -362,7 +361,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
             index_lit = LiteralIR(value=index_position, location=loc, type_info=PrimitiveType(name='i32'))
             return RectangularAccessIR(array=shape_member, indices=[index_lit], location=loc)
 
-        if isinstance(var_def, VariableDeclarationIR) and getattr(var_def, 'value', None) is not None:
+        if isinstance(var_def, BindingIR) and getattr(var_def, 'value', None) is not None:
             var_def = var_def.value
         if hasattr(var_def, 'shape_info') and var_def.shape_info:
             shape = var_def.shape_info
@@ -394,7 +393,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
             if isinstance(current, ArrayLiteralIR):
                 return len(current.elements)
 
-        if isinstance(var_def, EinsteinDeclarationIR):
+        if is_einstein_binding(var_def):
             max_size = None
             for clause in (var_def.clauses or []):
                 var_ranges = getattr(clause, 'variable_ranges', None) or {}
@@ -2252,7 +2251,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
         defid_shapes = shape_data.get('defid_shapes', {}) if isinstance(shape_data, dict) else {}
         _value = None
         if einstein_node:
-            if isinstance(einstein_node, EinsteinDeclarationIR) and einstein_node.clauses:
+            if is_einstein_binding(einstein_node) and einstein_node.clauses:
                 _value = einstein_node.clauses[0].value
             else:
                 _value = getattr(einstein_node, 'value', None)
@@ -2317,7 +2316,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
         def _clause_for(node: Any) -> Any:
             if node is None:
                 return None
-            if isinstance(node, EinsteinDeclarationIR):
+            if is_einstein_binding(node):
                 return node.clauses[0] if node.clauses else None
             return node
 

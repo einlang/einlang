@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
-from einlang.ir.nodes import EinsteinDeclarationIR, ReductionExpressionIR
+from einlang.ir.nodes import ReductionExpressionIR
 from tests.test_utils import apply_ir_round_trip
 
 
