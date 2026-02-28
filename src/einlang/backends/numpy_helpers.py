@@ -6,7 +6,8 @@ from ..ir.nodes import (
     LiteralIR, IdentifierIR, BinaryOpIR, IRVisitor,
     LiteralPatternIR, IdentifierPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
-    ProgramIR, FunctionDefIR, ConstantDefIR, ExpressionIR,
+    ProgramIR, BindingIR, ExpressionIR,
+    is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
 
@@ -228,8 +229,7 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
     def visit_identifier(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_binary_op(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_function_call(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
-    def visit_function_def(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
-    def visit_constant_def(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
+    def visit_binding(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_rectangular_access(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_jagged_access(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_block_expression(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
@@ -252,7 +252,6 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
     def visit_arrow_expression(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_pipeline_expression(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_builtin_call(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
-    def visit_einstein_declaration(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
     def visit_program(self, node: Any) -> Optional[Dict[DefId, Any]]: return None
 
 
@@ -265,7 +264,7 @@ def _extract_binding(constraint: Any) -> Optional[Tuple[DefId, Any]]:
 
 
 class FunctionDefRegistrar(IRVisitor[None]):
-    def __init__(self, def_table: Dict[DefId, FunctionDefIR]):
+    def __init__(self, def_table: Dict[DefId, BindingIR]):
         self.def_table = def_table
         self._scope_stack: List[Optional[DefId]] = []
 
@@ -273,18 +272,21 @@ class FunctionDefRegistrar(IRVisitor[None]):
         for f in node.functions:
             f.accept(self)
 
-    def visit_function_def(self, stmt: FunctionDefIR) -> None:
-        self._scope_stack.append(getattr(stmt, "defid", None))
-        try:
-            if stmt.defid:
-                self.def_table[stmt.defid] = stmt
-            if getattr(stmt, "body", None):
-                stmt.body.accept(self)
-        finally:
-            self._scope_stack.pop()
-
-    def visit_constant_def(self, stmt: ConstantDefIR) -> None:
-        pass
+    def visit_binding(self, stmt: BindingIR) -> None:
+        if is_function_binding(stmt):
+            self._scope_stack.append(getattr(stmt, "defid", None))
+            try:
+                if stmt.defid:
+                    self.def_table[stmt.defid] = stmt
+                if getattr(stmt, "body", None):
+                    stmt.body.accept(self)
+            finally:
+                self._scope_stack.pop()
+        elif is_einstein_binding(stmt):
+            pass
+        else:
+            if getattr(stmt, "value", None):
+                stmt.value.accept(self)
 
     def visit_literal(self, n: Any) -> None: pass
     def visit_identifier(self, n: Any) -> None: pass
@@ -321,10 +323,6 @@ class FunctionDefRegistrar(IRVisitor[None]):
     def visit_arrow_expression(self, n: Any) -> None: pass
     def visit_pipeline_expression(self, n: Any) -> None: pass
     def visit_builtin_call(self, n: Any) -> None: pass
-    def visit_einstein_declaration(self, n: Any) -> None: pass
-    def visit_variable_declaration(self, n: Any) -> None:
-        if getattr(n, "value", None):
-            n.value.accept(self)
     def visit_literal_pattern(self, n: Any) -> None: pass
     def visit_identifier_pattern(self, n: Any) -> None: pass
     def visit_wildcard_pattern(self, n: Any) -> None: pass
@@ -352,11 +350,12 @@ class NameToDefIdLookup(IRVisitor[Optional[DefId]]):
                 if r is not None: return r
         return None
 
-    def visit_function_def(self, stmt: FunctionDefIR) -> Optional[DefId]:
-        return stmt.defid if stmt.name == self.name and stmt.defid else None
-
-    def visit_constant_def(self, stmt: ConstantDefIR) -> Optional[DefId]:
-        return stmt.defid if stmt.name == self.name and stmt.defid else None
+    def visit_binding(self, stmt: BindingIR) -> Optional[DefId]:
+        if is_function_binding(stmt):
+            return stmt.defid if stmt.name == self.name and stmt.defid else None
+        if is_einstein_binding(stmt):
+            return None
+        return stmt.value.accept(self) if getattr(stmt, "value", None) else None
 
     def visit_where_expression(self, node: Any) -> Optional[DefId]:
         r = node.expr.accept(self)
@@ -390,9 +389,6 @@ class NameToDefIdLookup(IRVisitor[Optional[DefId]]):
     def visit_arrow_expression(self, n: Any) -> Optional[DefId]: return None
     def visit_pipeline_expression(self, n: Any) -> Optional[DefId]: return None
     def visit_builtin_call(self, n: Any) -> Optional[DefId]: return None
-    def visit_einstein_declaration(self, n: Any) -> Optional[DefId]: return None
-    def visit_variable_declaration(self, n: Any) -> Optional[DefId]:
-        return n.value.accept(self) if getattr(n, "value", None) else None
     def visit_literal_pattern(self, n: Any) -> Optional[DefId]: return None
     def visit_identifier_pattern(self, n: Any) -> Optional[DefId]: return None
     def visit_wildcard_pattern(self, n: Any) -> Optional[DefId]: return None
@@ -421,11 +417,12 @@ class DefIdToNameLookup(IRVisitor[Optional[str]]):
                 return node.defid_to_name.get(self.defid)
         return None
 
-    def visit_function_def(self, stmt: FunctionDefIR) -> Optional[str]:
-        return stmt.name if stmt.defid == self.defid else None
-
-    def visit_constant_def(self, stmt: ConstantDefIR) -> Optional[str]:
-        return stmt.name if stmt.defid == self.defid else None
+    def visit_binding(self, stmt: BindingIR) -> Optional[str]:
+        if is_function_binding(stmt):
+            return stmt.name if stmt.defid == self.defid else None
+        if is_einstein_binding(stmt):
+            return None
+        return stmt.value.accept(self) if getattr(stmt, "value", None) else None
 
     def visit_literal(self, n: Any) -> Optional[str]: return None
     def visit_identifier(self, n: Any) -> Optional[str]: return None
@@ -452,9 +449,6 @@ class DefIdToNameLookup(IRVisitor[Optional[str]]):
     def visit_arrow_expression(self, n: Any) -> Optional[str]: return None
     def visit_pipeline_expression(self, n: Any) -> Optional[str]: return None
     def visit_builtin_call(self, n: Any) -> Optional[str]: return None
-    def visit_einstein_declaration(self, n: Any) -> Optional[str]: return None
-    def visit_variable_declaration(self, n: Any) -> Optional[str]:
-        return n.value.accept(self) if getattr(n, "value", None) else None
     def visit_literal_pattern(self, n: Any) -> Optional[str]: return None
     def visit_identifier_pattern(self, n: Any) -> Optional[str]: return None
     def visit_wildcard_pattern(self, n: Any) -> Optional[str]: return None
@@ -498,9 +492,6 @@ class BindingExtractor(IRVisitor[Optional[Tuple[DefId, ExpressionIR]]]):
     def visit_arrow_expression(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
     def visit_pipeline_expression(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
     def visit_builtin_call(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
-    def visit_einstein_declaration(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
-    def visit_variable_declaration(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]:
-        return n.value.accept(self) if getattr(n, "value", None) else None
     def visit_literal_pattern(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
     def visit_identifier_pattern(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
     def visit_wildcard_pattern(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
@@ -508,6 +499,8 @@ class BindingExtractor(IRVisitor[Optional[Tuple[DefId, ExpressionIR]]]):
     def visit_array_pattern(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
     def visit_rest_pattern(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
     def visit_guard_pattern(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
-    def visit_constant_def(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
-    def visit_function_def(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None
+    def visit_binding(self, n: BindingIR) -> Optional[Tuple[DefId, ExpressionIR]]:
+        if is_function_binding(n) or is_einstein_binding(n):
+            return None
+        return n.value.accept(self) if getattr(n, "value", None) else None
     def visit_module(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None

@@ -9,7 +9,7 @@ import logging
 from typing import Union, Dict, Tuple, Optional, Any, List
 from contextlib import contextmanager
 from ..passes.base import BasePass, TyCtxt
-from ..ir.nodes import ProgramIR, FunctionDefIR, ConstantDefIR
+from ..ir.nodes import ProgramIR, BindingIR
 from ..shared.defid import DefType, Resolver, DefId, FIXED_BUILTIN_ORDER, fixed_builtin_defid
 from ..shared.scope import ScopeManager, ScopeKind, Binding, BindingType, ScopeRedefinitionError
 from ..analysis.module_system.path_resolver import MODULE_SEPARATOR
@@ -516,7 +516,7 @@ class NameResolutionPass(BasePass):
     
     def _resolve_function(
         self,
-        func: FunctionDefIR,
+        func: BindingIR,
         resolver: Resolver,
         scope_manager: ScopeManager,
         tcx: TyCtxt,
@@ -608,7 +608,7 @@ class NameResolutionPass(BasePass):
     
     def _resolve_constant(
         self,
-        const: ConstantDefIR,
+        const: BindingIR,
         resolver: Resolver,
         scope_manager: ScopeManager,
         tcx: TyCtxt,

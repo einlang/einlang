@@ -30,7 +30,8 @@ import logging
 from typing import Optional, Any
 from ..passes.base import BasePass, TyCtxt
 from ..ir.nodes import (
-    ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR, EinsteinDeclarationIR,
+    ProgramIR, ExpressionIR, BindingIR,
+    is_function_binding, is_einstein_binding, is_constant_binding,
     IRVisitor, IRNode,
     LiteralIR, IdentifierIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     RectangularAccessIR, JaggedAccessIR, ArrayLiteralIR, TupleExpressionIR,
@@ -289,11 +290,35 @@ class IRValidationVisitor(IRVisitor[None]):
         node.object.accept(self)
     
     # Statement/Definition visitors
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> None:
-        """Validate Einstein declaration: check each clause."""
+    def visit_binding(self, node: BindingIR) -> None:
         self.nodes_validated += 1
-        for clause in (node.clauses or []):
-            clause.accept(self)
+        if is_einstein_binding(node):
+            for clause in (node.clauses or []):
+                clause.accept(self)
+        elif is_function_binding(node):
+            # Validate function has DefId
+            if node.defid is None:
+                self._report_error(
+                    f"FunctionDefIR '{node.name}' missing DefId. "
+                    "Functions must have DefId for definition table lookup.",
+                    node.location
+                )
+            # Skip validation of generic functions — they are templates that get
+            # specialized; only the specialized copies need full validation.
+            from ..analysis.analysis_guard import is_generic_function
+            if is_generic_function(node):
+                return
+            # Validate function body
+            node.body.accept(self)
+        else:
+            if node.defid is None:
+                self._report_error(
+                    f"Binding '{node.name}' missing DefId. "
+                    "Bindings must have DefId for definition table lookup.",
+                    node.location
+                )
+            if hasattr(node, 'value') and node.value:
+                node.value.accept(self)
 
     def visit_einstein(self, node) -> None:
         """Validate one Einstein clause has required metadata."""
@@ -313,35 +338,6 @@ class IRValidationVisitor(IRVisitor[None]):
             )
         if node.value:
             node.value.accept(self)
-    
-    def visit_function_def(self, node: FunctionDefIR) -> None:
-        self.nodes_validated += 1
-        # Validate function has DefId
-        if node.defid is None:
-            self._report_error(
-                f"FunctionDefIR '{node.name}' missing DefId. "
-                "Functions must have DefId for definition table lookup.",
-                node.location
-            )
-        # Skip validation of generic functions — they are templates that get
-        # specialized; only the specialized copies need full validation.
-        from ..analysis.analysis_guard import is_generic_function
-        if is_generic_function(node):
-            return
-        # Validate function body
-        node.body.accept(self)
-    
-    def visit_constant_def(self, node: ConstantDefIR) -> None:
-        self.nodes_validated += 1
-        # Validate constant has DefId
-        if node.defid is None:
-            self._report_error(
-                f"ConstantDefIR '{node.name}' missing DefId. "
-                "Constants must have DefId for definition table lookup.",
-                node.location
-            )
-        # Validate constant value
-        node.value.accept(self)
     
     def visit_program(self, node: ProgramIR) -> None:
         # Validate all functions
@@ -372,12 +368,6 @@ class IRValidationVisitor(IRVisitor[None]):
         for constraint in node.constraints:
             constraint.accept(self)
     
-
-    def visit_variable_declaration(self, node) -> Any:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 
     def visit_lowered_einstein(self, node: Any) -> None:
         """Visit all lowered Einstein clauses (not just last)."""

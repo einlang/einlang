@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from ..ir.nodes import IRVisitor, FunctionCallIR, LiteralIR
+from ..ir.nodes import IRVisitor, FunctionCallIR, LiteralIR, is_function_binding, is_einstein_binding
 
 
 def apply_arrow_component(comp: Any, result: Any, location: Any, backend: Any) -> Any:
@@ -87,9 +87,9 @@ class ArrowComponentApplier(IRVisitor[Any]):
         return _delegate(node, self.backend)
     def visit_builtin_call(self, node: Any) -> Any:
         return _delegate(node, self.backend)
-    def visit_einstein_declaration(self, node: Any) -> Any:
-        return _delegate(node, self.backend)
-    def visit_variable_declaration(self, node: Any) -> Any:
+    def visit_binding(self, node: Any) -> Any:
+        if is_function_binding(node) or is_einstein_binding(node):
+            return _delegate(node, self.backend)
         if hasattr(node, "value") and node.value:
             return node.value.accept(self)
         return None
@@ -106,10 +106,6 @@ class ArrowComponentApplier(IRVisitor[Any]):
     def visit_rest_pattern(self, node: Any) -> Any:
         return _delegate(node, self.backend)
     def visit_guard_pattern(self, node: Any) -> Any:
-        return _delegate(node, self.backend)
-    def visit_function_def(self, node: Any) -> Any:
-        return _delegate(node, self.backend)
-    def visit_constant_def(self, node: Any) -> Any:
         return _delegate(node, self.backend)
     def visit_module(self, node: Any) -> Any:
         return _delegate(node, self.backend)
@@ -188,9 +184,9 @@ class PipelineApplier(IRVisitor[Any]):
         return _delegate(node, self.backend)
     def visit_builtin_call(self, node: Any) -> Any:
         return _delegate(node, self.backend)
-    def visit_einstein_declaration(self, node: Any) -> Any:
-        return _delegate(node, self.backend)
-    def visit_variable_declaration(self, node: Any) -> Any:
+    def visit_binding(self, node: Any) -> Any:
+        if is_function_binding(node) or is_einstein_binding(node):
+            return _delegate(node, self.backend)
         if hasattr(node, "value") and node.value:
             return node.value.accept(self)
         return None
@@ -207,10 +203,6 @@ class PipelineApplier(IRVisitor[Any]):
     def visit_rest_pattern(self, node: Any) -> Any:
         return _delegate(node, self.backend)
     def visit_guard_pattern(self, node: Any) -> Any:
-        return _delegate(node, self.backend)
-    def visit_function_def(self, node: Any) -> Any:
-        return _delegate(node, self.backend)
-    def visit_constant_def(self, node: Any) -> Any:
         return _delegate(node, self.backend)
     def visit_module(self, node: Any) -> Any:
         return _delegate(node, self.backend)

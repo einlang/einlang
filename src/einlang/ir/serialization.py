@@ -430,7 +430,10 @@ class IRSerializer:
         return [self._sym("loop"), var_sexpr, iterable]
     
     def _serialize_BindingIR(self, binding) -> list:
-        """Serialize BindingIR: (binding "name" expr type :defid [...] :loc [...])."""
+        """Serialize BindingIR: dispatch to specialized serializers for function/constant, else generic binding."""
+        from ..ir.nodes import is_function_binding
+        if is_function_binding(binding):
+            return self._serialize_FunctionDefIR(binding)
         expr = self.serialize_to_sexpr(binding.expr)
         typ = self._serialize_type(binding.type_info) if getattr(binding, 'type_info', None) else [self._sym("nil")]
         core = [self._sym("binding"), binding.name, expr, typ]
@@ -1381,7 +1384,7 @@ class IRDeserializer:
         return BindingIR(name=pattern, expr=value, type_info=type_annotation, location=loc, defid=defid)
 
     def _deserialize_function_definition(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import FunctionDefIR, FunctionValueIR
+        from ..ir.nodes import BindingIR, FunctionValueIR
         _, opts = _plist(tail[3:])
         loc = self._loc_from_opts(opts)
         name = self._name_from_tail(tail)
@@ -1392,10 +1395,10 @@ class IRDeserializer:
         defid = _parse_defid(opts.get(":defid"))
         return_type = self._deserialize_type(opts.get(":return_type"))
         func_value = FunctionValueIR(parameters=params, body=body, location=loc, return_type=return_type)
-        return FunctionDefIR(name=name, expr=func_value, location=loc, defid=defid)
+        return BindingIR(name=name, expr=func_value, location=loc, defid=defid)
 
     def _deserialize_constant_def(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import ConstantDefIR
+        from ..ir.nodes import BindingIR
         _, opts = _plist(tail[2:])
         loc = self._loc_from_opts(opts)
         name = self._name_from_tail(tail)
@@ -1403,7 +1406,7 @@ class IRDeserializer:
         opts = _plist(tail[2:])[1]
         ty = self._deserialize_type(opts.get(":ty"))
         defid = _parse_defid(opts.get(":defid"))
-        return ConstantDefIR(name=name, expr=value, location=loc, type_info=ty, defid=defid)
+        return BindingIR(name=name, expr=value, location=loc, type_info=ty, defid=defid)
 
     def _deserialize_program(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import ProgramIR

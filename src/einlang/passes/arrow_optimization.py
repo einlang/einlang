@@ -18,8 +18,8 @@ from ..passes.base import BasePass, TyCtxt
 from ..passes.type_inference import TypeInferencePass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, ArrowExpressionIR, FunctionCallIR,
-    IRVisitor, IRNode, IdentifierIR, FunctionDefIR, ConstantDefIR,
-    EinsteinDeclarationIR
+    IRVisitor, IRNode, IdentifierIR, BindingIR,
+    is_function_binding, is_einstein_binding, is_constant_binding
 )
 
 logger = logging.getLogger("einlang.passes.arrow_optimization")
@@ -486,20 +486,15 @@ class ArrowOptimizationVisitor(IRVisitor[ExpressionIR]):
         return node
     
     # Required visitor methods for IRVisitor interface
-    def visit_function_def(self, node) -> ExpressionIR:
-        # ArrowOptimizationVisitor operates on expressions, not function definitions
-        # This should not be called, but required by interface
-        raise NotImplementedError("ArrowOptimizationVisitor should not visit function definitions")
-    
-    def visit_constant_def(self, node) -> ExpressionIR:
-        # ArrowOptimizationVisitor operates on expressions, not constant definitions
-        # This should not be called, but required by interface
-        raise NotImplementedError("ArrowOptimizationVisitor should not visit constant definitions")
-    
-    def visit_einstein_declaration(self, node) -> ExpressionIR:
-        # ArrowOptimizationVisitor operates on expressions, not Einstein declarations
-        # This should not be called, but required by interface
-        raise NotImplementedError("ArrowOptimizationVisitor should not visit Einstein declarations")
+    def visit_binding(self, node) -> ExpressionIR:
+        if is_function_binding(node):
+            raise NotImplementedError("ArrowOptimizationVisitor should not visit function definitions")
+        elif is_einstein_binding(node):
+            raise NotImplementedError("ArrowOptimizationVisitor should not visit Einstein declarations")
+        else:
+            if hasattr(node, 'value') and node.value:
+                return node.value.accept(self)
+            return None
     
     def visit_module(self, node) -> ExpressionIR:
         # ArrowOptimizationVisitor operates on expressions, not modules
@@ -517,12 +512,6 @@ class ArrowOptimizationVisitor(IRVisitor[ExpressionIR]):
             shape_info=node.shape_info
         )
 
-
-    def visit_variable_declaration(self, node) -> ExpressionIR:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 
 class ArrowOptimizationInPlaceVisitor(IRVisitor[None]):
     """
@@ -552,23 +541,19 @@ class ArrowOptimizationInPlaceVisitor(IRVisitor[None]):
         for stmt in node.statements:
             stmt.accept(self)
     
-    def visit_function_def(self, node: FunctionDefIR) -> None:
-        """Optimize function body in place"""
-        optimized_body = node.body.accept(self.optimizer)
-        if optimized_body is not node.body:
-            object.__setattr__(node.expr, 'body', optimized_body)
-    
-    def visit_constant_def(self, node: ConstantDefIR) -> None:
-        """Optimize constant value in place"""
-        optimized_value = node.value.accept(self.optimizer)
-        if optimized_value is not node.value:
-            object.__setattr__(node, 'expr', optimized_value)
-    
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> None:
-        """Optimize Einstein declaration value in place"""
-        optimized_value = node.value.accept(self.optimizer)
-        if optimized_value is not node.value:
-            object.__setattr__(node, 'expr', optimized_value)
+    def visit_binding(self, node: BindingIR) -> None:
+        if is_function_binding(node):
+            optimized_body = node.body.accept(self.optimizer)
+            if optimized_body is not node.body:
+                object.__setattr__(node.expr, 'body', optimized_body)
+        elif is_einstein_binding(node):
+            optimized_value = node.value.accept(self.optimizer)
+            if optimized_value is not node.value:
+                object.__setattr__(node, 'expr', optimized_value)
+        else:
+            if hasattr(node, 'value') and node.value:
+                return node.value.accept(self)
+            return None
     
     # Required visitor methods (void visitor, no-op for expressions)
     def visit_literal(self, node) -> None:
@@ -672,11 +657,6 @@ class ArrowOptimizationInPlaceVisitor(IRVisitor[None]):
 
 
 
-    def visit_variable_declaration(self, node) -> Any:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 class ArrowOptimizationPass(BasePass):
     """
     Optimization pass for arrow expressions.

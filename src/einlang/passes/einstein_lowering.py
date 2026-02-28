@@ -18,7 +18,7 @@ from ..shared.types import BinaryOp, infer_literal_type, UNKNOWN, PrimitiveType
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, IdentifierIR, IndexVarIR, IndexRestIR, ReductionExpressionIR,
     WhereClauseIR, RangeIR, LiteralIR, EinsteinIR,
-    LoopStructure, BindingIR, GuardCondition, is_einstein_binding,
+    LoopStructure, BindingIR, GuardCondition, is_einstein_binding, is_function_binding,
     LoweredEinsteinClauseIR, LoweredEinsteinIR, LoweredReductionIR, LoweredComprehensionIR,
     IRVisitor, RectangularAccessIR, MemberAccessIR,
     ArrayComprehensionIR, BinaryOpIR,
@@ -127,11 +127,10 @@ class EinsteinLoweringPass(BasePass):
             else:
                 object.__setattr__(func, 'body', result)
 
-        from ..ir.nodes import FunctionDefIR
         lowered_ids = set()
         if specialized_list:
             for func in specialized_list:
-                if not isinstance(func, FunctionDefIR) or is_generic_function(func):
+                if not is_function_binding(func) or is_generic_function(func):
                     continue
                 if id(func) in lowered_ids:
                     continue
@@ -141,7 +140,7 @@ class EinsteinLoweringPass(BasePass):
 
         if function_ir_map:
             for func in function_ir_map.values():
-                if not isinstance(func, FunctionDefIR) or not getattr(func, 'body', None):
+                if not is_function_binding(func) or not getattr(func, 'body', None):
                     continue
                 if id(func) in lowered_ids:
                     continue
@@ -282,20 +281,11 @@ class RestPatternReplacer(IRVisitor[ExpressionIR]):
     def visit_program(self, node) -> ExpressionIR:
         raise NotImplementedError("RestPatternReplacer should not visit ProgramIR")
     
-    def visit_function_def(self, node) -> ExpressionIR:
-        raise NotImplementedError("RestPatternReplacer should not visit FunctionDefIR")
-    
-    def visit_variable_declaration(self, node) -> ExpressionIR:
-        raise NotImplementedError("RestPatternReplacer should not visit VariableDeclarationIR")
-    
-    def visit_einstein_declaration(self, node) -> ExpressionIR:
-        raise NotImplementedError("RestPatternReplacer should not visit EinsteinDeclarationIR")
+    def visit_binding(self, node) -> ExpressionIR:
+        raise NotImplementedError("RestPatternReplacer should not visit BindingIR")
 
     def visit_einstein(self, node) -> ExpressionIR:
         raise NotImplementedError("RestPatternReplacer should not visit EinsteinIR")
-    
-    def visit_constant_def(self, node) -> ExpressionIR:
-        raise NotImplementedError("RestPatternReplacer should not visit ConstantDefIR")
     
     def visit_module(self, node) -> ExpressionIR:
         raise NotImplementedError("RestPatternReplacer should not visit Module")
@@ -423,6 +413,16 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
     def visit_binding(self, node: BindingIR) -> Any:
         if is_einstein_binding(node):
             return self.visit_einstein_declaration(node)
+        if is_function_binding(node):
+            from ..analysis.analysis_guard import should_analyze_function
+            if not should_analyze_function(node, tcx=self.tcx):
+                import logging
+                logger = logging.getLogger("einlang.passes.einstein_lowering")
+                logger.debug(f"Skipping Einstein lowering for generic function: {node.name}")
+                return node
+            if node.body is not None:
+                object.__setattr__(node.expr, 'body', node.body.accept(self))
+            return node
         return self.visit_variable_declaration(node)
 
     def visit_einstein_declaration(self, node: BindingIR) -> Optional[Any]:
@@ -1116,10 +1116,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 if getattr(node, 'tuple_expr', None) is not None:
                     node.tuple_expr.accept(self)
             def visit_arrow_expression(self, node): pass
-            def visit_constant_def(self, node): pass
-            def visit_variable_declaration(self, node): pass
-            def visit_einstein_declaration(self, node): pass
-            def visit_function_def(self, node): pass
+            def visit_binding(self, node): pass
             def visit_program(self, node): pass
             def visit_module(self, node): pass
             def visit_identifier_pattern(self, node): pass
@@ -1184,9 +1181,10 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             def visit_try_expression(self, node) -> None: pass
             def visit_match_expression(self, node) -> None: pass
             def visit_interpolated_string(self, node) -> None: pass
-            def visit_function_def(self, node) -> None: pass
-            def visit_constant_def(self, node) -> None: pass
-            def visit_einstein_declaration(self, node) -> None: pass
+            def visit_binding(self, node) -> None:
+                if is_function_binding(node) or is_einstein_binding(node):
+                    return
+                if node.value: node.value.accept(self)
             def visit_reduction_expression(self, node) -> None:
                 self.reductions.append(node)
                 if node.body:
@@ -1206,9 +1204,6 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             def visit_array_pattern(self, node) -> None: pass
             def visit_rest_pattern(self, node) -> None: pass
             def visit_guard_pattern(self, node) -> None: pass
-            def visit_variable_declaration(self, node) -> None:
-                # Visit the value expression to find reductions
-                if node.value: node.value.accept(self)
         
         finder = ReductionFinder(self)
         expr.accept(finder)
@@ -1695,22 +1690,6 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         for i, part in enumerate(node.parts):
             if isinstance(part, ExpressionIR):
                 node.parts[i] = part.accept(self)
-        return node
-
-    def visit_function_def(self, node) -> Any:
-        from ..analysis.analysis_guard import should_analyze_function
-        if not should_analyze_function(node, tcx=self.tcx):
-            import logging
-            logger = logging.getLogger("einlang.passes.einstein_lowering")
-            logger.debug(f"Skipping Einstein lowering for generic function: {node.name}")
-            return node
-        if node.body is not None:
-            object.__setattr__(node.expr, 'body', node.body.accept(self))
-        return node
-
-    def visit_constant_def(self, node) -> Any:
-        if node.value is not None:
-            object.__setattr__(node, 'expr', node.value.accept(self))
         return node
 
     def _visit_statements(self, node) -> Any:

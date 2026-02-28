@@ -16,6 +16,7 @@ from ..ir.nodes import (
     IRVisitor, LiteralIR, MemberAccessIR, CastExpressionIR,
     EinsteinDeclarationIR, FunctionCallIR, IfExpressionIR, RangeIR,
     TupleAccessIR, VariableDeclarationIR, BuiltinCallIR,
+    is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
 from ..shared.source_location import SourceLocation
@@ -759,7 +760,9 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_guard_pattern(self, node) -> bool:
                 return False
 
-            def visit_variable_declaration(self, node) -> bool:
+            def visit_binding(self, node) -> bool:
+                if is_function_binding(node) or is_einstein_binding(node):
+                    return False
                 if hasattr(node, 'value') and node.value:
                     return node.value.accept(self)
                 return False
@@ -780,15 +783,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
                 return False
 
             def visit_builtin_call(self, node) -> bool:
-                return False
-
-            def visit_function_def(self, node) -> bool:
-                return False
-
-            def visit_constant_def(self, node) -> bool:
-                return False
-
-            def visit_einstein_declaration(self, node) -> bool:
                 return False
 
             def visit_module(self, node) -> bool:
@@ -1108,19 +1102,10 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_builtin_call(self, node) -> bool:
                 return False
             
-            def visit_constant_def(self, node) -> bool:
-                return False
-            
-            def visit_einstein_declaration(self, node) -> bool:
-                return False
-            
             def visit_function_call(self, node) -> bool:
                 # Check all arguments for variable usage
                 if hasattr(node, 'arguments'):
                     return any(arg.accept(self) for arg in node.arguments)
-                return False
-            
-            def visit_function_def(self, node) -> bool:
                 return False
             
             def visit_guard_pattern(self, node) -> bool:
@@ -1185,8 +1170,9 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_wildcard_pattern(self, node) -> bool:
                 return False
             
-            def visit_variable_declaration(self, node) -> bool:
-                # Check if the value expression uses the target variable
+            def visit_binding(self, node) -> bool:
+                if is_function_binding(node) or is_einstein_binding(node):
+                    return False
                 if hasattr(node, 'value') and node.value:
                     return node.value.accept(self)
                 return False
@@ -1302,14 +1288,11 @@ class ImplicitRangeDetector(IRVisitor[None]):
     def visit_builtin_call(self, node) -> None:
         pass
     
-    def visit_constant_def(self, node) -> None:
-        pass
-    
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> None:
-        pass
-    
-    def visit_function_def(self, node) -> None:
-        pass
+    def visit_binding(self, node) -> None:
+        if is_function_binding(node) or is_einstein_binding(node):
+            return
+        if hasattr(node, 'value') and node.value:
+            node.value.accept(self)
     
     def visit_guard_pattern(self, node) -> None:
         pass
@@ -1519,10 +1502,16 @@ class ImplicitRangeDetector(IRVisitor[None]):
                             arg.accept(self)
                     return self.max_val
 
-                def visit_einstein_declaration(self, node) -> Optional[int]:
-                    for clause in getattr(node, 'clauses', None) or []:
-                        if hasattr(clause, 'value') and clause.value:
-                            clause.value.accept(self)
+                def visit_binding(self, node) -> Optional[int]:
+                    if is_function_binding(node):
+                        return self.max_val
+                    if is_einstein_binding(node):
+                        for clause in getattr(node, 'clauses', None) or []:
+                            if hasattr(clause, 'value') and clause.value:
+                                clause.value.accept(self)
+                        return self.max_val
+                    if hasattr(node, 'value'):
+                        node.value.accept(self)
                     return self.max_val
 
                 def visit_array_literal(self, node) -> Optional[int]:
@@ -1570,18 +1559,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
                         node.final_expr.accept(self)
                     return self.max_val
 
-                def visit_variable_declaration(self, node) -> Optional[int]:
-                    if hasattr(node, 'value'):
-                        node.value.accept(self)
-                    return self.max_val
-
                 def visit_program(self, node) -> Optional[int]:
-                    return self.max_val
-
-                def visit_function_def(self, node) -> Optional[int]:
-                    return self.max_val
-
-                def visit_constant_def(self, node) -> Optional[int]:
                     return self.max_val
 
                 def visit_range(self, node) -> Optional[int]:
@@ -1778,16 +1756,10 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_cast_expression(self, node) -> None:
                 if hasattr(node, 'expr'):
                     node.expr.accept(self)
-            def visit_constant_def(self, node) -> None:
-                pass
-            def visit_einstein_declaration(self, node) -> None:
-                pass
             def visit_function_call(self, node) -> None:
                 if hasattr(node, 'arguments'):
                     for arg in node.arguments:
                         arg.accept(self)
-            def visit_function_def(self, node) -> None:
-                pass
             def visit_guard_pattern(self, node) -> None:
                 pass
             def visit_identifier(self, node) -> None:
@@ -1843,7 +1815,9 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_unary_op(self, node) -> None:
                 if hasattr(node, 'operand'):
                     node.operand.accept(self)
-            def visit_variable_declaration(self, node) -> None:
+            def visit_binding(self, node) -> None:
+                if is_function_binding(node) or is_einstein_binding(node):
+                    return
                 if hasattr(node, 'value'):
                     node.value.accept(self)
             def visit_where_expression(self, node) -> None:
@@ -2662,11 +2636,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
 
         return find_array_access(expr)
 
-    def visit_variable_declaration(self, node) -> None:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            node.value.accept(self)
-
 class _ComplexityCounter(IRVisitor[int]):
     """Visitor to count IR nodes for complexity estimation"""
     def __init__(self):
@@ -2693,16 +2662,11 @@ class _ComplexityCounter(IRVisitor[int]):
         self.count += 1
         return self.count
     
-    def visit_constant_def(self, node) -> int:
+    def visit_binding(self, node) -> int:
         self.count += 1
-        return self.count
-    
-    def visit_einstein_declaration(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_function_def(self, node) -> int:
-        self.count += 1
+        if not is_function_binding(node) and not is_einstein_binding(node):
+            if hasattr(node, 'value') and node.value:
+                node.value.accept(self)
         return self.count
     
     def visit_function_call(self, node) -> int:
@@ -2839,10 +2803,4 @@ class _ComplexityCounter(IRVisitor[int]):
         if node.expr:
             node.expr.accept(self)
         return self.count
-
-    def visit_variable_declaration(self, node) -> Any:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 

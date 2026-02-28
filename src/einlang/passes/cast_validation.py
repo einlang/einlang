@@ -9,7 +9,8 @@ from typing import Optional, Any
 from ..passes.base import BasePass, TyCtxt
 from ..passes.type_inference import TypeInferencePass
 from ..ir.nodes import (
-    ProgramIR, ExpressionIR, CastExpressionIR, IRVisitor
+    ProgramIR, ExpressionIR, CastExpressionIR, IRVisitor,
+    is_function_binding, is_einstein_binding, is_constant_binding,
 )
 from ..shared.defid import DefId
 from ..shared.types import (
@@ -247,8 +248,11 @@ class CastValidationVisitor(IRVisitor[None]):
     def visit_builtin_call(self, node) -> None:
         pass
     
-    def visit_einstein_declaration(self, node) -> None:
-        pass
+    def visit_binding(self, node) -> None:
+        if is_function_binding(node) or is_einstein_binding(node):
+            return
+        if hasattr(node, 'value') and node.value:
+            node.value.accept(self)
     
     def visit_literal_pattern(self, node) -> None:
         pass
@@ -271,18 +275,8 @@ class CastValidationVisitor(IRVisitor[None]):
     def visit_guard_pattern(self, node) -> None:
         pass
     
-    def visit_function_def(self, node) -> None:
-        pass
-    
-    def visit_constant_def(self, node) -> None:
-        pass
     
     def visit_module(self, node) -> None:
         pass
 
-    def visit_variable_declaration(self, node) -> Any:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 

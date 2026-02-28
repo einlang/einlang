@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ..utils.io_utils import read_source_file, is_temp_path
 from ..shared.defid import DefId, DefType, Resolver
-from ..ir.nodes import ModuleIR, ProgramIR, FunctionDefIR, ConstantDefIR
+from ..ir.nodes import ModuleIR, ProgramIR, BindingIR
 from ..shared.source_location import SourceLocation
 
 

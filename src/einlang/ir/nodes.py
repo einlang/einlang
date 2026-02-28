@@ -919,6 +919,18 @@ class BindingIR(IRNode):
         return self.expr
 
     @property
+    def parameters(self) -> List['ParameterIR']:
+        return getattr(self.expr, 'parameters', []) if isinstance(self.expr, FunctionValueIR) else []
+
+    @property
+    def body(self):
+        return getattr(self.expr, 'body', None) if isinstance(self.expr, FunctionValueIR) else None
+
+    @property
+    def return_type(self):
+        return getattr(self.expr, 'return_type', None) if isinstance(self.expr, FunctionValueIR) else None
+
+    @property
     def clauses(self) -> List[Any]:
         return getattr(getattr(self, 'expr', None), 'clauses', []) or []
 
@@ -953,36 +965,8 @@ def is_constant_binding(binding: Any) -> bool:
     return getattr(binding, 'defid', None) is not None and not is_function_binding(binding)
 
 
-class FunctionDefIR(BindingIR):
-    """Function definition (binding whose expr is FunctionValueIR)."""
-    __slots__ = ()
-
-    @property
-    def parameters(self):
-        return getattr(self.expr, 'parameters', []) if isinstance(self.expr, FunctionValueIR) else []
-
-    @property
-    def body(self):
-        return getattr(self.expr, 'body', None) if isinstance(self.expr, FunctionValueIR) else None
-
-    @property
-    def return_type(self):
-        return getattr(self.expr, 'return_type', None) if isinstance(self.expr, FunctionValueIR) else None
-
-    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
-        return visitor.visit_function_def(self)
-
-
-class ConstantDefIR(BindingIR):
-    """Constant definition (binding that is not a function)."""
-    __slots__ = ()
-
-    @property
-    def value(self) -> Any:
-        return self.expr
-
-    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
-        return visitor.visit_constant_def(self)
+FunctionDefIR = BindingIR
+ConstantDefIR = BindingIR
 
 
 class GuardCondition:
@@ -1280,14 +1264,6 @@ class IRVisitor(ABC, Generic[T]):
     def visit_function_value_expr(self, node: 'FunctionValueIR') -> T:
         """Visit function value expression (body of a function binding). Default: no-op."""
         return None  # type: ignore[return-value]
-
-    def visit_function_def(self, node: FunctionDefIR) -> T:
-        """Visit function definition (BindingIR with expr=FunctionValueIR). Default: no-op."""
-        return None  # type: ignore[return-value]
-
-    def visit_constant_def(self, node: ConstantDefIR) -> T:
-        """Visit constant definition (BindingIR). Default: delegate to visit_variable_declaration."""
-        return self.visit_variable_declaration(node)
     
     @abstractmethod
     def visit_rectangular_access(self, node: RectangularAccessIR) -> T:
@@ -1477,11 +1453,6 @@ class IRVisitor(ABC, Generic[T]):
         """Visit range pattern: start..=end. Default: no-op."""
         return None  # type: ignore[return-value]
     
-    # Statement visitors
-    def visit_einstein_declaration(self, node: 'BindingIR') -> T:
-        """Visit Einstein declaration (BindingIR with expr=EinsteinExprIR). Default: no-op."""
-        return None  # type: ignore[return-value]
-
     def visit_einstein_declaration_expr(self, node: 'EinsteinExprIR') -> T:
         """Visit Einstein expression (clauses list). Default: no-op."""
         return None  # type: ignore[return-value]
@@ -1490,15 +1461,12 @@ class IRVisitor(ABC, Generic[T]):
         """Visit one Einstein clause. Default: no-op."""
         return None  # type: ignore[return-value]
 
-    def visit_variable_declaration(self, node: 'BindingIR') -> T:
-        """Visit variable declaration (BindingIR). Default: no-op."""
-        return None  # type: ignore[return-value]
-
     def visit_binding(self, node: 'BindingIR') -> T:
-        """Visit binding (name = expr). Default: dispatch to specific visitor based on binding type."""
-        if is_einstein_binding(node):
-            return self.visit_einstein_declaration(node)
-        return self.visit_variable_declaration(node)
+        """Visit binding (name = expr). Default: delegate to node.expr.accept(self)."""
+        expr = getattr(node, 'expr', None)
+        if expr is not None and hasattr(expr, 'accept'):
+            return expr.accept(self)
+        return None  # type: ignore[return-value]
     
     # Program visitor
     @abstractmethod

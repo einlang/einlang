@@ -23,6 +23,7 @@ from ..ir.nodes import (
     ArrayPatternIR, RestPatternIR, GuardPatternIR, MatchArmIR,
     EinsteinIR, EinsteinDeclarationIR,
     VariableDeclarationIR,
+    is_function_binding, is_einstein_binding, is_constant_binding,
 )
 from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp
 from ..shared.defid import DefId, assert_defid
@@ -133,7 +134,7 @@ class TypeInferencePass(BasePass):
         specialized_funcs = getattr(tcx, 'specialized_functions', [])
         if specialized_funcs:
             inferencer.mono_service.rewrite_calls_in_specialized_bodies()
-        non_func_stmts = [s for s in ir.statements if not isinstance(s, FunctionDefIR)]
+        non_func_stmts = [s for s in ir.statements if not is_function_binding(s)]
         inferencer.mono_service.rewrite_calls_in_statements(non_func_stmts)
         inferencer.mono_service.unify_local_var_defids_in_program(ir)
         return ir
@@ -175,7 +176,7 @@ class TypeInferencer(IRVisitor[Type]):
         # When this is the mini-program (single function, no top-level statements),
         # merge into existing function_ir_map so inner calls (e.g. max_pool1d) can be specialized.
         # Otherwise build DefId → FunctionDefIR from current program.
-        non_func_stmt_count = sum(1 for s in node.statements if not isinstance(s, FunctionDefIR))
+        non_func_stmt_count = sum(1 for s in node.statements if not is_function_binding(s))
         is_mini_program = (len(node.functions) == 1 and non_func_stmt_count == 0 and
                           hasattr(self.tcx, 'function_ir_map') and self.tcx.function_ir_map is not None)
         if is_mini_program:
@@ -302,7 +303,6 @@ class TypeInferencer(IRVisitor[Type]):
         return value_type
 
     def visit_binding(self, node) -> Type:
-        from ..ir.nodes import is_function_binding, is_einstein_binding
         if is_function_binding(node):
             return self.visit_function_def(node)
         if is_einstein_binding(node):

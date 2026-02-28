@@ -10,13 +10,14 @@ Validates type compatibility in pipeline expressions at compile-time.
 """
 
 import logging
-from typing import Optional, Any
+from typing import Optional
 
 from ..passes.base import BasePass, TyCtxt
 from ..passes.type_inference import TypeInferencePass
 from ..ir.nodes import (
     ProgramIR, PipelineExpressionIR, IRVisitor, IRNode,
-    FunctionDefIR, BlockExpressionIR, IfExpressionIR
+    BindingIR, BlockExpressionIR, IfExpressionIR,
+    is_function_binding, is_einstein_binding, is_constant_binding
 )
 from ..shared.types import Type, FunctionType, UNKNOWN
 from ..shared.source_location import SourceLocation
@@ -221,10 +222,17 @@ class PipelineTypeValidator(IRVisitor[None]):
         return False
     
     # Visitor methods for traversing IR
-    def visit_function_def(self, node: FunctionDefIR) -> None:
-        """Visit function bodies"""
-        if node.body:
-            node.body.accept(self)
+    def visit_binding(self, node: BindingIR) -> None:
+        """Visit bindings"""
+        if is_function_binding(node):
+            if node.body:
+                node.body.accept(self)
+        elif is_einstein_binding(node):
+            for clause in getattr(node, 'clauses', []) or []:
+                clause.accept(self)
+        else:
+            if hasattr(node, 'value') and node.value:
+                node.value.accept(self)
     
     def visit_block_expression(self, node: BlockExpressionIR) -> None:
         """Visit block expressions"""
@@ -346,16 +354,8 @@ class PipelineTypeValidator(IRVisitor[None]):
         for arg in node.args:
             arg.accept(self)
     
-    def visit_constant_def(self, node) -> None:
-        if node.value:
-            node.value.accept(self)
-    
     def visit_module(self, node) -> None:
         pass
-    
-    def visit_einstein_declaration(self, node) -> None:
-        for clause in getattr(node, 'clauses', []) or []:
-            clause.accept(self)
     
     # Pattern visitors (no-op)
     def visit_literal_pattern(self, node) -> None:
@@ -379,9 +379,4 @@ class PipelineTypeValidator(IRVisitor[None]):
     def visit_guard_pattern(self, node) -> None:
         pass
 
-    def visit_variable_declaration(self, node) -> Any:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 

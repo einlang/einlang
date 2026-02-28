@@ -17,8 +17,8 @@ from dataclasses import dataclass
 from ..passes.base import BasePass, TyCtxt
 from ..passes.ast_to_ir import ASTToIRLoweringPass
 from ..ir.nodes import (
-    ProgramIR, BindingIR, is_einstein_binding, IRVisitor, IRNode,
-    FunctionDefIR, BlockExpressionIR, IfExpressionIR
+    ProgramIR, BindingIR, is_einstein_binding, is_function_binding,
+    IRVisitor, IRNode, BlockExpressionIR, IfExpressionIR
 )
 from ..shared.source_location import SourceLocation
 from ..shared.defid import DefId
@@ -201,24 +201,20 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
         for func in node.functions:
             func.accept(self)
     
-    def visit_einstein_declaration(self, node: BindingIR) -> None:
-        """Collect Einstein declaration"""
-        # DefId identifies the variable - declarations with same DefId are grouped together
-        self.declarations.append(node)
-        # Einstein declarations use 'array_name', not 'name'
-        node_name = getattr(node, 'array_name', None) or getattr(node, 'name', None) or '<unknown>'
-        clause_counts = [len(c.indices) for c in (node.clauses or [])]
-        logger.debug(f"  - {node_name} with {len(node.clauses or [])} clause(s), indices per clause: {clause_counts}")
-    
-    def visit_variable_declaration(self, node) -> None:
-        """Visit variable declaration - recurse into value"""
-        if node.value:
-            node.value.accept(self)
-    
-    def visit_function_def(self, node: FunctionDefIR) -> None:
-        """Collect from function bodies"""
-        if node.body:
-            node.body.accept(self)
+    def visit_binding(self, node: BindingIR) -> None:
+        if is_einstein_binding(node):
+            # DefId identifies the variable - declarations with same DefId are grouped together
+            self.declarations.append(node)
+            # Einstein declarations use 'array_name', not 'name'
+            node_name = getattr(node, 'array_name', None) or getattr(node, 'name', None) or '<unknown>'
+            clause_counts = [len(c.indices) for c in (node.clauses or [])]
+            logger.debug(f"  - {node_name} with {len(node.clauses or [])} clause(s), indices per clause: {clause_counts}")
+        elif is_function_binding(node):
+            if node.body:
+                node.body.accept(self)
+        else:
+            if node.value:
+                node.value.accept(self)
     
     def visit_block_expression(self, node: BlockExpressionIR) -> None:
         """Visit block expressions"""
@@ -356,10 +352,6 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
     def visit_builtin_call(self, node) -> None:
         for arg in node.args:
             arg.accept(self)
-    
-    def visit_constant_def(self, node) -> None:
-        if node.value:
-            node.value.accept(self)
     
     def visit_module(self, node) -> None:
         pass

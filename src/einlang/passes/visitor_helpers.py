@@ -7,7 +7,8 @@ Common visitor patterns for expression analysis without isinstance/hasattr.
 from typing import Set, Optional, List, Any
 from ..ir.nodes import (
     ExpressionIR, IdentifierIR, BinaryOpIR, LiteralIR,
-    RectangularAccessIR, FunctionCallIR, IRVisitor
+    RectangularAccessIR, FunctionCallIR, IRVisitor,
+    is_function_binding, is_einstein_binding
 )
 
 
@@ -97,7 +98,7 @@ class VariableExtractor(IRVisitor[Set[str]]):
     def visit_builtin_call(self, node) -> Set[str]:
         return set()
     
-    def visit_einstein_declaration(self, node) -> Set[str]:
+    def visit_binding(self, node) -> Set[str]:
         return set()
     
     def visit_literal_pattern(self, node) -> Set[str]:
@@ -119,12 +120,6 @@ class VariableExtractor(IRVisitor[Set[str]]):
         return set()
     
     def visit_guard_pattern(self, node) -> Set[str]:
-        return set()
-    
-    def visit_function_def(self, node) -> Set[str]:
-        return set()
-    
-    def visit_constant_def(self, node) -> Set[str]:
         return set()
     
     def visit_module(self, node) -> Set[str]:
@@ -216,7 +211,7 @@ class ConstantEvaluator(IRVisitor[Optional[int]]):
     def visit_builtin_call(self, node) -> Optional[int]:
         return None
     
-    def visit_einstein_declaration(self, node) -> Optional[int]:
+    def visit_binding(self, node) -> Optional[int]:
         return None
     
     def visit_literal_pattern(self, node) -> Optional[int]:
@@ -240,16 +235,7 @@ class ConstantEvaluator(IRVisitor[Optional[int]]):
     def visit_guard_pattern(self, node) -> Optional[int]:
         return None
     
-    def visit_function_def(self, node) -> Optional[int]:
-        return None
-    
-    def visit_constant_def(self, node) -> Optional[int]:
-        return None
-    
     def visit_module(self, node) -> Optional[int]:
-        return None
-    
-    def visit_variable_declaration(self, node) -> Optional[int]:
         return None
 
 
@@ -357,7 +343,10 @@ class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
     def visit_builtin_call(self, node) -> List[RectangularAccessIR]:
         return []
     
-    def visit_einstein_declaration(self, node) -> List[RectangularAccessIR]:
+    def visit_binding(self, node) -> List[RectangularAccessIR]:
+        if not (is_function_binding(node) or is_einstein_binding(node)):
+            if hasattr(node, 'value') and node.value:
+                return node.value.accept(self)
         return []
     
     def visit_literal_pattern(self, node) -> List[RectangularAccessIR]:
@@ -381,18 +370,6 @@ class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
     def visit_guard_pattern(self, node) -> List[RectangularAccessIR]:
         return []
     
-    def visit_function_def(self, node) -> List[RectangularAccessIR]:
-        return []
-    
-    def visit_constant_def(self, node) -> List[RectangularAccessIR]:
-        return []
-    
     def visit_module(self, node) -> List[RectangularAccessIR]:
         return []
-
-    def visit_variable_declaration(self, node) -> Any:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 
