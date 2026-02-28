@@ -1497,17 +1497,18 @@ class IRDeserializer:
                             red_ranges[d] = loop
         indices_sexpr = opts.get(":indices")
         indices = [self.deserialize(s) for s in indices_sexpr] if isinstance(indices_sexpr, list) else []
-        return LoweredEinsteinClauseIR(body=body, loops=loops, bindings=bindings, guards=guards, reduction_ranges=red_ranges, indices=indices)
+        return LoweredEinsteinClauseIR(body=body, loops=loops, bindings=bindings, guards=guards, reduction_ranges=red_ranges, indices=indices, location=loc)
 
     def _deserialize_lowered_einstein(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LoweredEinsteinIR
         _, opts = _plist(tail)
+        loc = self._loc_from_opts(opts)
         shape_sexpr = opts.get(":shape")
         shape = [self.deserialize(s) for s in shape_sexpr] if isinstance(shape_sexpr, list) else []
         element_type = self._deserialize_type(opts.get(":element_type"))
         items_sexpr = opts.get(":items")
         items = [self.deserialize(s) for s in items_sexpr] if isinstance(items_sexpr, list) else []
-        return LoweredEinsteinIR(items=items, shape=shape, element_type=element_type)
+        return LoweredEinsteinIR(items=items, shape=shape, element_type=element_type, location=loc)
 
     def _deserialize_interpolated_string(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import InterpolatedStringIR

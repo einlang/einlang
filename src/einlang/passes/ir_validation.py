@@ -320,7 +320,7 @@ class IRValidationVisitor(IRVisitor[None]):
             if hasattr(node, 'value') and node.value:
                 node.value.accept(self)
 
-    def visit_einstein(self, node) -> None:
+    def visit_einstein_clause(self, node) -> None:
         """Validate one Einstein clause has required metadata."""
         if node.value and hasattr(node.value, 'type_info') and node.value.type_info is None:
             self._report_error(

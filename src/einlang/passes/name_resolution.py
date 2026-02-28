@@ -1132,7 +1132,7 @@ class NameResolverVisitor(ASTVisitor[None]):
         for clause in (node.clauses or []):
             clause.accept(self)
 
-    def visit_einstein(self, node) -> None:
+    def visit_einstein_clause(self, node) -> None:
         """Resolve names in one Einstein clause."""
         for idx in (node.indices or []):
             if idx is not None and hasattr(idx, 'accept'):

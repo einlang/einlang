@@ -1706,7 +1706,7 @@ class TypeInferencer(IRVisitor[Type]):
                         out.extend(self._collect_identifier_defids_in_expr(sub, names))
         return out
 
-    def visit_einstein(self, node: EinsteinClauseIR) -> Type:
+    def visit_einstein_clause(self, node: EinsteinClauseIR) -> Type:
         """Infer type of one Einstein clause. Bind index DefIds; delegate to visit_index_var/visit_index_rest."""
         index_names = set()
         for idx in node.indices or []:
