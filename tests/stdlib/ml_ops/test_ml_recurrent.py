@@ -15,11 +15,11 @@ from tests.test_utils import compile_and_execute
 def test_rnn_basic(compiler, runtime):
     """Test ONNX RNN operator with Tanh activation"""
     source = """use std::ml;
-    # Simple test: seq_length=2, batch_size=1, input_size=2, hidden_size=2
+    // Simple test: seq_length=2, batch_size=1, input_size=2, hidden_size=2
     let X = [[[1.0, 2.0]], [[3.0, 4.0]]];
-    let W = [[0.1, 0.2], [0.3, 0.4]];  # [hidden_size, input_size]
-    let R = [[0.5, 0.6], [0.7, 0.8]];  # [hidden_size, hidden_size]
-    let B = [0.1, 0.2, 0.3, 0.4];  # [2*hidden_size] = [Wb, Rb]
+    let W = [[0.1, 0.2], [0.3, 0.4]];  // [hidden_size, input_size]
+    let R = [[0.5, 0.6], [0.7, 0.8]];  // [hidden_size, hidden_size]
+    let B = [0.1, 0.2, 0.3, 0.4];  // [2*hidden_size] = [Wb, Rb]
     let initial_h = [[0.0, 0.0]];
     let hidden_size = 2;
     let direction = 0;
@@ -68,11 +68,11 @@ def test_rnn_without_bias(compiler, runtime):
     """Test ONNX RNN operator without bias - using zero bias instead of empty array"""
     # Note: Using zero bias instead of empty array due to compiler limitation with empty arrays
     source = """use std::ml;
-    # seq_length=2, batch_size=1, input_size=1, hidden_size=1
+    // seq_length=2, batch_size=1, input_size=1, hidden_size=1
     let X = [[[1.0]], [[2.0]]];
-    let W = [[0.5]];  # [hidden_size, input_size]
-    let R = [[0.3]];  # [hidden_size, hidden_size]
-    let B = [0.0, 0.0];  # Zero bias (equivalent to no bias for hidden_size=1, needs 2*hidden_size)
+    let W = [[0.5]];  // [hidden_size, input_size]
+    let R = [[0.3]];  // [hidden_size, hidden_size]
+    let B = [0.0, 0.0];  // Zero bias (equivalent to no bias for hidden_size=1, needs 2*hidden_size)
     let initial_h = [[0.0]];
     let hidden_size = 1;
     let direction = 0;
@@ -110,7 +110,7 @@ def test_lstm_full_with_biases(compiler, runtime):
     let R = [[0.1], [0.2], [0.3], [0.4]];
     let initial_h = [[0.0]];
     let initial_c = [[1.0]];
-    let clip_threshold = 0.5;  # Clip cell values to [-0.5, 0.5]
+    let clip_threshold = 0.5;  // Clip cell values to [-0.5, 0.5]
     let (Y, Y_h, Y_c) = std::ml::lstm_step7(X, W, R, initial_h, initial_c, hidden_size, clip_threshold);
     """
     
@@ -161,11 +161,11 @@ def test_lstm_full_with_biases(compiler, runtime):
     let hidden_size = 1;
     let W = [[0.1], [0.2], [0.3], [0.4]];
     let R = [[0.1], [0.2], [0.3], [0.4]];
-    let B = [0.01, 0.02, 0.03, 0.04, 0.01, 0.02, 0.03, 0.04];  # [8*hidden_size] - biases
+    let B = [0.01, 0.02, 0.03, 0.04, 0.01, 0.02, 0.03, 0.04];  // [8*hidden_size] - biases
     let initial_h = [[0.0]];
     let initial_c = [[1.0]];
     let direction = 0;
-    let clip_threshold = 0.0;  # No clipping
+    let clip_threshold = 0.0;  // No clipping
     let (Y, Y_h, Y_c) = std::ml::lstm(X, W, R, B, initial_h, initial_c, hidden_size, direction, clip_threshold);
     """
     
@@ -213,9 +213,9 @@ def test_gru_full(compiler, runtime):
     source = """use std::ml;
     let X = [[[1.0]], [[2.0]]];
     let hidden_size = 1;
-    let W = [[0.1], [0.2], [0.3]];  # [3*hidden_size, input_size] - reset, update, hidden
-    let R = [[0.1], [0.2], [0.3]];  # [3*hidden_size, hidden_size]
-    let B = [0.01, 0.02, 0.03, 0.01, 0.02, 0.03];  # [6*hidden_size] - biases
+    let W = [[0.1], [0.2], [0.3]];  // [3*hidden_size, input_size] - reset, update, hidden
+    let R = [[0.1], [0.2], [0.3]];  // [3*hidden_size, hidden_size]
+    let B = [0.01, 0.02, 0.03, 0.01, 0.02, 0.03];  // [6*hidden_size] - biases
     let initial_h = [[0.0]];
     let direction = 0;
     let linear_before_reset = 0;
@@ -278,8 +278,8 @@ def test_gru_full(compiler, runtime):
 def test_lstm_full_complex(compiler, runtime):
     """Test full LSTM with larger dimensions: seq_length=5, batch_size=2, hidden_size=3, input_size=2"""
     source = """use std::ml;
-    # seq_length=5, batch_size=2, input_size=2, hidden_size=3
-    # X shape: [seq_length=5, batch_size=2, input_size=2]
+    // seq_length=5, batch_size=2, input_size=2, hidden_size=3
+    // X shape: [seq_length=5, batch_size=2, input_size=2]
     let X = [[[1.0, 0.5], [0.5, 1.0]],
              [[2.0, 1.0], [1.0, 2.0]],
              [[0.5, 2.0], [2.0, 0.5]],
@@ -287,19 +287,19 @@ def test_lstm_full_complex(compiler, runtime):
              [[0.5, 1.5], [0.5, 0.5]]];
     let hidden_size = 3;
     let input_size = 2;
-    # W: [4*hidden_size=12, input_size=2]
-    let W = [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6],  # i gate (3 rows)
-             [0.2, 0.1], [0.4, 0.3], [0.6, 0.5],  # f gate (3 rows)
-             [0.1, 0.3], [0.2, 0.4], [0.3, 0.5],  # g gate (3 rows)
-             [0.3, 0.1], [0.4, 0.2], [0.5, 0.3]]; # o gate (3 rows)
-    # R: [4*hidden_size=12, hidden_size=3]
-    let R = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9],  # i gate (3 rows)
-             [0.3, 0.4, 0.5], [0.6, 0.7, 0.8], [0.9, 0.1, 0.2],  # f gate (3 rows)
-             [0.1, 0.3, 0.5], [0.2, 0.4, 0.6], [0.3, 0.5, 0.7],  # g gate (3 rows)
-             [0.2, 0.4, 0.6], [0.3, 0.5, 0.7], [0.4, 0.6, 0.8]]; # o gate (3 rows)
-    # B: [8*hidden_size=24] - biases
-    let B = [0.01, 0.02, 0.03, 0.01, 0.02, 0.03, 0.01, 0.02, 0.03, 0.01, 0.02, 0.03,  # input biases
-             0.01, 0.02, 0.03, 0.01, 0.02, 0.03, 0.01, 0.02, 0.03, 0.01, 0.02, 0.03]; # recurrent biases
+    // W: [4*hidden_size=12, input_size=2]
+    let W = [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6],  // i gate (3 rows)
+             [0.2, 0.1], [0.4, 0.3], [0.6, 0.5],  // f gate (3 rows)
+             [0.1, 0.3], [0.2, 0.4], [0.3, 0.5],  // g gate (3 rows)
+             [0.3, 0.1], [0.4, 0.2], [0.5, 0.3]]; // o gate (3 rows)
+    // R: [4*hidden_size=12, hidden_size=3]
+    let R = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9],  // i gate (3 rows)
+             [0.3, 0.4, 0.5], [0.6, 0.7, 0.8], [0.9, 0.1, 0.2],  // f gate (3 rows)
+             [0.1, 0.3, 0.5], [0.2, 0.4, 0.6], [0.3, 0.5, 0.7],  // g gate (3 rows)
+             [0.2, 0.4, 0.6], [0.3, 0.5, 0.7], [0.4, 0.6, 0.8]]; // o gate (3 rows)
+    // B: [8*hidden_size=24] - biases
+    let B = [0.01, 0.02, 0.03, 0.01, 0.02, 0.03, 0.01, 0.02, 0.03, 0.01, 0.02, 0.03,  // input biases
+             0.01, 0.02, 0.03, 0.01, 0.02, 0.03, 0.01, 0.02, 0.03, 0.01, 0.02, 0.03]; // recurrent biases
     let initial_h = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]];
     let initial_c = [[0.2, 0.3, 0.4], [0.5, 0.6, 0.7]];
     let direction = 0;
@@ -359,25 +359,25 @@ def test_lstm_full_complex(compiler, runtime):
 def test_gru_full_complex(compiler, runtime):
     """Test full GRU with larger dimensions: seq_length=4, batch_size=2, hidden_size=3, input_size=2"""
     source = """use std::ml;
-    # seq_length=4, batch_size=2, input_size=2, hidden_size=3
-    # X shape: [seq_length=4, batch_size=2, input_size=2]
+    // seq_length=4, batch_size=2, input_size=2, hidden_size=3
+    // X shape: [seq_length=4, batch_size=2, input_size=2]
     let X = [[[1.0, 0.5], [0.5, 1.0]],
              [[2.0, 1.0], [1.0, 2.0]],
              [[0.5, 2.0], [2.0, 0.5]],
              [[1.5, 0.5], [1.0, 1.0]]];
     let hidden_size = 3;
     let input_size = 2;
-    # W: [3*hidden_size=9, input_size=2] - reset, update, hidden
-    let W = [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6],  # reset gate
-             [0.2, 0.1], [0.4, 0.3], [0.6, 0.5],  # update gate
-             [0.1, 0.3], [0.2, 0.4], [0.3, 0.5]]; # hidden gate
-    # R: [3*hidden_size=9, hidden_size=3]
-    let R = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9],  # reset gate
-             [0.2, 0.3, 0.4], [0.5, 0.6, 0.7], [0.8, 0.9, 0.1],  # update gate
-             [0.1, 0.3, 0.5], [0.2, 0.4, 0.6], [0.3, 0.5, 0.7]]; # hidden gate
-    # B: [6*hidden_size=18] - biases
-    let B = [0.01, 0.02, 0.03, 0.01, 0.02, 0.03, 0.01, 0.02, 0.03,  # input biases
-             0.01, 0.02, 0.03, 0.01, 0.02, 0.03, 0.01, 0.02, 0.03]; # recurrent biases
+    // W: [3*hidden_size=9, input_size=2] - reset, update, hidden
+    let W = [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6],  // reset gate
+             [0.2, 0.1], [0.4, 0.3], [0.6, 0.5],  // update gate
+             [0.1, 0.3], [0.2, 0.4], [0.3, 0.5]]; // hidden gate
+    // R: [3*hidden_size=9, hidden_size=3]
+    let R = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9],  // reset gate
+             [0.2, 0.3, 0.4], [0.5, 0.6, 0.7], [0.8, 0.9, 0.1],  // update gate
+             [0.1, 0.3, 0.5], [0.2, 0.4, 0.6], [0.3, 0.5, 0.7]]; // hidden gate
+    // B: [6*hidden_size=18] - biases
+    let B = [0.01, 0.02, 0.03, 0.01, 0.02, 0.03, 0.01, 0.02, 0.03,  // input biases
+             0.01, 0.02, 0.03, 0.01, 0.02, 0.03, 0.01, 0.02, 0.03]; // recurrent biases
     let initial_h = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]];
     let direction = 0;
     let linear_before_reset = 0;

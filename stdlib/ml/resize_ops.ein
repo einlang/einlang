@@ -1,33 +1,33 @@
-# ml/resize_ops.ein - ONNX Resize/Upsample Operations
-# TensorRT ONNX Parser: ✅ Supported (IResizeLayer)
+// ml/resize_ops.ein - ONNX Resize/Upsample Operations
+// TensorRT ONNX Parser: ✅ Supported (IResizeLayer)
 
-# ============================================================================
-# ONNX Operator: Resize
-# ============================================================================
+// ============================================================================
+// ONNX Operator: Resize
+// ============================================================================
 
-# Helper function to clamp index to valid range
+// Helper function to clamp index to valid range
 fn clamp_index(idx: i32, max_val: i32) -> i32 {
     if idx < 0 { 0 } else { if idx >= max_val { max_val - 1 } else { idx } }
 }
 
 pub fn resize(X, scales, mode) {
-    # ONNX Operator: Resize
-    # Resizes input tensor using specified interpolation mode
-    # 
-    # ONNX spec: Resize(X, scales, mode='nearest')
-    #   - X: Input tensor [N, C, H, W] for 2D images
-    #   - scales: 1D tensor [scale_h, scale_w] or [scale_n, scale_c, scale_h, scale_w]
-    #   - mode: 'nearest' or 'linear' (bilinear for 2D)
-    # 
-    # TensorRT Support: ✅ IResizeLayer
-    # 
-    # Implementation: Supports 2D images (4D input) with nearest and bilinear modes
-    #   - mode='nearest': Nearest neighbor interpolation
-    #   - mode='linear': Bilinear interpolation
-    # 
-    # Limitations:
-    #   - Only 2D spatial (4D input) supported
-    #   - scales must be 1D tensor [scale_h, scale_w]
+    // ONNX Operator: Resize
+    // Resizes input tensor using specified interpolation mode
+    // 
+    // ONNX spec: Resize(X, scales, mode='nearest')
+    //   - X: Input tensor [N, C, H, W] for 2D images
+    //   - scales: 1D tensor [scale_h, scale_w] or [scale_n, scale_c, scale_h, scale_w]
+    //   - mode: 'nearest' or 'linear' (bilinear for 2D)
+    // 
+    // TensorRT Support: ✅ IResizeLayer
+    // 
+    // Implementation: Supports 2D images (4D input) with nearest and bilinear modes
+    //   - mode='nearest': Nearest neighbor interpolation
+    //   - mode='linear': Bilinear interpolation
+    // 
+    // Limitations:
+    //   - Only 2D spatial (4D input) supported
+    //   - scales must be 1D tensor [scale_h, scale_w]
     
     assert(typeof(X) == "rectangular", "resize: X must be rectangular");
     assert(mode == "nearest" || mode == "linear", "resize: mode must be 'nearest' or 'linear'");
@@ -42,34 +42,34 @@ pub fn resize(X, scales, mode) {
     let out_h = (in_h * scale_h) as i32;
     let out_w = (in_w * scale_w) as i32;
     
-    # Compute source index maps for nearest neighbor
-    # Clamp indices using helper function
+    // Compute source index maps for nearest neighbor
+    // Clamp indices using helper function
     let src_i_map[i in 0..out_h] = clamp_index(((i as f32) / scale_h) as i32, (in_h as i32));
     let src_j_map[j in 0..out_w] = clamp_index(((j as f32) / scale_w) as i32, (in_w as i32));
     
     if mode == "nearest" {
-        # Nearest neighbor: output[i, j] = input[round(i/scale), round(j/scale)]
+        // Nearest neighbor: output[i, j] = input[round(i/scale), round(j/scale)]
         let result[..batch, c, i in 0..out_h, j in 0..out_w] = X[..batch, c, src_i_map[i], src_j_map[j]];
         result
     } else {
-        # Bilinear interpolation - placeholder for now
-        # TODO: Implement bilinear interpolation
-        # For now, fall back to nearest neighbor
+        // Bilinear interpolation - placeholder for now
+        // TODO: Implement bilinear interpolation
+        // For now, fall back to nearest neighbor
         let result[..batch, c, i in 0..out_h, j in 0..out_w] = X[..batch, c, src_i_map[i], src_j_map[j]];
         result
     }
 }
 
 
-# ============================================================================
-# ONNX Operator: Upsample (deprecated, use Resize)
-# ============================================================================
+// ============================================================================
+// ONNX Operator: Upsample (deprecated, use Resize)
+// ============================================================================
 
 pub fn upsample(X, scales, mode) {
-    # ONNX Operator: Upsample (deprecated in ONNX, use Resize instead)
-    # Alias for resize for backward compatibility
-    # 
-    # TensorRT Support: ✅ IResizeLayer (via Resize)
+    // ONNX Operator: Upsample (deprecated in ONNX, use Resize instead)
+    // Alias for resize for backward compatibility
+    // 
+    // TensorRT Support: ✅ IResizeLayer (via Resize)
     
     resize(X, scales, mode)
 }

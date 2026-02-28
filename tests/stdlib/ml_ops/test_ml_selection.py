@@ -26,24 +26,24 @@ def test_quickselect_partition(compiler, runtime):
     """
     source = """use std::array;
     
-    # Test partition function - core of quickselect
+    // Test partition function - core of quickselect
     let arr_partition = [64.0, 34.0, 25.0, 12.0, 22.0, 11.0, 90.0, 88.0, 45.0, 50.0];
     let pivot_partition = 45.0;
     let (smaller, equal, larger) = std::array::partition(arr_partition, pivot_partition);
     
-    # Test partition with different pivot
+    // Test partition with different pivot
     let pivot_partition2 = 30.0;
     let (smaller2, equal2, larger2) = std::array::partition(arr_partition, pivot_partition2);
     
-    # Test partition with edge cases
+    // Test partition with edge cases
     let arr_empty = [];
     let (smaller_empty, equal_empty, larger_empty) = std::array::partition(arr_empty, 5.0);
     
     let arr_single = [42.0];
     let (smaller_single, equal_single, larger_single) = std::array::partition(arr_single, 42.0);
     
-    # Note: partition only works on 1D arrays. For 2D arrays, flatten first.
-    # Test partition with flattened 2D array (1D version)
+    // Note: partition only works on 1D arrays. For 2D arrays, flatten first.
+    // Test partition with flattened 2D array (1D version)
     let arr_2d_flat = [64.0, 34.0, 25.0, 12.0, 22.0, 11.0, 90.0, 88.0, 45.0];
     let pivot_2d = 30.0;
     let (smaller_2d, equal_2d, larger_2d) = std::array::partition(arr_2d_flat, pivot_2d);
@@ -124,48 +124,48 @@ def test_selection_clustered_accuracy(compiler, runtime):
     source = """use std::array;
     use std::ml;
     
-    # Test data for quick_select (via topk_extract)
-    # The quickselect algorithm is used internally in topk_extract
+    // Test data for quick_select (via topk_extract)
+    // The quickselect algorithm is used internally in topk_extract
     let arr_1d = [64.0, 34.0, 25.0, 12.0, 22.0, 11.0, 90.0, 88.0, 45.0, 50.0];
     let arr_2d = [[64.0, 34.0, 25.0], [12.0, 22.0, 11.0], [90.0, 88.0, 45.0]];
     
-    # Test quick_select via topk_extract - extract top k elements
-    # This tests the quickselect algorithm used internally
+    // Test quick_select via topk_extract - extract top k elements
+    // This tests the quickselect algorithm used internally
     let topk_1 = std::array::topk_extract(arr_1d, 1);
     let topk_3 = std::array::topk_extract(arr_1d, 3);
     let topk_5 = std::array::topk_extract(arr_1d, 5);
     let topk_all = std::array::topk_extract(arr_1d, 10);
     
-    # Test topk_extract (core algorithm, 1D only)
-    # For multi-D arrays or axis-specific topk, use std::ml::topk
+    // Test topk_extract (core algorithm, 1D only)
+    // For multi-D arrays or axis-specific topk, use std::ml::topk
     let topk_std_1 = std::array::topk_extract(arr_1d, 1);
     let topk_std_3 = std::array::topk_extract(arr_1d, 3);
     let topk_std_5 = std::array::topk_extract(arr_1d, 5);
     
-    # Test with 2D array - flatten first, then use topk_extract
+    // Test with 2D array - flatten first, then use topk_extract
     let arr_2d_flat = [arr_2d[i, j] | i in 0..len(arr_2d), j in 0..len(arr_2d[0])];
     let topk_2d_3 = std::array::topk_extract(arr_2d_flat, 3);
     
-    # Test argmax and argmin from std::ml
+    // Test argmax and argmin from std::ml
     let x_argmax = [[1.0, 5.0, 3.0], [2.0, 1.0, 4.0], [3.0, 2.0, 1.0]];
     let x_argmin = [[1.0, 5.0, 3.0], [2.0, 1.0, 4.0], [3.0, 2.0, 1.0]];
     let result_argmax = std::ml::argmax(x_argmax);
     let result_argmin = std::ml::argmin(x_argmin);
     
-    # Test nonzero
+    // Test nonzero
     let x_nonzero_1d = [0.0, 1.0, 0.0, 2.0, 0.0, 3.0];
     let x_nonzero_2d = [[0.0, 1.0, 0.0], [2.0, 0.0, 3.0], [0.0, 0.0, 0.0]];
     let result_nonzero_1d = std::ml::nonzero(x_nonzero_1d);
     let result_nonzero_2d = std::ml::nonzero(x_nonzero_2d);
     
-    # Placeholder for topk - will be implemented later
-    # ONNX TopK returns (values, indices) tuple
-    # let x_topk = [[1.0, 5.0, 3.0, 2.0], [4.0, 1.0, 6.0, 3.0]];
-    # let k_topk = 2;
-    # let axis_topk = -1;  # Last axis
-    # let largest_topk = 1;  # Largest values
-    # let sorted_topk = 1;  # Sorted output
-    # let (result_topk_values, result_topk_indices) = std::ml::topk(x_topk, k_topk, axis_topk, largest_topk, sorted_topk);
+    // Placeholder for topk - will be implemented later
+    // ONNX TopK returns (values, indices) tuple
+    // let x_topk = [[1.0, 5.0, 3.0, 2.0], [4.0, 1.0, 6.0, 3.0]];
+    // let k_topk = 2;
+    // let axis_topk = -1;  // Last axis
+    // let largest_topk = 1;  // Largest values
+    // let sorted_topk = 1;  // Sorted output
+    // let (result_topk_values, result_topk_indices) = std::ml::topk(x_topk, k_topk, axis_topk, largest_topk, sorted_topk);
     """
 
     result = compile_and_execute(source, compiler, runtime)
@@ -272,27 +272,27 @@ def test_quickselect_edge_cases(compiler, runtime):
     """Test quickselect edge cases"""
     source = """use std::array;
     
-    # Edge case: k = 0
+    // Edge case: k = 0
     let arr_empty = [1.0, 2.0, 3.0];
     let topk_0 = std::array::topk_extract(arr_empty, 0);
     
-    # Edge case: k >= array length
+    // Edge case: k >= array length
     let arr_small = [1.0, 2.0];
     let topk_all_small = std::array::topk_extract(arr_small, 5);
     
-    # Edge case: single element
+    // Edge case: single element
     let arr_single = [42.0];
     let topk_single = std::array::topk_extract(arr_single, 1);
     
-    # Edge case: all equal elements
+    // Edge case: all equal elements
     let arr_equal = [5.0, 5.0, 5.0, 5.0];
     let topk_equal = std::array::topk_extract(arr_equal, 2);
     
-    # Edge case: already sorted
+    // Edge case: already sorted
     let arr_sorted = [1.0, 2.0, 3.0, 4.0, 5.0];
     let topk_sorted = std::array::topk_extract(arr_sorted, 3);
     
-    # Edge case: reverse sorted
+    // Edge case: reverse sorted
     let arr_reverse = [5.0, 4.0, 3.0, 2.0, 1.0];
     let topk_reverse = std::array::topk_extract(arr_reverse, 3);
     """
@@ -352,28 +352,28 @@ def test_topk_1d(compiler, runtime):
     """
     source = """use std::ml;
     
-    # Test 1D TopK via 2D array with single row (shape [1, N])
-    # This effectively tests the 1D helper since topk transposes to innermost and calls the helper
-    # ONNX-aligned: topk(X, k, axis) - always returns largest values
+    // Test 1D TopK via 2D array with single row (shape [1, N])
+    // This effectively tests the 1D helper since topk transposes to innermost and calls the helper
+    // ONNX-aligned: topk(X, k, axis) - always returns largest values
     let arr1_2d = [[64.0, 34.0, 25.0, 12.0, 22.0, 11.0, 90.0, 88.0, 45.0, 50.0]];
     let (vals1, idxs1) = std::ml::topk(arr1_2d, 3, 1);
     
-    # Test 1D TopK via 2D - same test (ONNX always returns largest)
+    // Test 1D TopK via 2D - same test (ONNX always returns largest)
     let (vals2, idxs2) = std::ml::topk(arr1_2d, 3, 1);
     
-    # Test with axis=-1 (last axis, same as axis=1 for 2D)
+    // Test with axis=-1 (last axis, same as axis=1 for 2D)
     let (vals3, idxs3) = std::ml::topk(arr1_2d, 3, -1);
     
-    # Test with axis=0 (first axis)
+    // Test with axis=0 (first axis)
     let (vals4, idxs4) = std::ml::topk(arr1_2d, 1, 0);
     
-    # Test edge case: k = 1
+    // Test edge case: k = 1
     let (vals5, idxs5) = std::ml::topk(arr1_2d, 1, 1);
     
-    # Test edge case: k = len(arr) (but topk only supports 2D, so we'll test with k = N)
+    // Test edge case: k = len(arr) (but topk only supports 2D, so we'll test with k = N)
     let (vals6, idxs6) = std::ml::topk(arr1_2d, 10, 1);
     
-    # Test with different array
+    // Test with different array
     let arr2_2d = [[1.0, 5.0, 3.0, 2.0, 4.0]];
     let (vals7, idxs7) = std::ml::topk(arr2_2d, 2, 1);
     """
@@ -466,10 +466,10 @@ def test_topk_2d_axis1_basic(compiler, runtime):
     Compares against exact NumPy reference computed using argsort.
     """
     source = """use std::ml;
-    # Basic 2D case - top 2 along last axis (axis=1)
-    # Input: [[1.0, 5.0, 3.0, 2.0], [4.0, 1.0, 6.0, 3.0]]
-    # Row 0: top 2 of [1.0, 5.0, 3.0, 2.0] -> [5.0, 3.0] at indices [1, 2]
-    # Row 1: top 2 of [4.0, 1.0, 6.0, 3.0] -> [6.0, 4.0] at indices [2, 0]
+    // Basic 2D case - top 2 along last axis (axis=1)
+    // Input: [[1.0, 5.0, 3.0, 2.0], [4.0, 1.0, 6.0, 3.0]]
+    // Row 0: top 2 of [1.0, 5.0, 3.0, 2.0] -> [5.0, 3.0] at indices [1, 2]
+    // Row 1: top 2 of [4.0, 1.0, 6.0, 3.0] -> [6.0, 4.0] at indices [2, 0]
     let x_2d = [[1.0, 5.0, 3.0, 2.0], [4.0, 1.0, 6.0, 3.0]];
     let (values_2d, indices_2d) = std::ml::topk(x_2d, 2, 1);
     """
@@ -542,10 +542,10 @@ def test_topk_2d_axis0_basic(compiler, runtime):
     Compares against exact NumPy reference computed using argsort.
     """
     source = """use std::ml;
-    # TopK along axis=0 (top k rows per column)
-    # Input: [[1.0, 5.0], [4.0, 1.0], [3.0, 6.0]]
-    # Column 0: top 2 of [1.0, 4.0, 3.0] -> [4.0, 3.0] at indices [1, 2]
-    # Column 1: top 2 of [5.0, 1.0, 6.0] -> [6.0, 5.0] at indices [2, 0]
+    // TopK along axis=0 (top k rows per column)
+    // Input: [[1.0, 5.0], [4.0, 1.0], [3.0, 6.0]]
+    // Column 0: top 2 of [1.0, 4.0, 3.0] -> [4.0, 3.0] at indices [1, 2]
+    // Column 1: top 2 of [5.0, 1.0, 6.0] -> [6.0, 5.0] at indices [2, 0]
     let x_axis0 = [[1.0, 5.0], [4.0, 1.0], [3.0, 6.0]];
     let (values_axis0, indices_axis0) = std::ml::topk(x_axis0, 2, 0);
     """
@@ -652,15 +652,15 @@ def test_topk_2d_k_equals_dim(compiler, runtime):
 def test_nonzero_all_ranks(compiler, runtime):
     """Test nonzero operation across all supported ranks (1D, 2D, 3D)"""
     source = """use std::ml;
-    # 1D
+    // 1D
     let x_1d = [0.0, 1.0, 0.0, 2.0, 0.0, 3.0];
     let nonzero_1d = std::ml::nonzero(x_1d);
     
-    # 2D
+    // 2D
     let x_2d = [[0.0, 1.0, 0.0], [2.0, 0.0, 3.0], [0.0, 0.0, 0.0]];
     let nonzero_2d = std::ml::nonzero(x_2d);
     
-    # 3D
+    // 3D
     let x_3d = [[[0.0, 1.0], [2.0, 0.0]], [[0.0, 0.0], [3.0, 4.0]]];
     let nonzero_3d = std::ml::nonzero(x_3d);
     """

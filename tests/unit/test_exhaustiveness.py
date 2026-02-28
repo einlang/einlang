@@ -130,7 +130,7 @@ class TestExhaustiveness:
         let x = 5;
         let result = match x {
             _ => "catch-all",
-            0 => "zero"  # Unreachable
+            0 => "zero"  // Unreachable
         };
         """
         

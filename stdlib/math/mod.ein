@@ -1,30 +1,30 @@
-# stdlib_v2/math/mod.ein - Math module entry point
-# Explicit submodule declarations
+// stdlib_v2/math/mod.ein - Math module entry point
+// Explicit submodule declarations
 
-# Declare submodules explicitly
-mod basic;       # basic.ein - abs, sqrt, min, max, sign, floor, ceil, round, pow, trunc, fmod, gcd, lcm, factorial
-mod trig;        # trig.ein - sin, cos, tan, asin, acos, atan
-mod hyperbolic;  # hyperbolic.ein - sinh, cosh, tanh, asinh, acosh, atanh
-mod log;         # log.ein - log, ln, log10, log2, log1p, expm1, rsqrt
-mod special;     # special.ein - erf
-mod constants;   # constants.ein - pi, e, tau
-mod sum;         # sum.ein - sum function
-mod exp;         # exp.ein - exponential function
-mod clamp;       # clamp.ein - clamp, clip, clamp_min, clamp_max, saturate
+// Declare submodules explicitly
+mod basic;       // basic.ein - abs, sqrt, min, max, sign, floor, ceil, round, pow, trunc, fmod, gcd, lcm, factorial
+mod trig;        // trig.ein - sin, cos, tan, asin, acos, atan
+mod hyperbolic;  // hyperbolic.ein - sinh, cosh, tanh, asinh, acosh, atanh
+mod log;         // log.ein - log, ln, log10, log2, log1p, expm1, rsqrt
+mod special;     // special.ein - erf
+mod constants;   // constants.ein - pi, e, tau
+mod sum;         // sum.ein - sum function
+mod exp;         // exp.ein - exponential function
+mod clamp;       // clamp.ein - clamp, clip, clamp_min, clamp_max, saturate
 
-# Public API - explicit re-exports
-pub use basic::*;           # All basic functions (includes abs, sqrt, min, max, pow)
-pub use trig::*;            # All trig functions (includes sin, cos, tan)
-pub use hyperbolic::*;      # All hyperbolic functions
-pub use log::*;             # All logarithmic functions (includes ln, log)
-pub use special::*;         # All special functions
-pub use constants::*;       # All constants
-pub use sum::*;             # All sum functions
-pub use exp::*;             # Exponential function
-pub use clamp::*;           # All clamp functions
-pub use clamp::clamp as clip;  # Alias: clip = clamp (common in NumPy/PyTorch)
+// Public API - explicit re-exports
+pub use basic::*;           // All basic functions (includes abs, sqrt, min, max, pow)
+pub use trig::*;            // All trig functions (includes sin, cos, tan)
+pub use hyperbolic::*;      // All hyperbolic functions
+pub use log::*;             // All logarithmic functions (includes ln, log)
+pub use special::*;         // All special functions
+pub use constants::*;       // All constants
+pub use sum::*;             // All sum functions
+pub use exp::*;             // Exponential function
+pub use clamp::*;           // All clamp functions
+pub use clamp::clamp as clip;  // Alias: clip = clamp (common in NumPy/PyTorch)
 
-# Module could also define its own functions here
+// Module could also define its own functions here
 pub fn deg_to_rad(degrees) {
     let pi_val = pi();
     degrees * pi_val / 180.0

@@ -162,6 +162,7 @@ class TypeInferencer(IRVisitor[Type]):
         self._call_depth = 0
         # Track current function (for Einstein element_type fallback from params)
         self._current_function: Optional[BindingIR] = None
+        self._expected_type: Optional[Type] = None
 
     def visit_program(self, node: ProgramIR) -> Type:
         """Visit program and infer types in all statements and functions"""
@@ -246,15 +247,65 @@ class TypeInferencer(IRVisitor[Type]):
             return None
         return self._signature_from_function_ir(func)
     
+    I32_MIN = -(2**31)
+    I32_MAX = 2**31 - 1
+    F32_MAX = 3.4028235e38
+    F32_MIN_NORMAL = 1.17549435e-38
+    F64_MAX = 1.7976931348623157e308
+    F64_MIN_NORMAL = 2.2250738585072014e-308
+
+    def _fits_f32(self, value: float) -> bool:
+        if value == 0.0:
+            return True
+        if not (-self.F32_MAX <= value <= self.F32_MAX):
+            return False
+        return abs(value) >= self.F32_MIN_NORMAL
+
+    def _fits_f64(self, value: float) -> bool:
+        if value == 0.0:
+            return True
+        if not (-self.F64_MAX <= value <= self.F64_MAX):
+            return False
+        return abs(value) >= self.F64_MIN_NORMAL
+
     def visit_literal(self, expr: LiteralIR) -> Type:
-        """Infer type of literal. Integer default i32, float default f32 (Rust-like)."""
+        """Infer type of literal. Default precision is fixed: i32 for int, f32 for float. No promotion from value size. Overflow reported for default and for explicit type when annotated."""
         inferred_type = infer_literal_type(expr.value)
-        
-        # Set type_info on IR node
+        if inferred_type == I32 and isinstance(expr.value, int):
+            if not (self.I32_MIN <= expr.value <= self.I32_MAX):
+                expected = getattr(self, '_expected_type', None)
+                I64_MIN, I64_MAX = -(2**63), 2**63 - 1
+                if expected is I64 and I64_MIN <= expr.value <= I64_MAX:
+                    inferred_type = I64
+                else:
+                    self.tcx.reporter.report_error(
+                        message=f"integer literal {expr.value} does not fit in i32; use i64 annotation, e.g. let x: i64 = ...",
+                        location=getattr(expr, "location", None),
+                        code="E002",
+                        label="literal overflow for i32",
+                    )
+        elif inferred_type == F32 and isinstance(expr.value, (int, float)):
+            val = float(expr.value)
+            expected = getattr(self, '_expected_type', None)
+            want_f64 = expected is F64 or (expected == F64) or getattr(expected, 'name', None) == 'f64'
+            if not self._fits_f32(val):
+                if want_f64 and self._fits_f64(val):
+                    inferred_type = F64
+                else:
+                    self.tcx.reporter.report_error(
+                        message=f"float literal {expr.value} does not fit in f32; use f64 annotation if in range, e.g. let x: f64 = ...",
+                        location=getattr(expr, "location", None),
+                        code="E002",
+                        label="literal overflow for f32",
+                    )
+            elif want_f64 and not self._fits_f64(val):
+                self.tcx.reporter.report_error(
+                    message=f"float literal {expr.value} does not fit in f64",
+                    location=getattr(expr, "location", None),
+                    code="E002",
+                    label="literal overflow for f64",
+                )
         expr.type_info = inferred_type
-        
-        
-        
         return inferred_type
     
     def visit_binding(self, node: BindingIR) -> Type:
@@ -488,6 +539,38 @@ class TypeInferencer(IRVisitor[Type]):
             if left_type in {F32, F64} and right_type in {I32, I64}:
                 expr.type_info = left_type
                 return left_type
+            if left_type in {I32, I64} and right_type in {I32, I64}:
+                left_lit = isinstance(expr.left, LiteralIR) and isinstance(getattr(expr.left, 'value', None), int)
+                right_lit = isinstance(expr.right, LiteralIR) and isinstance(getattr(expr.right, 'value', None), int)
+                if left_lit and right_lit:
+                    base = expr.left.value
+                    exp = expr.right.value
+                    if exp >= 0 and exp <= 10000:
+                        try:
+                            val = base ** exp
+                            if not (self.I32_MIN <= val <= self.I32_MAX):
+                                expected = getattr(self, '_expected_type', None)
+                                I64_MIN, I64_MAX = -(2**63), 2**63 - 1
+                                if expected is I64 and I64_MIN <= val <= I64_MAX:
+                                    expr.type_info = I64
+                                    return I64
+                                self.tcx.reporter.report_error(
+                                    message=f"integer power {base}**{exp} = {val} does not fit in i32 (range {self.I32_MIN}..{self.I32_MAX}); use i64, e.g. let x: i64 = ...",
+                                    location=getattr(expr, "location", None),
+                                    code="E002",
+                                    label="overflow for i32",
+                                )
+                        except (OverflowError, ValueError):
+                            expected = getattr(self, '_expected_type', None)
+                            if expected is I64:
+                                expr.type_info = I64
+                                return I64
+                            self.tcx.reporter.report_error(
+                                message=f"integer power {base}**{exp} overflows",
+                                location=getattr(expr, "location", None),
+                                code="E002",
+                                label="overflow for i32",
+                            )
         
         inferred_type = self._promote_types(left_type, right_type, location=expr.location)
         
@@ -1104,7 +1187,14 @@ class TypeInferencer(IRVisitor[Type]):
                         if signature:
                             logger.debug(f"Bound parameter {param_defid} → {param_type} in function {node.name}")
 
-                body_type = expr.body.accept(self)
+                prev_expected = self._expected_type
+                decl_return = getattr(expr, 'return_type', None)
+                if decl_return and decl_return != UNKNOWN:
+                    self._expected_type = decl_return
+                try:
+                    body_type = expr.body.accept(self)
+                finally:
+                    self._expected_type = prev_expected
 
                 return_type = None
                 if signature and isinstance(expr.body, BlockExpressionIR) and expr.body.final_expr:
@@ -1166,8 +1256,14 @@ class TypeInferencer(IRVisitor[Type]):
         return FunctionType(param_types, return_type if return_type is not None else UNKNOWN)
 
     def _visit_constant_binding(self, node: BindingIR) -> Type:
-        value_type = node.expr.accept(self)
         type_annotation = getattr(node, 'type_info', None) or getattr(node, 'type_annotation', None)
+        prev_expected = self._expected_type
+        if type_annotation and type_annotation != UNKNOWN:
+            self._expected_type = type_annotation
+        try:
+            value_type = node.expr.accept(self)
+        finally:
+            self._expected_type = prev_expected
         if type_annotation and type_annotation != UNKNOWN:
             expected_type = type_annotation
             is_literal_coercion = self._is_literal_coercion(node.expr, value_type, expected_type)
@@ -1185,6 +1281,22 @@ class TypeInferencer(IRVisitor[Type]):
 
     def _visit_einstein_binding(self, node: BindingIR) -> Type:
         ein_expr = node.expr
+        clauses = getattr(ein_expr, 'clauses', []) or []
+        for clause in clauses:
+            index_names = set(getattr(clause, 'loop_vars', None) or [])
+            where_clause = getattr(clause, 'where_clause', None)
+            if where_clause and index_names:
+                for constraint in (getattr(where_clause, 'constraints', None) or []):
+                    if isinstance(constraint, BinaryOpIR) and getattr(constraint, 'operator', None) == BinaryOp.IN:
+                        left = getattr(constraint, 'left', None)
+                        if isinstance(left, (IdentifierIR, IndexVarIR)):
+                            var_name = getattr(left, 'name', None)
+                            if var_name and var_name in index_names:
+                                self.tcx.reporter.report_error(
+                                    f"Einstein/recurrence index range must be in the bracket, e.g. let fib[n in 2..20] = ..., not in where clause. Use [n in 2..20] instead of where n in 2..20.",
+                                    getattr(constraint, 'location', None) or getattr(node, 'location', None),
+                                    code="E0303",
+                                )
 
         def _is_unknown_type(t) -> bool:
             if t is None or t is UNKNOWN:
@@ -1195,7 +1307,6 @@ class TypeInferencer(IRVisitor[Type]):
 
         element_type = None
 
-        clauses = getattr(ein_expr, 'clauses', []) or []
         if clauses:
             proposed_per_clause = []
             for clause in clauses:

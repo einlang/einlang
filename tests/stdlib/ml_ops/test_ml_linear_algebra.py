@@ -73,13 +73,13 @@ def test_linear_algebra_clustered_accuracy(compiler, runtime):
 def test_gemm_all_ranks(compiler, runtime):
     """Test gemm (General Matrix Multiply) operation"""
     source = """use std::ml;
-    # Basic gemm: alpha * A @ B + beta * C
+    // Basic gemm: alpha * A @ B + beta * C
     let A = [[1.0, 2.0], [3.0, 4.0]];
     let B = [[5.0, 6.0], [7.0, 8.0]];
     let C = [[1.0, 1.0], [1.0, 1.0]];
     let result1 = std::ml::gemm(A, B, C, 1.0, 1.0, 0, 0);
     
-    # With transposition
+    // With transposition
     let result2 = std::ml::gemm(A, B, C, 1.0, 0.0, 1, 0);
     let result3 = std::ml::gemm(A, B, C, 2.0, 1.0, 0, 1);
     """

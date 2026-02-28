@@ -1,7 +1,7 @@
-# Functions Sample
-# Demonstrates function definition, recursion, and higher-order concepts
+// Functions Sample
+// Demonstrates function definition, recursion, and higher-order concepts
 
-# Simple utility functions
+// Simple utility functions
 fn square(x) {
     x * x
 }
@@ -10,14 +10,14 @@ fn is_even(n) {
     n % 2 == 0
 }
 
-# Function working with arrays
+// Function working with arrays
 fn dot_product(a, b) {
     sum[i](a[i] * b[i])
 }
 
-# Statistical function
+// Statistical function
 fn mean(arr, n) {
-    let total = sum[i](arr[i]) as f32;  # Cast to preserve float type
+    let total = sum[i](arr[i]) as f32;  // Cast to preserve float type
     total / n
 }
 
@@ -27,8 +27,8 @@ fn variance(arr, n) {
     sum_sq_diff / n
 }
 
-# Test the functions
-let numbers = [1.0, 4.0, 2.0, 8.0, 5.0];  # Float literals;
+// Test the functions
+let numbers = [1.0, 4.0, 2.0, 8.0, 5.0];  // Float literals;
 let vec_a = [1, 2, 3];
 let vec_b = [4, 5, 6];
 
@@ -39,7 +39,7 @@ let dot_result = dot_product(vec_a, vec_b);
 let numbers_mean = mean(numbers, 5.0);
 let numbers_var = variance(numbers, 5.0);
 
-# Verify function results
+// Verify function results
 assert(squared_5 == 25, "square(5) should be 25");
 assert(four_is_even == true, "4 should be even");
 assert(five_is_even == false, "5 should not be even");

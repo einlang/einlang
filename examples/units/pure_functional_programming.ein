@@ -1,12 +1,12 @@
-# Pure functional programming examples with minimal bootstrap
+// Pure functional programming examples with minimal bootstrap
 
-# Test the 5 bootstrap primitives
+// Test the 5 bootstrap primitives
 assert(true, "assert() primitive working");
-# Skip typeof check - implementation may vary
+// Skip typeof check - implementation may vary
 assert(len([1, 2, 3]) == 3);
 assert(array_append([1, 2], 3) == [1, 2, 3]);
 
-# Pure functional implementations (no assignment, no loops)
+// Pure functional implementations (no assignment, no loops)
 fn abs_pure(x) {
     if x >= 0 { x } else { -x }
 }
@@ -55,7 +55,7 @@ fn mean_pure(values) {
     sum_pure(values) / len(values)
 }
 
-# Test all the pure functional implementations
+// Test all the pure functional implementations
 assert(abs_pure(-5) == 5);
 assert(max_pure(3, 7) == 7);
 
@@ -67,7 +67,7 @@ let sqrt25 = sqrt_pure(25);
 let sqrt16 = sqrt_pure(16);
 let sqrt9 = sqrt_pure(9);
 
-# Rust: explicit cast for i32/f32 comparison
+// Rust: explicit cast for i32/f32 comparison
 assert((sqrt25 as f32) > 4.99 && (sqrt25 as f32) < 5.01);
 assert((sqrt16 as f32) > 3.99 && (sqrt16 as f32) < 4.01);
 assert((sqrt9 as f32) > 2.99 && (sqrt9 as f32) < 3.01);

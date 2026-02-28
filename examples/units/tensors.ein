@@ -1,21 +1,21 @@
-# CORE FEATURE: Tensor Operations and Einstein Notation
-# PURPOSE: Comprehensive tensor operations, Einstein notation, and multidimensional arrays
-# VALUE: Demonstrates Einlang's core tensor-oriented programming capabilities
+// CORE FEATURE: Tensor Operations and Einstein Notation
+// PURPOSE: Comprehensive tensor operations, Einstein notation, and multidimensional arrays
+// VALUE: Demonstrates Einlang's core tensor-oriented programming capabilities
 
-# Basic tensor access patterns
+// Basic tensor access patterns
 let matrix = [[1, 2, 3], [4, 5, 6]];
-let element = matrix[0, 1];        # Basic tensor access;
-let row_access = matrix[1];        # Row access
+let element = matrix[0, 1];        // Basic tensor access;
+let row_access = matrix[1];        // Row access
 
 assert(element == 2, "Matrix element [0,1] should be 2");
 assert(row_access.length == 3, "Row should have 3 elements");
 assert(row_access[0] == 4, "First element of second row should be 4");
 
-# Element-wise tensor operations
+// Element-wise tensor operations
 let tensor_a = [[1, 2], [3, 4]];
 let tensor_b = [[5, 6], [7, 8]];
 
-# Element-wise addition pattern
+// Element-wise addition pattern
 let sum_result[i, j] = tensor_a[i, j] + tensor_b[i, j];
 
 assert(sum_result[0, 0] == 6, "Element-wise addition [0,0] should be 1+5=6");
@@ -23,20 +23,20 @@ assert(sum_result[0, 1] == 8, "Element-wise addition [0,1] should be 2+6=8");
 assert(sum_result[1, 0] == 10, "Element-wise addition [1,0] should be 3+7=10");
 assert(sum_result[1, 1] == 12, "Element-wise addition [1,1] should be 4+8=12");
 
-# Element-wise multiplication pattern
+// Element-wise multiplication pattern
 let mult_result[i, j] = tensor_a[i, j] * tensor_b[i, j];
 
 assert(mult_result[0, 0] == 5, "Element-wise multiplication [0,0] should be 1*5=5");
 assert(mult_result[1, 1] == 32, "Element-wise multiplication [1,1] should be 4*8=32");
 
-# Scalar tensor operations
+// Scalar tensor operations
 let scalar_add[i, j] = tensor_a[i, j] + 10;
 let scalar_mult[i, j] = tensor_a[i, j] * 3;
 
 assert(scalar_add[0, 0] == 11, "Scalar addition should work: 1+10=11");
 assert(scalar_mult[1, 1] == 12, "Scalar multiplication should work: 4*3=12");
 
-# Tensor transformations
+// Tensor transformations
 let transposed[i, j] = tensor_a[j, i];
 
 assert(transposed[0, 0] == 1, "Transpose [0,0] should be 1");
@@ -44,20 +44,20 @@ assert(transposed[0, 1] == 3, "Transpose [0,1] should be 3");
 assert(transposed[1, 0] == 2, "Transpose [1,0] should be 2");
 assert(transposed[1, 1] == 4, "Transpose [1,1] should be 4");
 
-# 3D tensor operations
+// 3D tensor operations
 let tensor3d = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
-let elem_3d = tensor3d[0,1,1];  # Access 3D element;
+let elem_3d = tensor3d[0,1,1];  // Access 3D element;
 let elem_3d_alt = tensor3d[1,0,0];
 
 assert(elem_3d == 4, "3D tensor access should work");
 assert(elem_3d_alt == 5, "Alternative 3D tensor access should work");
 
-# Matrix multiplication pattern (Einstein notation style)
+// Matrix multiplication pattern (Einstein notation style)
 let a = [[1, 2], [3, 4]];
 let b = [[5, 6], [7, 8]];
 
-# Matrix multiplication: c[i,j] = sum[k](a[i,k] * b[k,j])
-# Manual implementation since sum may not be available
+// Matrix multiplication: c[i,j] = sum[k](a[i,k] * b[k,j])
+// Manual implementation since sum may not be available
 let c[i, j] = a[i,0] * b[0,j] + a[i,1] * b[1,j];
 
 assert(c[0, 0] == 19, "Matrix mult [0,0] should be 1*5+2*7=19");
@@ -65,17 +65,17 @@ assert(c[0, 1] == 22, "Matrix mult [0,1] should be 1*6+2*8=22");
 assert(c[1, 0] == 43, "Matrix mult [1,0] should be 3*5+4*7=43");
 assert(c[1, 1] == 50, "Matrix mult [1,1] should be 3*6+4*8=50");
 
-# Diagonal operations
+// Diagonal operations
 let diagonal_sum = a[0,0] + a[1,1];  
-assert(diagonal_sum == 5, "Diagonal sum should be 5");  # 1 + 4 = 5
+assert(diagonal_sum == 5, "Diagonal sum should be 5");  // 1 + 4 = 5
 
-# Upper triangle operations
+// Upper triangle operations
 let upper_triangle[i,j] = a[i,j] where i <= j;
 assert(upper_triangle[0,0] == 1, "Upper triangle [0,0] should be 1");
 assert(upper_triangle[0,1] == 2, "Upper triangle [0,1] should be 2");
 assert(upper_triangle[1,1] == 4, "Upper triangle [1,1] should be 4");
 
-# Broadcasting-style operations
+// Broadcasting-style operations
 let vector = [10, 20];
 let broadcast_add[i, j] = tensor_a[i, j] + vector[j];
 
@@ -84,9 +84,9 @@ assert(broadcast_add[0, 1] == 22, "Broadcasting addition [0,1] should be 2+20=22
 assert(broadcast_add[1, 0] == 13, "Broadcasting addition [1,0] should be 3+10=13");
 assert(broadcast_add[1, 1] == 24, "Broadcasting addition [1,1] should be 4+20=24");
 
-# Tensor access with computed indices
+// Tensor access with computed indices
 let computed_access[i] = tensor3d[0, i, 0] where i < 2;
-assert(computed_access[0] == 1, "Computed access [0] should be 1");  # tensor3d[0,0,0] = 1;
-assert(computed_access[1] == 3, "Computed access [1] should be 3");  # tensor3d[0,1,0] = 3
+assert(computed_access[0] == 1, "Computed access [0] should be 1");  // tensor3d[0,0,0] = 1;
+assert(computed_access[1] == 3, "Computed access [1] should be 3");  // tensor3d[0,1,0] = 3
 
-# All tensor operation syntax showcased successfully
+// All tensor operation syntax showcased successfully

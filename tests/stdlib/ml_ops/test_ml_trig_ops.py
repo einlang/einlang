@@ -122,7 +122,7 @@ def test_inverse_trig_all_ranks(compiler, runtime):
     """Test inverse trigonometric functions (asin, acos, atan, asinh, acosh, atanh) across all ranks"""
     
     source = """use std::ml;
-    # Test 0D (scalar)
+    // Test 0D (scalar)
     let x_scalar = 0.5;
     let asin_0d = std::ml::asin(x_scalar);
     let acos_0d = std::ml::acos(x_scalar);
@@ -131,7 +131,7 @@ def test_inverse_trig_all_ranks(compiler, runtime):
     let acosh_0d = std::ml::acosh(1.5);
     let atanh_0d = std::ml::atanh(x_scalar);
     
-    # Test 1D
+    // Test 1D
     let x_1d = [0.0, 0.5, -0.5, 0.707];
     let asin_1d = std::ml::asin(x_1d);
     let acos_1d = std::ml::acos(x_1d);
@@ -140,7 +140,7 @@ def test_inverse_trig_all_ranks(compiler, runtime):
     let acosh_1d = std::ml::acosh([1.0, 1.5, 2.0, 3.0]);
     let atanh_1d = std::ml::atanh([0.0, 0.5, -0.5, 0.707]);
     
-    # Test 2D
+    // Test 2D
     let x_2d = [[0.0, 0.5], [-0.5, 0.707]];
     let asin_2d = std::ml::asin(x_2d);
     let acos_2d = std::ml::acos(x_2d);
@@ -149,7 +149,7 @@ def test_inverse_trig_all_ranks(compiler, runtime):
     let acosh_2d = std::ml::acosh([[1.0, 1.5], [2.0, 3.0]]);
     let atanh_2d = std::ml::atanh([[0.0, 0.5], [-0.5, 0.707]]);
     
-    # Test 3D
+    // Test 3D
     let x_3d = [[[0.0, 0.5], [-0.5, 0.707]], [[0.3, -0.3], [0.8, -0.8]]];
     let asin_3d = std::ml::asin(x_3d);
     let acos_3d = std::ml::acos(x_3d);
@@ -209,22 +209,22 @@ def test_atan2_all_ranks(compiler, runtime):
     """Test atan2 operation across all supported ranks"""
     
     source = """use std::ml;
-    # Test 0D (scalar)
+    // Test 0D (scalar)
     let y_scalar = 1.0;
     let x_scalar = 1.0;
     let atan2_0d = std::ml::atan2(y_scalar, x_scalar);
     
-    # Test 1D
+    // Test 1D
     let y_1d = [1.0, 0.0, -1.0, 1.0];
     let x_1d = [1.0, 1.0, 1.0, 0.0];
     let atan2_1d = std::ml::atan2(y_1d, x_1d);
     
-    # Test 2D
+    // Test 2D
     let y_2d = [[1.0, 0.0], [-1.0, 1.0]];
     let x_2d = [[1.0, 1.0], [1.0, 0.0]];
     let atan2_2d = std::ml::atan2(y_2d, x_2d);
     
-    # Test 3D
+    // Test 3D
     let y_3d = [[[1.0, 0.0], [-1.0, 1.0]], [[0.0, 1.0], [1.0, -1.0]]];
     let x_3d = [[[1.0, 1.0], [1.0, 0.0]], [[1.0, 0.0], [1.0, 1.0]]];
     let atan2_3d = std::ml::atan2(y_3d, x_3d);

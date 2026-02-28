@@ -318,6 +318,6 @@ pipeline_op: PIPE_OP | QUESTION_PIPE_OP | ERROR_PIPE_OP
 # %import common.SIGNED_NUMBER
 %import common.WS
 
-COMMENT: /#[^\n]*/ | /\/\/[^\n]*/
+COMMENT: /\/\/[^\n]*/
 %ignore WS
 %ignore COMMENT

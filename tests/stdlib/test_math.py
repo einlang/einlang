@@ -26,7 +26,7 @@ class TestMathModule:
         """Test basic math functions (OPTIMIZED: combined into single source)"""
         source = """
 use std::math;
-# Abs, min, max - basic and edge cases
+// Abs, min, max - basic and edge cases
 assert(math::abs(-5) == 5);
 assert(math::abs(3) == 3);
 assert(std::math::abs(0) == 0);
@@ -36,11 +36,11 @@ assert(math::max(3, 7) == 7);
 assert(std::math::min(-1000, 1000) == -1000);
 assert(std::math::max(-1000, 1000) == 1000);
 
-# Sqrt - float values (stdlib sqrt expects float for x ** 0.5)
+// Sqrt - float values (stdlib sqrt expects float for x ** 0.5)
 assert(math::sqrt(16.0) == 4.0);
 assert(math::sqrt(25.0) == 5.0);
 
-# Sqrt - floating point
+// Sqrt - floating point
 let result = std::math::sqrt(0.25);
 assert(result > 0.49);
 assert(result < 0.51);
@@ -51,12 +51,12 @@ assert(result < 0.51);
         """Test trigonometric functions (OPTIMIZED: combined into single source)"""
         source = """
 use std::math;
-# Basic trig at zero
+// Basic trig at zero
 assert(math::sin(0.0) == 0.0);
 assert(math::cos(0.0) == 1.0);
 assert(math::tan(0.0) == 0.0);
 
-# Trig with pi
+// Trig with pi
 let pi = math::pi();
 let result = math::sin(pi/2.0);
 assert(result > 0.9);

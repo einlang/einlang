@@ -22,15 +22,15 @@ class TestRustStyleShadowing:
     def test_lambda_shadows_function(self, compiler, runtime):
         """Test that lambda variables shadow function definitions."""
         source = """
-        # Define a function
+        // Define a function
         fn double(x: i32) -> i32 {
             x * 2
         }
         
-        # Lambda shadows the function
+        // Lambda shadows the function
         let double = |x| x * 3;
         
-        # Should call lambda (x * 3), not function (x * 2)
+        // Should call lambda (x * 3), not function (x * 2)
         let result[0] = double(5);
         
         assert(result[0] == 15, "Lambda should shadow function: 5 * 3 = 15");
@@ -43,12 +43,12 @@ class TestRustStyleShadowing:
     def test_function_shadows_builtin(self, compiler, runtime):
         """Test that user-defined functions shadow builtins."""
         source = """
-        # Define a function that shadows builtin 'min'
+        // Define a function that shadows builtin 'min'
         fn min(a: i32, b: i32) -> i32 {
-            a + b  # Not actually min, just adds
+            a + b  // Not actually min, just adds
         }
         
-        # Should call our function (a + b), not builtin min
+        // Should call our function (a + b), not builtin min
         let result[0] = min(5, 3);
         
         assert(result[0] == 8, "Function should shadow builtin: 5 + 3 = 8");
@@ -61,22 +61,22 @@ class TestRustStyleShadowing:
     def test_nested_scope_shadowing(self, compiler, runtime):
         """Test that inner scopes shadow outer scopes."""
         source = """
-        # Outer function
+        // Outer function
         fn compute(x: i32) -> i32 {
             x * 2
         }
         
-        # Outer usage - calls outer compute
+        // Outer usage - calls outer compute
         let outer_result[0] = compute(5);
         
-        # Inner scope with shadowing function
+        // Inner scope with shadowing function
         fn wrapper() -> i32 {
-            # Inner function shadows outer
+            // Inner function shadows outer
             fn compute(x: i32) -> i32 {
                 x * 3
             }
             
-            compute(5)  # Should use inner compute
+            compute(5)  // Should use inner compute
         }
         
         let inner_result[0] = wrapper();
@@ -92,10 +92,10 @@ class TestRustStyleShadowing:
     def test_lambda_shadows_builtin(self, compiler, runtime):
         """Test that lambda variables can shadow builtins."""
         source = """
-        # Lambda shadows builtin 'max'
-        let max = |a, b| a + b;  # Not actually max, just adds
+        // Lambda shadows builtin 'max'
+        let max = |a, b| a + b;  // Not actually max, just adds
         
-        # Should call lambda (a + b), not builtin max
+        // Should call lambda (a + b), not builtin max
         let result[0] = max(5, 3);
         
         assert(result[0] == 8, "Lambda should shadow builtin: 5 + 3 = 8");
@@ -108,17 +108,17 @@ class TestRustStyleShadowing:
     def test_multiple_shadowing_layers(self, compiler, runtime):
         """Test multiple layers of shadowing in nested scopes."""
         source = """
-        # Layer 1: Builtin 'min' exists
+        // Layer 1: Builtin 'min' exists
         
-        # Layer 2: Function shadows builtin
+        // Layer 2: Function shadows builtin
         fn min(a: i32, b: i32) -> i32 {
-            a * 10  # Returns a * 10
+            a * 10  // Returns a * 10
         }
         
         let layer2_result[0] = min(5, 3);
         
-        # Layer 3: Lambda shadows function
-        let min = |a, b| a * 100;  # Returns a * 100
+        // Layer 3: Lambda shadows function
+        let min = |a, b| a * 100;  // Returns a * 100
         
         let layer3_result[0] = min(5, 3);
         
@@ -133,28 +133,28 @@ class TestRustStyleShadowing:
     def test_shadowing_with_same_name_different_scopes(self, compiler, runtime):
         """Test that same name can have different meanings in different scopes."""
         source = """
-        # Global function
+        // Global function
         fn compute(x: i32) -> i32 {
             x * 2
         }
         
-        # Function A uses global compute
+        // Function A uses global compute
         fn funcA() -> i32 {
-            compute(5)  # Uses global: 5 * 2 = 10
+            compute(5)  // Uses global: 5 * 2 = 10
         }
         
-        # Function B shadows compute with lambda
+        // Function B shadows compute with lambda
         fn funcB() -> i32 {
-            let compute = |x| x * 3;  # Shadows global
-            compute(5)  # Uses lambda: 5 * 3 = 15
+            let compute = |x| x * 3;  // Shadows global
+            compute(5)  // Uses lambda: 5 * 3 = 15
         }
         
-        # Function C shadows compute with function
+        // Function C shadows compute with function
         fn funcC() -> i32 {
             fn compute(x: i32) -> i32 {
-                x * 4  # Shadows global
+                x * 4  // Shadows global
             }
-            compute(5)  # Uses inner function: 5 * 4 = 20
+            compute(5)  // Uses inner function: 5 * 4 = 20
         }
         
         let resultA[0] = funcA();
@@ -180,17 +180,17 @@ class TestRustStyleShadowing:
         - Type of binding doesn't create priority - only scope matters
         """
         source = """
-        # Function shadows builtin everywhere in this scope (hoisting)
+        // Function shadows builtin everywhere in this scope (hoisting)
         fn min(a: i32, b: i32) -> i32 {
-            a * 2  # Not actual min
+            a * 2  // Not actual min
         }
         
-        let test1[0] = min(3, 5);  # Uses function (already hoisted): 3 * 2 = 6
+        let test1[0] = min(3, 5);  // Uses function (already hoisted): 3 * 2 = 6
         
-        # Lambda shadows function from this point onward
-        let min = |a, b| a * 3;  # Not actual min
+        // Lambda shadows function from this point onward
+        let min = |a, b| a * 3;  // Not actual min
         
-        let test2[0] = min(3, 5);  # Uses lambda: 3 * 3 = 9
+        let test2[0] = min(3, 5);  // Uses lambda: 3 * 3 = 9
         
         assert(test1[0] == 6, "Function hoisted, shadows builtin: 3 * 2 = 6");
         assert(test2[0] == 9, "Lambda shadows function: 3 * 3 = 9");
@@ -211,17 +211,17 @@ class TestRustStyleShadowing:
         - Builtins can BE shadowed, but cannot SHADOW others
         """
         source = """
-        # Define a local function 'min'
+        // Define a local function 'min'
         fn min(a: i32, b: i32) -> i32 {
-            a + b  # Not actual min, just adds
+            a + b  // Not actual min, just adds
         }
         
-        # Local function should be used, NOT builtin
+        // Local function should be used, NOT builtin
         let result[0] = min(5, 3);
         
-        # Even if we nest deeper, local function still shadows builtin
+        // Even if we nest deeper, local function still shadows builtin
         fn nested() -> i32 {
-            min(10, 20)  # Uses outer function, not builtin
+            min(10, 20)  // Uses outer function, not builtin
         }
         
         let nested_result[0] = nested();
@@ -244,31 +244,31 @@ class TestRustStyleShadowing:
         3. Builtins are fallback (outermost scope)
         """
         source = """
-        # Function max is hoisted - shadows builtin everywhere in main scope
+        // Function max is hoisted - shadows builtin everywhere in main scope
         fn max(a: i32, b: i32) -> i32 {
             a * 2
         }
         
-        let use_function[0] = max(5, 3);  # Function hoisted, shadows builtin
+        let use_function[0] = max(5, 3);  // Function hoisted, shadows builtin
         
-        # Nested scope sees outer function
+        // Nested scope sees outer function
         fn nested() -> i32 {
-            max(7, 2)  # Uses outer function
+            max(7, 2)  // Uses outer function
         }
         
         let use_outer[0] = nested();
         
-        # Nested scope can shadow with lambda
+        // Nested scope can shadow with lambda
         fn double_nested() -> i32 {
-            let max = |a, b| a * 3;  # Lambda shadows outer function
+            let max = |a, b| a * 3;  // Lambda shadows outer function
             max(7, 2)
         }
         
         let use_lambda[0] = double_nested();
         
-        # Test builtin in nested scope where no local definition
+        // Test builtin in nested scope where no local definition
         fn use_builtin_scope() -> i32 {
-            min(8, 4)  # No local min → uses builtin
+            min(8, 4)  // No local min → uses builtin
         }
         
         let use_builtin[0] = use_builtin_scope();

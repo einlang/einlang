@@ -24,17 +24,16 @@ let name: str = "Einlang";
 
 ## 2. Primitive types and literals
 
-**Julia:** Common types: `Int64`, `Float64`, `Bool`, `String`. Literals: `42`, `3.14`, `true`, `"hi"`. Rationals: `2//3`. Complex: `1 + 2im`. Type annotation: `x::Int`.
+**Julia:** Common types: `Int64`, `Float64`, `Bool`, `String`. Literals: `42`, `3.14`, `true`, `"hi"`. Rationals: `2//3`. Complex: `1 + 2im`. Type annotation: `x::Int`. Julia does **not** support literal suffixes (e.g. no `1i32` or `1.0f32`); integer literals default to `Int` (platform Int32/Int64), floats to `Float64`. Use `convert(Int32, 1)` or a typed variable: `x::Float32 = 1.0`.
 
 ```julia
 n = 42
 x = 3.14
-r = 2//3
-z = 1 + 2im
-y::Float64 = 1.0
+y::Float32 = 1.0
+z = convert(Int32, 42)
 ```
 
-**Einlang:** Primitives: `i32`, `i64`, `f32`, `f64`, `bool`, `str`. Literals: `42`, `3.14`, `true`, `"hi"`. Annotation: `x: i32`. No rational or complex in the current reference.
+**Einlang:** Primitives: `i32`, `i64`, `f32`, `f64`, `bool`, `str`. Literals: `42`, `3.14`, `true`, `"hi"`. Annotation: `x: i32`; literals can be coerced at the binding (e.g. `let x: i64 = 42`). No rational or complex in the current reference.
 
 ```rust
 let n = 42;
@@ -224,13 +223,15 @@ out = [sum(signal[i+k] * kernel[k+1] for k in 0:length(kernel)-1)
        for i in 1:length(signal)-length(kernel)+1]
 ```
 
-**Einlang (explicit ranges):**
+**Einlang:** The compiler can infer ranges from array shapes. You can use implicit ranges when inference succeeds:
 
 ```rust
 let signal = [1, 2, 3, 4, 5, 6] as [f32];
 let kernel = [0.5, 0.5];
-let convolved[i in 0..5] = sum[k in 0..2](signal[i + k] * kernel[k]);
+let convolved[i] = sum[k](signal[i + k] * kernel[k]);
 ```
+
+If needed (e.g. when inference is not possible), use explicit ranges: `let convolved[i in 0..5] = sum[k in 0..2](signal[i + k] * kernel[k]);`
 
 **2D convolution with index remapping (Einlang where-clause):**
 
@@ -259,12 +260,12 @@ function fib(n)
 end
 ```
 
-**Einlang:** **Recurrence declarations**: base cases and recursive case in one place; the compiler determines evaluation order.
+**Einlang:** **Recurrence declarations**: base cases and recursive case in one place; the compiler determines evaluation order. Put the recurrence index range in the bracket, not in a where clause: `[n in 2..20]`. Using `where n in 2..20` for the recurrence range is invalid and issues an error (E0303).
 
 ```rust
 let fib[0] = 0;
 let fib[1] = 1;
-let fib[n] = fib[n - 1] + fib[n - 2] where n in 2..20;
+let fib[n in 2..20] = fib[n - 1] + fib[n - 2];
 ```
 
 **RNN-style hidden state (Julia loop):**
@@ -485,7 +486,7 @@ let x = sin(0.0);
 
 **Julia:** `#` to end of line. No block comments in base syntax.
 
-**Einlang:** `#` and `//` to end of line (per reference).
+**Einlang:** `//` to end of line only (Rust-aligned).
 
 ---
 
@@ -563,7 +564,7 @@ Julia: `a && b` (b evaluated only if a is true), `a || b`. Einlang: same; `&&` a
 
 **Splat / varargs**
 
-Julia: `f(a, b...)` to accept or pass variable arguments. Einlang: no splat syntax in the current reference; use fixed-arity or arrays.
+Julia: `f(a, b...)` to accept or pass variable arguments. Rust: fixed arity only; no variadic/splat; use tuples, slices, or macros. Einlang: same as Rust; no splat in the current reference; use fixed-arity or arrays.
 
 ---
 
@@ -584,7 +585,7 @@ Julia: `f(a, b...)` to accept or pass variable arguments. Einlang: no splat synt
 ## 26. What Einlang has that Julia doesn’t
 
 - **Where clauses**: index binding and guards in tensor expressions; Julia uses manual index math.
-- **Recurrence declarations**: `let fib[n] = ... where n in 2..N`; Julia uses loops or recursion.
+- **Recurrence declarations**: `let fib[n in 2..N] = ...` (range in bracket; `where n in ...` is invalid); Julia uses loops or recursion.
 - **Einstein notation**: first-class `let C[i,j] = sum[k](A[i,k]*B[k,j])` with shape inference; Julia uses `*` and manual dims.
 - **Pattern matching**: `match x { ... }`; Julia uses dispatch or if.
 - **Tuple access**: only `.0`, `.1` (no `t[0]`); enforces distinction from arrays.
@@ -596,15 +597,25 @@ Julia: `f(a, b...)` to accept or pass variable arguments. Einlang: no splat synt
 
 | Concept            | Julia                    | Einlang                                      |
 |--------------------|--------------------------|----------------------------------------------|
+| Variable           | `x = 5`                  | `let x = 5;`                                 |
+| Type annotation    | `x::Int`                 | `x: i32`                                     |
 | Vector/matrix      | `[1,2,3]`, `[1 2; 3 4]`  | `[1,2,3]`, `[[1,2],[3,4]]`                    |
 | Range              | `1:10` (inclusive)       | `1..11` (end exclusive)                      |
 | Comprehension      | `[x^2 for x in 1:10]`   | `[x*x \| x in 1..11]`                        |
-| Element-wise       | `f.(x)`, `a .+ b`       | Same rank or scalar: `A + B`, `A * 2.0` (no explicit indexing); different rank: `let out[i,j] = A[i,j] + bias[j];` |
+| Element-wise       | `f.(x)`, `a .+ b`       | Same rank or scalar: `A + B`, `A * 2.0`; different rank: `let out[i,j] = A[i,j] + bias[j];` |
 | Matrix multiply    | `A * B`                 | `sum[k](A[i,k]*B[k,j])`                      |
 | Reduction          | `sum(A)`, `sum(A,dims=1)` | `sum[i,j](A[i,j])`, `sum[j](A[i,j])`       |
 | Index algebra      | Manual loops/indices     | `where ih = oh+kh, iw = ow+kw`               |
 | Recurrence         | Loops / recursion       | `let fib[0]=0; let fib[1]=1; let fib[n]=...`  |
-| Many implementations | Multiple dispatch     | Monomorphization; use match/typeof for type-specific behavior |
+| If                 | `if ... elseif ... else ... end` | `if ... { } else if ... { } else { }` (expression) |
+| For/while          | `for ... end`, `while ... end` | Comprehensions, recurrence; no bare for/while |
+| Block              | `begin ... end`         | `{ stmt; stmt; expr }` (returns last expr)   |
+| Function           | `function f() end`, `f() =` | `fn f() { }`                               |
+| Lambda             | `x -> x^2`              | pipe form: `\|x\| x * x`                     |
+| Module/import      | `module`, `using`, `import` | `use path::name`, `use path::*`            |
+| Tuple access       | `t[1]` (1-based)        | `t.0`, `t.1` only (0-based)                 |
+| Pattern match      | No built-in             | `match x { pat => expr, _ => default }`      |
+| Many implementations | Multiple dispatch     | Monomorphization; match/typeof for type-specific |
 | Struct             | `struct T ... end`      | Tuples/arrays today; struct in proposal      |
 
 ---

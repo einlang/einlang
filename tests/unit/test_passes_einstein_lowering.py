@@ -38,7 +38,7 @@ class TestEinsteinLoweringPass:
     def test_simple_einstein_lowering(self, compiler, runtime):
         """Test that a simple Einstein declaration is lowered correctly"""
         source = """
-        let result[i] = i * 2 where i in 0..5;
+        let result[i in 0..5] = i * 2;
         result;
         """
         
@@ -53,7 +53,7 @@ class TestEinsteinLoweringPass:
     def test_einstein_with_multiple_indices(self, compiler, runtime):
         """Test Einstein declaration with multiple indices"""
         source = """
-        let matrix[i, j] = i + j where i in 0..3, j in 0..2;
+        let matrix[i in 0..3, j in 0..2] = i + j;
         matrix;
         """
         
@@ -72,7 +72,7 @@ class TestEinsteinLoweringPass:
     def test_einstein_with_where_clause_condition(self, compiler, runtime):
         """Test Einstein declaration with where clause condition (guard)"""
         source = """
-        let filtered[i] = i * 2 where i in 0..10, i > 5;
+        let filtered[i in 0..10] = i * 2 where i > 5;
         filtered;
         """
         
@@ -126,8 +126,8 @@ class TestEinsteinLoweringPass:
     def test_nested_einstein_lowering(self, compiler, runtime):
         """Test nested Einstein declarations"""
         source = """
-        let outer[i] = i * 10 where i in 0..3;
-        let inner[j] = j * 2 where j in 0..5;
+        let outer[i in 0..3] = i * 10;
+        let inner[j in 0..5] = j * 2;
         outer;
         """
         
@@ -143,7 +143,7 @@ class TestEinsteinLoweringPass:
         """Test Einstein declaration that accesses arrays"""
         source = """
         let arr = [1, 2, 3, 4, 5];
-        let doubled[i] = arr[i] * 2 where i in 0..5;
+        let doubled[i in 0..5] = arr[i] * 2;
         doubled;
         """
         
@@ -158,7 +158,7 @@ class TestEinsteinLoweringPass:
     def test_ir_structure_has_lowered_iteration(self, compiler):
         """Test that IR structure contains lowered iteration (Einstein binding or LoweredEinsteinIR)"""
         source = """
-        let result[i] = i * 2 where i in 0..5;
+        let result[i in 0..5] = i * 2;
         result;
         """
         
@@ -199,7 +199,7 @@ class TestEinsteinLoweringPass:
     def test_lowered_iteration_has_loops(self, compiler):
         """Test that lowered iteration has correct loop structures"""
         source = """
-        let result[i, j] = i + j where i in 0..3, j in 0..2;
+        let result[i in 0..3, j in 0..2] = i + j;
         result;
         """
         
@@ -322,7 +322,7 @@ class TestEinsteinLoweringPass:
     def test_einstein_with_dependent_ranges(self, compiler, runtime):
         """Test Einstein with dependent ranges (j depends on i)"""
         source = """
-        let triangle[i, j] = i + j where i in 0..3, j in 0..i;
+        let triangle[i in 0..3, j in 0..i] = i + j;
         triangle;
         """
         
@@ -383,7 +383,7 @@ class TestEinsteinLoweringPassIntegration:
     def test_pass_runs_in_pipeline(self, compiler):
         """Test that Einstein lowering runs in the compilation pipeline (LoweredEinsteinIR or Einstein binding)"""
         source = """
-        let result[i] = i * 2 where i in 0..5;
+        let result[i in 0..5] = i * 2;
         result;
         """
         
@@ -407,7 +407,7 @@ class TestEinsteinLoweringPassIntegration:
     def test_pass_depends_on_range_analysis(self, compiler):
         """Test that Einstein lowering has loops (range analysis ran before lowering)"""
         source = """
-        let result[i] = i * 2 where i in 0..5;
+        let result[i in 0..5] = i * 2;
         result;
         """
         
@@ -444,7 +444,7 @@ class TestLoweredExecution:
         """Test that lowered execution produces same results as Einstein execution"""
         # This test ensures the new loop-based execution matches the old Einstein execution
         source = """
-        let einstein_result[i] = i * 2 where i in 0..5;
+        let einstein_result[i in 0..5] = i * 2;
         einstein_result;
         """
         

@@ -53,7 +53,7 @@ class TestNestedArrayShapeInference:
     def test_mixed_types_error(self, compiler):
         """Test that mixed scalar/array elements are rejected."""
         source = """
-        let mixed = [1, [2, 3]];  # Scalar and array mixed
+        let mixed = [1, [2, 3]];  // Scalar and array mixed
         """
         
         result = compiler.compile(source, "<test>")

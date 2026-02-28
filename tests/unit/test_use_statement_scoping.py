@@ -55,7 +55,7 @@ assert(result == 8);
         source_code = """
 mod my_math;
 
-let result = add(5, 3);  # Error: add not in scope yet
+let result = add(5, 3);  // Error: add not in scope yet
 
 use my_math::add;
 """
@@ -86,8 +86,8 @@ fn test_function() {
 let func_result = test_function();
 assert(func_result == 8);
 
-# This should fail: add is not in global scope
-# let global_result = add(10, 20);  # Would error if uncommented
+// This should fail: add is not in global scope
+// let global_result = add(10, 20);  // Would error if uncommented
 """
         exec_result = compile_and_execute(
             source_code=source_code,
@@ -109,7 +109,7 @@ mod my_math;
 use my_math::add;
 
 fn use_inherited_import() {
-    # add should be available from outer scope
+    // add should be available from outer scope
     let result = add(10, 20);
     result
 }
@@ -148,7 +148,7 @@ use my_math::subtract;
 let result3 = subtract(10, 3);
 assert(result3 == 7);
 
-# All three should still be available
+// All three should still be available
 let result4 = add(result2, result3);
 assert(result4 == 31);
 """
@@ -193,7 +193,7 @@ let func_result = test_shadowing();
 print("Test 3 - func_result:", func_result, "expected: 15");
 assert(func_result == 15);
 
-# Global compute should still work
+// Global compute should still work
 let global_result2 = compute(7);
 print("Test 4 - global_result2:", global_result2, "expected: 14");
 assert(global_result2 == 14);
@@ -218,7 +218,7 @@ mod my_math;
 
 use my_math::*;
 
-# All public functions should be available
+// All public functions should be available
 let result1 = add(5, 3);
 let result2 = multiply(4, 6);
 
@@ -252,15 +252,15 @@ use my_math::multiply;
 
 fn outer_function(x) -> i32 {
     fn inner_function(y) -> i32 {
-        # Can call module functions from outer scope imports
+        // Can call module functions from outer scope imports
         add(y, 1)
     }
     
-    # Outer can use multiply
+    // Outer can use multiply
     multiply(inner_function(x), 2)
 }
 
-# Test: outer_function(5) = multiply(add(5, 1), 2) = multiply(6, 2) = 12
+// Test: outer_function(5) = multiply(add(5, 1), 2) = multiply(6, 2) = 12
 assert(outer_function(5) == 12);
 """
         exec_result = compile_and_execute(
@@ -325,7 +325,7 @@ fn test_function() {
     local_result
 }
 
-# This should fail: add is not in global scope
+// This should fail: add is not in global scope
 let global_result = add(10, 20);
 """
         exec_result = compile_and_execute(
@@ -349,7 +349,7 @@ let global_result = add(10, 20);
         source_code = """
 mod my_math;
 
-let result = add(5, 3);  # Error: add not in scope yet
+let result = add(5, 3);  // Error: add not in scope yet
 
 use my_math::*;
 """
@@ -379,7 +379,7 @@ fn test_function() {
 
 let func_result = test_function();
 
-# This should fail: m is not in global scope
+// This should fail: m is not in global scope
 let global_result = m::add(10, 20);
 """
         exec_result = compile_and_execute(
@@ -400,12 +400,12 @@ let global_result = m::add(10, 20);
         my_math_private = """
 pub fn add(a, b) { a + b }
 
-fn private_helper(x) { x * 2 }  # Private function
+fn private_helper(x) { x * 2 }  // Private function
 """
         source_code = """
 mod my_math;
 
-use my_math::private_helper;  # Should fail: private function
+use my_math::private_helper;  // Should fail: private function
 
 let result = private_helper(5);
 """
@@ -425,7 +425,7 @@ let result = private_helper(5);
         source_code = """
 mod my_math;
 
-use my_math::nonexistent_function;  # Should fail: function doesn't exist
+use my_math::nonexistent_function;  // Should fail: function doesn't exist
 
 let result = nonexistent_function(5);
 """
@@ -446,7 +446,7 @@ let result = nonexistent_function(5);
         must exist in the filesystem for ModulePass to find it.
         """
         source_code = """
-use nonexistent_module::add;  # Should fail: module doesn't exist
+use nonexistent_module::add;  // Should fail: module doesn't exist
 
 let result = add(5, 3);
 """
@@ -467,15 +467,15 @@ let result = add(5, 3);
         my_math_private = """
 pub fn add(a, b) { a + b }
 
-fn private_helper(x) { x * 2 }  # Private function
+fn private_helper(x) { x * 2 }  // Private function
 """
         source_code = """
 mod my_math;
 
 use my_math::*;
 
-let result1 = add(5, 3);  # Should work
-let result2 = private_helper(5);  # Should fail: private function
+let result1 = add(5, 3);  // Should work
+let result2 = private_helper(5);  // Should fail: private function
 """
         exec_result = compile_and_execute(
             source_code=source_code,
@@ -529,8 +529,8 @@ fn test_function() {
 let func_result = test_function();
 assert(func_result == 8);
 
-# m should not be available in global scope
-# let global_result = m::add(10, 20);  # Would error if uncommented
+// m should not be available in global scope
+// let global_result = m::add(10, 20);  // Would error if uncommented
 """
         exec_result = compile_and_execute(
             source_code=source_code,

@@ -16,12 +16,12 @@ class TestFibonacciE2EV2:
     def test_fibonacci_sequence_basic(self, compiler, runtime):
         """Test basic Fibonacci sequence generation using system"""
         source = """
-        # Fibonacci sequence: f[n] = f[n-1] + f[n-2]
+        // Fibonacci sequence: f[n] = f[n-1] + f[n-2]
         let fib[0] = 1;
         let fib[1] = 1;
         let fib[n in 2..11] = fib[n-1] + fib[n-2];
         
-        # Verify the sequence
+        // Verify the sequence
         assert(fib[0] == 1, "fib[0] should be 1");
         assert(fib[1] == 1, "fib[1] should be 1");
         assert(fib[2] == 2, "fib[2] should be 2");
@@ -55,15 +55,15 @@ class TestFibonacciE2EV2:
     def test_fibonacci_sequence_array_comparison(self, compiler, runtime):
         """Test Fibonacci sequence with array comparison using system"""
         source = """
-        # Fibonacci sequence
+        // Fibonacci sequence
         let fib[0] = 1;
         let fib[1] = 1;
         let fib[n in 2..9] = fib[n-1] + fib[n-2];
         
-        # Expected sequence
+        // Expected sequence
         let expected = [1, 1, 2, 3, 5, 8, 13, 21, 34];
         
-        # Verify the entire sequence
+        // Verify the entire sequence
         assert(fib == expected, "Fibonacci sequence should match expected values: got {fib}, expected {expected}");
         """
         
@@ -87,15 +87,15 @@ class TestFibonacciE2EV2:
     def test_lucas_sequence(self, compiler, runtime):
         """Test Lucas sequence using system (similar to Fibonacci but different base cases)"""
         source = """
-        # Lucas sequence: L[n] = L[n-1] + L[n-2] with L[0] = 2, L[1] = 1
+        // Lucas sequence: L[n] = L[n-1] + L[n-2] with L[0] = 2, L[1] = 1
         let lucas[0] = 2;
         let lucas[1] = 1;
         let lucas[n in 2..9] = lucas[n-1] + lucas[n-2];
         
-        # Expected Lucas sequence
+        // Expected Lucas sequence
         let expected = [2, 1, 3, 4, 7, 11, 18, 29, 47];
         
-        # Verify the sequence
+        // Verify the sequence
         assert(lucas == expected, "Lucas sequence should match expected values: got {lucas}, expected {expected}");
         """
         
@@ -121,15 +121,15 @@ class TestFibonacciE2EV2:
     def test_fibonacci_with_different_base_cases(self, compiler, runtime):
         """Test Fibonacci with different base cases using system"""
         source = """
-        # Fibonacci with different base cases
+        // Fibonacci with different base cases
         let fib[0] = 0;
         let fib[1] = 1;
         let fib[n in 2..9] = fib[n-1] + fib[n-2];
         
-        # Expected sequence (standard Fibonacci starting with 0, 1)
+        // Expected sequence (standard Fibonacci starting with 0, 1)
         let expected = [0, 1, 1, 2, 3, 5, 8, 13, 21];
         
-        # Verify the sequence
+        // Verify the sequence
         assert(fib == expected, "Fibonacci with base cases 0,1 should match expected values: got {fib}, expected {expected}");
         """
         
@@ -154,16 +154,16 @@ class TestFibonacciE2EV2:
     def test_fibonacci_large_sequence(self, compiler, runtime):
         """Test Fibonacci sequence with larger range using system"""
         source = """
-        # Fibonacci sequence with larger range
+        // Fibonacci sequence with larger range
         let fib[0] = 1;
         let fib[1] = 1;
         let fib[n in 2..16] = fib[n-1] + fib[n-2];
         
-        # Verify some key values
+        // Verify some key values
         assert(fib[10] == 89, "fib[10] should be 89");
         assert(fib[15] == 987, "fib[15] should be 987");
         
-        # Verify the sequence is increasing
+        // Verify the sequence is increasing
         assert(fib[15] > fib[10], "Fibonacci sequence should be increasing");
         assert(fib[10] > fib[5], "Fibonacci sequence should be increasing");
         """
@@ -192,19 +192,19 @@ class TestFibonacciE2EV2:
     def test_fibonacci_with_variables(self, compiler, runtime):
         """Test Fibonacci sequence using variables for base cases with system"""
         source = """
-        # Use variables for base cases
+        // Use variables for base cases
         let a = 1;
         let b = 1;
         
-        # Fibonacci sequence using variables
+        // Fibonacci sequence using variables
         let fib[0] = a;
         let fib[1] = b;
         let fib[n in 2..9] = fib[n-1] + fib[n-2];
         
-        # Expected sequence
+        // Expected sequence
         let expected = [1, 1, 2, 3, 5, 8, 13, 21, 34];
         
-        # Verify the sequence
+        // Verify the sequence
         assert(fib == expected, "Fibonacci with variables should match expected values: got {fib}, expected {expected}");
         """
         
@@ -229,7 +229,7 @@ class TestFibonacciE2EV2:
     def test_fibonacci_error_handling(self, compiler, runtime):
         """Test error handling for invalid Fibonacci patterns using system"""
         source = """
-        # This should fail - missing base case
+        // This should fail - missing base case
         let fib[1] = 1;
         let fib[n in 2..5] = fib[n-1] + fib[n-2];
         """
@@ -251,15 +251,15 @@ class TestFibonacciE2EV2:
     def test_fibonacci_with_expressions(self, compiler, runtime):
         """Test Fibonacci sequence with complex expressions using system"""
         source = """
-        # Fibonacci with expressions in base cases
+        // Fibonacci with expressions in base cases
         let fib[0] = 1 + 0;
         let fib[1] = 2 - 1;
         let fib[n in 2..7] = fib[n-1] + fib[n-2];
         
-        # Expected sequence
+        // Expected sequence
         let expected = [1, 1, 2, 3, 5, 8, 13];
         
-        # Verify the sequence
+        // Verify the sequence
         assert(fib == expected, "Fibonacci with expressions should match expected values: got {fib}, expected {expected}");
         """
         
@@ -284,7 +284,7 @@ class TestFibonacciE2EV2:
     def test_fibonacci_analysis_mode(self, compiler, runtime):
         """Test Fibonacci sequence in analysis mode using system"""
         source = """
-        # Fibonacci sequence for analysis
+        // Fibonacci sequence for analysis
         let fib[0] = 1;
         let fib[1] = 1;
         let fib[n in 2..5] = fib[n-1] + fib[n-2];

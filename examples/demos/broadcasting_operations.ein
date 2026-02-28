@@ -1,211 +1,211 @@
-# Broadcasting Operations Example
-# This demonstrates the missing broadcasting operations that need to be implemented
+// Broadcasting Operations Example
+// This demonstrates the missing broadcasting operations that need to be implemented
 
-# Basic Broadcasting Examples
-# ❌ All broadcasting operations are currently missing
+// Basic Broadcasting Examples
+// ❌ All broadcasting operations are currently missing
 
 fn element_wise_with_broadcasting() {
-    # ❌ These operations should work with broadcasting but don't currently
+    // ❌ These operations should work with broadcasting but don't currently
     
-    # Define example data for demonstration
-    let tensor_data = [[1, 2, 3], [4, 5, 6]];  # [2, 3];
-    let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]];  # [4, 3];
-    let vector = [1, 2, 3];  # [3];
-    let vector_4 = [1, 2, 3, 4];  # [4]
+    // Define example data for demonstration
+    let tensor_data = [[1, 2, 3], [4, 5, 6]];  // [2, 3];
+    let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]];  // [4, 3];
+    let vector = [1, 2, 3];  // [3];
+    let vector_4 = [1, 2, 3, 4];  // [4]
     
-    # Scalar with tensor (should work)
-    # tensor_data: [2, 3], scalar: 5
-    # result: [2, 3] where each element is tensor_data[i,j] + 5
-    let result1[i, j] = tensor_data[i, j] + 5;  # Currently works for simple cases
+    // Scalar with tensor (should work)
+    // tensor_data: [2, 3], scalar: 5
+    // result: [2, 3] where each element is tensor_data[i,j] + 5
+    let result1[i, j] = tensor_data[i, j] + 5;  // Currently works for simple cases
     
-    # Vector with matrix broadcasting
-    # matrix: [4, 3], vector: [3] 
-    # vector should broadcast to [1, 3] then to [4, 3]
-    let result2[i, j] = matrix[i, j] + vector[j];  # ❌ May not handle broadcasting correctly
+    // Vector with matrix broadcasting
+    // matrix: [4, 3], vector: [3] 
+    // vector should broadcast to [1, 3] then to [4, 3]
+    let result2[i, j] = matrix[i, j] + vector[j];  // ❌ May not handle broadcasting correctly
     
-    # Matrix with vector broadcasting (different axis)
-    # matrix: [4, 3], vector: [4]
-    # vector should broadcast to [4, 1] then to [4, 3]  
-    let result3[i, j] = matrix[i, j] + vector_4[i];  # ❌ Broadcasting rules not implemented
+    // Matrix with vector broadcasting (different axis)
+    // matrix: [4, 3], vector: [4]
+    // vector should broadcast to [4, 1] then to [4, 3]  
+    let result3[i, j] = matrix[i, j] + vector_4[i];  // ❌ Broadcasting rules not implemented
     
-    # Two tensors with compatible shapes
-    # tensor_a: [1, 4, 3], tensor_b: [2, 1, 3]
-    # Should broadcast to [2, 4, 3]
-    # let result4[b, i, j] = tensor_a[0, i, j] + tensor_b[b, 0, j];  # ❌ Manual broadcasting required
+    // Two tensors with compatible shapes
+    // tensor_a: [1, 4, 3], tensor_b: [2, 1, 3]
+    // Should broadcast to [2, 4, 3]
+    // let result4[b, i, j] = tensor_a[0, i, j] + tensor_b[b, 0, j];  # ❌ Manual broadcasting required
 }
 
-# Advanced Broadcasting Patterns
+// Advanced Broadcasting Patterns
 fn advanced_broadcasting_examples() {
-    # ❌ These patterns are not supported
+    // ❌ These patterns are not supported
     
-    # Define example tensors for demonstration
-    let a = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];  # [2, 2, 2] (batch, n, k);
-    let b_matrix = [[1, 2], [3, 4]];  # [2, 2] (k, m)
+    // Define example tensors for demonstration
+    let a = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];  // [2, 2, 2] (batch, n, k);
+    let b_matrix = [[1, 2], [3, 4]];  // [2, 2] (k, m)
     
-    # Batch matrix multiplication with broadcasting
-    # a: [batch, n, k], b: [k, m] -> should broadcast b to [batch, k, m]
-    let result[batch_idx, i, j] = sum[k](a[batch_idx, i, k] * b_matrix[k, j]);  # ❌ b needs manual broadcasting
+    // Batch matrix multiplication with broadcasting
+    // a: [batch, n, k], b: [k, m] -> should broadcast b to [batch, k, m]
+    let result[batch_idx, i, j] = sum[k](a[batch_idx, i, k] * b_matrix[k, j]);  // ❌ b needs manual broadcasting
     
-    # Proper version would be:
-    # result[batch_idx, i, j] = sum[k](a[batch_idx, i, k] * broadcast(b_tensor, [batch, k, m])[batch_idx, k, j]);
+    // Proper version would be:
+    // result[batch_idx, i, j] = sum[k](a[batch_idx, i, k] * broadcast(b_tensor, [batch, k, m])[batch_idx, k, j]);
     
-    # Multi-dimensional broadcasting
-    # a: [3, 1, 4, 1], b: [1, 2, 1, 5]
-    # Should broadcast to [3, 2, 4, 5]
-    # ❌ Cannot express this pattern currently
+    // Multi-dimensional broadcasting
+    // a: [3, 1, 4, 1], b: [1, 2, 1, 5]
+    // Should broadcast to [3, 2, 4, 5]
+    // ❌ Cannot express this pattern currently
     
-    # Conditional broadcasting
-    # Apply operation only where mask is true
-    # ❌ Masked operations not supported
-    # result[i, j] = if mask[i, j] { a_tensor[i, j] + b_matrix[j] } else { a_tensor[i, j] };
+    // Conditional broadcasting
+    // Apply operation only where mask is true
+    // ❌ Masked operations not supported
+    // result[i, j] = if mask[i, j] { a_tensor[i, j] + b_matrix[j] } else { a_tensor[i, j] };
 }
 
-# Neural Network Broadcasting Patterns
+// Neural Network Broadcasting Patterns
 fn neural_network_broadcasting() {
-    # ❌ Common NN operations that need broadcasting
+    // ❌ Common NN operations that need broadcasting
     
-    # Define example tensors for demonstration
-    let input = [[[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]];  # [1, 2, 2, 2] (batch, channels, height, width);
-    let mean = [2.5, 5.5];  # [2] (channels);
-    let var = [1.0, 2.0];   # [2] (channels);
-    let gamma = [1.1, 1.2]; # [2] (channels);
-    let beta = [0.1, 0.2];  # [2] (channels);
+    // Define example tensors for demonstration
+    let input = [[[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]];  // [1, 2, 2, 2] (batch, channels, height, width);
+    let mean = [2.5, 5.5];  // [2] (channels);
+    let var = [1.0, 2.0];   // [2] (channels);
+    let gamma = [1.1, 1.2]; // [2] (channels);
+    let beta = [0.1, 0.2];  // [2] (channels);
     let eps = 1e-5;
     
-    # Batch normalization
-    # input: [batch, channels, height, width]
-    # mean: [channels], var: [channels], gamma: [channels], beta: [channels]
-    # All should broadcast across batch, height, width dimensions
+    // Batch normalization
+    // input: [batch, channels, height, width]
+    // mean: [channels], var: [channels], gamma: [channels], beta: [channels]
+    // All should broadcast across batch, height, width dimensions
     
-    # ❌ This manual approach is very verbose and error-prone:
+    // ❌ This manual approach is very verbose and error-prone:
     let normalized[b, c, h, w] = (input[b, c, h, w] - mean[c]) / sqrt(var[c] + eps);
     let scaled[b, c, h, w] = normalized[b, c, h, w] * gamma[c];
     let shifted[b, c, h, w] = scaled[b, c, h, w] + beta[c];
     
-    # ❌ Should be expressible as:
-    # normalized = (input - mean) / sqrt(var + eps);  # Broadcasting mean, var
-    # output = normalized * gamma + beta;             # Broadcasting gamma, beta
+    // ❌ Should be expressible as:
+    // normalized = (input - mean) / sqrt(var + eps);  # Broadcasting mean, var
+    // output = normalized * gamma + beta;             # Broadcasting gamma, beta
     
-    # Attention score calculation with broadcasting
-    # Define example tensors for demonstration
-    let query = [[[1.0, 2.0], [3.0, 4.0]]];  # [1, 2, 2] (batch, seq_len, d_model);
-    let key = [[[1.0, 2.0], [3.0, 4.0]]];    # [1, 2, 2] (batch, seq_len, d_model)
+    // Attention score calculation with broadcasting
+    // Define example tensors for demonstration
+    let query = [[[1.0, 2.0], [3.0, 4.0]]];  // [1, 2, 2] (batch, seq_len, d_model);
+    let key = [[[1.0, 2.0], [3.0, 4.0]]];    // [1, 2, 2] (batch, seq_len, d_model)
     
-    # Should compute all pairwise dot products
+    // Should compute all pairwise dot products
     
-    # ❌ Manual approach (verbose):
+    // ❌ Manual approach (verbose):
     let scores[b, i, j] = sum[d](query[b, i, d] * key[b, j, d]);
     
-    # ❌ Should be expressible with broadcasting:
-    # scores = query @ key.transpose(-2, -1);  # Matrix multiplication with broadcasting
+    // ❌ Should be expressible with broadcasting:
+    // scores = query @ key.transpose(-2, -1);  # Matrix multiplication with broadcasting
 }
 
-# Broadcasting Utility Functions - WORKING VERSION!
+// Broadcasting Utility Functions - WORKING VERSION!
 fn broadcasting_utilities() {
-    # ✅ These utility functions work with available built-ins!
+    // ✅ These utility functions work with available built-ins!
     
-    # Test with simple tensors
+    // Test with simple tensors
     let test_tensor = [[1, 2], [3, 4]];
     let vec = [5, 6];
     
-    # Get tensor shape information
-    let shape_matrix = shape(test_tensor);  # ✅ shape function now available!;
-    let shape_vec = shape(vec);             # ✅ shape function now available!;
-    let ndims_matrix = len(shape_matrix);   # ✅ len function now available!;
-    let ndims_vec = len(shape_vec);         # ✅ len function now available!
+    // Get tensor shape information
+    let shape_matrix = shape(test_tensor);  // ✅ shape function now available!;
+    let shape_vec = shape(vec);             // ✅ shape function now available!;
+    let ndims_matrix = len(shape_matrix);   // ✅ len function now available!;
+    let ndims_vec = len(shape_vec);         // ✅ len function now available!
     
     print("Shape of matrix:", shape_matrix);
     print("Shape of vector:", shape_vec);
     print("Matrix dimensions:", ndims_matrix);
     print("Vector dimensions:", ndims_vec);
     
-    # Calculate total elements
-    let total_elements = shape_matrix[0] * shape_matrix[1];  # ✅ Manual calculation works!
+    // Calculate total elements
+    let total_elements = shape_matrix[0] * shape_matrix[1];  // ✅ Manual calculation works!
     print("Total matrix elements:", total_elements);
     
-    # Test magnitude calculation
-    let magnitude = sqrt(sum[i,j](test_tensor[i,j] * test_tensor[i,j]));  # ✅ Working Einstein notation!
+    // Test magnitude calculation
+    let magnitude = sqrt(sum[i,j](test_tensor[i,j] * test_tensor[i,j]));  // ✅ Working Einstein notation!
     print("Matrix Frobenius norm:", magnitude);
 }
 
-# Testing the core functionality directly
+// Testing the core functionality directly
 let test_matrix = [[1, 2], [3, 4]];
-let matrix_shape = shape(test_matrix);  # ✅ Working built-in function;
-let matrix_dims = len(matrix_shape);    # ✅ Working built-in function
+let matrix_shape = shape(test_matrix);  // ✅ Working built-in function;
+let matrix_dims = len(matrix_shape);    // ✅ Working built-in function
 
 print("Direct shape test:", matrix_shape);
 print("Matrix dimensions:", matrix_dims);
 
-# Test simpler operations that work
-let row0_sum = sum[j](test_matrix[0,j]);  # ✅ 1D reduction works!;
-let row1_sum = sum[j](test_matrix[1,j]);  # ✅ 1D reduction works!
+// Test simpler operations that work
+let row0_sum = sum[j](test_matrix[0,j]);  // ✅ 1D reduction works!;
+let row1_sum = sum[j](test_matrix[1,j]);  // ✅ 1D reduction works!
 print("Row 0 sum:", row0_sum);
 print("Row 1 sum:", row1_sum);
 
-# Test vector operations
+// Test vector operations
 let vec = [1, 2, 3, 4];
-let vec_magnitude = sqrt(sum[i](vec[i] * vec[i]));  # ✅ 1D magnitude calculation works!
+let vec_magnitude = sqrt(sum[i](vec[i] * vec[i]));  // ✅ 1D magnitude calculation works!
 print("Vector magnitude:", vec_magnitude);
 
-# Real-world Broadcasting Example: Transformer Attention
+// Real-world Broadcasting Example: Transformer Attention
 fn transformer_attention_broadcasting(query, key, value) {
-    # query: [batch, heads, seq_len, d_k]
-    # key: [batch, heads, seq_len, d_k]
-    # value: [batch, heads, seq_len, d_k]
+    // query: [batch, heads, seq_len, d_k]
+    // key: [batch, heads, seq_len, d_k]
+    // value: [batch, heads, seq_len, d_k]
     
-    # ❌ This should use broadcasting but manual computation is required
+    // ❌ This should use broadcasting but manual computation is required
     
-    # Compute attention scores
+    // Compute attention scores
     let scores[b, h, i, j] = sum[d](query[b, h, i, d] * key[b, h, j, d]);
     
-    # Scale scores 
-    let d_k = 64.0;  # Example dimension size;
-    let scale = 1.0 / sqrt(d_k);  # ✅ sqrt now available!;
-    let scaled_scores[b, h, i, j] = scores[b, h, i, j] * scale;  # Broadcasting scalar
+    // Scale scores 
+    let d_k = 64.0;  // Example dimension size;
+    let scale = 1.0 / sqrt(d_k);  // ✅ sqrt now available!;
+    let scaled_scores[b, h, i, j] = scores[b, h, i, j] * scale;  // Broadcasting scalar
     
-    # Apply softmax - now available!
-    # attention_weights = softmax(scaled_scores, dim=-1);  # ❌ Still need dim parameter support
+    // Apply softmax - now available!
+    // attention_weights = softmax(scaled_scores, dim=-1);  # ❌ Still need dim parameter support
     
-    # For now, use scaled_scores as a placeholder for attention_weights
+    // For now, use scaled_scores as a placeholder for attention_weights
     let attention_weights[b, h, i, j] = scaled_scores[b, h, i, j];
     
-    # Apply attention to values
+    // Apply attention to values
     let output[b, h, i, d] = sum[j](attention_weights[b, h, i, j] * value[b, h, j, d]);
     
     output
 }
 
-# Batch Processing Examples - WORKING VERSION!
+// Batch Processing Examples - WORKING VERSION!
 fn batch_processing_broadcasting() {
-    # ✅ Working batch processing patterns!
+    // ✅ Working batch processing patterns!
     
-    # Test with simple data
-    let input_batch = [[1.0, 2.0], [3.0, 4.0]];  # [batch=2, features=2];
-    let weights = [[0.5, 0.8], [0.3, 0.7]];      # [features=2, output=2]  ;
-    let bias = [0.1, 0.2];                       # [output=2]
+    // Test with simple data
+    let input_batch = [[1.0, 2.0], [3.0, 4.0]];  // [batch=2, features=2];
+    let weights = [[0.5, 0.8], [0.3, 0.7]];      // [features=2, output=2]  ;
+    let bias = [0.1, 0.2];                       // [output=2]
     
-    # Manual linear transformation that works
+    // Manual linear transformation that works
     let linear_out[b, o] = sum[f](input_batch[b, f] * weights[f, o]) + bias[o];
     
     print("Input batch:", input_batch);
     print("Weights:", weights);
     print("Bias:", bias);
-    # Note: linear_out tensor declaration works but print may need more work
+    // Note: linear_out tensor declaration works but print may need more work
     
-    # Test batch statistics
-    let batch_mean_f0 = (input_batch[0,0] + input_batch[1,0]) / 2.0;  # ✅ Manual mean calculation;
-    let batch_mean_f1 = (input_batch[0,1] + input_batch[1,1]) / 2.0;  # ✅ Manual mean calculation
+    // Test batch statistics
+    let batch_mean_f0 = (input_batch[0,0] + input_batch[1,0]) / 2.0;  // ✅ Manual mean calculation;
+    let batch_mean_f1 = (input_batch[0,1] + input_batch[1,1]) / 2.0;  // ✅ Manual mean calculation
     
     print("Feature 0 mean:", batch_mean_f0);
     print("Feature 1 mean:", batch_mean_f1);
     
-    # Test normalization with simple values
-    let mean_val = 2.5;  # Example mean;
-    let std_val = 1.0;   # Example std;
-    let normalized[b, f] = (input_batch[b, f] - mean_val) / std_val;  # ✅ Manual broadcasting works!
+    // Test normalization with simple values
+    let mean_val = 2.5;  // Example mean;
+    let std_val = 1.0;   // Example std;
+    let normalized[b, f] = (input_batch[b, f] - mean_val) / std_val;  // ✅ Manual broadcasting works!
 }
 
-# Direct batch processing operations that work
+// Direct batch processing operations that work
 let test_input = [[1.0, 2.0], [3.0, 4.0]];
 let test_weights = [[0.5, 0.8], [0.3, 0.7]]; 
 let test_bias = [0.1, 0.2];
@@ -214,12 +214,12 @@ print("Test input:", test_input);
 print("Test weights:", test_weights);  
 print("Test bias:", test_bias);
 
-# Direct Einstein notation for batch operations
-let batch_linear[i, o] = sum[f](test_input[i, f] * test_weights[f, o]) + test_bias[o];  # ✅ Working Einstein notation!
+// Direct Einstein notation for batch operations
+let batch_linear[i, o] = sum[f](test_input[i, f] * test_weights[f, o]) + test_bias[o];  // ✅ Working Einstein notation!
 
-# Direct statistical calculations
-let mean_0_0 = (test_input[0,0] + test_input[1,0]) / 2.0;  # ✅ Feature 0 mean ;
-let mean_0_1 = (test_input[0,1] + test_input[1,1]) / 2.0;  # ✅ Feature 1 mean
+// Direct statistical calculations
+let mean_0_0 = (test_input[0,0] + test_input[1,0]) / 2.0;  // ✅ Feature 0 mean ;
+let mean_0_1 = (test_input[0,1] + test_input[1,1]) / 2.0;  // ✅ Feature 1 mean
 
 print("Feature 0 mean:", mean_0_0);
 print("Feature 1 mean:", mean_0_1);

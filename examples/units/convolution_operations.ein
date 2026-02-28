@@ -1,11 +1,11 @@
-# Simple convolution operations with correct ranges
+// Simple convolution operations with correct ranges
 
-let signal = [1, 2, 3, 4, 5, 6] as [f32];  # 6 elements (indices 0-5);
-let kernel = [0.5, 0.5];          # 2 elements (indices 0-1)
+let signal = [1, 2, 3, 4, 5, 6] as [f32];  // 6 elements (indices 0-5);
+let kernel = [0.5, 0.5];          // 2 elements (indices 0-1)
 
-# For signal[i+k] to be valid when k in 0..2 (meaning k=0,1):
-# Need i+1 <= 5, so i <= 4
-# Therefore i in 0..5 (meaning i=0,1,2,3,4)
+// For signal[i+k] to be valid when k in 0..2 (meaning k=0,1):
+// Need i+1 <= 5, so i <= 4
+// Therefore i in 0..5 (meaning i=0,1,2,3,4)
 
 let convolved[i in 0..5] = sum[k in 0..2](signal[i+k] * kernel[k]);
 

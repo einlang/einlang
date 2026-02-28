@@ -1,13 +1,13 @@
-# stdlib_v2/lib.ein - Root standard library module
-# Explicit module declarations (Rust-inspired)
+// stdlib_v2/lib.ein - Root standard library module
+// Explicit module declarations (Rust-inspired)
 
-# Declare top-level modules
+// Declare top-level modules
 pub mod math;
 pub mod array;  
 pub mod ml;
 pub mod io;
 
-# Optional: Re-export commonly used items for convenience
+// Optional: Re-export commonly used items for convenience
 pub use math::*;
 pub use array::*;
 pub use ml::*;

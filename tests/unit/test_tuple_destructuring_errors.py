@@ -17,14 +17,14 @@ class TestTupleDestructuringErrors:
         """Test error when too many variables for tuple"""
         source = """
         let pair = (10, 20);
-        let (x, y, z) = pair;  # Error: trying to unpack 2 values into 3 variables
+        let (x, y, z) = pair;  // Error: trying to unpack 2 values into 3 variables
         """
         
         result = compile_and_execute(source, compiler, runtime)
         
-        # Should fail at runtime (tuple index out of bounds)
         assert not result.success
-        assert "out of bounds" in str(result.error).lower() or "index" in str(result.error).lower()
+        err = (result.error or "") + " " + " ".join(result.errors or [])
+        assert "out of bounds" in err.lower() or "index" in err.lower() or "bounds" in err.lower()
         print(f"\n✅ Caught arity mismatch error: {result.error}")
     
     def test_arity_mismatch_too_few_variables(self, compiler, runtime):
@@ -32,7 +32,7 @@ class TestTupleDestructuringErrors:
         # This actually works - we just ignore extra elements
         source = """
         let triple = (10, 20, 30);
-        let (x, y) = triple;  # Takes first two, ignores third
+        let (x, y) = triple;  // Takes first two, ignores third
         assert(x == 10);
         assert(y == 20);
         """
@@ -47,7 +47,7 @@ class TestTupleDestructuringErrors:
         """Test error when trying to destructure non-tuple"""
         source = """
         let value = 42;
-        let (x, y) = value;  # Error: trying to destructure a scalar
+        let (x, y) = value;  // Error: trying to destructure a scalar
         """
         
         result = compile_and_execute(source, compiler, runtime)
@@ -60,7 +60,7 @@ class TestTupleDestructuringErrors:
         """Test edge case: empty tuple destructuring"""
         source = """
         let empty = ();
-        let (x, y) = empty;  # Error: no elements to destructure
+        let (x, y) = empty;  // Error: no elements to destructure
         """
         
         # Note: Parser might not support empty tuples
@@ -77,7 +77,7 @@ class TestTupleDestructuringErrors:
         """Test that nested tuple destructuring is not supported"""
         source = """
         let nested = ((1, 2), (3, 4));
-        let ((a, b), (c, d)) = nested;  # Not supported (would need recursive destructuring)
+        let ((a, b), (c, d)) = nested;  // Not supported (would need recursive destructuring)
         """
         
         # This likely fails at parse time or compilation
@@ -97,7 +97,7 @@ class TestTupleDestructuringErrors:
         let mixed = (42, "hello", true);
         let (num, text, flag) = mixed;
         
-        # These should work because Einlang is dynamically typed
+        // These should work because Einlang is dynamically typed
         assert(num == 42);
         print("Text:", text);
         print("Flag:", flag);
@@ -112,7 +112,7 @@ class TestTupleDestructuringErrors:
     def test_destructure_with_undefined_tuple(self, compiler, runtime):
         """Test error when destructuring undefined variable"""
         source = """
-        let (x, y) = undefined_tuple;  # Error: undefined variable
+        let (x, y) = undefined_tuple;  // Error: undefined variable
         """
         
         result = compile_and_execute(source, compiler, runtime)
@@ -126,10 +126,10 @@ class TestTupleDestructuringErrors:
         """Test error when function doesn't return a tuple"""
         source = """
         fn get_value() {
-            42  # Returns scalar, not tuple
+            42  // Returns scalar, not tuple
         }
         
-        let (x, y) = get_value();  # Error: can't destructure scalar
+        let (x, y) = get_value();  // Error: can't destructure scalar
         """
         
         result = compile_and_execute(source, compiler, runtime)

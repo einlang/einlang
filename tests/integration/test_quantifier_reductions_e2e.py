@@ -175,7 +175,7 @@ class TestPracticalMathematicalFormulas:
         Formula: ∀i,j: A[i,j] = A[j,i] (symmetric) AND ∀i: A[i,i] > 0 (diagonal positive)
         """
         source = """
-        let A = [[2, 1], [1, 2]];  # Symmetric positive definite
+        let A = [[2, 1], [1, 2]];  // Symmetric positive definite
         let is_symmetric = all[i, j](A[i, j] == A[j, i]);
         let diagonal_positive = all[i](A[i, i] > 0);
         let is_positive_definite = is_symmetric && diagonal_positive;
@@ -207,7 +207,7 @@ class TestPracticalMathematicalFormulas:
         Formula: ∃i,j: A[i,j] ≠ 0 (has at least one non-zero)
         """
         source = """
-        let A = [[0, 0, 0], [0, 5, 0], [0, 0, 0]];  # Sparse matrix
+        let A = [[0, 0, 0], [0, 5, 0], [0, 0, 0]];  // Sparse matrix
         let has_nonzero = any[i, j](A[i, j] != 0);
         """
         
@@ -236,8 +236,8 @@ class TestPracticalMathematicalFormulas:
         Simplified: Check that off-diagonal dot products are zero
         """
         source = """
-        let A = [[1, 0], [0, 1]];  # Identity matrix (orthogonal)
-        # For identity matrix, check that A[0,0]*A[0,1] + A[1,0]*A[1,1] = 0
+        let A = [[1, 0], [0, 1]];  // Identity matrix (orthogonal)
+        // For identity matrix, check that A[0,0]*A[0,1] + A[1,0]*A[1,1] = 0
         let dot_product_01 = sum[k](A[k, 0] * A[k, 1]);
         let is_orthogonal = dot_product_01 == 0;
         """
@@ -298,7 +298,7 @@ class TestPracticalMathematicalFormulas:
         let p = [0.2, 0.3, 0.5];
         let non_negative = all[i](p[i] >= 0.0);
         let total = sum[i](p[i]);
-        let sums_to_one = total >= 0.999 && total <= 1.001;  # Floating point tolerance
+        let sums_to_one = total >= 0.999 && total <= 1.001;  // Floating point tolerance
         let is_probability = non_negative && sums_to_one;
         """
         
@@ -314,7 +314,7 @@ class TestPracticalMathematicalFormulas:
         Formula: ∀i,j,k: d[i,j] ≤ d[i,k] + d[k,j]
         """
         source = """
-        let d = [[0, 1, 2], [1, 0, 1], [2, 1, 0]];  # Distance matrix
+        let d = [[0, 1, 2], [1, 0, 1], [2, 1, 0]];  // Distance matrix
         let triangle_inequality = all[i, j, k](d[i, j] <= d[i, k] + d[k, j]);
         """
         

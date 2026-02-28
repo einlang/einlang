@@ -1,151 +1,151 @@
-# CORE FEATURE: Advanced Windowed Operations with Einstein Notation
-# PURPOSE: Demonstrates convolution, pooling, sliding windows using automatic range inference
-# VALUE: Shows how Einstein notation naturally expresses ML/signal processing operations
+// CORE FEATURE: Advanced Windowed Operations with Einstein Notation
+// PURPOSE: Demonstrates convolution, pooling, sliding windows using automatic range inference
+// VALUE: Shows how Einstein notation naturally expresses ML/signal processing operations
 
 use std::math::max;
 
-# 1D Convolution - Classic signal processing
+// 1D Convolution - Classic signal processing
 let signal = [1, 2, 3, 4, 5, 6, 7, 8] as [f32];
-let kernel = [0.25, 0.5, 0.25];  # Simple smoothing kernel
+let kernel = [0.25, 0.5, 0.25];  // Simple smoothing kernel
 
-# Convolution: output[i] = sum over kernel positions  
-# Manual bounds-safe range: signal[8 elements] + k[max=2] -> i <= 8-1-2 = 5  
+// Convolution: output[i] = sum over kernel positions  
+// Manual bounds-safe range: signal[8 elements] + k[max=2] -> i <= 8-1-2 = 5  
 let convolved[i in 0..6] = sum[k in 0..3](signal[i+k] * kernel[k]);
 
 print("Signal:", signal);
 print("Kernel:", kernel);
 print("Convolved:", convolved);
 
-# Test 1D convolution
+// Test 1D convolution
 assert(convolved == [2.0, 3.0, 4.0, 5.0, 6.0, 7.0], "Convolved should match expected values");
 
-# Edge handling with boundary checks
-let padded_signal = [0, 1, 2, 3, 4, 5, 6, 7, 8, 0] as [f32];  # Add padding;
+// Edge handling with boundary checks
+let padded_signal = [0, 1, 2, 3, 4, 5, 6, 7, 8, 0] as [f32];  // Add padding;
 let conv_padded[i in 0..8] = sum[k in 0..3](padded_signal[i+k] * kernel[k]);
 
 print("Padded convolution:", conv_padded);
 
-# Test padded convolution
+// Test padded convolution
 assert(conv_padded == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 5.75], "Padded convolution should match expected values");
 
-# 2D Max Pooling - Neural network operation
+// 2D Max Pooling - Neural network operation
 let image = [[1, 3, 2, 4], 
              [5, 7, 6, 8], 
              [2, 4, 3, 5],
              [6, 8, 7, 9]] as [f32];
 
-# 2x2 max pooling with stride 2 (automatic range inference)
+// 2x2 max pooling with stride 2 (automatic range inference)
 let pooled[i in 0..2, j in 0..2] = max[di in 0..2, dj in 0..2](image[i*2+di, j*2+dj]);
 
 print("Original image:", image);
 print("Max pooled:", pooled);
 
-# Test 2D max pooling
+// Test 2D max pooling
 assert(pooled == [[7, 8], [8, 9]], "Max pooling should match expected values");
 
-# 2D Average Pooling  
+// 2D Average Pooling  
 let avg_pooled[i in 0..2, j in 0..2] = sum[di in 0..2, dj in 0..2](image[i*2+di, j*2+dj]) / 4.0;
 
 print("Average pooled:", avg_pooled);
 
-# Test 2D average pooling  
+// Test 2D average pooling  
 assert(avg_pooled == [[4.0, 5.0], [5.0, 6.0]], "Average pooling should match expected values");
 
-# Sliding Window Maximum - Time series analysis
+// Sliding Window Maximum - Time series analysis
 let prices = [100, 102, 98, 105, 103, 99, 107, 104, 101] as [f32];
 let window_size = 3;
 
-# Rolling maximum over 3-element windows
-# prices has 9 elements (0-8), window size 3 (k in 0..2)
-# For prices[i+k] to be valid: i+k <= 8, so i <= 8-2 = 6
+// Rolling maximum over 3-element windows
+// prices has 9 elements (0-8), window size 3 (k in 0..2)
+// For prices[i+k] to be valid: i+k <= 8, so i <= 8-2 = 6
 let rolling_max[i in 0..7] = max[k in 0..3](prices[i+k]);
 
 print("Prices:", prices);
 print("Rolling max (3-window):", rolling_max);
 
-# Test rolling maximum
+// Test rolling maximum
 assert(rolling_max == [102, 105, 105, 105, 107, 107, 107], "Rolling maximum should match expected values");
 
-# Cross-correlation - Template matching
+// Cross-correlation - Template matching
 let sequence = [1, 0, 1, 1, 0, 1, 0, 1, 1, 0];
 let template = [1, 1, 0];
 
-# Find where template appears in sequence
-# sequence has 10 elements (0-9), template has 3 elements (0-2)
-# For sequence[i+k] to be valid: i+k <= 9, so i <= 9-2 = 7
+// Find where template appears in sequence
+// sequence has 10 elements (0-9), template has 3 elements (0-2)
+// For sequence[i+k] to be valid: i+k <= 9, so i <= 9-2 = 7
 let correlation[i in 0..8] = sum[k in 0..3](sequence[i+k] * template[k]);
 
 print("Sequence:", sequence);
 print("Template:", template);
 print("Correlation:", correlation);
 
-# Test template matching correlation
+// Test template matching correlation
 assert(correlation == [1, 1, 2, 1, 1, 1, 1, 2], "Correlation should match expected values");
 
-# Gaussian blur simulation (approximate)
+// Gaussian blur simulation (approximate)
 let data_2d = [[1, 2, 1], [2, 4, 2], [1, 2, 1]] as [f32];
 let gauss_kernel = [[0.1, 0.2, 0.1], [0.2, 0.4, 0.2], [0.1, 0.2, 0.1]];
 
-# 3x3 Gaussian convolution (center pixel only to avoid bounds issues)
+// 3x3 Gaussian convolution (center pixel only to avoid bounds issues)
 let blurred_center = sum[di in 0..3, dj in 0..3](data_2d[1+di-1, 1+dj-1] * gauss_kernel[di, dj]);
 
-# Gaussian blur computed
+// Gaussian blur computed
 
-# Strided convolution - Downsampling
+// Strided convolution - Downsampling
 let input_1d = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as [f32];
 let stride = 2;
 
-# Every 2nd position convolution
-# input_1d has 10 elements (0-9), stride=2, kernel has 3 elements (0-2)
-# For input_1d[i*2+k] to be valid: i*2+k <= 9, so i*2 <= 9-2 = 7, so i <= 3
+// Every 2nd position convolution
+// input_1d has 10 elements (0-9), stride=2, kernel has 3 elements (0-2)
+// For input_1d[i*2+k] to be valid: i*2+k <= 9, so i*2 <= 9-2 = 7, so i <= 3
 let strided_conv[i in 0..4] = sum[k in 0..3](input_1d[i*stride+k] * kernel[k]);
 
-# Strided convolution computed
+// Strided convolution computed
 
-# Dilation/Erosion-like operations (mathematical morphology)
+// Dilation/Erosion-like operations (mathematical morphology)
 let binary_image = [0, 1, 1, 0, 1, 0, 0, 1, 1, 0];
-let structuring_element = [1, 1, 1];  # 3-element structure
+let structuring_element = [1, 1, 1];  // 3-element structure
 
-# Dilation: OR operation over structure
-# binary_image has 10 elements (0-9), structuring_element has 3 elements (0-2)
-# For binary_image[i+k] to be valid: i+k <= 9, so i <= 9-2 = 7
+// Dilation: OR operation over structure
+// binary_image has 10 elements (0-9), structuring_element has 3 elements (0-2)
+// For binary_image[i+k] to be valid: i+k <= 9, so i <= 9-2 = 7
 let dilated[i in 0..8] = max[k in 0..3](binary_image[i+k] * structuring_element[k]);
 
-# Morphological dilation computed
+// Morphological dilation computed
 
-# Separable filtering - Efficient 2D filtering
+// Separable filtering - Efficient 2D filtering
 let matrix_2d = [[1, 2, 3], [4, 5, 6], [7, 8, 9]] as [f32];
-let h_filter = [1, 2, 1] as [f32];  # Horizontal filter;
-let v_filter = [1, 2, 1] as [f32];  # Vertical filter
+let h_filter = [1, 2, 1] as [f32];  // Horizontal filter;
+let v_filter = [1, 2, 1] as [f32];  // Vertical filter
 
-# First pass: horizontal filtering
+// First pass: horizontal filtering
 let h_filtered[i, j in 0..1] = sum[k in 0..3](matrix_2d[i, j+k] * h_filter[k]);
 
-# Horizontal filtering computed
+// Horizontal filtering computed
 
-# Local variance computation - Statistical window operation
+// Local variance computation - Statistical window operation
 let noise_data = [1, 3, 2, 5, 4, 2, 6, 3, 1, 4] as [f32];
 
-# Mean in 3-element window
-# noise_data has 10 elements (0-9), window size 3 (k in 0..2)
-# For noise_data[i+k] to be valid: i+k <= 9, so i <= 9-2 = 7
+// Mean in 3-element window
+// noise_data has 10 elements (0-9), window size 3 (k in 0..2)
+// For noise_data[i+k] to be valid: i+k <= 9, so i <= 9-2 = 7
 let local_mean[i in 0..8] = sum[k in 0..3](noise_data[i+k]) / 3.0;
 
-# Variance in 3-element window (simplified)
+// Variance in 3-element window (simplified)
 let local_var[i] = sum[k in 0..3]((noise_data[i+k] - local_mean[i]) * (noise_data[i+k] - local_mean[i])) / 3.0;
 
-# Local means computed
+// Local means computed
 
-# Edge detection approximation - Gradient filters
+// Edge detection approximation - Gradient filters
 let edge_data = [1, 1, 3, 5, 5, 2, 1, 1] as [f32];
-let sobel_x = [-1, 0, 1] as [f32];  # Horizontal edge detector
+let sobel_x = [-1, 0, 1] as [f32];  // Horizontal edge detector
 
-# edge_data has 8 elements (0-7), sobel_x has 3 elements (0-2)
-# For edge_data[i+k] to be valid: i+k <= 7, so i <= 7-2 = 5
+// edge_data has 8 elements (0-7), sobel_x has 3 elements (0-2)
+// For edge_data[i+k] to be valid: i+k <= 7, so i <= 7-2 = 5
 let edges[i in 0..6] = sum[k in 0..3](edge_data[i+k] * sobel_x[k]);
 
-# Edge detection computed
+// Edge detection computed
 
 print("✅ All advanced windowed operations work with automatic range inference!");
 
-# All assertions verify the computed results are correct
+// All assertions verify the computed results are correct

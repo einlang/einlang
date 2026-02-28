@@ -65,7 +65,7 @@ class TestEinsteinLoweringIntegration:
     def test_einstein_mixed_literal_and_index(self, compiler, runtime):
         """Single clause with mixed literal and loop indices: [0, i]."""
         source = """
-        let x[0, i] = i where i in 0..4;
+        let x[0, i in 0..4] = i;
         x;
         """
         result = compile_and_execute(source, compiler, runtime)
@@ -79,9 +79,9 @@ class TestEinsteinLoweringIntegration:
     def test_einstein_multi_clause_literal_and_recurrence(self, compiler, runtime):
         """Three consecutive clauses: A[0,i]=i, A[i,0]=i, A[i,j]=A[i-1,j]+A[i,j-1] for i,j in 1.."""
         source = """
-        let A[0, i] = i where i in 0..4;
-        let A[i, 0] = i where i in 0..6;
-        let A[i, j] = A[i - 1, j] + A[i, j - 1] where i in 1..6, j in 1..4;
+        let A[0, i in 0..4] = i;
+        let A[i in 0..6, 0] = i;
+        let A[i in 1..6, j in 1..4] = A[i - 1, j] + A[i, j - 1];
         A;
         """
         result = compile_and_execute(source, compiler, runtime)
@@ -176,11 +176,11 @@ class TestEinsteinLoweringIntegration:
     def test_einstein_literal_reference(self, compiler, runtime):
         """Reference array B only at literal indices: A[0,0]=B[0,0], A[0,i]=B[0,i], A[i,0]=B[i,0]; recurrence uses B[i,j]. Compare full A to numpy."""
         source = """
-        let B[i, j] = i + j where i in 0..6, j in 0..4;
+        let B[i in 0..6, j in 0..4] = i + j;
         let A[0, 0] = B[0, 0];
-        let A[0, i] = B[0, i] where i in 1..4;
-        let A[i, 0] = B[i, 0] where i in 1..6;
-        let A[i, j] = A[i - 1, j] + A[i, j - 1] + B[i, j] where i in 1..6, j in 1..4;
+        let A[0, i in 1..4] = B[0, i];
+        let A[i in 1..6, 0] = B[i, 0];
+        let A[i in 1..6, j in 1..4] = A[i - 1, j] + A[i, j - 1] + B[i, j];
         A;
         """
         result = compile_and_execute(source, compiler, runtime)
@@ -199,9 +199,9 @@ class TestEinsteinLoweringIntegration:
     def test_matrix_multiplication(self, compiler, runtime):
         """Test matrix multiplication with nested reductions"""
         source = """
-        let A[i, j] = i * 3 + j where i in 0..3, j in 0..4;
-        let B[j, k] = j * 2 + k where j in 0..4, k in 0..2;
-        let C[i, k] = sum[j in 0..4](A[i, j] * B[j, k]) where i in 0..3, k in 0..2;
+        let A[i in 0..3, j in 0..4] = i * 3 + j;
+        let B[j in 0..4, k in 0..2] = j * 2 + k;
+        let C[i in 0..3, k in 0..2] = sum[j in 0..4](A[i, j] * B[j, k]);
         C;
         """
     
@@ -218,8 +218,8 @@ class TestEinsteinLoweringIntegration:
         shape analysis to run before range analysis, which is not yet implemented.
         """
         source = """
-        let A[i, j] = i * 3 + j where i in 0..3, j in 0..4;
-        let B[j, k] = j * 2 + k where j in 0..4, k in 0..2;
+        let A[i in 0..3, j in 0..4] = i * 3 + j;
+        let B[j in 0..4, k in 0..2] = j * 2 + k;
         let C[i, k] = sum[j](A[i, j] * B[j, k]);
         C;
         """
@@ -263,11 +263,11 @@ class TestEinsteinLoweringIntegration:
     def test_convolution_2d(self, compiler, runtime):
         """Test 2D convolution pattern"""
         source = """
-        let input[i, j] = i + j where i in 0..5, j in 0..5;
-        let kernel[k, l] = k + l where k in 0..3, l in 0..3;
-        let output[i, j] = sum[k in 0..3, l in 0..3](
+        let input[i in 0..5, j in 0..5] = i + j;
+        let kernel[k in 0..3, l in 0..3] = k + l;
+        let output[i in 0..3, j in 0..3] = sum[k in 0..3, l in 0..3](
             input[i + k, j + l] * kernel[k, l]
-        ) where i in 0..3, j in 0..3;
+        );
         output;
         """
         
@@ -288,7 +288,7 @@ class TestEinsteinLoweringIntegration:
         source = """
         let fib[0] = 0;
         let fib[1] = 1;
-        let fib[i] = fib[i - 1] + fib[i - 2] where i in 2..10;
+        let fib[i in 2..10] = fib[i - 1] + fib[i - 2];
         fib;
         """
         
@@ -311,8 +311,8 @@ class TestEinsteinLoweringIntegration:
     def test_nested_reductions(self, compiler, runtime):
         """Test nested reductions (sum of sums)"""
         source = """
-        let A[i, j] = i + j where i in 0..4, j in 0..4;
-        let row_sums[i] = sum[j in 0..4](A[i, j]) where i in 0..4;
+        let A[i in 0..4, j in 0..4] = i + j;
+        let row_sums[i in 0..4] = sum[j in 0..4](A[i, j]);
         let total = sum[i in 0..4](row_sums[i]);
         total;
         """
@@ -329,7 +329,7 @@ class TestEinsteinLoweringIntegration:
     def test_conditional_reduction(self, compiler, runtime):
         """Test reduction with where clause condition"""
         source = """
-        let A[i] = i where i in 0..10;
+        let A[i in 0..10] = i;
         let sum_even = sum[i in 0..10](A[i]) where i % 2 == 0;
         let sum_odd = sum[i in 0..10](A[i]) where i % 2 == 1;
         sum_even + sum_odd;
@@ -346,7 +346,7 @@ class TestEinsteinLoweringIntegration:
     def test_multi_dimensional_with_guards(self, compiler, runtime):
         """Test multi-dimensional Einstein with multiple guards"""
         source = """
-        let result[i, j] = i * j where i in 0..5, j in 0..5, i > 1, j > 1, i + j < 7;
+        let result[i in 0..5, j in 0..5] = i * j where i > 1, j > 1, i + j < 7;
         result;
         """
         
@@ -368,7 +368,7 @@ class TestEinsteinLoweringIntegration:
     def test_reduction_with_dependent_ranges(self, compiler, runtime):
         """Test reduction where range depends on outer loop variable"""
         source = """
-        let result[i] = sum[j in 0..i+1](j) where i in 0..5;
+        let result[i in 0..5] = sum[j in 0..i+1](j);
         result;
         """
         
@@ -391,7 +391,7 @@ class TestEinsteinLoweringIntegration:
     def test_three_dimensional_tensor(self, compiler, runtime):
         """Test 3D Einstein declaration"""
         source = """
-        let tensor[i, j, k] = i * 100 + j * 10 + k where i in 0..3, j in 0..3, k in 0..3;
+        let tensor[i in 0..3, j in 0..3, k in 0..3] = i * 100 + j * 10 + k;
         tensor;
         """
         
@@ -412,7 +412,7 @@ class TestEinsteinLoweringIntegration:
     def test_reduction_all_dimensions(self, compiler, runtime):
         """Test full reduction (all dimensions)"""
         source = """
-        let A[i, j] = i + j where i in 0..3, j in 0..3;
+        let A[i in 0..3, j in 0..3] = i + j;
         let total = sum[i in 0..3, j in 0..3](A[i, j]);
         total;
         """
@@ -428,8 +428,8 @@ class TestEinsteinLoweringIntegration:
     def test_partial_reduction(self, compiler, runtime):
         """Test partial reduction (one dimension)"""
         source = """
-        let A[i, j] = i + j where i in 0..3, j in 0..3;
-        let row_sums[i] = sum[j in 0..3](A[i, j]) where i in 0..3;
+        let A[i in 0..3, j in 0..3] = i + j;
+        let row_sums[i in 0..3] = sum[j in 0..3](A[i, j]);
         row_sums;
         """
         
@@ -449,7 +449,7 @@ class TestEinsteinLoweringIntegration:
     def test_product_reduction(self, compiler, runtime):
         """Test product reduction"""
         source = """
-        let A[i] = i + 1 where i in 0..5;
+        let A[i in 0..5] = i + 1;
         let product = prod[i in 0..5](A[i]);
         product;
         """
@@ -466,7 +466,7 @@ class TestEinsteinLoweringIntegration:
     def test_min_max_reductions(self, compiler, runtime):
         """Test min and max reductions"""
         source = """
-        let A[i] = i * 2 - 5 where i in 0..10;
+        let A[i in 0..10] = i * 2 - 5;
         let min_val = min[i in 0..10](A[i]);
         let max_val = max[i in 0..10](A[i]);
         min_val + max_val;
@@ -497,8 +497,8 @@ class TestEinsteinLoweringIntegration:
     def test_array_access_in_body(self, compiler, runtime):
         """Test Einstein declaration with array access in body"""
         source = """
-        let input[i] = i * 2 where i in 0..5;
-        let output[i] = input[i] + input[i + 1] where i in 0..4;
+        let input[i in 0..5] = i * 2;
+        let output[i in 0..4] = input[i] + input[i + 1];
         output;
         """
         
@@ -520,8 +520,8 @@ class TestEinsteinLoweringIntegration:
     def test_complex_nested_structure(self, compiler, runtime):
         """Test complex nested Einstein and reduction structure"""
         source = """
-        let A[i, j] = i * j where i in 0..3, j in 0..3;
-        let B[i] = sum[j in 0..3](A[i, j]) where i in 0..3;
+        let A[i in 0..3, j in 0..3] = i * j;
+        let B[i in 0..3] = sum[j in 0..3](A[i, j]);
         let C = sum[i in 0..3](B[i] * B[i]);
         C;
         """
@@ -559,7 +559,7 @@ class TestEinsteinLoweringIntegration:
     def test_large_range_performance(self, compiler, runtime):
         """Test performance with larger ranges"""
         source = """
-        let large[i] = i * 2 where i in 0..100;
+        let large[i in 0..100] = i * 2;
         let sum_large = sum[i in 0..100](large[i]);
         sum_large;
         """
@@ -573,8 +573,8 @@ class TestEinsteinLoweringIntegration:
     def test_reduction_with_array_access(self, compiler, runtime):
         """Test reduction that accesses arrays"""
         source = """
-        let A[i] = i * 2 where i in 0..5;
-        let B[j] = j * 3 where j in 0..5;
+        let A[i in 0..5] = i * 2;
+        let B[j in 0..5] = j * 3;
         let dot_product = sum[k in 0..5](A[k] * B[k]);
         dot_product;
         """
@@ -589,9 +589,9 @@ class TestEinsteinLoweringIntegration:
     def test_sequential_einstein_declarations(self, compiler, runtime):
         """Test multiple sequential Einstein declarations"""
         source = """
-        let A[i] = i where i in 0..5;
-        let B[i] = A[i] * 2 where i in 0..5;
-        let C[i] = B[i] + 1 where i in 0..5;
+        let A[i in 0..5] = i;
+        let B[i in 0..5] = A[i] * 2;
+        let C[i in 0..5] = B[i] + 1;
         C;
         """
         

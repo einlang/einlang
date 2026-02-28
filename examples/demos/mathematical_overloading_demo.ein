@@ -1,7 +1,7 @@
-# Mathematical Function Overloading Demo
-# Demonstrates duck typing for mathematical functions that work on both scalars and tensors
+// Mathematical Function Overloading Demo
+// Demonstrates duck typing for mathematical functions that work on both scalars and tensors
 
-# Import mathematical functions that support overloading (working functions only)
+// Import mathematical functions that support overloading (working functions only)
 use std::math::abs;
 use std::math::sqrt;
 use std::math::pow;
@@ -11,37 +11,37 @@ use std::math::min;
 print("=== Mathematical Function Overloading Demo ===");
 print();
 
-# =============================================================================
-# BASIC MATHEMATICAL FUNCTIONS
-# =============================================================================
+// =============================================================================
+// BASIC MATHEMATICAL FUNCTIONS
+// =============================================================================
 
 print("1. Basic Mathematical Functions:");
 
-# Absolute value - works on scalars and tensors
+// Absolute value - works on scalars and tensors
 let x_scalar = -5.0;
 let x_vector = [-2, -1, 0, 1, 2];
 let x_matrix = [[-3, -2], [-1, 0], [1, 2]];
 
-print("Scalar abs:", abs(x_scalar));           # Should print: 5.0
-print("Vector abs:", abs(x_vector));           # Should print: [2, 1, 0, 1, 2]  
-print("Matrix abs:", abs(x_matrix));           # Should print: [[3, 2], [1, 0], [1, 2]]
+print("Scalar abs:", abs(x_scalar));           // Should print: 5.0
+print("Vector abs:", abs(x_vector));           // Should print: [2, 1, 0, 1, 2]  
+print("Matrix abs:", abs(x_matrix));           // Should print: [[3, 2], [1, 0], [1, 2]]
 
 print();
 
-# Square root - works on scalars and tensors
+// Square root - works on scalars and tensors
 let y_scalar = 16.0;
 let y_vector = [1, 4, 9, 16];
 let y_matrix = [[1, 4], [9, 16]];
 
-print("Scalar sqrt:", sqrt(y_scalar));         # Should print: 4.0
-print("Vector sqrt:", sqrt(y_vector));         # Should print: [1, 2, 3, 4]
-print("Matrix sqrt:", sqrt(y_matrix));         # Should print: [[1, 2], [3, 4]]
+print("Scalar sqrt:", sqrt(y_scalar));         // Should print: 4.0
+print("Vector sqrt:", sqrt(y_vector));         // Should print: [1, 2, 3, 4]
+print("Matrix sqrt:", sqrt(y_matrix));         // Should print: [[1, 2], [3, 4]]
 
 print();
 
-# =============================================================================
-# POWER FUNCTIONS
-# =============================================================================
+// =============================================================================
+// POWER FUNCTIONS
+// =============================================================================
 
 print("2. Power Functions:");
 
@@ -49,83 +49,83 @@ let base_scalar = 2.0;
 let base_vector = [1, 2, 3, 4];
 let exponent = 2.0;
 
-print("Scalar pow:", pow(base_scalar, exponent));     # Should print: 4.0
-print("Vector pow:", pow(base_vector, exponent));     # Should print: [1, 4, 9, 16] (element-wise)
+print("Scalar pow:", pow(base_scalar, exponent));     // Should print: 4.0
+print("Vector pow:", pow(base_vector, exponent));     // Should print: [1, 4, 9, 16] (element-wise)
 
 print();
 
-# =============================================================================
-# MIN/MAX FUNCTIONS
-# =============================================================================
+// =============================================================================
+// MIN/MAX FUNCTIONS
+// =============================================================================
 
 print("3. Min/Max Functions:");
 
 let values_1 = [1, 5, 3];
 let values_2 = [2, 4, 4];
 
-print("Element-wise max:", max(values_1, values_2));  # Should print: [2, 5, 4]
-print("Element-wise min:", min(values_1, values_2));  # Should print: [1, 4, 3]
+print("Element-wise max:", max(values_1, values_2));  // Should print: [2, 5, 4]
+print("Element-wise min:", min(values_1, values_2));  // Should print: [1, 4, 3]
 
 let scalar_a = 10.0;
 let scalar_b = 5.0;
-print("Max of scalars:", max(scalar_a, scalar_b));    # Should print: 10
-print("Min of scalars:", min(scalar_a, scalar_b));    # Should print: 5
+print("Max of scalars:", max(scalar_a, scalar_b));    // Should print: 10
+print("Min of scalars:", min(scalar_a, scalar_b));    // Should print: 5
 
 print();
 
-# =============================================================================
-# BINARY OPERATIONS WITH BROADCASTING  
-# =============================================================================
+// =============================================================================
+// BINARY OPERATIONS WITH BROADCASTING  
+// =============================================================================
 
 print("4. Binary Operations with Broadcasting:");
 
-# Power function with scalar-tensor broadcasting
-let base = 2.0;                               # scalar;
-let exponents = [1.0, 2.0, 3.0, 4.0];        # vector
+// Power function with scalar-tensor broadcasting
+let base = 2.0;                               // scalar;
+let exponents = [1.0, 2.0, 3.0, 4.0];        // vector
 
-print("Scalar^Vector:", pow(base, exponents)); # Should print: [2, 4, 8, 16]
+print("Scalar^Vector:", pow(base, exponents)); // Should print: [2, 4, 8, 16]
 
-let bases = [2.0, 3.0, 4.0];                 # vector  ;
-let exp_scalar = 2.0;                         # scalar
+let bases = [2.0, 3.0, 4.0];                 // vector  ;
+let exp_scalar = 2.0;                         // scalar
 
-print("Vector^Scalar:", pow(bases, exp_scalar)); # Should print: [4, 9, 16]
+print("Vector^Scalar:", pow(bases, exp_scalar)); // Should print: [4, 9, 16]
 
-# Element-wise power
+// Element-wise power
 let bases_2 = [2.0, 3.0, 4.0];
 let exponents_2 = [1.0, 2.0, 3.0];
-print("Vector^Vector:", pow(bases_2, exponents_2)); # Should print: [2, 9, 64]
+print("Vector^Vector:", pow(bases_2, exponents_2)); // Should print: [2, 9, 64]
 
 print();
 
-# More examples with different data types
+// More examples with different data types
 let int_a = 7;
 let int_b = 3;
 
-print("Integer max:", max(int_a, int_b));     # Should print: 7
-print("Integer min:", min(int_a, int_b));     # Should print: 3
+print("Integer max:", max(int_a, int_b));     // Should print: 7
+print("Integer min:", min(int_a, int_b));     // Should print: 3
 
 print();
 
-# =============================================================================
-# MATHEMATICAL CONSISTENCY VERIFICATION
-# =============================================================================
+// =============================================================================
+// MATHEMATICAL CONSISTENCY VERIFICATION
+// =============================================================================
 
 print("5. Mathematical Consistency Verification:");
 
-# Test mathematical identities
+// Test mathematical identities
 let test_val = 3.0;
-let identity_test = sqrt(pow(test_val, 2));  # sqrt(x²) should equal |x| for positive x;
-print("sqrt(pow(3, 2)) =", identity_test);   # Should print: 3
+let identity_test = sqrt(pow(test_val, 2));  // sqrt(x²) should equal |x| for positive x;
+print("sqrt(pow(3, 2)) =", identity_test);   // Should print: 3
 
-# Test function composition
-let composed_result = abs(test_val - 5.0);   # abs(3 - 5) = abs(-2) = 2;
-print("abs(3 - 5) =", composed_result);      # Should print: 2
+// Test function composition
+let composed_result = abs(test_val - 5.0);   // abs(3 - 5) = abs(-2) = 2;
+print("abs(3 - 5) =", composed_result);      // Should print: 2
 
 print();
 
-# =============================================================================
-# FUNCTION OVERLOADING SUCCESS SUMMARY
-# =============================================================================
+// =============================================================================
+// FUNCTION OVERLOADING SUCCESS SUMMARY
+// =============================================================================
 
 print("6. Function Overloading Success Summary:");
 
@@ -137,19 +137,19 @@ print("✓ Mathematical identities are preserved");
 
 print();
 
-# =============================================================================
-# ERROR HANDLING DEMONSTRATION
-# =============================================================================
+// =============================================================================
+// ERROR HANDLING DEMONSTRATION
+// =============================================================================
 
 print("7. Error Handling:");
 
-# These should work fine
+// These should work fine
 print("Valid sqrt:", sqrt(4.0));
 
-# This should raise an error (uncomment to test):
-# print("Invalid sqrt:", sqrt(-1.0));  # Error: cannot compute square root of negative number
+// This should raise an error (uncomment to test):
+// print("Invalid sqrt:", sqrt(-1.0));  # Error: cannot compute square root of negative number
 
-# More mathematical functions can be imported as needed
+// More mathematical functions can be imported as needed
 
 print();
 print("=== Demo Complete ===");

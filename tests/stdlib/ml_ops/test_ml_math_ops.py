@@ -215,7 +215,7 @@ def test_mod_fmod_edge_cases(compiler, runtime):
 def test_logical_ops_all_ranks(compiler, runtime):
     """Test logical operations (logical_and, logical_or, logical_xor, logical_not) across all supported ranks (0D, 1D, 2D, 3D) with boolean tensors"""
     source = """use std::ml;
-    # 0D (scalars) - boolean values
+    // 0D (scalars) - boolean values
     let a_0d = true;
     let b_0d = false;
     let and_0d = std::ml::logical_and(a_0d, b_0d);
@@ -223,7 +223,7 @@ def test_logical_ops_all_ranks(compiler, runtime):
     let xor_0d = std::ml::logical_xor(a_0d, b_0d);
     let not_0d = std::ml::logical_not(a_0d);
 
-    # 1D - boolean arrays
+    // 1D - boolean arrays
     let a_1d = [true, false, true, false];
     let b_1d = [true, true, false, false];
     let and_1d = std::ml::logical_and(a_1d, b_1d);
@@ -231,7 +231,7 @@ def test_logical_ops_all_ranks(compiler, runtime):
     let xor_1d = std::ml::logical_xor(a_1d, b_1d);
     let not_1d = std::ml::logical_not(a_1d);
 
-    # 2D - boolean arrays
+    // 2D - boolean arrays
     let a_2d = [[true, false, true], [false, true, false]];
     let b_2d = [[true, true, false], [false, false, true]];
     let and_2d = std::ml::logical_and(a_2d, b_2d);
@@ -239,7 +239,7 @@ def test_logical_ops_all_ranks(compiler, runtime):
     let xor_2d = std::ml::logical_xor(a_2d, b_2d);
     let not_2d = std::ml::logical_not(a_2d);
 
-    # 3D - boolean arrays
+    // 3D - boolean arrays
     let a_3d = [[[true, false], [true, false]], [[false, true], [false, true]]];
     let b_3d = [[[true, true], [false, false]], [[true, false], [true, false]]];
     let and_3d = std::ml::logical_and(a_3d, b_3d);
@@ -302,19 +302,19 @@ def test_logical_ops_all_ranks(compiler, runtime):
 def test_rsqrt_all_ranks(compiler, runtime):
     """Test rsqrt (reciprocal square root) operation across all supported ranks (0D, 1D, 2D, 3D)"""
     source = """use std::ml;
-    # 0D (scalar)
+    // 0D (scalar)
     let x_0d = 4.0;
     let rsqrt_0d = std::ml::rsqrt(x_0d);
     
-    # 1D
+    // 1D
     let x_1d = [4.0, 9.0, 16.0, 25.0];
     let rsqrt_1d = std::ml::rsqrt(x_1d);
     
-    # 2D
+    // 2D
     let x_2d = [[4.0, 9.0, 16.0], [25.0, 36.0, 49.0]];
     let rsqrt_2d = std::ml::rsqrt(x_2d);
     
-    # 3D
+    // 3D
     let x_3d = [[[4.0, 9.0], [16.0, 25.0]], [[36.0, 49.0], [64.0, 81.0]]];
     let rsqrt_3d = std::ml::rsqrt(x_3d);
     """
@@ -346,25 +346,25 @@ def test_mod_fmod_all_ranks(compiler, runtime):
     """Test mod and fmod operations across all supported ranks (0D, 1D, 2D, 3D)"""
     
     source = """use std::ml;
-    # Test 0D (scalar)
+    // Test 0D (scalar)
     let a_scalar = 10.0;
     let b_scalar = 3.0;
     let mod_0d = std::ml::mod(a_scalar, b_scalar);
     let fmod_0d = std::ml::fmod(a_scalar, b_scalar);
     
-    # Test 1D
+    // Test 1D
     let a_1d = [10.0, 7.0, 15.0, -10.0];
     let b_1d = [3.0, 2.0, 4.0, 3.0];
     let mod_1d = std::ml::mod(a_1d, b_1d);
     let fmod_1d = std::ml::fmod(a_1d, b_1d);
     
-    # Test 2D
+    // Test 2D
     let a_2d = [[10.0, 7.0], [15.0, 20.0]];
     let b_2d = [[3.0, 2.0], [4.0, 6.0]];
     let mod_2d = std::ml::mod(a_2d, b_2d);
     let fmod_2d = std::ml::fmod(a_2d, b_2d);
     
-    # Test 3D
+    // Test 3D
     let a_3d = [[[10.0, 7.0], [15.0, 20.0]], [[5.0, 12.0], [8.0, 9.0]]];
     let b_3d = [[[3.0, 2.0], [4.0, 6.0]], [[2.0, 5.0], [3.0, 4.0]]];
     let mod_3d = std::ml::mod(a_3d, b_3d);
@@ -402,22 +402,22 @@ def test_expm1_log1p_all_ranks(compiler, runtime):
     """Test expm1 and log1p operations across all supported ranks (0D, 1D, 2D, 3D)"""
     
     source = """use std::ml;
-    # Test 0D (scalar)
+    // Test 0D (scalar)
     let x_scalar = 0.5;
     let expm1_0d = std::ml::expm1(x_scalar);
     let log1p_0d = std::ml::log1p(x_scalar);
     
-    # Test 1D
+    // Test 1D
     let x_1d = [0.0, 0.5, 1.0, -0.5, 2.0];
     let expm1_1d = std::ml::expm1(x_1d);
     let log1p_1d = std::ml::log1p(x_1d);
     
-    # Test 2D
+    // Test 2D
     let x_2d = [[0.0, 0.1, 0.5], [1.0, 2.0, -0.1]];
     let expm1_2d = std::ml::expm1(x_2d);
     let log1p_2d = std::ml::log1p(x_2d);
     
-    # Test 3D
+    // Test 3D
     let x_3d = [[[0.0, 0.1], [0.5, 1.0]], [[-0.1, 0.0], [2.0, 3.0]]];
     let expm1_3d = std::ml::expm1(x_3d);
     let log1p_3d = std::ml::log1p(x_3d);
@@ -451,12 +451,12 @@ def test_expm1_log1p_numerical_stability(compiler, runtime):
     """Test expm1 and log1p for numerical stability with small values"""
     
     source = """use std::ml;
-    # Test with very small values where expm1 and log1p provide better numerical stability
+    // Test with very small values where expm1 and log1p provide better numerical stability
     let x_small = [1e-8, 1e-10, -1e-8, -1e-10];
     let expm1_small = std::ml::expm1(x_small);
     let log1p_small = std::ml::log1p(x_small);
     
-    # Test with values near zero
+    // Test with values near zero
     let x_near_zero = [0.0, 1e-15, -1e-15];
     let expm1_near_zero = std::ml::expm1(x_near_zero);
     let log1p_near_zero = std::ml::log1p(x_near_zero);

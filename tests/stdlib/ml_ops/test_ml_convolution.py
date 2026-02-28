@@ -26,17 +26,17 @@ from tests.test_utils import compile_and_execute, assert_float_close
 def test_conv(compiler, runtime):
     """Test conv operation across all ranks (1D, 2D, 3D)"""
     source = """use std::ml;
-    # Conv 1D
+    // Conv 1D
     let x_conv_1d = [[[1.0, 2.0, 3.0, 4.0]]];
     let w_conv_1d = [[[1.0, 0.5]]];
     let b_conv_1d = [0.0];
     let result_1d = std::ml::conv(x_conv_1d, w_conv_1d, b_conv_1d, [1], [0], [1]);
-    # Conv 2D
+    // Conv 2D
     let x_conv_2d = [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]]];
     let w_conv_2d = [[[[1.0, 0.0], [0.0, 1.0]]]];
     let b_conv_2d = [0.0];
     let result_2d = std::ml::conv(x_conv_2d, w_conv_2d, b_conv_2d, [1, 1], [0, 0], [1, 1]);
-    # Conv 3D
+    // Conv 3D
     let x_conv_3d = [[[[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]]];
     let w_conv_3d = [[[[[1.0, 0.0], [0.0, 1.0]], [[0.5, 0.5], [0.5, 0.5]]]]];
     let b_conv_3d = [0.0];
@@ -78,7 +78,7 @@ def test_conv(compiler, runtime):
 def test_conv_transpose(compiler, runtime):
     """Test conv_transpose operation across all ranks (1D, 2D, 3D)"""
     source = """use std::ml;
-    # ConvTranspose 1D
+    // ConvTranspose 1D
     let x_conv_transpose_1d = [[[1.0, 2.0, 3.0]]];
     let w_conv_transpose_1d = [[[1.0, 0.5]]];
     let b_conv_transpose_1d = [0.0];
@@ -86,7 +86,7 @@ def test_conv_transpose(compiler, runtime):
     let pads_conv_transpose_1d = [0];
     let output_padding_conv_transpose_1d = [0];
     let result_1d = std::ml::conv_transpose(x_conv_transpose_1d, w_conv_transpose_1d, b_conv_transpose_1d, strides_conv_transpose_1d, pads_conv_transpose_1d, output_padding_conv_transpose_1d);
-    # ConvTranspose 2D
+    // ConvTranspose 2D
     let x_conv_transpose_2d = [[[[1.0, 2.0], [3.0, 4.0]]]];
     let w_conv_transpose_2d = [[[[1.0, 0.5], [0.5, 1.0]]]];
     let b_conv_transpose_2d = [0.0];
@@ -94,7 +94,7 @@ def test_conv_transpose(compiler, runtime):
     let pads_conv_transpose_2d = [0, 0];
     let output_padding_conv_transpose_2d = [0, 0];
     let result_2d = std::ml::conv_transpose(x_conv_transpose_2d, w_conv_transpose_2d, b_conv_transpose_2d, strides_conv_transpose_2d, pads_conv_transpose_2d, output_padding_conv_transpose_2d);
-    # ConvTranspose 3D
+    // ConvTranspose 3D
     let x_conv_transpose_3d = [[[[[1.0, 2.0], [3.0, 4.0]]]]];
     let w_conv_transpose_3d = [[[[[1.0, 0.5], [0.5, 1.0]], [[0.5, 0.5], [0.5, 0.5]]]]];
     let b_conv_transpose_3d = [0.0];
