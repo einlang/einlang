@@ -82,7 +82,7 @@ class TestNamedRestPatternRuntime:
     def test_rest_pattern_simple_execution(self, compiler, runtime):
         """Test execution with rest patterns - simple case"""
         source = """
-        let x = [[1.0, 2.0], [3.0, 4.0]];  # 2x2 matrix
+        let x = [[1.0, 2.0], [3.0, 4.0]];  // 2x2 matrix
         let result[..batch, j] = x[..batch, j] * 2.0;
         """
         
@@ -102,7 +102,7 @@ class TestNamedRestPatternRuntime:
     def test_rest_pattern_with_reduction(self, compiler, runtime):
         """Test execution with rest patterns in reduction"""
         source = """
-        let x = [[1.0, 2.0], [3.0, 4.0]];  # 2x2 matrix
+        let x = [[1.0, 2.0], [3.0, 4.0]];  // 2x2 matrix
         let result[..batch] = sum[j](x[..batch, j]);
         """
         
@@ -120,8 +120,8 @@ class TestNamedRestPatternRuntime:
     def test_rest_pattern_matrix_multiply(self, compiler, runtime):
         """Test execution with rest patterns in matrix multiplication"""
         source = """
-        let x = [[1.0, 2.0], [3.0, 4.0]];  # 2x2 matrix
-        let w = [[0.1, 0.2], [0.3, 0.4]];  # 2x2 weight matrix
+        let x = [[1.0, 2.0], [3.0, 4.0]];  // 2x2 matrix
+        let w = [[0.1, 0.2], [0.3, 0.4]];  // 2x2 weight matrix
         let result[..batch, j] = sum[k](x[..batch, k] * w[k, j]);
         """
         
@@ -142,7 +142,7 @@ class TestNamedRestPatternRuntime:
         """Test high-rank 4D tensor with 3D rest pattern"""
         source = """
         let x = [[[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]], 
-                 [[[9.0, 10.0], [11.0, 12.0]], [[13.0, 14.0], [15.0, 16.0]]]];  # Shape: (2, 2, 2, 2)
+                 [[[9.0, 10.0], [11.0, 12.0]], [[13.0, 14.0], [15.0, 16.0]]]];  // Shape: (2, 2, 2, 2)
         let result[..spatial, c] = x[..spatial, c] * 2.0;
         """
         
@@ -160,7 +160,7 @@ class TestNamedRestPatternRuntime:
     def test_rest_pattern_3d_tensor(self, compiler, runtime):
         """Test 3D tensor with 2D rest pattern"""
         source = """
-        let x = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];  # Shape: (2, 2, 2)
+        let x = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];  // Shape: (2, 2, 2)
         let result[..batch, c] = x[..batch, c] * 3.0;
         """
         
@@ -177,7 +177,7 @@ class TestNamedRestPatternRuntime:
         """Test reduction with rest pattern on high-rank tensor"""
         source = """
         let x = [[[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]], 
-                 [[[9.0, 10.0], [11.0, 12.0]], [[13.0, 14.0], [15.0, 16.0]]]];  # Shape: (2, 2, 2, 2)
+                 [[[9.0, 10.0], [11.0, 12.0]], [[13.0, 14.0], [15.0, 16.0]]]];  // Shape: (2, 2, 2, 2)
         let result[..batch] = sum[c](x[..batch, c]);
         """
         
@@ -202,8 +202,8 @@ class TestNamedRestPatternRuntime:
     def test_rest_pattern_broadcasting(self, compiler, runtime):
         """Test broadcasting with rest patterns"""
         source = """
-        let x = [[1.0, 2.0], [3.0, 4.0]];  # Shape: (2, 2)
-        let bias = [10.0, 20.0];  # Shape: (2,)
+        let x = [[1.0, 2.0], [3.0, 4.0]];  // Shape: (2, 2)
+        let bias = [10.0, 20.0];  // Shape: (2,)
         let result[..batch, j] = x[..batch, j] + bias[j];
         """
         
@@ -223,8 +223,8 @@ class TestNamedRestPatternRuntime:
     def test_rest_pattern_complex_expression(self, compiler, runtime):
         """Test complex expression with rest patterns"""
         source = """
-        let x = [[1.0, 2.0], [3.0, 4.0]];  # Shape: (2, 2)
-        let y = [[5.0, 6.0], [7.0, 8.0]];  # Shape: (2, 2)
+        let x = [[1.0, 2.0], [3.0, 4.0]];  // Shape: (2, 2)
+        let y = [[5.0, 6.0], [7.0, 8.0]];  // Shape: (2, 2)
         let result[..batch, j] = (x[..batch, j] + y[..batch, j]) * 2.0;
         """
         
@@ -244,7 +244,7 @@ class TestNamedRestPatternRuntime:
     def test_rest_pattern_at_beginning(self, compiler, runtime):
         """Test rest pattern at the beginning of index list"""
         source = """
-        let x = [[1.0, 2.0], [3.0, 4.0]];  # Shape: (2, 2)
+        let x = [[1.0, 2.0], [3.0, 4.0]];  // Shape: (2, 2)
         let result[..batch, j] = x[..batch, j] * 2.0;
         """
         
@@ -265,7 +265,7 @@ class TestNamedRestPatternRuntime:
     def test_rest_pattern_in_middle(self, compiler, runtime):
         """Test rest pattern in the middle between explicit indices"""
         source = """
-        let x = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];  # Shape: (2, 2, 2)
+        let x = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];  // Shape: (2, 2, 2)
         let result[i, ..batch, j] = x[i, ..batch, j] * 2.0;
         """
         
@@ -283,7 +283,7 @@ class TestNamedRestPatternRuntime:
     def test_rest_pattern_at_end(self, compiler, runtime):
         """Test rest pattern at the end of index list"""
         source = """
-        let x = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];  # Shape: (2, 2, 2)
+        let x = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];  // Shape: (2, 2, 2)
         let result[i, ..batch] = x[i, ..batch] * 2.0;
         """
         
@@ -302,7 +302,7 @@ class TestNamedRestPatternRuntime:
         """Test rest pattern at beginning with high-rank tensor"""
         source = """
         let x = [[[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]], 
-                 [[[9.0, 10.0], [11.0, 12.0]], [[13.0, 14.0], [15.0, 16.0]]]];  # Shape: (2, 2, 2, 2)
+                 [[[9.0, 10.0], [11.0, 12.0]], [[13.0, 14.0], [15.0, 16.0]]]];  // Shape: (2, 2, 2, 2)
         let result[..spatial, c] = x[..spatial, c] * 2.0;
         """
         
@@ -321,7 +321,7 @@ class TestNamedRestPatternRuntime:
         """Test rest pattern in middle with high-rank tensor"""
         source = """
         let x = [[[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]], 
-                 [[[9.0, 10.0], [11.0, 12.0]], [[13.0, 14.0], [15.0, 16.0]]]];  # Shape: (2, 2, 2, 2)
+                 [[[9.0, 10.0], [11.0, 12.0]], [[13.0, 14.0], [15.0, 16.0]]]];  // Shape: (2, 2, 2, 2)
         let result[i, ..spatial, c] = x[i, ..spatial, c] * 2.0;
         """
         
@@ -340,7 +340,7 @@ class TestNamedRestPatternRuntime:
         """Test rest pattern at end with high-rank tensor"""
         source = """
         let x = [[[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]], 
-                 [[[9.0, 10.0], [11.0, 12.0]], [[13.0, 14.0], [15.0, 16.0]]]];  # Shape: (2, 2, 2, 2)
+                 [[[9.0, 10.0], [11.0, 12.0]], [[13.0, 14.0], [15.0, 16.0]]]];  // Shape: (2, 2, 2, 2)
         let result[i, ..spatial] = x[i, ..spatial] * 2.0;
         """
         
@@ -358,8 +358,8 @@ class TestNamedRestPatternRuntime:
     def test_outer_product_simple(self, compiler, runtime):
         """Test simple outer product without rest patterns"""
         source = """
-        let a = [1.0, 2.0];  # Shape: (2,)
-        let b = [3.0, 4.0];  # Shape: (2,)
+        let a = [1.0, 2.0];  // Shape: (2,)
+        let b = [3.0, 4.0];  // Shape: (2,)
         let result[i, j] = a[i] * b[j];
         """
         
@@ -379,8 +379,8 @@ class TestNamedRestPatternRuntime:
     def test_outer_product_with_rest_at_beginning(self, compiler, runtime):
         """Test outer product with rest pattern at beginning"""
         source = """
-        let a = [[1.0, 2.0], [3.0, 4.0]];  # Shape: (2, 2)
-        let b = [5.0, 6.0];  # Shape: (2,)
+        let a = [[1.0, 2.0], [3.0, 4.0]];  // Shape: (2, 2)
+        let b = [5.0, 6.0];  // Shape: (2,)
         let result[..batch, i, j] = a[..batch, i] * b[j];
         """
         
@@ -405,8 +405,8 @@ class TestNamedRestPatternRuntime:
     def test_outer_product_with_rest_both_vectors(self, compiler, runtime):
         """Test outer product where both vectors have rest patterns"""
         source = """
-        let a = [[1.0, 2.0], [3.0, 4.0]];  # Shape: (2, 2)
-        let b = [[5.0, 6.0], [7.0, 8.0]];  # Shape: (2, 2)
+        let a = [[1.0, 2.0], [3.0, 4.0]];  // Shape: (2, 2)
+        let b = [[5.0, 6.0], [7.0, 8.0]];  // Shape: (2, 2)
         let result[..batch_a, i, ..batch_b, j] = a[..batch_a, i] * b[..batch_b, j];
         """
         
@@ -430,8 +430,8 @@ class TestNamedRestPatternRuntime:
     def test_outer_product_high_rank(self, compiler, runtime):
         """Test outer product with high-rank tensors and rest patterns"""
         source = """
-        let a = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];  # Shape: (2, 2, 2)
-        let b = [10.0, 20.0];  # Shape: (2,)
+        let a = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];  // Shape: (2, 2, 2)
+        let b = [10.0, 20.0];  // Shape: (2,)
         let result[..spatial, i, j] = a[..spatial, i] * b[j];
         """
         
@@ -455,9 +455,9 @@ class TestNamedRestPatternRuntime:
     def test_outer_product_three_way(self, compiler, runtime):
         """Test three-way outer product with rest patterns"""
         source = """
-        let a = [[1.0, 2.0], [3.0, 4.0]];  # Shape: (2, 2)
-        let b = [5.0, 6.0];  # Shape: (2,)
-        let c = [7.0, 8.0];  # Shape: (2,)
+        let a = [[1.0, 2.0], [3.0, 4.0]];  // Shape: (2, 2)
+        let b = [5.0, 6.0];  // Shape: (2,)
+        let c = [7.0, 8.0];  // Shape: (2,)
         let result[..batch, i, j, k] = a[..batch, i] * b[j] * c[k];
         """
         
@@ -486,7 +486,7 @@ class TestNamedRestPatternRuntime:
             result
         }
         
-        let input = [[1.0, 2.0], [3.0, 4.0]];  # Shape: (2, 2)
+        let input = [[1.0, 2.0], [3.0, 4.0]];  // Shape: (2, 2)
         let scaled = scale_tensor(input, 2.5);
         """
         

@@ -1,48 +1,48 @@
-# CORE FEATURE: Tuple Expressions and Coordinate Patterns
-# PURPOSE: Showcases tuple syntax and coordinate-based programming patterns
-# VALUE: Demonstrates tuple usage for coordinates, pairs, and structured data
+// CORE FEATURE: Tuple Expressions and Coordinate Patterns
+// PURPOSE: Showcases tuple syntax and coordinate-based programming patterns
+// VALUE: Demonstrates tuple usage for coordinates, pairs, and structured data
 
-# Basic tuple-like structures with arrays
+// Basic tuple-like structures with arrays
 let point = [3, 4];
 let triple = [1, 2, 3];
-# let pair_strings = ["hello", "world"];
+// let pair_strings = ["hello", "world"];
 
 assert(point.length == 2, "Point should have 2 coordinates");
 assert(triple.length == 3, "Triple should have 3 elements");
-# assert(pair_strings[0] == "hello", "First string should be 'hello'");
+// assert(pair_strings[0] == "hello", "First string should be 'hello'");
 
-# Tuples in array comprehensions for coordinate generation
+// Tuples in array comprehensions for coordinate generation
 let coordinates = [(i, j) | i in 0..3, j in 0..3];
 
 assert(coordinates.length == 9, "Should have 9 coordinate pairs (3x3)");
 
-# Coordinate-based filtering patterns
+// Coordinate-based filtering patterns
 let matrix_coords = [(i, j) | i in 0..2, j in 0..2, i + j < 3];
 
 assert(matrix_coords.length >= 3, "Should have coordinate pairs where i+j < 3");
 
-# Tuple patterns in data processing
-let data_points = [(x, x * x) | x in 1..4];  # (x, x²) pairs
+// Tuple patterns in data processing
+let data_points = [(x, x * x) | x in 1..4];  // (x, x²) pairs
 
 assert(data_points.length == 3, "Should have 3 data points");
 
-# Multi-dimensional coordinate patterns
+// Multi-dimensional coordinate patterns
 let cube_coords = [(i, j, k) | i in 0..2, j in 0..2, k in 0..2];
 
 assert(cube_coords.length == 8, "Should have 8 3D coordinate tuples (2x2x2)");
 
-# Coordinate filtering with conditions
+// Coordinate filtering with conditions
 let sparse_coords = [(i, j) | i in 0..4, j in 0..4, (i + j) % 2 == 0];
 
 assert(sparse_coords.length >= 5, "Should have coordinate pairs with even sum");
 
-# Tuple-like structures with arrays
+// Tuple-like structures with arrays
 let point_array = [3, 4];
 let point_magnitude = point_array[0] * point_array[0] + point_array[1] * point_array[1];
 
 assert(point_magnitude == 25, "Point magnitude should be 3²+4²=25");
 
-# Array of tuple-like pairs
+// Array of tuple-like pairs
 let pairs = [[1, 2], [3, 4], [5, 6]];
 let first_pair = pairs[0];
 let pair_sum = first_pair[0] + first_pair[1];
@@ -51,21 +51,21 @@ assert(pairs.length == 3, "Should have 3 pairs");
 assert(first_pair.length == 2, "Each pair should have 2 elements");
 assert(pair_sum == 3, "First pair sum should be 1+2=3");
 
-# Coordinate-based matrix operations
+// Coordinate-based matrix operations
 let identity_coords = [(i, j) | i in 0..3, j in 0..3, i == j];
 
 assert(identity_coords.length == 3, "Should have 3 diagonal coordinates");
 
-# Distance calculations using coordinate patterns
+// Distance calculations using coordinate patterns
 let test_points = [[3, 4], [1, 1], [0, 5]];
 
-# Distance-like calculations
+// Distance-like calculations
 let point_distances = [test_points[k][0] * test_points[k][0] + test_points[k][1] * test_points[k][1] | k in 0..2];
 
 assert(point_distances.length == 2, "Should have 2 distance calculations");
 assert(point_distances[0] == 25, "First distance should be 3²+4²=25");
 
-# Tuple patterns in function parameters
+// Tuple patterns in function parameters
 fn process_coordinate_pair(coord) {
     coord[0] + coord[1]
 }
@@ -73,7 +73,7 @@ fn process_coordinate_pair(coord) {
 let coord_result = process_coordinate_pair([7, 3]);
 assert(coord_result == 10, "Coordinate processing should 7+3=10");
 
-# Simple coordinate filtering
+// Simple coordinate filtering
 let boundary_coords = [
     (i, j) | i in 0..3, j in 0..3, 
     i == 0 || j == 0
@@ -81,7 +81,7 @@ let boundary_coords = [
 
 assert(boundary_coords.length >= 5, "Should have boundary coordinates");
 
-# Simple coordinate patterns
+// Simple coordinate patterns
 let grid_regions = [
     (i, j) | i in 0..3, j in 0..3, 
     i < 2 && j < 2
@@ -89,16 +89,16 @@ let grid_regions = [
 
 assert(grid_regions.length >= 3, "Should have coordinates in specific regions");
 
-# Tuple-based data structures (simplified to use only numbers due to type homogeneity)
-# NOTE: Heterogeneous arrays (mixing strings and ints) not yet supported
-# let employee_data = [["Alice", 30], ["Bob", 25], ["Carol", 35]];
+// Tuple-based data structures (simplified to use only numbers due to type homogeneity)
+// NOTE: Heterogeneous arrays (mixing strings and ints) not yet supported
+// let employee_data = [["Alice", 30], ["Bob", 25], ["Carol", 35]];
 let employee_ages = [30, 25, 35];
 let first_age = employee_ages[0];
 
 assert(employee_ages.length == 3, "Should have 3 employee records");
 assert(first_age == 30, "First employee age should be 30");
 
-# Coordinate transformations
+// Coordinate transformations
 let original_points = [[1, 1], [2, 2], [3, 3]];
 let transformed_points = [[original_points[k][0] * 2, original_points[k][1] * 3] | k in 0..2];
 
@@ -106,7 +106,7 @@ assert(transformed_points.length == 2, "Should have 2 transformed points");
 assert(transformed_points[0][0] == 2, "Transformed x should be 1*2=2");
 assert(transformed_points[0][1] == 3, "Transformed y should be 1*3=3");
 
-# Simple coordinate type checking
+// Simple coordinate type checking
 let test_coord = [2, 3];
 let is_diagonal_val = if test_coord[0] == test_coord[1] { 1 } else { 0 };
 let is_axis_val = if test_coord[0] == 0 || test_coord[1] == 0 { 1 } else { 0 };
@@ -114,11 +114,11 @@ let is_axis_val = if test_coord[0] == 0 || test_coord[1] == 0 { 1 } else { 0 };
 assert(is_diagonal_val == 0, "Coordinate [2,3] should not be diagonal");
 assert(is_axis_val == 0, "Coordinate [2,3] should not be on axis");
 
-# Tuple patterns in array operations
+// Tuple patterns in array operations
 let matrix_values = [[1, 4, 7], [2, 5, 8], [3, 6, 9]];
 let diagonal_values = [matrix_values[i][i] | i in 0..2];
 
 assert(diagonal_values.length == 2, "Should extract 2 diagonal values");
 assert(diagonal_values[0] == 1, "First diagonal should be 1");
 
-# All tuple expression syntax showcased successfully
+// All tuple expression syntax showcased successfully

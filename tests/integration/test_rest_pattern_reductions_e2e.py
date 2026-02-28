@@ -43,10 +43,10 @@ class TestRestPatternReductions:
         let x = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];
         let sums[..batch] = sum[k](x[..batch, k]);
         
-        assert(sums[0, 0] == 3.0);   # 1 + 2
-        assert(sums[0, 1] == 7.0);   # 3 + 4
-        assert(sums[1, 0] == 11.0);  # 5 + 6
-        assert(sums[1, 1] == 15.0);  # 7 + 8
+        assert(sums[0, 0] == 3.0);   // 1 + 2
+        assert(sums[0, 1] == 7.0);   // 3 + 4
+        assert(sums[1, 0] == 11.0);  // 5 + 6
+        assert(sums[1, 1] == 15.0);  // 7 + 8
         """
         
         result = compile_and_execute(source, compiler, runtime)
@@ -59,16 +59,16 @@ class TestRestPatternReductions:
         When input is 1D, ..batch spans 0 dimensions, so the output is also scalar.
         """
         source = """
-        # 2D case - ..batch spans 1 dimension  
+        // 2D case - ..batch spans 1 dimension  
         let x2d = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
         let sums2d[..batch] = sum[k](x2d[..batch, k]);
-        assert(sums2d[0] == 6.0);   # 1 + 2 + 3
-        assert(sums2d[1] == 15.0);  # 4 + 5 + 6
+        assert(sums2d[0] == 6.0);   // 1 + 2 + 3
+        assert(sums2d[1] == 15.0);  // 4 + 5 + 6
         
-        # 1D case - ..batch spans 0 dimensions (empty)
-        # Result should be scalar, not array
+        // 1D case - ..batch spans 0 dimensions (empty)
+        // Result should be scalar, not array
         let x1d = [1.0, 2.0, 3.0];
-        let sum1d = sum[k](x1d[k]);  # No rest pattern needed for 1D
+        let sum1d = sum[k](x1d[k]);  // No rest pattern needed for 1D
         assert(sum1d == 6.0);
         """
         
@@ -85,10 +85,10 @@ class TestRestPatternReductions:
         source = """
         pub fn softmax(x: [f32; *]) -> [f32; *] {
             let max_val[..batch] = max[j](x[..batch, j]);
-            max_val  # For now, just return max values
+            max_val  // For now, just return max values
         }
         
-        # Test with 2D array - per-rank monomorphization working!
+        // Test with 2D array - per-rank monomorphization working!
         let x2d = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
         let result2d = softmax(x2d);
         assert(result2d[0] == 3.0);
@@ -110,7 +110,7 @@ class TestRestPatternErrors:
         """
         source = """
         let x = [[1.0, 2.0], [3.0, 4.0]];
-        # ERROR: ..batch in output but x is accessed without rest pattern
+        // ERROR: ..batch in output but x is accessed without rest pattern
         let result[..batch] = sum[..other](x[..other]);
         """
         
@@ -126,7 +126,7 @@ class TestRestPatternErrors:
         """
         source = """
         let x = [[[[1.0]]]];
-        # ERROR: Both rest patterns appear together without being determined first
+        // ERROR: Both rest patterns appear together without being determined first
         let result[..batch, ..spatial, c] = sum[k](x[..batch, ..spatial, c, k]);
         """
         
@@ -147,10 +147,10 @@ class TestRestPatternConsistency:
         Currently fails with a backend error before rest pattern validation runs.
         """
         source = """
-        let x = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];  # Shape: [2, 2, 2]
-        let y = [[1.0, 2.0], [3.0, 4.0]];  # Shape: [2, 2]
+        let x = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];  // Shape: [2, 2, 2]
+        let y = [[1.0, 2.0], [3.0, 4.0]];  // Shape: [2, 2]
         
-        # ERROR: ..batch spans 2 dimensions in x but 1 dimension in y
+        // ERROR: ..batch spans 2 dimensions in x but 1 dimension in y
         let result[..batch, j] = sum[k](x[..batch, k] * y[..batch, k]);
         """
         

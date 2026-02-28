@@ -1,33 +1,33 @@
-# BOOTSTRAP ONLY TEST: 5 Essential Language Primitives
-# PURPOSE: Tests ONLY the 5 minimal bootstrap functions - no stdlib imports
-# VALUE: Validates the truly minimal bootstrap that cannot be implemented in Einlang
+// BOOTSTRAP ONLY TEST: 5 Essential Language Primitives
+// PURPOSE: Tests ONLY the 5 minimal bootstrap functions - no stdlib imports
+// VALUE: Validates the truly minimal bootstrap that cannot be implemented in Einlang
 
-# NO IMPORTS - testing only bootstrap primitives
+// NO IMPORTS - testing only bootstrap primitives
 
 let test_data = [1, 4, 9, 16, 25, 36];
 let empty_array = [];
 let single_item = [42];
 
-# Test the 5 bootstrap primitives ONLY:
+// Test the 5 bootstrap primitives ONLY:
 
-# 1. print - I/O primitive
+// 1. print - I/O primitive
 print("=== Bootstrap Primitives Test ===");
 
-# 2. len - Container length primitive  
+// 2. len - Container length primitive  
 let data_length = len(test_data);
 let empty_length = len(empty_array);
 let single_length = len(single_item);
 
-# 3. array_append - Array construction primitive
+// 3. array_append - Array construction primitive
 let appended_data = array_append(test_data, 49);
 let double_append = array_append(appended_data, 64);
 
-# 4. typeof - Type introspection primitive
+// 4. typeof - Type introspection primitive
 let data_type = typeof(test_data);
 let number_type = typeof(42);
 let string_type = typeof("hello");
 
-# 5. assert - Error handling primitive (test multiple assertions)
+// 5. assert - Error handling primitive (test multiple assertions)
 assert(data_length == 6, "Length should be 6");
 assert(len(appended_data) == 7, "Appended array should have length 7");
 assert(len(double_append) == 8, "Double appended array should have length 8");
@@ -37,7 +37,7 @@ assert(string_type == "str", "String type should be 'str'");
 assert(empty_length == 0, "Empty array length should be 0");
 assert(single_length == 1, "Single item array length should be 1");
 
-# Print test results using only bootstrap primitives
+// Print test results using only bootstrap primitives
 print("✅ Bootstrap Function Tests:");
 print("   1. print() - working (you can see this message)");
 print("   2. len() - working, lengths:", data_length, empty_length, single_length);
@@ -48,4 +48,4 @@ print("   5. assert() - working (no assertion failures)");
 print("\n🎉 ALL 5 BOOTSTRAP PRIMITIVES WORKING!");
 print("✅ Minimal bootstrap is sufficient for language operation");
 
-# This example demonstrates comprehensive bootstrap function usage
+// This example demonstrates comprehensive bootstrap function usage

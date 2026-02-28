@@ -1,8 +1,8 @@
-# Sum function for mathematical operations
-# Provides sum functionality for arrays and tensors
+// Sum function for mathematical operations
+// Provides sum functionality for arrays and tensors
 
 pub fn sum(arr) {
-    # Sum all elements in an array
-    # Using numpy for efficient array support
+    // Sum all elements in an array
+    // Using numpy for efficient array support
     python::numpy::sum(arr)
 }

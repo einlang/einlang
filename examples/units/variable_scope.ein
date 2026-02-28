@@ -1,15 +1,15 @@
-# CORE FEATURE: Variable Scope and Shadowing
-# PURPOSE: Showcases variable scope rules and shadowing behavior in Einlang
-# VALUE: Demonstrates essential scoping syntax and variable resolution
+// CORE FEATURE: Variable Scope and Shadowing
+// PURPOSE: Showcases variable scope rules and shadowing behavior in Einlang
+// VALUE: Demonstrates essential scoping syntax and variable resolution
 
-# Global scope variables
+// Global scope variables
 let global_var = 100;
 let another_global = 200;
 
 assert(global_var == 100, "Global variable should be 100");
 assert(another_global == 200, "Another global should be 200");
 
-# Function parameter scope
+// Function parameter scope
 fn test_params(param1, param2) {
     assert(param1 == 5, "Parameter 1 should be 5");
     assert(param2 == 10, "Parameter 2 should be 10");
@@ -19,7 +19,7 @@ fn test_params(param1, param2) {
 let param_test = test_params(5, 10);
 assert(param_test == 15, "Function should 15");
 
-# Local variable scope within functions
+// Local variable scope within functions
 fn test_local_scope() {
     let local_var = 42;
     assert(local_var == 42, "Local var should be 42");
@@ -29,9 +29,9 @@ fn test_local_scope() {
 let local_result = test_local_scope();
 assert(local_result == 42, "Function should local variable");
 
-# Variable shadowing
+// Variable shadowing
 fn test_shadowing(global_var) {
-    # Parameter shadows global variable
+    // Parameter shadows global variable
     assert(global_var == 50, "Parameter should shadow global with value 50");
     global_var * 2
 }
@@ -40,7 +40,7 @@ let shadow_result = test_shadowing(50);
 assert(shadow_result == 100, "Shadow test should 100");
 assert(global_var == 100, "Original global_var should remain 100");
 
-# Nested function scope (Rust-style: no capture, must pass parameters)
+// Nested function scope (Rust-style: no capture, must pass parameters)
 fn outer_function(outer_param) {
     let outer_local = 300;
     
@@ -54,12 +54,12 @@ fn outer_function(outer_param) {
 let nested_result = outer_function(75);
 assert(nested_result == 400, "Nested function test should 400");
 
-# Variable redeclaration in new scope (shadowing)
+// Variable redeclaration in new scope (shadowing)
 let scope_test = 1000;
 assert(scope_test == 1000, "Initial declaration should be 1000");
 
 fn redeclaration_demo() {
-    let scope_test = 2000;  # Redeclaration in new scope shadows outer variable;
+    let scope_test = 2000;  // Redeclaration in new scope shadows outer variable;
     assert(scope_test == 2000, "Inner scope should have 2000");
     scope_test
 }
@@ -68,7 +68,7 @@ let inner_result = redeclaration_demo();
 assert(inner_result == 2000, "Function should inner scope value");
 assert(scope_test == 1000, "Outer scope should remain 1000");
 
-# Scope with conditional expressions
+// Scope with conditional expressions
 let condition_var = 50;
 let conditional_result = if (condition_var > 25) {
     condition_var * 2 + 10
@@ -78,7 +78,7 @@ let conditional_result = if (condition_var > 25) {
 
 assert(conditional_result == 110, "Conditional should 110");
 
-# Function with parameters (globals must be passed as parameters)
+// Function with parameters (globals must be passed as parameters)
 fn sum_values(val1, val2) {
     let sum = val1 + val2;
     sum
@@ -87,7 +87,7 @@ fn sum_values(val1, val2) {
 let global_access_result = sum_values(global_var, another_global);
 assert(global_access_result == 300, "Sum result should be 300");
 
-# Parameter precedence over global
+// Parameter precedence over global
 let function_param = 777;
 
 fn param_precedence(function_param) {
@@ -99,7 +99,7 @@ let precedence_result = param_precedence(888);
 assert(precedence_result == 889, "Precedence result should be 889");
 assert(function_param == 777, "Global should remain 777");
 
-# Multiple variable declarations
+// Multiple variable declarations
 let multi_var1 = 111;
 let multi_var2 = 222;
 let multi_var3 = multi_var1 + multi_var2;
@@ -107,7 +107,7 @@ let multi_var3 = multi_var1 + multi_var2;
 assert(multi_var1 == 111, "Multi var 1 should be 111");
 assert(multi_var3 == 333, "Multi var 3 should be 333");
 
-# String variable scope
+// String variable scope
 let string_scope = "global string";
 
 fn string_scope_test(local_string) {
@@ -118,4 +118,4 @@ let string_result = string_scope_test(string_scope);
 assert(string_result == "global string modified", "String result should be modified");
 assert(string_scope == "global string", "Original string unchanged");
 
-# All variable scope syntax showcased successfully
+// All variable scope syntax showcased successfully

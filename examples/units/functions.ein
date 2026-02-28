@@ -1,6 +1,6 @@
-# CORE FEATURE: Function Definitions
-# PURPOSE: Tests function definition, calls, and statements - essential modularity
-# VALUE: Functions are fundamental for code reuse and mathematical abstractions
+// CORE FEATURE: Function Definitions
+// PURPOSE: Tests function definition, calls, and statements - essential modularity
+// VALUE: Functions are fundamental for code reuse and mathematical abstractions
 
 fn double(n) {
     n * 2
@@ -14,7 +14,7 @@ let x = 7;
 let doubled = double(x);
 let sum = add_three(1, 2, 3);
 
-# Verify function results with assertions
+// Verify function results with assertions
 assert(doubled == 14, "double(7) should be 14");
 assert(sum == 6, "add_three(1, 2, 3) should be 6");
 assert(double(5) == 10, "double(5) should be 10");

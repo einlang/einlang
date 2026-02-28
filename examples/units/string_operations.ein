@@ -1,17 +1,17 @@
-# CORE FEATURE: String Operations and Text Processing  
-# PURPOSE: Showcases string literals, comparisons, and basic string operations
-# VALUE: Demonstrates essential string handling syntax in Einlang
+// CORE FEATURE: String Operations and Text Processing  
+// PURPOSE: Showcases string literals, comparisons, and basic string operations
+// VALUE: Demonstrates essential string handling syntax in Einlang
 
-# Basic string literals and assignments
+// Basic string literals and assignments
 let str1 = "Hello";
 let str2 = "World";  
-let str3 = "";          # Empty string;
-let str4 = "123";       # Numeric string
+let str3 = "";          // Empty string;
+let str4 = "123";       // Numeric string
 
-# String comparisons
-let eq_test1 = str1 == "Hello";         # Should be true;
-let eq_test2 = str1 == str2;            # Should be false  ;
-let neq_test = str1 != str2;            # Should be true
+// String comparisons
+let eq_test1 = str1 == "Hello";         // Should be true;
+let eq_test2 = str1 == str2;            // Should be false  ;
+let neq_test = str1 != str2;            // Should be true
 
 assert(str1 == "Hello", "str1 should be 'Hello'");
 assert(str2 == "World", "str2 should be 'World'");
@@ -19,45 +19,45 @@ assert(eq_test1 == true, "str1 should equal 'Hello'");
 assert(eq_test2 == false, "str1 should not equal str2");
 assert(neq_test == true, "str1 should not equal str2");
 
-# String length operations
-let len1 = str1.length;      # "Hello" should be 5;
-let len2 = str3.length;      # "" should be 0;
-let len4 = str4.length;      # "123" should be 3
+// String length operations
+let len1 = str1.length;      // "Hello" should be 5;
+let len2 = str3.length;      // "" should be 0;
+let len4 = str4.length;      // "123" should be 3
 
 assert(len1 == 5, "'Hello' length should be 5");
 assert(len2 == 0, "Empty string length should be 0");
 assert(len4 == 3, "'123' length should be 3");
 
-# String indexing
-let char1 = str1[0];         # Should be "H";
-let char2 = str1[4];         # Should be "o" (last char of "Hello")
+// String indexing
+let char1 = str1[0];         // Should be "H";
+let char2 = str1[4];         // Should be "o" (last char of "Hello")
 
 assert(char1 == "H", "First char of 'Hello' should be 'H'");
 assert(char2 == "o", "Last char of 'Hello' should be 'o'");
 
-# String in conditional expressions
+// String in conditional expressions
 let str_cond1 = if (str1 == "Hello") { "greeting" } else { "other" };
 let str_cond2 = if (str3 == "") { "empty" } else { "non-empty" };
 
 assert(str_cond1 == "greeting", "Should detect greeting");
 assert(str_cond2 == "empty", "Should detect empty string");
 
-# String variables in arrays
+// String variables in arrays
 let str_array = ["first", "second", "third"];
-let str_access1 = str_array[0];     # Should be "first";
-let str_len = str_array.length;     # Should be 3
+let str_access1 = str_array[0];     // Should be "first";
+let str_len = str_array.length;     // Should be 3
 
 assert(str_access1 == "first", "First array element should be 'first'");
 assert(str_len == 3, "String array length should be 3");
 
-# Case sensitivity
+// Case sensitivity
 let case1 = "Hello";
 let case2 = "hello";
-let case_comp = case1 == case2;     # Should be false
+let case_comp = case1 == case2;     // Should be false
 
 assert(case_comp == false, "'Hello' should not equal 'hello' (case sensitive)");
 
-# String function parameters
+// String function parameters
 fn string_length_plus(s, n) {
     s.length + n
 }
@@ -65,36 +65,36 @@ fn string_length_plus(s, n) {
 let param_result = string_length_plus("test", 10);
 assert(param_result == 14, "Function should 4 + 10 = 14");
 
-# Complex string expressions
-let expr1 = (str1.length + str2.length) > 8;   # (5 + 5) > 8 = true;
-let expr2 = str_array.length * 2 == 6;         # 3 * 2 == 6 = true
+// Complex string expressions
+let expr1 = (str1.length + str2.length) > 8;   // (5 + 5) > 8 = true;
+let expr2 = str_array.length * 2 == 6;         // 3 * 2 == 6 = true
 
 assert(expr1 == true, "Combined string lengths should be > 8");
 assert(expr2 == true, "String array length * 2 should equal 6");
 
-# String assignment chains
+// String assignment chains
 let chain1 = "start";
-let chain2 = chain1;           # Assignment from variable;
+let chain2 = chain1;           // Assignment from variable;
 let chain_eq = chain2 == "start";
 
 assert(chain2 == "start", "Chain assignment should preserve value");
 assert(chain_eq == true, "Chain result should equal 'start'");
 
-# Unicode characters
+// Unicode characters
 let unicode = "café";
 let unicode_len = unicode.length;
 
 assert(unicode == "café", "Unicode string should be 'café'");
 assert(unicode_len >= 4, "Unicode string length should be at least 4");
 
-# Empty string edge cases
+// Empty string edge cases
 let empty1 = "";
 let empty2 = "";
 let empty_eq = empty1 == empty2;
 
 assert(empty_eq == true, "Empty strings should be equal");
 
-# String with numbers
+// String with numbers
 let num_str = "123";
 let num_str_len = num_str.length;
 let len_check = num_str_len == 3;
@@ -102,4 +102,4 @@ let len_check = num_str_len == 3;
 assert(num_str == "123", "Numeric string should be '123'");
 assert(len_check == true, "Numeric string length should be 3");
 
-# All string operation syntax showcased successfully
+// All string operation syntax showcased successfully

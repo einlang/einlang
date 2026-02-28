@@ -1,156 +1,156 @@
-# CORE FEATURE: Multi-Dimensional Scan Operations  
-# PURPOSE: Demonstrates 2D/3D cumulative operations using Einstein notation
-# VALUE: Shows how to extend scan patterns to multiple dimensions
+// CORE FEATURE: Multi-Dimensional Scan Operations  
+// PURPOSE: Demonstrates 2D/3D cumulative operations using Einstein notation
+// VALUE: Shows how to extend scan patterns to multiple dimensions
 
 
-# 2D Cumulative Sum - Image prefix sums
+// 2D Cumulative Sum - Image prefix sums
 let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
 
-# Cumulative sum along rows (horizontal scan)
+// Cumulative sum along rows (horizontal scan)
 let cumsum_rows[i,j] = sum[k in 0..j+1](matrix[i, j-k]);
 
 print("Original matrix:", matrix);
 print("Row-wise cumsum:", cumsum_rows);
 
-# Test row-wise cumulative sum
+// Test row-wise cumulative sum
 assert(cumsum_rows == [[1, 3, 6], [4, 9, 15], [7, 15, 24]], "Row-wise cumsum should match expected values");
 
-# Cumulative sum along columns (vertical scan)  
+// Cumulative sum along columns (vertical scan)  
 let cumsum_cols[i,j] = sum[k in 0..i+1](matrix[i-k, j]);
 
 print("Column-wise cumsum:", cumsum_cols);
 
-# Test column-wise cumulative sum
+// Test column-wise cumulative sum
 assert(cumsum_cols == [[1, 2, 3], [5, 7, 9], [12, 15, 18]], "Column-wise cumsum should match expected values");
 
-# 2D Cumulative sum (both dimensions) - True 2D prefix sum
+// 2D Cumulative sum (both dimensions) - True 2D prefix sum
 let cumsum_2d[i,j] = sum[ci in 0..i+1, cj in 0..j+1](matrix[i-ci, j-cj]);
 
 print("2D cumulative sum:", cumsum_2d);
 
-# Test 2D cumulative sum
+// Test 2D cumulative sum
 assert(cumsum_2d == [[1, 3, 6], [5, 12, 21], [12, 27, 45]], "2D cumsum should match expected values");
 
-# 2D Cumulative Maximum
+// 2D Cumulative Maximum
 let cummax_2d[i,j] = max[ci in 0..i+1, cj in 0..j+1](matrix[i-ci, j-cj]);
 
 print("2D cumulative max:", cummax_2d);
 
-# Test 2D cumulative max
+// Test 2D cumulative max
 assert(cummax_2d == [[1, 2, 3], [4, 5, 6], [7, 8, 9]], "2D cummax should match expected values");
 
-# Financial data example - 2D cumulative operations
+// Financial data example - 2D cumulative operations
 let daily_returns = [[1.01, 1.02, 0.99], [1.03, 0.98, 1.01], [1.00, 1.05, 0.97]];
 
-# Cumulative product along time (rows) - Portfolio value over time
+// Cumulative product along time (rows) - Portfolio value over time
 let portfolio_value[i,j] = prod[k in 0..j+1](daily_returns[i, j-k]);
 
 print("Daily returns:", daily_returns);
 print("Portfolio values:", portfolio_value);
 
-# Test portfolio cumulative returns (approximate comparison for floating point)
+// Test portfolio cumulative returns (approximate comparison for floating point)
 assert(portfolio_value[0,0] > 1.009 && portfolio_value[0,0] < 1.011, "portfolio_value[0,0] should be 1.01");
 assert(portfolio_value[0,1] > 1.030 && portfolio_value[0,1] < 1.031, "portfolio_value[0,1] should be 1.0302");
 
-# 3D Tensor scans
+// 3D Tensor scans
 let tensor3d = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
 
-# Cumulative sum along depth dimension
+// Cumulative sum along depth dimension
 let cumsum_depth[i,j,k] = sum[d in 0..k+1](tensor3d[i, j, k-d]);
 
 print("3D tensor:", tensor3d);
 print("Depth cumsum:", cumsum_depth);
 
-# Test 3D depth cumsum
+// Test 3D depth cumsum
 assert(cumsum_depth[0,0,0] == 1, "cumsum_depth[0,0,0] should be 1");
 assert(cumsum_depth[0,0,1] == 3, "cumsum_depth[0,0,1] should be 1+2=3");
 
-# Cumulative sum along height dimension
+// Cumulative sum along height dimension
 let cumsum_height[i,j,k] = sum[h in 0..j+1](tensor3d[i, j-h, k]);
 
 print("Height cumsum:", cumsum_height);
 
-# Test 3D height cumsum
+// Test 3D height cumsum
 assert(cumsum_height[0,0,0] == 1, "cumsum_height[0,0,0] should be 1");
 assert(cumsum_height[0,1,0] == 4, "cumsum_height[0,1,0] should be 1+3=4");
 
-# Cumulative sum along width dimension  
+// Cumulative sum along width dimension  
 let cumsum_width[i,j,k] = sum[w in 0..i+1](tensor3d[i-w, j, k]);
 
 print("Width cumsum:", cumsum_width);
 
-# Test 3D width cumsum
+// Test 3D width cumsum
 assert(cumsum_width[0,0,0] == 1, "cumsum_width[0,0,0] should be 1");
 assert(cumsum_width[1,0,0] == 6, "cumsum_width[1,0,0] should be 1+5=6");
 
-# Multi-dimensional moving averages
+// Multi-dimensional moving averages
 let data_2d = [[10, 20, 30, 40], [50, 60, 70, 80], [90, 100, 110, 120]];
 
-# 2x2 moving average (backward looking window)
+// 2x2 moving average (backward looking window)
 let moving_avg_2d[i,j] = sum[mi in 0..2, mj in 0..2](data_2d[i+mi, j+mj]) / 4;
 
 print("2D data:", data_2d);
 print("2x2 moving average:", moving_avg_2d);
 
-# Test 2D moving average
+// Test 2D moving average
 assert(moving_avg_2d == [[35.0, 45.0, 55.0], [75.0, 85.0, 95.0]], "2D moving average should match expected values");
 
-# Diagonal scans in 2D
+// Diagonal scans in 2D
 let diag_data = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]];
 
-# Cumulative sum along main diagonal
+// Cumulative sum along main diagonal
 let diag_cumsum[i] = sum[k in 0..i+1](diag_data[i-k, i-k]);
 
 print("Diagonal data:", diag_data);
 print("Diagonal cumsum:", diag_cumsum);
 
-# Test diagonal cumulative sum
+// Test diagonal cumulative sum
 assert(diag_cumsum == [1, 7, 18, 34], "Diagonal cumsum should match expected values");
 
-# Anti-diagonal cumulative operations
+// Anti-diagonal cumulative operations
 let anti_diag_cumsum[i in 0..3] = sum[k in 0..i+1](diag_data[i-k, 3-(i-k)]);
 
 print("Anti-diagonal cumsum:", anti_diag_cumsum);
 
-# Test anti-diagonal cumulative sum
+// Test anti-diagonal cumulative sum
 assert(anti_diag_cumsum == [4, 11, 21], "Anti-diagonal cumsum should match expected values");
 
-# Image processing - Integral image computation
+// Image processing - Integral image computation
 let image = [[1, 1, 1], [1, 1, 1], [1, 1, 1]];
 
-# Integral image: each pixel contains sum of all pixels above and to the left
+// Integral image: each pixel contains sum of all pixels above and to the left
 let integral[i in 0..2, j in 0..2] = sum[si in 0..i+1, sj in 0..j+1](image[si, sj]);
 
 print("Original image:", image);
 print("Integral image:", integral);
 
-# Test integral image
+// Test integral image
 assert(integral == [[1, 2], [2, 4]], "Integral image should match expected values");
 
-# Time series with multiple features - Multi-variate cumulative operations
-let features = [[1, 2], [3, 1], [2, 4], [1, 3]];  # 4 time steps, 2 features
+// Time series with multiple features - Multi-variate cumulative operations
+let features = [[1, 2], [3, 1], [2, 4], [1, 3]];  // 4 time steps, 2 features
 
-# Cumulative sum for each feature
+// Cumulative sum for each feature
 let feature_cumsum[i,j] = sum[k in 0..i+1](features[i-k, j]);
 
 print("Features over time:", features);
 print("Feature cumulative sums:", feature_cumsum);
 
-# Test feature cumulative sums
+// Test feature cumulative sums
 assert(feature_cumsum == [[1, 2], [4, 3], [6, 7], [7, 10]], "Feature cumsum should match expected values");
 
-# Sliding window maximum in 2D
+// Sliding window maximum in 2D
 let noisy_image = [[1, 5, 2], [3, 9, 1], [4, 2, 6]];
 
-# 2x2 sliding max (backward window)
+// 2x2 sliding max (backward window)
 let smooth_max[i,j] = max[wi in 0..2, wj in 0..2](noisy_image[i+wi, j+wj]);
 
 print("Noisy image:", noisy_image);
 print("2x2 sliding max:", smooth_max);
 
-# Test sliding max
+// Test sliding max
 assert(smooth_max == [[9, 9], [9, 9]], "Sliding max should match expected values");
 
 print("✅ All multi-dimensional scan operations completed!");
 
-# All assertions verify the computed results are correct
+// All assertions verify the computed results are correct

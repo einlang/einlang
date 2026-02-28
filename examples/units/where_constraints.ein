@@ -1,18 +1,18 @@
-# Where Expressions and Constraints - Array comprehensions (Rust: explicit filter)
-# Equivalent to Einstein "x where cond" using [x | x in range, cond] pattern
+// Where Expressions and Constraints - Array comprehensions (Rust: explicit filter)
+// Equivalent to Einstein "x where cond" using [x | x in range, cond] pattern
 
-# Basic constraints with array comprehension
+// Basic constraints with array comprehension
 let simple_constraint = [i | i in 0..5, i < 5];
 assert(simple_constraint == [0, 1, 2, 3, 4], "Simple where constraint should work");
 
 let doubled_values = [i * 2 | i in 0..4, i < 4];
 assert(doubled_values == [0, 2, 4, 6], "Doubled values with constraint should work");
 
-# Where clauses with basic arithmetic
+// Where clauses with basic arithmetic
 let sum_constraint = [i + 10 | i in 0..3, i < 3];
 assert(sum_constraint == [10, 11, 12], "Sum constraint should work");
 
-# Simple multi-index constraint
+// Simple multi-index constraint
 let mult_constraint = [i * 5 | i in 0..4, i < 4];
 assert(mult_constraint == [0, 5, 10, 15], "Multiplication constraint should work");
 

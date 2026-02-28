@@ -1,38 +1,38 @@
-# Scientific Computing with Higher Rank Tensors
-# Physics simulations, quantum mechanics, and multi-dimensional scientific data
+// Scientific Computing with Higher Rank Tensors
+// Physics simulations, quantum mechanics, and multi-dimensional scientific data
 
 print("=== SCIENTIFIC COMPUTING WITH HIGHER RANK TENSORS ===");
 print("Physics simulations and multi-dimensional scientific data analysis");
 print();
 
-# =============================================================================
-# 3D SCALAR FIELD ANALYSIS (Physics Simulation)
-# =============================================================================
+// =============================================================================
+// 3D SCALAR FIELD ANALYSIS (Physics Simulation)
+// =============================================================================
 
 print("=== 3D SCALAR FIELD ANALYSIS ===");
 
-# 3D temperature field: T(x,y,z) discretized on a grid
+// 3D temperature field: T(x,y,z) discretized on a grid
 let temperature_field = [
-    # Z=0 plane
+    // Z=0 plane
     [[20.0, 21.0, 22.0, 21.5], 
      [21.5, 23.0, 24.0, 23.5], 
      [23.0, 25.0, 26.0, 25.5], 
      [22.5, 24.0, 25.0, 24.5]],
-    # Z=1 plane  
+    // Z=1 plane  
     [[22.0, 23.0, 24.0, 23.5],
      [23.5, 25.0, 26.0, 25.5],
      [25.0, 27.0, 28.0, 27.5],
      [24.5, 26.0, 27.0, 26.5]],
-    # Z=2 plane
+    // Z=2 plane
     [[24.0, 25.0, 26.0, 25.5],
      [25.5, 27.0, 28.0, 27.5], 
      [27.0, 29.0, 30.0, 29.5],
      [26.5, 28.0, 29.0, 28.5]]
-];  # Shape: (3, 4, 4) - (z, y, x) dimensions
+];  // Shape: (3, 4, 4) - (z, y, x) dimensions
 
 print("Temperature field shape: (z=3, y=4, x=4)");
 print("Temperature at z=0 plane:");
-# Display each row of the temperature field at z=0
+// Display each row of the temperature field at z=0
 let temp_z0 = temperature_field[0];
 print("Row 0:", temp_z0[0]);
 print("Row 1:", temp_z0[1]); 
@@ -40,12 +40,12 @@ print("Row 2:", temp_z0[2]);
 print("Row 3:", temp_z0[3]);
 print();
 
-# Gradient computation using finite differences
-let dx = 0.1;  # Grid spacing;
+// Gradient computation using finite differences
+let dx = 0.1;  // Grid spacing;
 let dy = 0.1; 
 let dz = 0.1;
 
-# Temperature gradients (∇T) - computed at specific point
+// Temperature gradients (∇T) - computed at specific point
 let grad_x_111 = (temperature_field[1,1,2] - temperature_field[1,1,0]) / (2 * dx);
 let grad_y_111 = (temperature_field[1,2,1] - temperature_field[1,0,1]) / (2 * dy);
 let grad_z_111 = (temperature_field[2,1,1] - temperature_field[0,1,1]) / (2 * dz);
@@ -56,7 +56,7 @@ print("∂T/∂y at (z=1, y=1, x=1):", grad_y_111);
 print("∂T/∂z at (z=1, y=1, x=1):", grad_z_111);
 print();
 
-# Laplacian (∇²T) for heat equation - computed at specific point
+// Laplacian (∇²T) for heat equation - computed at specific point
 let laplacian_111 = (temperature_field[1,1,2] + temperature_field[1,1,0] - 2*temperature_field[1,1,1])/(dx*dx) +
                     (temperature_field[1,2,1] + temperature_field[1,0,1] - 2*temperature_field[1,1,1])/(dy*dy) +
                     (temperature_field[2,1,1] + temperature_field[0,1,1] - 2*temperature_field[1,1,1])/(dz*dz);
@@ -64,14 +64,14 @@ let laplacian_111 = (temperature_field[1,1,2] + temperature_field[1,1,0] - 2*tem
 print("Laplacian (∇²T) at interior point (1,1,1):", laplacian_111);
 print();
 
-# =============================================================================
-# 4D SPACETIME DATA (Relativity/Field Theory)
-# =============================================================================
+// =============================================================================
+// 4D SPACETIME DATA (Relativity/Field Theory)
+// =============================================================================
 
 print("=== 4D SPACETIME FIELD ANALYSIS ===");
 
-# Electromagnetic field tensor F^μν (4x4 antisymmetric tensor)
-# Define field components
+// Electromagnetic field tensor F^μν (4x4 antisymmetric tensor)
+// Define field components
 let Ex = 1.0;
 let Ey = 0.5;
 let Ez = 0.8;
@@ -80,37 +80,37 @@ let By = 0.7;
 let Bz = 0.3;
 
 let field_tensor = [
-    [ 0.0,  -Ex,  -Ey,  -Ez],  # F^0μ components
-    [ Ex,   0.0,   Bz,  -By],  # F^1μ components  
-    [ Ey,  -Bz,   0.0,   Bx],  # F^2μ components
-    [ Ez,   By,  -Bx,   0.0]   # F^3μ components
+    [ 0.0,  -Ex,  -Ey,  -Ez],  // F^0μ components
+    [ Ex,   0.0,   Bz,  -By],  // F^1μ components  
+    [ Ey,  -Bz,   0.0,   Bx],  // F^2μ components
+    [ Ez,   By,  -Bx,   0.0]   // F^3μ components
 ];
 
 print("Electromagnetic field tensor F^μν (4x4):");
-# Display each row of the field tensor
+// Display each row of the field tensor
 print("Row 0:", field_tensor[0]);
 print("Row 1:", field_tensor[1]);
 print("Row 2:", field_tensor[2]);
 print("Row 3:", field_tensor[3]);
 print();
 
-# Field invariants
+// Field invariants
 let E_squared = Ex*Ex + Ey*Ey + Ez*Ez;
 let B_squared = Bx*Bx + By*By + Bz*Bz;
-let first_invariant = (B_squared - E_squared) / 2;  # Lorentz invariant;
-let second_invariant = Ex*Bx + Ey*By + Ez*Bz;      # Another invariant
+let first_invariant = (B_squared - E_squared) / 2;  // Lorentz invariant;
+let second_invariant = Ex*Bx + Ey*By + Ez*Bz;      // Another invariant
 
 print("Electromagnetic field invariants:");
 print("First invariant (B² - E²)/2:", first_invariant);
 print("Second invariant E⃗·B⃗:", second_invariant);
 print();
 
-# Stress-energy tensor T^μν (simplified calculation)
+// Stress-energy tensor T^μν (simplified calculation)
 let energy_density = (E_squared + B_squared) / 2;
 
-# Manually compute stress tensor elements (simplified version)
-let T_00 = energy_density;  # Energy density;
-let T_11 = (B_squared - E_squared) / 2;  # Spatial stress;
+// Manually compute stress tensor elements (simplified version)
+let T_00 = energy_density;  // Energy density;
+let T_11 = (B_squared - E_squared) / 2;  // Spatial stress;
 let T_22 = (B_squared - E_squared) / 2;
 let T_33 = (B_squared - E_squared) / 2;
 
@@ -119,107 +119,107 @@ print("T^00 (energy density):", T_00);
 print("T^11, T^22, T^33 (spatial stress):", T_11);
 print();
 
-# =============================================================================
-# QUANTUM MANY-BODY SYSTEM (6D+ Tensors)
-# =============================================================================
+// =============================================================================
+// QUANTUM MANY-BODY SYSTEM (6D+ Tensors)
+// =============================================================================
 
 print("=== QUANTUM MANY-BODY SYSTEM ===");
 
-# Two-particle wavefunction ψ(x₁,y₁,z₁,x₂,y₂,z₂) - 6D tensor!
-# Simplified to 2D positions for each particle: ψ(x₁,y₁,x₂,y₂) - 4D tensor
+// Two-particle wavefunction ψ(x₁,y₁,z₁,x₂,y₂,z₂) - 6D tensor!
+// Simplified to 2D positions for each particle: ψ(x₁,y₁,x₂,y₂) - 4D tensor
 let wavefunction = [;
-    [   # x₁=0;
-        [   # y₁=0  
-            [[0.1, 0.2], [0.15, 0.25]],  # (x₂,y₂) for this (x₁,y₁)
+    [   // x₁=0;
+        [   // y₁=0  
+            [[0.1, 0.2], [0.15, 0.25]],  // (x₂,y₂) for this (x₁,y₁)
             [[0.12, 0.18], [0.14, 0.22]]
         ],
-        [   # y₁=1
+        [   // y₁=1
             [[0.08, 0.16], [0.11, 0.19]],
             [[0.09, 0.13], [0.10, 0.17]]
         ]
     ],
-    [   # x₁=1;
-        [   # y₁=0
+    [   // x₁=1;
+        [   // y₁=0
             [[0.05, 0.12], [0.07, 0.14]],
             [[0.06, 0.10], [0.08, 0.15]]
         ],
-        [   # y₁=1  
+        [   // y₁=1  
             [[0.03, 0.09], [0.04, 0.11]],
             [[0.05, 0.07], [0.06, 0.12]]
         ]
     ]
-];  # Shape: (2, 2, 2, 2) - (x₁, y₁, x₂, y₂)
+];  // Shape: (2, 2, 2, 2) - (x₁, y₁, x₂, y₂)
 
 print("Two-particle wavefunction shape: (x₁=2, y₁=2, x₂=2, y₂=2)");
 
-# Normalization check
-# Mathematical notation: ||ψ||² = Σᵢⱼₖₗ |ψᵢⱼₖₗ|²
+// Normalization check
+// Mathematical notation: ||ψ||² = Σᵢⱼₖₗ |ψᵢⱼₖₗ|²
 let norm_squared = sum[i, j, k, l](wavefunction[i,j,k,l] * wavefunction[i,j,k,l]);
 print("Wavefunction norm²:", norm_squared);
 print();
 
-# Reduced density matrix (trace out particle 2)
-# Mathematical notation: ρ₁ᵢⱼ = Σₖₗ ψᵢₖ ψ*ⱼₗ (simplified: ρ₁ᵢⱼ = Σₖₗ ψᵢₖ ψⱼₗ)
+// Reduced density matrix (trace out particle 2)
+// Mathematical notation: ρ₁ᵢⱼ = Σₖₗ ψᵢₖ ψ*ⱼₗ (simplified: ρ₁ᵢⱼ = Σₖₗ ψᵢₖ ψⱼₗ)
 let rho_1[i, j] = sum[k, l](wavefunction[i,0,k,l] * wavefunction[j,0,k,l]);
 
 print("Single-particle density matrix ρ₁:");
 print("ρ₁[0,0] element:", rho_1[0,0]);
 print();
 
-# Entanglement measure (simplified)
-let purity = 0.5;  # Simplified calculation;
+// Entanglement measure (simplified)
+let purity = 0.5;  // Simplified calculation;
 print("Purity Tr(ρ₁²):", purity, "(1 = pure, <1 = entangled)");
 print();
 
-# =============================================================================
-# FLUID DYNAMICS (3D VELOCITY + TIME = 4D)
-# =============================================================================
+// =============================================================================
+// FLUID DYNAMICS (3D VELOCITY + TIME = 4D)
+// =============================================================================
 
 print("=== FLUID DYNAMICS SIMULATION ===");
 
-# Velocity field: v⃗(x,y,z,t) with components (vₓ, vᵧ, vᵤ)
+// Velocity field: v⃗(x,y,z,t) with components (vₓ, vᵧ, vᵤ)
 let velocity_field = [
-    # t=0
+    // t=0
     [   
-        [   # Component 0 (vₓ)
-            [[1.0, 1.2], [1.1, 1.3]],  # z=0;
-            [[0.9, 1.1], [1.0, 1.2]]   # z=1
+        [   // Component 0 (vₓ)
+            [[1.0, 1.2], [1.1, 1.3]],  // z=0;
+            [[0.9, 1.1], [1.0, 1.2]]   // z=1
         ],
-        [   # Component 1 (vᵧ)  
-            [[0.5, 0.7], [0.6, 0.8]],  # z=0;
-            [[0.4, 0.6], [0.5, 0.7]]   # z=1
+        [   // Component 1 (vᵧ)  
+            [[0.5, 0.7], [0.6, 0.8]],  // z=0;
+            [[0.4, 0.6], [0.5, 0.7]]   // z=1
         ],
-        [   # Component 2 (vᵤ)
-            [[0.2, 0.3], [0.25, 0.35]], # z=0  ;
-            [[0.15, 0.25], [0.2, 0.3]]  # z=1
+        [   // Component 2 (vᵤ)
+            [[0.2, 0.3], [0.25, 0.35]], // z=0  ;
+            [[0.15, 0.25], [0.2, 0.3]]  // z=1
         ]
     ],
-    # t=1
+    // t=1
     [
-        [   # Component 0 (vₓ)
-            [[1.1, 1.3], [1.2, 1.4]],  # z=0;
-            [[1.0, 1.2], [1.1, 1.3]]   # z=1
+        [   // Component 0 (vₓ)
+            [[1.1, 1.3], [1.2, 1.4]],  // z=0;
+            [[1.0, 1.2], [1.1, 1.3]]   // z=1
         ],
-        [   # Component 1 (vᵧ)
-            [[0.6, 0.8], [0.7, 0.9]],  # z=0;
-            [[0.5, 0.7], [0.6, 0.8]]   # z=1
+        [   // Component 1 (vᵧ)
+            [[0.6, 0.8], [0.7, 0.9]],  // z=0;
+            [[0.5, 0.7], [0.6, 0.8]]   // z=1
         ],
-        [   # Component 2 (vᵤ)
-            [[0.3, 0.4], [0.35, 0.45]], # z=0;
-            [[0.25, 0.35], [0.3, 0.4]]  # z=1
+        [   // Component 2 (vᵤ)
+            [[0.3, 0.4], [0.35, 0.45]], // z=0;
+            [[0.25, 0.35], [0.3, 0.4]]  // z=1
         ]
     ]
-];  # Shape: (2, 3, 2, 2, 2) - (time, component, z, y, x)
+];  // Shape: (2, 3, 2, 2, 2) - (time, component, z, y, x)
 
 print("Velocity field shape: (time=2, components=3, z=2, y=2, x=2)");
 
-# Divergence: ∇⋅v⃗ (conservation of mass) - manual calculation
-# Calculate at interior point (t=0, z=1, y=1, x=1)
-let div_t0 = (velocity_field[0,0,1,1,1] - velocity_field[0,0,1,1,1])/(2*dx) +  # Note: edge case handling
+// Divergence: ∇⋅v⃗ (conservation of mass) - manual calculation
+// Calculate at interior point (t=0, z=1, y=1, x=1)
+let div_t0 = (velocity_field[0,0,1,1,1] - velocity_field[0,0,1,1,1])/(2*dx) +  // Note: edge case handling
              (velocity_field[0,1,1,1,1] - velocity_field[0,1,1,1,1])/(2*dy) +  
              (velocity_field[0,2,1,1,1] - velocity_field[0,2,1,1,1])/(2*dz);
 
-# For t=1
+// For t=1
 let div_t1 = (velocity_field[1,0,1,1,1] - velocity_field[1,0,1,1,1])/(2*dx) +
              (velocity_field[1,1,1,1,1] - velocity_field[1,1,1,1,1])/(2*dy) + 
              (velocity_field[1,2,1,1,1] - velocity_field[1,2,1,1,1])/(2*dz);
@@ -229,7 +229,7 @@ print("At t=0, center point:", div_t0);
 print("At t=1, center point:", div_t1);
 print();
 
-# Vorticity: ω⃗ = ∇ × v⃗
+// Vorticity: ω⃗ = ∇ × v⃗
 let vorticity_x = (velocity_field[0,2,1,1,1] - velocity_field[0,2,1,0,1])/(2*dy) - 
                   (velocity_field[0,1,1,1,1] - velocity_field[0,1,0,1,1])/(2*dz);
 let vorticity_y = (velocity_field[0,0,1,1,1] - velocity_field[0,0,0,1,1])/(2*dz) -
@@ -243,34 +243,34 @@ print("ωᵧ =", vorticity_y);
 print("ωᵤ =", vorticity_z);
 print();
 
-# =============================================================================
-# STATISTICAL MECHANICS (High-Dimensional Phase Space)
-# =============================================================================
+// =============================================================================
+// STATISTICAL MECHANICS (High-Dimensional Phase Space)
+// =============================================================================
 
 print("=== STATISTICAL MECHANICS ===");
 
-# Boltzmann distribution in 6D phase space (x,y,z,px,py,pz)
+// Boltzmann distribution in 6D phase space (x,y,z,px,py,pz)
 let mass = 1.0;
-let kT = 1.0;  # Temperature in energy units
+let kT = 1.0;  // Temperature in energy units
 
-# Simplified 3D phase space (x,px,y) for demonstration
-# Create phase space distribution manually (simplified version)
+// Simplified 3D phase space (x,px,y) for demonstration
+// Create phase space distribution manually (simplified version)
 let px_values = [-1.0, 0.0, 1.0];
 let y_values = [0.0, 0.5];
 
-# Boltzmann factors for different positions (simplified values)
-# exp(-0.5*px^2/kT) approximated for px = [-1.0, 0.0, 1.0] and kT = 1.0
-let boltz_x0_y0 = [0.606, 1.0, 0.606];  # exp(-0.5), exp(0), exp(-0.5);
-let boltz_x0_y1 = [0.606, 1.0, 0.606];  # Same for y=0.5 (no additional potential);
-let boltz_x1_y0 = [0.368, 0.606, 0.368];  # exp(-0.5 - 0.5), exp(-0.5), exp(-0.5 - 0.5) ;
-let boltz_x1_y1 = [0.368, 0.606, 0.368];  # Same with harmonic potential at x=1
+// Boltzmann factors for different positions (simplified values)
+// exp(-0.5*px^2/kT) approximated for px = [-1.0, 0.0, 1.0] and kT = 1.0
+let boltz_x0_y0 = [0.606, 1.0, 0.606];  // exp(-0.5), exp(0), exp(-0.5);
+let boltz_x0_y1 = [0.606, 1.0, 0.606];  // Same for y=0.5 (no additional potential);
+let boltz_x1_y0 = [0.368, 0.606, 0.368];  // exp(-0.5 - 0.5), exp(-0.5), exp(-0.5 - 0.5) ;
+let boltz_x1_y1 = [0.368, 0.606, 0.368];  // Same with harmonic potential at x=1
 
-# Simplified phase space representation - flat arrays for clarity
-let phase_x0 = [boltz_x0_y0, boltz_x0_y1];  # Shape: (2, 3) - (y_index, px);
-let phase_x1 = [boltz_x1_y0, boltz_x1_y1];  # Shape: (2, 3) - (y_index, px)
+// Simplified phase space representation - flat arrays for clarity
+let phase_x0 = [boltz_x0_y0, boltz_x0_y1];  // Shape: (2, 3) - (y_index, px);
+let phase_x1 = [boltz_x1_y0, boltz_x1_y1];  // Shape: (2, 3) - (y_index, px)
 
-# Partition function calculation
-# Mathematical notation: Z = Σₓ,ᵧ,ₚₓ exp(-E/kT)
+// Partition function calculation
+// Mathematical notation: Z = Σₓ,ᵧ,ₚₓ exp(-E/kT)
 let Z_x0_y0 = sum[px](boltz_x0_y0[px]);
 let Z_x0_y1 = sum[px](boltz_x0_y1[px]);
 let Z_x1_y0 = sum[px](boltz_x1_y0[px]);
@@ -278,20 +278,20 @@ let Z_x1_y1 = sum[px](boltz_x1_y1[px]);
 
 let partition_function = Z_x0_y0 + Z_x0_y1 + Z_x1_y0 + Z_x1_y1;
 
-# Example probability calculation
-let prob_example = boltz_x0_y0[0] / partition_function;  # P(x=0,y=0,px=-1.0)
+// Example probability calculation
+let prob_example = boltz_x0_y0[0] / partition_function;  // P(x=0,y=0,px=-1.0)
 
 print("Phase space probability distribution:");
 print("Partition function Z:", partition_function);
 print("Example probability P(x=0,y=0,px=-1.0):", prob_example);
 print();
 
-# Thermodynamic averages - simplified calculation
+// Thermodynamic averages - simplified calculation
 let momentum_values = [-1.0, 0.0, 1.0];
 
-# Manual calculation of averages (simplified)
-let avg_kinetic_energy = 0.25;  # Approximate for this temperature;
-let avg_potential_energy = 0.125;  # Approximate harmonic potential contribution
+// Manual calculation of averages (simplified)
+let avg_kinetic_energy = 0.25;  // Approximate for this temperature;
+let avg_potential_energy = 0.125;  // Approximate harmonic potential contribution
 
 print("Thermodynamic averages (simplified):");
 print("⟨K⟩ (kinetic energy):", avg_kinetic_energy);
@@ -299,17 +299,17 @@ print("⟨U⟩ (potential energy):", avg_potential_energy);
 print("⟨E⟩ (total energy):", avg_kinetic_energy + avg_potential_energy);
 print();
 
-# =============================================================================
-# TENSOR NETWORK OPERATIONS (Quantum Computing)
-# =============================================================================
+// =============================================================================
+// TENSOR NETWORK OPERATIONS (Quantum Computing)
+// =============================================================================
 
 print("=== TENSOR NETWORK OPERATIONS ===");
 
-# Matrix Product State (MPS) representation
+// Matrix Product State (MPS) representation
 let mps_tensors = [;
-    [[[0.8, 0.6], [0.6, 0.8]]], # Site 0: (bond_left=1, physical=2, bond_right=2)
-    [[[0.7, 0.5], [0.5, 0.7]], [[0.6, 0.4], [0.4, 0.6]]], # Site 1: (2,2,2) 
-    [[[0.9], [0.4]], [[0.3], [0.8]]]  # Site 2: (2,2,1)
+    [[[0.8, 0.6], [0.6, 0.8]]], // Site 0: (bond_left=1, physical=2, bond_right=2)
+    [[[0.7, 0.5], [0.5, 0.7]], [[0.6, 0.4], [0.4, 0.6]]], // Site 1: (2,2,2) 
+    [[[0.9], [0.4]], [[0.3], [0.8]]]  // Site 2: (2,2,1)
 ];
 
 print("Matrix Product State (MPS) tensor network:");
@@ -317,8 +317,8 @@ print("Site 0 shape: (1, 2, 2)");
 print("Site 1 shape: (2, 2, 2)"); 
 print("Site 2 shape: (2, 2, 1)");
 
-# Contract the tensor network - manual calculation
-# Example contraction for specific indices
+// Contract the tensor network - manual calculation
+// Example contraction for specific indices
 let psi_000 = mps_tensors[0,0,0,0] * mps_tensors[1,0,0,0] * mps_tensors[2,0,0,0] +
               mps_tensors[0,0,0,1] * mps_tensors[1,1,0,1] * mps_tensors[2,1,0,0];
 let psi_001 = mps_tensors[0,0,0,0] * mps_tensors[1,0,0,0] * mps_tensors[2,0,1,0] +
@@ -328,21 +328,21 @@ print("Full wavefunction from MPS contraction (examples):");
 print("ψ(0,0,0) =", psi_000);
 print("ψ(0,0,1) =", psi_001);
 
-# Approximate norm
-let norm_mps_approx = sqrt(psi_000*psi_000 + psi_001*psi_001 + 4.0);  # Plus other terms
+// Approximate norm
+let norm_mps_approx = sqrt(psi_000*psi_000 + psi_001*psi_001 + 4.0);  // Plus other terms
 print("MPS wavefunction norm (approx):", norm_mps_approx);
 print();
 
-# =============================================================================
-# PERFORMANCE AND SCALING ANALYSIS
-# =============================================================================
+// =============================================================================
+// PERFORMANCE AND SCALING ANALYSIS
+// =============================================================================
 
 print("=== TENSOR OPERATION COMPLEXITY ANALYSIS ===");
 
-let dims_3d = [3, 4, 4];  # Temperature field;
-let dims_4d = [4, 4, 4, 4];  # Spacetime/quantum ;
-let dims_5d = [2, 3, 2, 2, 2];  # Fluid dynamics;
-let dims_6d = [2, 2, 2, 2, 2, 2];  # Full quantum 2-particle
+let dims_3d = [3, 4, 4];  // Temperature field;
+let dims_4d = [4, 4, 4, 4];  // Spacetime/quantum ;
+let dims_5d = [2, 3, 2, 2, 2];  // Fluid dynamics;
+let dims_6d = [2, 2, 2, 2, 2, 2];  // Full quantum 2-particle
 
 let memory_3d = dims_3d[0] * dims_3d[1] * dims_3d[2];
 let memory_4d = dims_4d[0] * dims_4d[1] * dims_4d[2] * dims_4d[3];

@@ -139,10 +139,6 @@ def apply_ir_round_trip(compilation_result: Any) -> Any:
     _ser_opts = {"pretty": False, "include_type_info": True, "include_location": True}
     sexpr_str = serialize_ir(ir, **_ser_opts)
     round_tripped = deserialize_ir(sexpr_str)
-    if getattr(round_tripped, "defid_to_name", None) is None or not getattr(round_tripped, "defid_to_name", {}):
-        d2n = getattr(ir, "defid_to_name", None)
-        if d2n:
-            round_tripped.defid_to_name = d2n
     if getattr(round_tripped, "source_files", None) is None or not getattr(round_tripped, "source_files", {}):
         sf = getattr(ir, "source_files", None)
         if sf:

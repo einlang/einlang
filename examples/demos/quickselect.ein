@@ -1,16 +1,16 @@
-# Quickselect Algorithm - Finding k-th Element
-# Demonstrates the quickselect algorithm for finding the k-th smallest/largest element
-# Average time complexity: O(n), Worst case: O(n²)
-#
-# Note: For topk arrays, use std::array::topk() from the standard library
-# This demo focuses on the quickselect algorithm itself
+// Quickselect Algorithm - Finding k-th Element
+// Demonstrates the quickselect algorithm for finding the k-th smallest/largest element
+// Average time complexity: O(n), Worst case: O(n²)
+//
+// Note: For topk arrays, use std::array::topk() from the standard library
+// This demo focuses on the quickselect algorithm itself
 
 use std::array::topk;
 
 print("=== QUICKSELECT ALGORITHM DEMO ===");
 print();
 
-# Partition function - core of quickselect
+// Partition function - core of quickselect
 fn partition(arr, pivot_value) -> ([i32], [i32], [i32]) {
     let smaller = [arr[i] | i in 0..len(arr), arr[i] < pivot_value];
     let equal = [arr[i] | i in 0..len(arr), arr[i] == pivot_value];
@@ -18,8 +18,8 @@ fn partition(arr, pivot_value) -> ([i32], [i32], [i32]) {
     (smaller, equal, larger)
 }
 
-# Quickselect to find k-th smallest element (0-indexed)
-# Returns the actual value of the k-th smallest element
+// Quickselect to find k-th smallest element (0-indexed)
+// Returns the actual value of the k-th smallest element
 fn quickselect_kth_smallest(arr, k) -> i32 {
     if len(arr) == 1 {
         arr[0]
@@ -43,21 +43,21 @@ fn quickselect_kth_smallest(arr, k) -> i32 {
     }
 }
 
-# Quickselect to find k-th largest element (1-indexed)
+// Quickselect to find k-th largest element (1-indexed)
 fn quickselect_kth_largest(arr, k) -> i32 {
     let n = len(arr);
     let smallest_k = n - k;
     quickselect_kth_smallest(arr, smallest_k)
 }
 
-# Demo Data
+// Demo Data
 let test_data = [64, 34, 25, 12, 22, 11, 90, 88, 45, 50];
 
 print("Test data:", test_data);
 print("Sorted reference: [11, 12, 22, 25, 34, 45, 50, 64, 88, 90]");
 print();
 
-# Test quickselect for finding specific elements
+// Test quickselect for finding specific elements
 print("=== QUICKSELECT TESTS ===");
 
 let smallest_0 = quickselect_kth_smallest(test_data, 0);
@@ -73,7 +73,7 @@ let largest_3 = quickselect_kth_largest(test_data, 3);
 print("3rd largest:", largest_3, "(expected: 64)");
 print();
 
-# Compare with stdlib topk for getting arrays of top elements
+// Compare with stdlib topk for getting arrays of top elements
 print("=== COMPARISON WITH STDLIB TOPK ===");
 print("Using std::array::topk for getting arrays of top elements");
 
@@ -86,7 +86,7 @@ print("Top 3 smallest elements:", top_3_smallest);
 print("(should contain 11, 12, 22)");
 print();
 
-# Performance demo with larger dataset
+// Performance demo with larger dataset
 print("=== PERFORMANCE DEMO ===");
 let large_data = [85, 92, 78, 96, 87, 91, 83, 88, 94, 89, 75, 97, 82, 93, 86];
 print("Large dataset size:", len(large_data));

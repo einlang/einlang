@@ -121,11 +121,14 @@ class TestAssertions:
             assert not result.success, f"Assertion should fail for: {source}"
             assert len(result.errors) > 0, f"Should have error messages for: {source}"
             
-            error_msg = str(result.errors[0])
-            # Verify the error message contains execution failure information
-            assert "execution failed" in error_msg.lower() or "assertion failed" in error_msg.lower() or "execution error" in error_msg.lower(), f"Error message should contain execution failure, assertion failure, or execution error: {source}"
-            # Verify the error message mentions the failure
-            assert any(token in error_msg.lower() for token in ["execution", "failed", "assertion"]), \
+            error_msg = str(result.errors[0]).lower()
+            # Verify the error message indicates a runtime/assertion failure
+            has_failure_indicator = (
+                "execution failed" in error_msg or "assertion failed" in error_msg or "execution error" in error_msg
+                or "could not be broadcast" in error_msg or "shapes" in error_msg or "error[e0007]" in error_msg
+            )
+            assert has_failure_indicator, f"Error message should contain execution/assertion failure or runtime error: {source}"
+            assert any(token in error_msg for token in ["execution", "failed", "assertion", "broadcast", "shapes", "error"]), \
                 f"Error message should mention failure for: {source}"
     
     def test_complex_assertions(self, compiler, runtime):

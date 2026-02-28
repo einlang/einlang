@@ -1,22 +1,22 @@
-# Pipeline Operators Demo - ASPIRATIONAL
-# NOTE: Pipeline operators (|>, ?>, !>) are not yet implemented.
-# This file demonstrates the intended syntax but is simplified to avoid errors.
+// Pipeline Operators Demo - ASPIRATIONAL
+// NOTE: Pipeline operators (|>, ?>, !>) are not yet implemented.
+// This file demonstrates the intended syntax but is simplified to avoid errors.
 
 print("=== Pipeline Operators Demo (Simplified) ===");
 print("NOTE: This is aspirational code showing planned pipeline operator syntax.");
 print();
 
-# Simple function composition without pipeline operators
+// Simple function composition without pipeline operators
 let math_result_step1 = 42.0 * 2.0;
 let math_result_step2 = math_result_step1 + 10.0;
 let math_result = math_result_step2 / 3.0;
 print("Math pipeline result:", math_result);
 
-# Expected syntax when pipeline operators are implemented:
-# let math_result = 42 
-#     |> |x| x * 2 
-#     |> |x| x + 10 
-#     |> |x| x / 3;
+// Expected syntax when pipeline operators are implemented:
+// let math_result = 42 
+//     |> |x| x * 2 
+//     |> |x| x + 10 
+//     |> |x| x / 3;
 
 print();
 print("=== Planned Pipeline Operators ===");
@@ -25,27 +25,27 @@ print("Optional Pipeline ?> - for maybe computations with fallback");
 print("Result Pipeline !>   - for error-aware computations with detailed handling");
 print();
 
-# ASPIRATIONAL EXAMPLES (all commented out):
-# 
-# # String processing with normal pipeline
-# let processed_text = text_input
-#     |> trim_whitespace
-#     |> to_lowercase  
-#     |> replace_spaces_with_underscores;
-#
-# # Optional pipeline with fallback
-# let user_theme = user_id
-#     ?> lookup_user
-#     ?> get_user_preferences
-#     ?> extract_theme_setting
-#     else "default_theme";
-#
-# # Result pipeline with error handling
-# let configuration = config_file
-#     !> read_file_contents
-#     !> parse_toml_format
-#     !> validate_config_schema
-#     !> extract_settings
-#     catch |error| load_default_config();
+// ASPIRATIONAL EXAMPLES (all commented out):
+// 
+// # String processing with normal pipeline
+// let processed_text = text_input
+//     |> trim_whitespace
+//     |> to_lowercase  
+//     |> replace_spaces_with_underscores;
+//
+// # Optional pipeline with fallback
+// let user_theme = user_id
+//     ?> lookup_user
+//     ?> get_user_preferences
+//     ?> extract_theme_setting
+//     else "default_theme";
+//
+// # Result pipeline with error handling
+// let configuration = config_file
+//     !> read_file_contents
+//     !> parse_toml_format
+//     !> validate_config_schema
+//     !> extract_settings
+//     catch |error| load_default_config();
 
 print("Demo complete - pipeline operators awaiting implementation.");

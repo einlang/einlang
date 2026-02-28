@@ -1,9 +1,9 @@
-# Direct module call examples
+// Direct module call examples
 
-# Test direct module call without import
+// Test direct module call without import
 let direct_abs = std::math::abs(-5);
 assert(direct_abs == 5, "Direct module call should work");
 
-# Test calling directly in expression
+// Test calling directly in expression
 let result = std::math::abs(-10) + std::math::abs(-3);
 assert(result == 13, "Direct module calls in expressions should work");

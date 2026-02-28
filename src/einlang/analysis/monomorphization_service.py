@@ -3,11 +3,11 @@ Monomorphization service (DefId-based IR passes).
 
 DefId-oriented design:
 - Lookup: generic_defid + param_types -> specialized_defid
-- Registry: (generic_defid, normalized_param_types) -> specialized FunctionDefIR
+- Registry: (generic_defid, normalized_param_types) -> specialized BindingIR
 - incremental_monomorphize -> monomorphize_if_needed -> _fully_specialize / _partially_specialize*
 - _create_and_analyze: clone, register, run passes, add to pending
 
-IR (FunctionDefIR, FunctionCallIR), TyCtxt, tcx.function_ir_map, tcx.resolver.
+IR (BindingIR, FunctionCallIR), TyCtxt, tcx.function_ir_map, tcx.resolver.
     Mono runs passes up to type only (range, shape, type). Einstein_lowering runs in the
     main pipeline after all mono calls.
 """
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..shared.defid import DefId, DefType
-from ..ir.nodes import FunctionDefIR, FunctionCallIR, IRNode, ParameterIR
+from ..ir.nodes import BindingIR, FunctionCallIR, IRNode, ParameterIR, is_function_binding
 from ..shared.types import Type
 from ..passes.base import TyCtxt
 
@@ -45,14 +45,14 @@ class Instance:
 class MonomorphizationService:
     def __init__(self, tcx: TyCtxt) -> None:
         self.tcx = tcx
-        self._registry: Dict[Instance, FunctionDefIR] = {}
-        self._by_defid: Dict[DefId, FunctionDefIR] = {}
+        self._registry: Dict[Instance, BindingIR] = {}
+        self._by_defid: Dict[DefId, BindingIR] = {}
         self._analysis_cache: Dict[Tuple[DefId, Tuple[str, ...]], Any] = {}
         self._specialization_complexity: Dict[DefId, int] = {}
         self._max_complexity_per_function = 100
-        self._pending_partial_specializations: Dict[DefId, List[FunctionDefIR]] = {}
+        self._pending_partial_specializations: Dict[DefId, List[BindingIR]] = {}
         self._monomorphizing: Set[DefId] = set()
-        self._pending_specialized_functions: List[FunctionDefIR] = []
+        self._pending_specialized_functions: List[BindingIR] = []
 
     # ---------- Public API (aligned) ----------
 
@@ -75,7 +75,7 @@ class MonomorphizationService:
         arg_types: Tuple[Type, ...],
         current_pass_name: str,
         required_passes: Optional[List[str]] = None,
-    ) -> Optional[FunctionDefIR]:
+    ) -> Optional[BindingIR]:
         if not self.can_incrementally_specialize(call, arg_types):
             return None
         generic_defid = call.function_defid
@@ -90,7 +90,7 @@ class MonomorphizationService:
             if required_passes:
                 self._run_required_passes(existing, required_passes)
             if call is not None and existing and getattr(existing, "defid", None):
-                object.__setattr__(call, "function_defid", existing.defid)
+                call.set_callee_defid(existing.defid)
             return existing
         if generic_defid in self._monomorphizing:
             return None
@@ -104,7 +104,7 @@ class MonomorphizationService:
                     self._pending_partial_specializations[generic_defid] = []
                 self._pending_partial_specializations[generic_defid].append(out)
             if call is not None and out and getattr(out, "defid", None):
-                object.__setattr__(call, "function_defid", out.defid)
+                call.set_callee_defid(out.defid)
             return out
         finally:
             self._monomorphizing.discard(generic_defid)
@@ -114,7 +114,7 @@ class MonomorphizationService:
         call: FunctionCallIR,
         arg_types: Tuple[Type, ...],
         required_passes: Optional[List[str]] = None,
-    ) -> Optional[FunctionDefIR]:
+    ) -> Optional[BindingIR]:
         if not call.function_defid or not self._is_generic_function(call.function_defid):
             return None
         generic_defid = call.function_defid
@@ -130,7 +130,7 @@ class MonomorphizationService:
             )
         return None
 
-    def get_pending_specialized_functions(self) -> List[FunctionDefIR]:
+    def get_pending_specialized_functions(self) -> List[BindingIR]:
         return self._pending_specialized_functions.copy()
 
     def clear_pending_specialized_functions(self) -> None:
@@ -151,7 +151,7 @@ class MonomorphizationService:
     def get_specialized_defid_for_call(
         self,
         call: FunctionCallIR,
-        enclosing_function: Optional[FunctionDefIR] = None,
+        enclosing_function: Optional[BindingIR] = None,
     ) -> Optional[DefId]:
         if not getattr(call, "function_defid", None):
             return None
@@ -186,7 +186,7 @@ class MonomorphizationService:
         spec = self._registry.get(instance)
         return getattr(spec, "defid", None) if spec else None
 
-    def get_by_defid(self, defid: DefId) -> Optional[FunctionDefIR]:
+    def get_by_defid(self, defid: DefId) -> Optional[BindingIR]:
         return self._by_defid.get(defid)
 
     def get_generic_defid_for_specialized(self, specialized_defid: DefId) -> Optional[DefId]:
@@ -220,12 +220,12 @@ class MonomorphizationService:
 
     def _create_specialized_function(
         self,
-        generic_func: FunctionDefIR,
+        generic_func: BindingIR,
         generic_defid: DefId,
         arg_types: Tuple[Type, ...],
         current_pass_name: str,
         required_passes: Optional[List[str]] = None,
-    ) -> Optional[FunctionDefIR]:
+    ) -> Optional[BindingIR]:
         return self._create_and_analyze(
             None, generic_defid, arg_types, required_passes or [], is_partial=False
         )
@@ -242,7 +242,7 @@ class MonomorphizationService:
         if def_type != DefType.FUNCTION:
             return False
         from ..shared.nodes import FunctionDefinition
-        if isinstance(definition, (FunctionDefIR, FunctionDefinition)):
+        if is_function_binding(definition) or isinstance(definition, FunctionDefinition):
             for param in definition.parameters:
                 param_type = getattr(param, "param_type", None) or getattr(
                     param, "type_annotation", None
@@ -263,7 +263,7 @@ class MonomorphizationService:
         generic_defid: DefId,
         arg_types: Tuple[Type, ...],
         required_passes: Optional[List[str]],
-    ) -> Optional[FunctionDefIR]:
+    ) -> Optional[BindingIR]:
         sid = self.get_specialized_defid(generic_defid, arg_types)
         if sid:
             spec = self.get_by_defid(sid)
@@ -280,7 +280,7 @@ class MonomorphizationService:
         generic_defid: DefId,
         arg_types: Tuple[Type, ...],
         required_passes: Optional[List[str]],
-    ) -> Optional[FunctionDefIR]:
+    ) -> Optional[BindingIR]:
         from ..shared.types import TypeKind, RectangularType
         partial: List[Type] = []
         for t in arg_types:
@@ -310,7 +310,7 @@ class MonomorphizationService:
         generic_defid: DefId,
         arg_types: Tuple[Type, ...],
         required_passes: Optional[List[str]],
-    ) -> Optional[FunctionDefIR]:
+    ) -> Optional[BindingIR]:
         from ..shared.types import TypeKind, RectangularType, UNKNOWN
         partial: List[Type] = []
         for t in arg_types:
@@ -343,10 +343,10 @@ class MonomorphizationService:
         arg_types: Tuple[Type, ...],
         required_passes: Optional[List[str]],
         is_partial: bool,
-    ) -> Optional[FunctionDefIR]:
+    ) -> Optional[BindingIR]:
         function_ir_map = getattr(self.tcx, "function_ir_map", None) or {}
         generic_func = function_ir_map.get(generic_defid)
-        if not generic_func or not isinstance(generic_func, FunctionDefIR):
+        if not generic_func or not is_function_binding(generic_func):
             return None
         module_path = getattr(generic_func, "module_path", ("__specialized",))
         if not isinstance(module_path, tuple):
@@ -387,7 +387,7 @@ class MonomorphizationService:
         return specialized_func
 
     def _run_required_passes(
-        self, specialized_func: FunctionDefIR, required_passes: Optional[List[str]]
+        self, specialized_func: BindingIR, required_passes: Optional[List[str]]
     ) -> None:
         if not required_passes:
             return
@@ -401,10 +401,10 @@ class MonomorphizationService:
 
     def _clone_and_specialize(
         self,
-        generic_func: FunctionDefIR,
+        generic_func: BindingIR,
         arg_types: Tuple[Type, ...],
         specialized_defid: DefId,
-    ) -> Optional[FunctionDefIR]:
+    ) -> Optional[BindingIR]:
         spec = copy.deepcopy(generic_func)
         normalized = self._normalize_types_for_instance(arg_types)
         spec.name = f"{generic_func.name}_{'_'.join(str(t) for t in normalized)}"
@@ -419,7 +419,7 @@ class MonomorphizationService:
 
     # ---------- DCE on specialized bodies ----------
 
-    def _dce_specialized_body(self, func: FunctionDefIR) -> None:
+    def _dce_specialized_body(self, func: BindingIR) -> None:
         """Dead code elimination on a specialized function body.
 
         Uses the visitor pattern (DCEVisitor) to evaluate len(param.shape) → rank,
@@ -442,8 +442,8 @@ class MonomorphizationService:
     # ---------- Run passes (_run_passes; ProgramIR + pass instances) ----------
 
     def _run_passes(
-        self, specialized_func: FunctionDefIR, passes: List[str]
-    ) -> FunctionDefIR:
+        self, specialized_func: BindingIR, passes: List[str]
+    ) -> BindingIR:
         from ..ir.nodes import ProgramIR
         from ..shared.source_location import SourceLocation
         cache_key = (specialized_func.defid, tuple(passes))
@@ -453,12 +453,9 @@ class MonomorphizationService:
             return specialized_func
         self._analysis_cache[cache_key] = "running"
         mini = ProgramIR(
+            statements=[specialized_func],
             modules=[],
-            functions=[specialized_func],
-            constants=[],
-            statements=[],
             source_files={},
-            defid_to_name=None,
         )
         isolated = TyCtxt()
         isolated.resolver = self.tcx.resolver
@@ -511,10 +508,11 @@ class MonomorphizationService:
                 if result_ir.functions:
                     new_func = result_ir.functions[0]
                     if new_func is not specialized_func and getattr(new_func, "defid", None) == getattr(specialized_func, "defid", None):
-                        object.__setattr__(specialized_func, "body", getattr(new_func, "body", specialized_func.body))
+                        object.__setattr__(specialized_func.expr, "body", getattr(new_func, "body", specialized_func.body))
                         if hasattr(specialized_func, "return_type"):
-                            object.__setattr__(specialized_func, "return_type", getattr(new_func, "return_type", specialized_func.return_type))
-                        mini.functions = [specialized_func]
+                            object.__setattr__(specialized_func.expr, "return_type", getattr(new_func, "return_type", specialized_func.return_type))
+                        object.__setattr__(mini, 'statements', [specialized_func])
+                        object.__setattr__(mini, 'bindings', [specialized_func])
                     else:
                         if new_func is not specialized_func and new_func.defid:
                             for inst, fn in list(self._registry.items()):
@@ -545,7 +543,8 @@ class MonomorphizationService:
                                 ):
                                     self.tcx.function_ir_map[extra.defid] = extra
                             iso_mono.clear_pending_specialized_functions()
-                    mini.functions = [specialized_func]
+                    object.__setattr__(mini, 'statements', [specialized_func])
+                    object.__setattr__(mini, 'bindings', [specialized_func])
             except Exception as e:
                 logger.warning("Pass %s failed for %s: %s", pass_name, specialized_func.name, e)
         self._analysis_cache[cache_key] = True
@@ -709,7 +708,7 @@ class MonomorphizationService:
     # ---------- IR helpers: unify, substitute, rewrite ----------
 
     def _collect_functions_from_module(
-        self, mod: Any, out: List[FunctionDefIR]
+        self, mod: Any, out: List[BindingIR]
     ) -> None:
         from ..ir.nodes import ModuleIR
         if not isinstance(mod, ModuleIR):
@@ -732,7 +731,7 @@ class MonomorphizationService:
         if isinstance(node, FunctionCallIR) and getattr(
             node, "function_defid", None
         ) == generic_defid:
-            object.__setattr__(node, "function_defid", specialized_defid)
+            node.set_callee_defid(specialized_defid)
         if isinstance(node, IRNode):
             for attr in getattr(node, "__slots__", ()) or []:
                 if hasattr(node, attr):
@@ -773,7 +772,7 @@ class MonomorphizationService:
         self,
         node: Any,
         visited: Set[int],
-        enclosing_function: Optional[FunctionDefIR] = None,
+        enclosing_function: Optional[BindingIR] = None,
     ) -> None:
         if node is None or id(node) in visited:
             return
@@ -782,7 +781,7 @@ class MonomorphizationService:
             fd = getattr(node, "function_defid", None)
             sid = self.get_specialized_defid_for_call(node, enclosing_function)
             if sid is not None:
-                object.__setattr__(node, "function_defid", sid)
+                node.set_callee_defid(sid)
             else:
                 from ..shared.types import UNKNOWN
                 args_list = getattr(node, "arguments", []) or []
@@ -805,24 +804,26 @@ class MonomorphizationService:
                         node, tuple(arg_types_list), "rewrite", required_passes=["range", "type"]
                     )
                     if spec and getattr(spec, "defid", None):
-                        object.__setattr__(node, "function_defid", spec.defid)
+                        node.set_callee_defid(spec.defid)
             for arg in getattr(node, "arguments", []) or []:
                 self._rewrite_calls_in_node(arg, visited, enclosing_function)
             return
         if isinstance(node, IRNode):
-            for attr in getattr(node, "__slots__", ()) or []:
-                if hasattr(node, attr):
-                    self._rewrite_calls_in_node(
-                        getattr(node, attr), visited, enclosing_function
-                    )
+            for cls in type(node).__mro__:
+                for attr in getattr(cls, "__slots__", ()):
+                    if hasattr(node, attr):
+                        self._rewrite_calls_in_node(
+                            getattr(node, attr), visited, enclosing_function
+                        )
         elif hasattr(node, "__slots__") and not isinstance(
             node, (list, tuple, dict)
         ):
-            for attr in node.__slots__:
-                if hasattr(node, attr):
-                    self._rewrite_calls_in_node(
-                        getattr(node, attr), visited, enclosing_function
-                    )
+            for cls in type(node).__mro__:
+                for attr in getattr(cls, "__slots__", ()):
+                    if hasattr(node, attr):
+                        self._rewrite_calls_in_node(
+                            getattr(node, attr), visited, enclosing_function
+                        )
         elif isinstance(node, (list, tuple)):
             for x in node:
                 self._rewrite_calls_in_node(x, visited, enclosing_function)

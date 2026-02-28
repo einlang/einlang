@@ -35,7 +35,7 @@ def test_comparison_ops_clustered_accuracy(compiler, runtime):
     let result_1 = std::ml::greater_or_equal(a, b);
     let result_2 = std::ml::less_or_equal(a, b);
     let result_3 = std::ml::not_equal(a, b);
-    # All ranks (merged from test_comparison_ops_all_ranks)
+    // All ranks (merged from test_comparison_ops_all_ranks)
     let a_0d = 2.0;
     let b_0d = 1.0;
     let equal_0d = std::ml::equal(a_0d, b_0d);
@@ -161,19 +161,19 @@ def test_comparison_ops_clustered_accuracy(compiler, runtime):
 def test_not_all_ranks(compiler, runtime):
     """Test not (unary logical negation) operation across all supported ranks (0D, 1D, 2D, 3D)"""
     source = """use std::ml;
-    # 0D (scalar) - boolean
+    // 0D (scalar) - boolean
     let x_0d = true;
     let not_0d = std::ml::not(x_0d);
     
-    # 1D - boolean array
+    // 1D - boolean array
     let x_1d = [true, false, true, false];
     let not_1d = std::ml::not(x_1d);
     
-    # 2D - boolean array
+    // 2D - boolean array
     let x_2d = [[true, false, true], [false, true, false]];
     let not_2d = std::ml::not(x_2d);
     
-    # 3D - boolean array
+    // 3D - boolean array
     let x_3d = [[[true, false], [true, false]], [[false, true], [false, true]]];
     let not_3d = std::ml::not(x_3d);
     """

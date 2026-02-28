@@ -1,88 +1,88 @@
-# Einlang Built-in Tensor Functions Examples
-# This file demonstrates the implementation of various tensor operations
-# using Einlang's Einstein notation and syntax
+// Einlang Built-in Tensor Functions Examples
+// This file demonstrates the implementation of various tensor operations
+// using Einlang's Einstein notation and syntax
 
 use std::math::exp;
 use std::math::sqrt;
 
-# =============================================================================
-# ACTIVATION FUNCTIONS
-# =============================================================================
+// =============================================================================
+// ACTIVATION FUNCTIONS
+// =============================================================================
 
-# ReLU activation function
+// ReLU activation function
 fn relu(input) {
-    # Element-wise ReLU: max(0, x)
+    // Element-wise ReLU: max(0, x)
     let relu_output[i,j] = input[i,j] * ((input[i,j] > 0) as f32);
     relu_output
 }
 
-# Sigmoid activation function
+// Sigmoid activation function
 fn sigmoid(input) {
-    # Element-wise sigmoid: 1 / (1 + exp(-x))
-    # Note: Using approximation for simplicity in current implementation
+    // Element-wise sigmoid: 1 / (1 + exp(-x))
+    // Note: Using approximation for simplicity in current implementation
     let sigmoid_output[i,j] = 1.0 / (1.0 + exp(-input[i,j]));
     sigmoid_output
 }
 
-# Tanh activation function
+// Tanh activation function
 fn tanh_activation(input) {
-    # Element-wise tanh: (exp(x) - exp(-x)) / (exp(x) + exp(-x))
+    // Element-wise tanh: (exp(x) - exp(-x)) / (exp(x) + exp(-x))
     let exp_pos[i,j] = exp(input[i,j]);
     let exp_neg[i,j] = exp(-input[i,j]);
     let tanh_output[i,j] = (exp_pos[i,j] - exp_neg[i,j]) / (exp_pos[i,j] + exp_neg[i,j]);
     tanh_output
 }
 
-# Softmax activation function (simplified for 2D)
+// Softmax activation function (simplified for 2D)
 fn softmax_2d(input) {
-    # Step 1: Find max for numerical stability
+    // Step 1: Find max for numerical stability
     let max_val[i] = max[j](input[i,j]);
     
-    # Step 2: Subtract max and exponentiate
+    // Step 2: Subtract max and exponentiate
     let exp_vals[i,j] = exp(input[i,j] - max_val[i]);
     
-    # Step 3: Sum along last dimension
+    // Step 3: Sum along last dimension
     let sum_exp[i] = sum[j](exp_vals[i,j]);
     
-    # Step 4: Normalize
+    // Step 4: Normalize
     let softmax_output[i,j] = exp_vals[i,j] / sum_exp[i];
     softmax_output
 }
 
-# =============================================================================
-# LINEAR ALGEBRA OPERATIONS
-# =============================================================================
+// =============================================================================
+// LINEAR ALGEBRA OPERATIONS
+// =============================================================================
 
-# Matrix multiplication
+// Matrix multiplication
 fn matmul(a,b) {
     let matmul_output[i,j] = sum[k](a[i,k] * b[k,j]);
     matmul_output
 }
 
-# Linear layer (fully connected layer)
+// Linear layer (fully connected layer)
 fn linear_layer(input, weight,bias) {
-    # Matrix multiplication + bias
+    // Matrix multiplication + bias
     let temp[i,j] = sum[k](input[i,k] * weight[k,j]);
     let linear_output[i,j] = temp[i,j] + bias[j];
     linear_output
 }
 
-# Transpose operation
+// Transpose operation
 fn transpose(input) {
     let transpose_output[i,j] = input[j,i];
     transpose_output
 }
 
-# =============================================================================
-# CONVOLUTION OPERATIONS
-# =============================================================================
+// =============================================================================
+// CONVOLUTION OPERATIONS
+// =============================================================================
 
-# 2D Convolution (simplified - assumes valid padding)
+// 2D Convolution (simplified - assumes valid padding)
 fn conv2d_simple(input, weight,bias, stride_h, stride_w) {
-    # input: [batch, in_channels, height, width]  
-    # weight: [out_channels, in_channels, kernel_h, kernel_w]
-    # bias: [out_channels]
-    # output: [batch, out_channels, out_height, out_width]
+    // input: [batch, in_channels, height, width]  
+    // weight: [out_channels, in_channels, kernel_h, kernel_w]
+    // bias: [out_channels]
+    // output: [batch, out_channels, out_height, out_width]
     
     let conv2d_output[b,oc, oh, ow] = sum[ic, kh, kw](
         input[b,ic, oh * stride_h + kh, ow * stride_w + kw] * weight[oc,ic, kh, kw]
@@ -90,10 +90,10 @@ fn conv2d_simple(input, weight,bias, stride_h, stride_w) {
     conv2d_output
 }
 
-# Max Pooling 2D
+// Max Pooling 2D
 fn max_pool2d(input, kernel_size, stride_size) {
-    # input: [batch,channels, height, width]
-    # output: [batch,channels, out_height, out_width]
+    // input: [batch,channels, height, width]
+    // output: [batch,channels, out_height, out_width]
     
     let pool_output[b,c, oh, ow] = max[kh, kw](
         input[b,c, oh * stride_size + kh, ow * stride_size + kw]
@@ -101,147 +101,147 @@ fn max_pool2d(input, kernel_size, stride_size) {
     pool_output
 }
 
-# =============================================================================
-# REDUCTION OPERATIONS
-# =============================================================================
+// =============================================================================
+// REDUCTION OPERATIONS
+// =============================================================================
 
-# Sum reduction along specific dimension
+// Sum reduction along specific dimension
 fn sum_dim1(input) {
-    # Sum along dimension 1 (columns)
+    // Sum along dimension 1 (columns)
     let sum_output[i] = sum[j](input[i,j]);
     sum_output
 }
 
-# Mean reduction
+// Mean reduction
 fn mean_2d(input) {
-    # Calculate mean across all elements
+    // Calculate mean across all elements
     let total = sum[i,j](input[i,j]);
-    # count = sum[i, j](1.0) where input[i, j] == input[i, j]; # ❌ Complex where clause not supported
-    let count = 4.0; # Simplified - assume 2x2 matrix for now;
+    // count = sum[i, j](1.0) where input[i, j] == input[i, j]; # ❌ Complex where clause not supported
+    let count = 4.0; // Simplified - assume 2x2 matrix for now;
     let result = total / count;
     result
 }
 
-# L2 norm
+// L2 norm
 fn l2_norm(input) {
-    # Calculate L2 norm: sqrt(sum(x^2))
+    // Calculate L2 norm: sqrt(sum(x^2))
     let squared_sum = sum[i,j](input[i,j] * input[i,j]);
     let result = sqrt(squared_sum);
     result
 }
 
-# =============================================================================
-# ATTENTION MECHANISM
-# =============================================================================
+// =============================================================================
+// ATTENTION MECHANISM
+// =============================================================================
 
-# Simplified attention mechanism
+// Simplified attention mechanism
 fn attention_simple(query, key, value) {
-    # query: [batch, seq_len, hidden_dim]
-    # key: [batch, seq_len, hidden_dim]  
-    # value: [batch, seq_len, hidden_dim]
+    // query: [batch, seq_len, hidden_dim]
+    // key: [batch, seq_len, hidden_dim]  
+    // value: [batch, seq_len, hidden_dim]
     
-    # Compute attention scores: Q * K^T
+    // Compute attention scores: Q * K^T
     let scores[b, i,j] = sum[k](query[b, i,k] * key[b, j,k]);
     
-    # Apply softmax to scores (simplified)
+    // Apply softmax to scores (simplified)
     let max_score[b,i] = max[j](scores[b, i,j]);
     let exp_scores[b, i,j] = exp(scores[b, i,j] - max_score[b,i]);
     let sum_exp[b,i] = sum[j](exp_scores[b, i,j]);
     let attention_weights[b, i,j] = exp_scores[b, i,j] / sum_exp[b,i];
     
-    # Apply attention to values
+    // Apply attention to values
     let attention_output[b, i,k] = sum[j](attention_weights[b, i,j] * value[b, j,k]);
     attention_output
 }
 
-# =============================================================================
-# ELEMENT-WISE OPERATIONS
-# =============================================================================
+// =============================================================================
+// ELEMENT-WISE OPERATIONS
+// =============================================================================
 
-# Element-wise addition with broadcasting
+// Element-wise addition with broadcasting
 fn add_broadcast(a,b_vector) {
-    # a: [m, n],b_vector: [n] -> output: [m, n]
+    // a: [m, n],b_vector: [n] -> output: [m, n]
     let broadcast_output[i,j] = a[i,j] + b_vector[j];
     broadcast_output
 }
 
-# Element-wise multiplication
+// Element-wise multiplication
 fn elementwise_mul(a,b) {
     let mul_output[i,j] = a[i,j] * b[i,j];
     mul_output
 }
 
-# Scalar operations
+// Scalar operations
 fn scale_tensor(input, scale) {
     let scale_output[i,j] = input[i,j] * scale;
     scale_output
 }
 
-# =============================================================================
-# NORMALIZATION OPERATIONS
-# =============================================================================
+// =============================================================================
+// NORMALIZATION OPERATIONS
+// =============================================================================
 
-# Batch normalization (simplified)
+// Batch normalization (simplified)
 fn batch_norm_simple(input, gamma,beta) {
-    # Calculate mean and variance
+    // Calculate mean and variance
     let mean_val[j] = sum[i](input[i,j]) / sum[i](1.0);
     
-    # Calculate variance (simplified)
+    // Calculate variance (simplified)
     let variance[j] = sum[i]((input[i,j] - mean_val[j]) * (input[i,j] - mean_val[j])) / sum[i](1.0);
     
-    # Normalize
+    // Normalize
     let epsilon = 1e-5;
     let normalized[i,j] = (input[i,j] - mean_val[j]) / sqrt(variance[j] + epsilon);
     
-    # Scale and shift
+    // Scale and shift
     let bn_output[i,j] = gamma[j] * normalized[i,j] + beta[j];
     bn_output
 }
 
-# =============================================================================
-# NEURAL NETWORK LAYERS
-# =============================================================================
+// =============================================================================
+// NEURAL NETWORK LAYERS
+// =============================================================================
 
-# Complete neural network layer with activation
+// Complete neural network layer with activation
 fn dense_layer_with_activation(input, weight,bias, activation_type) {
-    # Linear transformation
+    // Linear transformation
     let linear_output[i,j] = sum[k](input[i,k] * weight[k,j]) + bias[j];
     
-    # Apply activation based on type
-    # Note: In real implementation, this would use conditional logic
-    # For now, showing ReLU as default
+    // Apply activation based on type
+    // Note: In real implementation, this would use conditional logic
+    // For now, showing ReLU as default
     let dense_output[i,j] = linear_output[i,j] * ((linear_output[i,j] > 0) as f32);
     dense_output
 }
 
-# Multi-layer perceptron (2 layers)
+// Multi-layer perceptron (2 layers)
 fn mlp_2layer(input, w1,b1, w2,b2) {
-    # First layer with ReLU
+    // First layer with ReLU
     let hidden[i,j] = sum[k](input[i,k] * w1[k,j]) + b1[j];
     let hidden_relu[i,j] = hidden[i,j] * ((hidden[i,j] > 0) as f32);
     
-    # Second layer 
+    // Second layer 
     let mlp_output[i,j] = sum[k](hidden_relu[i,k] * w2[k,j]) + b2[j];
     mlp_output
 }
 
-# =============================================================================
-# UTILITY FUNCTIONS
-# =============================================================================
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
 
-# Create identity matrix
+// Create identity matrix
 fn identity_matrix(size) {
     let identity_output[i in 0..size, j in 0..size] = ((i == j) as f32) * 1.0;
     identity_output
 }
 
-# Sum of squares (useful for loss functions)
+// Sum of squares (useful for loss functions)
 fn sum_of_squares(input) {
     let result = sum[i,j](input[i,j] * input[i,j]);
     result
 }
 
-# Mean squared error
+// Mean squared error
 fn mse_loss(predicted, target) {
     let diff[i,j] = predicted[i,j] - target[i,j];
     let squared_diff[i,j] = diff[i,j] * diff[i,j];
@@ -252,20 +252,20 @@ fn mse_loss(predicted, target) {
     result
 }
 
-# =============================================================================
-# EXAMPLE USAGE
-# =============================================================================
+// =============================================================================
+// EXAMPLE USAGE
+// =============================================================================
 
-# Example: Simple neural network forward pass
+// Example: Simple neural network forward pass
 fn simple_neural_network(input, w1,b1, w2,b2) {
-    # Layer 1: Linear + ReLU
+    // Layer 1: Linear + ReLU
     let layer1_linear[i,j] = sum[k](input[i,k] * w1[k,j]) + b1[j];
     let layer1_output[i,j] = layer1_linear[i,j] * ((layer1_linear[i,j] > 0) as f32);
     
-    # Layer 2: Linear + Softmax (simplified)
+    // Layer 2: Linear + Softmax (simplified)
     let layer2_linear[i,j] = sum[k](layer1_output[i,k] * w2[k,j]) + b2[j];
     
-    # Softmax normalization
+    // Softmax normalization
     let max_val[i] = max[j](layer2_linear[i,j]);
     let exp_vals[i,j] = exp(layer2_linear[i,j] - max_val[i]);
     let sum_exp[i] = sum[j](exp_vals[i,j]);

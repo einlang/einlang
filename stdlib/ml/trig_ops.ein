@@ -1,22 +1,22 @@
-# ml/trig_ops.ein - ONNX Trigonometric Operations
-# TensorRT ONNX Parser: ✅ Supported
+// ml/trig_ops.ein - ONNX Trigonometric Operations
+// TensorRT ONNX Parser: ✅ Supported
 
 use std::math::{exp, atan};
 
-# ============================================================================
-# Basic Trigonometric Functions
-# ============================================================================
+// ============================================================================
+// Basic Trigonometric Functions
+// ============================================================================
 
-# Re-exported from std::math::trig
+// Re-exported from std::math::trig
 pub use std::math::trig::{sin, cos, tan};
 
 
-# ============================================================================
-# Hyperbolic Trigonometric Functions
-# ============================================================================
+// ============================================================================
+// Hyperbolic Trigonometric Functions
+// ============================================================================
 
 pub fn tanh(x) {
-    # Element-wise hyperbolic tangent: output = tanh(x)
+    // Element-wise hyperbolic tangent: output = tanh(x)
     use std::ml::math_ops::exp;
     let exp_x = exp(x);
     let exp_neg_x = exp(-x);
@@ -25,7 +25,7 @@ pub fn tanh(x) {
 
 
 pub fn sinh(x) {
-    # Element-wise hyperbolic sine: output = sinh(x)
+    // Element-wise hyperbolic sine: output = sinh(x)
     use std::ml::math_ops::exp;
     let exp_x = exp(x);
     let exp_neg_x = exp(-x);
@@ -34,7 +34,7 @@ pub fn sinh(x) {
 
 
 pub fn cosh(x) {
-    # Element-wise hyperbolic cosine: output = cosh(x)
+    // Element-wise hyperbolic cosine: output = cosh(x)
     use std::ml::math_ops::exp;
     let exp_x = exp(x);
     let exp_neg_x = exp(-x);
@@ -42,10 +42,10 @@ pub fn cosh(x) {
 }
 
 
-# ============================================================================
-# Inverse Trigonometric Functions
-# ============================================================================
+// ============================================================================
+// Inverse Trigonometric Functions
+// ============================================================================
 
-# Re-exported from std::math::trig
+// Re-exported from std::math::trig
 pub use std::math::trig::atan2;
 

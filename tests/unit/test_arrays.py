@@ -66,10 +66,20 @@ class TestArrays:
             self._test_and_execute(source, compiler, runtime)
     
     def test_nested_arrays(self, compiler, runtime):
-        """Test nested array operations"""
+        """Test nested array operations and chained rectangular access M[i][j] == M[i,j]"""
         cases = [
             "let matrix = [[1, 2], [3, 4]]; let x = matrix[0][1]; assert(x == 2);",
             "let nested = [[1, 2, 3], [4, 5, 6]]; let row_sums = [sum[j](row[j]) | row in nested]; assert(len(row_sums) == 2);",
+            "let M = [[1, 2, 3], [4, 5, 6]]; assert(M[0][1] == M[0, 1]); assert(M[1][2] == M[1, 2]); assert(M[1][0] == 4);",
+        ]
+        for source in cases:
+            self._test_and_execute(source, compiler, runtime)
+
+    def test_jagged_arrays(self, compiler, runtime):
+        """Test jagged (ragged) arrays: inconsistent row lengths, jagged access"""
+        cases = [
+            "let x = [[1, 2], [3, 4, 5]]; assert(x[0][1] == 2); assert(x[1][2] == 5); assert(len(x) == 2); assert(len(x[0]) == 2); assert(len(x[1]) == 3);",
+            "let rows = [[10], [20, 21], [30, 31, 32]]; assert(rows[0][0] == 10); assert(rows[1][1] == 21); assert(rows[2][2] == 32); assert(len(rows) == 3);",
         ]
         for source in cases:
             self._test_and_execute(source, compiler, runtime)

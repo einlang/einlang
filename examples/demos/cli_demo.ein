@@ -1,10 +1,10 @@
-# CLI Demo - Simple working Einlang example
-# Demonstrates basic language features that actually work
+// CLI Demo - Simple working Einlang example
+// Demonstrates basic language features that actually work
 
 print("=== EINLANG CLI DEMO ===");
 print();
 
-# Basic arithmetic
+// Basic arithmetic
 let x = 10;
 let y = 20;
 let sum = x + y;
@@ -17,14 +17,14 @@ print("x + y =", sum);
 print("x * y =", product);
 print();
 
-# Simple array operations
+// Simple array operations
 let numbers = [1, 2, 3, 4, 5];
 print("Array:", numbers);
 print("First element:", numbers[0]);
 print("Last element:", numbers[4]);
 print();
 
-# Array comprehensions
+// Array comprehensions
 let squares = [i * i | i in 1..6];
 let evens = [x | x in numbers, x % 2 == 0];
 
@@ -33,7 +33,7 @@ print("Squares [1²..5²]:", squares);
 print("Even numbers:", evens);
 print();
 
-# Conditional expressions
+// Conditional expressions
 let max_value = if x > y { x } else { y };
 let classification = if sum > 25 { "large" } else { "small" };
 
@@ -42,7 +42,7 @@ print("max(x, y) =", max_value);
 print("sum classification:", classification);
 print();
 
-# Simple reductions
+// Simple reductions
 let total = sum[i](numbers[i]);
 let maximum = max[i](numbers[i]);
 

@@ -14,12 +14,12 @@ import logging
 from typing import TYPE_CHECKING, Optional, Any
 
 if TYPE_CHECKING:
-    from ..ir.nodes import FunctionDefIR
+    from ..ir.nodes import BindingIR
 
 logger = logging.getLogger(__name__)
 
 
-def is_generic_function(func_def: 'FunctionDefIR') -> bool:
+def is_generic_function(func_def: 'BindingIR') -> bool:
     """
     Check if function has generic parameters.
     
@@ -50,7 +50,7 @@ def is_generic_function(func_def: 'FunctionDefIR') -> bool:
     return False
 
 
-def should_analyze_function(func_def: 'FunctionDefIR', tcx: Optional[Any] = None) -> bool:
+def should_analyze_function(func_def: 'BindingIR', tcx: Optional[Any] = None) -> bool:
     """
     Determine if a function should be analyzed by analysis passes.
     Never run stdlib-specific passes: same rule for all code (stdlib or user).

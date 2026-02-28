@@ -1,14 +1,14 @@
-# Standard library module import examples
+// Standard library module import examples
 
-# Test imports from category modules
+// Test imports from category modules
 use std::math;
 use std::array;
 
-# Test direct imports from specific submodules  
+// Test direct imports from specific submodules  
 use std::math::basic;
 use std::math::constants;
 
-# Test basic math functions
+// Test basic math functions
 let a = 5;
 let b = 3;
 
@@ -22,7 +22,7 @@ assert(min_result == 3);
 assert(max_result == 5);
 assert(sqrt_result >= 3.99 && sqrt_result <= 4.01);
 
-# Test array operations
+// Test array operations
 let test_data = [1, 2, 3, 4, 5];
 let sum_result = array::sum(test_data);
 let len_result = len(test_data);
@@ -30,6 +30,6 @@ let len_result = len(test_data);
 assert(sum_result == 15);
 assert(len_result == 5);
 
-# Test constants
+// Test constants
 let pi_val = constants::pi();
 assert(pi_val > 3.0 && pi_val < 4.0);

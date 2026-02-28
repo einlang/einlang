@@ -1,28 +1,28 @@
-# Einlang Mathematical ADT Demo
-# =============================
-# 
-# Demonstrating ADTs designed specifically for mathematical computing,
-# tensor operations, and Einstein notation integration.
+// Einlang Mathematical ADT Demo
+// =============================
+// 
+// Demonstrating ADTs designed specifically for mathematical computing,
+// tensor operations, and Einstein notation integration.
 
-# =============================================================================
-# MATHEMATICAL TENSOR TYPES
-# =============================================================================
+// =============================================================================
+// MATHEMATICAL TENSOR TYPES
+// =============================================================================
 
-# Tensor dimensionality as first-class mathematical objects
+// Tensor dimensionality as first-class mathematical objects
 type TensorRank = 
     | scalar
     | vector[n] 
     | matrix[m, n]
     | tensor3[i, j, k];
 
-# Mathematical transformations with tensor shapes
+// Mathematical transformations with tensor shapes
 type LinearTransform =
     | identity[n]
     | rotation[θ: f32; 2, 2] 
     | scaling[factors: tensor[f32; n]; n, n]
     | householder[v: tensor[f32; n]; n, n];
 
-# Test tensor rank classification
+// Test tensor rank classification
 let classify_tensor = |T: tensor[f32]| case shape(T) {
     [] => scalar,
     [n] => vector[n],
@@ -31,9 +31,9 @@ let classify_tensor = |T: tensor[f32]| case shape(T) {
 };
 
 let test_tensors = [
-    42.0,                    # scalar
-    [1.0, 2.0, 3.0],        # vector[3]
-    [[1.0, 2.0], [3.0, 4.0]], # matrix[2, 2]
+    42.0,                    // scalar
+    [1.0, 2.0, 3.0],        // vector[3]
+    [[1.0, 2.0], [3.0, 4.0]], // matrix[2, 2]
 ];
 
 for tensor in test_tensors {
@@ -41,39 +41,39 @@ for tensor in test_tensors {
     print("Tensor {tensor} has rank: {rank}");
 }
 
-# =============================================================================
-# EINSTEIN NOTATION WITH MATHEMATICAL ADTs
-# =============================================================================
+// =============================================================================
+// EINSTEIN NOTATION WITH MATHEMATICAL ADTs
+// =============================================================================
 
-# Mathematical functions as first-class tensor operations
+// Mathematical functions as first-class tensor operations
 type MathFunction =;
-    | linear[A: tensor[f32]]      # Linear: f(x) = Ax;
-    | quadratic[Q: tensor[f32]]   # Quadratic: f(x) = x^T Q x  ;
-    | bilinear[B: tensor[f32]]    # Bilinear: f(x,y) = x^T B y
-    | multilinear[tensors: [tensor[f32]]]; # General multilinear
+    | linear[A: tensor[f32]]      // Linear: f(x) = Ax;
+    | quadratic[Q: tensor[f32]]   // Quadratic: f(x) = x^T Q x  ;
+    | bilinear[B: tensor[f32]]    // Bilinear: f(x,y) = x^T B y
+    | multilinear[tensors: [tensor[f32]]]; // General multilinear
 
-# Apply mathematical functions using Einstein notation
+// Apply mathematical functions using Einstein notation
 let apply_math_function = |f: MathFunction, x: tensor[f32]| case f {
     linear[A] => {
-        # Linear transformation: y_i = A_ij * x_j
+        // Linear transformation: y_i = A_ij * x_j
         let y[i] = sum[j](A[i, j] * x[j]);
         y
     },
     quadratic[Q] => {
-        # Quadratic form: s = x_i * Q_ij * x_j
+        // Quadratic form: s = x_i * Q_ij * x_j
         sum[i, j](x[i] * Q[i, j] * x[j])
     },
     bilinear[B] => {
-        # Bilinear form: need two inputs, use x for both
-        # s = x_i * B_ij * x_j
+        // Bilinear form: need two inputs, use x for both
+        // s = x_i * B_ij * x_j
         sum[i, j](x[i] * B[i, j] * x[j])
     }
 };
 
-# Test mathematical functions
-let A = [[2.0, 1.0], [1.0, 3.0]];  # Linear transformation matrix;
-let Q = [[1.0, 0.5], [0.5, 2.0]];  # Quadratic form matrix;
-let x = [1.0, 2.0];                 # Input vector
+// Test mathematical functions
+let A = [[2.0, 1.0], [1.0, 3.0]];  // Linear transformation matrix;
+let Q = [[1.0, 0.5], [0.5, 2.0]];  // Quadratic form matrix;
+let x = [1.0, 2.0];                 // Input vector
 
 let linear_result = apply_math_function(linear[A], x);
 let quadratic_result = apply_math_function(quadratic[Q], x);
@@ -81,15 +81,15 @@ let quadratic_result = apply_math_function(quadratic[Q], x);
 print("Linear transformation Ax:", linear_result);
 print("Quadratic form x^T Q x:", quadratic_result);
 
-# =============================================================================
-# NEURAL NETWORK LAYERS AS MATHEMATICAL MAPPINGS
-# =============================================================================
+// =============================================================================
+// NEURAL NETWORK LAYERS AS MATHEMATICAL MAPPINGS
+// =============================================================================
 
-# Neural layers as mathematical transformations with Einstein notation built-in
+// Neural layers as mathematical transformations with Einstein notation built-in
 type NeuralLayer[in_dim, out_dim] =
     | dense { 
-        W: tensor[f32; in_dim, out_dim],    # Weight matrix
-        b: tensor[f32; out_dim],            # Bias vector
+        W: tensor[f32; in_dim, out_dim],    // Weight matrix
+        b: tensor[f32; out_dim],            // Bias vector
         activation: MathFunction
     }
     | linear_only {
@@ -97,67 +97,67 @@ type NeuralLayer[in_dim, out_dim] =
         b: tensor[f32; out_dim]  
     }
     | attention {
-        Q: tensor[f32; in_dim, in_dim],     # Query matrix
-        K: tensor[f32; in_dim, in_dim],     # Key matrix  
-        V: tensor[f32; in_dim, out_dim]     # Value matrix
+        Q: tensor[f32; in_dim, in_dim],     // Query matrix
+        K: tensor[f32; in_dim, in_dim],     // Key matrix  
+        V: tensor[f32; in_dim, out_dim]     // Value matrix
     };
 
-# Forward pass using pure Einstein notation and mathematical case analysis
+// Forward pass using pure Einstein notation and mathematical case analysis
 let forward_layer = |layer: NeuralLayer, input: tensor[f32]| case layer {
     dense { W, b, activation } => {
-        # Linear transformation: z_i = W_ij * x_j + b_i
+        // Linear transformation: z_i = W_ij * x_j + b_i
         let z[i] = sum[j](W[i, j] * input[j]) + b[i];
         
-        # Apply activation function mathematically
+        // Apply activation function mathematically
         case activation {
-            linear[I] => z[i],  # Identity activation;
-            quadratic[Q] => sum[j, k](z[j] * Q[j, k] * z[k])  # Quadratic activation
+            linear[I] => z[i],  // Identity activation;
+            quadratic[Q] => sum[j, k](z[j] * Q[j, k] * z[k])  // Quadratic activation
         }
     },
     
     linear_only { W, b } => {
-        # Pure linear transformation: y_i = W_ij * x_j + b_i  
+        // Pure linear transformation: y_i = W_ij * x_j + b_i  
         sum[j](W[i, j] * input[j]) + b[i]
     },
     
     attention { Q, K, V } => {
-        # Self-attention mechanism using Einstein notation
-        # Attention(Q,K,V) = softmax(QK^T/√d_k)V
+        // Self-attention mechanism using Einstein notation
+        // Attention(Q,K,V) = softmax(QK^T/√d_k)V
         
-        # Query-Key similarity: S_ij = Q_ik * K_jk
+        // Query-Key similarity: S_ij = Q_ik * K_jk
         let similarities[i, j] = sum[k](Q[i, k] * K[j, k]) / sqrt(len(Q[0]));
         
-        # Softmax attention weights: A_ij = exp(S_ij) / Σ_k exp(S_ik)
+        // Softmax attention weights: A_ij = exp(S_ij) / Σ_k exp(S_ik)
         let attention_weights[i, j] = exp(similarities[i, j]) / sum[k](exp(similarities[i, k]));
         
-        # Apply attention to values: output_i = A_ij * V_jk  
+        // Apply attention to values: output_i = A_ij * V_jk  
         sum[j](attention_weights[i, j] * V[j, k])
     }
 };
 
-# Create and test neural layers
+// Create and test neural layers
 let simple_layer = dense {
-    W: [[0.5, 0.3], [0.7, 0.2], [0.1, 0.8]],  # 2x3 weight matrix
-    b: [0.1, 0.2, 0.3],                        # 3-element bias
-    activation: linear[identity]                # Linear activation
+    W: [[0.5, 0.3], [0.7, 0.2], [0.1, 0.8]],  // 2x3 weight matrix
+    b: [0.1, 0.2, 0.3],                        // 3-element bias
+    activation: linear[identity]                // Linear activation
 };
 
 let test_input = [1.0, 0.5];
 let layer_output = forward_layer(simple_layer, test_input);
 print("Neural layer output:", layer_output);
 
-# =============================================================================
-# TENSOR SHAPE ALGEBRA WITH MATHEMATICAL VALIDATION
-# =============================================================================
+// =============================================================================
+// TENSOR SHAPE ALGEBRA WITH MATHEMATICAL VALIDATION
+// =============================================================================
 
-# Mathematical tensor operations with shape checking
+// Mathematical tensor operations with shape checking
 type TensorOperation =
     | matrix_multiply[A_shape: [i32], B_shape: [i32]]
     | element_wise[op: str, A_shape: [i32], B_shape: [i32]]
     | contraction[indices: [i32], A_shape: [i32], B_shape: [i32]]
     | broadcasting[target_shape: [i32]];
 
-# Shape compatibility checking with mathematical reasoning
+// Shape compatibility checking with mathematical reasoning
 type ShapeCompatibility = 
     | compatible
     | incompatible[reason: str];
@@ -171,11 +171,11 @@ let check_matrix_multiply = |shape_A: [i32], shape_B: [i32]| ;
         incompatible[f"Inner dimensions don't match: {shape_A[1]} vs {shape_B[0]}"]
     };
 
-# Safe matrix operations with Einstein notation
+// Safe matrix operations with Einstein notation
 let safe_matmul = |A: tensor[f32], B: tensor[f32]| 
     case check_matrix_multiply(shape(A), shape(B)) {
         compatible => {
-            # Safe to perform: C_ij = A_ik * B_kj
+            // Safe to perform: C_ij = A_ik * B_kj
             let C[i, j] = sum[k](A[i, k] * B[k, j]);
             success: C
         },
@@ -185,13 +185,13 @@ let safe_matmul = |A: tensor[f32], B: tensor[f32]|
         }
     };
 
-# Test safe matrix operations
-let matrix_A = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];  # 2x3;
-let matrix_B = [[7.0, 8.0], [9.0, 10.0], [11.0, 12.0]]; # 3x2  ;
-let matrix_C = [[1.0, 2.0], [3.0, 4.0]];  # 2x2 (wrong shape)
+// Test safe matrix operations
+let matrix_A = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];  // 2x3;
+let matrix_B = [[7.0, 8.0], [9.0, 10.0], [11.0, 12.0]]; // 3x2  ;
+let matrix_C = [[1.0, 2.0], [3.0, 4.0]];  // 2x2 (wrong shape)
 
-let result_AB = safe_matmul(matrix_A, matrix_B);  # Should work;
-let result_AC = safe_matmul(matrix_A, matrix_C);  # Should fail
+let result_AB = safe_matmul(matrix_A, matrix_B);  // Should work;
+let result_AC = safe_matmul(matrix_A, matrix_C);  // Should fail
 
 case result_AB {
     success: matrix => print("A×B successful:", matrix),
@@ -203,11 +203,11 @@ case result_AC {
     error: msg => print("A×C failed:", msg)
 }
 
-# =============================================================================
-# MATHEMATICAL COORDINATE TRANSFORMATIONS
-# =============================================================================
+// =============================================================================
+// MATHEMATICAL COORDINATE TRANSFORMATIONS
+// =============================================================================
 
-# Mathematical coordinate systems as tensor types
+// Mathematical coordinate systems as tensor types
 type CoordinateSystem =
     | cartesian[dims: i32]
     | polar 
@@ -215,39 +215,39 @@ type CoordinateSystem =
     | cylindrical
     | homogeneous[dims: i32];
 
-# Coordinate transformations using Einstein notation
+// Coordinate transformations using Einstein notation
 let transform_coordinates = |coords: tensor[f32], from: CoordinateSystem, to: CoordinateSystem| 
     case (from, to) {
         (cartesian[2], polar) => {
-            # (x, y) -> (r, θ)
+            // (x, y) -> (r, θ)
             let r = sqrt(coords[0] * coords[0] + coords[1] * coords[1]);
             let θ = atan2(coords[1], coords[0]);
             [r, θ]
         },
         
         (polar, cartesian[2]) => {
-            # (r, θ) -> (x, y)  
+            // (r, θ) -> (x, y)  
             let x = coords[0] * cos(coords[1]);
             let y = coords[0] * sin(coords[1]);
             [x, y]
         },
         
         (cartesian[3], spherical) => {
-            # (x, y, z) -> (r, θ, φ)
-            let r = sqrt(sum[i](coords[i] * coords[i]));  # |r| using Einstein notation;
-            let θ = atan2(coords[1], coords[0]);          # azimuthal angle;
-            let φ = acos(coords[2] / r);                  # polar angle
+            // (x, y, z) -> (r, θ, φ)
+            let r = sqrt(sum[i](coords[i] * coords[i]));  // |r| using Einstein notation;
+            let θ = atan2(coords[1], coords[0]);          // azimuthal angle;
+            let φ = acos(coords[2] / r);                  // polar angle
             [r, θ, φ]
         },
         
         (cartesian[n], homogeneous[n]) => {
-            # Add homogeneous coordinate: (x₁, x₂, ..., xₙ) -> (x₁, x₂, ..., xₙ, 1)
+            // Add homogeneous coordinate: (x₁, x₂, ..., xₙ) -> (x₁, x₂, ..., xₙ, 1)
             let homo[i in 0..n+1] = if i < n { coords[i] } else { 1.0 };
             homo
         }
     };
 
-# Test coordinate transformations
+// Test coordinate transformations
 let cartesian_2d = [3.0, 4.0];
 let polar_coords = transform_coordinates(cartesian_2d, cartesian[2], polar);
 let back_to_cartesian = transform_coordinates(polar_coords, polar, cartesian[2]);
@@ -262,11 +262,11 @@ let homogeneous_coords = transform_coordinates(cartesian_3d, cartesian[3], homog
 print("Cartesian 3D -> Spherical:", spherical_coords);
 print("Cartesian 3D -> Homogeneous:", homogeneous_coords);
 
-# =============================================================================
-# DIFFERENTIAL OPERATORS AS TENSOR TYPES
-# =============================================================================
+// =============================================================================
+// DIFFERENTIAL OPERATORS AS TENSOR TYPES
+// =============================================================================
 
-# Mathematical differential operators
+// Mathematical differential operators
 type DifferentialOperator =
     | gradient[dims: i32]
     | divergence[dims: i32] 
@@ -274,60 +274,60 @@ type DifferentialOperator =
     | laplacian[dims: i32]
     | directional[direction: tensor[f32]];
 
-# Apply differential operators (simplified numerical differentiation)
+// Apply differential operators (simplified numerical differentiation)
 let apply_differential = |op: DifferentialOperator, field: tensor[f32], h: f32| case op {
     gradient[dims] => {
-        # ∇f ≈ (f(x+h) - f(x-h)) / (2h) for each dimension
-        # Simplified 1D case
+        // ∇f ≈ (f(x+h) - f(x-h)) / (2h) for each dimension
+        // Simplified 1D case
         let grad[i in 1..len(field)-1] = (field[i+1] - field[i-1]) / (2.0 * h);
         grad
     },
     
     laplacian[dims] => {
-        # ∇²f ≈ (f(x+h) - 2f(x) + f(x-h)) / h² for 1D
+        // ∇²f ≈ (f(x+h) - 2f(x) + f(x-h)) / h² for 1D
         let lapl[i in 1..len(field)-1] = (field[i+1] - 2.0*field[i] + field[i-1]) / (h*h);
         lapl
     }
 };
 
-# Test differential operators
-let field_1d = [1.0, 4.0, 9.0, 16.0, 25.0, 36.0];  # f(x) = x² at integer points;
+// Test differential operators
+let field_1d = [1.0, 4.0, 9.0, 16.0, 25.0, 36.0];  // f(x) = x² at integer points;
 let dx = 1.0;
 
 let gradient_result = apply_differential(gradient[1], field_1d, dx);
 let laplacian_result = apply_differential(laplacian[1], field_1d, dx);
 
-print("Gradient of x²:", gradient_result);     # Should approximate 2x
-print("Laplacian of x²:", laplacian_result);   # Should be constant ≈ 2
+print("Gradient of x²:", gradient_result);     // Should approximate 2x
+print("Laplacian of x²:", laplacian_result);   // Should be constant ≈ 2
 
-# =============================================================================
-# MATHEMATICAL OPTIMIZATION TYPES  
-# =============================================================================
+// =============================================================================
+// MATHEMATICAL OPTIMIZATION TYPES  
+// =============================================================================
 
-# Optimization algorithms as mathematical ADTs
+// Optimization algorithms as mathematical ADTs
 type Optimizer =
     | gradient_descent { learning_rate: f32 }
     | newton_method { tolerance: f32 }
     | conjugate_gradient { max_iterations: i32 }
     | adam { alpha: f32, beta1: f32, beta2: f32, epsilon: f32 };
 
-# Optimization step using Einstein notation
+// Optimization step using Einstein notation
 let optimization_step = |optimizer: Optimizer, params: tensor[f32], gradients: tensor[f32]| case optimizer {
     gradient_descent { learning_rate: α } => {
-        # θ_new = θ_old - α * ∇θ
+        // θ_new = θ_old - α * ∇θ
         let updated[i] = params[i] - α * gradients[i];
         updated
     },
     
     adam { alpha: α, beta1: β₁, beta2: β₂, epsilon: ε } => {
-        # Adam optimizer with Einstein notation
-        # Simplified version (would need momentum terms in practice)
+        // Adam optimizer with Einstein notation
+        // Simplified version (would need momentum terms in practice)
         let updated[i] = params[i] - α * gradients[i] / (sqrt(gradients[i] * gradients[i]) + ε);
         updated
     }
 };
 
-# Test optimization
+// Test optimization
 let parameters = [1.0, 2.0, 3.0];
 let grad = [0.1, 0.2, 0.15];
 let optimizer = gradient_descent { learning_rate: 0.01 };

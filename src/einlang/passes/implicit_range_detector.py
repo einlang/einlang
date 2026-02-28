@@ -14,8 +14,9 @@ from ..ir.nodes import (
     ExpressionIR, IdentifierIR, IndexVarIR, RectangularAccessIR, ArrayLiteralIR,
     BinaryOpIR, UnaryOpIR, ReductionExpressionIR, WhereExpressionIR,
     IRVisitor, LiteralIR, MemberAccessIR, CastExpressionIR,
-    EinsteinDeclarationIR, FunctionCallIR, IfExpressionIR, RangeIR,
-    TupleAccessIR, VariableDeclarationIR, BuiltinCallIR,
+    BindingIR, FunctionCallIR, IfExpressionIR, RangeIR,
+    TupleAccessIR, BuiltinCallIR,
+    is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
 from ..shared.source_location import SourceLocation
@@ -64,7 +65,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
             program = getattr(self._tcx, 'program_ir', None)
             if program:
                 for stmt in program.statements:
-                    if isinstance(stmt, VariableDeclarationIR):
+                    if isinstance(stmt, BindingIR):
                         if getattr(stmt, 'defid', None) == array_defid:
                             return stmt.value
         return None
@@ -74,9 +75,8 @@ class ImplicitRangeDetector(IRVisitor[None]):
         Register prior Einstein declarations in this function (by DefId only).
         ALIGNED: Enables range inference from prior declarations (e.g. shifted[..batch, j] then doubled[...] = shifted[...] * 2).
         """
-        from ..ir.nodes import EinsteinDeclarationIR
         for decl in decls:
-            if isinstance(decl, EinsteinDeclarationIR):
+            if is_einstein_binding(decl):
                 did = getattr(decl, 'defid', None)
                 if did is not None:
                     self._function_decls_by_defid[did] = decl
@@ -361,7 +361,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
             index_lit = LiteralIR(value=index_position, location=loc, type_info=PrimitiveType(name='i32'))
             return RectangularAccessIR(array=shape_member, indices=[index_lit], location=loc)
 
-        if isinstance(var_def, VariableDeclarationIR) and getattr(var_def, 'value', None) is not None:
+        if isinstance(var_def, BindingIR) and getattr(var_def, 'value', None) is not None:
             var_def = var_def.value
         if hasattr(var_def, 'shape_info') and var_def.shape_info:
             shape = var_def.shape_info
@@ -393,7 +393,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
             if isinstance(current, ArrayLiteralIR):
                 return len(current.elements)
 
-        if isinstance(var_def, EinsteinDeclarationIR):
+        if is_einstein_binding(var_def):
             max_size = None
             for clause in (var_def.clauses or []):
                 var_ranges = getattr(clause, 'variable_ranges', None) or {}
@@ -759,7 +759,9 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_guard_pattern(self, node) -> bool:
                 return False
 
-            def visit_variable_declaration(self, node) -> bool:
+            def visit_binding(self, node) -> bool:
+                if is_function_binding(node) or is_einstein_binding(node):
+                    return False
                 if hasattr(node, 'value') and node.value:
                     return node.value.accept(self)
                 return False
@@ -773,25 +775,10 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_block_expression(self, node) -> bool:
                 return False
 
-            def visit_arrow_expression(self, node) -> bool:
-                return False
-
             def visit_pipeline_expression(self, node) -> bool:
                 return False
 
             def visit_builtin_call(self, node) -> bool:
-                return False
-
-            def visit_function_def(self, node) -> bool:
-                return False
-
-            def visit_function_ref(self, node) -> bool:
-                return False
-
-            def visit_constant_def(self, node) -> bool:
-                return False
-
-            def visit_einstein_declaration(self, node) -> bool:
                 return False
 
             def visit_module(self, node) -> bool:
@@ -1102,31 +1089,16 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_array_pattern(self, node) -> bool:
                 return False
             
-            def visit_arrow_expression(self, node) -> bool:
-                return False
-            
             def visit_block_expression(self, node) -> bool:
                 return False
             
             def visit_builtin_call(self, node) -> bool:
                 return False
             
-            def visit_constant_def(self, node) -> bool:
-                return False
-            
-            def visit_einstein_declaration(self, node) -> bool:
-                return False
-            
             def visit_function_call(self, node) -> bool:
                 # Check all arguments for variable usage
                 if hasattr(node, 'arguments'):
                     return any(arg.accept(self) for arg in node.arguments)
-                return False
-            
-            def visit_function_def(self, node) -> bool:
-                return False
-            
-            def visit_function_ref(self, node) -> bool:
                 return False
             
             def visit_guard_pattern(self, node) -> bool:
@@ -1191,8 +1163,9 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_wildcard_pattern(self, node) -> bool:
                 return False
             
-            def visit_variable_declaration(self, node) -> bool:
-                # Check if the value expression uses the target variable
+            def visit_binding(self, node) -> bool:
+                if is_function_binding(node) or is_einstein_binding(node):
+                    return False
                 if hasattr(node, 'value') and node.value:
                     return node.value.accept(self)
                 return False
@@ -1294,9 +1267,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
     def visit_array_pattern(self, node) -> None:
         pass
     
-    def visit_arrow_expression(self, node) -> None:
-        pass
-    
     def visit_block_expression(self, node) -> None:
         for stmt in (getattr(node, 'statements', None) or []):
             if stmt is not None and hasattr(stmt, 'accept'):
@@ -1308,17 +1278,11 @@ class ImplicitRangeDetector(IRVisitor[None]):
     def visit_builtin_call(self, node) -> None:
         pass
     
-    def visit_constant_def(self, node) -> None:
-        pass
-    
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> None:
-        pass
-    
-    def visit_function_def(self, node) -> None:
-        pass
-    
-    def visit_function_ref(self, node) -> None:
-        pass
+    def visit_binding(self, node) -> None:
+        if is_function_binding(node) or is_einstein_binding(node):
+            return
+        if hasattr(node, 'value') and node.value:
+            node.value.accept(self)
     
     def visit_guard_pattern(self, node) -> None:
         pass
@@ -1528,10 +1492,16 @@ class ImplicitRangeDetector(IRVisitor[None]):
                             arg.accept(self)
                     return self.max_val
 
-                def visit_einstein_declaration(self, node) -> Optional[int]:
-                    for clause in getattr(node, 'clauses', None) or []:
-                        if hasattr(clause, 'value') and clause.value:
-                            clause.value.accept(self)
+                def visit_binding(self, node) -> Optional[int]:
+                    if is_function_binding(node):
+                        return self.max_val
+                    if is_einstein_binding(node):
+                        for clause in getattr(node, 'clauses', None) or []:
+                            if hasattr(clause, 'value') and clause.value:
+                                clause.value.accept(self)
+                        return self.max_val
+                    if hasattr(node, 'value'):
+                        node.value.accept(self)
                     return self.max_val
 
                 def visit_array_literal(self, node) -> Optional[int]:
@@ -1579,18 +1549,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
                         node.final_expr.accept(self)
                     return self.max_val
 
-                def visit_variable_declaration(self, node) -> Optional[int]:
-                    if hasattr(node, 'value'):
-                        node.value.accept(self)
-                    return self.max_val
-
                 def visit_program(self, node) -> Optional[int]:
-                    return self.max_val
-
-                def visit_function_def(self, node) -> Optional[int]:
-                    return self.max_val
-
-                def visit_constant_def(self, node) -> Optional[int]:
                     return self.max_val
 
                 def visit_range(self, node) -> Optional[int]:
@@ -1614,16 +1573,10 @@ class ImplicitRangeDetector(IRVisitor[None]):
                 def visit_match_expression(self, node) -> Optional[int]:
                     return self.max_val
 
-                def visit_arrow_expression(self, node) -> Optional[int]:
-                    return self.max_val
-
                 def visit_pipeline_expression(self, node) -> Optional[int]:
                     return self.max_val
 
                 def visit_builtin_call(self, node) -> Optional[int]:
-                    return self.max_val
-
-                def visit_function_ref(self, node) -> Optional[int]:
                     return self.max_val
 
                 def visit_module(self, node) -> Optional[int]:
@@ -1712,8 +1665,8 @@ class ImplicitRangeDetector(IRVisitor[None]):
             'visit_identifier', 'visit_literal', 'visit_member_access', 'visit_cast_expression',
             'visit_where_expression', 'visit_function_call', 'visit_if_expression',
             'visit_array_literal', 'visit_array_comprehension', 'visit_block_expression',
-            'visit_arrow_expression', 'visit_pipeline_expression', 'visit_builtin_call',
-            'visit_function_def', 'visit_function_ref', 'visit_constant_def',
+            'visit_pipeline_expression', 'visit_builtin_call',
+            'visit_function_def', 'visit_constant_def',
             'visit_einstein_declaration', 'visit_module', 'visit_program',
             'visit_match_expression', 'visit_try_expression', 'visit_interpolated_string',
             'visit_tuple_expression', 'visit_tuple_access', 'visit_jagged_access',
@@ -1776,8 +1729,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
                 pass
             def visit_array_pattern(self, node) -> None:
                 pass
-            def visit_arrow_expression(self, node) -> None:
-                pass
             def visit_binary_op(self, node) -> None:
                 if hasattr(node, 'left'):
                     node.left.accept(self)
@@ -1790,18 +1741,10 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_cast_expression(self, node) -> None:
                 if hasattr(node, 'expr'):
                     node.expr.accept(self)
-            def visit_constant_def(self, node) -> None:
-                pass
-            def visit_einstein_declaration(self, node) -> None:
-                pass
             def visit_function_call(self, node) -> None:
                 if hasattr(node, 'arguments'):
                     for arg in node.arguments:
                         arg.accept(self)
-            def visit_function_def(self, node) -> None:
-                pass
-            def visit_function_ref(self, node) -> None:
-                pass
             def visit_guard_pattern(self, node) -> None:
                 pass
             def visit_identifier(self, node) -> None:
@@ -1857,7 +1800,9 @@ class ImplicitRangeDetector(IRVisitor[None]):
             def visit_unary_op(self, node) -> None:
                 if hasattr(node, 'operand'):
                     node.operand.accept(self)
-            def visit_variable_declaration(self, node) -> None:
+            def visit_binding(self, node) -> None:
+                if is_function_binding(node) or is_einstein_binding(node):
+                    return
                 if hasattr(node, 'value'):
                     node.value.accept(self)
             def visit_where_expression(self, node) -> None:
@@ -2292,7 +2237,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
         defid_shapes = shape_data.get('defid_shapes', {}) if isinstance(shape_data, dict) else {}
         _value = None
         if einstein_node:
-            if isinstance(einstein_node, EinsteinDeclarationIR) and einstein_node.clauses:
+            if is_einstein_binding(einstein_node) and einstein_node.clauses:
                 _value = einstein_node.clauses[0].value
             else:
                 _value = getattr(einstein_node, 'value', None)
@@ -2357,7 +2302,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
         def _clause_for(node: Any) -> Any:
             if node is None:
                 return None
-            if isinstance(node, EinsteinDeclarationIR):
+            if is_einstein_binding(node):
                 return node.clauses[0] if node.clauses else None
             return node
 
@@ -2676,11 +2621,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
 
         return find_array_access(expr)
 
-    def visit_variable_declaration(self, node) -> None:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            node.value.accept(self)
-
 class _ComplexityCounter(IRVisitor[int]):
     """Visitor to count IR nodes for complexity estimation"""
     def __init__(self):
@@ -2695,10 +2635,6 @@ class _ComplexityCounter(IRVisitor[int]):
         self.count += 1
         return self.count
     
-    def visit_arrow_expression(self, node) -> int:
-        self.count += 1
-        return self.count
-    
     def visit_block_expression(self, node) -> int:
         self.count += 1
         return self.count
@@ -2707,20 +2643,11 @@ class _ComplexityCounter(IRVisitor[int]):
         self.count += 1
         return self.count
     
-    def visit_constant_def(self, node) -> int:
+    def visit_binding(self, node) -> int:
         self.count += 1
-        return self.count
-    
-    def visit_einstein_declaration(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_function_def(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_function_ref(self, node) -> int:
-        self.count += 1
+        if not is_function_binding(node) and not is_einstein_binding(node):
+            if hasattr(node, 'value') and node.value:
+                node.value.accept(self)
         return self.count
     
     def visit_function_call(self, node) -> int:
@@ -2857,10 +2784,4 @@ class _ComplexityCounter(IRVisitor[int]):
         if node.expr:
             node.expr.accept(self)
         return self.count
-
-    def visit_variable_declaration(self, node) -> Any:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 

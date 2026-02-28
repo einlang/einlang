@@ -13,7 +13,8 @@ from ..ir.nodes import (
     PatternIR, LiteralPatternIR, WildcardPatternIR,
     IdentifierPatternIR, TuplePatternIR, ArrayPatternIR,
     OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR,
-    IRVisitor
+    IRVisitor,
+    is_function_binding, is_einstein_binding, is_constant_binding
 )
 from ..shared.defid import DefId
 
@@ -285,20 +286,18 @@ class ExhaustivenessVisitor(IRVisitor[None]):
     def visit_where_expression(self, node) -> None:
         pass
     
-    def visit_arrow_expression(self, node) -> None:
-        pass
-    
     def visit_pipeline_expression(self, node) -> None:
         pass
     
     def visit_builtin_call(self, node) -> None:
         pass
     
-    def visit_function_ref(self, node) -> None:
-        pass
-    
-    def visit_einstein_declaration(self, node) -> None:
-        pass
+    def visit_binding(self, node) -> None:
+        if is_function_binding(node) or is_einstein_binding(node):
+            return None
+        if hasattr(node, 'value') and node.value:
+            return node.value.accept(self)
+        return None
     
     def visit_literal_pattern(self, node) -> None:
         pass
@@ -338,19 +337,6 @@ class ExhaustivenessVisitor(IRVisitor[None]):
     def visit_range_pattern(self, node) -> None:
         pass
     
-    def visit_function_def(self, node) -> None:
-        pass
-    
-    def visit_constant_def(self, node) -> None:
-        pass
-    
     def visit_module(self, node) -> None:
         pass
-
-
-    def visit_variable_declaration(self, node) -> Any:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 

@@ -18,11 +18,11 @@ from typing import List, Optional, Tuple, Dict, Any
 from ..passes.base import BasePass, TyCtxt
 from ..passes.einstein_grouping import EinsteinDeclarationGroupingPass
 from ..ir.nodes import (
-    ProgramIR, EinsteinIR, EinsteinDeclarationIR, IRVisitor, IRNode,
+    ProgramIR, EinsteinClauseIR, IRVisitor, IRNode, is_einstein_binding, is_function_binding,
     FunctionDefIR, BlockExpressionIR, IfExpressionIR,
     IdentifierIR, IndexVarIR, IndexRestIR, RectangularAccessIR, ReductionExpressionIR,
     ExpressionIR, BinaryOpIR, UnaryOpIR, LiteralIR,
-    VariableDeclarationIR, RangeIR, MemberAccessIR
+    BindingIR, RangeIR, MemberAccessIR
 )
 from ..ir.scoped_visitor import ScopedIRVisitor
 from ..shared.defid import DefId
@@ -63,7 +63,7 @@ class RestPatternPreprocessingPass(BasePass):
         visitor = RestPatternPreprocessor(tcx, einstein_groups, program=ir)
         
         for stmt in ir.statements:
-            if isinstance(stmt, VariableDeclarationIR) and stmt.defid is not None:
+            if isinstance(stmt, BindingIR) and getattr(stmt, 'defid', None) is not None:
                 visitor.set_var(stmt.defid, stmt)
         
         for func in ir.functions:
@@ -75,9 +75,8 @@ class RestPatternPreprocessingPass(BasePass):
         for const in ir.constants:
             const.value.accept(visitor)
         
-        # Visit top-level statements
         for stmt in ir.statements:
-            if isinstance(stmt, EinsteinDeclarationIR):
+            if is_einstein_binding(stmt):
                 visitor.visit_einstein_declaration(stmt)
             elif hasattr(stmt, 'accept'):
                 stmt.accept(visitor)
@@ -108,7 +107,7 @@ class RestPatternPreprocessingPass(BasePass):
             einstein_groups = {}
         visitor = RestPatternPreprocessor(tcx, einstein_groups, program=ir)
         for stmt in ir.statements:
-            if isinstance(stmt, VariableDeclarationIR) and stmt.defid is not None:
+            if isinstance(stmt, BindingIR) and getattr(stmt, 'defid', None) is not None:
                 visitor.set_var(stmt.defid, stmt)
         for func in specialized_funcs:
             try:
@@ -145,7 +144,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         for func in node.functions:
             func.accept(self)
     
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> None:
+    def visit_einstein_declaration(self, node: BindingIR) -> None:
         """
         Expand rest patterns in each clause. Uses first clause for rank/validation; applies to all clauses.
         """
@@ -385,7 +384,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
             self.set_var(node.defid, len(clauses[0].indices) if clauses else 0)
         self.patterns_preprocessed += len(rest_pattern_indices)
     
-    def _validate_rest_patterns(self, node: EinsteinIR, output_rest_names: set) -> Optional[str]:
+    def _validate_rest_patterns(self, node: EinsteinClauseIR, output_rest_names: set) -> Optional[str]:
         """
         Validate rest patterns follow the determination-first rule.
         
@@ -506,7 +505,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                 return True
         return False
 
-    def _infer_rank_from_body(self, node: EinsteinDeclarationIR) -> Optional[int]:
+    def _infer_rank_from_body(self, node: BindingIR) -> Optional[int]:
         """
         Infer rank from body expression. prioritize arrays that use the same
         rest patterns as the output (LHS), then fall back to any array. Rank comes from
@@ -558,19 +557,19 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         Priority: scope stack (Einstein output rank / var decl) → param type → type_info.
         """
         from ..shared.types import RectangularType, JaggedType
-        from ..ir.nodes import FunctionDefIR, VariableDeclarationIR
+        from ..ir.nodes import BindingIR
         if isinstance(arr, IdentifierIR):
             defid = getattr(arr, 'defid', None)
             if defid is not None:
                 val = self.get_var(defid)
                 if isinstance(val, int):
                     return val
-                if isinstance(val, VariableDeclarationIR):
+                if isinstance(val, BindingIR):
                     r = self._try_infer_rank_from_var_def(arr.name, val)
                     if r is not None:
                         return r
             current_func = self._current_function
-            if current_func and isinstance(current_func, FunctionDefIR):
+            if current_func and is_function_binding(current_func):
                 for param in current_func.parameters:
                     param_defid = getattr(param, 'defid', None)
                     if param_defid is not None and param_defid == defid and getattr(param, 'param_type', None):
@@ -603,7 +602,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         # Return the collected accesses from accept() return value, not collector.accesses
         return accesses if accesses else []
     
-    def _try_infer_rank_from_var_def(self, var_name: str, var_def: VariableDeclarationIR) -> Optional[int]:
+    def _try_infer_rank_from_var_def(self, var_name: str, var_def: BindingIR) -> Optional[int]:
         """
         Try to infer rank from a variable definition.
         
@@ -665,39 +664,33 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         return rank
     
     # Visitor methods for traversing IR
-    def visit_function_def(self, node: FunctionDefIR) -> None:
-        """Visit function bodies and expand rest patterns in Einstein decls.
-        Skip generic functions — rest patterns will be expanded on the specialized
-        version where parameter types (and thus array ranks) are concrete."""
-        from ..analysis.analysis_guard import is_generic_function
-        if is_generic_function(node):
-            logger.debug(f"Skipping rest pattern expansion for generic function '{node.name}'")
-            return
-
-        prev_function = self._current_function
-        self._current_function = node
-
-        with self.scope():
-            if node.body:
-                node.body.accept(self)
-
-        self._current_function = prev_function
-    
-    def visit_variable_declaration(self, node: VariableDeclarationIR) -> None:
-        """Track variable declarations in scope stack by DefId for rank inference."""
-        if node.defid is not None:
-            self.set_var(node.defid, node)
-            logger.debug(f"visit_variable_declaration: tracked '{node.pattern}' (defid={node.defid}) in scope")
-        
-        if hasattr(node, 'value') and node.value:
-            node.value.accept(self)
+    def visit_binding(self, node: BindingIR) -> None:
+        if is_function_binding(node):
+            from ..analysis.analysis_guard import is_generic_function
+            if is_generic_function(node):
+                logger.debug(f"Skipping rest pattern expansion for generic function '{node.name}'")
+                return
+            prev_function = self._current_function
+            self._current_function = node
+            with self.scope():
+                if node.body:
+                    node.body.accept(self)
+            self._current_function = prev_function
+        elif is_einstein_binding(node):
+            self.visit_einstein_declaration(node)
+        else:
+            if node.defid is not None:
+                self.set_var(node.defid, node)
+                logger.debug(f"visit_variable_declaration: tracked '{node.pattern}' (defid={node.defid}) in scope")
+            if hasattr(node, 'value') and node.value:
+                node.value.accept(self)
     
     def visit_block_expression(self, node: BlockExpressionIR) -> None:
         """Visit block expressions with a new scope."""
         with self.scope():
             if hasattr(node, 'statements'):
                 for stmt in node.statements:
-                    if isinstance(stmt, EinsteinDeclarationIR):
+                    if is_einstein_binding(stmt):
                         self.visit_einstein_declaration(stmt)
                     elif hasattr(stmt, 'accept'):
                         stmt.accept(self)
@@ -816,10 +809,6 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         if node.expr:
             node.expr.accept(self)
     
-    def visit_arrow_expression(self, node) -> None:
-        for comp in node.components:
-            comp.accept(self)
-    
     def visit_pipeline_expression(self, node) -> None:
         if node.left:
             node.left.accept(self)
@@ -829,13 +818,6 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
     def visit_builtin_call(self, node) -> None:
         for arg in node.args:
             arg.accept(self)
-    
-    def visit_function_ref(self, node) -> None:
-        pass
-    
-    def visit_constant_def(self, node) -> None:
-        if node.value:
-            node.value.accept(self)
     
     def visit_module(self, node) -> None:
         for func in getattr(node, 'functions', None) or []:
@@ -864,11 +846,6 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
     
     def visit_guard_pattern(self, node) -> None:
         pass
-
-    def visit_variable_declaration(self, node) -> None:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            node.value.accept(self)
 
 class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
     """Collect all RectangularAccessIR nodes from expression - visitor pattern"""
@@ -1019,12 +996,6 @@ class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
             return node.body.accept(self)
         return []
     
-    def visit_arrow_expression(self, node) -> List[RectangularAccessIR]:
-        accesses = []
-        for comp in node.components:
-            accesses.extend(comp.accept(self))
-        return accesses
-    
     def visit_pipeline_expression(self, node) -> List[RectangularAccessIR]:
         accesses = []
         if node.left:
@@ -1039,20 +1010,21 @@ class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
             accesses.extend(arg.accept(self))
         return accesses
     
-    def visit_function_ref(self, node) -> List[RectangularAccessIR]:
-        return []
-    
-    def visit_einstein_declaration(self, node) -> List[RectangularAccessIR]:
-        accesses = []
-        for clause in (getattr(node, 'clauses', None) or []):
-            if clause.value:
-                accesses.extend(clause.value.accept(self))
-        return accesses
-    
-    def visit_constant_def(self, node) -> List[RectangularAccessIR]:
-        if node.value:
-            return node.value.accept(self)
-        return []
+    def visit_binding(self, node) -> List[RectangularAccessIR]:
+        if is_einstein_binding(node):
+            accesses = []
+            for clause in (getattr(node, 'clauses', None) or []):
+                if clause.value:
+                    accesses.extend(clause.value.accept(self))
+            return accesses
+        elif is_function_binding(node):
+            if node.body:
+                return node.body.accept(self)
+            return []
+        else:
+            if hasattr(node, 'value') and node.value:
+                return node.value.accept(self)
+            return []
     
     def visit_module(self, node) -> List[RectangularAccessIR]:
         return []
@@ -1079,17 +1051,6 @@ class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
     def visit_guard_pattern(self, node) -> List[RectangularAccessIR]:
         return []
     
-    def visit_function_def(self, node) -> List[RectangularAccessIR]:
-        if node.body:
-            return node.body.accept(self)
-        return []
-
-    def visit_variable_declaration(self, node) -> List[RectangularAccessIR]:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return []
-
 class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
     """
     Transform body: replace rest patterns with expanded indices. DefIds keyed by IndexRestIR.defid only (per clause).
@@ -1207,17 +1168,28 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
     def visit_program(self, node) -> ExpressionIR:
         raise NotImplementedError("Program transformation not supported")
     
-    def visit_function_def(self, node) -> ExpressionIR:
-        return node
+    def visit_binding(self, node: BindingIR) -> ExpressionIR:
+        if is_function_binding(node):
+            return node
+        elif is_einstein_binding(node):
+            return node
+        else:
+            new_value = node.expr.accept(self) if getattr(node, 'expr', None) else None
+            return BindingIR(
+                name=getattr(node, 'name', None) or getattr(node, 'pattern', ''),
+                expr=new_value,
+                type_info=getattr(node, 'type_info', None),
+                location=getattr(node, 'location', None),
+                defid=getattr(node, 'defid', None),
+            )
     
     def visit_function_call(self, node) -> ExpressionIR:
         # Transform arguments (they may contain array accesses with rest patterns)
         from ..ir.nodes import FunctionCallIR
         new_arguments = [arg.accept(self) if hasattr(arg, 'accept') else arg for arg in node.arguments]
         new_node = FunctionCallIR(
-            function_name=node.function_name,
+            callee_expr=node.callee_expr,
             location=node.location,
-            function_defid=node.function_defid,
             arguments=new_arguments,
             module_path=node.module_path if hasattr(node, 'module_path') else None
         )
@@ -1317,29 +1289,10 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
     def visit_lambda(self, node) -> ExpressionIR:
         return node
     
-    def visit_einstein_declaration(self, node) -> ExpressionIR:
-        return node
-    
-    def visit_variable_declaration(self, node: VariableDeclarationIR) -> ExpressionIR:
-        new_value = node.value.accept(self) if getattr(node, 'value', None) else None
-        return VariableDeclarationIR(
-            pattern=node.pattern,
-            value=new_value,
-            type_annotation=getattr(node, 'type_annotation', None),
-            location=node.location,
-            defid=getattr(node, 'defid', None),
-        )
-    
     def visit_match_expression(self, node) -> ExpressionIR:
         return node
     
     def visit_where_expression(self, node) -> ExpressionIR:
-        return node
-    
-    def visit_function_ref(self, node) -> ExpressionIR:
-        return node
-    
-    def visit_arrow_expression(self, node) -> ExpressionIR:
         return node
     
     def visit_pipeline_expression(self, node) -> ExpressionIR:
@@ -1370,9 +1323,6 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
         return node
     
     def visit_guard_pattern(self, node) -> ExpressionIR:
-        return node
-    
-    def visit_constant_def(self, node) -> ExpressionIR:
         return node
     
     def visit_module(self, node) -> ExpressionIR:

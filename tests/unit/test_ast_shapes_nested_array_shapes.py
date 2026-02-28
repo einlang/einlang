@@ -42,22 +42,18 @@ class TestNestedArrayShapeInference:
         result = compiler.compile(source, "<test>")
         assert result.success
     
-    def test_irregular_array_error(self, compiler):
-        """Test that irregular arrays (mismatched inner sizes) are rejected."""
+    def test_irregular_array_jagged(self, compiler):
+        """Test that irregular arrays (mismatched inner sizes) are accepted as jagged."""
         source = """
-        let irregular = [[1, 2], [3, 4, 5]];  # Different inner sizes
+        let irregular = [[1, 2], [3, 4, 5]];
         """
-        
         result = compiler.compile(source, "<test>")
-        assert not result.success
-        errors = result.get_errors()
-        error_str = " ".join(str(e) for e in errors).lower()
-        assert "inconsistent shapes" in error_str or "inconsistent" in error_str
+        assert result.success
     
     def test_mixed_types_error(self, compiler):
         """Test that mixed scalar/array elements are rejected."""
         source = """
-        let mixed = [1, [2, 3]];  # Scalar and array mixed
+        let mixed = [1, [2, 3]];  // Scalar and array mixed
         """
         
         result = compiler.compile(source, "<test>")
@@ -93,20 +89,16 @@ class TestNestedArrayShapeInference:
         result = compiler.compile(source, "<test>")
         assert result.success
     
-    def test_irregular_3d_error(self, compiler):
-        """Test that irregular 3D arrays are rejected."""
+    def test_irregular_3d_jagged(self, compiler):
+        """Test that irregular 3D arrays are accepted as jagged."""
         source = """
         let irregular = [
             [[1, 2], [3, 4]],
-            [[5, 6]]  # Different shape!
+            [[5, 6]]
         ];
         """
-        
         result = compiler.compile(source, "<test>")
-        assert not result.success
-        errors = result.get_errors()
-        error_str = " ".join(str(e) for e in errors).lower()
-        assert "inconsistent" in error_str
+        assert result.success
 
 
 

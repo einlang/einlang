@@ -11,7 +11,8 @@ from typing import List, Dict, Set, Optional, Any
 from ..passes.base import BasePass, TyCtxt
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BinaryOpIR, WhereExpressionIR,
-    ReductionExpressionIR, WhereClauseIR, IRVisitor, IdentifierIR
+    ReductionExpressionIR, WhereClauseIR, IRVisitor, IdentifierIR,
+    is_function_binding, is_einstein_binding
 )
 from ..shared.defid import DefId
 from ..shared.types import BinaryOp
@@ -227,19 +228,10 @@ class ConstraintClassificationVisitor(IRVisitor[None]):
     def visit_match_expression(self, node) -> None:
         pass
     
-    def visit_arrow_expression(self, node) -> None:
-        pass
-    
     def visit_pipeline_expression(self, node) -> None:
         pass
     
     def visit_builtin_call(self, node) -> None:
-        pass
-    
-    def visit_function_ref(self, node) -> None:
-        pass
-    
-    def visit_einstein_declaration(self, node) -> None:
         pass
     
     def visit_literal_pattern(self, node) -> None:
@@ -263,20 +255,17 @@ class ConstraintClassificationVisitor(IRVisitor[None]):
     def visit_guard_pattern(self, node) -> None:
         pass
     
-    def visit_function_def(self, node) -> None:
-        pass
-    
-    def visit_constant_def(self, node) -> None:
-        pass
+    def visit_binding(self, node) -> None:
+        if is_function_binding(node):
+            pass
+        elif is_einstein_binding(node):
+            pass
+        else:
+            if hasattr(node, 'value') and node.value:
+                node.value.accept(self)
     
     def visit_module(self, node) -> None:
         pass
-
-
-    def visit_variable_declaration(self, node) -> None:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            node.value.accept(self)
 
 class ConstraintTypeClassifier(IRVisitor[ConstraintType]):
     """Visitor to classify constraint type"""
@@ -367,19 +356,10 @@ class ConstraintTypeClassifier(IRVisitor[ConstraintType]):
     def visit_where_expression(self, node) -> ConstraintType:
         return ConstraintType.UNKNOWN
     
-    def visit_arrow_expression(self, node) -> ConstraintType:
-        return ConstraintType.UNKNOWN
-    
     def visit_pipeline_expression(self, node) -> ConstraintType:
         return ConstraintType.UNKNOWN
     
     def visit_builtin_call(self, node) -> ConstraintType:
-        return ConstraintType.UNKNOWN
-    
-    def visit_function_ref(self, node) -> ConstraintType:
-        return ConstraintType.UNKNOWN
-    
-    def visit_einstein_declaration(self, node) -> ConstraintType:
         return ConstraintType.UNKNOWN
     
     def visit_literal_pattern(self, node) -> ConstraintType:
@@ -403,21 +383,18 @@ class ConstraintTypeClassifier(IRVisitor[ConstraintType]):
     def visit_guard_pattern(self, node) -> ConstraintType:
         return ConstraintType.UNKNOWN
     
-    def visit_function_def(self, node) -> ConstraintType:
-        return ConstraintType.UNKNOWN
-    
-    def visit_constant_def(self, node) -> ConstraintType:
-        return ConstraintType.UNKNOWN
+    def visit_binding(self, node) -> ConstraintType:
+        if is_function_binding(node):
+            return ConstraintType.UNKNOWN
+        elif is_einstein_binding(node):
+            return ConstraintType.UNKNOWN
+        else:
+            if hasattr(node, 'value') and node.value:
+                return node.value.accept(self)
+            return None
     
     def visit_module(self, node) -> ConstraintType:
         return ConstraintType.UNKNOWN
-
-
-    def visit_variable_declaration(self, node) -> ConstraintType:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 
 class IndexVarChecker(IRVisitor[bool]):
     """Visitor to check if expression involves index variables"""
@@ -494,19 +471,10 @@ class IndexVarChecker(IRVisitor[bool]):
     def visit_where_expression(self, node) -> bool:
         return False
     
-    def visit_arrow_expression(self, node) -> bool:
-        return False
-    
     def visit_pipeline_expression(self, node) -> bool:
         return False
     
     def visit_builtin_call(self, node) -> bool:
-        return False
-    
-    def visit_function_ref(self, node) -> bool:
-        return False
-    
-    def visit_einstein_declaration(self, node) -> bool:
         return False
     
     def visit_literal_pattern(self, node) -> bool:
@@ -530,21 +498,18 @@ class IndexVarChecker(IRVisitor[bool]):
     def visit_guard_pattern(self, node) -> bool:
         return False
     
-    def visit_function_def(self, node) -> bool:
-        return False
-    
-    def visit_constant_def(self, node) -> bool:
-        return False
+    def visit_binding(self, node) -> bool:
+        if is_function_binding(node):
+            return False
+        elif is_einstein_binding(node):
+            return False
+        else:
+            if hasattr(node, 'value') and node.value:
+                return node.value.accept(self)
+            return None
     
     def visit_module(self, node) -> bool:
         return False
-
-
-    def visit_variable_declaration(self, node) -> bool:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 
 class BindingExtractor(IRVisitor):
     """Visitor to extract binding information (bound_var, dependencies)"""
@@ -625,19 +590,10 @@ class BindingExtractor(IRVisitor):
     def visit_where_expression(self, node) -> Optional[tuple[str, Set[str]]]:
         return None
     
-    def visit_arrow_expression(self, node) -> Optional[tuple[str, Set[str]]]:
-        return None
-    
     def visit_pipeline_expression(self, node) -> Optional[tuple[str, Set[str]]]:
         return None
     
     def visit_builtin_call(self, node) -> Optional[tuple[str, Set[str]]]:
-        return None
-    
-    def visit_function_ref(self, node) -> Optional[tuple[str, Set[str]]]:
-        return None
-    
-    def visit_einstein_declaration(self, node) -> Optional[tuple[str, Set[str]]]:
         return None
     
     def visit_literal_pattern(self, node) -> Optional[tuple[str, Set[str]]]:
@@ -661,20 +617,17 @@ class BindingExtractor(IRVisitor):
     def visit_guard_pattern(self, node) -> Optional[tuple[str, Set[str]]]:
         return None
     
-    def visit_function_def(self, node) -> Optional[tuple[str, Set[str]]]:
-        return None
-    
-    def visit_constant_def(self, node) -> Optional[tuple[str, Set[str]]]:
-        return None
+    def visit_binding(self, node) -> Optional[tuple[str, Set[str]]]:
+        if is_function_binding(node):
+            return None
+        elif is_einstein_binding(node):
+            return None
+        else:
+            if hasattr(node, 'value') and node.value:
+                return node.value.accept(self)
+            return None
     
     def visit_module(self, node) -> Optional[tuple[str, Set[str]]]:
-        return None
-
-
-    def visit_variable_declaration(self, node):
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
         return None
 
 class VariableExtractor(IRVisitor):
@@ -756,19 +709,10 @@ class VariableExtractor(IRVisitor):
     def visit_where_expression(self, node) -> Set[str]:
         return set()
     
-    def visit_arrow_expression(self, node) -> Set[str]:
-        return set()
-    
     def visit_pipeline_expression(self, node) -> Set[str]:
         return set()
     
     def visit_builtin_call(self, node) -> Set[str]:
-        return set()
-    
-    def visit_function_ref(self, node) -> Set[str]:
-        return set()
-    
-    def visit_einstein_declaration(self, node) -> Set[str]:
         return set()
     
     def visit_literal_pattern(self, node) -> Set[str]:
@@ -792,18 +736,16 @@ class VariableExtractor(IRVisitor):
     def visit_guard_pattern(self, node) -> Set[str]:
         return set()
     
-    def visit_function_def(self, node) -> Set[str]:
-        return set()
-    
-    def visit_constant_def(self, node) -> Set[str]:
-        return set()
+    def visit_binding(self, node) -> Set[str]:
+        if is_function_binding(node):
+            return set()
+        elif is_einstein_binding(node):
+            return set()
+        else:
+            if hasattr(node, 'value') and node.value:
+                return node.value.accept(self)
+            return None
     
     def visit_module(self, node) -> Set[str]:
         return set()
-
-    def visit_variable_declaration(self, node) -> Any:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
-        return None
 

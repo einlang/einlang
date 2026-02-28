@@ -285,14 +285,14 @@ class TestErrors:
             # Always check exec.result.success unless it is a negative test
             assert result.success, f"Empty program should succeed: {repr(source)}"
         
-        # Test comment support
+        # Test comment support (Rust-style // only)
         comment_cases = [
-            "let x = 5; # This is a comment",
-            "let x = 5; # This is a comment\nlet y = 10;",
-            "# This is a comment at the start\nlet x = 5;",
-            "let x = 5; # Comment\n# Another comment\nlet y = 10;",
-            "let x = 5; # Comment with special chars: @#$%^&*()",
-            "let x = 5; # Comment with numbers 123 and symbols !@#",
+            "let x = 5; // This is a comment",
+            "let x = 5; // This is a comment\nlet y = 10;",
+            "// This is a comment at the start\nlet x = 5;",
+            "let x = 5; // Comment\n// Another comment\nlet y = 10;",
+            "let x = 5; // Comment with special chars: @#$%^&*()",
+            "let x = 5; // Comment with numbers 123 and symbols !@#",
         ]
         for source in comment_cases:
             result = compile_and_execute(source, compiler, runtime)

@@ -1,12 +1,12 @@
-# Demo showing accuracy of standard math functions
-# This demonstrates the precision of sin, cos, sqrt, and constants
+// Demo showing accuracy of standard math functions
+// This demonstrates the precision of sin, cos, sqrt, and constants
 
 use std::math;
 
 fn main() {
     print("=== Math Function Accuracy Demo ===\n");
     
-    # Mathematical constants
+    // Mathematical constants
     print("Testing mathematical constants...");
     
     let e_constant = math::e();
@@ -15,7 +15,7 @@ fn main() {
     let pi_val = math::pi();
     assert(pi_val > 3.14159 && pi_val < 3.14160, "π within tolerance");
     
-    # Square root accuracy
+    // Square root accuracy
     print("Testing square root functions...");
     
     let sqrt_2 = math::sqrt(2.0);
@@ -30,7 +30,7 @@ fn main() {
     let sqrt_large = math::sqrt(1000.0);
     assert(sqrt_large > 31.6227 && sqrt_large < 31.6228, "sqrt(1000) within tolerance");
     
-    # Trigonometric functions
+    // Trigonometric functions
     print("Testing trigonometric functions...");
     
     let pi = math::pi();
@@ -47,27 +47,27 @@ fn main() {
     let cos_pi_3 = math::cos(pi / 3.0);
     assert(cos_pi_3 > 0.4999 && cos_pi_3 < 0.5001, "cos(π/3) ≈ 0.5");
     
-    # Mathematical relationship validation
+    // Mathematical relationship validation
     print("Testing mathematical relationships...");
     
-    # Test sin²(x) + cos²(x) = 1 (Pythagorean identity)
+    // Test sin²(x) + cos²(x) = 1 (Pythagorean identity)
     let angle = pi / 6.0;
     let sin_val = math::sin(angle);
     let cos_val = math::cos(angle);
     let identity_check = sin_val * sin_val + cos_val * cos_val;
     assert(identity_check > 0.9999 && identity_check < 1.0001, "sin²(x) + cos²(x) = 1");
     
-    # Test sqrt(x²) = x for positive x
+    // Test sqrt(x²) = x for positive x
     let sqrt_test = 7.5;
     let sqrt_squared = math::sqrt(sqrt_test * sqrt_test);
     let sqrt_error = sqrt_squared - sqrt_test;
     assert(sqrt_error > -0.0001 && sqrt_error < 0.0001, "sqrt(x²) = x");
     
-    # Test power function
+    // Test power function
     let pow_result = math::pow(2.0, 10.0);
     assert(pow_result == 1024, "2^10 = 1024");
     
-    # Test min/max
+    // Test min/max
     let min_result = math::min(3.5, 2.1);
     assert(min_result == 2.1, "min(3.5, 2.1) = 2.1");
     

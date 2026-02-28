@@ -23,7 +23,7 @@ from typing import Optional
 from contextlib import contextmanager
 import logging
 
-from ..ir.nodes import ExpressionIR, IdentifierIR, BinaryOpIR, LiteralIR, IRVisitor
+from ..ir.nodes import ExpressionIR, IdentifierIR, BinaryOpIR, LiteralIR, IRVisitor, is_function_binding, is_einstein_binding
 from ..shared.types import BinaryOp, PrimitiveType
 from .range_info import RangeInfo, DynamicRange
 
@@ -195,8 +195,6 @@ class IRConstraintSolver(IRVisitor):
         return None
     def visit_array_pattern(self, node) -> Optional[RangeInfo]:
         return None
-    def visit_arrow_expression(self, node) -> Optional[RangeInfo]:
-        return None
     def visit_block_expression(self, node) -> Optional[RangeInfo]:
         return None
     def visit_builtin_call(self, node) -> Optional[RangeInfo]:
@@ -206,15 +204,9 @@ class IRConstraintSolver(IRVisitor):
         if hasattr(node, 'expr'):
             return node.expr.accept(self)
         return None
-    def visit_constant_def(self, node) -> Optional[RangeInfo]:
-        return None
-    def visit_einstein_declaration(self, node) -> Optional[RangeInfo]:
+    def visit_binding(self, node) -> Optional[RangeInfo]:
         return None
     def visit_function_call(self, node) -> Optional[RangeInfo]:
-        return None
-    def visit_function_def(self, node) -> Optional[RangeInfo]:
-        return None
-    def visit_function_ref(self, node) -> Optional[RangeInfo]:
         return None
     def visit_guard_pattern(self, node) -> Optional[RangeInfo]:
         return None
@@ -259,8 +251,6 @@ class IRConstraintSolver(IRVisitor):
     def visit_unary_op(self, node) -> Optional[RangeInfo]:
         # Could handle unary minus: -i < bound → i > -bound
         # But not needed for current use case
-        return None
-    def visit_variable_declaration(self, node) -> Optional[RangeInfo]:
         return None
     def visit_where_expression(self, node) -> Optional[RangeInfo]:
         return None

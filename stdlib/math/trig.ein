@@ -1,44 +1,44 @@
-# stdlib_v2/math/trig.ein - Trigonometric functions
+// stdlib_v2/math/trig.ein - Trigonometric functions
 
 pub fn sin(x) {
-    # Sine function (ONNX Sin, TensorRT supported)
-    # Uses numpy for array support
+    // Sine function (ONNX Sin, TensorRT supported)
+    // Uses numpy for array support
     python::numpy::sin(x)
 }
 
 pub fn cos(x) {
-    # Cosine function (ONNX Cos, TensorRT supported)
-    # Uses numpy for array support
+    // Cosine function (ONNX Cos, TensorRT supported)
+    // Uses numpy for array support
     python::numpy::cos(x)
 }
 
 pub fn tan(x) {
-    # Tangent function (ONNX Tan, TensorRT supported)
-    # Uses numpy for array support
+    // Tangent function (ONNX Tan, TensorRT supported)
+    // Uses numpy for array support
     python::numpy::tan(x)
 }
 
 pub fn asin(x) {
-    # Arcsine (ONNX Asin, TensorRT supported)
-    # Uses numpy for array support
+    // Arcsine (ONNX Asin, TensorRT supported)
+    // Uses numpy for array support
     python::numpy::arcsin(x)
 }
 
 pub fn acos(x) {
-    # Arccosine (ONNX Acos, TensorRT supported)
-    # Uses numpy for array support
+    // Arccosine (ONNX Acos, TensorRT supported)
+    // Uses numpy for array support
     python::numpy::arccos(x)
 }
 
 pub fn atan(x) {
-    # Arctangent (ONNX Atan, TensorRT supported)
-    # Uses numpy for array support
+    // Arctangent (ONNX Atan, TensorRT supported)
+    // Uses numpy for array support
     python::numpy::arctan(x)
 }
 
 pub fn atan2(y, x) {
-    # Two-argument arctangent (ONNX Atan2, TensorRT supported)
-    # Returns angle in radians between positive x-axis and point (x, y)
-    # Uses numpy for array support
+    // Two-argument arctangent (ONNX Atan2, TensorRT supported)
+    // Returns angle in radians between positive x-axis and point (x, y)
+    // Uses numpy for array support
     python::numpy::arctan2(y, x)
 }

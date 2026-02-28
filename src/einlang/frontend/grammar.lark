@@ -39,14 +39,9 @@ expr_stmt: expr ";"
 # Keep the working expression structure from original - don't inline, we need expr for where clause handling
 expr: pipeline_expr (where_clause)?
 
-pipeline_expr: arrow_expr (pipeline_op arrow_expr)* (pipeline_else_clause | pipeline_catch_clause)?
-pipeline_else_clause: "else" arrow_expr
+pipeline_expr: logical_or_expr (pipeline_op logical_or_expr)* (pipeline_else_clause | pipeline_catch_clause)?
+pipeline_else_clause: "else" logical_or_expr
 pipeline_catch_clause: "catch" (lambda_expr | identifier)
-arrow_expr: arrow_choice_expr
-arrow_choice_expr: arrow_fanout_expr (arrow_choice_op arrow_fanout_expr)*
-arrow_fanout_expr: arrow_parallel_expr (arrow_fanout_op arrow_parallel_expr)*
-arrow_parallel_expr: arrow_sequential_expr (arrow_parallel_op arrow_sequential_expr)*
-arrow_sequential_expr: logical_or_expr (arrow_sequential_op logical_or_expr)*
 logical_or_expr: logical_and_expr (logical_or_op logical_and_expr)*
 logical_and_expr: equality_expr (logical_and_op equality_expr)*
 equality_expr: relational_expr (equality_op relational_expr)*
@@ -272,12 +267,6 @@ QUESTION_PIPE_OP: "?>"
 ERROR_PIPE_OP: "!>"
 PIPE: "|"
 
-# Arrow operators for DL graph construction
-ARROW_SEQUENTIAL: ">>>"
-ARROW_PARALLEL: "***"
-ARROW_FANOUT: "&&&"
-ARROW_CHOICE: "|||"
-
 # Custom number that doesn't conflict with DOTDOT
 INTEGER_OR_FLOAT: /[+-]?(?:\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)/
 DOTDOTEQ: "..="
@@ -317,10 +306,6 @@ logical_and_op: AND
 logical_or_op: OR
 unary_op: MINUS | NOT | PLUS
 pipeline_op: PIPE_OP | QUESTION_PIPE_OP | ERROR_PIPE_OP
-arrow_sequential_op: ARROW_SEQUENTIAL
-arrow_parallel_op: ARROW_PARALLEL
-arrow_fanout_op: ARROW_FANOUT
-arrow_choice_op: ARROW_CHOICE
 
 # =============================================================================
 # TERMINALS - USING LARK STANDARD IMPORTS ✅
@@ -333,6 +318,6 @@ arrow_choice_op: ARROW_CHOICE
 # %import common.SIGNED_NUMBER
 %import common.WS
 
-COMMENT: /#[^\n]*/ | /\/\/[^\n]*/
+COMMENT: /\/\/[^\n]*/
 %ignore WS
 %ignore COMMENT

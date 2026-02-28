@@ -66,13 +66,13 @@ class TestReductionCoverageSemantics:
         code = """
         let data = [1, -2, 3, -4, 5];
         
-        # Comprehension: creates jagged array (irregular)
+        // Comprehension: creates jagged array (irregular)
         let sparse = [data[i] | i in 0..5, data[i] > 0];
         
-        # Reduction: produces scalar (always "covered")
+        // Reduction: produces scalar (always "covered")
         let dense_sum = sum[i in 0..5](data[i] where data[i] > 0);
         
-        # Einstein with reduction: produces regular array (full coverage)
+        // Einstein with reduction: produces regular array (full coverage)
         let per_elem[i in 0..5] = sum[j](data[j] where data[j] > i);
         """
         exec_result = compile_and_execute(code, compiler, runtime)

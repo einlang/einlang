@@ -23,7 +23,7 @@ class TestEinsteinConcatenation:
         let A = [1, 2, 3];
         let B = [4, 5, 6, 7];
         
-        # Concatenate along first dimension
+        // Concatenate along first dimension
         let concat[i in 0..3] = A[i];
         let concat[i in 3..7] = B[i - 3];
         """
@@ -43,7 +43,7 @@ class TestEinsteinConcatenation:
         let A = [[1, 2], [3, 4]];
         let B = [[5, 6], [7, 8], [9, 10]];
         
-        # Concatenate along first dimension (rows)
+        // Concatenate along first dimension (rows)
         let concat[i in 0..2, j] = A[i, j];
         let concat[i in 2..5, j] = B[i - 2, j];
         """
@@ -61,7 +61,7 @@ class TestEinsteinConcatenation:
         let A = [[1, 2], [3, 4]];
         let B = [[5, 6, 7], [8, 9, 10]];
         
-        # Concatenate along second dimension (columns)
+        // Concatenate along second dimension (columns)
         let concat[i in 0..2, j in 0..2] = A[i, j];
         let concat[i in 0..2, j in 2..5] = B[i, j - 2];
         """
@@ -76,17 +76,17 @@ class TestEinsteinConcatenation:
     def test_concat_3d_tensors_along_channels(self, compiler, runtime):
         """Test concatenating 3D tensors along channel dimension"""
         source = """
-        # Create two 3D tensors: (batch=2, height=2, width=2, channels)
-        let A = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];  # Shape: (2, 2, 2) - single channel
-        let B = [[[10, 20], [30, 40]], [[50, 60], [70, 80]]];  # Shape: (2, 2, 2) - single channel
+        // Create two 3D tensors: (batch=2, height=2, width=2, channels)
+        let A = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];  // Shape: (2, 2, 2) - single channel
+        let B = [[[10, 20], [30, 40]], [[50, 60], [70, 80]]];  // Shape: (2, 2, 2) - single channel
         
-        # For 3D case, we'll treat as (batch, spatial, channel) where spatial is flattened
-        # Actually, let's do a simpler 2D case first: concatenate along last dimension
-        let A_2d = [[1, 2], [3, 4]];  # Shape: (2, 2)
-        let B_2d = [[5, 6], [7, 8]];  # Shape: (2, 2)
+        // For 3D case, we'll treat as (batch, spatial, channel) where spatial is flattened
+        // Actually, let's do a simpler 2D case first: concatenate along last dimension
+        let A_2d = [[1, 2], [3, 4]];  // Shape: (2, 2)
+        let B_2d = [[5, 6], [7, 8]];  // Shape: (2, 2)
         
-        # Stack along new dimension (add batch dimension)
-        # Use i in 0..2 to cover both i=0 and i=1
+        // Stack along new dimension (add batch dimension)
+        // Use i in 0..2 to cover both i=0 and i=1
         let stacked[i in 0..2, j in 0..2, k in 0..2] = A_2d[j, k] where i == 0;
         let stacked[i in 0..2, j in 0..2, k in 0..2] = B_2d[j, k] where i == 1;
         """

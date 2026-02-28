@@ -1,65 +1,65 @@
-# ml/math_ops.ein - ONNX Element-wise Math Operations
-# TensorRT ONNX Parser: ✅ Supported
+// ml/math_ops.ein - ONNX Element-wise Math Operations
+// TensorRT ONNX Parser: ✅ Supported
 
-# ============================================================================
-# Basic Arithmetic Operations
-# ============================================================================
+// ============================================================================
+// Basic Arithmetic Operations
+// ============================================================================
 
 pub fn add(a, b) {
-    # Element-wise addition: output = a + b
-    # Operators work directly on tensors with automatic broadcasting
-    # Generic: works with arbitrary rank tensors, shape inferred automatically
+    // Element-wise addition: output = a + b
+    // Operators work directly on tensors with automatic broadcasting
+    // Generic: works with arbitrary rank tensors, shape inferred automatically
     a + b
 }
 
 
 pub fn subtract(a, b) {
-    # Element-wise subtraction: output = a - b
-    # Operators work directly on tensors with automatic broadcasting
-    # Generic: works with arbitrary rank tensors, shape inferred automatically
+    // Element-wise subtraction: output = a - b
+    // Operators work directly on tensors with automatic broadcasting
+    // Generic: works with arbitrary rank tensors, shape inferred automatically
     a - b
 }
 
 
 pub fn multiply(a, b) {
-    # Element-wise multiplication: output = a * b
-    # Operators work directly on tensors with automatic broadcasting
-    # Generic: works with arbitrary rank tensors, shape inferred automatically
+    // Element-wise multiplication: output = a * b
+    // Operators work directly on tensors with automatic broadcasting
+    // Generic: works with arbitrary rank tensors, shape inferred automatically
     a * b
 }
 
 
 pub fn divide(a, b) {
-    # Element-wise division: output = a / b
-    # Operators work directly on tensors with automatic broadcasting
-    # Generic: works with arbitrary rank tensors, shape inferred automatically
+    // Element-wise division: output = a / b
+    // Operators work directly on tensors with automatic broadcasting
+    // Generic: works with arbitrary rank tensors, shape inferred automatically
     a / b
 }
 
 
-# ============================================================================
-# Re-exported from std::math
-# ============================================================================
+// ============================================================================
+// Re-exported from std::math
+// ============================================================================
 
-# Re-exported from std::math::basic
+// Re-exported from std::math::basic
 pub use std::math::{abs, sign, sqrt, floor, ceil, round, min, max, square, neg, reciprocal, pow as power, fmod, mod, clip};
 
-# Re-exported from std::math::exp
+// Re-exported from std::math::exp
 pub use std::math::exp;
 
-# Re-exported from std::math::log
+// Re-exported from std::math::log
 pub use std::math::log;
 pub use std::math::{log1p, expm1};
 
 
-# ============================================================================
-# Additional Math Operations
-# ============================================================================
+// ============================================================================
+// Additional Math Operations
+// ============================================================================
 
 pub fn rsqrt(x) {
-    # Reciprocal square root: output = 1.0 / sqrt(x)
-    # Common operation for normalization and optimization
-    # Element-wise: works with arbitrary rank tensors
+    // Reciprocal square root: output = 1.0 / sqrt(x)
+    // Common operation for normalization and optimization
+    // Element-wise: works with arbitrary rank tensors
     1.0 / sqrt(x)
 }
 

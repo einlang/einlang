@@ -5,7 +5,7 @@ IR Serialization to S-Expressions
 Converts IR to canonical S-expression format for testing and debugging.
 Serialization is lossless for all information used by the runtime: DefIds
 (function_defid, defid on calls/bindings/params/identifiers/index-vars),
-module_path on calls, program defid_to_name/source_files/constants,
+module_path on calls, program source_files/bindings (defid_to_name derived on demand),
 lowered IR (clause body, loops, bindings, guards, reduction_ranges, indices),
 and all expression/statement structure the backend visits.
 
@@ -24,13 +24,13 @@ from ..ir.nodes import IRNode, ExpressionIR
 
 # Keywords/symbols (from _sym) - unquoted. Names (node.name, etc.) use "".
 _KNOWN_SYMBOLS = frozenset({
-    "nil", "program", "let-binding", "variable", "literal", "binary-op", "unary-op",
+    "nil", "program", "variable", "literal", "binary-op", "unary-op",
     "rectangular-access", "function-call", "builtin-call", "cast", "array-literal",
     "index", "index-var", "index-rest",
     "array-comprehension", "range", "loop", "binding", "lowered-einstein", "lowered-einstein-clause",
-    "lowered-comprehension", "lowered-reduction", "einstein-declaration", "lowered-iteration",
-    "param", "block", "if", "tuple", "tuple-access", "lambda", "arrow", "reduction",
-    "function-definition", "type", "unknown", "rectangular-type", "jagged-type",
+    "lowered-comprehension", "lowered-reduction", "lowered-iteration",
+    "param", "block", "if", "tuple", "tuple-access", "lambda", "reduction",
+    "function-value", "einstein-value", "type", "unknown", "rectangular-type", "jagged-type",
     "tuple-type", "function-type", "callee", "true", "false", "...",
     "i32", "i64", "f32", "f64", "bool", "str", "+", "-", "*", "/", "%", "**",
     "==", "!=", "<", "<=", ">", ">=", "&&", "||", "!", "sum", "prod", "min", "max",
@@ -330,18 +330,12 @@ class IRSerializer:
     # === Function Calls ===
     
     def _serialize_FunctionCallIR(self, node) -> list:
-        """Serialize function call: (function-call "name" (args...) :function-defid [...])"""
+        """Serialize function call: (function-call (callee <expr>) (args...) :module_path ...)"""
         args = [self.serialize_to_sexpr(arg) for arg in node.arguments]
-        core = [self._sym("function-call"), node.function_name, args]
-        if getattr(node, 'callee_expr', None) is not None:
-            callee = self.serialize_to_sexpr(node.callee_expr)
-            core = [self._sym("function-call"), [self._sym("callee"), callee], args]
-        if getattr(node, 'function_defid', None) is not None:
-            core.extend([self._sym(":function-defid"), self._brackets([node.function_defid.krate, node.function_defid.index])])
+        callee = self.serialize_to_sexpr(node.callee_expr)
+        core = [self._sym("function-call"), [self._sym("callee"), callee], args]
         if getattr(node, 'module_path', None):
             core.extend([self._sym(":module_path"), list(node.module_path)])
-        if hasattr(node, 'defid') and node.defid:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return self._add_expr_metadata(node, core)
     
     def _serialize_BuiltinCallIR(self, node) -> list:
@@ -388,10 +382,11 @@ class IRSerializer:
         return self._add_expr_metadata(node, core)
     
     def _serialize_ArrayComprehensionIR(self, node) -> list:
-        """Serialize array comprehension: (array-comprehension body :vars (...) :ranges (...) :constraints (...))"""
+        """Serialize array comprehension: (array-comprehension body :loop_vars (...) :ranges (...) :constraints (...))"""
         body = self.serialize_to_sexpr(node.body)
+        loop_vars_sexpr = [self.serialize_to_sexpr(v) for v in node.loop_vars]
         core = [self._sym("array-comprehension"), body,
-                self._sym(":vars"), node.variables,
+                self._sym(":loop_vars"), loop_vars_sexpr,
                 self._sym(":ranges"), [self.serialize_to_sexpr(r) for r in node.ranges]]
         if node.constraints:
             core.extend([self._sym(":constraints"), [self.serialize_to_sexpr(c) for c in node.constraints]])
@@ -410,7 +405,7 @@ class IRSerializer:
     
     # === Einstein Declarations ===
     
-    def _serialize_EinsteinIR(self, node) -> list:
+    def _serialize_EinsteinClauseIR(self, node) -> list:
         """Serialize one Einstein clause (indices + value + variable_ranges)."""
         indices = [idx.name if hasattr(idx, 'name') else self.serialize_to_sexpr(idx) for idx in (getattr(node, 'indices', None) or [])]
         value = self.serialize_to_sexpr(node.value) if getattr(node, 'value', None) else [self._sym("nil")]
@@ -420,12 +415,16 @@ class IRSerializer:
         out.extend([self._sym(":variable_ranges"), var_ranges])
         return out
 
-    def _serialize_EinsteinDeclarationIR(self, node) -> list:
-        """Serialize Einstein declaration (name + clauses list)."""
+    def _serialize_EinsteinIR(self, node) -> list:
+        """Serialize Einstein (rvalue). Name/defid on binding."""
         clauses_sexpr = [self.serialize_to_sexpr(c) for c in (getattr(node, 'clauses', None) or [])]
-        core = [self._sym("einstein-declaration"), node.name, self._sym(":clauses"), clauses_sexpr]
+        core = [self._sym("einstein-value"), self._sym(":clauses"), clauses_sexpr]
+        if getattr(node, 'shape', None):
+            core.extend([self._sym(":shape"), [self.serialize_to_sexpr(s) for s in node.shape]])
+        if getattr(node, 'element_type', None) is not None:
+            core.extend([self._sym(":element_type"), self._serialize_type(node.element_type)])
         return core
-    
+
     def _serialize_LoopStructure(self, loop) -> list:
         """Serialize loop structure: (loop (variable "name" :defid [...]) iterable)."""
         iterable = self.serialize_to_sexpr(loop.iterable)
@@ -436,15 +435,15 @@ class IRSerializer:
             var_sexpr = [self._sym("variable"), str(var)]
         return [self._sym("loop"), var_sexpr, iterable]
     
-    def _serialize_LocalBinding(self, binding) -> list:
-        """Serialize LocalBinding: (binding "name" expr type :defid [...] :loc [...])."""
-        expr = self.serialize_to_sexpr(binding.expr)
-        typ = self._serialize_type(binding.type_info) if getattr(binding, 'type_info', None) else [self._sym("nil")]
-        core = [self._sym("binding"), binding.name, expr, typ]
-        if getattr(binding, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([binding.defid.krate, binding.defid.index])])
-        if self.include_location and getattr(binding, 'location', None):
-            loc = binding.location
+    def _serialize_BindingIR(self, node) -> list:
+        """Serialize binding: (binding name expr type :defid :loc). Single format for all BindingIR."""
+        expr = self.serialize_to_sexpr(node.expr)
+        typ = self._serialize_type(node.type_info) if getattr(node, 'type_info', None) else [self._sym("nil")]
+        core = [self._sym("binding"), node.name, expr, typ]
+        if getattr(node, 'defid', None) is not None:
+            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
+        if self.include_location and getattr(node, 'location', None):
+            loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
         return core
     
@@ -459,7 +458,7 @@ class IRSerializer:
             d = getattr(loop.variable, "defid", None)
             if d is not None:
                 loop_var_ranges.append([self._brackets([d.krate, d.index]), self.serialize_to_sexpr(loop.iterable)])
-        bindings = [self._serialize_LocalBinding(b) for b in node.bindings]
+        bindings = [self.serialize_to_sexpr(b) for b in node.bindings]
         guards = [self.serialize_to_sexpr(g.condition) for g in node.guards]
         red_ranges = node.reduction_ranges or {}
         red_defids_str = ",".join(f"{d.krate}:{d.index}" for d in red_ranges.keys())
@@ -498,7 +497,7 @@ class IRSerializer:
             d = getattr(loop.variable, "defid", None)
             if d is not None:
                 loop_var_ranges.append([self._brackets([d.krate, d.index]), self.serialize_to_sexpr(loop.iterable)])
-        bindings = [self._serialize_LocalBinding(b) for b in node.bindings]
+        bindings = [self.serialize_to_sexpr(b) for b in node.bindings]
         guards = [self.serialize_to_sexpr(g.condition) for g in node.guards]
         core = [self._sym("lowered-comprehension"),
                 self._sym(":body"), body,
@@ -517,7 +516,7 @@ class IRSerializer:
             d = getattr(loop.variable, "defid", None)
             if d is not None:
                 loop_var_ranges.append([self._brackets([d.krate, d.index]), self.serialize_to_sexpr(loop.iterable)])
-        bindings = [self._serialize_LocalBinding(b) for b in node.bindings]
+        bindings = [self.serialize_to_sexpr(b) for b in node.bindings]
         guards = [self.serialize_to_sexpr(g.condition) for g in node.guards]
         def _defid_str(loop):
             d = getattr(loop.variable, "defid", None)
@@ -531,25 +530,6 @@ class IRSerializer:
                 self._sym(":bindings"), bindings,
                 self._sym(":guards"), guards]
         return self._add_expr_metadata(node, core)
-    
-    # === Variable Declarations ===
-    
-    def _serialize_VariableDeclarationIR(self, node) -> list:
-        """Serialize variable declaration: (let-binding "name" value :ty ... :defid ...)"""
-        value = self.serialize_to_sexpr(node.value)
-        core = [self._sym("let-binding"), node.pattern, value]
-        if self.include_location and getattr(node, 'location', None):
-            loc = node.location
-            core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if node.type_annotation:
-            core.extend([self._sym(":ty"), self._serialize_type(node.type_annotation)])
-        binding = getattr(node, '_binding', None)
-        defid = getattr(binding, 'defid', None) if binding is not None else None
-        if defid is None:
-            defid = getattr(node, 'defid', None)
-        if defid is not None:
-            core.extend([self._sym(":defid"), self._brackets([defid.krate, defid.index])])
-        return core
     
     def _serialize_param(self, p) -> list:
         """Serialize one parameter: (param "name" :defid [krate index] :ty type)."""
@@ -608,11 +588,11 @@ class IRSerializer:
             core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return self._add_expr_metadata(node, core)
     
-    def _serialize_ArrowExpressionIR(self, node) -> list:
-        """Serialize arrow/lambda: (arrow ((param "x" :defid [...])...) body)"""
-        params = [self._serialize_param(p) for p in node.parameters]
-        body = self.serialize_to_sexpr(node.body)
-        core = [self._sym("arrow"), params, body]
+    def _serialize_PipelineExpressionIR(self, node) -> list:
+        """Serialize pipeline expression: (pipeline-expression left right operator)"""
+        left = self.serialize_to_sexpr(node.left)
+        right = self.serialize_to_sexpr(node.right)
+        core = [self._sym("pipeline-expression"), left, right, getattr(node, 'operator', '|>')]
         return self._add_expr_metadata(node, core)
     
     # === Reduction Expressions ===
@@ -661,8 +641,6 @@ class IRSerializer:
         if self.include_location and getattr(node, 'location', None):
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return core
 
     def _serialize_IdentifierPatternIR(self, node) -> list:
@@ -679,8 +657,6 @@ class IRSerializer:
         if self.include_location and getattr(node, 'location', None):
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return core
 
     def _serialize_TuplePatternIR(self, node) -> list:
@@ -689,8 +665,6 @@ class IRSerializer:
         if self.include_location and getattr(node, 'location', None):
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return core
 
     def _serialize_ArrayPatternIR(self, node) -> list:
@@ -699,8 +673,6 @@ class IRSerializer:
         if self.include_location and getattr(node, 'location', None):
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return core
 
     def _serialize_RestPatternIR(self, node) -> list:
@@ -709,8 +681,6 @@ class IRSerializer:
         if self.include_location and getattr(node, 'location', None):
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return core
 
     def _serialize_GuardPatternIR(self, node) -> list:
@@ -720,8 +690,6 @@ class IRSerializer:
         if self.include_location and getattr(node, 'location', None):
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return core
 
     def _serialize_OrPatternIR(self, node) -> list:
@@ -730,8 +698,6 @@ class IRSerializer:
         if self.include_location and getattr(node, 'location', None):
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return core
 
     def _serialize_ConstructorPatternIR(self, node) -> list:
@@ -742,18 +708,15 @@ class IRSerializer:
         if self.include_location and getattr(node, 'location', None):
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return core
 
     def _serialize_BindingPatternIR(self, node) -> list:
+        ident = self._serialize_pattern(node.identifier_pattern)
         inner = self._serialize_pattern(node.inner_pattern)
-        core = [self._sym("binding-pattern"), node.name, inner]
+        core = [self._sym("binding-pattern"), ident, inner]
         if self.include_location and getattr(node, 'location', None):
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return core
 
     def _serialize_RangePatternIR(self, node) -> list:
@@ -762,51 +725,26 @@ class IRSerializer:
         if self.include_location and getattr(node, 'location', None):
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return core
 
-    # === Function Definitions ===
-    
-    def _serialize_FunctionDefIR(self, node) -> list:
-        """Serialize function definition: (function-definition "name" (params) body :defid ... :return_type ...)"""
+    def _serialize_FunctionValueIR(self, node) -> list:
+        """Serialize function value (rvalue). Name/defid on binding; format (function-value (params) body :return_type :loc)."""
         params = [self._serialize_param(p) for p in node.parameters]
         body = self.serialize_to_sexpr(node.body) if node.body else [self._sym("nil")]
-        core = [self._sym("function-definition"), node.name, params, body]
+        core = [self._sym("function-value"), params, body]
         if self.include_location and getattr(node, 'location', None):
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if hasattr(node, 'defid') and node.defid:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         if self.include_type_info and getattr(node, 'return_type', None) is not None:
             core.extend([self._sym(":return_type"), self._serialize_type(node.return_type)])
-        return core
-
-    def _serialize_ConstantDefIR(self, node) -> list:
-        """Serialize constant: (constant-def "name" value :defid [...] :ty ...)"""
-        value = self.serialize_to_sexpr(node.value)
-        core = [self._sym("constant-def"), node.name, value]
-        if self.include_location and getattr(node, 'location', None):
-            loc = node.location
-            core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(node, 'type_info', None) is not None:
-            core.extend([self._sym(":ty"), self._serialize_type(node.type_info)])
-        if getattr(node, 'defid', None) is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return core
 
     # === Programs ===
     
     def _serialize_ProgramIR(self, node) -> list:
-        """Serialize program: (program (stmts...) (funcs...) (constants...) :defid_to_name (...) :source_files (...))"""
-        stmts = [self.serialize_to_sexpr(stmt) for stmt in node.statements]
-        funcs = [self.serialize_to_sexpr(f) for f in node.functions]
-        constants = [self.serialize_to_sexpr(c) for c in getattr(node, "constants", []) or []]
-        core = [self._sym("program"), stmts, funcs, constants]
-        d2n = getattr(node, "defid_to_name", None) or {}
-        if d2n:
-            pairs = [[self._brackets([d.krate, d.index]), name] for d, name in d2n.items()]
-            core.extend([self._sym(":defid_to_name"), pairs])
+        """Serialize program: (program :bindings (...) :source_files (...))"""
+        bindings_sexpr = [self.serialize_to_sexpr(s) for s in node.statements]
+        core = [self._sym("program"), self._sym(":bindings"), bindings_sexpr]
         sf = getattr(node, "source_files", None) or {}
         if sf:
             items = [[k, v] for k, v in sf.items()]
@@ -1043,15 +981,14 @@ class IRDeserializer:
         return IfExpressionIR(condition=cond, then_expr=then_e, else_expr=else_e, location=loc, type_info=ty)
 
     def _deserialize_function_call(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import FunctionCallIR
+        from ..ir.nodes import FunctionCallIR, IdentifierIR
         pos, opts = _plist(tail)
         loc = self._loc_from_opts(opts)
-        callee, name, args = None, "", []
+        callee, args = None, []
         if pos:
             first = pos[0]
             if isinstance(first, list) and first and _sym_val(first[0]) == "callee":
                 callee = self.deserialize(first[1]) if len(first) > 1 else None
-                name = '<callable>'
                 if len(pos) > 1 and isinstance(pos[1], list):
                     args = [self.deserialize(a) for a in pos[1]]
             else:
@@ -1060,11 +997,14 @@ class IRDeserializer:
                     name = name.strip('"')
                 if len(pos) > 1 and isinstance(pos[1], list):
                     args = [self.deserialize(a) for a in pos[1]]
-        func_defid = _parse_defid(opts.get(":function-defid"))
+                func_defid = _parse_defid(opts.get(":function-defid"))
+                callee = IdentifierIR(name=name or "", location=loc, defid=func_defid)
         module_path_raw = opts.get(":module_path")
         module_path = tuple(module_path_raw) if isinstance(module_path_raw, list) else None
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return FunctionCallIR(function_name=name or "", location=loc, function_defid=func_defid, arguments=args, module_path=module_path, callee_expr=callee, type_info=ty)
+        if callee is None:
+            callee = IdentifierIR(name="", location=loc, defid=None)
+        return FunctionCallIR(callee_expr=callee, location=loc, arguments=args, module_path=module_path, type_info=ty)
 
     def _deserialize_builtin_call(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import BuiltinCallIR
@@ -1087,6 +1027,24 @@ class IRDeserializer:
         ty = self._opts_type(tail, 1)
         shape_info = self._opts_shape_info(tail, 1)
         return ArrayLiteralIR(elements=elements, location=loc, type_info=ty, shape_info=shape_info)
+
+    def _deserialize_array_comprehension(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import ArrayComprehensionIR, IndexVarIR
+        pos, opts = _plist(tail)
+        loc = self._loc_from_opts(opts)
+        body = self.deserialize(pos[0]) if pos else None
+        loop_vars_sexpr = opts.get(":loop_vars")
+        if isinstance(loop_vars_sexpr, list):
+            loop_vars = [self.deserialize(v) for v in loop_vars_sexpr]
+        else:
+            vars_list = opts.get(":vars") or []
+            loop_vars = [IndexVarIR(name=str(n).strip('"') if isinstance(n, str) else str(n), location=loc, defid=None) for n in vars_list]
+        ranges_sexpr = opts.get(":ranges") or []
+        ranges = [self.deserialize(r) for r in ranges_sexpr] if isinstance(ranges_sexpr, list) else []
+        constraints_sexpr = opts.get(":constraints") or []
+        constraints = [self.deserialize(c) for c in constraints_sexpr] if isinstance(constraints_sexpr, list) else []
+        ty = self._deserialize_type(opts.get(":inferred_type"))
+        return ArrayComprehensionIR(body=body, loop_vars=loop_vars, ranges=ranges, constraints=constraints, location=loc, type_info=ty)
 
     def _deserialize_range(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LiteralIR, RangeIR
@@ -1201,17 +1159,24 @@ class IRDeserializer:
         body = self.deserialize(tail[1]) if len(tail) > 1 else None
         body = body if body is not None else LiteralIR(value=None, location=loc)
         ty = self._opts_type(tail, 2)
-        defid = _parse_defid(opts.get(":defid"))
-        return LambdaIR(parameters=params, body=body, location=loc, defid=defid, type_info=ty)
+        return LambdaIR(parameters=params, body=body, location=loc, type_info=ty)
 
-    def _deserialize_arrow(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import LiteralIR, ArrowExpressionIR
-        _, opts = _plist(tail[2:])
+    def _deserialize_pipeline_expression(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import PipelineExpressionIR
+        left = self.deserialize(tail[0]) if tail else None
+        right = self.deserialize(tail[1]) if len(tail) > 1 else None
+        operator = tail[2] if len(tail) > 2 else "|>"
+        if hasattr(operator, "value"):
+            operator = operator.value()
+        elif isinstance(operator, list) and operator and hasattr(operator[0], "value"):
+            operator = operator[0].value()
+        else:
+            operator = str(operator) if operator else "|>"
+        _, opts = _plist(tail[3:])
         loc = self._loc_from_opts(opts)
-        body = self.deserialize(tail[1]) if len(tail) > 1 else None
-        body = body if body is not None else LiteralIR(value=None, location=loc)
-        ty = self._opts_type(tail, 2)
-        return ArrowExpressionIR(components=[body], operator=">>>", location=loc, type_info=ty)
+        ty = self._opts_type(tail, 3)
+        shape_info = self._opts_shape_info(tail, 3)
+        return PipelineExpressionIR(left=left, right=right, operator=operator, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_match_expression(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import MatchExpressionIR, MatchArmIR
@@ -1246,8 +1211,7 @@ class IRDeserializer:
         if sexpdata and isinstance(val, sexpdata.Symbol):
             v = val.value()
             val = True if v == "true" else False if v == "false" else v
-        defid = _parse_defid(opts.get(":defid"))
-        return LiteralPatternIR(value=val, location=loc, defid=defid)
+        return LiteralPatternIR(value=val, location=loc)
 
     def _deserialize_identifier_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import IdentifierPatternIR
@@ -1264,8 +1228,7 @@ class IRDeserializer:
         from ..ir.nodes import WildcardPatternIR
         _, opts = _plist(tail)
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
-        return WildcardPatternIR(location=loc, defid=defid)
+        return WildcardPatternIR(location=loc)
 
     def _deserialize_tuple_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import TuplePatternIR
@@ -1273,8 +1236,7 @@ class IRDeserializer:
         _, opts = _plist(tail[1:])
         loc = self._loc_from_opts(opts)
         patterns = [self.deserialize(p) for p in patterns_sexpr]
-        defid = _parse_defid(opts.get(":defid"))
-        return TuplePatternIR(patterns=patterns, location=loc, defid=defid)
+        return TuplePatternIR(patterns=patterns, location=loc)
 
     def _deserialize_array_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import ArrayPatternIR
@@ -1282,16 +1244,14 @@ class IRDeserializer:
         _, opts = _plist(tail[1:])
         loc = self._loc_from_opts(opts)
         patterns = [self.deserialize(p) for p in patterns_sexpr]
-        defid = _parse_defid(opts.get(":defid"))
-        return ArrayPatternIR(patterns=patterns, location=loc, defid=defid)
+        return ArrayPatternIR(patterns=patterns, location=loc)
 
     def _deserialize_rest_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import RestPatternIR
         inner = self.deserialize(tail[0]) if tail else None
         _, opts = _plist(tail[1:])
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
-        return RestPatternIR(pattern=inner, location=loc, defid=defid)
+        return RestPatternIR(pattern=inner, location=loc)
 
     def _deserialize_guard_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import GuardPatternIR
@@ -1299,8 +1259,7 @@ class IRDeserializer:
         guard = self.deserialize(tail[1]) if len(tail) > 1 else None
         _, opts = _plist(tail[2:])
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
-        return GuardPatternIR(inner_pattern=inner, guard_expr=guard, location=loc, defid=defid)
+        return GuardPatternIR(inner_pattern=inner, guard_expr=guard, location=loc)
 
     def _deserialize_or_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import OrPatternIR
@@ -1308,8 +1267,7 @@ class IRDeserializer:
         alts = [self.deserialize(a) for a in alts_raw]
         _, opts = _plist(tail[1:])
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
-        return OrPatternIR(alternatives=alts, location=loc, defid=defid)
+        return OrPatternIR(alternatives=alts, location=loc)
 
     def _deserialize_constructor_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import ConstructorPatternIR
@@ -1318,19 +1276,20 @@ class IRDeserializer:
         patterns = [self.deserialize(p) for p in patterns_raw]
         _, opts = _plist(tail[2:])
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
         is_struct = _sym_val(opts.get(":struct", "")) == "true" if ":struct" in opts else False
         return ConstructorPatternIR(constructor_name=name, patterns=patterns,
-                                    is_struct_literal=is_struct, location=loc, defid=defid)
+                                    is_struct_literal=is_struct, location=loc)
 
     def _deserialize_binding_pattern(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import BindingPatternIR
-        name = str(tail[0]).strip('"') if tail else ""
+        from ..ir.nodes import BindingPatternIR, IdentifierPatternIR
+        ident_sexpr = tail[0] if tail else None
         inner = self.deserialize(tail[1]) if len(tail) > 1 else None
         _, opts = _plist(tail[2:])
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
-        return BindingPatternIR(name=name, inner_pattern=inner, location=loc, defid=defid)
+        ident = self.deserialize(ident_sexpr) if ident_sexpr is not None else None
+        if not isinstance(ident, IdentifierPatternIR):
+            raise ValueError(f"binding-pattern requires identifier-pattern as first element, got {type(ident).__name__}")
+        return BindingPatternIR(identifier_pattern=ident, inner_pattern=inner, location=loc)
 
     def _deserialize_range_pattern(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import RangePatternIR
@@ -1339,75 +1298,60 @@ class IRDeserializer:
         inclusive = _sym_val(tail[2]) == "inclusive" if len(tail) > 2 else True
         _, opts = _plist(tail[3:])
         loc = self._loc_from_opts(opts)
-        defid = _parse_defid(opts.get(":defid"))
-        return RangePatternIR(start=start, end=end, inclusive=inclusive, location=loc, defid=defid)
+        return RangePatternIR(start=start, end=end, inclusive=inclusive, location=loc)
 
-    def _deserialize_let_binding(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import VariableDeclarationIR
-        rest = tail[2:] if len(tail) > 2 else []
-        try:
-            rest = list(rest)
-        except Exception:
-            rest = []
-        _, opts = _plist(rest)
-        loc = self._loc_from_opts(opts)
-        pattern = self._name_from_tail(tail)
-        value = self.deserialize(tail[1])
-        opts = _plist(rest)[1]
-        defid = _parse_defid(opts.get(":defid"))
-        type_annotation = self._deserialize_type(opts.get(":ty"))
-        if defid is None and len(rest) >= 2:
-            for i in range(len(rest) - 1):
-                k = _sym_val(rest[i]) if hasattr(rest[i], '__class__') else str(rest[i])
-                if isinstance(k, str) and k == ":defid":
-                    defid = _parse_defid(rest[i + 1])
-                    break
-        return VariableDeclarationIR(pattern=pattern, value=value, type_annotation=type_annotation, location=loc, defid=defid)
+    def _deserialize_einstein_value(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import EinsteinIR
+        from ..shared.source_location import SourceLocation
+        _, opts = _plist(tail)
+        clauses_sexpr = opts.get(":clauses")
+        clauses = [self.deserialize(c) for c in clauses_sexpr] if isinstance(clauses_sexpr, list) else []
+        shape_sexpr = opts.get(":shape")
+        shape = [self.deserialize(s) for s in shape_sexpr] if isinstance(shape_sexpr, list) else None
+        element_type = self._deserialize_type(opts.get(":element_type"))
+        loc = self._loc_from_opts(opts) or SourceLocation("", 0, 0)
+        return EinsteinIR(clauses=clauses, shape=shape, element_type=element_type, location=loc)
 
-    def _deserialize_function_definition(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import FunctionDefIR
+    def _deserialize_binding(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import BindingIR
+        if len(tail) < 3:
+            return None
+        name = tail[0]
+        name = str(name).strip('"') if isinstance(name, str) else (_sym_val(name[0]) if isinstance(name, list) and name else "")
+        expr = self.deserialize(tail[1])
+        typ = self._deserialize_type(tail[2]) if len(tail) > 2 and isinstance(tail[2], list) else None
         _, opts = _plist(tail[3:])
-        loc = self._loc_from_opts(opts)
-        name = self._name_from_tail(tail)
-        params_sexpr = tail[1] if len(tail) > 1 and isinstance(tail[1], list) else []
-        params = [self._deserialize_param(p) for p in params_sexpr]
-        body = self.deserialize(tail[2]) if len(tail) > 2 else None
-        opts = _plist(tail[3:])[1]
         defid = _parse_defid(opts.get(":defid"))
-        return_type = self._deserialize_type(opts.get(":return_type"))
-        return FunctionDefIR(name=name, parameters=params, body=body, location=loc, return_type=return_type, defid=defid)
+        loc = self._loc_from_opts(opts)
+        return BindingIR(name=name, expr=expr, type_info=typ, location=loc, defid=defid)
 
-    def _deserialize_constant_def(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import ConstantDefIR
+    def _deserialize_function_value(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import FunctionValueIR
+        if len(tail) < 2:
+            return None
+        params_sexpr = tail[0] if isinstance(tail[0], list) else []
+        params = [self._deserialize_param(p) for p in params_sexpr]
+        body = self.deserialize(tail[1]) if len(tail) > 1 else None
         _, opts = _plist(tail[2:])
         loc = self._loc_from_opts(opts)
-        name = self._name_from_tail(tail)
-        value = self.deserialize(tail[1])
-        opts = _plist(tail[2:])[1]
-        ty = self._deserialize_type(opts.get(":ty"))
-        defid = _parse_defid(opts.get(":defid"))
-        return ConstantDefIR(name=name, value=value, location=loc, type_info=ty, defid=defid)
+        return_type = self._deserialize_type(opts.get(":return_type"))
+        return FunctionValueIR(parameters=params, body=body, location=loc, return_type=return_type)
 
     def _deserialize_program(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import ProgramIR
-        pos, opts = _plist(tail)
-        stmts_sexpr = pos[0] if len(pos) > 0 and isinstance(pos[0], list) else []
-        funcs_sexpr = pos[1] if len(pos) > 1 and isinstance(pos[1], list) else []
-        constants_sexpr = pos[2] if len(pos) > 2 and isinstance(pos[2], list) else []
-        stmts = [self.deserialize(s) for s in stmts_sexpr]
-        funcs = [self.deserialize(f) for f in funcs_sexpr]
-        constants = [self.deserialize(c) for c in constants_sexpr]
-        d2n = {}
-        for pair in opts.get(":defid_to_name") or []:
-            if isinstance(pair, list) and len(pair) >= 2:
-                d = _parse_defid(pair[0])
-                if d is not None:
-                    d2n[d] = str(pair[1]).strip('"') if isinstance(pair[1], str) else str(pair[1])
+        _, opts = _plist(tail)
+        bindings_sexpr = opts.get(":bindings")
+        stmts = []
+        if isinstance(bindings_sexpr, list):
+            for s in bindings_sexpr:
+                b = self.deserialize(s)
+                if b is not None:
+                    stmts.append(b)
         sf = {}
         for item in opts.get(":source_files") or []:
             if isinstance(item, list) and len(item) >= 2:
                 sf[item[0]] = item[1]
-        return ProgramIR(modules=[], functions=funcs, constants=constants, statements=stmts, source_files=sf, defid_to_name=d2n)
+        return ProgramIR(statements=stmts, source_files=sf, modules=[])
 
     def _deserialize_loop_structure(self, sexpr: Any) -> Any:
         from ..ir.nodes import LoopStructure
@@ -1420,21 +1364,8 @@ class IRDeserializer:
             return None
         return LoopStructure(variable=variable, iterable=iterable)
 
-    def _deserialize_local_binding(self, sexpr: Any) -> Any:
-        from ..ir.nodes import LocalBinding
-        if not isinstance(sexpr, list) or len(sexpr) < 4 or _sym_val(sexpr[0]) != "binding":
-            return None
-        name = sexpr[1]
-        name = str(name).strip('"') if isinstance(name, str) else _sym_val(name[0]) if isinstance(name, list) and name else ""
-        expr = self.deserialize(sexpr[2])
-        typ = self._deserialize_type(sexpr[3]) if isinstance(sexpr[3], list) else None
-        _, opts = _plist(sexpr[4:])
-        defid = _parse_defid(opts.get(":defid"))
-        loc = self._loc_from_opts(opts)
-        return LocalBinding(name=name, expr=expr, type_info=typ, location=loc, defid=defid)
-
     def _deserialize_lowered_reduction(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import LoweredReductionIR, GuardCondition
+        from ..ir.nodes import LoweredReductionIR, GuardCondition, BindingIR
         pos, opts = _plist(tail)
         loc = self._loc_from_opts(opts)
         operation = _sym_val(pos[0]) if pos else "sum"
@@ -1451,10 +1382,9 @@ class IRDeserializer:
         bindings = []
         if isinstance(bindings_sexpr, list):
             for s in bindings_sexpr:
-                if isinstance(s, list) and _sym_val(s[0]) == "binding":
-                    b = self._deserialize_local_binding(s)
-                    if b is not None:
-                        bindings.append(b)
+                b = self.deserialize(s)
+                if isinstance(b, BindingIR):
+                    bindings.append(b)
         guards_sexpr = opts.get(":guards")
         guards = []
         if isinstance(guards_sexpr, list):
@@ -1466,7 +1396,7 @@ class IRDeserializer:
         return LoweredReductionIR(body=body, operation=operation, loops=loops, bindings=bindings, guards=guards, location=loc, type_info=ty)
 
     def _deserialize_lowered_comprehension(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import LoweredComprehensionIR, GuardCondition
+        from ..ir.nodes import LoweredComprehensionIR, GuardCondition, BindingIR
         _, opts = _plist(tail)
         loc = self._loc_from_opts(opts)
         body = self.deserialize(opts.get(":body"))
@@ -1482,10 +1412,9 @@ class IRDeserializer:
         bindings = []
         if isinstance(bindings_sexpr, list):
             for s in bindings_sexpr:
-                if isinstance(s, list) and _sym_val(s[0]) == "binding":
-                    b = self._deserialize_local_binding(s)
-                    if b is not None:
-                        bindings.append(b)
+                b = self.deserialize(s)
+                if isinstance(b, BindingIR):
+                    bindings.append(b)
         guards_sexpr = opts.get(":guards")
         guards = []
         if isinstance(guards_sexpr, list):
@@ -1498,7 +1427,7 @@ class IRDeserializer:
         return LoweredComprehensionIR(body=body, loops=loops, bindings=bindings, guards=guards, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_lowered_einstein_clause(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import LoweredEinsteinClauseIR, GuardCondition
+        from ..ir.nodes import LoweredEinsteinClauseIR, GuardCondition, BindingIR
         _, opts = _plist(tail)
         loc = self._loc_from_opts(opts)
         body = self.deserialize(opts.get(":body"))
@@ -1514,10 +1443,9 @@ class IRDeserializer:
         bindings = []
         if isinstance(bindings_sexpr, list):
             for s in bindings_sexpr:
-                if isinstance(s, list) and _sym_val(s[0]) == "binding":
-                    b = self._deserialize_local_binding(s)
-                    if b is not None:
-                        bindings.append(b)
+                b = self.deserialize(s)
+                if isinstance(b, BindingIR):
+                    bindings.append(b)
         guards_sexpr = opts.get(":guards")
         guards = []
         if isinstance(guards_sexpr, list):
@@ -1537,17 +1465,18 @@ class IRDeserializer:
                             red_ranges[d] = loop
         indices_sexpr = opts.get(":indices")
         indices = [self.deserialize(s) for s in indices_sexpr] if isinstance(indices_sexpr, list) else []
-        return LoweredEinsteinClauseIR(body=body, loops=loops, bindings=bindings, guards=guards, reduction_ranges=red_ranges, indices=indices)
+        return LoweredEinsteinClauseIR(body=body, loops=loops, bindings=bindings, guards=guards, reduction_ranges=red_ranges, indices=indices, location=loc)
 
     def _deserialize_lowered_einstein(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LoweredEinsteinIR
         _, opts = _plist(tail)
+        loc = self._loc_from_opts(opts)
         shape_sexpr = opts.get(":shape")
         shape = [self.deserialize(s) for s in shape_sexpr] if isinstance(shape_sexpr, list) else []
         element_type = self._deserialize_type(opts.get(":element_type"))
         items_sexpr = opts.get(":items")
         items = [self.deserialize(s) for s in items_sexpr] if isinstance(items_sexpr, list) else []
-        return LoweredEinsteinIR(items=items, shape=shape, element_type=element_type)
+        return LoweredEinsteinIR(items=items, shape=shape, element_type=element_type, location=loc)
 
     def _deserialize_interpolated_string(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import InterpolatedStringIR
@@ -1646,8 +1575,29 @@ class IRDeserializer:
             if tag == "tuple-type" and len(sexpr) >= 2:
                 from ..shared.types import TupleType
                 elem_sexprs = sexpr[1] if isinstance(sexpr[1], list) else []
-                element_types = [self._deserialize_type(e) for e in elem_sexprs]
+                element_types = tuple(self._deserialize_type(e) for e in elem_sexprs)
                 return TupleType(element_types=element_types)
+            if tag == "jagged-type" and len(sexpr) >= 2:
+                from ..shared.types import JaggedType
+                element = self._deserialize_type(sexpr[1])
+                if element is None:
+                    return None
+                depth = 1
+                is_dynamic = False
+                if len(sexpr) >= 3:
+                    third = sexpr[2]
+                    if sexpdata and isinstance(third, sexpdata.Symbol):
+                        if _sym_val(third) == "?":
+                            is_dynamic = True
+                            depth = None
+                        else:
+                            try:
+                                depth = int(third)
+                            except (TypeError, ValueError):
+                                depth = 1
+                    elif isinstance(third, int):
+                        depth = third
+                return JaggedType(element_type=element, nesting_depth=depth, is_dynamic_depth=is_dynamic)
         return None
 
 

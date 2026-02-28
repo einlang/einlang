@@ -18,7 +18,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pip install -e '.[test]' 2>/dev/null || pip install -e .
+        run: pip install -e '.[test]'
 
       - name: Run tests
         run: python3 -m pytest --tb=short -q

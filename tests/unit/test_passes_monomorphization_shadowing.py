@@ -38,8 +38,8 @@ class TestFunctionShadowing:
             helper(x) + 1
         }
         
-        let result1 = helper(5);    # Should call outer helper: 5 * 2 = 10
-        let result2 = outer(5);     # Should call inner helper: 5 * 3 + 1 = 16
+        let result1 = helper(5);    // Should call outer helper: 5 * 2 = 10
+        let result2 = outer(5);     // Should call inner helper: 5 * 3 + 1 = 16
         """
         
         context = compiler.compile(source, "<test>")
@@ -69,8 +69,8 @@ class TestFunctionShadowing:
             process(5)
         }
         
-        let result1 = process(5);     # Outer process: 15
-        let result2 = scoped_test();  # Inner process: 50
+        let result1 = process(5);     // Outer process: 15
+        let result2 = scoped_test();  // Inner process: 50
         """
         
         context = compiler.compile(source, "<test>")
@@ -94,12 +94,12 @@ class TestFunctionShadowing:
         }
         
         fn process(helper) {
-            # 'helper' parameter shadows 'helper' function
+            // 'helper' parameter shadows 'helper' function
             helper + 10
         }
         
-        let result1 = helper(5);      # Function call: 10
-        let result2 = process(5);     # Parameter use: 15
+        let result1 = helper(5);      // Function call: 10
+        let result2 = process(5);     // Parameter use: 15
         """
         
         context = compiler.compile(source, "<test>")
@@ -131,14 +131,14 @@ class TestFunctionShadowing:
         
         fn outer(a) {
             fn nested(b) {
-                # These calls inside nested function should be rewritten
-                # Use simple parameter references (no intermediate variables)
+                // These calls inside nested function should be rewritten
+                // Use simple parameter references (no intermediate variables)
                 identity(b) + double(b)
             }
             nested(a) + 1
         }
         
-        let result = outer(5);  # nested(5) = identity(5) + double(5) = 5 + 10 = 15, outer = 16
+        let result = outer(5);  // nested(5) = identity(5) + double(5) = 5 + 10 = 15, outer = 16
         """
         
         context = compiler.compile(source, "<test>")
@@ -173,14 +173,14 @@ class TestFunctionShadowing:
             use std::math;
             
             fn nested(b) {
-                # Nested function can use imported module from outer scope
+                // Nested function can use imported module from outer scope
                 identity(b) + math::abs(b)
             }
             
             nested(a) + 1
         }
         
-        let result = outer(5);  # nested(5) = identity(5) + abs(5) = 5 + 5 = 10, outer = 11
+        let result = outer(5);  // nested(5) = identity(5) + abs(5) = 5 + 5 = 10, outer = 11
         """
         
         context = compiler.compile(source, "<test>")
@@ -209,14 +209,14 @@ class TestFunctionShadowing:
         fn outer(a) {
             fn nested(b) {
                 use std::math;
-                # Use statement INSIDE nested function
-                # Generic calls should still be discovered and rewritten
+                // Use statement INSIDE nested function
+                // Generic calls should still be discovered and rewritten
                 identity(b) + math::abs(b)
             }
             nested(a) + 1
         }
         
-        let result = outer(5);  # nested(5) = identity(5) + abs(5) = 5 + 5 = 10, outer = 11
+        let result = outer(5);  // nested(5) = identity(5) + abs(5) = 5 + 5 = 10, outer = 11
         """
         
         context = compiler.compile(source, "<test>")

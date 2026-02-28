@@ -36,7 +36,7 @@ fn add_ints(x: i32, y: i32) -> i32 {
     x + y
 }
 
-let result = add_ints(5, 3.14);  # Error: f32 not compatible with i32
+let result = add_ints(5, 3.14);  // Error: f32 not compatible with i32
 """
         result = compile_and_execute(source, compiler, runtime)
         assert not result.success, "Should have failed for type mismatch"
@@ -110,7 +110,7 @@ fn accept_float(x: f32) -> f32 {
 }
 
 let int_val: i32 = 42;
-let result = accept_float(int_val);  # Error: i32 not compatible with f32
+let result = accept_float(int_val);  // Error: i32 not compatible with f32
 """
         result = compile_and_execute(source, compiler, runtime)
         assert not result.success, "Should have failed: cross-category requires cast"
@@ -123,7 +123,7 @@ fn accept_float(x: f32) -> f32 {
 }
 
 let int_val: i32 = 42;
-let result = accept_float(int_val as f32);  # OK with cast
+let result = accept_float(int_val as f32);  // OK with cast
 """
         result = compile_and_execute(source, compiler, runtime)
         assert result.success, f"Should allow explicit cast: {result.errors}"
@@ -152,7 +152,7 @@ fn process_array(data: [i32]) -> i32 {
     42
 }
 
-let result = process_array(5);  # Error: scalar not array
+let result = process_array(5);  // Error: scalar not array
 """
         result = compile_and_execute(source, compiler, runtime)
         assert not result.success, "Should fail: scalar passed to array parameter"
@@ -181,7 +181,7 @@ fn compute(a: i32, b: i32, c: i32) -> i32 {
     a + b + c
 }
 
-let result = compute(1, 3.14, 3);  # Error: 2nd param wrong type
+let result = compute(1, 3.14, 3);  // Error: 2nd param wrong type
 """
         result = compile_and_execute(source, compiler, runtime)
         assert not result.success, "Should fail for parameter 2 type mismatch"
@@ -221,7 +221,7 @@ fn process(typed: i32, untyped) -> i32 {
 }
 
 let result1 = process(5, 10);
-let result2 = process(7, 8);  # untyped param accepts any compatible type
+let result2 = process(7, 8);  // untyped param accepts any compatible type
 
 assert(result1 == 15);
 assert(result2 == 15);
@@ -277,7 +277,7 @@ fn add(x: i32, y: i32) -> i32 {
     x + y
 }
 
-let result = add(5);  # Error: wrong arity
+let result = add(5);  // Error: wrong arity
 """
         result = compile_and_execute(source, compiler, runtime)
         assert not result.success
@@ -294,7 +294,7 @@ fn add(x: i32, y: i32) -> i32 {
     x + y
 }
 
-let result = add(5, 3.14);  # Correct arity, wrong type
+let result = add(5, 3.14);  // Correct arity, wrong type
 """
         result = compile_and_execute(source, compiler, runtime)
         assert not result.success

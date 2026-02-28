@@ -26,19 +26,19 @@ from tests.test_utils import compile_and_execute, assert_float_close
 def test_erf_all_ranks(compiler, runtime):
     """Test erf operation across all supported ranks (0D, 1D, 2D, 3D)"""
     source = """use std::ml;
-    # 0D
+    // 0D
     let x_scalar = 0.5;
     let erf_0d = std::ml::erf(x_scalar);
     
-    # 1D
+    // 1D
     let x_1d = [-1.0, 0.0, 1.0, 0.5, -0.5];
     let erf_1d = std::ml::erf(x_1d);
     
-    # 2D
+    // 2D
     let x_2d = [[-1.0, 0.0, 1.0], [0.5, -0.5, 2.0]];
     let erf_2d = std::ml::erf(x_2d);
     
-    # 3D
+    // 3D
     let x_3d = [[[-1.0, 0.0], [1.0, 0.5]], [[-0.5, 2.0], [0.0, -1.0]]];
     let erf_3d = std::ml::erf(x_3d);
     """
@@ -85,25 +85,25 @@ def test_erf_all_ranks(compiler, runtime):
 def test_is_nan_is_inf_all_ranks(compiler, runtime):
     """Test is_nan and is_inf operations across all supported ranks (0D, 1D, 2D, 3D)"""
     source = """use std::ml;
-    # 0D
+    // 0D
     let x_scalar_nan = 0.0/0.0;
     let x_scalar_inf = 1.0/0.0;
     let is_nan_0d = std::ml::is_nan(x_scalar_nan);
     let is_inf_0d = std::ml::is_inf(x_scalar_inf);
     
-    # 1D
+    // 1D
     let x_1d = [0.0, 1.0, 0.0/0.0, 2.0];
     let x_1d_inf = [0.0, 1.0, 1.0/0.0, 2.0];
     let is_nan_1d = std::ml::is_nan(x_1d);
     let is_inf_1d = std::ml::is_inf(x_1d_inf);
     
-    # 2D
+    // 2D
     let x_2d = [[0.0, 1.0, 0.0/0.0], [2.0, 3.0, 4.0]];
     let x_2d_inf = [[0.0, 1.0, 1.0/0.0], [2.0, 3.0, 4.0]];
     let is_nan_2d = std::ml::is_nan(x_2d);
     let is_inf_2d = std::ml::is_inf(x_2d_inf);
     
-    # 3D
+    // 3D
     let x_3d = [[[0.0, 1.0], [0.0/0.0, 2.0]], [[3.0, 4.0], [5.0, 6.0]]];
     let x_3d_inf = [[[0.0, 1.0], [1.0/0.0, 2.0]], [[3.0, 4.0], [5.0, 6.0]]];
     let is_nan_3d = std::ml::is_nan(x_3d);

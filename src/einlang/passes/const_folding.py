@@ -9,14 +9,13 @@ from ..passes.base import BasePass, TyCtxt
 from ..passes.type_inference import TypeInferencePass
 from ..passes.exhaustiveness import ExhaustivenessPass
 from ..ir.nodes import (
-    ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR,
+    ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR, BindingIR, is_einstein_binding, is_function_binding, is_constant_binding,
     LiteralIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     BlockExpressionIR, IfExpressionIR, LambdaIR, IRVisitor,
     RectangularAccessIR, JaggedAccessIR, ArrayLiteralIR, TupleExpressionIR,
     TupleAccessIR, InterpolatedStringIR, CastExpressionIR, MemberAccessIR,
     TryExpressionIR, MatchExpressionIR, ReductionExpressionIR, WhereExpressionIR,
-    ArrowExpressionIR, PipelineExpressionIR, BuiltinCallIR, FunctionRefIR,
-    EinsteinDeclarationIR
+    PipelineExpressionIR, BuiltinCallIR,
 )
 from typing import Optional, Any
 
@@ -202,19 +201,12 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         
         Rust Pattern: Visitor pattern for function calls
         """
-        # Fold arguments (visitor pattern)
-        folded_args = [arg.accept(self) for arg in expr.arguments]  # Visitor pattern
-        
-        # Check if all arguments are literals and function is pure/const
-        # (This would require checking function attributes - simplified here)
-        # For now, return function call with folded arguments
-        # No kind field - visitor pattern handles dispatch
+        folded_args = [arg.accept(self) for arg in expr.arguments]
         return FunctionCallIR(
-            function_name=expr.function_name,
-            function_defid=expr.function_defid,
-            arguments=folded_args,
-            module_path=expr.module_path,  # Preserve module_path for Python module calls
+            callee_expr=expr.callee_expr,
             location=expr.location,
+            arguments=folded_args,
+            module_path=expr.module_path,
             type_info=expr.type_info,
             shape_info=expr.shape_info
         )
@@ -299,27 +291,24 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
             parameters=expr.parameters,
             body=folded_body,
             location=expr.location,
-            defid=expr.defid,
             type_info=expr.type_info,
             shape_info=expr.shape_info
         )
     
-    def visit_function_def(self, stmt: FunctionDefIR) -> FunctionDefIR:
-        """
-        Function definitions in blocks are returned unchanged.
-        
-        Nested functions can appear in block statements. We don't fold them,
-        just return them as-is.
-        """
-        return stmt
-    
-    def visit_constant_def(self, stmt: ConstantDefIR) -> ExpressionIR:
-        """
-        Constant definitions are not expressions - should not be called.
-        
-        Rust Pattern: Visitor pattern for constant definitions (not used in ConstantFolder)
-        """
-        raise NotImplementedError("ConstantFolder only handles expressions, not constant definitions")
+    def visit_binding(self, node: BindingIR) -> ExpressionIR:
+        if is_function_binding(node):
+            return node
+        elif is_einstein_binding(node):
+            raise NotImplementedError("ConstantFolder only handles expressions, not Einstein declarations")
+        else:
+            folded_value = node.expr.accept(self) if hasattr(node, 'expr') and node.expr else None
+            return BindingIR(
+                name=getattr(node, 'name', ''),
+                expr=folded_value,
+                type_info=getattr(node, 'type_info', None),
+                location=getattr(node, 'location', None),
+                defid=getattr(node, 'defid', None),
+            )
     
     def visit_range(self, expr) -> ExpressionIR:
         """Visit range expression - cannot fold"""
@@ -334,10 +323,9 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         folded_constraints = [c.accept(self) for c in expr.constraints] if expr.constraints else []
         return ArrayComprehensionIR(
             body=folded_body,
-            variables=expr.variables,
+            loop_vars=expr.loop_vars,
             ranges=folded_ranges,
             constraints=folded_constraints,
-            variable_defids=expr.variable_defids,
             location=expr.location,
             type_info=expr.type_info,
             shape_info=expr.shape_info
@@ -466,7 +454,6 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
             where_clause=folded_where,
             loop_var_ranges=folded_loop_var_ranges if folded_loop_var_ranges else expr.loop_var_ranges,
             location=expr.location,
-            defid=expr.defid,
             type_info=expr.type_info,
             shape_info=expr.shape_info
         )
@@ -479,17 +466,6 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         return WhereExpressionIR(
             expr=folded_expr,
             constraints=folded_constraints,
-            location=expr.location,
-            type_info=expr.type_info,
-            shape_info=expr.shape_info
-        )
-    
-    def visit_arrow_expression(self, expr: ArrowExpressionIR) -> ExpressionIR:
-        """Visit arrow expression - fold components"""
-        folded_components = [comp.accept(self) for comp in expr.components]
-        return ArrowExpressionIR(
-            components=folded_components,
-            operator=expr.operator,
             location=expr.location,
             type_info=expr.type_info,
             shape_info=expr.shape_info
@@ -519,14 +495,6 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
             type_info=expr.type_info,
             shape_info=expr.shape_info
         )
-    
-    def visit_function_ref(self, expr: FunctionRefIR) -> ExpressionIR:
-        """Visit function reference - cannot fold"""
-        return expr
-    
-    def visit_einstein_declaration(self, node) -> ExpressionIR:
-        """Einstein declarations are not expressions - should not be called"""
-        raise NotImplementedError("ConstantFolder only handles expressions, not Einstein declarations")
     
     # Pattern visitors (no-op, patterns don't fold)
     def visit_literal_pattern(self, node) -> ExpressionIR:
@@ -591,23 +559,6 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
             return None
 
 
-    def visit_variable_declaration(self, node):
-        """Visit variable declaration - fold value but keep declaration"""
-        from ..ir.nodes import VariableDeclarationIR
-        
-        # Fold the value expression
-        folded_value = node.value.accept(self) if hasattr(node, 'value') and node.value else None
-        
-        # Return a new VariableDeclarationIR with the folded value
-        # CRITICAL: We must preserve the variable declaration, not just return the value!
-        return VariableDeclarationIR(
-            pattern=node.pattern,
-            value=folded_value,
-            type_annotation=node.type_annotation,
-            location=node.location,
-            defid=node.defid
-        )
-
 class ConstantFoldingVisitor(IRVisitor[None]):
     """
     Visitor for constant folding statements (Rust pattern: visitor for IR transformation).
@@ -639,40 +590,25 @@ class ConstantFoldingVisitor(IRVisitor[None]):
         # Fold top-level statements in place - use visitor pattern
         for stmt in node.statements:
             stmt.accept(self)
-    
-    def visit_function_def(self, stmt: FunctionDefIR) -> None:
-        """
-        Fold function body in place.
-        
-        Rust Pattern: Visitor pattern for function definitions
-        """
-        # Use visitor pattern: folder is also a visitor
-        folded_body = stmt.body.accept(self.folder)  # Visitor pattern
-        # Modify in place
-        stmt.body = folded_body
-    
-    def visit_constant_def(self, stmt: ConstantDefIR) -> None:
-        """
-        Fold constant value in place.
-        
-        Rust Pattern: Visitor pattern for constant definitions
-        """
-        # Use visitor pattern: folder is also a visitor
-        folded_value = stmt.value.accept(self.folder)  # Visitor pattern
-        # Modify in place
-        stmt.value = folded_value
-    
-    def visit_einstein_declaration(self, stmt: EinsteinDeclarationIR) -> None:
-        """
-        Fold Einstein declaration: fold each clause's value in place.
-        
-        EinsteinDeclarationIR has clauses (list of EinsteinIR); each clause has .value.
-        CRITICAL: Preserves loop_vars and variable_ranges from range analysis!
-        """
-        for clause in stmt.clauses or []:
-            if getattr(clause, "value", None):
-                folded_value = clause.value.accept(self.folder)
-                clause.value = folded_value
+
+    def visit_binding(self, stmt: BindingIR) -> None:
+        if is_einstein_binding(stmt):
+            for clause in stmt.clauses or []:
+                if getattr(clause, "value", None):
+                    folded_value = clause.value.accept(self.folder)
+                    clause.value = folded_value
+        elif is_function_binding(stmt):
+            folded_body = stmt.body.accept(self.folder)
+            if hasattr(stmt, 'expr') and stmt.expr is not None:
+                object.__setattr__(stmt.expr, 'body', folded_body)
+            else:
+                object.__setattr__(stmt, 'body', folded_body)
+        elif is_constant_binding(stmt):
+            folded_value = stmt.value.accept(self.folder)
+            object.__setattr__(stmt, 'expr', folded_value)
+        else:
+            if hasattr(stmt, 'expr') and stmt.expr is not None:
+                stmt.expr.accept(self.folder)
     
     # Required visitor methods (for IRVisitor interface) - void visitor, no-op for expressions
     def visit_literal(self, node) -> None:
@@ -741,16 +677,10 @@ class ConstantFoldingVisitor(IRVisitor[None]):
     def visit_where_expression(self, node) -> None:
         pass
     
-    def visit_arrow_expression(self, node) -> None:
-        pass
-    
     def visit_pipeline_expression(self, node) -> None:
         pass
     
     def visit_builtin_call(self, node) -> None:
-        pass
-    
-    def visit_function_ref(self, node) -> None:
         pass
     
     def visit_literal_pattern(self, node) -> None:
@@ -777,11 +707,6 @@ class ConstantFoldingVisitor(IRVisitor[None]):
     def visit_module(self, node) -> None:
         pass
 
-
-    def visit_variable_declaration(self, node) -> None:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            node.value.accept(self)
 
 class LiteralExtractor(IRVisitor[Optional[Any]]):
     """
@@ -839,13 +764,15 @@ class LiteralExtractor(IRVisitor[Optional[Any]]):
         """Lambdas are not literals"""
         return None
     
-    def visit_function_def(self, node) -> Optional[Any]:
-        """Function definitions are not literals"""
-        return None
-    
-    def visit_constant_def(self, node) -> Optional[Any]:
-        """Constant definitions are not literals"""
-        return None
+    def visit_binding(self, node) -> Optional[Any]:
+        if is_function_binding(node):
+            return None
+        elif is_einstein_binding(node):
+            return None
+        else:
+            if hasattr(node, 'value') and node.value:
+                return node.value.accept(self)
+            return None
     
     def visit_range(self, expr) -> Optional[Any]:
         """Range expressions are not literals"""
@@ -895,24 +822,12 @@ class LiteralExtractor(IRVisitor[Optional[Any]]):
         """Where expressions are not literals"""
         return None
     
-    def visit_arrow_expression(self, expr) -> Optional[Any]:
-        """Arrow expressions are not literals"""
-        return None
-    
     def visit_pipeline_expression(self, expr) -> Optional[Any]:
         """Pipeline expressions are not literals"""
         return None
     
     def visit_builtin_call(self, expr) -> Optional[Any]:
         """Builtin calls are not literals"""
-        return None
-    
-    def visit_function_ref(self, expr) -> Optional[Any]:
-        """Function references are not literals"""
-        return None
-    
-    def visit_einstein_declaration(self, node) -> Optional[Any]:
-        """Einstein declarations are not literals"""
         return None
     
     def visit_literal_pattern(self, node) -> Optional[Any]:
@@ -949,11 +864,5 @@ class LiteralExtractor(IRVisitor[Optional[Any]]):
     
     def visit_module(self, node) -> Optional[Any]:
         """Modules are not literals"""
-        return None
-
-    def visit_variable_declaration(self, node) -> Any:
-        """Visit variable declaration - recurse into value"""
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
         return None
 

@@ -1,8 +1,8 @@
-# String utility functions demonstration
+// String utility functions demonstration
 
 fn uppercase(s) {
-    # In a real implementation, this would use built-in string functions
-    # For now, just the original string
+    // In a real implementation, this would use built-in string functions
+    // For now, just the original string
     s
 }
 
@@ -16,22 +16,22 @@ let welcome = "Welcome to Einlang!";
 fn repeat(s, times) {
     let result = "";
     let i = 0;
-    # Simple repeat implementation
-    s # Simplified for this demo
+    // Simple repeat implementation
+    s // Simplified for this demo
 }
 
-# Test string concatenation
+// Test string concatenation
 let combined = concat("Hello", " World");
 assert(combined == "Hello World");
 
-# Test greeting constants
+// Test greeting constants
 assert(greeting == "Hello, World!");
 assert(welcome == "Welcome to Einlang!");
 
-# Test uppercase function (returns original for now)
+// Test uppercase function (returns original for now)
 let upper = uppercase("test");
 assert(upper == "test");
 
-# Test repeat function (simplified)
+// Test repeat function (simplified)
 let repeated = repeat("hi", 3);
 assert(repeated == "hi");

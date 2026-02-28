@@ -28,7 +28,7 @@ assert(result == 10);
         """Test lambda called with too few arguments. Must fail."""
         source = """
 let add = |x, y| x + y;
-let result = add(5);  # Error: needs 2 args, got 1
+let result = add(5);  // Error: needs 2 args, got 1
 """
         result = compile_and_execute(source, compiler, runtime)
         assert not result.success, "Compilation should have failed for lambda arity mismatch"

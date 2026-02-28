@@ -1,101 +1,101 @@
-# ml/selection_ops.ein - ONNX Selection Operations
-# TensorRT ONNX Parser: ✅ Supported (ITopKLayer, INonZeroLayer, INMSLayer)
+// ml/selection_ops.ein - ONNX Selection Operations
+// TensorRT ONNX Parser: ✅ Supported (ITopKLayer, INonZeroLayer, INMSLayer)
 
 use std::math::{min, max};
 use std::array::topk_with_indices_extract;
 use std::array::{argmax as array_argmax, argmin as array_argmin};
 
-# ============================================================================
-# ONNX Operator: TopK
-# ============================================================================
+// ============================================================================
+// ONNX Operator: TopK
+// ============================================================================
 
-# Helper: 1D TopK using quickselect
-# Returns (values, indices) tuple for top k largest elements in 1D array
-# ONNX-compliant: always returns largest values (sorted descending)
+// Helper: 1D TopK using quickselect
+// Returns (values, indices) tuple for top k largest elements in 1D array
+// ONNX-compliant: always returns largest values (sorted descending)
 pub fn topk_1d_helper(arr, k) {
-    # 1D TopK helper: quickselect to find top k
-    # Returns (values, indices) for top k largest elements in 1D array
-    # - arr: 1D array
-    # - k: number of top elements
-    # 
-    # Algorithm: 
-    #   Use quickselect (topk_with_indices_extract) to get top k - O(n) average
-    #   Results are sorted in descending order (largest first)
+    // 1D TopK helper: quickselect to find top k
+    // Returns (values, indices) for top k largest elements in 1D array
+    // - arr: 1D array
+    // - k: number of top elements
+    // 
+    // Algorithm: 
+    //   Use quickselect (topk_with_indices_extract) to get top k - O(n) average
+    //   Results are sorted in descending order (largest first)
     
     let n = len(arr);
     assert(n >= 0, "topk_1d_helper: arr must be an array");
     assert(k > 0, "topk_1d_helper: k must be positive");
     assert(k <= n, "topk_1d_helper: k cannot exceed array length");
     
-    # Create indices array [0, 1, 2, ..., n-1]
+    // Create indices array [0, 1, 2, ..., n-1]
     let indices_arr = [i | i in 0..n];
     
-    # Use quickselect (topk_with_indices_extract) to get top k largest with indices
-    # Results are sorted in descending order (largest first)
+    // Use quickselect (topk_with_indices_extract) to get top k largest with indices
+    // Results are sorted in descending order (largest first)
     topk_with_indices_extract(arr, indices_arr, k)
 }
 
-# Helper: Extract values from 1D TopK result (for 1D array)
+// Helper: Extract values from 1D TopK result (for 1D array)
 fn topk_1d_values_internal(arr, k) {
     let result = topk_1d_helper(arr, k);
     result.0
 }
 
-# Helper: Extract indices from 1D TopK result (for 1D array)
+// Helper: Extract indices from 1D TopK result (for 1D array)
 fn topk_1d_indices_internal(arr, k) {
     let result = topk_1d_helper(arr, k);
     result.1
 }
 
-# Helper: Get topk values from 2D array row (avoids scope pollution in Einstein notation)
+// Helper: Get topk values from 2D array row (avoids scope pollution in Einstein notation)
 fn topk_2d_row_values(arr_2d, row_idx, n_cols, k) {
     let row = [arr_2d[row_idx, c] | c in 0..n_cols];
     topk_1d_values_internal(row, k)
 }
 
-# Helper: Get topk indices from 2D array row (avoids scope pollution in Einstein notation)
+// Helper: Get topk indices from 2D array row (avoids scope pollution in Einstein notation)
 fn topk_2d_row_indices(arr_2d, row_idx, n_cols, k) {
     let row = [arr_2d[row_idx, c] | c in 0..n_cols];
     topk_1d_indices_internal(row, k)
 }
 
 pub fn topk(X, k, axis) {
-    # ONNX Operator: TopK
-    # Returns top K largest values and indices along specified axis
-    # 
-    # ONNX spec: TopK(X, K, axis=-1)
-    #   - X: Input tensor (any rank)
-    #   - K: Number of top elements (scalar tensor, input in opset 10+)
-    #   - axis: Axis along which to find top K (attribute, default=-1)
-    #   - Returns: (Values, Indices) where Indices is int64
-    #   - Always returns largest values (ONNX standard behavior)
-    #   - Results are sorted in descending order (largest first)
-    # 
-    # Parameters:
-    #   - X: Input tensor (any rank, currently supports rank 2)
-    #   - k: Number of top elements to return (scalar or 1D tensor)
-    #   - axis: Axis along which to find top K (-1 means last axis)
-    # 
-    # Returns: (values, indices) tuple
-    #   - values: Top K largest values along axis [same shape as X except axis dimension is k]
-    #   - indices: Indices of top K values [same shape as values, dtype=i32]
-    #   - Note: Standard ONNX uses int64 for indices, we use i32 (Einlang limitation)
-    # 
-    # Algorithm:
-    #   1. Transpose X so target axis becomes innermost (last dimension)
-    #   2. Use array comprehension to apply 1d_topk_helper to each slice
-    #   3. Transpose results back to original axis order
+    // ONNX Operator: TopK
+    // Returns top K largest values and indices along specified axis
+    // 
+    // ONNX spec: TopK(X, K, axis=-1)
+    //   - X: Input tensor (any rank)
+    //   - K: Number of top elements (scalar tensor, input in opset 10+)
+    //   - axis: Axis along which to find top K (attribute, default=-1)
+    //   - Returns: (Values, Indices) where Indices is int64
+    //   - Always returns largest values (ONNX standard behavior)
+    //   - Results are sorted in descending order (largest first)
+    // 
+    // Parameters:
+    //   - X: Input tensor (any rank, currently supports rank 2)
+    //   - k: Number of top elements to return (scalar or 1D tensor)
+    //   - axis: Axis along which to find top K (-1 means last axis)
+    // 
+    // Returns: (values, indices) tuple
+    //   - values: Top K largest values along axis [same shape as X except axis dimension is k]
+    //   - indices: Indices of top K values [same shape as values, dtype=i32]
+    //   - Note: Standard ONNX uses int64 for indices, we use i32 (Einlang limitation)
+    // 
+    // Algorithm:
+    //   1. Transpose X so target axis becomes innermost (last dimension)
+    //   2. Use array comprehension to apply 1d_topk_helper to each slice
+    //   3. Transpose results back to original axis order
     
     assert(typeof(X) == "rectangular", "topk: X must be rectangular");
     
     let rank = len(X.shape);
     assert(rank >= 1, "topk: X must have rank >= 1");
     
-    # Normalize axis: -1 means last axis
+    // Normalize axis: -1 means last axis
     let normalized_axis = if axis < 0 { axis + rank } else { axis };
     assert(normalized_axis >= 0 && normalized_axis < rank, "topk: axis out of range");
     
-    # Normalize k (handle 1D tensor case)
+    // Normalize k (handle 1D tensor case)
     let k_val = if typeof(k) == "rectangular" {
         if len(k) > 0 {
             k[0] as i32
@@ -109,21 +109,21 @@ pub fn topk(X, k, axis) {
     let axis_size = X.shape[normalized_axis] as i32;
     assert(k_val <= axis_size, "topk: k cannot exceed dimension size along axis");
     
-    # Step 1: Transpose so target axis becomes innermost (last dimension)
-    # For rank 2: if axis=0, transpose [M, N] -> [N, M]
-    # For rank 2: if axis=1, no transpose needed
-    # For higher ranks, we need to move axis to last position
-    # For now, support rank 2 (most common case)
+    // Step 1: Transpose so target axis becomes innermost (last dimension)
+    // For rank 2: if axis=0, transpose [M, N] -> [N, M]
+    // For rank 2: if axis=1, no transpose needed
+    // For higher ranks, we need to move axis to last position
+    // For now, support rank 2 (most common case)
     if rank == 2 {
         let M = X.shape[0] as i32;
         let N = X.shape[1] as i32;
         
-        # Transpose if needed so target axis becomes innermost
-        # For 2D, manually transpose to avoid rest pattern issues
+        // Transpose if needed so target axis becomes innermost
+        // For 2D, manually transpose to avoid rest pattern issues
         let X_work = if normalized_axis == 1 {
-            X  # Already innermost, no transpose needed
+            X  // Already innermost, no transpose needed
         } else {
-            # Manual transpose for 2D: [M, N] -> [N, M]
+            // Manual transpose for 2D: [M, N] -> [N, M]
             let X_t[j in 0..N, i in 0..M] = X[i, j];
             X_t
         };
@@ -131,175 +131,175 @@ pub fn topk(X, k, axis) {
         let M_work = len(X_work) as i32;
         let N_work = len(X_work[0]) as i32;
         
-        # Step 2: Apply 1d_topk_helper to each row using helper functions that extract rows internally
-        # This avoids variable name collision in Einstein notation
-        # ONNX-compliant: always returns largest values (sorted descending)
+        // Step 2: Apply 1d_topk_helper to each row using helper functions that extract rows internally
+        // This avoids variable name collision in Einstein notation
+        // ONNX-compliant: always returns largest values (sorted descending)
         let values_work[i in 0..M_work, j in 0..k_val] = topk_2d_row_values(X_work, i, N_work, k_val)[j];
         let indices_work[i in 0..M_work, j in 0..k_val] = topk_2d_row_indices(X_work, i, N_work, k_val)[j];
         
-        # Step 4: Transpose results back if we transposed the input
+        // Step 4: Transpose results back if we transposed the input
         if normalized_axis == 1 {
             (values_work, indices_work)
         } else {
-            # Transpose results back: [M_work, k] -> [k, M_work] = [k, N]
-            # Manual transpose for 2D to avoid rest pattern issues
+            // Transpose results back: [M_work, k] -> [k, M_work] = [k, N]
+            // Manual transpose for 2D to avoid rest pattern issues
             let values[j in 0..k_val, i in 0..M_work] = values_work[i, j];
             let indices[j in 0..k_val, i in 0..M_work] = indices_work[i, j];
             (values, indices)
         }
     } else {
-        # For rank != 2, not yet implemented
+        // For rank != 2, not yet implemented
         assert(false, "topk: currently supports rank 2 tensors only");
-        (X, X)  # Dummy return to satisfy type checker
+        (X, X)  // Dummy return to satisfy type checker
     }
 }
 
-# ============================================================================
-# ONNX Operator: NonZero
-# ============================================================================
+// ============================================================================
+// ONNX Operator: NonZero
+// ============================================================================
 
 pub fn nonzero(data) {
-    # ONNX Operator: NonZero
-    # Returns indices of non-zero elements
-    # ONNX Operator: NonZero
-    # Returns indices of non-zero elements
-    # 
-    # ONNX spec: NonZero(data)
-    #   - data: input tensor (any rank)
-    #   Returns: 2D tensor [rank, num_nonzero] where each column is an index tuple
-    # 
-    # Example: Input [0.0, 1.0, 0.0, 2.0] -> Output [[1, 3]] (shape [1, 2])
-    # 
-    # Implementation: Uses array comprehension to collect indices of non-zero elements
-    #   - For 1D: returns [i | i in 0..n, data[i] != 0.0] (1D array of indices)
-    #   - For 2D: returns [(i, j) | i in 0..h, j in 0..w, data[i, j] != 0.0] (array of (i,j) tuples)
-    #   - For 3D: returns [(i, j, k) | i in 0..d, j in 0..h, k in 0..w, data[i, j, k] != 0.0]
-    # 
-    # Note: Returns array of index tuples, not flattened indices
-    # For 1D: returns [1, 3, ...] (indices directly)
-    # For 2D: returns [(0,1), (1,0), (1,2), ...] (array of (i,j) tuples)
-    # For 3D: returns [(0,0,1), (0,1,0), ...] (array of (i,j,k) tuples)
-    # 
-    # TensorRT Support: ✅ INonZeroLayer
+    // ONNX Operator: NonZero
+    // Returns indices of non-zero elements
+    // ONNX Operator: NonZero
+    // Returns indices of non-zero elements
+    // 
+    // ONNX spec: NonZero(data)
+    //   - data: input tensor (any rank)
+    //   Returns: 2D tensor [rank, num_nonzero] where each column is an index tuple
+    // 
+    // Example: Input [0.0, 1.0, 0.0, 2.0] -> Output [[1, 3]] (shape [1, 2])
+    // 
+    // Implementation: Uses array comprehension to collect indices of non-zero elements
+    //   - For 1D: returns [i | i in 0..n, data[i] != 0.0] (1D array of indices)
+    //   - For 2D: returns [(i, j) | i in 0..h, j in 0..w, data[i, j] != 0.0] (array of (i,j) tuples)
+    //   - For 3D: returns [(i, j, k) | i in 0..d, j in 0..h, k in 0..w, data[i, j, k] != 0.0]
+    // 
+    // Note: Returns array of index tuples, not flattened indices
+    // For 1D: returns [1, 3, ...] (indices directly)
+    // For 2D: returns [(0,1), (1,0), (1,2), ...] (array of (i,j) tuples)
+    // For 3D: returns [(0,0,1), (0,1,0), ...] (array of (i,j,k) tuples)
+    // 
+    // TensorRT Support: ✅ INonZeroLayer
     
     assert(typeof(data) == "rectangular", "nonzero: data must be rectangular");
     
     let rank = len(data.shape);
     
-    # Use array comprehension to collect indices of non-zero elements
-    # ONNX format: 2D tensor [rank, num_nonzero] where each column is an index tuple
-    # For 1D: returns [i | i in 0..n, data[i] != 0.0] (1D array of indices)
-    # For 2D: returns [(i, j) | i in 0..h, j in 0..w, data[i, j] != 0.0] (array of tuples)
-    # For 3D: returns [(i, j, k) | i in 0..d, j in 0..h, k in 0..w, data[i, j, k] != 0.0]
+    // Use array comprehension to collect indices of non-zero elements
+    // ONNX format: 2D tensor [rank, num_nonzero] where each column is an index tuple
+    // For 1D: returns [i | i in 0..n, data[i] != 0.0] (1D array of indices)
+    // For 2D: returns [(i, j) | i in 0..h, j in 0..w, data[i, j] != 0.0] (array of tuples)
+    // For 3D: returns [(i, j, k) | i in 0..d, j in 0..h, k in 0..w, data[i, j, k] != 0.0]
     if rank == 1 {
         let n = data.shape[0] as i32;
-        # Return array of indices using comprehension
+        // Return array of indices using comprehension
         let result = [i | i in 0..n, data[i] != 0.0];
         result
-    # For 2D: return (i, j) tuples where data[i, j] != 0
+    // For 2D: return (i, j) tuples where data[i, j] != 0
     } else if rank == 2 {
         let h = data.shape[0] as i32;
         let w = data.shape[1] as i32;
-        # Return array of (i, j) tuples using comprehension
+        // Return array of (i, j) tuples using comprehension
         let result = [(i, j) | i in 0..h, j in 0..w, data[i, j] != 0.0];
         result
-    # For 3D: return (i, j, k) tuples where data[i, j, k] != 0
+    // For 3D: return (i, j, k) tuples where data[i, j, k] != 0
     } else if rank == 3 {
         let d = data.shape[0] as i32;
         let h = data.shape[1] as i32;
         let w = data.shape[2] as i32;
-        # Return array of (i, j, k) tuples using comprehension
+        // Return array of (i, j, k) tuples using comprehension
         let result = [(i, j, k) | i in 0..d, j in 0..h, k in 0..w, data[i, j, k] != 0.0];
         result
     } else {
-        # Fallback for unsupported ranks
+        // Fallback for unsupported ranks
         data
     }
 }
 
-# ============================================================================
-# ONNX Operator: ArgMax
-# ============================================================================
+// ============================================================================
+// ONNX Operator: ArgMax
+// ============================================================================
 
 pub fn argmax(x) {
-    # ONNX Operator: ArgMax
-    # Return index of maximum value in last dimension
-    # Input: 1D array or [..batch, features], Output: scalar (1D) or [..batch] as integer
-    # For 1D arrays, delegates to std::array::argmax (no duplicate implementation)
-    # Performance: O(n) - two passes: one for max, one for argmax
-    # Algorithm: Find max value, use sentinel trick to find first matching index
+    // ONNX Operator: ArgMax
+    // Return index of maximum value in last dimension
+    // Input: 1D array or [..batch, features], Output: scalar (1D) or [..batch] as integer
+    // For 1D arrays, delegates to std::array::argmax (no duplicate implementation)
+    // Performance: O(n) - two passes: one for max, one for argmax
+    // Algorithm: Find max value, use sentinel trick to find first matching index
     assert(typeof(x) == "rectangular", "argmax: input must be rectangular");
     
     let rank = len(x.shape);
     if rank == 1 {
-        # 1D case: delegate to array::argmax (no duplicate implementation)
+        // 1D case: delegate to array::argmax (no duplicate implementation)
         array_argmax(x)
     } else {
-        # Multi-D case: find argmax along last dimension per batch
-        # Use explicit indexing throughout to avoid rest pattern shape issues
+        // Multi-D case: find argmax along last dimension per batch
+        // Use explicit indexing throughout to avoid rest pattern shape issues
         let batch_size = len(x);
         let n = len(x[0]);
         
-        # Pass 1: Find maximum value per batch
+        // Pass 1: Find maximum value per batch
         let max_val[i in 0..batch_size] = max[j in 0..n](x[i, j]);
         
-        # Pass 2: Find first index where value equals max
-        # Strategy: Create array where matching positions get index j, non-matches get sentinel
-        # Then min reduction gives us smallest (first) matching index
-        # Sentinel: Use array length (guaranteed larger than any valid index 0..len-1)
-        let sentinel = n;  # Safe: valid indices are 0..n-1, so n is always out of range
+        // Pass 2: Find first index where value equals max
+        // Strategy: Create array where matching positions get index j, non-matches get sentinel
+        // Then min reduction gives us smallest (first) matching index
+        // Sentinel: Use array length (guaranteed larger than any valid index 0..len-1)
+        let sentinel = n;  // Safe: valid indices are 0..n-1, so n is always out of range
         let weighted[i in 0..batch_size, j in 0..n] = if x[i, j] == max_val[i] { 
-            j  # j is int from Einstein range
+            j  // j is int from Einstein range
         } else { 
-            sentinel  # Guaranteed larger than any valid index
+            sentinel  // Guaranteed larger than any valid index
         };
         
-        # Pass 3: Find minimum index (first occurrence of max value)
-        # min returns integer since weighted contains integers
+        // Pass 3: Find minimum index (first occurrence of max value)
+        // min returns integer since weighted contains integers
         let result[i in 0..batch_size] = min[j in 0..n](weighted[i, j]);
         result
     }
 }
 
-# ============================================================================
-# ONNX Operator: ArgMin
-# ============================================================================
+// ============================================================================
+// ONNX Operator: ArgMin
+// ============================================================================
 
 pub fn argmin(x) {
-    # ONNX Operator: ArgMin
-    # Return index of minimum value in last dimension
-    # Input: 1D array or [..batch, features], Output: scalar (1D) or [..batch] as integer
-    # For 1D arrays, delegates to std::array::argmin (no duplicate implementation)
-    # Performance: O(n) - two passes: one for min, one for argmin
-    # Algorithm: Find min value, use sentinel trick to find first matching index
+    // ONNX Operator: ArgMin
+    // Return index of minimum value in last dimension
+    // Input: 1D array or [..batch, features], Output: scalar (1D) or [..batch] as integer
+    // For 1D arrays, delegates to std::array::argmin (no duplicate implementation)
+    // Performance: O(n) - two passes: one for min, one for argmin
+    // Algorithm: Find min value, use sentinel trick to find first matching index
     assert(typeof(x) == "rectangular", "argmin: input must be rectangular");
     
     let rank = len(x.shape);
     if rank == 1 {
-        # 1D case: delegate to array::argmin (no duplicate implementation)
+        // 1D case: delegate to array::argmin (no duplicate implementation)
         array_argmin(x)
     } else {
-        # Multi-D case: find argmin along last dimension per batch
-        # Use explicit indexing throughout to avoid rest pattern shape issues
+        // Multi-D case: find argmin along last dimension per batch
+        // Use explicit indexing throughout to avoid rest pattern shape issues
         let batch_size = len(x);
         let n = len(x[0]);
         
-        # Pass 1: Find minimum value per batch
+        // Pass 1: Find minimum value per batch
         let min_val[i in 0..batch_size] = min[j in 0..n](x[i, j]);
         
-        # Pass 2: Find first index where value equals min
-        # Strategy: Create array where matching positions get index j, non-matches get sentinel
-        # Then min reduction gives us smallest (first) matching index
-        # Sentinel: Use array length (guaranteed larger than any valid index 0..len-1)
-        let sentinel = n;  # Safe: valid indices are 0..n-1, so n is always out of range
+        // Pass 2: Find first index where value equals min
+        // Strategy: Create array where matching positions get index j, non-matches get sentinel
+        // Then min reduction gives us smallest (first) matching index
+        // Sentinel: Use array length (guaranteed larger than any valid index 0..len-1)
+        let sentinel = n;  // Safe: valid indices are 0..n-1, so n is always out of range
         let weighted[i in 0..batch_size, j in 0..n] = if x[i, j] == min_val[i] {
-            j  # j is int from Einstein range
+            j  // j is int from Einstein range
         } else { 
-            sentinel  # Guaranteed larger than any valid index
+            sentinel  // Guaranteed larger than any valid index
         };
         
-        # Pass 3: Find minimum index (first occurrence of min value)
-        # min returns integer since weighted contains integers
+        // Pass 3: Find minimum index (first occurrence of min value)
+        // min returns integer since weighted contains integers
         let result[i in 0..batch_size] = min[j in 0..n](weighted[i, j]);
         result
     }

@@ -1,44 +1,44 @@
-# CORE FEATURE: Reduction Operations (sum, max, min)
-# PURPOSE: Showcases Einstein notation reduction syntax and tensor reductions
-# VALUE: Demonstrates core tensor reduction operations essential to Einlang
+// CORE FEATURE: Reduction Operations (sum, max, min)
+// PURPOSE: Showcases Einstein notation reduction syntax and tensor reductions
+// VALUE: Demonstrates core tensor reduction operations essential to Einlang
 
-# Basic sum reductions
+// Basic sum reductions
 let vector = [1, 2, 3, 4, 5];
-# Mathematical notation: Σᵢ vᵢ (implicit range inferred from vector)
+// Mathematical notation: Σᵢ vᵢ (implicit range inferred from vector)
 let total = sum[i](vector[i]);
 
 assert(total == 15, "Vector sum should be 15");
 
-# Matrix reduction patterns
+// Matrix reduction patterns
 let matrix = [[1, 2, 3], [4, 5, 6]];
 
-# Row-wise reductions (sum each row)
-# Mathematical notation: row_sumsᵢ = Σⱼ matrixᵢⱼ
+// Row-wise reductions (sum each row)
+// Mathematical notation: row_sumsᵢ = Σⱼ matrixᵢⱼ
 let row_sums[i] = sum[j](matrix[i,j]);
 
 assert(row_sums[0] == 6, "First row sum should be 1+2+3=6");
 assert(row_sums[1] == 15, "Second row sum should be 4+5+6=15");
 
-# Column-wise reductions (sum each column)
-# Mathematical notation: col_sumsⱼ = Σᵢ matrixᵢⱼ
+// Column-wise reductions (sum each column)
+// Mathematical notation: col_sumsⱼ = Σᵢ matrixᵢⱼ
 let col_sums[j] = sum[i](matrix[i,j]);
 
 assert(col_sums[0] == 5, "First column sum should be 1+4=5");
 assert(col_sums[1] == 7, "Second column sum should be 2+5=7");
 assert(col_sums[2] == 9, "Third column sum should be 3+6=9");
 
-# Element-wise operations leading to reductions
-# Mathematical notation: Σᵢ xᵢ²
+// Element-wise operations leading to reductions
+// Mathematical notation: Σᵢ xᵢ²
 let squares = [x * x | x in 1..4];
 let sum_of_squares = sum[i](squares[i]);
 
 assert(sum_of_squares == 14, "Sum of squares 1²+2²+3² should be 1+4+9=14");
 
-# Matrix multiplication pattern (Einstein notation style)
+// Matrix multiplication pattern (Einstein notation style)
 let a = [[1, 2], [3, 4]];
 let b = [[5, 6], [7, 8]];
 
-# Matrix multiplication: cᵢⱼ = Σₖ aᵢₖ bₖⱼ
+// Matrix multiplication: cᵢⱼ = Σₖ aᵢₖ bₖⱼ
 let c[i, j] = sum[k](a[i,k] * b[k,j]);
 
 assert(c[0, 0] == 19, "Matrix mult [0,0] should be 1*5+2*7=19");
@@ -46,27 +46,27 @@ assert(c[0, 1] == 22, "Matrix mult [0,1] should be 1*6+2*8=22");
 assert(c[1, 0] == 43, "Matrix mult [1,0] should be 3*5+4*7=43");
 assert(c[1, 1] == 50, "Matrix mult [1,1] should be 3*6+4*8=50");
 
-# Max/Min patterns using conditionals
+// Max/Min patterns using conditionals
 let data = [3, 1, 4, 1, 5, 9, 2, 6];
 
-# Find max using comprehensions and conditions
+// Find max using comprehensions and conditions
 let large_values = [x | x in data, x > 5];
 assert(large_values.length >= 2, "Should have values > 5");
 
-# Min patterns
+// Min patterns
 let small_values = [x | x in data, x < 3];
 assert(small_values.length >= 2, "Should have values < 3");
 
-# Reduction with constraints (filter then sum - Rust: explicit two-step)
-# Mathematical notation: Σᵢ xᵢ where xᵢ > 0
+// Reduction with constraints (filter then sum - Rust: explicit two-step)
+// Mathematical notation: Σᵢ xᵢ where xᵢ > 0
 let positive_data = [1, -2, 3, -4, 5];
 let positive_filtered = [x | x in positive_data, x > 0];
 let positive_sum = sum[i](positive_filtered[i]);
 
 assert(positive_sum == 9, "Sum of positive values should be 1+3+5=9");
 
-# Statistical reductions
-# Mathematical notation: μ = (1/N) Σᵢ xᵢ
+// Statistical reductions
+// Mathematical notation: μ = (1/N) Σᵢ xᵢ
 let test_values = [10, 20, 30, 40];
 let count = test_values.length;
 let mean = sum[i](test_values[i]) / count;
@@ -74,52 +74,52 @@ let mean = sum[i](test_values[i]) / count;
 assert(count == 4, "Count should be 4");
 assert(mean == 25, "Mean should be (10+20+30+40)/4=25");
 
-# Tensor contraction patterns
-# Mathematical notation: contractedⱼₖ = Σᵢ tensorᵢⱼₖ
+// Tensor contraction patterns
+// Mathematical notation: contractedⱼₖ = Σᵢ tensorᵢⱼₖ
 let tensor3d = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
 
-# Sum along first dimension
+// Sum along first dimension
 let contracted[j, k] = sum[i](tensor3d[i,j,k]);
 
 assert(contracted[0,0] == 6, "Contraction [0,0] should be 1+5=6");
 assert(contracted[1,1] == 12, "Contraction [1,1] should be 4+8=12");
 
-# Reduction with filtering conditions (filter then sum - Rust: explicit)
-# Mathematical notation: Σᵢ xᵢ where xᵢ mod 2 = 0
+// Reduction with filtering conditions (filter then sum - Rust: explicit)
+// Mathematical notation: Σᵢ xᵢ where xᵢ mod 2 = 0
 let conditional_data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 let even_filtered = [x | x in conditional_data, x % 2 == 0];
 let even_sum = sum[i](even_filtered[i]);
 
 assert(even_sum == 30, "Sum of even values should be 2+4+6+8+10=30");
 
-# Norm-like calculations
-# Mathematical notation: ||x||² = Σᵢ xᵢ²
+// Norm-like calculations
+// Mathematical notation: ||x||² = Σᵢ xᵢ²
 let point = [3, 4];
 let squared_norm = sum[i](point[i] * point[i]);
 
 assert(squared_norm == 25, "Squared norm should be 3²+4²=25");
 
-# Dot product pattern
-# Mathematical notation: a·b = Σᵢ aᵢbᵢ
+// Dot product pattern
+// Mathematical notation: a·b = Σᵢ aᵢbᵢ
 let vec_a = [1, 2, 3];
 let vec_b = [4, 5, 6];
 let dot_product = sum[i](vec_a[i] * vec_b[i]);
 
 assert(dot_product == 32, "Dot product should be 1*4+2*5+3*6=32");
 
-# Cross product components (2D case)
+// Cross product components (2D case)
 let cross_2d_a = [2, 3];
 let cross_2d_b = [4, 1];
 let cross_2d_result = cross_2d_a[0] * cross_2d_b[1] - cross_2d_a[1] * cross_2d_b[0];
 
 assert(cross_2d_result == -10, "2D cross product should be 2*1-3*4=-10");
 
-# Weighted sum patterns
-# Mathematical notation: Σᵢ wᵢvᵢ
+// Weighted sum patterns
+// Mathematical notation: Σᵢ wᵢvᵢ
 let weights = [0.2, 0.3, 0.5];
-let values = [10.0, 20.0, 30.0];  # Use float literals instead of cast (Rust: explicit is better)
+let values = [10.0, 20.0, 30.0];  // Use float literals instead of cast (Rust: explicit is better)
 let weighted_sum = sum[i](weights[i] * values[i]);
 
 assert(weighted_sum >= 22.99 && weighted_sum <= 23.01, "Weighted sum should be 0.2*10+0.3*20+0.5*30=23");
 
-# All reduction operation syntax showcased successfully
+// All reduction operation syntax showcased successfully

@@ -13,19 +13,19 @@ from typing import Optional, List, Union, Dict, Tuple, Any
 logger = logging.getLogger(__name__)
 from ..passes.base import BasePass, TyCtxt
 from ..ir.nodes import (
-    ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR,
+    ProgramIR, ExpressionIR, BindingIR, FunctionDefIR, FunctionValueIR, ConstantDefIR, EinsteinIR,
     LiteralIR, IdentifierIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     ParameterIR, BlockExpressionIR, IfExpressionIR, LambdaIR,
     ModuleIR, IRNode, RectangularAccessIR, JaggedAccessIR,
     ArrayLiteralIR, TupleExpressionIR, TupleAccessIR, InterpolatedStringIR,
     CastExpressionIR, MemberAccessIR, TryExpressionIR, MatchExpressionIR,
-    ReductionExpressionIR, WhereExpressionIR, ArrowExpressionIR,
-    PipelineExpressionIR, BuiltinCallIR, FunctionRefIR,
+    ReductionExpressionIR, WhereExpressionIR,
+    PipelineExpressionIR, BuiltinCallIR,
     LiteralPatternIR, IdentifierPatternIR, WildcardPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
     OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR,
-    MatchArmIR, WhereClauseIR, EinsteinIR, EinsteinDeclarationIR, PatternIR,
-    RangeIR, ArrayComprehensionIR, VariableDeclarationIR,
+    MatchArmIR, WhereClauseIR, EinsteinClauseIR, PatternIR,
+    RangeIR, ArrayComprehensionIR,
     IndexVarIR,
 )
 from ..shared.source_location import SourceLocation
@@ -89,7 +89,6 @@ from ..shared.nodes import (
     CastExpression as ASTCastExpression,
     MemberAccess as ASTMemberAccess,
     MethodCall as ASTMethodCall,
-    ArrowExpression as ASTArrowExpression,
     PipelineExpression as ASTPipelineExpression,
     TryExpression as ASTTryExpression,
     MatchExpression as ASTMatchExpression,
@@ -198,6 +197,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     def __init__(self, tcx: TyCtxt):
         self.tcx = tcx
         self._all_functions: List[FunctionDefIR] = []
+        self._all_bindings: List[BindingIR] = []
     
     def lower_program(self, ast: ASTProgram) -> ProgramIR:
         """Lower entire program"""
@@ -205,65 +205,38 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         # Extract functions and constants from statements
         # Reset nested function tracking for this program
         self._all_functions = []
+        self._all_bindings = []
         self._resolver_defid_to_lowered = {}
         self._build_resolver_defid_to_lowered()
-        functions = []
-        constants = []
-        statements = []  # Top-level statements (variable declarations, etc.)
-        defid_to_name: Dict[DefId, str] = {}  # Map DefId to variable name for outputs
+        statements: List[Any] = []
 
-        # Import AST node types to check
-        from ..shared.nodes import FunctionDefinition, VariableDeclaration
+        from ..shared.nodes import FunctionDefinition
         from ..shared.nodes import ExpressionStatement, EinsteinDeclaration as ASTEinsteinDeclaration
 
         for stmt_idx, stmt in enumerate(ast.statements):
-            # Visitor pattern: dispatch to appropriate visit method based on AST node type
             stmt_ir = stmt.accept(self)
 
-            # Handle list: tuple destructuring or multiple Einstein clauses (both as VariableDeclarationIR)
             if isinstance(stmt_ir, list):
                 for sub_stmt in stmt_ir:
-                    if isinstance(sub_stmt, VariableDeclarationIR):
+                    if isinstance(sub_stmt, BindingIR):
                         statements.append(sub_stmt)
                 continue
-            
-            # Check IR result type (not AST type) to determine handling
-            if isinstance(stmt_ir, FunctionDefIR):
-                # Function definition
-                functions.append(stmt_ir)
-                if stmt_ir.defid:
-                    defid_to_name[stmt_ir.defid] = stmt_ir.name
-                    
-            elif isinstance(stmt_ir, VariableDeclarationIR):
-                statements.append(stmt_ir)
 
+            if isinstance(stmt_ir, (FunctionDefIR, ConstantDefIR, BindingIR)):
+                statements.append(stmt_ir)
             elif isinstance(stmt_ir, ExpressionIR):
-                # Expression statement (e.g., function call like assert)
                 statements.append(stmt_ir)
 
-        # Lower modules (if any)
-        modules = []
-        
-        # Lower all module functions (stdlib and user modules)
-        # Rust alignment: All modules (stdlib and user) are treated the same - they're all part of the crate
-        # Functions registered in resolver during name resolution should be lowered to IR
+        modules: List[Any] = []
         module_functions = self._lower_module_functions()
-        functions.extend(module_functions)
-        
-        # Add all nested functions that were collected during lowering
-        # Nested functions are lowered when their parent's body is lowered, but we need to
-        # register them at the program level so they're available at runtime
-        nested_functions = [f for f in self._all_functions if f not in functions]
-        if nested_functions:
-            functions.extend(nested_functions)
+        statements.extend(module_functions)
+        nested_functions = [f for f in self._all_functions if f not in statements]
+        statements.extend(nested_functions)
 
         return ProgramIR(
-            modules=modules,
-            functions=functions,
-            constants=constants,
             statements=statements,
             source_files=self.tcx.source_files,
-            defid_to_name=defid_to_name
+            modules=modules,
         )
     
     def _lower_module_functions(self) -> List[FunctionDefIR]:
@@ -528,15 +501,18 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         if hasattr(ast_func, 'return_type') and ast_func.return_type:
             return_type = ast_func.return_type
         
-        func_ir = FunctionDefIR(
-            name=ast_func.name,
+        func_value = FunctionValueIR(
             parameters=parameters,
-            return_type=return_type,  # Extract from AST return_type
             body=body_ir,
             location=location,
-            defid=defid
+            return_type=return_type,
         )
-        
+        func_ir = FunctionDefIR(
+            name=ast_func.name,
+            expr=func_value,
+            location=location,
+            defid=defid,
+        )
         self._all_functions.append(func_ir)
         return func_ir
 
@@ -553,9 +529,9 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         
         return ConstantDefIR(
             name=ast_const.name,
-            value=value_ir,
+            expr=value_ir,
             location=location,
-            defid=defid
+            defid=defid,
         )
     
     def visit_parameter(self, ast_param: ASTParameter) -> Optional[ParameterIR]:
@@ -633,9 +609,8 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             if not isinstance(callee_ir, ExpressionIR):
                 return None
             return FunctionCallIR(
-                function_name="<callable>",
-                location=location,
                 callee_expr=callee_ir,
+                location=location,
                 arguments=arguments,
             )
 
@@ -821,21 +796,19 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             )
         
         # Regular function call (module_path already extracted at the beginning)
-        
         # CRITICAL FIX: For python:: paths, function_defid MUST be None
-        # Otherwise, the backend will look up by DefId and find the wrong function (causing recursion)
         if module_path and len(module_path) > 0 and module_path[0] == 'python':
-            function_defid = None  # Force None for Python module calls
+            function_defid = None
 
         if function_defid is not None:
             function_defid = getattr(self, '_resolver_defid_to_lowered', {}).get(function_defid, function_defid)
 
+        callee_expr = IdentifierIR(name=function_name, location=location, defid=function_defid)
         return FunctionCallIR(
-            function_name=function_name,
-            function_defid=function_defid,
+            callee_expr=callee_expr,
+            location=location,
             arguments=arguments,
             module_path=module_path,
-            location=location
         )
     
     def visit_block_expression(self, ast_block: ASTBlock) -> Optional[BlockExpressionIR]:
@@ -927,12 +900,10 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 f"Failed to lower lambda body: expected ExpressionIR, got {type(body_ir).__name__} at {location}"
             )
         
-        defid = getattr(ast_lambda, 'defid', None)
         return LambdaIR(
             parameters=parameters,
             body=body_ir,
-            location=location,
-            defid=defid
+            location=location
         )
     
     def _get_source_location(self, node: ASTExpression) -> SourceLocation:
@@ -1070,34 +1041,27 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         is_nested = isinstance(body_ir, ArrayComprehensionIR)
         
         if is_nested:
-            # True nesting: [[expr | j in 0..3] | i in 0..3]
-            # Create outer comprehension with single variable
-            # The inner comprehension (body_ir) already exists
             if len(variables) != 1:
-                # This shouldn't happen, but handle gracefully
                 self.tcx.reporter.report_error(
                     message="Nested comprehension should have single outer variable",
                     location=location
                 )
                 return None
-            
+            loop_vars = [IdentifierIR(name=variables[0], location=location, defid=variable_defids[0])]
             return ArrayComprehensionIR(
                 body=body_ir,
-                variables=variables[0],  # Single variable for outer
-                ranges=ranges[0],
+                loop_vars=loop_vars,
+                ranges=[ranges[0]],
                 constraints=constraints_ir,
-                variable_defids=variable_defids[0],
                 location=location
             )
         else:
-            # Cartesian product: [expr | i in 0..3, j in 0..3]
-            # Create single comprehension with all variables
+            loop_vars = [IdentifierIR(name=var_name, location=location, defid=did) for var_name, did in zip(variables, variable_defids or [None] * len(variables))]
             return ArrayComprehensionIR(
                 body=body_ir,
-                variables=variables,
+                loop_vars=loop_vars,
                 ranges=ranges,
                 constraints=constraints_ir,
-                variable_defids=variable_defids if variable_defids else None,
                 location=location
             )
     
@@ -1251,27 +1215,11 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 arguments.append(arg_ir)
         # Get method name from method_expr if it's an identifier
         method_name = getattr(method_ir, 'name', 'method') if isinstance(method_ir, IdentifierIR) else 'method'
+        callee_expr = IdentifierIR(name=method_name, location=location, defid=None)
         return FunctionCallIR(
-            function_name=method_name,
-            function_defid=None,  # TODO: Resolve method DefId
+            callee_expr=callee_expr,
+            location=location,
             arguments=arguments,
-            location=location
-        )
-    
-    def visit_arrow_expression(self, node: ASTArrowExpression) -> Optional[ExpressionIR]:
-        """Lower arrow expression - visitor pattern"""
-        location = self._get_source_location(node)
-        components = []
-        for component in node.components:
-            comp_ir = component.accept(self)
-            if isinstance(comp_ir, ExpressionIR):
-                components.append(comp_ir)
-        # Get operator from AST
-        operator = node.operator.value if hasattr(node.operator, 'value') else str(node.operator)
-        return ArrowExpressionIR(
-            components=components,
-            operator=operator,
-            location=location
         )
     
     def visit_pipeline_expression(self, node: ASTPipelineExpression) -> Optional[ExpressionIR]:
@@ -1510,8 +1458,8 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         """Lower expression statement - visitor pattern"""
         return node.expr.accept(self)  # Just lower the expression
     
-    def visit_einstein_declaration(self, node: ASTEinsteinDeclaration) -> Optional[IRNode]:
-        """Lower Einstein declaration. VariableDeclarationIR with value=EinsteinDeclarationIR(clauses=[...])."""
+    def visit_einstein_declaration(self, node: ASTEinsteinDeclaration) -> Optional[BindingIR]:
+        """Lower Einstein declaration to BindingIR with expr=EinsteinIR(clauses=[...])."""
         array_defid = getattr(node, 'defid', None)
         clause_irs: List[IRNode] = []
         for clause in node.clauses:
@@ -1521,21 +1469,16 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         if not clause_irs:
             return None
         loc = self._get_source_location(node)
-        einstein_decl = EinsteinDeclarationIR(
+        einstein_expr = EinsteinIR(clauses=clause_irs, location=loc)
+        return BindingIR(
             name=node.array_name,
+            expr=einstein_expr,
             location=loc,
             defid=array_defid,
-            clauses=clause_irs
-        )
-        return VariableDeclarationIR(
-            pattern=node.array_name,
-            value=einstein_decl,
-            location=loc,
-            defid=array_defid
         )
 
     def _lower_einstein_clause(self, array_name: str, clause, node: ASTEinsteinDeclaration, array_defid: Optional[Any]) -> Optional[IRNode]:
-        """Lower one Einstein clause to EinsteinIR."""
+        """Lower one Einstein clause to EinsteinClauseIR."""
         location = self._get_source_location(clause) or self._get_source_location(node)
         value_ir = clause.value.accept(self)
         if not isinstance(value_ir, ExpressionIR):
@@ -1578,7 +1521,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             if constraints_ir:
                 where_clause_ir = WhereClauseIR(constraints=constraints_ir)
 
-        return EinsteinIR(
+        return EinsteinClauseIR(
             indices=indices_ir,
             value=value_ir,
             location=location,
@@ -1724,7 +1667,8 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         if not isinstance(inner_ir, PatternIR):
             raise RuntimeError(f"Failed to lower binding pattern inner pattern at {location}")
         defid = getattr(node, 'defid', None)
-        return BindingPatternIR(name=node.name, inner_pattern=inner_ir, location=location, defid=defid)
+        ident_pat = IdentifierPatternIR(name=node.name, location=location, defid=defid)
+        return BindingPatternIR(identifier_pattern=ident_pat, inner_pattern=inner_ir, location=location)
     
     def visit_range_pattern(self, node) -> Optional[PatternIR]:
         """Lower range pattern: start..end or start..=end"""
@@ -1780,33 +1724,22 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         """Visit program - handled by lower_program"""
         return None
     
-    def visit_variable_declaration(self, node) -> Optional[Union[VariableDeclarationIR, List[VariableDeclarationIR]]]:
+    def visit_variable_declaration(self, node) -> Optional[Union[BindingIR, List[BindingIR]]]:
         """
-        Lower variable declaration to VariableDeclarationIR.
-        
-        Rust Pattern: rustc_hir::Local (let statement)
-        
-        For tuple destructuring: let (x, y) = (10, 20)
-        Expands to multiple statements:
-          1. __tuple_tmp_N = (10, 20)
-          2. x = __tuple_tmp_N[0]
-          3. y = __tuple_tmp_N[1]
+        Lower variable declaration to BindingIR.
+        For tuple destructuring returns list of BindingIR.
         """
         from ..shared.nodes import TupleDestructurePattern
         from ..ir.nodes import TupleAccessIR, IdentifierIR
-        
-        # Lower the value expression
+
         value_ir = node.value.accept(self) if node.value else None
         if not isinstance(value_ir, ExpressionIR):
             return None
-        
+
         location = self._get_source_location(node)
-        
-        # Check if this is tuple destructuring
+
         if isinstance(node.pattern, TupleDestructurePattern):
-            # Expand tuple destructuring to multiple statements
-            statements = []
-            
+            statements: List[BindingIR] = []
             if not hasattr(self, '_tuple_tmp_counter'):
                 self._tuple_tmp_counter = 0
             self._tuple_tmp_counter += 1
@@ -1814,54 +1747,43 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             temp_defid = None
             if self.tcx.resolver:
                 temp_defid = self.tcx.resolver.allocate_for_local()
-            
-            temp_var_decl = VariableDeclarationIR(
-                pattern=temp_name,
-                value=value_ir,
-                type_annotation=None,
+
+            statements.append(BindingIR(
+                name=temp_name,
+                expr=value_ir,
                 location=location,
-                defid=temp_defid
-            )
-            statements.append(temp_var_decl)
-            
-            # 2. Create individual variables extracting each element
+                defid=temp_defid,
+            ))
+
             for index, annotated_var in enumerate(node.pattern.variables):
                 var_name = annotated_var.name
                 var_defid = getattr(annotated_var, 'defid', None)
-                
                 temp_identifier = IdentifierIR(
                     name=temp_name,
                     location=location,
                     defid=temp_defid
                 )
-                
-                # Create TupleAccessIR to extract the element
                 tuple_access = TupleAccessIR(
                     tuple_expr=temp_identifier,
                     index=index,
                     location=location
                 )
-                
-                var_decl = VariableDeclarationIR(
-                    pattern=var_name,
-                    value=tuple_access,
-                    type_annotation=annotated_var.type_annotation,
+                statements.append(BindingIR(
+                    name=var_name,
+                    expr=tuple_access,
+                    type_info=annotated_var.type_annotation,
                     location=location,
-                    defid=var_defid
-                )
-                statements.append(var_decl)
-            
-            # Return list of statements (caller must handle this)
+                    defid=var_defid,
+                ))
             return statements
-        else:
-            defid = getattr(node, 'defid', None)
-            return VariableDeclarationIR(
-                pattern=node.name,
-                value=value_ir,
-                type_annotation=node.type_annotation,
-                location=location,
-                defid=defid
-            )
+        defid = getattr(node, 'defid', None)
+        return BindingIR(
+            name=node.name,
+            expr=value_ir,
+            type_info=node.type_annotation,
+            location=location,
+            defid=defid,
+        )
     
     def visit_use_statement(self, node) -> Optional[IRNode]:
         """Use statements not lowered to IR (handled in name resolution)"""
@@ -1945,10 +1867,10 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         # For property access, create FunctionCallIR with zero arguments
         # This will be handled by the backend as a property lookup or stdlib function call
         
+        callee_expr = IdentifierIR(name=property_name, location=location, defid=function_defid)
         return FunctionCallIR(
-            function_name=property_name,
-            function_defid=function_defid,  # DefId for stdlib functions, None for Python modules
-            arguments=[],  # Zero arguments for property access
-            module_path=module_path,  # Store module path for Python module property access (None for stdlib)
-            location=location
+            callee_expr=callee_expr,
+            location=location,
+            arguments=[],
+            module_path=module_path,
         )

@@ -1,13 +1,13 @@
-# ml/ml_ex.ein - Extended ML operations (not in TensorRT ONNX)
-# These operations are experimental or not supported by TensorRT ONNX parser
+// ml/ml_ex.ein - Extended ML operations (not in TensorRT ONNX)
+// These operations are experimental or not supported by TensorRT ONNX parser
 
 use std::math::{sqrt, abs, min, max};
 
 pub fn image_scaler(x, scale, bias) {
-    # Image Scaler: x * scale + bias
-    # Scale is scalar, bias is per-channel [channels]
-    # Input: [batch, channels, height, width]
-    # Output: same shape
+    // Image Scaler: x * scale + bias
+    // Scale is scalar, bias is per-channel [channels]
+    // Input: [batch, channels, height, width]
+    // Output: same shape
     assert(typeof(x) == "rectangular", "image_scaler: input must be rectangular");
     assert(typeof(bias) == "rectangular", "image_scaler: bias must be rectangular");
     let result[b, c, h, w] = x[b, c, h, w] * scale + bias[c];
@@ -16,16 +16,16 @@ pub fn image_scaler(x, scale, bias) {
 
 
 pub fn eye(n) {
-    # Create identity matrix of size n x n
-    # Returns matrix where result[i,j] = 1.0 if i==j else 0.0
+    // Create identity matrix of size n x n
+    // Returns matrix where result[i,j] = 1.0 if i==j else 0.0
     let result[i in 0..n, j in 0..n] = if i == j { 1.0 } else { 0.0 };
     result
 }
 
 
 pub fn diag_extract(x) {
-    # Extract diagonal from square matrix
-    # x: [n, n] -> result: [n] (diagonal elements)
+    // Extract diagonal from square matrix
+    // x: [n, n] -> result: [n] (diagonal elements)
     assert(typeof(x) == "rectangular", "diag_extract: x must be rectangular");
     
     let n = len(x) as i32;
@@ -35,8 +35,8 @@ pub fn diag_extract(x) {
 
 
 pub fn diag_construct(x) {
-    # Construct diagonal matrix from vector
-    # x: [n] -> result: [n, n] (diagonal matrix with x on diagonal, zeros elsewhere)
+    // Construct diagonal matrix from vector
+    // x: [n] -> result: [n, n] (diagonal matrix with x on diagonal, zeros elsewhere)
     assert(typeof(x) == "rectangular", "diag_construct: x must be rectangular");
     
     let n = len(x) as i32;
@@ -46,8 +46,8 @@ pub fn diag_construct(x) {
 
 
 pub fn trace(x) {
-    # Compute trace of square matrix (sum of diagonal elements)
-    # x: [n, n] -> result: scalar
+    // Compute trace of square matrix (sum of diagonal elements)
+    // x: [n, n] -> result: scalar
     assert(typeof(x) == "rectangular", "trace: x must be rectangular");
     
     let diag = diag_extract(x);
@@ -57,8 +57,8 @@ pub fn trace(x) {
 
 
 pub fn frobenius_norm(x) {
-    # Compute Frobenius norm of matrix (sqrt of sum of squared elements)
-    # x: [m, n] -> result: scalar
+    // Compute Frobenius norm of matrix (sqrt of sum of squared elements)
+    // x: [m, n] -> result: scalar
     assert(typeof(x) == "rectangular", "frobenius_norm: x must be rectangular");
     
     let sum_sq = sum[i, j](x[i, j] * x[i, j]);
@@ -68,8 +68,8 @@ pub fn frobenius_norm(x) {
 
 
 pub fn outer(a, b) {
-    # Outer product of two vectors
-    # a: [m], b: [n] -> result: [m, n]
+    // Outer product of two vectors
+    // a: [m], b: [n] -> result: [m, n]
     assert(typeof(a) == "rectangular", "outer: a must be rectangular");
     assert(typeof(b) == "rectangular", "outer: b must be rectangular");
     
@@ -79,8 +79,8 @@ pub fn outer(a, b) {
 
 
 pub fn kron(a, b) {
-    # Kronecker product of two matrices
-    # a: [m, n], b: [p, q] -> result: [m*p, n*q]
+    // Kronecker product of two matrices
+    // a: [m, n], b: [p, q] -> result: [m*p, n*q]
     assert(typeof(a) == "rectangular", "kron: a must be rectangular");
     assert(typeof(b) == "rectangular", "kron: b must be rectangular");
     
@@ -89,79 +89,79 @@ pub fn kron(a, b) {
     let p = len(b) as i32;
     let q = len(b[0]) as i32;
     
-    # Kronecker product: result[i*p + k, j*q + l] = a[i,j] * b[k,l]
+    // Kronecker product: result[i*p + k, j*q + l] = a[i,j] * b[k,l]
     let result[i in 0..(m*p), j in 0..(n*q)] = a[i / p, j / q] * b[i % p, j % q];
     result
 }
 
 
 pub fn tril(x, k) {
-    # Extract lower triangular part of matrix
-    # x: [m, n], k: diagonal offset (0 = main diagonal, 1 = above, -1 = below)
-    # result: [m, n] with upper triangle zeroed
-    # Uses declaration groups to separate lower and upper triangles
+    // Extract lower triangular part of matrix
+    // x: [m, n], k: diagonal offset (0 = main diagonal, 1 = above, -1 = below)
+    // result: [m, n] with upper triangle zeroed
+    // Uses declaration groups to separate lower and upper triangles
     assert(typeof(x) == "rectangular", "tril: x must be rectangular");
     
     let m = len(x) as i32;
     let n = len(x[0]) as i32;
     let k_i32 = k as i32;
     
-    # Lower triangle with original data
+    // Lower triangle with original data
     let result[i, j] = x[i, j] as f32 where j <= (i + k_i32);
-    # Upper triangle with zeros
+    // Upper triangle with zeros
     let result[i in 0..m, j in 0..n] = 0.0 where j > (i + k_i32);
     result
 }
 
 
 pub fn triu(x, k) {
-    # Extract upper triangular part of matrix
-    # x: [m, n], k: diagonal offset (0 = main diagonal, 1 = above, -1 = below)
-    # result: [m, n] with lower triangle zeroed
-    # Uses declaration groups to separate upper and lower triangles
+    // Extract upper triangular part of matrix
+    // x: [m, n], k: diagonal offset (0 = main diagonal, 1 = above, -1 = below)
+    // result: [m, n] with lower triangle zeroed
+    // Uses declaration groups to separate upper and lower triangles
     assert(typeof(x) == "rectangular", "triu: x must be rectangular");
     
     let m = len(x) as i32;
     let n = len(x[0]) as i32;
     let k_i32 = k as i32;
     
-    # Upper triangle with original data
+    // Upper triangle with original data
     let result[i, j] = x[i, j] as f32 where j >= (i + k_i32);
-    # Lower triangle with zeros
+    // Lower triangle with zeros
     let result[i in 0..m, j in 0..n] = 0.0 where j < (i + k_i32);
     result
 }
 
 
 pub fn roll(x, shift) {
-    # Roll array elements along last axis
-    # x: [batch, n], shift: number of positions to shift
-    # result: [batch, n] with elements shifted
+    // Roll array elements along last axis
+    // x: [batch, n], shift: number of positions to shift
+    // result: [batch, n] with elements shifted
     assert(typeof(x) == "rectangular", "roll: x must be rectangular");
     
     let n = len(x[0]) as i32;
-    # Use modulo to wrap indices: result[i, j] = x[i, (j - shift + n) % n]
-    # Add n to ensure positive values before modulo
+    // Use modulo to wrap indices: result[i, j] = x[i, (j - shift + n) % n]
+    // Add n to ensure positive values before modulo
     let result[i, j in 0..n] = x[i, (j - shift + n) % n];
     result
 }
 
 
 pub fn repeat_interleave(x, repeats) {
-    # Repeat each element in last axis 'repeats' times
-    # x: [batch, n] -> result: [batch, n * repeats]
+    // Repeat each element in last axis 'repeats' times
+    // x: [batch, n] -> result: [batch, n * repeats]
     assert(typeof(x) == "rectangular", "repeat_interleave: x must be rectangular");
     
     let n = len(x[0]) as i32;
-    # result[i, k] = x[i, k / repeats]
+    // result[i, k] = x[i, k / repeats]
     let result[i, k in 0..(n*repeats)] = x[i, k / repeats];
     result
 }
 
 
 pub fn flip(x) {
-    # Flip array along last axis (reverse order)
-    # x: [batch, n] -> result: [batch, n] with reversed last axis
+    // Flip array along last axis (reverse order)
+    // x: [batch, n] -> result: [batch, n] with reversed last axis
     assert(typeof(x) == "rectangular", "flip: x must be rectangular");
     
     let n = len(x[0]) as i32;
@@ -170,69 +170,69 @@ pub fn flip(x) {
 }
 
 
-# ============================================================================
-# Loss Functions (NOT TensorRT-supported ONNX operators)
-# These are composite operations built from ONNX primitives
-# ============================================================================
+// ============================================================================
+// Loss Functions (NOT TensorRT-supported ONNX operators)
+// These are composite operations built from ONNX primitives
+// ============================================================================
 
 use std::math::{exp, ln, sqrt, tanh, abs, sign, min, max};
 
 pub fn cross_entropy_loss(predictions, targets) {
-    # L = -Σ_i y_i * ln(softmax(x_i))
-    # Generic: works with arbitrary batch dimensions (operators work directly on tensors)
-    # Input shape: [..batch, classes], Output shape: [..batch]
-    # Inlined softmax to avoid nested generic module function calls
+    // L = -Σ_i y_i * ln(softmax(x_i))
+    // Generic: works with arbitrary batch dimensions (operators work directly on tensors)
+    // Input shape: [..batch, classes], Output shape: [..batch]
+    // Inlined softmax to avoid nested generic module function calls
     assert(typeof(predictions) == "rectangular", "cross_entropy_loss: predictions must be rectangular array");
     assert(typeof(targets) == "rectangular", "cross_entropy_loss: targets must be rectangular array");
     
-    # Inline softmax computation with rest patterns
+    // Inline softmax computation with rest patterns
     let max_val[..batch] = max[j](predictions[..batch, j]);
     let shifted[..batch, j] = predictions[..batch, j] - max_val[..batch];
     let exp_vals[..batch, j] = exp(shifted[..batch, j]);
     let sums[..batch] = sum[k](exp_vals[..batch, k]);
     let probs[..batch, j] = exp_vals[..batch, j] / sums[..batch];
     
-    # Compute cross entropy loss
+    // Compute cross entropy loss
     let loss[..batch] = -sum[j](targets[..batch, j] * ln(probs[..batch, j]));
     loss
 }
 
 
 pub fn mse_loss(predictions, targets) {
-    # L = (1/n) * Σ_i (y_i - ŷ_i)²
-    # Generic: works with arbitrary batch dimensions (operators work directly on tensors)
-    # Input shape: [..batch, features], Output shape: [..batch]
+    // L = (1/n) * Σ_i (y_i - ŷ_i)²
+    // Generic: works with arbitrary batch dimensions (operators work directly on tensors)
+    // Input shape: [..batch, features], Output shape: [..batch]
     assert(typeof(predictions) == "rectangular", "mse_loss: predictions must be rectangular array");
     assert(typeof(targets) == "rectangular", "mse_loss: targets must be rectangular array");
     
     let n = len(predictions[0]) as f32;
-    # Reduction nested in division now works with backend fix!
+    // Reduction nested in division now works with backend fix!
     let loss[..batch] = sum[j]((predictions[..batch, j] - targets[..batch, j]) ** 2.0) / n;
     loss
 }
 
 
 pub fn mae_loss(predictions, targets) {
-    # MAE (Mean Absolute Error) / L1 Loss: L = (1/n) * Σ_i |y_i - ŷ_i|
-    # Generic: works with arbitrary batch dimensions
-    # Input shape: [..batch, features], Output shape: [..batch]
+    // MAE (Mean Absolute Error) / L1 Loss: L = (1/n) * Σ_i |y_i - ŷ_i|
+    // Generic: works with arbitrary batch dimensions
+    // Input shape: [..batch, features], Output shape: [..batch]
     assert(typeof(predictions) == "rectangular", "mae_loss: predictions must be rectangular array");
     assert(typeof(targets) == "rectangular", "mae_loss: targets must be rectangular array");
     
     let n = len(predictions[0]) as f32;
-    # Use sqrt(x^2) for abs - simpler than if-expression, should allow specialization
+    // Use sqrt(x^2) for abs - simpler than if-expression, should allow specialization
     let loss[..batch] = sum[j](((predictions[..batch, j] - targets[..batch, j]) ** 2.0) ** 0.5) / n;
     loss
 }
 
 
 pub fn huber_loss(predictions, targets, delta) {
-    # Huber Loss: robust loss that's quadratic for small errors, linear for large
-    # L = (1/n) * Σ_i huber_i where:
-    #   huber_i = 0.5 * (y_i - ŷ_i)² if |y_i - ŷ_i| <= δ
-    #   huber_i = δ * (|y_i - ŷ_i| - 0.5 * δ) otherwise
-    # Generic: works with arbitrary batch dimensions
-    # Input shape: [..batch, features], Output shape: [..batch]
+    // Huber Loss: robust loss that's quadratic for small errors, linear for large
+    // L = (1/n) * Σ_i huber_i where:
+    //   huber_i = 0.5 * (y_i - ŷ_i)² if |y_i - ŷ_i| <= δ
+    //   huber_i = δ * (|y_i - ŷ_i| - 0.5 * δ) otherwise
+    // Generic: works with arbitrary batch dimensions
+    // Input shape: [..batch, features], Output shape: [..batch]
     assert(typeof(predictions) == "rectangular", "huber_loss: predictions must be rectangular array");
     assert(typeof(targets) == "rectangular", "huber_loss: targets must be rectangular array");
     
@@ -251,14 +251,14 @@ pub fn huber_loss(predictions, targets, delta) {
 
 
 pub fn binary_cross_entropy(predictions, targets) {
-    # Binary Cross Entropy: L = -Σ_i (y_i * ln(p_i) + (1-y_i) * ln(1-p_i))
-    # Generic: works with arbitrary batch dimensions
-    # Input shape: [..batch, features], Output shape: [..batch]
-    # predictions should be in [0, 1] range (use sigmoid first if needed)
+    // Binary Cross Entropy: L = -Σ_i (y_i * ln(p_i) + (1-y_i) * ln(1-p_i))
+    // Generic: works with arbitrary batch dimensions
+    // Input shape: [..batch, features], Output shape: [..batch]
+    // predictions should be in [0, 1] range (use sigmoid first if needed)
     assert(typeof(predictions) == "rectangular", "binary_cross_entropy: predictions must be rectangular array");
     assert(typeof(targets) == "rectangular", "binary_cross_entropy: targets must be rectangular array");
     
-    let eps = 1e-7;  # Small constant for numerical stability
+    let eps = 1e-7;  // Small constant for numerical stability
     let clipped_pred[..batch, j] = if predictions[..batch, j] < eps {
         eps
     } else if predictions[..batch, j] > 1.0 - eps {
@@ -276,35 +276,35 @@ pub fn binary_cross_entropy(predictions, targets) {
 
 
 pub fn softmax_cross_entropy_loss(predictions, targets) {
-    # Softmax Cross Entropy: numerically stable combined operation
-    # L = -Σ_i (y_i * log(softmax(x_i)))
-    # = -Σ_i (y_i * (x_i - log_sum_exp(x)))
-    # Input shape: [..batch, classes], Output shape: [..batch]
+    // Softmax Cross Entropy: numerically stable combined operation
+    // L = -Σ_i (y_i * log(softmax(x_i)))
+    // = -Σ_i (y_i * (x_i - log_sum_exp(x)))
+    // Input shape: [..batch, classes], Output shape: [..batch]
     assert(typeof(predictions) == "rectangular", "softmax_cross_entropy_loss: predictions must be rectangular");
     assert(typeof(targets) == "rectangular", "softmax_cross_entropy_loss: targets must be rectangular");
     
-    # Numerically stable: subtract max before exp
+    // Numerically stable: subtract max before exp
     let max_pred[..batch] = max[j](predictions[..batch, j]);
     let shifted[..batch, j] = predictions[..batch, j] - max_pred[..batch];
     let exp_shifted[..batch, j] = exp(shifted[..batch, j]);
     let sum_exp[..batch] = sum[k](exp_shifted[..batch, k]);
     let log_sum_exp[..batch] = max_pred[..batch] + ln(sum_exp[..batch]);
     
-    # Loss = -Σ(target * (pred - log_sum_exp))
+    // Loss = -Σ(target * (pred - log_sum_exp))
     let loss[..batch] = -sum[j](targets[..batch, j] * (predictions[..batch, j] - log_sum_exp[..batch]));
     loss
 }
 
 
-# ============================================================================
-# Composite Operations (NOT direct TensorRT-supported ONNX operators)
-# ============================================================================
+// ============================================================================
+// Composite Operations (NOT direct TensorRT-supported ONNX operators)
+// ============================================================================
 
 pub fn cosine_similarity(a, b) {
-    # Cosine Similarity: similarity = (a · b) / (||a|| * ||b||)
-    # Generic: works with arbitrary batch dimensions
-    # Input shape: [..batch, features], Output shape: [..batch]
-    # Note: This is a composite operation (Mul + ReduceSum + Sqrt + Div), not a direct ONNX op
+    // Cosine Similarity: similarity = (a · b) / (||a|| * ||b||)
+    // Generic: works with arbitrary batch dimensions
+    // Input shape: [..batch, features], Output shape: [..batch]
+    // Note: This is a composite operation (Mul + ReduceSum + Sqrt + Div), not a direct ONNX op
     assert(typeof(a) == "rectangular", "cosine_similarity: first argument must be rectangular array");
     assert(typeof(b) == "rectangular", "cosine_similarity: second argument must be rectangular array");
     

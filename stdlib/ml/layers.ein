@@ -1,12 +1,12 @@
-# ml/layers.ein - Layers functions
+// ml/layers.ein - Layers functions
 
 use std::math::{exp, ln, sqrt, tanh, abs, sign, min, max};
 
 pub fn linear(x, weights, bias) {
-    # y_i = Σ_j x_j * W_ij + b_i  (equivalent to x @ weights.T + bias)
-    # Following PyTorch convention: weights has shape (out_features, in_features)
-    # Generic: works with arbitrary batch dimensions (operators work directly on tensors)
-    # Input shape: [..batch, in_features], Output shape: [..batch, out_features]
+    // y_i = Σ_j x_j * W_ij + b_i  (equivalent to x @ weights.T + bias)
+    // Following PyTorch convention: weights has shape (out_features, in_features)
+    // Generic: works with arbitrary batch dimensions (operators work directly on tensors)
+    // Input shape: [..batch, in_features], Output shape: [..batch, out_features]
     assert(typeof(x) == "rectangular", "linear: input must be rectangular array");
     assert(typeof(weights) == "rectangular", "linear: weights must be rectangular array");
     
@@ -16,27 +16,27 @@ pub fn linear(x, weights, bias) {
 
 
 pub fn gemm(A, B, C, alpha, beta, transA, transB) {
-    # ONNX Gemm operator (General Matrix Multiply)
-    # 
-    # ONNX spec: Gemm(A, B, C, alpha=1.0, beta=1.0, transA=0, transB=0)
-    #   Computes: alpha * A @ B + beta * C
-    #   - A: [M, K] (2D matrix)
-    #   - B: [K, N] (2D matrix)
-    #   - C: [M, N] (2D matrix, broadcastable)
-    #   - alpha: scalar multiplier for A @ B
-    #   - beta: scalar multiplier for C
-    #   - transA: if 1, transpose A before multiply
-    #   - transB: if 1, transpose B before multiply
-    # 
-    # TensorRT Support: ✅ IGemmLayer
-    # 
-    # Implementation: Matrix multiply with optional transposition
+    // ONNX Gemm operator (General Matrix Multiply)
+    // 
+    // ONNX spec: Gemm(A, B, C, alpha=1.0, beta=1.0, transA=0, transB=0)
+    //   Computes: alpha * A @ B + beta * C
+    //   - A: [M, K] (2D matrix)
+    //   - B: [K, N] (2D matrix)
+    //   - C: [M, N] (2D matrix, broadcastable)
+    //   - alpha: scalar multiplier for A @ B
+    //   - beta: scalar multiplier for C
+    //   - transA: if 1, transpose A before multiply
+    //   - transB: if 1, transpose B before multiply
+    // 
+    // TensorRT Support: ✅ IGemmLayer
+    // 
+    // Implementation: Matrix multiply with optional transposition
     assert(typeof(A) == "rectangular", "gemm: A must be rectangular");
     assert(typeof(B) == "rectangular", "gemm: B must be rectangular");
     
-    # Handle transposition
+    // Handle transposition
     let A_mat = if transA == 1 {
-        # Transpose A: [M, K] -> [K, M]
+        // Transpose A: [M, K] -> [K, M]
         let A_T[i, j] = A[j, i];
         A_T
     } else {
@@ -44,30 +44,30 @@ pub fn gemm(A, B, C, alpha, beta, transA, transB) {
     };
     
     let B_mat = if transB == 1 {
-        # Transpose B: [K, N] -> [N, K]
+        // Transpose B: [K, N] -> [N, K]
         let B_T[i, j] = B[j, i];
         B_T
     } else {
         B
     };
     
-    # Matrix multiply: A @ B
-    # A_mat: [M, K], B_mat: [K, N] -> AB: [M, N]
+    // Matrix multiply: A @ B
+    // A_mat: [M, K], B_mat: [K, N] -> AB: [M, N]
     let AB[i, j] = sum[k](A_mat[i, k] * B_mat[k, j]);
     
-    # Scale by alpha and add beta * C
+    // Scale by alpha and add beta * C
     let result[i, j] = alpha * AB[i, j] + beta * C[i, j];
     result
 }
 
 
 pub fn conv2d(input, kernel, bias, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w) {
-    # 2D Convolution (ONNX Conv, TensorRT supported)
-    # Full multi-channel convolution following ONNX semantics
-    # Input: [..batch, c_in, h, w], Kernel: [c_out, c_in, k_h, k_w], Bias: [c_out]
-    # Output: [..batch, c_out, h_out, w_out]
-    # output[c_out, i, j] = Σ_{c_in, k_h, k_w} input[c_in, i*stride_h - pad_h + k_h*dilation_h, j*stride_w - pad_w + k_w*dilation_w] 
-    #                                           * kernel[c_out, c_in, k_h, k_w] + bias[c_out]
+    // 2D Convolution (ONNX Conv, TensorRT supported)
+    // Full multi-channel convolution following ONNX semantics
+    // Input: [..batch, c_in, h, w], Kernel: [c_out, c_in, k_h, k_w], Bias: [c_out]
+    // Output: [..batch, c_out, h_out, w_out]
+    // output[c_out, i, j] = Σ_{c_in, k_h, k_w} input[c_in, i*stride_h - pad_h + k_h*dilation_h, j*stride_w - pad_w + k_w*dilation_w] 
+    //                                           * kernel[c_out, c_in, k_h, k_w] + bias[c_out]
     assert(typeof(input) == "rectangular", "conv2d: input must be rectangular array");
     assert(typeof(kernel) == "rectangular", "conv2d: kernel must be rectangular array");
     
@@ -75,8 +75,8 @@ pub fn conv2d(input, kernel, bias, stride_h, stride_w, pad_h, pad_w, dilation_h,
     let kernel_h = len(kernel[0][0]);
     let kernel_w = len(kernel[0][0][0]);
     
-    # Multi-channel convolution: sum over input channels, kernel height, kernel width
-    # Kernel and bias are shared across batch dimension (no ..batch indexing)
+    // Multi-channel convolution: sum over input channels, kernel height, kernel width
+    // Kernel and bias are shared across batch dimension (no ..batch indexing)
     let conv_sum[..batch, c_out, i, j] = sum[c in 0..c_in, m in 0..kernel_h, n in 0..kernel_w](
         input[..batch, c, i * stride_h - pad_h + m * dilation_h, j * stride_w - pad_w + n * dilation_w] 
         * kernel[c_out, c, m, n]

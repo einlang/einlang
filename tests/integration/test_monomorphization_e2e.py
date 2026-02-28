@@ -219,8 +219,8 @@ class TestRecursiveFunctions:
             }
         }
         
-        # Test data: [64, 34, 25, 12, 22, 11, 90, 88, 45, 50]
-        # Sorted: [11, 12, 22, 25, 34, 45, 50, 64, 88, 90]
+        // Test data: [64, 34, 25, 12, 22, 11, 90, 88, 45, 50]
+        // Sorted: [11, 12, 22, 25, 34, 45, 50, 64, 88, 90]
         let data = [64, 34, 25, 12, 22, 11, 90, 88, 45, 50];
         let min_val = quickselect_kth_smallest(data, 0);
         let median = quickselect_kth_smallest(data, 4);

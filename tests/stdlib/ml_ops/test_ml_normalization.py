@@ -53,7 +53,7 @@ def test_normalization_clustered_accuracy(compiler, runtime):
     let result4 = std::ml::lrn(input4, size, alpha, beta, bias);
     let result5 = std::ml::lp_normalization(input5, -1, p);
     let result6 = std::ml::mean_variance_normalization(input6, axes);
-    # Batch normalization 3D, 4D, 5D
+    // Batch normalization 3D, 4D, 5D
     let input_bn_3d = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];
     let scale_bn_3d = [1.0, 1.0];
     let bias_bn_3d = [0.0, 0.0];

@@ -9,7 +9,7 @@ import logging
 from typing import Union, Dict, Tuple, Optional, Any, List
 from contextlib import contextmanager
 from ..passes.base import BasePass, TyCtxt
-from ..ir.nodes import ProgramIR, FunctionDefIR, ConstantDefIR
+from ..ir.nodes import ProgramIR, BindingIR
 from ..shared.defid import DefType, Resolver, DefId, FIXED_BUILTIN_ORDER, fixed_builtin_defid
 from ..shared.scope import ScopeManager, ScopeKind, Binding, BindingType, ScopeRedefinitionError
 from ..analysis.module_system.path_resolver import MODULE_SEPARATOR
@@ -212,10 +212,6 @@ class _EinsteinGroupReplacementVisitor:
             node.start.accept(self)
         if node.end:
             node.end.accept(self)
-
-    def visit_arrow_expression(self, node) -> None:
-        for c in node.components:
-            c.accept(self)
 
     def visit_match_expression(self, node) -> None:
         node.scrutinee.accept(self)
@@ -516,7 +512,7 @@ class NameResolutionPass(BasePass):
     
     def _resolve_function(
         self,
-        func: FunctionDefIR,
+        func: BindingIR,
         resolver: Resolver,
         scope_manager: ScopeManager,
         tcx: TyCtxt,
@@ -608,7 +604,7 @@ class NameResolutionPass(BasePass):
     
     def _resolve_constant(
         self,
-        const: ConstantDefIR,
+        const: BindingIR,
         resolver: Resolver,
         scope_manager: ScopeManager,
         tcx: TyCtxt,
@@ -1132,7 +1128,7 @@ class NameResolverVisitor(ASTVisitor[None]):
         for clause in (node.clauses or []):
             clause.accept(self)
 
-    def visit_einstein(self, node) -> None:
+    def visit_einstein_clause(self, node) -> None:
         """Resolve names in one Einstein clause."""
         for idx in (node.indices or []):
             if idx is not None and hasattr(idx, 'accept'):
@@ -1167,15 +1163,6 @@ class NameResolverVisitor(ASTVisitor[None]):
         if operand:
             operand.accept(self)
 
-    def visit_arrow_expression(self, node) -> None:
-        """Resolve names in arrow expression (all components)."""
-        components = getattr(node, 'components', None)
-        if components:
-            for c in components:
-                if c is not None and hasattr(c, 'accept'):
-                    c.accept(self)
-        elif hasattr(node, 'body') and node.body:
-            node.body.accept(self)
     
     def visit_array_comprehension(self, node) -> None:
         """
@@ -1321,10 +1308,6 @@ class NameResolverVisitor(ASTVisitor[None]):
         node.method_expr.accept(self)
         for arg in node.arguments:
             arg.accept(self)
-    
-    def visit_arrow_expression(self, node) -> None:
-        for component in node.components:
-            component.accept(self)
     
     def visit_pipeline_expression(self, node) -> None:
         node.left.accept(self)
@@ -2377,7 +2360,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                     alt.accept(self)
 
     def visit_binding_pattern(self, node) -> None:
-        """Resolve binding pattern: name @ inner — allocate DefId for the binding name."""
+        """Resolve binding pattern: name @ inner (AST) or identifier_pattern @ inner_pattern (IR)."""
         from ..shared.scope import Binding, BindingType
         current_scope = self.scope_manager.current_scope()
         if current_scope:
@@ -2390,9 +2373,11 @@ class NameResolverVisitor(ASTVisitor[None]):
                 scope=current_scope
             )
             _define_in_scope(current_scope, node.name, binding, node, self.tcx.reporter)
-            object.__setattr__(node, 'defid', defid)
-        if hasattr(node, 'pattern') and node.pattern:
-            node.pattern.accept(self)
+            target = getattr(node, 'identifier_pattern', node)
+            object.__setattr__(target, 'defid', defid)
+        inner = getattr(node, 'inner_pattern', None) or getattr(node, 'pattern', None)
+        if inner and hasattr(inner, 'accept'):
+            inner.accept(self)
 
     def visit_range_pattern(self, node) -> None:
         pass

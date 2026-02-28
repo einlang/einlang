@@ -1,148 +1,148 @@
-# CORE FEATURE: Working Windowed Operations with Einstein Notation
-# PURPOSE: Demonstrates windowed operations that work with current range inference
-# VALUE: Shows practical Einstein patterns for signal processing and ML
+// CORE FEATURE: Working Windowed Operations with Einstein Notation
+// PURPOSE: Demonstrates windowed operations that work with current range inference
+// VALUE: Shows practical Einstein patterns for signal processing and ML
 
-# 2D Max Pooling - Works with automatic range inference
+// 2D Max Pooling - Works with automatic range inference
 let image = [[1.0, 3.0, 2.0, 4.0], 
              [5.0, 7.0, 6.0, 8.0], 
              [2.0, 4.0, 3.0, 5.0],
              [6.0, 8.0, 7.0, 9.0]];
 
-# 2x2 max pooling with stride 2
+// 2x2 max pooling with stride 2
 let pooled[i,j] = max[di in 0..2, dj in 0..2](image[i*2+di, j*2+dj]);
 
-# Verify original image structure
+// Verify original image structure
 assert(image.length == 4, "Image should have 4 rows");
 assert(image[0].length == 4, "Image should have 4 columns");
 
-# Test 2x2 max pooling results
+// Test 2x2 max pooling results
 print("Actual pooled result:", pooled);
 print("Expected result:", [[7.0, 8.0], [8.0, 9.0]]);
 assert(pooled == [[7.0, 8.0], [8.0, 9.0]], "Max pooling should match expected values");
 
-# 2D Average Pooling  
+// 2D Average Pooling  
 let avg_pooled[i in 0..2, j in 0..2] = sum[di in 0..2, dj in 0..2](image[i*2+di, j*2+dj]) / 4.0;
 
-# Average pooling verified with assertion above
+// Average pooling verified with assertion above
 
-# Test 2x2 average pooling results (approximate for float)
+// Test 2x2 average pooling results (approximate for float)
 assert(avg_pooled[0,0] > 3.99 && avg_pooled[0,0] < 4.01, "avg_pooled[0,0] ~ 4.0");
 assert(avg_pooled[0,1] > 4.99 && avg_pooled[0,1] < 5.01, "avg_pooled[0,1] ~ 5.0");
 assert(avg_pooled[1,0] > 4.99 && avg_pooled[1,0] < 5.01, "avg_pooled[1,0] ~ 5.0");
 assert(avg_pooled[1,1] > 5.99 && avg_pooled[1,1] < 6.01, "avg_pooled[1,1] ~ 6.0");
 
-# Matrix operations - Diagonal, anti-diagonal
+// Matrix operations - Diagonal, anti-diagonal
 let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
 
-# Main diagonal
+// Main diagonal
 let diagonal[i] = matrix[i, i];
 
-# Anti-diagonal  
+// Anti-diagonal  
 let anti_diag[i] = matrix[i, 2-i];
 
-# Matrix structure verification
+// Matrix structure verification
 assert(matrix.length == 3, "Matrix should have 3 rows");
 assert(matrix[0].length == 3, "Matrix should have 3 columns");
 
-# Test diagonal operations
+// Test diagonal operations
 assert(diagonal == [1, 5, 9], "Main diagonal should be [1, 5, 9]");
 assert(anti_diag == [3, 5, 7], "Anti-diagonal should be [3, 5, 7]");
 
-# Row and column operations
+// Row and column operations
 let row_sums[i] = sum[j in 0..3](matrix[i, j]);
 let col_sums[j] = sum[i in 0..3](matrix[i, j]);
 
-# Row and column sums verified with assertions below
+// Row and column sums verified with assertions below
 
-# Test row and column sums
+// Test row and column sums
 assert(row_sums == [6, 15, 24], "Row sums should be [6, 15, 24]");
 assert(col_sums == [12, 15, 18], "Column sums should be [12, 15, 18]");
 
-# 3D operations - Tensor slicing and reduction
+// 3D operations - Tensor slicing and reduction
 let tensor3d = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
 
-# Sum along depth dimension
+// Sum along depth dimension
 let depth_sum[i,j] = sum[k in 0..2](tensor3d[k, i, j]);
 
-# 3D tensor structure verification
+// 3D tensor structure verification
 assert(tensor3d.length == 2, "Tensor should have depth 2");
 
-# Test 3D tensor depth sums
+// Test 3D tensor depth sums
 assert(depth_sum == [[6, 8], [10, 12]], "Depth sums should match expected values");
 
-# Cumulative operations (proven to work)
+// Cumulative operations (proven to work)
 let data = [1, 2, 3, 4, 5];
 
-# Cumulative sum
+// Cumulative sum
 let cumsum[i] = sum[k in 0..i+1](data[i-k]);
 
-# Cumulative max
+// Cumulative max
 let cummax[i] = max[k in 0..i+1](data[i-k]);
 
-# Data structure verification
+// Data structure verification
 assert(data.length == 5, "Data should have 5 elements");
 
-# Test cumulative operations
+// Test cumulative operations
 assert(cumsum == [1, 3, 6, 10, 15], "Cumulative sum should match expected values");
 assert(cummax == [1, 2, 3, 4, 5], "Cumulative max should match expected values");
 
-# Moving window operations (backward looking)
+// Moving window operations (backward looking)
 let prices = [100.0, 105.0, 98.0, 102.0, 107.0, 95.0];
 
-# 3-period moving average (look back 3 periods)
+// 3-period moving average (look back 3 periods)
 let moving_avg[i in 0..3] = sum[k in 0..i+1](prices[i-k]) / 3.0;
 
-# Price data verification
+// Price data verification
 assert(prices.length == 6, "Prices should have 6 data points");
 
-# Test moving average  
-# The moving average uses backward looking window with constraint: k in 0..i+1, i in 0..3
-# moving_avg[0] = sum(prices[0-k])/3 for k in 0..1 = prices[0]/1 = 100 (only one value)
-# moving_avg[1] = sum(prices[1-k])/3 for k in 0..2 = (prices[1]+prices[0])/2 = (105+100)/2 
-# moving_avg[2] = sum(prices[2-k])/3 for k in 0..3 = (prices[2]+prices[1]+prices[0])/3 = (98+105+100)/3
+// Test moving average  
+// The moving average uses backward looking window with constraint: k in 0..i+1, i in 0..3
+// moving_avg[0] = sum(prices[0-k])/3 for k in 0..1 = prices[0]/1 = 100 (only one value)
+// moving_avg[1] = sum(prices[1-k])/3 for k in 0..2 = (prices[1]+prices[0])/2 = (105+100)/2 
+// moving_avg[2] = sum(prices[2-k])/3 for k in 0..3 = (prices[2]+prices[1]+prices[0])/3 = (98+105+100)/3
 assert(moving_avg[0] > 33.33 && moving_avg[0] < 33.34, "moving_avg[0] should be ~33.33");
 assert(moving_avg[1] > 68.33 && moving_avg[1] < 68.34, "moving_avg[1] should be ~68.33");
 assert(moving_avg[2] == 101.0, "moving_avg[2] should be 101.0");
 
-# Pattern matching with correlations (backward)
+// Pattern matching with correlations (backward)
 let signal_data = [1, 0, 1, 1, 0, 1, 0];
 let pattern = [1, 1, 0];
 
-# Forward correlation (check if pattern occurs starting at position i)  
+// Forward correlation (check if pattern occurs starting at position i)  
 let forward_corr[i in 0..5] = sum[k in 0..3](signal_data[i + 2 - k] * pattern[k]);
 
-# Signal and pattern verification
+// Signal and pattern verification
 assert(signal_data.length == 7, "Signal should have 7 data points");
 assert(pattern.length == 3, "Pattern should have 3 elements");
 
-# Test forward correlation
+// Test forward correlation
 assert(forward_corr.length >= 1, "Forward correlation should have elements");
 
-# Sub-matrix extraction
+// Sub-matrix extraction
 let big_matrix = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]];
 
-# Extract 2x2 sub-matrices starting at each position
+// Extract 2x2 sub-matrices starting at each position
 let submat_sum[i,j] = sum[di in 0..2, dj in 0..2](big_matrix[i+di, j+dj]);
 
-# Big matrix structure verification
+// Big matrix structure verification
 assert(big_matrix.length == 4, "Big matrix should have 4 rows");
 
-# Test sub-matrix sums
+// Test sub-matrix sums
 assert(submat_sum == [[14, 18, 22], [30, 34, 38], [46, 50, 54]], "Sub-matrix sums should match expected values");
 
-# Element-wise transformations with Einstein notation
+// Element-wise transformations with Einstein notation
 let values = [1.0, 4.0, 9.0, 16.0];
 
-# Square root approximation using lookup (simplified example)
-let roots[i in 0..4] = values[i] / 2.0;  # Very rough approximation
+// Square root approximation using lookup (simplified example)
+let roots[i in 0..4] = values[i] / 2.0;  // Very rough approximation
 
-# Values verification
+// Values verification
 assert(values.length == 4, "Values should have 4 elements");
 
-# Test square root approximations (approximate for float)
+// Test square root approximations (approximate for float)
 assert(roots[0] > 0.49 && roots[0] < 0.51, "roots[0] ~ 0.5");
 assert(roots[1] > 1.99 && roots[1] < 2.01, "roots[1] ~ 2.0");
 
-# All working windowed operations completed with assertions
+// All working windowed operations completed with assertions
 
-# All assertions verify the computed results are correct
+// All assertions verify the computed results are correct

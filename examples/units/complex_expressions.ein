@@ -1,8 +1,8 @@
-# CORE FEATURE: Complex Expression Evaluation
-# PURPOSE: Tests nested expressions, operator precedence, and complex evaluation paths
-# VALUE: Exercises advanced expression evaluator code paths for better coverage
+// CORE FEATURE: Complex Expression Evaluation
+// PURPOSE: Tests nested expressions, operator precedence, and complex evaluation paths
+// VALUE: Exercises advanced expression evaluator code paths for better coverage
 
-# Complex nested arithmetic expressions
+// Complex nested arithmetic expressions
 let complex1 = ((5.0 + 3.0) * (4.0 - 2.0)) / ((8.0 / 2.0) + (3.0 * 1.0));
 let complex2 = (2 ** 3) + (4 * 5) - (6 / 2) + (7 % 3);
 let complex3 = (1.0 + 2.0) * (3.0 + 4.0) / (5.0 - 3.0) - (6.0 * 2.0);
@@ -11,7 +11,7 @@ assert(complex1 > 2.2 && complex1 < 2.3, "Complex expression 1 should evaluate c
 assert(complex2 == 26, "Complex expression 2: 8+20-3+1 should be 26");
 assert(complex3 == -1.5, "Complex expression 3 should be -1.5");
 
-# Nested conditional expressions
+// Nested conditional expressions
 let nested_cond = if (5 > 3) { 
     if (10 < 20) { 
         if (true && false) { 1 } else { 2 }
@@ -20,7 +20,7 @@ let nested_cond = if (5 > 3) {
 
 assert(nested_cond == 2, "Nested conditional should evaluate to 2");
 
-# Complex boolean expressions
+// Complex boolean expressions
 let mixed_bool1 = (5.0 == 5.0) && (3 < 4) && (true || false);
 let mixed_bool2 = (10 != 11) || (false && true) || (2.5 > 2.0);
 let mixed_bool3 = !(false || false) && (true && true) && (1 <= 1);
@@ -29,7 +29,7 @@ assert(mixed_bool1 == true, "Mixed boolean 1 should be true");
 assert(mixed_bool2 == true, "Mixed boolean 2 should be true");
 assert(mixed_bool3 == true, "Mixed boolean 3 should be true");
 
-# Deeply nested array access
+// Deeply nested array access
 let nested_array = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
 let deep_access1 = nested_array[0, 0, 1] + nested_array[1, 1, 0];
 let deep_access2 = nested_array[0, 1, 1];
@@ -37,14 +37,14 @@ let deep_access2 = nested_array[0, 1, 1];
 assert(deep_access1 == 9, "Deep nested access: 2 + 7 = 9");
 assert(deep_access2 == 4, "Deep access should be 4");
 
-# Complex comprehensions with multiple conditions
+// Complex comprehensions with multiple conditions
 let complex_comp1 = [x * y | x in 1..4, y in 2..4, x < y];
 let complex_comp2 = [(i, j) | i in 0..3, j in 0..3, i + j < 3];
 
 assert(complex_comp1.length >= 2, "Complex comprehension 1 should have results");
 assert(complex_comp2.length >= 3, "Complex comprehension 2 should have coordinate pairs");
 
-# Chained property access on expressions
+// Chained property access on expressions
 let expr_result = [1, 2, 3, 4, 5];
 let chained_length = expr_result.length;
 let computed_access = expr_result[chained_length - 1];
@@ -52,7 +52,7 @@ let computed_access = expr_result[chained_length - 1];
 assert(chained_length == 5, "Expression result length should be 5");
 assert(computed_access == 5, "Last element access should be 5");
 
-# Complex mathematical expressions with precedence
+// Complex mathematical expressions with precedence
 let math_complex1 = 2.0 + 3.0 * 4.0 ** 2.0 - 5.0 / 2.0 + (6 % 4) as f32;
 let math_complex2 = (1.0 + 2.0) ** (3.0 - 1.0) * (4.0 + 5.0) / (6.0 - 3.0);
 let math_complex3 = (10 % (3 + 1)) + 20 / (2 * 2) - (15 % (7 - 2));
@@ -61,7 +61,7 @@ assert(math_complex1 > 49.0 && math_complex1 < 50.0, "Complex math 1 should be a
 assert(math_complex2 == 27.0, "Complex math 2 should be 27");
 assert(math_complex3 == 7, "Complex math 3 should be 7");
 
-# Function calls with complex expressions as arguments
+// Function calls with complex expressions as arguments
 fn complex_function(a, b, c) {
     ((a * b) as f32) + (c / 2.0) - ((a % b) as f32)
 }
@@ -72,7 +72,7 @@ let func_result2 = complex_function(2 ** 3, 5 % 3, 3.0 * 4.0);
 assert(func_result1 == 32.0, "Complex function call 1 should work");
 assert(func_result2 == 22.0, "Complex function call 2 should work");
 
-# Complex string and numeric mixed operations
+// Complex string and numeric mixed operations
 let mixed_expr1 = "hello".length + "world".length - 1;
 let mixed_expr2 = if ("test".length > 3) { 10 * 2 } else { 5 + 5 };
 let mixed_expr3 = [1, 2, 3].length + [4, 5].length * 2;
@@ -81,7 +81,7 @@ assert(mixed_expr1 == 9, "Mixed string/numeric should be 9");
 assert(mixed_expr2 == 20, "Conditional with string length should be 20");
 assert(mixed_expr3 == 7, "Array length operations should be 7");
 
-# Range expressions in complex contexts
+// Range expressions in complex contexts
 let range_start = 2 + 1;
 let range_end = 8 - 2;
 let dynamic_range = [x | x in range_start..range_end];
@@ -90,7 +90,7 @@ let range_sum = dynamic_range[0] + dynamic_range[2];
 assert(dynamic_range.length == 3, "Dynamic range should have 3 elements");
 assert(range_sum == 8, "Range sum should be 8");
 
-# Complex tensor operations with expressions
+// Complex tensor operations with expressions
 let matrix_a = [[2, 4], [3, 4]];
 let matrix_b = [[5, 6], [7, 8]];
 let element_ops = [matrix_a[i, j] + matrix_b[i, j] | i in 0..2, j in 0..2];
@@ -98,7 +98,7 @@ let element_ops = [matrix_a[i, j] + matrix_b[i, j] | i in 0..2, j in 0..2];
 assert(element_ops.length == 4, "Element operations should have 4 results");
 assert(element_ops[0] == 7, "First element should be 7");
 
-# Deeply nested function calls
+// Deeply nested function calls
 fn add_two(x) { x + 2 }
 fn multiply_three(x) { x * 3 }
 fn subtract_one(x) { x - 1 }
@@ -106,7 +106,7 @@ fn subtract_one(x) { x - 1 }
 let nested_calls = subtract_one(multiply_three(add_two(5)));
 assert(nested_calls == 20, "Nested calls should equal 20");
 
-# Complex array operations with expressions
+// Complex array operations with expressions
 let source_nums = [1, 2, 3, 4];
 let transformed_nums = [(x * 2) + (x % 2) | x in source_nums];
 let filtered_transformed = [y | y in transformed_nums, y > 5];

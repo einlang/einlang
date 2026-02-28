@@ -1,28 +1,28 @@
-# Data Analysis and Processing Example
-# Demonstrates real-world data manipulation and statistical analysis using Einlang
+// Data Analysis and Processing Example
+// Demonstrates real-world data manipulation and statistical analysis using Einlang
 
 print("=== DATA ANALYSIS WITH EINLANG ===");
 print("Processing and analyzing a dataset of measurements");
 print();
 
-# =============================================================================
-# DATASET SIMULATION
-# =============================================================================
+// =============================================================================
+// DATASET SIMULATION
+// =============================================================================
 
 print("=== DATASET ===");
 
-# Simulate sensor measurements (temperature, humidity, pressure, light)
+// Simulate sensor measurements (temperature, humidity, pressure, light)
 let measurements = [
-    [22.5, 65.2, 1013.2, 450],   # Sample 1
-    [23.1, 68.7, 1012.8, 520],   # Sample 2  
-    [21.8, 62.1, 1014.1, 380],   # Sample 3
-    [24.2, 71.3, 1011.5, 610],   # Sample 4
-    [22.0, 64.8, 1013.7, 420],   # Sample 5
-    [25.1, 75.2, 1010.2, 680],   # Sample 6
-    [20.5, 58.9, 1015.3, 340],   # Sample 7
-    [23.8, 69.4, 1012.1, 580],   # Sample 8
-    [22.7, 66.5, 1013.0, 470],   # Sample 9
-    [24.8, 73.1, 1011.0, 640]    # Sample 10
+    [22.5, 65.2, 1013.2, 450],   // Sample 1
+    [23.1, 68.7, 1012.8, 520],   // Sample 2  
+    [21.8, 62.1, 1014.1, 380],   // Sample 3
+    [24.2, 71.3, 1011.5, 610],   // Sample 4
+    [22.0, 64.8, 1013.7, 420],   // Sample 5
+    [25.1, 75.2, 1010.2, 680],   // Sample 6
+    [20.5, 58.9, 1015.3, 340],   // Sample 7
+    [23.8, 69.4, 1012.1, 580],   // Sample 8
+    [22.7, 66.5, 1013.0, 470],   // Sample 9
+    [24.8, 73.1, 1011.0, 640]    // Sample 10
 ];
 
 let feature_names = ["Temperature(°C)", "Humidity(%)", "Pressure(hPa)", "Light(lux)"];
@@ -40,13 +40,13 @@ print("Sample 3:", measurements[2]);
 print("...");
 print();
 
-# =============================================================================
-# DATA EXTRACTION AND PREPROCESSING
-# =============================================================================
+// =============================================================================
+// DATA EXTRACTION AND PREPROCESSING
+// =============================================================================
 
 print("=== DATA PREPROCESSING ===");
 
-# Extract individual feature columns using array comprehensions
+// Extract individual feature columns using array comprehensions
 let temperatures = [measurements[i,0] | i >= 0, i < num_samples];
 let humidity = [measurements[i,1] | i >= 0, i < num_samples];
 let pressure = [measurements[i,2] | i >= 0, i < num_samples];
@@ -57,7 +57,7 @@ print("Temperatures:", temperatures);
 print("Humidity:", humidity);
 print();
 
-# Data validation using filters
+// Data validation using filters
 let valid_temp = [temperatures[i] | i in 0..len(temperatures), temperatures[i] > 15, temperatures[i] < 35];
 let valid_humidity = [humidity[i] | i in 0..len(humidity), humidity[i] > 40, humidity[i] < 85];
 let low_temp_outliers = [temperatures[i] | i in 0..len(temperatures), temperatures[i] <= 15];
@@ -70,13 +70,13 @@ print("Low temperature outliers:", low_temp_outliers);
 print("High temperature outliers:", high_temp_outliers);
 print();
 
-# =============================================================================
-# STATISTICAL ANALYSIS
-# =============================================================================
+// =============================================================================
+// STATISTICAL ANALYSIS
+// =============================================================================
 
 print("=== STATISTICAL ANALYSIS ===");
 
-# Calculate basic statistics for each feature
+// Calculate basic statistics for each feature
 let temp_sum = sum(temperatures);
 let temp_mean = temp_sum / len(temperatures);
 let temp_min = min(temperatures);
@@ -98,7 +98,7 @@ print("  Min:", humidity_min, "%, Max:", humidity_max, "%");
 print("  Range:", humidity_max - humidity_min, "%");
 print();
 
-# Variance and standard deviation
+// Variance and standard deviation
 let temp_variance = sum((temperatures - temp_mean) * (temperatures - temp_mean)) / len(temperatures);
 let temp_std = sqrt(temp_variance);
 let humidity_variance = sum((humidity - humidity_mean) * (humidity - humidity_mean)) / len(humidity);
@@ -109,13 +109,13 @@ print("Temperature: σ² =", temp_variance, ", σ =", temp_std);
 print("Humidity: σ² =", humidity_variance, ", σ =", humidity_std);
 print();
 
-# =============================================================================
-# DATA FILTERING AND TRANSFORMATION
-# =============================================================================
+// =============================================================================
+// DATA FILTERING AND TRANSFORMATION
+// =============================================================================
 
 print("=== DATA FILTERING ===");
 
-# Filter data based on conditions
+// Filter data based on conditions
 let comfortable_conditions = [measurements[i] | i in 0..10, temperatures[i] > 20, temperatures[i] < 25, 
                                                    humidity[i] > 60, humidity[i] < 70];
 let hot_conditions = [measurements[i] | i in 0..10, temperatures[i] >= 25];
@@ -135,7 +135,7 @@ let comfort_sample = if len(comfortable_conditions) > 0 {
 print("Sample comfortable condition:", comfort_sample);
 print();
 
-# Normalize features to 0-1 range
+// Normalize features to 0-1 range
 print("=== DATA NORMALIZATION ===");
 
 let temp_range = temp_max - temp_min;
@@ -153,13 +153,13 @@ print("Temperature (normalized):", normalized_temp);
 print("Humidity (normalized):", normalized_humidity);
 print();
 
-# =============================================================================
-# CORRELATION ANALYSIS
-# =============================================================================
+// =============================================================================
+// CORRELATION ANALYSIS
+// =============================================================================
 
 print("=== CORRELATION ANALYSIS ===");
 
-# Calculate correlation between temperature and humidity
+// Calculate correlation between temperature and humidity
 let temp_deviation[i] = temperatures[i] - temp_mean;
 let humidity_deviation[i] = humidity[i] - humidity_mean;
 
@@ -186,13 +186,13 @@ let correlation_type = if correlation > 0.5 {
 print(correlation_type);
 print();
 
-# =============================================================================
-# TREND ANALYSIS
-# =============================================================================
+// =============================================================================
+// TREND ANALYSIS
+// =============================================================================
 
 print("=== TREND ANALYSIS ===");
 
-# Calculate moving averages (3-point window)
+// Calculate moving averages (3-point window)
 let temp_moving_avg = [(temperatures[i-1] + temperatures[i] + temperatures[i+1]) / 3.0 | i > 0, i < len(temperatures) - 1];
 let humidity_moving_avg = [(humidity[i-1] + humidity[i] + humidity[i+1]) / 3.0 | i > 0, i < len(humidity) - 1];
 
@@ -201,9 +201,9 @@ print("Temperature:", temp_moving_avg);
 print("Humidity:", humidity_moving_avg);
 print();
 
-# Trend detection (simple slope analysis)
-let first_half_temp = sum([temperatures[i] | i < 5]) / 5.0;  # Average of first 5;
-let second_half_temp = sum([temperatures[i] | i >= 5]) / 5.0;  # Average of last 5;
+// Trend detection (simple slope analysis)
+let first_half_temp = sum([temperatures[i] | i < 5]) / 5.0;  // Average of first 5;
+let second_half_temp = sum([temperatures[i] | i >= 5]) / 5.0;  // Average of last 5;
 let temp_trend = second_half_temp - first_half_temp;
 
 print("Trend analysis:");
@@ -223,13 +223,13 @@ let trend_type = if temp_trend > 1.0 {
 print(trend_type);
 print();
 
-# =============================================================================
-# ANOMALY DETECTION
-# =============================================================================
+// =============================================================================
+// ANOMALY DETECTION
+// =============================================================================
 
 print("=== ANOMALY DETECTION ===");
 
-# Identify outliers using standard deviation threshold
+// Identify outliers using standard deviation threshold
 let temp_threshold = 2.0 * temp_std;
 let anomalous_temp = [temperatures[i] | i in 0..10, abs(temperatures[i] - temp_mean) > temp_threshold];
 let anomalous_indices = [i | i in 0..10, abs(temperatures[i] - temp_mean) > temp_threshold];
@@ -243,9 +243,9 @@ print("Humidity anomalies:", anomalous_humidity);
 print("Anomaly count:", len(anomalous_temp) + len(anomalous_humidity), "out of", num_samples * 2, "measurements");
 print();
 
-# =============================================================================
-# SUMMARY REPORT
-# =============================================================================
+// =============================================================================
+// SUMMARY REPORT
+// =============================================================================
 
 print("=== DATA ANALYSIS SUMMARY ===");
 print();

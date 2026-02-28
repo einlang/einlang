@@ -5,30 +5,15 @@ from typing import Any, List, Optional
 import numpy as np
 
 from ..ir.nodes import (
-    EinsteinDeclarationIR, LiteralIR, RangeIR, LoweredEinsteinIR, LoweredEinsteinClauseIR,
+    LiteralIR, RangeIR, LoweredEinsteinIR, LoweredEinsteinClauseIR,
     LoweredReductionIR,
+    is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
 from .numpy_helpers import _reject_non_lowered
 
 
 class EinsteinExecutionMixin:
-    def visit_einstein_declaration(self, node: EinsteinDeclarationIR) -> Any:
-        _reject_non_lowered(type(node).__name__)
-
-    def visit_variable_declaration(self, node: Any) -> Any:
-        if not (hasattr(node, "value") and node.value):
-            return None
-        stack = getattr(self, "_variable_decl_stack", None)
-        if stack is None:
-            self._variable_decl_stack = []
-            stack = self._variable_decl_stack
-        stack.append(node)
-        try:
-            return node.value.accept(self)
-        finally:
-            stack.pop()
-
     def visit_lowered_einstein_clause(self, node: LoweredEinsteinClauseIR) -> Any:
         stack = getattr(self, "_variable_decl_stack", None)
         variable_decl = stack[-1] if stack else None
@@ -38,9 +23,6 @@ class EinsteinExecutionMixin:
         stack = getattr(self, "_variable_decl_stack", None)
         variable_decl = stack[-1] if stack else None
         return self._execute_lowered_einstein(node, variable_decl)
-
-    def visit_local_binding(self, node: Any) -> Any:
-        return None
 
     def _primitive_type_to_numpy_dtype(self, type_obj: Any) -> Optional[Any]:
         from ..shared.types import PrimitiveType

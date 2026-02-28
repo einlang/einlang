@@ -3,7 +3,7 @@ Tree Shaking Pass — removes unreachable functions from ProgramIR.
 
 Walks the IR starting from entry points (top-level statements) and
 transitively collects all reachable function DefIds via FunctionCallIR
-and FunctionRefIR references.  Functions not in the reachable set are
+and identifier (function) references.  Functions not in the reachable set are
 pruned from ProgramIR.functions.
 
 This runs as the LAST pass, after monomorphization and lowering, so
@@ -14,17 +14,17 @@ import logging
 from typing import Set
 
 from ..ir.nodes import (
-    ExpressionIR, ProgramIR, FunctionDefIR,
-    FunctionCallIR, FunctionRefIR, BuiltinCallIR,
+    ExpressionIR, ProgramIR, FunctionDefIR, BindingIR,
+    FunctionCallIR, BuiltinCallIR,
     IdentifierIR, LiteralIR, BinaryOpIR, UnaryOpIR,
     RectangularAccessIR, JaggedAccessIR, MemberAccessIR, TupleAccessIR,
     ArrayLiteralIR, ArrayComprehensionIR,
     BlockExpressionIR, IfExpressionIR, MatchExpressionIR,
-    LambdaIR, ArrowExpressionIR, PipelineExpressionIR,
+    LambdaIR, PipelineExpressionIR,
     CastExpressionIR, InterpolatedStringIR, TupleExpressionIR,
     ReductionExpressionIR, WhereExpressionIR,
-    EinsteinDeclarationIR, VariableDeclarationIR,
-    RangeIR, TryExpressionIR, ConstantDefIR,
+    RangeIR, TryExpressionIR,
+    is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
 
@@ -37,15 +37,13 @@ def _collect_defid_refs(node, refs: Set[DefId]) -> None:
         return
 
     if isinstance(node, FunctionCallIR):
-        if node.function_defid is not None:
-            refs.add(node.function_defid)
         for arg in node.arguments:
             _collect_defid_refs(arg, refs)
         _collect_defid_refs(getattr(node, 'callee_expr', None), refs)
         return
 
-    if isinstance(node, FunctionRefIR):
-        refs.add(node.function_defid)
+    if isinstance(node, IdentifierIR) and getattr(node, 'defid', None) is not None:
+        refs.add(node.defid)
         return
 
     if isinstance(node, BuiltinCallIR):
@@ -59,8 +57,11 @@ def _collect_defid_refs(node, refs: Set[DefId]) -> None:
         _collect_defid_refs(node.final_expr, refs)
         return
 
-    if isinstance(node, VariableDeclarationIR):
+    if isinstance(node, BindingIR):
         _collect_defid_refs(getattr(node, 'value', None), refs)
+        if is_einstein_binding(node):
+            for clause in (getattr(getattr(node, 'expr', None), 'clauses', None) or []):
+                _collect_defid_refs(getattr(clause, 'value', None), refs)
         return
 
     if isinstance(node, IfExpressionIR):
@@ -108,7 +109,12 @@ def _collect_defid_refs(node, refs: Set[DefId]) -> None:
 
     if isinstance(node, ArrayComprehensionIR):
         _collect_defid_refs(getattr(node, 'body', None), refs)
-        _collect_defid_refs(getattr(node, 'iterable', None), refs)
+        for r in getattr(node, 'ranges', None) or []:
+            _collect_defid_refs(r, refs)
+        for v in getattr(node, 'loop_vars', None) or []:
+            _collect_defid_refs(v, refs)
+        for c in getattr(node, 'constraints', None) or []:
+            _collect_defid_refs(c, refs)
         return
 
     if isinstance(node, TupleExpressionIR):
@@ -125,17 +131,8 @@ def _collect_defid_refs(node, refs: Set[DefId]) -> None:
         _collect_defid_refs(getattr(node, 'condition', None), refs)
         return
 
-    if isinstance(node, EinsteinDeclarationIR):
-        for clause in (getattr(node, 'clauses', None) or []):
-            _collect_defid_refs(getattr(clause, 'value', None), refs)
-        return
-
     if isinstance(node, LambdaIR):
         _collect_defid_refs(node.body, refs)
-        return
-
-    if isinstance(node, ArrowExpressionIR):
-        _collect_defid_refs(getattr(node, 'body', None), refs)
         return
 
     if isinstance(node, PipelineExpressionIR):
@@ -204,7 +201,7 @@ def tree_shake(ir: ProgramIR) -> ProgramIR:
     """Remove unreachable functions from the program IR.
 
     1. Seed the reachable set from top-level statements.
-    2. Transitively follow FunctionCallIR / FunctionRefIR edges.
+    2. Transitively follow FunctionCallIR / IdentifierIR (callee) edges.
     3. Filter ProgramIR.functions to the reachable set.
     """
     func_by_defid = {}
@@ -238,12 +235,17 @@ def tree_shake(ir: ProgramIR) -> ProgramIR:
                 worklist.append(ref)
 
     before = len(ir.functions)
+    kept_defids = {f.defid for f in ir.functions
+                   if getattr(f, 'defid', None) is not None and f.defid in reachable}
     kept = [f for f in ir.functions
-            if getattr(f, 'defid', None) is not None and f.defid in reachable]
+            if getattr(f, 'defid', None) is not None and f.defid in kept_defids]
     after = len(kept)
 
     if before != after:
         logger.debug(f"[TreeShaking] {before} → {after} functions ({before - after} pruned)")
 
-    ir.functions = kept
+    new_statements = [s for s in (ir.statements or [])
+                      if not is_function_binding(s) or (getattr(s, 'defid', None) in kept_defids)]
+    object.__setattr__(ir, 'statements', new_statements)
+    object.__setattr__(ir, 'bindings', [s for s in new_statements if isinstance(s, BindingIR)])
     return ir

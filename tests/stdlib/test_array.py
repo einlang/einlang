@@ -27,18 +27,18 @@ class TestArrayModule:
         """Test array module functions - only testing fully implemented functions"""
         # Combine all test cases into one source to ensure all functions are compiled together
         source = """
-# Concatenate
+// Concatenate
 let arr1 = [1, 2]; let other1 = [3, 4]; let x1 = std::array::concatenate(arr1, other1); assert(x1 == [1, 2, 3, 4]);
 
-# Sum
+// Sum
 let arr2 = [1, 2, 3, 4, 5]; let x2 = std::array::sum(arr2); assert(x2 == 15);
 assert(std::array::sum([42]) == 42);
 let arr3 = [-2, 5, -1, 3]; assert(std::array::sum(arr3) == 5);
 
-# Flatten
+// Flatten
 let matrix1 = [[1, 2], [3, 4]]; let x3 = std::array::flatten(matrix1); assert(x3 == [1, 2, 3, 4]);
 
-# Test len as replacement for shape (shape removed due to complexity)
+// Test len as replacement for shape (shape removed due to complexity)
 let arr4 = [1, 2, 3, 4, 5]; assert(len(arr4) == 5);
 let matrix2 = [[1, 2], [3, 4]]; assert(len(matrix2) == 2);
         """
@@ -59,30 +59,30 @@ let data3 = [1, 2, 3, 4, 5]; let x3 = min[i](data3[i]); assert(x3 == 1);
         source = """
 use std::array;
 
-# argmax - basic cases
+// argmax - basic cases
 let scores1 = [88, 92, 76, 92, 83];
 let idx1 = std::array::argmax(scores1);
-assert(idx1 == 1);  # First occurrence of max value 92
+assert(idx1 == 1);  // First occurrence of max value 92
 
 let scores2 = [5, 3, 8, 1, 8];
 let idx2 = std::array::argmax(scores2);
-assert(idx2 == 2);  # First occurrence of max value 8
+assert(idx2 == 2);  // First occurrence of max value 8
 
 let single = [42];
 assert(std::array::argmax(single) == 0);
 
-# argmin - basic cases
+// argmin - basic cases
 let temps = [25, 18, 30, 18, 22];
 let min_idx = std::array::argmin(temps);
-assert(min_idx == 1);  # First occurrence of min value 18
+assert(min_idx == 1);  // First occurrence of min value 18
 
 let nums = [10, 5, 3, 5, 7];
-assert(std::array::argmin(nums) == 2);  # First occurrence of min value 3
+assert(std::array::argmin(nums) == 2);  // First occurrence of min value 3
 
-# Edge cases - all same values
+// Edge cases - all same values
 let all_same = [5, 5, 5, 5];
-assert(std::array::argmax(all_same) == 0);  # First index
-assert(std::array::argmin(all_same) == 0);  # First index
+assert(std::array::argmax(all_same) == 0);  // First index
+assert(std::array::argmin(all_same) == 0);  // First index
         """
         self._test_and_execute(source, compiler, runtime)
     
@@ -91,28 +91,28 @@ assert(std::array::argmin(all_same) == 0);  # First index
         source = """
 use std::array;
 
-# argmax_all - returns all indices with max value
+// argmax_all - returns all indices with max value
 let scores = [88, 92, 76, 92, 83];
 let all_max = std::array::argmax_all(scores);
 assert(len(all_max) == 2);
 assert(all_max[0] == 1);
-assert(all_max[1] == 3);  # Both indices where value is 92
+assert(all_max[1] == 3);  // Both indices where value is 92
 
 let nums = [5, 3, 8, 1, 8, 8];
 let all_max2 = std::array::argmax_all(nums);
 assert(len(all_max2) == 3);
 assert(all_max2[0] == 2);
 assert(all_max2[1] == 4);
-assert(all_max2[2] == 5);  # All indices where value is 8
+assert(all_max2[2] == 5);  // All indices where value is 8
 
-# argmin_all - returns all indices with min value
+// argmin_all - returns all indices with min value
 let temps = [25, 18, 30, 18, 22];
 let all_min = std::array::argmin_all(temps);
 assert(len(all_min) == 2);
 assert(all_min[0] == 1);
-assert(all_min[1] == 3);  # Both indices where value is 18
+assert(all_min[1] == 3);  // Both indices where value is 18
 
-# Edge case - all same values
+// Edge case - all same values
 let all_same = [5, 5, 5];
 let all_max_same = std::array::argmax_all(all_same);
 assert(len(all_max_same) == 3);

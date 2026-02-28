@@ -1,15 +1,15 @@
-# CORE FEATURE: Advanced Tensor Operations
-# PURPOSE: Tests complex tensor comprehensions and multi-dimensional operations
-# VALUE: Exercises tensor comprehension evaluator paths for better coverage
+// CORE FEATURE: Advanced Tensor Operations
+// PURPOSE: Tests complex tensor comprehensions and multi-dimensional operations
+// VALUE: Exercises tensor comprehension evaluator paths for better coverage
 
-# Multi-dimensional tensor access patterns
+// Multi-dimensional tensor access patterns
 let tensor_3d = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
 let tensor_flat = [tensor_3d[i, j, k] | i in 0..2, j in 0..2, k in 0..2];
 
 assert(tensor_flat.length == 8, "3D tensor flattening should have 8 elements");
 assert(tensor_flat[0] == 1, "First flattened element should be 1");
 
-# Complex constraint combinations in comprehensions
+// Complex constraint combinations in comprehensions
 let constrained_coords = [
     (i, j) | i in 0..5, j in 0..5, 
     i + j >= 3, 
@@ -19,24 +19,24 @@ let constrained_coords = [
 
 assert(constrained_coords.length >= 4, "Constrained coordinates should have multiple results");
 
-# Nested comprehensions with variable dependencies
+// Nested comprehensions with variable dependencies
 let matrix_transform = [[x * 2 + y | y in [1, 2, 3]] | x in [10, 20, 30]];
 
 assert(matrix_transform.length == 3, "Matrix transform should have 3 rows");
 assert(matrix_transform[0].length == 3, "Each row should have 3 elements");
 
-# Range-based tensor operations using proper comprehensions
+// Range-based tensor operations using proper comprehensions
 let simple_range_matrix = [i * j | i in 1..4, j in 1..4, i <= 2, j <= 3];
 
 assert(simple_range_matrix.length >= 6, "Range matrix should have multiple results");
 
-# Tensor operations with computed indices
+// Tensor operations with computed indices
 let matrix_data = [[1, 2], [3, 4]];
 let computed_tensor = [matrix_data[i % 2, j % 2] | i in 0..4, j in 0..4];
 
 assert(computed_tensor.length == 16, "Computed tensor should have 16 elements");
 
-# Complex tensor slicing patterns
+// Complex tensor slicing patterns
 let slice_source = [[10, 20, 30, 40], [50, 60, 70, 80], [90, 100, 110, 120]];
 let diagonal_slice = [slice_source[i, i] | i in 0..3];
 let anti_diagonal = [slice_source[i, 2 - i] | i in 0..3];
@@ -46,7 +46,7 @@ assert(diagonal_slice.length == 3, "Diagonal slice should have 3 elements");
 assert(anti_diagonal.length == 3, "Anti-diagonal should have 3 elements");
 assert(upper_triangle.length >= 6, "Upper triangle should have multiple elements");
 
-# Tensor operations with multiple source arrays
+// Tensor operations with multiple source arrays
 let array1 = [1, 2, 3];
 let array2 = [10, 20, 30];
 let array3 = [100, 200, 300];
@@ -56,7 +56,7 @@ assert(multi_source.length == 3, "Multi-source should have 3 elements");
 assert(multi_source[0] == 111, "First multi-source element should be 111");
 assert(multi_source[2] == 333, "Third multi-source element should be 333");
 
-# Conditional tensor operations
+// Conditional tensor operations
 let conditional_tensor = [
     if (i + j < 4) { i * j } else { 0 }
     | i in 0..4, j in 0..4
@@ -65,7 +65,7 @@ let conditional_tensor = [
 let non_zero_count = [x | x in conditional_tensor, x > 0];
 assert(non_zero_count.length >= 1, "Non-zero conditional results should exist");
 
-# Tensor aggregation patterns
+// Tensor aggregation patterns
 let aggregation_source = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
 let row_sums = [aggregation_source[i, 0] + aggregation_source[i, 1] + aggregation_source[i, 2] | i in 0..3];
 let col_sums = [aggregation_source[0, j] + aggregation_source[1, j] + aggregation_source[2, j] | j in 0..3];
@@ -75,25 +75,25 @@ assert(row_sums[0] == 6, "First row sum should be 6");
 assert(col_sums.length == 3, "Column sums should have 3 elements");
 assert(col_sums[0] == 12, "First column sum should be 12");
 
-# Complex tensor filtering
+// Complex tensor filtering
 let filter_source = [[1, -2, 3], [-4, 5, -6], [7, -8, 9]];
 let positive_only = [filter_source[i, j] | i in 0..3, j in 0..3, 
     filter_source[i, j] > 0];
 let magnitude_filter = [filter_source[i, j] | i in 0..3, j in 0..3,
-    filter_source[i, j] * filter_source[i, j] > 25];  # Squares > 25
+    filter_source[i, j] * filter_source[i, j] > 25];  // Squares > 25
 
 assert(positive_only.length == 5, "Positive only should have 5 elements");
 assert(magnitude_filter.length >= 4, "Magnitude filter should have results");
 
-# Tensor reshaping through comprehensions
+// Tensor reshaping through comprehensions
 let linear_data = [1, 2, 3, 4, 5, 6, 7, 8];
 let reshaped_matrix = [linear_data[i * 2 + j] | i in 0..4, j in 0..2];
 
 assert(reshaped_matrix.length == 8, "Reshaped matrix should have 8 elements");
 
-# Reshaped matrix assertion handled above
+// Reshaped matrix assertion handled above
 
-# Tensor operations with nested constraints
+// Tensor operations with nested constraints
 let nested_constraint_ops = [
     (x, y, z) | x in 1..4, 
     y in 1..4, 
@@ -105,7 +105,7 @@ let nested_constraint_ops = [
 
 assert(nested_constraint_ops.length >= 10, "Nested constraints should have multiple results");
 
-# Broadcasting-style operations
+// Broadcasting-style operations
 let broadcast_vector = [1, 2, 3];
 let broadcast_result = [broadcast_vector[j] + i * 10 | i in 0..3, j in 0..3];
 

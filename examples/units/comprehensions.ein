@@ -1,8 +1,8 @@
-# CORE FEATURE: Array Comprehensions and Iterations
-# PURPOSE: Comprehensive array comprehension patterns and advanced iterations
-# VALUE: Demonstrates Einlang's primary iteration mechanism (no traditional loops)
+// CORE FEATURE: Array Comprehensions and Iterations
+// PURPOSE: Comprehensive array comprehension patterns and advanced iterations
+// VALUE: Demonstrates Einlang's primary iteration mechanism (no traditional loops)
 
-# Basic array comprehensions
+// Basic array comprehensions
 let simple_range = [x | x in 1..5];
 let doubled = [x * 2 | x in 1..4];
 let filtered = [x | x in 1..10, x % 2 == 0];
@@ -17,22 +17,22 @@ assert(doubled[2] == 6, "Third doubled should be 6");
 
 assert(filtered.length >= 4, "Should have even numbers in 1..10");
 
-# Multiple conditions in comprehensions
+// Multiple conditions in comprehensions
 let multi_cond = [x | x in 1..20, x % 3 == 0, x > 5];
 
 assert(multi_cond.length >= 3, "Should have multiples of 3 > 5");
 
-# Nested comprehensions
+// Nested comprehensions
 let nested_coords = [(i, j) | i in 0..3, j in 0..3];
 
 assert(nested_coords.length == 9, "Should have 9 coordinate pairs (3x3)");
 
-# Coordinate-based filtering patterns
+// Coordinate-based filtering patterns
 let matrix_coords = [(i, j) | i in 0..2, j in 0..2, i + j < 3];
 
 assert(matrix_coords.length >= 3, "Should have coordinate pairs where i+j < 3");
 
-# Complex expressions in comprehensions
+// Complex expressions in comprehensions
 let squares = [x * x | x in 1..5];
 let cubes = [x * x * x | x in 1..4];
 
@@ -43,7 +43,7 @@ assert(squares[3] == 16, "Fourth square should be 16");
 assert(cubes.length == 3, "Cubes should have 3 elements");
 assert(cubes[2] == 27, "Third cube should be 27");
 
-# Function calls within comprehensions
+// Function calls within comprehensions
 fn double_plus_one(n) {
     n * 2 + 1
 }
@@ -54,7 +54,7 @@ assert(func_results.length == 3, "Function results should have 3 elements");
 assert(func_results[0] == 3, "First result should be 3 (1*2+1)");
 assert(func_results[2] == 7, "Third result should be 7 (3*2+1)");
 
-# Comprehensions with array data
+// Comprehensions with array data
 let source_array = [10, 20, 30, 40, 50];
 let transformed = [x / 10 | x in source_array];
 let large_values = [x | x in source_array, x > 25];
@@ -65,7 +65,7 @@ assert(transformed[4] == 5, "Last transformed should be 5");
 
 assert(large_values.length >= 3, "Should have values > 25");
 
-# String-based comprehensions
+// String-based comprehensions
 let words = ["hello", "world", "test", "example"];
 let lengths = [word.length | word in words];
 let long_words = [word | word in words, word.length > 4];
@@ -75,26 +75,26 @@ assert(lengths[0] == 5, "First length should be 5 ('hello')");
 
 assert(long_words.length >= 2, "Should have words longer than 4 chars");
 
-# Aggregation patterns using comprehensions
+// Aggregation patterns using comprehensions
 let numbers = [1, 2, 3, 4, 5];
-let sum_parts = [numbers[i] | i in 0..3];  # First 3 elements
+let sum_parts = [numbers[i] | i in 0..3];  // First 3 elements
 
 assert(sum_parts.length == 3, "Sum parts should have 3 elements");
 assert(sum_parts[0] == 1, "First sum part should be 1");
 
-# Complex filtering with multiple arrays
+// Complex filtering with multiple arrays
 let array_a = [1, 2, 3, 4, 5];
 let array_b = [2, 4, 6, 8, 10];
 let common_range = [x | x in array_a, x in array_b];
 
 assert(common_range.length >= 2, "Should have common elements");
 
-# Comprehensions with mathematical operations
-let fibonacci_like = [i + (i-1) | i in 2..6];  # Simple pattern
+// Comprehensions with mathematical operations
+let fibonacci_like = [i + (i-1) | i in 2..6];  // Simple pattern
 
 assert(fibonacci_like.length == 4, "Fibonacci-like should have 4 elements");
 
-# Nested array comprehensions for matrix-like operations
+// Nested array comprehensions for matrix-like operations
 let matrix_data = [[1, 2], [3, 4], [5, 6]];
 let flattened = [matrix_data[i,j] | i in 0..3, j in 0..2];
 
@@ -102,7 +102,7 @@ assert(flattened.length == 6, "Flattened should have 6 elements");
 assert(flattened[0] == 1, "First flattened should be 1");
 assert(flattened[5] == 6, "Last flattened should be 6");
 
-# Conditional expressions within comprehensions
+// Conditional expressions within comprehensions
 let conditional_values = [
     x * 2 | x in 1..6, 
     x % 2 == 0
@@ -110,4 +110,4 @@ let conditional_values = [
 
 assert(conditional_values.length >= 2, "Should have even values doubled");
 
-# All array comprehension patterns showcased successfully
+// All array comprehension patterns showcased successfully

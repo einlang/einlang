@@ -1,80 +1,80 @@
-# Einlang Padding Syntax Comprehensive Demo
-# This file demonstrates all padding syntax patterns and capabilities
+// Einlang Padding Syntax Comprehensive Demo
+// This file demonstrates all padding syntax patterns and capabilities
 
 print("=== EINLANG PADDING SYNTAX DEMO ===");
 print();
 
-# =============================================================================
-# 1. BASIC FUNCTION-ORIENTED PADDING
-# =============================================================================
+// =============================================================================
+// 1. BASIC FUNCTION-ORIENTED PADDING
+// =============================================================================
 
 print("=== 1. BASIC FUNCTION-ORIENTED PADDING ===");
 
-# Simple 2D matrix for demonstration
+// Simple 2D matrix for demonstration
 let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
 print("Original matrix:");
 print(matrix);
 print();
 
-# Constant padding (most common)
+// Constant padding (most common)
 let constant_padded = pad(matrix, [[1, 1], [1, 1]], "constant", 0.0);
 print("Constant padding (1 pixel all sides, value=0):");
 print("Expected shape: [5, 5]");
-# Result should be:
-# [[0, 0, 0, 0, 0],
-#  [0, 1, 2, 3, 0],
-#  [0, 4, 5, 6, 0],
-#  [0, 7, 8, 9, 0],
-#  [0, 0, 0, 0, 0]]
+// Result should be:
+// [[0, 0, 0, 0, 0],
+//  [0, 1, 2, 3, 0],
+//  [0, 4, 5, 6, 0],
+//  [0, 7, 8, 9, 0],
+//  [0, 0, 0, 0, 0]]
 
-# Reflect padding (mirror without edge repetition)
+// Reflect padding (mirror without edge repetition)
 let reflect_padded = pad(matrix, [[1, 1], [1, 1]], "reflect", 0.0);
 print("Reflect padding (1 pixel all sides):");
 print("Expected to mirror content without repeating edges");
-# Result should be:
-# [[5, 4, 5, 6, 5],
-#  [2, 1, 2, 3, 2],
-#  [5, 4, 5, 6, 5],
-#  [8, 7, 8, 9, 8],
-#  [5, 4, 5, 6, 5]]
+// Result should be:
+// [[5, 4, 5, 6, 5],
+//  [2, 1, 2, 3, 2],
+//  [5, 4, 5, 6, 5],
+//  [8, 7, 8, 9, 8],
+//  [5, 4, 5, 6, 5]]
 
-# Replicate padding (extend edge values)  
+// Replicate padding (extend edge values)  
 let replicate_padded = pad(matrix, [[1, 1], [1, 1]], "replicate", 0.0);
 print("Replicate padding (1 pixel all sides):");
 print("Expected to extend edge values");
-# Result should be:
-# [[1, 1, 2, 3, 3],
-#  [1, 1, 2, 3, 3],
-#  [4, 4, 5, 6, 6],
-#  [7, 7, 8, 9, 9],
-#  [7, 7, 8, 9, 9]]
+// Result should be:
+// [[1, 1, 2, 3, 3],
+//  [1, 1, 2, 3, 3],
+//  [4, 4, 5, 6, 6],
+//  [7, 7, 8, 9, 9],
+//  [7, 7, 8, 9, 9]]
 
-# Asymmetric padding
+// Asymmetric padding
 let asymmetric_padded = pad(matrix, [[1, 2], [0, 3]], "constant", -1.0);
 print("Asymmetric padding: top=1, bottom=2, left=0, right=3, value=-1");
 print("Expected shape: [6, 6]");
 
 print();
 
-# =============================================================================
-# 2. EINSTEIN NOTATION INTEGRATION  
-# =============================================================================
+// =============================================================================
+// 2. EINSTEIN NOTATION INTEGRATION  
+// =============================================================================
 
 print("=== 2. EINSTEIN NOTATION WITH PADDING ===");
 
-# Convolution with padding using padded() function
+// Convolution with padding using padded() function
 fn conv2d_with_padding(input, kernel, padding_spec, mode) {
     let output[i, j] = sum[u in 0..3, v in 0..3](
         padded(input, padding_spec, mode, 0.0)[i+u, j+v] * kernel[u, v]
-    );  # 3x3 kernel
+    );  // 3x3 kernel
     
     output
 }
 
-# Edge detection kernel
+// Edge detection kernel
 let edge_kernel = [[-1, -1, -1], [0, 0, 0], [1, 1, 1]];
 
-# Apply convolution with different padding modes
+// Apply convolution with different padding modes
 let conv_constant = conv2d_with_padding(matrix, edge_kernel, [[1, 1], [1, 1]], "constant");
 let conv_reflect = conv2d_with_padding(matrix, edge_kernel, [[1, 1], [1, 1]], "reflect");
 
@@ -86,7 +86,7 @@ print("Convolution with reflect padding:");
 print("Same operation but with reflect padding for better edge handling");
 print();
 
-# Matrix multiplication with padded matrices
+// Matrix multiplication with padded matrices
 fn matmul_padded(a, b, pad_a, pad_b) {
     let padded_a = pad(a, pad_a, "constant", 0.0);
     let padded_b = pad(b, pad_b, "constant", 0.0);
@@ -104,18 +104,18 @@ print("A padded: [[0, 1], [1, 0]], B padded: [[1, 0], [0, 1]]");
 print("Demonstrates padding integration with Einstein notation");
 print();
 
-# =============================================================================
-# 3. ARRAY COMPREHENSION INTEGRATION
-# =============================================================================
+// =============================================================================
+// 3. ARRAY COMPREHENSION INTEGRATION
+// =============================================================================
 
 print("=== 3. ARRAY COMPREHENSIONS WITH PADDING ===");
 
-# Dynamic padding based on content
+// Dynamic padding based on content
 fn adaptive_padding_demo(input, threshold) {
-    # Find positions that need special handling
+    // Find positions that need special handling
     let high_value_positions = [(i, j) | input[i, j] > threshold];
     
-    # Create adaptive padding based on content
+    // Create adaptive padding based on content
     let adaptively_padded = [;
         if is_near_high_value(i, j, high_value_positions) { 
             input[clamp(i-1, 0, 2), clamp(j-1, 0, 2)] 
@@ -123,14 +123,14 @@ fn adaptive_padding_demo(input, threshold) {
             input[i-1, j-1] 
         } else { 
             0.0 
-        } | i in 0..5, j in 0..5  # 3x3 -> 5x5 with padding];
+        } | i in 0..5, j in 0..5  // 3x3 -> 5x5 with padding];
     
     adaptively_padded
 }
 
-# Helper functions for adaptive padding
+// Helper functions for adaptive padding
 fn is_near_high_value(i, j, positions) -> bool {
-    # Simplified check - in real implementation would check proximity
+    // Simplified check - in real implementation would check proximity
     (i, j) in positions
 }
 
@@ -148,34 +148,34 @@ print("Pads differently based on whether values > 6");
 print("High-value positions get special treatment");
 print();
 
-# Conditional padding with array comprehensions
+// Conditional padding with array comprehensions
 let conditional_padded = [;
     if i == 0 || i == 4 || j == 0 || j == 4 { 
-        -1.0  # Border value
+        -1.0  // Border value
     } else if i == 1 || i == 3 || j == 1 || j == 3 { 
-        matrix[(i-1)/2, (j-1)/2] * 0.5  # Interpolated value
+        matrix[(i-1)/2, (j-1)/2] * 0.5  // Interpolated value
     } else { 
-        matrix[i-2, j-2]  # Original value
+        matrix[i-2, j-2]  // Original value
     } | i in 0..5, j in 0..5];
 
 print("Conditional padding with array comprehensions:");
 print("Border: -1, Interpolated edges: 0.5x value, Center: original");
 print();
 
-# =============================================================================
-# 4. NEURAL NETWORK APPLICATIONS
-# =============================================================================
+// =============================================================================
+// 4. NEURAL NETWORK APPLICATIONS
+// =============================================================================
 
 print("=== 4. NEURAL NETWORK PADDING APPLICATIONS ===");
 
-# Same padding for convolution (output size = input size)
+// Same padding for convolution (output size = input size)
 fn conv2d_same_padding(input, kernel, stride) {
-    let input_h = 3;  # input.shape()[0] in real implementation;
-    let input_w = 3;  # input.shape()[1] in real implementation;
-    let kernel_h = 3; # kernel.shape()[0] in real implementation  ;
-    let kernel_w = 3; # kernel.shape()[1] in real implementation
+    let input_h = 3;  // input.shape()[0] in real implementation;
+    let input_w = 3;  // input.shape()[1] in real implementation;
+    let kernel_h = 3; // kernel.shape()[0] in real implementation  ;
+    let kernel_w = 3; // kernel.shape()[1] in real implementation
     
-    # Calculate padding for same output size
+    // Calculate padding for same output size
     let pad_h = (kernel_h - 1) / 2;
     let pad_w = (kernel_w - 1) / 2;
     
@@ -187,7 +187,7 @@ fn conv2d_same_padding(input, kernel, stride) {
     output
 }
 
-# Gaussian blur kernel  
+// Gaussian blur kernel  
 let blur_kernel = [[1, 2, 1], [2, 4, 2], [1, 2, 1]];
 let blurred = conv2d_same_padding(matrix, blur_kernel, [1, 1]);
 
@@ -196,7 +196,7 @@ print("Input size preserved: 3x3 -> 3x3");
 print("Padding automatically calculated for kernel size");
 print();
 
-# Pooling with padding
+// Pooling with padding
 fn max_pool_with_padding(input, pool_size, stride, padding_spec) {
     let output[i, j] = max[u in 0..pool_size[0], v in 0..pool_size[1]](
         padded(input, padding_spec, "replicate", 0.0)[i*stride[0]+u, j*stride[1]+v]
@@ -211,15 +211,15 @@ print("2x2 pool, stride 1, padding [[0,1], [0,1]]");
 print("Demonstrates padding with reduction operations");
 print();
 
-# =============================================================================
-# 5. ADVANCED PADDING PATTERNS
-# =============================================================================
+// =============================================================================
+// 5. ADVANCED PADDING PATTERNS
+// =============================================================================
 
 print("=== 5. ADVANCED PADDING PATTERNS ===");
 
-# Multi-mode padding (different modes for different dimensions)  
+// Multi-mode padding (different modes for different dimensions)  
 fn multi_mode_padding(input) {
-    # First pad height with reflect, then width with replicate
+    // First pad height with reflect, then width with replicate
     let height_padded = pad(input, [[1, 1], [0, 0]], "reflect", 0.0);
     let fully_padded = pad(height_padded, [[0, 0], [1, 1]], "replicate", 0.0);
     fully_padded
@@ -231,7 +231,7 @@ print("Height: reflect padding, Width: replicate padding");
 print("Allows different boundary handling per dimension");
 print();
 
-# Circular convolution with circular padding
+// Circular convolution with circular padding
 fn circular_convolution(input, kernel) {
     let output[i, j] = sum[u in 0..3, v in 0..3](
         padded(input, [[1, 1], [1, 1]], "circular", 0.0)[i+u, j+v] * kernel[u, v]
@@ -246,15 +246,15 @@ print("Wraps around boundaries - useful for periodic signals");
 print("Left edge connects to right edge, top to bottom");
 print();
 
-# Padding with shape validation
+// Padding with shape validation
 fn validated_padding(input, target_shape, mode) {
-    let input_h = 3;  # input.shape()[0] ;
-    let input_w = 3;  # input.shape()[1]
+    let input_h = 3;  // input.shape()[0] ;
+    let input_w = 3;  // input.shape()[1]
     
     let pad_h_total = target_shape[0] - input_h;
     let pad_w_total = target_shape[1] - input_w;
     
-    # Distribute padding evenly (prefer bottom-right for odd amounts)
+    // Distribute padding evenly (prefer bottom-right for odd amounts)
     let pad_h_before = pad_h_total / 2;
     let pad_h_after = pad_h_total - pad_h_before;
     let pad_w_before = pad_w_total / 2;
@@ -272,25 +272,25 @@ print("Original: [3, 3] -> Target: [7, 7]");
 print("Automatically calculates padding amounts");
 print();
 
-# =============================================================================
-# 6. INTEGRATION WITH EXISTING PATTERNS
-# =============================================================================
+// =============================================================================
+// 6. INTEGRATION WITH EXISTING PATTERNS
+// =============================================================================
 
 print("=== 6. BACKWARD COMPATIBILITY ===");
 
-# Traditional padding approach (still valid)
+// Traditional padding approach (still valid)
 fn conv2d_traditional(input, weight, bias, stride, padding) {
     let output[i, j] = sum[u, v](
         input[ih, iw] * weight[u, v]
     ) + bias[0] where ih = i*stride[0] + u - padding[0], 
                       iw = j*stride[1] + v - padding[1],
-                      ih >= 0, ih < 3,  # input bounds;
+                      ih >= 0, ih < 3,  // input bounds;
                       iw >= 0, iw < 3;
     
     output
 }
 
-# Enhanced padding approach (new capabilities)
+// Enhanced padding approach (new capabilities)
 fn conv2d_enhanced(input, weight, bias, stride, padding, mode) {
     let output[i, j] = sum[u, v](
         padded(input, padding, mode, 0.0)[i*stride[0] + u, j*stride[1] + v] * weight[u, v]
@@ -308,20 +308,20 @@ print("Enhanced approach: explicit padding with mode support");
 print("Both approaches coexist and serve different use cases");
 print();
 
-# =============================================================================
-# 7. PERFORMANCE OPTIMIZATION EXAMPLES
-# =============================================================================
+// =============================================================================
+// 7. PERFORMANCE OPTIMIZATION EXAMPLES
+// =============================================================================
 
 print("=== 7. PERFORMANCE OPTIMIZATION PATTERNS ===");
 
-# Pre-computed padding for batch operations
+// Pre-computed padding for batch operations
 fn batch_conv_with_precomputed_padding(batch_input, kernel, padding_spec, mode) {
-    # Pre-compute padding once for entire batch
-    let batch_size = 2;  # batch_input.shape()[0] in real implementation
+    // Pre-compute padding once for entire batch
+    let batch_size = 2;  // batch_input.shape()[0] in real implementation
     
     let padded_batch = [pad(batch_input[b], padding_spec, mode, 0.0) | b in 0..batch_size];
     
-    # Apply convolution to all padded inputs
+    // Apply convolution to all padded inputs
     let batch_output = [sum[u, v](padded_batch[b][i+u, j+v] * kernel[u, v]) | b in 0..batch_size, u in 0..3, v in 0..3];
     
     batch_output
@@ -331,10 +331,10 @@ print("Batch processing with pre-computed padding:");
 print("Pad once, convolve many - more efficient for batch operations");
 print();
 
-# Memory-efficient streaming padding
+// Memory-efficient streaming padding
 fn streaming_padded_convolution(input_stream, kernel, padding_spec) {
-    # For streaming data, only pad the necessary boundary regions
-    let stream_length = 10;  # Simulated stream length
+    // For streaming data, only pad the necessary boundary regions
+    let stream_length = 10;  // Simulated stream length
     
     let streaming_result = [sum[u, v](
             stream_element_with_padding(input_stream, i, padding_spec)[u, v] * kernel[u, v]
@@ -344,8 +344,8 @@ fn streaming_padded_convolution(input_stream, kernel, padding_spec) {
 }
 
 fn stream_element_with_padding(stream, index, padding_spec) -> tensor {
-    # Simplified: appropriate padded window for streaming
-    # In real implementation, would efficiently manage boundary conditions
+    // Simplified: appropriate padded window for streaming
+    // In real implementation, would efficiently manage boundary conditions
     [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
 }
 

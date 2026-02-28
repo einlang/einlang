@@ -1,124 +1,124 @@
-# stdlib_v2/array.ein - Array operations (single-file module)
-# Demonstrates single-file approach vs directory approach
+// stdlib_v2/array.ein - Array operations (single-file module)
+// Demonstrates single-file approach vs directory approach
 
 pub fn flatten(arr) {
-    # Flatten 2D array to 1D (row-major order)
-    # For batched inputs, use Einstein notation directly: let flat[..batch, k] = arr[..batch, i, j] where ...
+    // Flatten 2D array to 1D (row-major order)
+    // For batched inputs, use Einstein notation directly: let flat[..batch, k] = arr[..batch, i, j] where ...
     assert(typeof(arr) == "rectangular", "flatten: argument must be rectangular array");
     
     if len(arr) == 0 {
         []
     } else {
-        # Row-major flattening
+        // Row-major flattening
         [arr[i, j] | i in 0..len(arr), j in 0..len(arr[0])]
     }
 }
 
 pub fn transpose(matrix) {
-    # Transpose 2D matrix or batched 2D matrices
-    # For 2D input [i, j]: transposes to [j, i]
-    # For 3D batched input [batch, i, j]: transposes to [batch, j, i] using rest patterns
+    // Transpose 2D matrix or batched 2D matrices
+    // For 2D input [i, j]: transposes to [j, i]
+    // For 3D batched input [batch, i, j]: transposes to [batch, j, i] using rest patterns
     assert(typeof(matrix) == "rectangular", "transpose: argument must be rectangular array");
     assert(len(matrix) > 0, "transpose: cannot transpose empty array");
     
-    # For batched inputs [batch, i, j], transpose the last two dimensions
-    # Shape inference automatically handles dimensions from the input array
+    // For batched inputs [batch, i, j], transpose the last two dimensions
+    // Shape inference automatically handles dimensions from the input array
     let output[..batch, j, i] = matrix[..batch, i, j];
     output
 }
 
 pub fn sum(arr) {
-    # Sum all elements in array
+    // Sum all elements in array
     assert(typeof(arr) == "rectangular", "sum: argument must be rectangular array");
     
     if len(arr) == 0 {
         0
     } else {
-        sum[i](arr[i])  # Built-in reduction
+        sum[i](arr[i])  // Built-in reduction
     }
 }
 
 pub fn concatenate(arr1, arr2) {
-    # Concatenate two 1D arrays using comprehensions
+    // Concatenate two 1D arrays using comprehensions
     assert(typeof(arr1) == "rectangular", "concatenate: first argument must be a rectangular array");
     assert(typeof(arr2) == "rectangular", "concatenate: second argument must be a rectangular array");
     
-    # Create concatenated array using comprehensions
+    // Create concatenated array using comprehensions
     [if i < len(arr1) { arr1[i] } else { arr2[i - len(arr1)] } | i in 0..(len(arr1) + len(arr2))]
 }
 
-# ============================================================================
-# Argmax/Argmin Operations
-# ============================================================================
+// ============================================================================
+// Argmax/Argmin Operations
+// ============================================================================
 
 pub fn argmax(arr) {
-    # Returns index of first occurrence of maximum value
-    # Simple linear search algorithm: O(n)
+    // Returns index of first occurrence of maximum value
+    // Simple linear search algorithm: O(n)
     assert(typeof(arr) == "rectangular", "argmax: argument must be rectangular array");
     assert(len(arr) > 0, "argmax: cannot find argmax of empty array");
     
-    # Find max value first, then find its first index
+    // Find max value first, then find its first index
     let max_val = max[i](arr[i]);
     
-    # Linear search for first occurrence using comprehension
+    // Linear search for first occurrence using comprehension
     let indices = [i | i in 0..len(arr), arr[i] == max_val];
     indices[0]
 }
 
 pub fn argmin(arr) {
-    # Returns index of first occurrence of minimum value
-    # Simple linear search algorithm: O(n)
+    // Returns index of first occurrence of minimum value
+    // Simple linear search algorithm: O(n)
     assert(typeof(arr) == "rectangular", "argmin: argument must be rectangular array");
     assert(len(arr) > 0, "argmin: cannot find argmin of empty array");
     
-    # Find min value first, then find its first index
+    // Find min value first, then find its first index
     let min_val = min[i](arr[i]);
     
-    # Linear search for first occurrence
-    # Use comprehension to find the index
+    // Linear search for first occurrence
+    // Use comprehension to find the index
     let indices = [i | i in 0..len(arr), arr[i] == min_val];
     indices[0]
 }
 
 pub fn argmax_all(arr) {
-    # Returns all indices where the maximum value occurs
-    # Algorithm: Find max value, then find all indices with that value
-    # This requires two passes (unavoidable for "all" variant)
+    // Returns all indices where the maximum value occurs
+    // Algorithm: Find max value, then find all indices with that value
+    // This requires two passes (unavoidable for "all" variant)
     assert(typeof(arr) == "rectangular", "argmax_all: argument must be rectangular array");
     assert(len(arr) > 0, "argmax_all: cannot find argmax of empty array");
     
-    # Find max value (single pass via reduction)
+    // Find max value (single pass via reduction)
     let max_val = max[i](arr[i]);
-    # Find all indices where value equals max (second pass)
+    // Find all indices where value equals max (second pass)
     [i | i in 0..len(arr), arr[i] == max_val]
 }
 
 pub fn argmin_all(arr) {
-    # Returns all indices where the minimum value occurs
-    # Algorithm: Find min value, then find all indices with that value
-    # This requires two passes (unavoidable for "all" variant)
+    // Returns all indices where the minimum value occurs
+    // Algorithm: Find min value, then find all indices with that value
+    // This requires two passes (unavoidable for "all" variant)
     assert(typeof(arr) == "rectangular", "argmin_all: argument must be rectangular array");
     assert(len(arr) > 0, "argmin_all: cannot find argmin of empty array");
     
-    # Find min value (single pass via reduction)
+    // Find min value (single pass via reduction)
     let min_val = min[i](arr[i]);
-    # Find all indices where value equals min (second pass)
+    // Find all indices where value equals min (second pass)
     [i | i in 0..len(arr), arr[i] == min_val]
 }
 
-# ============================================================================
-# Partition Operations
-# ============================================================================
+// ============================================================================
+// Partition Operations
+// ============================================================================
 
 pub fn partition(arr, pivot) {
-    # Partitions 1D array around pivot value into three arrays: (smaller, equal, larger)
-    # Returns tuple (smaller, equal, larger) where:
-    #   - smaller: elements < pivot
-    #   - equal: elements == pivot
-    #   - larger: elements > pivot
-    # Time: O(n) single pass
-    # Note: Arrays created from comprehensions are always rectangular, so we can skip the typeof check
-    # The caller (topk) already ensures the array is properly formatted
+    // Partitions 1D array around pivot value into three arrays: (smaller, equal, larger)
+    // Returns tuple (smaller, equal, larger) where:
+    //   - smaller: elements < pivot
+    //   - equal: elements == pivot
+    //   - larger: elements > pivot
+    // Time: O(n) single pass
+    // Note: Arrays created from comprehensions are always rectangular, so we can skip the typeof check
+    // The caller (topk) already ensures the array is properly formatted
     
     if len(arr) == 0 {
         ([], [], [])
@@ -131,27 +131,27 @@ pub fn partition(arr, pivot) {
 }
 
 pub fn partition_2d(arr, pivot, axis) {
-    # Partitions 2D tensor along specified axis around pivot value
-    # Returns tuple (smaller, equal, larger) where each is a 2D array
-    # 
-    # Parameters:
-    #   - arr: 2D tensor to partition
-    #   - pivot: pivot value for partitioning
-    #   - axis: axis along which to partition (0 = rows, 1 = columns)
-    # 
-    # For axis=0 (partition rows):
-    #   - Partitions rows based on comparing elements along axis 1
-    #   - Returns rows where all elements < pivot, == pivot, > pivot
-    # 
-    # For axis=1 (partition columns):
-    #   - Partitions columns based on comparing elements along axis 0
-    #   - Returns columns where all elements < pivot, == pivot, > pivot
-    # 
-    # Time: O(n*m) where n=rows, m=cols
-    # 
-    # Example (axis=0):
-    #   arr = [[1.0, 2.0], [5.0, 6.0], [3.0, 4.0]], pivot = 3.0, axis = 0
-    #   Returns: (smaller=[[1.0, 2.0]], equal=[[3.0, 4.0]], larger=[[5.0, 6.0]])
+    // Partitions 2D tensor along specified axis around pivot value
+    // Returns tuple (smaller, equal, larger) where each is a 2D array
+    // 
+    // Parameters:
+    //   - arr: 2D tensor to partition
+    //   - pivot: pivot value for partitioning
+    //   - axis: axis along which to partition (0 = rows, 1 = columns)
+    // 
+    // For axis=0 (partition rows):
+    //   - Partitions rows based on comparing elements along axis 1
+    //   - Returns rows where all elements < pivot, == pivot, > pivot
+    // 
+    // For axis=1 (partition columns):
+    //   - Partitions columns based on comparing elements along axis 0
+    //   - Returns columns where all elements < pivot, == pivot, > pivot
+    // 
+    // Time: O(n*m) where n=rows, m=cols
+    // 
+    // Example (axis=0):
+    //   arr = [[1.0, 2.0], [5.0, 6.0], [3.0, 4.0]], pivot = 3.0, axis = 0
+    //   Returns: (smaller=[[1.0, 2.0]], equal=[[3.0, 4.0]], larger=[[5.0, 6.0]])
     
     assert(typeof(arr) == "rectangular", "partition_2d: argument must be rectangular array");
     assert(len(arr) > 0, "partition_2d: cannot partition empty array");
@@ -160,28 +160,28 @@ pub fn partition_2d(arr, pivot, axis) {
     let w = len(arr[0]);
     
     if axis == 0 {
-        # Partition rows: compare each row's elements to pivot
-        # A row goes to smaller if all elements < pivot
-        # A row goes to equal if all elements == pivot
-        # A row goes to larger if all elements > pivot
-        # Otherwise, row is split (elements go to appropriate partition)
-        # For simplicity, we partition row-wise: each row where any element matches criterion
+        // Partition rows: compare each row's elements to pivot
+        // A row goes to smaller if all elements < pivot
+        // A row goes to equal if all elements == pivot
+        // A row goes to larger if all elements > pivot
+        // Otherwise, row is split (elements go to appropriate partition)
+        // For simplicity, we partition row-wise: each row where any element matches criterion
         
-        # Collect rows where all elements in row are < pivot
+        // Collect rows where all elements in row are < pivot
         let smaller_rows = [
             [arr[i, j] | j in 0..w]
             | i in 0..h
             , (min[j](arr[i, j]) < pivot) && (max[j](arr[i, j]) < pivot)
         ];
         
-        # Collect rows where all elements in row are == pivot
+        // Collect rows where all elements in row are == pivot
         let equal_rows = [
             [arr[i, j] | j in 0..w]
             | i in 0..h
             , (min[j](arr[i, j]) == pivot) && (max[j](arr[i, j]) == pivot)
         ];
         
-        # Collect rows where all elements in row are > pivot
+        // Collect rows where all elements in row are > pivot
         let larger_rows = [
             [arr[i, j] | j in 0..w]
             | i in 0..h
@@ -190,8 +190,8 @@ pub fn partition_2d(arr, pivot, axis) {
         
         (smaller_rows, equal_rows, larger_rows)
     } else {
-        # axis == 1: Partition columns
-        # Collect columns where all elements in column are < pivot
+        // axis == 1: Partition columns
+        // Collect columns where all elements in column are < pivot
         let smaller_count = len([j | j in 0..w, (min[i](arr[i, j]) < pivot) && (max[i](arr[i, j]) < pivot)]);
         let smaller_cols = if smaller_count == 0 {
             [[]]
@@ -203,7 +203,7 @@ pub fn partition_2d(arr, pivot, axis) {
             ]
         };
         
-        # Collect columns where all elements in column are == pivot
+        // Collect columns where all elements in column are == pivot
         let equal_count = len([j | j in 0..w, (min[i](arr[i, j]) == pivot) && (max[i](arr[i, j]) == pivot)]);
         let equal_cols = if equal_count == 0 {
             [[]]
@@ -215,7 +215,7 @@ pub fn partition_2d(arr, pivot, axis) {
             ]
         };
         
-        # Collect columns where all elements in column are > pivot
+        // Collect columns where all elements in column are > pivot
         let larger_count = len([j | j in 0..w, (min[i](arr[i, j]) > pivot) && (max[i](arr[i, j]) > pivot)]);
         let larger_cols = if larger_count == 0 {
             [[]]
@@ -227,7 +227,7 @@ pub fn partition_2d(arr, pivot, axis) {
             ]
         };
         
-        # Transpose to get column vectors as rows (preserve 2D structure)
+        // Transpose to get column vectors as rows (preserve 2D structure)
         let smaller = if len(smaller_cols) > 0 && len(smaller_cols[0]) > 0 {
             [[smaller_cols[j][i] | j in 0..len(smaller_cols)] | i in 0..h]
         } else {
@@ -248,14 +248,14 @@ pub fn partition_2d(arr, pivot, axis) {
     }
 }
 
-# ============================================================================
-# TopK Operations - Internal Helpers
-# ============================================================================
+// ============================================================================
+// TopK Operations - Internal Helpers
+// ============================================================================
 
-# Helper: Sort array in descending order using quicksort
+// Helper: Sort array in descending order using quicksort
 fn sort_descending(arr) {
-    # Quicksort in descending order (largest first)
-    # Used to sort topk results
+    // Quicksort in descending order (largest first)
+    // Used to sort topk results
     if len(arr) <= 1 {
         arr
     } else {
@@ -266,7 +266,7 @@ fn sort_descending(arr) {
         let smaller = [rest[i] | i in 0..len(rest), rest[i] < pivot];
         let sorted_larger = sort_descending(larger);
         let sorted_smaller = sort_descending(smaller);
-        # Concatenate: sorted_larger + [pivot] + equal + sorted_smaller
+        // Concatenate: sorted_larger + [pivot] + equal + sorted_smaller
         let total_len = len(sorted_larger) + 1 + len(equal) + len(sorted_smaller);
         let result[i in 0..total_len] = if i < len(sorted_larger) {
             sorted_larger[i]
@@ -285,9 +285,9 @@ fn sort_descending(arr) {
     }
 }
 
-# Helper: Sort array with indices in descending order by values
+// Helper: Sort array with indices in descending order by values
 fn sort_descending_with_indices(arr, indices) {
-    # Sort both arrays together by values in descending order
+    // Sort both arrays together by values in descending order
     if len(arr) <= 1 {
         (arr, indices)
     } else {
@@ -303,7 +303,7 @@ fn sort_descending_with_indices(arr, indices) {
         let smaller_idxs = [rest_idxs[i] | i in 0..len(rest_vals), rest_vals[i] < pivot_val];
         let sorted_larger = sort_descending_with_indices(larger_vals, larger_idxs);
         let sorted_smaller = sort_descending_with_indices(smaller_vals, smaller_idxs);
-        # Concatenate: sorted_larger + [pivot] + equal + sorted_smaller
+        // Concatenate: sorted_larger + [pivot] + equal + sorted_smaller
         let total_len = len(sorted_larger.0) + 1 + len(equal_vals) + len(sorted_smaller.0);
         let result_vals[i in 0..total_len] = if i < len(sorted_larger.0) {
             sorted_larger.0[i]
@@ -335,24 +335,24 @@ fn sort_descending_with_indices(arr, indices) {
     }
 }
 
-# ============================================================================
-# TopK Operations - Core Algorithms
-# ============================================================================
-# Note: For full-featured topk with axis support, use std::ml::topk
-# These functions provide the core quickselect algorithms used internally
+// ============================================================================
+// TopK Operations - Core Algorithms
+// ============================================================================
+// Note: For full-featured topk with axis support, use std::ml::topk
+// These functions provide the core quickselect algorithms used internally
 
 pub fn topk_extract(arr, k) {
-    # Quickselect-based topk using partition
-    # Partition around pivot and recursively select from appropriate partition
-    # Returns sorted results (descending order)
+    // Quickselect-based topk using partition
+    // Partition around pivot and recursively select from appropriate partition
+    // Returns sorted results (descending order)
     if k == 0 {
         []
     } else {
         if len(arr) <= k {
-            # Return all elements if k >= array length, sorted descending
+            // Return all elements if k >= array length, sorted descending
             sort_descending(arr)
         } else {
-            # Partition around median pivot
+            // Partition around median pivot
             let pivot = arr[len(arr) / 2];
             let larger = [arr[i] | i in 0..len(arr), arr[i] > pivot];
             let equal = [arr[i] | i in 0..len(arr), arr[i] == pivot];
@@ -361,21 +361,21 @@ pub fn topk_extract(arr, k) {
             let equal_count = len(equal);
             
             if k <= larger_count {
-                # Top k are all in larger partition
+                // Top k are all in larger partition
                 topk_extract(larger, k)
             } else {
                 if k <= larger_count + equal_count {
-                    # Need all larger + some equal elements
+                    // Need all larger + some equal elements
                     let needed_equal = k - larger_count;
                     let equal_subset = [equal[i] | i in 0..needed_equal];
-                    # Concatenate larger + needed equal, then sort
+                    // Concatenate larger + needed equal, then sort
                     let unsorted = [if i < larger_count { larger[i] } else { equal_subset[i - larger_count] } | i in 0..k];
                     sort_descending(unsorted)
                 } else {
-                    # Need elements from all three partitions
+                    // Need elements from all three partitions
                     let needed_smaller = k - larger_count - equal_count;
                     let smaller_top = topk_extract(smaller, needed_smaller);
-                    # Concatenate: larger + equal + top of smaller, then sort
+                    // Concatenate: larger + equal + top of smaller, then sort
                     let unsorted = [
                         if i < larger_count {
                             larger[i]
@@ -396,19 +396,19 @@ pub fn topk_extract(arr, k) {
 }
 
 pub fn topk_with_indices_extract(arr, indices, k) {
-    # Quickselect-based topk with index tracking using partition
+    // Quickselect-based topk with index tracking using partition
     if k == 0 {
         ([], [])
     } else {
         if len(arr) <= k {
-            # Return all elements with their indices, sorted descending
+            // Return all elements with their indices, sorted descending
             sort_descending_with_indices(arr, indices)
         } else {
-            # Partition around median pivot
+            // Partition around median pivot
             let n = len(arr);
             let pivot = arr[n / 2];
             
-            # Partition values and track indices
+            // Partition values and track indices
             let larger_vals = [arr[i] | i in 0..n, arr[i] > pivot];
             let larger_idxs = [indices[i] | i in 0..n, arr[i] > pivot];
             let equal_vals = [arr[i] | i in 0..n, arr[i] == pivot];
@@ -420,25 +420,25 @@ pub fn topk_with_indices_extract(arr, indices, k) {
             let equal_count = len(equal_vals);
             
             if k <= larger_count {
-                # Top k are all in larger partition
+                // Top k are all in larger partition
                 topk_with_indices_extract(larger_vals, larger_idxs, k)
             } else {
                 if k <= larger_count + equal_count {
-                    # Need all larger + some equal elements
+                    // Need all larger + some equal elements
                     let needed_equal = k - larger_count;
                     let equal_vals_subset = [equal_vals[i] | i in 0..needed_equal];
                     let equal_idxs_subset = [equal_idxs[i] | i in 0..needed_equal];
-                    # Concatenate larger + needed equal, then sort
+                    // Concatenate larger + needed equal, then sort
                     let unsorted_vals = [if i < larger_count { larger_vals[i] } else { equal_vals_subset[i - larger_count] } | i in 0..k];
                     let unsorted_idxs = [if i < larger_count { larger_idxs[i] } else { equal_idxs_subset[i - larger_count] } | i in 0..k];
                     sort_descending_with_indices(unsorted_vals, unsorted_idxs)
                 } else {
-                    # Need elements from all three partitions
+                    // Need elements from all three partitions
                     let needed_smaller = k - larger_count - equal_count;
                     let smaller_result = topk_with_indices_extract(smaller_vals, smaller_idxs, needed_smaller);
                     let smaller_top_vals = smaller_result.0;
                     let smaller_top_idxs = smaller_result.1;
-                    # Concatenate: larger + equal + top of smaller, then sort
+                    // Concatenate: larger + equal + top of smaller, then sort
                     let unsorted_vals = [
                         if i < larger_count {
                             larger_vals[i]
