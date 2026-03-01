@@ -42,60 +42,50 @@ def test_global_pool_ops(compiler, runtime):
                                np.mean(x_3d, axis=(-3, -2, -1), keepdims=True), rtol=1e-6)
 
 
-def test_max_avg_pool_ops(compiler, runtime):
-    """Test max_pool and average_pool (1D, 2D, 3D) and max_roi_pool."""
+def test_max_avg_pool_1d_2d(compiler, runtime):
+    """Test max_pool and average_pool for 1D and 2D spatial inputs."""
     source = """use std::ml;
     let x = [[[[1.0, 2.0], [3.0, 4.0]]]];
-    let x_1d_pool = [[[1.0, 2.0, 3.0, 4.0, 5.0]]];
-    let pool_1d = 2;
-    let stride_1d = 2;
-    let pad_1d = 0;
-    let pool_h = 2;
-    let pool_w = 2;
-    let stride_h = 2;
-    let stride_w = 2;
-    let pad_h = 0;
-    let pad_w = 0;
-    let x_3d_pool = [[[[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]]];
-    let pool_3d_d = 2;
-    let pool_3d_h = 2;
-    let pool_3d_w = 2;
-    let stride_3d_d = 1;
-    let stride_3d_h = 1;
-    let stride_3d_w = 1;
-    let pad_3d_d = 0;
-    let pad_3d_h = 0;
-    let pad_3d_w = 0;
-    let x_roi = [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]]];
-    let rois = [[0, 0, 0, 2, 2]];
-    let pooled_shape = [2, 2];
-    let spatial_scale = 1.0;
-    let result_max_pool_1d = std::ml::max_pool(x_1d_pool, [pool_1d], [stride_1d], [pad_1d]);
-    let result_avg_pool_1d = std::ml::average_pool(x_1d_pool, [pool_1d], [stride_1d], [pad_1d]);
-    let result_1 = std::ml::max_pool(x, [pool_h, pool_w], [stride_h, stride_w], [pad_h, pad_w]);
-    let result_2 = std::ml::average_pool(x, [pool_h, pool_w], [stride_h, stride_w], [pad_h, pad_w]);
-    let result_max_pool_3d = std::ml::max_pool(x_3d_pool, [pool_3d_d, pool_3d_h, pool_3d_w], [stride_3d_d, stride_3d_h, stride_3d_w], [pad_3d_d, pad_3d_h, pad_3d_w]);
-    let result_avg_pool_3d = std::ml::average_pool(x_3d_pool, [pool_3d_d, pool_3d_h, pool_3d_w], [stride_3d_d, stride_3d_h, stride_3d_w], [pad_3d_d, pad_3d_h, pad_3d_w]);
-    let result_5 = std::ml::max_roi_pool(x_roi, rois, pooled_shape, spatial_scale);
+    let x_1d = [[[1.0, 2.0, 3.0, 4.0, 5.0]]];
+    let result_max_1d = std::ml::max_pool(x_1d, [2], [2], [0]);
+    let result_avg_1d = std::ml::average_pool(x_1d, [2], [2], [0]);
+    let result_max_2d = std::ml::max_pool(x, [2, 2], [2, 2], [0, 0]);
+    let result_avg_2d = std::ml::average_pool(x, [2, 2], [2, 2], [0, 0]);
     """
     result = compile_and_execute(source, compiler, runtime)
     assert result.success, f"Execution failed: {result.errors}"
 
-    np.testing.assert_allclose(np.array(result.outputs['result_max_pool_1d']),
+    np.testing.assert_allclose(np.array(result.outputs['result_max_1d']),
                                np.array([[[2.0, 4.0]]], dtype=np.float32), rtol=1e-6)
-    np.testing.assert_allclose(np.array(result.outputs['result_avg_pool_1d']),
+    np.testing.assert_allclose(np.array(result.outputs['result_avg_1d']),
                                np.array([[[1.5, 3.5]]], dtype=np.float32), rtol=1e-5)
-    np.testing.assert_allclose(np.array(result.outputs['result_1']),
+    np.testing.assert_allclose(np.array(result.outputs['result_max_2d']),
                                np.array([[[[4.0]]]]), rtol=1e-6)
-    np.testing.assert_allclose(np.array(result.outputs['result_2']),
+    np.testing.assert_allclose(np.array(result.outputs['result_avg_2d']),
                                np.array([[[[2.5]]]]), rtol=1e-5)
-    np.testing.assert_allclose(np.array(result.outputs['result_max_pool_3d']),
+
+
+def test_max_avg_pool_3d_roi(compiler, runtime):
+    """Test max_pool and average_pool for 3D spatial inputs, and max_roi_pool."""
+    source = """use std::ml;
+    let x_3d = [[[[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]]];
+    let x_roi = [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]]];
+    let rois = [[0, 0, 0, 2, 2]];
+    let pooled_shape = [2, 2];
+    let result_max_3d = std::ml::max_pool(x_3d, [2, 2, 2], [1, 1, 1], [0, 0, 0]);
+    let result_avg_3d = std::ml::average_pool(x_3d, [2, 2, 2], [1, 1, 1], [0, 0, 0]);
+    let result_roi = std::ml::max_roi_pool(x_roi, rois, pooled_shape, 1.0);
+    """
+    result = compile_and_execute(source, compiler, runtime)
+    assert result.success, f"Execution failed: {result.errors}"
+
+    np.testing.assert_allclose(np.array(result.outputs['result_max_3d']),
                                np.array([[[[[8.0]]]]], dtype=np.float32), rtol=1e-6)
-    np.testing.assert_allclose(np.array(result.outputs['result_avg_pool_3d']),
+    np.testing.assert_allclose(np.array(result.outputs['result_avg_3d']),
                                np.array([[[[[4.5]]]]], dtype=np.float32), rtol=1e-5)
     x_roi = np.array([[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]]], dtype=np.float32)
-    expected_roi = x_roi[0, 0, 0:2, 0:2].reshape(1, 1, 2, 2)
-    np.testing.assert_allclose(np.array(result.outputs['result_5']), expected_roi, rtol=1e-5)
+    np.testing.assert_allclose(np.array(result.outputs['result_roi']),
+                               x_roi[0, 0, 0:2, 0:2].reshape(1, 1, 2, 2), rtol=1e-5)
 
 
 def test_lp_pool_ops(compiler, runtime):
