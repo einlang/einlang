@@ -69,11 +69,21 @@ def _safe_ne(v, l, r):
             return True
 
 
+def _both_integer(l, r):
+    def _is_int(x):
+        if isinstance(x, (int, np.integer)):
+            return True
+        if isinstance(x, np.ndarray):
+            return np.issubdtype(x.dtype, np.integer)
+        return False
+    return _is_int(l) and _is_int(r)
+
+
 _BINARY_OP_MAP = {
     BinaryOp.ADD: lambda v, l, r: l + r,
     BinaryOp.SUB: lambda v, l, r: l - r,
     BinaryOp.MUL: lambda v, l, r: l * r,
-    BinaryOp.DIV: lambda v, l, r: l // r if isinstance(l, (int, np.integer)) and isinstance(r, (int, np.integer)) else _safe_true_divide(l, r),
+    BinaryOp.DIV: lambda v, l, r: l // r if _both_integer(l, r) else _safe_true_divide(l, r),
     BinaryOp.MOD: lambda v, l, r: _safe_mod(l, r),
     BinaryOp.POW: lambda v, l, r: l ** r,
     BinaryOp.EQ: _safe_eq,

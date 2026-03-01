@@ -69,6 +69,17 @@ def _try_vectorized_reduction(
         if not isinstance(result, np.ndarray):
             return False, None
 
+        expected_shape = tuple(arr.size for arr in arrs)
+        if result.shape != expected_shape:
+            return False, None
+
+        spot_ctx = {}
+        for defid, arr in zip(defids, arrs):
+            spot_ctx[defid] = int(arr.flat[0])
+        spot_val = body_evaluator(spot_ctx)
+        if isinstance(spot_val, np.ndarray):
+            return False, None
+
         if reduction_op == 'sum':
             return True, result.sum()
         elif reduction_op == 'max':

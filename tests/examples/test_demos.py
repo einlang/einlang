@@ -89,7 +89,6 @@ class TestDemos:
         output = result.stdout.strip()
         assert output == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]", f"unexpected output: {output!r}"
 
-    @pytest.mark.skip(reason="too slow for CI — Einstein loops not yet optimized")
     def test_deit_tiny(self):
         """Run examples/deit_tiny/main.ein and verify ImageNet predictions."""
         project_root = Path(__file__).parent.parent.parent
@@ -116,7 +115,7 @@ class TestDemos:
         )
         assert result.returncode == 0, result.stderr or result.stdout
         output = result.stdout.strip()
-        assert output == "[285, 207, 949]", f"unexpected output: {output!r}"
+        assert output == "['Egyptian Mau', 'Golden Retriever', 'strawberry']", f"unexpected output: {output!r}"
 
 
 if __name__ == "__main__":
