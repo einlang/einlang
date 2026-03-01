@@ -66,35 +66,28 @@ class TestDemos:
                 return
             pytest.fail(f"{demo_name} exception: {e}")
 
-    def test_mnist_onnx_arch(self):
-        """Verify mnist_onnx_arch.ein runs and outputs a digit prediction 0..9.
-
-        Requires pre-exported weights in examples/demos/mnist_weights/ and a
-        previously saved input.npy (written by run_mnist_onnx_with_image.py).
-        Skipped when those files are absent.
-        """
+    def test_mnist(self):
+        """Run examples/mnist/main.ein and verify 10/10 digit predictions."""
         project_root = Path(__file__).parent.parent.parent
-        demos_dir = project_root / "examples" / "demos"
-        weights_dir = demos_dir / "mnist_weights"
-        arch_ein = demos_dir / "mnist_onnx_arch.ein"
+        mnist_dir = project_root / "examples" / "mnist"
+        main_ein = mnist_dir / "main.ein"
 
-        required = [weights_dir / n for n in
+        required = [mnist_dir / "weights" / n for n in
                     ("conv1_w.npy", "conv1_b.npy", "conv2_w.npy", "conv2_b.npy",
-                     "fc_w.npy", "fc_b.npy", "input.npy")]
+                     "fc_w.npy", "fc_b.npy")]
+        required += [mnist_dir / "samples" / f"{i}.pgm" for i in range(10)]
         missing = [str(p) for p in required if not p.exists()]
-        if missing:
-            pytest.skip(f"mnist_weights not ready: {missing}")
+        assert not missing, f"mnist data missing: {missing}"
 
         result = subprocess.run(
-            [sys.executable, "-m", "einlang", str(arch_ein)],
-            capture_output=True, text=True, cwd=demos_dir,
+            [sys.executable, "-m", "einlang", str(main_ein)],
+            capture_output=True, text=True, cwd=mnist_dir,
             env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
             timeout=300,
         )
         assert result.returncode == 0, result.stderr or result.stdout
-        pred = result.stdout.strip()
-        assert pred.lstrip("-").isdigit(), f"expected a digit, got: {pred!r}"
-        assert 0 <= int(pred) <= 9, f"prediction out of range: {pred}"
+        output = result.stdout.strip()
+        assert output == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]", f"unexpected output: {output!r}"
 
 
 if __name__ == "__main__":
