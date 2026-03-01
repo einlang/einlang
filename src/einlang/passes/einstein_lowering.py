@@ -97,9 +97,15 @@ class EinsteinLoweringPass(BasePass):
         specialized_list = getattr(tcx, 'specialized_functions', []) or []
         def body_contains_lowerable(node, seen=None):
             seen = seen or set()
-            if node is None or id(node) in seen:
+            if node is None:
                 return False
-            seen.add(id(node))
+            if isinstance(node, (list, tuple)):
+                return any(body_contains_lowerable(x, seen) for x in node)
+            if isinstance(node, dict):
+                return any(body_contains_lowerable(x, seen) for x in node.values())
+            if node in seen:
+                return False
+            seen.add(node)
             if type(node).__name__ in ('ArrayComprehensionIR', 'ReductionExpressionIR') or is_einstein_binding(node):
                 return True
             for attr in ('body', 'final_expr', 'then_expr', 'else_expr', 'condition', 'value', 'expr', 'array', 'left', 'right', 'object', 'scrutinee'):
@@ -132,9 +138,9 @@ class EinsteinLoweringPass(BasePass):
             for func in specialized_list:
                 if not is_function_binding(func) or is_generic_function(func):
                     continue
-                if id(func) in lowered_ids:
+                if func in lowered_ids:
                     continue
-                lowered_ids.add(id(func))
+                lowered_ids.add(func)
                 lower_function_body(func, "specialized_list")
 
 
@@ -142,11 +148,11 @@ class EinsteinLoweringPass(BasePass):
             for func in function_ir_map.values():
                 if not is_function_binding(func) or not getattr(func, 'body', None):
                     continue
-                if id(func) in lowered_ids:
+                if func in lowered_ids:
                     continue
                 if is_generic_function(func):
                     continue
-                lowered_ids.add(id(func))
+                lowered_ids.add(func)
                 lower_function_body(func, "function_ir_map")
 
         for func in ir.functions:
@@ -155,9 +161,9 @@ class EinsteinLoweringPass(BasePass):
                 continue
             if is_generic_function(func):
                 continue
-            if id(func) in lowered_ids:
+            if func in lowered_ids:
                 continue
-            lowered_ids.add(id(func))
+            lowered_ids.add(func)
             lower_function_body(func, "ir.functions")
 
         return ir
@@ -211,7 +217,7 @@ class RestPatternReplacer(IRVisitor[ExpressionIR]):
                 )
             res = idx.accept(self) if hasattr(idx, "accept") else idx
             indices.append(res if res is not None else idx)
-        node.indices = indices
+        node.indices = tuple(indices)
         return node
     
     def visit_reduction_expression(self, node: ReductionExpressionIR) -> ExpressionIR:
@@ -232,17 +238,17 @@ class RestPatternReplacer(IRVisitor[ExpressionIR]):
     
     def visit_function_call(self, node) -> ExpressionIR:
         """Transform function call arguments"""
-        node.arguments = [arg.accept(self) for arg in node.arguments]
+        node.arguments = tuple(arg.accept(self) for arg in node.arguments)
         return node
     
     def visit_array_literal(self, node) -> ExpressionIR:
         """Transform array literal elements"""
-        node.elements = [elem.accept(self) for elem in node.elements]
+        node.elements = tuple(elem.accept(self) for elem in node.elements)
         return node
     
     def visit_tuple_literal(self, node) -> ExpressionIR:
         """Transform tuple literal elements"""
-        node.elements = [elem.accept(self) for elem in node.elements]
+        node.elements = tuple(elem.accept(self) for elem in node.elements)
         return node
     
     def visit_tuple_access(self, node) -> ExpressionIR:
@@ -317,7 +323,7 @@ class RestPatternReplacer(IRVisitor[ExpressionIR]):
         return node
     
     def visit_builtin_call(self, node) -> ExpressionIR:
-        node.args = [arg.accept(self) for arg in node.args]
+        node.args = tuple(arg.accept(self) for arg in node.args)
         return node
     
     def visit_cast_expression(self, node) -> ExpressionIR:
@@ -538,7 +544,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             else:
                 i += 1
 
-        node.indices = indices
+        node.indices = tuple(indices)
         
         for loop in loops:
             v = getattr(loop, "variable", None)
@@ -581,7 +587,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 # reduction_ranges so runtime has loop vars (e.g. j) with correct DefIds.
                 from ..ir.nodes import LoweredReductionIR
                 if isinstance(result, LoweredReductionIR) and reduction_ranges and not result.loops:
-                    result.loops = list(reduction_ranges.values())
+                    result.loops = tuple(reduction_ranges.values())
         
         # Extract bindings and guards from where_clause
         bindings, guards = self._extract_bindings_and_guards(node.where_clause)
@@ -1481,33 +1487,39 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         if node.array is not None:
             node.array = node.array.accept(self)
         indices = getattr(node, 'indices', None) or []
-        for i, idx in enumerate(indices):
+        new_indices = []
+        for idx in indices:
             if idx is None:
                 raise ValueError("IR index slot is None")
             res = idx.accept(self)
             if res is None:
                 raise ValueError("IR index slot became None after transform")
-            node.indices[i] = res
+            new_indices.append(res)
+        node.indices = tuple(new_indices)
         return node
 
     def visit_jagged_access(self, node) -> Any:
         if node.base is not None:
             node.base = node.base.accept(self)
-        chain = getattr(node, 'index_chain', None) or []
-        for i, idx in enumerate(chain):
+        chain = getattr(node, 'index_chain', None) or ()
+        new_chain = []
+        for idx in chain:
             if idx is None:
                 raise ValueError("IR index_chain slot is None")
             res = idx.accept(self)
             if res is None:
                 raise ValueError("IR index_chain slot became None after transform")
-            node.index_chain[i] = res
+            new_chain.append(res)
+        node.index_chain = tuple(new_chain)
         return node
 
     def visit_function_call(self, node) -> Any:
-        for i, arg in enumerate(node.arguments):
+        new_args = []
+        for arg in node.arguments:
             if arg is None:
                 raise ValueError("IR function call argument is None")
-            node.arguments[i] = arg.accept(self)
+            new_args.append(arg.accept(self))
+        node.arguments = tuple(new_args)
         return node
 
     def visit_array_comprehension(self, node) -> Any:
@@ -1515,17 +1527,21 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         return r if r is not None else node
 
     def visit_array_literal(self, node) -> Any:
-        for i, elem in enumerate(node.elements):
+        new_elems = []
+        for elem in node.elements:
             if elem is None:
                 raise ValueError("IR array literal element is None")
-            node.elements[i] = elem.accept(self)
+            new_elems.append(elem.accept(self))
+        node.elements = tuple(new_elems)
         return node
 
     def visit_tuple_expression(self, node) -> Any:
-        for i, elem in enumerate(node.elements):
+        new_elems = []
+        for elem in node.elements:
             if elem is None:
                 raise ValueError("IR tuple element is None")
-            node.elements[i] = elem.accept(self)
+            new_elems.append(elem.accept(self))
+        node.elements = tuple(new_elems)
         return node
 
     def visit_tuple_access(self, node) -> Any:
@@ -1534,20 +1550,22 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         return node
 
     def visit_block_expression(self, node) -> Any:
-        stmts = getattr(node, 'statements', None) or []
-        for i, stmt in enumerate(stmts):
+        stmts = getattr(node, 'statements', None) or ()
+        new_stmts = []
+        for stmt in stmts:
             if stmt is None:
                 raise ValueError("IR block statement is None")
             result = stmt.accept(self)
             if is_einstein_binding(stmt) and isinstance(result, LoweredEinsteinIR):
-                node.statements[i] = BindingIR(
+                new_stmts.append(BindingIR(
                     name=getattr(stmt, "name", ""),
                     expr=result,
                     location=getattr(stmt, "location", None),
                     defid=getattr(stmt, "defid", None),
-                )
+                ))
             else:
-                node.statements[i] = result
+                new_stmts.append(result)
+        node.statements = tuple(new_stmts)
         if node.final_expr is not None:
             node.final_expr = node.final_expr.accept(self)
         return node
@@ -1625,7 +1643,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         for item in getattr(node, 'items', None) or []:
             item.accept(self)
         if getattr(node, 'shape', None) is not None:
-            if isinstance(node.shape, list):
+            if isinstance(node.shape, (list, tuple)):
                 for s in node.shape:
                     if s is not None:
                         s.accept(self)
@@ -1643,7 +1661,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             lowered = self.lower_reduction_expression(node.expr)
             if lowered and getattr(node, 'constraints', None):
                 outer_guards = [GuardCondition(condition=c) for c in node.constraints]
-                lowered.guards = list(lowered.guards) + outer_guards
+                lowered.guards = tuple(lowered.guards) + tuple(outer_guards)
             return lowered
         node.expr = node.expr.accept(self)
         return node
@@ -1675,17 +1693,24 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         return node
 
     def visit_interpolated_string(self, node) -> Any:
-        for i, part in enumerate(node.parts):
-            if isinstance(part, ExpressionIR):
-                node.parts[i] = part.accept(self)
+        node.parts = tuple(
+            part.accept(self) if isinstance(part, ExpressionIR) else part
+            for part in node.parts
+        )
         return node
 
     def _visit_statements(self, node) -> Any:
         if hasattr(node, 'statements'):
-            for i, stmt in enumerate(node.statements):
+            stmts = node.statements
+            new_stmts = []
+            for stmt in stmts:
                 if stmt is None:
                     raise ValueError("IR statement is None")
-                node.statements[i] = stmt.accept(self)
+                new_stmts.append(stmt.accept(self))
+            if isinstance(stmts, list):
+                node.statements[:] = new_stmts
+            else:
+                node.statements = tuple(new_stmts)
         return node
 
     def visit_module(self, node) -> Any:
@@ -1703,10 +1728,12 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
 
     def visit_builtin_call(self, node) -> Any:
         if hasattr(node, 'args'):
-            for i, arg in enumerate(node.args):
+            new_args = []
+            for arg in node.args:
                 if arg is None:
                     raise ValueError("IR builtin call argument is None")
-                node.args[i] = arg.accept(self)
+                new_args.append(arg.accept(self))
+            node.args = tuple(new_args)
         return node
 
     def visit_literal_pattern(self, node) -> Any:
@@ -1720,14 +1747,12 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
 
     def visit_tuple_pattern(self, node) -> Any:
         if hasattr(node, 'patterns'):
-            for i, p in enumerate(node.patterns):
-                node.patterns[i] = p.accept(self)
+            node.patterns = tuple(p.accept(self) for p in node.patterns)
         return node
 
     def visit_array_pattern(self, node) -> Any:
         if hasattr(node, 'patterns'):
-            for i, p in enumerate(node.patterns):
-                node.patterns[i] = p.accept(self)
+            node.patterns = tuple(p.accept(self) for p in node.patterns)
         return node
 
     def visit_rest_pattern(self, node) -> Any:

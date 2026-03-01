@@ -28,18 +28,11 @@ def _load_all_units():
 _load_all_units()
 
 
-# Units that require stdlib (e.g. std::math) - skip when not available to avoid spurious failures
-# Stdlib units: unskipped when std:: load/cache works (source_file set so root_path finds stdlib)
-STDLIB_DEPENDENT_UNITS = frozenset()
-
 def get_units_params():
     """Get parametrized test cases with content already loaded"""
     params = []
     for name in _UNITS_CACHE.keys():
-        if name in STDLIB_DEPENDENT_UNITS:
-            params.append(pytest.param(name, id=name, marks=pytest.mark.skip(reason="Requires stdlib math module")))
-        else:
-            params.append(pytest.param(name, id=name))
+        params.append(pytest.param(name, id=name))
     return params
 
 

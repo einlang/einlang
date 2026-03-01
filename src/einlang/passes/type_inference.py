@@ -10,6 +10,7 @@ import json
 import os
 from ..passes.base import BasePass, TyCtxt
 from ..passes.range_analysis import RangeAnalysisPass
+from ..ir.scoped_visitor import ScopedIRVisitor
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BindingIR, FunctionValueIR,
     BlockExpressionIR, IRNode, IRVisitor, FunctionCallIR, LiteralIR,
@@ -27,6 +28,7 @@ from ..ir.nodes import (
 )
 from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, JaggedType, TupleType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp
 from ..shared.defid import DefId, assert_defid
+from ..shared.source_location import SourceLocation
 from ..utils.config import DEFAULT_INT_TYPE, DEFAULT_FLOAT_TYPE
 from typing import Optional, Tuple, List, Dict, Any, Set
 from dataclasses import dataclass
@@ -110,24 +112,28 @@ class TypeInferencePass(BasePass):
         # Use visitor pattern: ir.accept(visitor) infers types in place
         ir.accept(inferencer)
         
-        # Incremental mono service: each specialization is fully analyzed inside
-        # MonomorphizationService._run_passes (rest_pattern, range, shape, type, einstein_lowering).
-        # Loop only adds pending to IR and re-runs full program type inference to discover transitive specializations.
+        # Visit only newly-pending specializations each iteration; already-typed
+        # functions are never revisited, so each defid is analysed exactly once.
         while True:
             pending_funcs = inferencer.mono_service.get_pending_specialized_functions()
             if not pending_funcs:
                 break
-            existing_ids = {id(s) for s in ir.statements}
+            inferencer.mono_service.clear_pending_specialized_functions()
+            existing_ids = set(ir.statements)
             for f in pending_funcs:
-                if id(f) not in existing_ids:
+                if f not in existing_ids:
                     ir.statements.append(f)
                     ir.bindings.append(f)
-                    existing_ids.add(id(f))
+                    existing_ids.add(f)
                     if getattr(f, "defid", None):
                         tcx.function_ir_map[f.defid] = f
                     logger.debug(f"Added specialized function {getattr(f, 'name', '')} with DefId {getattr(f, 'defid', None)} to program IR and function_ir_map")
-            inferencer.mono_service.clear_pending_specialized_functions()
-            ir.accept(inferencer)
+                    already_typed = (
+                        getattr(f, 'return_type', None) is not None
+                        and getattr(f, 'return_type', None) != UNKNOWN
+                    )
+                    if not already_typed:
+                        f.accept(inferencer)
         
         specialized_funcs = getattr(tcx, 'specialized_functions', [])
         if specialized_funcs:
@@ -138,7 +144,7 @@ class TypeInferencePass(BasePass):
         return ir
 
 
-class TypeInferencer(IRVisitor[Type]):
+class TypeInferencer(ScopedIRVisitor[Type]):
     """
     Type inferencer (Rust naming: rustc_typeck).
     
@@ -150,18 +156,18 @@ class TypeInferencer(IRVisitor[Type]):
     """
     
     def __init__(self, tcx: TyCtxt):
+        super().__init__()
         self.tcx = tcx
         # Use shared mono service from tcx (e.g. from _run_passes) so _monomorphizing is visible
         from ..analysis.monomorphization_service import MonomorphizationService
         self.mono_service = getattr(tcx, 'monomorphization_service', None) or MonomorphizationService(tcx)
         # Store program IR for function lookup
         self._current_program: Optional[ProgramIR] = None
-        # Scope stack keyed by DefId (after name resolution we use defid, not names)
-        self._scope_stack: List[Dict[DefId, Type]] = [{}]
         # Track call depth for recursion detection
         self._call_depth = 0
         # Track current function (for Einstein element_type fallback from params)
         self._current_function: Optional[BindingIR] = None
+        self._current_binding: Optional[BindingIR] = None
         self._expected_type: Optional[Type] = None
 
     def visit_program(self, node: ProgramIR) -> Type:
@@ -197,19 +203,11 @@ class TypeInferencer(IRVisitor[Type]):
                         func_map[mfunc.defid] = mfunc
             self.tcx.function_ir_map = func_map
 
-        # Visit all statements
-        for stmt_idx, stmt in enumerate(node.statements):
-            # Infer type of the statement/expression
-            # Rust Pattern: visit_variable_declaration already binds variables to scope
-            inferred_type = stmt.accept(self)
-        
-        # Visit all functions (bodies can look up callee via function_ir_map)
-        for func in node.functions:
-            func.accept(self)
-        
-        # Visit all constants
-        for const in node.constants:
-            const.accept(self)
+        # Single pass: visit every statement once, in declaration order.
+        # functions and constants are subsets of statements (properties that
+        # filter bindings), so one loop covers all of them without duplication.
+        for stmt in node.statements:
+            stmt.accept(self)
         
         # Do not add/clear pending here; run() loop adds them and re-visits specialized bodies
         # so inner calls (e.g. row_values inside topk_2d) get inferred with concrete types.
@@ -310,11 +308,43 @@ class TypeInferencer(IRVisitor[Type]):
     
     def visit_binding(self, node: BindingIR) -> Type:
         from ..ir.nodes import FunctionValueIR, EinsteinIR
-        if isinstance(node.expr, FunctionValueIR):
-            return self._visit_function_binding(node)
-        if isinstance(node.expr, EinsteinIR):
-            return self._visit_einstein_binding(node)
-        return self._visit_constant_binding(node)
+
+        # Expose binding to visit_function_value / visit_einstein.
+        prev_binding, self._current_binding = self._current_binding, node
+
+        # For plain constant bindings: push declared type as expected type so
+        # that visit_literal / visit_identifier can coerce numeric literals.
+        prev_expected = self._expected_type
+        is_fn = isinstance(node.expr, FunctionValueIR)
+        is_ein = isinstance(node.expr, EinsteinIR)
+        if not is_fn and not is_ein:
+            type_annotation = getattr(node, 'type_info', None) or getattr(node, 'type_annotation', None)
+            if type_annotation and type_annotation != UNKNOWN:
+                self._expected_type = type_annotation
+        else:
+            type_annotation = None
+
+        try:
+            result = node.expr.accept(self)
+        finally:
+            self._current_binding = prev_binding
+            self._expected_type = prev_expected
+
+        # Constant binding: validate against declared type annotation and coerce.
+        if type_annotation and type_annotation != UNKNOWN:
+            if not self._is_literal_coercion(node.expr, result, type_annotation) and \
+                    not self._is_assignment_compatible(result, type_annotation):
+                self.tcx.reporter.report_error(
+                    message="mismatched types",
+                    location=node.expr.location if hasattr(node.expr, 'location') else None,
+                    code="E0308",
+                    label=f"expected `{type_annotation}`, found `{result}`",
+                )
+            result = type_annotation
+
+        if node.defid is not None and result is not None:
+            self.set_var(node.defid, result)
+        return result
     
     def _is_literal_coercion(self, expr, value_type: Type, expected_type: Type) -> bool:
         """
@@ -383,26 +413,13 @@ class TypeInferencer(IRVisitor[Type]):
         """Get variable from scope chain by DefId (inner → outer). key must not be None."""
         if key is None:
             raise RuntimeError("_get_var requires DefId; got None. Fail fast.")
-        for scope in reversed(self._scope_stack):
-            if key in scope:
-                return scope[key]
-        return None
+        return self.get_var(key)
 
     def _set_var(self, key: DefId, value: Type) -> None:
         """Set variable in current scope by DefId. key must not be None."""
         if key is None:
             raise RuntimeError("_set_var requires DefId; got None. Fail fast.")
-        self._scope_stack[-1][key] = value
-    
-    @contextmanager
-    def _scope(self):
-        """Context manager for entering/exiting a scope (RAII)"""
-        self._scope_stack.append({})
-        try:
-            yield
-        finally:
-            if len(self._scope_stack) > 1:
-                self._scope_stack.pop()
+        self.set_var(key, value)
 
     @contextmanager
     def _function_scope(self, node):
@@ -727,17 +744,19 @@ class TypeInferencer(IRVisitor[Type]):
             return None
         if expr.module_path:
             return None  # Module call - arity not checked here
-        prog = self._current_program
-        for func in prog.functions:
-            if func.defid == expr.function_defid:
+
+        # O(1) lookup via the defid→func map built in visit_program
+        func_map = getattr(self.tcx, 'function_ir_map', None)
+        if func_map:
+            func = func_map.get(expr.function_defid)
+            if func is not None:
                 return len(func.parameters)
-        for stmt in getattr(prog, 'statements', []) or []:
-            if isinstance(stmt, BindingIR):
-                if getattr(stmt, 'defid', None) == expr.function_defid:
-                    val = getattr(stmt, 'value', None)
-                    if val is not None and hasattr(val, 'parameters'):
-                        return len(val.parameters)
-                    break
+
+        # Fallback: the defid's FunctionType is already in the scope stack from
+        # visit_binding — read param count directly from param_types.
+        t = self.get_var(expr.function_defid)
+        if isinstance(t, FunctionType):
+            return len(t.param_types)
         return None
 
     def visit_function_call(self, expr: FunctionCallIR) -> Type:
@@ -833,6 +852,61 @@ class TypeInferencer(IRVisitor[Type]):
                     param_type = getattr(self._current_function.parameters[0], 'param_type', None)
                     if param_type is not None and param_type != UNKNOWN:
                         effective_arg_types[0] = param_type
+            if not all(t is not None and t != UNKNOWN for t in effective_arg_types) and self._current_program:
+                loc = getattr(expr, 'location', None) or SourceLocation("", 0, 0)
+                func_ir = getattr(self.tcx, 'function_ir_map', None)
+                for i in range(len(effective_arg_types)):
+                    if effective_arg_types[i] is None or effective_arg_types[i] is UNKNOWN:
+                        arg_node = expr.arguments[i] if i < len(expr.arguments) else None
+                        if not isinstance(arg_node, IdentifierIR):
+                            continue
+                        arg_defid = getattr(arg_node, 'defid', None)
+                        if arg_defid is None:
+                            continue
+                        func_map = getattr(self.tcx, 'function_ir_map', None)
+                        binding = func_map.get(arg_defid) if func_map else None
+                        if binding is None:
+                            continue
+                        rhs = getattr(binding, 'expr', None)
+                        if not isinstance(rhs, IdentifierIR):
+                            continue
+                        target_defid = getattr(rhs, 'defid', None)
+                        if target_defid is None or not self.mono_service._is_generic_function(target_defid):
+                            continue
+                        if func_ir is None:
+                            continue
+                        generic_binding = func_ir.get(target_defid)
+                        if generic_binding is None:
+                            continue
+                        fv = getattr(generic_binding, 'expr', None)
+                        if not isinstance(fv, FunctionValueIR):
+                            continue
+                        n_params = len(getattr(fv, 'parameters', []) or [])
+                        if n_params <= 0 or i + n_params > len(effective_arg_types):
+                            continue
+                        spec_types = tuple(effective_arg_types[i + 1:i + 1 + n_params])
+                        if any(st is None or st is UNKNOWN for st in spec_types):
+                            continue
+                        synthetic_callee = IdentifierIR(getattr(generic_binding, 'name', ''), loc, defid=target_defid)
+                        dummy_args = [LiteralIR(0, loc, type_info=spec_types[j]) for j in range(n_params)]
+                        synthetic_call = FunctionCallIR(synthetic_callee, loc, arguments=dummy_args)
+                        specialized = self.mono_service.incremental_monomorphize(
+                            synthetic_call, spec_types, "type_inference", required_passes=['range', 'type']
+                        )
+                        if specialized is None:
+                            continue
+                        spec_sig = self._get_function(specialized.defid) if getattr(specialized, 'defid', None) else None
+                        if spec_sig is None:
+                            spec_sig = self._signature_from_function_ir(specialized)
+                        param_types_sig = getattr(spec_sig, 'parameter_types', ()) or ()
+                        return_type_sig = getattr(spec_sig, 'return_type', None) or UNKNOWN
+                        ft = FunctionType(param_types_sig, return_type_sig)
+                        effective_arg_types[i] = ft
+                        try:
+                            object.__setattr__(arg_node, 'type_info', ft)
+                        except AttributeError:
+                            pass
+                        break
             if all(t is not None and t != UNKNOWN for t in effective_arg_types):
                 # Attempt incremental monomorphization (monomorphize_if_needed in same visit)
                 specialized_func = self.mono_service.incremental_monomorphize(
@@ -1093,7 +1167,7 @@ class TypeInferencer(IRVisitor[Type]):
         Rust Pattern: Block type is final expression type, or unit if no final_expr
         """
         # Enter new scope for block (RAII pattern)
-        with self._scope():
+        with self.scope():
             # Execute statements for side effects (type checking)
             for stmt in expr.statements:
                 stmt.accept(self)  # Visitor pattern
@@ -1147,7 +1221,7 @@ class TypeInferencer(IRVisitor[Type]):
             param.param_type if param.param_type else UNKNOWN
             for param in expr.parameters
         )
-        with self._scope():
+        with self.scope():
             for i, param in enumerate(expr.parameters):
                 param_type = param_types[i] if i < len(param_types) else UNKNOWN
                 param_defid = getattr(param, 'defid', None)
@@ -1158,14 +1232,12 @@ class TypeInferencer(IRVisitor[Type]):
         expr.type_info = inferred_type
         return inferred_type
     
-    def _visit_function_binding(self, node: BindingIR) -> Type:
-        expr = node.expr
-        if not isinstance(expr, FunctionValueIR):
-            return UNKNOWN
+    def visit_function_value(self, expr: FunctionValueIR) -> Type:
+        node = self._current_binding
         signature = self._get_function(node.defid) if node.defid else None
 
         with self._function_scope(node):
-            with self._scope():
+            with self.scope():
                 parameter_names: List[str] = []
                 parameter_types: List[Type] = []
                 if signature:
@@ -1255,32 +1327,9 @@ class TypeInferencer(IRVisitor[Type]):
 
         return FunctionType(param_types, return_type if return_type is not None else UNKNOWN)
 
-    def _visit_constant_binding(self, node: BindingIR) -> Type:
-        type_annotation = getattr(node, 'type_info', None) or getattr(node, 'type_annotation', None)
-        prev_expected = self._expected_type
-        if type_annotation and type_annotation != UNKNOWN:
-            self._expected_type = type_annotation
-        try:
-            value_type = node.expr.accept(self)
-        finally:
-            self._expected_type = prev_expected
-        if type_annotation and type_annotation != UNKNOWN:
-            expected_type = type_annotation
-            is_literal_coercion = self._is_literal_coercion(node.expr, value_type, expected_type)
-            if not is_literal_coercion and not self._is_assignment_compatible(value_type, expected_type):
-                self.tcx.reporter.report_error(
-                    message="mismatched types",
-                    location=node.expr.location if hasattr(node.expr, 'location') else None,
-                    code="E0308",
-                    label=f"expected `{expected_type}`, found `{value_type}`",
-                )
-            value_type = expected_type
-        if node.defid is not None:
-            self._set_var(node.defid, value_type)
-        return value_type
 
-    def _visit_einstein_binding(self, node: BindingIR) -> Type:
-        ein_expr = node.expr
+    def visit_einstein(self, ein_expr: Any) -> Type:
+        node = self._current_binding
         clauses = getattr(ein_expr, 'clauses', []) or []
         for clause in clauses:
             index_names = set(getattr(clause, 'loop_vars', None) or [])
@@ -1362,13 +1411,11 @@ class TypeInferencer(IRVisitor[Type]):
         else:
             array_type = self._build_rectangular_array_type(element_type, num_dimensions)
 
-        decl_defid = getattr(node, 'defid', None)
-        if decl_defid is None:
+        if node.defid is None:
             raise RuntimeError(
                 f"Einstein declaration has no DefId (name={getattr(node, 'name', '?')}). "
                 "Ensure NameResolutionPass runs before TypeInferencePass."
             )
-        self._set_var(decl_defid, array_type)
 
         if not hasattr(ein_expr, 'element_type') or ein_expr.element_type is None:
             object.__setattr__(ein_expr, 'element_type', element_type)
@@ -1505,7 +1552,7 @@ class TypeInferencer(IRVisitor[Type]):
         defids = raw_defids if isinstance(raw_defids, list) else [raw_defids] if raw_defids is not None else []
         var_names = set(getattr(node, 'variables', None) or [])
         ranges = getattr(node, 'ranges', None) or []
-        with self._scope():
+        with self.scope():
             collected = set()
             # Infer each iteration variable type from its range (iterable). E.g. x in data -> element type of data.
             for i, defid in enumerate(defids):
@@ -1658,7 +1705,7 @@ class TypeInferencer(IRVisitor[Type]):
         scrutinee_type = expr.scrutinee.accept(self)
         arm_types = []
         for arm in expr.arms:
-            with self._scope():
+            with self.scope():
                 self._bind_pattern_vars(arm.pattern, scrutinee_type)
                 if isinstance(arm.pattern, GuardPatternIR):
                     arm.pattern.guard_expr.accept(self)
@@ -1704,7 +1751,7 @@ class TypeInferencer(IRVisitor[Type]):
     
     def visit_reduction_expression(self, expr) -> Type:
         """Infer type of reduction. Bind loop var DefIds; visit range exprs so they get type_info; then body."""
-        with self._scope():
+        with self.scope():
             for loop_var in expr.loop_vars or []:
                 if isinstance(loop_var, IdentifierIR) and getattr(loop_var, 'defid', None) is not None:
                     self._set_var(loop_var.defid, I32)

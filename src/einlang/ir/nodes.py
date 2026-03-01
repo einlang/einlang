@@ -12,6 +12,12 @@ if TYPE_CHECKING:
     from ..shared.types import BinaryOp, UnaryOp
 
 
+def _t(x: Optional[list]) -> tuple:
+    """Convert list (or None) to tuple for immutable slot storage."""
+    return tuple(x) if x is not None else ()
+
+
+
 class IRNode:
     """
     Base class for all IR nodes.
@@ -40,51 +46,6 @@ class IRNode:
         """
         raise NotImplementedError(f"accept() not implemented for {self.__class__.__name__}")
 
-    def _get_all_attributes(self):
-        """Get all attribute values for equality/hashing (works with __slots__)."""
-        attrs = {}
-        # Walk MRO to collect all slots
-        for cls in self.__class__.__mro__:
-            if hasattr(cls, '__slots__'):
-                slots = cls.__slots__
-                if isinstance(slots, str):
-                    slots = (slots,)
-                for slot in slots:
-                    if slot not in attrs:
-                        attrs[slot] = getattr(self, slot, None)
-        return attrs
-    
-    def __eq__(self, other):
-        if not isinstance(other, self.__class__):
-            return False
-        return self._get_all_attributes() == other._get_all_attributes()
-    
-    def __hash__(self):
-        attrs = self._get_all_attributes()
-        # CRITICAL: Exclude unhashable attributes (like shape_info, type_info which may be lists/dicts)
-        # These are metadata and shouldn't affect hash/equality
-        hashable_attrs = {}
-        for key, value in attrs.items():
-            # Skip metadata attributes that are unhashable
-            if key in ('shape_info', 'type_info'):
-                continue
-            # Convert lists to tuples for hashability
-            if isinstance(value, list):
-                try:
-                    hashable_attrs[key] = tuple(value)
-                except TypeError:
-                    # If list contains unhashable items, skip this attribute
-                    continue
-            elif isinstance(value, dict):
-                # Convert dict to frozenset of items for hashability
-                try:
-                    hashable_attrs[key] = frozenset(value.items())
-                except TypeError:
-                    # If dict contains unhashable items, skip this attribute
-                    continue
-            else:
-                hashable_attrs[key] = value
-        return hash(tuple(sorted(hashable_attrs.items())))
 
 
 class ExpressionIR(IRNode):
@@ -228,7 +189,7 @@ class RectangularAccessIR(ExpressionIR):
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location, type_info, shape_info)
         self.array = array
-        self.indices = indices
+        self.indices = _t(indices)
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_rectangular_access(self)
@@ -246,7 +207,7 @@ class JaggedAccessIR(ExpressionIR):
                  **kwargs: Any):
         super().__init__(location, type_info, shape_info, **kwargs)
         self.base = base
-        self.index_chain = index_chain
+        self.index_chain = _t(index_chain)
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_jagged_access(self)
@@ -270,7 +231,7 @@ class BlockExpressionIR(ExpressionIR):
                  final_expr: Optional[ExpressionIR] = None,
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location, type_info, shape_info)
-        self.statements = statements
+        self.statements = _t(statements)
         self.final_expr = final_expr
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
@@ -301,7 +262,7 @@ class LambdaIR(ExpressionIR):
                  location: SourceLocation,
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location, type_info, shape_info)
-        self.parameters = parameters
+        self.parameters = _t(parameters)
         self.body = body
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
@@ -319,7 +280,7 @@ class FunctionValueIR(ExpressionIR):
                  _generic_defid: Optional[DefId] = None):
         super().__init__(location, type_info, shape_info)
         assert_defid(_generic_defid)
-        self.parameters = parameters
+        self.parameters = _t(parameters)
         self.return_type = return_type
         self.body = body
         self._is_partially_specialized = _is_partially_specialized
@@ -339,7 +300,7 @@ class FunctionCallIR(ExpressionIR):
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location, type_info, shape_info)
         self.callee_expr = callee_expr
-        self.arguments = arguments if arguments is not None else []
+        self.arguments = _t(arguments)
         self.module_path = module_path
 
     @property
@@ -393,11 +354,11 @@ class ArrayComprehensionIR(ExpressionIR):
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location, type_info, shape_info)
         self.body = body
-        self.loop_vars = loop_vars if loop_vars is not None else []
-        self.ranges = ranges if ranges is not None else []
+        self.loop_vars = _t(loop_vars)
+        self.ranges = _t(ranges)
         if len(self.loop_vars) != len(self.ranges):
             raise ValueError(f"Mismatch: {len(self.loop_vars)} loop_vars but {len(self.ranges)} ranges")
-        self.constraints = constraints if constraints is not None else []
+        self.constraints = _t(constraints)
 
     @property
     def variables(self) -> List[str]:
@@ -441,7 +402,7 @@ class ArrayLiteralIR(ExpressionIR):
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None,
                  **kwargs: Any):
         super().__init__(location, type_info, shape_info, **kwargs)
-        self.elements = elements
+        self.elements = _t(elements)
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_array_literal(self)
@@ -455,7 +416,7 @@ class TupleExpressionIR(ExpressionIR):
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None,
                  **kwargs: Any):
         super().__init__(location, type_info, shape_info, **kwargs)
-        self.elements = elements
+        self.elements = _t(elements)
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_tuple_expression(self)
@@ -484,7 +445,7 @@ class InterpolatedStringIR(ExpressionIR):
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None,
                  **kwargs: Any):
         super().__init__(location, type_info, shape_info, **kwargs)
-        self.parts = parts
+        self.parts = _t(parts)
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_interpolated_string(self)
@@ -548,7 +509,7 @@ class ReductionExpressionIR(ExpressionIR):
         self.body = body
         self.where_clause = where_clause
         self.loop_var_ranges = loop_var_ranges if loop_var_ranges is not None else {}
-        self.loop_vars = loop_vars if loop_vars is not None else []
+        self.loop_vars = _t(loop_vars)
 
     @property
     def loop_var_names(self) -> List[str]:
@@ -566,7 +527,7 @@ class WhereExpressionIR(ExpressionIR):
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location, type_info, shape_info)
         self.expr = expr
-        self.constraints = constraints
+        self.constraints = _t(constraints)
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_where_expression(self)
@@ -599,7 +560,7 @@ class BuiltinCallIR(ExpressionIR):
         assert_defid(defid)
         self.defid = defid
         self.builtin_name = builtin_name
-        self.args = args
+        self.args = _t(args)
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_builtin_call(self)
@@ -632,7 +593,7 @@ class ProgramIR(IRNode):
         self.statements = statements
         self.bindings = [s for s in statements if isinstance(s, BindingIR)]
         self.source_files = source_files if source_files is not None else {}
-        self.modules = modules if modules is not None else []
+        self.modules = _t(modules)
 
     @property
     def defid_to_name(self) -> Dict[DefId, str]:
@@ -666,9 +627,9 @@ class ModuleIR(IRNode):
         assert_defid(defid)
         self.defid = defid
         self.path = path
-        self.functions = functions
-        self.constants = constants
-        self.submodules = submodules
+        self.functions = _t(functions)
+        self.constants = _t(constants)
+        self.submodules = _t(submodules)
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_module(self)
@@ -727,7 +688,7 @@ class TuplePatternIR(PatternIR):
 
     def __init__(self, patterns: List[PatternIR], location: SourceLocation):
         super().__init__(location)
-        self.patterns = patterns
+        self.patterns = _t(patterns)
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_tuple_pattern(self)
@@ -739,7 +700,7 @@ class ArrayPatternIR(PatternIR):
 
     def __init__(self, patterns: List[PatternIR], location: SourceLocation):
         super().__init__(location)
-        self.patterns = patterns
+        self.patterns = _t(patterns)
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_array_pattern(self)
@@ -776,7 +737,7 @@ class OrPatternIR(PatternIR):
 
     def __init__(self, alternatives: List[PatternIR], location: SourceLocation):
         super().__init__(location)
-        self.alternatives = alternatives
+        self.alternatives = _t(alternatives)
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_or_pattern(self)
@@ -790,7 +751,7 @@ class ConstructorPatternIR(PatternIR):
                  is_struct_literal: bool = False, location: SourceLocation = None):
         super().__init__(location or SourceLocation("", 0, 0))
         self.constructor_name = constructor_name
-        self.patterns = patterns
+        self.patterns = _t(patterns)
         self.is_struct_literal = is_struct_literal
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
@@ -848,7 +809,7 @@ class MatchExpressionIR(ExpressionIR):
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location, type_info, shape_info)
         self.scrutinee = scrutinee
-        self.arms = arms
+        self.arms = _t(arms)
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_match_expression(self)
@@ -863,7 +824,7 @@ class WhereClauseIR(IRNode):
     def __init__(self, constraints: List[ExpressionIR], ranges: Optional[Dict[DefId, Any]] = None,
                  location: Optional[SourceLocation] = None):
         super().__init__(location or SourceLocation('', 0, 0))
-        self.constraints = constraints
+        self.constraints = _t(constraints)
         self.ranges = ranges if ranges is not None else {}
 
 
@@ -1002,11 +963,11 @@ class LoweredIteration(IRNode):
     ):
         super().__init__(location or SourceLocation('', 0, 0))
         self.body = body
-        self.loops = loops if loops is not None else []
-        self.bindings = bindings if bindings is not None else []
-        self.guards = guards if guards is not None else []
+        self.loops = _t(loops)
+        self.bindings = _t(bindings)
+        self.guards = _t(guards)
         self.reduction_ranges = reduction_ranges if reduction_ranges is not None else {}
-        self.shape = shape
+        self.shape = _t(shape) if shape is not None else None
         self.element_type = element_type
     
     def is_empty(self) -> bool:
@@ -1050,11 +1011,11 @@ class LoweredEinsteinClauseIR(IRNode):
     ):
         super().__init__(location or SourceLocation('', 0, 0))
         self.body = body
-        self.loops = loops if loops is not None else []
+        self.loops = _t(loops)
         self.reduction_ranges = reduction_ranges if reduction_ranges is not None else {}
-        self.bindings = bindings if bindings is not None else []
-        self.guards = guards if guards is not None else []
-        self.indices = indices if indices is not None else []
+        self.bindings = _t(bindings)
+        self.guards = _t(guards)
+        self.indices = _t(indices)
     
     def __str__(self) -> str:
         parts = [f"body: {self.body}"]
@@ -1075,8 +1036,8 @@ class LoweredEinsteinIR(IRNode):
                  element_type: Optional[Any] = None,
                  location: Optional[SourceLocation] = None):
         super().__init__(location or SourceLocation('', 0, 0))
-        self.items = items
-        self.shape = shape
+        self.items = _t(items)
+        self.shape = _t(shape) if shape is not None else None
         self.element_type = element_type
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
@@ -1107,9 +1068,9 @@ class LoweredReductionIR(ExpressionIR):
         super().__init__(loc, type_info=type_info, shape_info=shape_info)
         self.body = body
         self.operation = operation
-        self.loops = loops if loops is not None else []
-        self.bindings = bindings if bindings is not None else []
-        self.guards = guards if guards is not None else []
+        self.loops = _t(loops)
+        self.bindings = _t(bindings)
+        self.guards = _t(guards)
     
     @property
     def reduction_ranges(self) -> Dict[DefId, LoopStructure]:
@@ -1153,9 +1114,9 @@ class LoweredComprehensionIR(ExpressionIR):
             loc = SourceLocation(file='', line=0, column=0)
         super().__init__(loc, type_info=type_info, shape_info=shape_info)
         self.body = body
-        self.loops = loops if loops is not None else []
-        self.bindings = bindings if bindings is not None else []
-        self.guards = guards if guards is not None else []
+        self.loops = _t(loops)
+        self.bindings = _t(bindings)
+        self.guards = _t(guards)
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_lowered_comprehension(self)
@@ -1179,7 +1140,7 @@ class EinsteinClauseIR(IRNode):
                  location: SourceLocation, where_clause: Optional[WhereClauseIR] = None,
                  variable_ranges: Optional[Dict[DefId, Any]] = None):
         super().__init__(location)
-        self.indices = indices
+        self.indices = _t(indices)
         self.value = value
         self.where_clause = where_clause
         self.variable_ranges = variable_ranges if variable_ranges is not None else {}
@@ -1211,8 +1172,8 @@ class EinsteinIR(ExpressionIR):
                  location: Optional[SourceLocation] = None,
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location or SourceLocation('', 0, 0), type_info, shape_info)
-        self.clauses = clauses if clauses is not None else []
-        self.shape = shape
+        self.clauses = _t(clauses)
+        self.shape = _t(shape) if shape is not None else None
         self.element_type = element_type
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
