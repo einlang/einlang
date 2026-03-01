@@ -502,7 +502,7 @@ class ExpressionVisitorMixin:
             getattr(expr, "reduction_ranges", {}),
             body_ev,
             ev,
-            guard_evaluator=guard_ev,
+            guard_evaluator=guard_ev if expr.guards else None,
             initial_context={},
         )
 

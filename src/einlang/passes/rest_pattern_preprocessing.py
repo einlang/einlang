@@ -346,7 +346,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                         new_indices.append(new_idx)
                     else:
                         new_indices.append(idx_expr)
-            clause.indices = new_indices
+            clause.indices = tuple(new_indices)
             logger.debug(f"  updated clause.indices: {[idx.name if hasattr(idx, 'name') else str(idx) for idx in clause.indices]}")
             if clause.value:
                 transformer = RestPatternBodyTransformer(rest_dim_mapping, rest_defid_to_expanded, self.tcx)

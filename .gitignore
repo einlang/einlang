@@ -16,9 +16,6 @@ venv/
 htmlcov/
 
 # IDE
-.cursor/
-.cursorrules
-.cursorignore
 .vscode/
 .idea/
 *.swp
@@ -29,3 +26,7 @@ htmlcov/
 
 # Parser cache
 *.cache
+
+# Profiling output
+*.prof
+prof/

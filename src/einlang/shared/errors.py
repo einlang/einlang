@@ -20,9 +20,11 @@ def _use_color() -> bool:
     if os.environ.get("NO_COLOR"):
         return False
     explicit = os.environ.get("EINLANG_COLOR", "").lower()
+    if explicit in ("1", "true", "yes", "always"):
+        return True
     if explicit in ("0", "false", "no", "never"):
         return False
-    return True
+    return sys.stderr.isatty()
 
 _BOLD   = "\033[1m"
 _RED    = "\033[31m"
