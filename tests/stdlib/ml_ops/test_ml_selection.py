@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive accuracy tests for std::ml selection operations against ONNX/NumPy reference implementations.
+Comprehensive accuracy tests for std::ml selection operations against NumPy reference implementations.
 Tests quick_select (via std::array::topk_extract) and prepares for topk implementation.
 """
 
@@ -159,7 +159,7 @@ def test_selection_clustered_accuracy(compiler, runtime):
     let result_nonzero_2d = std::ml::nonzero(x_nonzero_2d);
     
     // Placeholder for topk - will be implemented later
-    // ONNX TopK returns (values, indices) tuple
+    // TopK returns (values, indices) tuple
     // let x_topk = [[1.0, 5.0, 3.0, 2.0], [4.0, 1.0, 6.0, 3.0]];
     // let k_topk = 2;
     // let axis_topk = -1;  // Last axis
@@ -238,7 +238,7 @@ def test_selection_clustered_accuracy(compiler, runtime):
     # Verify nonzero 2D
     x_nonzero_2d = np.array([[0.0, 1.0, 0.0], [2.0, 0.0, 3.0], [0.0, 0.0, 0.0]], dtype=np.float32)
     result_nonzero_2d_actual = result.outputs['result_nonzero_2d']
-    # Note: ONNX NonZero returns 2D array [rank, num_nonzero], but our implementation
+    # Note: NonZero returns 2D array [rank, num_nonzero], but our implementation
     # returns array of tuples. For now, just check that we get the right number of non-zero elements
     nonzero_count = np.count_nonzero(x_nonzero_2d)
     # The result should be an array/list of tuples, so we check its length

@@ -1,5 +1,4 @@
-// ml/attention_ops.ein - ONNX Attention Operations
-// TensorRT ONNX Parser: ✅ Supported (via plugins)
+// ml/attention_ops.ein - Attention Operations
 
 use std::ml::activations::softmax;
 use std::ml::linalg_ops::matmul;
@@ -173,11 +172,11 @@ pub fn multi_head_attention_simple(query, key, value, num_heads, scale) {
 }
 
 // ============================================================================
-// ONNX Operator: MultiHeadAttention
+// Operator: MultiHeadAttention
 // ============================================================================
 
 pub fn multi_head_attention(query, key, value, num_heads, scale, mask) {
-    // ONNX MultiHeadAttention operator
+    // MultiHeadAttention operator
     // Implements scaled dot-product multi-head attention mechanism
     // 
     // Inputs:

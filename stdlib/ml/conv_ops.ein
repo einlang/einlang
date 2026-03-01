@@ -1,5 +1,5 @@
-// ml/conv_ops.ein - ONNX Convolution Operations
-// Public functions match ONNX semantics with rank dispatch
+// ml/conv_ops.ein - Convolution Operations
+// Public functions with rank dispatch
 
 use std::math::{max, min};
 
@@ -88,14 +88,14 @@ fn conv3d(X, W, B, stride_d, stride_h, stride_w, pad_d0, pad_d1, pad_h0, pad_h1,
     output
 }
 
-// Public ONNX Conv operator
+// Public Conv operator
 pub fn conv(X, W, B, strides, pads, dilations, group) {
-    // ONNX Conv operator (supports 1D, 2D, 3D)
+    // Conv operator (supports 1D, 2D, 3D)
     // X: Input  [N, C, spatial_dims...]
     // W: Weights [M, C/group, kernel_shape...]
     // B: Bias   [M]
     // strides:   [s1, s2, ...]           per spatial dimension
-    // pads:      [begin1, begin2, ..., end1, end2, ...]  (ONNX format)
+    // pads:      [begin1, begin2, ..., end1, end2, ...]
     // dilations: [d1, d2, ...]           per spatial dimension
     // group:     number of groups (1 = standard conv, C = depthwise)
 
@@ -233,9 +233,9 @@ fn conv_transpose3d(X, W, B, stride_d, stride_h, stride_w, pad_d, pad_h, pad_w) 
     output
 }
 
-// Public ONNX ConvTranspose operator
+// Public ConvTranspose operator
 pub fn conv_transpose(X, W, B, strides, pads, output_padding) {
-    // ONNX ConvTranspose operator (supports 1D, 2D, 3D)
+    // ConvTranspose operator (supports 1D, 2D, 3D)
     // X: Input [N, C, spatial_dims...]
     // W: Weights [C, M, kernel_shape...] (note: C first!)
     // B: Bias [M]
@@ -269,7 +269,7 @@ pub fn conv_transpose(X, W, B, strides, pads, output_padding) {
 
 
 // ============================================================================
-// ONNX Operator: DepthwiseConv
+// Operator: DepthwiseConv
 // ============================================================================
 
 // Private 2D depthwise convolution implementation (multiplier=1 case)
@@ -320,7 +320,7 @@ fn depthwise_conv2d_impl(X, W, B, stride_h, stride_w, pad_h, pad_w, dilation_h, 
 }
 
 pub fn depthwise_conv(X, W, B, strides, pads, dilations) {
-    // ONNX Operator: DepthwiseConv
+    // Operator: DepthwiseConv
     // Depthwise separable convolution - each input channel is convolved separately
     // 
     // X: Input [N, C, H, W] (4D tensor for 2D spatial)
@@ -330,7 +330,6 @@ pub fn depthwise_conv(X, W, B, strides, pads, dilations) {
     // pads: Padding [pad_h, pad_w] for 2D spatial dimensions
     // dilations: Dilations [dilation_h, dilation_w] for 2D spatial dimensions
     //
-    // TensorRT Support: ✅ IConvolutionLayer (with groups parameter)
     //
     // Currently supports 2D depthwise convolution only
     // For 1D/3D, can be extended similarly

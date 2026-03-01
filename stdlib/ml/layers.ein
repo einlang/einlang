@@ -16,9 +16,9 @@ pub fn linear(x, weights, bias) {
 
 
 pub fn gemm(A, B, C, alpha, beta, transA, transB) {
-    // ONNX Gemm operator (General Matrix Multiply)
+    // Gemm operator (General Matrix Multiply)
     // 
-    // ONNX spec: Gemm(A, B, C, alpha=1.0, beta=1.0, transA=0, transB=0)
+    // Spec: Gemm(A, B, C, alpha=1.0, beta=1.0, transA=0, transB=0)
     //   Computes: alpha * A @ B + beta * C
     //   - A: [M, K] (2D matrix)
     //   - B: [K, N] (2D matrix)
@@ -28,7 +28,6 @@ pub fn gemm(A, B, C, alpha, beta, transA, transB) {
     //   - transA: if 1, transpose A before multiply
     //   - transB: if 1, transpose B before multiply
     // 
-    // TensorRT Support: ✅ IGemmLayer
     // 
     // Implementation: Matrix multiply with optional transposition
     assert(typeof(A) == "rectangular", "gemm: A must be rectangular");
@@ -62,8 +61,8 @@ pub fn gemm(A, B, C, alpha, beta, transA, transB) {
 
 
 pub fn conv2d(input, kernel, bias, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w) {
-    // 2D Convolution (ONNX Conv, TensorRT supported)
-    // Full multi-channel convolution following ONNX semantics
+    // 2D Convolution (Conv)
+    // Full multi-channel convolution
     // Input: [..batch, c_in, h, w], Kernel: [c_out, c_in, k_h, k_w], Bias: [c_out]
     // Output: [..batch, c_out, h_out, w_out]
     // output[c_out, i, j] = Σ_{c_in, k_h, k_w} input[c_in, i*stride_h - pad_h + k_h*dilation_h, j*stride_w - pad_w + k_w*dilation_w] 

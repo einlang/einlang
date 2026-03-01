@@ -1,5 +1,4 @@
-// ml/linalg_ops.ein - ONNX Linear Algebra Operations
-// TensorRT ONNX Parser: ✅ Supported
+// ml/linalg_ops.ein - Linear Algebra Operations
 
 // ============================================================================
 // Linear Algebra Operations

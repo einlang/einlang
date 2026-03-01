@@ -1,7 +1,7 @@
 // stdlib_v2/math/log.ein - Logarithmic functions
 
 pub fn log(x) {
-    // Natural logarithm (ONNX Log, TensorRT supported)
+    // Natural logarithm
     // Uses numpy for array support
     python::numpy::log(x)
 }
@@ -13,25 +13,25 @@ pub fn ln(x) {
 }
 
 pub fn log10(x) {
-    // Base-10 logarithm (ONNX Log10, TensorRT supported)
+    // Base-10 logarithm
     // Uses numpy for array support
     python::numpy::log10(x)
 }
 
 pub fn log2(x) {
-    // Base-2 logarithm (ONNX Log2, TensorRT supported)
+    // Base-2 logarithm
     // Uses numpy for array support
     python::numpy::log2(x)
 }
 
 pub fn log1p(x) {
-    // log(1 + x) - numerically stable for small x (ONNX Log1p, TensorRT supported)
+    // log(1 + x) - numerically stable for small x
     // Uses numpy for array support
     python::numpy::log1p(x)
 }
 
 pub fn expm1(x) {
-    // exp(x) - numerically stable for small x (ONNX Expm1, TensorRT supported)
+    // exp(x) - numerically stable for small x
     // Uses numpy for array support
     python::numpy::expm1(x)
 }

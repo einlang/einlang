@@ -1,5 +1,4 @@
-// ml/special_ops.ein - ONNX Special Math Operations
-// TensorRT ONNX Parser: ✅ Supported
+// ml/special_ops.ein - Special Math Operations
 
 // ============================================================================
 // Special Functions
@@ -11,8 +10,7 @@ pub use std::math::erf;
 
 pub fn is_nan(x) {
     // Element-wise NaN check: output = 1.0 if x is NaN, else 0.0
-    // ONNX IsNaN operator
-    // TensorRT Support: ✅ Supported
+    // IsNaN operator
     // 
     // NaN is the only value that is not equal to itself
     // Element-wise: treat as scalar, auto-broadcast handles it
@@ -22,8 +20,7 @@ pub fn is_nan(x) {
 
 pub fn is_inf(x) {
     // Element-wise infinity check: output = 1.0 if x is Inf, else 0.0
-    // ONNX IsInf operator
-    // TensorRT Support: ✅ Supported
+    // IsInf operator
     // 
     // Infinity check: |x| == Inf (using large threshold approximation)
     // Note: In practice, we check if x is very large or if x - x != 0 (for NaN)
@@ -36,9 +33,9 @@ pub fn is_inf(x) {
 
 
 pub fn einsum(equation, inputs) {
-    // ONNX Operator: Einsum
+    // Operator: Einsum
     // 
-    // ONNX spec: Einsum(equation, inputs...)
+    // Spec: Einsum(equation, inputs...)
     //   - equation: Einstein summation equation (string)
     //   - inputs: one or more input tensors
     // 
@@ -47,13 +44,12 @@ pub fn einsum(equation, inputs) {
     // Einstein notation directly.
     // 
     // This is a placeholder that documents the equivalence.
-    // TensorRT Support: ⚠️ Limited
     // 
     // Example: einsum("ij,jk->ik", A, B) is equivalent to:
     //   let result[i, k] = sum[j](A[i, j] * B[j, k]);
     // 
     // For actual Einsum operations, use Einlang's native Einstein notation.
-    // This function exists for ONNX compatibility but delegates to native notation.
+    // This function exists for compatibility but delegates to native notation.
     
     // Placeholder: Einsum is covered by Einlang's built-in Einstein notation
     // Users should use native Einstein notation directly for better performance

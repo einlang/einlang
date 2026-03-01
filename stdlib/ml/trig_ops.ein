@@ -1,5 +1,4 @@
-// ml/trig_ops.ein - ONNX Trigonometric Operations
-// TensorRT ONNX Parser: ✅ Supported
+// ml/trig_ops.ein - Trigonometric Operations
 
 use std::math::{exp, atan};
 

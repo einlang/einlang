@@ -20,11 +20,11 @@ def test_topk_1d(compiler, runtime):
 
     // Test 1D TopK via 2D array with single row (shape [1, N])
     // This effectively tests the 1D helper since topk transposes to innermost and calls the helper
-    // ONNX-aligned: topk(X, k, axis) - always returns largest values
+    // topk(X, k, axis) - always returns largest values
     let arr1_2d = [[64.0, 34.0, 25.0, 12.0, 22.0, 11.0, 90.0, 88.0, 45.0, 50.0]];
     let (vals1, idxs1) = std::ml::topk(arr1_2d, 3, 1);
 
-    // Test 1D TopK via 2D - same test (ONNX always returns largest)
+    // Test 1D TopK via 2D - same test (always returns largest)
     let (vals2, idxs2) = std::ml::topk(arr1_2d, 3, 1);
 
     // Test with axis=-1 (last axis, same as axis=1 for 2D)
@@ -49,7 +49,7 @@ def test_topk_1d(compiler, runtime):
 
     arr1 = np.array([64.0, 34.0, 25.0, 12.0, 22.0, 11.0, 90.0, 88.0, 45.0, 50.0], dtype=np.float32)
 
-    # Test 1: top 3 largest (ONNX always returns largest)
+    # Test 1: top 3 largest (always returns largest)
     vals1 = np.array(result.outputs['vals1'])
     idxs1 = np.array(result.outputs['idxs1'], dtype=np.int32)
     # For 2D input [1, N], output is [1, k]
@@ -300,7 +300,7 @@ def test_topk_2d_k_equals_dim(compiler, runtime):
     values_k3_ref = np.take_along_axis(x_3col, sorted_indices_ref, axis=1)
 
     # Compare arrays (should contain all original values when sorted)
-    # Both actual and reference are sorted descending per ONNX
+    # Both actual and reference are sorted descending 
     x_3col_sorted = np.sort(x_3col, axis=1)
     values_k3_actual_sorted = np.sort(values_k3_actual, axis=1)
     np.testing.assert_allclose(values_k3_actual_sorted, x_3col_sorted, rtol=1e-6,

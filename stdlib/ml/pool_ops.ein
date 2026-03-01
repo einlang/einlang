@@ -1,5 +1,5 @@
-// ml/pool_ops.ein - ONNX Pooling Operations
-// Public functions match ONNX semantics with rank dispatch
+// ml/pool_ops.ein - Pooling Operations
+// Public functions with rank dispatch
 
 use std::math::{max, min};
 
@@ -34,9 +34,9 @@ fn max_pool3d(X, kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w, pad
     output
 }
 
-// Public ONNX MaxPool operator
+// Public MaxPool operator
 pub fn max_pool(X, kernel_shape, strides, pads) {
-    // ONNX MaxPool operator (supports 1D, 2D, 3D)
+    // MaxPool operator (supports 1D, 2D, 3D)
     // X: Input [N, C, spatial_dims...]
     // kernel_shape: Kernel size for each spatial dimension
     // strides: Stride for each spatial dimension
@@ -102,9 +102,9 @@ fn average_pool3d(X, kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w,
     output
 }
 
-// Public ONNX AveragePool operator
+// Public AveragePool operator
 pub fn average_pool(X, kernel_shape, strides, pads) {
-    // ONNX AveragePool operator (supports 1D, 2D, 3D)
+    // AveragePool operator (supports 1D, 2D, 3D)
     // X: Input [N, C, spatial_dims...]
     // kernel_shape: Kernel size for each spatial dimension
     // strides: Stride for each spatial dimension
@@ -135,9 +135,9 @@ pub fn average_pool(X, kernel_shape, strides, pads) {
 }
 
 
-// Public ONNX GlobalAveragePool operator
+// Public GlobalAveragePool operator
 pub fn global_average_pool(X) {
-    // ONNX GlobalAveragePool operator
+    // GlobalAveragePool operator
     // X: Input [N, C, spatial_dims...]
     // Output: [N, C, 1, 1] for 2D spatial, [N, C, 1] for 1D, [N, C, 1, 1, 1] for 3D
     // Averages over all spatial dimensions
@@ -173,9 +173,9 @@ pub fn global_average_pool(X) {
 }
 
 
-// Public ONNX GlobalMaxPool operator
+// Public GlobalMaxPool operator
 pub fn global_max_pool(X) {
-    // ONNX GlobalMaxPool operator
+    // GlobalMaxPool operator
     // X: Input [N, C, spatial_dims...]
     // Output: [N, C, 1, 1] for 2D spatial, [N, C, 1] for 1D, [N, C, 1, 1, 1] for 3D
     // Max over all spatial dimensions
@@ -242,9 +242,9 @@ fn lp_pool3d(X, kernel_d, kernel_h, kernel_w, stride_d, stride_h, stride_w, p) {
     output
 }
 
-// Public ONNX LpPool operator
+// Public LpPool operator
 pub fn lp_pool(X, kernel_shape, strides, p) {
-    // ONNX LpPool operator (supports 1D, 2D, 3D)
+    // LpPool operator (supports 1D, 2D, 3D)
     // X: Input [N, C, spatial_dims...]
     // kernel_shape: Kernel size for each spatial dimension
     // strides: Stride for each spatial dimension
@@ -275,9 +275,9 @@ pub fn lp_pool(X, kernel_shape, strides, p) {
 }
 
 
-// Public ONNX MaxRoiPool operator
+// Public MaxRoiPool operator
 pub fn max_roi_pool(X, rois, pooled_shape, spatial_scale) {
-    // ONNX MaxRoiPool operator
+    // MaxRoiPool operator
     // X: Input [N, C, H, W]
     // rois: ROIs [num_rois, 5] where each is [batch_index, x1, y1, x2, y2]
     // pooled_shape: Output size [pooled_h, pooled_w]
@@ -286,7 +286,6 @@ pub fn max_roi_pool(X, rois, pooled_shape, spatial_scale) {
     // Output: [num_rois, C, pooled_h, pooled_w]
     // For each ROI, extracts the region and applies max pooling to pooled_shape
     //
-    // TensorRT Support: ⚠️ Requires plugin (not natively supported by ONNX parser)
     // 
     // TODO: Full implementation requires proper multi-ROI handling
     // Current implementation is a placeholder for single ROI case

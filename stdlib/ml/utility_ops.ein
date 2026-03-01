@@ -1,5 +1,4 @@
-// ml/utility_ops.ein - ONNX Utility Operations
-// TensorRT ONNX Parser: ✅ Supported
+// ml/utility_ops.ein - Utility Operations
 
 use std::math::sqrt;
 use std::ml::shape_ops::shape;
@@ -77,9 +76,9 @@ pub fn numel(x: [f32; *]) -> f32 {
 
 
 pub fn size(data) {
-    // ONNX Size operator
+    // Size operator
     // 
-    // ONNX spec: Size(data)
+    // Spec: Size(data)
     //   - data: input tensor
     //   Returns: scalar containing the total number of elements
     // 
@@ -87,7 +86,6 @@ pub fn size(data) {
     //   - For 0D scalars: returns 1
     //   - For 1D+: uses numel (product of shape dimensions)
     // 
-    // TensorRT Support: ✅ IShapeLayer
     if typeof(data) == "rectangular" {
         numel(data)
     } else {
@@ -102,11 +100,11 @@ pub fn size(data) {
 // ============================================================================
 
 pub fn cast(input, to) {
-    // ONNX Cast operator
+    // Cast operator
     // 
-    // ONNX spec: Cast(input, to: int attribute)
+    // Spec: Cast(input, to: int attribute)
     //   - input: tensor (any rank, any type)
-    //   - to: scalar int attribute (ONNX TensorProto.DataType enum)
+    //   - to: scalar int attribute (TensorProto.DataType enum)
     //         FLOAT=1, INT8=3, INT16=5, INT32=6, INT64=7, BOOL=9, etc.
     // 
     // Simplified implementation using custom type codes:
@@ -137,9 +135,9 @@ pub fn cast(input, to) {
 // ============================================================================
 
 pub fn slice(data, starts, ends, axes, steps) {
-    // ONNX Slice operator
+    // Slice operator
     // 
-    // ONNX spec: Slice(data, starts, ends, axes, steps)
+    // Spec: Slice(data, starts, ends, axes, steps)
     //   - data: input tensor (any rank)
     //   - starts: 1D tensor of starting indices for each axis
     //   - ends: 1D tensor of ending indices for each axis
@@ -288,7 +286,7 @@ fn slice_impl_4d(data, start0, end0, step0, start1, end1, step1, start2, end2, s
 // ============================================================================
 
 pub fn cumsum(x: [f32; *]) -> [f32; *] {
-    // Cumulative sum over last dimension (ONNX CumSum)
+    // Cumulative sum over last dimension (CumSum)
     // Input: [features] (1D), [..batch, features] (2D), or [..batch, features, time] (3D)
     // Output: same shape as input
     // cumsum[j] = x[0] + x[1] + ... + x[j]

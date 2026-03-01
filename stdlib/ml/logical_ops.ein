@@ -1,5 +1,4 @@
-// ml/logical_ops.ein - ONNX Logical Operations
-// TensorRT ONNX Parser: ✅ Supported
+// ml/logical_ops.ein - Logical Operations
 
 // ============================================================================
 // Logical Operations

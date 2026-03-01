@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive accuracy tests for std::ml operations against ONNX/NumPy reference implementations.
+Comprehensive accuracy tests for std::ml operations against NumPy reference implementations.
 Tests all operations added to ml.ein for correctness.
 """
 
