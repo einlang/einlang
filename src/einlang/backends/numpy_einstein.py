@@ -1,16 +1,139 @@
 """NumPy backend Einstein execution: variable decl, lowered einstein/clause; env only."""
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from ..ir.nodes import (
     LiteralIR, RangeIR, LoweredEinsteinIR, LoweredEinsteinClauseIR,
-    LoweredReductionIR,
+    LoweredReductionIR, BinaryOpIR, RectangularAccessIR, IndexVarIR,
+    FunctionCallIR,
     is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
 from .numpy_helpers import _reject_non_lowered
+
+
+def _extract_loop_range(loop, evaluator) -> Optional[int]:
+    it = getattr(loop, "iterable", None)
+    if it is None:
+        return None
+    if isinstance(it, LiteralIR) and isinstance(getattr(it, "value", None), range):
+        return int(it.value.stop)
+    if isinstance(it, RangeIR):
+        try:
+            return int(evaluator(it.end))
+        except Exception:
+            return None
+    return None
+
+
+def _extract_loop_start(loop, evaluator) -> int:
+    it = getattr(loop, "iterable", None)
+    if it is None:
+        return 0
+    if isinstance(it, LiteralIR) and isinstance(getattr(it, "value", None), range):
+        return int(it.value.start)
+    if isinstance(it, RangeIR):
+        start_node = getattr(it, "start", None)
+        if start_node is not None:
+            try:
+                return int(evaluator(start_node))
+            except Exception:
+                return 0
+    return 0
+
+
+def _spot_check(clause, loop_info, backend, vec_result) -> bool:
+    """Verify vectorization at two sample points against scalar evaluation."""
+    try:
+        for sample in ("first", "last"):
+            with backend.env.scope():
+                idx = []
+                for defid, sz, name in loop_info:
+                    v = 0 if sample == "first" else sz - 1
+                    backend.env.set_value(defid, v, name=name)
+                    idx.append(v)
+                scalar_val = clause.body.accept(backend)
+            vec_val = vec_result[tuple(idx)]
+            if isinstance(vec_val, np.ndarray):
+                vec_val = vec_val.item()
+            if isinstance(scalar_val, np.ndarray):
+                if scalar_val.ndim == 0:
+                    scalar_val = scalar_val.item()
+                else:
+                    return False
+            if not np.isclose(float(vec_val), float(scalar_val), rtol=1e-4, atol=1e-6):
+                return False
+        return True
+    except Exception:
+        return True
+
+
+def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
+    """
+    General vectorization: set loop variables to broadcast numpy arrays,
+    evaluate the body once, and let numpy handle everything.
+    Falls back to None if any operation doesn't support array-valued indices.
+    """
+    if backend is None:
+        return None
+    loops = clause.loops or []
+    if not loops:
+        return None
+    if clause.guards:
+        return None
+    if clause.bindings:
+        return None
+
+    ndim = len(loops)
+    loop_info: List[Tuple[DefId, int, str]] = []
+    for dim, lp in enumerate(loops):
+        defid = getattr(lp.variable, "defid", None)
+        if defid is None:
+            return None
+        sz = _extract_loop_range(lp, evaluator)
+        if sz is None:
+            return None
+        start = _extract_loop_start(lp, evaluator)
+        if start != 0:
+            return None
+        name = getattr(lp.variable, "name", None)
+        loop_info.append((defid, sz, name))
+
+    try:
+        with backend.env.scope():
+            for dim, (defid, sz, name) in enumerate(loop_info):
+                shape = [1] * ndim
+                shape[dim] = sz
+                arr = np.arange(sz, dtype=np.intp).reshape(shape)
+                backend.env.set_value(defid, arr, name=name)
+
+            result = clause.body.accept(backend)
+
+            if isinstance(result, np.ndarray):
+                expected = tuple(output_shape)
+                if result.shape == expected:
+                    if not _spot_check(clause, loop_info, backend, result):
+                        return None
+                    return result.astype(dtype)
+                if result.size == np.prod(expected):
+                    reshaped = result.reshape(expected)
+                    if not _spot_check(clause, loop_info, backend, reshaped):
+                        return None
+                    return reshaped.astype(dtype)
+                try:
+                    bcast = np.broadcast_to(result, expected).copy()
+                    if not _spot_check(clause, loop_info, backend, bcast):
+                        return None
+                    return bcast.astype(dtype)
+                except ValueError:
+                    return None
+            elif isinstance(result, (int, float, np.integer, np.floating)):
+                return np.full(output_shape, result, dtype=dtype)
+    except Exception:
+        return None
+    return None
 
 
 class EinsteinExecutionMixin:
@@ -30,9 +153,16 @@ class EinsteinExecutionMixin:
             return None
         type_name = type_obj.name.lower()
         dtype_map = {
-            "i32": np.int32, "i64": np.int64, "f32": np.float32, "f64": np.float64,
+            "i8": np.int8, "i32": np.int32, "i64": np.int64,
+            "f16": np.float16, "f32": np.float32, "f64": np.float64,
             "bool": np.bool_, "int": np.int32, "float": np.float32,
         }
+        try:
+            import ml_dtypes
+            dtype_map["bf16"] = ml_dtypes.bfloat16
+            dtype_map["f8e4m3"] = ml_dtypes.float8_e4m3fn
+        except ImportError:
+            pass
         return dtype_map.get(type_name)
 
     def _type_info_to_numpy_dtype(self, type_info: Any) -> Optional[Any]:
@@ -290,6 +420,23 @@ class EinsteinExecutionMixin:
 
         def expr_evaluator(expr: Any) -> Any:
             return expr.accept(self)
+
+        has_literal_idx = any(isinstance(idx, LiteralIR) for idx in clause_indices)
+        if lowered.loops and not has_literal_idx:
+            vec_result = _try_vectorize_clause(
+                lowered, list(output.shape), output.dtype, expr_evaluator, backend=self,
+            )
+            if vec_result is not None:
+                vec_result = np.asarray(vec_result)
+                if vec_result.shape == output.shape:
+                    output[:] = vec_result
+                elif vec_result.size == output.size:
+                    output[:] = vec_result.reshape(output.shape)
+                else:
+                    output[:] = np.broadcast_to(vec_result, output.shape)
+                if variable_defid:
+                    self.env.set_value(variable_defid, output)
+                return output
 
         _loop_defid_to_name = {}
         for lp in lowered.loops:

@@ -69,11 +69,21 @@ def _safe_ne(v, l, r):
             return True
 
 
+def _both_integer(l, r):
+    def _is_int(x):
+        if isinstance(x, (int, np.integer)):
+            return True
+        if isinstance(x, np.ndarray):
+            return np.issubdtype(x.dtype, np.integer)
+        return False
+    return _is_int(l) and _is_int(r)
+
+
 _BINARY_OP_MAP = {
     BinaryOp.ADD: lambda v, l, r: l + r,
     BinaryOp.SUB: lambda v, l, r: l - r,
     BinaryOp.MUL: lambda v, l, r: l * r,
-    BinaryOp.DIV: lambda v, l, r: l // r if isinstance(l, (int, np.integer)) and isinstance(r, (int, np.integer)) else _safe_true_divide(l, r),
+    BinaryOp.DIV: lambda v, l, r: l // r if _both_integer(l, r) else _safe_true_divide(l, r),
     BinaryOp.MOD: lambda v, l, r: _safe_mod(l, r),
     BinaryOp.POW: lambda v, l, r: l ** r,
     BinaryOp.EQ: _safe_eq,
@@ -338,34 +348,41 @@ class ExpressionVisitorMixin:
         if target is None:
             return val
         name = getattr(target, "name", None) or (target if isinstance(target, str) else None)
-        if name == "i32" or name == "i64":
+        _cast_dtype = self._resolve_cast_dtype(name)
+        if _cast_dtype is not None:
             if val is None:
                 return None
             if isinstance(val, np.ndarray):
-                return val.astype(np.int32 if name == "i32" else np.int64)
-            return int(val)
-        if name == "f32" or name == "f64":
-            if val is None:
-                return None
-            if isinstance(val, np.ndarray):
-                return val.astype(np.float32 if name == "f32" else np.float64)
+                return val.astype(_cast_dtype)
+            if name == "bool":
+                return bool(val)
+            if name in ("i8", "i32", "i64"):
+                return int(val)
             return float(val)
-        if name == "bool":
-            if val is None:
-                return None
-            if isinstance(val, np.ndarray):
-                return val.astype(bool)
-            return bool(val)
         elem_type = getattr(target, "element_type", None)
         if elem_type is not None and val is not None:
             elem_name = getattr(elem_type, "name", None) or (elem_type if isinstance(elem_type, str) else None)
-            if elem_name == "f32":
-                return np.asarray(val, dtype=np.float32)
-            if elem_name == "f64":
-                return np.asarray(val, dtype=np.float64)
-            if elem_name == "i32" or elem_name == "i64":
-                return np.asarray(val, dtype=np.int64 if elem_name == "i64" else np.int32)
+            _elem_dtype = self._resolve_cast_dtype(elem_name)
+            if _elem_dtype is not None:
+                return np.asarray(val, dtype=_elem_dtype)
         return val
+
+    @staticmethod
+    def _resolve_cast_dtype(name):
+        _CAST_DTYPES = {
+            "i8": np.int8, "i32": np.int32, "i64": np.int64,
+            "f16": np.float16, "f32": np.float32, "f64": np.float64,
+            "bool": np.bool_,
+        }
+        dt = _CAST_DTYPES.get(name)
+        if dt is not None:
+            return dt
+        try:
+            import ml_dtypes
+            _ML_DTYPES = {"bf16": ml_dtypes.bfloat16, "f8e4m3": ml_dtypes.float8_e4m3fn}
+            return _ML_DTYPES.get(name)
+        except ImportError:
+            return None
 
     def _call_python_module(
         self,

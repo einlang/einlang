@@ -32,7 +32,7 @@ _KNOWN_SYMBOLS = frozenset({
     "param", "block", "if", "tuple", "tuple-access", "lambda", "reduction",
     "function-value", "einstein-value", "type", "unknown", "rectangular-type", "jagged-type",
     "tuple-type", "function-type", "callee", "true", "false", "...",
-    "i32", "i64", "f32", "f64", "bool", "str", "+", "-", "*", "/", "%", "**",
+    "i8", "i32", "i64", "f8e4m3", "f16", "bf16", "f32", "f64", "bool", "str", "+", "-", "*", "/", "%", "**",
     "==", "!=", "<", "<=", ">", ">=", "&&", "||", "!", "sum", "prod", "min", "max",
 })
 

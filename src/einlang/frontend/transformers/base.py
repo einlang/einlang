@@ -961,7 +961,7 @@ class EinlangTransformer(Transformer):
         
         Returns PrimitiveTypeEnum constants.
         """
-        from ...shared.types import I32, I64, F32, F64, BOOL, STR
+        from ...shared.types import I8, I32, I64, F8E4M3, F16, BF16, F32, F64, BOOL, STR
         
         # Extract the actual type name from the token
         type_name = str(type_token)
@@ -972,8 +972,12 @@ class EinlangTransformer(Transformer):
         
         # Map to type constants
         type_obj_mapping = {
+            'i8': I8,
             'i32': I32,
             'i64': I64,
+            'f8e4m3': F8E4M3,
+            'f16': F16,
+            'bf16': BF16,
             'f32': F32,
             'f64': F64,
             'bool': BOOL,
