@@ -187,6 +187,13 @@ class ImplicitRangeDetector(IRVisitor[None]):
                 if array_defid is None:
                     continue
                 shape = self._get_array_shape(array_defid, index_position)
+                if shape is None and base_expr is not None and hasattr(base_expr, 'name') and hasattr(base_expr, 'location'):
+                    from ..shared.types import PrimitiveType as _PT
+                    shape = RectangularAccessIR(
+                        array=MemberAccessIR(object=base_expr, member='shape', location=base_expr.location),
+                        indices=[LiteralIR(value=index_position, location=base_expr.location, type_info=_PT(name='i32'))],
+                        location=base_expr.location,
+                    )
                 if shape is not None:
                     constraint_result = self._extract_constraint_from_array_access_ir(
                         base_expr, index_position, index_expr, shape
@@ -493,11 +500,11 @@ class ImplicitRangeDetector(IRVisitor[None]):
         index_expr: ExpressionIR,
         shape: Union[int, ExpressionIR]
     ) -> Optional[RangeInfo]:
-        """Extract constraint and solve for target variable (by defid). Name resolved from clause for solver."""
-        target_var = self._name_from_defid()
-        if target_var is None:
+        """Extract constraint and solve for target variable by DefId."""
+        target_defid = getattr(self, '_target_defid', None)
+        if target_defid is None:
             return None
-        shape_desc = shape if isinstance(shape, int) else f"<dynamic>"
+        shape_desc = shape if isinstance(shape, int) else "<dynamic>"
         logger.debug(f"[ImplicitRangeDetector] [IRConstraintSolver] Extracting constraint for defid: {index_expr} < {shape_desc}")
         if isinstance(index_expr, BinaryOpIR):
             if index_expr.operator == BinaryOp.SUB and isinstance(index_expr.right, (IdentifierIR, IndexVarIR)):
@@ -516,7 +523,8 @@ class ImplicitRangeDetector(IRVisitor[None]):
             dimension_bound = LiteralIR(value=shape, location=location, type_info=PrimitiveType(name='i32'))
         else:
             dimension_bound = shape
-        range_result = solve_index_constraint(index_expr, target_var, dimension_bound)
+        target_var = self._name_from_defid()
+        range_result = solve_index_constraint(index_expr, target_var, dimension_bound, target_defid=target_defid)
         
         if range_result:
             logger.debug(f"[IRConstraintSolver] Raw result: {range_result}")
@@ -575,8 +583,10 @@ class ImplicitRangeDetector(IRVisitor[None]):
             return None
 
         from .ir_constraint_solver import _collect_defids
+        start_defids = _collect_defids(range_result.start)
         end_defids = _collect_defids(range_result.end)
-        if not end_defids:
+        all_defids = start_defids | end_defids
+        if not all_defids:
             return range_result
 
         target_defid = getattr(self, '_target_defid', None)
@@ -596,7 +606,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
             )
             if isinstance(reduction_expr, ReductionExpressionIR) and getattr(reduction_expr, 'loop_var_ranges', None):
                 for rv_defid, range_ir in reduction_expr.loop_var_ranges.items():
-                    if rv_defid not in end_defids:
+                    if rv_defid not in all_defids:
                         continue
                     if not isinstance(range_ir, RangeIR):
                         continue
@@ -623,7 +633,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
 
             clause_ranges = getattr(clause, 'variable_ranges', {}) or {}
             for oi_defid in output_index_defids:
-                if oi_defid not in end_defids or oi_defid in substitute_map:
+                if oi_defid not in all_defids or oi_defid in substitute_map:
                     continue
                 resolved = clause_ranges.get(oi_defid)
                 if isinstance(resolved, RangeIR) and getattr(resolved, 'end', None) is not None:
@@ -638,17 +648,17 @@ class ImplicitRangeDetector(IRVisitor[None]):
                             location=loc, type_info=i32,
                         )
                 else:
-                    # Range not yet resolved → StaticRange(0, 1) → end - 1 = 0
                     substitute_map[oi_defid] = LiteralIR(value=0, location=loc, type_info=i32)
 
         if not substitute_map:
             return range_result
 
+        new_start = self._substitute_defids_in_expr(range_result.start, substitute_map)
         new_end = self._substitute_defids_in_expr(range_result.end, substitute_map)
-        if new_end is range_result.end:
+        if new_start is range_result.start and new_end is range_result.end:
             return range_result
 
-        return DynamicRange(start=range_result.start, end=new_end)
+        return DynamicRange(start=new_start, end=new_end)
     
     def _substitute_defids_in_expr(self, expr: ExpressionIR, substitute_map: dict) -> ExpressionIR:
         """Replace IdentifierIR/IndexVarIR by DefId: when expr.defid is in substitute_map, return substitute_map[expr.defid]. Clone tree."""
@@ -977,10 +987,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
         self._target_defid = target_defid
         try:
             target_var = self._name_from_defid()
-            if not target_var:
-                return None
-            # Reduction loop variable DefIds — the solved range must NOT
-            # reference any of these ("forbidden defids" pattern).
             reduction_defids = set()
             for lv in (getattr(red, 'loop_vars', None) or []):
                 d = getattr(lv, 'defid', None)
@@ -1010,15 +1016,12 @@ class ImplicitRangeDetector(IRVisitor[None]):
                         end_lit = LiteralIR(value=shape, location=loc, type_info=infer_literal_type(shape))
                         return RangeIR(start=start_lit, end=end_lit, location=loc, type_info=UNKNOWN)
                     dimension_bound = shape
-                    range_result = solve_index_constraint(idx, target_var, dimension_bound)
+                    range_result = solve_index_constraint(idx, target_var, dimension_bound, target_defid=target_defid)
                     if range_result is None:
                         continue
-                    # Substitute reduction vars with their max value (end-1)
-                    # so the range only references outer-scope variables.
                     maximized = self._maximize_over_reduction_vars(range_result)
                     if maximized is not None:
                         range_result = maximized
-                    # Verify no reduction variable DefIds remain.
                     if isinstance(range_result, DynamicRange) and reduction_defids:
                         from .ir_constraint_solver import _collect_defids
                         if _collect_defids(range_result.end) & reduction_defids:
@@ -1685,136 +1688,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
         """Find max from reduction body by DefId. Delegates to _find_reduction_var_max_by_defid."""
         return self._find_reduction_var_max_by_defid(target_defid, expr) if target_defid else None
 
-    def _find_reduction_var_max_old(self, var_name: str, expr: ExpressionIR) -> Optional[int]:
-        """Find the maximum value of a reduction variable by searching for reduction expressions"""
-        from ..ir.nodes import ReductionExpressionIR, LiteralIR
-        
-        if isinstance(expr, ReductionExpressionIR):
-            if hasattr(expr, 'loop_var_ranges') and expr.loop_var_ranges:
-                var_defid = next((getattr(i, 'defid', None) for i in (expr.loop_vars or []) if getattr(i, 'name', None) == var_name), None)
-                if var_defid is not None and var_defid in expr.loop_var_ranges:
-                    range_ir = expr.loop_var_ranges[var_defid]
-                    if hasattr(range_ir, 'end'):
-                        if isinstance(range_ir.end, LiteralIR):
-                            # Range is [start, end), so max value is end - 1
-                            end_val = range_ir.end.value
-                            if isinstance(end_val, (int, float)):
-                                max_val = int(end_val) - 1
-                                return max_val
-        
-        class ReductionFinder(IRVisitor[None]):
-            def __init__(self, target_var: str):
-                self.target_var = target_var
-                self.max_val = None
-            
-            def visit_reduction_expression(self, node: ReductionExpressionIR) -> None:
-                # Check if this reduction defines the target variable
-                if hasattr(node, 'loop_var_ranges') and node.loop_var_ranges:
-                    var_defid = next((getattr(i, 'defid', None) for i in (node.loop_vars or []) if getattr(i, 'name', None) == var_name), None)
-                    if var_defid is not None and var_defid in node.loop_var_ranges:
-                        range_ir = node.loop_var_ranges[var_defid]
-                        if hasattr(range_ir, 'end') and isinstance(range_ir.end, LiteralIR):
-                            end_val = range_ir.end.value
-                            if isinstance(end_val, (int, float)):
-                                self.max_val = int(end_val) - 1
-                
-                # Continue searching in the body
-                if hasattr(node, 'body'):
-                    node.body.accept(self)
-            
-            # Default visitor methods (no-op for other nodes)
-            def visit_array_comprehension(self, node) -> None:
-                pass
-            def visit_array_literal(self, node) -> None:
-                pass
-            def visit_array_pattern(self, node) -> None:
-                pass
-            def visit_binary_op(self, node) -> None:
-                if hasattr(node, 'left'):
-                    node.left.accept(self)
-                if hasattr(node, 'right'):
-                    node.right.accept(self)
-            def visit_block_expression(self, node) -> None:
-                pass
-            def visit_builtin_call(self, node) -> None:
-                pass
-            def visit_cast_expression(self, node) -> None:
-                if hasattr(node, 'expr'):
-                    node.expr.accept(self)
-            def visit_function_call(self, node) -> None:
-                if hasattr(node, 'arguments'):
-                    for arg in node.arguments:
-                        arg.accept(self)
-            def visit_guard_pattern(self, node) -> None:
-                pass
-            def visit_identifier(self, node) -> None:
-                pass
-            def visit_identifier_pattern(self, node) -> None:
-                pass
-            def visit_if_expression(self, node) -> None:
-                if hasattr(node, 'condition'):
-                    node.condition.accept(self)
-                if hasattr(node, 'then_expr'):
-                    node.then_expr.accept(self)
-                if hasattr(node, 'else_expr') and node.else_expr:
-                    node.else_expr.accept(self)
-            def visit_interpolated_string(self, node) -> None:
-                pass
-            def visit_jagged_access(self, node) -> None:
-                pass
-            def visit_lambda(self, node) -> None:
-                pass
-            def visit_literal(self, node) -> None:
-                pass
-            def visit_literal_pattern(self, node) -> None:
-                pass
-            def visit_match_expression(self, node) -> None:
-                pass
-            def visit_member_access(self, node) -> None:
-                if hasattr(node, 'object'):
-                    node.object.accept(self)
-            def visit_module(self, node) -> None:
-                pass
-            def visit_pipeline_expression(self, node) -> None:
-                pass
-            def visit_program(self, node) -> None:
-                pass
-            def visit_range(self, node) -> None:
-                pass
-            def visit_rectangular_access(self, node) -> None:
-                if hasattr(node, 'array'):
-                    node.array.accept(self)
-                for idx in (getattr(node, 'indices', None) or []):
-                    if idx is not None and hasattr(idx, 'accept'):
-                        idx.accept(self)
-            def visit_rest_pattern(self, node) -> None:
-                pass
-            def visit_try_expression(self, node) -> None:
-                pass
-            def visit_tuple_access(self, node) -> None:
-                pass
-            def visit_tuple_expression(self, node) -> None:
-                pass
-            def visit_tuple_pattern(self, node) -> None:
-                pass
-            def visit_unary_op(self, node) -> None:
-                if hasattr(node, 'operand'):
-                    node.operand.accept(self)
-            def visit_binding(self, node) -> None:
-                if is_function_binding(node) or is_einstein_binding(node):
-                    return
-                if hasattr(node, 'value'):
-                    node.value.accept(self)
-            def visit_where_expression(self, node) -> None:
-                if hasattr(node, 'expr'):
-                    node.expr.accept(self)
-            def visit_wildcard_pattern(self, node) -> None:
-                pass
-        
-        finder = ReductionFinder(var_name)
-        expr.accept(finder)
-        return finder.max_val
-
     def _infer_var_max_from_array_accesses_by_defid(self, target_defid: Optional[DefId], expr: ExpressionIR) -> Optional[int]:
         if target_defid is None:
             return None
@@ -2074,50 +1947,22 @@ class ImplicitRangeDetector(IRVisitor[None]):
         target_defid: DefId,
         dimension_bound: ExpressionIR,
         loc: Any,
-        target_name: Optional[str] = None,
     ) -> Optional[ExpressionIR]:
         if loc is None and hasattr(dimension_bound, 'location'):
             loc = dimension_bound.location
         if loc is None:
             return None
 
-        def _collect_defids(expr):
-            """Collect all variable DefIds referenced by an expression."""
-            out = set()
-            if expr is None:
-                return out
-            if isinstance(expr, (IdentifierIR, IndexVarIR)):
-                d = getattr(expr, 'defid', None)
-                if d is not None:
-                    out.add(d)
-                return out
-            if isinstance(expr, BinaryOpIR):
-                out |= _collect_defids(expr.left)
-                out |= _collect_defids(expr.right)
-                return out
-            if hasattr(expr, 'operand'):
-                out |= _collect_defids(getattr(expr, 'operand'))
-            if isinstance(expr, RectangularAccessIR):
-                out |= _collect_defids(expr.array)
-                for idx in (expr.indices or []):
-                    out |= _collect_defids(idx)
-            if isinstance(expr, MemberAccessIR):
-                out |= _collect_defids(getattr(expr, 'object', None))
-            return out
+        from .ir_constraint_solver import _collect_defids
 
-        # Defids that appear in index_expr but are NOT the target — these are
-        # inner-scope variables (e.g. reduction vars).  If the solved result
-        # still references any of them it means we moved an inner-scope var
-        # into the range bound, which is invalid ("forbidden defids" check).
         other_defids = _collect_defids(index_expr) - {target_defid}
+
+        def _is_target(expr: ExpressionIR) -> bool:
+            return isinstance(expr, (IdentifierIR, IndexVarIR)) and getattr(expr, 'defid', None) == target_defid
 
         def contains_target(expr: ExpressionIR) -> bool:
             if isinstance(expr, (IdentifierIR, IndexVarIR)):
-                if getattr(expr, 'defid', None) == target_defid:
-                    return True
-                if target_name and getattr(expr, 'name', None) == target_name:
-                    return True
-                return False
+                return _is_target(expr)
             if isinstance(expr, BinaryOpIR):
                 return contains_target(expr.left) or contains_target(expr.right)
             if hasattr(expr, 'operand'):
@@ -2126,11 +1971,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
 
         def solve(expr: ExpressionIR, bound: ExpressionIR) -> Optional[ExpressionIR]:
             if isinstance(expr, (IdentifierIR, IndexVarIR)):
-                if getattr(expr, 'defid', None) == target_defid:
-                    return bound
-                if target_name and getattr(expr, 'name', None) == target_name:
-                    return bound
-                return None
+                return bound if _is_target(expr) else None
             if not isinstance(expr, BinaryOpIR):
                 return None
             left, right = expr.left, expr.right
@@ -2148,19 +1989,19 @@ class ImplicitRangeDetector(IRVisitor[None]):
                     return solve(left, BinaryOpIR(operator=BinaryOp.ADD, left=bound, right=right, location=loc))
                 return None
             if op == BinaryOp.MUL:
-                if isinstance(left, (IdentifierIR, IndexVarIR)) and getattr(left, 'defid', None) == target_defid and not contains_target(right):
+                if _is_target(left) and not contains_target(right):
                     one = LiteralIR(value=1, location=loc, type_info=infer_literal_type(1))
                     den_minus = BinaryOpIR(operator=BinaryOp.SUB, left=right, right=one, location=loc)
                     num = BinaryOpIR(operator=BinaryOp.ADD, left=bound, right=den_minus, location=loc)
                     return BinaryOpIR(operator=BinaryOp.DIV, left=num, right=right, location=loc)
-                if isinstance(right, (IdentifierIR, IndexVarIR)) and getattr(right, 'defid', None) == target_defid and not contains_target(left):
+                if _is_target(right) and not contains_target(left):
                     one = LiteralIR(value=1, location=loc, type_info=infer_literal_type(1))
                     den_minus = BinaryOpIR(operator=BinaryOp.SUB, left=left, right=one, location=loc)
                     num = BinaryOpIR(operator=BinaryOp.ADD, left=bound, right=den_minus, location=loc)
                     return BinaryOpIR(operator=BinaryOp.DIV, left=num, right=left, location=loc)
                 return None
             if op == BinaryOp.DIV:
-                if isinstance(left, (IdentifierIR, IndexVarIR)) and getattr(left, 'defid', None) == target_defid and not contains_target(right):
+                if _is_target(left) and not contains_target(right):
                     return BinaryOpIR(operator=BinaryOp.MUL, left=bound, right=right, location=loc)
                 return None
             return None
@@ -2180,13 +2021,12 @@ class ImplicitRangeDetector(IRVisitor[None]):
         target_defid: DefId,
         location: Any,
         loop_var_ranges: Optional[Dict[DefId, Any]] = None,
-        target_name: Optional[str] = None,
     ) -> Optional[ExpressionIR]:
         loc = location or (shape_dim.location if hasattr(shape_dim, "location") else None)
         if loc is None:
             return None
         constraint_idx = self._get_output_var_index_from_reduction_body(red_expr, target_defid) or idx
-        return self._solve_index_constraint_ir(constraint_idx, target_defid, shape_dim, loc, target_name=target_name)
+        return self._solve_index_constraint_ir(constraint_idx, target_defid, shape_dim, loc)
 
     def _compute_array_literal_dimension(self, array_lit: Any, dimension: int) -> Optional[int]:
         if not isinstance(array_lit, ArrayLiteralIR):
@@ -2499,14 +2339,9 @@ class ImplicitRangeDetector(IRVisitor[None]):
                                 first_dim_lit = LiteralIR(value=first_pos, location=loc, type_info=infer_literal_type(first_pos))
                                 first_shape_dim = RectangularAccessIR(array=first_shape_access, indices=[first_dim_lit], location=loc)
                                 first_idx = indices_list[first_pos]
-                                target_name = next(
-                                    (getattr(i, "name", None) for i in _clause_indices if getattr(i, "defid", None) == target_defid),
-                                    None,
-                                )
                                 constraint_end = self._build_output_range_end_from_constraint(
                                     first_shape_dim, red_expr, first_idx, target_defid, loc,
                                     loop_var_ranges=loop_var_ranges,
-                                    target_name=target_name,
                                 )
                                 if constraint_end is not None:
                                     end_ir = constraint_end
