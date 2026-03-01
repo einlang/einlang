@@ -14,7 +14,10 @@ This class handles:
 """
 
 import copy
+import hashlib
 import logging
+import os
+import pickle
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -44,6 +47,19 @@ _file_content_cache: Dict[Path, str] = {}
 _FILE_CACHE_MAX = 256
 
 
+def _get_cache_dir() -> Optional[Path]:
+    """Return parse cache directory; None when caching is explicitly disabled."""
+    env = os.environ.get("EINLANG_CACHE_DIR", "")
+    if env.lower() in ("0", "false", "off", "no"):
+        return None
+    base = Path(env) if env else Path.home() / ".cache" / "einlang"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+    except Exception:
+        return None
+
+
 def _read_file_cached(file_path: Path) -> str:
     """Read file content with process-wide cache to reduce I/O."""
     key = file_path.resolve()
@@ -59,17 +75,65 @@ def clear_file_content_cache() -> None:
     """Clear the file content cache. Used by tests for parallel-safe runs (-n auto)."""
     _file_content_cache.clear()
     _parse_source.cache_clear()
+    _parse_pickle_bytes.clear()
+
+
+# In-process pickle-byte cache: avoids repeated deepcopy by using C-level pickle.loads.
+# Keys match _parse_source's lru_cache keys.
+_parse_pickle_bytes: Dict[Tuple[str, str], bytes] = {}
 
 
 @lru_cache(maxsize=256)
 def _parse_source(source_code: str, source_file: str):
-    """Parse source string to AST, cached across compilations."""
+    """Parse source string to AST.
+
+    Two-level cache:
+    1. In-process lru_cache (fast, lives for the duration of the Python process).
+    2. Disk cache keyed by SHA-256(source_code + source_file) so Lark parsing is
+       skipped on subsequent process restarts when stdlib files are unchanged.
+    """
+    cache_dir = _get_cache_dir()
+    if cache_dir is not None:
+        key = hashlib.sha256((source_code + "\x00" + source_file).encode()).hexdigest()[:24]
+        cache_file = cache_dir / f"parse_{key}.pkl"
+        if cache_file.exists():
+            try:
+                raw = cache_file.read_bytes()
+                result = pickle.loads(raw)
+                # Keep pickle bytes for fast subsequent copies in _parse_cached
+                _parse_pickle_bytes[(source_code, source_file)] = raw
+                return result
+            except Exception as exc:
+                logger.debug("Disk parse cache load failed (%s): %s", cache_file.name, exc)
+
     from ...frontend.parser import Parser
-    return Parser().parse(source_code, source_file)
+    result = Parser().parse(source_code, source_file)
+
+    if cache_dir is not None:
+        key = hashlib.sha256((source_code + "\x00" + source_file).encode()).hexdigest()[:24]
+        cache_file = cache_dir / f"parse_{key}.pkl"
+        tmp = cache_file.with_suffix(".tmp")
+        try:
+            raw = pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL)
+            tmp.write_bytes(raw)
+            tmp.replace(cache_file)
+            _parse_pickle_bytes[(source_code, source_file)] = raw
+        except Exception as exc:
+            logger.debug("Disk parse cache save failed: %s", exc)
+
+    return result
 
 
 def _parse_cached(parser, source_code: str, source_file: str):
-    """Return a deep copy of the cached parse result (callers mutate ASTs)."""
+    """Return a fresh AST copy (callers mutate ASTs).
+
+    Uses pickle.loads on pre-computed pickle bytes when available — C-level
+    deserialization is significantly faster than copy.deepcopy for large ASTs.
+    """
+    _parse_source(source_code, source_file)  # ensure lru_cache + pickle bytes populated
+    raw = _parse_pickle_bytes.get((source_code, source_file))
+    if raw is not None:
+        return pickle.loads(raw)
     return copy.deepcopy(_parse_source(source_code, source_file))
 
 
