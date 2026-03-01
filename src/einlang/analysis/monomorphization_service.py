@@ -53,6 +53,7 @@ class MonomorphizationService:
         self._pending_partial_specializations: Dict[DefId, List[BindingIR]] = {}
         self._monomorphizing: Set[DefId] = set()
         self._pending_specialized_functions: List[BindingIR] = []
+        self._rewritten_function_defids: Set[DefId] = set()
 
     # ---------- Public API (aligned) ----------
 
@@ -139,10 +140,14 @@ class MonomorphizationService:
     def rewrite_calls_in_specialized_bodies(self) -> None:
         specialized_list = getattr(self.tcx, "specialized_functions", [])
         for func in specialized_list:
-            body = getattr(func, "body", None)
-            if body is None:
+            defid = getattr(func, "defid", None)
+            if defid is not None and defid in self._rewritten_function_defids:
                 continue
-            self._rewrite_calls_in_node(body, set(), enclosing_function=func)
+            body = getattr(func, "body", None)
+            if body is not None:
+                self._rewrite_calls_in_node(body, set(), enclosing_function=func)
+            if defid is not None:
+                self._rewritten_function_defids.add(defid)
 
     def rewrite_calls_in_statements(self, statements: List[Any]) -> None:
         for stmt in statements or []:

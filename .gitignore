@@ -26,3 +26,7 @@ htmlcov/
 
 # Parser cache
 *.cache
+
+# Profiling output
+*.prof
+prof/
