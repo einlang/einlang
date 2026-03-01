@@ -100,7 +100,7 @@ use std::ml;
 let x_conv_2d = [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]]];
 let w_conv_2d = [[[[1.0, 0.0], [0.0, 1.0]]]];
 let b_conv_2d = [0.0];
-let result_2d = std::ml::conv(x_conv_2d, w_conv_2d, b_conv_2d, [1, 1], [0, 0], [1, 1]);
+let result_2d = std::ml::conv(x_conv_2d, w_conv_2d, b_conv_2d, [1, 1], [0, 0, 0, 0], [1, 1], 1);
 """
     result = compile_and_execute(source, compiler, runtime)
     assert result.success, f"Execution failed: {result.errors}"

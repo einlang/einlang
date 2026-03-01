@@ -164,7 +164,7 @@ pub fn celu(x, alpha) {
 
 
 pub fn gelu_tanh(x) {
-    // GELU approximation using tanh (ONNX Gelu, fast variant)
+    // GELU approximation using tanh (fast variant)
     // gelu(x) ≈ 0.5 * x * (1 + tanh(√(2/π) * (x + 0.044715 * x³)))
     let x3 = x * x * x;
     let inner = 0.7978845608028654 * (x + 0.044715 * x3);  // √(2/π) ≈ 0.7978845608

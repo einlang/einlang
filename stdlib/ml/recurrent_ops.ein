@@ -1,15 +1,14 @@
-// ml/recurrent_ops.ein - ONNX Recurrent Operations
-// TensorRT ONNX Parser: ✅ Supported (IRNNv2Layer)
+// ml/recurrent_ops.ein - Recurrent Operations
 
 use std::math::tanh;
 use std::ml::activations::sigmoid;
 
 // ============================================================================
-// ONNX Operator: RNN (Recurrent Neural Network)
+// Operator: RNN (Recurrent Neural Network)
 // ============================================================================
 
 pub fn rnn(X, W, R, B, initial_h, hidden_size, direction, activation) {
-    // ONNX Operator: RNN (Recurrent Neural Network)
+    // Operator: RNN (Recurrent Neural Network)
     // 
     // Simplest recurrent operation - single hidden state update
     // 
@@ -56,11 +55,11 @@ pub fn rnn(X, W, R, B, initial_h, hidden_size, direction, activation) {
 }
 
 // ============================================================================
-// ONNX Operator: LSTM (Long Short-Term Memory)
+// Operator: LSTM (Long Short-Term Memory)
 // ============================================================================
 
 pub fn lstm(X, W, R, B, initial_h, initial_c, hidden_size, direction, clip_threshold) {
-    // Full LSTM implementation matching ONNX specification
+    // Full LSTM implementation 
     // Like Step 7, but adds:
     //   - Biases (B): optional [8*hidden_size] - input bias + recurrent bias for each gate
     //   - Optional initial states: initial_h and initial_c can be empty arrays (default to zeros)
@@ -124,11 +123,11 @@ pub fn lstm(X, W, R, B, initial_h, initial_c, hidden_size, direction, clip_thres
 }
 
 // ============================================================================
-// ONNX Operator: GRU (Gated Recurrent Unit)
+// Operator: GRU (Gated Recurrent Unit)
 // ============================================================================
 
 pub fn gru(X, W, R, B, initial_h, hidden_size, direction, linear_before_reset) {
-    // Full GRU implementation matching ONNX specification
+    // Full GRU implementation 
     // GRU is simpler than LSTM - has 2 gates (reset and update) instead of 4
     // 
     // Inputs:

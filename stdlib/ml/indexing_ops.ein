@@ -1,15 +1,14 @@
-// ml/indexing_ops.ein - ONNX Indexing Operations
-// TensorRT ONNX Parser: ✅ Supported
+// ml/indexing_ops.ein - Indexing Operations
 
 // ============================================================================
-// ONNX Operator: Gather
+// Operator: Gather
 // Pattern: result[..., i_axis, ...] = data[..., indices[i_axis], ...]
 // ============================================================================
 
 pub fn gather(data, indices, axis) {
-    // ONNX Gather operator
+    // Gather operator
     // 
-    // ONNX spec: Gather(data, indices, axis=0)
+    // Spec: Gather(data, indices, axis=0)
     //   - data: tensor (rank r >= 1)
     //   - indices: tensor (any rank q >= 0)
     //   - axis: scalar int attribute (default 0, can be negative)
@@ -55,7 +54,7 @@ pub fn gather(data, indices, axis) {
 
 
 // ============================================================================
-// ONNX Operator: GatherElements  
+// Operator: GatherElements  
 // Pattern: result[i, j, ...] = data[..., indices[i, j, ...], ...]
 // ============================================================================
 
@@ -95,7 +94,7 @@ pub fn gather_elements(data, indices, axis) {
 
 
 // ============================================================================
-// ONNX Operator: ScatterElements
+// Operator: ScatterElements
 // Pattern: output = copy(data); for each idx: output[..., indices[idx], ...] = updates[idx]
 // ============================================================================
 
@@ -209,11 +208,11 @@ pub fn scatter_elements(data, indices, updates, axis) {
 
 
 // ============================================================================
-// ONNX Operator: OneHot
+// Operator: OneHot
 // ============================================================================
 
 pub fn onehot(indices, depth, values) {
-    // ONNX Operator: OneHot
+    // Operator: OneHot
     // Create one-hot encoded vectors
     // indices: 1D array of class indices
     // depth: number of classes
@@ -233,14 +232,14 @@ pub fn onehot(indices, depth, values) {
 
 
 // ============================================================================
-// ONNX Operator: GatherND
+// Operator: GatherND
 // Gather elements using N-dimensional indices
 // ============================================================================
 
 pub fn gather_nd(data, indices) {
-    // ONNX Operator: GatherND
+    // Operator: GatherND
     // 
-    // ONNX spec: GatherND(data, indices, batch_dims=0)
+    // Spec: GatherND(data, indices, batch_dims=0)
     //   - data: tensor (rank r >= 1)
     //   - indices: tensor (rank q >= 1) with last dimension <= r
     //   - batch_dims: number of batch dimensions (default 0)
@@ -282,14 +281,14 @@ pub fn gather_nd(data, indices) {
 
 
 // ============================================================================
-// ONNX Operator: Scatter
+// Operator: Scatter
 // Scatter updates into data (simplified version, uses ScatterElements pattern)
 // ============================================================================
 
 pub fn scatter(data, indices, updates, axis) {
-    // ONNX Operator: Scatter
+    // Operator: Scatter
     // 
-    // ONNX spec: Scatter(data, indices, updates, axis=0)
+    // Spec: Scatter(data, indices, updates, axis=0)
     //   - data: tensor to scatter into
     //   - indices: indices tensor (same rank as updates)
     //   - updates: values to scatter
@@ -298,21 +297,20 @@ pub fn scatter(data, indices, updates, axis) {
     // Note: Scatter is similar to ScatterElements but with different semantics
     // For simplicity, we delegate to ScatterElements with axis parameter
     // 
-    // TensorRT Support: ✅ IScatterLayer
     
     scatter_elements(data, indices, updates, axis)
 }
 
 
 // ============================================================================
-// ONNX Operator: ScatterND
+// Operator: ScatterND
 // Scatter updates using N-dimensional indices
 // ============================================================================
 
 pub fn scatter_nd(data, indices, updates) {
-    // ONNX Operator: ScatterND
+    // Operator: ScatterND
     // 
-    // ONNX spec: ScatterND(data, indices, updates)
+    // Spec: ScatterND(data, indices, updates)
     //   - data: tensor to scatter into (rank r)
     //   - indices: N-dimensional indices (rank q, last dim <= r)
     //   - updates: values to scatter (rank q-1 + r - indices.shape[-1])
@@ -326,7 +324,6 @@ pub fn scatter_nd(data, indices, updates) {
     //   - Indices must be 2D with shape [N, rank]
     //   - Updates must be 1D with shape [N]
     // 
-    // TensorRT Support: ✅ IScatterLayer
     
     assert(typeof(data) == "rectangular", "scatter_nd: data must be rectangular");
     assert(typeof(indices) == "rectangular", "scatter_nd: indices must be rectangular");

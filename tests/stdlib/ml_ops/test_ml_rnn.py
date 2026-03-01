@@ -7,7 +7,7 @@ from tests.test_utils import compile_and_execute
 
 
 def test_rnn_basic(compiler, runtime):
-    """Test ONNX RNN operator with Tanh activation"""
+    """Test RNN operator with Tanh activation"""
     source = """use std::ml;
     // Simple test: seq_length=2, batch_size=1, input_size=2, hidden_size=2
     let X = [[[1.0, 2.0]], [[3.0, 4.0]]];
@@ -59,7 +59,7 @@ def test_rnn_basic(compiler, runtime):
 
 
 def test_rnn_without_bias(compiler, runtime):
-    """Test ONNX RNN operator without bias - using zero bias instead of empty array"""
+    """Test RNN operator without bias - using zero bias instead of empty array"""
     source = """use std::ml;
     // seq_length=2, batch_size=1, input_size=1, hidden_size=1
     let X = [[[1.0]], [[2.0]]];

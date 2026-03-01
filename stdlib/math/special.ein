@@ -3,7 +3,7 @@
 use std::math::{abs, exp, sign};
 
 pub fn erf(x) {
-    // Error function (ONNX Erf, TensorRT supported - used in GELU)
+    // Error function
     // Abramowitz and Stegun approximation
     let a1 = 0.254829592;
     let a2 = -0.284496736;

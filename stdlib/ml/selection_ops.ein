@@ -1,17 +1,16 @@
-// ml/selection_ops.ein - ONNX Selection Operations
-// TensorRT ONNX Parser: ✅ Supported (ITopKLayer, INonZeroLayer, INMSLayer)
+// ml/selection_ops.ein - Selection Operations
 
 use std::math::{min, max};
 use std::array::topk_with_indices_extract;
 use std::array::{argmax as array_argmax, argmin as array_argmin};
 
 // ============================================================================
-// ONNX Operator: TopK
+// Operator: TopK
 // ============================================================================
 
 // Helper: 1D TopK using quickselect
 // Returns (values, indices) tuple for top k largest elements in 1D array
-// ONNX-compliant: always returns largest values (sorted descending)
+// always returns largest values (sorted descending)
 pub fn topk_1d_helper(arr, k) {
     // 1D TopK helper: quickselect to find top k
     // Returns (values, indices) for top k largest elements in 1D array
@@ -60,15 +59,15 @@ fn topk_2d_row_indices(arr_2d, row_idx, n_cols, k) {
 }
 
 pub fn topk(X, k, axis) {
-    // ONNX Operator: TopK
+    // Operator: TopK
     // Returns top K largest values and indices along specified axis
     // 
-    // ONNX spec: TopK(X, K, axis=-1)
+    // Spec: TopK(X, K, axis=-1)
     //   - X: Input tensor (any rank)
     //   - K: Number of top elements (scalar tensor, input in opset 10+)
     //   - axis: Axis along which to find top K (attribute, default=-1)
     //   - Returns: (Values, Indices) where Indices is int64
-    //   - Always returns largest values (ONNX standard behavior)
+    //   - Always returns largest values
     //   - Results are sorted in descending order (largest first)
     // 
     // Parameters:
@@ -79,7 +78,7 @@ pub fn topk(X, k, axis) {
     // Returns: (values, indices) tuple
     //   - values: Top K largest values along axis [same shape as X except axis dimension is k]
     //   - indices: Indices of top K values [same shape as values, dtype=i32]
-    //   - Note: Standard ONNX uses int64 for indices, we use i32 (Einlang limitation)
+    //   - Note: Standard uses int64 for indices, we use i32 (Einlang limitation)
     // 
     // Algorithm:
     //   1. Transpose X so target axis becomes innermost (last dimension)
@@ -133,7 +132,7 @@ pub fn topk(X, k, axis) {
         
         // Step 2: Apply 1d_topk_helper to each row using helper functions that extract rows internally
         // This avoids variable name collision in Einstein notation
-        // ONNX-compliant: always returns largest values (sorted descending)
+        // always returns largest values (sorted descending)
         let values_work[i in 0..M_work, j in 0..k_val] = topk_2d_row_values(X_work, i, N_work, k_val)[j];
         let indices_work[i in 0..M_work, j in 0..k_val] = topk_2d_row_indices(X_work, i, N_work, k_val)[j];
         
@@ -155,16 +154,16 @@ pub fn topk(X, k, axis) {
 }
 
 // ============================================================================
-// ONNX Operator: NonZero
+// Operator: NonZero
 // ============================================================================
 
 pub fn nonzero(data) {
-    // ONNX Operator: NonZero
+    // Operator: NonZero
     // Returns indices of non-zero elements
-    // ONNX Operator: NonZero
+    // Operator: NonZero
     // Returns indices of non-zero elements
     // 
-    // ONNX spec: NonZero(data)
+    // Spec: NonZero(data)
     //   - data: input tensor (any rank)
     //   Returns: 2D tensor [rank, num_nonzero] where each column is an index tuple
     // 
@@ -180,14 +179,13 @@ pub fn nonzero(data) {
     // For 2D: returns [(0,1), (1,0), (1,2), ...] (array of (i,j) tuples)
     // For 3D: returns [(0,0,1), (0,1,0), ...] (array of (i,j,k) tuples)
     // 
-    // TensorRT Support: ✅ INonZeroLayer
     
     assert(typeof(data) == "rectangular", "nonzero: data must be rectangular");
     
     let rank = len(data.shape);
     
     // Use array comprehension to collect indices of non-zero elements
-    // ONNX format: 2D tensor [rank, num_nonzero] where each column is an index tuple
+    // Format: 2D tensor [rank, num_nonzero] where each column is an index tuple
     // For 1D: returns [i | i in 0..n, data[i] != 0.0] (1D array of indices)
     // For 2D: returns [(i, j) | i in 0..h, j in 0..w, data[i, j] != 0.0] (array of tuples)
     // For 3D: returns [(i, j, k) | i in 0..d, j in 0..h, k in 0..w, data[i, j, k] != 0.0]
@@ -218,11 +216,11 @@ pub fn nonzero(data) {
 }
 
 // ============================================================================
-// ONNX Operator: ArgMax
+// Operator: ArgMax
 // ============================================================================
 
 pub fn argmax(x) {
-    // ONNX Operator: ArgMax
+    // Operator: ArgMax
     // Return index of maximum value in last dimension
     // Input: 1D array or [..batch, features], Output: scalar (1D) or [..batch] as integer
     // For 1D arrays, delegates to std::array::argmax (no duplicate implementation)
@@ -262,11 +260,11 @@ pub fn argmax(x) {
 }
 
 // ============================================================================
-// ONNX Operator: ArgMin
+// Operator: ArgMin
 // ============================================================================
 
 pub fn argmin(x) {
-    // ONNX Operator: ArgMin
+    // Operator: ArgMin
     // Return index of minimum value in last dimension
     // Input: 1D array or [..batch, features], Output: scalar (1D) or [..batch] as integer
     // For 1D arrays, delegates to std::array::argmin (no duplicate implementation)

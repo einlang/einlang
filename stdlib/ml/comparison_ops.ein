@@ -1,5 +1,4 @@
-// ml/comparison_ops.ein - ONNX Comparison Operations
-// TensorRT ONNX Parser: ✅ Supported
+// ml/comparison_ops.ein - Comparison Operations
 
 // ============================================================================
 // Comparison Operations
@@ -42,10 +41,10 @@ pub fn not_equal(a, b) {
 
 
 pub fn not(x) {
-    // ONNX Not operator (unary logical negation)
+    // Not operator (unary logical negation)
     // Element-wise logical NOT: output = !x
     // Works on boolean tensors, returns boolean tensor
-    // Same as logical_not, but listed separately in ONNX comparison ops
+    // Same as logical_not, but listed separately in comparison ops
     !x
 }
 

@@ -6,11 +6,14 @@ by the architecture where runtime executes IR (IR-only execution).
 """
 
 import math
+import os
 import numpy as np
 import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
+
+_ROUND_TRIP_ENABLED = os.environ.get("EINLANG_ROUND_TRIP", "1") != "0"
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from einlang.compiler.driver import CompilerDriver as EinlangCompiler
@@ -231,7 +234,8 @@ def compile_and_execute(
             error=None,
             errors=error_messages,
         )
-    apply_ir_round_trip(result)
+    if _ROUND_TRIP_ENABLED:
+        apply_ir_round_trip(result)
     exec_result = runtime.execute(result, inputs=inputs or {})
     error_str = str(exec_result.error) if exec_result.error else None
     return ExecutionResult(

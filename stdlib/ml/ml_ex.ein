@@ -1,5 +1,5 @@
-// ml/ml_ex.ein - Extended ML operations (not in TensorRT ONNX)
-// These operations are experimental or not supported by TensorRT ONNX parser
+// ml/ml_ex.ein - Extended ML operations 
+// These operations are experimental
 
 use std::math::{sqrt, abs, min, max};
 
@@ -171,8 +171,8 @@ pub fn flip(x) {
 
 
 // ============================================================================
-// Loss Functions (NOT TensorRT-supported ONNX operators)
-// These are composite operations built from ONNX primitives
+// Loss Functions
+// These are composite operations built from primitives
 // ============================================================================
 
 use std::math::{exp, ln, sqrt, tanh, abs, sign, min, max};
@@ -297,14 +297,14 @@ pub fn softmax_cross_entropy_loss(predictions, targets) {
 
 
 // ============================================================================
-// Composite Operations (NOT direct TensorRT-supported ONNX operators)
+// Composite Operations
 // ============================================================================
 
 pub fn cosine_similarity(a, b) {
     // Cosine Similarity: similarity = (a · b) / (||a|| * ||b||)
     // Generic: works with arbitrary batch dimensions
     // Input shape: [..batch, features], Output shape: [..batch]
-    // Note: This is a composite operation (Mul + ReduceSum + Sqrt + Div), not a direct ONNX op
+    // Note: This is a composite operation (Mul + ReduceSum + Sqrt + Div), not a direct op
     assert(typeof(a) == "rectangular", "cosine_similarity: first argument must be rectangular array");
     assert(typeof(b) == "rectangular", "cosine_similarity: second argument must be rectangular array");
     
