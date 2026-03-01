@@ -15,6 +15,9 @@ dependencies = [
     "typing_extensions>=3.7",
 ]
 
+[project.scripts]
+einlang = "einlang.__main__:main"
+
 [project.optional-dependencies]
 test = ["pytest>=7"]
 

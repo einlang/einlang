@@ -1,0 +1,24 @@
+use std::ml::{conv, relu, max_pool};
+use std::array::argmax;
+
+fn load_npy(path: str) -> [f32; *] { python::numpy::load(path) }
+fn load_pgm(path: str) -> [f32; *] { python::pgm_io::load(path) }
+
+let input   = load_pgm("mnist_samples/3.pgm")       as [f32; 1, 1, 28, 28];
+let conv1_w = load_npy("mnist_weights/conv1_w.npy") as [f32; 8, 1, 5, 5];
+let conv1_b = load_npy("mnist_weights/conv1_b.npy") as [f32; 8];
+let conv2_w = load_npy("mnist_weights/conv2_w.npy") as [f32; 16, 8, 5, 5];
+let conv2_b = load_npy("mnist_weights/conv2_b.npy") as [f32; 16];
+let fc_w    = load_npy("mnist_weights/fc_w.npy")    as [f32; 256, 10];
+let fc_b    = load_npy("mnist_weights/fc_b.npy")    as [f32; 10];
+
+let conv1_out = std::ml::conv(input, conv1_w, conv1_b, [1, 1], [0, 0], [1, 1]);
+let relu1_out = std::ml::relu(conv1_out);
+let pool1_out = std::ml::max_pool(relu1_out, [2, 2], [2, 2], [0, 0]);
+let conv2_out = std::ml::conv(pool1_out, conv2_w, conv2_b, [1, 1], [0, 0], [1, 1]);
+let relu2_out = std::ml::relu(conv2_out);
+let pool2_out = std::ml::max_pool(relu2_out, [2, 2], [2, 2], [0, 0]);
+let flat[k in 0..256] = pool2_out[0, k/16, (k/4)%4, k%4];
+let logits[k in 0..10] = sum[j in 0..256](flat[j] * fc_w[j, k]) + fc_b[k];
+let pred = std::array::argmax(logits);
+print(pred);

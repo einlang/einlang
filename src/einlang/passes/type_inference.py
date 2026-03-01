@@ -27,6 +27,7 @@ from ..ir.nodes import (
 )
 from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, JaggedType, TupleType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp
 from ..shared.defid import DefId, assert_defid
+from ..shared.source_location import SourceLocation
 from ..utils.config import DEFAULT_INT_TYPE, DEFAULT_FLOAT_TYPE
 from typing import Optional, Tuple, List, Dict, Any, Set
 from dataclasses import dataclass
@@ -833,6 +834,64 @@ class TypeInferencer(IRVisitor[Type]):
                     param_type = getattr(self._current_function.parameters[0], 'param_type', None)
                     if param_type is not None and param_type != UNKNOWN:
                         effective_arg_types[0] = param_type
+            if not all(t is not None and t != UNKNOWN for t in effective_arg_types) and self._current_program:
+                loc = getattr(expr, 'location', None) or SourceLocation("", 0, 0)
+                func_ir = getattr(self.tcx, 'function_ir_map', None)
+                for i in range(len(effective_arg_types)):
+                    if effective_arg_types[i] is None or effective_arg_types[i] is UNKNOWN:
+                        arg_node = expr.arguments[i] if i < len(expr.arguments) else None
+                        if not isinstance(arg_node, IdentifierIR):
+                            continue
+                        arg_defid = getattr(arg_node, 'defid', None)
+                        if arg_defid is None:
+                            continue
+                        binding = None
+                        for b in self._current_program.bindings:
+                            if getattr(b, 'defid', None) == arg_defid:
+                                binding = b
+                                break
+                        if binding is None:
+                            continue
+                        rhs = getattr(binding, 'expr', None)
+                        if not isinstance(rhs, IdentifierIR):
+                            continue
+                        target_defid = getattr(rhs, 'defid', None)
+                        if target_defid is None or not self.mono_service._is_generic_function(target_defid):
+                            continue
+                        if func_ir is None:
+                            continue
+                        generic_binding = func_ir.get(target_defid)
+                        if generic_binding is None:
+                            continue
+                        fv = getattr(generic_binding, 'expr', None)
+                        if not isinstance(fv, FunctionValueIR):
+                            continue
+                        n_params = len(getattr(fv, 'parameters', []) or [])
+                        if n_params <= 0 or i + n_params > len(effective_arg_types):
+                            continue
+                        spec_types = tuple(effective_arg_types[i + 1:i + 1 + n_params])
+                        if any(st is None or st is UNKNOWN for st in spec_types):
+                            continue
+                        synthetic_callee = IdentifierIR(getattr(generic_binding, 'name', ''), loc, defid=target_defid)
+                        dummy_args = [LiteralIR(0, loc, type_info=spec_types[j]) for j in range(n_params)]
+                        synthetic_call = FunctionCallIR(synthetic_callee, loc, arguments=dummy_args)
+                        specialized = self.mono_service.incremental_monomorphize(
+                            synthetic_call, spec_types, "type_inference", required_passes=['range', 'type']
+                        )
+                        if specialized is None:
+                            continue
+                        spec_sig = self._get_function(specialized.defid) if getattr(specialized, 'defid', None) else None
+                        if spec_sig is None:
+                            spec_sig = self._signature_from_function_ir(specialized)
+                        param_types_sig = getattr(spec_sig, 'parameter_types', ()) or ()
+                        return_type_sig = getattr(spec_sig, 'return_type', None) or UNKNOWN
+                        ft = FunctionType(param_types_sig, return_type_sig)
+                        effective_arg_types[i] = ft
+                        try:
+                            object.__setattr__(arg_node, 'type_info', ft)
+                        except AttributeError:
+                            pass
+                        break
             if all(t is not None and t != UNKNOWN for t in effective_arg_types):
                 # Attempt incremental monomorphization (monomorphize_if_needed in same visit)
                 specialized_func = self.mono_service.incremental_monomorphize(

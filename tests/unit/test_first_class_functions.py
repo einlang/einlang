@@ -103,7 +103,6 @@ assert(r == 31);
         result = compile_and_execute(source, compiler, runtime)
         assert result.success, f"Execution failed: {result.errors}"
 
-    @pytest.mark.skip(reason="Comprehension inside first-class call: Non-lowered IR at runtime (E0007)")
     def test_lambda_in_comprehension_via_first_class(self, compiler, runtime):
         source = """
 fn map_arr(f, arr) {
