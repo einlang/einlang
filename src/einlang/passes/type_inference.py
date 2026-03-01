@@ -128,7 +128,12 @@ class TypeInferencePass(BasePass):
                     if getattr(f, "defid", None):
                         tcx.function_ir_map[f.defid] = f
                     logger.debug(f"Added specialized function {getattr(f, 'name', '')} with DefId {getattr(f, 'defid', None)} to program IR and function_ir_map")
-                    f.accept(inferencer)
+                    already_typed = (
+                        getattr(f, 'return_type', None) is not None
+                        and getattr(f, 'return_type', None) != UNKNOWN
+                    )
+                    if not already_typed:
+                        f.accept(inferencer)
         
         specialized_funcs = getattr(tcx, 'specialized_functions', [])
         if specialized_funcs:
