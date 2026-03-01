@@ -1,5 +1,5 @@
 """
-Tests for ONNX Attention Operations - one compile/execute for speed.
+Tests for Attention Operations - one compile/execute for speed.
 """
 
 import numpy as np

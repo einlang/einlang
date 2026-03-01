@@ -23,7 +23,8 @@ from typing import Optional
 from contextlib import contextmanager
 import logging
 
-from ..ir.nodes import ExpressionIR, IdentifierIR, BinaryOpIR, LiteralIR, IRVisitor, is_function_binding, is_einstein_binding
+from ..ir.nodes import ExpressionIR, IdentifierIR, IndexVarIR, BinaryOpIR, LiteralIR, IRVisitor, is_function_binding, is_einstein_binding
+from ..shared.defid import DefId
 from ..shared.types import BinaryOp, PrimitiveType
 from .range_info import RangeInfo, DynamicRange
 
@@ -50,7 +51,7 @@ class IRConstraintSolver(IRVisitor):
     - (target_var / k) < bound → target_var in [0, bound * k)
     - (target_var * k) < bound → target_var in [0, ceil(bound / k))
     - (target_var + k) < bound → target_var in [0, bound - k)
-    - (target_var - k) < bound → target_var in [0, bound + k)
+    - (target_var - k) < bound → target_var in [k, bound + k)
     
     Example:
         Constraint: i * 2 < 4
@@ -58,23 +59,32 @@ class IRConstraintSolver(IRVisitor):
         Result: i in [0, 2)
     """
     
-    def __init__(self, target_var: str, dimension_bound: ExpressionIR):
+    def __init__(self, target_var: Optional[str], dimension_bound: ExpressionIR,
+                 target_defid: Optional[DefId] = None):
         """
         Args:
-            target_var: Variable to solve for
+            target_var: Variable name to solve for (used as fallback if target_defid is None)
             dimension_bound: Upper bound constraint (dimension size)
+            target_defid: DefId of target variable (preferred over name matching)
         """
         self.target_var = target_var
+        self.target_defid = target_defid
         self.dimension_bound = self._ensure_typed(dimension_bound)
         self.result = None
+
+    def _is_target(self, node: ExpressionIR) -> bool:
+        """Check if a leaf node IS the target variable (by DefId first, name fallback)."""
+        if not isinstance(node, (IdentifierIR, IndexVarIR)):
+            return False
+        if self.target_defid is not None:
+            return getattr(node, 'defid', None) == self.target_defid
+        return self.target_var is not None and node.name == self.target_var
     
     def _is_double_variable_addition(self, node: BinaryOpIR) -> bool:
         """Check if expression is 'var + var' with same variable."""
         return (node.operator == BinaryOp.ADD and
-                isinstance(node.left, IdentifierIR) and 
-                isinstance(node.right, IdentifierIR) and
-                node.left.name == self.target_var and
-                node.right.name == self.target_var)
+                self._is_target(node.left) and
+                self._is_target(node.right))
     
     @contextmanager
     def scoped_bound(self, new_bound: ExpressionIR):
@@ -88,8 +98,15 @@ class IRConstraintSolver(IRVisitor):
     
     def visit_identifier(self, node: IdentifierIR) -> Optional[RangeInfo]:
         """Direct indexing: i → [0, bound)"""
-        if node.name == self.target_var:
-            logger.debug(f"[IndexRange] {self.target_var} in [0, {self.dimension_bound})")
+        if self._is_target(node):
+            logger.debug(f"[IndexRange] {node.name} in [0, {self.dimension_bound})")
+            return DynamicRange(start=make_literal(0, node.location), end=self.dimension_bound)
+        return None
+
+    def visit_index_var(self, node: IndexVarIR) -> Optional[RangeInfo]:
+        """Einstein index variable: same as identifier for range solving purposes."""
+        if self._is_target(node):
+            logger.debug(f"[IndexRange] {node.name} in [0, {self.dimension_bound})")
             return DynamicRange(start=make_literal(0, node.location), end=self.dimension_bound)
         return None
     
@@ -130,14 +147,25 @@ class IRConstraintSolver(IRVisitor):
         
         # Subtraction
         elif node.operator == BinaryOp.SUB:
-            # (i - k) < bound → i < bound + k
-            # (k - i) < bound → i > k - bound (not handled - complex)
             if left_has_target and not right_has_target:
-                # i - k < bound → i < bound + k
-                adjusted_bound = self._build_add(self.dimension_bound, node.right)
-                logger.debug(f"[IndexRange] Adjusting for subtraction: bound + {node.right}")
+                # (expr - k) in [0, bound): expr in [k, bound + k)
+                # Upper bound: expr < bound + k
+                k = self._ensure_typed(node.right)
+                adjusted_bound = self._build_add(self.dimension_bound, k)
+                logger.debug(f"[IndexRange] Adjusting for subtraction: bound + {k}, lower = f({k})")
                 with self.scoped_bound(adjusted_bound):
-                    return node.left.accept(self)
+                    upper_result = node.left.accept(self)
+                if upper_result is None:
+                    return None
+                # Lower bound: expr >= k  →  solve "expr < k" and take .end as start
+                with self.scoped_bound(k):
+                    lower_result = node.left.accept(self)
+                if isinstance(upper_result, DynamicRange):
+                    start = (lower_result.end
+                             if lower_result is not None and isinstance(lower_result, DynamicRange)
+                             else k)
+                    return DynamicRange(start=start, end=upper_result.end)
+                return upper_result
             elif right_has_target and not left_has_target:
                 # k - i < bound → -i < bound - k → i > k - bound
                 # This requires a lower bound, not upper bound - not supported
@@ -148,11 +176,11 @@ class IRConstraintSolver(IRVisitor):
         
         # Division: i / k → [0, bound * k)
         elif node.operator == BinaryOp.DIV:
-            if isinstance(node.left, IdentifierIR) and node.left.name == self.target_var:
+            if self._is_target(node.left):
                 if not right_has_target:  # k must be constant wrt target
                     k = self._ensure_typed(node.right)
                     end = self._build_mul(self.dimension_bound, k)
-                    logger.debug(f"[IndexRange] {self.target_var} / {k} → [0, {self.dimension_bound} * {k})")
+                    logger.debug(f"[IndexRange] {getattr(node.left, 'name', '?')} / {k} → [0, {self.dimension_bound} * {k})")
                     return DynamicRange(start=make_literal(0, node.location), end=end)
         
         # Multiplication: i * k → [0, ceil(bound / k))
@@ -160,15 +188,15 @@ class IRConstraintSolver(IRVisitor):
             target_node = None
             constant_node = None
             
-            if isinstance(node.left, IdentifierIR) and node.left.name == self.target_var:
+            if self._is_target(node.left):
                 target_node, constant_node = node.left, node.right
-            elif isinstance(node.right, IdentifierIR) and node.right.name == self.target_var:
+            elif self._is_target(node.right):
                 target_node, constant_node = node.right, node.left
             
             if target_node and not self._contains_target(constant_node):
                 k = self._ensure_typed(constant_node)
                 end = self._build_ceil_div(self.dimension_bound, k)
-                logger.debug(f"[IndexRange] {self.target_var} * {k} → [0, ceil({self.dimension_bound} / {k}))")
+                logger.debug(f"[IndexRange] {getattr(target_node, 'name', '?')} * {k} → [0, ceil({self.dimension_bound} / {k}))")
                 return DynamicRange(start=make_literal(0, node.location), end=end)
             
             # Nested case: (i % r) * coeff
@@ -179,8 +207,8 @@ class IRConstraintSolver(IRVisitor):
         
         # Modulo: i % k → no range constraint
         elif node.operator == BinaryOp.MOD:
-            if isinstance(node.left, IdentifierIR) and node.left.name == self.target_var:
-                logger.debug(f"[IndexRange] {self.target_var} % k → modulo doesn't constrain range")
+            if self._is_target(node.left):
+                logger.debug(f"[IndexRange] {getattr(node.left, 'name', '?')} % k → modulo doesn't constrain range")
                 return None
         
         return None
@@ -261,8 +289,8 @@ class IRConstraintSolver(IRVisitor):
     
     def _contains_target(self, expr: ExpressionIR) -> bool:
         """Check if expression contains target variable"""
-        if isinstance(expr, IdentifierIR):
-            return expr.name == self.target_var
+        if isinstance(expr, (IdentifierIR, IndexVarIR)):
+            return self._is_target(expr)
         elif isinstance(expr, BinaryOpIR):
             return self._contains_target(expr.left) or self._contains_target(expr.right)
         return False
@@ -341,19 +369,21 @@ def _collect_defids(expr) -> set:
 
 def solve_index_constraint(
     index_expr: ExpressionIR,
-    target_var: str,
+    target_var: Optional[str],
     dimension_bound: ExpressionIR,
+    target_defid: Optional[DefId] = None,
 ) -> Optional[RangeInfo]:
     """
     Solve constraint: index_expr < dimension_bound for target_var
     
     Args:
         index_expr: Expression containing target_var (e.g., i*2+di)
-        target_var: Variable to solve for (e.g., 'i')
+        target_var: Variable name to solve for (fallback if target_defid is None)
         dimension_bound: Upper bound (e.g., image.shape[0])
+        target_defid: DefId of target variable (preferred over name matching)
         
     Returns:
         RangeInfo for target_var, or None if cannot solve
     """
-    solver = IRConstraintSolver(target_var, dimension_bound)
+    solver = IRConstraintSolver(target_var, dimension_bound, target_defid=target_defid)
     return index_expr.accept(solver)

@@ -1,8 +1,7 @@
-// ml/resize_ops.ein - ONNX Resize/Upsample Operations
-// TensorRT ONNX Parser: ✅ Supported (IResizeLayer)
+// ml/resize_ops.ein - Resize/Upsample Operations
 
 // ============================================================================
-// ONNX Operator: Resize
+// Operator: Resize
 // ============================================================================
 
 // Helper function to clamp index to valid range
@@ -11,15 +10,14 @@ fn clamp_index(idx: i32, max_val: i32) -> i32 {
 }
 
 pub fn resize(X, scales, mode) {
-    // ONNX Operator: Resize
+    // Operator: Resize
     // Resizes input tensor using specified interpolation mode
     // 
-    // ONNX spec: Resize(X, scales, mode='nearest')
+    // Spec: Resize(X, scales, mode='nearest')
     //   - X: Input tensor [N, C, H, W] for 2D images
     //   - scales: 1D tensor [scale_h, scale_w] or [scale_n, scale_c, scale_h, scale_w]
     //   - mode: 'nearest' or 'linear' (bilinear for 2D)
     // 
-    // TensorRT Support: ✅ IResizeLayer
     // 
     // Implementation: Supports 2D images (4D input) with nearest and bilinear modes
     //   - mode='nearest': Nearest neighbor interpolation
@@ -62,14 +60,13 @@ pub fn resize(X, scales, mode) {
 
 
 // ============================================================================
-// ONNX Operator: Upsample (deprecated, use Resize)
+// Operator: Upsample (deprecated, use Resize)
 // ============================================================================
 
 pub fn upsample(X, scales, mode) {
-    // ONNX Operator: Upsample (deprecated in ONNX, use Resize instead)
+    // Operator: Upsample (deprecated, use Resize instead)
     // Alias for resize for backward compatibility
     // 
-    // TensorRT Support: ✅ IResizeLayer (via Resize)
     
     resize(X, scales, mode)
 }

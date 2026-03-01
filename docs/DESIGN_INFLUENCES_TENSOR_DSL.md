@@ -2,7 +2,7 @@
 
 Einlang's scope is a **tensor/array DSL with shape and index guarantees**, not a general-purpose scientific language like Julia. This document has two focuses: **focus on what** (the language describes what is computed, not how) and **learn from what** (what to take from each influence to inform Einlang's *new* syntax and language design—concepts, structure, and design—not to adopt the existing syntax of the systems below). Sections 1–6 and the summary table are the main "learn from what" reference.
 
-See also: [JULIA_SYNTAX_AND_DESIGN_IN_EINLANG.md](JULIA_SYNTAX_AND_DESIGN_IN_EINLANG.md) for Julia comparison; that doc covers syntax and migration gaps. Here we focus on **alternative influences** (Taichi, Triton, Accelerate, Tensor Comprehensions, Weld, ONNX) for language and compiler design.
+See also: [JULIA_SYNTAX_AND_DESIGN_IN_EINLANG.md](JULIA_SYNTAX_AND_DESIGN_IN_EINLANG.md) for Julia comparison; that doc covers syntax and migration gaps. Here we focus on **alternative influences** (Taichi, Triton, Accelerate, Tensor Comprehensions, Weld) for language and compiler design.
 
 ---
 
@@ -102,24 +102,7 @@ This keeps the language small, portable, and backend-agnostic. New backends can 
 
 ---
 
-## 6. ONNX
-
-**Scope:** **Portable graph format** for tensor ops; used for inference and cross-framework export; **ops as declarative "what".**
-
-### Key concepts
-
-- **Op-centric:** Nodes are named ops (MatMul, ReduceSum, Conv, etc.) with typed inputs/outputs and attributes; the graph is the "what"—no execution order or schedule in the spec.
-- **Shape and type:** Tensors have element type and shape; shape inference is defined per op; runtimes implement the op semantics and choose "how."
-- **Many runtimes:** Same graph runs on CPU, GPU, NPU, etc.; the graph describes structure and semantics; backends handle codegen and scheduling.
-
-### What Einlang can learn
-
-- **Structured op vocabulary:** A small set of well-defined ops (contraction, reduction, broadcast, element-wise) as the semantic building blocks; Einlang's Einstein and reductions map naturally to such a vocabulary for a future backend or export.
-- **Shape and type in the "what":** ONNX's shape inference and type rules reinforce that the graph (or IR) should carry shape and type so that backends and tools can reason about the computation without running it.
-
----
-
-## 7. Summary table
+## 6. Summary table
 
 | System       | Main lesson for Einlang                                      |
 |-------------|---------------------------------------------------------------|
@@ -128,11 +111,10 @@ This keeps the language small, portable, and backend-agnostic. New backends can 
 | **Accelerate** | Array combinators and shape in types; fusion and one IR; embedded "what" vs host control. |
 | **Tensor Comprehensions** | Formula as "what"; index-based reductions; bounds from shapes; codegen as backend. |
 | **Weld**    | One IR for "what"; lazy IR, fusion across boundaries; backend chooses parallelism and memory. |
-| **ONNX**    | Op-centric graph as "what"; shape/type in the spec; many runtimes, portable semantics. |
 
 ---
 
-## 8. No new syntax proposed
+## 7. No new syntax proposed
 
 The influences above are used for **learn from what** (concepts, IR design, backend targets). None of the corresponding feature ideas (size parameters, schedule hints, vmap, index/dimension in type, named dimensions, pure/traceable annotation, grad) are proposed or needed for Einlang's current scope; existing shape inference, comprehensions, Einstein, and where-clauses already cover the "what." Execution strategy stays out of the language.
 

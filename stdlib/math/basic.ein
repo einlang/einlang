@@ -1,12 +1,12 @@
 // stdlib_v2/math/basic.ein - Basic mathematical functions
 
 pub fn abs(x) {
-    // Absolute value (ONNX Abs, TensorRT supported). Explicit cast so comparison is valid for int or float x.
+    // Absolute value. Explicit cast so comparison is valid for int or float x.
     if (x as f32) >= 0.0 { x } else { -x }
 }
 
 pub fn sqrt(x) {
-    // Square root (ONNX Sqrt, TensorRT supported)
+    // Square root
     // Use power operator for tensor support
     x ** 0.5
 }
@@ -33,23 +33,23 @@ pub fn sign(x) {
 }
 
 pub fn pow(x, y) {
-    // Power function: x^y (ONNX Pow, TensorRT supported)
+    // Power function: x^y
     // Use Python's pow for automatic type coercion (scalar and arrays)
     python::numpy::power(x, y)
 }
 
 pub fn floor(x) {
-    // Floor function (ONNX Floor, TensorRT supported)
+    // Floor function
     python::numpy::floor(x)
 }
 
 pub fn ceil(x) {
-    // Ceiling function (ONNX Ceil, TensorRT supported)
+    // Ceiling function
     python::numpy::ceil(x)
 }
 
 pub fn round(x) {
-    // Round to nearest integer (ties to even) (ONNX Round, TensorRT supported)
+    // Round to nearest integer (ties to even)
     python::numpy::round(x)
 }
 
@@ -68,7 +68,7 @@ pub fn mod(x, y) {
     // Modulo operation: x mod y
     // Uses the % operator which implements: x - y * floor(x / y)
     // Note: Different from fmod which uses trunc instead of floor
-    // This is the ONNX Mod operator behavior
+    // This is the Mod operator behavior
     x % y
 }
 

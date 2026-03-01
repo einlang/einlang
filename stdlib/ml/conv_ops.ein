@@ -1,89 +1,124 @@
-// ml/conv_ops.ein - ONNX Convolution Operations
-// Public functions match ONNX semantics with rank dispatch
+// ml/conv_ops.ein - Convolution Operations
+// Public functions with rank dispatch
 
 use std::math::{max, min};
 
-// Private 1D convolution implementation
-fn conv1d(X, W, B, stride, pad, dilation) {
-    let c_in = len(X[0]);
+// Private 1D convolution implementation (asymmetric padding + groups)
+fn conv1d(X, W, B, stride, pad_begin, pad_end, dilation, group) {
+    let c_in     = len(X[0]) as i32;
+    let w_in     = len(X[0][0]) as i32;
     let kernel_w = len(W[0][0]);
-    
-    let conv_sum[..batch, c_out, i] = sum[c in 0..c_in, m in 0..kernel_w](
-        X[..batch, c, i * stride - pad + m * dilation] * W[c_out, c, m]
+    let c_out    = len(W) as i32;
+    let w_p      = w_in + pad_begin + pad_end;
+    let cpg      = c_in / group;
+    let fpg      = c_out / group;
+
+    let Xp[..batch, c, i in 0..w_p] =
+        if (i >= pad_begin) && (i < (w_in + pad_begin))
+        { X[..batch, c, i - pad_begin] }
+        else { 0.0 };
+
+    let conv_sum[..batch, co, i] = sum[cl in 0..cpg, m in 0..kernel_w](
+        Xp[..batch, (co / fpg) * cpg + cl, i * stride + m * dilation] * W[co, cl, m]
     );
-    let output[..batch, c_out, i] = conv_sum[..batch, c_out, i] + B[c_out];
+    let output[..batch, co, i] = conv_sum[..batch, co, i] + B[co];
     output
 }
 
-// Private 2D convolution implementation  
-fn conv2d(X, W, B, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w) {
-    let c_in = len(X[0]);
+// Private 2D convolution implementation (asymmetric padding + groups)
+fn conv2d(X, W, B, stride_h, stride_w, pad_h0, pad_h1, pad_w0, pad_w1, dilation_h, dilation_w, group) {
+    let c_in     = len(X[0]) as i32;
+    let h_in     = len(X[0][0]) as i32;
+    let w_in     = len(X[0][0][0]) as i32;
     let kernel_h = len(W[0][0]);
     let kernel_w = len(W[0][0][0]);
-    
-    let conv_sum[..batch, c_out, i, j] = sum[c in 0..c_in, m in 0..kernel_h, n in 0..kernel_w](
-        X[..batch, c, i * stride_h - pad_h + m * dilation_h, j * stride_w - pad_w + n * dilation_w] 
-        * W[c_out, c, m, n]
+    let c_out    = len(W) as i32;
+    let h_p      = h_in + pad_h0 + pad_h1;
+    let w_p      = w_in + pad_w0 + pad_w1;
+    let cpg      = c_in / group;
+    let fpg      = c_out / group;
+
+    let Xp[..batch, c, i in 0..h_p, j in 0..w_p] =
+        if (i >= pad_h0) && (i < (h_in + pad_h0)) && (j >= pad_w0) && (j < (w_in + pad_w0))
+        { X[..batch, c, i - pad_h0, j - pad_w0] }
+        else { 0.0 };
+
+    let conv_sum[..batch, co, i, j] = sum[cl in 0..cpg, m in 0..kernel_h, n in 0..kernel_w](
+        Xp[..batch, (co / fpg) * cpg + cl, i * stride_h + m * dilation_h, j * stride_w + n * dilation_w]
+        * W[co, cl, m, n]
     );
-    let output[..batch, c_out, i, j] = conv_sum[..batch, c_out, i, j] + B[c_out];
+    let output[..batch, co, i, j] = conv_sum[..batch, co, i, j] + B[co];
     output
 }
 
-// Private 3D convolution implementation
-fn conv3d(X, W, B, stride_d, stride_h, stride_w, pad_d, pad_h, pad_w, dilation_d, dilation_h, dilation_w) {
-    let c_in = len(X[0]);
+// Private 3D convolution implementation (asymmetric padding + groups)
+fn conv3d(X, W, B, stride_d, stride_h, stride_w, pad_d0, pad_d1, pad_h0, pad_h1, pad_w0, pad_w1,
+          dilation_d, dilation_h, dilation_w, group) {
+    let c_in     = len(X[0]) as i32;
+    let d_in     = len(X[0][0]) as i32;
+    let h_in     = len(X[0][0][0]) as i32;
+    let w_in     = len(X[0][0][0][0]) as i32;
     let kernel_d = len(W[0][0]);
     let kernel_h = len(W[0][0][0]);
     let kernel_w = len(W[0][0][0][0]);
-    
-    let conv_sum[..batch, c_out, i, j, k] = sum[
-        c in 0..c_in,
+    let c_out    = len(W) as i32;
+    let d_p      = d_in + pad_d0 + pad_d1;
+    let h_p      = h_in + pad_h0 + pad_h1;
+    let w_p      = w_in + pad_w0 + pad_w1;
+    let cpg      = c_in / group;
+    let fpg      = c_out / group;
+
+    let Xp[..batch, c, i in 0..d_p, j in 0..h_p, k in 0..w_p] =
+        if (i >= pad_d0) && (i < (d_in + pad_d0)) &&
+           (j >= pad_h0) && (j < (h_in + pad_h0)) &&
+           (k >= pad_w0) && (k < (w_in + pad_w0))
+        { X[..batch, c, i - pad_d0, j - pad_h0, k - pad_w0] }
+        else { 0.0 };
+
+    let conv_sum[..batch, co, i, j, k] = sum[
+        cl in 0..cpg,
         m in 0..kernel_d,
         n in 0..kernel_h,
         p in 0..kernel_w
     ](
-        X[..batch, c,
-          i * stride_d - pad_d + m * dilation_d,
-          j * stride_h - pad_h + n * dilation_h,
-          k * stride_w - pad_w + p * dilation_w]
-        * W[c_out, c, m, n, p]
+        Xp[..batch, (co / fpg) * cpg + cl, i * stride_d + m * dilation_d, j * stride_h + n * dilation_h, k * stride_w + p * dilation_w]
+        * W[co, cl, m, n, p]
     );
-    let output[..batch, c_out, i, j, k] = conv_sum[..batch, c_out, i, j, k] + B[c_out];
+    let output[..batch, co, i, j, k] = conv_sum[..batch, co, i, j, k] + B[co];
     output
 }
 
-// Public ONNX Conv operator
-pub fn conv(X, W, B, strides, pads, dilations) {
-    // ONNX Conv operator (supports 1D, 2D, 3D)
-    // X: Input [N, C, spatial_dims...]
-    // W: Weights [M, C, kernel_shape...]
-    // B: Bias [M]
-    // strides: Strides for each spatial dimension
-    // pads: Padding for each spatial dimension (begin padding, symmetric)
-    // dilations: Dilations for each spatial dimension
-    //
-    // Examples:
-    //   1D: strides=[s], pads=[p], dilations=[d]
-    //   2D: strides=[sH, sW], pads=[pH, pW], dilations=[dH, dW]
-    //   3D: strides=[sD, sH, sW], pads=[pD, pH, pW], dilations=[dD, dH, dW]
-    
+// Public Conv operator
+pub fn conv(X, W, B, strides, pads, dilations, group) {
+    // Conv operator (supports 1D, 2D, 3D)
+    // X: Input  [N, C, spatial_dims...]
+    // W: Weights [M, C/group, kernel_shape...]
+    // B: Bias   [M]
+    // strides:   [s1, s2, ...]           per spatial dimension
+    // pads:      [begin1, begin2, ..., end1, end2, ...]
+    // dilations: [d1, d2, ...]           per spatial dimension
+    // group:     number of groups (1 = standard conv, C = depthwise)
+
     assert(typeof(X) == "rectangular", "conv: X must be rectangular");
     assert(typeof(W) == "rectangular", "conv: W must be rectangular");
-    
-    // Dispatch based on rank (number of spatial dimensions)
+
     let rank = len(strides);
-    assert(rank == len(pads), "conv: strides and pads must have same length");
+    assert(len(pads) == 2 * rank, "conv: pads length must be 2 * rank");
     assert(rank == len(dilations), "conv: strides and dilations must have same length");
-    
+
     if rank == 1 {
-        conv1d(X, W, B, strides[0], pads[0], dilations[0])
+        conv1d(X, W, B, strides[0], pads[0], pads[1], dilations[0], group)
     } else if rank == 2 {
-        conv2d(X, W, B, strides[0], strides[1], pads[0], pads[1], dilations[0], dilations[1])
+        conv2d(X, W, B, strides[0], strides[1],
+               pads[0], pads[2], pads[1], pads[3],
+               dilations[0], dilations[1], group)
     } else if rank == 3 {
-        conv3d(X, W, B, strides[0], strides[1], strides[2], pads[0], pads[1], pads[2], dilations[0], dilations[1], dilations[2])
+        conv3d(X, W, B, strides[0], strides[1], strides[2],
+               pads[0], pads[3], pads[1], pads[4], pads[2], pads[5],
+               dilations[0], dilations[1], dilations[2], group)
     } else {
         assert(false, "conv: unsupported rank (must be 1, 2, or 3)");
-        X  // Unreachable, but needed for type checking
+        X
     }
 }
 
@@ -198,9 +233,9 @@ fn conv_transpose3d(X, W, B, stride_d, stride_h, stride_w, pad_d, pad_h, pad_w) 
     output
 }
 
-// Public ONNX ConvTranspose operator
+// Public ConvTranspose operator
 pub fn conv_transpose(X, W, B, strides, pads, output_padding) {
-    // ONNX ConvTranspose operator (supports 1D, 2D, 3D)
+    // ConvTranspose operator (supports 1D, 2D, 3D)
     // X: Input [N, C, spatial_dims...]
     // W: Weights [C, M, kernel_shape...] (note: C first!)
     // B: Bias [M]
@@ -234,7 +269,7 @@ pub fn conv_transpose(X, W, B, strides, pads, output_padding) {
 
 
 // ============================================================================
-// ONNX Operator: DepthwiseConv
+// Operator: DepthwiseConv
 // ============================================================================
 
 // Private 2D depthwise convolution implementation (multiplier=1 case)
@@ -285,7 +320,7 @@ fn depthwise_conv2d_impl(X, W, B, stride_h, stride_w, pad_h, pad_w, dilation_h, 
 }
 
 pub fn depthwise_conv(X, W, B, strides, pads, dilations) {
-    // ONNX Operator: DepthwiseConv
+    // Operator: DepthwiseConv
     // Depthwise separable convolution - each input channel is convolved separately
     // 
     // X: Input [N, C, H, W] (4D tensor for 2D spatial)
@@ -295,7 +330,6 @@ pub fn depthwise_conv(X, W, B, strides, pads, dilations) {
     // pads: Padding [pad_h, pad_w] for 2D spatial dimensions
     // dilations: Dilations [dilation_h, dilation_w] for 2D spatial dimensions
     //
-    // TensorRT Support: ✅ IConvolutionLayer (with groups parameter)
     //
     // Currently supports 2D depthwise convolution only
     // For 1D/3D, can be extended similarly

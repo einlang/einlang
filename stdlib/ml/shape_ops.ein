@@ -1,14 +1,13 @@
-// ml/shape_ops.ein - ONNX Shape Manipulation Operations
-// TensorRT ONNX Parser: ✅ Supported
+// ml/shape_ops.ein - Shape Manipulation Operations
 
 // ============================================================================
-// ONNX Operator: Reshape
+// Operator: Reshape
 // ============================================================================
 
 pub fn reshape(data, shape) {
-    // ONNX Operator: Reshape
+    // Operator: Reshape
     // 
-    // ONNX spec: Reshape(data, shape)
+    // Spec: Reshape(data, shape)
     //   - data: input tensor
     //   - shape: target shape (1D tensor of ints, or list)
     //     Special values: 0 = copy from input, -1 = infer from other dimensions
@@ -25,7 +24,6 @@ pub fn reshape(data, shape) {
     //   - Total elements must match
     //   - -1 inference limited to simple cases
     // 
-    // TensorRT Support: ✅ Supported
     
     assert(typeof(data) == "rectangular", "reshape: data must be rectangular");
     
@@ -84,13 +82,13 @@ pub fn reshape(data, shape) {
 
 
 // ============================================================================
-// ONNX Operator: Squeeze
+// Operator: Squeeze
 // ============================================================================
 
 pub fn squeeze(data, axes) {
-    // ONNX Operator: Squeeze
+    // Operator: Squeeze
     // 
-    // ONNX spec: Squeeze(data, axes)
+    // Spec: Squeeze(data, axes)
     //   - data: input tensor
     //   - axes: axes to squeeze (1D tensor of ints, optional)
     //     If not provided, squeeze all axes of size 1
@@ -104,7 +102,6 @@ pub fn squeeze(data, axes) {
     //   - axes must be provided as 1D array (first element used)
     //   - Supports up to 4D tensors
     // 
-    // TensorRT Support: ✅ Supported
     
     assert(typeof(data) == "rectangular", "squeeze: data must be rectangular");
     
@@ -192,13 +189,13 @@ pub fn squeeze(data, axes) {
 
 
 // ============================================================================
-// ONNX Operator: Unsqueeze
+// Operator: Unsqueeze
 // ============================================================================
 
 pub fn unsqueeze(data, axes) {
-    // ONNX Operator: Unsqueeze
+    // Operator: Unsqueeze
     // 
-    // ONNX spec: Unsqueeze(data, axes)
+    // Spec: Unsqueeze(data, axes)
     //   - data: input tensor
     //   - axes: axes to add (1D tensor of ints, required)
     // 
@@ -210,7 +207,6 @@ pub fn unsqueeze(data, axes) {
     //   - axes must be provided as 1D array (first element used)
     //   - Supports up to 4D tensors
     // 
-    // TensorRT Support: ✅ Supported
     
     assert(typeof(data) == "rectangular", "unsqueeze: data must be rectangular");
     assert(len(axes) > 0, "unsqueeze: axes must be provided");
@@ -289,13 +285,13 @@ pub fn unsqueeze(data, axes) {
 
 
 // ============================================================================
-// ONNX Operator: Split
+// Operator: Split
 // ============================================================================
 
 pub fn split(data, split_sizes, axis) {
-    // ONNX Operator: Split
+    // Operator: Split
     // 
-    // ONNX spec: Split(data, split, axis=0)
+    // Spec: Split(data, split, axis=0)
     //   - data: input tensor
     //   - split: lengths of splits (1D tensor, optional)
     //   - axis: axis to split on (default 0)
@@ -309,9 +305,8 @@ pub fn split(data, split_sizes, axis) {
     //   - split_sizes must be provided as 1D array (first element used)
     //   - Supports up to 4D tensors
     // 
-    // TensorRT Support: ✅ Supported
     // 
-    // Note: ONNX Split returns multiple outputs. This implementation returns
+    // Note: Split returns multiple outputs. This implementation returns
     // the first split. For multiple splits, call multiple times with adjusted indices.
     
     assert(typeof(data) == "rectangular", "split: data must be rectangular");
@@ -375,13 +370,13 @@ pub fn split(data, split_sizes, axis) {
 
 
 // ============================================================================
-// ONNX Operator: Expand
+// Operator: Expand
 // ============================================================================
 
 pub fn expand(data, shape) {
-    // ONNX Operator: Expand
+    // Operator: Expand
     // 
-    // ONNX spec: Expand(data, shape)
+    // Spec: Expand(data, shape)
     //   - data: input tensor
     //   - shape: target shape (1D tensor of ints)
     // 
@@ -395,7 +390,6 @@ pub fn expand(data, shape) {
     //   - Supports up to 4D tensors
     //   - Broadcasting follows NumPy rules
     // 
-    // TensorRT Support: ✅ Supported
     
     assert(typeof(data) == "rectangular", "expand: data must be rectangular");
     
@@ -458,13 +452,13 @@ pub fn expand(data, shape) {
 
 
 // ============================================================================
-// ONNX Operator: Shape
+// Operator: Shape
 // ============================================================================
 
 pub fn shape(data) {
-    // ONNX Operator: Shape
+    // Operator: Shape
     // 
-    // ONNX spec: Shape(data)
+    // Spec: Shape(data)
     //   - data: input tensor
     //   Returns: 1D tensor containing the shape of input
     // 
@@ -472,10 +466,9 @@ pub fn shape(data) {
     //   - [N, M] -> [N, M] (shape tensor)
     // 
     // Limitations:
-    //   - Returns shape as 1D array of floats (ONNX uses INT64)
+    //   - Returns shape as 1D array of floats (uses INT64)
     //   - Limited by Einlang's dynamic shape support
     // 
-    // TensorRT Support: ✅ IShapeLayer
     
     assert(typeof(data) == "rectangular", "shape: data must be rectangular");
     

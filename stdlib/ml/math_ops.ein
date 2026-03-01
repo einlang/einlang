@@ -1,5 +1,4 @@
-// ml/math_ops.ein - ONNX Element-wise Math Operations
-// TensorRT ONNX Parser: ✅ Supported
+// ml/math_ops.ein - Element-wise Math Operations
 
 // ============================================================================
 // Basic Arithmetic Operations
