@@ -16,9 +16,6 @@ venv/
 htmlcov/
 
 # IDE
-.cursor/
-.cursorrules
-.cursorignore
 .vscode/
 .idea/
 *.swp

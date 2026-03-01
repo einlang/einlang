@@ -375,9 +375,9 @@ class MonomorphizationService:
             )
         if required_passes:
             specialized_func = self._run_passes(specialized_func, required_passes)
-        if is_partial:
-            object.__setattr__(specialized_func, "_is_partially_specialized", True)
-            object.__setattr__(specialized_func, "_generic_defid", generic_defid)
+        if is_partial and getattr(specialized_func, "expr", None) is not None:
+            object.__setattr__(specialized_func.expr, "_is_partially_specialized", True)
+            object.__setattr__(specialized_func.expr, "_generic_defid", generic_defid)
         self._pending_specialized_functions.append(specialized_func)
         if not hasattr(self.tcx, "specialized_functions"):
             self.tcx.specialized_functions = []
@@ -607,6 +607,8 @@ class MonomorphizationService:
                     return False
                 if t.element_type is UNKNOWN:
                     return False
+            elif kind == TypeKind.FUNCTION:
+                pass
             elif kind != TypeKind.PRIMITIVE:
                 return False
         return True
