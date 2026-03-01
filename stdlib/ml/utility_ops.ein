@@ -282,6 +282,66 @@ fn slice_impl_4d(data, start0, end0, step0, start1, end1, step1, start2, end2, s
 
 
 // ============================================================================
+// Quantization Operations (ONNX-compatible)
+// ============================================================================
+
+pub fn quantize_linear(x, y_scale, y_zero_point) {
+    // QuantizeLinear: quantize float tensor to low-precision integer
+    //
+    // Spec (ONNX): QuantizeLinear(x, y_scale, y_zero_point)
+    //   y = clamp(round(x / y_scale) + y_zero_point, -128, 127)
+    //
+    // All arithmetic in f32; returns f32 values in i8 range.
+    // Use `as i8` cast on the result to get actual int8 tensor.
+    let scaled[..dims] = x[..dims] / y_scale;
+
+    // Round half away from zero (standard rounding)
+    let floor_val[..dims] = if scaled[..dims] >= 0.0 {
+        scaled[..dims] + 0.5
+    } else {
+        scaled[..dims] - 0.5
+    };
+    // Truncate to integer via subtract fractional part
+    // floor(x + 0.5) for positive, ceil(x - 0.5) for negative
+    let trunc[..dims] = floor_val[..dims] - (floor_val[..dims] - floor_val[..dims]);
+    // The above is identity; we need integer truncation via cast pattern
+    // Use the fact that i32 cast truncates, then cast back to f32
+    let rounded_i[..dims] = floor_val[..dims] as i32;
+    let rounded[..dims] = rounded_i[..dims] as f32;
+
+    let shifted[..dims] = rounded[..dims] + y_zero_point;
+
+    // Clamp to i8 range [-128, 127]
+    let clamped[..dims] = if shifted[..dims] < -128.0 {
+        -128.0
+    } else if shifted[..dims] > 127.0 {
+        127.0
+    } else {
+        shifted[..dims]
+    };
+
+    clamped
+}
+
+
+pub fn dequantize_linear(x, x_scale, x_zero_point) {
+    // DequantizeLinear: dequantize low-precision integer tensor back to float
+    //
+    // Spec (ONNX): DequantizeLinear(x, x_scale, x_zero_point)
+    //   y = (x - x_zero_point) * x_scale
+    //
+    // Args:
+    //   x: quantized input tensor (any rank, integer values)
+    //   x_scale: scale factor (scalar f32)
+    //   x_zero_point: zero point offset (scalar)
+    //
+    // Returns: dequantized float tensor (same shape as x)
+    let y[..dims] = (x[..dims] - (x_zero_point as f32)) * x_scale;
+    y
+}
+
+
+// ============================================================================
 // Cumulative Operations
 // ============================================================================
 

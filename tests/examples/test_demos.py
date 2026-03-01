@@ -89,6 +89,33 @@ class TestDemos:
         output = result.stdout.strip()
         assert output == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]", f"unexpected output: {output!r}"
 
+    def test_deit_tiny(self):
+        """Run examples/deit_tiny/main.ein and verify ImageNet predictions."""
+        project_root = Path(__file__).parent.parent.parent
+        deit_dir = project_root / "examples" / "deit_tiny"
+        main_ein = deit_dir / "main.ein"
+
+        weight_names = [
+            "patch_proj_w.npy", "patch_proj_b.npy", "cls_token.npy", "pos_embed.npy",
+            "norm_w.npy", "norm_b.npy", "head_w.npy", "head_b.npy",
+            "blk_ln1_w.npy", "blk_ln1_b.npy", "blk_qkv_w.npy", "blk_qkv_b.npy",
+            "blk_proj_w.npy", "blk_proj_b.npy", "blk_ln2_w.npy", "blk_ln2_b.npy",
+            "blk_fc1_w.npy", "blk_fc1_b.npy", "blk_fc2_w.npy", "blk_fc2_b.npy",
+        ]
+        required = [deit_dir / "weights" / n for n in weight_names]
+        required += [deit_dir / "samples" / f"{i}.npy" for i in range(3)]
+        missing = [str(p) for p in required if not p.exists()]
+        assert not missing, f"deit_tiny data missing: {missing}"
+
+        result = subprocess.run(
+            [sys.executable, "-m", "einlang", str(main_ein)],
+            capture_output=True, text=True, cwd=deit_dir,
+            env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
+            timeout=1800,
+        )
+        assert result.returncode == 0, result.stderr or result.stdout
+        output = result.stdout.strip()
+        assert output == "['Egyptian Mau', 'Golden Retriever', 'strawberry']", f"unexpected output: {output!r}"
 
 
 if __name__ == "__main__":

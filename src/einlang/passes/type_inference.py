@@ -492,27 +492,20 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         right_type = expr.right.accept(self)
         
         # Check if this is a comparison operator
-        from ..shared.types import BOOL, I32, I64, F32, F64
+        from ..shared.types import BOOL, I8, I32, I64, F8E4M3, F16, BF16, F32, F64
         comparison_ops_enum = {BinaryOp.LT, BinaryOp.GT, BinaryOp.LE, BinaryOp.GE, BinaryOp.EQ, BinaryOp.NE}
+        int_types = {I8, I32, I64}
+        float_types = {F8E4M3, F16, BF16, F32, F64}
         
         if hasattr(expr, 'operator') and expr.operator in comparison_ops_enum:
-            # Comparison operators return bool
-            # RUST ALIGNMENT: Comparisons require same types (or widening within category)
-            int_types = {I32, I64}
-            float_types = {F32, F64}
-            
-            # Allow comparisons within same category (with widening)
             if (left_type in int_types and right_type in int_types):
-                # i32 < i64 is allowed (widen to i64 for comparison)
                 expr.type_info = BOOL
                 return BOOL
             
             if (left_type in float_types and right_type in float_types):
-                # f32 < f64 is allowed (widen to f64 for comparison)
                 expr.type_info = BOOL
                 return BOOL
             
-            # Same types (including bool, etc.)
             if left_type == right_type:
                 expr.type_info = BOOL
                 return BOOL
@@ -528,19 +521,14 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             expr.type_info = BOOL
             return BOOL
         
-        # Type promotion rules for arithmetic operations
-        # Preserve precision, promote when needed
-        # RUST PATTERN: Integer literals can be promoted to float in arithmetic
         from ..ir.nodes import LiteralIR
         
-        # Check if we're mixing int and float with a literal
-        if (left_type in {I32, I64} and right_type in {F32, F64}) or \
-           (left_type in {F32, F64} and right_type in {I32, I64}):
-            left_is_int_literal = isinstance(expr.left, LiteralIR) and left_type in {I32, I64}
-            right_is_int_literal = isinstance(expr.right, LiteralIR) and right_type in {I32, I64}
+        if (left_type in int_types and right_type in float_types) or \
+           (left_type in float_types and right_type in int_types):
+            left_is_int_literal = isinstance(expr.left, LiteralIR) and left_type in int_types
+            right_is_int_literal = isinstance(expr.right, LiteralIR) and right_type in int_types
             
             if left_is_int_literal or right_is_int_literal:
-                # Promote the literal to the float type
                 target_float_type = right_type if left_is_int_literal else left_type
                 
                 if left_is_int_literal:
@@ -553,10 +541,10 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         
         # POW special case: float ** int → float (Rust's powi)
         if hasattr(expr, 'operator') and expr.operator == BinaryOp.POW:
-            if left_type in {F32, F64} and right_type in {I32, I64}:
+            if left_type in float_types and right_type in int_types:
                 expr.type_info = left_type
                 return left_type
-            if left_type in {I32, I64} and right_type in {I32, I64}:
+            if left_type in int_types and right_type in int_types:
                 left_lit = isinstance(expr.left, LiteralIR) and isinstance(getattr(expr.left, 'value', None), int)
                 right_lit = isinstance(expr.right, LiteralIR) and isinstance(getattr(expr.right, 'value', None), int)
                 if left_lit and right_lit:
@@ -595,53 +583,55 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         expr.type_info = inferred_type
         return inferred_type
     
+    _FLOAT_RANK: dict = None  # type: ignore[assignment]
+    _INT_RANK: dict = None  # type: ignore[assignment]
+
+    @staticmethod
+    def _build_rank_tables():
+        from ..shared.types import I8, I32, I64, F8E4M3, F16, BF16, F32, F64
+        return (
+            {F8E4M3: 0, F16: 1, BF16: 2, F32: 3, F64: 4},
+            {I8: 0, I32: 1, I64: 2},
+        )
+
     def _promote_types(self, left: Type, right: Type, location=None) -> Type:
         """
         Type promotion rules - RUST PATTERN: No implicit cross-category conversion.
         
-        Rules (using Type objects directly - NO STRING CONVERSIONS):
-        - If either is UNKNOWN, return the other (or UNKNOWN if both are)
-        - Same types -> no promotion
-        - i32 + i64 -> i64 (widen within same category)
-        - f32 + f64 -> f64 (widen within same category)
-        - i32 + f32 -> ERROR (cross-category mixing not allowed - explicit cast required)
-        
-        Fail fast on incompatible types (like precision_engine.py)
+        Widening hierarchy:
+          Float: f8e4m3 < f16 < bf16 < f32 < f64
+          Int:   i8 < i32 < i64
+        Cross-category (int + float) is ERROR.
         """
-        from ..shared.types import I32, I64, F32, F64
+        from ..shared.types import I8, I32, I64, F8E4M3, F16, BF16, F32, F64
         
-        # Handle UNKNOWN
         if left == UNKNOWN:
             return right
         if right == UNKNOWN:
             return left
         
-        # Same types - no promotion needed
         if left == right:
             return left
         
-        # RUST PATTERN: Widening within same category only
-        # Float widening (f32 <-> f64)
-        if (left == F32 and right == F64) or (left == F64 and right == F32):
-            return F64
-        
-        # Integer widening (i32 <-> i64)
-        if (left == I32 and right == I64) or (left == I64 and right == I32):
-            return I64
-        
-        # RUST PATTERN: Cross-category is ERROR
-        # Check if mixing int and float
-        int_types = {I32, I64}
-        float_types = {F32, F64}
-        
+        if self._FLOAT_RANK is None:
+            TypeInferencer._FLOAT_RANK, TypeInferencer._INT_RANK = self._build_rank_tables()
+
+        fl, fr = self._FLOAT_RANK.get(left), self._FLOAT_RANK.get(right)
+        if fl is not None and fr is not None:
+            return left if fl >= fr else right
+
+        il, ir = self._INT_RANK.get(left), self._INT_RANK.get(right)
+        if il is not None and ir is not None:
+            return left if il >= ir else right
+
+        int_types = set(self._INT_RANK)
+        float_types = set(self._FLOAT_RANK)
         if (left in int_types and right in float_types) or (left in float_types and right in int_types):
-            # Determine which is which for correct error message
             if left in int_types:
                 int_type, float_type = left, right
             else:
                 int_type, float_type = right, left
             
-            # Report type mismatch error with correct labels (use .name for clean output)
             int_name = int_type.name if hasattr(int_type, 'name') else str(int_type)
             float_name = float_type.name if hasattr(float_type, 'name') else str(float_type)
             self.tcx.reporter.report_error(
@@ -653,7 +643,6 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             )
             return UNKNOWN
         
-        # Default: incompatible types
         return left
     
     def _is_assignment_compatible(self, value_type: Type, expected_type: Type) -> bool:
@@ -1537,13 +1526,15 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         return inferred_type
     
     def _iterable_element_type(self, range_type: Type) -> Type:
-        """Infer type of iteration variable from iterable type. E.g. [f32; N] -> f32; 0..n -> I32."""
+        """Infer type of iteration variable from iterable type.
+        Peels off one dimension: [f32; 3, 224, 224] -> [f32; 224, 224]; [f32; N] -> f32; 0..n -> I32."""
         from ..shared.types import JaggedType
         if isinstance(range_type, RectangularType):
+            if range_type.shape is not None and len(range_type.shape) > 1:
+                return RectangularType(element_type=range_type.element_type, shape=range_type.shape[1:])
             return range_type.element_type
         if isinstance(range_type, JaggedType):
             return range_type.element_type
-        # Range (0..n), RANGE, or unknown: iteration variable is an index -> I32
         return I32
 
     def visit_array_comprehension(self, node) -> Type:
@@ -1591,8 +1582,11 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             if range_expr:
                 range_expr.accept(self)
         body_type = getattr(node.body, 'type_info', None) if node.body else None
-        base_elem = self._get_base_element_type(body_type) if body_type and body_type is not UNKNOWN else I32
-        inferred_type = RectangularType(element_type=base_elem, shape=None)
+        if body_type and body_type is not UNKNOWN and isinstance(body_type, RectangularType) and body_type.shape is not None:
+            inferred_type = RectangularType(element_type=body_type.element_type, shape=(None,) + body_type.shape)
+        else:
+            base_elem = self._get_base_element_type(body_type) if body_type and body_type is not UNKNOWN else I32
+            inferred_type = RectangularType(element_type=base_elem, shape=None)
         object.__setattr__(node, 'type_info', inferred_type)
         return inferred_type
 

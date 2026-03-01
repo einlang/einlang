@@ -41,7 +41,7 @@ pub use std::ml::reduction_ops::{reduce_mean, reduce_sum, reduce_max, reduce_min
 pub use std::ml::linalg_ops::{matmul, batch_matmul};
 
 // Utility Operations
-pub use std::ml::utility_ops::{where, identity, constant, dropout, l2_normalize, numel, size, cast, slice, cumsum};
+pub use std::ml::utility_ops::{where, identity, constant, dropout, l2_normalize, numel, size, cast, slice, cumsum, quantize_linear, dequantize_linear};
 
 // Extended ML Operations
 // These are composite operations, helper functions, or experimental features

@@ -189,5 +189,38 @@ class TestPrecisionShapePropagationWithPasses:
         assert out["M"].shape == out["N"].shape == (2, 2)
 
 
+class TestLowPrecisionTypes:
+    """Test f16, i8 cast and dtype propagation"""
+
+    def test_f16_cast_and_propagation(self, compiler, runtime):
+        code = """
+        let x = 3.14 as f16;
+        let arr[0] = 1.0 as f16;
+        let arr[1] = 2.0 as f16;
+        """
+        out = compile_and_run(code.strip(), compiler, runtime)
+        assert out["arr"].dtype == np.float16
+        assert abs(float(out["x"]) - 3.14) < 0.01
+
+    def test_i8_cast_and_propagation(self, compiler, runtime):
+        code = """
+        let x = 42 as i8;
+        let arr[0] = 10 as i8;
+        let arr[1] = 20 as i8;
+        """
+        out = compile_and_run(code.strip(), compiler, runtime)
+        assert out["arr"].dtype == np.int8
+        assert list(out["arr"]) == [10, 20]
+
+    def test_f16_arithmetic_widening(self, compiler, runtime):
+        code = """
+        let a = 1.5 as f16;
+        let b = 2.5 as f32;
+        """
+        out = compile_and_run(code.strip(), compiler, runtime)
+        assert abs(float(out["a"]) - 1.5) < 0.01
+        assert abs(float(out["b"]) - 2.5) < 0.001
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

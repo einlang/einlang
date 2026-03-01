@@ -16,8 +16,12 @@ from ..shared.defid import DefId
 from ..shared.types import (
     Type,
     TypeKind,
+    I8,
     I32,
     I64,
+    F8E4M3,
+    F16,
+    BF16,
     F32,
     F64,
     BOOL,
@@ -26,7 +30,7 @@ from ..shared.types import (
 )
 
 # Structured sets of primitive types for cast rules (object identity / equality)
-_NUMERIC_PRIMITIVES = (I32, I64, F32, F64)
+_NUMERIC_PRIMITIVES = (I8, I32, I64, F8E4M3, F16, BF16, F32, F64)
 
 
 def _is_numeric_primitive(ty: Any) -> bool:
@@ -162,7 +166,7 @@ class CastValidationVisitor(IRVisitor[None]):
                 message=f"Cannot cast {_type_display(source_type)} to {_type_display(target_type)}. Invalid type cast.",
                 location=expr.location,
                 code="E1003",
-                note="Valid casts: numeric types (i32, i64, f32, f64), bool to numeric, numeric to bool, same type.",
+                note="Valid casts: numeric types (i8, i32, i64, f8e4m3, f16, bf16, f32, f64), bool to numeric, numeric to bool, same type.",
             )
         
         # Process operand

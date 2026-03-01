@@ -1,42 +1,42 @@
-# =============================================================================
-# PROGRAM STRUCTURE
-# =============================================================================
+// =============================================================================
+// PROGRAM STRUCTURE
+// =============================================================================
 
 program: statement*
 
 ?statement: function_def | pub_function_def | var_decl | const_decl | einstein_decl | expr_stmt | use_stmt | pub_use_stmt | mod_stmt | pub_mod_stmt | inline_mod_stmt | pub_inline_mod_stmt | enum_def | struct_def
 
-# =============================================================================
-# FUNCTION DEFINITIONS - WITH ALIASES
-# =============================================================================
+// =============================================================================
+// FUNCTION DEFINITIONS - WITH ALIASES
+// =============================================================================
 
-# ✅ SIMPLIFIED with aliases - reduces transformer complexity
+// SIMPLIFIED with aliases - reduces transformer complexity
 function_def: "fn" NAME LPAR param_list? RPAR ("->" type)? block
 pub_function_def: "pub" "fn" NAME LPAR param_list? RPAR ("->" type)? block
 param_list: parameter ("," parameter)* 
 parameter: NAME (":" type)?
 
-# =============================================================================
-# VARIABLE DECLARATIONS - WITH ALIASES  
-# =============================================================================
+// =============================================================================
+// VARIABLE DECLARATIONS - WITH ALIASES  
+// =============================================================================
 
 var_decl: "let" (NAME | destructure_pattern) (":" type)? "=" expr ("where" where_constraints)? ";"
 const_decl: "const" NAME (":" type)? "=" expr ";"
 einstein_decl: "let" NAME LSQB einstein_indices RSQB "=" expr where_else_opt? ";"
 where_else_opt: "where" where_constraints ("else" expr)?
 
-# Einstein indices support names, ranges, literals, and named rest patterns
+// Einstein indices support names, ranges, literals, and named rest patterns
 einstein_indices: einstein_index ("," einstein_index)*
 einstein_index: (NAME ("in" expr)?) | literal | named_rest  // Can be "i", "i in 0..N", "0", or "..batch"
 named_rest: DOTDOT NAME  // Named rest pattern: ..batch
 
-# =============================================================================
-# EXPRESSIONS - KEEP WORKING STRUCTURE, ADD ALIASES
-# =============================================================================
+// =============================================================================
+// EXPRESSIONS - KEEP WORKING STRUCTURE, ADD ALIASES
+// =============================================================================
 
 expr_stmt: expr ";"
 
-# Keep the working expression structure from original - don't inline, we need expr for where clause handling
+// Keep the working expression structure from original - don't inline, we need expr for where clause handling
 expr: pipeline_expr (where_clause)?
 
 pipeline_expr: logical_or_expr (pipeline_op logical_or_expr)* (pipeline_else_clause | pipeline_catch_clause)?
@@ -50,10 +50,10 @@ range_expr: additive_expr ((DOTDOT | DOTDOTEQ) additive_expr)?
 additive_expr: multiplicative_expr (additive_op multiplicative_expr)*
 multiplicative_expr: power_expr (multiplicative_op power_expr)*
 power_expr: cast_expr (power_op cast_expr)*
-cast_expr: unary_expr (AS type)?
+cast_expr: unary_expr (AS type)*
 unary_expr: unary_op* primary_expr
 
-# Rust-aligned: any expression can be called via postfix ( args ); single rule
+// Rust-aligned: any expression can be called via postfix ( args ); single rule
 ?primary_expr: postfix_call | callable_primary
 ?callable_primary: chained_array_access | array_access | chained_access | module_access | member_access | rectangular_operation | literal | identifier | array_construct | if_expr | try_expr | tuple_expr | lambda_expr | match_expr | block | LPAR expr RPAR
 postfix_call: (postfix_call | callable_primary) LPAR argument_list? RPAR
@@ -62,9 +62,9 @@ try_expr: "try" expr
 
 ?atom: literal | identifier | LPAR expr RPAR
 
-# =============================================================================
-# LITERALS - WITH ALIASES
-# =============================================================================
+// =============================================================================
+// LITERALS - WITH ALIASES
+// =============================================================================
 
 literal: INTEGER_OR_FLOAT
         | STRING  
@@ -73,9 +73,9 @@ literal: INTEGER_OR_FLOAT
 
 identifier: NAME
 
-# =============================================================================
-# OPERATIONS - WITH ALIASES
-# =============================================================================
+// =============================================================================
+// OPERATIONS - WITH ALIASES
+// =============================================================================
 
 argument_list: argument ("," argument)*
 ?argument: NAME "=" expr | expr
@@ -84,9 +84,9 @@ argument_list: argument ("," argument)*
 rectangular_access: NAME LSQB expr_list RSQB
 reduction_expression: NAME LSQB expr_list RSQB LPAR expr RPAR
 
-# =============================================================================
-# CONTROL FLOW - WITH ALIASES
-# =============================================================================
+// =============================================================================
+// CONTROL FLOW - WITH ALIASES
+// =============================================================================
 
 if_expr: "if" expr block else_clause?
 else_clause: "else" block | "else" if_expr
@@ -97,20 +97,20 @@ match_arm: pattern (PIPE pattern)* ("where" expr)? "=>" expr
 
 ?pattern: tuple_pattern | array_pattern | literal_or_range_pattern | name_pattern | wildcard_pattern | struct_pattern
 
-# LALR-safe: after NAME, one-token lookahead resolves binding (@), constructor (LPAR), or plain identifier
+// LALR-safe: after NAME, one-token lookahead resolves binding (@), constructor (LPAR), or plain identifier
 ?name_pattern: NAME "@" pattern -> binding_pattern
              | NAME LPAR pattern_list? RPAR -> constructor_pattern
              | NAME -> identifier_pattern
 
-# LALR-safe: after literal, one-token lookahead resolves range (DOTDOTEQ/DOTDOT) or plain literal
+// LALR-safe: after literal, one-token lookahead resolves range (DOTDOTEQ/DOTDOT) or plain literal
 ?literal_or_range_pattern: literal DOTDOTEQ literal -> range_pattern_inclusive
                          | literal DOTDOT literal -> range_pattern_exclusive
                          | literal -> literal_pattern
 
 wildcard_pattern: "_"
-struct_pattern: NAME "{" struct_field_pattern_list? "}"  # Struct pattern: Point { x, y }
+struct_pattern: NAME "{" struct_field_pattern_list? "}"  // Struct pattern: Point { x, y }
 struct_field_pattern_list: struct_field_pattern ("," struct_field_pattern)* ","?
-struct_field_pattern: NAME (":" pattern)?  # x or x: pattern
+struct_field_pattern: NAME (":" pattern)?  // x or x: pattern
 tuple_pattern: "(" pattern ("," pattern)+ ")"
 array_pattern: "[" array_pattern_elements? "]"
 ?array_pattern_elements: array_pattern_item ("," array_pattern_item)*
@@ -119,28 +119,28 @@ rest_pattern: ".." pattern
 pattern_list: pattern ("," pattern)*
 
 
-# Common block pattern for statements with optional final expression
+// Common block pattern for statements with optional final expression
 block: "{" statement* expr? "}"
 
-# Use regular expressions for conditions - no separate chain needed!
+// Use regular expressions for conditions - no separate chain needed!
 
-# =============================================================================
-# ARRAY CONSTRUCTS - WITH ALIASES  
-# =============================================================================
+// =============================================================================
+// ARRAY CONSTRUCTS - WITH ALIASES  
+// =============================================================================
 
 ?array_construct: array_comprehension | array_literal
 array_comprehension: "[" range_expr "|" comprehension_constraints "]"
 array_literal: "[" array_element_list? "]"
 array_element_list: range_expr ("," range_expr)*
-# =============================================================================
-# OTHER CONSTRUCTS
-# =============================================================================
+// =============================================================================
+// OTHER CONSTRUCTS
+// =============================================================================
 
 tuple_expr: LPAR expr "," expr ("," expr)* RPAR
 lambda_expr: PIPE param_list? PIPE expr
 
-# Destructuring patterns for variable declarations  
-# Best practice: only tuple destructuring (arrays have variable length)
+// Destructuring patterns for variable declarations  
+// Best practice: only tuple destructuring (arrays have variable length)
 ?destructure_pattern: tuple_destructure_pattern
 tuple_destructure_pattern: LPAR annotated_var ("," annotated_var)* RPAR
 annotated_var: NAME (":" type)?
@@ -162,42 +162,42 @@ import_item_list: import_item ("," import_item)* ","?
 import_item: NAME ("as" NAME)?
 module_path: NAME ("::" NAME)*
 
-# =============================================================================
-# MODULE DECLARATIONS - RUST-STYLE
-# =============================================================================
+// =============================================================================
+// MODULE DECLARATIONS - RUST-STYLE
+// =============================================================================
 
 mod_stmt: "mod" NAME ";"
 pub_mod_stmt: "pub" "mod" NAME ";"
 inline_mod_stmt: "mod" NAME block
 pub_inline_mod_stmt: "pub" "mod" NAME block
 
-# =============================================================================
-# WHERE CLAUSES AND CONSTRAINTS
-# =============================================================================
+// =============================================================================
+// WHERE CLAUSES AND CONSTRAINTS
+// =============================================================================
 
-# Where clause for Einstein declarations (predicates only, NO range_membership)
-# Domain definitions must be inline in index positions: let A[i in 0..N] = ...
-# Note: "i in 0..5" can parse as relational_expr, but constraint_classifier rejects it (E0301)
+// Where clause for Einstein declarations (predicates only, NO range_membership)
+// Domain definitions must be inline in index positions: let A[i in 0..N] = ...
+// Note: "i in 0..5" can parse as relational_expr, but constraint_classifier rejects it (E0301)
 where_clause: "where" einstein_binding ("," einstein_binding)*
 where_constraints: where_clause  
-?einstein_binding: value_binding | logical_or_expr  # NO range_membership - use inline syntax
+?einstein_binding: value_binding | logical_or_expr  // NO range_membership - use inline syntax
 value_binding: identifier "=" expr
-range_membership: identifier "in" range_expr  # Only for comprehensions
+range_membership: identifier "in" range_expr  // Only for comprehensions
 
-# Comprehension constraints (iteration + predicates + bindings)
+// Comprehension constraints (iteration + predicates + bindings)
 comprehension_constraints: comprehension_constraint ("," comprehension_constraint)*
 ?comprehension_constraint: value_binding | logical_or_expr | range_membership
 
-# =============================================================================
-# ADT DEFINITIONS
-# =============================================================================
+// =============================================================================
+// ADT DEFINITIONS
+// =============================================================================
 
 enum_def: "enum" NAME (generic_params)? "{" enum_variant_list? "}"
 pub_enum_def: "pub" enum_def
 enum_variant_list: enum_variant ("," enum_variant)* ","?
 enum_variant: NAME ("(" enum_variant_field_list? ")")?
 enum_variant_field_list: enum_variant_field ("," enum_variant_field)*
-enum_variant_field: (NAME ":")? type  # Named field: name: type, or positional: type
+enum_variant_field: (NAME ":")? type  // Named field: name: type, or positional: type
 
 struct_def: "struct" NAME (generic_params)? ("(" struct_field_list? ")" | "{" struct_field_list? "}")
 pub_struct_def: "pub" struct_def
@@ -206,42 +206,42 @@ struct_field: NAME ":" type
 
 generic_params: "<" generic_param_list ">"
 generic_param_list: generic_param ("," generic_param)*
-generic_param: NAME (":" type)?  # Type parameter with optional constraint
+generic_param: NAME (":" type)?  // Type parameter with optional constraint
 
-# =============================================================================
-# TYPES
-# =============================================================================
+// =============================================================================
+// TYPES
+// =============================================================================
 
 ?type: rectangular_type | jagged_type | tuple_type | primitive_type | function_type | generic_type | named_type
-generic_type: NAME ("::" NAME)* "<" type_list ">"  # Generic type: Option<T>, Result<T, E>
-named_type: NAME ("::" NAME)*  # Enum or struct type: Color, Shape, Point (must come after generic_type to avoid conflicts)
+generic_type: NAME ("::" NAME)* "<" type_list ">"  // Generic type: Option<T>, Result<T, E>
+named_type: NAME ("::" NAME)*  // Enum or struct type: Color, Shape, Point (must come after generic_type to avoid conflicts)
 
-# Unified rectangular type: [element_type; shape_spec?]
+// Unified rectangular type: [element_type; shape_spec?]
 rectangular_type: LSQB primitive_type (SEMICOLON shape_spec)? RSQB
 shape_spec: explicit_shape | dynamic_rank
 explicit_shape: shape_dimension ("," shape_dimension)*
 shape_dimension: INTEGER_OR_FLOAT | NAME | "?"
 dynamic_rank: "*"
 
-# Jagged type: jagged[element_type; depth?]
+// Jagged type: jagged[element_type; depth?]
 jagged_type: "jagged" LSQB primitive_type (SEMICOLON jagged_depth)? RSQB
 jagged_depth: dimension_suffix | dynamic_depth
 dimension_suffix: "2d" | "3d" | "4d"  // 1d is default
 dynamic_depth: "?"
 
-# Tuple type: (type1, type2, ...)  
+// Tuple type: (type1, type2, ...)  
 tuple_type: LPAR type_list RPAR
 // Semantic validation: tuple requires at least 2 elements (enforced in transformer)
 
-# Function type
+// Function type
 function_type: LPAR type_list? RPAR "->" type
 type_list: type ("," type)*
 
-primitive_type: PTYPE_F32 | PTYPE_F64 | PTYPE_I32 | PTYPE_I64 | PTYPE_BOOL | PTYPE_STR | PTYPE_INT | PTYPE_FLOAT
+primitive_type: PTYPE_F8E4M3 | PTYPE_F16 | PTYPE_BF16 | PTYPE_F32 | PTYPE_F64 | PTYPE_I8 | PTYPE_I32 | PTYPE_I64 | PTYPE_BOOL | PTYPE_STR | PTYPE_INT | PTYPE_FLOAT
 
-# =============================================================================
-# OPERATORS - Using terminals instead of rules
-# =============================================================================
+// =============================================================================
+// OPERATORS - Using terminals instead of rules
+// =============================================================================
 
 PLUS: "+"
 MINUS: "-"
@@ -261,13 +261,13 @@ OR: "||"
 NOT: "!"
 IN: "in"
 
-# Pipeline operators
+// Pipeline operators
 PIPE_OP: "|>"
 QUESTION_PIPE_OP: "?>"
 ERROR_PIPE_OP: "!>"
 PIPE: "|"
 
-# Custom number that doesn't conflict with DOTDOT
+// Custom number that doesn't conflict with DOTDOT
 INTEGER_OR_FLOAT: /[+-]?(?:\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)/
 DOTDOTEQ: "..="
 DOTDOT: ".."
@@ -281,9 +281,13 @@ RPAR: ")"
 LBRACE: "{"
 RBRACE: "}"
 
-# Primitive type terminals so they get passed as tokens
+// Primitive type terminals so they get passed as tokens
+PTYPE_F8E4M3: "f8e4m3"
+PTYPE_F16: "f16"
+PTYPE_BF16: "bf16"
 PTYPE_F32: "f32"
 PTYPE_F64: "f64"
+PTYPE_I8: "i8"
 PTYPE_I32: "i32"
 PTYPE_I64: "i64"
 PTYPE_BOOL: "bool"
@@ -307,15 +311,15 @@ logical_or_op: OR
 unary_op: MINUS | NOT | PLUS
 pipeline_op: PIPE_OP | QUESTION_PIPE_OP | ERROR_PIPE_OP
 
-# =============================================================================
-# TERMINALS - USING LARK STANDARD IMPORTS ✅
-# =============================================================================
+// =============================================================================
+// TERMINALS - USING LARK STANDARD IMPORTS ✅
+// =============================================================================
 
-# ✅ USE STANDARD TERMINALS instead of custom regex
+// ✅ USE STANDARD TERMINALS instead of custom regex
 %import common.CNAME -> NAME
 %import common.ESCAPED_STRING -> STRING
-# %import common.INT -> INTEGER
-# %import common.SIGNED_NUMBER
+// %import common.INT -> INTEGER
+// %import common.SIGNED_NUMBER
 %import common.WS
 
 COMMENT: /\/\/[^\n]*/

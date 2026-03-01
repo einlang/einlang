@@ -270,8 +270,12 @@ class TypeVisitor(ABC, Generic[T]):
 
 
 # Common primitive types (All standard types as constants)
+I8 = PrimitiveType("i8")
 I32 = PrimitiveType("i32")
 I64 = PrimitiveType("i64")
+F8E4M3 = PrimitiveType("f8e4m3")
+F16 = PrimitiveType("f16")
+BF16 = PrimitiveType("bf16")
 F32 = PrimitiveType("f32")
 F64 = PrimitiveType("f64")
 BOOL = PrimitiveType("bool")

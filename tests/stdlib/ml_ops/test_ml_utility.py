@@ -175,4 +175,113 @@ def test_size_all_ranks(compiler, runtime):
     x_3d = np.array([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]], dtype=np.float32)
     expected_3d = x_3d.size
     np.testing.assert_allclose(result.outputs['size_3d'], expected_3d, rtol=1e-6)
-    
+
+
+def test_quantize_linear_symmetric(compiler, runtime):
+    """Test quantize_linear with symmetric quantization (zero_point=0)"""
+    source = """use std::ml;
+    let x = [1.0, 2.5, -3.0, 0.0, 4.2];
+    let scale = 0.05;
+    let zero_point = 0.0;
+    let q = std::ml::quantize_linear(x, scale, zero_point);
+    """
+    result = compile_and_execute(source, compiler, runtime)
+    assert result.success, f"Execution failed: {result.errors}"
+
+    x = np.array([1.0, 2.5, -3.0, 0.0, 4.2], dtype=np.float32)
+    scale = 0.05
+    expected = np.clip(np.round(x / scale), -128, 127)
+    actual = np.array(result.outputs['q'])
+    np.testing.assert_allclose(actual, expected, rtol=1e-5)
+
+
+def test_quantize_linear_asymmetric(compiler, runtime):
+    """Test quantize_linear with asymmetric quantization (non-zero zero_point)"""
+    source = """use std::ml;
+    let x = [0.0, 1.0, 2.0, 3.0, 4.0];
+    let scale = 0.04;
+    let zero_point = 10.0;
+    let q = std::ml::quantize_linear(x, scale, zero_point);
+    """
+    result = compile_and_execute(source, compiler, runtime)
+    assert result.success, f"Execution failed: {result.errors}"
+
+    x = np.array([0.0, 1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+    scale = 0.04
+    zp = 10.0
+    expected = np.clip(np.round(x / scale) + zp, -128, 127)
+    actual = np.array(result.outputs['q'])
+    np.testing.assert_allclose(actual, expected, rtol=1e-5)
+
+
+def test_quantize_linear_saturation(compiler, runtime):
+    """Test quantize_linear saturates to [-128, 127]"""
+    source = """use std::ml;
+    let x = [100.0, -100.0, 0.5];
+    let scale = 0.5;
+    let zero_point = 0.0;
+    let q = std::ml::quantize_linear(x, scale, zero_point);
+    """
+    result = compile_and_execute(source, compiler, runtime)
+    assert result.success, f"Execution failed: {result.errors}"
+
+    actual = np.array(result.outputs['q'])
+    assert actual[0] == 127.0
+    assert actual[1] == -128.0
+    assert actual[2] == 1.0
+
+
+def test_dequantize_linear(compiler, runtime):
+    """Test dequantize_linear recovers approximate float values"""
+    source = """use std::ml;
+    let q = [20.0, 50.0, -60.0, 0.0, 84.0];
+    let scale = 0.05;
+    let zero_point = 0.0;
+    let y = std::ml::dequantize_linear(q, scale, zero_point);
+    """
+    result = compile_and_execute(source, compiler, runtime)
+    assert result.success, f"Execution failed: {result.errors}"
+
+    q = np.array([20.0, 50.0, -60.0, 0.0, 84.0], dtype=np.float32)
+    scale = 0.05
+    expected = (q - 0.0) * scale
+    actual = np.array(result.outputs['y'])
+    np.testing.assert_allclose(actual, expected, rtol=1e-5)
+
+
+def test_quantize_dequantize_roundtrip(compiler, runtime):
+    """Test quantize then dequantize preserves values approximately"""
+    source = """use std::ml;
+    let x = [1.0, 2.0, -1.5, 0.0, 3.0];
+    let scale = 0.05;
+    let zero_point = 0.0;
+    let q = std::ml::quantize_linear(x, scale, zero_point);
+    let y = std::ml::dequantize_linear(q, scale, zero_point);
+    """
+    result = compile_and_execute(source, compiler, runtime)
+    assert result.success, f"Execution failed: {result.errors}"
+
+    x = np.array([1.0, 2.0, -1.5, 0.0, 3.0], dtype=np.float32)
+    scale = 0.05
+    q = np.clip(np.round(x / scale), -128, 127)
+    expected = q * scale
+    actual = np.array(result.outputs['y'])
+    np.testing.assert_allclose(actual, expected, rtol=1e-5)
+
+
+def test_quantize_linear_2d(compiler, runtime):
+    """Test quantize_linear on 2D tensor"""
+    source = """use std::ml;
+    let x = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+    let scale = 0.05;
+    let zero_point = 0.0;
+    let q = std::ml::quantize_linear(x, scale, zero_point);
+    """
+    result = compile_and_execute(source, compiler, runtime)
+    assert result.success, f"Execution failed: {result.errors}"
+
+    x = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
+    scale = 0.05
+    expected = np.clip(np.round(x / scale), -128, 127)
+    actual = np.array(result.outputs['q'])
+    np.testing.assert_allclose(actual, expected, rtol=1e-5)
