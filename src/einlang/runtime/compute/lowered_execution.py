@@ -10,9 +10,76 @@ No direct AST/IR dependencies - works with the lowered structures as data.
 Lowered execution model.
 """
 
-from typing import Dict, List, Callable, Any, Iterator, Optional
+from typing import Dict, List, Callable, Any, Iterator, Optional, Tuple
+
+import numpy as np
 
 from ...shared.defid import DefId
+
+
+def _try_vectorized_reduction(
+    reduction_op: str,
+    reduction_loops: List[Any],
+    body_evaluator: Callable,
+    expr_evaluator: Callable,
+) -> Tuple[bool, Any]:
+    """
+    Fast path: evaluate the reduction body once with numpy array-valued loop
+    variables (using broadcasting for multi-variable cases) then reduce with
+    a single numpy call instead of iterating element-by-element in Python.
+
+    Falls back gracefully (returns False, None) on any failure so the caller
+    can retry with the scalar loop.
+    """
+    if reduction_op not in ('sum', 'max', 'min', 'product', 'prod'):
+        return False, None
+    try:
+        arrs: List[np.ndarray] = []
+        defids: List[Any] = []
+        for loop in reduction_loops:
+            var_defid = getattr(loop.variable, 'defid', None)
+            if var_defid is None:
+                return False, None
+            iterable = expr_evaluator(loop.iterable)
+            if isinstance(iterable, range):
+                step = iterable.step if iterable.step is not None else 1
+                arr = np.arange(iterable.start, iterable.stop, step, dtype=np.intp)
+            else:
+                arr = np.array(list(iterable), dtype=np.intp)
+            if arr.size == 0:
+                return True, (0 if reduction_op == 'sum' else None)
+            arrs.append(arr)
+            defids.append(var_defid)
+
+        if not arrs:
+            return False, None
+
+        n = len(arrs)
+        ctx: Dict[Any, Any] = {}
+        for i, (defid, arr) in enumerate(zip(defids, arrs)):
+            if n == 1:
+                ctx[defid] = arr
+            else:
+                shape = [1] * n
+                shape[i] = len(arr)
+                ctx[defid] = arr.reshape(shape)
+
+        result = body_evaluator(ctx)
+
+        if not isinstance(result, np.ndarray):
+            return False, None
+
+        if reduction_op == 'sum':
+            return True, result.sum()
+        elif reduction_op == 'max':
+            return True, result.max()
+        elif reduction_op == 'min':
+            return True, result.min()
+        elif reduction_op in ('product', 'prod'):
+            return True, result.prod()
+    except Exception:
+        pass
+    return False, None
 
 
 def execute_lowered_loops(
@@ -139,10 +206,19 @@ def execute_reduction_with_loops(
     """
     if initial_context is None:
         initial_context = {}
-    
+
     # Convert reduction_ranges to list of loops
     reduction_loops = list(reduction_ranges.values())
-    
+
+    # Fast vectorized path: replace Python scalar loop with a single numpy op.
+    # Only attempted when there are no guards (guards require per-element filtering).
+    if not guard_evaluator:
+        ok, result = _try_vectorized_reduction(
+            reduction_op, reduction_loops, body_evaluator, expr_evaluator
+        )
+        if ok:
+            return result
+
     # Initialize accumulator based on operation
     if reduction_op == 'sum':
         accumulator = 0
