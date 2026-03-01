@@ -58,8 +58,16 @@ def builtin_shape(array: Any) -> Any:
 
 def builtin_typeof(value: Any) -> str:
     if isinstance(value, bool): return "bool"
-    if isinstance(value, (np.float32, np.float16)): return "f32"
+    if isinstance(value, np.int8): return "i8"
+    if isinstance(value, np.float16): return "f16"
+    if isinstance(value, np.float32): return "f32"
     if isinstance(value, np.float64): return "f64"
+    try:
+        import ml_dtypes
+        if isinstance(value, ml_dtypes.bfloat16): return "bf16"
+        if isinstance(value, ml_dtypes.float8_e4m3fn): return "f8e4m3"
+    except ImportError:
+        pass
     if isinstance(value, (int, np.integer)): return "i32"
     if isinstance(value, float): return "f32"
     if isinstance(value, str): return "str"

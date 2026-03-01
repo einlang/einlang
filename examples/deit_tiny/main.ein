@@ -1,0 +1,108 @@
+// DeiT-Tiny (Data-efficient Image Transformer) — ImageNet classification.
+// Architecture: Patch(16x16) -> 12 Transformer blocks -> Linear head(1000)
+// embed_dim=192, heads=3, mlp_ratio=4, seq_len=197 (196 patches + CLS)
+
+use std::ml::{conv, layer_normalization, gelu_tanh};
+use std::array::argmax;
+use std::math::exp;
+
+fn load_npy(path: str) -> [f32; *] { python::numpy::load(path) }
+
+// --- Global weights ---
+let patch_w  = load_npy("weights/patch_proj_w.npy") as [f32; 192, 3, 16, 16];
+let patch_b  = load_npy("weights/patch_proj_b.npy") as [f32; 192];
+let cls_tok  = load_npy("weights/cls_token.npy")    as [f32; 1, 1, 192];
+let pos_emb  = load_npy("weights/pos_embed.npy")    as [f32; 1, 197, 192];
+let norm_w   = load_npy("weights/norm_w.npy")        as [f32; 192];
+let norm_b   = load_npy("weights/norm_b.npy")        as [f32; 192];
+let head_w   = load_npy("weights/head_w.npy")        as [f32; 1000, 192];
+let head_b   = load_npy("weights/head_b.npy")        as [f32; 1000];
+
+// --- Per-block weights (12 blocks stacked along axis 0) ---
+let blk_ln1_w  = load_npy("weights/blk_ln1_w.npy")  as [f32; 12, 192];
+let blk_ln1_b  = load_npy("weights/blk_ln1_b.npy")  as [f32; 12, 192];
+let blk_qkv_w  = load_npy("weights/blk_qkv_w.npy")  as [f32; 12, 192, 576];
+let blk_qkv_b  = load_npy("weights/blk_qkv_b.npy")  as [f32; 12, 576];
+let blk_proj_w = load_npy("weights/blk_proj_w.npy")  as [f32; 12, 192, 192];
+let blk_proj_b = load_npy("weights/blk_proj_b.npy")  as [f32; 12, 192];
+let blk_ln2_w  = load_npy("weights/blk_ln2_w.npy")  as [f32; 12, 192];
+let blk_ln2_b  = load_npy("weights/blk_ln2_b.npy")  as [f32; 12, 192];
+let blk_fc1_w  = load_npy("weights/blk_fc1_w.npy")  as [f32; 12, 192, 768];
+let blk_fc1_b  = load_npy("weights/blk_fc1_b.npy")  as [f32; 12, 768];
+let blk_fc2_w  = load_npy("weights/blk_fc2_w.npy")  as [f32; 12, 768, 192];
+let blk_fc2_b  = load_npy("weights/blk_fc2_b.npy")  as [f32; 12, 192];
+
+// --- Transformer block ---
+fn transformer_block(x: [f32; 1, 197, 192], L: i32) -> [f32; 1, 197, 192] {
+    let ln1 = layer_normalization(x, blk_ln1_w[L], blk_ln1_b[L], 1e-5, -1);
+
+    let qkv[s in 0..197, k in 0..576] =
+        sum[d in 0..192](ln1[0, s, d] * blk_qkv_w[L, d, k]) + blk_qkv_b[L, k];
+
+    let Q[h in 0..3, s in 0..197, d in 0..64] = qkv[s, h * 64 + d];
+    let K[h in 0..3, s in 0..197, d in 0..64] = qkv[s, 192 + h * 64 + d];
+    let V[h in 0..3, s in 0..197, d in 0..64] = qkv[s, 384 + h * 64 + d];
+
+    let score[h in 0..3, i in 0..197, j in 0..197] =
+        sum[d in 0..64](Q[h, i, d] * K[h, j, d]) / 8.0;
+    let score_max[h in 0..3, i in 0..197] = max[j in 0..197](score[h, i, j]);
+    let score_exp[h in 0..3, i in 0..197, j in 0..197] = exp(score[h, i, j] - score_max[h, i]);
+    let score_sum[h in 0..3, i in 0..197] = sum[j in 0..197](score_exp[h, i, j]);
+    let attn[h in 0..3, i in 0..197, j in 0..197] = score_exp[h, i, j] / score_sum[h, i];
+
+    let ctx[h in 0..3, i in 0..197, d in 0..64] =
+        sum[j in 0..197](attn[h, i, j] * V[h, j, d]);
+    let cat[s in 0..197, d in 0..192] = ctx[d / 64, s, d % 64];
+
+    let proj[s in 0..197, d in 0..192] =
+        sum[k in 0..192](cat[s, k] * blk_proj_w[L, k, d]) + blk_proj_b[L, d];
+    let res1[n in 0..1, s in 0..197, d in 0..192] = x[n, s, d] + proj[s, d];
+
+    let ln2 = layer_normalization(res1, blk_ln2_w[L], blk_ln2_b[L], 1e-5, -1);
+
+    let fc1[s in 0..197, k in 0..768] =
+        sum[d in 0..192](ln2[0, s, d] * blk_fc1_w[L, d, k]) + blk_fc1_b[L, k];
+    let act[s in 0..197, k in 0..768] = gelu_tanh(fc1[s, k]);
+    let fc2[s in 0..197, d in 0..192] =
+        sum[k in 0..768](act[s, k] * blk_fc2_w[L, k, d]) + blk_fc2_b[L, d];
+
+    let out[n in 0..1, s in 0..197, d in 0..192] = res1[n, s, d] + fc2[s, d];
+    out
+}
+
+// --- Forward pass ---
+fn infer(img: [f32; 1, 3, 224, 224]) -> i32 {
+    let patches = conv(img, patch_w, patch_b, [16, 16], [0, 0, 0, 0], [1, 1], 1);
+
+    let flat[s in 0..196, d in 0..192] = patches[0, d, s / 14, s % 14];
+    let tokens[n in 0..1, s in 0..197, d in 0..192] =
+        if s == 0 { cls_tok[0, 0, d] } else { flat[s - 1, d] };
+
+    let embedded[n in 0..1, s in 0..197, d in 0..192] =
+        tokens[n, s, d] + pos_emb[0, s, d];
+
+    let x0  = transformer_block(embedded, 0);
+    let x1  = transformer_block(x0,  1);
+    let x2  = transformer_block(x1,  2);
+    let x3  = transformer_block(x2,  3);
+    let x4  = transformer_block(x3,  4);
+    let x5  = transformer_block(x4,  5);
+    let x6  = transformer_block(x5,  6);
+    let x7  = transformer_block(x6,  7);
+    let x8  = transformer_block(x7,  8);
+    let x9  = transformer_block(x8,  9);
+    let x10 = transformer_block(x9,  10);
+    let x11 = transformer_block(x10, 11);
+
+    let final_ln = layer_normalization(x11, norm_w, norm_b, 1e-5, -1);
+    let cls[d in 0..192] = final_ln[0, 0, d];
+
+    let logits[c in 0..1000] = sum[d in 0..192](cls[d] * head_w[c, d]) + head_b[c];
+    argmax(logits)
+}
+
+let img = load_npy("samples/0.npy") as [f32; 1, 3, 224, 224];
+let pred = infer(img);
+
+print(pred);
+assert(pred == 285, "DeiT-Tiny prediction does not match expected class");

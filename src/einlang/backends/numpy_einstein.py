@@ -30,9 +30,16 @@ class EinsteinExecutionMixin:
             return None
         type_name = type_obj.name.lower()
         dtype_map = {
-            "i32": np.int32, "i64": np.int64, "f32": np.float32, "f64": np.float64,
+            "i8": np.int8, "i32": np.int32, "i64": np.int64,
+            "f16": np.float16, "f32": np.float32, "f64": np.float64,
             "bool": np.bool_, "int": np.int32, "float": np.float32,
         }
+        try:
+            import ml_dtypes
+            dtype_map["bf16"] = ml_dtypes.bfloat16
+            dtype_map["f8e4m3"] = ml_dtypes.float8_e4m3fn
+        except ImportError:
+            pass
         return dtype_map.get(type_name)
 
     def _type_info_to_numpy_dtype(self, type_info: Any) -> Optional[Any]:
