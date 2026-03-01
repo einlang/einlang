@@ -22,6 +22,26 @@ from ..utils.config import DEFAULT_PARSER_CACHE_FILE
 
 logger = logging.getLogger("einlang.frontend.parser")
 
+# Process-level Lark singleton — Lark.open() deserializes LALR tables from disk
+# which costs ~120ms per call.  All Parser instances share the same compiled
+# grammar; only the transformer carries per-parse mutable state (current_file).
+_shared_lark: Optional[Lark] = None
+
+
+def _get_shared_lark(cache_file: str) -> Lark:
+    global _shared_lark
+    if _shared_lark is None:
+        grammar_path = Path(__file__).parent / "grammar.lark"
+        _shared_lark = Lark.open(
+            grammar_path,
+            start='program',
+            parser='lalr',
+            cache=cache_file,
+            propagate_positions=True,
+            maybe_placeholders=False,
+        )
+    return _shared_lark
+
 
 class Parser:
     """
@@ -44,16 +64,7 @@ class Parser:
         
         Rust Pattern: rustc_parse initialization
         """
-        grammar_path = Path(__file__).parent / "grammar.lark"
-        # Use Lark native caching for performance
-        self.parser = Lark.open(
-            grammar_path,
-            start='program',
-            parser='lalr',              # Required for caching
-            cache=cache_file,           # Built-in caching (2-3x faster)
-            propagate_positions=True,    # Enable position tracking for error reporting
-            maybe_placeholders=False,   # Clean meta handling
-        )
+        self.parser = _get_shared_lark(cache_file)
         self.transformer = EinlangTransformer()
     
     def parse(self, source: str, source_file: str = "main.ein") -> ASTProgram:

@@ -72,10 +72,14 @@ def _read_file_cached(file_path: Path) -> str:
 
 
 def clear_file_content_cache() -> None:
-    """Clear the file content cache. Used by tests for parallel-safe runs (-n auto)."""
+    """Clear the file content cache. Used by tests for parallel-safe runs (-n auto).
+
+    _parse_source lru_cache and _parse_pickle_bytes are intentionally NOT cleared:
+    they are keyed by (source_code, source_file) content so results are deterministic
+    across tests, and _parse_cached always deepcopies before returning so each
+    compilation gets independent AST nodes.
+    """
     _file_content_cache.clear()
-    _parse_source.cache_clear()
-    _parse_pickle_bytes.clear()
 
 
 # In-process pickle-byte cache: avoids repeated deepcopy by using C-level pickle.loads.
@@ -83,7 +87,7 @@ def clear_file_content_cache() -> None:
 _parse_pickle_bytes: Dict[Tuple[str, str], bytes] = {}
 
 
-@lru_cache(maxsize=256)
+@lru_cache(maxsize=512)
 def _parse_source(source_code: str, source_file: str):
     """Parse source string to AST.
 

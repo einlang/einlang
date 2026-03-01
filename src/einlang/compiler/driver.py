@@ -273,12 +273,12 @@ class CompilerDriver:
                 return CompilationResult(success=False, tcx=tcx)
             
             function_ir_map = getattr(tcx, 'function_ir_map', None) or {}
-            func_set = {id(f) for f in ir.functions}
+            func_set = set(ir.functions)
             for f in function_ir_map.values():
-                if f is not None and id(f) not in func_set:
+                if f is not None and f not in func_set:
                     ir.statements.append(f)
                     ir.bindings.append(f)
-                    func_set.add(id(f))
+                    func_set.add(f)
             
             from ..passes.tree_shaking import tree_shake
             ir = tree_shake(ir)

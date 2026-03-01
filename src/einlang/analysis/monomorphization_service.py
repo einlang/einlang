@@ -724,12 +724,26 @@ class MonomorphizationService:
         node: Any,
         generic_defid: DefId,
         specialized_defid: DefId,
-        visited: Set[int],
+        visited: Set,
     ) -> None:
         from ..ir.nodes import FunctionCallIR, IRNode
-        if node is None or id(node) in visited:
+        if node is None:
             return
-        visited.add(id(node))
+        if isinstance(node, (list, tuple)):
+            for x in node:
+                self._substitute_call_targets_in_body(
+                    x, generic_defid, specialized_defid, visited
+                )
+            return
+        if isinstance(node, dict):
+            for x in node.values():
+                self._substitute_call_targets_in_body(
+                    x, generic_defid, specialized_defid, visited
+                )
+            return
+        if node in visited:
+            return
+        visited.add(node)
         if isinstance(node, FunctionCallIR) and getattr(
             node, "function_defid", None
         ) == generic_defid:
@@ -743,9 +757,7 @@ class MonomorphizationService:
                         specialized_defid,
                         visited,
                     )
-        elif hasattr(node, "__slots__") and not isinstance(
-            node, (list, tuple, dict)
-        ):
+        elif hasattr(node, "__slots__") and not isinstance(node, dict):
             for attr in node.__slots__:
                 if hasattr(node, attr):
                     self._substitute_call_targets_in_body(
@@ -754,16 +766,6 @@ class MonomorphizationService:
                         specialized_defid,
                         visited,
                     )
-        elif isinstance(node, (list, tuple)):
-            for x in node:
-                self._substitute_call_targets_in_body(
-                    x, generic_defid, specialized_defid, visited
-                )
-        elif isinstance(node, dict):
-            for x in node.values():
-                self._substitute_call_targets_in_body(
-                    x, generic_defid, specialized_defid, visited
-                )
         elif hasattr(node, "__dict__"):
             for x in node.__dict__.values():
                 self._substitute_call_targets_in_body(
@@ -773,12 +775,22 @@ class MonomorphizationService:
     def _rewrite_calls_in_node(
         self,
         node: Any,
-        visited: Set[int],
+        visited: Set,
         enclosing_function: Optional[BindingIR] = None,
     ) -> None:
-        if node is None or id(node) in visited:
+        if node is None:
             return
-        visited.add(id(node))
+        if isinstance(node, (list, tuple)):
+            for x in node:
+                self._rewrite_calls_in_node(x, visited, enclosing_function)
+            return
+        if isinstance(node, dict):
+            for x in node.values():
+                self._rewrite_calls_in_node(x, visited, enclosing_function)
+            return
+        if node in visited:
+            return
+        visited.add(node)
         if isinstance(node, FunctionCallIR):
             fd = getattr(node, "function_defid", None)
             sid = self.get_specialized_defid_for_call(node, enclosing_function)
@@ -826,12 +838,6 @@ class MonomorphizationService:
                         self._rewrite_calls_in_node(
                             getattr(node, attr), visited, enclosing_function
                         )
-        elif isinstance(node, (list, tuple)):
-            for x in node:
-                self._rewrite_calls_in_node(x, visited, enclosing_function)
-        elif isinstance(node, dict):
-            for x in node.values():
-                self._rewrite_calls_in_node(x, visited, enclosing_function)
         elif hasattr(node, "__dict__"):
             for x in node.__dict__.values():
                 self._rewrite_calls_in_node(x, visited, enclosing_function)
