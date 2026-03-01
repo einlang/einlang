@@ -2,7 +2,7 @@
 
 ## Profiling baseline
 
-Profiled with `cProfile` on `examples/demos/mnist_onnx_arch.ein` (digit 3, fresh run).
+Profiled with `cProfile` on `examples/mnist/main.ein` (digit 3, fresh run).
 
 ```
 9,144,559 function calls (8,471,083 primitive calls) in 6.34 s

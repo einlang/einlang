@@ -1,7 +1,6 @@
-// MNIST handwritten digit recognition using ONNX-compatible conv architecture.
+// MNIST handwritten digit recognition.
 // Architecture: Conv(5x5,pad=2) -> ReLU -> MaxPool(2x2) -> Conv(5x5,pad=2) -> ReLU -> MaxPool(3x3) -> FC
-// Weights from the TensorRT/ONNX Model Zoo mnist model (auto_pad=SAME_UPPER).
-// Achieves 10/10 on the bundled PGM samples, matching ONNX Runtime bit-for-bit.
+// Achieves 10/10 on the bundled PGM samples.
 
 use std::ml::{conv, relu, max_pool};
 use std::array::argmax;
