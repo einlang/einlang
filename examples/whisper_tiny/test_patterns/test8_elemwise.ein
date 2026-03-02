@@ -1,0 +1,16 @@
+// Pattern 8: element-wise ops at large dimensions
+// Tests: gelu(384x3000), add(1500x384), conditional padding
+
+use std::ml::gelu;
+
+let A[i in 0..384, j in 0..3000] = 0.5;
+let B[i in 0..384, j in 0..3000] = gelu(A[i, j]);
+print(B[0, 0]);
+
+let C[i in 0..384, j in 0..3002] =
+    if j >= 1 && j < 3001 { B[i, j - 1] } else { 0.0 };
+print(C[0, 1500]);
+
+let D[t in 0..1500, d in 0..384] = C[d, t * 2] + 1.0;
+print(D[0, 0]);
+print(D[1499, 383]);

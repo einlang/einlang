@@ -1,0 +1,11 @@
+// Pattern 6: attention context — sum over j=1500
+// Tests: sum[j in 0..1500](attn[h,i,j] * V[h,j,d])
+
+let attn[h in 0..6, i in 0..1500, j in 0..1500] = 1.0 / 1500.0;
+let V[h in 0..6, s in 0..1500, d in 0..64] = 0.01;
+
+let ctx[h in 0..6, i in 0..1500, d in 0..64] =
+    sum[j in 0..1500](attn[h, i, j] * V[h, j, d]);
+
+print(ctx[0, 0, 0]);
+print(ctx[5, 1499, 63]);

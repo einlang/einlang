@@ -1,0 +1,79 @@
+// Whisper-tiny decoder: causal self-attention + cross-attention + MLP.
+
+use std::ml::{layer_normalization, gelu};
+use std::math::exp;
+use weights;
+
+fn decoder_block(x: [f32; 40, 384], enc: [f32; 1500, 384], L: i32) -> [f32; 40, 384] {
+    let ln1 = layer_normalization(x, dec_blk_sa_ln_w[L], dec_blk_sa_ln_b[L], 1e-5, -1);
+
+    let Q[s in 0..40, d in 0..384] =
+        sum[k in 0..384](ln1[s, k] * dec_blk_sa_q_w[L, k, d]) + dec_blk_sa_q_b[L, d];
+    let K[s in 0..40, d in 0..384] =
+        sum[k in 0..384](ln1[s, k] * dec_blk_sa_k_w[L, k, d]);
+    let V[s in 0..40, d in 0..384] =
+        sum[k in 0..384](ln1[s, k] * dec_blk_sa_v_w[L, k, d]) + dec_blk_sa_v_b[L, d];
+
+    let Qh[h in 0..6, s in 0..40, d in 0..64] = Q[s, h * 64 + d];
+    let Kh[h in 0..6, s in 0..40, d in 0..64] = K[s, h * 64 + d];
+    let Vh[h in 0..6, s in 0..40, d in 0..64] = V[s, h * 64 + d];
+
+    let score[h in 0..6, i in 0..40, j in 0..40] =
+        sum[d in 0..64](Qh[h, i, d] * Kh[h, j, d]) / 8.0
+        + if j <= i { 0.0 } else { -10000.0 };
+    let score_max[h in 0..6, i in 0..40] = max[j in 0..40](score[h, i, j]);
+    let score_exp[h in 0..6, i in 0..40, j in 0..40] =
+        exp(score[h, i, j] - score_max[h, i]);
+    let score_sum[h in 0..6, i in 0..40] = sum[j in 0..40](score_exp[h, i, j]);
+    let sa[h in 0..6, i in 0..40, j in 0..40] =
+        score_exp[h, i, j] / score_sum[h, i];
+
+    let sa_ctx[h in 0..6, i in 0..40, d in 0..64] =
+        sum[j in 0..40](sa[h, i, j] * Vh[h, j, d]);
+    let sa_cat[s in 0..40, d in 0..384] = sa_ctx[d / 64, s, d % 64];
+
+    let sa_proj[s in 0..40, d in 0..384] =
+        sum[k in 0..384](sa_cat[s, k] * dec_blk_sa_o_w[L, k, d]) + dec_blk_sa_o_b[L, d];
+    let res1[s in 0..40, d in 0..384] = x[s, d] + sa_proj[s, d];
+
+    let ln2 = layer_normalization(res1, dec_blk_ca_ln_w[L], dec_blk_ca_ln_b[L], 1e-5, -1);
+
+    let Qc[s in 0..40, d in 0..384] =
+        sum[k in 0..384](ln2[s, k] * dec_blk_ca_q_w[L, k, d]) + dec_blk_ca_q_b[L, d];
+    let Kc[s in 0..1500, d in 0..384] =
+        sum[k in 0..384](enc[s, k] * dec_blk_ca_k_w[L, k, d]);
+    let Vc[s in 0..1500, d in 0..384] =
+        sum[k in 0..384](enc[s, k] * dec_blk_ca_v_w[L, k, d]) + dec_blk_ca_v_b[L, d];
+
+    let Qch[h in 0..6, s in 0..40, d in 0..64] = Qc[s, h * 64 + d];
+    let Kch[h in 0..6, s in 0..1500, d in 0..64] = Kc[s, h * 64 + d];
+    let Vch[h in 0..6, s in 0..1500, d in 0..64] = Vc[s, h * 64 + d];
+
+    let cscore[h in 0..6, i in 0..40, j in 0..1500] =
+        sum[d in 0..64](Qch[h, i, d] * Kch[h, j, d]) / 8.0;
+    let cscore_max[h in 0..6, i in 0..40] = max[j in 0..1500](cscore[h, i, j]);
+    let cscore_exp[h in 0..6, i in 0..40, j in 0..1500] =
+        exp(cscore[h, i, j] - cscore_max[h, i]);
+    let cscore_sum[h in 0..6, i in 0..40] = sum[j in 0..1500](cscore_exp[h, i, j]);
+    let ca[h in 0..6, i in 0..40, j in 0..1500] =
+        cscore_exp[h, i, j] / cscore_sum[h, i];
+
+    let ca_ctx[h in 0..6, i in 0..40, d in 0..64] =
+        sum[j in 0..1500](ca[h, i, j] * Vch[h, j, d]);
+    let ca_cat[s in 0..40, d in 0..384] = ca_ctx[d / 64, s, d % 64];
+
+    let ca_proj[s in 0..40, d in 0..384] =
+        sum[k in 0..384](ca_cat[s, k] * dec_blk_ca_o_w[L, k, d]) + dec_blk_ca_o_b[L, d];
+    let res2[s in 0..40, d in 0..384] = res1[s, d] + ca_proj[s, d];
+
+    let ln3 = layer_normalization(res2, dec_blk_mlp_ln_w[L], dec_blk_mlp_ln_b[L], 1e-5, -1);
+
+    let fc1[s in 0..40, k in 0..1536] =
+        sum[d in 0..384](ln3[s, d] * dec_blk_fc1_w[L, d, k]) + dec_blk_fc1_b[L, k];
+    let act[s in 0..40, k in 0..1536] = gelu(fc1[s, k]);
+    let fc2[s in 0..40, d in 0..384] =
+        sum[k in 0..1536](act[s, k] * dec_blk_fc2_w[L, k, d]) + dec_blk_fc2_b[L, d];
+
+    let out[s in 0..40, d in 0..384] = res2[s, d] + fc2[s, d];
+    out
+}
