@@ -1,27 +1,45 @@
 # Einlang Examples
 
-## Demos
+These examples are organized as a guided path — start at the top and work your way down. Each section builds on concepts introduced in the previous one.
 
-| Example | Description | Key Features |
-|---------|-------------|--------------|
-| [`mnist/`](mnist/) | Handwritten digit recognition (CNN) | Conv2D, MaxPool, ReLU, FC layers, PGM image loading |
-| [`deit_tiny/`](deit_tiny/) | ImageNet classification (Vision Transformer) | Einstein notation, multi-head attention, LayerNorm, GELU, 12-block transformer |
+## Learning Path
 
-## Tutorials
+### Part 1: Learn the Language
+
+| # | Directory | What you'll learn | Key concepts |
+|---|-----------|-------------------|--------------|
+| 1 | [`basics/`](basics/) | Variables, arithmetic, functions, data processing | `let`, `fn`, `assert`, `sum[i]`, comprehensions |
+| 2 | [`demos/`](demos/) | Matrices, tensors, imports, overloading, CLI | Einstein notation, `use`, `mod`, NCHW tensors, `in` operator |
+
+### Part 2: Real Models
+
+| # | Directory | What you'll learn | Key concepts |
+|---|-----------|-------------------|--------------|
+| 3 | [`mnist/`](mnist/) | First neural network — CNN digit recognition | `conv`, `relu`, `max_pool`, Python interop, weight loading |
+| 4 | [`mnist_quantized/`](mnist_quantized/) | Int8 weight quantization on the same CNN | `dequantize_linear`, symmetric quantization, per-tensor scale |
+| 5 | [`deit_tiny/`](deit_tiny/) | Vision Transformer — ImageNet classification | Multi-head attention, softmax, GELU, LayerNorm, 12-block transformer |
+| 6 | [`whisper_tiny/`](whisper_tiny/) | Speech-to-text — encoder/decoder with autoregressive loop | 1D conv, cross-attention, causal mask, recurrence, BPE decoding |
+
+### Reference
 
 | Directory | Description |
 |-----------|-------------|
-| [`basics/`](basics/) | Introduction to variables, functions, math, and data processing |
-| [`demos/`](demos/) | Intermediate examples covering arrays, comprehensions, overloading, and CLI usage |
-| [`units/`](units/) | Unit tests exercising Einstein notation, windowed ops, scans, tensor operations, and more |
+| [`units/`](units/) | 60+ unit tests covering every language feature — useful as a lookup table |
 
 ## Running
 
 All examples run from the repository root:
 
 ```bash
+# Part 1
+python3 -m einlang examples/basics/variables_demo.ein
+python3 -m einlang examples/demos/matrix_operations.ein
+
+# Part 2
 python3 -m einlang examples/mnist/main.ein
+python3 -m einlang examples/mnist_quantized/main.ein
 python3 -m einlang examples/deit_tiny/main.ein
+python3 -m einlang examples/whisper_tiny/main.ein  # run download_weights.py first
 ```
 
 Unit tests:
