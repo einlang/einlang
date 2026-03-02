@@ -95,6 +95,17 @@ let label = match category {
 };
 ```
 
+The [`examples/`](examples/) directory has a guided learning path — from language basics through four complete models:
+
+| # | Example | What it is |
+|---|---------|------------|
+| 1 | [basics/](examples/basics/) | Variables, functions, comprehensions |
+| 2 | [demos/](examples/demos/) | Matrices, tensors, imports, Einstein notation |
+| 3 | [mnist/](examples/mnist/) | CNN digit recognition (Conv2D, ReLU, MaxPool) |
+| 4 | [mnist_quantized/](examples/mnist_quantized/) | Same CNN with int8 quantized weights |
+| 5 | [deit_tiny/](examples/deit_tiny/) | Vision Transformer — ImageNet classification (~5M params) |
+| 6 | [whisper_tiny/](examples/whisper_tiny/) | Speech-to-text — encoder/decoder with autoregressive generation (~39M params) |
+
 ## Install
 
 ```bash

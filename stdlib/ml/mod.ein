@@ -1,7 +1,7 @@
 // ml/mod.ein - Machine Learning Operations
 
 // Convolution Operations
-pub use std::ml::conv_ops::{conv, conv_transpose, depthwise_conv};
+pub use std::ml::conv_ops::{conv, conv_transpose, depthwise_conv, qconv};
 
 // Pooling Operations  
 pub use std::ml::pool_ops::{max_pool, average_pool, global_average_pool, global_max_pool, lp_pool, max_roi_pool};
@@ -41,7 +41,7 @@ pub use std::ml::reduction_ops::{reduce_mean, reduce_sum, reduce_max, reduce_min
 pub use std::ml::linalg_ops::{matmul, batch_matmul};
 
 // Utility Operations
-pub use std::ml::utility_ops::{where, identity, constant, dropout, l2_normalize, numel, size, cast, slice, cumsum, quantize_linear, dequantize_linear};
+pub use std::ml::utility_ops::{where, identity, constant, dropout, l2_normalize, numel, size, cast, slice, cumsum, quantize_linear, dequantize_linear, qmatmul, qlinear};
 
 // Extended ML Operations
 // These are composite operations, helper functions, or experimental features

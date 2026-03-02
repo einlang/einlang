@@ -88,6 +88,48 @@ fn conv3d(X, W, B, stride_d, stride_h, stride_w, pad_d0, pad_d1, pad_h0, pad_h1,
     output
 }
 
+fn qconv2d(X_q, x_scale, W_q, w_scale, B, stride_h, stride_w, pad_h0, pad_h1, pad_w0, pad_w1, dilation_h, dilation_w, group) {
+    let c_in     = len(X_q[0]) as i32;
+    let h_in     = len(X_q[0][0]) as i32;
+    let w_in     = len(X_q[0][0][0]) as i32;
+    let kernel_h = len(W_q[0][0]);
+    let kernel_w = len(W_q[0][0][0]);
+    let c_out    = len(W_q) as i32;
+    let h_p      = h_in + pad_h0 + pad_h1;
+    let w_p      = w_in + pad_w0 + pad_w1;
+    let cpg      = c_in / group;
+    let fpg      = c_out / group;
+    let scale    = (x_scale as f32) * (w_scale as f32);
+
+    let Xp[..batch, c, i in 0..h_p, j in 0..w_p] =
+        if (i >= pad_h0) && (i < (h_in + pad_h0)) && (j >= pad_w0) && (j < (w_in + pad_w0))
+        { X_q[..batch, c, i - pad_h0, j - pad_w0] }
+        else { 0.0 };
+
+    let acc[..batch, co, i, j] = sum[cl in 0..cpg, m in 0..kernel_h, n in 0..kernel_w](
+        (Xp[..batch, (co / fpg) * cpg + cl, i * stride_h + m * dilation_h, j * stride_w + n * dilation_w] as i32)
+        * (W_q[co, cl, m, n] as i32)
+    );
+    let output[..batch, co, i, j] = (acc[..batch, co, i, j] as f32) * scale + B[co];
+    output
+}
+
+pub fn qconv(X_q, x_scale, W_q, w_scale, B, strides, pads, dilations, group) {
+    assert(typeof(X_q) == "rectangular", "qconv: X_q must be rectangular");
+    assert(typeof(W_q) == "rectangular", "qconv: W_q must be rectangular");
+    let rank = len(strides);
+    assert(len(pads) == 2 * rank, "qconv: pads length must be 2 * rank");
+    assert(rank == len(dilations), "qconv: strides and dilations must have same length");
+    if rank == 2 {
+        qconv2d(X_q, x_scale, W_q, w_scale, B, strides[0], strides[1],
+                pads[0], pads[2], pads[1], pads[3],
+                dilations[0], dilations[1], group)
+    } else {
+        assert(false, "qconv: only rank 2 (2D) supported");
+        X_q
+    }
+}
+
 // Public Conv operator
 pub fn conv(X, W, B, strides, pads, dilations, group) {
     // Conv operator (supports 1D, 2D, 3D)
