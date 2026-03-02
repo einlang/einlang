@@ -1,0 +1,51 @@
+// Quantized MNIST: int8 weights and int8 activations with i8×i8→i32 inner loops.
+// Uses qconv and qlinear for speed (no dequantize to f32 before matmul).
+// Symmetric per-tensor quantization; activation scales from calibration.
+// Achieves 10/10 on the bundled PGM samples.
+
+use std::ml::{relu, max_pool, quantize_linear, qconv, qlinear};
+use std::array::argmax;
+
+fn load_npy(path: str) -> [f32; *] { python::numpy::load(path) }
+fn load_npy_i8(path: str) -> [i8; *] { python::numpy::load(path) }
+fn load_pgm(path: str) -> [f32; *] { python::pgm_io::load(path) }
+
+let conv1_w_q = load_npy_i8("weights/conv1_w_q.npy") as [i8; 8, 1, 5, 5];
+let conv1_w_s = load_npy("weights/conv1_w_s.npy") as [f32; 1];
+let conv2_w_q = load_npy_i8("weights/conv2_w_q.npy") as [i8; 16, 8, 5, 5];
+let conv2_w_s = load_npy("weights/conv2_w_s.npy") as [f32; 1];
+let fc_w_q    = load_npy_i8("weights/fc_w_q.npy")    as [i8; 256, 10];
+let fc_w_s    = load_npy("weights/fc_w_s.npy")    as [f32; 1];
+let conv1_b   = load_npy("weights/conv1_b.npy")   as [f32; 8];
+let conv2_b   = load_npy("weights/conv2_b.npy")   as [f32; 16];
+let fc_b      = load_npy("weights/fc_b.npy")       as [f32; 10];
+let act1_s    = load_npy("weights/act1_s.npy")     as [f32; 1];
+let flat_s    = load_npy("weights/flat_s.npy")     as [f32; 1];
+
+let conv1_scale = conv1_w_s[0];
+let conv2_scale = conv2_w_s[0];
+let fc_scale = fc_w_s[0];
+let act1_scale = act1_s[0];
+let flat_scale = flat_s[0];
+let input_scale = (1.0 as f32) / (127.0 as f32);
+
+fn infer(raw) {
+    let input[n, c, h, w] = 1.0 - raw[n, c, h, w];
+    let input_q = quantize_linear(input, input_scale, 0.0);
+    let c1 = qconv(input_q, input_scale, conv1_w_q, conv1_scale, conv1_b, [1, 1], [2, 2, 2, 2], [1, 1], 1);
+    let p1 = max_pool(relu(c1), [2, 2], [2, 2], [0, 0]);
+    let p1_q = quantize_linear(p1, act1_scale, 0.0);
+    let c2 = qconv(p1_q, act1_scale, conv2_w_q, conv2_scale, conv2_b, [1, 1], [2, 2, 2, 2], [1, 1], 1);
+    let pool2 = max_pool(relu(c2), [3, 3], [3, 3], [0, 0]);
+    let flat[k in 0..256] = pool2[0, k/16, (k/4)%4, k%4];
+    let flat_q = quantize_linear(flat, flat_scale, 0.0);
+    let logits = qlinear(flat_q, flat_scale, fc_w_q, fc_scale, fc_b);
+    argmax(logits)
+}
+
+let images = [load_pgm("samples/{i}.pgm") as [f32; 1, 1, 28, 28] | i in 0..10];
+let predictions = [infer(image) | image in images];
+let expected = [i | i in 0..10];
+
+print(predictions);
+assert(predictions == expected, "Quantized MNIST predictions do not match expected labels");

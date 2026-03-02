@@ -293,7 +293,7 @@ pub fn quantize_linear(x, y_scale, y_zero_point) {
     //
     // All arithmetic in f32; returns f32 values in i8 range.
     // Use `as i8` cast on the result to get actual int8 tensor.
-    let scaled[..dims] = x[..dims] / y_scale;
+    let scaled[..dims] = x[..dims] / (y_scale as f32);
 
     // Round half away from zero (standard rounding)
     let floor_val[..dims] = if scaled[..dims] >= 0.0 {
@@ -309,7 +309,7 @@ pub fn quantize_linear(x, y_scale, y_zero_point) {
     let rounded_i[..dims] = floor_val[..dims] as i32;
     let rounded[..dims] = rounded_i[..dims] as f32;
 
-    let shifted[..dims] = rounded[..dims] + y_zero_point;
+    let shifted[..dims] = rounded[..dims] + (y_zero_point as f32);
 
     // Clamp to i8 range [-128, 127]
     let clamped[..dims] = if shifted[..dims] < -128.0 {
@@ -338,6 +338,20 @@ pub fn dequantize_linear(x, x_scale, x_zero_point) {
     // Returns: dequantized float tensor (same shape as x)
     let y[..dims] = (x[..dims] - (x_zero_point as f32)) * x_scale;
     y
+}
+
+pub fn qmatmul(A_q, a_scale, B_q, b_scale) {
+    let scale = (a_scale as f32) * (b_scale as f32);
+    let acc[i, j] = sum[k]((A_q[i, k] as i32) * (B_q[k, j] as i32));
+    let output[i, j] = (acc[i, j] as f32) * scale;
+    output
+}
+
+pub fn qlinear(x_q, x_scale, W_q, w_scale, bias) {
+    let scale = (x_scale as f32) * (w_scale as f32);
+    let acc[k] = sum[j]((x_q[j] as i32) * (W_q[j, k] as i32));
+    let output[k] = (acc[k] as f32) * scale + bias[k];
+    output
 }
 
 
