@@ -1,0 +1,11 @@
+// Pattern 4: attention score at (6, 1500, 1500)
+// Tests: sum[d in 0..64](Q[h,i,d] * K[h,j,d]) / 8.0
+
+let Q[h in 0..6, s in 0..1500, d in 0..64] = 0.01;
+let K[h in 0..6, s in 0..1500, d in 0..64] = 0.01;
+
+let score[h in 0..6, i in 0..1500, j in 0..1500] =
+    sum[d in 0..64](Q[h, i, d] * K[h, j, d]) / 8.0;
+
+print(score[0, 0, 0]);
+print(score[5, 1499, 1499]);

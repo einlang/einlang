@@ -1,5 +1,7 @@
 """NumPy backend Einstein execution: variable decl, lowered einstein/clause; env only."""
 
+import os
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -7,41 +9,62 @@ import numpy as np
 from ..ir.nodes import (
     LiteralIR, RangeIR, LoweredEinsteinIR, LoweredEinsteinClauseIR,
     LoweredReductionIR, BinaryOpIR, RectangularAccessIR, IndexVarIR,
-    FunctionCallIR,
+    FunctionCallIR, IdentifierIR,
     is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
 from .numpy_helpers import _reject_non_lowered
 
 
-def _extract_loop_range(loop, evaluator) -> Optional[int]:
+def _body_references_defid(expr: Any, target_defid: Any) -> bool:
+    if target_defid is None:
+        return False
+    if isinstance(expr, IdentifierIR):
+        return getattr(expr, "defid", None) == target_defid
+    if isinstance(expr, RectangularAccessIR):
+        if _body_references_defid(expr.array, target_defid):
+            return True
+        for idx in getattr(expr, "indices", []) or []:
+            if _body_references_defid(idx, target_defid):
+                return True
+        return False
+    if isinstance(expr, BinaryOpIR):
+        return _body_references_defid(getattr(expr, "left", None), target_defid) or _body_references_defid(getattr(expr, "right", None), target_defid)
+    if isinstance(expr, FunctionCallIR):
+        if _body_references_defid(getattr(expr, "callee_expr", None), target_defid):
+            return True
+        for a in getattr(expr, "arguments", []) or []:
+            if _body_references_defid(a, target_defid):
+                return True
+        return False
+    return False
+
+
+def _extract_loop_range(loop, evaluator) -> Tuple[int, int]:
+    """Return (start, end) for the loop range; both must be concrete int. Raises if missing or dependent."""
     it = getattr(loop, "iterable", None)
     if it is None:
-        return None
+        raise RuntimeError("loop has no iterable; cannot extract range")
     if isinstance(it, LiteralIR) and isinstance(getattr(it, "value", None), range):
-        return int(it.value.stop)
-    if isinstance(it, RangeIR):
+        r = it.value
+        start = getattr(r, "start", 0)
+        stop = getattr(r, "stop", r.start)
         try:
-            return int(evaluator(it.end))
-        except Exception:
-            return None
-    return None
-
-
-def _extract_loop_start(loop, evaluator) -> int:
-    it = getattr(loop, "iterable", None)
-    if it is None:
-        return 0
-    if isinstance(it, LiteralIR) and isinstance(getattr(it, "value", None), range):
-        return int(it.value.start)
+            return (int(start), int(stop))
+        except (TypeError, ValueError) as e:
+            raise RuntimeError("loop range start/stop must be int; got dependent or non-int") from e
     if isinstance(it, RangeIR):
+        end_ev = evaluator(it.end)
+        if not isinstance(end_ev, (int, np.integer)):
+            raise RuntimeError("loop range end must be int; got dependent or non-int")
         start_node = getattr(it, "start", None)
         if start_node is not None:
-            try:
-                return int(evaluator(start_node))
-            except Exception:
-                return 0
-    return 0
+            start_ev = evaluator(start_node)
+            if not isinstance(start_ev, (int, np.integer)):
+                raise RuntimeError("loop range start must be int; got dependent or non-int")
+            return (int(start_ev), int(end_ev))
+        return (0, int(end_ev))
+    raise RuntimeError("loop iterable is not a range or literal range; cannot extract (start, end)")
 
 
 def _spot_check(clause, loop_info, backend, vec_result) -> bool:
@@ -49,13 +72,18 @@ def _spot_check(clause, loop_info, backend, vec_result) -> bool:
     try:
         for sample in ("first", "last"):
             with backend.env.scope():
-                idx = []
-                for defid, sz, name in loop_info:
-                    v = 0 if sample == "first" else sz - 1
+                out_idx = []
+                for item in loop_info:
+                    defid = item[0]
+                    rng = item[1]
+                    name = item[2]
+                    start, end = rng
+                    sz = end - start
+                    v = start if sample == "first" else end - 1
                     backend.env.set_value(defid, v, name=name)
-                    idx.append(v)
+                    out_idx.append(0 if sample == "first" else sz - 1)
                 scalar_val = clause.body.accept(backend)
-            vec_val = vec_result[tuple(idx)]
+            vec_val = vec_result[tuple(out_idx)]
             if isinstance(vec_val, np.ndarray):
                 vec_val = vec_val.item()
             if isinstance(scalar_val, np.ndarray):
@@ -87,36 +115,44 @@ def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
         return None
 
     ndim = len(loops)
-    loop_info: List[Tuple[DefId, int, str]] = []
+    loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
     for dim, lp in enumerate(loops):
         defid = getattr(lp.variable, "defid", None)
         if defid is None:
             return None
-        sz = _extract_loop_range(lp, evaluator)
-        if sz is None:
-            return None
-        start = _extract_loop_start(lp, evaluator)
-        if start != 0:
-            return None
+        r = _extract_loop_range(lp, evaluator)
         name = getattr(lp.variable, "name", None)
-        loop_info.append((defid, sz, name))
+        loop_info.append((defid, r, name))
 
     try:
         with backend.env.scope():
-            for dim, (defid, sz, name) in enumerate(loop_info):
+            for dim, (defid, rng, name) in enumerate(loop_info):
+                start, end = rng
+                sz = end - start
                 shape = [1] * ndim
                 shape[dim] = sz
-                arr = np.arange(sz, dtype=np.intp).reshape(shape)
+                arr = np.arange(start, end, dtype=np.intp).reshape(shape)
                 backend.env.set_value(defid, arr, name=name)
 
             result = clause.body.accept(backend)
 
             if isinstance(result, np.ndarray):
                 expected = tuple(output_shape)
+                ranges = [(start, end) for (_, (start, end), _) in loop_info]
+                range_is_full = len(ranges) == len(expected) and all(
+                    start == 0 and end == expected[dim] for dim, (start, end) in enumerate(ranges)
+                )
                 if result.shape == expected:
                     if not _spot_check(clause, loop_info, backend, result):
                         return None
                     return result.astype(dtype)
+                if not range_is_full:
+                    if not _spot_check(clause, loop_info, backend, result):
+                        return None
+                    full = np.zeros(expected, dtype=dtype)
+                    slices = tuple(slice(int(start), int(end)) for (start, end) in ranges)
+                    full[slices] = result.astype(dtype)
+                    return full
                 if result.size == np.prod(expected):
                     reshaped = result.reshape(expected)
                     if not _spot_check(clause, loop_info, backend, reshaped):
@@ -282,14 +318,36 @@ class EinsteinExecutionMixin:
             if variable_key is not None:
                 self.env.set_value(variable_key, output)
 
-        for item in lowered_einstein.items:
+        def expr_eval(e: Any) -> Any:
+            return e.accept(self)
+
+        for clause_idx, item in enumerate(lowered_einstein.items):
             result = self._execute_lowered_einstein_clause(
                 item, variable_decl,
                 shape=tensor_shape, element_type=tensor_element_type,
                 pre_allocated_output=output,
             )
             if result is not None and variable_key is not None:
-                self.env.set_value(variable_key, result)
+                if result.shape == output.shape:
+                    if result is not output:
+                        output[:] = result.astype(output.dtype)
+                elif result.shape != output.shape:
+                    if result.ndim == output.ndim and getattr(item, "loops", None):
+                        slices_list: List[slice] = []
+                        try:
+                            for lp in item.loops:
+                                start, end = _extract_loop_range(lp, expr_eval)
+                                slices_list.append(slice(int(start), int(end)))
+                        except RuntimeError:
+                            slices_list = []
+                        if len(slices_list) == len(item.loops):
+                            output[tuple(slices_list)] = result.astype(output.dtype)
+                    elif result.size == 1 and getattr(item, "indices", None) and all(
+                        isinstance(idx, LiteralIR) for idx in item.indices
+                    ):
+                        idx_tuple = tuple(int(idx.value) for idx in item.indices)
+                        output[idx_tuple] = result.flat[0] if result.size == 1 else result
+                self.env.set_value(variable_key, output)
         return output
 
     def _shape_from_all_items(self, items: List) -> Optional[List[int]]:
@@ -339,6 +397,17 @@ class EinsteinExecutionMixin:
         pre_allocated_output: Optional[Any] = None,
     ) -> Any:
         from ..runtime.compute.lowered_execution import execute_lowered_loops, execute_lowered_bindings, check_lowered_guards
+        loc = getattr(lowered, "location", None) or getattr(variable_decl, "location", None)
+        line = int(getattr(loc, "line", 0) or 0)
+        bucket_size = getattr(self, "_profile_bucket_size", 0)
+        t0 = time.perf_counter() if bucket_size > 0 else 0
+        _debug_vec = os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip().lower() in ("1", "true", "yes")
+
+        def _record_profile():
+            if bucket_size > 0 and getattr(self, "_profile_buckets", None) is not None:
+                key = (line // bucket_size) * bucket_size
+                self._profile_buckets[key] = self._profile_buckets.get(key, 0) + (time.perf_counter() - t0)
+
         clause_indices = getattr(lowered, "indices", None) or []
         binding = getattr(variable_decl, "_binding", None)
         variable_defid = (getattr(binding, "defid", None) if binding else None) or getattr(variable_decl, "defid", None)
@@ -429,15 +498,60 @@ class EinsteinExecutionMixin:
             if vec_result is not None:
                 vec_result = np.asarray(vec_result)
                 if vec_result.shape == output.shape:
-                    output[:] = vec_result
-                elif vec_result.size == output.size:
-                    output[:] = vec_result.reshape(output.shape)
-                else:
-                    output[:] = np.broadcast_to(vec_result, output.shape)
-                if variable_defid:
-                    self.env.set_value(variable_defid, output)
-                return output
+                    if pre_allocated_output is not None and lowered.loops:
+                        slices_list_partial: List[slice] = []
+                        try:
+                            for lp in lowered.loops:
+                                start, end = _extract_loop_range(lp, expr_evaluator)
+                                slices_list_partial.append(slice(int(start), int(end)))
+                        except RuntimeError:
+                            slices_list_partial = []
+                        range_is_full_partial = (
+                            len(slices_list_partial) == len(lowered.loops)
+                            and all(s.start == 0 and s.stop == output.shape[i] for i, s in enumerate(slices_list_partial))
+                        )
+                        if len(slices_list_partial) == len(lowered.loops) and not range_is_full_partial:
+                            if _body_references_defid(lowered.body, variable_defid):
+                                vec_result = None
+                            else:
+                                output[tuple(slices_list_partial)] = vec_result[tuple(slices_list_partial)].astype(output.dtype)
+                        else:
+                            output[:] = vec_result
+                    else:
+                        output[:] = vec_result
+                if vec_result is not None:
+                    if vec_result.shape != output.shape and vec_result.size == output.size:
+                        output[:] = vec_result.reshape(output.shape)
+                    elif pre_allocated_output is not None and vec_result.ndim == output.ndim:
+                        slices_list: List[slice] = []
+                        try:
+                            for lp in lowered.loops:
+                                start, end = _extract_loop_range(lp, expr_evaluator)
+                                slices_list.append(slice(int(start), int(end)))
+                        except RuntimeError:
+                            slices_list = []
+                        range_is_full = (
+                            len(slices_list) == len(lowered.loops)
+                            and all(s.start == 0 and s.stop == output.shape[i] for i, s in enumerate(slices_list))
+                        )
+                        if len(slices_list) == len(lowered.loops):
+                            if range_is_full:
+                                output[:] = np.broadcast_to(vec_result.astype(output.dtype), output.shape)
+                            else:
+                                output[tuple(slices_list)] = vec_result[tuple(slices_list)].astype(output.dtype)
+                        else:
+                            output[:] = np.broadcast_to(vec_result, output.shape)
+                    else:
+                        output[:] = np.broadcast_to(vec_result, output.shape)
+                    if variable_defid:
+                        self.env.set_value(variable_defid, output)
+                    if _debug_vec:
+                        print(f"[vectorized] L{line}", flush=True)
+                    _record_profile()
+                    return output
 
+        if _debug_vec and lowered.loops:
+            print(f"[scalar] L{line}", flush=True)
         _loop_defid_to_name = {}
         for lp in lowered.loops:
             v = getattr(lp, "variable", None)
@@ -517,4 +631,5 @@ class EinsteinExecutionMixin:
 
         if variable_defid:
             self.env.set_value(variable_defid, output)
+        _record_profile()
         return output

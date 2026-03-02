@@ -12,7 +12,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="einlang", description="Run an Einlang (.ein) file.")
     parser.add_argument("file", type=Path, help="Path to .ein source file")
     parser.add_argument("--backend", default="numpy", help="Execution backend (default: numpy)")
+    parser.add_argument("--profile-lines", type=int, default=0, metavar="N", help="Profile by source line buckets (e.g. 10 for L0-L10, L10-L20, ...)")
+    parser.add_argument("--profile-statements", action="store_true", help="Profile each top-level statement separately (reset buckets per statement)")
+    parser.add_argument("--debug-vectorize", action="store_true", help="Print [vectorized] or [scalar] per Einstein clause")
+    parser.add_argument("--cprofile", action="store_true", help="Run execution under cProfile and print stats")
+    parser.add_argument("--cprofile-out", type=Path, default=None, metavar="FILE", help="Write cProfile stats to FILE (for snakeviz, etc.)")
     args = parser.parse_args()
+    import os
+    if args.profile_lines > 0:
+        os.environ["EINLANG_PROFILE_LINES"] = str(args.profile_lines)
+    if args.profile_statements:
+        os.environ["EINLANG_PROFILE_STATEMENTS"] = "1"
+    if args.debug_vectorize:
+        os.environ["EINLANG_DEBUG_VECTORIZE"] = "1"
 
     path = args.file.resolve()
     if not path.exists():
@@ -42,7 +54,23 @@ def main() -> int:
         return 1
 
     runtime = EinlangRuntime(backend=args.backend)
-    exec_result = runtime.execute(result, inputs={})
+
+    if args.cprofile:
+        import cProfile
+        import pstats
+        prof = cProfile.Profile()
+        prof.enable()
+        exec_result = runtime.execute(result, inputs={})
+        prof.disable()
+        if args.cprofile_out:
+            prof.dump(str(args.cprofile_out))
+        stats = pstats.Stats(prof)
+        stats.sort_stats(pstats.SortKey.CUMULATIVE)
+        stats.print_stats(60)
+        if not args.cprofile_out:
+            stats.print_callers(20)
+    else:
+        exec_result = runtime.execute(result, inputs={})
 
     if exec_result.error is not None:
         sys.stderr.write(f"einlang: runtime error: {exec_result.error}\n")

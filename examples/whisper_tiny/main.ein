@@ -1,0 +1,248 @@
+// Whisper-tiny — Speech-to-text transcription.
+// Architecture: 2×Conv1D encoder + 4 Encoder blocks + 4 Decoder blocks (autoregressive)
+// d_model=384, n_heads=6, mlp_ratio=4, encoder_seq=1500, max_decode=40
+
+use std::ml::{layer_normalization, gelu};
+use std::array::argmax;
+use std::math::exp;
+
+fn load_npy(path: str) -> [f32; *] { python::numpy::load(path) }
+
+// ====================== Encoder weights ======================
+let enc_conv1_w = load_npy("weights/enc_conv1_w.npy") as [f32; 384, 80, 3];
+let enc_conv1_b = load_npy("weights/enc_conv1_b.npy") as [f32; 384];
+let enc_conv2_w = load_npy("weights/enc_conv2_w.npy") as [f32; 384, 384, 3];
+let enc_conv2_b = load_npy("weights/enc_conv2_b.npy") as [f32; 384];
+let enc_pos_emb = load_npy("weights/enc_pos_emb.npy") as [f32; 1500, 384];
+
+let enc_blk_sa_ln_w = load_npy("weights/enc_blk_sa_ln_w.npy") as [f32; 4, 384];
+let enc_blk_sa_ln_b = load_npy("weights/enc_blk_sa_ln_b.npy") as [f32; 4, 384];
+let enc_blk_sa_q_w  = load_npy("weights/enc_blk_sa_q_w.npy")  as [f32; 4, 384, 384];
+let enc_blk_sa_q_b  = load_npy("weights/enc_blk_sa_q_b.npy")  as [f32; 4, 384];
+let enc_blk_sa_k_w  = load_npy("weights/enc_blk_sa_k_w.npy")  as [f32; 4, 384, 384];
+let enc_blk_sa_v_w  = load_npy("weights/enc_blk_sa_v_w.npy")  as [f32; 4, 384, 384];
+let enc_blk_sa_v_b  = load_npy("weights/enc_blk_sa_v_b.npy")  as [f32; 4, 384];
+let enc_blk_sa_o_w  = load_npy("weights/enc_blk_sa_o_w.npy")  as [f32; 4, 384, 384];
+let enc_blk_sa_o_b  = load_npy("weights/enc_blk_sa_o_b.npy")  as [f32; 4, 384];
+let enc_blk_mlp_ln_w = load_npy("weights/enc_blk_mlp_ln_w.npy") as [f32; 4, 384];
+let enc_blk_mlp_ln_b = load_npy("weights/enc_blk_mlp_ln_b.npy") as [f32; 4, 384];
+let enc_blk_fc1_w = load_npy("weights/enc_blk_fc1_w.npy") as [f32; 4, 384, 1536];
+let enc_blk_fc1_b = load_npy("weights/enc_blk_fc1_b.npy") as [f32; 4, 1536];
+let enc_blk_fc2_w = load_npy("weights/enc_blk_fc2_w.npy") as [f32; 4, 1536, 384];
+let enc_blk_fc2_b = load_npy("weights/enc_blk_fc2_b.npy") as [f32; 4, 384];
+
+let enc_ln_w = load_npy("weights/enc_ln_w.npy") as [f32; 384];
+let enc_ln_b = load_npy("weights/enc_ln_b.npy") as [f32; 384];
+
+// ====================== Decoder weights ======================
+let dec_tok_emb = load_npy("weights/dec_tok_emb.npy") as [f32; 51865, 384];
+let dec_pos_emb = load_npy("weights/dec_pos_emb.npy") as [f32; 448, 384];
+
+let dec_blk_sa_ln_w = load_npy("weights/dec_blk_sa_ln_w.npy") as [f32; 4, 384];
+let dec_blk_sa_ln_b = load_npy("weights/dec_blk_sa_ln_b.npy") as [f32; 4, 384];
+let dec_blk_sa_q_w  = load_npy("weights/dec_blk_sa_q_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_sa_q_b  = load_npy("weights/dec_blk_sa_q_b.npy")  as [f32; 4, 384];
+let dec_blk_sa_k_w  = load_npy("weights/dec_blk_sa_k_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_sa_v_w  = load_npy("weights/dec_blk_sa_v_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_sa_v_b  = load_npy("weights/dec_blk_sa_v_b.npy")  as [f32; 4, 384];
+let dec_blk_sa_o_w  = load_npy("weights/dec_blk_sa_o_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_sa_o_b  = load_npy("weights/dec_blk_sa_o_b.npy")  as [f32; 4, 384];
+
+let dec_blk_ca_ln_w = load_npy("weights/dec_blk_ca_ln_w.npy") as [f32; 4, 384];
+let dec_blk_ca_ln_b = load_npy("weights/dec_blk_ca_ln_b.npy") as [f32; 4, 384];
+let dec_blk_ca_q_w  = load_npy("weights/dec_blk_ca_q_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_ca_q_b  = load_npy("weights/dec_blk_ca_q_b.npy")  as [f32; 4, 384];
+let dec_blk_ca_k_w  = load_npy("weights/dec_blk_ca_k_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_ca_v_w  = load_npy("weights/dec_blk_ca_v_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_ca_v_b  = load_npy("weights/dec_blk_ca_v_b.npy")  as [f32; 4, 384];
+let dec_blk_ca_o_w  = load_npy("weights/dec_blk_ca_o_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_ca_o_b  = load_npy("weights/dec_blk_ca_o_b.npy")  as [f32; 4, 384];
+
+let dec_blk_mlp_ln_w = load_npy("weights/dec_blk_mlp_ln_w.npy") as [f32; 4, 384];
+let dec_blk_mlp_ln_b = load_npy("weights/dec_blk_mlp_ln_b.npy") as [f32; 4, 384];
+let dec_blk_fc1_w = load_npy("weights/dec_blk_fc1_w.npy") as [f32; 4, 384, 1536];
+let dec_blk_fc1_b = load_npy("weights/dec_blk_fc1_b.npy") as [f32; 4, 1536];
+let dec_blk_fc2_w = load_npy("weights/dec_blk_fc2_w.npy") as [f32; 4, 1536, 384];
+let dec_blk_fc2_b = load_npy("weights/dec_blk_fc2_b.npy") as [f32; 4, 384];
+
+let dec_ln_w = load_npy("weights/dec_ln_w.npy") as [f32; 384];
+let dec_ln_b = load_npy("weights/dec_ln_b.npy") as [f32; 384];
+
+// ====================== Encoder ======================
+
+fn encoder_block(x: [f32; 1500, 384], L: i32) -> [f32; 1500, 384] {
+    let ln1 = layer_normalization(x, enc_blk_sa_ln_w[L], enc_blk_sa_ln_b[L], 1e-5, -1);
+
+    let Q[s in 0..1500, d in 0..384] =
+        sum[k in 0..384](ln1[s, k] * enc_blk_sa_q_w[L, k, d]) + enc_blk_sa_q_b[L, d];
+    let K[s in 0..1500, d in 0..384] =
+        sum[k in 0..384](ln1[s, k] * enc_blk_sa_k_w[L, k, d]);
+    let V[s in 0..1500, d in 0..384] =
+        sum[k in 0..384](ln1[s, k] * enc_blk_sa_v_w[L, k, d]) + enc_blk_sa_v_b[L, d];
+
+    let Qh[h in 0..6, s in 0..1500, d in 0..64] = Q[s, h * 64 + d];
+    let Kh[h in 0..6, s in 0..1500, d in 0..64] = K[s, h * 64 + d];
+    let Vh[h in 0..6, s in 0..1500, d in 0..64] = V[s, h * 64 + d];
+
+    let score[h in 0..6, i in 0..1500, j in 0..1500] =
+        sum[d in 0..64](Qh[h, i, d] * Kh[h, j, d]) / 8.0;
+    let score_max[h in 0..6, i in 0..1500] = max[j in 0..1500](score[h, i, j]);
+    let score_exp[h in 0..6, i in 0..1500, j in 0..1500] =
+        exp(score[h, i, j] - score_max[h, i]);
+    let score_sum[h in 0..6, i in 0..1500] = sum[j in 0..1500](score_exp[h, i, j]);
+    let attn[h in 0..6, i in 0..1500, j in 0..1500] =
+        score_exp[h, i, j] / score_sum[h, i];
+
+    let ctx[h in 0..6, i in 0..1500, d in 0..64] =
+        sum[j in 0..1500](attn[h, i, j] * Vh[h, j, d]);
+    let cat[s in 0..1500, d in 0..384] = ctx[d / 64, s, d % 64];
+
+    let proj[s in 0..1500, d in 0..384] =
+        sum[k in 0..384](cat[s, k] * enc_blk_sa_o_w[L, k, d]) + enc_blk_sa_o_b[L, d];
+    let res1[s in 0..1500, d in 0..384] = x[s, d] + proj[s, d];
+
+    let ln2 = layer_normalization(res1, enc_blk_mlp_ln_w[L], enc_blk_mlp_ln_b[L], 1e-5, -1);
+
+    let fc1[s in 0..1500, k in 0..1536] =
+        sum[d in 0..384](ln2[s, d] * enc_blk_fc1_w[L, d, k]) + enc_blk_fc1_b[L, k];
+    let act[s in 0..1500, k in 0..1536] = gelu(fc1[s, k]);
+    let fc2[s in 0..1500, d in 0..384] =
+        sum[k in 0..1536](act[s, k] * enc_blk_fc2_w[L, k, d]) + enc_blk_fc2_b[L, d];
+
+    let out[s in 0..1500, d in 0..384] = res1[s, d] + fc2[s, d];
+    out
+}
+
+fn encode(mel: [f32; 80, 3000]) -> [f32; 1500, 384] {
+    let mel_pad[c in 0..80, t in 1..3001] = mel[c, t - 1];
+    let mel_pad[c in 0..80, t in 0..1] = 0.0;
+    let mel_pad[c in 0..80, t in 3001..3002] = 0.0;
+
+    let c1[co in 0..384, t in 0..3000] =
+        sum[ci in 0..80, k in 0..3](mel_pad[ci, t + k] * enc_conv1_w[co, ci, k])
+        + enc_conv1_b[co];
+    let c1a[co in 0..384, t in 0..3000] = gelu(c1[co, t]);
+
+    let c1_pad[c in 0..384, t in 1..3001] = c1a[c, t - 1];
+    let c1_pad[c in 0..384, t in 0..1] = 0.0;
+    let c1_pad[c in 0..384, t in 3001..3002] = 0.0;
+
+    let c2[co in 0..384, t in 0..1500] =
+        sum[ci in 0..384, k in 0..3](c1_pad[ci, t * 2 + k] * enc_conv2_w[co, ci, k])
+        + enc_conv2_b[co];
+    let c2a[co in 0..384, t in 0..1500] = gelu(c2[co, t]);
+
+    let enc_in[t in 0..1500, d in 0..384] = c2a[d, t] + enc_pos_emb[t, d];
+
+    let x0 = encoder_block(enc_in, 0);
+    let x1 = encoder_block(x0, 1);
+    let x2 = encoder_block(x1, 2);
+    let x3 = encoder_block(x2, 3);
+
+    let out = layer_normalization(x3, enc_ln_w, enc_ln_b, 1e-5, -1);
+    out
+}
+
+// ====================== Decoder ======================
+
+fn decoder_block(x: [f32; 40, 384], enc: [f32; 1500, 384], L: i32) -> [f32; 40, 384] {
+    let ln1 = layer_normalization(x, dec_blk_sa_ln_w[L], dec_blk_sa_ln_b[L], 1e-5, -1);
+
+    let Q[s in 0..40, d in 0..384] =
+        sum[k in 0..384](ln1[s, k] * dec_blk_sa_q_w[L, k, d]) + dec_blk_sa_q_b[L, d];
+    let K[s in 0..40, d in 0..384] =
+        sum[k in 0..384](ln1[s, k] * dec_blk_sa_k_w[L, k, d]);
+    let V[s in 0..40, d in 0..384] =
+        sum[k in 0..384](ln1[s, k] * dec_blk_sa_v_w[L, k, d]) + dec_blk_sa_v_b[L, d];
+
+    let Qh[h in 0..6, s in 0..40, d in 0..64] = Q[s, h * 64 + d];
+    let Kh[h in 0..6, s in 0..40, d in 0..64] = K[s, h * 64 + d];
+    let Vh[h in 0..6, s in 0..40, d in 0..64] = V[s, h * 64 + d];
+
+    let score[h in 0..6, i in 0..40, j in 0..40] =
+        sum[d in 0..64](Qh[h, i, d] * Kh[h, j, d]) / 8.0
+        + if j <= i { 0.0 } else { -10000.0 };
+    let score_max[h in 0..6, i in 0..40] = max[j in 0..40](score[h, i, j]);
+    let score_exp[h in 0..6, i in 0..40, j in 0..40] =
+        exp(score[h, i, j] - score_max[h, i]);
+    let score_sum[h in 0..6, i in 0..40] = sum[j in 0..40](score_exp[h, i, j]);
+    let sa[h in 0..6, i in 0..40, j in 0..40] =
+        score_exp[h, i, j] / score_sum[h, i];
+
+    let sa_ctx[h in 0..6, i in 0..40, d in 0..64] =
+        sum[j in 0..40](sa[h, i, j] * Vh[h, j, d]);
+    let sa_cat[s in 0..40, d in 0..384] = sa_ctx[d / 64, s, d % 64];
+
+    let sa_proj[s in 0..40, d in 0..384] =
+        sum[k in 0..384](sa_cat[s, k] * dec_blk_sa_o_w[L, k, d]) + dec_blk_sa_o_b[L, d];
+    let res1[s in 0..40, d in 0..384] = x[s, d] + sa_proj[s, d];
+
+    let ln2 = layer_normalization(res1, dec_blk_ca_ln_w[L], dec_blk_ca_ln_b[L], 1e-5, -1);
+
+    let Qc[s in 0..40, d in 0..384] =
+        sum[k in 0..384](ln2[s, k] * dec_blk_ca_q_w[L, k, d]) + dec_blk_ca_q_b[L, d];
+    let Kc[s in 0..1500, d in 0..384] =
+        sum[k in 0..384](enc[s, k] * dec_blk_ca_k_w[L, k, d]);
+    let Vc[s in 0..1500, d in 0..384] =
+        sum[k in 0..384](enc[s, k] * dec_blk_ca_v_w[L, k, d]) + dec_blk_ca_v_b[L, d];
+
+    let Qch[h in 0..6, s in 0..40, d in 0..64] = Qc[s, h * 64 + d];
+    let Kch[h in 0..6, s in 0..1500, d in 0..64] = Kc[s, h * 64 + d];
+    let Vch[h in 0..6, s in 0..1500, d in 0..64] = Vc[s, h * 64 + d];
+
+    let cscore[h in 0..6, i in 0..40, j in 0..1500] =
+        sum[d in 0..64](Qch[h, i, d] * Kch[h, j, d]) / 8.0;
+    let cscore_max[h in 0..6, i in 0..40] = max[j in 0..1500](cscore[h, i, j]);
+    let cscore_exp[h in 0..6, i in 0..40, j in 0..1500] =
+        exp(cscore[h, i, j] - cscore_max[h, i]);
+    let cscore_sum[h in 0..6, i in 0..40] = sum[j in 0..1500](cscore_exp[h, i, j]);
+    let ca[h in 0..6, i in 0..40, j in 0..1500] =
+        cscore_exp[h, i, j] / cscore_sum[h, i];
+
+    let ca_ctx[h in 0..6, i in 0..40, d in 0..64] =
+        sum[j in 0..1500](ca[h, i, j] * Vch[h, j, d]);
+    let ca_cat[s in 0..40, d in 0..384] = ca_ctx[d / 64, s, d % 64];
+
+    let ca_proj[s in 0..40, d in 0..384] =
+        sum[k in 0..384](ca_cat[s, k] * dec_blk_ca_o_w[L, k, d]) + dec_blk_ca_o_b[L, d];
+    let res2[s in 0..40, d in 0..384] = res1[s, d] + ca_proj[s, d];
+
+    let ln3 = layer_normalization(res2, dec_blk_mlp_ln_w[L], dec_blk_mlp_ln_b[L], 1e-5, -1);
+
+    let fc1[s in 0..40, k in 0..1536] =
+        sum[d in 0..384](ln3[s, d] * dec_blk_fc1_w[L, d, k]) + dec_blk_fc1_b[L, k];
+    let act[s in 0..40, k in 0..1536] = gelu(fc1[s, k]);
+    let fc2[s in 0..40, d in 0..384] =
+        sum[k in 0..1536](act[s, k] * dec_blk_fc2_w[L, k, d]) + dec_blk_fc2_b[L, d];
+
+    let out[s in 0..40, d in 0..384] = res2[s, d] + fc2[s, d];
+    out
+}
+
+// ====================== Autoregressive decode ======================
+
+let mel = load_npy("samples/jfk.npy") as [f32; 80, 3000];
+let enc_out = encode(mel);
+
+let SOT_TOKENS = [50258, 50259, 50359, 50363];
+let tokens[t in 0..4] = SOT_TOKENS[t];
+
+let tokens[t in 4..40] = {
+    let emb[p in 0..40, d in 0..384] =
+        if p < t { dec_tok_emb[tokens[p], d] + dec_pos_emb[p, d] }
+        else { 0.0 };
+
+    let d0 = decoder_block(emb, enc_out, 0);
+    let d1 = decoder_block(d0, enc_out, 1);
+    let d2 = decoder_block(d1, enc_out, 2);
+    let d3 = decoder_block(d2, enc_out, 3);
+
+    let final_ln = layer_normalization(d3, dec_ln_w, dec_ln_b, 1e-5, -1);
+
+    let logits[v in 0..51865] =
+        sum[d in 0..384](final_ln[t - 1, d] * dec_tok_emb[v, d]);
+    argmax(logits)
+};
+
+let text = python::whisper_helpers::decode_tokens(tokens);
+print(text);
