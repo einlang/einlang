@@ -1,0 +1,13 @@
+// Pattern 1: conv1d — sum with index arithmetic at (384, 3000)
+// Tests: sum[ci, k](...[ci, t + k] * ...[co, ci, k])
+
+let W[co in 0..384, ci in 0..80, k in 0..3] = 0.01;
+let B[co in 0..384] = 0.0;
+let X[c in 0..80, t in 0..3002] = if t >= 1 && t < 3001 { 1.0 } else { 0.0 };
+
+let Y[co in 0..384, t in 0..3000] =
+    sum[ci in 0..80, k in 0..3](X[ci, t + k] * W[co, ci, k])
+    + B[co];
+
+print(Y[0, 0]);
+print(Y[383, 2999]);

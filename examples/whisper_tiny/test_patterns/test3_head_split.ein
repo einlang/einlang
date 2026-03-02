@@ -1,0 +1,9 @@
+// Pattern 3: head-split reshape using h*64+d indexing
+// Tests: Qh[h, s, d] = Q[s, h * 64 + d]
+
+let Q[s in 0..1500, d in 0..384] = 1.0;
+
+let Qh[h in 0..6, s in 0..1500, d in 0..64] = Q[s, h * 64 + d];
+
+print(Qh[0, 0, 0]);
+print(Qh[5, 1499, 63]);

@@ -1,5 +1,7 @@
 """NumPy backend core: execute, env scope stack only (no global table)."""
 
+import os
+import time
 from typing import Dict, Any, Optional, List, Union
 
 from ..backends.base import Backend
@@ -76,6 +78,11 @@ class CoreExecutionMixin:
         if input_by_defid:
             for defid, value in input_by_defid.items():
                 self.env.set_value(defid, value)
+        bucket_size = int(os.environ.get("EINLANG_PROFILE_LINES", "0") or "0")
+        self._profile_bucket_size = bucket_size
+        self._profile_buckets = {} if bucket_size > 0 else None
+        profile_statements = bool(os.environ.get("EINLANG_PROFILE_STATEMENTS", ""))
+        self._profile_statements = profile_statements
         try:
             if main_defid:
                 main_func = self.env.get_value(main_defid)
@@ -85,9 +92,13 @@ class CoreExecutionMixin:
             outputs = {}
             if program.statements:
                 with self.env.scope():
-                    for stmt in program.statements:
+                    for stmt_index, stmt in enumerate(program.statements):
                         if stmt is None:
                             raise ValueError("IR statement is None")
+                        if profile_statements:
+                            if self._profile_buckets is not None:
+                                self._profile_buckets = {}
+                            self._stmt_t0 = time.perf_counter()
                         result_value = stmt.accept(self)
                         variable_defid = None
                         if isinstance(stmt, BindingIR) and not is_function_binding(stmt):
@@ -100,9 +111,23 @@ class CoreExecutionMixin:
                             var_name = getattr(stmt, "name", None) or (getattr(getattr(stmt, "_binding", None), "name", None) if getattr(stmt, "_binding", None) else None)
                             self.env.set_value(variable_defid, result_value, name=var_name)
                             outputs[variable_defid] = result_value
+                        if profile_statements:
+                            elapsed = time.perf_counter() - self._stmt_t0
+                            line = getattr(getattr(stmt, "location", None), "line", None) or "?"
+                            name = getattr(stmt, "name", None) or ""
+                            print(f"[profile] stmt {stmt_index} (L{line}) {name}: {elapsed:.2f}s", flush=True)
+                            if self._profile_buckets is not None and self._profile_buckets:
+                                size = self._profile_bucket_size
+                                for lo in sorted(self._profile_buckets.keys()):
+                                    print(f"  L{lo}-L{lo + size}: {self._profile_buckets[lo]:.2f}s", flush=True)
+                                self._profile_buckets = {}
                     for defid, value in self.env.get_current_scope().items():
                         if defid not in outputs:
                             outputs[defid] = value
+            if self._profile_buckets is not None and self._profile_buckets and not profile_statements:
+                size = self._profile_bucket_size
+                for lo in sorted(self._profile_buckets.keys()):
+                    print(f"[profile] L{lo}-L{lo + size}: {self._profile_buckets[lo]:.2f}s", flush=True)
             return _get_execution_result()(outputs=outputs)
         except Exception as e:
             from ..shared.errors import EinlangSourceError

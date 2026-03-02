@@ -1,0 +1,61 @@
+// Whisper-tiny weights. Load all encoder and decoder weights.
+
+fn load_npy(path: str) -> [f32; *] { python::numpy::load(path) }
+
+let enc_conv1_w = load_npy("weights/enc_conv1_w.npy") as [f32; 384, 80, 3];
+let enc_conv1_b = load_npy("weights/enc_conv1_b.npy") as [f32; 384];
+let enc_conv2_w = load_npy("weights/enc_conv2_w.npy") as [f32; 384, 384, 3];
+let enc_conv2_b = load_npy("weights/enc_conv2_b.npy") as [f32; 384];
+let enc_pos_emb = load_npy("weights/enc_pos_emb.npy") as [f32; 1500, 384];
+
+let enc_blk_sa_ln_w = load_npy("weights/enc_blk_sa_ln_w.npy") as [f32; 4, 384];
+let enc_blk_sa_ln_b = load_npy("weights/enc_blk_sa_ln_b.npy") as [f32; 4, 384];
+let enc_blk_sa_q_w  = load_npy("weights/enc_blk_sa_q_w.npy")  as [f32; 4, 384, 384];
+let enc_blk_sa_q_b  = load_npy("weights/enc_blk_sa_q_b.npy")  as [f32; 4, 384];
+let enc_blk_sa_k_w  = load_npy("weights/enc_blk_sa_k_w.npy")  as [f32; 4, 384, 384];
+let enc_blk_sa_v_w  = load_npy("weights/enc_blk_sa_v_w.npy")  as [f32; 4, 384, 384];
+let enc_blk_sa_v_b  = load_npy("weights/enc_blk_sa_v_b.npy")  as [f32; 4, 384];
+let enc_blk_sa_o_w  = load_npy("weights/enc_blk_sa_o_w.npy")  as [f32; 4, 384, 384];
+let enc_blk_sa_o_b  = load_npy("weights/enc_blk_sa_o_b.npy")  as [f32; 4, 384];
+let enc_blk_mlp_ln_w = load_npy("weights/enc_blk_mlp_ln_w.npy") as [f32; 4, 384];
+let enc_blk_mlp_ln_b = load_npy("weights/enc_blk_mlp_ln_b.npy") as [f32; 4, 384];
+let enc_blk_fc1_w = load_npy("weights/enc_blk_fc1_w.npy") as [f32; 4, 384, 1536];
+let enc_blk_fc1_b = load_npy("weights/enc_blk_fc1_b.npy") as [f32; 4, 1536];
+let enc_blk_fc2_w = load_npy("weights/enc_blk_fc2_w.npy") as [f32; 4, 1536, 384];
+let enc_blk_fc2_b = load_npy("weights/enc_blk_fc2_b.npy") as [f32; 4, 384];
+
+let enc_ln_w = load_npy("weights/enc_ln_w.npy") as [f32; 384];
+let enc_ln_b = load_npy("weights/enc_ln_b.npy") as [f32; 384];
+
+let dec_tok_emb = load_npy("weights/dec_tok_emb.npy") as [f32; 51865, 384];
+let dec_pos_emb = load_npy("weights/dec_pos_emb.npy") as [f32; 448, 384];
+
+let dec_blk_sa_ln_w = load_npy("weights/dec_blk_sa_ln_w.npy") as [f32; 4, 384];
+let dec_blk_sa_ln_b = load_npy("weights/dec_blk_sa_ln_b.npy") as [f32; 4, 384];
+let dec_blk_sa_q_w  = load_npy("weights/dec_blk_sa_q_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_sa_q_b  = load_npy("weights/dec_blk_sa_q_b.npy")  as [f32; 4, 384];
+let dec_blk_sa_k_w  = load_npy("weights/dec_blk_sa_k_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_sa_v_w  = load_npy("weights/dec_blk_sa_v_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_sa_v_b  = load_npy("weights/dec_blk_sa_v_b.npy")  as [f32; 4, 384];
+let dec_blk_sa_o_w  = load_npy("weights/dec_blk_sa_o_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_sa_o_b  = load_npy("weights/dec_blk_sa_o_b.npy")  as [f32; 4, 384];
+
+let dec_blk_ca_ln_w = load_npy("weights/dec_blk_ca_ln_w.npy") as [f32; 4, 384];
+let dec_blk_ca_ln_b = load_npy("weights/dec_blk_ca_ln_b.npy") as [f32; 4, 384];
+let dec_blk_ca_q_w  = load_npy("weights/dec_blk_ca_q_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_ca_q_b  = load_npy("weights/dec_blk_ca_q_b.npy")  as [f32; 4, 384];
+let dec_blk_ca_k_w  = load_npy("weights/dec_blk_ca_k_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_ca_v_w  = load_npy("weights/dec_blk_ca_v_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_ca_v_b  = load_npy("weights/dec_blk_ca_v_b.npy")  as [f32; 4, 384];
+let dec_blk_ca_o_w  = load_npy("weights/dec_blk_ca_o_w.npy")  as [f32; 4, 384, 384];
+let dec_blk_ca_o_b  = load_npy("weights/dec_blk_ca_o_b.npy")  as [f32; 4, 384];
+
+let dec_blk_mlp_ln_w = load_npy("weights/dec_blk_mlp_ln_w.npy") as [f32; 4, 384];
+let dec_blk_mlp_ln_b = load_npy("weights/dec_blk_mlp_ln_b.npy") as [f32; 4, 384];
+let dec_blk_fc1_w = load_npy("weights/dec_blk_fc1_w.npy") as [f32; 4, 384, 1536];
+let dec_blk_fc1_b = load_npy("weights/dec_blk_fc1_b.npy") as [f32; 4, 1536];
+let dec_blk_fc2_w = load_npy("weights/dec_blk_fc2_w.npy") as [f32; 4, 1536, 384];
+let dec_blk_fc2_b = load_npy("weights/dec_blk_fc2_b.npy") as [f32; 4, 384];
+
+let dec_ln_w = load_npy("weights/dec_ln_w.npy") as [f32; 384];
+let dec_ln_b = load_npy("weights/dec_ln_b.npy") as [f32; 384];

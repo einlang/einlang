@@ -1,0 +1,15 @@
+// Pattern 7: MLP fc1 (1500x1536) + gelu
+// Tests: large inner product and element-wise gelu
+
+use std::ml::gelu;
+
+let X[s in 0..1500, d in 0..384] = 0.01;
+let W[d in 0..384, k in 0..1536] = 0.01;
+let B[k in 0..1536] = 0.0;
+
+let fc1[s in 0..1500, k in 0..1536] =
+    sum[d in 0..384](X[s, d] * W[d, k]) + B[k];
+let act[s in 0..1500, k in 0..1536] = gelu(fc1[s, k]);
+
+print(act[0, 0]);
+print(act[1499, 1535]);

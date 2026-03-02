@@ -1,0 +1,15 @@
+// Pattern 5: softmax components at (6, 1500, 1500)
+// Tests: max reduction, exp, division
+
+use std::math::exp;
+
+let score[h in 0..6, i in 0..1500, j in 0..1500] = 0.01;
+let score_max[h in 0..6, i in 0..1500] = max[j in 0..1500](score[h, i, j]);
+let score_exp[h in 0..6, i in 0..1500, j in 0..1500] =
+    exp(score[h, i, j] - score_max[h, i]);
+let score_sum[h in 0..6, i in 0..1500] = sum[j in 0..1500](score_exp[h, i, j]);
+let attn[h in 0..6, i in 0..1500, j in 0..1500] =
+    score_exp[h, i, j] / score_sum[h, i];
+
+print(attn[0, 0, 0]);
+print(attn[5, 1499, 1499]);

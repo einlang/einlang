@@ -27,6 +27,9 @@ def _try_vectorized_reduction(
     Fast path: evaluate the reduction body once with numpy array-valued loop
     variables (using broadcasting for multi-variable cases) then reduce with
     a single numpy call instead of iterating element-by-element in Python.
+    Supports batched reduction: when outer env has array bindings (e.g. from
+    a vectorized clause), first probe batch shape with scalar reduction indices,
+    then evaluate body with reduction dim(s) as trailing axes and reduce over them.
 
     Falls back gracefully (returns False, None) on any failure so the caller
     can retry with the scalar loop.

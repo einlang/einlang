@@ -1,0 +1,12 @@
+// Pattern 2: matmul-like projection at (1500, 384)
+// Tests: sum[k in 0..384](...[s, k] * ...[k, d])
+
+let A[s in 0..1500, k in 0..384] = 0.01;
+let W[k in 0..384, d in 0..384] = 0.01;
+let B[d in 0..384] = 0.0;
+
+let Y[s in 0..1500, d in 0..384] =
+    sum[k in 0..384](A[s, k] * W[k, d]) + B[d];
+
+print(Y[0, 0]);
+print(Y[1499, 383]);
