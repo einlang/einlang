@@ -28,7 +28,7 @@ def _try_vectorized_reduction(
     variables (using broadcasting for multi-variable cases) then reduce with
     a single numpy call instead of iterating element-by-element in Python.
     Supports batched reduction: when outer env has array bindings (e.g. from
-    a vectorized clause), first probe batch shape with scalar reduction indices,
+    a vectorized clause), probe batch shape with scalar reduction indices,
     then evaluate body with reduction dim(s) as trailing axes and reduce over them.
 
     Falls back gracefully (returns False, None) on any failure so the caller
@@ -58,39 +58,58 @@ def _try_vectorized_reduction(
             return False, None
 
         n = len(arrs)
+        expected_shape = tuple(arr.size for arr in arrs)
+        spot_ctx: Dict[Any, Any] = {}
+        for defid, arr in zip(defids, arrs):
+            spot_ctx[defid] = int(arr.flat[0])
+        spot_val = body_evaluator(spot_ctx)
+        batch_shape: Tuple[int, ...]
+        if isinstance(spot_val, np.ndarray):
+            batch_shape = tuple(spot_val.shape)
+        else:
+            batch_shape = ()
+
         ctx: Dict[Any, Any] = {}
         for i, (defid, arr) in enumerate(zip(defids, arrs)):
             if n == 1:
-                ctx[defid] = arr
+                red_shape = (arr.size,)
             else:
-                shape = [1] * n
-                shape[i] = len(arr)
-                ctx[defid] = arr.reshape(shape)
+                red_shape = [1] * n
+                red_shape[i] = arr.size
+                red_shape = tuple(red_shape)
+            ctx[defid] = arr.reshape((1,) * len(batch_shape) + red_shape)
 
         result = body_evaluator(ctx)
 
         if not isinstance(result, np.ndarray):
             return False, None
 
-        expected_shape = tuple(arr.size for arr in arrs)
-        if result.shape != expected_shape:
-            return False, None
-
-        spot_ctx = {}
-        for defid, arr in zip(defids, arrs):
-            spot_ctx[defid] = int(arr.flat[0])
-        spot_val = body_evaluator(spot_ctx)
-        if isinstance(spot_val, np.ndarray):
-            return False, None
-
-        if reduction_op == 'sum':
-            return True, result.sum()
-        elif reduction_op == 'max':
-            return True, result.max()
-        elif reduction_op == 'min':
-            return True, result.min()
-        elif reduction_op in ('product', 'prod'):
-            return True, result.prod()
+        if batch_shape:
+            if result.shape != batch_shape + expected_shape:
+                return False, None
+            reduction_axes = tuple(range(-n, 0))
+            if reduction_op == 'sum':
+                reduced = result.sum(axis=reduction_axes)
+            elif reduction_op == 'max':
+                reduced = result.max(axis=reduction_axes)
+            elif reduction_op == 'min':
+                reduced = result.min(axis=reduction_axes)
+            elif reduction_op in ('product', 'prod'):
+                reduced = result.prod(axis=reduction_axes)
+            else:
+                return False, None
+            return True, reduced
+        else:
+            if result.shape != expected_shape:
+                return False, None
+            if reduction_op == 'sum':
+                return True, result.sum()
+            elif reduction_op == 'max':
+                return True, result.max()
+            elif reduction_op == 'min':
+                return True, result.min()
+            elif reduction_op in ('product', 'prod'):
+                return True, result.prod()
     except Exception:
         pass
     return False, None
