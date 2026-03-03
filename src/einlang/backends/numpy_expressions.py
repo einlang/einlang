@@ -1,6 +1,6 @@
 """NumPy backend expression visitors. All lookup via env (no global table)."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import warnings
 
 import numpy as np
@@ -20,6 +20,200 @@ from .numpy_helpers import (
     builtin_assert, builtin_print, builtin_len, builtin_shape, builtin_typeof,
     builtin_sum, builtin_max, builtin_min, builtin_array_append,
 )
+
+
+def _is_scalar_like(x: Any) -> bool:
+    if x is None:
+        return True
+    if np.isscalar(x):
+        return True
+    if isinstance(x, np.ndarray):
+        return x.ndim == 0 or x.size == 1
+    return False
+
+
+def _reduction_axis_in_access(backend: Any, access: Any, reduction_defid: Any, indices: List[Any]) -> Optional[int]:
+    axis = 0
+    for idx in indices:
+        idx_defid = getattr(idx, "defid", None)
+        if idx_defid is not None and idx_defid == reduction_defid:
+            return axis
+        try:
+            v = idx.accept(backend)
+            if not _is_scalar_like(v):
+                axis += 1
+        except Exception:
+            return None
+    return None
+
+
+def _expr_contains_defid(expr: Any, target_defid: Any) -> bool:
+    if expr is None or target_defid is None:
+        return False
+    if isinstance(expr, (IdentifierIR, IndexVarIR)) and getattr(expr, "defid", None) == target_defid:
+        return True
+    if hasattr(expr, "left") and hasattr(expr, "right"):
+        if _expr_contains_defid(getattr(expr, "left", None), target_defid):
+            return True
+        if _expr_contains_defid(getattr(expr, "right", None), target_defid):
+            return True
+    if hasattr(expr, "operand"):
+        return _expr_contains_defid(getattr(expr, "operand"), target_defid)
+    if hasattr(expr, "array") and hasattr(expr, "indices"):
+        if _expr_contains_defid(getattr(expr, "array"), target_defid):
+            return True
+        for i in getattr(expr, "indices", []) or []:
+            if _expr_contains_defid(i, target_defid):
+                return True
+    if hasattr(expr, "arguments"):
+        for a in getattr(expr, "arguments", []) or []:
+            if _expr_contains_defid(a, target_defid):
+                return True
+    if hasattr(expr, "callee_expr") and _expr_contains_defid(getattr(expr, "callee_expr"), target_defid):
+        return True
+    return False
+
+
+def _reduction_axes_in_access(
+    backend: Any, indices: List[Any], reduction_defids: List[Any]
+) -> Optional[Tuple[int, ...]]:
+    axes: List[Optional[int]] = [None] * len(reduction_defids)
+    current_axis = 0
+    for idx in indices:
+        idx_defid = getattr(idx, "defid", None)
+        if idx_defid is not None and idx_defid in reduction_defids:
+            pos = reduction_defids.index(idx_defid)
+            axes[pos] = current_axis
+        else:
+            for pos, rd in enumerate(reduction_defids):
+                if axes[pos] is None and _expr_contains_defid(idx, rd):
+                    axes[pos] = current_axis
+                    break
+        try:
+            v = idx.accept(backend)
+            if not _is_scalar_like(v):
+                current_axis += 1
+        except Exception:
+            return None
+    if any(a is None for a in axes):
+        return None
+    return tuple(axes)
+
+
+def _infer_reduction_axes_from_shape(
+    shape: Tuple[int, ...], reduction_sizes: List[int]
+) -> Optional[Tuple[int, ...]]:
+    used: set = set()
+    axes: List[int] = []
+    for rs in reduction_sizes:
+        found = None
+        for i, s in enumerate(shape):
+            if i not in used and int(s) == int(rs):
+                found = i
+                break
+        if found is None:
+            return None
+        axes.append(found)
+        used.add(found)
+    return tuple(axes)
+
+
+def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
+    op = getattr(expr, "operation", None)
+    if op != "sum":
+        return None
+    if getattr(expr, "guards", None) or getattr(expr, "bindings", None):
+        return None
+    from ..passes.einstein_lowering import _defid_of_var_in_expr
+    reduction_ranges = getattr(expr, "reduction_ranges", None) or {}
+    loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
+    if not loops:
+        return None
+    reduction_defids: List[Any] = []
+    reduction_sizes: List[int] = []
+    for loop in loops:
+        loop_var = getattr(loop, "variable", None)
+        if loop_var is None:
+            return None
+        loop_defid = getattr(loop_var, "defid", None)
+        if loop_defid is None:
+            return None
+        body_defid = _defid_of_var_in_expr(expr.body, getattr(loop_var, "name", "") or "") or loop_defid
+        reduction_defids.append(body_defid)
+        try:
+            iterable = loop.iterable.accept(backend) if hasattr(loop.iterable, "accept") else None
+            if iterable is None:
+                return None
+            reduction_sizes.append(int(len(iterable)))
+        except Exception:
+            return None
+    body = getattr(expr, "body", None)
+    if body is None:
+        return None
+    mul_left: Optional[Any] = None
+    mul_right: Optional[Any] = None
+    bias: Optional[Any] = None
+    _add = getattr(BinaryOp, "ADD", None) or "+"
+    _mul = getattr(BinaryOp, "MUL", None) or "*"
+    body_op = getattr(body, "operator", None)
+    if isinstance(body, BinaryOpIR) and body_op in (_add, "+"):
+        add_left = getattr(body, "left", None)
+        add_right = getattr(body, "right", None)
+        if isinstance(add_left, BinaryOpIR) and getattr(add_left, "operator", None) in (_mul, "*"):
+            mul_left = getattr(add_left, "left", None)
+            mul_right = getattr(add_left, "right", None)
+            bias = add_right
+        elif isinstance(add_right, BinaryOpIR) and getattr(add_right, "operator", None) in (_mul, "*"):
+            mul_left = getattr(add_right, "left", None)
+            mul_right = getattr(add_right, "right", None)
+            bias = add_left
+    elif isinstance(body, BinaryOpIR) and body_op in (_mul, "*"):
+        mul_left = getattr(body, "left", None)
+        mul_right = getattr(body, "right", None)
+    if mul_left is None or mul_right is None:
+        return None
+    if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):
+        return None
+    indices_left = getattr(mul_left, "indices", None) or []
+    indices_right = getattr(mul_right, "indices", None) or []
+    n_red = len(reduction_sizes)
+    try:
+        with backend.env.scope():
+            for i, (defid, N) in enumerate(zip(reduction_defids, reduction_sizes)):
+                if n_red == 1:
+                    backend.env.set_value(defid, np.arange(N, dtype=np.intp))
+                else:
+                    shape = [1] * n_red
+                    shape[i] = N
+                    backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
+            axes_left = _reduction_axes_in_access(backend, indices_left, reduction_defids)
+            axes_right = _reduction_axes_in_access(backend, indices_right, reduction_defids)
+            left_val = mul_left.accept(backend)
+            right_val = mul_right.accept(backend)
+    except Exception:
+        return None
+    if not isinstance(left_val, np.ndarray) or not isinstance(right_val, np.ndarray):
+        return None
+    if axes_left is None:
+        axes_left = _infer_reduction_axes_from_shape(left_val.shape, reduction_sizes)
+    if axes_right is None:
+        axes_right = _infer_reduction_axes_from_shape(right_val.shape, reduction_sizes)
+    if axes_left is None or axes_right is None:
+        return None
+    try:
+        result = np.tensordot(left_val, right_val, axes=(axes_left, axes_right))
+    except Exception:
+        return None
+    if bias is not None:
+        try:
+            bias_val = bias.accept(backend)
+            if isinstance(bias_val, np.ndarray) and isinstance(result, np.ndarray):
+                result = result + np.broadcast_to(bias_val, result.shape)
+            elif np.isscalar(bias_val) or (isinstance(bias_val, np.ndarray) and bias_val.ndim == 0):
+                result = result + bias_val
+        except Exception:
+            return None
+    return result
 
 
 
@@ -475,6 +669,9 @@ class ExpressionVisitorMixin:
     def visit_lowered_reduction(self, expr: LoweredReductionIR) -> Any:
         from ..runtime.compute.lowered_execution import execute_reduction_with_loops
         from ..passes.einstein_lowering import _defid_of_var_in_expr
+        matmul_result = _try_matmul_reduction(expr, self)
+        if matmul_result is not None:
+            return matmul_result
         def ev(e): return e.accept(self)
         _loop_to_body_defid = {}
         _reduction_defid_names = {}
