@@ -40,6 +40,52 @@ def _body_references_defid(expr: Any, target_defid: Any) -> bool:
     return False
 
 
+def _index_expr_is_loop_var(expr: Any, loop_defid: Any) -> bool:
+    if expr is None or loop_defid is None:
+        return False
+    return (isinstance(expr, (IdentifierIR, IndexVarIR)) and
+            getattr(expr, "defid", None) == loop_defid)
+
+
+def _collect_lhs_read_index_lists(body: Any, target_defid: Any) -> List[List[Any]]:
+    out: List[List[Any]] = []
+    if isinstance(body, RectangularAccessIR):
+        if _body_references_defid(body.array, target_defid):
+            indices = getattr(body, "indices", None) or []
+            if indices:
+                out.append(list(indices))
+        out.extend(_collect_lhs_read_index_lists(body.array, target_defid))
+        return out
+    if isinstance(body, BinaryOpIR):
+        out.extend(_collect_lhs_read_index_lists(getattr(body, "left", None), target_defid))
+        out.extend(_collect_lhs_read_index_lists(getattr(body, "right", None), target_defid))
+    elif isinstance(body, FunctionCallIR):
+        for a in getattr(body, "arguments", []) or []:
+            out.extend(_collect_lhs_read_index_lists(a, target_defid))
+        out.extend(_collect_lhs_read_index_lists(getattr(body, "callee_expr", None), target_defid))
+    return out
+
+
+def _recurrence_dims(lowered: Any, variable_defid: Any) -> List[int]:
+    """Return dimension indices where LHS is read at an index that differs from the write index (recurrence)."""
+    loops = getattr(lowered, "loops", None) or []
+    if not loops or variable_defid is None:
+        return []
+    loop_defids = [getattr(lp.variable, "defid", None) for lp in loops]
+    read_index_lists = _collect_lhs_read_index_lists(lowered.body, variable_defid)
+    if not read_index_lists:
+        return []
+    recurrence: List[int] = []
+    for d in range(len(loops)):
+        for idx_list in read_index_lists:
+            if d >= len(idx_list):
+                continue
+            if not _index_expr_is_loop_var(idx_list[d], loop_defids[d]):
+                recurrence.append(d)
+                break
+    return recurrence
+
+
 def _extract_loop_range(loop, evaluator) -> Tuple[int, int]:
     """Return (start, end) for the loop range; both must be concrete int. Raises if missing or dependent."""
     it = getattr(loop, "iterable", None)
@@ -170,6 +216,76 @@ def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
     except Exception:
         return None
     return None
+
+
+def _try_hybrid_vectorize_clause(
+    clause: Any,
+    output_shape: List[int],
+    output: np.ndarray,
+    variable_defid: Any,
+    expr_evaluator: Any,
+    backend: Any,
+) -> Optional[np.ndarray]:
+    """
+    When the body has recurrence on a subset of dimensions: iterate over those
+    (scalar), vectorize over the rest. Writes into output and returns it, or None on failure.
+    """
+    from ..runtime.compute.lowered_execution import execute_lowered_loops
+    loops = getattr(clause, "loops", None) or []
+    if not loops or clause.guards or clause.bindings:
+        return None
+    ndim = len(loops)
+    recurrence_dims = _recurrence_dims(clause, variable_defid) if variable_defid else []
+    if not (0 < len(recurrence_dims) < ndim):
+        return None
+    loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
+    for dim, lp in enumerate(loops):
+        defid = getattr(lp.variable, "defid", None)
+        if defid is None:
+            return None
+        try:
+            r = _extract_loop_range(lp, expr_evaluator)
+        except RuntimeError:
+            return None
+        name = getattr(lp.variable, "name", None)
+        loop_info.append((defid, r, name))
+    recurrence_loops = [loops[d] for d in recurrence_dims]
+    _MAX = 1_000_000
+    n_iter = [0]
+    try:
+        for rec_context in execute_lowered_loops(recurrence_loops, {}, expr_evaluator):
+            n_iter[0] += 1
+            if n_iter[0] > _MAX:
+                return None
+            with backend.env.scope():
+                for dim in range(ndim):
+                    defid, (start, end), name = loop_info[dim]
+                    if dim in recurrence_dims:
+                        backend.env.set_value(defid, rec_context[defid], name=name)
+                    else:
+                        sz = end - start
+                        shape = [1] * ndim
+                        shape[dim] = sz
+                        arr = np.arange(start, end, dtype=np.intp).reshape(shape)
+                        backend.env.set_value(defid, arr, name=name)
+                result = clause.body.accept(backend)
+            if not isinstance(result, np.ndarray):
+                return None
+            slice_list: List[Any] = []
+            for dim in range(ndim):
+                if dim in recurrence_dims:
+                    slice_list.append(rec_context[loop_info[dim][0]])
+                else:
+                    start, end = loop_info[dim][1]
+                    slice_list.append(slice(int(start), int(end)))
+            try:
+                squeezed = np.squeeze(result, axis=tuple(recurrence_dims))
+            except ValueError:
+                return None
+            output[tuple(slice_list)] = squeezed.astype(output.dtype)
+        return output
+    except Exception:
+        return None
 
 
 class EinsteinExecutionMixin:
@@ -511,7 +627,18 @@ class EinsteinExecutionMixin:
                             and all(s.start == 0 and s.stop == output.shape[i] for i, s in enumerate(slices_list_partial))
                         )
                         if len(slices_list_partial) == len(lowered.loops) and not range_is_full_partial:
-                            if _body_references_defid(lowered.body, variable_defid):
+                            recurrence_dims = _recurrence_dims(lowered, variable_defid) if _body_references_defid(lowered.body, variable_defid) else []
+                            if recurrence_dims:
+                                hybrid_out = _try_hybrid_vectorize_clause(
+                                    lowered, list(output.shape), output, variable_defid, expr_evaluator, backend=self,
+                                )
+                                if hybrid_out is not None:
+                                    if variable_defid:
+                                        self.env.set_value(variable_defid, output)
+                                    if _debug_vec:
+                                        print(f"[hybrid] L{line}", flush=True)
+                                    _record_profile()
+                                    return output
                                 vec_result = None
                             else:
                                 output[tuple(slices_list_partial)] = vec_result[tuple(slices_list_partial)].astype(output.dtype)
