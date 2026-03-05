@@ -616,6 +616,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             element_type = node.value.type_info
         
         # Create lowered Einstein clause (range/per-clause only)
+        clause_loc = getattr(node, "location", None)
         clause = LoweredEinsteinClauseIR(
             body=node.value,
             loops=loops,
@@ -623,6 +624,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             bindings=bindings,
             guards=guards,
             indices=indices,
+            location=clause_loc,
         )
         # Wrap in group with shared shape, element_type
         self._current_einstein_clause = prev_clause

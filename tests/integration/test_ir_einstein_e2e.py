@@ -202,6 +202,24 @@ class TestMatrixMultiplication:
         expected = np.array([[58, 64], [139, 154]])
         np.testing.assert_array_equal(result.outputs['C'], expected)
 
+    def test_einsum_mk_nk_mn_parallel_reduction_dims(self, compiler, runtime):
+        """Verify parallel/reduction dims model with large M,N,K so execution must be vectorized (M*N > EINLANG_EINSTEIN_LOOP_MAX)."""
+        M, N, K = 64, 64, 128
+        source = f"""
+        let A[m in 0..{M}, k in 0..{K}] = m * 10 + k;
+        let B[n in 0..{N}, k in 0..{K}] = n * 10 + k;
+        let C[m in 0..{M}, n in 0..{N}] = sum[k in 0..{K}](A[m, k] * B[n, k]);
+        C;
+        """
+        result = compile_and_execute(source, compiler, runtime)
+        assert result.success, f"Execution failed: {result.errors}"
+        assert "C" in result.outputs
+        C = result.outputs["C"]
+        A = (np.arange(M, dtype=np.float32)[:, None] * 10 + np.arange(K, dtype=np.float32)[None, :])
+        B = (np.arange(N, dtype=np.float32)[:, None] * 10 + np.arange(K, dtype=np.float32)[None, :])
+        expected = np.einsum("mk,nk->mn", A, B)
+        np.testing.assert_allclose(C, expected, rtol=1e-5, atol=1e-5)
+
 
 class TestConvenienceAPI:
     """Test Einstein notation via convenience API"""

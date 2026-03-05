@@ -157,15 +157,6 @@ def apply_ir_round_trip(compilation_result: Any) -> Any:
         sys.stderr.write(_orig_r[:_max] + ("\n... truncated\n" if len(_orig_r) > _max else "\n"))
         sys.stderr.write("=== round-tripped (repr, first %d chars) ===\n" % _max)
         sys.stderr.write(_rt_r[:_max] + ("\n... truncated\n" if len(_rt_r) > _max else "\n"))
-        _dir = Path("/tmp/einlang_ir_dump")
-        _dir.mkdir(parents=True, exist_ok=True)
-        (_dir / "ir_round_trip_orig.txt").write_text(_orig_r, encoding="utf-8")
-        (_dir / "ir_round_trip_rt.txt").write_text(_rt_r, encoding="utf-8")
-        (_dir / "ir_round_trip_sexpr.txt").write_text(sexpr_str, encoding="utf-8")
-        _pretty = serialize_ir(ir, **{**_ser_opts, "pretty": True})
-        (_dir / "ir_round_trip_sexpr_pretty.txt").write_text(_pretty, encoding="utf-8")
-        sys.stderr.write("Full dumps: %s/ir_round_trip_orig.txt and ir_round_trip_rt.txt\n" % _dir)
-        sys.stderr.write("IR sexpr: %s/ir_round_trip_sexpr.txt (pretty: ir_round_trip_sexpr_pretty.txt)\n" % _dir)
         assert False, "round-trip must preserve data: %s" % _diff
     orig_stmts = getattr(ir, "statements", None) or []
     rt_stmts = getattr(round_tripped, "statements", None) or []

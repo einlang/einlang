@@ -15,6 +15,8 @@ def main() -> int:
     parser.add_argument("--profile-lines", type=int, default=0, metavar="N", help="Profile by source line buckets (e.g. 10 for L0-L10, L10-L20, ...)")
     parser.add_argument("--profile-statements", action="store_true", help="Profile each top-level statement separately (reset buckets per statement)")
     parser.add_argument("--debug-vectorize", action="store_true", help="Print [vectorized] or [scalar] per Einstein clause")
+    parser.add_argument("--profile-functions", action="store_true", help="Print runtime per Einlang function (e.g. encode, encoder_block)")
+    parser.add_argument("--profile-reductions", action="store_true", help="Print reduction path per sum/max/min: matmul, vectorized, or scalar (with source line)")
     parser.add_argument("--cprofile", action="store_true", help="Run execution under cProfile and print stats")
     parser.add_argument("--cprofile-out", type=Path, default=None, metavar="FILE", help="Write cProfile stats to FILE (for snakeviz, etc.)")
     args = parser.parse_args()
@@ -23,6 +25,10 @@ def main() -> int:
         os.environ["EINLANG_PROFILE_LINES"] = str(args.profile_lines)
     if args.profile_statements:
         os.environ["EINLANG_PROFILE_STATEMENTS"] = "1"
+    if args.profile_functions:
+        os.environ["EINLANG_PROFILE_FUNCTIONS"] = "1"
+    if args.profile_reductions:
+        os.environ["EINLANG_PROFILE_REDUCTIONS"] = "1"
     if args.debug_vectorize:
         os.environ["EINLANG_DEBUG_VECTORIZE"] = "1"
 

@@ -153,8 +153,10 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     mul_left: Optional[Any] = None
     mul_right: Optional[Any] = None
     bias: Optional[Any] = None
+    scale: Optional[float] = None
     _add = getattr(BinaryOp, "ADD", None) or "+"
     _mul = getattr(BinaryOp, "MUL", None) or "*"
+    _div = getattr(BinaryOp, "DIV", None) or "/"
     body_op = getattr(body, "operator", None)
     if isinstance(body, BinaryOpIR) and body_op in (_add, "+"):
         add_left = getattr(body, "left", None)
@@ -168,8 +170,41 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
             mul_right = getattr(add_right, "right", None)
             bias = add_left
     elif isinstance(body, BinaryOpIR) and body_op in (_mul, "*"):
-        mul_left = getattr(body, "left", None)
-        mul_right = getattr(body, "right", None)
+        bl = getattr(body, "left", None)
+        br = getattr(body, "right", None)
+        if isinstance(bl, RectangularAccessIR) and isinstance(br, RectangularAccessIR):
+            mul_left, mul_right = bl, br
+        elif isinstance(bl, BinaryOpIR) and getattr(bl, "operator", None) in (_mul, "*"):
+            al, ar = getattr(bl, "left", None), getattr(bl, "right", None)
+            if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(br, LiteralIR):
+                mul_left, mul_right = al, ar
+                try:
+                    scale = float(getattr(br, "value", None))
+                except (TypeError, ValueError):
+                    scale = None
+        elif isinstance(br, BinaryOpIR) and getattr(br, "operator", None) in (_mul, "*"):
+            al, ar = getattr(br, "left", None), getattr(br, "right", None)
+            if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(bl, LiteralIR):
+                mul_left, mul_right = al, ar
+                try:
+                    scale = float(getattr(bl, "value", None))
+                except (TypeError, ValueError):
+                    scale = None
+    elif isinstance(body, BinaryOpIR) and body_op in (_div, "/"):
+        div_left = getattr(body, "left", None)
+        div_right = getattr(body, "right", None)
+        if isinstance(div_left, BinaryOpIR) and getattr(div_left, "operator", None) in (_mul, "*"):
+            al = getattr(div_left, "left", None)
+            ar = getattr(div_left, "right", None)
+            if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR):
+                mul_left, mul_right = al, ar
+                try:
+                    if isinstance(div_right, LiteralIR):
+                        v = float(getattr(div_right, "value", None))
+                        if v != 0.0:
+                            scale = 1.0 / v
+                except (TypeError, ValueError):
+                    pass
     if mul_left is None or mul_right is None:
         return None
     if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):
@@ -213,6 +248,8 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
                 result = result + bias_val
         except Exception:
             return None
+    if scale is not None:
+        result = result * scale
     return result
 
 
@@ -302,16 +339,17 @@ class ExpressionVisitorMixin:
     """Expression visit_*; function/builtin lookup via env only."""
 
     def _raise_here(self, exc: Exception, expr) -> None:
-        """Re-raise *exc* as an EinlangSourceError pinned to *expr*.location."""
+        """Re-raise *exc* as an EinlangSourceError pinned to *expr*.location (or exc.clause_location if set)."""
         from ..shared.errors import EinlangSourceError
         if isinstance(exc, EinlangSourceError):
             raise
-        loc = getattr(expr, "location", None)
+        clause_loc = getattr(exc, "clause_location", None)
+        loc = clause_loc if (clause_loc and (getattr(clause_loc, "line", 0) or getattr(clause_loc, "file", ""))) else getattr(expr, "location", None)
         source_code = None
         tcx = getattr(self, "_tcx", None)
         if tcx and loc:
             sf = getattr(tcx, "source_files", None)
-            if sf:
+            if sf and getattr(loc, "file", None):
                 source_code = sf.get(loc.file)
         raise EinlangSourceError(
             message=str(exc),
@@ -362,6 +400,15 @@ class ExpressionVisitorMixin:
         fn = _BINARY_OP_MAP.get(op) if isinstance(op, BinaryOp) else None
         if fn is None:
             raise RuntimeError(f"Unknown operator: {getattr(expr, 'operator', None)}")
+        if isinstance(left, np.ndarray) and isinstance(right, np.ndarray):
+            if op != BinaryOp.IN:
+                if left.ndim != right.ndim:
+                    if left.ndim < right.ndim:
+                        left = np.reshape(left, left.shape + (1,) * (right.ndim - left.ndim))
+                    else:
+                        right = np.reshape(right, right.shape + (1,) * (left.ndim - right.ndim))
+                if left.shape != right.shape:
+                    left, right = np.broadcast_arrays(left, right)
         try:
             return fn(self, left, right)
         except (ZeroDivisionError, FloatingPointError) as e:
@@ -434,7 +481,18 @@ class ExpressionVisitorMixin:
         indices = [idx.accept(self) for idx in (expr.indices or []) if idx is not None]
         try:
             if isinstance(array, np.ndarray):
-                return array[tuple(indices)]
+                if len(indices) > 1:
+                    idx_arrs = [np.asarray(i) for i in indices]
+                    max_ndim = max(a.ndim for a in idx_arrs)
+                    expanded = []
+                    for a in idx_arrs:
+                        if a.ndim < max_ndim:
+                            a = np.reshape(a, a.shape + (1,) * (max_ndim - a.ndim))
+                        expanded.append(a)
+                    indices = tuple(np.broadcast_arrays(*expanded))
+                else:
+                    indices = tuple(indices)
+                return array[indices]
             if isinstance(array, (list, tuple, str)):
                 idx = indices[0] if indices else 0
                 return array[int(idx)]
@@ -667,10 +725,25 @@ class ExpressionVisitorMixin:
         _reject_non_lowered(type(expr).__name__)
 
     def visit_lowered_reduction(self, expr: LoweredReductionIR) -> Any:
+        import os
         from ..runtime.compute.lowered_execution import execute_reduction_with_loops
         from ..passes.einstein_lowering import _defid_of_var_in_expr
+        loc = getattr(expr, "location", None)
+        line = int(getattr(loc, "line", 0) or 0)
+        profile_reductions = bool(os.environ.get("EINLANG_PROFILE_REDUCTIONS", ""))
+        seen = getattr(self, "_reduction_profile_seen", None)
+        if seen is None:
+            seen = set()
+            self._reduction_profile_seen = seen
+        def reduction_profile(path: str) -> None:
+            if profile_reductions:
+                key = (line, path)
+                if key not in seen:
+                    seen.add(key)
+                    print(f"[reduction] {path} L{line}", flush=True)
         matmul_result = _try_matmul_reduction(expr, self)
         if matmul_result is not None:
+            reduction_profile("matmul")
             return matmul_result
         def ev(e): return e.accept(self)
         _loop_to_body_defid = {}
@@ -711,6 +784,7 @@ class ExpressionVisitorMixin:
                     self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
             from ..runtime.compute.lowered_execution import check_lowered_guards
             return check_lowered_guards(expr.guards, _ctx, lambda c: self._to_bool(c.accept(self)))
+        parallel_shape = getattr(self, "_vectorize_parallel_shape", None)
         return execute_reduction_with_loops(
             getattr(expr, "operation", "sum"),
             getattr(expr, "reduction_ranges", {}),
@@ -718,6 +792,8 @@ class ExpressionVisitorMixin:
             ev,
             guard_evaluator=guard_ev if expr.guards else None,
             initial_context={},
+            profile_callback=reduction_profile if profile_reductions else None,
+            parallel_shape=parallel_shape,
         )
 
     def visit_where_expression(self, expr: WhereExpressionIR) -> Any:
