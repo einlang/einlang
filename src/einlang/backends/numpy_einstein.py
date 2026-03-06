@@ -180,6 +180,7 @@ def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
             if isinstance(body, IfExpressionIR):
                 cond = body.condition.accept(backend)
                 if isinstance(cond, np.ndarray) and cond.ndim > 0:
+                    # If-expr as scalar RHS: evaluate only the taken branch at each point via vectorized indexing.
                     valid = np.asarray(cond, dtype=bool)
                     expected_shape = tuple(output_shape)
                     result = np.zeros(expected_shape, dtype=dtype)
