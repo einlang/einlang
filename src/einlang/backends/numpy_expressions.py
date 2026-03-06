@@ -496,6 +496,16 @@ class ExpressionVisitorMixin:
                             a = np.reshape(a, a.shape + (1,) * (max_ndim - a.ndim))
                         expanded.append(a)
                     indices = tuple(np.broadcast_arrays(*expanded))
+                    shape = array.shape
+                    if len(indices) <= len(shape):
+                        clipped = []
+                        for d, idx in enumerate(indices):
+                            if d < len(shape) and np.issubdtype(idx.dtype, np.integer):
+                                high = int(shape[d]) - 1
+                                clipped.append(np.clip(idx, 0, high))
+                            else:
+                                clipped.append(idx)
+                        indices = tuple(clipped)
                 else:
                     indices = tuple(indices)
                 return array[indices]

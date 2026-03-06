@@ -430,6 +430,7 @@ class ShapeAnalyzer:
                 return None
             shapes.append(s)
             logger.debug(f"[infer_einstein_shape] {decl.name} clause shape: {s}")
+
         combined = []
         for d in range(rank):
             dim_vals = [s[d] for s in shapes if s[d] is not None]

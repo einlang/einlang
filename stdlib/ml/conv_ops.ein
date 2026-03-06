@@ -38,10 +38,12 @@ fn conv2d(X, W, B, stride_h, stride_w, pad_h0, pad_h1, pad_w0, pad_w1, dilation_
     let cpg      = c_in / group;
     let fpg      = c_out / group;
 
-    let Xp[..batch, c, i in 0..h_p, j in 0..w_p] =
-        if (i >= pad_h0) && (i < (h_in + pad_h0)) && (j >= pad_w0) && (j < (w_in + pad_w0))
-        { X[..batch, c, i - pad_h0, j - pad_w0] }
-        else { 0.0 };
+    let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in pad_w0..(pad_w0 + w_in)] =
+        X[..batch, c, i - pad_h0, j - pad_w0];
+    let Xp[..batch, c, i in 0..pad_h0, j in 0..w_p] = 0.0;
+    let Xp[..batch, c, i in (pad_h0 + h_in)..h_p, j in 0..w_p] = 0.0;
+    let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in 0..pad_w0] = 0.0;
+    let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in (pad_w0 + w_in)..w_p] = 0.0;
 
     let conv_sum[..batch, co, i, j] = sum[cl in 0..cpg, m in 0..kernel_h, n in 0..kernel_w](
         Xp[..batch, (co / fpg) * cpg + cl, i * stride_h + m * dilation_h, j * stride_w + n * dilation_w]
@@ -68,12 +70,14 @@ fn conv3d(X, W, B, stride_d, stride_h, stride_w, pad_d0, pad_d1, pad_h0, pad_h1,
     let cpg      = c_in / group;
     let fpg      = c_out / group;
 
-    let Xp[..batch, c, i in 0..d_p, j in 0..h_p, k in 0..w_p] =
-        if (i >= pad_d0) && (i < (d_in + pad_d0)) &&
-           (j >= pad_h0) && (j < (h_in + pad_h0)) &&
-           (k >= pad_w0) && (k < (w_in + pad_w0))
-        { X[..batch, c, i - pad_d0, j - pad_h0, k - pad_w0] }
-        else { 0.0 };
+    let Xp[..batch, c, i in pad_d0..(pad_d0 + d_in), j in pad_h0..(pad_h0 + h_in), k in pad_w0..(pad_w0 + w_in)] =
+        X[..batch, c, i - pad_d0, j - pad_h0, k - pad_w0];
+    let Xp[..batch, c, i in 0..pad_d0, j in 0..h_p, k in 0..w_p] = 0.0;
+    let Xp[..batch, c, i in (pad_d0 + d_in)..d_p, j in 0..h_p, k in 0..w_p] = 0.0;
+    let Xp[..batch, c, i in pad_d0..(pad_d0 + d_in), j in 0..pad_h0, k in 0..w_p] = 0.0;
+    let Xp[..batch, c, i in pad_d0..(pad_d0 + d_in), j in (pad_h0 + h_in)..h_p, k in 0..w_p] = 0.0;
+    let Xp[..batch, c, i in pad_d0..(pad_d0 + d_in), j in pad_h0..(pad_h0 + h_in), k in 0..pad_w0] = 0.0;
+    let Xp[..batch, c, i in pad_d0..(pad_d0 + d_in), j in pad_h0..(pad_h0 + h_in), k in (pad_w0 + w_in)..w_p] = 0.0;
 
     let conv_sum[..batch, co, i, j, k] = sum[
         cl in 0..cpg,
@@ -101,10 +105,12 @@ fn qconv2d(X_q, x_scale, W_q, w_scale, B, stride_h, stride_w, pad_h0, pad_h1, pa
     let fpg      = c_out / group;
     let scale    = (x_scale as f32) * (w_scale as f32);
 
-    let Xp[..batch, c, i in 0..h_p, j in 0..w_p] =
-        if (i >= pad_h0) && (i < (h_in + pad_h0)) && (j >= pad_w0) && (j < (w_in + pad_w0))
-        { X_q[..batch, c, i - pad_h0, j - pad_w0] }
-        else { 0.0 };
+    let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in pad_w0..(pad_w0 + w_in)] =
+        X_q[..batch, c, i - pad_h0, j - pad_w0];
+    let Xp[..batch, c, i in 0..pad_h0, j in 0..w_p] = 0.0;
+    let Xp[..batch, c, i in (pad_h0 + h_in)..h_p, j in 0..w_p] = 0.0;
+    let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in 0..pad_w0] = 0.0;
+    let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in (pad_w0 + w_in)..w_p] = 0.0;
 
     let acc[..batch, co, i, j] = sum[cl in 0..cpg, m in 0..kernel_h, n in 0..kernel_w](
         (Xp[..batch, (co / fpg) * cpg + cl, i * stride_h + m * dilation_h, j * stride_w + n * dilation_w] as i32)

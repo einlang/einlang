@@ -252,6 +252,8 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         self._current_function_einstein_decls = []
 
     def _clause_output_rank(self, clause) -> int:
+        """Output rank = number of index dimensions. RestPatternPreprocessing runs before this
+        pass, so rest is already expanded and len(indices) is the true rank."""
         inds = clause.indices or []
         for idx in inds:
             assert not isinstance(idx, IndexRestIR), (
