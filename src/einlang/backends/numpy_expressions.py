@@ -1,6 +1,6 @@
 """NumPy backend expression visitors. All lookup via env (no global table)."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import warnings
 
 import numpy as np
@@ -20,6 +20,243 @@ from .numpy_helpers import (
     builtin_assert, builtin_print, builtin_len, builtin_shape, builtin_typeof,
     builtin_sum, builtin_max, builtin_min, builtin_array_append,
 )
+
+
+def _is_scalar_like(x: Any) -> bool:
+    if x is None:
+        return True
+    if np.isscalar(x):
+        return True
+    if isinstance(x, np.ndarray):
+        return x.ndim == 0 or x.size == 1
+    return False
+
+
+def _reduction_axis_in_access(backend: Any, access: Any, reduction_defid: Any, indices: List[Any]) -> Optional[int]:
+    axis = 0
+    for idx in indices:
+        idx_defid = getattr(idx, "defid", None)
+        if idx_defid is not None and idx_defid == reduction_defid:
+            return axis
+        try:
+            v = idx.accept(backend)
+            if not _is_scalar_like(v):
+                axis += 1
+        except Exception:
+            return None
+    return None
+
+
+def _expr_contains_defid(expr: Any, target_defid: Any) -> bool:
+    if expr is None or target_defid is None:
+        return False
+    if isinstance(expr, (IdentifierIR, IndexVarIR)) and getattr(expr, "defid", None) == target_defid:
+        return True
+    if hasattr(expr, "left") and hasattr(expr, "right"):
+        if _expr_contains_defid(getattr(expr, "left", None), target_defid):
+            return True
+        if _expr_contains_defid(getattr(expr, "right", None), target_defid):
+            return True
+    if hasattr(expr, "operand"):
+        return _expr_contains_defid(getattr(expr, "operand"), target_defid)
+    if hasattr(expr, "array") and hasattr(expr, "indices"):
+        if _expr_contains_defid(getattr(expr, "array"), target_defid):
+            return True
+        for i in getattr(expr, "indices", []) or []:
+            if _expr_contains_defid(i, target_defid):
+                return True
+    if hasattr(expr, "arguments"):
+        for a in getattr(expr, "arguments", []) or []:
+            if _expr_contains_defid(a, target_defid):
+                return True
+    if hasattr(expr, "callee_expr") and _expr_contains_defid(getattr(expr, "callee_expr"), target_defid):
+        return True
+    return False
+
+
+def _reduction_axes_in_access(
+    backend: Any, indices: List[Any], reduction_defids: List[Any]
+) -> Optional[Tuple[int, ...]]:
+    axes: List[Optional[int]] = [None] * len(reduction_defids)
+    current_axis = 0
+    for idx in indices:
+        idx_defid = getattr(idx, "defid", None)
+        if idx_defid is not None and idx_defid in reduction_defids:
+            pos = reduction_defids.index(idx_defid)
+            axes[pos] = current_axis
+        else:
+            for pos, rd in enumerate(reduction_defids):
+                if axes[pos] is None and _expr_contains_defid(idx, rd):
+                    axes[pos] = current_axis
+                    break
+        try:
+            v = idx.accept(backend)
+            if not _is_scalar_like(v):
+                current_axis += 1
+        except Exception:
+            return None
+    if any(a is None for a in axes):
+        return None
+    return tuple(axes)
+
+
+def _infer_reduction_axes_from_shape(
+    shape: Tuple[int, ...], reduction_sizes: List[int]
+) -> Optional[Tuple[int, ...]]:
+    used: set = set()
+    axes: List[int] = []
+    for rs in reduction_sizes:
+        found = None
+        for i, s in enumerate(shape):
+            if i not in used and int(s) == int(rs):
+                found = i
+                break
+        if found is None:
+            return None
+        axes.append(found)
+        used.add(found)
+    return tuple(axes)
+
+
+def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
+    op = getattr(expr, "operation", None)
+    if op != "sum":
+        return None
+    if getattr(expr, "guards", None) or getattr(expr, "bindings", None):
+        return None
+    from ..passes.einstein_lowering import _defid_of_var_in_expr
+    reduction_ranges = getattr(expr, "reduction_ranges", None) or {}
+    loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
+    if not loops:
+        return None
+    reduction_defids: List[Any] = []
+    reduction_sizes: List[int] = []
+    for loop in loops:
+        loop_var = getattr(loop, "variable", None)
+        if loop_var is None:
+            return None
+        loop_defid = getattr(loop_var, "defid", None)
+        if loop_defid is None:
+            return None
+        body_defid = _defid_of_var_in_expr(expr.body, getattr(loop_var, "name", "") or "") or loop_defid
+        reduction_defids.append(body_defid)
+        try:
+            iterable = loop.iterable.accept(backend) if hasattr(loop.iterable, "accept") else None
+            if iterable is None:
+                return None
+            reduction_sizes.append(int(len(iterable)))
+        except Exception:
+            return None
+    body = getattr(expr, "body", None)
+    if body is None:
+        return None
+    mul_left: Optional[Any] = None
+    mul_right: Optional[Any] = None
+    bias: Optional[Any] = None
+    scale: Optional[float] = None
+    _add = getattr(BinaryOp, "ADD", None) or "+"
+    _mul = getattr(BinaryOp, "MUL", None) or "*"
+    _div = getattr(BinaryOp, "DIV", None) or "/"
+    body_op = getattr(body, "operator", None)
+    if isinstance(body, BinaryOpIR) and body_op in (_add, "+"):
+        add_left = getattr(body, "left", None)
+        add_right = getattr(body, "right", None)
+        if isinstance(add_left, BinaryOpIR) and getattr(add_left, "operator", None) in (_mul, "*"):
+            mul_left = getattr(add_left, "left", None)
+            mul_right = getattr(add_left, "right", None)
+            bias = add_right
+        elif isinstance(add_right, BinaryOpIR) and getattr(add_right, "operator", None) in (_mul, "*"):
+            mul_left = getattr(add_right, "left", None)
+            mul_right = getattr(add_right, "right", None)
+            bias = add_left
+    elif isinstance(body, BinaryOpIR) and body_op in (_mul, "*"):
+        bl = getattr(body, "left", None)
+        br = getattr(body, "right", None)
+        if isinstance(bl, RectangularAccessIR) and isinstance(br, RectangularAccessIR):
+            mul_left, mul_right = bl, br
+        elif isinstance(bl, BinaryOpIR) and getattr(bl, "operator", None) in (_mul, "*"):
+            al, ar = getattr(bl, "left", None), getattr(bl, "right", None)
+            if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(br, LiteralIR):
+                mul_left, mul_right = al, ar
+                try:
+                    scale = float(getattr(br, "value", None))
+                except (TypeError, ValueError):
+                    scale = None
+        elif isinstance(br, BinaryOpIR) and getattr(br, "operator", None) in (_mul, "*"):
+            al, ar = getattr(br, "left", None), getattr(br, "right", None)
+            if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(bl, LiteralIR):
+                mul_left, mul_right = al, ar
+                try:
+                    scale = float(getattr(bl, "value", None))
+                except (TypeError, ValueError):
+                    scale = None
+    elif isinstance(body, BinaryOpIR) and body_op in (_div, "/"):
+        div_left = getattr(body, "left", None)
+        div_right = getattr(body, "right", None)
+        if isinstance(div_left, BinaryOpIR) and getattr(div_left, "operator", None) in (_mul, "*"):
+            al = getattr(div_left, "left", None)
+            ar = getattr(div_left, "right", None)
+            if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR):
+                mul_left, mul_right = al, ar
+                try:
+                    if isinstance(div_right, LiteralIR):
+                        v = float(getattr(div_right, "value", None))
+                        if v != 0.0:
+                            scale = 1.0 / v
+                except (TypeError, ValueError):
+                    pass
+    if mul_left is None or mul_right is None:
+        return None
+    if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):
+        return None
+    indices_left = getattr(mul_left, "indices", None) or []
+    indices_right = getattr(mul_right, "indices", None) or []
+    from ..ir.nodes import IdentifierIR, IndexVarIR
+    for _idx in indices_left + indices_right:
+        for _rd in reduction_defids:
+            if _expr_contains_defid(_idx, _rd):
+                if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and getattr(_idx, "defid", None) in reduction_defids):
+                    return None
+    n_red = len(reduction_sizes)
+    try:
+        with backend.env.scope():
+            for i, (defid, N) in enumerate(zip(reduction_defids, reduction_sizes)):
+                if n_red == 1:
+                    backend.env.set_value(defid, np.arange(N, dtype=np.intp))
+                else:
+                    shape = [1] * n_red
+                    shape[i] = N
+                    backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
+            axes_left = _reduction_axes_in_access(backend, indices_left, reduction_defids)
+            axes_right = _reduction_axes_in_access(backend, indices_right, reduction_defids)
+            left_val = mul_left.accept(backend)
+            right_val = mul_right.accept(backend)
+    except Exception:
+        return None
+    if not isinstance(left_val, np.ndarray) or not isinstance(right_val, np.ndarray):
+        return None
+    if axes_left is None:
+        axes_left = _infer_reduction_axes_from_shape(left_val.shape, reduction_sizes)
+    if axes_right is None:
+        axes_right = _infer_reduction_axes_from_shape(right_val.shape, reduction_sizes)
+    if axes_left is None or axes_right is None:
+        return None
+    try:
+        result = np.tensordot(left_val, right_val, axes=(axes_left, axes_right))
+    except Exception:
+        return None
+    if bias is not None:
+        try:
+            bias_val = bias.accept(backend)
+            if isinstance(bias_val, np.ndarray) and isinstance(result, np.ndarray):
+                result = result + np.broadcast_to(bias_val, result.shape)
+            elif np.isscalar(bias_val) or (isinstance(bias_val, np.ndarray) and bias_val.ndim == 0):
+                result = result + bias_val
+        except Exception:
+            return None
+    if scale is not None:
+        result = result * scale
+    return result
 
 
 
@@ -108,16 +345,17 @@ class ExpressionVisitorMixin:
     """Expression visit_*; function/builtin lookup via env only."""
 
     def _raise_here(self, exc: Exception, expr) -> None:
-        """Re-raise *exc* as an EinlangSourceError pinned to *expr*.location."""
+        """Re-raise *exc* as an EinlangSourceError pinned to *expr*.location (or exc.clause_location if set)."""
         from ..shared.errors import EinlangSourceError
         if isinstance(exc, EinlangSourceError):
             raise
-        loc = getattr(expr, "location", None)
+        clause_loc = getattr(exc, "clause_location", None)
+        loc = clause_loc if (clause_loc and (getattr(clause_loc, "line", 0) or getattr(clause_loc, "file", ""))) else getattr(expr, "location", None)
         source_code = None
         tcx = getattr(self, "_tcx", None)
         if tcx and loc:
             sf = getattr(tcx, "source_files", None)
-            if sf:
+            if sf and getattr(loc, "file", None):
                 source_code = sf.get(loc.file)
         raise EinlangSourceError(
             message=str(exc),
@@ -168,6 +406,15 @@ class ExpressionVisitorMixin:
         fn = _BINARY_OP_MAP.get(op) if isinstance(op, BinaryOp) else None
         if fn is None:
             raise RuntimeError(f"Unknown operator: {getattr(expr, 'operator', None)}")
+        if isinstance(left, np.ndarray) and isinstance(right, np.ndarray):
+            if op != BinaryOp.IN:
+                if left.ndim != right.ndim:
+                    if left.ndim < right.ndim:
+                        left = np.reshape(left, left.shape + (1,) * (right.ndim - left.ndim))
+                    else:
+                        right = np.reshape(right, right.shape + (1,) * (left.ndim - right.ndim))
+                if left.shape != right.shape:
+                    left, right = np.broadcast_arrays(left, right)
         try:
             return fn(self, left, right)
         except (ZeroDivisionError, FloatingPointError) as e:
@@ -240,7 +487,28 @@ class ExpressionVisitorMixin:
         indices = [idx.accept(self) for idx in (expr.indices or []) if idx is not None]
         try:
             if isinstance(array, np.ndarray):
-                return array[tuple(indices)]
+                if len(indices) > 1:
+                    idx_arrs = [np.asarray(i) for i in indices]
+                    max_ndim = max(a.ndim for a in idx_arrs)
+                    expanded = []
+                    for a in idx_arrs:
+                        if a.ndim < max_ndim:
+                            a = np.reshape(a, a.shape + (1,) * (max_ndim - a.ndim))
+                        expanded.append(a)
+                    indices = tuple(np.broadcast_arrays(*expanded))
+                    shape = array.shape
+                    if len(indices) <= len(shape):
+                        clipped = []
+                        for d, idx in enumerate(indices):
+                            if d < len(shape) and np.issubdtype(idx.dtype, np.integer):
+                                high = int(shape[d]) - 1
+                                clipped.append(np.clip(idx, 0, high))
+                            else:
+                                clipped.append(idx)
+                        indices = tuple(clipped)
+                else:
+                    indices = tuple(indices)
+                return array[indices]
             if isinstance(array, (list, tuple, str)):
                 idx = indices[0] if indices else 0
                 return array[int(idx)]
@@ -320,10 +588,30 @@ class ExpressionVisitorMixin:
         return np.array(results) if results else np.array([])
 
     def visit_array_literal(self, expr: ArrayLiteralIR) -> Any:
-        evaluated = [e.accept(self) for e in expr.elements]
         type_info = getattr(expr, "type_info", None)
         if type_info is not None and getattr(type_info, "kind", None) == TypeKind.JAGGED:
+            evaluated = [e.accept(self) for e in expr.elements]
             return list(evaluated)
+        dtype = None
+        if expr.elements:
+            for e in expr.elements:
+                v = getattr(e, "value", None)
+                if v is not None and isinstance(v, (float, np.floating)):
+                    dtype = np.float32
+                    break
+        if dtype is None and type_info is not None:
+            converter = getattr(self, "_type_info_to_numpy_dtype", None)
+            if callable(converter):
+                el = getattr(type_info, "element_type", None) or type_info
+                dtype = converter(el)
+        evaluated = [e.accept(self) for e in expr.elements]
+        if dtype is None and evaluated:
+            if isinstance(evaluated[0], (float, np.floating)):
+                dtype = np.float32
+            elif any(isinstance(x, (float, np.floating)) for x in evaluated):
+                dtype = np.float32
+        if dtype is not None:
+            return np.array(evaluated, dtype=dtype)
         return np.array(evaluated)
 
     def visit_tuple_expression(self, expr: TupleExpressionIR) -> Any:
@@ -473,8 +761,22 @@ class ExpressionVisitorMixin:
         _reject_non_lowered(type(expr).__name__)
 
     def visit_lowered_reduction(self, expr: LoweredReductionIR) -> Any:
+        import os
         from ..runtime.compute.lowered_execution import execute_reduction_with_loops
         from ..passes.einstein_lowering import _defid_of_var_in_expr
+        loc = getattr(expr, "location", None)
+        line = int(getattr(loc, "line", 0) or 0)
+        profile_reductions = bool(os.environ.get("EINLANG_PROFILE_REDUCTIONS", ""))
+        seen = getattr(self, "_reduction_profile_seen", None)
+        if seen is None:
+            seen = set()
+            self._reduction_profile_seen = seen
+        def reduction_profile(path: str) -> None:
+            if profile_reductions:
+                key = (line, path)
+                if key not in seen:
+                    seen.add(key)
+                    print(f"[reduction] {path} L{line}", flush=True)
         def ev(e): return e.accept(self)
         _loop_to_body_defid = {}
         _reduction_defid_names = {}
@@ -514,6 +816,7 @@ class ExpressionVisitorMixin:
                     self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
             from ..runtime.compute.lowered_execution import check_lowered_guards
             return check_lowered_guards(expr.guards, _ctx, lambda c: self._to_bool(c.accept(self)))
+        parallel_shape = getattr(self, "_vectorize_parallel_shape", None)
         return execute_reduction_with_loops(
             getattr(expr, "operation", "sum"),
             getattr(expr, "reduction_ranges", {}),
@@ -521,6 +824,8 @@ class ExpressionVisitorMixin:
             ev,
             guard_evaluator=guard_ev if expr.guards else None,
             initial_context={},
+            profile_callback=reduction_profile if profile_reductions else None,
+            parallel_shape=parallel_shape,
         )
 
     def visit_where_expression(self, expr: WhereExpressionIR) -> Any:

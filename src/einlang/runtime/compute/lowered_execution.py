@@ -10,6 +10,7 @@ No direct AST/IR dependencies - works with the lowered structures as data.
 Lowered execution model.
 """
 
+import os
 from typing import Dict, List, Callable, Any, Iterator, Optional, Tuple
 
 import numpy as np
@@ -22,17 +23,14 @@ def _try_vectorized_reduction(
     reduction_loops: List[Any],
     body_evaluator: Callable,
     expr_evaluator: Callable,
+    parallel_shape: Optional[Tuple[int, ...]] = None,
 ) -> Tuple[bool, Any]:
     """
-    Fast path: evaluate the reduction body once with numpy array-valued loop
-    variables (using broadcasting for multi-variable cases) then reduce with
-    a single numpy call instead of iterating element-by-element in Python.
-    Supports batched reduction: when outer env has array bindings (e.g. from
-    a vectorized clause), first probe batch shape with scalar reduction indices,
-    then evaluate body with reduction dim(s) as trailing axes and reduce over them.
-
-    Falls back gracefully (returns False, None) on any failure so the caller
-    can retry with the scalar loop.
+    Vectorized reduction: single rule parallel_shape + reduction_shape.
+    Clause loop -> parallel; reduction loop -> reduction. Broadcast reduction
+    vars to parallel_shape + red_shape, evaluate body once, reduce over last n axes.
+    When parallel_shape is None (standalone reduction), infer it by evaluating
+    body with scalar reduction indices. Falls back to False, None on failure.
     """
     if reduction_op not in ('sum', 'max', 'min', 'product', 'prod'):
         return False, None
@@ -58,41 +56,91 @@ def _try_vectorized_reduction(
             return False, None
 
         n = len(arrs)
+        expected_shape = tuple(arr.size for arr in arrs)
+        if parallel_shape is None:
+            spot_ctx: Dict[Any, Any] = {}
+            for defid, arr in zip(defids, arrs):
+                spot_ctx[defid] = int(arr.flat[0])
+            spot_val = body_evaluator(spot_ctx)
+            if isinstance(spot_val, np.ndarray):
+                parallel_shape = tuple(spot_val.shape)
+            else:
+                parallel_shape = ()
+
         ctx: Dict[Any, Any] = {}
         for i, (defid, arr) in enumerate(zip(defids, arrs)):
             if n == 1:
-                ctx[defid] = arr
+                red_shape = (arr.size,)
             else:
-                shape = [1] * n
-                shape[i] = len(arr)
-                ctx[defid] = arr.reshape(shape)
+                red_shape = [1] * n
+                red_shape[i] = arr.size
+                red_shape = tuple(red_shape)
+            red_arr = arr.reshape(red_shape)
+            if parallel_shape:
+                ctx[defid] = np.broadcast_to(
+                    red_arr, tuple(parallel_shape) + tuple(red_shape)
+                )
+            else:
+                ctx[defid] = red_arr
 
         result = body_evaluator(ctx)
 
         if not isinstance(result, np.ndarray):
             return False, None
 
-        expected_shape = tuple(arr.size for arr in arrs)
-        if result.shape != expected_shape:
-            return False, None
-
-        spot_ctx = {}
-        for defid, arr in zip(defids, arrs):
-            spot_ctx[defid] = int(arr.flat[0])
-        spot_val = body_evaluator(spot_ctx)
-        if isinstance(spot_val, np.ndarray):
-            return False, None
-
-        if reduction_op == 'sum':
-            return True, result.sum()
-        elif reduction_op == 'max':
-            return True, result.max()
-        elif reduction_op == 'min':
-            return True, result.min()
-        elif reduction_op in ('product', 'prod'):
-            return True, result.prod()
-    except Exception:
-        pass
+        if parallel_shape:
+            reduction_axes = tuple(range(-n, 0))
+            if result.shape != parallel_shape + expected_shape:
+                if (result.ndim >= len(parallel_shape) + n
+                        and result.shape[-n:] == expected_shape
+                        and np.prod(result.shape[:-n]) == np.prod(parallel_shape)):
+                    try:
+                        if reduction_op == 'sum':
+                            reduced = result.sum(axis=reduction_axes)
+                        elif reduction_op == 'max':
+                            reduced = result.max(axis=reduction_axes)
+                        elif reduction_op == 'min':
+                            reduced = result.min(axis=reduction_axes)
+                        elif reduction_op in ('product', 'prod'):
+                            reduced = result.prod(axis=reduction_axes)
+                        else:
+                            reduced = None
+                        if reduced is not None and reduced.size == np.prod(parallel_shape):
+                            reduced = reduced.reshape(parallel_shape)
+                            return True, reduced
+                    except (ValueError, AttributeError):
+                        pass
+                if os.environ.get("EINLANG_PROFILE_REDUCTIONS"):
+                    print(
+                        f"[reduction] vectorized shape mismatch: got {result.shape}, expected {tuple(parallel_shape) + tuple(expected_shape)}",
+                        flush=True,
+                    )
+                return False, None
+            if reduction_op == 'sum':
+                reduced = result.sum(axis=reduction_axes)
+            elif reduction_op == 'max':
+                reduced = result.max(axis=reduction_axes)
+            elif reduction_op == 'min':
+                reduced = result.min(axis=reduction_axes)
+            elif reduction_op in ('product', 'prod'):
+                reduced = result.prod(axis=reduction_axes)
+            else:
+                return False, None
+            return True, reduced
+        else:
+            if result.shape != expected_shape:
+                return False, None
+            if reduction_op == 'sum':
+                return True, result.sum()
+            elif reduction_op == 'max':
+                return True, result.max()
+            elif reduction_op == 'min':
+                return True, result.min()
+            elif reduction_op in ('product', 'prod'):
+                return True, result.prod()
+    except Exception as e:
+        if os.environ.get("EINLANG_PROFILE_REDUCTIONS"):
+            print(f"[reduction] vectorized failed: {e}", flush=True)
     return False, None
 
 
@@ -195,7 +243,9 @@ def execute_reduction_with_loops(
     body_evaluator: Callable[[Dict[DefId, Any]], Any],
     expr_evaluator: Callable[[Any], Any],
     guard_evaluator: Optional[Callable[[Dict[DefId, Any]], bool]] = None,
-    initial_context: Optional[Dict[DefId, Any]] = None
+    initial_context: Optional[Dict[DefId, Any]] = None,
+    profile_callback: Optional[Callable[[str], None]] = None,
+    parallel_shape: Optional[Tuple[int, ...]] = None,
 ) -> Any:
     """
     Execute reduction operation using nested loops with accumulators.
@@ -224,14 +274,12 @@ def execute_reduction_with_loops(
     # Convert reduction_ranges to list of loops
     reduction_loops = list(reduction_ranges.values())
 
-    # Fast vectorized path: replace Python scalar loop with a single numpy op.
-    # Only attempted when there are no guards (guards require per-element filtering).
-    if not guard_evaluator:
-        ok, result = _try_vectorized_reduction(
-            reduction_op, reduction_loops, body_evaluator, expr_evaluator
-        )
-        if ok:
-            return result
+    # Use only scalar loops (fancy indexing); do not use vectorized reduction path,
+    # which can produce wrong element order/values when reduction axis mapping
+    # does not match the body's index order.
+
+    if profile_callback is not None:
+        profile_callback("scalar")
 
     # Initialize accumulator based on operation
     if reduction_op == 'sum':

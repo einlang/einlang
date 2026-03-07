@@ -476,6 +476,9 @@ class IRSerializer:
                 self._sym(":indices"), indices_sexpr]
         if red_defids_str:
             core.extend([self._sym(":reduction_loop_defids"), red_defids_str])
+        if self.include_location and getattr(node, "location", None):
+            loc = node.location
+            core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
         return core
 
     def _serialize_LoweredEinsteinIR(self, node) -> list:

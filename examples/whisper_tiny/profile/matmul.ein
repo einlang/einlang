@@ -1,0 +1,23 @@
+// Debug matmul fast path: single-loop then two-loop reductions.
+// Run from whisper_tiny: PYTHONPATH=../../src python3 -m einlang profile/matmul.ein
+
+fn load_npy(path: str) -> [f32; *] { python::numpy::load(path) }
+
+let enc_conv1_w = load_npy("weights/enc_conv1_w.npy") as [f32; 384, 80, 3];
+let enc_conv1_b = load_npy("weights/enc_conv1_b.npy") as [f32; 384];
+
+let mel = load_npy("samples/jfk.npy") as [f32; 80, 3000];
+let mel_pad[c in 0..80, t in 1..3001] = mel[c, t - 1];
+let mel_pad[c in 0..80, t in 0..1] = 0.0;
+let mel_pad[c in 0..80, t in 3001..3002] = 0.0;
+
+let single[co in 0..384, t in 0..10] =
+    sum[k in 0..3](mel_pad[0, t + k] * enc_conv1_w[co, 0, k])
+    + enc_conv1_b[co];
+
+let c1[co in 0..384, t in 0..3000] =
+    sum[ci in 0..80, k in 0..3](mel_pad[ci, t + k] * enc_conv1_w[co, ci, k])
+    + enc_conv1_b[co];
+
+print(single[0, 0]);
+print(c1[0, 0]);

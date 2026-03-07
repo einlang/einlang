@@ -391,10 +391,9 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             )
         inferred_type = self._get_var(expr.defid)
         if inferred_type is None:
-            # Bind-on-first-use for iteration/reduction indices (e.g. in copied specialized IR)
             self._set_var(expr.defid, I32)
             inferred_type = I32
-        expr.type_info = inferred_type
+        object.__setattr__(expr, 'type_info', inferred_type)
         return inferred_type
 
     def visit_index_var(self, node: IndexVarIR) -> Type:
@@ -1757,7 +1756,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             if expr.where_clause:
                 for constraint in expr.where_clause.constraints:
                     constraint.accept(self)
-        expr.type_info = inferred_type
+        object.__setattr__(expr, 'type_info', inferred_type)
         return inferred_type
     
     def visit_where_expression(self, expr) -> Type:
