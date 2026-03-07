@@ -490,23 +490,33 @@ class EinsteinExecutionMixin:
             output_shape = [1]
         dtype = self._type_info_to_numpy_dtype(tensor_element_type)
         if dtype is None and lowered_einstein.items:
-            first_body = lowered_einstein.items[0].body
-            dtype = self._dtype_for_clause_result(first_body, None)
+            first = lowered_einstein.items[0]
+            type_info = getattr(first.body, "type_info", None)
+            if type_info is None and isinstance(first.body, LoweredReductionIR):
+                type_info = getattr(first.body.body, "type_info", None)
+            if type_info is None and hasattr(first.body, "expr"):
+                type_info = getattr(first.body.expr, "type_info", None)
+            dtype = self._type_info_to_numpy_dtype(type_info)
+        if dtype is None and lowered_einstein.items and self._body_implies_float(lowered_einstein.items[0].body):
+            dtype = np.float32
         if dtype is None:
             dtype = np.int32
-        if dtype == np.int32 and lowered_einstein.items:
-            first_body = lowered_einstein.items[0].body
-            if isinstance(first_body, ReductionExpressionIR):
-                body = getattr(first_body, "body", None)
-                if isinstance(body, BinaryOpIR):
-                    from ..shared.types import BinaryOp
-                    op = getattr(body, "operator", None)
-                    if op in (BinaryOp.MUL, BinaryOp.DIV) or (op is not None and getattr(op, "value", None) in ("*", "/")):
-                        if self._body_implies_float(body):
-                            dtype = np.float32
-                        elif getattr(body, "left", None) is not None and getattr(body, "right", None) is not None:
-                            if isinstance(body.left, RectangularAccessIR) or isinstance(body.right, RectangularAccessIR):
-                                dtype = np.float32
+        first_body = lowered_einstein.items[0].body if lowered_einstein.items else None
+        if (first_body is not None and isinstance(first_body, (LoweredReductionIR, ReductionExpressionIR)) and
+                np.issubdtype(dtype, np.integer)):
+            body_ti = getattr(first_body.body, "type_info", None)
+            body_dtype = self._type_info_to_numpy_dtype(body_ti) if body_ti else None
+            if body_dtype is not None and np.issubdtype(body_dtype, np.floating):
+                dtype = np.float32
+            elif self._body_implies_float(first_body):
+                dtype = np.float32
+            else:
+                op_name = (getattr(first_body, "operation", None) or "").lower()
+                body_expr = getattr(first_body, "body", None)
+                if op_name == "sum" and isinstance(body_expr, BinaryOpIR):
+                    op = str(getattr(body_expr, "operator", ""))
+                    if op in ("*", "MUL"):
+                        dtype = np.float32
 
         # Multi-segment: reuse existing array if this variable was already
         # declared (e.g. pad's `let result[i in 0..p] = ...; let result[i in p..n] = ...;`)

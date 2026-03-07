@@ -487,28 +487,7 @@ class ExpressionVisitorMixin:
         indices = [idx.accept(self) for idx in (expr.indices or []) if idx is not None]
         try:
             if isinstance(array, np.ndarray):
-                if len(indices) > 1:
-                    idx_arrs = [np.asarray(i) for i in indices]
-                    max_ndim = max(a.ndim for a in idx_arrs)
-                    expanded = []
-                    for a in idx_arrs:
-                        if a.ndim < max_ndim:
-                            a = np.reshape(a, a.shape + (1,) * (max_ndim - a.ndim))
-                        expanded.append(a)
-                    indices = tuple(np.broadcast_arrays(*expanded))
-                    shape = array.shape
-                    if len(indices) <= len(shape):
-                        clipped = []
-                        for d, idx in enumerate(indices):
-                            if d < len(shape) and np.issubdtype(idx.dtype, np.integer):
-                                high = int(shape[d]) - 1
-                                clipped.append(np.clip(idx, 0, high))
-                            else:
-                                clipped.append(idx)
-                        indices = tuple(clipped)
-                else:
-                    indices = tuple(indices)
-                return array[indices]
+                return array[tuple(indices)]
             if isinstance(array, (list, tuple, str)):
                 idx = indices[0] if indices else 0
                 return array[int(idx)]
@@ -593,23 +572,24 @@ class ExpressionVisitorMixin:
             evaluated = [e.accept(self) for e in expr.elements]
             return list(evaluated)
         dtype = None
-        if expr.elements:
+        if type_info is not None:
+            converter = getattr(self, "_type_info_to_numpy_dtype", None)
+            if callable(converter):
+                el = getattr(type_info, "element_type", None) or type_info
+                dtype = converter(el)
+        if dtype is None and expr.elements:
             for e in expr.elements:
                 v = getattr(e, "value", None)
                 if v is not None and isinstance(v, (float, np.floating)):
                     dtype = np.float32
                     break
-        if dtype is None and type_info is not None:
-            converter = getattr(self, "_type_info_to_numpy_dtype", None)
-            if callable(converter):
-                el = getattr(type_info, "element_type", None) or type_info
-                dtype = converter(el)
         evaluated = [e.accept(self) for e in expr.elements]
         if dtype is None and evaluated:
             if isinstance(evaluated[0], (float, np.floating)):
                 dtype = np.float32
-            elif any(isinstance(x, (float, np.floating)) for x in evaluated):
-                dtype = np.float32
+            elif isinstance(evaluated[0], (int, np.integer)) and not isinstance(evaluated[0], (bool, np.bool_)):
+                if any(isinstance(x, (float, np.floating)) for x in evaluated):
+                    dtype = np.float32
         if dtype is not None:
             return np.array(evaluated, dtype=dtype)
         return np.array(evaluated)
