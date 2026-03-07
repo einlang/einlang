@@ -78,22 +78,20 @@ def _expr_contains_defid(expr: Any, target_defid: Any) -> bool:
 def _reduction_axes_in_access(
     backend: Any, indices: List[Any], reduction_defids: List[Any]
 ) -> Optional[Tuple[int, ...]]:
+    """Return the array axis index for each reduction defid (position in indices = axis in array)."""
     axes: List[Optional[int]] = [None] * len(reduction_defids)
-    current_axis = 0
-    for idx in indices:
+    for axis_in_array, idx in enumerate(indices):
         idx_defid = getattr(idx, "defid", None)
         if idx_defid is not None and idx_defid in reduction_defids:
             pos = reduction_defids.index(idx_defid)
-            axes[pos] = current_axis
+            axes[pos] = axis_in_array
         else:
             for pos, rd in enumerate(reduction_defids):
                 if axes[pos] is None and _expr_contains_defid(idx, rd):
-                    axes[pos] = current_axis
+                    axes[pos] = axis_in_array
                     break
         try:
-            v = idx.accept(backend)
-            if not _is_scalar_like(v):
-                current_axis += 1
+            idx.accept(backend)
         except Exception:
             return None
     if any(a is None for a in axes):
@@ -219,19 +217,32 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
                 if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and getattr(_idx, "defid", None) in reduction_defids):
                     return None
     n_red = len(reduction_sizes)
-    # Stricter: only matrix multiply (exactly 2 reduction dims). Skip single-index reductions (e.g. LSTM gates).
-    if n_red != 2:
+    # GEMM-style: 1 or 2 reduction dims (QKV / batched matmul, or full matmul). Recurrence clauses skip this path.
+    if n_red not in (1, 2):
         return None
+    # Evaluate base arrays (not indexed) so we get correct shapes for BLAS when parallel
+    # loop vars are already set to broadcast arrays (avoids huge intermediate in vectorized path).
+    left_arr = getattr(mul_left, "array", None)
+    right_arr = getattr(mul_right, "array", None)
     try:
         with backend.env.scope():
             for i, (defid, N) in enumerate(zip(reduction_defids, reduction_sizes)):
-                shape = [1] * n_red
-                shape[i] = N
-                backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
+                if n_red == 1:
+                    backend.env.set_value(defid, np.arange(N, dtype=np.intp))
+                else:
+                    shape = [1] * n_red
+                    shape[i] = N
+                    backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
             axes_left = _reduction_axes_in_access(backend, indices_left, reduction_defids)
             axes_right = _reduction_axes_in_access(backend, indices_right, reduction_defids)
-            left_val = mul_left.accept(backend)
-            right_val = mul_right.accept(backend)
+            if left_arr is not None and hasattr(left_arr, "accept"):
+                left_val = left_arr.accept(backend)
+            else:
+                left_val = mul_left.accept(backend)
+            if right_arr is not None and hasattr(right_arr, "accept"):
+                right_val = right_arr.accept(backend)
+            else:
+                right_val = mul_right.accept(backend)
     except Exception:
         return None
     if not isinstance(left_val, np.ndarray) or not isinstance(right_val, np.ndarray):
@@ -242,15 +253,45 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         axes_right = _infer_reduction_axes_from_shape(right_val.shape, reduction_sizes)
     if axes_left is None or axes_right is None:
         return None
+    # np.matmul supports batch dims: 2D @ 3D -> (batch, m, p), 3D @ 2D -> (batch, m, p), 3D @ 3D -> (batch, m, p).
+    # Contraction: last dim of left, first "matrix" dim of right (0 if 2D, 1 if 3D).
+    right_contract_axis = 0 if right_val.ndim == 2 else 1
+    use_matmul = (
+        len(axes_left) == 1
+        and len(axes_right) == 1
+        and axes_left[0] == left_val.ndim - 1
+        and axes_right[0] == right_contract_axis
+    )
     try:
-        # Prefer np.matmul for 2D @ 2D (faster, no huge temporaries).
-        if (
-            left_val.ndim == 2
-            and right_val.ndim == 2
-            and len(axes_left) == 1
-            and len(axes_right) == 1
+        if use_matmul and (
+            (left_val.ndim == 2 and right_val.ndim == 2)
+            or (left_val.ndim == 2 and right_val.ndim == 3)
+            or (left_val.ndim == 3 and right_val.ndim == 2)
+            or (left_val.ndim == 3 and right_val.ndim == 3 and left_val.shape[0] == right_val.shape[0])
         ):
             result = np.matmul(left_val, right_val)
+            # Index out scalar batch dims so result matches parallel_shape (e.g. fc1: (4,1500,1536) -> [L,:,:] -> (1500,1536)).
+            if result.ndim > 2:
+                batch_indices = (
+                    indices_left[: left_val.ndim - 2]
+                    if left_val.ndim == 3
+                    else indices_right[: right_val.ndim - 2]
+                )
+                key: List[Any] = []
+                for idx in batch_indices:
+                    try:
+                        v = idx.accept(backend)
+                        if np.isscalar(v) or (isinstance(v, np.ndarray) and getattr(v, "ndim", -1) == 0):
+                            key.append(int(v))
+                        else:
+                            key.append(slice(None))
+                    except Exception:
+                        key.append(slice(None))
+                if len(key) == result.ndim - 2 and all(isinstance(k, int) for k in key):
+                    key.extend([slice(None)] * 2)
+                    result = result[tuple(key)]
+        elif use_matmul:
+            result = np.tensordot(left_val, right_val, axes=(axes_left, axes_right))
         else:
             result = np.tensordot(left_val, right_val, axes=(axes_left, axes_right))
     except Exception:
@@ -340,8 +381,10 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
                 left, right = right, left
             if not _expr_contains_defid(left, red1_defid):
                 return None
-            # Stride from the t part (right): t*stride or plain t -> stride 1
-            if isinstance(right, BinaryOpIR) and getattr(right, "operator", None) in (_mul, "*"):
+            # Stride from the t part (right): t*stride -> stride 1 or 2; plain t -> stride 1
+            if isinstance(right, (IdentifierIR, IndexVarIR)):
+                stride = 1
+            elif isinstance(right, BinaryOpIR) and getattr(right, "operator", None) in (_mul, "*"):
                 try:
                     rL, rR = getattr(right, "left", None), getattr(right, "right", None)
                     if isinstance(rR, LiteralIR):
@@ -354,18 +397,19 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
                         return None
                 except (TypeError, ValueError):
                     return None
+            else:
+                return None
     else:
         if not (isinstance(second_idx, (IdentifierIR, IndexVarIR)) and getattr(second_idx, "defid", None) == red1_defid):
             return None
+    # Use full arrays (no parallel/reduction indexing) so we get 2D input and 3D weight for im2col + BLAS.
     try:
-        with backend.env.scope():
-            for i, (loop, N) in enumerate(zip(loops, [n_ci, n_k])):
-                defid = getattr(loop.variable, "defid", None)
-                shape = [1, 1]
-                shape[i] = N
-                backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
-            input_arr = mul_left.accept(backend)
-            weight_arr = mul_right.accept(backend)
+        input_arr = getattr(mul_left, "array", None)
+        weight_arr = getattr(mul_right, "array", None)
+        if input_arr is not None and hasattr(input_arr, "accept"):
+            input_arr = input_arr.accept(backend)
+        if weight_arr is not None and hasattr(weight_arr, "accept"):
+            weight_arr = weight_arr.accept(backend)
     except Exception:
         return None
     if not isinstance(input_arr, np.ndarray) or not isinstance(weight_arr, np.ndarray):
@@ -380,11 +424,12 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
     if L_out < 1:
         return None
     try:
-        unfolded = np.zeros((C_in, L_out, K), dtype=input_arr.dtype)
+        unfolded = np.empty((C_in, L_out, K), dtype=input_arr.dtype)
         for t in range(L_out):
             start = t * stride
             unfolded[:, t, :] = input_arr[:, start : start + K]
-        result = np.einsum("ctk,ock->ot", unfolded, weight_arr)
+        # BLAS-friendly: einsum "ctk,ock->ot" is batched matmul on last two dims
+        result = np.einsum("ctk,ock->ot", unfolded, weight_arr, optimize=True)
     except Exception:
         return None
     if bias is not None:
@@ -396,6 +441,207 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
                 result = result + bias_val
         except Exception:
             pass
+    return result
+
+
+def _index_to_reduction_position(idx: Any, reduction_defids: List[Any]) -> Optional[int]:
+    """If index is a simple reduction variable, return its position in reduction_defids; else None."""
+    if idx is None or not isinstance(idx, (IdentifierIR, IndexVarIR)):
+        return None
+    did = getattr(idx, "defid", None)
+    if did is None or did not in reduction_defids:
+        return None
+    return reduction_defids.index(did)
+
+
+def _free_key_for_index(idx: Any, reduction_defids: List[Any], side: str, pos: int) -> Any:
+    """Return a hashable key for a free index so same variable in left/right gets same key."""
+    if idx is None or _index_to_reduction_position(idx, reduction_defids) is not None:
+        return None
+    if isinstance(idx, (IdentifierIR, IndexVarIR)):
+        did = getattr(idx, "defid", None)
+        if did is not None:
+            return ("defid", did)
+    return (side, pos)
+
+
+def _slice_array_at_scalar_indices(
+    arr: np.ndarray,
+    indices: List[Any],
+    reduction_defids: List[Any],
+    backend: Any,
+) -> Tuple[np.ndarray, List[int]]:
+    """Slice array at any non-reduction index that evaluates to a scalar (e.g. W[L,d,k] with L scalar -> W[L,:,:]).
+    Returns (sliced_array, kept_positions) where kept_positions are index positions that were not sliced (for subscript rebuild).
+    If any non-reduction index is non-scalar, returns (arr, list(range(arr.ndim))) unchanged."""
+    if arr.ndim != len(indices):
+        return arr, list(range(arr.ndim))
+    key: List[Any] = []
+    kept: List[int] = []
+    for pos, idx in enumerate(indices):
+        if _index_to_reduction_position(idx, reduction_defids) is not None:
+            key.append(slice(None))
+            kept.append(pos)
+        else:
+            try:
+                v = idx.accept(backend)
+                if np.isscalar(v) or (isinstance(v, np.ndarray) and getattr(v, "ndim", -1) == 0):
+                    key.append(int(v))
+                else:
+                    return arr, list(range(arr.ndim))
+            except Exception:
+                return arr, list(range(arr.ndim))
+    try:
+        return arr[tuple(key)], kept
+    except Exception:
+        return arr, list(range(arr.ndim))
+
+
+def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
+    """Generic sum-of-product fast path: sum over (left * right [+ bias]) lowered to np.einsum.
+    Supports any number of reduction dims; indices must be simple (IdentifierIR/IndexVarIR) on reduction dims.
+    NumPy einsum uses BLAS where applicable (e.g. matrix multiply)."""
+    op = getattr(expr, "operation", None)
+    if op != "sum":
+        return None
+    if getattr(expr, "guards", None) or getattr(expr, "bindings", None):
+        return None
+    from ..passes.einstein_lowering import _defid_of_var_in_expr
+    reduction_ranges = getattr(expr, "reduction_ranges", None) or {}
+    loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
+    if not loops:
+        return None
+    reduction_defids: List[Any] = []
+    reduction_sizes: List[int] = []
+    for loop in loops:
+        loop_var = getattr(loop, "variable", None)
+        if loop_var is None:
+            return None
+        loop_defid = getattr(loop_var, "defid", None)
+        if loop_defid is None:
+            return None
+        body_defid = _defid_of_var_in_expr(expr.body, getattr(loop_var, "name", "") or "") or loop_defid
+        reduction_defids.append(body_defid)
+        try:
+            iterable = loop.iterable.accept(backend) if hasattr(loop.iterable, "accept") else None
+            if iterable is None:
+                return None
+            reduction_sizes.append(int(len(iterable)))
+        except Exception:
+            return None
+    body = getattr(expr, "body", None)
+    if body is None:
+        return None
+    _add = getattr(BinaryOp, "ADD", None) or "+"
+    _mul = getattr(BinaryOp, "MUL", None) or "*"
+    mul_left: Optional[RectangularAccessIR] = None
+    mul_right: Optional[RectangularAccessIR] = None
+    bias: Optional[Any] = None
+    body_op = getattr(body, "operator", None)
+    if isinstance(body, BinaryOpIR) and body_op in (_add, "+"):
+        add_left = getattr(body, "left", None)
+        add_right = getattr(body, "right", None)
+        if isinstance(add_left, BinaryOpIR) and getattr(add_left, "operator", None) in (_mul, "*"):
+            mul_left = getattr(add_left, "left", None)
+            mul_right = getattr(add_left, "right", None)
+            bias = add_right
+        elif isinstance(add_right, BinaryOpIR) and getattr(add_right, "operator", None) in (_mul, "*"):
+            mul_left = getattr(add_right, "left", None)
+            mul_right = getattr(add_right, "right", None)
+            bias = add_left
+    elif isinstance(body, BinaryOpIR) and body_op in (_mul, "*"):
+        mul_left = getattr(body, "left", None)
+        mul_right = getattr(body, "right", None)
+    if mul_left is None or mul_right is None:
+        return None
+    if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):
+        return None
+    indices_left = getattr(mul_left, "indices", None) or []
+    indices_right = getattr(mul_right, "indices", None) or []
+    for _idx in indices_left + indices_right:
+        for _rd in reduction_defids:
+            if _expr_contains_defid(_idx, _rd):
+                if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and getattr(_idx, "defid", None) in reduction_defids):
+                    return None
+                break
+    n_red = len(reduction_defids)
+    reduction_letters = [chr(ord("a") + i) for i in range(min(n_red, 26))]
+    if n_red > 26:
+        return None
+    # Build subscript so same free variable (by defid) in left and right gets same letter (e.g. batched score: hid,hjd->hij).
+    free_key_to_letter: Dict[Any, str] = {}
+    output_order: List[Any] = []
+    next_letter_idx = [0]
+
+    def letter_for_free(key: Any) -> str:
+        if key not in free_key_to_letter:
+            free_key_to_letter[key] = chr(ord("i") + (next_letter_idx[0] % 26))
+            next_letter_idx[0] += 1
+            output_order.append(key)
+        return free_key_to_letter[key]
+
+    def sub_for_indices(indices: List[Any], side: str) -> List[str]:
+        sub: List[str] = []
+        for pos, idx in enumerate(indices):
+            red_pos = _index_to_reduction_position(idx, reduction_defids)
+            if red_pos is not None:
+                sub.append(reduction_letters[red_pos])
+            else:
+                key = _free_key_for_index(idx, reduction_defids, side, pos)
+                sub.append(letter_for_free(key))
+        return sub
+
+    left_sub_list = sub_for_indices(indices_left, "L")
+    right_sub_list = sub_for_indices(indices_right, "R")
+    left_sub = "".join(left_sub_list)
+    right_sub = "".join(right_sub_list)
+    out_sub = "".join(free_key_to_letter[k] for k in output_order)
+    # Evaluate base arrays so we get correct shapes when parallel vars are broadcast (saves memory).
+    left_arr = getattr(mul_left, "array", None)
+    right_arr = getattr(mul_right, "array", None)
+    try:
+        with backend.env.scope():
+            for i, (defid, N) in enumerate(zip(reduction_defids, reduction_sizes)):
+                if n_red == 1:
+                    backend.env.set_value(defid, np.arange(N, dtype=np.intp))
+                else:
+                    shape = [1] * n_red
+                    shape[i] = N
+                    backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
+            if left_arr is not None and hasattr(left_arr, "accept"):
+                left_val = left_arr.accept(backend)
+            else:
+                left_val = mul_left.accept(backend)
+            if right_arr is not None and hasattr(right_arr, "accept"):
+                right_val = right_arr.accept(backend)
+            else:
+                right_val = mul_right.accept(backend)
+    except Exception:
+        return None
+    if not isinstance(left_val, np.ndarray) or not isinstance(right_val, np.ndarray):
+        return None
+    left_val, kept_left = _slice_array_at_scalar_indices(left_val, indices_left, reduction_defids, backend)
+    right_val, kept_right = _slice_array_at_scalar_indices(right_val, indices_right, reduction_defids, backend)
+    left_sub = "".join(left_sub_list[i] for i in kept_left)
+    right_sub = "".join(right_sub_list[i] for i in kept_right)
+    out_sub = "".join(
+        free_key_to_letter[k]
+        for k in output_order
+        if free_key_to_letter[k] in left_sub or free_key_to_letter[k] in right_sub
+    )
+    try:
+        result = np.einsum(f"{left_sub},{right_sub}->{out_sub}", left_val, right_val, optimize=True)
+    except Exception:
+        return None
+    if bias is not None:
+        try:
+            bias_val = bias.accept(backend)
+            if isinstance(bias_val, np.ndarray) and isinstance(result, np.ndarray):
+                result = result + np.broadcast_to(bias_val, result.shape)
+            elif np.isscalar(bias_val) or (isinstance(bias_val, np.ndarray) and bias_val.ndim == 0):
+                result = result + bias_val
+        except Exception:
+            return None
     return result
 
 
@@ -893,11 +1139,18 @@ class ExpressionVisitorMixin:
             conv_result = _try_conv_im2col_einsum(expr, self)
             if conv_result is not None and isinstance(conv_result, np.ndarray):
                 if conv_result.shape == tuple(parallel_shape):
+                    setattr(self, "_last_reduction_fast_path", "conv")
                     return conv_result
             matmul_result = _try_matmul_reduction(expr, self)
             if matmul_result is not None and isinstance(matmul_result, np.ndarray):
                 if matmul_result.shape == tuple(parallel_shape):
+                    setattr(self, "_last_reduction_fast_path", "matmul")
                     return matmul_result
+            einsum_result = _try_einsum_reduction(expr, self)
+            if einsum_result is not None and isinstance(einsum_result, np.ndarray):
+                if einsum_result.shape == tuple(parallel_shape):
+                    setattr(self, "_last_reduction_fast_path", "einsum")
+                    return einsum_result
         from ..runtime.compute.lowered_execution import execute_reduction_with_loops
         from ..passes.einstein_lowering import _defid_of_var_in_expr
         loc = getattr(expr, "location", None)

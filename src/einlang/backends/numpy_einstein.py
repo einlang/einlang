@@ -490,16 +490,16 @@ def _try_vectorize_clause(
                 start == 0 and end == expected[dim] for dim, (start, end) in enumerate(ranges)
             )
             if result.shape == expected:
-                return result.astype(dtype)
+                return result.astype(dtype, copy=False)
             if not range_is_full:
                 full = np.zeros(expected, dtype=dtype)
                 slices = tuple(slice(int(start), int(end)) for (start, end) in ranges)
-                full[slices] = result.astype(dtype)
+                full[slices] = result.astype(dtype, copy=False)
                 return full
             if result.size == np.prod(expected):
-                return result.reshape(expected).astype(dtype)
+                return result.reshape(expected).astype(dtype, copy=False)
             try:
-                return np.broadcast_to(result, expected).copy().astype(dtype)
+                return np.broadcast_to(result, expected).copy().astype(dtype, copy=False)
             except ValueError:
                 return None
         if isinstance(result, (int, float, np.integer, np.floating)):
@@ -899,15 +899,9 @@ class EinsteinExecutionMixin:
                         parts.append(f" {lhs} = {_clause_rhs}")
                     if shape is not None:
                         parts.append(f" {shape}")
-                    parts.append(f": {elapsed:.2f}s")
+                    parts.append(f": \033[32m{elapsed:.2f}s\033[0m")
                     if path:
                         parts.append(f" [{path}]")
-                    # Nested counts: this clause is exactly one of vec/scalar/hybrid/call-scalar
-                    v = 1 if path == "vectorized" else 0
-                    s = 1 if path == "scalar" else 0
-                    h = 1 if path == "hybrid" else 0
-                    c = 1 if path == "call-scalar" else 0
-                    parts.append(f" vec:{v} scalar:{s} hybrid:{h} call-scalar:{c}")
                     print("".join(parts), flush=True)
 
         clause_indices = getattr(lowered, "indices", None) or []
@@ -1050,6 +1044,45 @@ class EinsteinExecutionMixin:
                 recurrence_needs_scalar = True  # hybrid failed; use scalar path so we read LHS[t-1] correctly
         # Try full vectorize over loop dims (literal idx -> fixed slice; other dims -> vectorize).
         if lowered.loops:
+            # Optional chunked execution to reduce peak memory (env EINLANG_CHUNK_ELEMENTS > 0).
+            chunk_threshold = int(os.environ.get("EINLANG_CHUNK_ELEMENTS", "0") or "0")
+            if (
+                chunk_threshold > 0
+                and output.size > chunk_threshold
+                and not recurrence_needs_scalar
+                and not has_literal_idx
+                and len(lowered.loops) == output.ndim
+            ):
+                try:
+                    full_ranges = [_extract_loop_range(lp, expr_evaluator) for lp in lowered.loops]
+                    if len(full_ranges) == output.ndim and output.shape[0] > 1:
+                        rest_size = max(1, output.size // output.shape[0])
+                        chunk_rows = max(1, min(output.shape[0], chunk_threshold // rest_size))
+                        if chunk_rows < output.shape[0]:
+                            all_ok = True
+                            for start in range(0, output.shape[0], chunk_rows):
+                                end = min(start + chunk_rows, output.shape[0])
+                                override = [(start, end)] + list(full_ranges[1:])
+                                chunk_shape = [end - start] + list(output.shape[1:])
+                                chunk_result = _try_vectorize_clause(
+                                    lowered, chunk_shape, output.dtype, expr_evaluator, backend=self,
+                                    loop_ranges_override=override,
+                                )
+                                if chunk_result is None:
+                                    all_ok = False
+                                    break
+                                output[start:end, ...] = chunk_result.astype(output.dtype, copy=False)
+                            if all_ok:
+                                if variable_defid:
+                                    self._clause_set_output(variable_defid, output)
+                                self._einstein_vectorized = getattr(self, "_einstein_vectorized", 0) + 1
+                                _path = getattr(self, "_last_reduction_fast_path", None) or "vectorized"
+                                if hasattr(self, "_last_reduction_fast_path"):
+                                    delattr(self, "_last_reduction_fast_path")
+                                _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path=_path)
+                                return output
+                except (RuntimeError, TypeError, ValueError):
+                    pass
             # When clause has literal indices, vectorize only over loop dims so result shape matches loop dims.
             vec_shape = list(output.shape)
             if has_literal_idx and len(clause_indices) == output.ndim:
@@ -1082,7 +1115,7 @@ class EinsteinExecutionMixin:
                         except RuntimeError:
                             slices_list_partial = []
                         if slice_list_from_indices is not None and len(slices_list_partial) == output.ndim:
-                            output[tuple(slices_list_partial)] = vec_result.astype(output.dtype)
+                            output[tuple(slices_list_partial)] = vec_result.astype(output.dtype, copy=False)
                         else:
                             range_is_full_partial = (
                                 len(slices_list_partial) == len(lowered.loops)
@@ -1102,14 +1135,14 @@ class EinsteinExecutionMixin:
                                         return output
                                     vec_result = None
                                 else:
-                                    output[tuple(slices_list_partial)] = vec_result[tuple(slices_list_partial)].astype(output.dtype)
+                                    output[tuple(slices_list_partial)] = vec_result[tuple(slices_list_partial)].astype(output.dtype, copy=False)
                             else:
                                 output[:] = vec_result
                     else:
                         output[:] = vec_result
                 if vec_result is not None:
                     if slice_list_from_indices is not None and len(slice_list_from_indices) == output.ndim:
-                        output[tuple(slice_list_from_indices)] = vec_result.astype(output.dtype)
+                        output[tuple(slice_list_from_indices)] = vec_result.astype(output.dtype, copy=False)
                     elif vec_result.shape != output.shape and vec_result.size == output.size:
                         output[:] = vec_result.reshape(output.shape)
                     elif pre_allocated_output is not None and vec_result.ndim == output.ndim:
@@ -1124,7 +1157,7 @@ class EinsteinExecutionMixin:
                         except RuntimeError:
                             slices_list = []
                         if slice_list_from_indices is not None and len(slices_list) == output.ndim:
-                            output[tuple(slices_list)] = vec_result.astype(output.dtype)
+                            output[tuple(slices_list)] = vec_result.astype(output.dtype, copy=False)
                         else:
                             range_is_full = (
                                 len(slices_list) == len(lowered.loops)
@@ -1132,9 +1165,9 @@ class EinsteinExecutionMixin:
                             )
                             if len(slices_list) == len(lowered.loops):
                                 if range_is_full:
-                                    output[:] = np.broadcast_to(vec_result.astype(output.dtype), output.shape)
+                                    np.copyto(output, np.broadcast_to(vec_result.astype(output.dtype, copy=False), output.shape))
                                 else:
-                                    output[tuple(slices_list)] = vec_result[tuple(slices_list)].astype(output.dtype)
+                                    output[tuple(slices_list)] = vec_result[tuple(slices_list)].astype(output.dtype, copy=False)
                             else:
                                 output[:] = np.broadcast_to(vec_result, output.shape)
                     else:
@@ -1142,7 +1175,10 @@ class EinsteinExecutionMixin:
                     if variable_defid:
                         self._clause_set_output(variable_defid, output)
                     self._einstein_vectorized = getattr(self, "_einstein_vectorized", 0) + 1
-                    _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="vectorized")
+                    _path = getattr(self, "_last_reduction_fast_path", None) or "vectorized"
+                    if hasattr(self, "_last_reduction_fast_path"):
+                        delattr(self, "_last_reduction_fast_path")
+                    _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path=_path)
                     return output
 
         # Fallback: call-scalar hybrid when only some loop vars in call args (e.g. topk) and full vectorize failed.
@@ -1199,7 +1235,10 @@ class EinsteinExecutionMixin:
                     if variable_defid:
                         self._clause_set_output(variable_defid, output)
                     self._einstein_vectorized = getattr(self, "_einstein_vectorized", 0) + 1
-                    _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="vectorized")
+                    _path = getattr(self, "_last_reduction_fast_path", None) or "vectorized"
+                    if hasattr(self, "_last_reduction_fast_path"):
+                        delattr(self, "_last_reduction_fast_path")
+                    _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path=_path)
                     return output
 
         self._einstein_scalar = getattr(self, "_einstein_scalar", 0) + 1
