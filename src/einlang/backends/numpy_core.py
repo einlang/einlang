@@ -88,6 +88,8 @@ class CoreExecutionMixin:
         self._einstein_call_scalar = 0
         profile_statements = bool(os.environ.get("EINLANG_PROFILE_STATEMENTS", ""))
         self._profile_statements = profile_statements
+        profile_blocks = bool(os.environ.get("EINLANG_PROFILE_BLOCKS", ""))
+        self._profile_blocks = profile_blocks
         profile_functions = bool(os.environ.get("EINLANG_PROFILE_FUNCTIONS", ""))
         self._profile_functions = profile_functions
         self._profile_fn_times: Dict[str, float] = {} if profile_functions else {}

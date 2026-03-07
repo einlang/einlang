@@ -1,6 +1,7 @@
 """NumPy backend expression visitors. All lookup via env (no global table)."""
 
 from typing import Any, Dict, List, Optional, Tuple
+import time
 import warnings
 
 import numpy as np
@@ -218,15 +219,15 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
                 if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and getattr(_idx, "defid", None) in reduction_defids):
                     return None
     n_red = len(reduction_sizes)
+    # Stricter: only matrix multiply (exactly 2 reduction dims). Skip single-index reductions (e.g. LSTM gates).
+    if n_red != 2:
+        return None
     try:
         with backend.env.scope():
             for i, (defid, N) in enumerate(zip(reduction_defids, reduction_sizes)):
-                if n_red == 1:
-                    backend.env.set_value(defid, np.arange(N, dtype=np.intp))
-                else:
-                    shape = [1] * n_red
-                    shape[i] = N
-                    backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
+                shape = [1] * n_red
+                shape[i] = N
+                backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
             axes_left = _reduction_axes_in_access(backend, indices_left, reduction_defids)
             axes_right = _reduction_axes_in_access(backend, indices_right, reduction_defids)
             left_val = mul_left.accept(backend)
@@ -242,7 +243,16 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     if axes_left is None or axes_right is None:
         return None
     try:
-        result = np.tensordot(left_val, right_val, axes=(axes_left, axes_right))
+        # Prefer np.matmul for 2D @ 2D (faster, no huge temporaries).
+        if (
+            left_val.ndim == 2
+            and right_val.ndim == 2
+            and len(axes_left) == 1
+            and len(axes_right) == 1
+        ):
+            result = np.matmul(left_val, right_val)
+        else:
+            result = np.tensordot(left_val, right_val, axes=(axes_left, axes_right))
     except Exception:
         return None
     if bias is not None:
@@ -258,6 +268,135 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         result = result * scale
     return result
 
+
+def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
+    """Strict 1D conv fast path: sum[ci,k](input[ci, stride*t+k] * weight[co,ci,k]) + bias, stride 1 or 2.
+    Uses im2col unfold + np.einsum. Returns None if pattern does not match."""
+    op = getattr(expr, "operation", None)
+    if op != "sum":
+        return None
+    if getattr(expr, "guards", None) or getattr(expr, "bindings", None):
+        return None
+    from ..passes.einstein_lowering import _defid_of_var_in_expr
+    reduction_ranges = getattr(expr, "reduction_ranges", None) or {}
+    loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
+    if len(loops) != 2:
+        return None
+    red0_var = getattr(loops[0], "variable", None)
+    red1_var = getattr(loops[1], "variable", None)
+    if red0_var is None or red1_var is None:
+        return None
+    red0_defid = getattr(red0_var, "defid", None)
+    red1_defid = getattr(red1_var, "defid", None)
+    if red0_defid is None or red1_defid is None:
+        return None
+    try:
+        n_ci = int(len(loops[0].iterable.accept(backend)))
+        n_k = int(len(loops[1].iterable.accept(backend)))
+    except Exception:
+        return None
+    body = getattr(expr, "body", None)
+    if body is None:
+        return None
+    _add = getattr(BinaryOp, "ADD", None) or "+"
+    _mul = getattr(BinaryOp, "MUL", None) or "*"
+    mul_left: Optional[RectangularAccessIR] = None
+    mul_right: Optional[RectangularAccessIR] = None
+    bias: Optional[Any] = None
+    body_op = getattr(body, "operator", None)
+    if isinstance(body, BinaryOpIR) and body_op in (_add, "+"):
+        add_left = getattr(body, "left", None)
+        add_right = getattr(body, "right", None)
+        if isinstance(add_left, BinaryOpIR) and getattr(add_left, "operator", None) in (_mul, "*"):
+            mul_left = getattr(add_left, "left", None)
+            mul_right = getattr(add_left, "right", None)
+            bias = add_right
+        elif isinstance(add_right, BinaryOpIR) and getattr(add_right, "operator", None) in (_mul, "*"):
+            mul_left = getattr(add_right, "left", None)
+            mul_right = getattr(add_right, "right", None)
+            bias = add_left
+    elif isinstance(body, BinaryOpIR) and body_op in (_mul, "*"):
+        mul_left = getattr(body, "left", None)
+        mul_right = getattr(body, "right", None)
+    if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):
+        return None
+    il, ir = getattr(mul_left, "indices", None) or [], getattr(mul_right, "indices", None) or []
+    if len(il) != 2 or len(ir) != 3:
+        il, ir = ir, il
+        mul_left, mul_right = mul_right, mul_left
+    if len(il) != 2 or len(ir) != 3:
+        return None
+    if not (_expr_contains_defid(il[0], red0_defid) and _expr_contains_defid(ir[1], red0_defid) and _expr_contains_defid(ir[2], red1_defid)):
+        return None
+    second_idx = il[1]
+    stride = 1
+    if isinstance(second_idx, BinaryOpIR):
+        add_op = getattr(second_idx, "operator", None)
+        if add_op in (_add, "+"):
+            left, right = getattr(second_idx, "left", None), getattr(second_idx, "right", None)
+            if _expr_contains_defid(left, red1_defid) and _expr_contains_defid(right, red1_defid):
+                return None
+            if _expr_contains_defid(right, red1_defid):
+                left, right = right, left
+            if not _expr_contains_defid(left, red1_defid):
+                return None
+            # Stride from the t part (right): t*stride or plain t -> stride 1
+            if isinstance(right, BinaryOpIR) and getattr(right, "operator", None) in (_mul, "*"):
+                try:
+                    rL, rR = getattr(right, "left", None), getattr(right, "right", None)
+                    if isinstance(rR, LiteralIR):
+                        stride = int(rR.value)
+                    elif isinstance(rL, LiteralIR):
+                        stride = int(rL.value)
+                    else:
+                        return None
+                    if stride not in (1, 2):
+                        return None
+                except (TypeError, ValueError):
+                    return None
+    else:
+        if not (isinstance(second_idx, (IdentifierIR, IndexVarIR)) and getattr(second_idx, "defid", None) == red1_defid):
+            return None
+    try:
+        with backend.env.scope():
+            for i, (loop, N) in enumerate(zip(loops, [n_ci, n_k])):
+                defid = getattr(loop.variable, "defid", None)
+                shape = [1, 1]
+                shape[i] = N
+                backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
+            input_arr = mul_left.accept(backend)
+            weight_arr = mul_right.accept(backend)
+    except Exception:
+        return None
+    if not isinstance(input_arr, np.ndarray) or not isinstance(weight_arr, np.ndarray):
+        return None
+    if input_arr.ndim != 2 or weight_arr.ndim != 3:
+        return None
+    C_in, L_in = input_arr.shape
+    Co, Cig, K = weight_arr.shape
+    if Cig != C_in or K != n_k:
+        return None
+    L_out = (L_in - K) // stride + 1
+    if L_out < 1:
+        return None
+    try:
+        unfolded = np.zeros((C_in, L_out, K), dtype=input_arr.dtype)
+        for t in range(L_out):
+            start = t * stride
+            unfolded[:, t, :] = input_arr[:, start : start + K]
+        result = np.einsum("ctk,ock->ot", unfolded, weight_arr)
+    except Exception:
+        return None
+    if bias is not None:
+        try:
+            bias_val = bias.accept(backend)
+            if isinstance(bias_val, np.ndarray) and bias_val.size == result.shape[-1]:
+                result = result + np.reshape(bias_val, (1, -1))
+            elif np.isscalar(bias_val) or (isinstance(bias_val, np.ndarray) and bias_val.ndim == 0):
+                result = result + bias_val
+        except Exception:
+            pass
+    return result
 
 
 def _binary_and(visitor: "ExpressionVisitorMixin", left: Any, right: Any) -> Any:
@@ -744,10 +883,21 @@ class ExpressionVisitorMixin:
         self, expr: LoweredReductionIR, parallel_shape: Optional[Tuple[int, ...]] = None
     ) -> Any:
         """Evaluate a lowered reduction, optionally with vectorized path when parallel_shape is set.
-        When parallel_shape is None, uses backend._vectorize_parallel_shape if set (e.g. by vectorized clause)."""
+        When parallel_shape is None, uses backend._vectorize_parallel_shape if set (e.g. by vectorized clause).
+        Fast paths (matmul, conv via einsum) only when parallel_shape is set; stricter conditions avoid LSTM."""
         import os
         if parallel_shape is None:
             parallel_shape = getattr(self, "_vectorize_parallel_shape", None)
+        # Recurrence clauses may use partial vectorization but must not use fast_matmul / fast_conv.
+        if parallel_shape is not None and not getattr(self, "_einstein_recurrence_clause", False):
+            conv_result = _try_conv_im2col_einsum(expr, self)
+            if conv_result is not None and isinstance(conv_result, np.ndarray):
+                if conv_result.shape == tuple(parallel_shape):
+                    return conv_result
+            matmul_result = _try_matmul_reduction(expr, self)
+            if matmul_result is not None and isinstance(matmul_result, np.ndarray):
+                if matmul_result.shape == tuple(parallel_shape):
+                    return matmul_result
         from ..runtime.compute.lowered_execution import execute_reduction_with_loops
         from ..passes.einstein_lowering import _defid_of_var_in_expr
         loc = getattr(expr, "location", None)

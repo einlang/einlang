@@ -913,6 +913,14 @@ class EinsteinExecutionMixin:
         clause_indices = getattr(lowered, "indices", None) or []
         binding = getattr(variable_decl, "_binding", None)
         variable_defid = (getattr(binding, "defid", None) if binding else None) or getattr(variable_decl, "defid", None)
+        body_node = getattr(lowered, "body", None)
+        has_recurrence = bool(
+            variable_defid is not None
+            and body_node is not None
+            and _body_references_defid(body_node, variable_defid)
+            and len(_recurrence_dims(lowered, variable_defid)) > 0
+        )
+        self._einstein_recurrence_clause = has_recurrence
 
         def cell_index(full_context: dict) -> Optional[tuple]:
             out = []
