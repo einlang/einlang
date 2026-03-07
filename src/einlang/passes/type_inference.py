@@ -1407,6 +1407,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
         if not hasattr(ein_expr, 'element_type') or ein_expr.element_type is None:
             object.__setattr__(ein_expr, 'element_type', element_type)
+        object.__setattr__(ein_expr, 'type_info', array_type)
 
         return array_type
 
@@ -1602,7 +1603,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 inferred_type = JaggedType(element_type=base_element_type, nesting_depth=1, is_dynamic_depth=False)
             else:
                 inferred_type = RectangularType(element_type=base_element_type, shape=shape)
-        expr.type_info = inferred_type
+        object.__setattr__(expr, 'type_info', inferred_type)
         return inferred_type
     
     def _get_base_element_type(self, elem_type: Type) -> Type:

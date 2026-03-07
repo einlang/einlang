@@ -146,9 +146,10 @@ class TestDemos:
         assert output == "['Egyptian Mau', 'Golden Retriever', 'strawberry']", f"unexpected output: {output!r}"
 
 
-    @pytest.mark.skip(reason="weights not downloaded yet — run download_weights.py first")
+    @pytest.mark.skip(reason="whisper_tiny is too slow to run in CI")
     def test_whisper_tiny(self):
-        """Run examples/whisper_tiny/main.ein and verify speech transcription."""
+        """Run examples/whisper_tiny/main.ein and verify speech transcription.
+        When run with EINLANG_EINSTEIN_LOOP_MAX=100, must pass without override (fully vectorized)."""
         project_root = Path(__file__).parent.parent.parent
         whisper_dir = project_root / "examples" / "whisper_tiny"
         main_ein = whisper_dir / "main.ein"
