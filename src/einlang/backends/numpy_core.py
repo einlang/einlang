@@ -5,6 +5,8 @@ import sys
 import time
 from typing import Dict, Any, Optional, List, Union
 
+import numpy as np
+
 from ..backends.base import Backend
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR, BindingIR,
@@ -202,7 +204,6 @@ class CoreExecutionMixin:
                 t0 = time.perf_counter()
                 result = func_def.body.accept(self)
                 elapsed = time.perf_counter() - t0
-                name = getattr(func_def, "name", "<unknown>")
                 self._profile_fn_times[name] = self._profile_fn_times.get(name, 0.0) + elapsed
                 if elapsed > 0.01:
                     print(f"[profile] fn {name}: {elapsed:.2f}s", flush=True)

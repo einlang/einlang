@@ -226,7 +226,10 @@ def prepare_audio():
 
     wav_path = os.path.join(SAMPLES_DIR, "audio.wav")
 
+    # Real speech sample: JFK "ask not what your country can do for you" (from OpenAI whisper tests).
     wav_urls = [
+        "https://raw.githubusercontent.com/openai/whisper/main/tests/jfk.flac",
+        "https://cdn-media.huggingface.co/speech_samples/sample1.flac",
         "https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/1.flac",
     ]
 
@@ -235,26 +238,48 @@ def prepare_audio():
         try:
             tmp = os.path.join(SAMPLES_DIR, "tmp_audio")
             download(url, tmp)
-            try:
-                with wave.open(tmp, "rb") as wf:
-                    sr = wf.getframerate()
-                    raw = wf.readframes(wf.getnframes())
-                    sw = wf.getsampwidth()
-                dt = {1: np.uint8, 2: np.int16, 4: np.int32}[sw]
-                audio = np.frombuffer(raw, dtype=dt).astype(np.float32)
-                if dt == np.uint8:
-                    audio = (audio - 128.0) / 128.0
-                else:
-                    audio = audio / (2 ** (sw * 8 - 1))
-            except Exception:
+            # Prefer soundfile for .flac (wave only supports RIFF/WAV). Fallback: ffmpeg.
+            if url.lower().endswith(".flac"):
                 try:
                     import soundfile as sf
                     audio, sr = sf.read(tmp)
                     audio = audio.astype(np.float32)
                 except ImportError:
-                    from scipy.io import wavfile as _wf
-                    sr, audio = _wf.read(tmp)
-                    audio = audio.astype(np.float32) / 32768.0
+                    import subprocess
+                    tmp_wav = os.path.join(SAMPLES_DIR, "tmp_audio.wav")
+                    try:
+                        subprocess.run(
+                            ["ffmpeg", "-y", "-i", tmp, "-ar", str(SAMPLE_RATE), "-ac", "1", tmp_wav],
+                            check=True, capture_output=True,
+                        )
+                        with wave.open(tmp_wav, "rb") as wf:
+                            sr = wf.getframerate()
+                            raw = wf.readframes(wf.getnframes())
+                            sw = wf.getsampwidth()
+                        dt = {1: np.uint8, 2: np.int16, 4: np.int32}[sw]
+                        audio = np.frombuffer(raw, dtype=dt).astype(np.float32)
+                        if dt != np.uint8:
+                            audio = audio / (2 ** (sw * 8 - 1))
+                        if os.path.exists(tmp_wav):
+                            os.remove(tmp_wav)
+                    except (subprocess.CalledProcessError, FileNotFoundError, Exception) as e:
+                        raise RuntimeError("For .flac install soundfile (pip install soundfile) or ffmpeg: " + str(e))
+            else:
+                try:
+                    with wave.open(tmp, "rb") as wf:
+                        sr = wf.getframerate()
+                        raw = wf.readframes(wf.getnframes())
+                        sw = wf.getsampwidth()
+                    dt = {1: np.uint8, 2: np.int16, 4: np.int32}[sw]
+                    audio = np.frombuffer(raw, dtype=dt).astype(np.float32)
+                    if dt == np.uint8:
+                        audio = (audio - 128.0) / 128.0
+                    else:
+                        audio = audio / (2 ** (sw * 8 - 1))
+                except Exception:
+                    import soundfile as sf
+                    audio, sr = sf.read(tmp)
+                    audio = audio.astype(np.float32)
 
             if len(audio.shape) > 1:
                 audio = audio.mean(axis=1)
@@ -278,6 +303,18 @@ def prepare_audio():
     mel = compute_log_mel(audio)
     np.save(mel_path, mel)
     print(f"  Mel spectrogram: {mel.shape} -> {mel_path}")
+    # Save audio for ONNX/pipeline comparison (16k mono)
+    try:
+        import wave as _wave
+        wav_path = os.path.join(SAMPLES_DIR, "audio.wav")
+        with _wave.open(wav_path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(SAMPLE_RATE)
+            wf.writeframes((np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16).tobytes())
+        print(f"  Audio WAV: {wav_path}")
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +330,37 @@ def download_tokenizer():
 
 
 # ---------------------------------------------------------------------------
+# Reference transcription (numpy only, no onnx) for accuracy tests
+# ---------------------------------------------------------------------------
+def get_reference_transcription():
+    """Run numpy encoder + decoder on jfk.npy and return decoded text.
+    Returns (text, tokens) or (None, None) if weights/samples/tokenizer missing.
+    """
+    mel_path = os.path.join(SAMPLES_DIR, "jfk.npy")
+    tok_path = os.path.join(SCRIPT_DIR, "tokenizer.json")
+    if not os.path.exists(mel_path) or not os.path.exists(tok_path):
+        return None, None
+    if not os.path.isdir(WEIGHTS_DIR):
+        return None, None
+    mel = np.load(mel_path).astype(np.float32)
+    sd = {}
+    for f in os.listdir(WEIGHTS_DIR):
+        if f.endswith(".npy"):
+            sd[f[:-4]] = np.load(os.path.join(WEIGHTS_DIR, f))
+    enc_out = _numpy_encoder(mel, sd)
+    SOT, LANG_EN, TRANSCRIBE, NO_TS, EOT = 50258, 50259, 50359, 50363, 50257
+    tokens = [SOT, LANG_EN, TRANSCRIBE, NO_TS]
+    for _ in range(36):
+        logits = _numpy_decoder_step(tokens, enc_out, sd)
+        nxt = int(np.argmax(logits))
+        tokens.append(nxt)
+        if nxt == EOT:
+            break
+    text = _decode_tokens(tokens, tok_path)
+    return text, tokens
+
+
+# ---------------------------------------------------------------------------
 # Optional: verify reference output with onnxruntime
 # ---------------------------------------------------------------------------
 def verify_reference():
@@ -302,33 +370,12 @@ def verify_reference():
         print("onnxruntime not available, skipping verification.")
         return
 
-    mel_path = os.path.join(SAMPLES_DIR, "jfk.npy")
-    if not os.path.exists(mel_path):
-        print("No mel spectrogram found, skipping verification.")
+    text, tokens = get_reference_transcription()
+    if text is None:
+        print("No mel spectrogram or tokenizer found, skipping verification.")
         return
 
     print("\nReference greedy decode using numpy weights ...")
-    mel = np.load(mel_path).astype(np.float32)  # (80, 3000)
-
-    sd = {}
-    for f in os.listdir(WEIGHTS_DIR):
-        if f.endswith(".npy"):
-            sd[f[:-4]] = np.load(os.path.join(WEIGHTS_DIR, f))
-
-    enc_out = _numpy_encoder(mel, sd)
-
-    SOT, LANG_EN, TRANSCRIBE, NO_TS, EOT = 50258, 50259, 50359, 50363, 50257
-    tokens = [SOT, LANG_EN, TRANSCRIBE, NO_TS]
-
-    for step in range(36):
-        logits = _numpy_decoder_step(tokens, enc_out, sd)
-        nxt = int(np.argmax(logits))
-        tokens.append(nxt)
-        if nxt == EOT:
-            break
-
-    tok_path = os.path.join(SCRIPT_DIR, "tokenizer.json")
-    text = _decode_tokens(tokens, tok_path)
     print(f"  Token IDs ({len(tokens)}): {tokens}")
     print(f"  Text: {text!r}")
     print(f"\n=== Expected output for main.ein assertion ===")
