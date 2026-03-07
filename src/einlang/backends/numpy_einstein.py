@@ -150,6 +150,11 @@ def _body_contains_call_using_loop_var(expr: Any, loop_defids: List[Any]) -> boo
         )
     if isinstance(expr, BinaryOpIR):
         return _body_contains_call_using_loop_var(getattr(expr, "left", None), loop_defids) or _body_contains_call_using_loop_var(getattr(expr, "right", None), loop_defids)
+    if isinstance(expr, BlockExpressionIR):
+        for stmt in getattr(expr, "statements", []) or []:
+            if _body_contains_call_using_loop_var(stmt, loop_defids):
+                return True
+        return _body_contains_call_using_loop_var(getattr(expr, "final_expr", None), loop_defids)
     if hasattr(expr, "expr"):
         return _body_contains_call_using_loop_var(getattr(expr, "expr", None), loop_defids)
     if hasattr(expr, "inner_pattern"):
@@ -183,6 +188,11 @@ def _collect_defids_in_call_args(expr: Any, loop_defids: List[Any], out: set, in
             _collect_defids_in_call_args(a, loop_defids, out, inside_call=True)
         _collect_defids_in_call_args(getattr(expr, "callee_expr", None), loop_defids, out, inside_call=True)
         return
+    if isinstance(expr, BlockExpressionIR):
+        for stmt in getattr(expr, "statements", []) or []:
+            _collect_defids_in_call_args(stmt, loop_defids, out, inside_call)
+        _collect_defids_in_call_args(getattr(expr, "final_expr", None), loop_defids, out, inside_call)
+        return
     if hasattr(expr, "expr"):
         _collect_defids_in_call_args(getattr(expr, "expr", None), loop_defids, out, inside_call)
     if hasattr(expr, "inner_pattern"):
@@ -198,6 +208,24 @@ def _loop_defids_in_call_args(body: Any, loop_defids: List[Any]) -> set:
     out: set = set()
     _collect_defids_in_call_args(body, list(loop_set), out)
     return out
+
+
+def _body_is_elementwise_call(body: Any, loop_defids: List[Any]) -> bool:
+    """True if the body is (or ends in) a single function call and every loop var appears in that call's arguments.
+    Such clauses are element-wise and must use the vectorized path (one call with full array), not the scalar loop."""
+    if body is None or not loop_defids:
+        return False
+    loop_set = {d for d in loop_defids if d is not None}
+    if not loop_set:
+        return False
+    in_call = _loop_defids_in_call_args(body, loop_defids)
+    if in_call != loop_set:
+        return False
+    if isinstance(body, FunctionCallIR):
+        return True
+    if isinstance(body, BlockExpressionIR):
+        return _body_is_elementwise_call(getattr(body, "final_expr", None), loop_defids)
+    return False
 
 
 def _index_expr_is_loop_var(expr: Any, loop_defid: Any) -> bool:
@@ -315,6 +343,52 @@ def _extract_loop_range(loop, evaluator) -> Tuple[int, int]:
     raise RuntimeError("loop iterable is not a range or literal range; cannot extract (start, end)")
 
 
+def _eval_clause_body_with_broadcast_loops(
+    clause: Any,
+    output_shape: List[int],
+    evaluator: Any,
+    backend: Any,
+) -> Optional[Any]:
+    """Evaluate clause body once with loop vars set to broadcast arrays. Returns result or None on failure."""
+    loops = getattr(clause, "loops", None) or []
+    if not loops or getattr(clause, "guards", None) or getattr(clause, "bindings", None):
+        return None
+    clause_ndim = len(loops)
+    n_red = _count_reduction_dims_in_expr(clause.body)
+    ndim = clause_ndim + n_red
+    loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
+    for dim, lp in enumerate(loops):
+        defid = getattr(lp.variable, "defid", None)
+        if defid is None:
+            return None
+        try:
+            r = _extract_loop_range(lp, evaluator)
+        except RuntimeError:
+            return None
+        name = getattr(lp.variable, "name", None)
+        loop_info.append((defid, r, name))
+    clause_loop_defids = [defid for (defid, _, _) in loop_info]
+    if _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids):
+        return None
+    try:
+        with backend.env.scope():
+            for dim, (defid, rng, name) in enumerate(loop_info):
+                start, end = rng
+                sz = end - start
+                shape = [1] * ndim
+                shape[dim] = sz
+                arr = np.arange(start, end, dtype=np.intp).reshape(shape)
+                backend.env.set_value(defid, arr, name=name)
+            parallel_shape_tuple = tuple(output_shape)
+            try:
+                setattr(backend, "_vectorize_parallel_shape", parallel_shape_tuple)
+                return clause.body.accept(backend)
+            finally:
+                setattr(backend, "_vectorize_parallel_shape", None)
+    except Exception:
+        return None
+
+
 def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
     """
     General vectorization: set loop variables to broadcast numpy arrays,
@@ -332,8 +406,6 @@ def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
         return None
 
     clause_ndim = len(loops)
-    # When body contains any reduction, parallel indices need trailing 1s for reduction axes
-    # so that body result has layout (parallel_dims..., reduction_dims) and sum(axis=-n_red) is correct.
     n_red = _count_reduction_dims_in_expr(clause.body)
     ndim = clause_ndim + n_red
 
@@ -346,52 +418,35 @@ def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
         name = getattr(lp.variable, "name", None)
         loop_info.append((defid, r, name))
 
-    # If reduction bounds depend on clause loop vars (e.g. k in 0..i+1), full vectorize would fail.
-    # Skip it so we use scalar-over-i + vectorized-over-k (one vectorized reduction per i).
     clause_loop_defids = [defid for (defid, _, _) in loop_info]
     if _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids):
         return None
 
     try:
-        with backend.env.scope():
-            for dim, (defid, rng, name) in enumerate(loop_info):
-                start, end = rng
-                sz = end - start
-                # One leading axis for this parallel dim, rest 1s (trailing 1s = reduction axes when n_red > 0)
-                shape = [1] * ndim
-                shape[dim] = sz
-                arr = np.arange(start, end, dtype=np.intp).reshape(shape)
-                backend.env.set_value(defid, arr, name=name)
-
-            # Any LoweredReductionIR in the body will use _vectorize_parallel_shape for vectorized path.
-            parallel_shape_tuple = tuple(output_shape)
+        result = _eval_clause_body_with_broadcast_loops(clause, output_shape, evaluator, backend)
+        if result is None:
+            return None
+        if isinstance(result, np.ndarray):
+            expected = tuple(output_shape)
+            ranges = [(start, end) for (_, (start, end), _) in loop_info]
+            range_is_full = len(ranges) == len(expected) and all(
+                start == 0 and end == expected[dim] for dim, (start, end) in enumerate(ranges)
+            )
+            if result.shape == expected:
+                return result.astype(dtype)
+            if not range_is_full:
+                full = np.zeros(expected, dtype=dtype)
+                slices = tuple(slice(int(start), int(end)) for (start, end) in ranges)
+                full[slices] = result.astype(dtype)
+                return full
+            if result.size == np.prod(expected):
+                return result.reshape(expected).astype(dtype)
             try:
-                setattr(backend, "_vectorize_parallel_shape", parallel_shape_tuple)
-                result = clause.body.accept(backend)
-            finally:
-                setattr(backend, "_vectorize_parallel_shape", None)
-
-            if isinstance(result, np.ndarray):
-                expected = tuple(output_shape)
-                ranges = [(start, end) for (_, (start, end), _) in loop_info]
-                range_is_full = len(ranges) == len(expected) and all(
-                    start == 0 and end == expected[dim] for dim, (start, end) in enumerate(ranges)
-                )
-                if result.shape == expected:
-                    return result.astype(dtype)
-                if not range_is_full:
-                    full = np.zeros(expected, dtype=dtype)
-                    slices = tuple(slice(int(start), int(end)) for (start, end) in ranges)
-                    full[slices] = result.astype(dtype)
-                    return full
-                if result.size == np.prod(expected):
-                    return result.reshape(expected).astype(dtype)
-                try:
-                    return np.broadcast_to(result, expected).copy().astype(dtype)
-                except ValueError:
-                    return None
-            elif isinstance(result, (int, float, np.integer, np.floating)):
-                return np.full(output_shape, result, dtype=dtype)
+                return np.broadcast_to(result, expected).copy().astype(dtype)
+            except ValueError:
+                return None
+        if isinstance(result, (int, float, np.integer, np.floating)):
+            return np.full(output_shape, result, dtype=dtype)
     except Exception as e:
         if os.environ.get("EINLANG_DEBUG_VECTORIZE"):
             import traceback
@@ -1024,6 +1079,36 @@ class EinsteinExecutionMixin:
                         self.env.set_value(variable_defid, output)
                     if _debug_vec:
                         print(f"[call-scalar] L{line}", flush=True)
+                    _record_profile()
+                    return output
+
+        # Element-wise call (e.g. gelu(fc1[s,k])): must run once with full array, not scalar loop.
+        if (
+            lowered.loops
+            and _body_is_elementwise_call(body_node, loop_defids)
+        ):
+            elem_result = _eval_clause_body_with_broadcast_loops(
+                lowered, list(output.shape), expr_evaluator, self
+            )
+            if elem_result is not None and isinstance(elem_result, np.ndarray):
+                assigned = False
+                if elem_result.shape == output.shape:
+                    output[:] = elem_result.astype(output.dtype, copy=False)
+                    assigned = True
+                elif elem_result.size == output.size:
+                    output.reshape(-1)[:] = elem_result.reshape(-1).astype(output.dtype, copy=False)
+                    assigned = True
+                else:
+                    try:
+                        np.copyto(output, np.broadcast_to(elem_result, output.shape))
+                        assigned = True
+                    except (ValueError, TypeError):
+                        pass
+                if assigned:
+                    if variable_defid:
+                        self.env.set_value(variable_defid, output)
+                    if _debug_vec:
+                        print(f"[vectorized] L{line}", flush=True)
                     _record_profile()
                     return output
 
