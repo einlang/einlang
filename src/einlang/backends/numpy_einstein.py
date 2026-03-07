@@ -2,6 +2,7 @@
 
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -732,6 +733,70 @@ class EinsteinExecutionMixin:
         def expr_eval(e: Any) -> Any:
             return e.accept(self)
 
+        use_parallel = (
+            len(lowered_einstein.items) > 1
+            and os.environ.get("EINLANG_PARALLEL_CLAUSES", "").strip().lower() in ("1", "true", "yes")
+        )
+        if use_parallel:
+            # Best practice for NumPy + threading: use single-threaded BLAS per worker to avoid
+            # oversubscription (N Python threads each spawning M BLAS threads = N*M contention).
+            # So we pin BLAS/OpenMP to 1 thread per worker; total parallelism = max_workers.
+            _saved_env: Dict[str, str] = {}
+            for key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
+                if key in os.environ:
+                    _saved_env[key] = os.environ[key]
+                os.environ[key] = "1"
+            try:
+                max_workers = max(1, int(os.environ.get("EINLANG_PARALLEL_CLAUSES_WORKERS", "4")))
+                self._skip_clause_env_set = True
+                try:
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        futures = {
+                            executor.submit(
+                                self._execute_lowered_einstein_clause,
+                                item,
+                                variable_decl,
+                                shape=tensor_shape,
+                                element_type=tensor_element_type,
+                                pre_allocated_output=None,
+                            ): item
+                            for item in lowered_einstein.items
+                        }
+                        for fut in as_completed(futures):
+                            item = futures[fut]
+                            try:
+                                result = fut.result()
+                            except Exception:
+                                self._skip_clause_env_set = False
+                                raise
+                            if result is not None and variable_key is not None:
+                                if result.shape == output.shape:
+                                    if result is not output:
+                                        output[:] = result.astype(output.dtype)
+                                elif result.ndim == output.ndim and getattr(item, "loops", None):
+                                    slices_list: List[slice] = []
+                                    try:
+                                        for lp in item.loops:
+                                            start, end = _extract_loop_range(lp, expr_eval)
+                                            slices_list.append(slice(int(start), int(end)))
+                                    except RuntimeError:
+                                        slices_list = []
+                                    if len(slices_list) == len(item.loops):
+                                        output[tuple(slices_list)] = result.astype(output.dtype)
+                                elif result.size == 1 and getattr(item, "indices", None) and all(
+                                    isinstance(idx, LiteralIR) for idx in item.indices
+                                ):
+                                    idx_tuple = tuple(int(idx.value) for idx in item.indices)
+                                    output[idx_tuple] = result.flat[0] if result.size == 1 else result
+                finally:
+                    self._skip_clause_env_set = False
+                if variable_key is not None:
+                    self.env.set_value(variable_key, output)
+                return output
+            finally:
+                for _k, _v in _saved_env.items():
+                    os.environ[_k] = _v
+
         for clause_idx, item in enumerate(lowered_einstein.items):
             result = self._execute_lowered_einstein_clause(
                 item, variable_decl,
@@ -798,6 +863,12 @@ class EinsteinExecutionMixin:
                 if end > max_ends[d]:
                     max_ends[d] = end
         return max_ends
+
+    def _clause_set_output(self, variable_defid: Any, output: Any) -> None:
+        """Set clause result in env; no-op when in parallel-merge mode (caller merges)."""
+        if not getattr(self, "_skip_clause_env_set", False):
+            if variable_defid is not None:
+                self.env.set_value(variable_defid, output)
 
     def _execute_lowered_einstein_clause(
         self,
@@ -923,7 +994,8 @@ class EinsteinExecutionMixin:
                 )
                 if call_hybrid_out is not None:
                     if variable_defid:
-                        self.env.set_value(variable_defid, output)
+                        self._clause_set_output(variable_defid, output)
+                    self._einstein_call_scalar = getattr(self, "_einstein_call_scalar", 0) + 1
                     _record_profile()
                     return output
         # Literal idx / self-ref (recurrence) -> scalar; other indices -> vectorize.
@@ -941,7 +1013,8 @@ class EinsteinExecutionMixin:
                 )
                 if hybrid_out is not None:
                     if variable_defid:
-                        self.env.set_value(variable_defid, output)
+                        self._clause_set_output(variable_defid, output)
+                    self._einstein_hybrid = getattr(self, "_einstein_hybrid", 0) + 1
                     _record_profile()
                     return output
                 recurrence_needs_scalar = True  # hybrid failed; use scalar path so we read LHS[t-1] correctly
@@ -993,7 +1066,8 @@ class EinsteinExecutionMixin:
                                     )
                                     if hybrid_out is not None:
                                         if variable_defid:
-                                            self.env.set_value(variable_defid, output)
+                                            self._clause_set_output(variable_defid, output)
+                                        self._einstein_hybrid = getattr(self, "_einstein_hybrid", 0) + 1
                                         _record_profile()
                                         return output
                                     vec_result = None
@@ -1036,7 +1110,8 @@ class EinsteinExecutionMixin:
                     else:
                         output[:] = np.broadcast_to(vec_result, output.shape)
                     if variable_defid:
-                        self.env.set_value(variable_defid, output)
+                        self._clause_set_output(variable_defid, output)
+                    self._einstein_vectorized = getattr(self, "_einstein_vectorized", 0) + 1
                     _record_profile()
                     return output
 
@@ -1063,7 +1138,8 @@ class EinsteinExecutionMixin:
                 )
                 if call_hybrid_out is not None:
                     if variable_defid:
-                        self.env.set_value(variable_defid, output)
+                        self._clause_set_output(variable_defid, output)
+                    self._einstein_call_scalar = getattr(self, "_einstein_call_scalar", 0) + 1
                     _record_profile()
                     return output
 
@@ -1091,10 +1167,12 @@ class EinsteinExecutionMixin:
                         pass
                 if assigned:
                     if variable_defid:
-                        self.env.set_value(variable_defid, output)
+                        self._clause_set_output(variable_defid, output)
+                    self._einstein_vectorized = getattr(self, "_einstein_vectorized", 0) + 1
                     _record_profile()
                     return output
 
+        self._einstein_scalar = getattr(self, "_einstein_scalar", 0) + 1
         _loop_defid_to_name = {}
         for lp in lowered.loops:
             v = getattr(lp, "variable", None)
@@ -1173,6 +1251,6 @@ class EinsteinExecutionMixin:
                         output[idx_tuple] = value
 
         if variable_defid:
-            self.env.set_value(variable_defid, output)
+            self._clause_set_output(variable_defid, output)
         _record_profile()
         return output

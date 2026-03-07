@@ -1,6 +1,7 @@
 """NumPy backend core: execute, env scope stack only (no global table)."""
 
 import os
+import sys
 import time
 from typing import Dict, Any, Optional, List, Union
 
@@ -81,6 +82,10 @@ class CoreExecutionMixin:
         bucket_size = int(os.environ.get("EINLANG_PROFILE_LINES", "0") or "0")
         self._profile_bucket_size = bucket_size
         self._profile_buckets = {} if bucket_size > 0 else None
+        self._einstein_vectorized = 0
+        self._einstein_scalar = 0
+        self._einstein_hybrid = 0
+        self._einstein_call_scalar = 0
         profile_statements = bool(os.environ.get("EINLANG_PROFILE_STATEMENTS", ""))
         self._profile_statements = profile_statements
         profile_functions = bool(os.environ.get("EINLANG_PROFILE_FUNCTIONS", ""))
@@ -96,6 +101,15 @@ class CoreExecutionMixin:
                         for name, total in sorted(self._profile_fn_times.items(), key=lambda x: -x[1]):
                             if total > 0.01:
                                 print(f"  {name}: {total:.2f}", flush=True)
+                    if os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip().lower() in ("1", "true", "yes"):
+                        v = getattr(self, "_einstein_vectorized", 0)
+                        s = getattr(self, "_einstein_scalar", 0)
+                        h = getattr(self, "_einstein_hybrid", 0)
+                        c = getattr(self, "_einstein_call_scalar", 0)
+                        total = v + s + h + c
+                        sys.stderr.write(
+                            f"[vectorize] Einstein clauses: {v} vectorized, {s} scalar, {h} hybrid, {c} call-scalar (total {total})\n"
+                        )
                     return _get_execution_result()(value=result_value)
             outputs = {}
             if program.statements:
@@ -141,6 +155,15 @@ class CoreExecutionMixin:
                 size = self._profile_bucket_size
                 for lo in sorted(self._profile_buckets.keys()):
                     print(f"[profile] L{lo}-L{lo + size}: {self._profile_buckets[lo]:.2f}s", flush=True)
+            if os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip().lower() in ("1", "true", "yes"):
+                v = getattr(self, "_einstein_vectorized", 0)
+                s = getattr(self, "_einstein_scalar", 0)
+                h = getattr(self, "_einstein_hybrid", 0)
+                c = getattr(self, "_einstein_call_scalar", 0)
+                total = v + s + h + c
+                sys.stderr.write(
+                    f"[vectorize] Einstein clauses: {v} vectorized, {s} scalar, {h} hybrid, {c} call-scalar (total {total})\n"
+                )
             return _get_execution_result()(outputs=outputs)
         except Exception as e:
             from ..shared.errors import EinlangSourceError
