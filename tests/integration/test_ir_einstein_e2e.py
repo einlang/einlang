@@ -256,6 +256,23 @@ class TestComplexExpressions:
         np.testing.assert_array_equal(result.outputs['A'], expected)
 
 
+class TestMatmulExecution:
+    """Matmul clause execution."""
+
+    def test_matmul_3x2_2x2(self, compiler, runtime):
+        """C[i,j] = sum[k](A[i,k] * B[k,j]) gives correct result."""
+        source = """
+        let A = [[1, 2], [3, 4], [5, 6]];
+        let B = [[1, 0], [0, 1]];
+        let C[i, j] = sum[k](A[i, k] * B[k, j]);
+        """
+        result = compile_and_execute(source, compiler, runtime)
+        assert result.success, f"Execution failed: {result.errors}"
+        C = np.array(result.outputs["C"])
+        expected = np.array([[1, 2], [3, 4], [5, 6]])
+        np.testing.assert_array_almost_equal(C, expected)
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
 

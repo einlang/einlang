@@ -16,6 +16,7 @@ def main() -> int:
     parser.add_argument("--profile-statements", action="store_true", help="Profile each top-level statement separately (reset buckets per statement)")
     parser.add_argument("--debug-vectorize", action="store_true", help="Print [vectorized] or [scalar] per Einstein clause")
     parser.add_argument("--profile-functions", action="store_true", help="Print runtime per Einlang function (e.g. encode, encoder_block)")
+    parser.add_argument("--profile-blocks", action="store_true", help="Print runtime per block expression (e.g. LSTM gate body)")
     parser.add_argument("--profile-reductions", action="store_true", help="Print reduction path per sum/max/min: matmul, vectorized, or scalar (with source line)")
     parser.add_argument("--cprofile", action="store_true", help="Run execution under cProfile and print stats")
     parser.add_argument("--cprofile-out", type=Path, default=None, metavar="FILE", help="Write cProfile stats to FILE (for snakeviz, etc.)")
@@ -31,6 +32,10 @@ def main() -> int:
         os.environ["EINLANG_PROFILE_REDUCTIONS"] = "1"
     if args.debug_vectorize:
         os.environ["EINLANG_DEBUG_VECTORIZE"] = "1"
+
+    if args.profile_functions or args.profile_statements or args.profile_blocks or args.profile_lines or args.profile_reductions:
+        sys.stdout.flush()
+        sys.stderr.flush()
 
     path = args.file.resolve()
     if not path.exists():

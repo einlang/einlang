@@ -110,11 +110,6 @@ def _try_vectorized_reduction(
                             return True, reduced
                     except (ValueError, AttributeError):
                         pass
-                if os.environ.get("EINLANG_PROFILE_REDUCTIONS"):
-                    print(
-                        f"[reduction] vectorized shape mismatch: got {result.shape}, expected {tuple(parallel_shape) + tuple(expected_shape)}",
-                        flush=True,
-                    )
                 return False, None
             if reduction_op == 'sum':
                 reduced = result.sum(axis=reduction_axes)
@@ -138,9 +133,8 @@ def _try_vectorized_reduction(
                 return True, result.min()
             elif reduction_op in ('product', 'prod'):
                 return True, result.prod()
-    except Exception as e:
-        if os.environ.get("EINLANG_PROFILE_REDUCTIONS"):
-            print(f"[reduction] vectorized failed: {e}", flush=True)
+    except Exception:
+        pass
     return False, None
 
 

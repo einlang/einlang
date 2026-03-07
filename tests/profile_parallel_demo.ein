@@ -1,0 +1,12 @@
+// Minimal program to show profile under multi-threading. Run from repo root:
+//   PYTHONPATH=src python3 -m einlang tests/profile_parallel_demo.ein --profile-functions
+// With threading: EINLANG_PARALLEL_DIMENSION=0 EINLANG_PARALLEL_DIMENSION_WORKERS=2 (same command)
+
+fn matmul(A: [f32; 3, 2], B: [f32; 2, 2]) -> [f32; 3, 2] {
+  let C[i, j] = sum[k](A[i, k] * B[k, j]);
+  C
+}
+
+let A = [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]];
+let B = [[1.0, 0.0], [0.0, 1.0]];
+matmul(A, B);
