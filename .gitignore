@@ -30,3 +30,7 @@ htmlcov/
 # Profiling output
 *.prof
 prof/
+
+# Compiler IR dumps (EINLANG_DUMP_IR*, EINLANG_DUMP_FINAL_IR)
+ir_dump/
+ir_dumps/

@@ -187,9 +187,8 @@ class CompilerDriver:
                 ir_dump_dir.mkdir(parents=True, exist_ok=True)
                 try:
                     (ir_dump_dir / "after_ast_to_ir_lowering.sexpr").write_text(serialize_ir(ir), encoding="utf-8")
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
+                except Exception:
+                    pass
 
             # Check if we should stop after lowering
             if stop_after_pass == 'ASTToIRLoweringPass':
@@ -202,9 +201,8 @@ class CompilerDriver:
                 dump_dir.mkdir(parents=True, exist_ok=True)
                 try:
                     (dump_dir / "00_after_ASTToIRLoweringPass.sexpr").write_text(serialize_ir(ir), encoding="utf-8")
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
+                except Exception:
+                    pass
 
             # Run remaining passes on IR
             # Filter out ASTToIRLoweringPass from pass manager (already run)
@@ -241,9 +239,8 @@ class CompilerDriver:
                     try:
                         out_path = dump_dir / f"{pass_index:02d}_after_{pass_class.__name__}.sexpr"
                         out_path.write_text(serialize_ir(ir), encoding="utf-8")
-                    except Exception as e:
-                        import traceback
-                        traceback.print_exc()
+                    except Exception:
+                        pass
                 if pass_class.__name__ == "EinsteinLoweringPass" and os.environ.get("EINLANG_DUMP_IR_AFTER_EINSTEIN_LOWERING", ""):
                     from ..ir.serialization import serialize_ir
                     from ..ir.nodes import ProgramIR
@@ -259,9 +256,8 @@ class CompilerDriver:
                             source_files=getattr(ir, "source_files", {}) or {},
                         )
                         (dump_dir / "after_einstein_lowering.sexpr").write_text(serialize_ir(combined), encoding="utf-8")
-                    except Exception as e:
-                        import traceback
-                        traceback.print_exc()
+                    except Exception:
+                        pass
                 pass_index += 1
 
                 # Stop after specified pass if requested
@@ -289,9 +285,8 @@ class CompilerDriver:
                 ir_dump_dir.mkdir(parents=True, exist_ok=True)
                 try:
                     (ir_dump_dir / "final_ir.sexpr").write_text(serialize_ir(ir), encoding="utf-8")
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
+                except Exception:
+                    pass
             return CompilationResult(ir=ir, tcx=tcx, success=True)
         
         except ParseError as e:

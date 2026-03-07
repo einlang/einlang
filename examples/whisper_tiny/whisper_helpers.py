@@ -55,9 +55,12 @@ def decode_tokens(token_ids):
         token_ids = token_ids.flatten().tolist()
     token_ids = [int(t) for t in token_ids]
 
+    EOT = 50257
     SPECIAL = {50257, 50258, 50259, 50359, 50363}
     pieces = []
     for tid in token_ids:
+        if tid == EOT:
+            break
         if tid in SPECIAL or tid >= 50364:
             continue
         pieces.append(_ID2TOK.get(tid, ""))

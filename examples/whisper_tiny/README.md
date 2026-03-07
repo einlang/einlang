@@ -2,7 +2,7 @@
 
 > **Previous**: [`deit_tiny/`](../deit_tiny/) · **Next**: [`units/`](../units/) (reference)
 
-End-to-end speech transcription using OpenAI's [Whisper-tiny](https://huggingface.co/openai/whisper-tiny) model. This is the most complex example — it combines everything from the previous models and adds an encoder-decoder architecture with autoregressive generation.
+**Speech to text**: transcribes audio (speech) into text. End-to-end transcription using OpenAI's [Whisper-tiny](https://huggingface.co/openai/whisper-tiny) model. This is the most complex example — it combines everything from the previous models and adds an encoder-decoder architecture with autoregressive generation.
 
 ## Architecture
 
@@ -43,13 +43,27 @@ cd examples/whisper_tiny
 python3 download_weights.py
 ```
 
-This downloads ~75 MB of weights (safetensors format, parsed without torch), computes a mel spectrogram from a sample audio clip, and optionally verifies the output using a pure-numpy reference decoder.
+This downloads ~75 MB of weights (safetensors format, parsed without torch), downloads a **real speech sample** (JFK “ask not what your country can do for you” from OpenAI’s Whisper tests), computes the mel spectrogram, and optionally verifies the output using a pure-numpy reference decoder.
 
 ## Run
+
+From the repo root (or with `cwd` in `examples/whisper_tiny`):
 
 ```bash
 python3 -m einlang examples/whisper_tiny/main.ein
 ```
+
+**Sample input**: mel spectrogram from the JFK clip (real speech). Saved as `samples/jfk.npy`. To switch to the JFK sample after using another clip, remove `samples/jfk.npy` and run `download_weights.py` again. **Output**: transcribed text (speech-to-text).
+
+## Compare with golden reference
+
+From `examples/whisper_tiny`:
+
+```bash
+python3 compare_with_golden.py
+```
+
+This runs the NumPy reference and Einlang `main.ein` and compares their output to `golden_ref.txt` (expected transcript for the JFK sample). Use `--no-numpy` or `--no-einlang` to skip one run.
 
 ## How it works
 

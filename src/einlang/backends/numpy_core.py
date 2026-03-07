@@ -1,13 +1,18 @@
 """NumPy backend core: execute, env scope stack only (no global table)."""
 
 import os
+import sys
 import time
 from typing import Dict, Any, Optional, List, Union
+
+import numpy as np
 
 from ..backends.base import Backend
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR, BindingIR,
     LiteralIR, FunctionCallIR, IRVisitor,
+    BlockExpressionIR, RectangularAccessIR, LoweredReductionIR, LoweredComprehensionIR,
+    IfExpressionIR,
     is_einstein_binding, is_function_binding,
 )
 from ..shared.defid import DefId, Resolver, FIXED_BUILTIN_ORDER, _BUILTIN_CRATE
@@ -32,6 +37,107 @@ def _register_fixed_builtins(env: ExecutionEnvironment) -> None:
 def _get_execution_result():
     from ..runtime.runtime import ExecutionResult
     return ExecutionResult
+
+
+def _single_array_param(func_def: Any) -> bool:
+    """True if function has exactly one parameter (typical for array-in, scalar/array-out)."""
+    params = getattr(func_def, "parameters", None)
+    return params is not None and len(params) == 1
+
+
+def _body_has_reduction(body: Any, operation: str) -> bool:
+    """True if body (block or binding list) contains a LoweredReductionIR with the given operation."""
+    statements = getattr(body, "statements", None) or []
+    for stmt in statements:
+        if not isinstance(stmt, BindingIR):
+            continue
+        expr = getattr(stmt, "expr", getattr(stmt, "value", None))
+        if isinstance(expr, LoweredReductionIR) and getattr(expr, "operation", None) == operation:
+            return True
+    return False
+
+
+def _check_block_is_index_of_extremum(body: BlockExpressionIR) -> Optional[str]:
+    """If this block implements index-of-max or index-of-min, return 'argmax' or 'argmin'; else None."""
+    if getattr(body, "final_expr", None) is None:
+        return None
+    statements = getattr(body, "statements", None) or []
+    final_expr = body.final_expr
+    has_max = _body_has_reduction(body, "max")
+    has_min = _body_has_reduction(body, "min")
+    has_comprehension = any(
+        isinstance(getattr(s, "expr", getattr(s, "value", None)), LoweredComprehensionIR)
+        for s in statements if isinstance(s, BindingIR)
+    )
+    first_elem_ok = False
+    if isinstance(final_expr, RectangularAccessIR):
+        indices = getattr(final_expr, "indices", None) or []
+        if len(indices) == 1:
+            idx = indices[0]
+            if isinstance(idx, LiteralIR):
+                try:
+                    if int(getattr(idx, "value", None)) == 0:
+                        first_elem_ok = True
+                except (TypeError, ValueError):
+                    pass
+    final_is_min_red = isinstance(final_expr, LoweredReductionIR) and getattr(final_expr, "operation", None) == "min"
+    final_is_max_red = isinstance(final_expr, LoweredReductionIR) and getattr(final_expr, "operation", None) == "max"
+    if (has_max and not has_min) and (first_elem_ok and has_comprehension or final_is_min_red):
+        return "argmax"
+    if (has_min and not has_max) and (first_elem_ok and has_comprehension or final_is_max_red):
+        return "argmin"
+    return None
+
+
+def _detect_index_of_extremum(func_def: Any) -> Optional[str]:
+    """
+    General pattern: function returns index (or indices) of the maximum or minimum of its
+    single array argument. Matches multiple implementations and shapes:
+    - Block: comprehension + first element, or sentinel + min/max reduction.
+    - If/else body (e.g. 1D vs 2D): check both branches so either path can be optimized.
+    Returns "argmax", "argmin", or None.
+    """
+    if not _single_array_param(func_def):
+        return None
+    body = getattr(func_def, "body", None)
+    if body is None:
+        return None
+    candidates = []
+    if isinstance(body, BlockExpressionIR):
+        candidates.append(body)
+    elif isinstance(body, IfExpressionIR):
+        if getattr(body, "then_expr", None):
+            candidates.append(body.then_expr)
+        if getattr(body, "else_expr", None):
+            candidates.append(body.else_expr)
+    for block in candidates:
+        if isinstance(block, BlockExpressionIR):
+            out = _check_block_is_index_of_extremum(block)
+            if out is not None:
+                return out
+    return None
+
+
+def _numpy_optimized_dispatch(func_def: Any, args: List[Any]) -> Optional[Any]:
+    """
+    If func_def matches a known pattern that NumPy can implement in one pass,
+    return the result; otherwise return None (caller runs the body).
+    Extensible: add more (detector, handler) pairs for sum, mean, etc.
+    """
+    if len(args) != 1 or not isinstance(args[0], np.ndarray):
+        return None
+    a = np.asarray(args[0])
+    # Index-of-extremum pattern (argmax/argmin in any form)
+    key = _detect_index_of_extremum(func_def)
+    if key == "argmax":
+        if a.ndim == 1:
+            return int(np.argmax(a))
+        return np.argmax(a, axis=-1)
+    if key == "argmin":
+        if a.ndim == 1:
+            return int(np.argmin(a))
+        return np.argmin(a, axis=-1)
+    return None
 
 
 class CoreExecutionMixin:
@@ -81,8 +187,14 @@ class CoreExecutionMixin:
         bucket_size = int(os.environ.get("EINLANG_PROFILE_LINES", "0") or "0")
         self._profile_bucket_size = bucket_size
         self._profile_buckets = {} if bucket_size > 0 else None
+        self._einstein_vectorized = 0
+        self._einstein_scalar = 0
+        self._einstein_hybrid = 0
+        self._einstein_call_scalar = 0
         profile_statements = bool(os.environ.get("EINLANG_PROFILE_STATEMENTS", ""))
         self._profile_statements = profile_statements
+        profile_blocks = bool(os.environ.get("EINLANG_PROFILE_BLOCKS", ""))
+        self._profile_blocks = profile_blocks
         profile_functions = bool(os.environ.get("EINLANG_PROFILE_FUNCTIONS", ""))
         self._profile_functions = profile_functions
         self._profile_fn_times: Dict[str, float] = {} if profile_functions else {}
@@ -96,6 +208,15 @@ class CoreExecutionMixin:
                         for name, total in sorted(self._profile_fn_times.items(), key=lambda x: -x[1]):
                             if total > 0.01:
                                 print(f"  {name}: {total:.2f}", flush=True)
+                    if os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip().lower() in ("1", "true", "yes"):
+                        v = getattr(self, "_einstein_vectorized", 0)
+                        s = getattr(self, "_einstein_scalar", 0)
+                        h = getattr(self, "_einstein_hybrid", 0)
+                        c = getattr(self, "_einstein_call_scalar", 0)
+                        total = v + s + h + c
+                        sys.stderr.write(
+                            f"[vectorize] Einstein clauses: {v} vectorized, {s} scalar, {h} hybrid, {c} call-scalar (total {total})\n"
+                        )
                     return _get_execution_result()(value=result_value)
             outputs = {}
             if program.statements:
@@ -141,6 +262,15 @@ class CoreExecutionMixin:
                 size = self._profile_bucket_size
                 for lo in sorted(self._profile_buckets.keys()):
                     print(f"[profile] L{lo}-L{lo + size}: {self._profile_buckets[lo]:.2f}s", flush=True)
+            if os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip().lower() in ("1", "true", "yes"):
+                v = getattr(self, "_einstein_vectorized", 0)
+                s = getattr(self, "_einstein_scalar", 0)
+                h = getattr(self, "_einstein_hybrid", 0)
+                c = getattr(self, "_einstein_call_scalar", 0)
+                total = v + s + h + c
+                sys.stderr.write(
+                    f"[vectorize] Einstein clauses: {v} vectorized, {s} scalar, {h} hybrid, {c} call-scalar (total {total})\n"
+                )
             return _get_execution_result()(outputs=outputs)
         except Exception as e:
             from ..shared.errors import EinlangSourceError
@@ -168,6 +298,11 @@ class CoreExecutionMixin:
         actual = len(args)
         if actual != expected:
             raise RuntimeError(f"Function (name log: {getattr(func_def, 'name', '<lambda>')}) expects {expected} argument(s), got {actual}")
+        name = getattr(func_def, "name", "<unknown>")
+        # General NumPy fast path: dispatch by body pattern (index-of-extremum, etc.)
+        result = _numpy_optimized_dispatch(func_def, args)
+        if result is not None:
+            return result
         with self.env.scope():
             for param, arg_value in zip(func_def.parameters, args):
                 if param.defid is None:
@@ -177,7 +312,6 @@ class CoreExecutionMixin:
                 t0 = time.perf_counter()
                 result = func_def.body.accept(self)
                 elapsed = time.perf_counter() - t0
-                name = getattr(func_def, "name", "<unknown>")
                 self._profile_fn_times[name] = self._profile_fn_times.get(name, 0.0) + elapsed
                 if elapsed > 0.01:
                     print(f"[profile] fn {name}: {elapsed:.2f}s", flush=True)
