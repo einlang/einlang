@@ -145,34 +145,29 @@ class TestDemos:
         output = result.stdout.strip()
         assert output == "['Egyptian Mau', 'Golden Retriever', 'strawberry']", f"unexpected output: {output!r}"
 
-
     def test_whisper_tiny(self):
-        """Run examples/whisper_tiny/main.ein and verify speech transcription.
-        When run with EINLANG_EINSTEIN_LOOP_MAX=100, must pass without override (fully vectorized)."""
+        """Run examples/whisper_tiny/main.ein and assert transcript matches golden_ref.txt."""
         project_root = Path(__file__).parent.parent.parent
         whisper_dir = project_root / "examples" / "whisper_tiny"
+        golden = whisper_dir / "golden_ref.txt"
+        if not golden.is_file():
+            pytest.skip("golden_ref.txt missing (examples/whisper_tiny/golden_ref.txt)")
         main_ein = whisper_dir / "main.ein"
-
-        required = [whisper_dir / "samples" / "jfk.npy",
-                    whisper_dir / "tokenizer.json"]
-        weight_prefixes = [
-            "enc_conv1_w", "enc_conv1_b", "enc_conv2_w", "enc_conv2_b",
-            "enc_pos_emb", "enc_ln_w", "enc_ln_b",
-            "dec_tok_emb", "dec_pos_emb", "dec_ln_w", "dec_ln_b",
-        ]
-        required += [whisper_dir / "weights" / f"{n}.npy" for n in weight_prefixes]
-        missing = [str(p) for p in required if not p.exists()]
-        assert not missing, f"whisper_tiny data missing: {missing}"
+        if not main_ein.exists():
+            pytest.skip("main.ein not found")
+        golden_text = golden.read_text(encoding="utf-8").strip()
 
         result = subprocess.run(
             [sys.executable, "-m", "einlang", str(main_ein)],
-            capture_output=True, text=True, cwd=whisper_dir,
+            capture_output=True, text=True, cwd=str(whisper_dir),
             env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
             timeout=3600,
         )
-        assert result.returncode == 0, result.stderr or result.stdout
-        output = result.stdout.strip().lower()
-        assert len(output) > 5, f"whisper output too short: {output!r}"
+        assert result.returncode == 0, result.stderr or result.stdout or "no output"
+        output = result.stdout.strip()
+        assert output == golden_text, (
+            f"Transcription mismatch:\n  golden:  {golden_text!r}\n  einlang: {output!r}"
+        )
 
 
 if __name__ == "__main__":

@@ -55,15 +55,15 @@ python3 -m einlang examples/whisper_tiny/main.ein
 
 **Sample input**: mel spectrogram from the JFK clip (real speech). Saved as `samples/jfk.npy`. To switch to the JFK sample after using another clip, remove `samples/jfk.npy` and run `download_weights.py` again. **Output**: transcribed text (speech-to-text).
 
-## Compare with ONNX Runtime
+## Compare with golden reference
 
 From `examples/whisper_tiny`:
 
 ```bash
-python3 compare_with_onnxrt.py
+python3 compare_with_golden.py
 ```
 
-This runs the same input through (1) the NumPy reference, (2) Einlang `main.ein`, and (3) ONNX Runtime (or PyTorch if `optimum` is not installed), and prints timings and transcripts. Optional: `pip install onnxruntime transformers optimum[onnxruntime]` for ONNX RT; use `--no-einlang` or `--no-onnx` to skip steps.
+This runs the NumPy reference and Einlang `main.ein` and compares their output to `golden_ref.txt` (expected transcript for the JFK sample). Use `--no-numpy` or `--no-einlang` to skip one run.
 
 ## How it works
 
