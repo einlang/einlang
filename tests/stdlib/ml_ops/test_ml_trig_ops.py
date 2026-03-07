@@ -53,8 +53,8 @@ def test_trig_ops_clustered_accuracy(compiler, runtime):
     # Verify each operation
 
     # Verify sin - Test sin, cos, tan operations
-    # Use f64 reference since einlang computes in f64 for untyped float literals
-    x = np.array([[0.0, 1.5708, 3.14159]], dtype=np.float64)
+    # Use same dtype as runtime output (f32) so tan near singularities matches precision
+    x = np.array([[0.0, 1.5708, 3.14159]], dtype=np.float32)
     np.testing.assert_allclose(np.array(result.outputs['sin_result_0']), np.sin(x), rtol=1e-4, atol=1e-6)
     np.testing.assert_allclose(np.array(result.outputs['cos_result_0']), np.cos(x), rtol=1e-4, atol=1e-6)
     np.testing.assert_allclose(np.array(result.outputs['tan_result_0']), np.tan(x), rtol=1e-4, atol=1e-6)

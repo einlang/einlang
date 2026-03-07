@@ -83,11 +83,19 @@ class CoreExecutionMixin:
         self._profile_buckets = {} if bucket_size > 0 else None
         profile_statements = bool(os.environ.get("EINLANG_PROFILE_STATEMENTS", ""))
         self._profile_statements = profile_statements
+        profile_functions = bool(os.environ.get("EINLANG_PROFILE_FUNCTIONS", ""))
+        self._profile_functions = profile_functions
+        self._profile_fn_times: Dict[str, float] = {} if profile_functions else {}
         try:
             if main_defid:
                 main_func = self.env.get_value(main_defid)
                 if main_func is not None:
                     result_value = self._call_function(main_func, [])
+                    if self._profile_fn_times:
+                        print("[profile] === per-function total (s) ===", flush=True)
+                        for name, total in sorted(self._profile_fn_times.items(), key=lambda x: -x[1]):
+                            if total > 0.01:
+                                print(f"  {name}: {total:.2f}", flush=True)
                     return _get_execution_result()(value=result_value)
             outputs = {}
             if program.statements:
@@ -160,6 +168,15 @@ class CoreExecutionMixin:
                 if param.defid is None:
                     raise RuntimeError(f"Parameter has no defid; cannot bind. Name (log): {getattr(param, 'name', '?')}")
                 self.env.set_value(param.defid, arg_value, name=getattr(param, 'name', None))
+            if getattr(self, "_profile_functions", False):
+                t0 = time.perf_counter()
+                result = func_def.body.accept(self)
+                elapsed = time.perf_counter() - t0
+                name = getattr(func_def, "name", "<unknown>")
+                self._profile_fn_times[name] = self._profile_fn_times.get(name, 0.0) + elapsed
+                if elapsed > 0.01:
+                    print(f"[profile] fn {name}: {elapsed:.2f}s", flush=True)
+                return result
             return func_def.body.accept(self)
 
     def codegen(self, program: ProgramIR) -> str:

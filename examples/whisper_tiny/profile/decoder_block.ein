@@ -106,7 +106,8 @@ fn decoder_block(x: [f32; 40, 384], enc: [f32; 1500, 384], L: i32) -> [f32; 40, 
     let Qh[h in 0..6, s in 0..40, d in 0..64] = Q[s, h * 64 + d];
     let Kh[h in 0..6, s in 0..40, d in 0..64] = K[s, h * 64 + d];
     let Vh[h in 0..6, s in 0..40, d in 0..64] = V[s, h * 64 + d];
-    let score[h in 0..6, i in 0..40, j in 0..40] = sum[d in 0..64](Qh[h, i, d] * Kh[h, j, d]) / 8.0 + if j <= i { 0.0 } else { -10000.0 };
+    let score_mask[h in 0..6, i in 0..40, j in 0..40] = if j <= i { 0.0 } else { -10000.0 };
+    let score[h in 0..6, i in 0..40, j in 0..40] = sum[d in 0..64](Qh[h, i, d] * Kh[h, j, d]) / 8.0 + score_mask[h, i, j];
     let score_max[h in 0..6, i in 0..40] = max[j in 0..40](score[h, i, j]);
     let score_exp[h in 0..6, i in 0..40, j in 0..40] = exp(score[h, i, j] - score_max[h, i]);
     let score_sum[h in 0..6, i in 0..40] = sum[j in 0..40](score_exp[h, i, j]);
