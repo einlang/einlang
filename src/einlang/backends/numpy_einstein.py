@@ -447,10 +447,7 @@ def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
                 return None
         if isinstance(result, (int, float, np.integer, np.floating)):
             return np.full(output_shape, result, dtype=dtype)
-    except Exception as e:
-        if os.environ.get("EINLANG_DEBUG_VECTORIZE"):
-            import traceback
-            traceback.print_exc()
+    except Exception:
         return None
     return None
 
@@ -815,8 +812,6 @@ class EinsteinExecutionMixin:
         line = int(getattr(loc, "line", 0) or 0)
         bucket_size = getattr(self, "_profile_bucket_size", 0)
         t0 = time.perf_counter() if bucket_size > 0 else 0
-        _debug_vec = os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip().lower() in ("1", "true", "yes")
-
         def _record_profile():
             if bucket_size > 0 and getattr(self, "_profile_buckets", None) is not None:
                 key = (line // bucket_size) * bucket_size
@@ -929,8 +924,6 @@ class EinsteinExecutionMixin:
                 if call_hybrid_out is not None:
                     if variable_defid:
                         self.env.set_value(variable_defid, output)
-                    if _debug_vec:
-                        print(f"[call-scalar] L{line}", flush=True)
                     _record_profile()
                     return output
         # Literal idx / self-ref (recurrence) -> scalar; other indices -> vectorize.
@@ -949,8 +942,6 @@ class EinsteinExecutionMixin:
                 if hybrid_out is not None:
                     if variable_defid:
                         self.env.set_value(variable_defid, output)
-                    if _debug_vec:
-                        print(f"[hybrid] L{line}", flush=True)
                     _record_profile()
                     return output
                 recurrence_needs_scalar = True  # hybrid failed; use scalar path so we read LHS[t-1] correctly
@@ -1003,8 +994,6 @@ class EinsteinExecutionMixin:
                                     if hybrid_out is not None:
                                         if variable_defid:
                                             self.env.set_value(variable_defid, output)
-                                        if _debug_vec:
-                                            print(f"[hybrid] L{line}", flush=True)
                                         _record_profile()
                                         return output
                                     vec_result = None
@@ -1048,8 +1037,6 @@ class EinsteinExecutionMixin:
                         output[:] = np.broadcast_to(vec_result, output.shape)
                     if variable_defid:
                         self.env.set_value(variable_defid, output)
-                    if _debug_vec:
-                        print(f"[vectorized] L{line}", flush=True)
                     _record_profile()
                     return output
 
@@ -1077,8 +1064,6 @@ class EinsteinExecutionMixin:
                 if call_hybrid_out is not None:
                     if variable_defid:
                         self.env.set_value(variable_defid, output)
-                    if _debug_vec:
-                        print(f"[call-scalar] L{line}", flush=True)
                     _record_profile()
                     return output
 
@@ -1107,13 +1092,9 @@ class EinsteinExecutionMixin:
                 if assigned:
                     if variable_defid:
                         self.env.set_value(variable_defid, output)
-                    if _debug_vec:
-                        print(f"[vectorized] L{line}", flush=True)
                     _record_profile()
                     return output
 
-        if _debug_vec and lowered.loops:
-            print(f"[scalar] L{line}", flush=True)
         _loop_defid_to_name = {}
         for lp in lowered.loops:
             v = getattr(lp, "variable", None)
