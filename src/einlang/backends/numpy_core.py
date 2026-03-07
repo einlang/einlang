@@ -132,6 +132,11 @@ class CoreExecutionMixin:
                     for defid, value in self.env.get_current_scope().items():
                         if defid not in outputs:
                             outputs[defid] = value
+            if self._profile_fn_times:
+                print("[profile] === per-function total (s) ===", flush=True)
+                for name, total in sorted(self._profile_fn_times.items(), key=lambda x: -x[1]):
+                    if total > 0.001:
+                        print(f"  {name}: {total:.2f}", flush=True)
             if self._profile_buckets is not None and self._profile_buckets and not profile_statements:
                 size = self._profile_bucket_size
                 for lo in sorted(self._profile_buckets.keys()):

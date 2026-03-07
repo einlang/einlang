@@ -740,8 +740,14 @@ class ExpressionVisitorMixin:
     def visit_reduction_expression(self, expr: ReductionExpressionIR) -> Any:
         _reject_non_lowered(type(expr).__name__)
 
-    def visit_lowered_reduction(self, expr: LoweredReductionIR) -> Any:
+    def evaluate_lowered_reduction(
+        self, expr: LoweredReductionIR, parallel_shape: Optional[Tuple[int, ...]] = None
+    ) -> Any:
+        """Evaluate a lowered reduction, optionally with vectorized path when parallel_shape is set.
+        When parallel_shape is None, uses backend._vectorize_parallel_shape if set (e.g. by vectorized clause)."""
         import os
+        if parallel_shape is None:
+            parallel_shape = getattr(self, "_vectorize_parallel_shape", None)
         from ..runtime.compute.lowered_execution import execute_reduction_with_loops
         from ..passes.einstein_lowering import _defid_of_var_in_expr
         loc = getattr(expr, "location", None)
@@ -796,7 +802,6 @@ class ExpressionVisitorMixin:
                     self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
             from ..runtime.compute.lowered_execution import check_lowered_guards
             return check_lowered_guards(expr.guards, _ctx, lambda c: self._to_bool(c.accept(self)))
-        parallel_shape = getattr(self, "_vectorize_parallel_shape", None)
         return execute_reduction_with_loops(
             getattr(expr, "operation", "sum"),
             getattr(expr, "reduction_ranges", {}),
@@ -807,6 +812,9 @@ class ExpressionVisitorMixin:
             profile_callback=reduction_profile if profile_reductions else None,
             parallel_shape=parallel_shape,
         )
+
+    def visit_lowered_reduction(self, expr: LoweredReductionIR) -> Any:
+        return self.evaluate_lowered_reduction(expr, parallel_shape=None)
 
     def visit_where_expression(self, expr: WhereExpressionIR) -> Any:
         constraints = getattr(expr, "constraints", []) or []
