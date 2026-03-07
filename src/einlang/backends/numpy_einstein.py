@@ -9,17 +9,89 @@ import numpy as np
 from ..ir.nodes import (
     LiteralIR, RangeIR, LoweredEinsteinIR, LoweredEinsteinClauseIR,
     LoweredReductionIR, ReductionExpressionIR, BinaryOpIR, RectangularAccessIR, IndexVarIR,
-    FunctionCallIR, IdentifierIR, IfExpressionIR,
+    FunctionCallIR, IdentifierIR, IfExpressionIR, BlockExpressionIR,
     is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
 from .numpy_helpers import _reject_non_lowered
 
 
+def _reduction_uses_clause_var_in_bounds(expr: Any, clause_loop_defids: List[Any]) -> bool:
+    """True if any LoweredReductionIR in expr has a loop whose iterable references a clause loop var (dynamic bounds)."""
+    if expr is None or not clause_loop_defids:
+        return False
+    if isinstance(expr, LoweredReductionIR):
+        for loop in getattr(expr, "loops", None) or []:
+            it = getattr(loop, "iterable", None)
+            if it is not None and any(_body_references_defid(it, d) for d in clause_loop_defids):
+                return True
+        return False
+    if isinstance(expr, BinaryOpIR):
+        return (
+            _reduction_uses_clause_var_in_bounds(getattr(expr, "left", None), clause_loop_defids)
+            or _reduction_uses_clause_var_in_bounds(getattr(expr, "right", None), clause_loop_defids)
+        )
+    if isinstance(expr, RectangularAccessIR):
+        if _reduction_uses_clause_var_in_bounds(getattr(expr, "array", None), clause_loop_defids):
+            return True
+        for idx in getattr(expr, "indices", None) or []:
+            if _reduction_uses_clause_var_in_bounds(idx, clause_loop_defids):
+                return True
+        return False
+    if isinstance(expr, FunctionCallIR):
+        if _reduction_uses_clause_var_in_bounds(getattr(expr, "callee_expr", None), clause_loop_defids):
+            return True
+        for a in getattr(expr, "arguments", None) or []:
+            if _reduction_uses_clause_var_in_bounds(a, clause_loop_defids):
+                return True
+        return False
+    if hasattr(expr, "operand"):
+        return _reduction_uses_clause_var_in_bounds(getattr(expr, "operand", None), clause_loop_defids)
+    if hasattr(expr, "expr"):
+        return _reduction_uses_clause_var_in_bounds(getattr(expr, "expr", None), clause_loop_defids)
+    if hasattr(expr, "condition"):
+        return (
+            _reduction_uses_clause_var_in_bounds(getattr(expr, "condition", None), clause_loop_defids)
+            or _reduction_uses_clause_var_in_bounds(getattr(expr, "then_expr", None), clause_loop_defids)
+            or _reduction_uses_clause_var_in_bounds(getattr(expr, "else_expr", None), clause_loop_defids)
+        )
+    return False
+
+
+def _count_reduction_dims_in_expr(expr: Any) -> int:
+    """Return max number of reduction dimensions in any LoweredReductionIR in expr (0 if none)."""
+    if expr is None:
+        return 0
+    if isinstance(expr, LoweredReductionIR):
+        return len(getattr(expr, "loops", None) or [])
+    n = 0
+    if isinstance(expr, BinaryOpIR):
+        n = max(_count_reduction_dims_in_expr(getattr(expr, "left", None)), _count_reduction_dims_in_expr(getattr(expr, "right", None)))
+    elif isinstance(expr, RectangularAccessIR):
+        n = _count_reduction_dims_in_expr(getattr(expr, "array", None))
+        for idx in getattr(expr, "indices", None) or []:
+            n = max(n, _count_reduction_dims_in_expr(idx))
+    elif isinstance(expr, FunctionCallIR):
+        n = _count_reduction_dims_in_expr(getattr(expr, "callee_expr", None))
+        for a in getattr(expr, "arguments", None) or []:
+            n = max(n, _count_reduction_dims_in_expr(a))
+    elif hasattr(expr, "operand"):
+        n = _count_reduction_dims_in_expr(getattr(expr, "operand", None))
+    elif hasattr(expr, "expr"):
+        n = _count_reduction_dims_in_expr(getattr(expr, "expr", None))
+    elif hasattr(expr, "condition"):
+        n = max(
+            _count_reduction_dims_in_expr(getattr(expr, "condition", None)),
+            _count_reduction_dims_in_expr(getattr(expr, "then_expr", None)),
+            _count_reduction_dims_in_expr(getattr(expr, "else_expr", None)),
+        )
+    return n
+
+
 def _body_references_defid(expr: Any, target_defid: Any) -> bool:
     if target_defid is None:
         return False
-    if isinstance(expr, IdentifierIR):
+    if isinstance(expr, (IdentifierIR, IndexVarIR)):
         return getattr(expr, "defid", None) == target_defid
     if isinstance(expr, RectangularAccessIR):
         if _body_references_defid(expr.array, target_defid):
@@ -37,6 +109,26 @@ def _body_references_defid(expr: Any, target_defid: Any) -> bool:
             if _body_references_defid(a, target_defid):
                 return True
         return False
+    if isinstance(expr, RangeIR):
+        return _body_references_defid(getattr(expr, "start", None), target_defid) or _body_references_defid(
+            getattr(expr, "end", None), target_defid
+        )
+    if isinstance(expr, BlockExpressionIR):
+        for stmt in getattr(expr, "statements", []) or []:
+            if _body_references_defid(stmt, target_defid):
+                return True
+        return _body_references_defid(getattr(expr, "final_expr", None), target_defid)
+    # Recurse into binding RHS (e.g. let z_cell = sum(...)(... * hidden[t-1,...]) + ...)
+    if hasattr(expr, "expr") and getattr(expr, "expr", None) is not None:
+        return _body_references_defid(getattr(expr, "expr", None), target_defid)
+    if hasattr(expr, "body") and getattr(expr, "body", None) is not None:
+        return _body_references_defid(getattr(expr, "body", None), target_defid)
+    if hasattr(expr, "then_expr") or hasattr(expr, "else_expr"):
+        return (
+            _body_references_defid(getattr(expr, "condition", None), target_defid)
+            or _body_references_defid(getattr(expr, "then_expr", None), target_defid)
+            or _body_references_defid(getattr(expr, "else_expr", None), target_defid)
+        )
     return False
 
 
@@ -58,12 +150,81 @@ def _body_contains_call_using_loop_var(expr: Any, loop_defids: List[Any]) -> boo
         )
     if isinstance(expr, BinaryOpIR):
         return _body_contains_call_using_loop_var(getattr(expr, "left", None), loop_defids) or _body_contains_call_using_loop_var(getattr(expr, "right", None), loop_defids)
+    if isinstance(expr, BlockExpressionIR):
+        for stmt in getattr(expr, "statements", []) or []:
+            if _body_contains_call_using_loop_var(stmt, loop_defids):
+                return True
+        return _body_contains_call_using_loop_var(getattr(expr, "final_expr", None), loop_defids)
     if hasattr(expr, "expr"):
         return _body_contains_call_using_loop_var(getattr(expr, "expr", None), loop_defids)
     if hasattr(expr, "inner_pattern"):
         return _body_contains_call_using_loop_var(getattr(expr, "inner_pattern", None), loop_defids)
     if hasattr(expr, "patterns"):
         return any(_body_contains_call_using_loop_var(p, loop_defids) for p in (getattr(expr, "patterns", None) or []))
+    return False
+
+
+def _collect_defids_in_call_args(expr: Any, loop_defids: List[Any], out: set, inside_call: bool = False) -> None:
+    """Add to out any loop defid referenced inside a call's arguments or callee (not in outer indexing like result[j])."""
+    if expr is None or not loop_defids:
+        return
+    if isinstance(expr, (IdentifierIR, IndexVarIR)):
+        d = getattr(expr, "defid", None)
+        if d in loop_defids:
+            out.add(d)
+        return
+    if isinstance(expr, RectangularAccessIR):
+        _collect_defids_in_call_args(expr.array, loop_defids, out, inside_call)
+        if inside_call:
+            for idx in getattr(expr, "indices", None) or []:
+                _collect_defids_in_call_args(idx, loop_defids, out, inside_call)
+        return
+    if isinstance(expr, BinaryOpIR):
+        _collect_defids_in_call_args(getattr(expr, "left", None), loop_defids, out, inside_call)
+        _collect_defids_in_call_args(getattr(expr, "right", None), loop_defids, out, inside_call)
+        return
+    if isinstance(expr, FunctionCallIR):
+        for a in getattr(expr, "arguments", []) or []:
+            _collect_defids_in_call_args(a, loop_defids, out, inside_call=True)
+        _collect_defids_in_call_args(getattr(expr, "callee_expr", None), loop_defids, out, inside_call=True)
+        return
+    if isinstance(expr, BlockExpressionIR):
+        for stmt in getattr(expr, "statements", []) or []:
+            _collect_defids_in_call_args(stmt, loop_defids, out, inside_call)
+        _collect_defids_in_call_args(getattr(expr, "final_expr", None), loop_defids, out, inside_call)
+        return
+    if hasattr(expr, "expr"):
+        _collect_defids_in_call_args(getattr(expr, "expr", None), loop_defids, out, inside_call)
+    if hasattr(expr, "inner_pattern"):
+        _collect_defids_in_call_args(getattr(expr, "inner_pattern", None), loop_defids, out, inside_call)
+    if hasattr(expr, "patterns"):
+        for p in getattr(expr, "patterns", None) or []:
+            _collect_defids_in_call_args(p, loop_defids, out, inside_call)
+
+
+def _loop_defids_in_call_args(body: Any, loop_defids: List[Any]) -> set:
+    """Loop defids that appear in any call's arguments (or callee). Those dims must be scalar for call-scalar hybrid."""
+    loop_set = {d for d in loop_defids if d is not None}
+    out: set = set()
+    _collect_defids_in_call_args(body, list(loop_set), out)
+    return out
+
+
+def _body_is_elementwise_call(body: Any, loop_defids: List[Any]) -> bool:
+    """True if the body is (or ends in) a single function call and every loop var appears in that call's arguments.
+    Such clauses are element-wise and must use the vectorized path (one call with full array), not the scalar loop."""
+    if body is None or not loop_defids:
+        return False
+    loop_set = {d for d in loop_defids if d is not None}
+    if not loop_set:
+        return False
+    in_call = _loop_defids_in_call_args(body, loop_defids)
+    if in_call != loop_set:
+        return False
+    if isinstance(body, FunctionCallIR):
+        return True
+    if isinstance(body, BlockExpressionIR):
+        return _body_is_elementwise_call(getattr(body, "final_expr", None), loop_defids)
     return False
 
 
@@ -90,6 +251,18 @@ def _collect_lhs_read_index_lists(body: Any, target_defid: Any) -> List[List[Any
         for a in getattr(body, "arguments", []) or []:
             out.extend(_collect_lhs_read_index_lists(a, target_defid))
         out.extend(_collect_lhs_read_index_lists(getattr(body, "callee_expr", None), target_defid))
+    elif isinstance(body, BlockExpressionIR):
+        for stmt in getattr(body, "statements", []) or []:
+            out.extend(_collect_lhs_read_index_lists(stmt, target_defid))
+        out.extend(_collect_lhs_read_index_lists(getattr(body, "final_expr", None), target_defid))
+    elif hasattr(body, "expr") and getattr(body, "expr", None) is not None:
+        out.extend(_collect_lhs_read_index_lists(getattr(body, "expr", None), target_defid))
+    elif hasattr(body, "body") and getattr(body, "body", None) is not None:
+        out.extend(_collect_lhs_read_index_lists(getattr(body, "body", None), target_defid))
+    elif hasattr(body, "then_expr") or hasattr(body, "else_expr"):
+        out.extend(_collect_lhs_read_index_lists(getattr(body, "condition", None), target_defid))
+        out.extend(_collect_lhs_read_index_lists(getattr(body, "then_expr", None), target_defid))
+        out.extend(_collect_lhs_read_index_lists(getattr(body, "else_expr", None), target_defid))
     return out
 
 
@@ -111,6 +284,36 @@ def _recurrence_dims(lowered: Any, variable_defid: Any) -> List[int]:
                 recurrence.append(d)
                 break
     return recurrence
+
+
+def _slice_list_from_clause_indices(
+    clause_indices: List[Any],
+    lowered: Any,
+    expr_evaluator: Any,
+) -> Optional[List[Any]]:
+    """Build full-dimension slice list: literal idx -> scalar (int), other indices -> slice from loop range.
+    Rule: literal idx / self-ref -> scalar, other indices -> vectorize (slice)."""
+    if not clause_indices:
+        return None
+    out: List[Any] = []
+    loop_pos = 0
+    loops = getattr(lowered, "loops", None) or []
+    for idx in clause_indices:
+        if isinstance(idx, LiteralIR):
+            try:
+                out.append(int(idx.value))
+            except (TypeError, ValueError):
+                return None
+        elif loop_pos < len(loops):
+            try:
+                start, end = _extract_loop_range(loops[loop_pos], expr_evaluator)
+                out.append(slice(int(start), int(end)))
+            except (RuntimeError, TypeError, ValueError):
+                return None
+            loop_pos += 1
+        else:
+            return None
+    return out if loop_pos == len(loops) else None
 
 
 def _extract_loop_range(loop, evaluator) -> Tuple[int, int]:
@@ -140,6 +343,52 @@ def _extract_loop_range(loop, evaluator) -> Tuple[int, int]:
     raise RuntimeError("loop iterable is not a range or literal range; cannot extract (start, end)")
 
 
+def _eval_clause_body_with_broadcast_loops(
+    clause: Any,
+    output_shape: List[int],
+    evaluator: Any,
+    backend: Any,
+) -> Optional[Any]:
+    """Evaluate clause body once with loop vars set to broadcast arrays. Returns result or None on failure."""
+    loops = getattr(clause, "loops", None) or []
+    if not loops or getattr(clause, "guards", None) or getattr(clause, "bindings", None):
+        return None
+    clause_ndim = len(loops)
+    n_red = _count_reduction_dims_in_expr(clause.body)
+    ndim = clause_ndim + n_red
+    loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
+    for dim, lp in enumerate(loops):
+        defid = getattr(lp.variable, "defid", None)
+        if defid is None:
+            return None
+        try:
+            r = _extract_loop_range(lp, evaluator)
+        except RuntimeError:
+            return None
+        name = getattr(lp.variable, "name", None)
+        loop_info.append((defid, r, name))
+    clause_loop_defids = [defid for (defid, _, _) in loop_info]
+    if _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids):
+        return None
+    try:
+        with backend.env.scope():
+            for dim, (defid, rng, name) in enumerate(loop_info):
+                start, end = rng
+                sz = end - start
+                shape = [1] * ndim
+                shape[dim] = sz
+                arr = np.arange(start, end, dtype=np.intp).reshape(shape)
+                backend.env.set_value(defid, arr, name=name)
+            parallel_shape_tuple = tuple(output_shape)
+            try:
+                setattr(backend, "_vectorize_parallel_shape", parallel_shape_tuple)
+                return clause.body.accept(backend)
+            finally:
+                setattr(backend, "_vectorize_parallel_shape", None)
+    except Exception:
+        return None
+
+
 def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
     """
     General vectorization: set loop variables to broadcast numpy arrays,
@@ -156,7 +405,10 @@ def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
     if clause.bindings:
         return None
 
-    ndim = len(loops)
+    clause_ndim = len(loops)
+    n_red = _count_reduction_dims_in_expr(clause.body)
+    ndim = clause_ndim + n_red
+
     loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
     for dim, lp in enumerate(loops):
         defid = getattr(lp.variable, "defid", None)
@@ -166,78 +418,35 @@ def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
         name = getattr(lp.variable, "name", None)
         loop_info.append((defid, r, name))
 
+    clause_loop_defids = [defid for (defid, _, _) in loop_info]
+    if _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids):
+        return None
+
     try:
-        with backend.env.scope():
-            for dim, (defid, rng, name) in enumerate(loop_info):
-                start, end = rng
-                sz = end - start
-                shape = [1] * ndim
-                shape[dim] = sz
-                arr = np.arange(start, end, dtype=np.intp).reshape(shape)
-                backend.env.set_value(defid, arr, name=name)
-
-            body = getattr(clause, "body", None)
-            if isinstance(body, IfExpressionIR):
-                cond = body.condition.accept(backend)
-                if isinstance(cond, np.ndarray) and cond.ndim > 0:
-                    # If-expr as scalar RHS: evaluate only the taken branch at each point via vectorized indexing.
-                    valid = np.asarray(cond, dtype=bool)
-                    expected_shape = tuple(output_shape)
-                    result = np.zeros(expected_shape, dtype=dtype)
-                    n_valid = int(np.sum(valid))
-                    valid_indices = np.where(valid)
-                    if len(valid_indices) == ndim and n_valid > 0:
-                        with backend.env.scope():
-                            for dim, (defid, _, name) in enumerate(loop_info):
-                                backend.env.set_value(defid, valid_indices[dim], name=name)
-                        then_val = body.then_expr.accept(backend)
-                        then_flat = np.asarray(then_val, dtype=dtype).ravel()[:n_valid]
-                        if then_flat.size >= n_valid:
-                            result[valid] = then_flat[:n_valid]
-                    n_invalid = int(np.sum(~valid))
-                    invalid_indices = np.where(~valid)
-                    if len(invalid_indices) == ndim and n_invalid > 0:
-                        with backend.env.scope():
-                            for dim, (defid, _, name) in enumerate(loop_info):
-                                backend.env.set_value(defid, invalid_indices[dim], name=name)
-                        else_expr = getattr(body, "else_expr", None)
-                        else_val = else_expr.accept(backend) if else_expr else None
-                        if else_val is not None:
-                            else_flat = np.asarray(else_val, dtype=dtype).ravel()[:n_invalid]
-                            if else_flat.size >= n_invalid:
-                                result[~valid] = else_flat[:n_invalid]
-                            else:
-                                result[~valid] = dtype(0.0)
-                        else:
-                            result[~valid] = dtype(0.0)
-                    elif n_invalid > 0:
-                        result[~valid] = dtype(0.0)
-                else:
-                    result = clause.body.accept(backend)
-            else:
-                result = clause.body.accept(backend)
-
-            if isinstance(result, np.ndarray):
-                expected = tuple(output_shape)
-                ranges = [(start, end) for (_, (start, end), _) in loop_info]
-                range_is_full = len(ranges) == len(expected) and all(
-                    start == 0 and end == expected[dim] for dim, (start, end) in enumerate(ranges)
-                )
-                if result.shape == expected:
-                    return result.astype(dtype)
-                if not range_is_full:
-                    full = np.zeros(expected, dtype=dtype)
-                    slices = tuple(slice(int(start), int(end)) for (start, end) in ranges)
-                    full[slices] = result.astype(dtype)
-                    return full
-                if result.size == np.prod(expected):
-                    return result.reshape(expected).astype(dtype)
-                try:
-                    return np.broadcast_to(result, expected).copy().astype(dtype)
-                except ValueError:
-                    return None
-            elif isinstance(result, (int, float, np.integer, np.floating)):
-                return np.full(output_shape, result, dtype=dtype)
+        result = _eval_clause_body_with_broadcast_loops(clause, output_shape, evaluator, backend)
+        if result is None:
+            return None
+        if isinstance(result, np.ndarray):
+            expected = tuple(output_shape)
+            ranges = [(start, end) for (_, (start, end), _) in loop_info]
+            range_is_full = len(ranges) == len(expected) and all(
+                start == 0 and end == expected[dim] for dim, (start, end) in enumerate(ranges)
+            )
+            if result.shape == expected:
+                return result.astype(dtype)
+            if not range_is_full:
+                full = np.zeros(expected, dtype=dtype)
+                slices = tuple(slice(int(start), int(end)) for (start, end) in ranges)
+                full[slices] = result.astype(dtype)
+                return full
+            if result.size == np.prod(expected):
+                return result.reshape(expected).astype(dtype)
+            try:
+                return np.broadcast_to(result, expected).copy().astype(dtype)
+            except ValueError:
+                return None
+        if isinstance(result, (int, float, np.integer, np.floating)):
+            return np.full(output_shape, result, dtype=dtype)
     except Exception as e:
         if os.environ.get("EINLANG_DEBUG_VECTORIZE"):
             import traceback
@@ -278,7 +487,7 @@ def _try_hybrid_vectorize_clause(
         name = getattr(lp.variable, "name", None)
         loop_info.append((defid, r, name))
     recurrence_loops = [loops[d] for d in recurrence_dims]
-    _MAX = int(os.environ.get("EINLANG_EINSTEIN_LOOP_MAX", "1000000"))
+    _MAX = int(os.environ.get("EINLANG_EINSTEIN_LOOP_MAX", "100"))
     n_iter = [0]
     try:
         for rec_context in execute_lowered_loops(recurrence_loops, {}, expr_evaluator):
@@ -308,6 +517,77 @@ def _try_hybrid_vectorize_clause(
                     slice_list.append(slice(int(start), int(end)))
             try:
                 squeezed = np.squeeze(result, axis=tuple(recurrence_dims))
+            except ValueError:
+                return None
+            output[tuple(slice_list)] = squeezed.astype(output.dtype)
+        return output
+    except Exception:
+        return None
+
+
+def _try_call_scalar_vectorize_clause(
+    clause: Any,
+    output_shape: List[int],
+    output: np.ndarray,
+    scalar_loop_indices: List[int],
+    expr_evaluator: Any,
+    backend: Any,
+) -> Optional[np.ndarray]:
+    """
+    When body has a non-element-wise call using some loop vars: iterate over those (scalar),
+    vectorize over the rest. E.g. topk_2d_row_values(X, i, ...)[j]: scalar over i, vector over j.
+    """
+    from ..runtime.compute.lowered_execution import execute_lowered_loops
+    loops = getattr(clause, "loops", None) or []
+    if not loops or clause.guards or clause.bindings:
+        return None
+    ndim = len(loops)
+    scalar_set = set(scalar_loop_indices)
+    if not (0 < len(scalar_set) < ndim):
+        return None
+    vector_dims = [d for d in range(ndim) if d not in scalar_set]
+    loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
+    for dim, lp in enumerate(loops):
+        defid = getattr(lp.variable, "defid", None)
+        if defid is None:
+            return None
+        try:
+            r = _extract_loop_range(lp, expr_evaluator)
+        except RuntimeError:
+            return None
+        name = getattr(lp.variable, "name", None)
+        loop_info.append((defid, r, name))
+    scalar_loops = [loops[d] for d in scalar_loop_indices]
+    _MAX = int(os.environ.get("EINLANG_EINSTEIN_LOOP_MAX", "100"))
+    n_iter = [0]
+    try:
+        for scalar_context in execute_lowered_loops(scalar_loops, {}, expr_evaluator):
+            n_iter[0] += 1
+            if n_iter[0] > _MAX:
+                return None
+            with backend.env.scope():
+                for dim in range(ndim):
+                    defid, (start, end), name = loop_info[dim]
+                    if dim in scalar_set:
+                        backend.env.set_value(defid, scalar_context[defid], name=name)
+                    else:
+                        sz = end - start
+                        shape = [1] * ndim
+                        shape[dim] = sz
+                        arr = np.arange(start, end, dtype=np.intp).reshape(shape)
+                        backend.env.set_value(defid, arr, name=name)
+                result = clause.body.accept(backend)
+            if not isinstance(result, np.ndarray):
+                return None
+            slice_list: List[Any] = []
+            for dim in range(ndim):
+                if dim in scalar_set:
+                    slice_list.append(scalar_context[loop_info[dim][0]])
+                else:
+                    start, end = loop_info[dim][1]
+                    slice_list.append(slice(int(start), int(end)))
+            try:
+                squeezed = np.squeeze(result, axis=tuple(scalar_loop_indices))
             except ValueError:
                 return None
             output[tuple(slice_list)] = squeezed.astype(output.dtype)
@@ -358,8 +638,7 @@ class EinsteinExecutionMixin:
         return None
 
     def _dtype_for_clause_result(self, clause_body: Any, tensor_element_type: Any) -> Any:
-        """Dtype for values produced by evaluating the clause body (scalar path: value = body.accept(self)).
-        Use same source of truth for both main allocation and per-clause allocation."""
+        """Dtype from type pass only: tensor_element_type, then clause body type_info."""
         dtype = self._type_info_to_numpy_dtype(tensor_element_type)
         if dtype is not None:
             return dtype
@@ -378,65 +657,7 @@ class EinsteinExecutionMixin:
                     dtype = self._type_info_to_numpy_dtype(ti)
                     if dtype is not None:
                         return dtype
-        if self._body_implies_float(clause_body):
-            return np.float32
         return np.int32
-
-    def _body_implies_float(self, body: Any) -> bool:
-        from ..ir.nodes import FunctionCallIR, BinaryOpIR
-        from ..shared.types import PrimitiveType
-        if body is None:
-            return False
-        if isinstance(body, (LoweredReductionIR, ReductionExpressionIR)):
-            return self._body_implies_float(getattr(body, "body", None))
-        if isinstance(body, LiteralIR):
-            v = getattr(body, "value", None)
-            return v is not None and isinstance(v, (float, np.floating))
-        if isinstance(body, RectangularAccessIR):
-            arr = getattr(body, "array", None)
-            if arr is not None:
-                t = getattr(arr, "type_info", None)
-                if t is not None:
-                    el = getattr(t, "element_type", None) or t
-                    if isinstance(el, PrimitiveType) and (getattr(el, "name", None) or "").lower() in ("f32", "f64", "float"):
-                        return True
-                defid = getattr(arr, "defid", None)
-                if defid is not None and hasattr(self, "env"):
-                    try:
-                        val = self.env.get_value(defid)
-                        if isinstance(val, np.ndarray) and np.issubdtype(val.dtype, np.floating):
-                            return True
-                    except Exception:
-                        pass
-            t = getattr(body, "type_info", None)
-            if t is not None:
-                el = getattr(t, "element_type", None) or t
-                if isinstance(el, PrimitiveType) and (getattr(el, "name", None) or "").lower() in ("f32", "f64", "float"):
-                    return True
-        if isinstance(body, FunctionCallIR):
-            name = (body.function_name or "").lower()
-            if name in ("exp", "ln", "log", "sqrt", "sigmoid", "tanh"):
-                return True
-        if isinstance(body, BinaryOpIR):
-            from ..shared.types import BinaryOp
-            op = getattr(body, "operator", None)
-            op_val = getattr(op, "value", None) if op is not None else None
-            if op in (BinaryOp.MUL, BinaryOp.DIV, BinaryOp.POW) or op_val in ("/", "**", "*"):
-                for operand in (body.left, body.right):
-                    if self._body_implies_float(operand):
-                        return True
-            for operand in (body.left, body.right):
-                if operand is not None:
-                    t = getattr(operand, "type_info", None)
-                    if t is not None:
-                        el = getattr(t, "element_type", None) or t
-                        if isinstance(el, PrimitiveType) and (getattr(el, "name", None) or "").lower() in ("f32", "f64", "float"):
-                            return True
-            if body.left and self._body_implies_float(body.left):
-                return True
-            if body.right and self._body_implies_float(body.right):
-                return True
-        return False
 
     def _get_defid_for_pattern_var(self, var_name: str, pattern: Any) -> Optional[DefId]:
         if hasattr(pattern, "name") and pattern.name == var_name:
@@ -489,24 +710,8 @@ class EinsteinExecutionMixin:
         if not output_shape:
             output_shape = [1]
         dtype = self._type_info_to_numpy_dtype(tensor_element_type)
-        if dtype is None and lowered_einstein.items:
-            first_body = lowered_einstein.items[0].body
-            dtype = self._dtype_for_clause_result(first_body, None)
         if dtype is None:
             dtype = np.int32
-        if dtype == np.int32 and lowered_einstein.items:
-            first_body = lowered_einstein.items[0].body
-            if isinstance(first_body, ReductionExpressionIR):
-                body = getattr(first_body, "body", None)
-                if isinstance(body, BinaryOpIR):
-                    from ..shared.types import BinaryOp
-                    op = getattr(body, "operator", None)
-                    if op in (BinaryOp.MUL, BinaryOp.DIV) or (op is not None and getattr(op, "value", None) in ("*", "/")):
-                        if self._body_implies_float(body):
-                            dtype = np.float32
-                        elif getattr(body, "left", None) is not None and getattr(body, "right", None) is not None:
-                            if isinstance(body.left, RectangularAccessIR) or isinstance(body.right, RectangularAccessIR):
-                                dtype = np.float32
 
         # Multi-segment: reuse existing array if this variable was already
         # declared (e.g. pad's `let result[i in 0..p] = ...; let result[i in p..n] = ...;`)
@@ -696,74 +901,210 @@ class EinsteinExecutionMixin:
             return expr.accept(self)
 
         has_literal_idx = any(isinstance(idx, LiteralIR) for idx in clause_indices)
-        # Skip vectorization for clauses with if/else or bodies that call functions with loop-var args; use scalar path.
         body_node = getattr(lowered, "body", None)
-        has_if_body = isinstance(body_node, IfExpressionIR)
         loop_defids = [getattr(lp.variable, "defid", None) for lp in (lowered.loops or [])]
         has_call_using_loop = _body_contains_call_using_loop_var(body_node, [d for d in loop_defids if d is not None])
-        if lowered.loops and not has_literal_idx and not has_if_body and not has_call_using_loop:
+        # When body has a call that uses loop vars in its args (e.g. topk_2d_row_values(X, i, ...)), those vars must be scalar.
+        # Try call-scalar first so we don't use wrong full-vectorize result (array-valued row index).
+        if (
+            lowered.loops
+            and not has_literal_idx
+            and has_call_using_loop
+        ):
+            scalar_defids = _loop_defids_in_call_args(body_node, loop_defids)
+            scalar_loop_indices_call = [
+                dim
+                for dim, lp in enumerate(lowered.loops)
+                if getattr(lp.variable, "defid", None) in scalar_defids
+            ]
+            if 0 < len(scalar_loop_indices_call) < len(lowered.loops):
+                call_hybrid_out = _try_call_scalar_vectorize_clause(
+                    lowered,
+                    list(output.shape),
+                    output,
+                    scalar_loop_indices_call,
+                    expr_evaluator,
+                    backend=self,
+                )
+                if call_hybrid_out is not None:
+                    if variable_defid:
+                        self.env.set_value(variable_defid, output)
+                    if _debug_vec:
+                        print(f"[call-scalar] L{line}", flush=True)
+                    _record_profile()
+                    return output
+        # Literal idx / self-ref (recurrence) -> scalar; other indices -> vectorize.
+        # When body has recurrence (reads LHS at different index), try hybrid first so we read prior timestep correctly.
+        recurrence_needs_scalar = False
+        if (
+            lowered.loops
+            and variable_defid is not None
+            and _body_references_defid(body_node, variable_defid)
+        ):
+            recurrence_dims = _recurrence_dims(lowered, variable_defid)
+            if 0 < len(recurrence_dims) < len(lowered.loops):
+                hybrid_out = _try_hybrid_vectorize_clause(
+                    lowered, list(output.shape), output, variable_defid, expr_evaluator, backend=self,
+                )
+                if hybrid_out is not None:
+                    if variable_defid:
+                        self.env.set_value(variable_defid, output)
+                    if _debug_vec:
+                        print(f"[hybrid] L{line}", flush=True)
+                    _record_profile()
+                    return output
+                recurrence_needs_scalar = True  # hybrid failed; use scalar path so we read LHS[t-1] correctly
+        # Try full vectorize over loop dims (literal idx -> fixed slice; other dims -> vectorize).
+        if lowered.loops:
+            # When clause has literal indices, vectorize only over loop dims so result shape matches loop dims.
+            vec_shape = list(output.shape)
+            if has_literal_idx and len(clause_indices) == output.ndim:
+                try:
+                    vec_shape = [int(_extract_loop_range(lp, expr_evaluator)[1]) - int(_extract_loop_range(lp, expr_evaluator)[0]) for lp in lowered.loops]
+                except (RuntimeError, TypeError, ValueError):
+                    vec_shape = list(output.shape)
             vec_result = _try_vectorize_clause(
-                lowered, list(output.shape), output.dtype, expr_evaluator, backend=self,
+                lowered, vec_shape, output.dtype, expr_evaluator, backend=self,
             )
+            if recurrence_needs_scalar and vec_result is not None:
+                vec_result = None  # force scalar path so recurrence reads prior timestep correctly
             if vec_result is not None:
                 vec_result = np.asarray(vec_result)
+                slice_list_from_indices = (
+                    _slice_list_from_clause_indices(clause_indices, lowered, expr_evaluator)
+                    if has_literal_idx and len(clause_indices) == output.ndim
+                    else None
+                )
                 if vec_result.shape == output.shape:
                     if pre_allocated_output is not None and lowered.loops:
-                        slices_list_partial: List[slice] = []
+                        slices_list_partial: List[Any] = []
                         try:
-                            for lp in lowered.loops:
-                                start, end = _extract_loop_range(lp, expr_evaluator)
-                                slices_list_partial.append(slice(int(start), int(end)))
+                            if slice_list_from_indices is not None:
+                                slices_list_partial = slice_list_from_indices
+                            else:
+                                for lp in lowered.loops:
+                                    start, end = _extract_loop_range(lp, expr_evaluator)
+                                    slices_list_partial.append(slice(int(start), int(end)))
                         except RuntimeError:
                             slices_list_partial = []
-                        range_is_full_partial = (
-                            len(slices_list_partial) == len(lowered.loops)
-                            and all(s.start == 0 and s.stop == output.shape[i] for i, s in enumerate(slices_list_partial))
-                        )
-                        if len(slices_list_partial) == len(lowered.loops) and not range_is_full_partial:
-                            recurrence_dims = _recurrence_dims(lowered, variable_defid) if _body_references_defid(lowered.body, variable_defid) else []
-                            if recurrence_dims:
-                                hybrid_out = _try_hybrid_vectorize_clause(
-                                    lowered, list(output.shape), output, variable_defid, expr_evaluator, backend=self,
-                                )
-                                if hybrid_out is not None:
-                                    if variable_defid:
-                                        self.env.set_value(variable_defid, output)
-                                    if _debug_vec:
-                                        print(f"[hybrid] L{line}", flush=True)
-                                    _record_profile()
-                                    return output
-                                vec_result = None
-                            else:
-                                output[tuple(slices_list_partial)] = vec_result[tuple(slices_list_partial)].astype(output.dtype)
+                        if slice_list_from_indices is not None and len(slices_list_partial) == output.ndim:
+                            output[tuple(slices_list_partial)] = vec_result.astype(output.dtype)
                         else:
-                            output[:] = vec_result
+                            range_is_full_partial = (
+                                len(slices_list_partial) == len(lowered.loops)
+                                and all(s.start == 0 and s.stop == output.shape[i] for i, s in enumerate(slices_list_partial) if isinstance(s, slice))
+                            )
+                            if len(slices_list_partial) == len(lowered.loops) and not range_is_full_partial:
+                                recurrence_dims = _recurrence_dims(lowered, variable_defid) if _body_references_defid(lowered.body, variable_defid) else []
+                                if recurrence_dims:
+                                    hybrid_out = _try_hybrid_vectorize_clause(
+                                        lowered, list(output.shape), output, variable_defid, expr_evaluator, backend=self,
+                                    )
+                                    if hybrid_out is not None:
+                                        if variable_defid:
+                                            self.env.set_value(variable_defid, output)
+                                        if _debug_vec:
+                                            print(f"[hybrid] L{line}", flush=True)
+                                        _record_profile()
+                                        return output
+                                    vec_result = None
+                                else:
+                                    output[tuple(slices_list_partial)] = vec_result[tuple(slices_list_partial)].astype(output.dtype)
+                            else:
+                                output[:] = vec_result
                     else:
                         output[:] = vec_result
                 if vec_result is not None:
-                    if vec_result.shape != output.shape and vec_result.size == output.size:
+                    if slice_list_from_indices is not None and len(slice_list_from_indices) == output.ndim:
+                        output[tuple(slice_list_from_indices)] = vec_result.astype(output.dtype)
+                    elif vec_result.shape != output.shape and vec_result.size == output.size:
                         output[:] = vec_result.reshape(output.shape)
                     elif pre_allocated_output is not None and vec_result.ndim == output.ndim:
-                        slices_list: List[slice] = []
+                        slices_list: List[Any] = []
                         try:
-                            for lp in lowered.loops:
-                                start, end = _extract_loop_range(lp, expr_evaluator)
-                                slices_list.append(slice(int(start), int(end)))
+                            if slice_list_from_indices is not None and len(slice_list_from_indices) == output.ndim:
+                                slices_list = slice_list_from_indices
+                            else:
+                                for lp in lowered.loops:
+                                    start, end = _extract_loop_range(lp, expr_evaluator)
+                                    slices_list.append(slice(int(start), int(end)))
                         except RuntimeError:
                             slices_list = []
-                        range_is_full = (
-                            len(slices_list) == len(lowered.loops)
-                            and all(s.start == 0 and s.stop == output.shape[i] for i, s in enumerate(slices_list))
-                        )
-                        if len(slices_list) == len(lowered.loops):
-                            if range_is_full:
-                                output[:] = np.broadcast_to(vec_result.astype(output.dtype), output.shape)
-                            else:
-                                output[tuple(slices_list)] = vec_result[tuple(slices_list)].astype(output.dtype)
+                        if slice_list_from_indices is not None and len(slices_list) == output.ndim:
+                            output[tuple(slices_list)] = vec_result.astype(output.dtype)
                         else:
-                            output[:] = np.broadcast_to(vec_result, output.shape)
+                            range_is_full = (
+                                len(slices_list) == len(lowered.loops)
+                                and all(s.start == 0 and s.stop == output.shape[i] for i, s in enumerate(slices_list))
+                            )
+                            if len(slices_list) == len(lowered.loops):
+                                if range_is_full:
+                                    output[:] = np.broadcast_to(vec_result.astype(output.dtype), output.shape)
+                                else:
+                                    output[tuple(slices_list)] = vec_result[tuple(slices_list)].astype(output.dtype)
+                            else:
+                                output[:] = np.broadcast_to(vec_result, output.shape)
                     else:
                         output[:] = np.broadcast_to(vec_result, output.shape)
+                    if variable_defid:
+                        self.env.set_value(variable_defid, output)
+                    if _debug_vec:
+                        print(f"[vectorized] L{line}", flush=True)
+                    _record_profile()
+                    return output
+
+        # Fallback: call-scalar hybrid when only some loop vars in call args (e.g. topk) and full vectorize failed.
+        if (
+            lowered.loops
+            and not has_literal_idx
+            and has_call_using_loop
+        ):
+            scalar_defids = _loop_defids_in_call_args(body_node, loop_defids)
+            scalar_loop_indices = [
+                dim
+                for dim, lp in enumerate(lowered.loops)
+                if getattr(lp.variable, "defid", None) in scalar_defids
+            ]
+            if 0 < len(scalar_loop_indices) < len(lowered.loops):
+                call_hybrid_out = _try_call_scalar_vectorize_clause(
+                    lowered,
+                    list(output.shape),
+                    output,
+                    scalar_loop_indices,
+                    expr_evaluator,
+                    backend=self,
+                )
+                if call_hybrid_out is not None:
+                    if variable_defid:
+                        self.env.set_value(variable_defid, output)
+                    if _debug_vec:
+                        print(f"[call-scalar] L{line}", flush=True)
+                    _record_profile()
+                    return output
+
+        # Element-wise call (e.g. gelu(fc1[s,k])): must run once with full array, not scalar loop.
+        if (
+            lowered.loops
+            and _body_is_elementwise_call(body_node, loop_defids)
+        ):
+            elem_result = _eval_clause_body_with_broadcast_loops(
+                lowered, list(output.shape), expr_evaluator, self
+            )
+            if elem_result is not None and isinstance(elem_result, np.ndarray):
+                assigned = False
+                if elem_result.shape == output.shape:
+                    output[:] = elem_result.astype(output.dtype, copy=False)
+                    assigned = True
+                elif elem_result.size == output.size:
+                    output.reshape(-1)[:] = elem_result.reshape(-1).astype(output.dtype, copy=False)
+                    assigned = True
+                else:
+                    try:
+                        np.copyto(output, np.broadcast_to(elem_result, output.shape))
+                        assigned = True
+                    except (ValueError, TypeError):
+                        pass
+                if assigned:
                     if variable_defid:
                         self.env.set_value(variable_defid, output)
                     if _debug_vec:
@@ -797,7 +1138,7 @@ class EinsteinExecutionMixin:
                             value = value.item()
                         output[idx_tuple] = value
             else:
-                _MAX = int(os.environ.get("EINLANG_EINSTEIN_LOOP_MAX", "1000000"))
+                _MAX = int(os.environ.get("EINLANG_EINSTEIN_LOOP_MAX", "100"))
                 _n = [0]
                 for loop_context in execute_lowered_loops(lowered.loops, {}, expr_evaluator):
                     _n[0] += 1

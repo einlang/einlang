@@ -69,7 +69,7 @@ pub fn gelu(x) {
     // Works on scalars and tensors (auto-broadcast)
     let sqrt_2_over_pi = 0.7978845608028654;  // sqrt(2/π)
     let coeff = 0.044715;
-    let inner = sqrt_2_over_pi * (x + coeff * x ** 3.0);
+    let inner = sqrt_2_over_pi * (x + coeff * (x * x * x));
     0.5 * x * (1.0 + tanh(inner))
 }
 
