@@ -608,20 +608,16 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             if shape is None and node.indices:
                 shape = self._shape_from_literal_indices(node.indices, node.location)
         
+        # Element type comes only from type pass (decl.expr.element_type or type_info)
         decl_expr = getattr(decl, 'expr', None)
         element_type = getattr(decl_expr, 'element_type', None) if decl_expr is not None else None
-        body_element_type = None
-        body_ti = None
-        if hasattr(node.value, 'body') and node.value.body is not None and isinstance(node.value, ReductionExpressionIR):
-            body_ti = getattr(node.value.body, 'type_info', None)
-            if body_ti is not None:
-                body_element_type = getattr(body_ti, 'element_type', None) or body_ti
-        if element_type is None and body_ti is not None:
-            element_type = body_ti
+        if element_type is None and decl_expr is not None:
+            ti = getattr(decl_expr, 'type_info', None)
+            if ti is not None:
+                element_type = getattr(ti, 'element_type', None) or ti
         if element_type is None and hasattr(node.value, 'type_info') and node.value.type_info:
-            element_type = node.value.type_info
-        if element_type in (I32, I64) and body_element_type in (F32, F64):
-            element_type = body_element_type
+            ti = node.value.type_info
+            element_type = getattr(ti, 'element_type', None) or ti
 
         # Create lowered Einstein clause (range/per-clause only)
         clause_loc = getattr(node, "location", None)

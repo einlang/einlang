@@ -358,8 +358,7 @@ class EinsteinExecutionMixin:
         return None
 
     def _dtype_for_clause_result(self, clause_body: Any, tensor_element_type: Any) -> Any:
-        """Dtype for values produced by evaluating the clause body (scalar path: value = body.accept(self)).
-        Use same source of truth for both main allocation and per-clause allocation."""
+        """Dtype from type pass only: tensor_element_type, then clause body type_info."""
         dtype = self._type_info_to_numpy_dtype(tensor_element_type)
         if dtype is not None:
             return dtype
@@ -378,65 +377,7 @@ class EinsteinExecutionMixin:
                     dtype = self._type_info_to_numpy_dtype(ti)
                     if dtype is not None:
                         return dtype
-        if self._body_implies_float(clause_body):
-            return np.float32
         return np.int32
-
-    def _body_implies_float(self, body: Any) -> bool:
-        from ..ir.nodes import FunctionCallIR, BinaryOpIR
-        from ..shared.types import PrimitiveType
-        if body is None:
-            return False
-        if isinstance(body, (LoweredReductionIR, ReductionExpressionIR)):
-            return self._body_implies_float(getattr(body, "body", None))
-        if isinstance(body, LiteralIR):
-            v = getattr(body, "value", None)
-            return v is not None and isinstance(v, (float, np.floating))
-        if isinstance(body, RectangularAccessIR):
-            arr = getattr(body, "array", None)
-            if arr is not None:
-                t = getattr(arr, "type_info", None)
-                if t is not None:
-                    el = getattr(t, "element_type", None) or t
-                    if isinstance(el, PrimitiveType) and (getattr(el, "name", None) or "").lower() in ("f32", "f64", "float"):
-                        return True
-                defid = getattr(arr, "defid", None)
-                if defid is not None and hasattr(self, "env"):
-                    try:
-                        val = self.env.get_value(defid)
-                        if isinstance(val, np.ndarray) and np.issubdtype(val.dtype, np.floating):
-                            return True
-                    except Exception:
-                        pass
-            t = getattr(body, "type_info", None)
-            if t is not None:
-                el = getattr(t, "element_type", None) or t
-                if isinstance(el, PrimitiveType) and (getattr(el, "name", None) or "").lower() in ("f32", "f64", "float"):
-                    return True
-        if isinstance(body, FunctionCallIR):
-            name = (body.function_name or "").lower()
-            if name in ("exp", "ln", "log", "sqrt", "sigmoid", "tanh"):
-                return True
-        if isinstance(body, BinaryOpIR):
-            from ..shared.types import BinaryOp
-            op = getattr(body, "operator", None)
-            op_val = getattr(op, "value", None) if op is not None else None
-            if op in (BinaryOp.MUL, BinaryOp.DIV, BinaryOp.POW) or op_val in ("/", "**", "*"):
-                for operand in (body.left, body.right):
-                    if self._body_implies_float(operand):
-                        return True
-            for operand in (body.left, body.right):
-                if operand is not None:
-                    t = getattr(operand, "type_info", None)
-                    if t is not None:
-                        el = getattr(t, "element_type", None) or t
-                        if isinstance(el, PrimitiveType) and (getattr(el, "name", None) or "").lower() in ("f32", "f64", "float"):
-                            return True
-            if body.left and self._body_implies_float(body.left):
-                return True
-            if body.right and self._body_implies_float(body.right):
-                return True
-        return False
 
     def _get_defid_for_pattern_var(self, var_name: str, pattern: Any) -> Optional[DefId]:
         if hasattr(pattern, "name") and pattern.name == var_name:
@@ -489,34 +430,8 @@ class EinsteinExecutionMixin:
         if not output_shape:
             output_shape = [1]
         dtype = self._type_info_to_numpy_dtype(tensor_element_type)
-        if dtype is None and lowered_einstein.items:
-            first = lowered_einstein.items[0]
-            type_info = getattr(first.body, "type_info", None)
-            if type_info is None and isinstance(first.body, LoweredReductionIR):
-                type_info = getattr(first.body.body, "type_info", None)
-            if type_info is None and hasattr(first.body, "expr"):
-                type_info = getattr(first.body.expr, "type_info", None)
-            dtype = self._type_info_to_numpy_dtype(type_info)
-        if dtype is None and lowered_einstein.items and self._body_implies_float(lowered_einstein.items[0].body):
-            dtype = np.float32
         if dtype is None:
             dtype = np.int32
-        first_body = lowered_einstein.items[0].body if lowered_einstein.items else None
-        if (first_body is not None and isinstance(first_body, (LoweredReductionIR, ReductionExpressionIR)) and
-                np.issubdtype(dtype, np.integer)):
-            body_ti = getattr(first_body.body, "type_info", None)
-            body_dtype = self._type_info_to_numpy_dtype(body_ti) if body_ti else None
-            if body_dtype is not None and np.issubdtype(body_dtype, np.floating):
-                dtype = np.float32
-            elif self._body_implies_float(first_body):
-                dtype = np.float32
-            else:
-                op_name = (getattr(first_body, "operation", None) or "").lower()
-                body_expr = getattr(first_body, "body", None)
-                if op_name == "sum" and isinstance(body_expr, BinaryOpIR):
-                    op = str(getattr(body_expr, "operator", ""))
-                    if op in ("*", "MUL"):
-                        dtype = np.float32
 
         # Multi-segment: reuse existing array if this variable was already
         # declared (e.g. pad's `let result[i in 0..p] = ...; let result[i in p..n] = ...;`)

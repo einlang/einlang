@@ -1407,6 +1407,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
         if not hasattr(ein_expr, 'element_type') or ein_expr.element_type is None:
             object.__setattr__(ein_expr, 'element_type', element_type)
+        object.__setattr__(ein_expr, 'type_info', array_type)
 
         return array_type
 
