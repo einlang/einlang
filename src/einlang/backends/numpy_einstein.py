@@ -176,46 +176,8 @@ def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
                 arr = np.arange(start, end, dtype=np.intp).reshape(shape)
                 backend.env.set_value(defid, arr, name=name)
 
-            body = getattr(clause, "body", None)
-            if isinstance(body, IfExpressionIR):
-                cond = body.condition.accept(backend)
-                if isinstance(cond, np.ndarray) and cond.ndim > 0:
-                    # If-expr as scalar RHS: evaluate only the taken branch at each point via vectorized indexing.
-                    valid = np.asarray(cond, dtype=bool)
-                    expected_shape = tuple(output_shape)
-                    result = np.zeros(expected_shape, dtype=dtype)
-                    n_valid = int(np.sum(valid))
-                    valid_indices = np.where(valid)
-                    if len(valid_indices) == ndim and n_valid > 0:
-                        with backend.env.scope():
-                            for dim, (defid, _, name) in enumerate(loop_info):
-                                backend.env.set_value(defid, valid_indices[dim], name=name)
-                        then_val = body.then_expr.accept(backend)
-                        then_flat = np.asarray(then_val, dtype=dtype).ravel()[:n_valid]
-                        if then_flat.size >= n_valid:
-                            result[valid] = then_flat[:n_valid]
-                    n_invalid = int(np.sum(~valid))
-                    invalid_indices = np.where(~valid)
-                    if len(invalid_indices) == ndim and n_invalid > 0:
-                        with backend.env.scope():
-                            for dim, (defid, _, name) in enumerate(loop_info):
-                                backend.env.set_value(defid, invalid_indices[dim], name=name)
-                        else_expr = getattr(body, "else_expr", None)
-                        else_val = else_expr.accept(backend) if else_expr else None
-                        if else_val is not None:
-                            else_flat = np.asarray(else_val, dtype=dtype).ravel()[:n_invalid]
-                            if else_flat.size >= n_invalid:
-                                result[~valid] = else_flat[:n_invalid]
-                            else:
-                                result[~valid] = dtype(0.0)
-                        else:
-                            result[~valid] = dtype(0.0)
-                    elif n_invalid > 0:
-                        result[~valid] = dtype(0.0)
-                else:
-                    result = clause.body.accept(backend)
-            else:
-                result = clause.body.accept(backend)
+            # Evaluate body once with loop vars as arrays; backend visit_if_expression uses np.where for array cond
+            result = clause.body.accept(backend)
 
             if isinstance(result, np.ndarray):
                 expected = tuple(output_shape)
@@ -621,12 +583,11 @@ class EinsteinExecutionMixin:
             return expr.accept(self)
 
         has_literal_idx = any(isinstance(idx, LiteralIR) for idx in clause_indices)
-        # Skip vectorization for clauses with if/else or bodies that call functions with loop-var args; use scalar path.
+        # Skip vectorization only when body calls functions with loop-var args (must run per index).
         body_node = getattr(lowered, "body", None)
-        has_if_body = isinstance(body_node, IfExpressionIR)
         loop_defids = [getattr(lp.variable, "defid", None) for lp in (lowered.loops or [])]
         has_call_using_loop = _body_contains_call_using_loop_var(body_node, [d for d in loop_defids if d is not None])
-        if lowered.loops and not has_literal_idx and not has_if_body and not has_call_using_loop:
+        if lowered.loops and not has_literal_idx and not has_call_using_loop:
             vec_result = _try_vectorize_clause(
                 lowered, list(output.shape), output.dtype, expr_evaluator, backend=self,
             )
