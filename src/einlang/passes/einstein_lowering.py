@@ -14,7 +14,7 @@ from ..passes.base import BasePass, TyCtxt
 from ..shared.defid import DefId
 from ..passes.range_analysis import RangeAnalysisPass, Range
 from ..shared.source_location import SourceLocation
-from ..shared.types import BinaryOp, infer_literal_type, UNKNOWN, PrimitiveType
+from ..shared.types import BinaryOp, infer_literal_type, UNKNOWN, PrimitiveType, I32, I64, F32, F64
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, IdentifierIR, IndexVarIR, IndexRestIR, ReductionExpressionIR,
     WhereClauseIR, RangeIR, LiteralIR, EinsteinClauseIR,
@@ -608,13 +608,21 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             if shape is None and node.indices:
                 shape = self._shape_from_literal_indices(node.indices, node.location)
         
-        # Get element type (if available from type inference)
-        # For arrays, type_info might contain element type information
-        element_type = None
-        if hasattr(node.value, 'type_info') and node.value.type_info:
-            # Extract element type from type_info if it's an array type
+        decl_expr = getattr(decl, 'expr', None)
+        element_type = getattr(decl_expr, 'element_type', None) if decl_expr is not None else None
+        body_element_type = None
+        body_ti = None
+        if hasattr(node.value, 'body') and node.value.body is not None and isinstance(node.value, ReductionExpressionIR):
+            body_ti = getattr(node.value.body, 'type_info', None)
+            if body_ti is not None:
+                body_element_type = getattr(body_ti, 'element_type', None) or body_ti
+        if element_type is None and body_ti is not None:
+            element_type = body_ti
+        if element_type is None and hasattr(node.value, 'type_info') and node.value.type_info:
             element_type = node.value.type_info
-        
+        if element_type in (I32, I64) and body_element_type in (F32, F64):
+            element_type = body_element_type
+
         # Create lowered Einstein clause (range/per-clause only)
         clause_loc = getattr(node, "location", None)
         clause = LoweredEinsteinClauseIR(

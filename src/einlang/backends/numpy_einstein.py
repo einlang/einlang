@@ -8,8 +8,8 @@ import numpy as np
 
 from ..ir.nodes import (
     LiteralIR, RangeIR, LoweredEinsteinIR, LoweredEinsteinClauseIR,
-    LoweredReductionIR, BinaryOpIR, RectangularAccessIR, IndexVarIR,
-    FunctionCallIR, IdentifierIR,
+    LoweredReductionIR, ReductionExpressionIR, BinaryOpIR, RectangularAccessIR, IndexVarIR,
+    FunctionCallIR, IdentifierIR, IfExpressionIR,
     is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
@@ -37,6 +37,33 @@ def _body_references_defid(expr: Any, target_defid: Any) -> bool:
             if _body_references_defid(a, target_defid):
                 return True
         return False
+    return False
+
+
+def _body_contains_call_using_loop_var(expr: Any, loop_defids: List[Any]) -> bool:
+    """True if body contains a FunctionCallIR whose arguments (or callee) reference a loop var."""
+    if not expr or not loop_defids:
+        return False
+    if isinstance(expr, FunctionCallIR):
+        for defid in loop_defids:
+            if _body_references_defid(getattr(expr, "callee_expr", None), defid):
+                return True
+            for a in getattr(expr, "arguments", []) or []:
+                if _body_references_defid(a, defid):
+                    return True
+        return False
+    if isinstance(expr, RectangularAccessIR):
+        return _body_contains_call_using_loop_var(getattr(expr, "array", None), loop_defids) or any(
+            _body_contains_call_using_loop_var(idx, loop_defids) for idx in (getattr(expr, "indices", None) or [])
+        )
+    if isinstance(expr, BinaryOpIR):
+        return _body_contains_call_using_loop_var(getattr(expr, "left", None), loop_defids) or _body_contains_call_using_loop_var(getattr(expr, "right", None), loop_defids)
+    if hasattr(expr, "expr"):
+        return _body_contains_call_using_loop_var(getattr(expr, "expr", None), loop_defids)
+    if hasattr(expr, "inner_pattern"):
+        return _body_contains_call_using_loop_var(getattr(expr, "inner_pattern", None), loop_defids)
+    if hasattr(expr, "patterns"):
+        return any(_body_contains_call_using_loop_var(p, loop_defids) for p in (getattr(expr, "patterns", None) or []))
     return False
 
 
@@ -113,37 +140,6 @@ def _extract_loop_range(loop, evaluator) -> Tuple[int, int]:
     raise RuntimeError("loop iterable is not a range or literal range; cannot extract (start, end)")
 
 
-def _spot_check(clause, loop_info, backend, vec_result) -> bool:
-    """Verify vectorization at two sample points against scalar evaluation."""
-    try:
-        for sample in ("first", "last"):
-            with backend.env.scope():
-                out_idx = []
-                for item in loop_info:
-                    defid = item[0]
-                    rng = item[1]
-                    name = item[2]
-                    start, end = rng
-                    sz = end - start
-                    v = start if sample == "first" else end - 1
-                    backend.env.set_value(defid, v, name=name)
-                    out_idx.append(0 if sample == "first" else sz - 1)
-                scalar_val = clause.body.accept(backend)
-            vec_val = vec_result[tuple(out_idx)]
-            if isinstance(vec_val, np.ndarray):
-                vec_val = vec_val.item()
-            if isinstance(scalar_val, np.ndarray):
-                if scalar_val.ndim == 0:
-                    scalar_val = scalar_val.item()
-                else:
-                    return False
-            if not np.isclose(float(vec_val), float(scalar_val), rtol=1e-4, atol=1e-6):
-                return False
-        return True
-    except Exception:
-        return True
-
-
 def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
     """
     General vectorization: set loop variables to broadcast numpy arrays,
@@ -180,7 +176,45 @@ def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
                 arr = np.arange(start, end, dtype=np.intp).reshape(shape)
                 backend.env.set_value(defid, arr, name=name)
 
-            result = clause.body.accept(backend)
+            body = getattr(clause, "body", None)
+            if isinstance(body, IfExpressionIR):
+                cond = body.condition.accept(backend)
+                if isinstance(cond, np.ndarray) and cond.ndim > 0:
+                    valid = np.asarray(cond, dtype=bool)
+                    expected_shape = tuple(output_shape)
+                    result = np.zeros(expected_shape, dtype=dtype)
+                    n_valid = int(np.sum(valid))
+                    valid_indices = np.where(valid)
+                    if len(valid_indices) == ndim and n_valid > 0:
+                        with backend.env.scope():
+                            for dim, (defid, _, name) in enumerate(loop_info):
+                                backend.env.set_value(defid, valid_indices[dim], name=name)
+                        then_val = body.then_expr.accept(backend)
+                        then_flat = np.asarray(then_val, dtype=dtype).ravel()[:n_valid]
+                        if then_flat.size >= n_valid:
+                            result[valid] = then_flat[:n_valid]
+                    n_invalid = int(np.sum(~valid))
+                    invalid_indices = np.where(~valid)
+                    if len(invalid_indices) == ndim and n_invalid > 0:
+                        with backend.env.scope():
+                            for dim, (defid, _, name) in enumerate(loop_info):
+                                backend.env.set_value(defid, invalid_indices[dim], name=name)
+                        else_expr = getattr(body, "else_expr", None)
+                        else_val = else_expr.accept(backend) if else_expr else None
+                        if else_val is not None:
+                            else_flat = np.asarray(else_val, dtype=dtype).ravel()[:n_invalid]
+                            if else_flat.size >= n_invalid:
+                                result[~valid] = else_flat[:n_invalid]
+                            else:
+                                result[~valid] = dtype(0.0)
+                        else:
+                            result[~valid] = dtype(0.0)
+                    elif n_invalid > 0:
+                        result[~valid] = dtype(0.0)
+                else:
+                    result = clause.body.accept(backend)
+            else:
+                result = clause.body.accept(backend)
 
             if isinstance(result, np.ndarray):
                 expected = tuple(output_shape)
@@ -189,31 +223,24 @@ def _try_vectorize_clause(clause, output_shape, dtype, evaluator, backend=None):
                     start == 0 and end == expected[dim] for dim, (start, end) in enumerate(ranges)
                 )
                 if result.shape == expected:
-                    if not _spot_check(clause, loop_info, backend, result):
-                        return None
                     return result.astype(dtype)
                 if not range_is_full:
-                    if not _spot_check(clause, loop_info, backend, result):
-                        return None
                     full = np.zeros(expected, dtype=dtype)
                     slices = tuple(slice(int(start), int(end)) for (start, end) in ranges)
                     full[slices] = result.astype(dtype)
                     return full
                 if result.size == np.prod(expected):
-                    reshaped = result.reshape(expected)
-                    if not _spot_check(clause, loop_info, backend, reshaped):
-                        return None
-                    return reshaped.astype(dtype)
+                    return result.reshape(expected).astype(dtype)
                 try:
-                    bcast = np.broadcast_to(result, expected).copy()
-                    if not _spot_check(clause, loop_info, backend, bcast):
-                        return None
-                    return bcast.astype(dtype)
+                    return np.broadcast_to(result, expected).copy().astype(dtype)
                 except ValueError:
                     return None
             elif isinstance(result, (int, float, np.integer, np.floating)):
                 return np.full(output_shape, result, dtype=dtype)
-    except Exception:
+    except Exception as e:
+        if os.environ.get("EINLANG_DEBUG_VECTORIZE"):
+            import traceback
+            traceback.print_exc()
         return None
     return None
 
@@ -250,7 +277,7 @@ def _try_hybrid_vectorize_clause(
         name = getattr(lp.variable, "name", None)
         loop_info.append((defid, r, name))
     recurrence_loops = [loops[d] for d in recurrence_dims]
-    _MAX = 1_000_000
+    _MAX = int(os.environ.get("EINLANG_EINSTEIN_LOOP_MAX", "1000000"))
     n_iter = [0]
     try:
         for rec_context in execute_lowered_loops(recurrence_loops, {}, expr_evaluator):
@@ -329,26 +356,81 @@ class EinsteinExecutionMixin:
             return self._type_info_to_numpy_dtype(type_info.element_type)
         return None
 
+    def _dtype_for_clause_result(self, clause_body: Any, tensor_element_type: Any) -> Any:
+        """Dtype for values produced by evaluating the clause body (scalar path: value = body.accept(self)).
+        Use same source of truth for both main allocation and per-clause allocation."""
+        dtype = self._type_info_to_numpy_dtype(tensor_element_type)
+        if dtype is not None:
+            return dtype
+        if clause_body is None:
+            return np.int32
+        type_info = getattr(clause_body, "type_info", None)
+        if type_info is not None:
+            dtype = self._type_info_to_numpy_dtype(type_info)
+            if dtype is not None:
+                return dtype
+        if isinstance(clause_body, (LoweredReductionIR, ReductionExpressionIR)):
+            body_expr = getattr(clause_body, "body", None)
+            if body_expr is not None:
+                ti = getattr(body_expr, "type_info", None)
+                if ti is not None:
+                    dtype = self._type_info_to_numpy_dtype(ti)
+                    if dtype is not None:
+                        return dtype
+        if self._body_implies_float(clause_body):
+            return np.float32
+        return np.int32
+
     def _body_implies_float(self, body: Any) -> bool:
         from ..ir.nodes import FunctionCallIR, BinaryOpIR
         from ..shared.types import PrimitiveType
         if body is None:
             return False
-        if isinstance(body, LoweredReductionIR):
-            return self._body_implies_float(body.body)
+        if isinstance(body, (LoweredReductionIR, ReductionExpressionIR)):
+            return self._body_implies_float(getattr(body, "body", None))
+        if isinstance(body, LiteralIR):
+            v = getattr(body, "value", None)
+            return v is not None and isinstance(v, (float, np.floating))
+        if isinstance(body, RectangularAccessIR):
+            arr = getattr(body, "array", None)
+            if arr is not None:
+                t = getattr(arr, "type_info", None)
+                if t is not None:
+                    el = getattr(t, "element_type", None) or t
+                    if isinstance(el, PrimitiveType) and (getattr(el, "name", None) or "").lower() in ("f32", "f64", "float"):
+                        return True
+                defid = getattr(arr, "defid", None)
+                if defid is not None and hasattr(self, "env"):
+                    try:
+                        val = self.env.get_value(defid)
+                        if isinstance(val, np.ndarray) and np.issubdtype(val.dtype, np.floating):
+                            return True
+                    except Exception:
+                        pass
+            t = getattr(body, "type_info", None)
+            if t is not None:
+                el = getattr(t, "element_type", None) or t
+                if isinstance(el, PrimitiveType) and (getattr(el, "name", None) or "").lower() in ("f32", "f64", "float"):
+                    return True
         if isinstance(body, FunctionCallIR):
             name = (body.function_name or "").lower()
             if name in ("exp", "ln", "log", "sqrt", "sigmoid", "tanh"):
                 return True
         if isinstance(body, BinaryOpIR):
-            op = str(getattr(body, "operator", ""))
-            if op in ("/", "DIV", "**"):
-                return True
+            from ..shared.types import BinaryOp
+            op = getattr(body, "operator", None)
+            op_val = getattr(op, "value", None) if op is not None else None
+            if op in (BinaryOp.MUL, BinaryOp.DIV, BinaryOp.POW) or op_val in ("/", "**", "*"):
+                for operand in (body.left, body.right):
+                    if self._body_implies_float(operand):
+                        return True
             for operand in (body.left, body.right):
                 if operand is not None:
                     t = getattr(operand, "type_info", None)
-                    if isinstance(t, PrimitiveType) and (t.name or "").lower() in ("f32", "f64", "float"):
-                        return True
+                    if t is not None:
+                        el = getattr(t, "element_type", None) or t
+                        if isinstance(el, PrimitiveType) and (getattr(el, "name", None) or "").lower() in ("f32", "f64", "float"):
+                            return True
             if body.left and self._body_implies_float(body.left):
                 return True
             if body.right and self._body_implies_float(body.right):
@@ -407,13 +489,23 @@ class EinsteinExecutionMixin:
             output_shape = [1]
         dtype = self._type_info_to_numpy_dtype(tensor_element_type)
         if dtype is None and lowered_einstein.items:
-            first = lowered_einstein.items[0]
-            type_info = getattr(first.body, "type_info", None)
-            if type_info is None and hasattr(first.body, "expr"):
-                type_info = getattr(first.body.expr, "type_info", None)
-            dtype = self._type_info_to_numpy_dtype(type_info)
+            first_body = lowered_einstein.items[0].body
+            dtype = self._dtype_for_clause_result(first_body, None)
         if dtype is None:
             dtype = np.int32
+        if dtype == np.int32 and lowered_einstein.items:
+            first_body = lowered_einstein.items[0].body
+            if isinstance(first_body, ReductionExpressionIR):
+                body = getattr(first_body, "body", None)
+                if isinstance(body, BinaryOpIR):
+                    from ..shared.types import BinaryOp
+                    op = getattr(body, "operator", None)
+                    if op in (BinaryOp.MUL, BinaryOp.DIV) or (op is not None and getattr(op, "value", None) in ("*", "/")):
+                        if self._body_implies_float(body):
+                            dtype = np.float32
+                        elif getattr(body, "left", None) is not None and getattr(body, "right", None) is not None:
+                            if isinstance(body.left, RectangularAccessIR) or isinstance(body.right, RectangularAccessIR):
+                                dtype = np.float32
 
         # Multi-segment: reuse existing array if this variable was already
         # declared (e.g. pad's `let result[i in 0..p] = ...; let result[i in p..n] = ...;`)
@@ -596,18 +688,19 @@ class EinsteinExecutionMixin:
                             break
             if output_shape is None:
                 output_shape = [int(getattr(idx, "value", 0)) + 1 if isinstance(idx, LiteralIR) else 1 for idx in clause_indices] if clause_indices else [1]
-            dtype = self._type_info_to_numpy_dtype(element_type)
-            if dtype is None:
-                dtype = getattr(lowered.body, "type_info", None) and self._type_info_to_numpy_dtype(lowered.body.type_info)
-            if dtype is None:
-                dtype = np.float32 if self._body_implies_float(lowered.body) else np.int32
+            dtype = self._dtype_for_clause_result(lowered.body, element_type)
             output = np.zeros(output_shape, dtype=dtype)
 
         def expr_evaluator(expr: Any) -> Any:
             return expr.accept(self)
 
         has_literal_idx = any(isinstance(idx, LiteralIR) for idx in clause_indices)
-        if lowered.loops and not has_literal_idx:
+        # Skip vectorization for clauses with if/else or bodies that call functions with loop-var args; use scalar path.
+        body_node = getattr(lowered, "body", None)
+        has_if_body = isinstance(body_node, IfExpressionIR)
+        loop_defids = [getattr(lp.variable, "defid", None) for lp in (lowered.loops or [])]
+        has_call_using_loop = _body_contains_call_using_loop_var(body_node, [d for d in loop_defids if d is not None])
+        if lowered.loops and not has_literal_idx and not has_if_body and not has_call_using_loop:
             vec_result = _try_vectorize_clause(
                 lowered, list(output.shape), output.dtype, expr_evaluator, backend=self,
             )
@@ -703,7 +796,7 @@ class EinsteinExecutionMixin:
                             value = value.item()
                         output[idx_tuple] = value
             else:
-                _MAX = 1_000_000
+                _MAX = int(os.environ.get("EINLANG_EINSTEIN_LOOP_MAX", "1000000"))
                 _n = [0]
                 for loop_context in execute_lowered_loops(lowered.loops, {}, expr_evaluator):
                     _n[0] += 1

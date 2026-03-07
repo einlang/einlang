@@ -251,6 +251,15 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         self._current_einstein_stack = []
         self._current_function_einstein_decls = []
 
+    def _clause_output_rank(self, clause) -> int:
+        inds = clause.indices or []
+        for idx in inds:
+            assert not isinstance(idx, IndexRestIR), (
+                "IndexRestIR must not reach range analysis; "
+                "RestPatternPreprocessingPass must expand rest patterns before RangeAnalysisPass."
+            )
+        return len(inds)
+
     @contextmanager
     def _einstein_scope(self, node: BindingIR):
         """Scope for processing an Einstein declaration; pops stack on exit."""
@@ -501,8 +510,74 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
             if not clauses:
                 return
             with self._einstein_scope(node):
+                rank = 0
+                for c in clauses:
+                    r = self._clause_output_rank(c)
+                    if r > 0:
+                        rank = r
+                        break
+                if rank > 0:
+                    for c in clauses:
+                        if c.indices and self._clause_output_rank(c) != rank:
+                            tcx = getattr(self.analyzer, 'tcx', None)
+                            loc = getattr(node, "location", None) or SourceLocation("", 0, 0)
+                            if tcx and getattr(tcx, 'reporter', None):
+                                tcx.reporter.report_error(
+                                    f"Einstein declaration has clauses with different output rank (expected {rank}).",
+                                    loc,
+                                )
+                            break
                 for clause in clauses:
                     self._process_einstein_clause(node, clause)
+                decl_range_by_pos: List[Any] = [None] * max(rank, 1)
+                for clause in clauses:
+                    inds = clause.indices or []
+                    vr = getattr(clause, 'variable_ranges', None) or {}
+                    for pos, idx in enumerate(inds):
+                        if pos >= len(decl_range_by_pos):
+                            decl_range_by_pos.extend([None] * (pos + 1 - len(decl_range_by_pos)))
+                        if not isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)):
+                            continue
+                        defid = getattr(idx, 'defid', None)
+                        if defid is None:
+                            continue
+                        rng = vr.get(defid)
+                        if rng is not None and decl_range_by_pos[pos] is None:
+                            decl_range_by_pos[pos] = rng
+                for clause in clauses:
+                    vr = getattr(clause, 'variable_ranges', None) or {}
+                    inds = clause.indices or []
+                    for pos, idx in enumerate(inds):
+                        if not isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)):
+                            continue
+                        defid = getattr(idx, 'defid', None)
+                        if defid is None or defid in vr:
+                            continue
+                        if pos < len(decl_range_by_pos) and decl_range_by_pos[pos] is not None:
+                            new_vr = dict(vr)
+                            new_vr[defid] = decl_range_by_pos[pos]
+                            object.__setattr__(clause, 'variable_ranges', new_vr)
+                            vr = new_vr
+                tcx = getattr(self.analyzer, 'tcx', None)
+                for clause in clauses:
+                    vr = getattr(clause, 'variable_ranges', None) or {}
+                    for idx in (clause.indices or []):
+                        if not isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)):
+                            continue
+                        defid = getattr(idx, 'defid', None)
+                        if defid is None or defid in vr:
+                            continue
+                        loc = getattr(node, "location", clause.location) or SourceLocation("", 0, 0)
+                        if tcx and getattr(tcx, 'reporter', None):
+                            tcx.reporter.report_error(
+                                f"Range for index variable '{getattr(idx, 'name', None) or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred.",
+                                loc,
+                                help="Ensure the RHS uses the variable in an array index or add an explicit range in the where clause (e.g. var in 0..N).",
+                            )
+                        else:
+                            raise ValueError(
+                                f"Range for index variable '{getattr(idx, 'name', None) or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred."
+                            )
         else:
             did = getattr(node, 'defid', None)
             if did is None:
@@ -731,19 +806,21 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                             if rir is not None:
                                 variable_ranges[defid] = rir
                         if defid not in variable_ranges:
-                            loc = getattr(node, "location", clause.location) or SourceLocation("", 0, 0)
-                            tcx = getattr(self.analyzer, 'tcx', None)
-                            if tcx and getattr(tcx, 'reporter', None):
-                                tcx.reporter.report_error(
-                                    f"Range for index variable '{getattr(idx_expr, 'name', None) or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred.",
-                                    loc,
-                                    help="Ensure the RHS uses the variable in an array index or add an explicit range in the where clause (e.g. var in 0..N).",
-                                )
-                            else:
-                                raise ValueError(
-                                    f"Range for index variable '{getattr(idx_expr, 'name', None) or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred. "
-                                    "Ensure RangeAnalysisPass runs and implicit_range_detector can infer the range."
-                                )
+                            multi_clause = len(getattr(node, 'clauses', None) or []) > 1
+                            if not multi_clause:
+                                loc = getattr(node, "location", clause.location) or SourceLocation("", 0, 0)
+                                tcx = getattr(self.analyzer, 'tcx', None)
+                                if tcx and getattr(tcx, 'reporter', None):
+                                    tcx.reporter.report_error(
+                                        f"Range for index variable '{getattr(idx_expr, 'name', None) or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred.",
+                                        loc,
+                                        help="Ensure the RHS uses the variable in an array index or add an explicit range in the where clause (e.g. var in 0..N).",
+                                    )
+                                else:
+                                    raise ValueError(
+                                        f"Range for index variable '{getattr(idx_expr, 'name', None) or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred. "
+                                        "Ensure RangeAnalysisPass runs and implicit_range_detector can infer the range."
+                                    )
 
         existing_on_clause = getattr(clause, 'variable_ranges', None) or {}
         for defid_existing, rng in existing_on_clause.items():

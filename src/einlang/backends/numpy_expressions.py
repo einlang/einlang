@@ -211,6 +211,12 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         return None
     indices_left = getattr(mul_left, "indices", None) or []
     indices_right = getattr(mul_right, "indices", None) or []
+    from ..ir.nodes import IdentifierIR, IndexVarIR
+    for _idx in indices_left + indices_right:
+        for _rd in reduction_defids:
+            if _expr_contains_defid(_idx, _rd):
+                if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and getattr(_idx, "defid", None) in reduction_defids):
+                    return None
     n_red = len(reduction_sizes)
     try:
         with backend.env.scope():
@@ -572,10 +578,30 @@ class ExpressionVisitorMixin:
         return np.array(results) if results else np.array([])
 
     def visit_array_literal(self, expr: ArrayLiteralIR) -> Any:
-        evaluated = [e.accept(self) for e in expr.elements]
         type_info = getattr(expr, "type_info", None)
         if type_info is not None and getattr(type_info, "kind", None) == TypeKind.JAGGED:
+            evaluated = [e.accept(self) for e in expr.elements]
             return list(evaluated)
+        dtype = None
+        if expr.elements:
+            for e in expr.elements:
+                v = getattr(e, "value", None)
+                if v is not None and isinstance(v, (float, np.floating)):
+                    dtype = np.float32
+                    break
+        if dtype is None and type_info is not None:
+            converter = getattr(self, "_type_info_to_numpy_dtype", None)
+            if callable(converter):
+                el = getattr(type_info, "element_type", None) or type_info
+                dtype = converter(el)
+        evaluated = [e.accept(self) for e in expr.elements]
+        if dtype is None and evaluated:
+            if isinstance(evaluated[0], (float, np.floating)):
+                dtype = np.float32
+            elif any(isinstance(x, (float, np.floating)) for x in evaluated):
+                dtype = np.float32
+        if dtype is not None:
+            return np.array(evaluated, dtype=dtype)
         return np.array(evaluated)
 
     def visit_tuple_expression(self, expr: TupleExpressionIR) -> Any:
@@ -741,10 +767,6 @@ class ExpressionVisitorMixin:
                 if key not in seen:
                     seen.add(key)
                     print(f"[reduction] {path} L{line}", flush=True)
-        matmul_result = _try_matmul_reduction(expr, self)
-        if matmul_result is not None:
-            reduction_profile("matmul")
-            return matmul_result
         def ev(e): return e.accept(self)
         _loop_to_body_defid = {}
         _reduction_defid_names = {}

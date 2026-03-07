@@ -274,19 +274,9 @@ def execute_reduction_with_loops(
     # Convert reduction_ranges to list of loops
     reduction_loops = list(reduction_ranges.values())
 
-    # Fast vectorized path: single rule parallel_shape + reduction_shape (no guards).
-    if not guard_evaluator:
-        ok, result = _try_vectorized_reduction(
-            reduction_op,
-            reduction_loops,
-            body_evaluator,
-            expr_evaluator,
-            parallel_shape=parallel_shape,
-        )
-        if ok:
-            if profile_callback is not None:
-                profile_callback("vectorized")
-            return result
+    # Use only scalar loops (fancy indexing); do not use vectorized reduction path,
+    # which can produce wrong element order/values when reduction axis mapping
+    # does not match the body's index order.
 
     if profile_callback is not None:
         profile_callback("scalar")
