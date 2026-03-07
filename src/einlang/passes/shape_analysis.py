@@ -371,18 +371,10 @@ class ShapeAnalyzer:
         if not clauses:
             return None
 
-        rank = 0
-        for c in clauses:
-            if c.indices:
-                rank = len(c.indices)
-                break
-        if rank == 0:
-            return None
-
-        def shape_for_clause(clause) -> Tuple[Optional[int], ...]:
+        def shape_for_clause(clause) -> Optional[tuple]:
             value_expr = clause.value
             variable_ranges = getattr(clause, 'variable_ranges', None) or {}
-            shape: List[Optional[int]] = []
+            shape = []
             for idx in (clause.indices or []):
                 from ..ir.nodes import IndexVarIR
                 if isinstance(idx, LiteralIR):
@@ -390,8 +382,7 @@ class ShapeAnalyzer:
                     try:
                         extent = int(v) + 1 if v is not None else 1
                     except (TypeError, ValueError):
-                        shape.append(None)
-                        continue
+                        return None
                     shape.append(max(1, extent))
                     continue
                 index_var = getattr(idx, 'name', None)
@@ -411,26 +402,42 @@ class ShapeAnalyzer:
                             shape.append(int(end_expr.value))
                         else:
                             s = self._infer_shape_from_arrays(index_var, value_expr, variable_ranges)
-                            shape.append(s)
+                            if s is not None:
+                                shape.append(s)
+                            else:
+                                return None
                     else:
                         s = self._infer_shape_from_arrays(index_var, value_expr, variable_ranges)
-                        shape.append(s)
+                        if s is not None:
+                            shape.append(s)
+                        else:
+                            return None
                 else:
                     s = self._infer_shape_from_arrays(index_var, value_expr, variable_ranges)
-                    shape.append(s)
-            while len(shape) < rank:
-                shape.append(None)
-            return tuple(shape[:rank])
+                    if s is not None:
+                        shape.append(s)
+                    else:
+                        return None
+            return tuple(shape) if shape else None
 
-        shapes: List[Tuple[Optional[int], ...]] = []
+        shapes = []
         for clause in clauses:
             s = shape_for_clause(clause)
-            if len(s) != rank:
-                logger.debug(f"[infer_einstein_shape] {decl.name} clause shape rank mismatch: {len(s)} vs {rank}")
+            if s is None:
+                logger.debug(f"[infer_einstein_shape] {decl.name} clause shape: None")
                 return None
             shapes.append(s)
             logger.debug(f"[infer_einstein_shape] {decl.name} clause shape: {s}")
 
+        # All clauses must have the same rank; fail on mismatch
+        rank = len(shapes[0])
+        if not all(len(s) == rank for s in shapes):
+            ranks = [len(s) for s in shapes]
+            self.tcx.reporter.report_error(
+                f"Einstein declaration '{decl.name}' has clauses with different ranks: {ranks}. All clauses must have the same rank.",
+                location=decl.location,
+            )
+            return None
         combined = []
         for d in range(rank):
             dim_vals = [s[d] for s in shapes if s[d] is not None]
