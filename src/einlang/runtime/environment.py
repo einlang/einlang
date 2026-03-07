@@ -41,9 +41,10 @@ class ExecutionEnvironment:
         self._scope_stack.append({})
 
     def exit_scope(self) -> None:
-        """Pop current scope."""
+        """Pop current scope and clear its bindings so large values can be reclaimed immediately."""
         if not self._scope_stack:
             raise RuntimeError("Cannot exit scope: no active scope")
+        self._scope_stack[-1].clear()
         self._scope_stack.pop()
 
     @contextmanager

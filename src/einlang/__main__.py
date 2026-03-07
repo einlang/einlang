@@ -19,13 +19,8 @@ def main() -> int:
     parser.add_argument("--profile-reductions", action="store_true", help="Print reduction path per sum/max/min: matmul, vectorized, or scalar (with source line)")
     parser.add_argument("--cprofile", action="store_true", help="Run execution under cProfile and print stats")
     parser.add_argument("--cprofile-out", type=Path, default=None, metavar="FILE", help="Write cProfile stats to FILE (for snakeviz, etc.)")
-    parser.add_argument("--parallel-clauses", action="store_true", help="Run independent Einstein clauses in parallel (BLAS/OpenMP set to 1 thread per worker to avoid oversubscription)")
-    parser.add_argument("--parallel-clauses-workers", type=int, default=4, metavar="N", help="Max workers for --parallel-clauses (default: 4)")
     args = parser.parse_args()
     import os
-    if args.parallel_clauses:
-        os.environ["EINLANG_PARALLEL_CLAUSES"] = "1"
-        os.environ["EINLANG_PARALLEL_CLAUSES_WORKERS"] = str(args.parallel_clauses_workers)
     if args.profile_lines > 0:
         os.environ["EINLANG_PROFILE_LINES"] = str(args.profile_lines)
     if args.profile_statements:
@@ -36,6 +31,10 @@ def main() -> int:
         os.environ["EINLANG_PROFILE_REDUCTIONS"] = "1"
     if args.debug_vectorize:
         os.environ["EINLANG_DEBUG_VECTORIZE"] = "1"
+
+    if args.profile_functions or args.profile_statements or args.profile_lines or args.profile_reductions:
+        sys.stdout.flush()
+        sys.stderr.flush()
 
     path = args.file.resolve()
     if not path.exists():
