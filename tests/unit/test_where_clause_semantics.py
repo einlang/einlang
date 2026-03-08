@@ -188,6 +188,28 @@ class TestWhereClauseSemantics:
             assert (expected_error in err_str or "iteration" in err_str or "defid" in err_str or "where" in err_str), \
                 f"Should have {expected_error} or iteration/where/defid error for: {source}\nErrors: {errors}"
 
+    def test_range_in_einstein_where_invalid_e0303(self, compiler):
+        """Any index range in where is invalid (E0303). Ranges must be in the bracket."""
+        # All use defined variables so the only error is range-in-where → E0303
+        cases = [
+            # Rectangular: index range in where
+            "let A = [[1, 2], [3, 4]]; let C[i, j] = A[i, j] where i in 0..2;",
+            "let A = [[1, 2], [3, 4]]; let C[i, j] = A[i, j] where j in 0..2;",
+            # Reduction: iteration domain in where
+            "let data = [1, 2, 3, 4]; let total = sum[k](data[k]) where k in 0..4;",
+            "let M = [[1, 2], [3, 4]]; let row0 = sum[j](M[0, j]) where j in 0..2;",
+            # Recurrence: recurrence index range in where
+            "let fib[0] = 0; let fib[1] = 1; let fib[n] = fib[n-1] + fib[n-2] where n in 2..8;",
+        ]
+        for source in cases:
+            result = compiler.compile(source, "<test>")
+            assert result.has_errors(), f"Should fail (range in where): {source}"
+            errors = result.get_errors()
+            err_str = " ".join(str(e) for e in errors)
+            assert "E0303" in err_str, (
+                f"Expected E0303 (index range in where) for:\n{source}\nGot errors: {errors}"
+            )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

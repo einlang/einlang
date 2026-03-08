@@ -17,7 +17,7 @@ _ROUND_TRIP_ENABLED = os.environ.get("EINLANG_ROUND_TRIP", "1") != "0"
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from einlang.compiler.driver import CompilerDriver as EinlangCompiler
-from einlang.runtime.runtime import EinlangRuntime, ExecutionResult
+from einlang.runtime.runtime import EinlangRuntime
 
 
 @dataclass

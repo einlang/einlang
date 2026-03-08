@@ -1,5 +1,7 @@
 # Einlang Language Reference
 
+Full syntax and semantics. **New here?** [Getting started](GETTING_STARTED.md) or [run a quick example](../README.md#try-it) first. **Built-in functions:** [Standard Library](stdlib.md). **Doc index:** [README](README.md). **Syntax we intentionally do not support (and why):** [Unsupported by design](UNSUPPORTED.md).
+
 ---
 
 ## Statements
@@ -305,9 +307,12 @@ let y = p.1;
 
 ### Ranges
 
-`a..b` produces the integer sequence from `a` to `b` exclusive: `0..3` is `[0, 1, 2]`.
+Two forms are supported:
 
-Used in comprehension generators, explicit Einstein index domains, and recurrence bounds.
+- **`a..b`** — exclusive: integers from `a` up to but not including `b`. Example: `0..3` is `[0, 1, 2]`.
+- **`a..=b`** — inclusive: integers from `a` through `b`. Example: `0..=3` is `[0, 1, 2, 3]`.
+
+Both are used in comprehension generators, explicit Einstein index domains, and recurrence bounds.
 
 ---
 
@@ -437,25 +442,17 @@ Self-referential rectangular declarations that define sequences. Base cases are 
 ```rust
 let fib[0] = 0;
 let fib[1] = 1;
-let fib[n] = fib[n-1] + fib[n-2] where n in 2..8;
+let fib[n in 2..8] = fib[n-1] + fib[n-2];
 // fib = [0, 1, 1, 2, 3, 5, 8, 13]
 ```
 
-Backward references (`n-1`, `n-2`) and forward definitions (`t+1`) are both supported and semantically equivalent:
+**Alignment with math:** You cannot read **future** values: when defining the element at index `(t, i, j)`, you must not read the same array at an index that is not yet computed (e.g. `h[t+1, i, j]` or `h[t, i+1, j]`). Use **backward references only** along every dimension: e.g. `h[t-1, i, j]` in time, `h[t, i-1, j]` and `h[t, i, j-1]` in space. So for time index `t` use `h[t-1, ...]`, not `h[t+1, ...]`; for space index `i` use `h[t, i-1, j]`, not `h[t, i+1, j]`.
 
-```rust
-let seq[0] = 1;
-let seq[t+1] = seq[t] * 2 where t in 0..5;
-// seq = [1, 2, 4, 8, 16, 32]
-```
+The recurrence index range goes **in the bracket** (`n in 2..8`), not in a `where` clause. See [Unsupported by design](UNSUPPORTED.md#9-index-range-in-where-all-cases-invalid).
 
-Multi-dimensional recurrences work the same way — the time axis advances while other axes iterate freely:
+**Declaration bracket:** Each index slot in `let x[...] = ...` may only be an **identifier** (e.g. `n`, `i`, `t`) or a **literal** (e.g. `0`, `1`) or a named rest (`..name`). Expressions like `n-1` or `t+1` are **not** allowed in the declaration bracket. In the **body**, use only **backward** references when reading the same array (no future indices in any dimension).
 
-```rust
-let hidden[0, i] = initial[i] where i in 0..H;
-let hidden[t+1, i] = tanh(hidden[t, i] + input[t, i])
-    where t in 0..T, i in 0..H;
-```
+**Example (time + space, backward only):** `let h[t in 1..T, i in 1..N-1, j in 1..N-1] = f(h[t-1, i, j], h[t, i-1, j], h[t, i, j-1]);` — valid. Do not read `h[t, i+1, j]` or `h[t, i, j+1]` when defining `h[t, i, j]`; that would be a future value.
 
 ---
 
@@ -576,6 +573,12 @@ See [Standard Library](stdlib.md) for `std::math`, `std::array`, `std::ml`, and 
 | E009 | I/O Error | File not found, permission denied |
 | E010 | Import Error | Module not found |
 | E011 | Not Implemented | Feature exists in grammar but not backend |
+
+---
+
+## Unsupported by design
+
+Einlang does not support certain syntax or features **by design** (e.g. no `for`/`while`, no `return`, no string-based einsum, no implicit widening, no slice `:` notation). For the full list, rationale, and what to use instead, see [Unsupported by design](UNSUPPORTED.md).
 
 ---
 

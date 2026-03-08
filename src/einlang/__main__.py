@@ -1,4 +1,4 @@
-"""CLI entry point: run `einlang file.ein` or `python -m einlang file.ein`."""
+"""CLI entry point: run `einlang file.ein`, `einlang -c "code"`, or `einlang -` (stdin)."""
 
 import sys
 from pathlib import Path
@@ -9,8 +9,22 @@ def main() -> int:
     from .compiler.driver import CompilerDriver
     from .runtime.runtime import EinlangRuntime
 
-    parser = argparse.ArgumentParser(prog="einlang", description="Run an Einlang (.ein) file.")
-    parser.add_argument("file", type=Path, help="Path to .ein source file")
+    parser = argparse.ArgumentParser(
+        prog="einlang",
+        description="Run an Einlang (.ein) file, inline code (-c), or stdin.",
+    )
+    parser.add_argument(
+        "file",
+        nargs="?",
+        default=None,
+        help="Path to .ein file, or '-' to read from stdin",
+    )
+    parser.add_argument(
+        "-c",
+        dest="code",
+        metavar="CODE",
+        help="Run CODE as Einlang source (inline, like python -c)",
+    )
     parser.add_argument("--backend", default="numpy", help="Execution backend (default: numpy)")
     parser.add_argument("--profile-lines", type=int, default=0, metavar="N", help="Profile by source line buckets (e.g. 10 for L0-L10, L10-L20, ...)")
     parser.add_argument("--profile-statements", action="store_true", help="Profile each top-level statement separately (reset buckets per statement)")
@@ -37,25 +51,43 @@ def main() -> int:
         sys.stdout.flush()
         sys.stderr.flush()
 
-    path = args.file.resolve()
-    if not path.exists():
-        sys.stderr.write(f"einlang: error: file not found: {path}\n")
+    # Resolve source: -c CODE (inline), - or stdin, or file path
+    if args.code is not None:
+        source = args.code
+        source_file = "<inline>"
+        root_path = Path.cwd()
+    elif args.file == "-" or (args.file is None and not sys.stdin.isatty()):
+        try:
+            source = sys.stdin.read()
+        except Exception as e:
+            sys.stderr.write(f"einlang: error: could not read stdin: {e}\n")
+            return 1
+        source_file = "<stdin>"
+        root_path = Path.cwd()
+    elif args.file is None:
+        sys.stderr.write("einlang: error: need a file path, '-c CODE', or pipe source to stdin (e.g. einlang -)\n")
+        parser.print_help(sys.stderr)
         return 1
-    if not path.is_file():
-        sys.stderr.write(f"einlang: error: not a file: {path}\n")
-        return 1
+    else:
+        path = Path(args.file).resolve()
+        if not path.exists():
+            sys.stderr.write(f"einlang: error: file not found: {path}\n")
+            return 1
+        if not path.is_file():
+            sys.stderr.write(f"einlang: error: not a file: {path}\n")
+            return 1
+        try:
+            source = path.read_text(encoding="utf-8")
+        except Exception as e:
+            sys.stderr.write(f"einlang: error: could not read file: {e}\n")
+            return 1
+        source_file = str(path)
+        root_path = path.parent
 
-    try:
-        source = path.read_text(encoding="utf-8")
-    except Exception as e:
-        sys.stderr.write(f"einlang: error: could not read file: {e}\n")
-        return 1
-
-    root_path = path.parent
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     compiler = CompilerDriver()
-    result = compiler.compile(source, str(path), root_path=root_path)
+    result = compiler.compile(source, source_file, root_path=root_path)
 
     if not result.success:
         if result.tcx and getattr(result.tcx, "reporter", None) and result.tcx.reporter.has_errors():

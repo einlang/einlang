@@ -64,7 +64,6 @@ from .nodes import (
 from .serialization import (
     serialize_ir,
     deserialize_ir,
-    to_sexpr,
     save_ir,
     load_ir,
     dump_ir,
@@ -126,7 +125,6 @@ __all__ = [
     # Serialization
     'serialize_ir',
     'deserialize_ir',
-    'to_sexpr',
     'save_ir',
     'load_ir',
     'dump_ir',
