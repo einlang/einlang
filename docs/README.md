@@ -17,7 +17,7 @@ One place to find your path. **Single source of truth:** [Language reference](re
 | **Math-focused** | [Math intuition](MATH.md) (equations → Einlang) | [Reference](reference.md) · [Stdlib: math](stdlib.md) |
 | **Feature / language study** | [Reference](reference.md) (TOC) | [Design](DESIGN.md) |
 | **Python user** | [Install & run](../README.md#install--run) — `run(source=...)` | [Syntax comparison](SYNTAX_COMPARISON.md) · [Reference](reference.md) · [Getting started](GETTING_STARTED.md) |
-| **Julia user** | [Syntax comparison](SYNTAX_COMPARISON.md) · [Reference](reference.md) | [Getting started](GETTING_STARTED.md) · [Examples](../examples/README.md) |
+| **Julia user** | [Syntax comparison](SYNTAX_COMPARISON.md) · [Reference](reference.md) | [Julia demos → Einlang](JULIA_DEMOS.md) · [Getting started](GETTING_STARTED.md) · [Examples](../examples/README.md) |
 | **Rust user** | [Syntax comparison](SYNTAX_COMPARISON.md) · [Reference](reference.md) | [Getting started](GETTING_STARTED.md) · [Examples](../examples/README.md) |
 | **Contributor** | [CONTRIBUTING](../CONTRIBUTING.md) | [DEVELOPMENT](DEVELOPMENT.md) |
 | **Paper / citation** | [Paper & citation](PAPER.md) | — |
@@ -34,6 +34,7 @@ One place to find your path. **Single source of truth:** [Language reference](re
 | [../examples/README.md](../examples/README.md) | Learning path and how to run examples |
 | [GETTING_STARTED.md](GETTING_STARTED.md) | One-page story: what is Einlang → try → first example → use from Python → next |
 | [SYNTAX_COMPARISON.md](SYNTAX_COMPARISON.md) | Python/NumPy, Julia, Rust → Einlang snippet mapping (links to reference) |
+| [JULIA_DEMOS.md](JULIA_DEMOS.md) | Julia demos and case studies with links; maps each to Einlang examples (justify simulation/ML overlap) |
 | [MATH.md](MATH.md) | Math notation → Einlang (sums, index relations, guards, recurrences; links to reference) |
 | [UNSUPPORTED.md](UNSUPPORTED.md) | Syntax and features not supported by design, with rationale and alternatives |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | For contributors: project layout, adding features |

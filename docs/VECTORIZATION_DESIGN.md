@@ -108,7 +108,7 @@ For each clause, the backend chooses one of the following (in order):
 2. **Hybrid**  
    Condition: body references LHS (recurrence), and `0 < len(recurrence_dims) < len(loops)`.  
    Action: iterate over `recurrence_dims` via `execute_lowered_loops`; for each iteration, set recurrence dims to scalar and non-recurrence dims to broadcasted arrays, evaluate body, then write the (possibly expanded) result to the correct output slice.  
-   When `EINLANG_EINSTEIN_LOOP_MAX` is exceeded → **raise** (fail-fast). Other failures → set `recurrence_needs_scalar = True` and continue.
+   When the loop limit (config.DEFAULT_EINSTEIN_LOOP_MAX) is exceeded → **raise** (fail-fast). Other failures → set `recurrence_needs_scalar = True` and continue.
 
 3. **Full recurrence**  
    Condition: body references LHS and `len(recurrence_dims) == len(loops)`.  
@@ -123,7 +123,7 @@ For each clause, the backend chooses one of the following (in order):
    - If `recurrence_needs_scalar` is True and the clause has **no** literal indices, discard the vectorized result (`vec_result = None`) so the scalar path is used. If it has literal indices (e.g. boundary), keep the vectorized result.
 
 5. **Scalar**  
-   Fallback: iterate over all loop indices (nested loops), evaluate body once per cell, write to output. Subject to `EINLANG_EINSTEIN_LOOP_MAX`; raises if exceeded.
+   Fallback: iterate over all loop indices (nested loops), evaluate body once per cell, write to output. Subject to config.DEFAULT_EINSTEIN_LOOP_MAX; raises if exceeded.
 
 ---
 
@@ -174,7 +174,7 @@ If hybrid fails (e.g. iteration limit), the clause can still use **full vectoriz
 
 ## 8. Environment and profiling
 
-- **EINLANG_EINSTEIN_LOOP_MAX**: Max iterations for hybrid, call-scalar, and scalar loops (default 100). When exceeded, the backend **raises** immediately (fail-fast) with a message that includes the limit and a hint to set the env var. Examples that need long recurrences (e.g. 200 time steps) must set this (e.g. 500 or 5000) before execution.
+- **Loop limit**: Max iterations for hybrid, call-scalar, and scalar loops is `DEFAULT_EINSTEIN_LOOP_MAX` in `einlang.utils.config` (5000). No env override. When exceeded, the backend **raises** immediately (fail-fast). To allow longer recurrences, change the constant in config.
 - **EINLANG_DEBUG_VECTORIZE**: When set (e.g. `1`), backend prints per-clause path (vectorized / hybrid / scalar / call-scalar) and a one-line summary of clause counts.
 - **EINLANG_PROFILE_STATEMENTS**: Enables per-statement / per-clause timing in profile output.
 - **EINLANG_CHUNK_ELEMENTS**: If > 0, full vectorize may run in chunks along the first dimension to limit memory.

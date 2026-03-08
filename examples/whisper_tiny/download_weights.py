@@ -213,8 +213,61 @@ def compute_log_mel(audio_16k):
 
 
 # ---------------------------------------------------------------------------
-# Audio sample
+# Audio sample (JFK "ask not what your country can do for you" — speech, not music)
 # ---------------------------------------------------------------------------
+JFK_FLAC_URL = "https://raw.githubusercontent.com/openai/whisper/main/tests/jfk.flac"
+
+
+def _load_audio_from_file(path, sr_target=SAMPLE_RATE):
+    """Load audio from path (flac or wav), return (audio_float32, sr)."""
+    import wave
+    path_lower = path.lower()
+    if path_lower.endswith(".flac"):
+        try:
+            import soundfile as sf
+            audio, sr = sf.read(path)
+            audio = audio.astype(np.float32)
+        except ImportError:
+            import subprocess
+            tmp_wav = path + ".wav.tmp"
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", path, "-ar", str(sr_target), "-ac", "1", tmp_wav],
+                    check=True, capture_output=True,
+                )
+                with wave.open(tmp_wav, "rb") as wf:
+                    sr = wf.getframerate()
+                    raw = wf.readframes(wf.getnframes())
+                    sw = wf.getsampwidth()
+                dt = {1: np.uint8, 2: np.int16, 4: np.int32}[sw]
+                audio = np.frombuffer(raw, dtype=dt).astype(np.float32)
+                if dt != np.uint8:
+                    audio = audio / (2 ** (sw * 8 - 1))
+                if os.path.exists(tmp_wav):
+                    os.remove(tmp_wav)
+            except (subprocess.CalledProcessError, FileNotFoundError, Exception) as e:
+                raise RuntimeError("For .flac install soundfile (pip install soundfile) or ffmpeg: " + str(e))
+    else:
+        import wave as _wave
+        with _wave.open(path, "rb") as wf:
+            sr = wf.getframerate()
+            raw = wf.readframes(wf.getnframes())
+            sw = wf.getsampwidth()
+        dt = {1: np.uint8, 2: np.int16, 4: np.int32}[sw]
+        audio = np.frombuffer(raw, dtype=dt).astype(np.float32)
+        if dt == np.uint8:
+            audio = (audio - 128.0) / 128.0
+        else:
+            audio = audio / (2 ** (sw * 8 - 1))
+    if len(audio.shape) > 1:
+        audio = audio.mean(axis=1)
+    if sr != sr_target:
+        from scipy.signal import resample
+        n_out = int(len(audio) * sr_target / sr)
+        audio = resample(audio, n_out).astype(np.float32)
+    return audio
+
+
 def prepare_audio():
     import wave
 
@@ -224,80 +277,26 @@ def prepare_audio():
         print(f"[cached] {mel_path}")
         return
 
-    wav_path = os.path.join(SAMPLES_DIR, "audio.wav")
-
-    # Real speech sample: JFK "ask not what your country can do for you" (from OpenAI whisper tests).
-    wav_urls = [
-        "https://raw.githubusercontent.com/openai/whisper/main/tests/jfk.flac",
-        "https://cdn-media.huggingface.co/speech_samples/sample1.flac",
-        "https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/1.flac",
-    ]
-
-    audio = None
-    for url in wav_urls:
-        try:
-            tmp = os.path.join(SAMPLES_DIR, "tmp_audio")
-            download(url, tmp)
-            # Prefer soundfile for .flac (wave only supports RIFF/WAV). Fallback: ffmpeg.
-            if url.lower().endswith(".flac"):
-                try:
-                    import soundfile as sf
-                    audio, sr = sf.read(tmp)
-                    audio = audio.astype(np.float32)
-                except ImportError:
-                    import subprocess
-                    tmp_wav = os.path.join(SAMPLES_DIR, "tmp_audio.wav")
-                    try:
-                        subprocess.run(
-                            ["ffmpeg", "-y", "-i", tmp, "-ar", str(SAMPLE_RATE), "-ac", "1", tmp_wav],
-                            check=True, capture_output=True,
-                        )
-                        with wave.open(tmp_wav, "rb") as wf:
-                            sr = wf.getframerate()
-                            raw = wf.readframes(wf.getnframes())
-                            sw = wf.getsampwidth()
-                        dt = {1: np.uint8, 2: np.int16, 4: np.int32}[sw]
-                        audio = np.frombuffer(raw, dtype=dt).astype(np.float32)
-                        if dt != np.uint8:
-                            audio = audio / (2 ** (sw * 8 - 1))
-                        if os.path.exists(tmp_wav):
-                            os.remove(tmp_wav)
-                    except (subprocess.CalledProcessError, FileNotFoundError, Exception) as e:
-                        raise RuntimeError("For .flac install soundfile (pip install soundfile) or ffmpeg: " + str(e))
-            else:
-                try:
-                    with wave.open(tmp, "rb") as wf:
-                        sr = wf.getframerate()
-                        raw = wf.readframes(wf.getnframes())
-                        sw = wf.getsampwidth()
-                    dt = {1: np.uint8, 2: np.int16, 4: np.int32}[sw]
-                    audio = np.frombuffer(raw, dtype=dt).astype(np.float32)
-                    if dt == np.uint8:
-                        audio = (audio - 128.0) / 128.0
-                    else:
-                        audio = audio / (2 ** (sw * 8 - 1))
-                except Exception:
-                    import soundfile as sf
-                    audio, sr = sf.read(tmp)
-                    audio = audio.astype(np.float32)
-
-            if len(audio.shape) > 1:
-                audio = audio.mean(axis=1)
-            if sr != SAMPLE_RATE:
-                from scipy.signal import resample
-                n_out = int(len(audio) * SAMPLE_RATE / sr)
-                audio = resample(audio, n_out).astype(np.float32)
-            os.remove(tmp)
+    # Prefer local JFK speech file (so golden_ref.txt transcript matches).
+    for name in ("jfk.flac", "jfk.wav"):
+        local = os.path.join(SAMPLES_DIR, name)
+        if os.path.exists(local):
+            print(f"  Using local {name}")
+            audio = _load_audio_from_file(local)
             break
+    else:
+        # Download JFK sample to samples/jfk.flac (kept for future runs).
+        jfk_flac = os.path.join(SAMPLES_DIR, "jfk.flac")
+        try:
+            download(JFK_FLAC_URL, jfk_flac)
+            print(f"  Using {jfk_flac}")
+            audio = _load_audio_from_file(jfk_flac)
         except Exception as e:
-            print(f"  Warning: {url} failed: {e}")
-            audio = None
-            continue
-
-    if audio is None:
-        print("  No audio downloaded; generating 5s of 440Hz sine as placeholder.")
-        t = np.arange(5 * SAMPLE_RATE, dtype=np.float32) / SAMPLE_RATE
-        audio = 0.5 * np.sin(2 * np.pi * 440 * t)
+            raise RuntimeError(
+                "Failed to get JFK speech sample (needed for golden_ref.txt transcript). "
+                "Install: pip install soundfile (or ffmpeg for .flac). "
+                "Or download manually: curl -L -o samples/jfk.flac " + JFK_FLAC_URL + " ; error: " + str(e)
+            ) from e
 
     print(f"  Audio: {len(audio)} samples ({len(audio)/SAMPLE_RATE:.1f}s)")
     mel = compute_log_mel(audio)

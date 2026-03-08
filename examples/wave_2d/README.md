@@ -26,6 +26,22 @@ python3 examples/wave_2d/run_wave.py --html wave.html
 
 No extra setup or weights. Output: HTML animation (or `wave.html`) of the wave field over time.
 
+**Profile** (per-clause time and vectorized/hybrid/scalar path): from repo root or from this dir:
+
+```bash
+EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang main.ein
+```
+
+(From repo root use `python3 -m einlang examples/wave_2d/main.ein`.)
+
+## Accuracy
+
+Initial condition (h[1] = h[0]) and shape are checked in the test suite:
+
+```bash
+python3 -m pytest tests/examples/test_simulation_accuracy.py::TestWaveAccuracy -v
+```
+
 ## Files
 
 | File | Description |

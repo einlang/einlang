@@ -1,0 +1,2 @@
+# Files > 10 MiB tracked with Git LFS; others in repo
+examples/whisper_tiny/weights/dec_tok_emb.npy filter=lfs diff=lfs merge=lfs -text

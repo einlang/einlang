@@ -49,3 +49,6 @@ DEFAULT_FILE_ENCODING = "utf-8"
 ERROR_CONTEXT_PREFIX = "..."
 ERROR_POINTER_CHAR = "^"
 ERROR_LINE_PREFIX_LENGTH = 4
+
+# Backend: max recurrence/scalar loop iterations (no env override; this constant only).
+DEFAULT_EINSTEIN_LOOP_MAX = 5000

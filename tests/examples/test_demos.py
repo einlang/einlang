@@ -42,6 +42,36 @@ def get_demos_params():
     return [pytest.param(name, id=name) for name in _DEMOS_CACHE.keys()]
 
 
+def _ensure_weights_on_demand(project_root, example_dir, required_paths, script_name,
+                             script_args=None, timeout=300):
+    """If any required path is missing, run script_name in example_dir; fail if still missing."""
+    missing = [p for p in required_paths if not p.exists()]
+    if not missing:
+        return
+    script = example_dir / script_name
+    if not script.is_file():
+        pytest.fail(
+            f"{example_dir.name}: required {script_name} missing (required files: "
+            f"{[p.name for p in required_paths[:3]]}{'...' if len(required_paths) > 3 else ''})"
+        )
+    env = {**__import__("os").environ, "PYTHONPATH": str(project_root / "src")}
+    result = subprocess.run(
+        [sys.executable, str(script)] + (script_args or []),
+        capture_output=True, text=True, cwd=str(example_dir), env=env, timeout=timeout,
+    )
+    if result.returncode != 0:
+        pytest.fail(
+            f"{example_dir.name}: {script_name} failed (exit {result.returncode})\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+    still_missing = [p for p in required_paths if not p.exists()]
+    if still_missing:
+        pytest.fail(
+            f"{example_dir.name} still missing after {script_name}: {still_missing}\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+
 class TestDemos:
     """Tests for demos tutorial files - content pre-loaded for speed"""
 
@@ -76,8 +106,7 @@ class TestDemos:
                     ("conv1_w.npy", "conv1_b.npy", "conv2_w.npy", "conv2_b.npy",
                      "fc_w.npy", "fc_b.npy")]
         required += [mnist_dir / "samples" / f"{i}.pgm" for i in range(10)]
-        missing = [str(p) for p in required if not p.exists()]
-        assert not missing, f"mnist data missing: {missing}"
+        _ensure_weights_on_demand(project_root, mnist_dir, required, "download_weights.py")
 
         result = subprocess.run(
             [sys.executable, "-m", "einlang", str(main_ein)],
@@ -93,6 +122,7 @@ class TestDemos:
         """Run examples/mnist_quantized/main.ein and verify 10/10 digit predictions."""
         project_root = Path(__file__).parent.parent.parent
         quant_dir = project_root / "examples" / "mnist_quantized"
+        mnist_dir = project_root / "examples" / "mnist"
         main_ein = quant_dir / "main.ein"
 
         weight_names = [
@@ -104,8 +134,15 @@ class TestDemos:
         ]
         required = [quant_dir / "weights" / n for n in weight_names]
         required += [quant_dir / "samples" / f"{i}.pgm" for i in range(10)]
-        missing = [str(p) for p in required if not p.exists()]
-        assert not missing, f"mnist_quantized data missing: {missing}"
+        # prepare_weights.py creates weights (reads from ../mnist/weights); copy samples from mnist if missing
+        quant_samples = quant_dir / "samples"
+        if not (quant_samples / "0.pgm").exists() and (mnist_dir / "samples" / "0.pgm").exists():
+            quant_samples.mkdir(parents=True, exist_ok=True)
+            for i in range(10):
+                src = mnist_dir / "samples" / f"{i}.pgm"
+                if src.exists():
+                    (quant_samples / f"{i}.pgm").write_bytes(src.read_bytes())
+        _ensure_weights_on_demand(project_root, quant_dir, required, "prepare_weights.py")
 
         result = subprocess.run(
             [sys.executable, "-m", "einlang", str(main_ein)],
@@ -132,8 +169,7 @@ class TestDemos:
         ]
         required = [deit_dir / "weights" / n for n in weight_names]
         required += [deit_dir / "samples" / f"{i}.npy" for i in range(3)]
-        missing = [str(p) for p in required if not p.exists()]
-        assert not missing, f"deit_tiny data missing: {missing}"
+        _ensure_weights_on_demand(project_root, deit_dir, required, "download_weights.py", timeout=600)
 
         result = subprocess.run(
             [sys.executable, "-m", "einlang", str(main_ein)],
@@ -151,10 +187,19 @@ class TestDemos:
         whisper_dir = project_root / "examples" / "whisper_tiny"
         golden = whisper_dir / "golden_ref.txt"
         if not golden.is_file():
-            pytest.skip("golden_ref.txt missing (examples/whisper_tiny/golden_ref.txt)")
+            pytest.fail("whisper_tiny: required golden_ref.txt missing")
         main_ein = whisper_dir / "main.ein"
         if not main_ein.exists():
-            pytest.skip("main.ein not found")
+            pytest.fail("whisper_tiny: required main.ein missing")
+        # Download weights and JFK sample on demand (weights/ and samples/jfk.npy).
+        required = [
+            whisper_dir / "weights" / "enc_conv1_w.npy",
+            whisper_dir / "samples" / "jfk.npy",
+        ]
+        _ensure_weights_on_demand(
+            project_root, whisper_dir, required,
+            "download_weights.py", script_args=["--skip-verify"], timeout=300,
+        )
         golden_text = golden.read_text(encoding="utf-8").strip()
 
         result = subprocess.run(
@@ -165,9 +210,15 @@ class TestDemos:
         )
         assert result.returncode == 0, result.stderr or result.stdout or "no output"
         output = result.stdout.strip()
-        assert output == golden_text, (
-            f"Transcription mismatch:\n  golden:  {golden_text!r}\n  einlang: {output!r}"
-        )
+        if output != golden_text:
+            print(f"\nwhisper_tiny transcription:\n  golden:  {golden_text!r}\n  einlang: {output!r}")
+            pytest.fail(
+                f"Transcription mismatch:\n  golden:  {golden_text!r}\n  einlang: {output!r}\n"
+                "Possible causes: (1) different audio sample (e.g. download_weights used 440Hz sine fallback "
+                "if JFK URLs failed) -> remove samples/jfk.npy and re-run download_weights.py with network; "
+                "(2) numerical/implementation difference -> if einlang output is correct, update golden_ref.txt "
+                "with: echo -n '<output>' > examples/whisper_tiny/golden_ref.txt"
+            )
 
 
 if __name__ == "__main__":

@@ -8,7 +8,6 @@ From repo root:
   python3 examples/wave_2d/run_wave.py --profile-einlang   # per-clause time + vectorized/hybrid/scalar summary
 """
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -19,84 +18,10 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 import numpy as np
 from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
-
-# Allow enough recurrence steps for 200 time levels
-if "EINLANG_EINSTEIN_LOOP_MAX" not in os.environ:
-    os.environ["EINLANG_EINSTEIN_LOOP_MAX"] = "500"
+from einlang.utils.html_wave import write_wave_html
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
 MAIN_EIN = EXAMPLE_DIR / "main.ein"
-
-
-def write_html_animation(h: np.ndarray, path: str, interval_ms: int = 80) -> None:
-    h = np.asarray(h)
-    n_frames, ny, nx = h.shape
-    vmin = float(h.min())
-    vmax = float(h.max())
-    if vmax <= vmin:
-        vmax = vmin + 1.0
-    frames = [h[t].tolist() for t in range(n_frames)]
-    html = """<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>2D wave equation (Einlang)</title></head>
-<body style="margin:1em;font-family:sans-serif">
-<h1>2D wave &part;&sup2;h/&part;t&sup2; = c&sup2;&nabla;&sup2;h</h1>
-<p>t = <span id="t">0</span> / %(n_frames)s</p>
-<canvas id="c" width="%(nx)s" height="%(ny)s" style="image-rendering:pixelated;image-rendering:crisp-edges;width:320px;height:320px"></canvas>
-<script>
-var frames = %(frames)s;
-var vmin = %(vmin)s, vmax = %(vmax)s;
-var n = frames.length;
-var nx = frames[0][0].length, ny = frames[0].length;
-var c = document.getElementById("c");
-c.width = nx; c.height = ny;
-var ctx = c.getContext("2d");
-var idx = 0;
-function waveColor(v) {
-  var t = (v - vmin) / (vmax - vmin);
-  var r, g, b;
-  if (t < 0.33) {
-    r = Math.floor(255 * (t / 0.33));
-    g = 0;
-    b = Math.floor(120 * (1 - t / 0.33));
-  } else if (t < 0.66) {
-    r = 255;
-    g = Math.floor(255 * ((t - 0.33) / 0.33));
-    b = 0;
-  } else {
-    r = 255;
-    g = 255;
-    b = Math.floor(255 * ((t - 0.66) / 0.34));
-  }
-  return "rgb(" + r + "," + g + "," + b + ")";
-}
-function draw() {
-  var grid = frames[idx];
-  var img = ctx.createImageData(nx, ny);
-  for (var j = 0; j < ny; j++)
-    for (var i = 0; i < nx; i++) {
-      var v = grid[j][i];
-      var k = (j * nx + i) * 4;
-      var rgb = waveColor(v).match(/\\d+/g);
-      img.data[k]=parseInt(rgb[0]); img.data[k+1]=parseInt(rgb[1]); img.data[k+2]=parseInt(rgb[2]); img.data[k+3]=255;
-    }
-  ctx.putImageData(img, 0, 0);
-  document.getElementById("t").textContent = idx;
-  idx = (idx + 1) %% n;
-}
-setInterval(draw, %(interval_ms)s);
-draw();
-</script>
-</body></html>
-""" % {
-        "n_frames": n_frames,
-        "nx": nx,
-        "ny": ny,
-        "frames": json.dumps(frames),
-        "vmin": vmin,
-        "vmax": vmax,
-        "interval_ms": interval_ms,
-    }
-    Path(path).write_text(html, encoding="utf-8")
 
 
 def main():
@@ -131,7 +56,7 @@ def main():
         print("Expected 3D array h[t,i,j]", file=sys.stderr)
         sys.exit(1)
 
-    write_html_animation(h, args.html)
+    write_wave_html(h, args.html)
     print("Wave equation result: shape h =", h.shape)
     print("Open in browser: file://%s" % Path(args.html).resolve())
 

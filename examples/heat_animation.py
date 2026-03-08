@@ -27,11 +27,6 @@ from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
 
 
-# Hybrid path: only t is scalar (one loop), i,j vectorized.
-# Allow more t steps by raising the recurrence loop limit for this script.
-if "EINLANG_EINSTEIN_LOOP_MAX" not in os.environ:
-    os.environ["EINLANG_EINSTEIN_LOOP_MAX"] = "2000"
-
 # Run long enough that the heat propagates to the boundary (center to edge ~20 cells, r=0.2 => ~1200 steps).
 HEAT_SOURCE = """
 let r = 0.2;
