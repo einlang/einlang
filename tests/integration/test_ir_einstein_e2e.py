@@ -203,7 +203,7 @@ class TestMatrixMultiplication:
         np.testing.assert_array_equal(result.outputs['C'], expected)
 
     def test_einsum_mk_nk_mn_parallel_reduction_dims(self, compiler, runtime):
-        """Verify parallel/reduction dims model with large M,N,K so execution must be vectorized (M*N > EINLANG_EINSTEIN_LOOP_MAX)."""
+        """Verify parallel/reduction dims model with large M,N,K so execution must be vectorized (M*N > loop limit)."""
         M, N, K = 64, 64, 128
         source = f"""
         let A[m in 0..{M}, k in 0..{K}] = m * 10 + k;

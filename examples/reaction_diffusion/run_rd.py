@@ -16,8 +16,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-os.environ.setdefault("EINLANG_EINSTEIN_LOOP_MAX", "5000000")
-
 import numpy as np
 from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
@@ -91,12 +89,15 @@ def main():
     import argparse
     ap = argparse.ArgumentParser(description="Run Gray-Scott reaction-diffusion and write HTML animation")
     ap.add_argument("--html", type=str, default="rd.html", help="Output HTML path")
-    ap.add_argument("--profile-einlang", action="store_true", help="Print backend path: vectorized / hybrid / scalar")
+    ap.add_argument("--profile-einlang", action="store_true", help="Profile all: statements, functions, blocks, reductions, vectorize path")
     args = ap.parse_args()
 
     if args.profile_einlang:
         os.environ["EINLANG_DEBUG_VECTORIZE"] = "1"
         os.environ["EINLANG_PROFILE_STATEMENTS"] = "1"
+        os.environ["EINLANG_PROFILE_FUNCTIONS"] = "1"
+        os.environ["EINLANG_PROFILE_BLOCKS"] = "1"
+        os.environ["EINLANG_PROFILE_REDUCTIONS"] = "1"
 
     source = MAIN_EIN.read_text(encoding="utf-8")
     compiler = CompilerDriver()
@@ -116,6 +117,11 @@ def main():
     if state is None or state.ndim != 4:
         print("Expected 4D array state[t, c, i, j]", file=sys.stderr)
         sys.exit(1)
+
+    if args.profile_einlang:
+        # Why state is slow: timestep-major execution = 500 Python iterations × 6 recurrence clauses
+        # (4 boundary + 2 interior) = 3000 clause runs; each does env/slice setup + vectorized NumPy.
+        print("[profile] state slow: 500 timesteps × 6 clauses = 3000 backend steps (Python loop + vectorized body).")
 
     # Animate V (channel 1)
     v = state[:, 1, :, :]

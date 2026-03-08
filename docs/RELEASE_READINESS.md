@@ -32,8 +32,8 @@
 - [ ] **Every example linked from README “Examples” table runs** from repo root with:  
   `python3 -m einlang examples/...`  
   No extra setup (or document it clearly: e.g. “run download_weights.py first” for whisper).
-- [ ] **Heavy examples don’t hit EINLANG_EINSTEIN_LOOP_MAX by default.**  
-  Default is 100; deit_tiny / whisper may need more. Either raise default for release, or document `export EINLANG_EINSTEIN_LOOP_MAX=10000` for those examples so first-time users don’t see a confusing “loop limit” error.
+- [ ] **Heavy examples don’t hit the loop limit by default.**  
+  Default is 5000 (config.DEFAULT_EINSTEIN_LOOP_MAX), enough for simulation demos and whisper_tiny (3000 steps).
 - [ ] **examples/README.md** learning path matches what actually runs (basics → demos → mnist → …).
 
 ---
@@ -62,7 +62,6 @@
 | **P0** | Try-it and hello.ein work on clean clone + `pip install -e .` |
 | **P0** | All doc code uses valid syntax (recurrence range in bracket, not in `where`) |
 | **P0** | README “Examples” table: every listed example runs or has a one-line “run X first” |
-| **P1** | EINLANG_EINSTEIN_LOOP_MAX: either raise default or document for deit_tiny/whisper |
 | **P1** | Internal doc links and anchors checked (no 404) |
 | **P2** | Repo description + topics; CONTRIBUTING welcoming; LICENSE present |
 

@@ -135,6 +135,7 @@ class CompilerDriver:
         source: str,
         source_file: str = "main.ein",
         root_path: Optional[Path] = None,
+        stdlib_root: Optional[Path] = None,
         stop_after_pass: Optional[str] = None,
         source_overlay: Optional[dict] = None,
     ) -> CompilationResult:
@@ -167,7 +168,7 @@ class CompilerDriver:
             
             if root_path is None:
                 root_path = Path.cwd()
-            module_system = ModuleSystem(root_path, tcx.resolver)
+            module_system = ModuleSystem(root_path, tcx.resolver, stdlib_root=stdlib_root)
             tcx.module_system = module_system
             tcx.discovered_modules = {}
             tcx.source_files[source_file] = source

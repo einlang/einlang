@@ -55,6 +55,12 @@ python3 -m einlang examples/whisper_tiny/main.ein
 
 **Sample input**: mel spectrogram from the JFK clip (real speech). Saved as `samples/jfk.npy`. To switch to the JFK sample after using another clip, remove `samples/jfk.npy` and run `download_weights.py` again. **Output**: transcribed text (speech-to-text).
 
+**Profile** (per-clause time and vectorized/hybrid/scalar path): run from this directory so paths resolve:
+
+```bash
+cd examples/whisper_tiny && EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang main.ein
+```
+
 ## Compare with golden reference
 
 From `examples/whisper_tiny`:

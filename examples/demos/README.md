@@ -31,6 +31,35 @@ python3 -m einlang examples/demos/computer_vision_tensors.ein
 python3 -m einlang examples/demos/function_overloading_complete.ein
 ```
 
+## Profiling
+
+To see per-clause timings and whether each Einstein clause took the vectorized, hybrid, or scalar path, set:
+
+```bash
+export EINLANG_PROFILE_STATEMENTS=1
+export EINLANG_DEBUG_VECTORIZE=1
+python3 -m einlang examples/demos/<file>.ein
+```
+
+For wave and RD, run the `.ein` file with the same env vars (no runner script needed for profiling):
+
+```bash
+EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang examples/wave_2d/main.ein
+EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang examples/reaction_diffusion/main.ein
+```
+
+For heat (PDE is inline in the script), use the runner with `--profile-einlang`:
+
+```bash
+python3 examples/heat_animation.py --profile-einlang
+```
+
+For whisper or deit_tiny, run from the example directory so paths resolve, then set the env vars:
+
+```bash
+cd examples/whisper_tiny && EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang main.ein
+```
+
 ## Key concepts introduced
 
 - **Einstein notation** — `let result[i,j] = sum[k](A[i,k] * B[k,j])` defines a matrix multiply by declaring the output shape and a reduction over `k`. This notation is used extensively in the ML examples.

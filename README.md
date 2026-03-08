@@ -86,6 +86,14 @@ Einlang gives you readable tensor math with compile-time shape checking. In prac
 | **Stdlib** | `use std::math::{sin, sqrt};` · 300+ functions · [Reference](docs/reference.md) · [Stdlib](docs/stdlib.md) |
 | **Real models** | [MNIST CNN](examples/mnist/main.ein), [quantized (int8)](examples/mnist_quantized/main.ein), [ViT](examples/deit_tiny/), [Whisper](examples/whisper_tiny/) — same language, same checks |
 
+**Real-world use cases** (same space as [Julia’s demos](docs/JULIA_DEMOS.md): one language for simulation and ML.
+
+| Domain | Use case | Example |
+|--------|----------|---------|
+| **Scientific simulation** | ODE + PDEs: diffusion, wave, reaction–diffusion (recurrence + stencil) | [ode](examples/ode/), [heat](examples/heat_animation.py), [wave_2d](examples/wave_2d/), [reaction_diffusion](examples/reaction_diffusion/) |
+| **Computer vision** | Digit recognition, int8 quantization, ImageNet ViT | [mnist](examples/mnist/), [mnist_quantized](examples/mnist_quantized/), [deit_tiny](examples/deit_tiny/) |
+| **Speech & sequence** | Speech-to-text (encoder–decoder, autoregressive) | [whisper_tiny](examples/whisper_tiny/) |
+
 ---
 
 ## Why it's different
@@ -127,7 +135,7 @@ From one-liners to full models: run by **feature** (one capability at a time) or
 | Full CNN (MNIST) | [mnist/main.ein](examples/mnist/main.ein) |
 | Quantized CNN (int8) | [mnist_quantized/main.ein](examples/mnist_quantized/main.ein) |
 | ViT / Whisper | [deit_tiny/](examples/deit_tiny/), [whisper_tiny/](examples/whisper_tiny/) |
-| PDE simulations | [heat_animation.py](examples/heat_animation.py) (diffusion), [wave_2d/](examples/wave_2d/) (acoustic wave) |
+| ODE / PDE simulations | [ode/](examples/ode/), [heat_animation.py](examples/heat_animation.py), [wave_2d/](examples/wave_2d/), [reaction_diffusion/](examples/reaction_diffusion/) |
 
 | Step | Run | What it is |
 |------|-----|------------|
@@ -136,7 +144,7 @@ From one-liners to full models: run by **feature** (one capability at a time) or
 | 2 | [mnist/main.ein](examples/mnist/main.ein) | CNN digit recognition |
 | 2b | [mnist_quantized/main.ein](examples/mnist_quantized/main.ein) | Same CNN with int8 weights (`qconv`, `qlinear`, `quantize_linear`) |
 | 3 | [deit_tiny/](examples/deit_tiny/), [whisper_tiny/](examples/whisper_tiny/) | Vision Transformer, speech-to-text |
-| 3b | [heat_animation.py](examples/heat_animation.py), [wave_2d/](examples/wave_2d/) | 2D heat and wave equation (recurrence + stencil) |
+| 3b | [ode/](examples/ode/), [heat_animation.py](examples/heat_animation.py), [wave_2d/](examples/wave_2d/), [reaction_diffusion/](examples/reaction_diffusion/) | ODE + heat, wave, reaction–diffusion (recurrence + stencil) |
 
 More in the [examples/](examples/) tree.
 

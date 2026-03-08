@@ -1,0 +1,569 @@
+(program
+  :bindings
+  ((binding "Du" (literal 0.1 f32) (nil) :defid [0 0])
+    (binding "Dv" (literal 0.05 f32) (nil) :defid [0 1])
+    (binding "f" (literal 0.055 f32) (nil) :defid [0 2])
+    (binding "k" (literal 0.062 f32) (nil) :defid [0 3])
+    (binding "dt" (literal 1.0 f32) (nil) :defid [0 4])
+    (binding "n" (literal 128 i32) (nil) :defid [0 5])
+    (binding "cx" (literal 64 i32) (nil) :defid [0 6])
+    (binding "cy" (literal 64 i32) (nil) :defid [0 7])
+    (binding
+      "state"
+      (lowered-einstein
+        :shape
+        ((literal 500 i32) (literal 2 i32) (literal 128 i32) (literal 128 i32))
+        :element_type
+        (type f32)
+        :items
+        ((lowered-einstein-clause
+            :body
+            (literal 1.0 f32)
+            :loops
+            ((loop (index-var "i" :defid [0 9]) (range (literal 0 i32) (literal 128 i32)))
+              (loop (index-var "j" :defid [0 10]) (range (literal 0 i32) (literal 128 i32)))
+            )
+            :loop_var_ranges
+            (([0 9] (range (literal 0 i32) (literal 128 i32)))
+              ([0 10] (range (literal 0 i32) (literal 128 i32)))
+            )
+            :bindings
+            ()
+            :guards
+            ()
+            :reduction_ranges
+            ()
+            :indices
+            ((literal 0 i32)
+              (literal 0 i32)
+              (index-var "i" :defid [0 9] :range (range (literal 0 i32) (literal 128 i32)))
+              (index-var "j" :defid [0 10] :range (range (literal 0 i32) (literal 128 i32)))
+            )
+          )
+          (lowered-einstein-clause
+            :body
+            (if
+              (binary-op
+                &&
+                (binary-op
+                  &&
+                  (binary-op
+                    &&
+                    (binary-op >= (variable "i" :defid [0 9]) (literal 60 i32))
+                    (binary-op <= (variable "i" :defid [0 9]) (literal 68 i32))
+                  )
+                  (binary-op >= (variable "j" :defid [0 10]) (literal 60 i32))
+                )
+                (binary-op <= (variable "j" :defid [0 10]) (literal 68 i32))
+              )
+              (block () (literal 0.25 f32))
+              (block () (literal 0.0 f32))
+            )
+            :loops
+            ((loop (index-var "i" :defid [0 9]) (range (literal 0 i32) (literal 128 i32)))
+              (loop (index-var "j" :defid [0 10]) (range (literal 0 i32) (literal 128 i32)))
+            )
+            :loop_var_ranges
+            (([0 9] (range (literal 0 i32) (literal 128 i32)))
+              ([0 10] (range (literal 0 i32) (literal 128 i32)))
+            )
+            :bindings
+            ()
+            :guards
+            ()
+            :reduction_ranges
+            ()
+            :indices
+            ((literal 0 i32)
+              (literal 1 i32)
+              (index-var "i" :defid [0 9] :range (range (literal 0 i32) (literal 128 i32)))
+              (index-var "j" :defid [0 10] :range (range (literal 0 i32) (literal 128 i32)))
+            )
+          )
+          (lowered-einstein-clause
+            :body
+            (rectangular-access
+              (variable "state" :defid [0 8])
+              ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                (index-var "c" :defid [0 12])
+                (literal 0 i32)
+                (index-var "j" :defid [0 10])
+              )
+            )
+            :loops
+            ((loop (index-var "t" :defid [0 11]) (range (literal 1 i32) (literal 500 i32)))
+              (loop (index-var "c" :defid [0 12]) (range (literal 0 i32) (literal 2 i32)))
+              (loop (index-var "j" :defid [0 10]) (range (literal 0 i32) (literal 128 i32)))
+            )
+            :loop_var_ranges
+            (([0 11] (range (literal 1 i32) (literal 500 i32)))
+              ([0 12] (range (literal 0 i32) (literal 2 i32)))
+              ([0 10] (range (literal 0 i32) (literal 128 i32)))
+            )
+            :bindings
+            ()
+            :guards
+            ()
+            :reduction_ranges
+            ()
+            :indices
+            ((index-var "t" :defid [0 11] :range (range (literal 1 i32) (literal 500 i32)))
+              (index-var "c" :defid [0 12] :range (range (literal 0 i32) (literal 2 i32)))
+              (literal 0 i32)
+              (index-var "j" :defid [0 10] :range (range (literal 0 i32) (literal 128 i32)))
+            )
+          )
+          (lowered-einstein-clause
+            :body
+            (rectangular-access
+              (variable "state" :defid [0 8])
+              ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                (index-var "c" :defid [0 12])
+                (literal 127 i32)
+                (index-var "j" :defid [0 10])
+              )
+            )
+            :loops
+            ((loop (index-var "t" :defid [0 11]) (range (literal 1 i32) (literal 500 i32)))
+              (loop (index-var "c" :defid [0 12]) (range (literal 0 i32) (literal 2 i32)))
+              (loop (index-var "j" :defid [0 10]) (range (literal 0 i32) (literal 128 i32)))
+            )
+            :loop_var_ranges
+            (([0 11] (range (literal 1 i32) (literal 500 i32)))
+              ([0 12] (range (literal 0 i32) (literal 2 i32)))
+              ([0 10] (range (literal 0 i32) (literal 128 i32)))
+            )
+            :bindings
+            ()
+            :guards
+            ()
+            :reduction_ranges
+            ()
+            :indices
+            ((index-var "t" :defid [0 11] :range (range (literal 1 i32) (literal 500 i32)))
+              (index-var "c" :defid [0 12] :range (range (literal 0 i32) (literal 2 i32)))
+              (literal 127 i32)
+              (index-var "j" :defid [0 10] :range (range (literal 0 i32) (literal 128 i32)))
+            )
+          )
+          (lowered-einstein-clause
+            :body
+            (rectangular-access
+              (variable "state" :defid [0 8])
+              ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                (index-var "c" :defid [0 12])
+                (index-var "i" :defid [0 9])
+                (literal 0 i32)
+              )
+            )
+            :loops
+            ((loop (index-var "t" :defid [0 11]) (range (literal 1 i32) (literal 500 i32)))
+              (loop (index-var "c" :defid [0 12]) (range (literal 0 i32) (literal 2 i32)))
+              (loop (index-var "i" :defid [0 9]) (range (literal 1 i32) (literal 127 i32)))
+            )
+            :loop_var_ranges
+            (([0 11] (range (literal 1 i32) (literal 500 i32)))
+              ([0 12] (range (literal 0 i32) (literal 2 i32)))
+              ([0 9] (range (literal 1 i32) (literal 127 i32)))
+            )
+            :bindings
+            ()
+            :guards
+            ()
+            :reduction_ranges
+            ()
+            :indices
+            ((index-var "t" :defid [0 11] :range (range (literal 1 i32) (literal 500 i32)))
+              (index-var "c" :defid [0 12] :range (range (literal 0 i32) (literal 2 i32)))
+              (index-var "i" :defid [0 9] :range (range (literal 1 i32) (literal 127 i32)))
+              (literal 0 i32)
+            )
+          )
+          (lowered-einstein-clause
+            :body
+            (rectangular-access
+              (variable "state" :defid [0 8])
+              ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                (index-var "c" :defid [0 12])
+                (index-var "i" :defid [0 9])
+                (literal 127 i32)
+              )
+            )
+            :loops
+            ((loop (index-var "t" :defid [0 11]) (range (literal 1 i32) (literal 500 i32)))
+              (loop (index-var "c" :defid [0 12]) (range (literal 0 i32) (literal 2 i32)))
+              (loop (index-var "i" :defid [0 9]) (range (literal 1 i32) (literal 127 i32)))
+            )
+            :loop_var_ranges
+            (([0 11] (range (literal 1 i32) (literal 500 i32)))
+              ([0 12] (range (literal 0 i32) (literal 2 i32)))
+              ([0 9] (range (literal 1 i32) (literal 127 i32)))
+            )
+            :bindings
+            ()
+            :guards
+            ()
+            :reduction_ranges
+            ()
+            :indices
+            ((index-var "t" :defid [0 11] :range (range (literal 1 i32) (literal 500 i32)))
+              (index-var "c" :defid [0 12] :range (range (literal 0 i32) (literal 2 i32)))
+              (index-var "i" :defid [0 9] :range (range (literal 1 i32) (literal 127 i32)))
+              (literal 127 i32)
+            )
+          )
+          (lowered-einstein-clause
+            :body
+            (binary-op
+              +
+              (rectangular-access
+                (variable "state" :defid [0 8])
+                ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                  (literal 0 i32)
+                  (index-var "i" :defid [0 9])
+                  (index-var "j" :defid [0 10])
+                )
+              )
+              (binary-op
+                *
+                (variable "dt" :defid [0 4])
+                (binary-op
+                  +
+                  (binary-op
+                    -
+                    (binary-op
+                      *
+                      (variable "Du" :defid [0 0])
+                      (binary-op
+                        -
+                        (binary-op
+                          +
+                          (binary-op
+                            +
+                            (binary-op
+                              +
+                              (rectangular-access
+                                (variable "state" :defid [0 8])
+                                ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                                  (literal 0 i32)
+                                  (binary-op - (variable "i" :defid [0 9]) (literal 1 i32))
+                                  (index-var "j" :defid [0 10])
+                                )
+                              )
+                              (rectangular-access
+                                (variable "state" :defid [0 8])
+                                ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                                  (literal 0 i32)
+                                  (binary-op + (variable "i" :defid [0 9]) (literal 1 i32))
+                                  (index-var "j" :defid [0 10])
+                                )
+                              )
+                            )
+                            (rectangular-access
+                              (variable "state" :defid [0 8])
+                              ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                                (literal 0 i32)
+                                (index-var "i" :defid [0 9])
+                                (binary-op - (variable "j" :defid [0 10]) (literal 1 i32))
+                              )
+                            )
+                          )
+                          (rectangular-access
+                            (variable "state" :defid [0 8])
+                            ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                              (literal 0 i32)
+                              (index-var "i" :defid [0 9])
+                              (binary-op + (variable "j" :defid [0 10]) (literal 1 i32))
+                            )
+                          )
+                        )
+                        (binary-op
+                          *
+                          (literal 4.0 f32)
+                          (rectangular-access
+                            (variable "state" :defid [0 8])
+                            ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                              (literal 0 i32)
+                              (index-var "i" :defid [0 9])
+                              (index-var "j" :defid [0 10])
+                            )
+                          )
+                        )
+                      )
+                    )
+                    (binary-op
+                      *
+                      (binary-op
+                        *
+                        (rectangular-access
+                          (variable "state" :defid [0 8])
+                          ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                            (literal 0 i32)
+                            (index-var "i" :defid [0 9])
+                            (index-var "j" :defid [0 10])
+                          )
+                        )
+                        (rectangular-access
+                          (variable "state" :defid [0 8])
+                          ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                            (literal 1 i32)
+                            (index-var "i" :defid [0 9])
+                            (index-var "j" :defid [0 10])
+                          )
+                        )
+                      )
+                      (rectangular-access
+                        (variable "state" :defid [0 8])
+                        ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                          (literal 1 i32)
+                          (index-var "i" :defid [0 9])
+                          (index-var "j" :defid [0 10])
+                        )
+                      )
+                    )
+                  )
+                  (binary-op
+                    *
+                    (variable "f" :defid [0 2])
+                    (binary-op
+                      -
+                      (literal 1.0 f32)
+                      (rectangular-access
+                        (variable "state" :defid [0 8])
+                        ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                          (literal 0 i32)
+                          (index-var "i" :defid [0 9])
+                          (index-var "j" :defid [0 10])
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+            :loops
+            ((loop (index-var "t" :defid [0 11]) (range (literal 1 i32) (literal 500 i32)))
+              (loop (index-var "i" :defid [0 9]) (range (literal 1 i32) (literal 127 i32)))
+              (loop (index-var "j" :defid [0 10]) (range (literal 1 i32) (literal 127 i32)))
+            )
+            :loop_var_ranges
+            (([0 11] (range (literal 1 i32) (literal 500 i32)))
+              ([0 9] (range (literal 1 i32) (literal 127 i32)))
+              ([0 10] (range (literal 1 i32) (literal 127 i32)))
+            )
+            :bindings
+            ()
+            :guards
+            ()
+            :reduction_ranges
+            ()
+            :indices
+            ((index-var "t" :defid [0 11] :range (range (literal 1 i32) (literal 500 i32)))
+              (literal 0 i32)
+              (index-var "i" :defid [0 9] :range (range (literal 1 i32) (literal 127 i32)))
+              (index-var "j" :defid [0 10] :range (range (literal 1 i32) (literal 127 i32)))
+            )
+          )
+          (lowered-einstein-clause
+            :body
+            (binary-op
+              +
+              (rectangular-access
+                (variable "state" :defid [0 8])
+                ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                  (literal 1 i32)
+                  (index-var "i" :defid [0 9])
+                  (index-var "j" :defid [0 10])
+                )
+              )
+              (binary-op
+                *
+                (variable "dt" :defid [0 4])
+                (binary-op
+                  -
+                  (binary-op
+                    +
+                    (binary-op
+                      *
+                      (variable "Dv" :defid [0 1])
+                      (binary-op
+                        -
+                        (binary-op
+                          +
+                          (binary-op
+                            +
+                            (binary-op
+                              +
+                              (rectangular-access
+                                (variable "state" :defid [0 8])
+                                ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                                  (literal 1 i32)
+                                  (binary-op - (variable "i" :defid [0 9]) (literal 1 i32))
+                                  (index-var "j" :defid [0 10])
+                                )
+                              )
+                              (rectangular-access
+                                (variable "state" :defid [0 8])
+                                ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                                  (literal 1 i32)
+                                  (binary-op + (variable "i" :defid [0 9]) (literal 1 i32))
+                                  (index-var "j" :defid [0 10])
+                                )
+                              )
+                            )
+                            (rectangular-access
+                              (variable "state" :defid [0 8])
+                              ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                                (literal 1 i32)
+                                (index-var "i" :defid [0 9])
+                                (binary-op - (variable "j" :defid [0 10]) (literal 1 i32))
+                              )
+                            )
+                          )
+                          (rectangular-access
+                            (variable "state" :defid [0 8])
+                            ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                              (literal 1 i32)
+                              (index-var "i" :defid [0 9])
+                              (binary-op + (variable "j" :defid [0 10]) (literal 1 i32))
+                            )
+                          )
+                        )
+                        (binary-op
+                          *
+                          (literal 4.0 f32)
+                          (rectangular-access
+                            (variable "state" :defid [0 8])
+                            ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                              (literal 1 i32)
+                              (index-var "i" :defid [0 9])
+                              (index-var "j" :defid [0 10])
+                            )
+                          )
+                        )
+                      )
+                    )
+                    (binary-op
+                      *
+                      (binary-op
+                        *
+                        (rectangular-access
+                          (variable "state" :defid [0 8])
+                          ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                            (literal 0 i32)
+                            (index-var "i" :defid [0 9])
+                            (index-var "j" :defid [0 10])
+                          )
+                        )
+                        (rectangular-access
+                          (variable "state" :defid [0 8])
+                          ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                            (literal 1 i32)
+                            (index-var "i" :defid [0 9])
+                            (index-var "j" :defid [0 10])
+                          )
+                        )
+                      )
+                      (rectangular-access
+                        (variable "state" :defid [0 8])
+                        ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                          (literal 1 i32)
+                          (index-var "i" :defid [0 9])
+                          (index-var "j" :defid [0 10])
+                        )
+                      )
+                    )
+                  )
+                  (binary-op
+                    *
+                    (binary-op + (variable "f" :defid [0 2]) (variable "k" :defid [0 3]))
+                    (rectangular-access
+                      (variable "state" :defid [0 8])
+                      ((binary-op - (variable "t" :defid [0 11]) (literal 1 i32))
+                        (literal 1 i32)
+                        (index-var "i" :defid [0 9])
+                        (index-var "j" :defid [0 10])
+                      )
+                    )
+                  )
+                )
+              )
+            )
+            :loops
+            ((loop (index-var "t" :defid [0 11]) (range (literal 1 i32) (literal 500 i32)))
+              (loop (index-var "i" :defid [0 9]) (range (literal 1 i32) (literal 127 i32)))
+              (loop (index-var "j" :defid [0 10]) (range (literal 1 i32) (literal 127 i32)))
+            )
+            :loop_var_ranges
+            (([0 11] (range (literal 1 i32) (literal 500 i32)))
+              ([0 9] (range (literal 1 i32) (literal 127 i32)))
+              ([0 10] (range (literal 1 i32) (literal 127 i32)))
+            )
+            :bindings
+            ()
+            :guards
+            ()
+            :reduction_ranges
+            ()
+            :indices
+            ((index-var "t" :defid [0 11] :range (range (literal 1 i32) (literal 500 i32)))
+              (literal 1 i32)
+              (index-var "i" :defid [0 9] :range (range (literal 1 i32) (literal 127 i32)))
+              (index-var "j" :defid [0 10] :range (range (literal 1 i32) (literal 127 i32)))
+            )
+          )
+        )
+      )
+      (nil)
+      :defid
+      [0 8]
+    )
+    (variable "state" :defid [0 8])
+  )
+  :source_files
+  (("/Users/user/Documents/einlang/examples/reaction_diffusion/main.ein"
+      "// Gray-Scott reaction-diffusion: two coupled PDEs (multi-clause)
+// U_t = Du*Laplacian(U) - U*V^2 + f*(1-U)
+// V_t = Dv*Laplacian(V) + U*V^2 - (f+k)*V
+// state[t, 0, i, j] = U,  state[t, 1, i, j] = V
+
+let Du = 0.1;
+let Dv = 0.05;
+let f = 0.055;
+let k = 0.062;
+let dt = 1.0;
+let n = 128;
+let cx = 64;
+let cy = 64;
+
+// Initial (128x128), seed 8x8 at center
+let state[0, 0, i in 0..128, j in 0..128] = 1.0;
+let state[0, 1, i in 0..128, j in 0..128] = if i >= 60 && i <= 68 && j >= 60 && j <= 68 { 0.25 } else { 0.0 };
+
+// Boundary first (copy from t-1) so state[t-1] is complete when interior reads it. Clause order = dependency order.
+let state[t in 1..500, c in 0..2, 0, j in 0..128] = state[t - 1, c, 0, j];
+let state[t in 1..500, c in 0..2, 127, j in 0..128] = state[t - 1, c, 127, j];
+let state[t in 1..500, c in 0..2, i in 1..127, 0] = state[t - 1, c, i, 0];
+let state[t in 1..500, c in 0..2, i in 1..127, 127] = state[t - 1, c, i, 127];
+
+// Interior U (channel 0)
+let state[t in 1..500, 0, i in 1..127, j in 1..127] =
+  state[t - 1, 0, i, j] + dt * (
+    Du * (state[t - 1, 0, i - 1, j] + state[t - 1, 0, i + 1, j] + state[t - 1, 0, i, j - 1] + state[t - 1, 0, i, j + 1] - 4.0 * state[t - 1, 0, i, j])
+    - state[t - 1, 0, i, j] * state[t - 1, 1, i, j] * state[t - 1, 1, i, j]
+    + f * (1.0 - state[t - 1, 0, i, j])
+  );
+
+// Interior V (channel 1)
+let state[t in 1..500, 1, i in 1..127, j in 1..127] =
+  state[t - 1, 1, i, j] + dt * (
+    Dv * (state[t - 1, 1, i - 1, j] + state[t - 1, 1, i + 1, j] + state[t - 1, 1, i, j - 1] + state[t - 1, 1, i, j + 1] - 4.0 * state[t - 1, 1, i, j])
+    + state[t - 1, 0, i, j] * state[t - 1, 1, i, j] * state[t - 1, 1, i, j]
+    - (f + k) * state[t - 1, 1, i, j]
+  );
+
+state;
+"
+    )
+  )
+)

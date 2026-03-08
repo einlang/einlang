@@ -48,6 +48,14 @@ Expected output:
 
 Runs in ~15-30 seconds on CPU depending on hardware.
 
+**Profile** (per-clause time and vectorized/hybrid/scalar path): run from repo root with env set so paths resolve:
+
+```bash
+cd examples/deit_tiny && EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang main.ein
+```
+
+(Use `PYTHONPATH=../../src` if not running from repo root.)
+
 ## How it works
 
 Weights are loaded from `.npy` files via Python interop. The `infer` function implements the full DeiT-Tiny forward pass: patch embedding via conv, CLS token prepend, positional encoding, 12 transformer blocks (each with multi-head self-attention, layer norm, and MLP with GELU), final normalization, and a linear head that projects the CLS token to 1000 class logits.

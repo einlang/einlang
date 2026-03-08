@@ -207,14 +207,14 @@ class ModuleSystem:
     Reference: Rust module system coordination
     """
     
-    def __init__(self, root_path: Path, resolver: Resolver):
+    def __init__(self, root_path: Path, resolver: Resolver, stdlib_root: Optional[Path] = None):
         self.root_path = root_path
         self.resolver = resolver
         self.discovery = ModuleDiscovery(root_path)
         self.loader = ModuleLoader()
         self.resolver_module = ModuleResolver(resolver)
-        # Discover stdlib root (Rust pattern: stdlib is always accessible)
-        self.stdlib_root = self._find_stdlib_root(root_path)
+        # Stdlib root: explicit override or discover by searching up from root_path
+        self.stdlib_root = Path(stdlib_root).resolve() if stdlib_root is not None else self._find_stdlib_root(root_path)
     
     def _find_stdlib_root(self, root_path: Path) -> Optional[Path]:
         """

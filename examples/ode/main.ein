@@ -1,0 +1,13 @@
+// ODE: exponential decay  du/dt = -k*u,  u(0) = u0
+// Euler: u[t] = u[t-1] + dt * (-k * u[t-1]) = u[t-1] * (1 - k*dt)
+// Same class of numerical time-stepping as Julia's DifferentialEquations.jl
+
+let k = 0.05;
+let dt = 0.1;
+let u0 = 1.0;
+
+let u[0] = u0;
+let u[t in 1..50] = u[t - 1] * (1.0 - k * dt);
+
+print(u);
+u;
