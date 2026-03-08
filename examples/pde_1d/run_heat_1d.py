@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Run 1D heat equation (main.ein) and write HTML animation (time vs space).
+Run 1D heat equation (heat_1d.ein) and write HTML heatmap (time vs space).
 
 From repo root:
-  python3 examples/heat_1d/run_heat_1d.py
-  python3 examples/heat_1d/run_heat_1d.py --html heat_1d.html
+  python3 examples/pde_1d/run_heat_1d.py
+  python3 examples/pde_1d/run_heat_1d.py --html heat_1d.html
 """
 
 import json
@@ -19,7 +19,7 @@ from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
-MAIN_EIN = EXAMPLE_DIR / "main.ein"
+HEAT_EIN = EXAMPLE_DIR / "heat_1d.ein"
 
 
 def write_html_heatmap(u: np.ndarray, path: str) -> None:
@@ -68,10 +68,10 @@ def main():
     ap.add_argument("--html", type=str, default="heat_1d.html", help="Output HTML path")
     args = ap.parse_args()
 
-    source = MAIN_EIN.read_text(encoding="utf-8")
+    source = HEAT_EIN.read_text(encoding="utf-8")
     compiler = CompilerDriver()
     runtime = EinlangRuntime()
-    result = compiler.compile(source, str(MAIN_EIN), root_path=EXAMPLE_DIR)
+    result = compiler.compile(source, str(HEAT_EIN), root_path=EXAMPLE_DIR)
     if not result.success:
         err = getattr(result, "tcx", None)
         if err and getattr(err, "reporter", None):

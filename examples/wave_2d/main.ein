@@ -1,6 +1,31 @@
 // 2D wave equation: h_tt = c^2 Laplacian(h)
 // Leapfrog: h^{n+1} = 2*h^n - h^{n-1} + r * Laplacian(h^n),  r = c^2 dt^2/dx^2
 // Initial: Gaussian bump at center; zero velocity => h[1] = h[0]
+//
+// Julia equivalent (1-based; same order as below):
+//   r = 0.5
+//   cx = 20
+//   cy = 20
+//   sigma2 = 50.0
+//   h = zeros(200, 40, 40)
+//   for j in 1:40
+//       for i in 1:40
+//           h[1, i, j] = 10.0 * exp(-((i - cx)^2 + (j - cy)^2) / sigma2)
+//       end
+//   end
+//   for j in 1:40
+//       for i in 1:40
+//           h[2, i, j] = h[1, i, j]
+//       end
+//   end
+//   for t in 3:200
+//       for j in 2:39
+//           for i in 2:39
+//               lap = h[t-1, i-1, j] + h[t-1, i+1, j] + h[t-1, i, j-1] + h[t-1, i, j+1] - 4.0 * h[t-1, i, j]
+//               h[t, i, j] = 2.0 * h[t-1, i, j] - h[t-2, i, j] + r * lap
+//           end
+//       end
+//   end
 
 use std::math::exp::exp;
 
@@ -14,4 +39,3 @@ let h[1, i in 0..40, j in 0..40] = h[0, i, j];
 let h[t in 2..200, i in 1..39, j in 1..39] =
     2.0 * h[t - 1, i, j] - h[t - 2, i, j]
     + r * (h[t - 1, i - 1, j] + h[t - 1, i + 1, j] + h[t - 1, i, j - 1] + h[t - 1, i, j + 1] - 4.0 * h[t - 1, i, j]);
-h;

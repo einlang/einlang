@@ -1,6 +1,16 @@
 // ODE: exponential decay  du/dt = -k*u,  u(0) = u0
 // Euler: u[t] = u[t-1] + dt * (-k * u[t-1]) = u[t-1] * (1 - k*dt)
 // Same class of numerical time-stepping as Julia's DifferentialEquations.jl
+//
+// Julia equivalent (1-based; same order as below):
+//   k = 0.05
+//   dt = 0.1
+//   u0 = 1.0
+//   u = zeros(50)
+//   u[1] = u0
+//   for t in 2:50
+//       u[t] = u[t-1] * (1.0 - k * dt)
+//   end
 
 let k = 0.05;
 let dt = 0.1;
@@ -10,4 +20,3 @@ let u[0] = u0;
 let u[t in 1..50] = u[t - 1] * (1.0 - k * dt);
 
 print(u);
-u;

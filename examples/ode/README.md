@@ -1,53 +1,37 @@
-# ODE: exponential decay
+# ODE: DifferentialEquations.jl–style time-stepping
 
-**Numerical ODE time-stepping** — the same use case as [Julia’s DifferentialEquations.jl](https://docs.sciml.ai/DiffEqDocs/stable/). One state, recurrence over time; no spatial dimension.
+**Numerical ODE time-stepping** — aligned with [Julia’s DifferentialEquations.jl](https://docs.sciml.ai/DiffEqDocs/stable/). One folder, four models: scalar decay, linear system, Lorenz, Lotka–Volterra. Recurrence over time; no spatial dimension (no PDE/stencil).
 
-## ODE
+## Files (one per model)
 
-- **Equation:** du/dt = −k·u  
-- **Initial:** u(0) = u0  
-- **Euler step:** u[t] = u[t−1] + dt·(−k·u[t−1]) = u[t−1]·(1 − k·dt)
+| File | Model | State |
+|------|--------|------|
+| `decay.ein` | Exponential decay du/dt = −k·u | Scalar u[t] |
+| `linear.ein` | Linear system du/dt = A·u | Vector u[t, i] |
+| `lorenz.ein` | Lorenz (chaotic 3D) | u[t, 0..2] = (x,y,z) |
+| `lotka_volterra.ein` | Predator–prey | state[t, 0]=u, state[t, 1]=v |
 
-Parameters: k = 0.05, dt = 0.1, 50 steps. Output: trajectory `u[0..50]` (decay from 1 toward 0).
-
-## What this demo shows
-
-- **Recurrence over time** for a scalar ODE (one index `t`).
-- **No PDE/stencil** — just the discrete time step, like a minimal DiffEq example.
-- Einlang checks shapes at compile time; you write the update once and the backend runs it.
+All use explicit Euler; same recurrence pattern, different RHS. QuantEcon.jl also uses this style for linear ODEs and Lotka–Volterra.
 
 ## Run
 
-From repo root or from this directory:
+From repo root:
 
 ```bash
-python3 -m einlang examples/ode/main.ein
-# or: python3 -m einlang main.ein  (from examples/ode)
+python3 -m einlang examples/ode/decay.ein       # decay
+python3 -m einlang examples/ode/linear.ein      # linear A·u
+python3 -m einlang examples/ode/lorenz.ein      # Lorenz
+python3 -m einlang examples/ode/lotka_volterra.ein
 ```
-
-**Profile** (per-clause time and path):
-
-```bash
-EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang examples/ode/main.ein
-```
-
-For more steps (e.g. 500), increase the range in `main.ein` (e.g. `t in 1..500`). Max steps is `config.DEFAULT_EINSTEIN_LOOP_MAX` (5000).
 
 ## Accuracy
 
-Trajectory is checked against the analytical solution u(t) = u0·exp(−k·t) in the test suite:
+Tests compare each to analytical or NumPy reference:
 
 ```bash
-python3 -m pytest tests/examples/test_simulation_accuracy.py::TestOdeAccuracy -v
+python3 -m pytest tests/examples/test_simulation_accuracy.py -k "Ode or Lorenz or Lotka or Linear" -v
 ```
-
-## Files
-
-| File       | Description                          |
-|------------|--------------------------------------|
-| `main.ein` | Exponential decay ODE (recurrence)   |
-| `README.md`| This file                            |
 
 ## Julia parallel
 
-[Julia demos → Einlang](../../docs/JULIA_DEMOS.md): this example is our counterpart to **DifferentialEquations.jl** ODE time-stepping (explicit Euler). Same idea; we use Einstein notation and recurrence instead of a solver API.
+[Julia demos → Einlang](../../docs/JULIA_DEMOS.md): this folder is our **DifferentialEquations.jl** counterpart (explicit Euler, same equations). We use Einstein notation and recurrence instead of a solver API.

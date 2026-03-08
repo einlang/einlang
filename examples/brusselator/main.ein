@@ -1,5 +1,46 @@
 // Brusselator: dU/dt = B + U²V - (A+1)U + α∇²U,  dV/dt = AU - U²V + α∇²V
 // state[t, 0, i, j] = U,  state[t, 1, i, j] = V. Julia: SciML Brusselator
+//
+// Julia equivalent (1-based; same order as below):
+//   A = 1.0
+//   B = 2.0
+//   alpha = 0.02
+//   dt = 0.2
+//   state = zeros(300, 2, 64, 64)
+//   state[1, 1, :, :] .= 1.0
+//   for j in 1:64
+//       for i in 1:64
+//           state[1, 2, i, j] = (30 <= i <= 34 && 30 <= j <= 34) ? 0.5 : 0.0
+//       end
+//   end
+//   for t in 2:300
+//       for j in 1:64
+//           state[t, 1, 1, j] = state[t-1, 1, 1, j]
+//           state[t, 2, 1, j] = state[t-1, 2, 1, j]
+//       end
+//       for j in 1:64
+//           state[t, 1, 64, j] = state[t-1, 1, 64, j]
+//           state[t, 2, 64, j] = state[t-1, 2, 64, j]
+//       end
+//       for i in 2:63
+//           state[t, 1, i, 1] = state[t-1, 1, i, 1]
+//           state[t, 2, i, 1] = state[t-1, 2, i, 1]
+//       end
+//       for i in 2:63
+//           state[t, 1, i, 64] = state[t-1, 1, i, 64]
+//           state[t, 2, i, 64] = state[t-1, 2, i, 64]
+//       end
+//       for j in 2:63
+//           for i in 2:63
+//               U = state[t-1, 1, i, j]
+//               V = state[t-1, 2, i, j]
+//               lap_U = state[t-1, 1, i-1, j] + state[t-1, 1, i+1, j] + state[t-1, 1, i, j-1] + state[t-1, 1, i, j+1] - 4.0 * U
+//               lap_V = state[t-1, 2, i-1, j] + state[t-1, 2, i+1, j] + state[t-1, 2, i, j-1] + state[t-1, 2, i, j+1] - 4.0 * V
+//               state[t, 1, i, j] = U + dt * (B + U^2*V - (A+1)*U + alpha * lap_U)
+//               state[t, 2, i, j] = V + dt * (A*U - U^2*V + alpha * lap_V)
+//           end
+//       end
+//   end
 
 let A = 1.0;
 let B = 2.0;
@@ -32,5 +73,3 @@ let state[t in 1..300, 1, i in 1..63, j in 1..63] =
     - state[t - 1, 0, i, j] * state[t - 1, 0, i, j] * state[t - 1, 1, i, j]
     + alpha * (state[t - 1, 1, i - 1, j] + state[t - 1, 1, i + 1, j] + state[t - 1, 1, i, j - 1] + state[t - 1, 1, i, j + 1] - 4.0 * state[t - 1, 1, i, j])
   );
-
-state;

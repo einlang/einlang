@@ -1,6 +1,6 @@
 # Brusselator (reaction–diffusion)
 
-**Julia source:** [SciML showcase: Brusselator](https://docs.sciml.ai/Overview/stable/showcase/brusselator/). Second reaction–diffusion PDE alongside [Gray–Scott](../reaction_diffusion/); same family, different reaction terms.
+**Julia source:** [SciML showcase: Brusselator](https://docs.sciml.ai/Overview/stable/showcase/brusselator/). Reaction–diffusion PDE aligned with this Julia demo.
 
 ## Equations
 
@@ -8,7 +8,7 @@ Two species X, Y with diffusion and nonlinear reaction (Brusselator kinetics). D
 
 ## What this demo shows
 
-- Same pattern as [reaction_diffusion/](../reaction_diffusion/): 4D state (time, channel, i, j), recurrence + stencil.
+- 4D state (time, channel, i, j), recurrence + stencil (Laplacian + reaction terms).
 - Einlang vs Julia: same numerical scheme; compile-time shape checking and Einstein notation here.
 
 ## Run
@@ -24,4 +24,4 @@ Output: `state` shape (300, 2, 64, 64). The runner writes an HTML animation of t
 
 ## Julia parallel
 
-[Julia demos → Einlang](../../docs/JULIA_DEMOS.md): Brusselator is the SciML showcase reaction–diffusion; we have Gray–Scott in [reaction_diffusion/](../reaction_diffusion/). This folder is the direct Brusselator counterpart.
+[Julia demos → Einlang](../../docs/JULIA_DEMOS.md): this folder is the direct SciML Brusselator counterpart.

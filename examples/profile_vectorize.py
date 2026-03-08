@@ -68,7 +68,7 @@ def main():
     env_pythonpath = {"PYTHONPATH": str(src)}
 
     examples = [
-        ("ode", [py, "-m", "einlang", str(REPO_ROOT / "examples/ode/main.ein")], REPO_ROOT, env_pythonpath),
+        ("ode", [py, "-m", "einlang", str(REPO_ROOT / "examples/ode/decay.ein")], REPO_ROOT, env_pythonpath),
         ("wave_2d", [py, str(REPO_ROOT / "examples/wave_2d/run_wave.py"), "--profile-einlang"], REPO_ROOT, {}),
         (
             "reaction_diffusion",

@@ -1,0 +1,29 @@
+// 1D heat: ∂u/∂t = α ∂²u/∂x². Discrete: u[t,i] = u[t-1,i] + r*(u[t-1,i-1] - 2*u[t-1,i] + u[t-1,i+1])
+// Dirichlet BC: u[t,0]=0, u[t,N]=0. Julia: MethodOfLines.jl
+//
+// Julia equivalent (1-based; same order as below):
+//   r = 0.2
+//   n = 41
+//   u = zeros(201, 41)
+//   u[1, :] .= 0.0
+//   u[1, 21] = 10.0
+//   for t in 2:201
+//       u[t, 1] = 0.0
+//       u[t, 41] = 0.0
+//       for i in 2:40
+//           u[t, i] = u[t-1, i] + r * (u[t-1, i-1] - 2*u[t-1, i] + u[t-1, i+1])
+//       end
+//   end
+
+let r = 0.2;
+let n = 41;
+
+// Initial: all 0, then bump at center (index 20)
+let u[0, i in 0..41] = 0.0;
+let u[0, 20] = 10.0;
+
+// Boundary (fixed)
+let u[t in 1..200, 0] = 0.0;
+let u[t in 1..200, 40] = 0.0;
+// Interior
+let u[t in 1..200, i in 1..40] = u[t - 1, i] + r * (u[t - 1, i - 1] - 2.0 * u[t - 1, i] + u[t - 1, i + 1]);
