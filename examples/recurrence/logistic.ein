@@ -1,0 +1,14 @@
+// Logistic map: x[n] = r * x[n-1] * (1 - x[n-1]). Discrete chaos. Julia: [DynamicalSystems.jl](https://juliadynamics.github.io/DynamicalSystems.jl/), intro dynamics
+//
+// Julia equivalent (1-based; same order as below):
+//   r = 3.7
+//   x = zeros(50)
+//   x[1] = 0.5
+//   for n in 2:50
+//       x[n] = r * x[n-1] * (1.0 - x[n-1])
+//   end
+
+let r = 3.7;
+
+let x[0] = 0.5;
+let x[n in 1..50] = r * x[n - 1] * (1.0 - x[n - 1]);

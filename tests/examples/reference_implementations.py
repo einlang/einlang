@@ -77,6 +77,111 @@ def lorenz_reference() -> np.ndarray:
     return u
 
 
+def pendulum_reference() -> np.ndarray:
+    """Simple pendulum Euler. Same as examples/ode/pendulum.ein (200 steps)."""
+    g, L = 9.81, 1.0
+    dt = 0.05
+    theta0, omega0 = 0.2, 0.0
+    nsteps = 200
+    state = np.zeros((nsteps, 2), dtype=np.float64)
+    state[0] = [theta0, omega0]
+    for t in range(1, nsteps):
+        state[t, 0] = state[t - 1, 0] + dt * state[t - 1, 1]
+        state[t, 1] = state[t - 1, 1] - dt * (g / L) * np.sin(state[t - 1, 0])
+    return state
+
+
+def van_der_pol_reference() -> np.ndarray:
+    """Van der Pol oscillator Euler, μ=1. Same as examples/ode/van_der_pol.ein (200 steps)."""
+    mu, dt = 1.0, 0.05
+    x0, y0 = 1.0, 0.0
+    nsteps = 200
+    state = np.zeros((nsteps, 2), dtype=np.float64)
+    state[0] = [x0, y0]
+    for t in range(1, nsteps):
+        x, y = state[t - 1, 0], state[t - 1, 1]
+        state[t, 0] = x + dt * y
+        state[t, 1] = y + dt * mu * ((1.0 - x * x) * y - x)
+    return state
+
+
+def sir_reference() -> np.ndarray:
+    """SIR model Euler. Same as examples/ode/sir.ein (100 steps)."""
+    beta, gamma = 0.001, 0.1
+    dt = 0.2
+    S0, I0, R0 = 999.0, 1.0, 0.0
+    nsteps = 100
+    state = np.zeros((nsteps, 3), dtype=np.float64)
+    state[0] = [S0, I0, R0]
+    for t in range(1, nsteps):
+        S, I, R = state[t - 1, 0], state[t - 1, 1], state[t - 1, 2]
+        state[t, 0] = S - dt * beta * S * I
+        state[t, 1] = I + dt * (beta * S * I - gamma * I)
+        state[t, 2] = R + dt * gamma * I
+    return state
+
+
+def harmonic_reference() -> np.ndarray:
+    """Harmonic oscillator Euler. Same as examples/ode/harmonic.ein (200 steps)."""
+    omega, dt = 1.0, 0.05
+    x0, v0 = 1.0, 0.0
+    nsteps = 200
+    state = np.zeros((nsteps, 2), dtype=np.float64)
+    state[0] = [x0, v0]
+    for t in range(1, nsteps):
+        state[t, 0] = state[t - 1, 0] + dt * state[t - 1, 1]
+        state[t, 1] = state[t - 1, 1] - dt * (omega ** 2) * state[t - 1, 0]
+    return state
+
+
+def logistic_reference() -> np.ndarray:
+    """Logistic map. Same as examples/recurrence/logistic.ein (50 steps)."""
+    r = 3.7
+    n = 50
+    x = np.zeros(n, dtype=np.float64)
+    x[0] = 0.5
+    for i in range(1, n):
+        x[i] = r * x[i - 1] * (1.0 - x[i - 1])
+    return x
+
+
+def gradient_descent_reference() -> np.ndarray:
+    """Gradient descent for quadratic. Same as examples/recurrence/gradient_descent.ein (30 iters, 2D)."""
+    A = np.array([[2.0, 0.0], [0.0, 2.0]], dtype=np.float64)
+    b = np.array([1.0, 1.0], dtype=np.float64)
+    alpha = 0.25
+    nsteps = 30
+    x = np.zeros((nsteps, 2), dtype=np.float64)
+    for k in range(1, nsteps):
+        r = A @ x[k - 1] - b
+        x[k] = x[k - 1] - alpha * r
+    return x
+
+
+def power_iteration_reference() -> np.ndarray:
+    """Power iteration for dominant eigenvector. Same as examples/recurrence/power_iteration.ein (20 iters, 2D)."""
+    A = np.array([[2.0, 1.0], [1.0, 2.0]], dtype=np.float64)
+    nsteps = 20
+    v = np.zeros((nsteps, 2), dtype=np.float64)
+    v[0] = [1.0, 0.0]
+    for k in range(1, nsteps):
+        Av = A @ v[k - 1]
+        n = np.linalg.norm(Av)
+        v[k] = Av / n
+    return v
+
+
+def markov_stationary_reference() -> np.ndarray:
+    """Stationary distribution by power iteration ψ = ψ P. Same as examples/recurrence/markov_stationary.ein (50 iters, 3 states)."""
+    P = np.array([[0.9, 0.1, 0.0], [0.2, 0.6, 0.2], [0.0, 0.1, 0.9]], dtype=np.float64)
+    nsteps, n = 50, 3
+    psi = np.zeros((nsteps, n), dtype=np.float64)
+    psi[0] = 1.0 / 3.0
+    for k in range(1, nsteps):
+        psi[k] = psi[k - 1] @ P
+    return psi
+
+
 def lotka_volterra_reference() -> np.ndarray:
     """Lotka-Volterra, Euler. Same as examples/ode/lotka_volterra.ein (t in 1..500 => 500 total)."""
     a, b, c, d = 1.0, 0.5, 1.0, 0.5
@@ -197,13 +302,6 @@ def advection_1d_reference() -> np.ndarray:
         u[t, 1:] = u[t - 1, 1:] - r * (u[t - 1, 1:] - u[t - 1, :-1])
         u[t, 0] = u[t - 1, 0] - r * (u[t - 1, 0] - u[t - 1, -1])
     return u
-
-
-def softmax_reference() -> np.ndarray:
-    """Softmax of [1, 2, 3, 1, 0.5]. Same as examples/tensor_ops/softmax.ein."""
-    x = np.array([1.0, 2.0, 3.0, 1.0, 0.5], dtype=np.float64)
-    exp_x = np.exp(x)
-    return exp_x / exp_x.sum()
 
 
 def random_walk_reference() -> np.ndarray:

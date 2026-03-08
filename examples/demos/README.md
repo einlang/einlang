@@ -48,10 +48,10 @@ EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang exampl
 EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang examples/brusselator/main.ein
 ```
 
-For heat (PDE is inline in the script), use the runner with `--profile-einlang`:
+For 1D heat, run the PDE runner with profiling env vars:
 
 ```bash
-python3 examples/heat_animation.py --profile-einlang
+EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang examples/pde_1d/heat_1d.ein
 ```
 
 For whisper or deit_tiny, run from the example directory so paths resolve, then set the env vars:
