@@ -755,12 +755,6 @@ class IRSerializer:
         return core
 
 
-# Convenience function
-def to_sexpr(node: IRNode, include_location: bool = False, include_type_info: bool = False) -> str:
-    """Alias for serialize_ir"""
-    return serialize_ir(node, include_location=include_location, include_type_info=include_type_info)
-
-
 def _default_loc():
     from ..shared.source_location import SourceLocation
     return SourceLocation(file="", line=0, column=0)
@@ -1636,16 +1630,6 @@ def save_ir(node: IRNode, filepath: str, include_location: bool = False, include
     sexpr_str = serialize_ir(node, include_location=include_location, include_type_info=include_type_info)
     with open(filepath, 'w') as f:
         f.write(sexpr_str)
-
-
-def load_ir(filepath: str) -> IRNode:
-    """
-    Load and deserialize IR from file.
-    
-    TODO: Implement full deserialization for deserialization.
-    For now, this is a stub to maintain API compatibility.
-    """
-    raise NotImplementedError("IR deserialization not yet implemented")
 
 
 def dump_ir(node: IRNode, include_location: bool = True, include_type_info: bool = True) -> str:

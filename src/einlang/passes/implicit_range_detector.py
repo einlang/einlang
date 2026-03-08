@@ -2457,122 +2457,74 @@ class ImplicitRangeDetector(IRVisitor[None]):
         return find_array_access(expr)
 
 class _ComplexityCounter(IRVisitor[int]):
-    """Visitor to count IR nodes for complexity estimation"""
+    """Visitor to count IR nodes for complexity estimation."""
     def __init__(self):
         self.count = 0
-    
-    # Default visitor methods (no-op for other nodes)
+
+    def _inc(self) -> int:
+        self.count += 1
+        return self.count
+
     def visit_array_comprehension(self, node) -> int:
-        self.count += 1
-        return self.count
-    
+        return self._inc()
     def visit_array_pattern(self, node) -> int:
-        self.count += 1
-        return self.count
-    
+        return self._inc()
     def visit_block_expression(self, node) -> int:
-        self.count += 1
-        return self.count
-    
+        return self._inc()
     def visit_builtin_call(self, node) -> int:
-        self.count += 1
-        return self.count
-    
+        return self._inc()
+    def visit_function_call(self, node) -> int:
+        return self._inc()
+    def visit_guard_pattern(self, node) -> int:
+        return self._inc()
+    def visit_identifier_pattern(self, node) -> int:
+        return self._inc()
+    def visit_if_expression(self, node) -> int:
+        return self._inc()
+    def visit_interpolated_string(self, node) -> int:
+        return self._inc()
+    def visit_jagged_access(self, node) -> int:
+        return self._inc()
+    def visit_lambda(self, node) -> int:
+        return self._inc()
+    def visit_literal_pattern(self, node) -> int:
+        return self._inc()
+    def visit_match_expression(self, node) -> int:
+        return self._inc()
+    def visit_module(self, node) -> int:
+        return self._inc()
+    def visit_pipeline_expression(self, node) -> int:
+        return self._inc()
+    def visit_program(self, node) -> int:
+        return self._inc()
+    def visit_range(self, node) -> int:
+        return self._inc()
+    def visit_rest_pattern(self, node) -> int:
+        return self._inc()
+    def visit_try_expression(self, node) -> int:
+        return self._inc()
+    def visit_tuple_access(self, node) -> int:
+        return self._inc()
+    def visit_tuple_expression(self, node) -> int:
+        return self._inc()
+    def visit_tuple_pattern(self, node) -> int:
+        return self._inc()
+    def visit_wildcard_pattern(self, node) -> int:
+        return self._inc()
+    def visit_array_literal(self, node) -> int:
+        return self._inc()
+    def visit_identifier(self, node: IdentifierIR) -> int:
+        return self._inc()
+    def visit_literal(self, node: LiteralIR) -> int:
+        return self._inc()
+
     def visit_binding(self, node) -> int:
         self.count += 1
         if not is_function_binding(node) and not is_einstein_binding(node):
             if hasattr(node, 'value') and node.value:
                 node.value.accept(self)
         return self.count
-    
-    def visit_function_call(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_guard_pattern(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_identifier_pattern(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_if_expression(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_interpolated_string(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_jagged_access(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_lambda(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_literal_pattern(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_match_expression(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_module(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_pipeline_expression(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_program(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_range(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_rest_pattern(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_try_expression(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_tuple_access(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_tuple_expression(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_tuple_pattern(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_wildcard_pattern(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_array_literal(self, node) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_identifier(self, node: IdentifierIR) -> int:
-        self.count += 1
-        return self.count
-    
-    def visit_literal(self, node: LiteralIR) -> int:
-        self.count += 1
-        return self.count
-    
+
     def visit_binary_op(self, node: BinaryOpIR) -> int:
         self.count += 1
         if node.left:

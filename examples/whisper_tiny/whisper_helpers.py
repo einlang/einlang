@@ -68,22 +68,3 @@ def decode_tokens(token_ids):
     text = "".join(pieces)
     raw = bytearray(_BYTE_DECODER.get(c, ord(c)) for c in text)
     return raw.decode("utf-8", errors="replace").strip()
-
-
-_t0 = None
-
-
-def tic():
-    global _t0
-    import time
-    _t0 = time.perf_counter()
-
-
-def toc(block_name: str):
-    global _t0
-    import time
-    if _t0 is None:
-        return
-    elapsed = time.perf_counter() - _t0
-    print(f"[block] {block_name}: {elapsed:.2f}s", flush=True)
-    _t0 = None

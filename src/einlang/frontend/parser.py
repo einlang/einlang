@@ -15,10 +15,10 @@ import logging
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
-from ..shared.nodes import Program as ASTProgram
+from einlang.shared.nodes import Program as ASTProgram
+from einlang.shared.errors import EinlangSourceError
+from einlang.utils.config import DEFAULT_PARSER_CACHE_FILE
 from .transformers.base import EinlangTransformer
-from ..shared.errors import EinlangSourceError
-from ..utils.config import DEFAULT_PARSER_CACHE_FILE
 
 logger = logging.getLogger("einlang.frontend.parser")
 
@@ -93,7 +93,7 @@ class Parser:
             # Try to extract location from Lark error
             if hasattr(e, 'line') and hasattr(e, 'column'):
                 # SourceLocation is in einlang.shared.nodes, not einlang.shared.source_location
-                from ..shared.nodes import SourceLocation
+                from einlang.shared.nodes import SourceLocation
                 location = SourceLocation(
                     file=source_file,
                     line=e.line,

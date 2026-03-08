@@ -1,164 +1,161 @@
 # Einlang
 
-A compiled language for tensor computation. Write math, run math.
+[![Tests](https://github.com/einlang/einlang/actions/workflows/tests.yml/badge.svg)](https://github.com/einlang/einlang/actions/workflows/tests.yml)
+
+**Tensor code is either readable or safe—usually neither.** Einlang is both: write math in Einstein notation, get shape errors at compile time instead of at 3am.
 
 ```rust
 let A = [[1, 2], [3, 4]];
 let B = [[5, 6], [7, 8]];
-
-let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply
+let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply — shapes checked by the compiler
 ```
 
-Einlang is a statically-checked language where tensor operations are first-class syntax. The compiler infers index ranges from array shapes, verifies dimensions at compile time, and generates code. The current backend interprets via NumPy; the target is MLIR for native compiled execution.
+**New here?** [Getting started](docs/GETTING_STARTED.md) tells the full story in one page. Or try it below.
 
-## What makes Einlang different
+---
 
-**Einstein notation as language primitive.** Index variables are part of the syntax, not string arguments to a library function. The compiler sees `A[i, k] * B[k, j]`, knows `k` is a contraction index, and infers its range from both arrays — if `A` is 3x4 and `B` is 5x3, you get a compile-time error, not a runtime crash.
+## Try it
 
-**Where clauses for index algebra.** Derived indices, guards, and intermediate bindings attach directly to the computation. A 2D convolution that would be dozens of lines of index bookkeeping in Python:
-
-```rust
-let out[b, oc, oh, ow] = sum[ic, kh, kw](
-    input[b, ic, ih, iw] * kernel[oc, ic, kh, kw]
-) where ih = oh + kh, iw = ow + kw;
-```
-
-The compiler resolves `ih` and `iw` as functions of the output and kernel indices and ensures all accesses stay in bounds.
-
-**Recurrence relations as declarations.** Define sequences the way you'd write them on paper — base cases, then a recursive rule. The compiler determines evaluation order automatically:
-
-```rust
-let fib[0] = 0;
-let fib[1] = 1;
-let fib[n in 2..20] = fib[n-1] + fib[n-2];
-```
-
-This extends to multi-dimensional recurrences (RNN hidden states, dynamic programming tables).
-
-**Compile-time shape analysis.** Dimension mismatches, rank errors, and index range conflicts are caught before any code runs. No "shapes don't align" at runtime halfway through a training loop.
-
-## Why not NumPy / einsum?
-
-```python
-# NumPy: shape logic is manual and implicit
-C = np.zeros((A.shape[0], B.shape[1]))
-for i in range(A.shape[0]):
-    for j in range(B.shape[1]):
-        for k in range(A.shape[1]):
-            C[i, j] += A[i, k] * B[k, j]
-
-# np.einsum('ik,kj->ij', A, B) works for simple cases,
-# but try expressing a conv2d with index remapping, or a
-# recurrence with base cases, or a filtered reduction.
-```
-
-```rust
-let C[i, j] = sum[k](A[i, k] * B[k, j]);
-```
-
-`einsum` is a string-based mini-language embedded in Python — no type checking, no shape errors at compile time, no support for conditionals, recurrences, or index algebra. Einlang makes all of that part of the language itself.
-
-## Examples
-
-A neural network forward pass — linear layer, ReLU, softmax:
-
-```rust
-use std::math::exp::exp;
-
-fn softmax(logits) {
-    let m = max[i](logits[i]);
-    let e[i] = exp(logits[i] - m);
-    let s = sum[i](e[i]);
-    let out[i] = e[i] / s;
-    out
-}
-
-let input = [[1.0, 0.5], [0.3, 0.8], [0.7, 0.2]];
-let weight = [[0.4, 0.6, 0.1], [0.2, 0.3, 0.9]];
-let bias = [0.1, -0.1, 0.0];
-
-let z[i, j] = sum[k](input[i, k] * weight[k, j]) + bias[j];
-let activated[i, j] = if z[i, j] > 0.0 { z[i, j] } else { 0.0 };
-let probs = softmax(activated[0]);
-print(probs);
-```
-
-Comprehensions and pattern matching:
-
-```rust
-let even_squares = [x * x | x in 1..50, x % 2 == 0];
-
-let label = match category {
-    0 => "cat",
-    1 => "dog",
-    _ => "unknown",
-};
-```
-
-The [`examples/`](examples/) directory has a guided learning path — from language basics through four complete models:
-
-| # | Example | What it is |
-|---|---------|------------|
-| 1 | [basics/](examples/basics/) | Variables, functions, comprehensions |
-| 2 | [demos/](examples/demos/) | Matrices, tensors, imports, Einstein notation |
-| 3 | [mnist/](examples/mnist/) | CNN digit recognition (Conv2D, ReLU, MaxPool) |
-| 4 | [mnist_quantized/](examples/mnist_quantized/) | Same CNN with int8 quantized weights |
-| 5 | [deit_tiny/](examples/deit_tiny/) | Vision Transformer — ImageNet classification (~5M params) |
-| 6 | [whisper_tiny/](examples/whisper_tiny/) | Speech-to-text — encoder/decoder with autoregressive generation (~39M params) |
-
-## Install
+Run the commands below (no account required). You'll see `2` in a few seconds.
 
 ```bash
 git clone https://github.com/einlang/einlang.git
 cd einlang
 pip install -e .
+python3 -m einlang -c "let x = 1+1; print(x);"
 ```
 
-Python 3.7+. Dependencies: `numpy`, `lark`, `sexpdata`.
+**Prefer a file?** Run `python3 -m einlang examples/hello.ein` for the matrix multiply above, or [use the Python API](#install--run) with a source string. Once that works, pick what you want to do next.
 
-## Run
+---
 
+## What's next?
+
+One step is enough — no account or long read required.
+
+| You want to… | Do this |
+|--------------|--------|
+| **Run another example** | `python3 -m einlang examples/basics/basic_math.ein` or [examples/demos/matrix_operations.ein](examples/demos/matrix_operations.ein) |
+| **Use it in your code** | [Install & run](#install--run) — `run(source="...")` or `run(file="path.ein")`; one call and you're a user. |
+| **Learn the language** | [Language Reference](docs/reference.md) · [Standard Library](docs/stdlib.md) |
+| **See what's possible** | [What you get](#what-you-get) · [Examples](#examples) |
+| **Stay in the loop** | [★ Star the repo](https://github.com/einlang/einlang) · Watch → Releases |
+| **Contribute** | [CONTRIBUTING.md](CONTRIBUTING.md) — doc fixes and small bugs are a great start |
+
+---
+
+## Install & run
+
+**Install:** Python 3.7+ (tested 3.9–3.12). From repo: `pip install -e .` (deps: numpy, lark, sexpdata).
+
+**Run a file:**
 ```bash
-python3 -m einlang program.ein
+python3 -m einlang examples/hello.ein
+python3 -m einlang path/to/file.ein
 ```
 
-Or from Python:
+**Inline (like Python -c / stdin):**
+```bash
+python3 -m einlang -c "let A = [[1,2],[3,4]]; let B = [[5,6],[7,8]]; let C[i,j] = sum[k](A[i,k]*B[k,j]); print(C);"
+echo 'let x = 2; print(x);' | python3 -m einlang -
+```
 
+**From Python (use in your project):**
 ```python
-from einlang.compiler.driver import CompilerDriver
-from einlang.runtime.runtime import EinlangRuntime
+from einlang import run
 
-compiler = CompilerDriver()
-runtime = EinlangRuntime()
-
-result = compiler.compile(source, "<input>")
-output = runtime.execute(result)
-# output.outputs["C"] → numpy array
+out = run(source="let A = [[1,2],[3,4]]; let B = [[5,6],[7,8]]; let C[i,j] = sum[k](A[i,k]*B[k,j]); print(C);")
+# or: out = run(file="examples/hello.ein")
+# out.outputs["C"] → numpy array; out.error if failed
 ```
 
-## Docs
+Compile-only or custom backend: `from einlang import CompilerDriver, EinlangRuntime` then `compile()` and `execute()`.
 
-- [Language Reference](docs/reference.md) — full syntax and semantics
-- [Standard Library](docs/stdlib.md) — `std::math`, `std::array`, `std::ml`, `std::io` (300+ functions)
-- [Development](docs/DEVELOPMENT.md) — project structure, how to contribute
+---
 
-## Roadmap
+## What you get
 
-**Working now**
-- Einstein notation with automatic range and shape inference
-- Where clauses: guards, variable bindings, index remapping
-- Recurrence relations, array comprehensions, pattern matching
-- Functions with monomorphization, module system, 300+ stdlib functions
-- Type inference, compile-time shape checking
-- NumPy interpreter backend (prototype)
+Einlang gives you readable tensor math with compile-time shape checking. In practice that means:
 
-**Next**
-- pymlir — lower Einlang to MLIR via Python (next step toward compiled execution)
+| Feature | What you get |
+|--------|---------------|
+| **Einstein notation** | `let C[i, j] = sum[k](A[i, k] * B[k, j]);` — indices and shapes checked at compile time |
+| **Where clauses** | Index algebra (`where ih = oh + kh`) and guards (`where data[i] > 0`) next to the math |
+| **Recurrences** | `let fib[0]=0; let fib[1]=1; let fib[n in 2..20]=fib[n-1]+fib[n-2]` — range in bracket; compiler handles order |
+| **Reductions** | `sum[i](x[i])`, `max[j](M[i,j])`, `sum[i,j](A[i,j]*A[i,j])` with inferred ranges |
+| **Stdlib** | `use std::math::{sin, sqrt};` · 300+ functions · [Reference](docs/reference.md) · [Stdlib](docs/stdlib.md) |
+| **Real models** | [MNIST CNN](examples/mnist/main.ein), [quantized (int8)](examples/mnist_quantized/main.ein), [ViT](examples/deit_tiny/), [Whisper](examples/whisper_tiny/) — same language, same checks |
 
-**Target**
-- MLIR backend for compiled native execution
-- GPU acceleration
+---
+
+## Why it's different
+
+- **Einstein notation as syntax** — Indices like `i, k, j` are part of the language. The compiler infers ranges from array shapes. Wrong dimensions → compile error, not a runtime crash.  
+  `let C[i, j] = sum[k](A[i, k] * B[k, j]);`
+- **Where clauses** — Index algebra, guards, and bindings live next to the computation (e.g. conv2d with `ih = oh + kh, iw = ow + kw`).  
+  `let out[oh, ow] = sum[kh, kw](input[ih, iw] * kernel[kh, kw]) where ih = oh + kh, iw = ow + kw;`
+- **Recurrences as declarations** — Base cases + recursive rule; index range in the bracket (not in `where`); compiler handles evaluation order (RNNs, dynamic programming).  
+  `let fib[0]=0; let fib[1]=1; let fib[n in 2..N]=fib[n-1]+fib[n-2];`
+- **No stringly-typed einsum** — No `einsum('ik,kj->ij', A, B)`. The compiler sees every index and checks shapes and ranks.
+
+**If it type-checks, the shapes are correct.** That’s the deal: you write the math, the compiler checks the shapes.
+
+---
+
+## Why not NumPy / einsum?
+
+With NumPy you get manual shapes and loops, or `einsum` with string indices — no static checking, no first-class recurrences or index algebra. Einlang keeps the “write the math” feel and adds compile-time shape and index checking.
+
+```rust
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+```
+
+---
+
+## Examples
+
+From one-liners to full models: run by **feature** (one capability at a time) or follow the **learning path** from basics to CNN, quantized CNN, ViT, and Whisper. Full path: [examples/README.md](examples/README.md).
+
+| Feature | Run this |
+|--------|----------|
+| Einstein matmul + print | `python3 -m einlang examples/hello.ein` |
+| Matrix ops, norms, stats | [matrix_operations.ein](examples/demos/matrix_operations.ein) |
+| Reductions, contractions | [reduction_operations.ein](examples/units/reduction_operations.ein) |
+| Where constraints | [where_constraints.ein](examples/units/where_constraints.ein) |
+| Convolution-style indexing | [convolution_operations.ein](examples/units/convolution_operations.ein) |
+| Functions + overloading | [functions_demo.ein](examples/basics/functions_demo.ein), [function_overloading_complete.ein](examples/demos/function_overloading_complete.ein) |
+| Full CNN (MNIST) | [mnist/main.ein](examples/mnist/main.ein) |
+| Quantized CNN (int8) | [mnist_quantized/main.ein](examples/mnist_quantized/main.ein) |
+| ViT / Whisper | [deit_tiny/](examples/deit_tiny/), [whisper_tiny/](examples/whisper_tiny/) |
+| PDE simulations | [heat_animation.py](examples/heat_animation.py) (diffusion), [wave_2d/](examples/wave_2d/) (acoustic wave) |
+
+| Step | Run | What it is |
+|------|-----|------------|
+| **0** | [hello.ein](examples/hello.ein) | Intro: matmul + print |
+| 1 | [basics/](examples/basics/), [demos/](examples/demos/) | Variables, functions, matrices, Einstein notation |
+| 2 | [mnist/main.ein](examples/mnist/main.ein) | CNN digit recognition |
+| 2b | [mnist_quantized/main.ein](examples/mnist_quantized/main.ein) | Same CNN with int8 weights (`qconv`, `qlinear`, `quantize_linear`) |
+| 3 | [deit_tiny/](examples/deit_tiny/), [whisper_tiny/](examples/whisper_tiny/) | Vision Transformer, speech-to-text |
+| 3b | [heat_animation.py](examples/heat_animation.py), [wave_2d/](examples/wave_2d/) | 2D heat and wave equation (recurrence + stencil) |
+
+More in the [examples/](examples/) tree.
+
+---
+
+## Docs and roadmap
+
+**[Doc index](docs/README.md)** — by audience (starter, student, ML, engineer, Python/Julia/Rust, contributor, paper).  
+**[Getting started](docs/GETTING_STARTED.md)** — one-page story to first example and Python API.  
+Canonical: [reference](docs/reference.md) · [stdlib](docs/stdlib.md) · Install & run above. Design: [docs/DOCUMENTATION_DESIGN.md](docs/DOCUMENTATION_DESIGN.md).
+
+**Roadmap:** NumPy backend (now) → MLIR via Python (next) → native/GPU. Einstein notation, where-clauses, recurrences, 300+ stdlib functions, and type and shape inference are in place.
+
+---
+
+## Community
+
+[**★ Star us**](https://github.com/einlang/einlang) — it helps others find Einlang. **Issues and PRs welcome** — [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Apache 2.0
+Apache 2.0 — see [LICENSE](LICENSE).

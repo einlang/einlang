@@ -10,8 +10,6 @@ from .lowered_execution import (
     check_lowered_guards,
     execute_full_lowered_iteration,
     execute_reduction_with_loops,
-    has_dynamic_bounds,
-    count_loop_iterations
 )
 
 __all__ = [
@@ -20,7 +18,5 @@ __all__ = [
     'check_lowered_guards',
     'execute_full_lowered_iteration',
     'execute_reduction_with_loops',
-    'has_dynamic_bounds',
-    'count_loop_iterations'
 ]
 

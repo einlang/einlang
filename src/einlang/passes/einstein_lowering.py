@@ -11,8 +11,9 @@ Rust Pattern: rustc_mir::transform::MirPass
 
 from typing import Dict, List, Optional, Any, Tuple
 from ..passes.base import BasePass, TyCtxt
-from ..shared.defid import DefId
 from ..passes.range_analysis import RangeAnalysisPass, Range
+from ..passes.visitor_helpers import defid_of_var_in_expr
+from ..shared.defid import DefId
 from ..shared.source_location import SourceLocation
 from ..shared.types import BinaryOp, infer_literal_type, UNKNOWN, PrimitiveType, I32, I64, F32, F64
 from ..ir.nodes import (
@@ -23,42 +24,6 @@ from ..ir.nodes import (
     IRVisitor, RectangularAccessIR, MemberAccessIR,
     ArrayComprehensionIR, BinaryOpIR,
 )
-
-
-def _defid_of_var_in_expr(expr: Optional[ExpressionIR], name: str) -> Optional[DefId]:
-    """Return defid of first IdentifierIR or IndexVarIR with given name in expr. Reuse body defid for loop vars."""
-    if expr is None:
-        return None
-    if isinstance(expr, IdentifierIR) and expr.name == name:
-        return getattr(expr, "defid", None)
-    if isinstance(expr, IndexVarIR) and expr.name == name:
-        return getattr(expr, "defid", None)
-    children: List[Optional[ExpressionIR]] = []
-    if hasattr(expr, "left") and hasattr(expr, "right"):
-        children = [getattr(expr, "left"), getattr(expr, "right")]
-    elif hasattr(expr, "operand"):
-        children = [getattr(expr, "operand")]
-    elif hasattr(expr, "array") and hasattr(expr, "indices"):
-        children = [getattr(expr, "array")] + list(getattr(expr, "indices") or [])
-    elif hasattr(expr, "body"):
-        children = [getattr(expr, "body")]
-    elif hasattr(expr, "object"):
-        children = [getattr(expr, "object")]
-    elif hasattr(expr, "arguments"):
-        children = [getattr(expr, "callee_expr", None)] + list(getattr(expr, "arguments") or [])
-    elif hasattr(expr, "expr"):
-        children = [getattr(expr, "expr")]
-    elif hasattr(expr, "statements") and hasattr(expr, "final_expr"):
-        children = list(getattr(expr, "statements") or [])
-        fe = getattr(expr, "final_expr", None)
-        if fe is not None:
-            children.append(fe)
-    for c in children:
-        if isinstance(c, ExpressionIR):
-            out = _defid_of_var_in_expr(c, name)
-            if out is not None:
-                return out
-    return None
 
 
 class EinsteinLoweringPass(BasePass):
@@ -678,7 +643,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                     elif range_ir is not None:
                         iterable = range_ir
             if iterable:
-                body_defid = _defid_of_var_in_expr(node.body, var_name) if node.body else None
+                body_defid = defid_of_var_in_expr(node.body, var_name) if node.body else None
                 defid = body_defid or getattr(var_ident, "defid", None)
                 if defid is None:
                     raise ValueError(
@@ -1229,7 +1194,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                         if start_val is not None and end_val is not None:
                             range_obj = range(start_val, end_val)
                         else:
-                            body_defid = _defid_of_var_in_expr(reduction.body, var_name) if reduction.body else None
+                            body_defid = defid_of_var_in_expr(reduction.body, var_name) if reduction.body else None
                             defid = body_defid or getattr(var_ident, "defid", None)
                             if defid is None:
                                 raise ValueError(
@@ -1245,7 +1210,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 
                 if range_obj:
                     iterable = self._range_to_iterable_ir(range_obj, location)
-                    body_defid = _defid_of_var_in_expr(reduction.body, var_name) if reduction.body else None
+                    body_defid = defid_of_var_in_expr(reduction.body, var_name) if reduction.body else None
                     defid = body_defid or getattr(var_ident, "defid", None)
                     if defid is None:
                         raise ValueError(
@@ -1606,7 +1571,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             var = getattr(loop, 'variable', None)
             if var is None:
                 continue
-            body_defid = _defid_of_var_in_expr(node.body, var.name)
+            body_defid = defid_of_var_in_expr(node.body, var.name)
             if body_defid is not None and body_defid != getattr(var, 'defid', None):
                 loc = getattr(var, 'location', None) or SourceLocation('', 0, 0)
                 ti = getattr(var, 'type_info', None)

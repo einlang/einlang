@@ -21,35 +21,7 @@ from pathlib import Path
 
 logger = logging.getLogger("einlang.passes.name_resolution")
 
-# -----------------------------------------------------------------------------
-# Scope define validation (call-site semantics)
-# -----------------------------------------------------------------------------
-# _define_in_scope() only performs scope.define(); each call site enforces rules.
-#
-# USE/IMPORT (visit_use_statement: wildcard, function import, module alias):
-#   - Duplicate import (error): same name already in scope from a *different*
-#     module path. Example: use std::math::abs; use std::array::abs;  → error.
-#   - Same path or same module tree (allow): re-import from same path or
-#     submodule is idempotent. Example: use std::math::{abs, exp}; then
-#     use std::math::sign in same scope; or pub use basic::* then special
-#     does use std::math::{abs, exp} (abs from basic, re-import from math).
-#   - Use after local (error): name already defined as local/item. Example:
-#     let x = 1; use foo::x;  → error.
-#
-# FUNCTION/CONST (pre-pass, _resolve_function_ast, _resolve_constant_ast):
-#   - Redefinition (error): same name in same scope and existing is not an
-#     import. Example: fn f() {} fn f() {}  → error.
-#   - Item shadows import (allow): existing is import, new is function/const.
-#     Example: use std::math::pi; const pi = 3;  → OK (local shadows).
-#
-# VARIABLE/LET (visit_variable_declaration, _resolve_variable_declaration_ast):
-#   - Rust semantics: `let` always shadows previous bindings in the same scope.
-#     Example: let x = 1; let x = x + 1;  → OK (x is 2, RHS sees old x).
-#   - RHS is resolved BEFORE the new binding is introduced (Rust scoping).
-#
-# PARAMETER (function/lambda params):
-#   - Duplicate parameter (error): same param name twice. Example: fn f(x, x) {}
-# -----------------------------------------------------------------------------
+# _define_in_scope() only performs scope.define(); call sites enforce duplicate/shadows rules (use/import, fn/const, let, params).
 
 
 def _define_in_scope(scope, name: str, binding: Binding, node=None, reporter=None) -> bool:
@@ -296,11 +268,6 @@ def _replace_einstein_groups_with_blocks(statements: list) -> None:
 # Cache path discovery (stdlib_root, crate_root) per root_path to avoid repeated I/O (exists/is_dir) across compilations
 _path_discovery_cache: Dict[Tuple[Path, ...], Tuple[Optional[Path], Optional[Path]]] = {}
 _MAX_PATH_CACHE_SIZE = 32
-
-
-def clear_path_discovery_cache() -> None:
-    """Clear the path discovery cache. Used by tests for parallel-safe runs (-n auto)."""
-    _path_discovery_cache.clear()
 
 
 def _discover_stdlib_and_crate_root(root_path: Path, stdlib_root_from_system: Optional[Path] = None) -> Tuple[Path, Path]:
@@ -877,16 +844,6 @@ class NameResolverVisitor(ASTVisitor[None]):
                     for arg in node.arguments:
                         arg.accept(self)
                     return
-            
-            # PRIORITY 6: Unqualified module functions (stdlib - on-demand loading)
-            module_defid = self._resolve_stdlib_function(func_name)
-            if module_defid:
-                object.__setattr__(node.function_expr, 'defid', module_defid)
-                object.__setattr__(node, 'function_defid', module_defid)
-                # Resolve arguments and return
-                for arg in node.arguments:
-                    arg.accept(self)
-                return
             
             # PRIORITY 7: Builtins (prelude — outermost scope, Rust semantics)
             if func_name in FIXED_BUILTIN_ORDER:
@@ -2431,19 +2388,6 @@ class NameResolverVisitor(ASTVisitor[None]):
             
         except Exception as e:
             pass
-        return None
-    
-    def _resolve_stdlib_function(self, function_name: str) -> Optional[DefId]:
-        """
-        Resolve function through module system (deprecated - use _resolve_function_from_module).
-        
-        This is a fallback for unqualified function calls without use statements.
-        Following Rust pattern, such calls should fail - functions must be imported or qualified.
-        """
-        
-        # Rust pattern: Unqualified stdlib calls should not work
-        # User must either: 1) use std::math::abs; or 2) std::math::abs(x)
-        # Returning None to enforce this pattern
         return None
     
     def _load_and_register_module_functions(

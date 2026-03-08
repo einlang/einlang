@@ -1,0 +1,17 @@
+// 2D wave equation: h_tt = c^2 Laplacian(h)
+// Leapfrog: h^{n+1} = 2*h^n - h^{n-1} + r * Laplacian(h^n),  r = c^2 dt^2/dx^2
+// Initial: Gaussian bump at center; zero velocity => h[1] = h[0]
+
+use std::math::exp::exp;
+
+let r = 0.5;
+let cx = 20;
+let cy = 20;
+let sigma2 = 50.0;
+
+let h[0, i in 0..40, j in 0..40] = 10.0 * exp(-(((i - cx) * (i - cx) + (j - cy) * (j - cy)) as f32 / sigma2));
+let h[1, i in 0..40, j in 0..40] = h[0, i, j];
+let h[t in 2..200, i in 1..39, j in 1..39] =
+    2.0 * h[t - 1, i, j] - h[t - 2, i, j]
+    + r * (h[t - 1, i - 1, j] + h[t - 1, i + 1, j] + h[t - 1, i, j - 1] + h[t - 1, i, j + 1] - 4.0 * h[t - 1, i, j]);
+h;
