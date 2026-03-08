@@ -1,0 +1,51 @@
+// FitzHugh–Nagumo neuron model: 2D ODE (voltage v, recovery u).
+// dv/dt = c*(v - v³/3 - u + I),  du/dt = v - b*u + a.
+// Simplified excitable system (spike-like dynamics). Julia: DifferentialEquations.jl, SciML.
+// Accuracy-tested: tests/examples/test_simulation_accuracy.py (first 3 steps vs NumPy reference).
+//
+// Julia equivalent (1-based; same order as below):
+//   a, b, c = 0.7, 0.8, 10.0
+//   I_ext = 0.5
+//   dt = 0.01
+//   v0, u0 = 0.0, 0.0
+//   state = zeros(3000, 2)
+//   state[1, 1] = v0
+//   state[1, 2] = u0
+//   for t in 2:3000
+//       v, u = state[t-1, 1], state[t-1, 2]
+//       state[t, 1] = v + dt * c * (v - v^3/3 - u + I_ext)
+//       state[t, 2] = u + dt * (v - b*u + a)
+//   end
+
+let a = 0.7;
+let b = 0.8;
+let c = 10.0;
+let I_ext = 0.5;
+let dt = 0.01;
+let v0 = 0.0;
+let u0 = 0.0;
+
+// state[t, 0] = voltage v, state[t, 1] = recovery u
+let state[0, 0] = v0;
+let state[0, 1] = u0;
+
+// Euler: dv/dt = c*(v - v³/3 - u + I), du/dt = v - b*u + a (block + temps to match Julia v, u = state[t-1, :])
+let state[t in 1..3000, 0] = {
+  let v = state[t - 1, 0];
+  let u = state[t - 1, 1];
+  v + dt * c * (v - v * v * v / 3.0 - u + I_ext)
+};
+
+let state[t in 1..3000, 1] = {
+  let v = state[t - 1, 0];
+  let u = state[t - 1, 1];
+  u + dt * (v - b * u + a)
+};
+
+// Print a few time points to show oscillation/spike
+print("FitzHugh-Nagumo (a=0.7, b=0.8, c=10, I=0.5), Euler dt=0.01, 3000 steps:");
+print("t=0    v, u:", [state[0, 0], state[0, 1]]);
+print("t=500  v, u:", [state[499, 0], state[499, 1]]);
+print("t=1000 v, u:", [state[999, 0], state[999, 1]]);
+print("t=1500 v, u:", [state[1499, 0], state[1499, 1]]);
+print("t=2999 v, u:", [state[2999, 0], state[2999, 1]]);

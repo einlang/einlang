@@ -1,10 +1,14 @@
 """
-Accuracy checks for simulation demos: ODE (decay, linear, Lorenz, Lotka-Volterra),
-wave, heat, Brusselator, Julia-migration (pde_1d, value_iteration, recurrence).
+Accuracy checks for simulation demos: ODE (decay, linear, Lorenz, Lotka-Volterra,
+pendulum, van_der_pol, SIR, harmonic, fitzhugh_nagumo, lorenz96), wave, heat,
+Brusselator, value_iteration, job_search (McCall), recurrence, optimization,
+finance, time_series.
 
-Each test runs the demo (or a minimal variant), then compares every element
-against a reference computed in-test: analytical (ODE) or NumPy reference
-implementation. No mocking.
+All simulation examples must be covered by strict accuracy testing: each runs
+and is compared element-wise to a reference (analytical or NumPy). No mocking.
+
+Canonical registry: every path in SIMULATION_EXAMPLE_PATHS must appear in
+ALL_ACCURACY_EXAMPLES with a reference and tolerances (rtol/atol).
 """
 
 from pathlib import Path
@@ -34,6 +38,13 @@ from tests.examples.reference_implementations import (
     fibonacci_reference,
     advection_1d_reference,
     random_walk_reference,
+    savings_reference,
+    projected_gradient_reference,
+    rosenbrock_reference,
+    exponential_smoothing_reference,
+    mccall_reference,
+    fitzhugh_nagumo_reference,
+    lorenz96_reference,
 )
 
 # Inline heat minimal (2D heat, 25 steps, 11x11) for parametrized test.
@@ -46,6 +57,37 @@ let u[0, i in 0..11, j in 0..11] = if ((i - cx) * (i - cx) + (j - cy) * (j - cy)
 let u[t in 1..25, i in 1..10, j in 1..10] = u[t - 1, i, j] + r * (u[t - 1, i - 1, j] + u[t - 1, i + 1, j] + u[t - 1, i, j - 1] + u[t - 1, i, j + 1] - 4.0 * u[t - 1, i, j]);
 u;
 """
+
+# Canonical list of simulation example paths that MUST have strict accuracy tests.
+# Add new simulation examples here and to ALL_ACCURACY_EXAMPLES (with reference_implementations).
+SIMULATION_EXAMPLE_PATHS = (
+    "examples/ode/decay.ein",
+    "examples/ode/linear.ein",
+    "examples/ode/lorenz.ein",
+    "examples/ode/lotka_volterra.ein",
+    "examples/ode/pendulum.ein",
+    "examples/ode/van_der_pol.ein",
+    "examples/ode/sir.ein",
+    "examples/ode/harmonic.ein",
+    "examples/ode/fitzhugh_nagumo.ein",
+    "examples/ode/lorenz96.ein",
+    "examples/wave_2d/main.ein",
+    "examples/pde_1d/heat_1d.ein",
+    "examples/pde_1d/advection_1d.ein",
+    "examples/brusselator/main.ein",
+    "examples/value_iteration/main.ein",
+    "examples/job_search/mccall.ein",
+    "examples/recurrence/fibonacci.ein",
+    "examples/recurrence/logistic.ein",
+    "examples/recurrence/markov_stationary.ein",
+    "examples/recurrence/random_walk.ein",
+    "examples/finance/savings.ein",
+    "examples/optimization/gradient_descent.ein",
+    "examples/optimization/power_iteration.ein",
+    "examples/optimization/projected_gradient.ein",
+    "examples/optimization/rosenbrock.ein",
+    "examples/time_series/exponential_smoothing.ein",
+)
 
 # Every simulation example file (or inline) that must pass accuracy vs reference.
 # path: str (relative path) or (source_str, source_file_name) for inline.
@@ -60,17 +102,24 @@ ALL_ACCURACY_EXAMPLES = [
     ("examples/ode/van_der_pol.ein", "state", van_der_pol_reference, 1e-5, 1e-5, 1),
     ("examples/ode/sir.ein", "state", sir_reference, 1e-5, 1e-5, 1),
     ("examples/ode/harmonic.ein", "state", harmonic_reference, 1e-5, 1e-5, 1),
+    ("examples/ode/fitzhugh_nagumo.ein", "state", fitzhugh_nagumo_reference, 1e-4, 1e-4, 3),
+    ("examples/ode/lorenz96.ein", "X", lorenz96_reference, 1e-3, 1e-2, 3),
     ("examples/wave_2d/main.ein", "h", wave_2d_reference, 1e-4, 1e-5, None),
     ("examples/pde_1d/heat_1d.ein", "u", heat_1d_reference, 1e-5, 1e-5, None),
     ("examples/pde_1d/advection_1d.ein", "u", advection_1d_reference, 1e-2, 0.15, None),
     ("examples/brusselator/main.ein", "state", brusselator_reference, 1e-5, 1e-5, None),
     ("examples/value_iteration/main.ein", "V", value_iteration_reference, 1e-5, 1e-5, None),
+    ("examples/job_search/mccall.ein", "V", mccall_reference, 1e-5, 1e-5, None),
     ("examples/recurrence/fibonacci.ein", "fib", fibonacci_reference, 0, 1e-5, None),
     ("examples/recurrence/logistic.ein", "x", logistic_reference, 1e-5, 1e-5, 10),
-    ("examples/recurrence/gradient_descent.ein", "x", gradient_descent_reference, 1e-5, 1e-5, None),
-    ("examples/recurrence/power_iteration.ein", "v", power_iteration_reference, 1e-5, 1e-5, None),
+    ("examples/optimization/gradient_descent.ein", "x", gradient_descent_reference, 1e-5, 1e-5, None),
+    ("examples/optimization/power_iteration.ein", "v", power_iteration_reference, 1e-5, 1e-5, None),
     ("examples/recurrence/markov_stationary.ein", "psi", markov_stationary_reference, 1e-5, 1e-5, None),
     ("examples/recurrence/random_walk.ein", "x", random_walk_reference, 0, 1e-5, None),
+    ("examples/finance/savings.ein", "b", savings_reference, 1e-5, 1e-5, None),
+    ("examples/optimization/projected_gradient.ein", "x", projected_gradient_reference, 1e-5, 1e-5, None),
+    ("examples/optimization/rosenbrock.ein", "x", rosenbrock_reference, 1e-4, 1e-4, None),
+    ("examples/time_series/exponential_smoothing.ein", "s", exponential_smoothing_reference, 1e-5, 1e-5, None),
     ((HEAT_MINIMAL_SOURCE, "<heat_minimal>"), "u", heat_minimal_reference, 1e-5, 1e-6, None),
 ]
 
@@ -372,3 +421,16 @@ def test_all_simulation_examples_accuracy(compiler, runtime, path, output_key, r
             arr, reference, rtol=rtol, atol=atol,
             err_msg=f"{label} vs reference",
         )
+
+
+def test_every_simulation_example_has_strict_accuracy_test():
+    """Every path in SIMULATION_EXAMPLE_PATHS must be in ALL_ACCURACY_EXAMPLES with a reference."""
+    paths_in_accuracy = {
+        row[0] for row in ALL_ACCURACY_EXAMPLES
+        if isinstance(row[0], str)
+    }
+    missing = [p for p in SIMULATION_EXAMPLE_PATHS if p not in paths_in_accuracy]
+    assert not missing, (
+        "Simulation examples missing from ALL_ACCURACY_EXAMPLES (add entry + reference_implementations): "
+        + ", ".join(missing)
+    )

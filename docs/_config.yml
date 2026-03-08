@@ -1,0 +1,6 @@
+# GitHub Pages: deploy from branch main, folder /docs
+# Site URL: https://einlang.github.io/einlang/
+title: Einlang
+description: Tensor math in Einstein notation with compile-time shape checking
+baseurl: "/einlang"
+permalink: pretty

@@ -5,8 +5,7 @@
 use std::ml::{conv, layer_normalization, gelu_tanh};
 use std::array::argmax;
 use std::math::exp;
-
-fn load_npy(path: str) -> [f32; *] { python::numpy::load(path) }
+use std::io::load_npy;
 
 let IMAGENET_LABELS: [str; 1000] = [
     "tench", "goldfish", "great white shark", "tiger shark", "hammerhead shark", "electric ray", "stingray", "cock",

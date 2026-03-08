@@ -26,5 +26,6 @@ let omega0 = 0.0;
 let state[0, 0] = theta0;
 let state[0, 1] = omega0;
 
-let state[t in 1..200, 0] = state[t - 1, 0] + dt * state[t - 1, 1];
-let state[t in 1..200, 1] = state[t - 1, 1] - dt * (g / L) * sin(state[t - 1, 0]);
+// Block + theta, omega temps to match Julia
+let state[t in 1..200, 0] = { let theta = state[t - 1, 0]; let omega = state[t - 1, 1]; theta + dt * omega };
+let state[t in 1..200, 1] = { let theta = state[t - 1, 0]; let omega = state[t - 1, 1]; omega - dt * (g / L) * sin(theta) };

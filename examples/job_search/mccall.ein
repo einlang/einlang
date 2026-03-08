@@ -1,0 +1,53 @@
+// McCall job search model (QuantEcon): value function iteration for reservation wage.
+// Unemployed worker gets wage offer w_i with probability p_i; accept (w/(1-β)) or reject (c + β E[V]).
+// V(w) = max{ w/(1-β), c + β Σ_i V(w_i) p_i }. Iterate until fixed point; reservation wage w̄ = (1-β)(c + β Σ V p).
+// Julia: [Quantitative Economics with Julia — McCall](https://julia.quantecon.org/dynamic_programming/mccall_model.html)
+// Accuracy-tested: tests/examples/test_simulation_accuracy.py (V vs NumPy reference).
+//
+// Julia equivalent (1-based; same iteration as below):
+//   n = 10
+//   c = 25.0
+//   beta = 0.99
+//   w = range(10.0, 60.0, length = n + 1)   # 11 wages
+//   p = ones(n + 1) / (n + 1)               # uniform probs
+//   V = zeros(100, n + 1)
+//   V[1, :] .= w ./ (1 - beta)              # initial: accept everywhere
+//   for k in 2:100
+//       cv = c + beta * sum(V[k-1, :] .* p)
+//       for i in 1:(n+1)
+//           V[k, i] = max(w[i] / (1 - beta), cv)
+//       end
+//   end
+//   w_bar = (1 - beta) * (c + beta * sum(V[100, :] .* p))
+
+use std::math::max;
+
+let n = 10;   // 0..n → 11 wage points
+let c = 25.0;
+let beta = 0.99;
+
+// Wage grid 10, 15, ..., 60 (11 points)
+let w[i in 0..11] = 10.0 + (i as f32) * 5.0;
+// Uniform probability over offers
+let p[i in 0..11] = 1.0 / 11.0;
+
+// Value function iteration: V[k, i] = value at iteration k for wage index i
+// Initial guess: accept at every wage (lifetime value = w_i / (1 - β))
+let V[0, i in 0..11] = w[i] / (1.0 - beta);
+
+// Bellman update: continuation value cv = c + β Σ_j V[k-1,j] p_j; then V[k,i] = max(accept_i, cv)
+let V[k in 1..100, i in 0..11] = {
+  let cv = c + beta * (V[k - 1, 0] * p[0] + V[k - 1, 1] * p[1] + V[k - 1, 2] * p[2] + V[k - 1, 3] * p[3] + V[k - 1, 4] * p[4] + V[k - 1, 5] * p[5] + V[k - 1, 6] * p[6] + V[k - 1, 7] * p[7] + V[k - 1, 8] * p[8] + V[k - 1, 9] * p[9] + V[k - 1, 10] * p[10]);
+  max(w[i] / (1.0 - beta), cv)
+};
+
+// Reservation wage: accept iff offer >= w_bar. Block + cv to match Julia (1-β)(c + β Σ V p)
+let w_bar = {
+  let cv = c + beta * (V[99, 0] * p[0] + V[99, 1] * p[1] + V[99, 2] * p[2] + V[99, 3] * p[3] + V[99, 4] * p[4] + V[99, 5] * p[5] + V[99, 6] * p[6] + V[99, 7] * p[7] + V[99, 8] * p[8] + V[99, 9] * p[9] + V[99, 10] * p[10]);
+  (1.0 - beta) * cv
+};
+
+print("McCall reservation wage (c=25, beta=0.99, 11 wages 10..60, uniform p):");
+print(w_bar);
+print("Value at last iteration (first 3 wage indices):");
+print([V[99, 0], V[99, 1], V[99, 2]]);

@@ -29,5 +29,6 @@ let v0 = 1.0;
 let state[0, 0] = u0;
 let state[0, 1] = v0;
 
-let state[t in 1..500, 0] = state[t - 1, 0] + dt * (a * state[t - 1, 0] - b * state[t - 1, 0] * state[t - 1, 1]);
-let state[t in 1..500, 1] = state[t - 1, 1] + dt * (-c * state[t - 1, 1] + d * state[t - 1, 0] * state[t - 1, 1]);
+// Block + u, v temps to match Julia (prey, predator)
+let state[t in 1..500, 0] = { let u = state[t - 1, 0]; let v = state[t - 1, 1]; u + dt * (a * u - b * u * v) };
+let state[t in 1..500, 1] = { let u = state[t - 1, 0]; let v = state[t - 1, 1]; v + dt * (-c * v + d * u * v) };

@@ -69,4 +69,6 @@ One call and you’re a user. See [Install & run](../README.md#install--run) in 
 | **See the full doc map** | [Docs index](README.md) |
 | **Contribute** | [CONTRIBUTING.md](../CONTRIBUTING.md) — doc fixes and small bugs are a great start |
 
+**After your first example:** pick a domain ([ode](../examples/ode/), [optimization](../examples/optimization/), [finance](../examples/finance/), [ML](../README.md#examples)) and run one; then use [reference](reference.md) for depth.
+
 You’re set. The rest is depth: reference, stdlib, and examples showcase everything Einlang can do.

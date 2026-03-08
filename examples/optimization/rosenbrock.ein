@@ -1,0 +1,32 @@
+// Rosenbrock minimization by gradient descent. f(x,y) = (a-x)^2 + b*(y-x^2)^2, minimum at (a, a^2).
+// Gradient: gx = -2*(a-x) - 4*b*x*(y-x^2), gy = 2*b*(y-x^2). Step: x[k] = x[k-1] - alpha * grad.
+// Real-world Julia: [Optimization.jl Rosenbrock](https://docs.sciml.ai/Optimization/stable/examples/rosenbrock/), [Optim.jl](https://julianlsolvers.github.io/Optim.jl/stable/)
+//
+// Julia equivalent (1-based; same order as below):
+//   a, b = 1.0, 100.0
+//   alpha = 0.001
+//   x = zeros(2001, 2)
+//   x[1, 1], x[1, 2] = 0.0, 0.0
+//   for k in 2:2001
+//       x1, x2 = x[k-1, 1], x[k-1, 2]
+//       g1 = -2.0*(a - x1) - 4.0*b*x1*(x2 - x1*x1)
+//       g2 = 2.0*b*(x2 - x1*x1)
+//       x[k, 1] = x1 - alpha * g1
+//       x[k, 2] = x2 - alpha * g2
+//   end
+
+let a = 1.0;
+let b = 100.0;
+let alpha = 0.001;
+
+let x[0, i in 0..2] = 0.0;
+
+let x[k in 1..2001, i in 0..2] = {
+  let x1 = x[k - 1, 0];
+  let x2 = x[k - 1, 1];
+  let g1 = -2.0 * (a - x1) - 4.0 * b * x1 * (x2 - x1 * x1);
+  let g2 = 2.0 * b * (x2 - x1 * x1);
+  if i == 0 { x1 - alpha * g1 } else { x2 - alpha * g2 }
+};
+
+print(x);

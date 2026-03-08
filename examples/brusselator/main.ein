@@ -57,19 +57,18 @@ let state[t in 1..300, c in 0..2, 63, j in 0..64] = state[t - 1, c, 63, j];
 let state[t in 1..300, c in 0..2, i in 1..63, 0] = state[t - 1, c, i, 0];
 let state[t in 1..300, c in 0..2, i in 1..63, 63] = state[t - 1, c, i, 63];
 
-// Interior U (channel 0): B + U²V - (A+1)U + α*Laplacian(U)
-let state[t in 1..300, 0, i in 1..63, j in 1..63] =
-  state[t - 1, 0, i, j] + dt * (
-    B
-    + state[t - 1, 0, i, j] * state[t - 1, 0, i, j] * state[t - 1, 1, i, j]
-    - (A + 1.0) * state[t - 1, 0, i, j]
-    + alpha * (state[t - 1, 0, i - 1, j] + state[t - 1, 0, i + 1, j] + state[t - 1, 0, i, j - 1] + state[t - 1, 0, i, j + 1] - 4.0 * state[t - 1, 0, i, j])
-  );
+// Interior U (channel 0): block + U, V, lap_U to match Julia
+let state[t in 1..300, 0, i in 1..63, j in 1..63] = {
+  let U = state[t - 1, 0, i, j];
+  let V_ = state[t - 1, 1, i, j];
+  let lap_U = state[t - 1, 0, i - 1, j] + state[t - 1, 0, i + 1, j] + state[t - 1, 0, i, j - 1] + state[t - 1, 0, i, j + 1] - 4.0 * U;
+  U + dt * (B + U * U * V_ - (A + 1.0) * U + alpha * lap_U)
+};
 
-// Interior V (channel 1): AU - U²V + α*Laplacian(V)
-let state[t in 1..300, 1, i in 1..63, j in 1..63] =
-  state[t - 1, 1, i, j] + dt * (
-    A * state[t - 1, 0, i, j]
-    - state[t - 1, 0, i, j] * state[t - 1, 0, i, j] * state[t - 1, 1, i, j]
-    + alpha * (state[t - 1, 1, i - 1, j] + state[t - 1, 1, i + 1, j] + state[t - 1, 1, i, j - 1] + state[t - 1, 1, i, j + 1] - 4.0 * state[t - 1, 1, i, j])
-  );
+// Interior V (channel 1): block + U, V, lap_V to match Julia
+let state[t in 1..300, 1, i in 1..63, j in 1..63] = {
+  let U = state[t - 1, 0, i, j];
+  let V_ = state[t - 1, 1, i, j];
+  let lap_V = state[t - 1, 1, i - 1, j] + state[t - 1, 1, i + 1, j] + state[t - 1, 1, i, j - 1] + state[t - 1, 1, i, j + 1] - 4.0 * V_;
+  V_ + dt * (A * U - U * U * V_ + alpha * lap_V)
+};

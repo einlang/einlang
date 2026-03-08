@@ -5,8 +5,7 @@
 use std::ml::{layer_normalization, gelu};
 use std::array::argmax;
 use std::math::exp;
-
-fn load_npy(path: str) -> [f32; *] { python::numpy::load(path) }
+use std::io::load_npy;
 
 // ====================== Encoder weights ======================
 let enc_conv1_w = load_npy("weights/enc_conv1_w.npy") as [f32; 384, 80, 3];

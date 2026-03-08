@@ -168,6 +168,17 @@ File = module. Paths like `std::math::basic` map to stdlib files.
 
 See [Recurrence relations](reference.md#recurrence-relations) for rules (no future indices; index only identifier or literal in the bracket).
 
+### I/O and files
+
+| Julia | Einlang |
+|-------|---------|
+| `read("file.txt", String)` | `use std::io;` then `read_file("file.txt")` (returns string) |
+| `write("file.txt", s)` | `write_file("file.txt", s)` (text only) |
+| `using FileIO; save("x.npy", A)` | **std::io:** `load_npy(path)` and `save_npy(path, arr)` (matches NumPy load/save). Example: `use std::io::{load_npy, save_npy}; let x = load_npy("x.npy") as [f32; 10, 20]; save_npy("out.npy", x);` See [Stdlib: std::io](stdlib.md#stdio). |
+| Directory/path helpers | `std::io`: `list_dir`, `create_dir`, `join_path`, `dirname`, `basename`, `file_exists`, `is_file`, `is_dir`, etc. See [Stdlib: std::io](stdlib.md#stdio). |
+
+So: **text I/O** is in `std::io`; **binary/tensor I/O** (.npy) is read via `python::numpy::load`, and write is typically done from Python after execution or via `python::numpy::save` if available.
+
 ### What Einlang does not have
 
 | Julia | Einlang |
@@ -244,7 +255,9 @@ Same idea: you write the **discrete update** (stencil) in Einstein notation. No 
 
 - **Fibonacci, random walk, logistic map:** [recurrence/](../examples/recurrence/).
 - **Markov stationary distribution:** [markov_stationary.ein](../examples/recurrence/markov_stationary.ein) — ψ = ψ P (QuantEcon-style).
-- **Gradient descent, power iteration:** [gradient_descent.ein](../examples/recurrence/gradient_descent.ein), [power_iteration.ein](../examples/recurrence/power_iteration.ein).
+- **Optimization (gradient descent, power iteration, projected gradient, Rosenbrock):** [optimization/](../examples/optimization/) — [gradient_descent.ein](../examples/optimization/gradient_descent.ein), [power_iteration.ein](../examples/optimization/power_iteration.ein), [projected_gradient.ein](../examples/optimization/projected_gradient.ein), [rosenbrock.ein](../examples/optimization/rosenbrock.ein) (Optim.jl/SciML-style).
+- **Time series (exponential smoothing):** [time_series/exponential_smoothing.ein](../examples/time_series/exponential_smoothing.ein) — StateSpaceModels.jl/TimeSeries.jl-style forecasting.
+- **Finance (savings / compound interest):** [finance/savings.ein](../examples/finance/savings.ein).
 - **Value iteration (Bellman):** [value_iteration/](../examples/value_iteration/) — same idea as QuantEcon.jl.
 
 Syntax: `let x[0] = ...; let x[k in 1..K] = ...;` Multiple clauses for the same array must be **consecutive** (no other `let` in between). [Reference: Recurrence relations](reference.md#recurrence-relations).

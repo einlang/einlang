@@ -14,24 +14,38 @@ Time-stepping and spatial stencils; no weights. Each `.ein` has a **Julia equiva
 
 | Directory | What it does | Run |
 |-----------|--------------|-----|
-| [`ode/`](ode/) | ODEs (decay, linear, Lorenz, Lotka–Volterra, pendulum, van der Pol, SIR, harmonic) | `python3 -m einlang examples/ode/decay.ein`; `sir.ein`; `harmonic.ein`; … |
+| [`ode/`](ode/) | ODEs (decay, linear, Lorenz, Lotka–Volterra, pendulum, van der Pol, SIR, harmonic, fitzhugh_nagumo, lorenz96) | `python3 -m einlang examples/ode/decay.ein`; `sir.ein`; `fitzhugh_nagumo.ein`; `lorenz96.ein`; … |
 | [`pde_1d/`](pde_1d/) | 1D heat, advection; [run_heat_1d.py](pde_1d/run_heat_1d.py) for HTML | `python3 -m einlang examples/pde_1d/heat_1d.ein`; `python3 examples/pde_1d/run_heat_1d.py` |
 | [`wave_2d/`](wave_2d/) | 2D acoustic wave | `python3 -m einlang examples/wave_2d/main.ein`; `python3 examples/wave_2d/run_wave.py` |
 | [`brusselator/`](brusselator/) | Reaction–diffusion (SciML Brusselator) | `python3 -m einlang examples/brusselator/main.ein`; `python3 examples/brusselator/run_brusselator.py` |
 
 ### Discrete dynamics & recurrence
 
-Recurrences (base case + step); Markov chains, chaos, optimization, linear algebra.
+Recurrences (base case + step); Markov chains, chaos.
 
 | Directory | What it does | Run |
 |-----------|--------------|-----|
-| [`recurrence/`](recurrence/) | fibonacci, random_walk, markov_stationary, logistic map, gradient_descent, power_iteration | `python3 -m einlang examples/recurrence/fibonacci.ein`; `power_iteration.ein`; … |
+| [`recurrence/`](recurrence/) | fibonacci, random_walk, markov_stationary, logistic map | `python3 -m einlang examples/recurrence/fibonacci.ein`; `markov_stationary.ein`; … |
+
+### Finance
+
+| Directory | What it does | Run |
+|-----------|--------------|-----|
+| [`finance/`](finance/) | Savings / compound interest projection | `python3 -m einlang examples/finance/savings.ein` |
 
 ### Economics & optimization
 
 | Directory | What it does | Run |
 |-----------|--------------|-----|
 | [`value_iteration/`](value_iteration/) | Bellman value iteration (QuantEcon.jl-style) | `python3 -m einlang examples/value_iteration/main.ein` |
+| [`job_search/`](job_search/) | McCall job search (QuantEcon): value function iteration, reservation wage | `python3 -m einlang examples/job_search/mccall.ein` |
+| [`optimization/`](optimization/) | Gradient descent, power iteration, projected gradient, Rosenbrock (Optim.jl/SciML) | `python3 -m einlang examples/optimization/gradient_descent.ein`; `rosenbrock.ein`; … |
+
+### Time series
+
+| Directory | What it does | Run |
+|-----------|--------------|-----|
+| [`time_series/`](time_series/) | Exponential smoothing (forecasting; StateSpaceModels/TimeSeries-style) | `python3 -m einlang examples/time_series/exponential_smoothing.ein` |
 
 ### Computer vision
 
@@ -82,8 +96,11 @@ python3 -m einlang examples/ode/decay.ein
 python3 examples/pde_1d/run_heat_1d.py
 python3 examples/wave_2d/run_wave.py
 
-# Recurrence & optimization
-python3 -m einlang examples/recurrence/power_iteration.ein
+# Recurrence, finance, economics, optimization
+python3 -m einlang examples/recurrence/fibonacci.ein
+python3 -m einlang examples/finance/savings.ein
+python3 -m einlang examples/job_search/mccall.ein
+python3 -m einlang examples/optimization/power_iteration.ein
 python3 -m einlang examples/value_iteration/main.ein
 
 # Language
