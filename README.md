@@ -90,7 +90,7 @@ Einlang gives you readable tensor math with compile-time shape checking. In prac
 
 | Domain | Use case | Example |
 |--------|----------|---------|
-| **Scientific simulation** | ODE + PDEs: diffusion, wave, reaction–diffusion (recurrence + stencil) | [ode](examples/ode/), [heat](examples/heat_animation.py), [wave_2d](examples/wave_2d/), [brusselator](examples/brusselator/) |
+| **Scientific simulation** | ODE + PDEs: diffusion, wave, reaction–diffusion (recurrence + stencil) | [ode](examples/ode/), [pde_1d](examples/pde_1d/) (heat, advection), [wave_2d](examples/wave_2d/), [brusselator](examples/brusselator/) |
 | **Computer vision** | Digit recognition, int8 quantization, ImageNet ViT | [mnist](examples/mnist/), [mnist_quantized](examples/mnist_quantized/), [deit_tiny](examples/deit_tiny/) |
 | **Speech & sequence** | Speech-to-text (encoder–decoder, autoregressive) | [whisper_tiny](examples/whisper_tiny/) |
 
@@ -122,31 +122,20 @@ let C[i, j] = sum[k](A[i, k] * B[k, j]);
 
 ## Examples
 
-From one-liners to full models: run by **feature** (one capability at a time) or follow the **learning path** from basics to CNN, quantized CNN, ViT, and Whisper. Full path: [examples/README.md](examples/README.md).
+Grouped **by domain**; full list: [examples/README.md](examples/README.md).
 
-| Feature | Run this |
-|--------|----------|
-| Einstein matmul + print | `python3 -m einlang examples/hello.ein` |
-| Matrix ops, norms, stats | [matrix_operations.ein](examples/demos/matrix_operations.ein) |
-| Reductions, contractions | [reduction_operations.ein](examples/units/reduction_operations.ein) |
-| Where constraints | [where_constraints.ein](examples/units/where_constraints.ein) |
-| Convolution-style indexing | [convolution_operations.ein](examples/units/convolution_operations.ein) |
-| Functions + overloading | [functions_demo.ein](examples/basics/functions_demo.ein), [function_overloading_complete.ein](examples/demos/function_overloading_complete.ein) |
-| Full CNN (MNIST) | [mnist/main.ein](examples/mnist/main.ein) |
-| Quantized CNN (int8) | [mnist_quantized/main.ein](examples/mnist_quantized/main.ein) |
-| ViT / Whisper | [deit_tiny/](examples/deit_tiny/), [whisper_tiny/](examples/whisper_tiny/) |
-| ODE / PDE simulations | [ode/](examples/ode/), [heat_animation.py](examples/heat_animation.py), [wave_2d/](examples/wave_2d/), [brusselator/](examples/brusselator/) |
+| Domain | Examples | Run |
+|--------|----------|-----|
+| **Scientific simulation** | ODEs, 1D PDE (heat, advection), 2D wave, Brusselator | [ode/](examples/ode/), [pde_1d/](examples/pde_1d/), [wave_2d/](examples/wave_2d/), [brusselator/](examples/brusselator/) |
+| **Discrete dynamics** | Recurrence, Markov, logistic, gradient descent, power iteration | [recurrence/](examples/recurrence/) |
+| **Economics / optimization** | Bellman value iteration | [value_iteration/](examples/value_iteration/) |
+| **Computer vision** | MNIST CNN, quantized CNN, ViT (ImageNet) | [mnist/](examples/mnist/), [mnist_quantized/](examples/mnist_quantized/), [deit_tiny/](examples/deit_tiny/) |
+| **Speech & sequence** | Speech-to-text (Whisper) | [whisper_tiny/](examples/whisper_tiny/) |
+| **Language & basics** | Variables, matrices, Einstein notation, units | [basics/](examples/basics/), [demos/](examples/demos/), [units/](examples/units/) |
 
-| Step | Run | What it is |
-|------|-----|------------|
-| **0** | [hello.ein](examples/hello.ein) | Intro: matmul + print |
-| 1 | [basics/](examples/basics/), [demos/](examples/demos/) | Variables, functions, matrices, Einstein notation |
-| 2 | [mnist/main.ein](examples/mnist/main.ein) | CNN digit recognition |
-| 2b | [mnist_quantized/main.ein](examples/mnist_quantized/main.ein) | Same CNN with int8 weights (`qconv`, `qlinear`, `quantize_linear`) |
-| 3 | [deit_tiny/](examples/deit_tiny/), [whisper_tiny/](examples/whisper_tiny/) | Vision Transformer, speech-to-text |
-| 3b | [ode/](examples/ode/), [heat_animation.py](examples/heat_animation.py), [wave_2d/](examples/wave_2d/), [brusselator/](examples/brusselator/) | ODE + heat, wave, reaction–diffusion (recurrence + stencil) |
+**Quick run:** `python3 -m einlang examples/hello.ein` · `examples/ode/decay.ein` · `examples/recurrence/power_iteration.ein`
 
-More in the [examples/](examples/) tree. Every simulation example is compared against Julia (Julia equivalent in each `.ein`; see [Julia demos → Einlang](docs/JULIA_DEMOS.md)) and [accuracy-tested](tests/examples/test_simulation_accuracy.py) against NumPy or analytical references.
+Every simulation example has a Julia equivalent in the `.ein` file and is [accuracy-tested](tests/examples/test_simulation_accuracy.py). See [Julia demos → Einlang](docs/JULIA_DEMOS.md).
 
 ---
 

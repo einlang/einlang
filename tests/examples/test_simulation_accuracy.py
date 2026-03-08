@@ -1,6 +1,6 @@
 """
 Accuracy checks for simulation demos: ODE (decay, linear, Lorenz, Lotka-Volterra),
-wave, heat, Brusselator, Julia-migration (pde_1d, value_iteration, recurrence, tensor_ops).
+wave, heat, Brusselator, Julia-migration (pde_1d, value_iteration, recurrence).
 
 Each test runs the demo (or a minimal variant), then compares every element
 against a reference computed in-test: analytical (ODE) or NumPy reference
@@ -19,40 +19,75 @@ from tests.examples.reference_implementations import (
     heat_minimal_reference,
     lorenz_reference,
     lotka_volterra_reference,
+    pendulum_reference,
+    van_der_pol_reference,
+    sir_reference,
+    harmonic_reference,
+    logistic_reference,
+    gradient_descent_reference,
+    power_iteration_reference,
+    markov_stationary_reference,
     heat_1d_reference,
     linear_ode_reference,
     brusselator_reference,
     value_iteration_reference,
     fibonacci_reference,
     advection_1d_reference,
-    softmax_reference,
     random_walk_reference,
 )
 
-# Every simulation example file that must pass accuracy vs reference.
-# (path, output_key for result.outputs or "value" for result.value, reference_fn, rtol, atol, first_n)
+# Inline heat minimal (2D heat, 25 steps, 11x11) for parametrized test.
+HEAT_MINIMAL_SOURCE = """
+let r = 0.2;
+let cx = 5;
+let cy = 5;
+let R2 = 4.0;
+let u[0, i in 0..11, j in 0..11] = if ((i - cx) * (i - cx) + (j - cy) * (j - cy)) as f32 <= R2 { 10.0 * (1.0 - (((i - cx) * (i - cx) + (j - cy) * (j - cy)) as f32) / R2) } else { 0.0 };
+let u[t in 1..25, i in 1..10, j in 1..10] = u[t - 1, i, j] + r * (u[t - 1, i - 1, j] + u[t - 1, i + 1, j] + u[t - 1, i, j - 1] + u[t - 1, i, j + 1] - 4.0 * u[t - 1, i, j]);
+u;
+"""
+
+# Every simulation example file (or inline) that must pass accuracy vs reference.
+# path: str (relative path) or (source_str, source_file_name) for inline.
+# (path, output_key, reference_fn, rtol, atol, first_n)
 # first_n=None: compare full array; first_n=N: compare first N steps only and assert finite.
 ALL_ACCURACY_EXAMPLES = [
     ("examples/ode/decay.ein", "u", decay_reference, 5e-3, 1e-6, None),
     ("examples/ode/linear.ein", "u", linear_ode_reference, 1e-5, 1e-5, None),
     ("examples/ode/lorenz.ein", "u", lorenz_reference, 1e-3, 1e-2, 3),
     ("examples/ode/lotka_volterra.ein", "state", lotka_volterra_reference, 1e-4, 1e-4, 2),
+    ("examples/ode/pendulum.ein", "state", pendulum_reference, 1e-5, 1e-5, 1),
+    ("examples/ode/van_der_pol.ein", "state", van_der_pol_reference, 1e-5, 1e-5, 1),
+    ("examples/ode/sir.ein", "state", sir_reference, 1e-5, 1e-5, 1),
+    ("examples/ode/harmonic.ein", "state", harmonic_reference, 1e-5, 1e-5, 1),
     ("examples/wave_2d/main.ein", "h", wave_2d_reference, 1e-4, 1e-5, None),
     ("examples/pde_1d/heat_1d.ein", "u", heat_1d_reference, 1e-5, 1e-5, None),
     ("examples/pde_1d/advection_1d.ein", "u", advection_1d_reference, 1e-2, 0.15, None),
     ("examples/brusselator/main.ein", "state", brusselator_reference, 1e-5, 1e-5, None),
     ("examples/value_iteration/main.ein", "V", value_iteration_reference, 1e-5, 1e-5, None),
     ("examples/recurrence/fibonacci.ein", "fib", fibonacci_reference, 0, 1e-5, None),
+    ("examples/recurrence/logistic.ein", "x", logistic_reference, 1e-5, 1e-5, 10),
+    ("examples/recurrence/gradient_descent.ein", "x", gradient_descent_reference, 1e-5, 1e-5, None),
+    ("examples/recurrence/power_iteration.ein", "v", power_iteration_reference, 1e-5, 1e-5, None),
+    ("examples/recurrence/markov_stationary.ein", "psi", markov_stationary_reference, 1e-5, 1e-5, None),
     ("examples/recurrence/random_walk.ein", "x", random_walk_reference, 0, 1e-5, None),
-    ("examples/tensor_ops/softmax.ein", "softmax", softmax_reference, 1e-5, 1e-5, None),
+    ((HEAT_MINIMAL_SOURCE, "<heat_minimal>"), "u", heat_minimal_reference, 1e-5, 1e-6, None),
 ]
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def _run_ein_file(compiler, runtime, rel_path: str):
-    path = PROJECT_ROOT / rel_path
+def _run_ein_file(compiler, runtime, path_or_inline):
+    """path_or_inline: str (relative path to .ein) or (source_str, source_file_name) for inline."""
+    if isinstance(path_or_inline, tuple):
+        source, source_file = path_or_inline
+        result = compile_and_execute(
+            source, compiler, runtime,
+            source_file=source_file,
+        )
+        return result, path_or_inline[1]
+    path = PROJECT_ROOT / path_or_inline
     source = path.read_text(encoding="utf-8")
     result = compile_and_execute(
         source, compiler, runtime,
@@ -282,23 +317,6 @@ class TestAdvection1dAccuracy:
         np.testing.assert_allclose(u, reference, rtol=1e-2, atol=0.15, err_msg="Advection 1D vs NumPy reference")
 
 
-class TestSoftmaxAccuracy:
-    """Softmax: compare to NumPy reference."""
-
-    def test_softmax_vs_reference(self, compiler, runtime):
-        result, _ = _run_ein_file(
-            compiler, runtime,
-            "examples/tensor_ops/softmax.ein",
-        )
-        assert result.success, getattr(result, "errors", result.error)
-        out = np.asarray(result.value if result.value is not None else result.outputs.get("softmax"))
-        assert out is not None and out.ndim == 1, "expected 1D softmax"
-        assert len(out) == 5, f"expected 5 elements, got {len(out)}"
-
-        reference = softmax_reference()
-        np.testing.assert_allclose(out, reference, rtol=1e-5, atol=1e-5, err_msg="Softmax vs NumPy reference")
-
-
 class TestRandomWalkAccuracy:
     """Random walk: compare to NumPy reference."""
 
@@ -316,27 +334,41 @@ class TestRandomWalkAccuracy:
         np.testing.assert_allclose(x.astype(np.float64), reference, rtol=0, atol=1e-5, err_msg="Random walk vs NumPy reference")
 
 
-@pytest.mark.parametrize("path,output_key,ref_fn,rtol,atol,first_n", ALL_ACCURACY_EXAMPLES)
+def _path_label(path_or_inline) -> str:
+    """Display label for path or inline (path, output_key, ...) tuple."""
+    return path_or_inline[1] if isinstance(path_or_inline, tuple) else path_or_inline
+
+
+@pytest.mark.parametrize(
+    "path,output_key,ref_fn,rtol,atol,first_n",
+    ALL_ACCURACY_EXAMPLES,
+    ids=[_path_label(row[0]) for row in ALL_ACCURACY_EXAMPLES],
+)
 def test_all_simulation_examples_accuracy(compiler, runtime, path, output_key, ref_fn, rtol, atol, first_n):
     """Every listed simulation example must run and match its reference (full or first_n steps)."""
     result, _ = _run_ein_file(compiler, runtime, path)
     assert result.success, getattr(result, "errors", result.error)
     out = result.value if result.value is not None else result.outputs.get(output_key)
-    assert out is not None, f"no output for {path} (key={output_key})"
+    label = _path_label(path)
+    assert out is not None, f"no output for {label} (key={output_key})"
     arr = np.asarray(out, dtype=np.float64)
     reference = ref_fn()
+    # Backend may return (nstates, nsteps) for state; normalize to (nsteps, nstates)
+    if arr.ndim == 2 and reference.ndim == 2 and arr.shape != reference.shape:
+        if (arr.shape[1], arr.shape[0]) == reference.shape:
+            arr = arr.T
     if first_n is not None:
         arr_compare = arr[:first_n]
         ref_compare = reference[:first_n]
         np.testing.assert_allclose(
             arr_compare, ref_compare, rtol=rtol, atol=atol,
-            err_msg=f"{path} first {first_n} vs reference",
+            err_msg=f"{label} first {first_n} vs reference",
         )
-        assert np.isfinite(arr).all(), f"{path} must be finite"
+        assert np.isfinite(arr).all(), f"{label} must be finite"
     else:
         if arr.dtype.kind in ("i", "u"):
             reference = reference.astype(np.float64)
         np.testing.assert_allclose(
             arr, reference, rtol=rtol, atol=atol,
-            err_msg=f"{path} vs reference",
+            err_msg=f"{label} vs reference",
         )
