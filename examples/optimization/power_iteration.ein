@@ -14,11 +14,11 @@ use std::math::sqrt;
 
 let A = [[2.0, 1.0], [1.0, 2.0]];
 
-let v[0, i in 0..2] = (i == 0) as f32;
+let v[0, i in 0..2] = if i == 0 { 1.0 } else { 0.0 };
 let v[k in 1..20, i in 0..2] = {
   let Av0 = A[0, 0] * v[k - 1, 0] + A[0, 1] * v[k - 1, 1];
   let Av1 = A[1, 0] * v[k - 1, 0] + A[1, 1] * v[k - 1, 1];
   let n = sqrt(Av0 * Av0 + Av1 * Av1);
-  ((i == 0) as f32) * (Av0 / n) + ((i == 1) as f32) * (Av1 / n)
+  if i == 0 { Av0 / n } else { Av1 / n }
 };
 print("v (power iteration, 21 steps x 2):", v);

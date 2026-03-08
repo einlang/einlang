@@ -26,6 +26,7 @@ let state[0, 0] = S0;
 let state[0, 1] = I0;
 let state[0, 2] = R0;
 
-let state[t in 1..100, 0] = state[t - 1, 0] - dt * beta * state[t - 1, 0] * state[t - 1, 1];
-let state[t in 1..100, 1] = state[t - 1, 1] + dt * (beta * state[t - 1, 0] * state[t - 1, 1] - gamma * state[t - 1, 1]);
-let state[t in 1..100, 2] = state[t - 1, 2] + dt * gamma * state[t - 1, 1];
+// Block + S, I, R temps to match Julia: S, I, R = state[t-1, 1], state[t-1, 2], state[t-1, 3]
+let state[t in 1..100, 0] = { let S = state[t - 1, 0]; let I = state[t - 1, 1]; S - dt * beta * S * I };
+let state[t in 1..100, 1] = { let S = state[t - 1, 0]; let I = state[t - 1, 1]; I + dt * (beta * S * I - gamma * I) };
+let state[t in 1..100, 2] = { let I = state[t - 1, 1]; let R = state[t - 1, 2]; R + dt * gamma * I };

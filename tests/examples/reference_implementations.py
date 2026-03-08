@@ -3,6 +3,9 @@ Independent reference implementations for simulation accuracy tests.
 
 Pure NumPy; no Einlang. Same equations, parameters, and discretization as the
 corresponding .ein examples. Compared in-test (no stored files).
+
+Every function here is used in test_simulation_accuracy.py (ALL_ACCURACY_EXAMPLES).
+When adding a new simulation example, add a reference here and register it there.
 """
 
 import numpy as np
@@ -146,7 +149,7 @@ def logistic_reference() -> np.ndarray:
 
 
 def gradient_descent_reference() -> np.ndarray:
-    """Gradient descent for quadratic. Same as examples/recurrence/gradient_descent.ein (30 iters, 2D)."""
+    """Gradient descent for quadratic. Same as examples/optimization/gradient_descent.ein (30 iters, 2D)."""
     A = np.array([[2.0, 0.0], [0.0, 2.0]], dtype=np.float64)
     b = np.array([1.0, 1.0], dtype=np.float64)
     alpha = 0.25
@@ -312,3 +315,111 @@ def random_walk_reference() -> np.ndarray:
     for t in range(1, 21):
         x[t] = x[t - 1] + steps[t - 1]
     return x
+
+
+def savings_reference() -> np.ndarray:
+    """Savings / compound interest. Same as examples/finance/savings.ein (61 months)."""
+    initial = 1000.0
+    r = 0.05 / 12.0
+    deposit = 100.0
+    nsteps = 61
+    b = np.zeros(nsteps, dtype=np.float64)
+    b[0] = initial
+    for t in range(1, nsteps):
+        b[t] = b[t - 1] * (1.0 + r) + deposit
+    return b
+
+
+def projected_gradient_reference() -> np.ndarray:
+    """Projected gradient descent (box [0,1]^2). Same as examples/optimization/projected_gradient.ein (20 iters, 2D)."""
+    c = np.array([1.5, 0.3], dtype=np.float64)
+    alpha = 0.5
+    nsteps = 20
+    x = np.zeros((nsteps, 2), dtype=np.float64)
+    for k in range(1, nsteps):
+        u = x[k - 1] - alpha * (x[k - 1] - c)
+        x[k] = np.clip(u, 0.0, 1.0)
+    return x
+
+
+def rosenbrock_reference() -> np.ndarray:
+    """Rosenbrock gradient descent. Same as examples/optimization/rosenbrock.ein (2001 iters, 2D)."""
+    a, b = 1.0, 100.0
+    alpha = 0.001
+    nsteps = 2001
+    x = np.zeros((nsteps, 2), dtype=np.float64)
+    for k in range(1, nsteps):
+        x1, x2 = x[k - 1, 0], x[k - 1, 1]
+        g1 = -2.0 * (a - x1) - 4.0 * b * x1 * (x2 - x1 * x1)
+        g2 = 2.0 * b * (x2 - x1 * x1)
+        x[k, 0] = x1 - alpha * g1
+        x[k, 1] = x2 - alpha * g2
+    return x
+
+
+def exponential_smoothing_reference() -> np.ndarray:
+    """Simple exponential smoothing. Same as examples/time_series/exponential_smoothing.ein (30 points)."""
+    y = np.array(
+        [2.0, 3.0, 2.5, 4.0, 3.5, 5.0, 4.2, 5.5, 5.0, 6.0, 5.5, 7.0, 6.2, 7.5, 7.0, 8.0, 7.5, 9.0, 8.2, 9.5, 9.0, 10.0, 9.5, 11.0, 10.2, 11.5, 11.0, 12.0, 11.5, 13.0],
+        dtype=np.float64,
+    )
+    alpha = 0.3
+    n = len(y)
+    s = np.zeros(n, dtype=np.float64)
+    s[0] = y[0]
+    for t in range(1, n):
+        s[t] = alpha * y[t] + (1.0 - alpha) * s[t - 1]
+    return s
+
+
+def mccall_reference() -> np.ndarray:
+    """McCall job search: value function iteration. Same as examples/job_search/mccall.ein (100 iters, 11 wages)."""
+    n = 10  # 11 wage points indices 0..10
+    c = 25.0
+    beta = 0.99
+    w = np.array([10.0 + i * 5.0 for i in range(11)], dtype=np.float64)
+    p = np.ones(11, dtype=np.float64) / 11.0
+    nsteps = 100
+    V = np.zeros((nsteps, 11), dtype=np.float64)
+    V[0] = w / (1.0 - beta)
+    for k in range(1, nsteps):
+        cv = c + beta * np.dot(V[k - 1], p)
+        V[k] = np.maximum(w / (1.0 - beta), cv)
+    return V
+
+
+def fitzhugh_nagumo_reference() -> np.ndarray:
+    """FitzHugh-Nagumo 2D ODE, Euler. Same as examples/ode/fitzhugh_nagumo.ein (3000 steps)."""
+    a, b, c = 0.7, 0.8, 10.0
+    I_ext = 0.5
+    dt = 0.01
+    v0, u0 = 0.0, 0.0
+    nsteps = 3000
+    state = np.zeros((nsteps, 2), dtype=np.float64)
+    state[0] = [v0, u0]
+    for t in range(1, nsteps):
+        v, u = state[t - 1, 0], state[t - 1, 1]
+        state[t, 0] = v + dt * c * (v - v**3 / 3.0 - u + I_ext)
+        state[t, 1] = u + dt * (v - b * u + a)
+    return state
+
+
+def lorenz96_reference() -> np.ndarray:
+    """Lorenz 96 chaotic ODE, Euler, periodic indices. Same as examples/ode/lorenz96.ein (500 steps, N=5)."""
+    N = 5
+    F = 8.0
+    dt = 0.01
+    nsteps = 500
+    X = np.zeros((nsteps, N), dtype=np.float64)
+    X[0] = F
+    X[0, 0] = F + 0.01
+    for t in range(1, nsteps):
+        for i in range(N):
+            ip1 = (i + 1) % N
+            im1 = (i + 4) % N
+            im2 = (i + 3) % N
+            X[t, i] = (
+                X[t - 1, i]
+                + dt * ((X[t - 1, ip1] - X[t - 1, im2]) * X[t - 1, im1] - X[t - 1, i] + F)
+            )
+    return X

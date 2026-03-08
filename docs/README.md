@@ -4,6 +4,18 @@ One place to find your path. **Single source of truth:** [Language reference](re
 
 ---
 
+## New to Einlang? / Need help?
+
+| You want to… | Go here |
+|--------------|--------|
+| **Get going in one page** | [Getting started](GETTING_STARTED.md) |
+| **Learn by doing** | [Try it](../README.md#try-it) → [Learning path](../examples/README.md) |
+| **Learn by background** | [Syntax comparison](SYNTAX_COMPARISON.md) (Python/Julia/Rust) · [Einlang for Julia programmers](EINLANG_FOR_JULIA_PROGRAMMERS.md) |
+| **Common questions** | [FAQ](FAQ.md) |
+| **Ask or contribute** | [CONTRIBUTING](../CONTRIBUTING.md) · [GitHub issues](https://github.com/einlang/einlang/issues) |
+
+---
+
 ## By audience
 
 | You are… | Start here | Then |
@@ -39,5 +51,7 @@ One place to find your path. **Single source of truth:** [Language reference](re
 | [MATH.md](MATH.md) | Math notation → Einlang (sums, index relations, guards, recurrences; links to reference) |
 | [UNSUPPORTED.md](UNSUPPORTED.md) | Syntax and features not supported by design, with rationale and alternatives |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | For contributors: project layout, adding features |
+| [FAQ.md](FAQ.md) | Common questions: run, learn, by background, where to ask |
 | [DOCUMENTATION_DESIGN.md](DOCUMENTATION_DESIGN.md) | How this doc set is designed (for maintainers) |
+| [LEARNING_FROM_JULIA.md](LEARNING_FROM_JULIA.md) | Lessons from Julia’s docs for showcase and retention (for maintainers) |
 | [RELEASE_READINESS.md](RELEASE_READINESS.md) | Pre-release checklist (try-it, docs, examples, discoverability) |

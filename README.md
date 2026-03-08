@@ -127,13 +127,14 @@ Grouped **by domain**; full list: [examples/README.md](examples/README.md).
 | Domain | Examples | Run |
 |--------|----------|-----|
 | **Scientific simulation** | ODEs, 1D PDE (heat, advection), 2D wave, Brusselator | [ode/](examples/ode/), [pde_1d/](examples/pde_1d/), [wave_2d/](examples/wave_2d/), [brusselator/](examples/brusselator/) |
-| **Discrete dynamics** | Recurrence, Markov, logistic, gradient descent, power iteration | [recurrence/](examples/recurrence/) |
-| **Economics / optimization** | Bellman value iteration | [value_iteration/](examples/value_iteration/) |
+| **Discrete dynamics** | Recurrence, Markov, logistic | [recurrence/](examples/recurrence/) |
+| **Finance** | Savings / compound interest | [finance/](examples/finance/) |
+| **Economics / optimization** | Bellman value iteration; gradient descent, power iteration, projected gradient | [value_iteration/](examples/value_iteration/), [optimization/](examples/optimization/) |
 | **Computer vision** | MNIST CNN, quantized CNN, ViT (ImageNet) | [mnist/](examples/mnist/), [mnist_quantized/](examples/mnist_quantized/), [deit_tiny/](examples/deit_tiny/) |
 | **Speech & sequence** | Speech-to-text (Whisper) | [whisper_tiny/](examples/whisper_tiny/) |
 | **Language & basics** | Variables, matrices, Einstein notation, units | [basics/](examples/basics/), [demos/](examples/demos/), [units/](examples/units/) |
 
-**Quick run:** `python3 -m einlang examples/hello.ein` · `examples/ode/decay.ein` · `examples/recurrence/power_iteration.ein`
+**Quick run:** `python3 -m einlang examples/hello.ein` · `examples/ode/decay.ein` · `examples/optimization/power_iteration.ein` · `examples/finance/savings.ein`
 
 Every simulation example has a Julia equivalent in the `.ein` file and is [accuracy-tested](tests/examples/test_simulation_accuracy.py). See [Julia demos → Einlang](docs/JULIA_DEMOS.md).
 

@@ -106,3 +106,15 @@ pub fn relative_path(path, start) {
     // Get relative path from start
     python::os::path::relpath(path, start)
 }
+
+// NumPy .npy binary format (matches np.load / np.save and existing load_npy in examples)
+pub fn load_npy(path: str) -> [f32; *] {
+    // Load array from .npy file (dynamic shape). Cast to concrete shape, e.g. load_npy("x.npy") as [f32; 10, 20]
+    python::numpy::load(path)
+}
+
+pub fn save_npy(path, arr) {
+    // Save array to .npy file (NumPy binary format)
+    python::numpy::save(path, arr);
+    true
+}

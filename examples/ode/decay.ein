@@ -17,6 +17,6 @@ let dt = 0.1;
 let u0 = 1.0;
 
 let u[0] = u0;
-let u[t in 1..50] = u[t - 1] * (1.0 - k * dt);
+let u[t in 1..50] = { let u_prev = u[t - 1]; u_prev * (1.0 - k * dt) };
 
 print(u);

@@ -1,7 +1,7 @@
 // Debug matmul fast path: single-loop then two-loop reductions.
 // Run from whisper_tiny: PYTHONPATH=../../src python3 -m einlang profile/matmul.ein
 
-fn load_npy(path: str) -> [f32; *] { python::numpy::load(path) }
+use std::io::load_npy;
 
 let enc_conv1_w = load_npy("weights/enc_conv1_w.npy") as [f32; 384, 80, 3];
 let enc_conv1_b = load_npy("weights/enc_conv1_b.npy") as [f32; 384];

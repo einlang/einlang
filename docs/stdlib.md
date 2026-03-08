@@ -291,13 +291,21 @@ use std::io::{current_dir, list_dir, file_exists, read_file, write_file,
                append_file, delete_file, create_dir, remove_dir,
                copy_file, move_file, file_size, is_file, is_dir,
                join_path, split_path, basename, dirname,
-               absolute_path, relative_path};
+               absolute_path, relative_path,
+               load_npy, save_npy};
 
 let files = list_dir(".");
 let path = join_path(["/home", "user", "data.txt"]);
 let dir = dirname("/home/user/file.txt");   // "/home/user"
 let name = basename("/home/user/file.txt"); // "file.txt"
+
+// NumPy .npy: load/save arrays (matches np.load, np.save)
+let data = load_npy("weights/x.npy") as [f32; 10, 20];
+save_npy("output/result.npy", data);
 ```
+
+- **load_npy(path)** — Load array from a NumPy `.npy` file. Returns a value with dynamic shape; cast to the expected type, e.g. `load_npy("x.npy") as [f32; 10, 20]`.
+- **save_npy(path, arr)** — Save an array to a `.npy` file (NumPy binary format). Returns `true`.
 
 ---
 

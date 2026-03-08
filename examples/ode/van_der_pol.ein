@@ -23,5 +23,6 @@ let y0 = 0.0;
 let state[0, 0] = x0;
 let state[0, 1] = y0;
 
-let state[t in 1..200, 0] = state[t - 1, 0] + dt * state[t - 1, 1];
-let state[t in 1..200, 1] = state[t - 1, 1] + dt * mu * ((1.0 - state[t - 1, 0] * state[t - 1, 0]) * state[t - 1, 1] - state[t - 1, 0]);
+// Block + x, y temps to match Julia: x, y = state[t-1, 1], state[t-1, 2]
+let state[t in 1..200, 0] = { let x = state[t - 1, 0]; let y = state[t - 1, 1]; x + dt * y };
+let state[t in 1..200, 1] = { let x = state[t - 1, 0]; let y = state[t - 1, 1]; y + dt * mu * ((1.0 - x * x) * y - x) };

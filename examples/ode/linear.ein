@@ -21,4 +21,8 @@ let u0 = [1.0, 0.0];
 let u[0, 0] = u0[0];
 let u[0, 1] = u0[1];
 
-let u[t in 1..500, i in 0..2] = u[t - 1, i] + dt * (A[i, 0] * u[t - 1, 0] + A[i, 1] * u[t - 1, 1]);
+// Block + temp (Au)_i to match Julia: u[t,i] = u[t-1,i] + dt * (A*u)[i]
+let u[t in 1..500, i in 0..2] = {
+  let Au_i = A[i, 0] * u[t - 1, 0] + A[i, 1] * u[t - 1, 1];
+  u[t - 1, i] + dt * Au_i
+};

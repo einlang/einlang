@@ -1,0 +1,20 @@
+// Savings / compound interest: b[t] = b[t-1]*(1+r) + deposit. Finance projections (Julia: same style as [QuantEcon](https://julia.quantecon.org/), [JuliaHub Betterment](https://juliahub.com/case-studies/betterment))
+//
+// Julia equivalent (1-based; same order as below):
+//   initial = 1000.0
+//   r = 0.05 / 12.0
+//   deposit = 100.0
+//   b = zeros(61)
+//   b[1] = initial
+//   for t in 2:61
+//       b[t] = b[t-1] * (1.0 + r) + deposit
+//   end
+
+let initial = 1000.0;
+let r = 0.05 / 12.0;
+let deposit = 100.0;
+
+let b[0] = initial;
+let b[t in 1..61] = b[t - 1] * (1.0 + r) + deposit;
+
+print(b);

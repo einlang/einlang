@@ -1,6 +1,6 @@
 # Recurrence (small examples)
 
-Simple recurrences — base case(s) plus inductive step. Includes QuantEcon-style [finite Markov chains](https://julia.quantecon.org/introduction_dynamics/finite_markov.html) (stationary distribution), optimization, and linear algebra.
+Simple recurrences — base case(s) plus inductive step. QuantEcon-style [finite Markov chains](https://julia.quantecon.org/introduction_dynamics/finite_markov.html) (stationary distribution). For optimization (gradient descent, power iteration) see [../optimization/](../optimization/).
 
 | File | What it does | Run |
 |------|--------------|-----|
@@ -8,5 +8,3 @@ Simple recurrences — base case(s) plus inductive step. Includes QuantEcon-styl
 | [random_walk.ein](random_walk.ein) | x[t] = x[t-1] + steps[t-1] (fixed steps) | `python3 -m einlang examples/recurrence/random_walk.ein` |
 | [markov_stationary.ein](markov_stationary.ein) | ψ = ψ P (stationary distribution by power iteration) | `python3 -m einlang examples/recurrence/markov_stationary.ein` |
 | [logistic.ein](logistic.ein) | Logistic map x[n] = r·x[n-1]·(1−x[n-1]) | `python3 -m einlang examples/recurrence/logistic.ein` |
-| [gradient_descent.ein](gradient_descent.ein) | Gradient descent for quadratic min (Optim.jl-style) | `python3 -m einlang examples/recurrence/gradient_descent.ein` |
-| [power_iteration.ein](power_iteration.ein) | Dominant eigenvector by power iteration (LinearAlgebra/QuantEcon) | `python3 -m einlang examples/recurrence/power_iteration.ein` |

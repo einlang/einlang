@@ -1,8 +1,7 @@
 // Profile: run only conv layers + gelu (no transformer). Run from whisper_tiny: python3 -m einlang profile/convs.ein
 
 use std::ml::gelu;
-
-fn load_npy(path: str) -> [f32; *] { python::numpy::load(path) }
+use std::io::load_npy;
 
 let enc_conv1_w = load_npy("weights/enc_conv1_w.npy") as [f32; 384, 80, 3];
 let enc_conv1_b = load_npy("weights/enc_conv1_b.npy") as [f32; 384];

@@ -5,8 +5,8 @@
 
 use std::ml::{relu, max_pool, quantize_linear, qconv, qlinear};
 use std::array::argmax;
+use std::io::load_npy;
 
-fn load_npy(path: str) -> [f32; *] { python::numpy::load(path) }
 fn load_npy_i8(path: str) -> [i8; *] { python::numpy::load(path) }
 fn load_pgm(path: str) -> [f32; *] { python::pgm_io::load(path) }
 
