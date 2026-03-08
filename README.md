@@ -146,7 +146,7 @@ From one-liners to full models: run by **feature** (one capability at a time) or
 | 3 | [deit_tiny/](examples/deit_tiny/), [whisper_tiny/](examples/whisper_tiny/) | Vision Transformer, speech-to-text |
 | 3b | [ode/](examples/ode/), [heat_animation.py](examples/heat_animation.py), [wave_2d/](examples/wave_2d/), [brusselator/](examples/brusselator/) | ODE + heat, wave, reaction–diffusion (recurrence + stencil) |
 
-More in the [examples/](examples/) tree.
+More in the [examples/](examples/) tree. Every simulation example is compared against Julia (Julia equivalent in each `.ein`; see [Julia demos → Einlang](docs/JULIA_DEMOS.md)) and [accuracy-tested](tests/examples/test_simulation_accuracy.py) against NumPy or analytical references.
 
 ---
 

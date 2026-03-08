@@ -97,10 +97,10 @@ python3 -m einlang examples/deit_tiny/main.ein
 python3 -m einlang examples/whisper_tiny/main.ein  # run download_weights.py first
 ```
 
-Unit tests (including **simulation accuracy** for ODE, wave, heat, reaction-diffusion):
+Unit tests (including **simulation accuracy** for every simulation example):
 
 ```bash
 python3 -m pytest tests/examples/
 ```
 
-Accuracy checks compare ODE to analytical solution; wave/heat/RD to initial conditions and invariants. See [tests/examples/test_simulation_accuracy.py](../tests/examples/test_simulation_accuracy.py).
+**Accuracy:** Every simulation example is compared against Julia (each `.ein` has a **Julia equivalent** in comments, aligned with DifferentialEquations.jl, QuantEcon.jl, MethodOfLines.jl, or SciML) and is accuracy-tested against NumPy or analytical references. Covered: ODE (decay, linear, Lorenz, Lotka–Volterra), wave_2d, pde_1d (heat_1d, advection_1d), Brusselator, value_iteration, recurrence (fibonacci, random_walk), tensor_ops (softmax). See [tests/examples/test_simulation_accuracy.py](../tests/examples/test_simulation_accuracy.py) and [Julia demos → Einlang](../docs/JULIA_DEMOS.md).

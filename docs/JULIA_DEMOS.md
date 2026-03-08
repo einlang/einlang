@@ -1,6 +1,6 @@
 # Julia demos and how Einlang maps to them
 
-We position Einlang in the same **numerical simulation + ML** space as [Julia](https://julialang.org/). This page lists well-known Julia demos and case studies, with links, and maps them to our examples so you can compare and justify the overlap.
+We position Einlang in the same **numerical simulation + ML** space as [Julia](https://julialang.org/). This page lists well-known Julia demos and case studies, with links, and maps them to our examples. Each simulation example includes a **Julia equivalent** (1-based) in comments in the `.ein` file and is accuracy-tested against NumPy or analytical references.
 
 **Summary:** Julia’s *numerical* PDE/ODE use cases (explicit time-stepping, stencil + recurrence) align with Einlang’s [ode](../examples/ode/) (decay, linear, Lorenz, Lotka–Volterra), [heat](../examples/heat_animation.py), [wave_2d](../examples/wave_2d/), and [brusselator](../examples/brusselator/) — same kind of simulation; we use Einstein notation and compile-time shape checking instead of a separate symbolic layer.
 
