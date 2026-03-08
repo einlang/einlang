@@ -1,0 +1,24 @@
+// Linear ODE: du/dt = A·u. Euler: u[t,i] = u[t-1,i] + dt * sum[j](A[i,j]*u[t-1,j])
+// Julia: DifferentialEquations.jl / QuantEcon.jl
+//
+// Julia equivalent (1-based; same order as below):
+//   dt = 0.01
+//   A = [-1.0 1.0; 0.5 -1.5]
+//   u0 = [1.0, 0.0]
+//   u = zeros(500, 2)
+//   u[1, 1] = u0[1]
+//   u[1, 2] = u0[2]
+//   for t in 2:500
+//       for i in 1:2
+//           u[t, i] = u[t-1, i] + dt * (A[i, 1] * u[t-1, 1] + A[i, 2] * u[t-1, 2])
+//       end
+//   end
+
+let dt = 0.01;
+let A = [[-1.0, 1.0], [0.5, -1.5]];
+let u0 = [1.0, 0.0];
+
+let u[0, 0] = u0[0];
+let u[0, 1] = u0[1];
+
+let u[t in 1..500, i in 0..2] = u[t - 1, i] + dt * (A[i, 0] * u[t - 1, 0] + A[i, 1] * u[t - 1, 1]);

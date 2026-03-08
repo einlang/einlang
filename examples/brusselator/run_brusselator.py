@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """
-Run Gray-Scott reaction-diffusion (main.ein) and write HTML animation.
+Run Brusselator (main.ein) and write HTML animation.
 
 From repo root:
-  python3 examples/reaction_diffusion/run_rd.py
-  python3 examples/reaction_diffusion/run_rd.py --html rd.html
-  python3 examples/reaction_diffusion/run_rd.py --profile-einlang   # print vectorized/hybrid/scalar path
+  python3 examples/brusselator/run_brusselator.py
+  python3 examples/brusselator/run_brusselator.py --html brusselator.html
 """
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -25,18 +23,18 @@ MAIN_EIN = EXAMPLE_DIR / "main.ein"
 
 
 def write_html_animation(v_frames: np.ndarray, path: str, interval_ms: int = 60) -> None:
-    """v_frames: (n_frames, ny, nx) - V concentration to display."""
+    """v_frames: (n_frames, ny, nx) - V concentration."""
     v_frames = np.asarray(v_frames)
     n_frames, ny, nx = v_frames.shape
-    vmin = float(v_frames.min())
-    vmax = float(v_frames.max())
+    vmin = float(np.nanmin(v_frames))
+    vmax = float(np.nanmax(v_frames))
     if vmax <= vmin:
         vmax = vmin + 1.0
     frames = [v_frames[t].tolist() for t in range(n_frames)]
     html = """<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Gray-Scott (Einlang)</title></head>
+<html><head><meta charset="utf-8"><title>Brusselator (Einlang)</title></head>
 <body style="margin:1em;font-family:sans-serif">
-<h1>Gray-Scott reaction-diffusion (V)</h1>
+<h1>Brusselator reaction-diffusion (V)</h1>
 <p>t = <span id="t">0</span> / %(n_frames)s</p>
 <canvas id="c" width="%(nx)s" height="%(ny)s" style="image-rendering:pixelated;image-rendering:crisp-edges;width:320px;height:320px"></canvas>
 <script>
@@ -48,11 +46,11 @@ var c = document.getElementById("c");
 c.width = nx; c.height = ny;
 var ctx = c.getContext("2d");
 var idx = 0;
-function rdColor(v) {
+function color(v) {
   var t = Math.max(0, Math.min(1, (v - vmin) / (vmax - vmin)));
   var r = Math.floor(255 * t);
-  var g = Math.floor(80 * t);
-  var b = Math.floor(200 * (1 - t));
+  var g = Math.floor(100 * t);
+  var b = Math.floor(180 * (1 - t));
   return "rgb(" + r + "," + g + "," + b + ")";
 }
 function draw() {
@@ -62,7 +60,7 @@ function draw() {
     for (var i = 0; i < nx; i++) {
       var v = grid[j][i];
       var k = (j * nx + i) * 4;
-      var rgb = rdColor(v).match(/\\d+/g);
+      var rgb = color(v).match(/\\d+/g);
       img.data[k]=parseInt(rgb[0]); img.data[k+1]=parseInt(rgb[1]); img.data[k+2]=parseInt(rgb[2]); img.data[k+3]=255;
     }
   ctx.putImageData(img, 0, 0);
@@ -87,17 +85,9 @@ draw();
 
 def main():
     import argparse
-    ap = argparse.ArgumentParser(description="Run Gray-Scott reaction-diffusion and write HTML animation")
-    ap.add_argument("--html", type=str, default="rd.html", help="Output HTML path")
-    ap.add_argument("--profile-einlang", action="store_true", help="Profile all: statements, functions, blocks, reductions, vectorize path")
+    ap = argparse.ArgumentParser(description="Run Brusselator and write HTML animation")
+    ap.add_argument("--html", type=str, default="brusselator.html", help="Output HTML path")
     args = ap.parse_args()
-
-    if args.profile_einlang:
-        os.environ["EINLANG_DEBUG_VECTORIZE"] = "1"
-        os.environ["EINLANG_PROFILE_STATEMENTS"] = "1"
-        os.environ["EINLANG_PROFILE_FUNCTIONS"] = "1"
-        os.environ["EINLANG_PROFILE_BLOCKS"] = "1"
-        os.environ["EINLANG_PROFILE_REDUCTIONS"] = "1"
 
     source = MAIN_EIN.read_text(encoding="utf-8")
     compiler = CompilerDriver()
@@ -118,15 +108,9 @@ def main():
         print("Expected 4D array state[t, c, i, j]", file=sys.stderr)
         sys.exit(1)
 
-    if args.profile_einlang:
-        # Why state is slow: timestep-major execution = 500 Python iterations × 6 recurrence clauses
-        # (4 boundary + 2 interior) = 3000 clause runs; each does env/slice setup + vectorized NumPy.
-        print("[profile] state slow: 500 timesteps × 6 clauses = 3000 backend steps (Python loop + vectorized body).")
-
-    # Animate V (channel 1)
     v = state[:, 1, :, :]
     write_html_animation(v, args.html)
-    print("Gray-Scott result: shape state =", state.shape)
+    print("Brusselator result: shape state =", state.shape)
     print("Open in browser: file://%s" % Path(args.html).resolve())
 
 

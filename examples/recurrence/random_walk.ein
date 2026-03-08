@@ -1,0 +1,15 @@
+// 1D random walk: x[0]=0, x[t] = x[t-1] + step[t-1]. Fixed step sequence (reproducible).
+//
+// Julia equivalent (1-based; same order as below):
+//   steps = [1, -1, 1, 1, -1, -1, 1, -1, 1, 1, -1, 1, -1, -1, 1, 1, 1, -1, -1, 1]
+//   x = zeros(21)
+//   x[1] = 0
+//   for t in 2:21
+//       x[t] = x[t-1] + steps[t-1]
+//   end
+
+let steps = [1, -1, 1, 1, -1, -1, 1, -1, 1, 1, -1, 1, -1, -1, 1, 1, 1, -1, -1, 1];
+let x[0] = 0;
+let x[t in 1..21] = x[t - 1] + steps[t - 1];
+
+print(x);

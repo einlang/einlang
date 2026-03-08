@@ -45,7 +45,7 @@ For wave and RD, run the `.ein` file with the same env vars (no runner script ne
 
 ```bash
 EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang examples/wave_2d/main.ein
-EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang examples/reaction_diffusion/main.ein
+EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 python3 -m einlang examples/brusselator/main.ein
 ```
 
 For heat (PDE is inline in the script), use the runner with `--profile-einlang`:

@@ -26,10 +26,29 @@ This page is the full **learning path**: basics → demos → MNIST → quantize
 
 | Directory | What it does | Key concepts |
 |-----------|----------------|--------------|
-| [`ode/`](ode/) | ODE: exponential decay (Julia DiffEq-style time-stepping) | Recurrence over time, scalar state |
+| [`ode/`](ode/) | ODEs aligned with Julia DiffEq: decay, linear, Lorenz, Lotka–Volterra | Recurrence over time; scalar/vector state; one folder, four `.ein` files |
 | [`wave_2d/`](wave_2d/) | 2D acoustic wave — drum-like propagation | Two-level recurrence (h[t-1], h[t-2]), vectorized stencil, `exp` |
-| [`reaction_diffusion/`](reaction_diffusion/) | Gray–Scott reaction–diffusion (spots/stripes) | 4D state, recurrence, channel conditional |
+| [`brusselator/`](brusselator/) | Reaction–diffusion (SciML Brusselator) | 4D state, recurrence, Laplacian + reaction terms |
 | (heat) | 2D heat diffusion — see [heat_animation.py](heat_animation.py) | One-level recurrence, circular initial condition, HTML animation |
+
+### Julia migration (one folder per Julia source)
+
+Each folder maps to one Julia demo or ecosystem. See [Julia demos → Einlang](../docs/JULIA_DEMOS.md).
+
+| Directory | Julia source | Run |
+|-----------|--------------|-----|
+| [`ode/`](ode/) | DifferentialEquations.jl (decay, linear, Lorenz, Lotka–Volterra) | `python3 -m einlang examples/ode/decay.ein`; `linear.ein`; `lorenz.ein`; `lotka_volterra.ein` |
+| [`brusselator/`](brusselator/) | SciML Brusselator | `python3 -m einlang examples/brusselator/main.ein`; `python3 examples/brusselator/run_brusselator.py` |
+| [`pde_1d/`](pde_1d/) | MethodOfLines.jl 1D PDE (heat, advection) | `python3 -m einlang examples/pde_1d/heat_1d.ein`; `python3 examples/pde_1d/run_heat_1d.py` |
+| [`value_iteration/`](value_iteration/) | QuantEcon.jl Bellman value iteration | `python3 -m einlang examples/value_iteration/main.ein` |
+
+### More small examples (grouped)
+
+| Directory | Contents | Run |
+|-----------|----------|-----|
+| [`recurrence/`](recurrence/) | fibonacci.ein, random_walk.ein | `python3 -m einlang examples/recurrence/fibonacci.ein` |
+| [`pde_1d/`](pde_1d/) | heat_1d.ein, advection_1d.ein (+ run_heat_1d.py) | `python3 -m einlang examples/pde_1d/heat_1d.ein` or `advection_1d.ein` |
+| [`tensor_ops/`](tensor_ops/) | softmax.ein | `python3 -m einlang examples/tensor_ops/softmax.ein` |
 
 ### Reference
 
@@ -45,7 +64,7 @@ In the spirit of [Julia’s demos](https://julialang.org/); we map their use cas
 
 | Domain | What you do | Example |
 |--------|-------------|---------|
-| **Scientific simulation** | ODE time-stepping (Julia DiffEq-style); PDEs: heat, acoustic wave, reaction–diffusion. Recurrence over time; vectorized stencils in space. | [ode/](ode/), [heat_animation.py](heat_animation.py), [wave_2d/](wave_2d/), [reaction_diffusion/](reaction_diffusion/) |
+| **Scientific simulation** | ODE time-stepping (Julia DiffEq-style); PDEs: heat, acoustic wave, reaction–diffusion (Brusselator). Recurrence over time; vectorized stencils in space. | [ode/](ode/), [heat_animation.py](heat_animation.py), [wave_2d/](wave_2d/), [brusselator/](brusselator/) |
 | **Computer vision** | CNNs (MNIST), int8-quantized inference, Vision Transformer (ImageNet). Convs, attention, LayerNorm, GELU. | [mnist/](mnist/), [mnist_quantized/](mnist_quantized/), [deit_tiny/](deit_tiny/) |
 | **Speech & sequence** | Speech-to-text: encoder–decoder, cross-attention, causal self-attention, autoregressive decoding, BPE. | [whisper_tiny/](whisper_tiny/) |
 
@@ -67,7 +86,7 @@ python3 -m einlang examples/basics/variables_demo.ein
 python3 -m einlang examples/demos/matrix_operations.ein
 
 # Simulations (ODE + PDEs; no weights)
-python3 -m einlang examples/ode/main.ein       # ODE: exponential decay
+python3 -m einlang examples/ode/decay.ein       # ODE: exponential decay
 python3 examples/heat_animation.py            # heat diffusion → heat.html
 python3 examples/wave_2d/run_wave.py           # 2D wave equation → wave.html
 
@@ -78,10 +97,10 @@ python3 -m einlang examples/deit_tiny/main.ein
 python3 -m einlang examples/whisper_tiny/main.ein  # run download_weights.py first
 ```
 
-Unit tests (including **simulation accuracy** for ODE, wave, heat, reaction-diffusion):
+Unit tests (including **simulation accuracy** for every simulation example):
 
 ```bash
 python3 -m pytest tests/examples/
 ```
 
-Accuracy checks compare ODE to analytical solution; wave/heat/RD to initial conditions and invariants. See [tests/examples/test_simulation_accuracy.py](../tests/examples/test_simulation_accuracy.py).
+**Accuracy:** Every simulation example is compared against Julia (each `.ein` has a **Julia equivalent** in comments, aligned with DifferentialEquations.jl, QuantEcon.jl, MethodOfLines.jl, or SciML) and is accuracy-tested against NumPy or analytical references. Covered: ODE (decay, linear, Lorenz, Lotka–Volterra), wave_2d, pde_1d (heat_1d, advection_1d), Brusselator, value_iteration, recurrence (fibonacci, random_walk), tensor_ops (softmax). See [tests/examples/test_simulation_accuracy.py](../tests/examples/test_simulation_accuracy.py) and [Julia demos → Einlang](../docs/JULIA_DEMOS.md).
