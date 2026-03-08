@@ -1,0 +1,19 @@
+// Lotka–Volterra: du/dt = a*u - b*u*v,  dv/dt = -c*v + d*u*v
+// state[t, 0]=u (prey), state[t, 1]=v (predator). Euler. Multi-clause.
+// Julia: DifferentialEquations.jl / QuantEcon
+
+let a = 1.0;
+let b = 0.5;
+let c = 1.0;
+let d = 0.5;
+let dt = 0.05;
+let u0 = 2.0;
+let v0 = 1.0;
+
+let state[0, 0] = u0;
+let state[0, 1] = v0;
+
+let state[t in 1..500, 0] = state[t - 1, 0] + dt * (a * state[t - 1, 0] - b * state[t - 1, 0] * state[t - 1, 1]);
+let state[t in 1..500, 1] = state[t - 1, 1] + dt * (-c * state[t - 1, 1] + d * state[t - 1, 0] * state[t - 1, 1]);
+
+state;

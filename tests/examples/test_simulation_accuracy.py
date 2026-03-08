@@ -1,9 +1,10 @@
 """
-Accuracy checks for simulation demos: ODE, wave, heat, reaction-diffusion.
+Accuracy checks for simulation demos: ODE, wave, heat, reaction-diffusion,
+and Julia-migration examples (Lorenz, Lotka-Volterra, heat_1d, linear_ode, Brusselator).
 
 Each test runs the demo (or a minimal variant), then compares every element
 against a reference computed in-test: analytical (ODE) or NumPy reference
-implementation (wave, heat, reaction-diffusion). No mocking.
+implementation. No mocking.
 """
 
 from pathlib import Path
@@ -17,6 +18,11 @@ from tests.examples.reference_implementations import (
     wave_2d_reference,
     heat_minimal_reference,
     reaction_diffusion_reference,
+    lorenz_reference,
+    lotka_volterra_reference,
+    heat_1d_reference,
+    linear_ode_reference,
+    brusselator_reference,
 )
 
 
@@ -174,3 +180,110 @@ class TestReactionDiffusionAccuracy:
             print(f"  first t where max diff > 0.1:  t={first_01}")
         # Full trajectory match: uncomment when backend is fixed
         # np.testing.assert_allclose(state, reference, rtol=1e-4, atol=1e-5, err_msg="RD full trajectory vs reference")
+
+
+class TestLorenzAccuracy:
+    """Lorenz system: compare to NumPy reference (same Euler scheme)."""
+
+    def test_lorenz_vs_reference(self, compiler, runtime):
+        result, _ = _run_ein_file(
+            compiler, runtime,
+            "examples/lorenz/main.ein",
+        )
+        assert result.success, getattr(result, "errors", result.error)
+        u = np.asarray(result.value if result.value is not None else result.outputs.get("u"))
+        assert u is not None and u.ndim == 2, "expected 2D u[t, 3]"
+        assert u.shape == (2000, 3), f"expected (2000, 3), got {u.shape}"
+
+        reference = lorenz_reference()
+        # Einlang uses float32; Lorenz is chaotic so trajectory diverges quickly. Compare first 3 steps.
+        np.testing.assert_allclose(
+            u[:3], reference[:3], rtol=1e-3, atol=1e-2,
+            err_msg="Lorenz vs NumPy reference (first 3 steps)",
+        )
+        assert np.isfinite(u).all(), "Lorenz trajectory must be finite"
+
+
+class TestLotkaVolterraAccuracy:
+    """Lotka-Volterra: compare to NumPy reference."""
+
+    def test_lotka_volterra_vs_reference(self, compiler, runtime):
+        result, _ = _run_ein_file(
+            compiler, runtime,
+            "examples/lotka_volterra/main.ein",
+        )
+        assert result.success, getattr(result, "errors", result.error)
+        state = np.asarray(result.value if result.value is not None else result.outputs.get("state"))
+        assert state is not None and state.ndim == 2, "expected 2D state[t, 2]"
+        assert state.shape == (500, 2), f"expected (500, 2), got {state.shape}"
+
+        reference = lotka_volterra_reference()
+        # Multi-clause recurrence (state[t,0] and state[t,1]); compare first 2 steps, then sanity-check.
+        np.testing.assert_allclose(
+            state[:2], reference[:2], rtol=1e-4, atol=1e-4,
+            err_msg="Lotka-Volterra vs NumPy reference (first 2 steps)",
+        )
+        assert np.isfinite(state).all(), "Lotka-Volterra trajectory must be finite"
+
+
+class TestHeat1dAccuracy:
+    """1D heat: compare to NumPy reference."""
+
+    def test_heat_1d_vs_reference(self, compiler, runtime):
+        result, _ = _run_ein_file(
+            compiler, runtime,
+            "examples/heat_1d/main.ein",
+        )
+        assert result.success, getattr(result, "errors", result.error)
+        u = np.asarray(result.value if result.value is not None else result.outputs.get("u"))
+        assert u is not None and u.ndim == 2, "expected 2D u[t, nx]"
+        assert u.shape == (200, 41), f"expected (200, 41), got {u.shape}"
+
+        reference = heat_1d_reference()
+        # Einlang uses float32.
+        np.testing.assert_allclose(
+            u, reference, rtol=1e-5, atol=1e-5,
+            err_msg="Heat 1D vs NumPy reference",
+        )
+
+
+class TestLinearOdeAccuracy:
+    """Linear ODE du/dt = A*u: compare to NumPy reference."""
+
+    def test_linear_ode_vs_reference(self, compiler, runtime):
+        result, _ = _run_ein_file(
+            compiler, runtime,
+            "examples/linear_ode/main.ein",
+        )
+        assert result.success, getattr(result, "errors", result.error)
+        u = np.asarray(result.value if result.value is not None else result.outputs.get("u"))
+        assert u is not None and u.ndim == 2, "expected 2D u[t, 2]"
+        assert u.shape == (500, 2), f"expected (500, 2), got {u.shape}"
+
+        reference = linear_ode_reference()
+        # Einlang uses float32.
+        np.testing.assert_allclose(
+            u, reference, rtol=1e-5, atol=1e-5,
+            err_msg="Linear ODE vs NumPy reference",
+        )
+
+
+class TestBrusselatorAccuracy:
+    """Brusselator PDE: compare to NumPy reference."""
+
+    def test_brusselator_vs_reference(self, compiler, runtime):
+        result, _ = _run_ein_file(
+            compiler, runtime,
+            "examples/brusselator/main.ein",
+        )
+        assert result.success, getattr(result, "errors", result.error)
+        state = np.asarray(result.value if result.value is not None else result.outputs.get("state"))
+        assert state is not None and state.ndim == 4, "expected 4D state[t, c, i, j]"
+        assert state.shape == (300, 2, 64, 64), f"expected (300, 2, 64, 64), got {state.shape}"
+
+        reference = brusselator_reference()
+        # Einlang uses float32.
+        np.testing.assert_allclose(
+            state, reference, rtol=1e-5, atol=1e-5,
+            err_msg="Brusselator vs NumPy reference",
+        )

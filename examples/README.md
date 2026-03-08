@@ -31,6 +31,18 @@ This page is the full **learning path**: basics → demos → MNIST → quantize
 | [`reaction_diffusion/`](reaction_diffusion/) | Gray–Scott reaction–diffusion (spots/stripes) | 4D state, recurrence, channel conditional |
 | (heat) | 2D heat diffusion — see [heat_animation.py](heat_animation.py) | One-level recurrence, circular initial condition, HTML animation |
 
+### Julia migration (one folder per set)
+
+Each set maps to a well-known Julia demo; one folder per set. See [Julia demos → Einlang](../docs/JULIA_DEMOS.md).
+
+| Directory | Julia source | Run |
+|-----------|--------------|-----|
+| [`brusselator/`](brusselator/) | SciML Brusselator | `python3 -m einlang examples/brusselator/main.ein`; `python3 examples/brusselator/run_brusselator.py` |
+| [`lorenz/`](lorenz/) | DiffEq Lorenz system | `python3 -m einlang examples/lorenz/main.ein` |
+| [`lotka_volterra/`](lotka_volterra/) | DiffEq / QuantEcon predator–prey | `python3 -m einlang examples/lotka_volterra/main.ein` |
+| [`heat_1d/`](heat_1d/) | MethodOfLines 1D PDE | `python3 -m einlang examples/heat_1d/main.ein`; `python3 examples/heat_1d/run_heat_1d.py` |
+| [`linear_ode/`](linear_ode/) | Linear ODE du/dt = A·u | `python3 -m einlang examples/linear_ode/main.ein` |
+
 ### Reference
 
 | Directory | Description |

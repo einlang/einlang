@@ -1,0 +1,20 @@
+// Lorenz system: dx/dt = σ(y−x), dy/dt = x(ρ−z)−y, dz/dt = xy−βz
+// Euler: u[t,0]=x, u[t,1]=y, u[t,2]=z. Julia: DifferentialEquations.jl
+
+let sigma = 10.0;
+let rho = 28.0;
+let beta = 2.666666666666667;
+let dt = 0.01;
+let x0 = 1.0;
+let y0 = 1.0;
+let z0 = 1.0;
+
+let u[0, 0] = x0;
+let u[0, 1] = y0;
+let u[0, 2] = z0;
+
+let u[t in 1..2000, 0] = u[t - 1, 0] + dt * (sigma * (u[t - 1, 1] - u[t - 1, 0]));
+let u[t in 1..2000, 1] = u[t - 1, 1] + dt * (u[t - 1, 0] * (rho - u[t - 1, 2]) - u[t - 1, 1]);
+let u[t in 1..2000, 2] = u[t - 1, 2] + dt * (u[t - 1, 0] * u[t - 1, 1] - beta * u[t - 1, 2]);
+
+u;
