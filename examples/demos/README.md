@@ -12,6 +12,7 @@ Intermediate examples that build on the fundamentals. These introduce Einstein n
 | `computer_vision_tensors.ein` | 4D NCHW tensors, per-channel normalization, manual convolution, pooling, batch norm, channel attention |
 | `function_overloading_complete.ein` | Functions dispatched by argument count and type |
 | `mathematical_overloading_demo.ein` | Overloaded math operators on custom shapes |
+| `improved_math_accuracy_demo.ein` | Math function accuracy (sqrt, trig, constants) |
 | `array_structure_comparison.ein` | Nested arrays vs flat arrays, structural equality |
 | `in_operator_demo.ein` | `x in collection` membership tests |
 | `in_operator_simple_comprehensions.ein` | `[f(x) \| x in items]` comprehension patterns |
@@ -20,7 +21,7 @@ Intermediate examples that build on the fundamentals. These introduce Einstein n
 | `rust_syntax_demo.ein` | Rust-inspired syntax features |
 | `simple_import_test.ein` | `use` and `mod` for importing modules |
 | `test_import_system.ein` | Cross-module calls and re-exports |
-| `math_utils.ein` / `string_utils.ein` / `tensor_functions.ein` | Reusable utility modules imported by other demos |
+| `math_utils.ein`, `string_utils.ein`, `tensor_functions.ein` | Utility modules imported by other demos |
 
 ## Running
 

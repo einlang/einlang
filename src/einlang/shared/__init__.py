@@ -29,7 +29,3 @@ from .nodes import (
     WhereClause, OverClause, RangeGroup,
 )
 from .ast_visitor import ASTVisitor
-
-# Type aliases for compatibility
-from typing import Any
-ExpressionValue = Any  # Simplified type for utils/base.py compatibility

@@ -71,19 +71,7 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
     Note: visit_function_def and visit_constant_def are required by IRVisitor interface
     but should not be called on expressions. They raise NotImplementedError.
     """
-    """
-    Constant folder - evaluates constant expressions (Rust pattern: rustc_mir::const_eval::ConstEval).
-    
-    Rust Pattern: rustc_mir::const_eval::ConstEval
-    
-    Implementation Alignment: Follows Rust's visitor pattern:
-    - Visitor pattern for expression folding (no if/elif chains)
-    - Type-safe dispatch via visit_xxx methods
-    - Recursive folding via accept() calls
-    
-    Reference: `rustc_mir::const_eval` uses visitor pattern for constant evaluation
-    """
-    
+
     def __init__(self, tcx: TyCtxt):
         self.tcx = tcx
         self.fold_count = 0

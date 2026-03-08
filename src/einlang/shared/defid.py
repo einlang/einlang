@@ -71,10 +71,6 @@ class DefId:
 # use sites); we do not put local vars in the symbol table (symbol table
 # has builtins, module functions, constants, modules only).
 
-# Backward compatibility: runtime may still use Local type alias until it switches to DefId
-Local = int  # Deprecated: variable identity is DefId; kept for runtime/environment during migration
-
-
 # Crate ids: user code is crate 0, builtins are a separate crate (Rust pattern)
 _LOCAL_CRATE = 0
 BUILTIN_CRATE = 1

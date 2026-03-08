@@ -11,9 +11,194 @@ from ..ir.nodes import (
     LoweredReductionIR, ReductionExpressionIR, BinaryOpIR, UnaryOpIR, RectangularAccessIR, IndexVarIR,
     FunctionCallIR, IdentifierIR, IfExpressionIR, BlockExpressionIR,
     is_function_binding, is_einstein_binding,
+    IRVisitor, BindingIR,
 )
 from ..shared.defid import DefId
 from .numpy_helpers import _reject_non_lowered
+
+
+class _BodyReferencesDefidVisitor(IRVisitor[bool]):
+    """Visitor that returns True iff the tree contains an IdentifierIR or IndexVarIR with defid == target_defid."""
+
+    def __init__(self, target_defid: Any) -> None:
+        self._target = target_defid
+
+    def references(self, expr: Any) -> bool:
+        """True if expr (IR with accept) contains any node with defid == self._target."""
+        if expr is None or self._target is None:
+            return False
+        accept = getattr(expr, "accept", None)
+        if accept is None:
+            return False
+        return accept(self)
+
+    def _any(self, *nodes: Any) -> bool:
+        for n in nodes:
+            if n is not None and getattr(n, "accept", None) is not None:
+                if n.accept(self):
+                    return True
+        return False
+
+    def visit_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier(self, node: Any) -> bool:
+        return getattr(node, "defid", None) == self._target
+
+    def visit_index_var(self, node: Any) -> bool:
+        return getattr(node, "defid", None) == self._target
+
+    def visit_index_rest(self, node: Any) -> bool:
+        return False
+
+    def visit_binary_op(self, node: Any) -> bool:
+        return self._any(getattr(node, "left", None), getattr(node, "right", None))
+
+    def visit_function_call(self, node: Any) -> bool:
+        args = getattr(node, "arguments", []) or []
+        return self._any(getattr(node, "callee_expr", None), *args)
+
+    def visit_rectangular_access(self, node: Any) -> bool:
+        if self._any(getattr(node, "array", None)):
+            return True
+        for idx in getattr(node, "indices", []) or []:
+            if self._any(idx):
+                return True
+        return False
+
+    def visit_jagged_access(self, node: Any) -> bool:
+        return self._any(getattr(node, "array", None), *((getattr(node, "indices", None) or [])))
+
+    def visit_block_expression(self, node: Any) -> bool:
+        for stmt in getattr(node, "statements", []) or []:
+            if self._any(stmt):
+                return True
+        return self._any(getattr(node, "final_expr", None))
+
+    def visit_if_expression(self, node: Any) -> bool:
+        return self._any(
+            getattr(node, "condition", None),
+            getattr(node, "then_expr", None),
+            getattr(node, "else_expr", None),
+        )
+
+    def visit_lambda(self, node: Any) -> bool:
+        return self._any(getattr(node, "body", None))
+
+    def visit_unary_op(self, node: Any) -> bool:
+        return self._any(getattr(node, "operand", None))
+
+    def visit_range(self, node: Any) -> bool:
+        return self._any(getattr(node, "start", None), getattr(node, "end", None))
+
+    def visit_array_comprehension(self, node: Any) -> bool:
+        return self._any(getattr(node, "body", None))
+
+    def visit_module(self, node: Any) -> bool:
+        return False
+
+    def visit_array_literal(self, node: Any) -> bool:
+        return self._any(*(getattr(node, "elements", []) or []))
+
+    def visit_tuple_expression(self, node: Any) -> bool:
+        return self._any(*(getattr(node, "elements", []) or []))
+
+    def visit_tuple_access(self, node: Any) -> bool:
+        return self._any(getattr(node, "tuple_expr", None))
+
+    def visit_interpolated_string(self, node: Any) -> bool:
+        return self._any(*(getattr(node, "parts", []) or []))
+
+    def visit_cast_expression(self, node: Any) -> bool:
+        return self._any(getattr(node, "operand", None))
+
+    def visit_member_access(self, node: Any) -> bool:
+        return self._any(getattr(node, "object_expr", None))
+
+    def visit_try_expression(self, node: Any) -> bool:
+        return self._any(
+            getattr(node, "try_expr", None),
+            getattr(node, "else_expr", None),
+        )
+
+    def visit_match_expression(self, node: Any) -> bool:
+        if self._any(getattr(node, "scrutinee", None)):
+            return True
+        for arm in getattr(node, "arms", []) or []:
+            if self._any(getattr(arm, "body", None)):
+                return True
+        return False
+
+    def visit_reduction_expression(self, node: Any) -> bool:
+        return self._any(getattr(node, "body", None))
+
+    def visit_lowered_reduction(self, node: Any) -> bool:
+        return self._any(getattr(node, "body", None))
+
+    def visit_lowered_comprehension(self, node: Any) -> bool:
+        return self._any(getattr(node, "body", None))
+
+    def visit_where_expression(self, node: Any) -> bool:
+        return self._any(getattr(node, "operand", None), getattr(node, "condition", None))
+
+    def visit_pipeline_expression(self, node: Any) -> bool:
+        return self._any(*(getattr(node, "stages", []) or []))
+
+    def visit_builtin_call(self, node: Any) -> bool:
+        return self._any(getattr(node, "callee_expr", None), *(getattr(node, "arguments", []) or []))
+
+    def visit_literal_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_wildcard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_pattern(self, node: Any) -> bool:
+        return self._any(*(getattr(node, "elements", []) or []))
+
+    def visit_array_pattern(self, node: Any) -> bool:
+        return self._any(*(getattr(node, "elements", []) or []))
+
+    def visit_rest_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_guard_pattern(self, node: Any) -> bool:
+        return self._any(getattr(node, "inner_pattern", None), getattr(node, "condition", None))
+
+    def visit_or_pattern(self, node: Any) -> bool:
+        for alt in getattr(node, "alternatives", []) or []:
+            if self._any(alt):
+                return True
+        return False
+
+    def visit_constructor_pattern(self, node: Any) -> bool:
+        return self._any(*(getattr(node, "patterns", []) or []))
+
+    def visit_binding_pattern(self, node: Any) -> bool:
+        return self._any(getattr(node, "inner_pattern", None))
+
+    def visit_range_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_function_value(self, node: Any) -> bool:
+        return self._any(getattr(node, "body", None))
+
+    def visit_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein_clause(self, node: Any) -> bool:
+        return False
+
+    def visit_binding(self, node: Any) -> bool:
+        """Recurse into binding RHS (e.g. let z_cell = ... * state[t-1,...] + ...)."""
+        expr = getattr(node, "expr", None)
+        return self._any(expr) if expr is not None else False
+
+    def visit_program(self, node: Any) -> bool:
+        return self._any(*(getattr(node, "statements", []) or []))
 
 
 def _clause_body_summary(body: Any, max_len: int = 60) -> str:
@@ -62,7 +247,7 @@ def _reduction_uses_clause_var_in_bounds(expr: Any, clause_loop_defids: List[Any
     if isinstance(expr, LoweredReductionIR):
         for loop in getattr(expr, "loops", None) or []:
             it = getattr(loop, "iterable", None)
-            if it is not None and any(_body_references_defid(it, d) for d in clause_loop_defids):
+            if it is not None and any(_BodyReferencesDefidVisitor(d).references(it) for d in clause_loop_defids):
                 return True
         return False
     if isinstance(expr, BinaryOpIR):
@@ -127,60 +312,16 @@ def _count_reduction_dims_in_expr(expr: Any) -> int:
     return n
 
 
-def _body_references_defid(expr: Any, target_defid: Any) -> bool:
-    if target_defid is None:
-        return False
-    if isinstance(expr, (IdentifierIR, IndexVarIR)):
-        return getattr(expr, "defid", None) == target_defid
-    if isinstance(expr, RectangularAccessIR):
-        if _body_references_defid(expr.array, target_defid):
-            return True
-        for idx in getattr(expr, "indices", []) or []:
-            if _body_references_defid(idx, target_defid):
-                return True
-        return False
-    if isinstance(expr, BinaryOpIR):
-        return _body_references_defid(getattr(expr, "left", None), target_defid) or _body_references_defid(getattr(expr, "right", None), target_defid)
-    if isinstance(expr, FunctionCallIR):
-        if _body_references_defid(getattr(expr, "callee_expr", None), target_defid):
-            return True
-        for a in getattr(expr, "arguments", []) or []:
-            if _body_references_defid(a, target_defid):
-                return True
-        return False
-    if isinstance(expr, RangeIR):
-        return _body_references_defid(getattr(expr, "start", None), target_defid) or _body_references_defid(
-            getattr(expr, "end", None), target_defid
-        )
-    if isinstance(expr, BlockExpressionIR):
-        for stmt in getattr(expr, "statements", []) or []:
-            if _body_references_defid(stmt, target_defid):
-                return True
-        return _body_references_defid(getattr(expr, "final_expr", None), target_defid)
-    # Recurse into binding RHS (e.g. let z_cell = sum(...)(... * hidden[t-1,...]) + ...)
-    if hasattr(expr, "expr") and getattr(expr, "expr", None) is not None:
-        return _body_references_defid(getattr(expr, "expr", None), target_defid)
-    if hasattr(expr, "body") and getattr(expr, "body", None) is not None:
-        return _body_references_defid(getattr(expr, "body", None), target_defid)
-    if hasattr(expr, "then_expr") or hasattr(expr, "else_expr"):
-        return (
-            _body_references_defid(getattr(expr, "condition", None), target_defid)
-            or _body_references_defid(getattr(expr, "then_expr", None), target_defid)
-            or _body_references_defid(getattr(expr, "else_expr", None), target_defid)
-        )
-    return False
-
-
 def _body_contains_call_using_loop_var(expr: Any, loop_defids: List[Any]) -> bool:
     """True if body contains a FunctionCallIR whose arguments (or callee) reference a loop var."""
     if not expr or not loop_defids:
         return False
     if isinstance(expr, FunctionCallIR):
         for defid in loop_defids:
-            if _body_references_defid(getattr(expr, "callee_expr", None), defid):
+            if _BodyReferencesDefidVisitor(defid).references(getattr(expr, "callee_expr", None)):
                 return True
             for a in getattr(expr, "arguments", []) or []:
-                if _body_references_defid(a, defid):
+                if _BodyReferencesDefidVisitor(defid).references(a):
                     return True
         return False
     if isinstance(expr, RectangularAccessIR):
@@ -274,10 +415,100 @@ def _index_expr_is_loop_var(expr: Any, loop_defid: Any) -> bool:
             getattr(expr, "defid", None) == loop_defid)
 
 
+def _index_expr_is_backward(expr: Any, loop_defid: Any) -> bool:
+    """True if expr is loop_var or (loop_var - positive_const). Recurrence dim: no loop var on RHS, only t-1 style."""
+    if expr is None or loop_defid is None:
+        return False
+    if _index_expr_is_loop_var(expr, loop_defid):
+        return True
+    if isinstance(expr, BinaryOpIR):
+        op = getattr(expr, "operator", None)
+        if op != "-" and getattr(op, "value", None) != "-":
+            return False
+        left = getattr(expr, "left", None)
+        right = getattr(expr, "right", None)
+        if not _index_expr_is_loop_var(left, loop_defid):
+            return False
+        if isinstance(right, LiteralIR):
+            try:
+                v = int(getattr(right, "value", 0))
+                return v > 0
+            except (TypeError, ValueError):
+                pass
+    return False
+
+
+def _index_expr_is_loop_var_or_offset(expr: Any, loop_defid: Any) -> bool:
+    """True if expr is loop_var or (loop_var ± const). Such dims are not recurrence; we can vectorize (e.g. i, i-1, i+1)."""
+    if expr is None or loop_defid is None:
+        return False
+    if _index_expr_is_loop_var(expr, loop_defid):
+        return True
+    if isinstance(expr, BinaryOpIR):
+        op = getattr(expr, "operator", None)
+        op_val = getattr(op, "value", None) if op is not None else None
+        if op not in ("+", "-") and op_val not in ("+", "-"):
+            return False
+        left = getattr(expr, "left", None)
+        right = getattr(expr, "right", None)
+        if not _index_expr_is_loop_var(left, loop_defid):
+            return False
+        if isinstance(right, LiteralIR):
+            try:
+                int(getattr(right, "value", 0))
+                return True
+            except (TypeError, ValueError):
+                pass
+    return False
+
+
+def _recurrence_dims_for_hybrid(lowered: Any, variable_defid: Any) -> List[int]:
+    """Dims where every LHS read is backward (loop_var or loop_var - const). Use for hybrid: iterate these, vectorize rest."""
+    loops = getattr(lowered, "loops", None) or []
+    if not loops or variable_defid is None:
+        return []
+    loop_defids = [getattr(lp.variable, "defid", None) for lp in loops]
+    read_index_lists = _collect_lhs_read_index_lists(lowered.body, variable_defid)
+    if not read_index_lists:
+        return []
+    result: List[int] = []
+    for d in range(len(loops)):
+        if all(
+            d < len(idx_list) and _index_expr_is_backward(idx_list[d], loop_defids[d])
+            for idx_list in read_index_lists
+        ):
+            result.append(d)
+    return result
+
+
+def _recurrence_dims_for_hybrid_or_full(
+    lowered: Any, variable_defid: Any
+) -> List[int]:
+    """Recurrence dim = only where RHS has no loop var (only t-1 style). Other dims (i, i±1) are not recurrence.
+    Safe to vectorize dim d when every read at d is loop_var or loop_var ± const. Else (e.g. h_prev in RNN) use full recurrence."""
+    loops = getattr(lowered, "loops", None) or []
+    if not loops or variable_defid is None:
+        return []
+    recurrence_for_hybrid = _recurrence_dims_for_hybrid(lowered, variable_defid)
+    if not recurrence_for_hybrid:
+        return []
+    loop_defids = [getattr(lp.variable, "defid", None) for lp in loops]
+    read_index_lists = _collect_lhs_read_index_lists(lowered.body, variable_defid)
+    for d in range(len(loops)):
+        if d in recurrence_for_hybrid:
+            continue
+        for idx_list in read_index_lists:
+            if d >= len(idx_list):
+                continue
+            if not _index_expr_is_loop_var_or_offset(idx_list[d], loop_defids[d]):
+                return _recurrence_dims(lowered, variable_defid)
+    return recurrence_for_hybrid
+
+
 def _collect_lhs_read_index_lists(body: Any, target_defid: Any) -> List[List[Any]]:
     out: List[List[Any]] = []
     if isinstance(body, RectangularAccessIR):
-        if _body_references_defid(body.array, target_defid):
+        if _BodyReferencesDefidVisitor(target_defid).references(body.array):
             indices = getattr(body, "indices", None) or []
             if indices:
                 out.append(list(indices))
@@ -523,10 +754,12 @@ def _try_hybrid_vectorize_clause(
     """
     from ..runtime.compute.lowered_execution import execute_lowered_loops
     loops = getattr(clause, "loops", None) or []
-    if not loops or clause.guards or clause.bindings:
+    if not loops or getattr(clause, "guards", None):
+        return None
+    if getattr(clause, "bindings", None):
         return None
     ndim = len(loops)
-    recurrence_dims = _recurrence_dims(clause, variable_defid) if variable_defid else []
+    recurrence_dims = _recurrence_dims_for_hybrid_or_full(clause, variable_defid) if variable_defid else []
     if not (0 < len(recurrence_dims) < ndim):
         return None
     loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
@@ -570,7 +803,14 @@ def _try_hybrid_vectorize_clause(
                     start, end = loop_info[dim][1]
                     slice_list.append(slice(int(start), int(end)))
             try:
-                squeezed = np.squeeze(result, axis=tuple(recurrence_dims))
+                n_rec = len(recurrence_dims)
+                if result.ndim == ndim:
+                    squeezed = np.squeeze(result, axis=tuple(recurrence_dims))
+                elif result.ndim == ndim - n_rec:
+                    squeezed = result
+                else:
+                    axes = [d for d in recurrence_dims if d < result.ndim]
+                    squeezed = np.squeeze(result, axis=tuple(axes)) if axes else result
             except ValueError:
                 return None
             output[tuple(slice_list)] = squeezed.astype(output.dtype)
@@ -892,17 +1132,16 @@ class EinsteinExecutionMixin:
                 self._profile_buckets[key] = self._profile_buckets.get(key, 0) + (time.perf_counter() - t0)
             if _profile_clauses and line and t0:
                 elapsed = time.perf_counter() - t0
-                if elapsed > 0.01:
-                    parts = [f"[profile] clause L{line}"]
-                    if _clause_name or _clause_rhs:
-                        lhs = _clause_name or "?"
-                        parts.append(f" {lhs} = {_clause_rhs}")
-                    if shape is not None:
-                        parts.append(f" {shape}")
-                    parts.append(f": \033[32m{elapsed:.2f}s\033[0m")
-                    if path:
-                        parts.append(f" [{path}]")
-                    print("".join(parts), flush=True)
+                parts = [f"[profile] clause L{line}"]
+                if _clause_name or _clause_rhs:
+                    lhs = _clause_name or "?"
+                    parts.append(f" {lhs} = {_clause_rhs}")
+                if shape is not None:
+                    parts.append(f" {shape}")
+                parts.append(f": \033[32m{elapsed:.3f}s\033[0m")
+                if path:
+                    parts.append(f" [{path}]")
+                print("".join(parts), flush=True)
 
         clause_indices = getattr(lowered, "indices", None) or []
         binding = getattr(variable_decl, "_binding", None)
@@ -911,7 +1150,7 @@ class EinsteinExecutionMixin:
         has_recurrence = bool(
             variable_defid is not None
             and body_node is not None
-            and _body_references_defid(body_node, variable_defid)
+            and _BodyReferencesDefidVisitor(variable_defid).references(body_node)
             and len(_recurrence_dims(lowered, variable_defid)) > 0
         )
         self._einstein_recurrence_clause = has_recurrence
@@ -940,6 +1179,8 @@ class EinsteinExecutionMixin:
 
         if pre_allocated_output is not None:
             output = pre_allocated_output
+            if variable_defid is not None:
+                self.env.set_value(variable_defid, output)
         else:
             output_shape = None
             if shape:
@@ -1028,7 +1269,7 @@ class EinsteinExecutionMixin:
         if (
             lowered.loops
             and variable_defid is not None
-            and _body_references_defid(body_node, variable_defid)
+            and _BodyReferencesDefidVisitor(variable_defid).references(body_node)
         ):
             recurrence_dims = _recurrence_dims(lowered, variable_defid)
             if 0 < len(recurrence_dims) < len(lowered.loops):
@@ -1122,7 +1363,7 @@ class EinsteinExecutionMixin:
                                 and all(s.start == 0 and s.stop == output.shape[i] for i, s in enumerate(slices_list_partial) if isinstance(s, slice))
                             )
                             if len(slices_list_partial) == len(lowered.loops) and not range_is_full_partial:
-                                recurrence_dims = _recurrence_dims(lowered, variable_defid) if _body_references_defid(lowered.body, variable_defid) else []
+                                recurrence_dims = _recurrence_dims(lowered, variable_defid) if _BodyReferencesDefidVisitor(variable_defid).references(lowered.body) else []
                                 if recurrence_dims:
                                     hybrid_out = _try_hybrid_vectorize_clause(
                                         lowered, list(output.shape), output, variable_defid, expr_evaluator, backend=self,

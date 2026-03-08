@@ -1,5 +1,7 @@
 # Development
 
+For contributors who want to work on the compiler or add features. If you're just using Einlang, the [main README](../README.md) and [Language Reference](reference.md) are enough.
+
 ## Todo
 
 - Remove arrow support

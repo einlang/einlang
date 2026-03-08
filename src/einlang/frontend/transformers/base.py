@@ -17,7 +17,6 @@ from dataclasses import dataclass
 import logging
 
 from ...shared import *
-from ...shared import BlockExpression  # Ensure BlockExpression is available
 from ...shared.types import BinaryOp, PipelineClauseType
 from ...utils.base import handle_token, extract_location_info
 
@@ -41,7 +40,6 @@ class ElseClauseResult:
 
 from .literals import LiteralParser
 from .functions import FunctionDefinitionParser, ParameterParser
-from .expressions import BinaryExpressionParser
 
 # Precise types for better type safety
 ParserToken: TypeAlias = Union[str, int, float, bool]
@@ -71,46 +69,34 @@ class EinlangTransformer(Transformer):
     
     def _call_userfunc(self, tree, new_children=None):
         """Override to provide better error messages for missing transformer methods and signature mismatches"""
+        import re
+        from ...shared.errors import EinlangSourceError
+
         try:
             return super()._call_userfunc(tree, new_children)
         except AttributeError as e:
             if f"'{self.__class__.__name__}' object has no attribute" in str(e):
                 method_name = str(e).split("'")[3]  # Extract method name from error
-                # Trust: Lark Tree objects always have .data
                 rule_name = tree.data
-                
-                from ..shared.errors import EinlangSourceError
-                from ..utils.diagnostics import EinlangErrorCode
-                
                 raise EinlangSourceError(
                     message=f"Missing transformer method '{method_name}' for grammar rule '{rule_name}'",
-                    error_code=EinlangErrorCode.SYNTAX_ERROR.value,
+                    error_code="E0001",
                     category="syntax"
                 )
         except TypeError as e:
-            # Catch signature mismatches like "takes 5 arguments but 7 were given"
             error_str = str(e)
             if "takes" in error_str and "arguments but" in error_str and "were given" in error_str:
-                # Trust: Lark Tree objects always have .data
                 rule_name = tree.data
-                
-                # Extract argument counts
-                import re
                 match = re.search(r'takes (\d+) .*arguments but (\d+) were given', error_str)
                 if match:
                     expected, actual = match.groups()
-                    
-                    from ..shared.errors import EinlangSourceError
-                    from ..utils.diagnostics import EinlangErrorCode
-                    
                     raise EinlangSourceError(
                         message=f"Transformer method signature mismatch for rule '{rule_name}': expected {expected} arguments but grammar provides {actual}",
-                        error_code=EinlangErrorCode.SYNTAX_ERROR.value,
+                        error_code="E0001",
                         category="syntax"
                     )
-            raise  # Re-raise if it's a different TypeError
+            raise
         except Exception:
-            # Re-raise any other exceptions
             raise
     
     def __init__(self) -> None:
@@ -118,7 +104,6 @@ class EinlangTransformer(Transformer):
         # Initialize specialized parsers
         self.function_parser: FunctionDefinitionParser = FunctionDefinitionParser(self._extract_location)
         self.parameter_parser: ParameterParser = ParameterParser(self._extract_location)
-        self.expression_parser: BinaryExpressionParser = BinaryExpressionParser(self._extract_location)
         self.current_file: str = ""  # Must be set by parser before use
     
     def _extract_location(self, meta: LarkMeta) -> SourceLocation:
@@ -505,40 +490,6 @@ class EinlangTransformer(Transformer):
         from ...shared.nodes import EinsteinClause
         clause = EinsteinClause(indices, value, where_clause, location)
         return EinsteinDeclaration(array_name=str(name), clauses=[clause], location=location)
-    
-    # =========================================================================  
-    # EXPRESSIONS - SINGLE BINARY HANDLER ✅
-    # =========================================================================
-    
-    def logical_or_binary(self, meta: LarkMeta, left: ASTNode, operator: Token, right: ASTNode) -> BinaryExpression:
-        """Handle logical OR binary expressions"""
-        return self.expression_parser.parse_logical_or(meta, left, operator, right)
-        
-    def logical_and_binary(self, meta: LarkMeta, left: ASTNode, operator: Token, right: ASTNode) -> BinaryExpression:
-        """Handle logical AND binary expressions"""
-        return self.expression_parser.parse_logical_and(meta, left, operator, right)
-        
-    def equality_binary(self, meta: LarkMeta, left: ASTNode, operator: Token, right: ASTNode) -> BinaryExpression:
-        """Handle equality binary expressions"""
-        return self.expression_parser.parse_equality(meta, left, operator, right)
-        
-    def relational_binary(self, meta: LarkMeta, left: ASTNode, operator: Token, right: ASTNode) -> BinaryExpression:
-        """Handle relational binary expressions"""
-        return self.expression_parser.parse_relational(meta, left, operator, right)
-        
-    def additive_binary(self, meta: LarkMeta, left: ASTNode, operator: Token, right: ASTNode) -> BinaryExpression:
-        """Handle additive binary expressions"""
-        return self.expression_parser.parse_additive(meta, left, operator, right)
-        
-    def multiplicative_binary(self, meta: LarkMeta, left: ASTNode, operator: Token, right: ASTNode) -> BinaryExpression:
-        """Handle multiplicative binary expressions"""
-        return self.expression_parser.parse_multiplicative(meta, left, operator, right)
-        
-    def power_binary(self, meta: LarkMeta, left: ASTNode, operator: Token, right: ASTNode) -> BinaryExpression:
-        """Handle power binary expressions"""
-        return self.expression_parser.parse_power(meta, left, operator, right)
-    
-
     
     # =========================================================================
     # LITERALS - NO TERMINAL METHODS NEEDED! ✅
@@ -987,20 +938,6 @@ class EinlangTransformer(Transformer):
         }
         return type_obj_mapping.get(type_name, I32)  # Default to I32 if unknown
     
-    def shape_spec(self, meta: LarkMeta, *args) -> Union[List, str]:
-        """Transform shape_spec: explicit_shape | dynamic_rank"""
-        if len(args) == 1 and str(args[0]) == "*":
-            return "*"  # Dynamic rank
-        return list(args)  # Explicit shape dimensions
-    
-    def explicit_shape(self, meta: LarkMeta, *dimensions) -> List:
-        """Transform explicit_shape: shape_dimension ("," shape_dimension)*"""
-        return list(dimensions)
-    
-    def shape_dimension(self, meta: LarkMeta, dim: Union[Token, ASTNode]) -> str:
-        """Transform shape_dimension: INTEGER | NAME | "?" """
-        return str(dim)
-    
     def dynamic_rank(self, meta: LarkMeta, *args) -> str:
         """Transform dynamic_rank: "*" """
         return "*"
@@ -1201,97 +1138,39 @@ class EinlangTransformer(Transformer):
             location=location
         )
     
-    # Passthrough methods for single-element cases
+    def _binary_chain(self, meta: LarkMeta, args: tuple) -> ASTNode:
+        """Build left-associated binary expression chain from [l, op, r, op, r, ...]."""
+        if len(args) == 1:
+            return args[0]
+        result = args[0]
+        location = self._extract_location(meta)
+        for operator, right in zip(args[1::2], args[2::2]):
+            result = BinaryExpression(
+                left=result,
+                operator=BinaryOp(str(operator)),
+                right=right,
+                location=location
+            )
+        return result
+
     def logical_or_expr(self, meta: LarkMeta, *args: Union[ASTNode, Token]) -> ASTNode:
-        """Handle logical OR expressions with repetition pattern"""
-        if len(args) == 1:
-            return args[0]
-        result = args[0]
-        location = self._extract_location(meta)
-        for operator, right in zip(args[1::2], args[2::2]):
-            result = BinaryExpression(
-                left=result,
-                operator=BinaryOp(str(operator)),
-                right=right,
-                location=location
-            )
-        return result
-    
+        return self._binary_chain(meta, args)
+
     def logical_and_expr(self, meta: LarkMeta, *args: Union[ASTNode, Token]) -> ASTNode:
-        """Handle logical AND expressions with repetition pattern"""
-        if len(args) == 1:
-            return args[0]
-        result = args[0]
-        location = self._extract_location(meta)
-        for operator, right in zip(args[1::2], args[2::2]):
-            result = BinaryExpression(
-                left=result,
-                operator=BinaryOp(str(operator)),
-                right=right,
-                location=location
-            )
-        return result
-        
+        return self._binary_chain(meta, args)
+
     def equality_expr(self, meta: LarkMeta, *args: Union[ASTNode, Token]) -> ASTNode:
-        """Handle equality expressions with repetition pattern"""
-        if len(args) == 1:
-            return args[0]
-        result = args[0]
-        location = self._extract_location(meta)
-        for operator, right in zip(args[1::2], args[2::2]):
-            result = BinaryExpression(
-                left=result,
-                operator=BinaryOp(str(operator)),
-                right=right,
-                location=location
-            )
-        return result
-        
+        return self._binary_chain(meta, args)
+
     def relational_expr(self, meta: LarkMeta, *args: Union[ASTNode, Token]) -> ASTNode:
-        """Handle relational expressions with repetition pattern"""
-        if len(args) == 1:
-            return args[0]
-        result = args[0]
-        location = self._extract_location(meta)
-        for operator, right in zip(args[1::2], args[2::2]):
-            result = BinaryExpression(
-                left=result,
-                operator=BinaryOp(str(operator)),
-                right=right,
-                location=location
-            )
-        return result
-        
+        return self._binary_chain(meta, args)
+
     def additive_expr(self, meta: LarkMeta, *args: Union[ASTNode, Token]) -> ASTNode:
-        """Handle additive expressions with repetition pattern"""
-        if len(args) == 1:
-            return args[0]
-        result = args[0]
-        location = self._extract_location(meta)
-        for operator, right in zip(args[1::2], args[2::2]):
-            result = BinaryExpression(
-                left=result,
-                operator=BinaryOp(str(operator)),
-                right=right,
-                location=location
-            )
-        return result
-        
+        return self._binary_chain(meta, args)
+
     def multiplicative_expr(self, meta: LarkMeta, *args: Union[ASTNode, Token]) -> ASTNode:
-        """Handle multiplicative expressions with repetition pattern"""
-        if len(args) == 1:
-            return args[0]
-        result = args[0]
-        location = self._extract_location(meta)
-        for operator, right in zip(args[1::2], args[2::2]):
-            result = BinaryExpression(
-                left=result,
-                operator=BinaryOp(str(operator)),
-                right=right,
-                location=location
-            )
-        return result
-        
+        return self._binary_chain(meta, args)
+
     def power_expr(self, meta: LarkMeta, *args: Union[ASTNode, Token]) -> ASTNode:
         """Handle power expressions with right-associativity (a**b**c = a**(b**c))"""
         if len(args) == 1:

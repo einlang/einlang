@@ -12,6 +12,7 @@ from typing import Optional, List, Union, Dict, Tuple, Any
 
 logger = logging.getLogger(__name__)
 from ..passes.base import BasePass, TyCtxt
+from ..passes.visitor_helpers import defid_of_var_in_expr
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BindingIR, FunctionDefIR, FunctionValueIR, ConstantDefIR, EinsteinIR,
     LiteralIR, IdentifierIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
@@ -32,37 +33,6 @@ from ..shared.source_location import SourceLocation
 from ..shared.defid import DefId, DefType
 import sys
 import os
-
-
-def _defid_of_identifier_in_expr(expr: Optional[ExpressionIR], name: str) -> Optional[DefId]:
-    """Return defid of first IdentifierIR or IndexVarIR with given name in expr tree. Used when building ReductionExpressionIR."""
-    if expr is None:
-        return None
-    if isinstance(expr, IdentifierIR) and expr.name == name:
-        return getattr(expr, 'defid', None)
-    if isinstance(expr, IndexVarIR) and expr.name == name:
-        return getattr(expr, 'defid', None)
-    children: List[Optional[ExpressionIR]] = []
-    if hasattr(expr, 'left') and hasattr(expr, 'right'):
-        children = [getattr(expr, 'left'), getattr(expr, 'right')]
-    elif hasattr(expr, 'operand'):
-        children = [getattr(expr, 'operand')]
-    elif hasattr(expr, 'array') and hasattr(expr, 'indices'):
-        children = [getattr(expr, 'array')] + list(getattr(expr, 'indices') or [])
-    elif hasattr(expr, 'body'):
-        children = [getattr(expr, 'body')]
-    elif hasattr(expr, 'object'):
-        children = [getattr(expr, 'object')]
-    elif hasattr(expr, 'arguments'):
-        children = [getattr(expr, 'callee_expr', None)] + list(getattr(expr, 'arguments') or [])
-    elif hasattr(expr, 'expr'):
-        children = [getattr(expr, 'expr')]
-    for c in children:
-        if isinstance(c, ExpressionIR):
-            out = _defid_of_identifier_in_expr(c, name)
-            if out is not None:
-                return out
-    return None
 
 
 # Import existing AST nodes and visitor
@@ -106,37 +76,6 @@ try:
 except ImportError:
     ASTConstantDef = None  # Constants handled differently
 from ..shared.ast_visitor import ASTVisitor
-
-
-def _defid_of_identifier_in_expr(expr: Optional[ExpressionIR], name: str) -> Optional[DefId]:
-    """Return defid of first IdentifierIR or IndexVarIR with given name in expr tree. Used when building ReductionExpressionIR."""
-    if expr is None:
-        return None
-    if isinstance(expr, IdentifierIR) and expr.name == name:
-        return getattr(expr, 'defid', None)
-    if isinstance(expr, IndexVarIR) and expr.name == name:
-        return getattr(expr, 'defid', None)
-    children: List[Optional[ExpressionIR]] = []
-    if hasattr(expr, 'left') and hasattr(expr, 'right'):
-        children = [getattr(expr, 'left'), getattr(expr, 'right')]
-    elif hasattr(expr, 'operand'):
-        children = [getattr(expr, 'operand')]
-    elif hasattr(expr, 'array') and hasattr(expr, 'indices'):
-        children = [getattr(expr, 'array')] + list(getattr(expr, 'indices') or [])
-    elif hasattr(expr, 'body'):
-        children = [getattr(expr, 'body')]
-    elif hasattr(expr, 'object'):
-        children = [getattr(expr, 'object')]
-    elif hasattr(expr, 'arguments'):
-        children = [getattr(expr, 'callee_expr', None)] + list(getattr(expr, 'arguments') or [])
-    elif hasattr(expr, 'expr'):
-        children = [getattr(expr, 'expr')]
-    for c in children:
-        if isinstance(c, ExpressionIR):
-            out = _defid_of_identifier_in_expr(c, name)
-            if out is not None:
-                return out
-    return None
 
 
 class ASTToIRLoweringPass(BasePass):
@@ -373,23 +312,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                             except Exception:
                                 # Skip other errors during recursive traversal
                                 pass
-                
-                # For user module functions, ensure identifiers are resolved before lowering
-                # For stdlib functions, skip body resolution - let monomorphization service handle it
-                # NOTE: This check is disabled because scope_manager is not available in TyCtxt during lowering.
-                # Name resolution should have already resolved all identifiers, so this check is redundant.
-                # if module_path[0] != 'std':
-                #     # User module function - resolve identifiers in body before lowering
-                #     from ..shared.nodes import BlockExpression
-                #     if hasattr(definition, 'body') and isinstance(definition.body, BlockExpression):
-                #         # Resolve identifiers in function body
-                #         check_and_resolve_identifiers(definition.body, self.tcx.scope_manager, self.tcx.resolver)
-                
-                # SKIP body resolution for stdlib functions - let monomorphization service handle it
-                # Rationale: stdlib functions will be specialized by the mono service when actually called.
-                # During specialization, the mono service will properly set up parameter scope and resolve identifiers.
-                # This avoids the complexity of resolving function bodies with Python module calls during lowering.
-                # The function definition is registered with its AST, and the mono service will handle specialization.
+                # Name resolution has already resolved identifiers; stdlib bodies are specialized by monomorphization.
                 # Safely get function name (FunctionDefinition has 'name', not 'array_name')
                 func_name = getattr(definition, 'name', None) or getattr(definition, 'array_name', None) or func_name
 
@@ -1354,7 +1277,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             IdentifierIR(
                 name,
                 location,
-                defid=reduction_loop_var_defids.get(name) or _defid_of_identifier_in_expr(body_ir, name),
+                defid=reduction_loop_var_defids.get(name) or defid_of_var_in_expr(body_ir, name),
             )
             for name in loop_vars
         ]

@@ -173,6 +173,45 @@ class TestEinsteinLoweringIntegration:
         expected_layer0 = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=hidden.dtype)
         np.testing.assert_allclose(hidden[0], expected_layer0, rtol=1e-5, atol=1e-8)
 
+    def test_heat_equation_2d_explicit(self, compiler, runtime):
+        """Real 2D heat equation ∂u/∂t = α∇²u, explicit FTCS: 5-point Laplacian stencil
+        u^{n+1}_{i,j} = u^n_{i,j} + r*(u^n_{i-1,j} + u^n_{i+1,j} + u^n_{i,j-1} + u^n_{i,j+1} - 4*u^n_{i,j})
+        with r = α Δt/h²; r = 0.1 (stability r ≤ 1/4 for 2D). All reads at t-1 (no future values).
+        Grid is small (4×4, 3 steps) only for the test; the formula is the standard PDE discretization.
+        """
+        source = """
+        let r = 0.1;
+        let u[0, i in 0..4, j in 0..4] = 0.0;
+        let u[0, 1, 1] = 1.0;
+        let u[t in 1..3, i in 1..3, j in 1..3] = u[t - 1, i, j] + r * (u[t - 1, i - 1, j] + u[t - 1, i + 1, j] + u[t - 1, i, j - 1] + u[t - 1, i, j + 1] - 4.0 * u[t - 1, i, j]);
+        u;
+        """
+        result = compile_and_execute(source, compiler, runtime)
+        assert result.success, f"Compilation failed: {result.get_errors()}"
+        u = np.asarray(result.outputs["u"])
+        # Shape from backend (e.g. 3 time steps, 4x4 grid)
+        assert u.ndim == 3 and u.shape[0] == 3, f"expected 3 time steps, got {u.shape}"
+        n, m = u.shape[1], u.shape[2]
+        # Initial: hot spot at (1,1)
+        assert u[0, 1, 1] == 1.0
+        # One step: explicit Laplacian u + r*(u_{i-1,j}+u_{i+1,j}+u_{i,j-1}+u_{i,j+1}-4u_{i,j}) (all at t-1)
+        expected = np.zeros((n, m))
+        expected[1, 1] = 1.0
+        r_val = 0.1
+        interior = expected[1 : n - 1, 1 : m - 1].copy()
+        lap = np.zeros_like(interior)
+        lap += expected[0 : n - 2, 1 : m - 1]
+        lap += expected[2 : n, 1 : m - 1]
+        lap += expected[1 : n - 1, 0 : m - 2]
+        lap += expected[1 : n - 1, 2 : m]
+        lap -= 4 * interior
+        expected[1 : n - 1, 1 : m - 1] = interior + r_val * lap
+        np.testing.assert_allclose(u[1], expected, rtol=1e-5, atol=1e-8,
+            err_msg="heat equation one step should match explicit Laplacian")
+        # Hot spot diffuses: center (1,1) decreases, neighbors increase
+        assert u[1, 1, 1] < u[0, 1, 1]
+        assert u[1, 2, 1] > 0
+
     def test_einstein_literal_reference(self, compiler, runtime):
         """Reference array B only at literal indices: A[0,0]=B[0,0], A[0,i]=B[0,i], A[i,0]=B[i,0]; recurrence uses B[i,j]. Compare full A to numpy."""
         source = """

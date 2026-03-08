@@ -1,8 +1,10 @@
 # Einlang Examples
 
-These examples are organized as a guided path — start at the top and work your way down. Each section builds on concepts introduced in the previous one.
+**First time?** [Try it in 30 seconds](../README.md#try-it) or read [Getting started](../docs/GETTING_STARTED.md). **Want one capability?** [Examples by feature](../README.md#examples).
 
-## Learning Path
+This page is the full **learning path**: basics → demos → MNIST → quantized CNN → ViT → Whisper. Each step builds on the last.
+
+## Learning path
 
 ### Part 1: Learn the Language
 
@@ -20,11 +22,20 @@ These examples are organized as a guided path — start at the top and work your
 | 5 | [`deit_tiny/`](deit_tiny/) | Vision Transformer — ImageNet classification | Multi-head attention, softmax, GELU, LayerNorm, 12-block transformer |
 | 6 | [`whisper_tiny/`](whisper_tiny/) | Speech-to-text — encoder/decoder with autoregressive loop | 1D conv, cross-attention, causal mask, recurrence, BPE decoding |
 
+### Simulations (PDEs, no weights)
+
+| Directory | What it does | Key concepts |
+|-----------|----------------|--------------|
+| [`wave_2d/`](wave_2d/) | 2D acoustic wave — drum-like propagation | Two-level recurrence (h[t-1], h[t-2]), vectorized stencil, `exp` |
+| (heat) | 2D heat diffusion — see [heat_animation.py](heat_animation.py) | One-level recurrence, circular initial condition, HTML animation |
+
 ### Reference
 
 | Directory | Description |
 |-----------|-------------|
 | [`units/`](units/) | 60+ unit tests covering every language feature — useful as a lookup table |
+
+**Reference:** [Language reference](../docs/reference.md) · [Standard library](../docs/stdlib.md). **Doc index (by audience):** [docs/README.md](../docs/README.md).
 
 ## Running
 
@@ -34,6 +45,10 @@ All examples run from the repository root:
 # Part 1
 python3 -m einlang examples/basics/variables_demo.ein
 python3 -m einlang examples/demos/matrix_operations.ein
+
+# Simulations (no weights; output HTML)
+python3 examples/heat_animation.py              # heat diffusion → heat.html
+python3 examples/wave_2d/run_wave.py            # 2D wave equation → wave.html
 
 # Part 2
 python3 -m einlang examples/mnist/main.ein

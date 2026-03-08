@@ -33,21 +33,6 @@ def _is_scalar_like(x: Any) -> bool:
     return False
 
 
-def _reduction_axis_in_access(backend: Any, access: Any, reduction_defid: Any, indices: List[Any]) -> Optional[int]:
-    axis = 0
-    for idx in indices:
-        idx_defid = getattr(idx, "defid", None)
-        if idx_defid is not None and idx_defid == reduction_defid:
-            return axis
-        try:
-            v = idx.accept(backend)
-            if not _is_scalar_like(v):
-                axis += 1
-        except Exception:
-            return None
-    return None
-
-
 def _expr_contains_defid(expr: Any, target_defid: Any) -> bool:
     if expr is None or target_defid is None:
         return False
@@ -123,7 +108,7 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         return None
     if getattr(expr, "guards", None) or getattr(expr, "bindings", None):
         return None
-    from ..passes.einstein_lowering import _defid_of_var_in_expr
+    from ..passes.visitor_helpers import defid_of_var_in_expr
     reduction_ranges = getattr(expr, "reduction_ranges", None) or {}
     loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
     if not loops:
@@ -137,7 +122,7 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         loop_defid = getattr(loop_var, "defid", None)
         if loop_defid is None:
             return None
-        body_defid = _defid_of_var_in_expr(expr.body, getattr(loop_var, "name", "") or "") or loop_defid
+        body_defid = defid_of_var_in_expr(expr.body, getattr(loop_var, "name", "") or "") or loop_defid
         reduction_defids.append(body_defid)
         try:
             iterable = loop.iterable.accept(backend) if hasattr(loop.iterable, "accept") else None
@@ -318,7 +303,7 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
         return None
     if getattr(expr, "guards", None) or getattr(expr, "bindings", None):
         return None
-    from ..passes.einstein_lowering import _defid_of_var_in_expr
+    from ..passes.visitor_helpers import defid_of_var_in_expr
     reduction_ranges = getattr(expr, "reduction_ranges", None) or {}
     loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
     if len(loops) != 2:
@@ -471,9 +456,10 @@ def _slice_array_at_scalar_indices(
     reduction_defids: List[Any],
     backend: Any,
 ) -> Tuple[np.ndarray, List[int]]:
-    """Slice array at any non-reduction index that evaluates to a scalar (e.g. W[L,d,k] with L scalar -> W[L,:,:]).
-    Returns (sliced_array, kept_positions) where kept_positions are index positions that were not sliced (for subscript rebuild).
-    If any non-reduction index is non-scalar, returns (arr, list(range(arr.ndim))) unchanged."""
+    """Slice array at indices that evaluate to scalar; keep dimensions for array-valued indices.
+    Returns (sliced_array, kept_positions) where kept_positions are index positions that were not
+    sliced to a scalar (so subscript letters for those positions are still needed).
+    E.g. ln1[0, s, d] with s array, d reduction -> slice at 0 only -> (197, 192), kept=[1,2]."""
     if arr.ndim != len(indices):
         return arr, list(range(arr.ndim))
     key: List[Any] = []
@@ -488,7 +474,8 @@ def _slice_array_at_scalar_indices(
                 if np.isscalar(v) or (isinstance(v, np.ndarray) and getattr(v, "ndim", -1) == 0):
                     key.append(int(v))
                 else:
-                    return arr, list(range(arr.ndim))
+                    key.append(slice(None))
+                    kept.append(pos)
             except Exception:
                 return arr, list(range(arr.ndim))
     try:
@@ -506,7 +493,7 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         return None
     if getattr(expr, "guards", None) or getattr(expr, "bindings", None):
         return None
-    from ..passes.einstein_lowering import _defid_of_var_in_expr
+    from ..passes.visitor_helpers import defid_of_var_in_expr
     reduction_ranges = getattr(expr, "reduction_ranges", None) or {}
     loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
     if not loops:
@@ -520,7 +507,7 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         loop_defid = getattr(loop_var, "defid", None)
         if loop_defid is None:
             return None
-        body_defid = _defid_of_var_in_expr(expr.body, getattr(loop_var, "name", "") or "") or loop_defid
+        body_defid = defid_of_var_in_expr(expr.body, getattr(loop_var, "name", "") or "") or loop_defid
         reduction_defids.append(body_defid)
         try:
             iterable = loop.iterable.accept(backend) if hasattr(loop.iterable, "accept") else None
@@ -1152,7 +1139,7 @@ class ExpressionVisitorMixin:
                     setattr(self, "_last_reduction_fast_path", "einsum")
                     return einsum_result
         from ..runtime.compute.lowered_execution import execute_reduction_with_loops
-        from ..passes.einstein_lowering import _defid_of_var_in_expr
+        from ..passes.visitor_helpers import defid_of_var_in_expr
         loc = getattr(expr, "location", None)
         line = int(getattr(loc, "line", 0) or 0)
         profile_reductions = bool(os.environ.get("EINLANG_PROFILE_REDUCTIONS", ""))
@@ -1173,7 +1160,7 @@ class ExpressionVisitorMixin:
             _v = getattr(_lp, "variable", None)
             if _v is not None:
                 _vname = getattr(_v, "name", None)
-                _bd = _defid_of_var_in_expr(expr.body, _vname) if _vname else None
+                _bd = defid_of_var_in_expr(expr.body, _vname) if _vname else None
                 if _bd is not None:
                     _loop_to_body_defid[getattr(_v, "defid", None)] = _bd
                     _reduction_defid_names[_bd] = _vname
