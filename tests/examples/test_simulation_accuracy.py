@@ -1,14 +1,13 @@
 """
-Accuracy checks for simulation demos: ODE (decay, linear, Lorenz, Lotka-Volterra,
-pendulum, van_der_pol, SIR, harmonic, fitzhugh_nagumo, lorenz96), wave, heat,
-Brusselator, value_iteration, job_search (McCall), recurrence, optimization,
-finance, time_series.
+Accuracy checks for simulation demos: ODE, wave, heat, Brusselator, value_iteration,
+job_search, recurrence, optimization, finance, time_series.
 
-All simulation examples must be covered by strict accuracy testing: each runs
-and is compared element-wise to a reference (analytical or NumPy). No mocking.
+Single set of tests: one test per example (test_accuracy_<path_suffix>), each runs
+the example and compares output to a reference (analytical or NumPy). No mocking.
+Examples are not grouped into one parametrized test.
 
-Canonical registry: every path in SIMULATION_EXAMPLE_PATHS must appear in
-ALL_ACCURACY_EXAMPLES with a reference and tolerances (rtol/atol).
+Canonical registry: SIMULATION_EXAMPLE_PATHS and ALL_ACCURACY_EXAMPLES; every path
+in the former must appear in the latter with a reference and tolerances (rtol/atol).
 """
 
 import sys
