@@ -1,0 +1,6 @@
+// Accuracy test: optim::gradient_descent_2d output only. Run from repo root.
+use numerics::optim;
+let A = [[2.0, 0.0], [0.0, 2.0]];
+let b = [1.0, 1.0];
+let x_traj = optim::gradient_descent_2d(A, b, 0.25);
+print(x_traj);

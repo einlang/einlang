@@ -1,0 +1,21 @@
+# GitHub Pages: deploy from branch main, folder / (root)
+# Site URL: https://einlang.github.io/einlang/
+# Building from root so README, CONTRIBUTING, examples/README.md are part of the site and relative links work.
+title: Einlang
+description: Tensor math in Einstein notation with compile-time shape checking
+baseurl: "/einlang"
+permalink: pretty
+plugins:
+  - jekyll-redirect-from
+exclude:
+  - src
+  - tests
+  - stdlib
+  - scripts
+  - .github
+  - .cursorrules
+  - .gitignore
+  - LICENSE
+  - "*.py"
+  - "*.ein"
+  - "*.npy"

@@ -1,0 +1,19 @@
+// Optimization library (Optim.jl-style). Single-step and fixed-iteration runners.
+// Use: use numerics::optim;
+
+// One gradient step for quadratic min: x_next = x - alpha * (A*x - b).
+// For 2x2 system; returns next iterate.
+pub fn gradient_descent_step_2d(x: [f64; 2], A: [f64; 2, 2], b: [f64; 2], alpha: f64) -> [f64; 2] {
+  let r0 = A[0, 0] * x[0] + A[0, 1] * x[1] - b[0];
+  let r1 = A[1, 0] * x[0] + A[1, 1] * x[1] - b[1];
+  [x[0] - alpha * r0, x[1] - alpha * r1]
+}
+
+// Run 30 steps of gradient descent for min ||A*x - b||^2, 2D, starting at 0.
+// Returns trajectory (31, 2).
+pub fn gradient_descent_2d(A: [f64; 2, 2], b: [f64; 2], alpha: f64) -> [f64; 31, 2] {
+  let x[0, i in 0..2] = 0.0;
+  let x[k in 1..31, 0] = x[k - 1, 0] - alpha * (A[0, 0] * x[k - 1, 0] + A[0, 1] * x[k - 1, 1] - b[0]);
+  let x[k in 1..31, 1] = x[k - 1, 1] - alpha * (A[1, 0] * x[k - 1, 0] + A[1, 1] * x[k - 1, 1] - b[1]);
+  x
+}

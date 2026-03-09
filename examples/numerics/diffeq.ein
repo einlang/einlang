@@ -1,0 +1,15 @@
+// ODE library (DifferentialEquations.jl-style). Explicit time-stepping; no solver API.
+// Use: use numerics::diffeq;
+
+// Euler step for scalar: u_next = u + dt * f(u). For decay f(u) = -k*u.
+pub fn euler_decay_step(u: f64, k: f64, dt: f64) -> f64 {
+  u + dt * (-k * u)
+}
+
+// Run explicit Euler for exponential decay: du/dt = -k*u, u(0)=u0, 50 steps.
+// Returns trajectory (shape 51).
+pub fn euler_decay(u0: f64, k: f64, dt: f64) -> [f64] {
+  let u[0] = u0;
+  let u[t in 1..51] = u[t - 1] * (1.0 - k * dt);
+  u
+}

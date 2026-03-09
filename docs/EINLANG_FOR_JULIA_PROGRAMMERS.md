@@ -235,7 +235,7 @@ let u[0] = u0;
 let u[t in 1..N] = u[t - 1] + dt * f(u[t - 1]);
 ```
 
-Examples: [ode/](../examples/ode/) (decay, linear, Lorenz, Lotka–Volterra, pendulum, van der Pol, SIR, harmonic). Same equations as in DiffEqDocs; each file has the Julia equivalent in comments and is accuracy-tested against a reference.
+Examples: [ode/](../../examples/ode/) (decay, linear, Lorenz, Lotka–Volterra, pendulum, van der Pol, SIR, harmonic, fitzhugh_nagumo, lorenz96). Same equations as in DiffEqDocs; each file has the Julia equivalent in comments and is accuracy-tested against a reference.
 
 ---
 
@@ -243,9 +243,9 @@ Examples: [ode/](../examples/ode/) (decay, linear, Lorenz, Lotka–Volterra, pen
 
 Same idea: you write the **discrete update** (stencil) in Einstein notation. No MethodOfLines API — just the spatial operator and the time step.
 
-- **1D heat / advection:** [pde_1d/](../examples/pde_1d/) (heat_1d.ein, advection_1d.ein).
-- **2D wave:** [wave_2d/](../examples/wave_2d/main.ein) — two-level recurrence (h[t-1], h[t-2]).
-- **Brusselator:** [brusselator/](../examples/brusselator/) — reaction–diffusion, 4D state.
+- **1D heat / advection:** [pde_1d/](../../examples/pde_1d/) (heat_1d.ein, advection_1d.ein).
+- **2D wave:** [wave_2d/](../../examples/wave_2d/main.ein) — two-level recurrence (h[t-1], h[t-2]).
+- **Brusselator:** [brusselator/](../../examples/brusselator/) — reaction–diffusion, 4D state.
 
 ---
 
@@ -253,12 +253,13 @@ Same idea: you write the **discrete update** (stencil) in Einstein notation. No 
 
 **Base case(s) + inductive step.** Like a `for` loop over time or state, but declared as equations.
 
-- **Fibonacci, random walk, logistic map:** [recurrence/](../examples/recurrence/).
-- **Markov stationary distribution:** [markov_stationary.ein](../examples/recurrence/markov_stationary.ein) — ψ = ψ P (QuantEcon-style).
-- **Optimization (gradient descent, power iteration, projected gradient, Rosenbrock):** [optimization/](../examples/optimization/) — [gradient_descent.ein](../examples/optimization/gradient_descent.ein), [power_iteration.ein](../examples/optimization/power_iteration.ein), [projected_gradient.ein](../examples/optimization/projected_gradient.ein), [rosenbrock.ein](../examples/optimization/rosenbrock.ein) (Optim.jl/SciML-style).
-- **Time series (exponential smoothing):** [time_series/exponential_smoothing.ein](../examples/time_series/exponential_smoothing.ein) — StateSpaceModels.jl/TimeSeries.jl-style forecasting.
-- **Finance (savings / compound interest):** [finance/savings.ein](../examples/finance/savings.ein).
-- **Value iteration (Bellman):** [value_iteration/](../examples/value_iteration/) — same idea as QuantEcon.jl.
+- **Fibonacci, random walk, logistic map:** [recurrence/](../../examples/recurrence/).
+- **Markov stationary distribution:** [markov_stationary.ein](../../examples/recurrence/markov_stationary.ein) — ψ = ψ P (QuantEcon-style).
+- **Optimization (gradient descent, power iteration, projected gradient, Rosenbrock):** [optimization/](../../examples/optimization/) — [gradient_descent.ein](../../examples/optimization/gradient_descent.ein), [power_iteration.ein](../../examples/optimization/power_iteration.ein), [projected_gradient.ein](../../examples/optimization/projected_gradient.ein), [rosenbrock.ein](../../examples/optimization/rosenbrock.ein) (Optim.jl/SciML-style).
+- **Time series (exponential smoothing):** [time_series/exponential_smoothing.ein](../../examples/time_series/exponential_smoothing.ein) — StateSpaceModels.jl/TimeSeries.jl-style forecasting.
+- **Finance (savings / compound interest):** [finance/savings.ein](../../examples/finance/savings.ein).
+- **Value iteration (Bellman):** [value_iteration/](../../examples/value_iteration/) — same idea as QuantEcon.jl.
+- **McCall job search (reservation wage):** [job_search/mccall.ein](../../examples/job_search/mccall.ein) — value function iteration, QuantEcon-style.
 
 Syntax: `let x[0] = ...; let x[k in 1..K] = ...;` Multiple clauses for the same array must be **consecutive** (no other `let` in between). [Reference: Recurrence relations](reference.md#recurrence-relations).
 
@@ -277,7 +278,7 @@ Syntax: `let x[0] = ...; let x[k in 1..K] = ...;` Multiple clauses for the same 
 |-----------|--------|
 | **Full Julia ↔ Einlang example mapping** | [Julia demos → Einlang](JULIA_DEMOS.md) |
 | **Syntax side-by-side (Julia, Python, Rust)** | [Syntax comparison](SYNTAX_COMPARISON.md) |
-| **All examples by domain** | [Examples README](../examples/README.md) |
+| **All examples by domain** | [Examples README](../../examples/README.md) |
 | **Language and semantics** | [Language reference](reference.md) |
 | **Stdlib (math, ML, etc.)** | [Standard library](stdlib.md) |
-| **Install and run** | [README: Install & run](../README.md#install--run) |
+| **Install and run** | [README: Install & run](../../README.md#install--run) |

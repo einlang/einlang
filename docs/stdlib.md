@@ -1,6 +1,6 @@
 # Einlang Standard Library
 
-Built-in modules and functions (300+), all implemented in pure Einlang (`.ein` in `stdlib/`). **Syntax and types:** [Language Reference](reference.md). **New here?** [Getting started](GETTING_STARTED.md) or [try an example](../README.md#try-it). **Doc index:** [README](README.md).
+Built-in modules and functions (300+), all implemented in pure Einlang (`.ein` in `stdlib/`). **Syntax and types:** [Language Reference](reference.md). **New here?** [Getting started](GETTING_STARTED.md) or [try an example](../../README.md#try-it). **Doc index:** [README](README.md).
 
 ---
 

@@ -1,0 +1,4 @@
+// Accuracy test: diffeq::euler_decay output only. Run from repo root.
+use numerics::diffeq;
+let u = diffeq::euler_decay(1.0, 0.05, 0.1);
+print(u);

@@ -34,7 +34,7 @@
   No extra setup (or document it clearly: e.g. “run download_weights.py first” for whisper).
 - [ ] **Heavy examples don’t hit the loop limit by default.**  
   Default is 5000 (config.DEFAULT_EINSTEIN_LOOP_MAX), enough for simulation demos and whisper_tiny (3000 steps).
-- [ ] **examples/README.md** learning path matches what actually runs (basics → demos → mnist → …).
+- [ ] **examples/README.md** learning path matches what actually runs (basics → demos → mnist → mnist_quantized → deit_tiny → whisper_tiny; simulation: ode, pde_1d, wave_2d, brusselator, recurrence, finance, value_iteration, job_search, optimization, time_series).
 
 ---
 

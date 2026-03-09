@@ -1,6 +1,10 @@
-# GitHub Pages: deploy from branch main, folder /docs
+# Legacy: used only if GitHub Pages is set to deploy from /docs.
+# Prefer deploying from repo root (/) so README, CONTRIBUTING, examples/README are on the site; see root _config.yml.
 # Site URL: https://einlang.github.io/einlang/
 title: Einlang
 description: Tensor math in Einstein notation with compile-time shape checking
 baseurl: "/einlang"
 permalink: pretty
+# So https://einlang.github.io/einlang/README and .../README.html work (redirect to .../README/)
+plugins:
+  - jekyll-redirect-from

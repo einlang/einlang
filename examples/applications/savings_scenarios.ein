@@ -1,0 +1,26 @@
+// Real application: run savings (compound interest) over multiple scenarios (different interest rates).
+// Same model as examples/finance/savings.ein; here we run it for several r and compare outcomes.
+// Pattern: one model, many parameter sets — e.g. sensitivity or scenario analysis (JuliaHub Betterment, QuantEcon).
+//
+// Julia equivalent (1-based):
+//   initial, deposit = 1000.0, 100.0
+//   r_scen = [0.01, 0.04, 0.07]
+//   b = zeros(3, 61)
+//   for s in 1:3
+//     b[s, 1] = initial
+//     for t in 2:61
+//       b[s, t] = b[s, t-1] * (1.0 + r_scen[s]) + deposit
+//     end
+//   end
+//   final_balance = b[:, 61]
+
+let initial = 1000.0;
+let deposit = 100.0;
+let r_scen[scen in 0..3] = 0.01 + (scen as f64) * 0.03;
+
+// Recurrence in t (first index) so execution order is correct
+let b[0, scen in 0..3] = initial;
+let b[t in 1..61, scen in 0..3] = b[t - 1, scen] * (1.0 + r_scen[scen]) + deposit;
+
+let final_balance[scen in 0..3] = b[60, scen];
+print(final_balance);

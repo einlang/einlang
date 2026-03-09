@@ -1,0 +1,36 @@
+// Calibration (real application): fit exponential decay parameter to synthetic data.
+// Data = u0 * exp(-k_true * t * dt). For each candidate k on a grid, run the decay
+// model (Euler), compute SSE vs data, pick k that minimizes loss. In production,
+// data would be loaded (e.g. load_npy); here we generate it so the best k is known.
+//
+// Julia / real-app: Optim.jl, SciML parameter estimation, inverse problems.
+//
+// Julia equivalent (1-based; grid over k, then loss):
+//   k_true, u0, dt = 0.05, 1.0, 0.1
+//   data = [u0 * exp(-k_true * t * dt) for t in 0:49]
+//   k_grid = 0.01:0.01:0.10
+//   u = zeros(length(k_grid), 50)
+//   for ki in 1:length(k_grid)
+//     u[ki, 1] = u0
+//     for t in 2:50
+//       u[ki, t] = u[ki, t-1] * (1.0 - k_grid[ki] * dt)
+//     end
+//   end
+//   loss = [sum((u[ki,:] - data).^2) for ki in 1:length(k_grid)]
+
+use std::math::exp;
+
+let k_true = 0.05;
+let u0 = 1.0;
+let dt = 0.1;
+// Synthetic data (in practice: load from file)
+let data[t in 0..50] = u0 * exp(-k_true * (t as f64) * dt);
+// Grid of candidate decay rates
+let k_grid[ki in 0..10] = 0.01 + (ki as f64) * 0.01;
+
+// Recurrence in t (first index) so execution order is correct
+let u[0, ki in 0..10] = u0;
+let u[t in 1..50, ki in 0..10] = u[t - 1, ki] * (1.0 - k_grid[ki] * dt);
+let loss[ki in 0..10] = sum[t in 0..50]( (u[t, ki] - data[t]) * (u[t, ki] - data[t]) );
+
+print(loss);

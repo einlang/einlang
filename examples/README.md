@@ -40,12 +40,22 @@ Recurrences (base case + step); Markov chains, chaos.
 | [`value_iteration/`](value_iteration/) | Bellman value iteration (QuantEcon.jl-style) | `python3 -m einlang examples/value_iteration/main.ein` |
 | [`job_search/`](job_search/) | McCall job search (QuantEcon): value function iteration, reservation wage | `python3 -m einlang examples/job_search/mccall.ein` |
 | [`optimization/`](optimization/) | Gradient descent, power iteration, projected gradient, Rosenbrock (Optim.jl/SciML) | `python3 -m einlang examples/optimization/gradient_descent.ein`; `rosenbrock.ein`; … |
+| **[`numerics/`](numerics/)** | **Reusable numerics:** DiffEq (Euler decay), Optim (gradient descent 2D), QuantEcon (value iteration) | `python3 -m einlang examples/run_numerics.ein`; see [numerics/README.md](numerics/README.md) |
 
 ### Time series
 
 | Directory | What it does | Run |
 |-----------|--------------|-----|
 | [`time_series/`](time_series/) | Exponential smoothing (forecasting; StateSpaceModels/TimeSeries-style) | `python3 -m einlang examples/time_series/exponential_smoothing.ein` |
+
+### Real applications (calibration, scenarios)
+
+Multi-step workflows that mirror production use: fit model to data, run one model over many scenarios. See [Learning from Julia: real applications](../docs/LEARNING_FROM_JULIA.md).
+
+| Directory | What it does | Run |
+|-----------|--------------|-----|
+| [`calibration/`](calibration/) | Fit decay parameter to synthetic data (grid search over k; SSE loss) | `python3 -m einlang examples/calibration/decay_fit.ein` |
+| [`applications/`](applications/) | Savings over multiple interest-rate scenarios (sensitivity / scenario analysis) | `python3 -m einlang examples/applications/savings_scenarios.ein` |
 
 ### Computer vision
 
@@ -96,12 +106,15 @@ python3 -m einlang examples/ode/decay.ein
 python3 examples/pde_1d/run_heat_1d.py
 python3 examples/wave_2d/run_wave.py
 
-# Recurrence, finance, economics, optimization
+# Recurrence, finance, economics, optimization, real applications
 python3 -m einlang examples/recurrence/fibonacci.ein
 python3 -m einlang examples/finance/savings.ein
 python3 -m einlang examples/job_search/mccall.ein
 python3 -m einlang examples/optimization/power_iteration.ein
 python3 -m einlang examples/value_iteration/main.ein
+python3 -m einlang examples/run_numerics.ein
+python3 -m einlang examples/calibration/decay_fit.ein
+python3 -m einlang examples/applications/savings_scenarios.ein
 
 # Language
 python3 -m einlang examples/basics/variables_demo.ein

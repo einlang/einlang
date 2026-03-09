@@ -1,0 +1,6 @@
+// Numerics umbrella: ODEs, optimization, dynamic programming.
+// Use: use numerics::diffeq; use numerics::optim; use numerics::quantecon;
+
+pub mod diffeq;
+pub mod optim;
+pub mod quantecon;

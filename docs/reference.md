@@ -1,6 +1,6 @@
 # Einlang Language Reference
 
-Full syntax and semantics. **New here?** [Getting started](GETTING_STARTED.md) or [run a quick example](../README.md#try-it) first. **Built-in functions:** [Standard Library](stdlib.md). **Doc index:** [README](README.md). **Syntax we intentionally do not support (and why):** [Unsupported by design](UNSUPPORTED.md).
+Full syntax and semantics. **New here?** [Getting started](GETTING_STARTED.md) or [run a quick example](../../README.md#try-it) first. **Built-in functions:** [Standard Library](stdlib.md). **Doc index:** [README](README.md). **Syntax we intentionally do not support (and why):** [Unsupported by design](UNSUPPORTED.md).
 
 ---
 
