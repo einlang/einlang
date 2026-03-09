@@ -41,3 +41,5 @@ let V = value_iteration(r, P, 0.95);
 
 - Small, fixed-size implementations (e.g. 50 steps, 2D or 3 states) so they compile without dynamic loop limits.
 - For full solvers and adaptive methods, use Julia’s packages; here we provide the same *patterns* in Einlang.
+
+**General numerics stdlib:** A proper stdlib numerics layer (no hardcoded sizes, like Julia) would require language support for variable-length recurrence and shape-agnostic state. See [Numerics stdlib design](../docs/NUMERICS_STDLIB_DESIGN.md).

@@ -1,9 +1,6 @@
 ---
 title: Documentation
-# Fix broken link: /einlang/README and /einlang/README.html → this page (/einlang/README/)
-redirect_from:
-  - "/einlang/README"
-  - "/einlang/README.html"
+# Links use .md so the repo renders correctly; jekyll-relative-links rewrites them to pretty URLs on the site.
 ---
 
 # Einlang documentation
@@ -48,18 +45,18 @@ One place to find your path. **Single source of truth:** [Language reference](re
 
 | Doc | What it is |
 |-----|------------|
-| [reference.md](reference.md) | Full language: syntax, types, Einstein notation, where-clauses, recurrences |
+| [reference](reference.md) | Full language: syntax, types, Einstein notation, where-clauses, recurrences |
 | [stdlib.md](stdlib.md) | All built-in modules and functions |
-| [../README.md#install--run](../../README.md#install--run) | Install, CLI, Python API (only place they’re defined) |
-| [../examples/README.md](../../examples/README.md) | Learning path and how to run examples |
-| [GETTING_STARTED.md](GETTING_STARTED.md) | One-page story: what is Einlang → try → first example → use from Python → next |
-| [SYNTAX_COMPARISON.md](SYNTAX_COMPARISON.md) | Python/NumPy, Julia, Rust → Einlang snippet mapping (links to reference) |
-| [EINLANG_FOR_JULIA_PROGRAMMERS.md](EINLANG_FOR_JULIA_PROGRAMMERS.md) | Einlang for Julia programmers: indexing, ODEs/PDEs, recurrence, where to start |
-| [JULIA_DEMOS.md](JULIA_DEMOS.md) | Julia demos and case studies with links; maps each to Einlang examples (simulation/ML overlap) |
-| [MATH.md](MATH.md) | Math notation → Einlang (sums, index relations, guards, recurrences; links to reference) |
-| [UNSUPPORTED.md](UNSUPPORTED.md) | Syntax and features not supported by design, with rationale and alternatives |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | For contributors: project layout, adding features |
-| [FAQ.md](FAQ.md) | Common questions: run, learn, by background, where to ask |
-| [DOCUMENTATION_DESIGN.md](DOCUMENTATION_DESIGN.md) | How this doc set is designed (for maintainers) |
-| [LEARNING_FROM_JULIA.md](LEARNING_FROM_JULIA.md) | Lessons from Julia’s docs for showcase and retention (for maintainers) |
-| [RELEASE_READINESS.md](RELEASE_READINESS.md) | Pre-release checklist (try-it, docs, examples, discoverability) |
+| [../README#install--run](../../README.md#install--run) | Install, CLI, Python API (only place they’re defined) |
+| [../examples/README](../../examples/README.md) | Learning path and how to run examples |
+| [GETTING_STARTED](GETTING_STARTED.md) | One-page story: what is Einlang → try → first example → use from Python → next |
+| [SYNTAX_COMPARISON](SYNTAX_COMPARISON.md) | Python/NumPy, Julia, Rust → Einlang snippet mapping (links to reference) |
+| [EINLANG_FOR_JULIA_PROGRAMMERS](EINLANG_FOR_JULIA_PROGRAMMERS.md) | Einlang for Julia programmers: indexing, ODEs/PDEs, recurrence, where to start |
+| [JULIA_DEMOS](JULIA_DEMOS.md) | Julia demos and case studies with links; maps each to Einlang examples (simulation/ML overlap) |
+| [MATH](MATH.md) | Math notation → Einlang (sums, index relations, guards, recurrences; links to reference) |
+| [UNSUPPORTED](UNSUPPORTED.md) | Syntax and features not supported by design, with rationale and alternatives |
+| [DEVELOPMENT](DEVELOPMENT.md) | For contributors: project layout, adding features |
+| [FAQ](FAQ.md) | Common questions: run, learn, by background, where to ask |
+| [DOCUMENTATION_DESIGN](DOCUMENTATION_DESIGN.md) | How this doc set is designed (for maintainers) |
+| [LEARNING_FROM_JULIA](LEARNING_FROM_JULIA.md) | Lessons from Julia’s docs for showcase and retention (for maintainers) |
+| [RELEASE_READINESS](RELEASE_READINESS.md) | Pre-release checklist (try-it, docs, examples, discoverability) |

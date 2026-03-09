@@ -313,7 +313,26 @@ class PipelineTypeValidator(IRVisitor[None]):
             node.expr.accept(self)
         for constraint in node.constraints:
             constraint.accept(self)
-    
+
+    def visit_lowered_recurrence(self, node) -> None:
+        if getattr(node, "initial", None):
+            node.initial.accept(self)
+        if getattr(node, "recurrence_loop", None) and getattr(node.recurrence_loop, "iterable", None):
+            node.recurrence_loop.iterable.accept(self)
+        if getattr(node, "body", None):
+            node.body.accept(self)
+
+    def visit_lowered_einstein(self, node) -> None:
+        for item in getattr(node, "items", []) or []:
+            item.accept(self)
+
+    def visit_lowered_einstein_clause(self, node) -> None:
+        if getattr(node, "body", None):
+            node.body.accept(self)
+        for loop in getattr(node, "loops", []) or []:
+            if getattr(loop, "iterable", None):
+                loop.iterable.accept(self)
+
     # Add stub implementations for all other IR node types
     def visit_range(self, node) -> None:
         pass

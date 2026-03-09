@@ -336,16 +336,16 @@ class CoreExecutionMixin:
                 self.env.set_value(node.defid, node, name=node.name)
             return None
         if is_einstein_binding(node):
-            from ..ir.nodes import LoweredEinsteinIR
+            from ..ir.nodes import LoweredEinsteinIR, LoweredRecurrenceIR
             expr = getattr(node, 'expr', None)
-            if not isinstance(expr, LoweredEinsteinIR):
+            if not isinstance(expr, (LoweredEinsteinIR, LoweredRecurrenceIR)):
                 raise RuntimeError(
                     f"Non-lowered EinsteinDeclaration reached backend. "
                     f"EinsteinLoweringPass must run before codegen. (node type: {type(node).__name__})"
                 )
-        from ..ir.nodes import LoweredEinsteinIR
+        from ..ir.nodes import LoweredEinsteinIR, LoweredRecurrenceIR
         expr = getattr(node, 'expr', None)
-        if isinstance(expr, LoweredEinsteinIR):
+        if isinstance(expr, (LoweredEinsteinIR, LoweredRecurrenceIR)):
             if not (hasattr(node, "value") and node.value):
                 return None
             stack = getattr(self, "_variable_decl_stack", None)

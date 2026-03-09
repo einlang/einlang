@@ -466,6 +466,8 @@ class IRSerializer:
                            for d, loop in red_ranges.items()]
         indices = getattr(node, "indices", None) or []
         indices_sexpr = [self.serialize_to_sexpr(idx) for idx in indices]
+        rec_override = getattr(node, "recurrence_dims_override", None)
+        rec_override_sexpr = rec_override if isinstance(rec_override, list) else []
         core = [self._sym("lowered-einstein-clause"),
                 self._sym(":body"), body,
                 self._sym(":loops"), loops,
@@ -473,7 +475,8 @@ class IRSerializer:
                 self._sym(":bindings"), bindings,
                 self._sym(":guards"), guards,
                 self._sym(":reduction_ranges"), red_ranges_sexpr,
-                self._sym(":indices"), indices_sexpr]
+                self._sym(":indices"), indices_sexpr,
+                self._sym(":recurrence_dims_override"), list(rec_override_sexpr)]
         if red_defids_str:
             core.extend([self._sym(":reduction_loop_defids"), red_defids_str])
         if self.include_location and getattr(node, "location", None):
@@ -490,7 +493,21 @@ class IRSerializer:
                 self._sym(":shape"), shape,
                 self._sym(":element_type"), elem_type,
                 self._sym(":items"), items]
-    
+
+    def _serialize_LoweredRecurrenceIR(self, node) -> list:
+        """Serialize LoweredRecurrenceIR: (lowered-recurrence :initial ... :recurrence_loop ... :body ...)."""
+        initial = self.serialize_to_sexpr(node.initial)
+        recurrence_loop = self._serialize_LoopStructure(node.recurrence_loop)
+        body = self.serialize_to_sexpr(node.body)
+        core = [self._sym("lowered-recurrence"),
+                self._sym(":initial"), initial,
+                self._sym(":recurrence_loop"), recurrence_loop,
+                self._sym(":body"), body]
+        if self.include_location and getattr(node, "location", None):
+            loc = node.location
+            core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
+        return core
+
     def _serialize_LoweredComprehensionIR(self, node) -> list:
         """Serialize LoweredComprehensionIR: (lowered-comprehension :body ... :loops ... :bindings ... :guards ...)"""
         body = self.serialize_to_sexpr(node.body)
@@ -1462,7 +1479,11 @@ class IRDeserializer:
                             red_ranges[d] = loop
         indices_sexpr = opts.get(":indices")
         indices = [self.deserialize(s) for s in indices_sexpr] if isinstance(indices_sexpr, list) else []
-        return LoweredEinsteinClauseIR(body=body, loops=loops, bindings=bindings, guards=guards, reduction_ranges=red_ranges, indices=indices, location=loc)
+        rec_override_raw = opts.get(":recurrence_dims_override")
+        recurrence_dims_override = None
+        if isinstance(rec_override_raw, list) and len(rec_override_raw) > 0:
+            recurrence_dims_override = [int(x) for x in rec_override_raw if isinstance(x, (int, float))]
+        return LoweredEinsteinClauseIR(body=body, loops=loops, bindings=bindings, guards=guards, reduction_ranges=red_ranges, indices=indices, recurrence_dims_override=recurrence_dims_override, location=loc)
 
     def _deserialize_lowered_einstein(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LoweredEinsteinIR
@@ -1474,6 +1495,18 @@ class IRDeserializer:
         items_sexpr = opts.get(":items")
         items = [self.deserialize(s) for s in items_sexpr] if isinstance(items_sexpr, list) else []
         return LoweredEinsteinIR(items=items, shape=shape, element_type=element_type, location=loc)
+
+    def _deserialize_lowered_recurrence(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import LoweredRecurrenceIR
+        _, opts = _plist(tail)
+        loc = self._loc_from_opts(opts)
+        initial = self.deserialize(opts.get(":initial"))
+        recurrence_loop_sexpr = opts.get(":recurrence_loop")
+        recurrence_loop = self._deserialize_loop_structure(recurrence_loop_sexpr) if recurrence_loop_sexpr else None
+        body = self.deserialize(opts.get(":body"))
+        if initial is None or recurrence_loop is None or body is None:
+            raise ValueError("LoweredRecurrenceIR missing initial, recurrence_loop, or body")
+        return LoweredRecurrenceIR(initial=initial, recurrence_loop=recurrence_loop, body=body, location=loc)
 
     def _deserialize_interpolated_string(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import InterpolatedStringIR

@@ -5,6 +5,3 @@ title: Einlang
 description: Tensor math in Einstein notation with compile-time shape checking
 baseurl: "/einlang"
 permalink: pretty
-# So https://einlang.github.io/einlang/README and .../README.html work (redirect to .../README/)
-plugins:
-  - jekyll-redirect-from

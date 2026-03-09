@@ -1,0 +1,7 @@
+// std::numerics - General-purpose numerics (ODE, optimization, dynamic programming).
+// No hardcoded sizes; step counts and dimensions are parameters (Julia-style).
+// Use: use std::numerics::ode; use std::numerics::optim; use std::numerics::dp;
+
+pub mod ode;
+pub mod optim;
+pub mod dp;

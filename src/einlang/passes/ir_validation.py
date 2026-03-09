@@ -368,6 +368,15 @@ class IRValidationVisitor(IRVisitor[None]):
         for item in getattr(node, 'items', []) or []:
             item.accept(self)
 
+    def visit_lowered_recurrence(self, node: Any) -> None:
+        """Visit initial, recurrence loop iterable, and body."""
+        if getattr(node, 'initial', None):
+            node.initial.accept(self)
+        if getattr(node, 'recurrence_loop', None) and getattr(node.recurrence_loop, 'iterable', None):
+            node.recurrence_loop.iterable.accept(self)
+        if getattr(node, 'body', None):
+            node.body.accept(self)
+
     def visit_lowered_einstein_clause(self, node: Any) -> None:
         """Visit lowered clause body, loops, bindings, guards."""
         if getattr(node, 'body', None):

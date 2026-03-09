@@ -106,6 +106,62 @@ let idx = argmax([3, 1, 4, 1, 5]);   // 4
 
 ---
 
+## `std::numerics`
+
+General-purpose numerics (Julia-style): no hardcoded sizes; step counts and dimensions are parameters. See [Numerics stdlib design](NUMERICS_STDLIB_DESIGN.md). **20 functions** for real-world applications: ODEs (scalar decay + linear systems), optimization (quadratic + least-squares), and dynamic programming (value iteration + convergence).
+
+### `std::numerics::ode` (8 functions)
+
+Scalar decay du/dt = -k*u and linear system du/dt = A*u.
+
+```rust
+use std::numerics::ode;
+
+// Scalar decay: one-step and trajectories
+let u1 = ode::euler_decay_step(u, k, dt);
+let u = ode::euler_decay(u0, k, dt, n_steps);
+let u1 = ode::midpoint_decay_step(u, k, dt);
+let u = ode::midpoint_decay(u0, k, dt, n_steps);
+let u1 = ode::rk4_decay_step(u, k, dt);
+let u = ode::rk4_decay(u0, k, dt, n_steps);
+
+// Linear system du/dt = A*u (vector ODE)
+let u_next = ode::euler_linear_step(u, A, dt, n);
+let u_traj = ode::euler_linear(u0, A, dt, n_steps, n);  // (n_steps+1, n)
+```
+
+### `std::numerics::optim` (7 functions)
+
+2D quadratic min, convergence check, and least-squares fit.
+
+```rust
+use std::numerics::optim;
+
+let val = optim::quadratic_value_2d(x, A, b);
+let grad = optim::quadratic_gradient_2d(x, A, b);
+let res_norm = optim::quadratic_residual_norm_2d(x, A, b);  // convergence
+let x_next = optim::gradient_descent_step_2d(x, A, b, alpha);
+let x_traj = optim::gradient_descent_2d(A, b, alpha, n_steps);
+let x_traj = optim::gradient_descent_2d_from(x0, A, b, alpha, n_steps);
+let [slope, intercept] = optim::least_squares_slope_intercept(x, y, n);  // y ~ slope*x + intercept
+```
+
+### `std::numerics::dp` (5 functions)
+
+QuantEcon-style value iteration, helpers, and convergence check.
+
+```rust
+use std::numerics::dp;
+
+let ev = dp::expected_value_at_state(V, P, s, n_states);
+let ret = dp::discounted_return(rewards, beta, n_periods);
+let V_new = dp::bellman_step(V, r, P, beta, n_states);
+let V = dp::value_iteration(r, P, beta, n_states, n_iters);
+let res = dp::bellman_residual(V, r, P, beta, n_states);  // convergence
+```
+
+---
+
 ## `std::ml`
 
 ### Activations (`std::ml::activations`)

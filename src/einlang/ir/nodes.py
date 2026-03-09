@@ -996,8 +996,9 @@ class LoweredIteration(IRNode):
 
 
 class LoweredEinsteinClauseIR(IRNode):
-    """Single lowered Einstein clause (body, loops, bindings, guards, indices). reduction_ranges keyed by DefId."""
-    __slots__ = ('body', 'loops', 'reduction_ranges', 'bindings', 'guards', 'indices')
+    """Single lowered Einstein clause (body, loops, bindings, guards, indices). reduction_ranges keyed by DefId.
+    recurrence_dims_override: set by RecurrenceOrderPass when clause has same-timestep dependency (e.g. reads u[t,0] when writing u[t,1])."""
+    __slots__ = ('body', 'loops', 'reduction_ranges', 'bindings', 'guards', 'indices', 'recurrence_dims_override')
 
     def __init__(
         self,
@@ -1007,6 +1008,7 @@ class LoweredEinsteinClauseIR(IRNode):
         bindings: Optional[List['BindingIR']] = None,
         guards: Optional[List[GuardCondition]] = None,
         indices: Optional[List[Any]] = None,
+        recurrence_dims_override: Optional[List[int]] = None,
         location: Optional[SourceLocation] = None,
     ):
         super().__init__(location or SourceLocation('', 0, 0))
@@ -1016,6 +1018,7 @@ class LoweredEinsteinClauseIR(IRNode):
         self.bindings = _t(bindings)
         self.guards = _t(guards)
         self.indices = _t(indices)
+        self.recurrence_dims_override = recurrence_dims_override
     
     def __str__(self) -> str:
         parts = [f"body: {self.body}"]
@@ -1042,6 +1045,30 @@ class LoweredEinsteinIR(IRNode):
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_lowered_einstein(self)
+
+
+class LoweredRecurrenceIR(ExpressionIR):
+    """
+    Recurrence loop isolated out of the Einstein clause.
+    initial: run once (non-recurrence clauses). recurrence_loop: the timestep loop (e.g. t).
+    body: recurrence clauses only; executed once per timestep with loop var in env.
+    """
+    __slots__ = ('initial', 'recurrence_loop', 'body')
+
+    def __init__(
+        self,
+        initial: LoweredEinsteinIR,
+        recurrence_loop: 'LoopStructure',
+        body: LoweredEinsteinIR,
+        location: Optional[SourceLocation] = None,
+    ):
+        super().__init__(location or SourceLocation('', 0, 0))
+        self.initial = initial
+        self.recurrence_loop = recurrence_loop
+        self.body = body
+
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_lowered_recurrence(self)
 
 
 class LoweredReductionIR(ExpressionIR):
@@ -1332,6 +1359,17 @@ class IRVisitor(ABC, Generic[T]):
         result = node.items[0].accept(self)
         for item in node.items[1:]:
             result = item.accept(self)
+        return result
+
+    def visit_lowered_recurrence(self, node: 'LoweredRecurrenceIR') -> T:
+        """Visit recurrence isolated out of Einstein. Default: recurse into initial, recurrence_loop.iterable, body."""
+        result = None  # type: ignore[assignment]
+        if getattr(node, 'initial', None):
+            result = node.initial.accept(self)
+        if getattr(node, 'recurrence_loop', None) and getattr(node.recurrence_loop, 'iterable', None):
+            result = node.recurrence_loop.iterable.accept(self)
+        if getattr(node, 'body', None):
+            result = node.body.accept(self)
         return result
 
     @abstractmethod

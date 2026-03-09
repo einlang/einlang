@@ -254,7 +254,26 @@ class CastValidationVisitor(IRVisitor[None]):
             return
         if hasattr(node, 'value') and node.value:
             node.value.accept(self)
-    
+
+    def visit_lowered_recurrence(self, node) -> None:
+        """Recurse into initial and body (recurrence loop is structural)."""
+        if getattr(node, "initial", None):
+            node.initial.accept(self)
+        if getattr(node, "recurrence_loop", None) and getattr(node.recurrence_loop, "iterable", None):
+            node.recurrence_loop.iterable.accept(self)
+        if getattr(node, "body", None):
+            node.body.accept(self)
+
+    def visit_lowered_einstein(self, node) -> None:
+        """Recurse into lowered Einstein items."""
+        for item in getattr(node, "items", []) or []:
+            item.accept(self)
+
+    def visit_lowered_einstein_clause(self, node) -> None:
+        """Recurse into clause body."""
+        if getattr(node, "body", None):
+            node.body.accept(self)
+
     def visit_literal_pattern(self, node) -> None:
         pass
     

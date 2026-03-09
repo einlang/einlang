@@ -107,7 +107,10 @@ class CompilerDriver:
         # After type inference so it can access type_info for element_type
         from ..passes.einstein_lowering import EinsteinLoweringPass
         self.pass_manager.register_pass(EinsteinLoweringPass)
-        
+
+        from ..passes.recurrence_order import RecurrenceOrderPass
+        self.pass_manager.register_pass(RecurrenceOrderPass)
+
         # 7. Validation passes
         from ..passes.cast_validation import CastValidationPass
         self.pass_manager.register_pass(CastValidationPass)

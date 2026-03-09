@@ -1,6 +1,6 @@
 # Einlang Examples
 
-**First time?** [Try it in 30 seconds](../README.md#try-it) or read [Getting started](../docs/GETTING_STARTED.md). **Want one capability?** [Examples by feature](../README.md#examples).
+**First time?** [Try it in 30 seconds](../README.md#try-it) or read [Getting started](../docs/GETTING_STARTED.md). **Want one capability?** [Examples by feature](../README#examples).
 
 Examples are grouped **by domain** below. For a step-by-step path (basics → demos → MNIST → ViT → Whisper), see [Learning path](#learning-path).
 
@@ -40,7 +40,7 @@ Recurrences (base case + step); Markov chains, chaos.
 | [`value_iteration/`](value_iteration/) | Bellman value iteration (QuantEcon.jl-style) | `python3 -m einlang examples/value_iteration/main.ein` |
 | [`job_search/`](job_search/) | McCall job search (QuantEcon): value function iteration, reservation wage | `python3 -m einlang examples/job_search/mccall.ein` |
 | [`optimization/`](optimization/) | Gradient descent, power iteration, projected gradient, Rosenbrock (Optim.jl/SciML) | `python3 -m einlang examples/optimization/gradient_descent.ein`; `rosenbrock.ein`; … |
-| **[`numerics/`](numerics/)** | **Reusable numerics:** DiffEq (Euler decay), Optim (gradient descent 2D), QuantEcon (value iteration) | `python3 -m einlang examples/run_numerics.ein`; see [numerics/README.md](numerics/README.md) |
+| **[`numerics/`](numerics/)** | **Reusable numerics:** DiffEq (Euler decay), Optim (gradient descent 2D), QuantEcon (value iteration) | `python3 -m einlang examples/run_numerics.ein`; see [numerics/README](numerics/README) |
 
 ### Time series
 
@@ -55,7 +55,7 @@ Multi-step workflows that mirror production use: fit model to data, run one mode
 | Directory | What it does | Run |
 |-----------|--------------|-----|
 | [`calibration/`](calibration/) | Fit decay parameter to synthetic data (grid search over k; SSE loss) | `python3 -m einlang examples/calibration/decay_fit.ein` |
-| [`applications/`](applications/) | Savings over multiple interest-rate scenarios (sensitivity / scenario analysis) | `python3 -m einlang examples/applications/savings_scenarios.ein` |
+| [`applications/`](applications/) | Savings over scenarios; **decay calibration** (fit u=u0·e^{-kt} via least squares, then forecast with std::numerics) | `python3 -m einlang examples/applications/savings_scenarios.ein` · `examples/applications/decay_calibration.ein` |
 
 ### Computer vision
 
@@ -79,7 +79,7 @@ Learn the language: variables, functions, Einstein notation, tensors.
 |-----------|-------------------|-----|
 | [`basics/`](basics/) | Variables, arithmetic, functions, data processing | `python3 -m einlang examples/basics/variables_demo.ein` |
 | [`demos/`](demos/) | Matrices, tensors, imports, overloading | `python3 -m einlang examples/demos/matrix_operations.ein` |
-| [`units/`](units/) | 60+ unit-style examples (every feature) | Lookup by feature; see [units/README.md](units/README.md) |
+| [`units/`](units/) | 60+ unit-style examples (every feature) | Lookup by feature; see [units/README](units/README.md) |
 
 ---
 
@@ -115,6 +115,7 @@ python3 -m einlang examples/value_iteration/main.ein
 python3 -m einlang examples/run_numerics.ein
 python3 -m einlang examples/calibration/decay_fit.ein
 python3 -m einlang examples/applications/savings_scenarios.ein
+python3 -m einlang examples/applications/decay_calibration.ein
 
 # Language
 python3 -m einlang examples/basics/variables_demo.ein
@@ -142,4 +143,4 @@ Every simulation example is [accuracy-tested](tests/examples/test_simulation_acc
 
 ---
 
-**Reference:** [Language reference](../docs/reference.md) · [Standard library](../docs/stdlib.md). **Doc index:** [docs/README.md](../docs/README.md).
+**Reference:** [Language reference](../docs/reference.md) · [Standard library](../docs/stdlib.md). **Doc index:** [docs/README](../docs/README.md).

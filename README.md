@@ -40,7 +40,7 @@ One step is enough — no account or long read required.
 | **Learn the language** | [Language Reference](docs/reference.md) · [Standard Library](docs/stdlib.md) |
 | **See what's possible** | [What you get](#what-you-get) · [Examples](#examples) |
 | **Stay in the loop** | [★ Star the repo](https://github.com/einlang/einlang) · Watch → Releases |
-| **Contribute** | [CONTRIBUTING.md](CONTRIBUTING.md) — doc fixes and small bugs are a great start |
+| **Contribute** | [CONTRIBUTING](CONTRIBUTING.md) — doc fixes and small bugs are a great start |
 
 ---
 
@@ -123,7 +123,7 @@ let C[i, j] = sum[k](A[i, k] * B[k, j]);
 
 ## Examples
 
-Grouped **by domain**; full list: [examples/README.md](examples/README.md).
+Grouped **by domain**; full list: [examples/README](examples/README.md).
 
 | Domain | Examples | Run |
 |--------|----------|-----|
@@ -153,7 +153,7 @@ Canonical: [reference](docs/reference.md) · [stdlib](docs/stdlib.md) · Install
 
 ## Community
 
-[**★ Star us**](https://github.com/einlang/einlang) — it helps others find Einlang. **Issues and PRs welcome** — [CONTRIBUTING.md](CONTRIBUTING.md).
+[**★ Star us**](https://github.com/einlang/einlang) — it helps others find Einlang. **Issues and PRs welcome** — [CONTRIBUTING](CONTRIBUTING.md).
 
 ## License
 

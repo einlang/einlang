@@ -1,0 +1,39 @@
+// Real-world application: calibrate exponential decay from observations, then forecast.
+//
+// Pattern: observe u(t) = u0 * exp(-k*t) at discrete times; fit log(u) vs t to get k and u0;
+// simulate forward with the fitted model. Used in pharmacokinetics, cooling, radioactivity.
+//
+// Uses std::numerics: optim::least_squares_slope_intercept (log-linear fit), ode::rk4_decay (simulate).
+// In production, replace synthetic data with e.g. std::io::load_npy("observations.npy").
+//
+// Julia parallel: Optim.jl or GLM for fit; DifferentialEquations.jl for ODE; same workflow.
+
+use std::math::{exp, ln};
+use std::numerics::ode;
+use std::numerics::optim;
+
+let dt = 0.1;
+let n_obs = 25;
+let n_forecast = 15;
+
+// True process (unknown in practice)
+let k_true = 0.08;
+let u0_true = 2.0;
+
+// Synthetic observations: u(t) = u0 * exp(-k*t) at t = 0, dt, 2*dt, ...
+let data[t in 0..n_obs] = u0_true * exp(-k_true * (t as f64) * dt);
+
+// Log-linear fit: ln(u) = ln(u0) - k*t  =>  regress y = ln(data) on x = t*dt
+// slope = -k, intercept = ln(u0)  =>  k_fit = -slope, u0_fit = exp(intercept)
+let time[t in 0..n_obs] = (t as f64) * dt;
+let log_data[t in 0..n_obs] = ln(data[t]);
+let coef = optim::least_squares_slope_intercept(time, log_data, n_obs);
+let k_fit = -coef[0];
+let u0_fit = exp(coef[1]);
+
+// Simulate forward from last observation with fitted model (RK4 for accuracy)
+let u_forecast = ode::rk4_decay(data[n_obs - 1], k_fit, dt, n_forecast);
+
+print(k_fit);
+print(u0_fit);
+print(u_forecast);

@@ -31,10 +31,10 @@ Full install and CLI options: [Install & run](../../README.md#install--run).
 
 ## Where are the examples?
 
-[examples/README.md](../../examples/README.md) — learning path and list by domain (simulation, recurrence, finance, value_iteration, job_search, optimization, time_series, ML, etc.). Run from repo root: `python3 -m einlang examples/hello.ein`.
+[examples/README](../../examples/README.md) — learning path and list by domain (simulation, recurrence, finance, value_iteration, job_search, optimization, time_series, ML, etc.). Run from repo root: `python3 -m einlang examples/hello.ein`.
 
 ---
 
 ## How do I report a bug or ask something?
 
-Open an [issue](https://github.com/einlang/einlang/issues). For contributing (docs, small fixes): [CONTRIBUTING.md](../../CONTRIBUTING.md).
+Open an [issue](https://github.com/einlang/einlang/issues). For contributing (docs, small fixes): [CONTRIBUTING](../../CONTRIBUTING.md).

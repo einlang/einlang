@@ -36,6 +36,7 @@ let sigma2 = 50.0;
 
 let h[0, i in 0..40, j in 0..40] = 10.0 * exp(-(((i - cx) * (i - cx) + (j - cy) * (j - cy)) as f32 / sigma2));
 let h[1, i in 0..40, j in 0..40] = h[0, i, j];
-let h[t in 2..200, i in 1..39, j in 1..39] =
-    2.0 * h[t - 1, i, j] - h[t - 2, i, j]
-    + r * (h[t - 1, i - 1, j] + h[t - 1, i + 1, j] + h[t - 1, i, j - 1] + h[t - 1, i, j + 1] - 4.0 * h[t - 1, i, j]);
+let h[t in 2..200, i in 1..39, j in 1..39] = {
+    let lap = h[t - 1, i - 1, j] + h[t - 1, i + 1, j] + h[t - 1, i, j - 1] + h[t - 1, i, j + 1] - 4.0 * h[t - 1, i, j];
+    2.0 * h[t - 1, i, j] - h[t - 2, i, j] + r * lap
+};

@@ -6,59 +6,28 @@
 //   B = 2.0
 //   alpha = 0.02
 //   dt = 0.2
-//   state = zeros(300, 2, 64, 64)
+//   state = zeros(20, 2, 33, 33)
 //   state[1, 1, :, :] .= 1.0
-//   for j in 1:64
-//       for i in 1:64
-//           state[1, 2, i, j] = (30 <= i <= 34 && 30 <= j <= 34) ? 0.5 : 0.0
-//       end
-//   end
-//   for t in 2:300
-//       for j in 1:64
-//           state[t, 1, 1, j] = state[t-1, 1, 1, j]
-//           state[t, 2, 1, j] = state[t-1, 2, 1, j]
-//       end
-//       for j in 1:64
-//           state[t, 1, 64, j] = state[t-1, 1, 64, j]
-//           state[t, 2, 64, j] = state[t-1, 2, 64, j]
-//       end
-//       for i in 2:63
-//           state[t, 1, i, 1] = state[t-1, 1, i, 1]
-//           state[t, 2, i, 1] = state[t-1, 2, i, 1]
-//       end
-//       for i in 2:63
-//           state[t, 1, i, 64] = state[t-1, 1, i, 64]
-//           state[t, 2, i, 64] = state[t-1, 2, i, 64]
-//       end
-//       for j in 2:63
-//           for i in 2:63
-//               U = state[t-1, 1, i, j]
-//               V = state[t-1, 2, i, j]
-//               lap_U = state[t-1, 1, i-1, j] + state[t-1, 1, i+1, j] + state[t-1, 1, i, j-1] + state[t-1, 1, i, j+1] - 4.0 * U
-//               lap_V = state[t-1, 2, i-1, j] + state[t-1, 2, i+1, j] + state[t-1, 2, i, j-1] + state[t-1, 2, i, j+1] - 4.0 * V
-//               state[t, 1, i, j] = U + dt * (B + U^2*V - (A+1)*U + alpha * lap_U)
-//               state[t, 2, i, j] = V + dt * (A*U - U^2*V + alpha * lap_V)
-//           end
-//       end
-//   end
+//   state[1, 2, 14:19, 14:19] .= 0.5  // center 5x5
+//   for t in 2:20 ... (boundary copy, then interior U/V updates)
 
 let A = 1.0;
 let B = 2.0;
 let alpha = 0.02;
 let dt = 0.2;
 
-// 64x64 grid, seed at center
-let state[0, 0, i in 0..64, j in 0..64] = 1.0;
-let state[0, 1, i in 0..64, j in 0..64] = if i >= 30 && i <= 34 && j >= 30 && j <= 34 { 0.5 } else { 0.0 };
+// 33x33 grid (20 steps) for fast run; seed at center. Ranges are exclusive-end: 0..33 => indices 0..32.
+let state[0, 0, i in 0..33, j in 0..33] = 1.0;
+let state[0, 1, i in 0..33, j in 0..33] = if i >= 14 && i <= 18 && j >= 14 && j <= 18 { 0.5 } else { 0.0 };
 
 // Boundary (copy from t-1)
-let state[t in 1..300, c in 0..2, 0, j in 0..64] = state[t - 1, c, 0, j];
-let state[t in 1..300, c in 0..2, 63, j in 0..64] = state[t - 1, c, 63, j];
-let state[t in 1..300, c in 0..2, i in 1..63, 0] = state[t - 1, c, i, 0];
-let state[t in 1..300, c in 0..2, i in 1..63, 63] = state[t - 1, c, i, 63];
+let state[t in 1..20, c in 0..2, 0, j in 0..33] = state[t - 1, c, 0, j];
+let state[t in 1..20, c in 0..2, 32, j in 0..33] = state[t - 1, c, 32, j];
+let state[t in 1..20, c in 0..2, i in 1..32, 0] = state[t - 1, c, i, 0];
+let state[t in 1..20, c in 0..2, i in 1..32, 32] = state[t - 1, c, i, 32];
 
 // Interior U (channel 0): block + U, V, lap_U to match Julia
-let state[t in 1..300, 0, i in 1..63, j in 1..63] = {
+let state[t in 1..20, 0, i in 1..32, j in 1..32] = {
   let U = state[t - 1, 0, i, j];
   let V_ = state[t - 1, 1, i, j];
   let lap_U = state[t - 1, 0, i - 1, j] + state[t - 1, 0, i + 1, j] + state[t - 1, 0, i, j - 1] + state[t - 1, 0, i, j + 1] - 4.0 * U;
@@ -66,7 +35,7 @@ let state[t in 1..300, 0, i in 1..63, j in 1..63] = {
 };
 
 // Interior V (channel 1): block + U, V, lap_V to match Julia
-let state[t in 1..300, 1, i in 1..63, j in 1..63] = {
+let state[t in 1..20, 1, i in 1..32, j in 1..32] = {
   let U = state[t - 1, 0, i, j];
   let V_ = state[t - 1, 1, i, j];
   let lap_V = state[t - 1, 1, i - 1, j] + state[t - 1, 1, i + 1, j] + state[t - 1, 1, i, j - 1] + state[t - 1, 1, i, j + 1] - 4.0 * V_;

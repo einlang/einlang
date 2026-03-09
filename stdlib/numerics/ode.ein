@@ -1,0 +1,73 @@
+// std::numerics::ode - ODE steppers (DifferentialEquations.jl-style).
+// General: n_steps is a parameter, no fixed sizes.
+// All steppers for scalar decay du/dt = -k*u.
+
+// --- Euler ---
+// One Euler step for scalar decay: u_next = u * (1 - k*dt).
+pub fn euler_decay_step(u: f64, k: f64, dt: f64) -> f64 {
+  u * (1.0 - k * dt)
+}
+
+// Explicit Euler for exponential decay du/dt = -k*u, u(0)=u0.
+// Returns trajectory of length n_steps+1 (u[0]=u0, then n_steps steps).
+pub fn euler_decay(u0: f64, k: f64, dt: f64, n_steps: i32) -> [f64] {
+  let u[0] = u0;
+  let u[t in 1..(n_steps + 1)] = u[t - 1] * (1.0 - k * dt);
+  u
+}
+
+// --- Midpoint (RK2) ---
+// One midpoint step: u_mid = u + 0.5*dt*(-k*u), u_next = u + dt*(-k*u_mid).
+pub fn midpoint_decay_step(u: f64, k: f64, dt: f64) -> f64 {
+  let u_mid = u * (1.0 - 0.5 * k * dt);
+  u + dt * (-k * u_mid)
+}
+
+// Midpoint method trajectory for decay; returns (n_steps+1,) trajectory.
+pub fn midpoint_decay(u0: f64, k: f64, dt: f64, n_steps: i32) -> [f64] {
+  let u[0] = u0;
+  let u[t in 1..(n_steps + 1)] = {
+    let prev = u[t - 1];
+    let u_mid = prev * (1.0 - 0.5 * k * dt);
+    prev + dt * (-k * u_mid)
+  };
+  u
+}
+
+// --- RK4 ---
+// One RK4 step for du/dt = -k*u.
+pub fn rk4_decay_step(u: f64, k: f64, dt: f64) -> f64 {
+  let k1 = -k * u;
+  let k2 = -k * (u + 0.5 * dt * k1);
+  let k3 = -k * (u + 0.5 * dt * k2);
+  let k4 = -k * (u + dt * k3);
+  u + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+}
+
+// RK4 trajectory for decay; returns (n_steps+1,) trajectory.
+pub fn rk4_decay(u0: f64, k: f64, dt: f64, n_steps: i32) -> [f64] {
+  let u[0] = u0;
+  let u[t in 1..(n_steps + 1)] = {
+    let prev = u[t - 1];
+    let k1 = -k * prev;
+    let k2 = -k * (prev + 0.5 * dt * k1);
+    let k3 = -k * (prev + 0.5 * dt * k2);
+    let k4 = -k * (prev + dt * k3);
+    prev + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+  };
+  u
+}
+
+// --- Linear system du/dt = A*u (vector ODE) ---
+// One Euler step: u_next[i] = u[i] + dt * sum[j](A[i,j]*u[j]). A is (n,n), u length n.
+pub fn euler_linear_step(u: [f64; ?], A: [f64; ?, ?], dt: f64, n: i32) -> [f64; ?] {
+  let u_next[i in 0..n] = u[i] + dt * sum[j in 0..n](A[i, j] * u[j]);
+  u_next
+}
+
+// Euler trajectory for du/dt = A*u; u0 length n. Returns (n_steps+1, n).
+pub fn euler_linear(u0: [f64; ?], A: [f64; ?, ?], dt: f64, n_steps: i32, n: i32) -> [f64; ?, ?] {
+  let u[0, i in 0..n] = u0[i];
+  let u[t in 1..(n_steps + 1), i in 0..n] = u[t - 1, i] + dt * sum[j in 0..n](A[i, j] * u[t - 1, j]);
+  u
+}
