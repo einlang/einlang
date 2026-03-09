@@ -1,6 +1,6 @@
 # Development
 
-For contributors who want to work on the compiler or add features. If you're just using Einlang, the [main README](../README.md) and [Language Reference](reference.md) are enough.
+For contributors who want to work on the compiler or add features. If you're just using Einlang, the [main README](../../README.md) and [Language Reference](reference.md) are enough.
 
 ## Todo
 
@@ -55,6 +55,10 @@ tests/
 2. Backend support if needed — `backends/`
 3. Tests — `tests/stdlib/`
 4. Docs — `docs/stdlib.md`
+
+## GitHub Pages
+
+The site (https://einlang.github.io/einlang/) should **deploy from the repository root**, not from `/docs`. That way README, CONTRIBUTING, and examples/README.md are part of the site and relative links work. In the repo: **Settings → Pages → Build and deployment → Source**: "Deploy from a branch", branch `main`, folder **/** (root). Root `_config.yml` and `index.md` define the build; `docs/_config.yml` is only for the legacy "deploy from /docs" setup.
 
 ## Error System
 

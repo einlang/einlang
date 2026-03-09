@@ -19,6 +19,9 @@ import pytest
 from tests.test_utils import compile_and_execute
 from tests.examples.reference_implementations import (
     decay_reference,
+    euler_decay_reference,
+    gradient_descent_2d_reference,
+    value_iteration_quantecon_reference,
     wave_2d_reference,
     heat_minimal_reference,
     lorenz_reference,
@@ -87,6 +90,9 @@ SIMULATION_EXAMPLE_PATHS = (
     "examples/optimization/projected_gradient.ein",
     "examples/optimization/rosenbrock.ein",
     "examples/time_series/exponential_smoothing.ein",
+    "examples/run_numerics_diffeq.ein",
+    "examples/run_numerics_optim.ein",
+    "examples/run_numerics_quantecon.ein",
 )
 
 # Every simulation example file (or inline) that must pass accuracy vs reference.
@@ -120,6 +126,9 @@ ALL_ACCURACY_EXAMPLES = [
     ("examples/optimization/projected_gradient.ein", "x", projected_gradient_reference, 1e-5, 1e-5, None),
     ("examples/optimization/rosenbrock.ein", "x", rosenbrock_reference, 1e-4, 1e-4, None),
     ("examples/time_series/exponential_smoothing.ein", "s", exponential_smoothing_reference, 1e-5, 1e-5, None),
+    ("examples/run_numerics_diffeq.ein", "u", euler_decay_reference, 5e-3, 1e-6, None),
+    ("examples/run_numerics_optim.ein", "x_traj", gradient_descent_2d_reference, 1e-5, 1e-5, 3),
+    ("examples/run_numerics_quantecon.ein", "V_traj", value_iteration_quantecon_reference, 1e-5, 1e-5, None),
     ((HEAT_MINIMAL_SOURCE, "<heat_minimal>"), "u", heat_minimal_reference, 1e-5, 1e-6, None),
 ]
 

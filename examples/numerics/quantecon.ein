@@ -1,0 +1,22 @@
+// Quantitative economics (QuantEcon.jl-style). Value function iteration.
+// Use: use numerics::quantecon;
+
+// One Bellman step: V_new[s] = r[s] + beta * sum[s']( P[s',s] * V[s'] ).
+// P is 3x3 (cols = from state), r length 3, V length 3.
+pub fn bellman_step(V: [f64; 3], r: [f64; 3], P: [f64; 3, 3], beta: f64) -> [f64; 3] {
+  let V_new[s in 0..3] = {
+    let ev = P[0, s] * V[0] + P[1, s] * V[1] + P[2, s] * V[2];
+    r[s] + beta * ev
+  };
+  V_new
+}
+
+// Run 50 iterations of value function iteration (3 states). Returns V trajectory (51, 3).
+pub fn value_iteration(r: [f64; 3], P: [f64; 3, 3], beta: f64) -> [f64; 51, 3] {
+  let V[0, s in 0..3] = 0.0;
+  let V[k in 1..51, s in 0..3] = {
+    let ev = P[0, s] * V[k - 1, 0] + P[1, s] * V[k - 1, 1] + P[2, s] * V[k - 1, 2];
+    r[s] + beta * ev
+  };
+  V
+}

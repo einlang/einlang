@@ -91,6 +91,7 @@ Einlang gives you readable tensor math with compile-time shape checking. In prac
 | Domain | Use case | Example |
 |--------|----------|---------|
 | **Scientific simulation** | ODE + PDEs: diffusion, wave, reaction–diffusion (recurrence + stencil) | [ode](examples/ode/), [pde_1d](examples/pde_1d/) (heat, advection), [wave_2d](examples/wave_2d/), [brusselator](examples/brusselator/) |
+| **Real applications** | Calibration (fit model to data), scenario/sensitivity (one model, many parameters) | [calibration](examples/calibration/), [applications](examples/applications/) |
 | **Computer vision** | Digit recognition, int8 quantization, ImageNet ViT | [mnist](examples/mnist/), [mnist_quantized](examples/mnist_quantized/), [deit_tiny](examples/deit_tiny/) |
 | **Speech & sequence** | Speech-to-text (encoder–decoder, autoregressive) | [whisper_tiny](examples/whisper_tiny/) |
 
@@ -134,7 +135,7 @@ Grouped **by domain**; full list: [examples/README.md](examples/README.md).
 | **Speech & sequence** | Speech-to-text (Whisper) | [whisper_tiny/](examples/whisper_tiny/) |
 | **Language & basics** | Variables, matrices, Einstein notation, units | [basics/](examples/basics/), [demos/](examples/demos/), [units/](examples/units/) |
 
-**Quick run:** `python3 -m einlang examples/hello.ein` · `examples/ode/decay.ein` · `examples/optimization/power_iteration.ein` · `examples/finance/savings.ein`
+**Quick run:** `python3 -m einlang examples/hello.ein` · `examples/ode/decay.ein` · `examples/optimization/power_iteration.ein` · `examples/finance/savings.ein` · `examples/job_search/mccall.ein` · `examples/time_series/exponential_smoothing.ein`
 
 Every simulation example has a Julia equivalent in the `.ein` file and is [accuracy-tested](tests/examples/test_simulation_accuracy.py). See [Julia demos → Einlang](docs/JULIA_DEMOS.md).
 

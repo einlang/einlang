@@ -34,6 +34,6 @@ Run a real example: `python3 -m einlang examples/hello.ein`
 | **Get going** | [Getting started](GETTING_STARTED) |
 | **Doc index (by audience)** | [Documentation](README) |
 | **Language & stdlib** | [Reference](reference) · [Stdlib](stdlib) |
-| **Examples** | [GitHub: examples](https://github.com/einlang/einlang/tree/main/examples) |
+| **Examples (learning path & by domain)** | [examples/README.md](../../examples/README.md) · [GitHub: examples](https://github.com/einlang/einlang/tree/main/examples) |
 
 **Repo:** [github.com/einlang/einlang](https://github.com/einlang/einlang) · **Contribute:** [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md)

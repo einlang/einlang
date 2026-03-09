@@ -13,7 +13,7 @@
 | Matrix multiply | `np.einsum('ik,kj->ij', A, B)` or `A @ B` | `let C[i, j] = sum[k](A[i, k] * B[k, j]);` | [Einstein notation](reference.md#einstein-notation) |
 | Sum over an axis | `np.sum(x, axis=1)` | `let s[i] = sum[j](x[i, j]);` | [Reductions](reference.md#einstein-notation) |
 | Element-wise ops | `A * B`, `A + 1` | `let out[i, j] = A[i, j] * B[i, j];` or same-shape `A + B` | [Rectangular declarations](reference.md#einstein-notation), [Operators](reference.md#operators) |
-| Run your code | — | `from einlang import run; run(file="...")` or `run(source="...")` | [Install & run](../README.md#install--run) |
+| Run your code | — | `from einlang import run; run(file="...")` or `run(source="...")` | [Install & run](../../README.md#install--run) |
 
 Einlang runs **inside** your Python process; you pass a file path or a source string. The language looks Rust-like, not Python — but you only need to write the `.ein` side; calling it is one line.
 
@@ -53,4 +53,4 @@ Einlang runs **inside** your Python process; you pass a file path or a source st
 
 - **Full syntax and semantics:** [Language reference](reference.md)
 - **Built-in functions:** [Standard library](stdlib.md)
-- **Run from Python:** [Install & run](../README.md#install--run) in the main README
+- **Run from Python:** [Install & run](../../README.md#install--run) in the main README

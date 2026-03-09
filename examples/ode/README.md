@@ -1,6 +1,6 @@
 # ODE: DifferentialEquations.jl–style time-stepping
 
-**Numerical ODE time-stepping** — aligned with [Julia’s DifferentialEquations.jl](https://docs.sciml.ai/DiffEqDocs/stable/). One folder, six models: scalar decay, linear system, Lorenz, Lotka–Volterra, **pendulum** ([Classical Physics](https://docs.sciml.ai/DiffEqDocs/stable/examples/classical_physics/)), **van der Pol** ([SciML Benchmarks](https://docs.sciml.ai/SciMLBenchmarksOutput/stable/StiffODE/VanDerPol/)). Recurrence over time; no spatial dimension (no PDE/stencil).
+**Numerical ODE time-stepping** — aligned with [Julia’s DifferentialEquations.jl](https://docs.sciml.ai/DiffEqDocs/stable/). One folder, ten models: scalar decay, linear system, Lorenz, Lotka–Volterra, **pendulum** ([Classical Physics](https://docs.sciml.ai/DiffEqDocs/stable/examples/classical_physics/)), **van der Pol** ([SciML Benchmarks](https://docs.sciml.ai/SciMLBenchmarksOutput/stable/StiffODE/VanDerPol/)), SIR, harmonic, Fitzhugh–Nagumo, Lorenz 96. Recurrence over time; no spatial dimension (no PDE/stencil).
 
 ## Files (one per model)
 
@@ -14,6 +14,8 @@
 | `van_der_pol.ein` | Van der Pol oscillator | state[t, 0]=x, state[t, 1]=y |
 | `sir.ein` | SIR epidemic model | state[t, 0..2] = (S, I, R) |
 | `harmonic.ein` | Simple harmonic oscillator | state[t, 0]=x, state[t, 1]=v |
+| `fitzhugh_nagumo.ein` | Fitzhugh–Nagumo (neural/oscillator) | state[t, 0..1] = (v, w) |
+| `lorenz96.ein` | Lorenz 96 (chaotic N-dimensional) | X[t, i] |
 
 All use explicit Euler; same recurrence pattern, different RHS. QuantEcon.jl also uses this style for linear ODEs and Lotka–Volterra.
 
@@ -30,6 +32,8 @@ python3 -m einlang examples/ode/pendulum.ein
 python3 -m einlang examples/ode/van_der_pol.ein
 python3 -m einlang examples/ode/sir.ein
 python3 -m einlang examples/ode/harmonic.ein
+python3 -m einlang examples/ode/fitzhugh_nagumo.ein
+python3 -m einlang examples/ode/lorenz96.ein
 ```
 
 ## Accuracy

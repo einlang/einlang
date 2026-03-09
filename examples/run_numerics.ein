@@ -1,0 +1,23 @@
+// Run numerics modules: DiffEq, Optim, QuantEcon.
+// Run from repo root: python3 -m einlang examples/run_numerics.ein
+// (Crate root must be examples/ so that numerics::* resolves.)
+
+use numerics::diffeq;
+use numerics::optim;
+use numerics::quantecon;
+
+// DiffEq: exponential decay
+let u = diffeq::euler_decay(1.0, 0.05, 0.1);
+print(u);
+
+// Optim: gradient descent 2D
+let A = [[2.0, 0.0], [0.0, 2.0]];
+let b = [1.0, 1.0];
+let x_traj = optim::gradient_descent_2d(A, b, 0.25);
+print(x_traj);
+
+// QuantEcon: value iteration
+let r = [0.0, 1.0, 2.0];
+let P = [[0.5, 0.2, 0.1], [0.3, 0.5, 0.2], [0.2, 0.3, 0.7]];
+let V_traj = quantecon::value_iteration(r, P, 0.95);
+print(V_traj);

@@ -25,6 +25,39 @@ def decay_reference() -> np.ndarray:
     return np.array([u0 * np.exp(-k * (i * dt)) for i in range(n)], dtype=np.float64)
 
 
+def euler_decay_reference() -> np.ndarray:
+    """Euler decay trajectory. Same as numerics::diffeq euler_decay (51 points, u[0]=u0, u[t]=u[t-1]*(1-k*dt))."""
+    u0, k, dt = 1.0, 0.05, 0.1
+    n = 51
+    return np.array([u0 * np.exp(-k * (i * dt)) for i in range(n)], dtype=np.float64)
+
+
+def gradient_descent_2d_reference() -> np.ndarray:
+    """Gradient descent 2D trajectory. Same as numerics::optim gradient_descent_2d (31 steps, A=2I, b=[1,1], alpha=0.25)."""
+    A = np.array([[2.0, 0.0], [0.0, 2.0]], dtype=np.float64)
+    b = np.array([1.0, 1.0], dtype=np.float64)
+    alpha = 0.25
+    nsteps = 31
+    x = np.zeros((nsteps, 2), dtype=np.float64)
+    for k in range(1, nsteps):
+        r = A @ x[k - 1] - b
+        x[k] = x[k - 1] - alpha * r
+    return x
+
+
+def value_iteration_quantecon_reference() -> np.ndarray:
+    """Value iteration trajectory. Same as numerics::quantecon value_iteration (51 iters, 3 states, r,P,beta=0.95)."""
+    beta = 0.95
+    r = np.array([0.0, 1.0, 2.0], dtype=np.float64)
+    P = np.array([[0.5, 0.2, 0.1], [0.3, 0.5, 0.2], [0.2, 0.3, 0.7]], dtype=np.float64)
+    nsteps = 51
+    nstates = 3
+    V = np.zeros((nsteps, nstates), dtype=np.float64)
+    for k in range(1, nsteps):
+        V[k] = r + beta * (P.T @ V[k - 1])
+    return V
+
+
 def wave_2d_reference() -> np.ndarray:
     """2D wave equation, leapfrog. Same as examples/wave_2d/main.ein."""
     r = 0.5

@@ -55,4 +55,4 @@ Base cases and recursive case in one place; the compiler handles evaluation orde
 
 - **Full syntax and semantics:** [Language reference](reference.md)
 - **Math and other functions:** [Standard library](stdlib.md) — `std::math`, `std::ml`
-- **Run an example:** [Getting started](GETTING_STARTED.md) · [Examples](../README.md#examples)
+- **Run an example:** [Getting started](GETTING_STARTED.md) · [Examples by domain](../../examples/README.md) · [README#examples](../../README.md#examples)

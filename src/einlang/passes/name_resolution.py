@@ -396,9 +396,10 @@ class NameResolutionPass(BasePass):
             else:
                 stdlib_root, crate_root = _discover_stdlib_and_crate_root(root_path, stdlib_from_system)
                 path_resolver = PathResolver(stdlib_root=stdlib_root)
-                path_resolver.set_crate_root(crate_root)
+                # Prefer compilation root so e.g. examples/run_numerics.ein can resolve numerics::*
+                path_resolver.set_crate_root(root_path.resolve())
                 if len(_path_discovery_cache) < _MAX_PATH_CACHE_SIZE:
-                    _path_discovery_cache[root_key] = (stdlib_root, crate_root)
+                    _path_discovery_cache[root_key] = (stdlib_root, root_path.resolve())
             if hasattr(tcx, 'discovered_modules') and tcx.discovered_modules:
                 for _mp, file_path in tcx.discovered_modules.items():
                     if isinstance(file_path, Path) and is_temp_path(file_path):
