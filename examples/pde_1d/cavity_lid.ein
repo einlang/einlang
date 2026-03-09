@@ -1,0 +1,49 @@
+// Lid-driven cavity flow
+// 2D incompressible Navier-Stokes in streamfunction-vorticity form: ω = -∇²ψ, ∂ω/∂t + u·∇ω = ν∇²ω
+// Square [0,1]×[0,1], top lid (y=1) moves at U=1, other walls no-slip.
+// Explicit Euler in time + one Jacobi sweep for ψ per step (Poisson ∇²ψ = -ω).
+
+let n = 11;        // 11×11 grid (0..10), interior 1..9
+let nt = 40;       // time steps
+let dx = 1.0 / 10.0;
+let dy = 1.0 / 10.0;
+let dt = 0.005;
+let nu = 0.1;      // Re = U*L/nu = 10
+let U_lid = 1.0;
+
+// Single array u[t,i,j,k]: k=0 is ω, k=1 is ψ. Multi-clause (like heat_1d), no if-else.
+// Initial
+let u[0, i in 0..11, j in 0..11, k in 0..2] = 0.0;
+
+// ω (k=0), t≥1: corners + edges + interior
+let u[t in 1..41, 0, 0, 0] = 0.0;
+let u[t in 1..41, 10, 0, 0] = 0.0;
+let u[t in 1..41, 0, 10, 0] = 0.0;
+let u[t in 1..41, 10, 10, 0] = 0.0;
+let u[t in 1..41, i in 1..9, 0, 0] = -2.0 * u[t - 1, i, 1, 1] / (dy * dy);
+let u[t in 1..41, i in 1..9, 10, 0] = -2.0 * u[t - 1, i, 9, 1] / (dy * dy) - 2.0 * U_lid / dy;
+let u[t in 1..41, 0, j in 1..9, 0] = -2.0 * u[t - 1, 1, j, 1] / (dx * dx);
+let u[t in 1..41, 10, j in 1..9, 0] = -2.0 * u[t - 1, 9, j, 1] / (dx * dx);
+let u[t in 1..41, i in 1..9, j in 1..9, 0] =
+  u[t - 1, i, j, 0]
+  + dt * (
+    -((u[t - 1, i, j + 1, 1] - u[t - 1, i, j - 1, 1]) / (2.0 * dy))
+      * (u[t - 1, i + 1, j, 0] - u[t - 1, i - 1, j, 0]) / (2.0 * dx)
+    -(-(u[t - 1, i + 1, j, 1] - u[t - 1, i - 1, j, 1]) / (2.0 * dx))
+      * (u[t - 1, i, j + 1, 0] - u[t - 1, i, j - 1, 0]) / (2.0 * dy)
+    + nu * (u[t - 1, i + 1, j, 0] + u[t - 1, i - 1, j, 0] + u[t - 1, i, j + 1, 0] + u[t - 1, i, j - 1, 0]
+            - 4.0 * u[t - 1, i, j, 0]) / (dx * dx)
+  );
+
+// ψ (k=1), t≥1: boundary 0 + interior Jacobi
+let u[t in 1..41, 0, j in 0..11, 1] = 0.0;
+let u[t in 1..41, 10, j in 0..11, 1] = 0.0;
+let u[t in 1..41, i in 0..11, 0, 1] = 0.0;
+let u[t in 1..41, i in 0..11, 10, 1] = 0.0;
+let u[t in 1..41, i in 1..9, j in 1..9, 1] =
+  (u[t - 1, i + 1, j, 1] + u[t - 1, i - 1, j, 1] + u[t - 1, i, j + 1, 1] + u[t - 1, i, j - 1, 1]
+   + dx * dx * u[t, i, j, 0]) / 4.0;
+
+// Output: center streamfunction and vorticity at final time
+print(u[40, 5, 5, 1]);
+print(u[40, 5, 5, 0]);

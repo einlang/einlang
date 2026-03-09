@@ -6,7 +6,8 @@ description: Tensor math in Einstein notation with compile-time shape checking
 baseurl: "/einlang"
 permalink: pretty
 plugins:
-  - jekyll-redirect-from
+  # Rewrite .md links to pretty URLs in built HTML so repo (with .md) and Pages (pretty) both work
+  - jekyll-relative-links
 exclude:
   - src
   - tests

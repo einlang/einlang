@@ -32,8 +32,8 @@ Run a real example: `python3 -m einlang examples/hello.ein`
 | You want to… | Go here |
 |--------------|--------|
 | **Get going** | [Getting started](docs/GETTING_STARTED.md) |
-| **Doc index (by audience)** | [Documentation](docs/README.md) |
+| **Doc index (by audience)** | [Documentation](docs/README) |
 | **Language & stdlib** | [Reference](docs/reference.md) · [Stdlib](docs/stdlib.md) |
-| **Examples (learning path & by domain)** | [examples/README.md](examples/README.md) · [GitHub: examples](https://github.com/einlang/einlang/tree/main/examples) |
+| **Examples (learning path & by domain)** | [examples/README](examples/README.md) · [GitHub: examples](https://github.com/einlang/einlang/tree/main/examples) |
 
-**Repo:** [github.com/einlang/einlang](https://github.com/einlang/einlang) · **Contribute:** [CONTRIBUTING.md](CONTRIBUTING.md)
+**Repo:** [github.com/einlang/einlang](https://github.com/einlang/einlang) · **Contribute:** [CONTRIBUTING](../../CONTRIBUTING.md)

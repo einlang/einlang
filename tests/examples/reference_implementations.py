@@ -265,17 +265,18 @@ def linear_ode_reference() -> np.ndarray:
     return u
 
 
-def brusselator_reference() -> np.ndarray:
-    """Brusselator PDE. Same as examples/brusselator/main.ein (t in 1..300 => 300 total)."""
+def brusselator_reference(n_steps: int = 20, n: int = 33) -> np.ndarray:
+    """Brusselator PDE. Same as examples/brusselator/main.ein (20 steps, 33x33 grid)."""
     A, B = 1.0, 2.0
     alpha = 0.02
     dt = 0.2
-    n = 64
-    nsteps = 300
+    nsteps = n_steps
     state = np.zeros((nsteps, 2, n, n), dtype=np.float64)
     state[0, 0] = 1.0
     state[0, 1] = 0.0
-    state[0, 1, 30:35, 30:35] = 0.5
+    # Center 5x5 patch (same as .ein: 30..34 for n=64, 14..18 for n=33)
+    c0, c1 = (n - 1) // 2 - 2, (n - 1) // 2 + 3
+    state[0, 1, c0:c1, c0:c1] = 0.5
     for t in range(1, nsteps):
         state[t] = state[t - 1].copy()
         U, V = state[t - 1, 0], state[t - 1, 1]
@@ -337,6 +338,60 @@ def advection_1d_reference() -> np.ndarray:
     for t in range(1, nsteps):
         u[t, 1:] = u[t - 1, 1:] - r * (u[t - 1, 1:] - u[t - 1, :-1])
         u[t, 0] = u[t - 1, 0] - r * (u[t - 1, 0] - u[t - 1, -1])
+    return u
+
+
+def cavity_lid_reference() -> np.ndarray:
+    """Lid-driven cavity: streamfunction-vorticity, explicit Euler + one Jacobi for ψ per step.
+    Same as examples/pde_1d/cavity_lid.ein (41 steps, 11×11, u[t,i,j,k] k=0 ω, k=1 ψ)."""
+    dx = dy = 1.0 / 10.0
+    dt = 0.005
+    nu = 0.1
+    U_lid = 1.0
+    nsteps = 41
+    n = 11
+    u = np.zeros((nsteps, n, n, 2), dtype=np.float64)
+    for t in range(1, nsteps):
+        # ω (k=0): corners
+        u[t, 0, 0, 0] = 0.0
+        u[t, 10, 0, 0] = 0.0
+        u[t, 0, 10, 0] = 0.0
+        u[t, 10, 10, 0] = 0.0
+        # ω: edges
+        for i in range(1, 10):
+            u[t, i, 0, 0] = -2.0 * u[t - 1, i, 1, 1] / (dy * dy)
+            u[t, i, 10, 0] = -2.0 * u[t - 1, i, 9, 1] / (dy * dy) - 2.0 * U_lid / dy
+        for j in range(1, 10):
+            u[t, 0, j, 0] = -2.0 * u[t - 1, 1, j, 1] / (dx * dx)
+            u[t, 10, j, 0] = -2.0 * u[t - 1, 9, j, 1] / (dx * dx)
+        # ω: interior
+        for i in range(1, 10):
+            for j in range(1, 10):
+                u_vel = (u[t - 1, i, j + 1, 1] - u[t - 1, i, j - 1, 1]) / (2.0 * dy)
+                v_vel = -(u[t - 1, i + 1, j, 1] - u[t - 1, i - 1, j, 1]) / (2.0 * dx)
+                conv = (
+                    u_vel * (u[t - 1, i + 1, j, 0] - u[t - 1, i - 1, j, 0]) / (2.0 * dx)
+                    + v_vel * (u[t - 1, i, j + 1, 0] - u[t - 1, i, j - 1, 0]) / (2.0 * dy)
+                )
+                lap = (
+                    u[t - 1, i + 1, j, 0] + u[t - 1, i - 1, j, 0]
+                    + u[t - 1, i, j + 1, 0] + u[t - 1, i, j - 1, 0]
+                    - 4.0 * u[t - 1, i, j, 0]
+                ) / (dx * dx)
+                u[t, i, j, 0] = u[t - 1, i, j, 0] + dt * (-conv + nu * lap)
+        # ψ (k=1): boundary 0
+        u[t, 0, :, 1] = 0.0
+        u[t, 10, :, 1] = 0.0
+        u[t, :, 0, 1] = 0.0
+        u[t, :, 10, 1] = 0.0
+        # ψ: interior Jacobi
+        for i in range(1, 10):
+            for j in range(1, 10):
+                u[t, i, j, 1] = (
+                    u[t - 1, i + 1, j, 1] + u[t - 1, i - 1, j, 1]
+                    + u[t - 1, i, j + 1, 1] + u[t - 1, i, j - 1, 1]
+                    + dx * dx * u[t, i, j, 0]
+                ) / 4.0
     return u
 
 

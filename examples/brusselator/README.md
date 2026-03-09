@@ -20,7 +20,7 @@ python3 -m einlang examples/brusselator/main.ein
 python3 examples/brusselator/run_brusselator.py --html brusselator.html
 ```
 
-Output: `state` shape (300, 2, 64, 64). The runner writes an HTML animation of the V field.
+Output: `state` shape (20, 2, 33, 33). The runner writes an HTML animation of the V field.
 
 ## Julia parallel
 

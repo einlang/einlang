@@ -4,7 +4,8 @@ For contributors who want to work on the compiler or add features. If you're jus
 
 ## Todo
 
-- Remove arrow support
+- Separate pure recurrence dim to an outer loop in pass
+- Optimize memory consumption for cases where only the last few recurrence steps are used
 
 ## Setup
 

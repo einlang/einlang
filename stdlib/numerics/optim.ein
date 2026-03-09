@@ -1,0 +1,60 @@
+// std::numerics::optim - Optimization (Optim.jl-style).
+// General: n_steps is a parameter. 2D quadratic min 0.5*x'*A*x - b'*x.
+
+// Objective value at x: 0.5*x'*A*x - b'*x.
+pub fn quadratic_value_2d(x: [f64; 2], A: [f64; 2, 2], b: [f64; 2]) -> f64 {
+  let Ax0 = A[0, 0] * x[0] + A[0, 1] * x[1];
+  let Ax1 = A[1, 0] * x[0] + A[1, 1] * x[1];
+  0.5 * (x[0] * Ax0 + x[1] * Ax1) - (b[0] * x[0] + b[1] * x[1])
+}
+
+// Gradient of 0.5*x'*A*x - b'*x at x, i.e. A*x - b.
+pub fn quadratic_gradient_2d(x: [f64; 2], A: [f64; 2, 2], b: [f64; 2]) -> [f64; 2] {
+  [A[0, 0] * x[0] + A[0, 1] * x[1] - b[0], A[1, 0] * x[0] + A[1, 1] * x[1] - b[1]]
+}
+
+// One gradient step for quadratic: x_next = x - alpha * (A*x - b). 2D.
+pub fn gradient_descent_step_2d(x: [f64; 2], A: [f64; 2, 2], b: [f64; 2], alpha: f64) -> [f64; 2] {
+  let r0 = A[0, 0] * x[0] + A[0, 1] * x[1] - b[0];
+  let r1 = A[1, 0] * x[0] + A[1, 1] * x[1] - b[1];
+  [x[0] - alpha * r0, x[1] - alpha * r1]
+}
+
+// Gradient descent for min 0.5*x'*A*x - b'*x, 2D, starting at zero.
+// Returns trajectory (n_steps+1, 2).
+pub fn gradient_descent_2d(A: [f64; 2, 2], b: [f64; 2], alpha: f64, n_steps: i32) -> [f64; ?, 2] {
+  let x[0, i in 0..2] = 0.0;
+  let x[k in 1..(n_steps + 1), 0] = x[k - 1, 0] - alpha * (A[0, 0] * x[k - 1, 0] + A[0, 1] * x[k - 1, 1] - b[0]);
+  let x[k in 1..(n_steps + 1), 1] = x[k - 1, 1] - alpha * (A[1, 0] * x[k - 1, 0] + A[1, 1] * x[k - 1, 1] - b[1]);
+  x
+}
+
+// Same as gradient_descent_2d but from custom initial point x0.
+// Returns trajectory (n_steps+1, 2).
+pub fn gradient_descent_2d_from(x0: [f64; 2], A: [f64; 2, 2], b: [f64; 2], alpha: f64, n_steps: i32) -> [f64; ?, 2] {
+  let x[0, 0] = x0[0];
+  let x[0, 1] = x0[1];
+  let x[k in 1..(n_steps + 1), 0] = x[k - 1, 0] - alpha * (A[0, 0] * x[k - 1, 0] + A[0, 1] * x[k - 1, 1] - b[0]);
+  let x[k in 1..(n_steps + 1), 1] = x[k - 1, 1] - alpha * (A[1, 0] * x[k - 1, 0] + A[1, 1] * x[k - 1, 1] - b[1]);
+  x
+}
+
+// Euclidean norm of residual A*x - b (for convergence checking). 2D.
+pub fn quadratic_residual_norm_2d(x: [f64; 2], A: [f64; 2, 2], b: [f64; 2]) -> f64 {
+  let r0 = A[0, 0] * x[0] + A[0, 1] * x[1] - b[0];
+  let r1 = A[1, 0] * x[0] + A[1, 1] * x[1] - b[1];
+  (r0 * r0 + r1 * r1) ** 0.5
+}
+
+// Least-squares slope and intercept for y ~ slope*x + intercept. Uses first n points from x, y.
+// Returns [slope, intercept]. Formula: slope = (n*s_xy - s_x*s_y) / (n*s_xx - s_x^2), intercept = mean_y - slope*mean_x.
+pub fn least_squares_slope_intercept(x: [f64; ?], y: [f64; ?], n: i32) -> [f64; 2] {
+  let s_x = sum[i in 0..n](x[i]);
+  let s_y = sum[i in 0..n](y[i]);
+  let s_xx = sum[i in 0..n](x[i] * x[i]);
+  let s_xy = sum[i in 0..n](x[i] * y[i]);
+  let denom = (n as f64) * s_xx - s_x * s_x;
+  let slope = (((n as f64) * s_xy - s_x * s_y) / denom);
+  let intercept = (s_y - slope * s_x) / (n as f64);
+  [slope, intercept]
+}

@@ -64,7 +64,7 @@ Used in comprehensions, Einstein index domains, and recurrence bounds: `i in 0..
 | `A[:, j]` (column) | No slicing. Use Einstein: `let col[i] = A[i, j];` for a fixed `j`. |
 | `A[i, :]` (row) | `let row[j] = A[i, j];` for a fixed `i`. |
 | `zeros(5)`, `ones(2,3)` | No built-in; use literals or Einstein, e.g. `let z[i in 0..5] = 0.0;` |
-| `length(A)` | `len(A)` (stdlib) or shape from context |
+| `length(A)` | `len(A)` (stdlib.md) or shape from context |
 | `size(A, 1)` | No direct equivalent; shapes come from type or inference |
 
 ### Loops → comprehensions, Einstein, or recurrence

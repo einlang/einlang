@@ -10,7 +10,7 @@ title: Einlang
 let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply — shapes checked by the compiler
 ```
 
-**New here?** [Getting started](GETTING_STARTED) tells the full story in one page.
+**New here?** [Getting started](GETTING_STARTED.md) tells the full story in one page.
 
 ---
 
@@ -31,9 +31,9 @@ Run a real example: `python3 -m einlang examples/hello.ein`
 
 | You want to… | Go here |
 |--------------|--------|
-| **Get going** | [Getting started](GETTING_STARTED) |
-| **Doc index (by audience)** | [Documentation](README) |
-| **Language & stdlib** | [Reference](reference) · [Stdlib](stdlib) |
-| **Examples (learning path & by domain)** | [examples/README.md](../../examples/README.md) · [GitHub: examples](https://github.com/einlang/einlang/tree/main/examples) |
+| **Get going** | [Getting started](GETTING_STARTED.md) |
+| **Doc index (by audience)** | [Documentation](README.md) |
+| **Language & stdlib** | [Reference](reference.md) · [Stdlib](stdlib.md) |
+| **Examples (learning path & by domain)** | [examples/README](../../examples/README.md) · [GitHub: examples](https://github.com/einlang/einlang/tree/main/examples) |
 
-**Repo:** [github.com/einlang/einlang](https://github.com/einlang/einlang) · **Contribute:** [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md)
+**Repo:** [github.com/einlang/einlang](https://github.com/einlang/einlang) · **Contribute:** [CONTRIBUTING](../../CONTRIBUTING.md)

@@ -593,10 +593,4 @@ let result = data |> normalize |> transform;
 let safe = data !> parse !> validate catch |e| default;
 ```
 
-**Arrow combinators**: `>>>` (sequential), `***` (parallel), `&&&` (fanout), `|||` (choice) for ML graph construction.
-
-```rust
-let model = input >>> linear(784, 128) >>> relu >>> linear(128, 10);
-```
-
 **Try expressions**: `try expr` wraps a failable expression into a Result type.

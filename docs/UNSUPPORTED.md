@@ -124,6 +124,16 @@ This page lists **syntax and features that Einlang intentionally does not suppor
 
 ---
 
+## 12. No automatic differentiation (autodiff)
+
+**Not in the language:** A primitive or syntax that lets the compiler derive gradients from an expression (e.g. `grad(f, x)` where the compiler computes ∂f/∂x automatically).
+
+**Why:** Einlang’s goal is clarity and explicitness in the syntax — no magic. What you write is what is computed; the compiler checks shapes and order, it does not silently add derivative code. Automatic differentiation would hide how gradients are obtained.
+
+**Use instead:** Write gradients explicitly. See [numerics::optim](stdlib.md) (e.g. `quadratic_gradient_2d`, gradient descent) and examples such as [Rosenbrock](https://github.com/einlang/einlang/tree/main/examples/optimization/rosenbrock.ein). For calibration or other objectives, write the gradient by hand or use grid search over parameters.
+
+---
+
 ## Summary table
 
 | Not supported | Use instead | Reference |
@@ -140,6 +150,7 @@ This page lists **syntax and features that Einlang intentionally does not suppor
 | LHS index expression (e.g. `t+1`) | Name or literal in bracket; refer to prior step in body (e.g. `seq[t-1]`) | [Recurrence relations](reference.md#recurrence-relations) |
 | Forward ref / future value (e.g. `h[t+1,i,j]`, `h[t,i+1,j]` when defining `h[t,i,j]`) | Backward ref only in every dim (e.g. `h[t-1,i,j]`, `h[t,i-1,j]`, `h[t,i,j-1]`) | [Recurrence relations](reference.md#recurrence-relations) |
 | Mutable bindings | New `let`; recurrences for sequences | [let](reference.md#let-declarations), [Recurrences](reference.md#recurrence-relations) |
+| Automatic differentiation | Explicit gradients (e.g. stdlib, hand-written) | [numerics::optim](stdlib.md), [optimization examples](https://github.com/einlang/einlang/tree/main/examples/optimization) |
 
 ---
 
