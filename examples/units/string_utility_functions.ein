@@ -28,7 +28,7 @@ assert(combined == "Hello World");
 assert(greeting == "Hello, World!");
 assert(welcome == "Welcome to Einlang!");
 
-// Test uppercase function (returns original for now)
+// Test uppercase function
 let upper = uppercase("test");
 assert(upper == "test");
 

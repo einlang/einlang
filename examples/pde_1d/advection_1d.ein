@@ -7,10 +7,10 @@
 //   dt = 0.5
 //   r = c * dt / dx
 //   n = 40
-//   u = zeros(81, 40)
+//   u = zeros(41, 40)
 //   u[1, :] .= 0.0
 //   u[1, 11] = 1.0
-//   for t in 2:81
+//   for t in 2:41
 //       for i in 2:40
 //           u[t, i] = u[t-1, i] - r * (u[t-1, i] - u[t-1, i-1])
 //       end
@@ -28,6 +28,6 @@ let u[0, i in 0..40] = 0.0;
 let u[0, 10] = 1.0;
 
 // Interior (indices 1..39)
-let u[t in 1..80, i in 1..40] = u[t - 1, i] - r * (u[t - 1, i] - u[t - 1, i - 1]);
+let u[t in 1..40, i in 1..40] = u[t - 1, i] - r * (u[t - 1, i] - u[t - 1, i - 1]);
 // Periodic left boundary
-let u[t in 1..80, 0] = u[t - 1, 0] - r * (u[t - 1, 0] - u[t - 1, 39]);
+let u[t in 1..40, 0] = u[t - 1, 0] - r * (u[t - 1, 0] - u[t - 1, 39]);

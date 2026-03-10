@@ -1,3 +1,8 @@
+---
+layout: default
+title: Wave 2D
+---
+
 # 2D wave equation (acoustic / linear wave)
 
 **Real physics simulation**: waves on a 2D domain (e.g. drum membrane, water surface). Same complexity tier as the heat equation but with a **two-level recurrence** (reads both `h[t-1]` and `h[t-2]`), showcasing Einlang’s recurrence and vectorization.

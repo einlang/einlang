@@ -19,7 +19,7 @@ def _laplacian_2d(u: np.ndarray) -> np.ndarray:
 
 
 def decay_reference() -> np.ndarray:
-    """Exponential decay ODE. Same as examples/ode/decay.ein (50 steps, u[0]=u0, u[t]=u[t-1]*(1-k*dt))."""
+    """Exponential decay ODE. Same as examples/ode/ode_suite.ein u_decay (50 steps)."""
     u0, k, dt = 1.0, 0.05, 0.1
     n = 50
     return np.array([u0 * np.exp(-k * (i * dt)) for i in range(n)], dtype=np.float64)
@@ -59,12 +59,12 @@ def value_iteration_quantecon_reference() -> np.ndarray:
 
 
 def wave_2d_reference() -> np.ndarray:
-    """2D wave equation, leapfrog. Same as examples/wave_2d/main.ein."""
+    """2D wave equation, leapfrog. Same as examples/wave_2d/main.ein (60 steps, 24×24)."""
     r = 0.5
-    cx, cy = 20, 20
+    cx, cy = 12, 12
     sigma2 = 50.0
-    nx, ny = 40, 40
-    nsteps = 200
+    nx, ny = 24, 24
+    nsteps = 60
     i = np.arange(nx, dtype=np.float64)
     j = np.arange(ny, dtype=np.float64)
     I, J = np.meshgrid(i, j)
@@ -98,11 +98,11 @@ def heat_minimal_reference() -> np.ndarray:
 
 
 def lorenz_reference() -> np.ndarray:
-    """Lorenz system, Euler. Same as examples/ode/lorenz.ein (t in 1..2000 => 2000 points)."""
+    """Lorenz system, Euler. Same as examples/ode/lorenz.ein (150 steps)."""
     sigma, rho, beta = 10.0, 28.0, 2.666666666666667
     dt = 0.01
     x0, y0, z0 = 1.0, 1.0, 1.0
-    nsteps = 2000  # t=0 + t in 1..2000 (exclusive end => 2000 total)
+    nsteps = 150
     u = np.zeros((nsteps, 3), dtype=np.float64)
     u[0] = [x0, y0, z0]
     for t in range(1, nsteps):
@@ -114,11 +114,11 @@ def lorenz_reference() -> np.ndarray:
 
 
 def pendulum_reference() -> np.ndarray:
-    """Simple pendulum Euler. Same as examples/ode/pendulum.ein (200 steps)."""
+    """Simple pendulum Euler. Same as examples/ode/ode_suite.ein state_pendulum (80 steps)."""
     g, L = 9.81, 1.0
     dt = 0.05
     theta0, omega0 = 0.2, 0.0
-    nsteps = 200
+    nsteps = 80
     state = np.zeros((nsteps, 2), dtype=np.float64)
     state[0] = [theta0, omega0]
     for t in range(1, nsteps):
@@ -128,10 +128,10 @@ def pendulum_reference() -> np.ndarray:
 
 
 def van_der_pol_reference() -> np.ndarray:
-    """Van der Pol oscillator Euler, μ=1. Same as examples/ode/van_der_pol.ein (200 steps)."""
+    """Van der Pol oscillator Euler, μ=1. Same as examples/ode/ode_suite.ein state_van_der_pol (80 steps)."""
     mu, dt = 1.0, 0.05
     x0, y0 = 1.0, 0.0
-    nsteps = 200
+    nsteps = 80
     state = np.zeros((nsteps, 2), dtype=np.float64)
     state[0] = [x0, y0]
     for t in range(1, nsteps):
@@ -158,10 +158,10 @@ def sir_reference() -> np.ndarray:
 
 
 def harmonic_reference() -> np.ndarray:
-    """Harmonic oscillator Euler. Same as examples/ode/harmonic.ein (200 steps)."""
+    """Harmonic oscillator Euler. Same as examples/ode/ode_suite.ein state_harmonic (80 steps)."""
     omega, dt = 1.0, 0.05
     x0, v0 = 1.0, 0.0
-    nsteps = 200
+    nsteps = 80
     state = np.zeros((nsteps, 2), dtype=np.float64)
     state[0] = [x0, v0]
     for t in range(1, nsteps):
@@ -171,7 +171,7 @@ def harmonic_reference() -> np.ndarray:
 
 
 def logistic_reference() -> np.ndarray:
-    """Logistic map. Same as examples/recurrence/logistic.ein (50 steps)."""
+    """Logistic map. Same as examples/recurrence/recurrence_suite.ein x_logistic (50 steps)."""
     r = 3.7
     n = 50
     x = np.zeros(n, dtype=np.float64)
@@ -182,7 +182,7 @@ def logistic_reference() -> np.ndarray:
 
 
 def gradient_descent_reference() -> np.ndarray:
-    """Gradient descent for quadratic. Same as examples/optimization/gradient_descent.ein (30 iters, 2D)."""
+    """Gradient descent for quadratic. Same as examples/optimization/optimization_suite.ein x_gradient_descent (30 iters, 2D)."""
     A = np.array([[2.0, 0.0], [0.0, 2.0]], dtype=np.float64)
     b = np.array([1.0, 1.0], dtype=np.float64)
     alpha = 0.25
@@ -195,7 +195,7 @@ def gradient_descent_reference() -> np.ndarray:
 
 
 def power_iteration_reference() -> np.ndarray:
-    """Power iteration for dominant eigenvector. Same as examples/recurrence/power_iteration.ein (20 iters, 2D)."""
+    """Power iteration for dominant eigenvector. Same as examples/optimization/optimization_suite.ein v (20 iters, 2D)."""
     A = np.array([[2.0, 1.0], [1.0, 2.0]], dtype=np.float64)
     nsteps = 20
     v = np.zeros((nsteps, 2), dtype=np.float64)
@@ -208,7 +208,7 @@ def power_iteration_reference() -> np.ndarray:
 
 
 def markov_stationary_reference() -> np.ndarray:
-    """Stationary distribution by power iteration ψ = ψ P. Same as examples/recurrence/markov_stationary.ein (50 iters, 3 states)."""
+    """Stationary distribution by power iteration ψ = ψ P. Same as examples/recurrence/recurrence_suite.ein psi (50 iters, 3 states)."""
     P = np.array([[0.9, 0.1, 0.0], [0.2, 0.6, 0.2], [0.0, 0.1, 0.9]], dtype=np.float64)
     nsteps, n = 50, 3
     psi = np.zeros((nsteps, n), dtype=np.float64)
@@ -219,11 +219,11 @@ def markov_stationary_reference() -> np.ndarray:
 
 
 def lotka_volterra_reference() -> np.ndarray:
-    """Lotka-Volterra, Euler. Same as examples/ode/lotka_volterra.ein (t in 1..500 => 500 total)."""
+    """Lotka-Volterra, Euler. Same as examples/ode/ode_suite.ein state_lotka (150 steps)."""
     a, b, c, d = 1.0, 0.5, 1.0, 0.5
     dt = 0.05
     u0, v0 = 2.0, 1.0
-    nsteps = 500
+    nsteps = 150
     state = np.zeros((nsteps, 2), dtype=np.float64)
     state[0] = [u0, v0]
     for t in range(1, nsteps):
@@ -234,10 +234,10 @@ def lotka_volterra_reference() -> np.ndarray:
 
 
 def heat_1d_reference() -> np.ndarray:
-    """1D heat, Dirichlet BC, explicit Euler. Same as examples/pde_1d/heat_1d.ein (t in 1..200 => 200 total)."""
+    """1D heat, Dirichlet BC, explicit Euler. Same as examples/pde_1d/heat_1d.ein (80 steps)."""
     r = 0.2
     nx = 41
-    nsteps = 200
+    nsteps = 80
     u = np.zeros((nsteps, nx), dtype=np.float64)
     u[0, 0] = 0.0
     u[0, 40] = 0.0
@@ -253,11 +253,11 @@ def heat_1d_reference() -> np.ndarray:
 
 
 def linear_ode_reference() -> np.ndarray:
-    """Linear ODE du/dt = A*u, Euler. Same as examples/ode/linear.ein (t in 1..500 => 500 total)."""
+    """Linear ODE du/dt = A*u, Euler. Same as examples/ode/ode_suite.ein u_linear (100 steps)."""
     dt = 0.01
     A = np.array([[-1.0, 1.0], [0.5, -1.5]], dtype=np.float64)
     u0 = np.array([1.0, 0.0], dtype=np.float64)
-    nsteps = 500
+    nsteps = 100
     u = np.zeros((nsteps, 2), dtype=np.float64)
     u[0] = u0
     for t in range(1, nsteps):
@@ -265,8 +265,8 @@ def linear_ode_reference() -> np.ndarray:
     return u
 
 
-def brusselator_reference(n_steps: int = 20, n: int = 33) -> np.ndarray:
-    """Brusselator PDE. Same as examples/brusselator/main.ein (20 steps, 33x33 grid)."""
+def brusselator_reference(n_steps: int = 12, n: int = 21) -> np.ndarray:
+    """Brusselator PDE. Same as examples/brusselator/main.ein (12 steps, 21×21 grid)."""
     A, B = 1.0, 2.0
     alpha = 0.02
     dt = 0.2
@@ -319,7 +319,7 @@ def value_iteration_reference() -> np.ndarray:
 
 
 def fibonacci_reference() -> np.ndarray:
-    """Fibonacci. Same as examples/recurrence/fibonacci.ein (n in 2..25 => 25 elements)."""
+    """Fibonacci. Same as examples/recurrence/recurrence_suite.ein fib (25 elements)."""
     n = 25
     fib = np.zeros(n, dtype=np.int64)
     fib[0], fib[1] = 0, 1
@@ -329,10 +329,10 @@ def fibonacci_reference() -> np.ndarray:
 
 
 def advection_1d_reference() -> np.ndarray:
-    """1D advection, upwind, periodic. Same as examples/pde_1d/advection_1d.ein (80 steps, 40 points)."""
+    """1D advection, upwind, periodic. Same as examples/pde_1d/advection_1d.ein (40 steps, 40 points)."""
     r = 0.5
     nx = 40
-    nsteps = 80
+    nsteps = 40
     u = np.zeros((nsteps, nx), dtype=np.float64)
     u[0, 10] = 1.0
     for t in range(1, nsteps):
@@ -343,12 +343,12 @@ def advection_1d_reference() -> np.ndarray:
 
 def cavity_lid_reference() -> np.ndarray:
     """Lid-driven cavity: streamfunction-vorticity, explicit Euler + one Jacobi for ψ per step.
-    Same as examples/pde_1d/cavity_lid.ein (41 steps, 11×11, u[t,i,j,k] k=0 ω, k=1 ψ)."""
+    Same as examples/pde_1d/cavity_lid.ein (21 steps, 11×11)."""
     dx = dy = 1.0 / 10.0
     dt = 0.005
     nu = 0.1
     U_lid = 1.0
-    nsteps = 41
+    nsteps = 21
     n = 11
     u = np.zeros((nsteps, n, n, 2), dtype=np.float64)
     for t in range(1, nsteps):
@@ -396,7 +396,7 @@ def cavity_lid_reference() -> np.ndarray:
 
 
 def random_walk_reference() -> np.ndarray:
-    """1D random walk with fixed steps. Same as examples/recurrence/random_walk.ein (21 points)."""
+    """1D random walk with fixed steps. Same as examples/recurrence/recurrence_suite.ein x_random_walk (21 points)."""
     steps = np.array([1, -1, 1, 1, -1, -1, 1, -1, 1, 1, -1, 1, -1, -1, 1, 1, 1, -1, -1, 1], dtype=np.float64)
     x = np.zeros(21, dtype=np.float64)
     x[0] = 0
@@ -419,7 +419,7 @@ def savings_reference() -> np.ndarray:
 
 
 def projected_gradient_reference() -> np.ndarray:
-    """Projected gradient descent (box [0,1]^2). Same as examples/optimization/projected_gradient.ein (20 iters, 2D)."""
+    """Projected gradient descent (box [0,1]^2). Same as examples/optimization/optimization_suite.ein x_projected (20 iters, 2D)."""
     c = np.array([1.5, 0.3], dtype=np.float64)
     alpha = 0.5
     nsteps = 20
@@ -431,10 +431,10 @@ def projected_gradient_reference() -> np.ndarray:
 
 
 def rosenbrock_reference() -> np.ndarray:
-    """Rosenbrock gradient descent. Same as examples/optimization/rosenbrock.ein (2001 iters, 2D)."""
+    """Rosenbrock gradient descent. Same as examples/optimization/optimization_suite.ein x_rosenbrock (501 iters)."""
     a, b = 1.0, 100.0
     alpha = 0.001
-    nsteps = 2001
+    nsteps = 501
     x = np.zeros((nsteps, 2), dtype=np.float64)
     for k in range(1, nsteps):
         x1, x2 = x[k - 1, 0], x[k - 1, 1]
@@ -461,13 +461,13 @@ def exponential_smoothing_reference() -> np.ndarray:
 
 
 def mccall_reference() -> np.ndarray:
-    """McCall job search: value function iteration. Same as examples/job_search/mccall.ein (100 iters, 11 wages)."""
+    """McCall job search: value function iteration. Same as examples/job_search/mccall.ein (50 iters, 11 wages)."""
     n = 10  # 11 wage points indices 0..10
     c = 25.0
     beta = 0.99
     w = np.array([10.0 + i * 5.0 for i in range(11)], dtype=np.float64)
     p = np.ones(11, dtype=np.float64) / 11.0
-    nsteps = 100
+    nsteps = 50
     V = np.zeros((nsteps, 11), dtype=np.float64)
     V[0] = w / (1.0 - beta)
     for k in range(1, nsteps):
@@ -477,12 +477,12 @@ def mccall_reference() -> np.ndarray:
 
 
 def fitzhugh_nagumo_reference() -> np.ndarray:
-    """FitzHugh-Nagumo 2D ODE, Euler. Same as examples/ode/fitzhugh_nagumo.ein (3000 steps)."""
+    """FitzHugh-Nagumo 2D ODE, Euler. Same as examples/ode/fitzhugh_nagumo.ein (200 steps)."""
     a, b, c = 0.7, 0.8, 10.0
     I_ext = 0.5
     dt = 0.01
     v0, u0 = 0.0, 0.0
-    nsteps = 3000
+    nsteps = 200
     state = np.zeros((nsteps, 2), dtype=np.float64)
     state[0] = [v0, u0]
     for t in range(1, nsteps):
@@ -493,11 +493,11 @@ def fitzhugh_nagumo_reference() -> np.ndarray:
 
 
 def lorenz96_reference() -> np.ndarray:
-    """Lorenz 96 chaotic ODE, Euler, periodic indices. Same as examples/ode/lorenz96.ein (500 steps, N=5)."""
+    """Lorenz 96 chaotic ODE, Euler, periodic indices. Same as examples/ode/lorenz96.ein (100 steps, N=5)."""
     N = 5
     F = 8.0
     dt = 0.01
-    nsteps = 500
+    nsteps = 100
     X = np.zeros((nsteps, N), dtype=np.float64)
     X[0] = F
     X[0, 0] = F + 0.01

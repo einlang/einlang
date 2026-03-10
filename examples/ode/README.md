@@ -1,20 +1,20 @@
+---
+layout: default
+title: ODE examples
+---
+
 # ODE: DifferentialEquations.jl–style time-stepping
 
-**Numerical ODE time-stepping** — aligned with [Julia’s DifferentialEquations.jl](https://docs.sciml.ai/DiffEqDocs/stable/). One folder, ten models: scalar decay, linear system, Lorenz, Lotka–Volterra, **pendulum** ([Classical Physics](https://docs.sciml.ai/DiffEqDocs/stable/examples/classical_physics/)), **van der Pol** ([SciML Benchmarks](https://docs.sciml.ai/SciMLBenchmarksOutput/stable/StiffODE/VanDerPol/)), SIR, harmonic, Fitzhugh–Nagumo, Lorenz 96. Recurrence over time; no spatial dimension (no PDE/stencil).
+**Numerical ODE time-stepping** — aligned with [Julia’s DifferentialEquations.jl](https://docs.sciml.ai/DiffEqDocs/stable/). Suite plus standalone: decay, linear, harmonic, pendulum, Van der Pol, Lotka–Volterra (in `ode_suite.ein`); Lorenz, SIR, FitzHugh–Nagumo, Lorenz 96 (separate files). Recurrence over time; no spatial dimension (no PDE/stencil).
 
-## Files (one per model)
+## Files
 
 | File | Model | State |
 |------|--------|------|
-| `decay.ein` | Exponential decay du/dt = −k·u | Scalar u[t] |
-| `linear.ein` | Linear system du/dt = A·u | Vector u[t, i] |
+| **ode_suite.ein** | Decay, linear, harmonic, pendulum, Van der Pol, Lotka–Volterra (six in one) | u_decay, u_linear, state_harmonic, state_pendulum, state_van_der_pol, state_lotka |
 | `lorenz.ein` | Lorenz (chaotic 3D) | u[t, 0..2] = (x,y,z) |
-| `lotka_volterra.ein` | Predator–prey | state[t, 0]=u, state[t, 1]=v |
-| `pendulum.ein` | Simple pendulum (Classical Physics) | state[t, 0]=θ, state[t, 1]=ω |
-| `van_der_pol.ein` | Van der Pol oscillator | state[t, 0]=x, state[t, 1]=y |
 | `sir.ein` | SIR epidemic model | state[t, 0..2] = (S, I, R) |
-| `harmonic.ein` | Simple harmonic oscillator | state[t, 0]=x, state[t, 1]=v |
-| `fitzhugh_nagumo.ein` | Fitzhugh–Nagumo (neural/oscillator) | state[t, 0..1] = (v, w) |
+| `fitzhugh_nagumo.ein` | FitzHugh–Nagumo (neural/oscillator) | state[t, 0..1] = (v, w) |
 | `lorenz96.ein` | Lorenz 96 (chaotic N-dimensional) | X[t, i] |
 
 All use explicit Euler; same recurrence pattern, different RHS. QuantEcon.jl also uses this style for linear ODEs and Lotka–Volterra.
@@ -24,14 +24,9 @@ All use explicit Euler; same recurrence pattern, different RHS. QuantEcon.jl als
 From repo root:
 
 ```bash
-python3 -m einlang examples/ode/decay.ein
-python3 -m einlang examples/ode/linear.ein
+python3 -m einlang examples/ode/ode_suite.ein
 python3 -m einlang examples/ode/lorenz.ein
-python3 -m einlang examples/ode/lotka_volterra.ein
-python3 -m einlang examples/ode/pendulum.ein
-python3 -m einlang examples/ode/van_der_pol.ein
 python3 -m einlang examples/ode/sir.ein
-python3 -m einlang examples/ode/harmonic.ein
 python3 -m einlang examples/ode/fitzhugh_nagumo.ein
 python3 -m einlang examples/ode/lorenz96.ein
 ```

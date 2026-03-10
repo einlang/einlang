@@ -1,3 +1,8 @@
+---
+layout: default
+title: Contributing
+---
+
 # Contributing to Einlang
 
 Thanks for your interest. You don't need to be a compiler expert — **doc fixes and small bugs are a great way to start.** Every fix, improvement, and idea helps. New to Einlang? [Getting started](docs/GETTING_STARTED.md) or [doc index by audience](docs/README). Experts: [DEVELOPMENT](docs/DEVELOPMENT.md) for project layout and adding features.

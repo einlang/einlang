@@ -1,3 +1,8 @@
+---
+layout: default
+title: Release readiness
+---
+
 # Release readiness — before a wide audience
 
 **One chance:** Visitors who have a bad first experience rarely come back. Use this checklist before promoting the repo to a wide audience.

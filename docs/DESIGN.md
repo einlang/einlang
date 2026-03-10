@@ -1,3 +1,8 @@
+---
+layout: default
+title: Design
+---
+
 # Design
 
 Non-normative notes on Einlang’s design goals and influences. For the actual language rules, see the [Language reference](reference.md).

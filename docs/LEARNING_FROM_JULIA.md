@@ -1,3 +1,8 @@
+---
+layout: default
+title: Learning from Julia
+---
+
 # Learning from Julia: showcase and retention
 
 What makes Julia’s docs and community successful at attracting and retaining users, and how Einlang can apply the same ideas without duplicating content.
@@ -24,7 +29,7 @@ What makes Julia’s docs and community successful at attracting and retaining u
 | One “help” entry point | **Docs index** is that entry: add a short “New to Einlang? / Need help?” block at the top of [docs/README.md](README.md) with: Getting started, Learning path, By background (Python/Julia/Rust), [FAQ](FAQ.md), Where to ask (CONTRIBUTING / issues). No new URL; one place in the doc index. |
 | Multiple learning pathways | Make them explicit in the doc index and GETTING_STARTED: **by doing** (Try it → examples learning path), **by reading** (reference, stdlib), **by background** (Syntax comparison, EINLANG_FOR_JULIA_PROGRAMMERS). |
 | Problem-first showcases | Keep and extend: each simulation/domain example states the problem first (in .ein comments and examples/README). JULIA_DEMOS and “What you get” tables stay problem/use-case oriented. |
-| “Where next” after first run | GETTING_STARTED has a table and “After your first example” line: pick a domain ([ode](../../examples/ode/), [optimization](../../examples/optimization/), [finance](../../examples/finance/), [job_search](../../examples/job_search/), [time_series](../../examples/time_series/)) then [reference](reference.md) for depth. |
+| “Where next” after first run | GETTING_STARTED has a table and “After your first example” line: pick a domain ([ode](../examples/ode), [optimization](../examples/optimization), [finance](../examples/finance), [job_search](../examples/job_search), [time_series](../examples/time_series)) then [reference](reference.md) for depth. |
 | FAQ in one place | Add **[docs/FAQ.md](FAQ.md)** with a few questions: How do I run a one-liner? Use from Python? Where are examples? I come from Julia/Python — where do I start? How do I report a bug? Link from “Need help?” and CONTRIBUTING. |
 | Community + contribute | In “Need help?”: link to CONTRIBUTING and GitHub issues. README already has Community; doc index “Need help?” should point there too. |
 

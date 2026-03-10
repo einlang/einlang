@@ -31,9 +31,32 @@ let coef = optim::least_squares_slope_intercept(time, log_data, n_obs);
 let k_fit = -coef[0];
 let u0_fit = exp(coef[1]);
 
+// Fitted values at observation times (for residual analysis)
+let fitted[t in 0..n_obs] = u0_fit * exp(-k_fit * (t as f64) * dt);
+let residuals[t in 0..n_obs] = data[t] - fitted[t];
+let sse = sum[t in 0..n_obs](residuals[t] * residuals[t]);
+let mean_obs = sum[t in 0..n_obs](data[t]) / (n_obs as f64);
+let centered_sq[t in 0..n_obs] = (data[t] - mean_obs) * (data[t] - mean_obs);
+let tss = sum[t in 0..n_obs](centered_sq[t]);
+let r_squared = 1.0 - sse / tss;
+
+// Derived quantities: half-life and annualized rate (for reporting)
+let half_life = ln(2.0) / k_fit;
+let annualized_rate = k_fit * (12.0 * 30.0 / dt);
+
 // Simulate forward from last observation with fitted model (RK4 for accuracy)
 let u_forecast = ode::rk4_decay(data[n_obs - 1], k_fit, dt, n_forecast);
 
+// Forecast at a few horizons (start, mid, end)
+let forecast_start = u_forecast[0];
+let forecast_mid = u_forecast[n_forecast / 2];
+let forecast_end = u_forecast[n_forecast - 1];
+
 print(k_fit);
 print(u0_fit);
+print(r_squared);
+print(half_life);
+print(forecast_start);
+print(forecast_mid);
+print(forecast_end);
 print(u_forecast);

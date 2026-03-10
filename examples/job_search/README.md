@@ -1,3 +1,8 @@
+---
+layout: default
+title: Job search
+---
+
 # Job search (QuantEcon)
 
 Dynamic programming examples from [Quantitative Economics with Julia](https://julia.quantecon.org/).

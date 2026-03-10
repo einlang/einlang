@@ -1,3 +1,8 @@
+---
+layout: default
+title: Brusselator
+---
+
 # Brusselator (reaction–diffusion)
 
 **Julia source:** [SciML showcase: Brusselator](https://docs.sciml.ai/Overview/stable/showcase/brusselator/). Reaction–diffusion PDE aligned with this Julia demo.

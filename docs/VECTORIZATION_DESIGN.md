@@ -1,3 +1,8 @@
+---
+layout: default
+title: Vectorization design
+---
+
 # Einstein clause vectorization (NumPy backend)
 
 Design for how the NumPy backend chooses and executes vectorized, hybrid, or scalar paths for Einstein clauses, and how index types (loop variables, literals) are handled uniformly.

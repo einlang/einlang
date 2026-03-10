@@ -1,3 +1,8 @@
+---
+layout: default
+title: Numerics
+---
+
 # Numerics (reusable modules)
 
 Reusable modules for ODEs, optimization, and dynamic programming. Use from your `.ein` files via `use numerics::diffeq`, etc. They follow the same patterns as Julia’s DifferentialEquations.jl, Optim.jl, and QuantEcon.jl.

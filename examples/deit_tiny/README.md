@@ -1,3 +1,8 @@
+---
+layout: default
+title: DeiT-Tiny
+---
+
 # 5 — DeiT-Tiny ImageNet Classification
 
 > **Previous**: [`mnist_quantized/`](../mnist_quantized/) · **Next**: [`whisper_tiny/`](../whisper_tiny/)

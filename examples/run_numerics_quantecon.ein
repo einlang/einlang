@@ -1,6 +1,0 @@
-// Accuracy test: quantecon::value_iteration output only. Run from repo root.
-use numerics::quantecon;
-let r = [0.0, 1.0, 2.0];
-let P = [[0.5, 0.2, 0.1], [0.3, 0.5, 0.2], [0.2, 0.3, 0.7]];
-let V_traj = quantecon::value_iteration(r, P, 0.95);
-print(V_traj);

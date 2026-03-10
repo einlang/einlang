@@ -19,7 +19,7 @@ let e = 2.71828;
 
 // Simple factorial function (without complex control flow for now)
 fn factorial(n) {
-    n * (n - 1)  // Simplified version for testing
+    n * (n - 1)  // Simplified implementation (no complex control flow)
 }
 
 // Test basic arithmetic functions

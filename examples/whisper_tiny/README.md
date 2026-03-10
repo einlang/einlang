@@ -1,3 +1,8 @@
+---
+layout: default
+title: Whisper-tiny
+---
+
 # 6 — Whisper-tiny: Speech-to-Text
 
 > **Previous**: [`deit_tiny/`](../deit_tiny/) · **Next**: [`units/`](../units/) (reference)

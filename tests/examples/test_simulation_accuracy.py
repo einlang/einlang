@@ -64,15 +64,11 @@ u;
 
 # Canonical list of simulation example paths that MUST have strict accuracy tests.
 # Add new simulation examples here and to ALL_ACCURACY_EXAMPLES (with reference_implementations).
+# Suites: ode_suite, recurrence_suite, optimization_suite (see ALL_ACCURACY_EXAMPLES for output keys).
 SIMULATION_EXAMPLE_PATHS = (
-    "examples/ode/decay.ein",
-    "examples/ode/linear.ein",
+    "examples/ode/ode_suite.ein",
     "examples/ode/lorenz.ein",
-    "examples/ode/lotka_volterra.ein",
-    "examples/ode/pendulum.ein",
-    "examples/ode/van_der_pol.ein",
     "examples/ode/sir.ein",
-    "examples/ode/harmonic.ein",
     "examples/ode/fitzhugh_nagumo.ein",
     "examples/ode/lorenz96.ein",
     "examples/wave_2d/main.ein",
@@ -82,19 +78,11 @@ SIMULATION_EXAMPLE_PATHS = (
     "examples/brusselator/main.ein",
     "examples/value_iteration/main.ein",
     "examples/job_search/mccall.ein",
-    "examples/recurrence/fibonacci.ein",
-    "examples/recurrence/logistic.ein",
-    "examples/recurrence/markov_stationary.ein",
-    "examples/recurrence/random_walk.ein",
+    "examples/recurrence/recurrence_suite.ein",
     "examples/finance/savings.ein",
-    "examples/optimization/gradient_descent.ein",
-    "examples/optimization/power_iteration.ein",
-    "examples/optimization/projected_gradient.ein",
-    "examples/optimization/rosenbrock.ein",
+    "examples/optimization/optimization_suite.ein",
     "examples/time_series/exponential_smoothing.ein",
-    "examples/run_numerics_diffeq.ein",
-    "examples/run_numerics_optim.ein",
-    "examples/run_numerics_quantecon.ein",
+    "examples/run_numerics.ein",
 )
 
 # Every simulation example file (or inline) that must pass accuracy vs reference.
@@ -102,14 +90,15 @@ SIMULATION_EXAMPLE_PATHS = (
 # (path, output_key, reference_fn, rtol, atol, first_n)
 # first_n=None: compare full array; first_n=N: compare first N steps only and assert finite.
 ALL_ACCURACY_EXAMPLES = [
-    ("examples/ode/decay.ein", "u", decay_reference, 5e-3, 1e-6, None),
-    ("examples/ode/linear.ein", "u", linear_ode_reference, 1e-5, 1e-5, None),
+    # ode_suite.ein (merged: decay, linear, harmonic, pendulum, van_der_pol, lotka)
+    ("examples/ode/ode_suite.ein", "u_decay", decay_reference, 5e-3, 1e-6, None),
+    ("examples/ode/ode_suite.ein", "u_linear", linear_ode_reference, 1e-5, 1e-5, None),
+    ("examples/ode/ode_suite.ein", "state_harmonic", harmonic_reference, 1e-5, 1e-5, None),
+    ("examples/ode/ode_suite.ein", "state_pendulum", pendulum_reference, 1e-5, 1e-5, None),
+    ("examples/ode/ode_suite.ein", "state_van_der_pol", van_der_pol_reference, 1e-5, 1e-5, None),
+    ("examples/ode/ode_suite.ein", "state_lotka", lotka_volterra_reference, 1e-4, 1e-4, 2),
     ("examples/ode/lorenz.ein", "u", lorenz_reference, 1e-3, 1e-2, 3),
-    ("examples/ode/lotka_volterra.ein", "state", lotka_volterra_reference, 1e-4, 1e-4, 2),
-    ("examples/ode/pendulum.ein", "state", pendulum_reference, 1e-5, 1e-5, 1),
-    ("examples/ode/van_der_pol.ein", "state", van_der_pol_reference, 1e-5, 1e-5, 1),
     ("examples/ode/sir.ein", "state", sir_reference, 1e-5, 1e-5, 1),
-    ("examples/ode/harmonic.ein", "state", harmonic_reference, 1e-5, 1e-5, 1),
     ("examples/ode/fitzhugh_nagumo.ein", "state", fitzhugh_nagumo_reference, 1e-4, 1e-4, 3),
     ("examples/ode/lorenz96.ein", "X", lorenz96_reference, 1e-3, 1e-2, 3),
     ("examples/wave_2d/main.ein", "h", wave_2d_reference, 1e-4, 1e-5, None),
@@ -119,19 +108,21 @@ ALL_ACCURACY_EXAMPLES = [
     ("examples/brusselator/main.ein", "state", brusselator_reference, 1e-5, 1e-5, None),
     ("examples/value_iteration/main.ein", "V", value_iteration_reference, 1e-5, 1e-5, None),
     ("examples/job_search/mccall.ein", "V", mccall_reference, 1e-5, 1e-5, None),
-    ("examples/recurrence/fibonacci.ein", "fib", fibonacci_reference, 0, 1e-5, None),
-    ("examples/recurrence/logistic.ein", "x", logistic_reference, 1e-5, 1e-5, 10),
-    ("examples/optimization/gradient_descent.ein", "x", gradient_descent_reference, 1e-5, 1e-5, None),
-    ("examples/optimization/power_iteration.ein", "v", power_iteration_reference, 1e-5, 1e-5, None),
-    ("examples/recurrence/markov_stationary.ein", "psi", markov_stationary_reference, 1e-5, 1e-5, None),
-    ("examples/recurrence/random_walk.ein", "x", random_walk_reference, 0, 1e-5, None),
+    # recurrence_suite.ein (merged: fibonacci, logistic, markov_stationary, random_walk)
+    ("examples/recurrence/recurrence_suite.ein", "fib", fibonacci_reference, 0, 1e-5, None),
+    ("examples/recurrence/recurrence_suite.ein", "x_logistic", logistic_reference, 1e-5, 1e-5, 10),
+    ("examples/recurrence/recurrence_suite.ein", "psi", markov_stationary_reference, 1e-5, 1e-5, None),
+    ("examples/recurrence/recurrence_suite.ein", "x_random_walk", random_walk_reference, 0, 1e-5, None),
     ("examples/finance/savings.ein", "b", savings_reference, 1e-5, 1e-5, None),
-    ("examples/optimization/projected_gradient.ein", "x", projected_gradient_reference, 1e-5, 1e-5, None),
-    ("examples/optimization/rosenbrock.ein", "x", rosenbrock_reference, 1e-4, 1e-4, None),
+    # optimization_suite.ein (merged: gradient_descent, power_iteration, projected_gradient, rosenbrock)
+    ("examples/optimization/optimization_suite.ein", "x_gradient_descent", gradient_descent_reference, 1e-5, 1e-5, None),
+    ("examples/optimization/optimization_suite.ein", "v", power_iteration_reference, 1e-5, 1e-5, None),
+    ("examples/optimization/optimization_suite.ein", "x_projected", projected_gradient_reference, 1e-5, 1e-5, None),
+    ("examples/optimization/optimization_suite.ein", "x_rosenbrock", rosenbrock_reference, 1e-4, 1e-4, None),
     ("examples/time_series/exponential_smoothing.ein", "s", exponential_smoothing_reference, 1e-5, 1e-5, None),
-    ("examples/run_numerics_diffeq.ein", "u", euler_decay_reference, 5e-3, 1e-6, None),
-    ("examples/run_numerics_optim.ein", "x_traj", gradient_descent_2d_reference, 1e-5, 1e-5, 3),
-    ("examples/run_numerics_quantecon.ein", "V_traj", value_iteration_quantecon_reference, 1e-5, 1e-5, None),
+    ("examples/run_numerics.ein", "u", euler_decay_reference, 5e-3, 1e-6, None),
+    ("examples/run_numerics.ein", "x_traj", gradient_descent_2d_reference, 1e-5, 1e-5, 3),
+    ("examples/run_numerics.ein", "V_traj", value_iteration_quantecon_reference, 1e-5, 1e-5, None),
     ((HEAT_MINIMAL_SOURCE, "<heat_minimal>"), "u", heat_minimal_reference, 1e-5, 1e-6, None),
 ]
 
@@ -214,10 +205,14 @@ def _make_accuracy_test(path, output_key, ref_fn, rtol, atol, first_n):
     return test
 
 
-# One test per example (no single parametrized group).
+# One test per example (no single parametrized group). Same path with different output_key gets unique name.
 _module = sys.modules[__name__]
+_seen_bases = set()
 for path, output_key, ref_fn, rtol, atol, first_n in ALL_ACCURACY_EXAMPLES:
-    name = "test_accuracy_" + _path_to_test_name(path)
+    base = "test_accuracy_" + _path_to_test_name(path)
+    key_suffix = output_key.replace("[", "_").replace("]", "_")
+    name = (base + "_" + key_suffix) if base in _seen_bases else base
+    _seen_bases.add(base)
     setattr(
         _module,
         name,
