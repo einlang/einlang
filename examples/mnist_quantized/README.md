@@ -1,13 +1,9 @@
----
-layout: default
-title: MNIST Quantized
----
 
 # 4 — Quantized MNIST Digit Recognition
 
-> **Previous**: [`mnist/`](../mnist/) · **Next**: [`deit_tiny/`](../deit_tiny/)
+> **Previous**: [`mnist/`](https://github.com/einlang/einlang/tree/main/examples/mnist) · **Next**: [`deit_tiny/`](https://github.com/einlang/einlang/tree/main/examples/deit_tiny)
 
-Same CNN as [mnist/](../mnist/), but weights and activations are **int8** and the heavy work (conv and linear) runs as **i8×i8→i32** in the stdlib ops `qconv` and `qlinear`, then rescales to float. This matches the ONNX/PyTorch pattern for real quantization speedup.
+Same CNN as [mnist/](https://github.com/einlang/einlang/tree/main/examples/mnist), but weights and activations are **int8** and the heavy work (conv and linear) runs as **i8×i8→i32** in the stdlib ops `qconv` and `qlinear`, then rescales to float. This matches the ONNX/PyTorch pattern for real quantization speedup.
 
 ## Architecture
 
@@ -62,4 +58,4 @@ Requires `../mnist/weights/` and (for calibration) `samples/` and `pgm_io`. If c
 
 Weights are quantized with symmetric per-tensor int8 (`scale = max|w|/127`, zero_point 0). Activation scales for the first conv input and for the layer outputs (after pool) are computed by running the float model on the sample images. At inference, `main.ein` quantizes the input, runs `qconv`/`qlinear` with i8×i8→i32 and a single f32 rescale, requantizes activations between layers with `quantize_linear`, and gets logits in float for `argmax`.
 
-Next: [deit_tiny/](../deit_tiny/) implements a Vision Transformer with multi-head attention and 12 transformer blocks.
+Next: [deit_tiny/](https://github.com/einlang/einlang/tree/main/examples/deit_tiny) implements a Vision Transformer with multi-head attention and 12 transformer blocks.

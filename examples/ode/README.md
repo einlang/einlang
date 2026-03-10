@@ -1,7 +1,3 @@
----
-layout: default
-title: ODE examples
----
 
 # ODE: DifferentialEquations.jl–style time-stepping
 
@@ -41,4 +37,4 @@ python3 -m pytest tests/examples/test_simulation_accuracy.py -k "Ode or Lorenz o
 
 ## Julia parallel
 
-[Julia demos → Einlang](../../docs/JULIA_DEMOS.md): this folder is our **DifferentialEquations.jl** counterpart (explicit Euler, same equations). Like [DiffEqDocs](https://docs.sciml.ai/DiffEqDocs/stable/) we lead with the problem (equations in each `.ein`), then the code; each file has a **Julia equivalent** in comments. We use Einstein notation and recurrence instead of a solver API.
+[Julia demos → Einlang](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md): this folder is our **DifferentialEquations.jl** counterpart (explicit Euler, same equations). Like [DiffEqDocs](https://docs.sciml.ai/DiffEqDocs/stable/) we lead with the problem (equations in each `.ein`), then the code; each file has a **Julia equivalent** in comments. We use Einstein notation and recurrence instead of a solver API.

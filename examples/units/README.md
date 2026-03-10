@@ -1,11 +1,7 @@
----
-layout: default
-title: Units
----
 
 # Reference — Unit Tests
 
-> **Previous**: [`whisper_tiny/`](../whisper_tiny/)
+> **Previous**: [`whisper_tiny/`](https://github.com/einlang/einlang/tree/main/examples/whisper_tiny)
 
 This directory contains 60+ standalone `.ein` files, each exercising a specific language feature. Use it as a lookup table when you need to check exact syntax or behavior.
 

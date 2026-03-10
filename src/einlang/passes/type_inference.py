@@ -25,6 +25,7 @@ from ..ir.nodes import (
     EinsteinClauseIR,
     BindingIR,
     is_function_binding,
+    OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR,
 )
 from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, JaggedType, TupleType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp
 from ..shared.defid import DefId, assert_defid
@@ -142,6 +143,141 @@ class TypeInferencePass(BasePass):
         inferencer.mono_service.rewrite_calls_in_statements(non_func_stmts)
         inferencer.mono_service.unify_local_var_defids_in_program(ir)
         return ir
+
+
+class _PatternBindingVisitor(IRVisitor[None]):
+    """Visitor that binds pattern variables to scrutinee type; used to replace _bind_pattern_vars isinstance chain."""
+
+    def __init__(self, tyinf: "TypeInferencer", scrutinee_type: Type) -> None:
+        self._tyinf = tyinf
+        self._scrutinee_type = scrutinee_type
+
+    def visit_identifier_pattern(self, node: IdentifierPatternIR) -> None:
+        did = getattr(node, "defid", None)
+        if did is not None:
+            self._tyinf._set_var(did, self._scrutinee_type)
+
+    def visit_guard_pattern(self, node: GuardPatternIR) -> None:
+        node.inner_pattern.accept(self)
+
+    def visit_tuple_pattern(self, node: TuplePatternIR) -> None:
+        sub = _PatternBindingVisitor(self._tyinf, UNKNOWN)
+        for elem in node.patterns:
+            elem.accept(sub)
+
+    def visit_array_pattern(self, node: ArrayPatternIR) -> None:
+        sub = _PatternBindingVisitor(self._tyinf, UNKNOWN)
+        for elem in node.patterns:
+            elem.accept(sub)
+
+    def visit_rest_pattern(self, node: RestPatternIR) -> None:
+        if node.pattern is not None:
+            did = getattr(node.pattern, "defid", None)
+            if did is not None:
+                self._tyinf._set_var(did, UNKNOWN)
+
+    def visit_or_pattern(self, node: OrPatternIR) -> None:
+        for alt in node.alternatives:
+            alt.accept(self)
+
+    def visit_binding_pattern(self, node: BindingPatternIR) -> None:
+        did = getattr(node.identifier_pattern, "defid", None)
+        if did is not None:
+            self._tyinf._set_var(did, self._scrutinee_type)
+        node.inner_pattern.accept(self)
+
+    def visit_constructor_pattern(self, node: ConstructorPatternIR) -> None:
+        sub = _PatternBindingVisitor(self._tyinf, UNKNOWN)
+        for elem in node.patterns:
+            elem.accept(sub)
+
+    def visit_range_pattern(self, node: RangePatternIR) -> None:
+        pass
+
+    def visit_literal_pattern(self, node: LiteralPatternIR) -> None:
+        pass
+
+    def visit_wildcard_pattern(self, node: WildcardPatternIR) -> None:
+        pass
+
+    # Stubs for expression/program (only pattern nodes are visited)
+    def visit_literal(self, node: Any) -> None:
+        pass
+
+    def visit_identifier(self, node: Any) -> None:
+        pass
+
+    def visit_binary_op(self, node: Any) -> None:
+        pass
+
+    def visit_function_call(self, node: Any) -> None:
+        pass
+
+    def visit_rectangular_access(self, node: Any) -> None:
+        pass
+
+    def visit_jagged_access(self, node: Any) -> None:
+        pass
+
+    def visit_block_expression(self, node: Any) -> None:
+        pass
+
+    def visit_if_expression(self, node: Any) -> None:
+        pass
+
+    def visit_lambda(self, node: Any) -> None:
+        pass
+
+    def visit_unary_op(self, node: Any) -> None:
+        pass
+
+    def visit_range(self, node: Any) -> None:
+        pass
+
+    def visit_array_comprehension(self, node: Any) -> None:
+        pass
+
+    def visit_module(self, node: Any) -> None:
+        pass
+
+    def visit_array_literal(self, node: Any) -> None:
+        pass
+
+    def visit_tuple_expression(self, node: Any) -> None:
+        pass
+
+    def visit_tuple_access(self, node: Any) -> None:
+        pass
+
+    def visit_interpolated_string(self, node: Any) -> None:
+        pass
+
+    def visit_cast_expression(self, node: Any) -> None:
+        pass
+
+    def visit_member_access(self, node: Any) -> None:
+        pass
+
+    def visit_try_expression(self, node: Any) -> None:
+        pass
+
+    def visit_match_expression(self, node: Any) -> None:
+        pass
+
+    def visit_reduction_expression(self, node: Any) -> None:
+        pass
+
+    def visit_where_expression(self, node: Any) -> None:
+        pass
+
+    def visit_pipeline_expression(self, node: Any) -> None:
+        pass
+
+    def visit_builtin_call(self, node: Any) -> None:
+        pass
+
+    def visit_program(self, node: Any) -> None:
+        pass
 
 
 class TypeInferencer(ScopedIRVisitor[Type]):
@@ -1710,38 +1846,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
     def _bind_pattern_vars(self, pattern, scrutinee_type: Type) -> None:
         """Bind identifier variables in a pattern to their inferred types."""
-        from ..ir.nodes import (OrPatternIR, ConstructorPatternIR,
-                                BindingPatternIR, RangePatternIR)
-        if isinstance(pattern, IdentifierPatternIR):
-            did = getattr(pattern, 'defid', None)
-            if did is not None:
-                self._set_var(did, scrutinee_type)
-        elif isinstance(pattern, GuardPatternIR):
-            self._bind_pattern_vars(pattern.inner_pattern, scrutinee_type)
-        elif isinstance(pattern, TuplePatternIR):
-            for elem in pattern.patterns:
-                self._bind_pattern_vars(elem, UNKNOWN)
-        elif isinstance(pattern, ArrayPatternIR):
-            for elem in pattern.patterns:
-                self._bind_pattern_vars(elem, UNKNOWN)
-        elif isinstance(pattern, RestPatternIR):
-            if pattern.pattern is not None:
-                did = getattr(pattern.pattern, 'defid', None)
-                if did is not None:
-                    self._set_var(did, UNKNOWN)
-        elif isinstance(pattern, OrPatternIR):
-            for alt in pattern.alternatives:
-                self._bind_pattern_vars(alt, scrutinee_type)
-        elif isinstance(pattern, BindingPatternIR):
-            did = getattr(pattern.identifier_pattern, 'defid', None)
-            if did is not None:
-                self._set_var(did, scrutinee_type)
-            self._bind_pattern_vars(pattern.inner_pattern, scrutinee_type)
-        elif isinstance(pattern, ConstructorPatternIR):
-            for elem in pattern.patterns:
-                self._bind_pattern_vars(elem, UNKNOWN)
-        elif isinstance(pattern, RangePatternIR):
-            pass
+        pattern.accept(_PatternBindingVisitor(self, scrutinee_type))
     
     def visit_reduction_expression(self, expr) -> Type:
         """Infer type of reduction. Bind loop var DefIds; visit range exprs so they get type_info; then body."""

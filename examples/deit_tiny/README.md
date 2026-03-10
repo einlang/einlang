@@ -1,11 +1,7 @@
----
-layout: default
-title: DeiT-Tiny
----
 
 # 5 — DeiT-Tiny ImageNet Classification
 
-> **Previous**: [`mnist_quantized/`](../mnist_quantized/) · **Next**: [`whisper_tiny/`](../whisper_tiny/)
+> **Previous**: [`mnist_quantized/`](https://github.com/einlang/einlang/tree/main/examples/mnist_quantized) · **Next**: [`whisper_tiny/`](https://github.com/einlang/einlang/tree/main/examples/whisper_tiny)
 
 A Vision Transformer (DeiT-Tiny) that classifies 224x224 ImageNet images into 1000 classes. This is a significant step up from MNIST — the model has ~5M parameters and showcases Einstein notation at scale.
 
@@ -65,4 +61,4 @@ cd examples/deit_tiny && EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE=1 
 
 Weights are loaded from `.npy` files via Python interop. The `infer` function implements the full DeiT-Tiny forward pass: patch embedding via conv, CLS token prepend, positional encoding, 12 transformer blocks (each with multi-head self-attention, layer norm, and MLP with GELU), final normalization, and a linear head that projects the CLS token to 1000 class logits.
 
-The next and final model example, [whisper_tiny/](../whisper_tiny/), adds an encoder-decoder architecture with cross-attention and autoregressive token generation.
+The next and final model example, [whisper_tiny/](https://github.com/einlang/einlang/tree/main/examples/whisper_tiny), adds an encoder-decoder architecture with cross-attention and autoregressive token generation.

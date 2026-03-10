@@ -46,6 +46,7 @@ from ..ir.nodes import (
 
 logger = logging.getLogger("einlang.passes.ir_validation")
 
+
 class IRValidationVisitor(IRVisitor[None]):
     """
     Visitor for validating IR nodes using polymorphic dispatch.
@@ -114,29 +115,29 @@ class IRValidationVisitor(IRVisitor[None]):
         node.array.accept(self)
         for idx in (node.indices or []):
             if idx is not None:
-                if isinstance(idx, IndexRestIR):
-                    self._report_error(
-                        f"IndexRestIR (..{getattr(idx, 'name', '?')}) must not reach IR validation; "
-                        "rest patterns must be expanded in rest_pattern_preprocessing.",
-                        node.location,
-                    )
-                if hasattr(idx, 'accept'):
-                    idx.accept(self)
-    
+                idx.accept(self)
+
+    def visit_index_var(self, node) -> None:
+        self.nodes_validated += 1
+        self._check_type(node)
+        if getattr(node, "range_ir", None) is not None:
+            node.range_ir.accept(self)
+
+    def visit_index_rest(self, node: IndexRestIR) -> None:
+        self.nodes_validated += 1
+        self._report_error(
+            f"IndexRestIR (..{getattr(node, 'name', '?')}) must not reach IR validation; "
+            "rest patterns must be expanded in rest_pattern_preprocessing.",
+            node.location,
+        )
+
     def visit_jagged_access(self, node: JaggedAccessIR) -> None:
         self.nodes_validated += 1
         self._check_type(node)
         node.base.accept(self)
         for idx in (node.index_chain or []):
             if idx is not None:
-                if isinstance(idx, IndexRestIR):
-                    self._report_error(
-                        f"IndexRestIR (..{getattr(idx, 'name', '?')}) must not reach IR validation; "
-                        "rest patterns must be expanded in rest_pattern_preprocessing.",
-                        node.location,
-                    )
-                if hasattr(idx, 'accept'):
-                    idx.accept(self)
+                idx.accept(self)
     
     def visit_array_literal(self, node: ArrayLiteralIR) -> None:
         self.nodes_validated += 1

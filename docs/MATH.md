@@ -1,11 +1,7 @@
----
-layout: default
-title: Math intuition
----
 
 # Math intuition
 
-**If you think in equations and indices,** Einlang is built to match. This page shows how common math notation maps to code. Full semantics: [Language reference](reference.md).
+**If you think in equations and indices,** Einlang is built to match. This page shows how common math notation maps to code. Full semantics: [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md).
 
 ---
 
@@ -58,6 +54,6 @@ Base cases and recursive case in one place; the compiler handles evaluation orde
 
 ## Where to go next
 
-- **Full syntax and semantics:** [Language reference](reference.md)
-- **Math and other functions:** [Standard library](stdlib.md) — `std::math`, `std::ml`
-- **Run an example:** [Getting started](GETTING_STARTED.md) · [Examples by domain](../examples/README.md) · [README#examples](../README.md#examples)
+- **Full syntax and semantics:** [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md)
+- **Math and other functions:** [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) — `std::math`, `std::ml`
+- **Run an example:** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) · [Examples by domain](https://github.com/einlang/einlang/blob/main/examples/README.md) · [README#examples](https://github.com/einlang/einlang/blob/main/README.md#examples)

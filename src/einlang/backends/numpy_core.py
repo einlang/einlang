@@ -306,7 +306,7 @@ class CoreExecutionMixin:
         with self.env.scope():
             for param, arg_value in zip(func_def.parameters, args):
                 if param.defid is None:
-                    raise RuntimeError(f"Parameter has no defid; cannot bind. Name (log): {getattr(param, 'name', '?')}")
+                    raise RuntimeError(f"Parameter has no defid; cannot bind. Name: {getattr(param, 'name', '?')}")
                 self.env.set_value(param.defid, arg_value, name=getattr(param, 'name', None))
             if getattr(self, "_profile_functions", False):
                 t0 = time.perf_counter()

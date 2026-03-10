@@ -1,7 +1,3 @@
----
-layout: default
-title: Kalman filter
----
 
 # Kalman filter (constant-velocity model)
 

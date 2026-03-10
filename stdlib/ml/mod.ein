@@ -38,7 +38,9 @@ pub use std::ml::reduction_ops::{reduce_mean, reduce_sum, reduce_max, reduce_min
                                  reduce_sum_square, reduce_log_sum, reduce_log_sum_exp, reduce_prod};
 
 // Linear Algebra Operations
-pub use std::ml::linalg_ops::{matmul, batch_matmul};
+pub use std::ml::linalg_ops::{matmul, batch_matmul, vec_norm_2, matrix_norm_frobenius,
+                             cholesky, solve_triangular_lower, solve_triangular_lower_unit,
+                             solve_triangular_upper, solve_cholesky};
 
 // Utility Operations
 pub use std::ml::utility_ops::{where, identity, constant, dropout, l2_normalize, numel, size, cast, slice, cumsum, quantize_linear, dequantize_linear, qmatmul, qlinear};

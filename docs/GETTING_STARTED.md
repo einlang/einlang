@@ -1,7 +1,3 @@
----
-layout: default
-title: Getting started
----
 
 # Getting started with Einlang
 
@@ -44,7 +40,7 @@ Run the matrix multiply from the code block above:
 python3 -m einlang examples/hello.ein
 ```
 
-That’s real Einlang: indices `i`, `j`, `k`, shape checking, and output. From here you can [run more examples by feature](../README.md#examples) or follow the [learning path](../examples/README.md) from basics to MNIST to ViT and Whisper.
+That’s real Einlang: indices `i`, `j`, `k`, shape checking, and output. From here you can [run more examples by feature](https://github.com/einlang/einlang/blob/main/README.md#examples) or follow the [learning path](https://github.com/einlang/einlang/blob/main/examples/README.md) from basics to MNIST to ViT and Whisper.
 
 ---
 
@@ -60,7 +56,7 @@ out = run(file="examples/hello.ein")
 # out.outputs["C"]  → numpy array; out.error if something failed
 ```
 
-One call and you’re a user. See [Install & run](../README.md#install--run) in the main README for `-c`, stdin, and the compiler API.
+One call and you’re a user. See [Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) in the main README for `-c`, stdin, and the compiler API.
 
 ---
 
@@ -68,12 +64,12 @@ One call and you’re a user. See [Install & run](../README.md#install--run) in 
 
 | You want to… | Go here |
 |--------------|--------|
-| **Learn the language** | [Language Reference](reference.md) — syntax, types, Einstein notation, where-clauses, recurrences |
-| **Look up functions** | [Standard Library](stdlib.md) — math, arrays, ML ops |
-| **Run examples by feature or step** | [README — Examples](../README.md#examples) · [Examples guide](../examples/README.md) |
-| **See the full doc map** | [Docs index](README.md) |
-| **Contribute** | [CONTRIBUTING](../CONTRIBUTING.md) — doc fixes and small bugs are a great start |
+| **Learn the language** | [Language Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) — syntax, types, Einstein notation, where-clauses, recurrences |
+| **Look up functions** | [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) — math, arrays, ML ops |
+| **Run examples by feature or step** | [README — Examples](https://github.com/einlang/einlang/blob/main/README.md#examples) · [Examples guide](https://github.com/einlang/einlang/blob/main/examples/README.md) |
+| **See the full doc map** | [Docs index](https://github.com/einlang/einlang/blob/main/docs/README.md) |
+| **Contribute** | [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md) — doc fixes and small bugs are a great start |
 
-**After your first example:** pick a domain ([ode](../examples/ode), [optimization](../examples/optimization), [finance](../examples/finance), [job_search](../examples/job_search), [time_series](../examples/time_series), [ML](../README.md#examples)) and run one; then use [reference](reference.md) for depth.
+**After your first example:** pick a domain ([ode](https://github.com/einlang/einlang/tree/main/examples/ode), [optimization](https://github.com/einlang/einlang/tree/main/examples/optimization), [finance](https://github.com/einlang/einlang/tree/main/examples/finance), [job_search](https://github.com/einlang/einlang/tree/main/examples/job_search), [time_series](https://github.com/einlang/einlang/tree/main/examples/time_series), [ML](https://github.com/einlang/einlang/blob/main/README.md#examples)) and run one; then use [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) for depth.
 
 You’re set. The rest is depth: reference, stdlib, and examples showcase everything Einlang can do.

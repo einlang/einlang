@@ -1,7 +1,112 @@
 // ml/linalg_ops.ein - Linear Algebra Operations
 
+use std::math::sqrt;
+
 // ============================================================================
-// Linear Algebra Operations
+// Norms (native)
+// ============================================================================
+
+/// L2 norm of a vector: sqrt(sum_i x[i]^2).
+pub fn vec_norm_2(x) {
+    assert(typeof(x) == "rectangular", "vec_norm_2: x must be rectangular");
+    let sum_sq = sum[i](x[i] * x[i]);
+    sqrt(sum_sq)
+}
+
+/// Frobenius norm of a matrix: sqrt(sum_{i,j} A[i,j]^2).
+pub fn matrix_norm_frobenius(A) {
+    assert(typeof(A) == "rectangular", "matrix_norm_frobenius: A must be rectangular");
+    let sum_sq = sum[i, j](A[i, j] * A[i, j]);
+    sqrt(sum_sq)
+}
+
+// ============================================================================
+// Cholesky decomposition (native)
+// ============================================================================
+
+/// Cholesky L for A = L*L^T (A symmetric positive definite). L is lower triangular.
+/// Split into multiple clauses (no if/else): strict upper, diagonal, strict lower.
+pub fn cholesky(A) {
+    assert(typeof(A) == "rectangular", "cholesky: A must be rectangular");
+    let n = len(A) as i32;
+    assert(n == len(A[0]) as i32, "cholesky: A must be square");
+    let L_diag[j in 0..n] = sqrt(A[j, j] - sum[s in 0..(j - 1)](L[j, s] * L[j, s]));
+    let L[i in 0..n, j in 0..n] = 0.0 where i < j;
+    let L[i in 0..n, j in 0..n] = L_diag[j] where i == j;
+    let L[i in 0..n, j in 0..n] = (A[i, j] - sum[s in 0..(j - 1)](L[i, s] * L[j, s])) / L_diag[j] where i > j;
+    L
+}
+
+// ============================================================================
+// Triangular solves (native)
+// ============================================================================
+
+/// Solve L*y = b where L is lower triangular (any diagonal). Forward substitution.
+pub fn solve_triangular_lower(L, b) {
+    assert(typeof(L) == "rectangular", "solve_triangular_lower: L must be rectangular");
+    let n = len(b) as i32;
+    let y[i in 0..n] = (b[i] - sum[j in 0..(i - 1)](L[i, j] * y[j])) / L[i, i];
+    y
+}
+
+/// Solve L*y = b where L is unit lower triangular (L[i,i]=1). Forward substitution.
+pub fn solve_triangular_lower_unit(L, b) {
+    assert(typeof(L) == "rectangular", "solve_triangular_lower_unit: L must be rectangular");
+    let n = len(b) as i32;
+    let y[i in 0..n] = b[i] - sum[j in 0..(i - 1)](L[i, j] * y[j]);
+    y
+}
+
+/// Solve U*x = y where U is upper triangular. Back substitution via reversed system.
+pub fn solve_triangular_upper(U, y) {
+    assert(typeof(U) == "rectangular", "solve_triangular_upper: U must be rectangular");
+    let n = len(y) as i32;
+    let U_rev[i in 0..n, j in 0..n] = U[n - 1 - i, n - 1 - j];
+    let y_rev[i in 0..n] = y[n - 1 - i];
+    let x_rev[i in 0..n] = (y_rev[i] - sum[j in 0..(i - 1)](U_rev[i, j] * x_rev[j])) / U_rev[i, i];
+    let x[i in 0..n] = x_rev[n - 1 - i];
+    x
+}
+
+/// Solve A*x = b via Cholesky (A must be symmetric positive definite).
+pub fn solve_cholesky(A, b) {
+    let L = cholesky(A);
+    let n = len(b) as i32;
+    let y = solve_triangular_lower(L, b);
+    let Lt[i in 0..n, j in 0..n] = L[j, i];
+    let x = solve_triangular_upper(Lt, y);
+    x
+}
+
+// ============================================================================
+// LU and general solve (native)
+// ============================================================================
+
+/// Doolittle LU: A = L*U, L unit lower, U upper. Returns (L, U).
+pub fn lu(A) {
+    assert(typeof(A) == "rectangular", "lu: A must be rectangular");
+    let n = len(A) as i32;
+    assert(n == len(A[0]) as i32, "lu: A must be square");
+    let L_init[i in 0..n, j in 0..n] = if i == j { 1.0 } else { 0.0 };
+    let U[k in 0..n, j in k..n] = A[k, j] - sum[s in 0..(k - 1)](L[k, s] * U[s, j]);
+    let L[i in 0..n, col in 0..n] = if i > col {
+        (A[i, col] - sum[s in 0..(col - 1)](L[i, s] * U[s, col])) / U[col, col]
+    } else {
+        L_init[i, col]
+    };
+    (L, U)
+}
+
+/// Solve A*x = b via LU (A square, nonsingular).
+pub fn solve(A, b) {
+    let (L, U) = lu(A);
+    let y = solve_triangular_lower_unit(L, b);
+    let x = solve_triangular_upper(U, y);
+    x
+}
+
+// ============================================================================
+// Matrix multiplication
 // ============================================================================
 
 pub fn matmul(a, b) {

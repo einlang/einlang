@@ -756,19 +756,19 @@ class ExpressionVisitorMixin:
         from ..shared.defid import DefId
         defid = getattr(expr, "defid", None)
         if defid is None:
-            raise RuntimeError(f"Variable not found (defid=None). Name (log): {getattr(expr, 'name', '?')}")
+            raise RuntimeError(f"Variable not found (defid=None). Name: {getattr(expr, 'name', '?')}")
         value = self.env.get_value(defid)
         if value is None:
-            raise RuntimeError(f"Variable not found (defid={defid}). Name (log): {getattr(expr, 'name', '?')}")
+            raise RuntimeError(f"Variable not found (defid={defid}). Name: {getattr(expr, 'name', '?')}")
         return value
 
     def visit_index_var(self, expr) -> Any:
         defid = getattr(expr, "defid", None)
         if defid is None:
-            raise RuntimeError(f"Index variable has no DefId. Name (log): {getattr(expr, 'name', '?')}")
+            raise RuntimeError(f"Index variable has no DefId. Name: {getattr(expr, 'name', '?')}")
         value = self.env.get_value(defid)
         if value is None:
-            raise RuntimeError(f"Index variable not found (defid={defid}). Name (log): {getattr(expr, 'name', '?')}")
+            raise RuntimeError(f"Index variable not found (defid={defid}). Name: {getattr(expr, 'name', '?')}")
         return value
 
     def visit_binary_op(self, expr: BinaryOpIR) -> Any:

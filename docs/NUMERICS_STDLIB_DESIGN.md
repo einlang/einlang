@@ -1,7 +1,3 @@
----
-layout: default
-title: Numerics stdlib design
----
 
 # Numerics stdlib: design and constraints
 

@@ -1,7 +1,3 @@
----
-layout: default
-title: Vectorization design
----
 
 # Einstein clause vectorization (NumPy backend)
 
