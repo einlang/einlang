@@ -1,11 +1,7 @@
----
-layout: default
-title: Recurrence
----
 
 # Recurrence
 
-Base case(s) plus inductive step. QuantEcon-style [finite Markov chains](https://julia.quantecon.org/introduction_dynamics/finite_markov.html) (stationary distribution). For optimization (gradient descent, power iteration) see [../optimization/](../optimization/).
+Base case(s) plus inductive step. QuantEcon-style [finite Markov chains](https://julia.quantecon.org/introduction_dynamics/finite_markov.html) (stationary distribution). For optimization (gradient descent, power iteration) see [optimization/](https://github.com/einlang/einlang/tree/main/examples/optimization).
 
 | File | What it does | Run |
 |------|--------------|-----|

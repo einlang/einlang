@@ -1,7 +1,3 @@
----
-layout: default
-title: Release readiness
----
 
 # Release readiness — before a wide audience
 

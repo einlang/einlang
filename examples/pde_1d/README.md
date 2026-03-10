@@ -1,11 +1,7 @@
----
-layout: default
-title: 1D PDEs
----
 
 # 1D PDEs
 
-One-space-dimension PDEs: heat and advection. Same style as [wave_2d](../wave_2d/). Julia: MethodOfLines.jl.
+One-space-dimension PDEs: heat and advection. Same style as [wave_2d](https://github.com/einlang/einlang/tree/main/examples/wave_2d). Julia: MethodOfLines.jl.
 
 | File | What it does | Run |
 |------|--------------|-----|

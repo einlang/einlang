@@ -22,7 +22,7 @@ from ..ir.nodes import (
     LoopStructure, BindingIR, GuardCondition, is_einstein_binding, is_function_binding,
     LoweredEinsteinClauseIR, LoweredEinsteinIR, LoweredReductionIR, LoweredComprehensionIR,
     IRVisitor, RectangularAccessIR, MemberAccessIR,
-    ArrayComprehensionIR, BinaryOpIR,
+    ArrayComprehensionIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
 )
 
 
@@ -330,42 +330,160 @@ class RestPatternReplacer(IRVisitor[ExpressionIR]):
     def visit_where_expression(self, node) -> ExpressionIR:
         return node
 
+class _HasUnexpandedRestVisitor(IRVisitor[bool]):
+    """Visitor that returns True if the expression contains IndexRestIR or .. identifiers."""
+
+    def _any(self, node: Optional[Any]) -> bool:
+        return bool(node is not None and getattr(node, "accept", None) and node.accept(self))
+
+    def visit_literal(self, node: LiteralIR) -> bool:
+        return False
+
+    def visit_identifier(self, node: IdentifierIR) -> bool:
+        return node.name.startswith("..")
+
+    def visit_index_rest(self, node: IndexRestIR) -> bool:
+        return True
+
+    def visit_rectangular_access(self, node: RectangularAccessIR) -> bool:
+        if self._any(node.array):
+            return True
+        for idx in node.indices or []:
+            if self._any(idx):
+                return True
+        return False
+
+    def visit_reduction_expression(self, node: ReductionExpressionIR) -> bool:
+        return self._any(node.body)
+
+    def visit_binary_op(self, node: BinaryOpIR) -> bool:
+        return self._any(node.left) or self._any(node.right)
+
+    def visit_unary_op(self, node: UnaryOpIR) -> bool:
+        return self._any(node.operand)
+
+    def visit_function_call(self, node: FunctionCallIR) -> bool:
+        for arg in node.arguments or []:
+            if self._any(arg):
+                return True
+        return False
+
+    def visit_index_var(self, node: IndexVarIR) -> bool:
+        return self._any(getattr(node, "range_ir", None))
+
+    def visit_jagged_access(self, node: Any) -> bool:
+        if self._any(getattr(node, "base", None)):
+            return True
+        for idx in getattr(node, "index_chain", None) or []:
+            if self._any(idx):
+                return True
+        return False
+
+    def visit_block_expression(self, node: Any) -> bool:
+        for stmt in getattr(node, "statements", None) or []:
+            if self._any(stmt):
+                return True
+        return self._any(getattr(node, "final_expr", None))
+
+    def visit_if_expression(self, node: Any) -> bool:
+        return (
+            self._any(getattr(node, "condition", None))
+            or self._any(getattr(node, "then_expr", None))
+            or self._any(getattr(node, "else_expr", None))
+        )
+
+    def visit_lambda(self, node: Any) -> bool:
+        return self._any(getattr(node, "body", None))
+
+    def visit_range(self, node: Any) -> bool:
+        return self._any(getattr(node, "start", None)) or self._any(getattr(node, "end", None))
+
+    def visit_array_comprehension(self, node: Any) -> bool:
+        return self._any(getattr(node, "body", None))
+
+    def visit_module(self, node: Any) -> bool:
+        return False
+
+    def visit_array_literal(self, node: Any) -> bool:
+        for e in getattr(node, "elements", None) or []:
+            if self._any(e):
+                return True
+        return False
+
+    def visit_tuple_expression(self, node: Any) -> bool:
+        for e in getattr(node, "elements", None) or []:
+            if self._any(e):
+                return True
+        return False
+
+    def visit_tuple_access(self, node: Any) -> bool:
+        return self._any(getattr(node, "tuple_expr", None))
+
+    def visit_interpolated_string(self, node: Any) -> bool:
+        return False
+
+    def visit_cast_expression(self, node: Any) -> bool:
+        return self._any(getattr(node, "expr", None))
+
+    def visit_member_access(self, node: Any) -> bool:
+        return self._any(getattr(node, "object", None))
+
+    def visit_try_expression(self, node: Any) -> bool:
+        return self._any(getattr(node, "expr", None))
+
+    def visit_match_expression(self, node: Any) -> bool:
+        if self._any(getattr(node, "scrutinee", None)):
+            return True
+        for arm in getattr(node, "arms", None) or []:
+            if self._any(getattr(arm, "pattern", None)) or self._any(getattr(arm, "body", None)):
+                return True
+        return False
+
+    def visit_where_expression(self, node: Any) -> bool:
+        if self._any(getattr(node, "expr", None)):
+            return True
+        for c in getattr(node, "constraints", None) or []:
+            if self._any(c):
+                return True
+        return False
+
+    def visit_pipeline_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_builtin_call(self, node: Any) -> bool:
+        for arg in getattr(node, "args", None) or []:
+            if self._any(arg):
+                return True
+        return False
+
+    def visit_literal_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_wildcard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_array_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_rest_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_guard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_program(self, node: Any) -> bool:
+        return False
+
+
 def has_unexpanded_rest_patterns(expr: ExpressionIR) -> bool:
     """Check if an expression contains any unexpanded rest patterns (IndexRestIR or .. identifiers)."""
-    from ..ir.nodes import IdentifierIR, IndexRestIR, RectangularAccessIR, ReductionExpressionIR, BinaryOpIR, UnaryOpIR, FunctionCallIR
-
-    def check_node(node) -> bool:
-        if isinstance(node, IndexRestIR):
-            return True
-        if isinstance(node, IdentifierIR) and node.name.startswith(".."):
-            return True
-        elif isinstance(node, RectangularAccessIR):
-            if node.array and check_node(node.array):
-                return True
-            if node.indices:
-                for idx_group in (node.indices if node.indices and isinstance(node.indices[0], list) else [node.indices] if node.indices else []):
-                    for idx in idx_group:
-                        if check_node(idx):
-                            return True
-        elif isinstance(node, ReductionExpressionIR):
-            if node.body and check_node(node.body):
-                return True
-        elif isinstance(node, BinaryOpIR):
-            if node.left and check_node(node.left):
-                return True
-            if node.right and check_node(node.right):
-                return True
-        elif isinstance(node, UnaryOpIR):
-            if node.operand and check_node(node.operand):
-                return True
-        elif isinstance(node, FunctionCallIR):
-            if node.arguments:
-                for arg in node.arguments:
-                    if check_node(arg):
-                        return True
-        return False
-    
-    return check_node(expr)
+    return expr.accept(_HasUnexpandedRestVisitor())
 
 class EinsteinLoweringVisitor(IRVisitor[None]):
     """Visitor to lower Einstein declarations to loop structures"""

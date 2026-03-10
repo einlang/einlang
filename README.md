@@ -1,6 +1,6 @@
+
 ---
-layout: default
-title: Einlang
+permalink: /
 ---
 
 # Einlang
@@ -15,7 +15,7 @@ let B = [[5, 6], [7, 8]];
 let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply — shapes checked by the compiler
 ```
 
-**New here?** [Getting started](docs/GETTING_STARTED.md) tells the full story in one page. Or try it below.
+**New here?** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) tells the full story in one page. Or try it below.
 
 ---
 
@@ -40,12 +40,12 @@ One step is enough — no account or long read required.
 
 | You want to… | Do this |
 |--------------|--------|
-| **Run another example** | `python3 -m einlang examples/basics/basic_math.ein` or [examples/demos/matrix_operations.ein](examples/demos/matrix_operations.ein) |
+| **Run another example** | `python3 -m einlang examples/basics/basic_math.ein` or [examples/demos/matrix_operations.ein](https://github.com/einlang/einlang/blob/main/examples/demos/matrix_operations.ein) |
 | **Use it in your code** | [Install & run](#install--run) — `run(source="...")` or `run(file="path.ein")`; one call and you're a user. |
-| **Learn the language** | [Language Reference](docs/reference.md) · [Standard Library](docs/stdlib.md) |
+| **Learn the language** | [Language Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) |
 | **See what's possible** | [What you get](#what-you-get) · [Examples](#examples) |
 | **Stay in the loop** | [★ Star the repo](https://github.com/einlang/einlang) · Watch → Releases |
-| **Contribute** | [CONTRIBUTING](CONTRIBUTING.md) — doc fixes and small bugs are a great start |
+| **Contribute** | [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md) — doc fixes and small bugs are a great start |
 
 ---
 
@@ -88,17 +88,17 @@ Einlang gives you readable tensor math with compile-time shape checking. In prac
 | **Where clauses** | Index algebra (`where ih = oh + kh`) and guards (`where data[i] > 0`) next to the math |
 | **Recurrences** | `let fib[0]=0; let fib[1]=1; let fib[n in 2..20]=fib[n-1]+fib[n-2]` — range in bracket; compiler handles order |
 | **Reductions** | `sum[i](x[i])`, `max[j](M[i,j])`, `sum[i,j](A[i,j]*A[i,j])` with inferred ranges |
-| **Stdlib** | `use std::math::{sin, sqrt};` · 300+ functions · [Reference](docs/reference.md) · [Stdlib](docs/stdlib.md) |
-| **Real models** | [MNIST CNN](examples/mnist/main.ein), [quantized (int8)](examples/mnist_quantized/main.ein), [ViT](examples/deit_tiny/), [Whisper](examples/whisper_tiny/) — same language, same checks |
+| **Stdlib** | `use std::math::{sin, sqrt};` · 300+ functions · [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [Stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) |
+| **Real models** | [MNIST CNN](https://github.com/einlang/einlang/blob/main/examples/mnist/main.ein), [quantized (int8)](https://github.com/einlang/einlang/blob/main/examples/mnist_quantized/main.ein), [ViT](https://github.com/einlang/einlang/tree/main/examples/deit_tiny), [Whisper](https://github.com/einlang/einlang/tree/main/examples/whisper_tiny) — same language, same checks |
 
-**Real-world use cases** (same space as [Julia’s demos](docs/JULIA_DEMOS.md): one language for simulation and ML.
+**Real-world use cases** (same space as [Julia’s demos](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md): one language for simulation and ML.
 
 | Domain | Use case | Example |
 |--------|----------|---------|
-| **Scientific simulation** | ODE + PDEs: diffusion, wave, reaction–diffusion (recurrence + stencil) | [ode](examples/ode/), [pde_1d](examples/pde_1d/) (heat, advection), [wave_2d](examples/wave_2d/), [brusselator](examples/brusselator/) |
-| **Parameter estimation & scenarios** | Calibrate then forecast; scenario/sensitivity runs (one model, many parameters) | [applications](examples/applications/) |
-| **Computer vision** | Digit recognition, int8 quantization, ImageNet ViT | [mnist](examples/mnist/), [mnist_quantized](examples/mnist_quantized/), [deit_tiny](examples/deit_tiny/) |
-| **Speech & sequence** | Speech-to-text (encoder–decoder, autoregressive) | [whisper_tiny](examples/whisper_tiny/) |
+| **Scientific simulation** | ODE + PDEs: diffusion, wave, reaction–diffusion (recurrence + stencil) | [ode](https://github.com/einlang/einlang/tree/main/examples/ode), [pde_1d](https://github.com/einlang/einlang/tree/main/examples/pde_1d) (heat, advection), [wave_2d](https://github.com/einlang/einlang/tree/main/examples/wave_2d), [brusselator](https://github.com/einlang/einlang/tree/main/examples/brusselator) |
+| **Parameter estimation & scenarios** | Calibrate then forecast; scenario/sensitivity runs (one model, many parameters) | [applications](https://github.com/einlang/einlang/tree/main/examples/applications) |
+| **Computer vision** | Digit recognition, int8 quantization, ImageNet ViT | [mnist](https://github.com/einlang/einlang/tree/main/examples/mnist), [mnist_quantized](https://github.com/einlang/einlang/tree/main/examples/mnist_quantized), [deit_tiny](https://github.com/einlang/einlang/tree/main/examples/deit_tiny) |
+| **Speech & sequence** | Speech-to-text (encoder–decoder, autoregressive) | [whisper_tiny](https://github.com/einlang/einlang/tree/main/examples/whisper_tiny) |
 
 ---
 
@@ -128,29 +128,29 @@ let C[i, j] = sum[k](A[i, k] * B[k, j]);
 
 ## Examples
 
-Grouped **by domain**; full list: [examples/README](examples/README.md).
+Grouped **by domain**; full list: [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md).
 
 | Domain | Examples | Run |
 |--------|----------|-----|
-| **Scientific simulation** | ODEs, 1D PDE (heat, advection), 2D wave, Brusselator | [ode/](examples/ode/), [pde_1d/](examples/pde_1d/), [wave_2d/](examples/wave_2d/), [brusselator/](examples/brusselator/) |
-| **Discrete dynamics** | Recurrence, Markov, logistic | [recurrence/](examples/recurrence/) |
-| **Finance** | Savings / compound interest | [finance/](examples/finance/) |
-| **Economics / optimization** | Bellman value iteration; gradient descent, power iteration, projected gradient | [value_iteration/](examples/value_iteration/), [optimization/](examples/optimization/) |
-| **Computer vision** | MNIST CNN, quantized CNN, ViT (ImageNet) | [mnist/](examples/mnist/), [mnist_quantized/](examples/mnist_quantized/), [deit_tiny/](examples/deit_tiny/) |
-| **Speech & sequence** | Speech-to-text (Whisper) | [whisper_tiny/](examples/whisper_tiny/) |
-| **Language & basics** | Variables, matrices, Einstein notation, units | [basics/](examples/basics/), [demos/](examples/demos/), [units/](examples/units/) |
+| **Scientific simulation** | ODEs, 1D PDE (heat, advection), 2D wave, Brusselator | [ode/](https://github.com/einlang/einlang/tree/main/examples/ode), [pde_1d/](https://github.com/einlang/einlang/tree/main/examples/pde_1d), [wave_2d/](https://github.com/einlang/einlang/tree/main/examples/wave_2d), [brusselator/](https://github.com/einlang/einlang/tree/main/examples/brusselator) |
+| **Discrete dynamics** | Recurrence, Markov, logistic | [recurrence/](https://github.com/einlang/einlang/tree/main/examples/recurrence) |
+| **Finance** | Savings / compound interest | [finance/](https://github.com/einlang/einlang/tree/main/examples/finance) |
+| **Economics / optimization** | Bellman value iteration; gradient descent, power iteration, projected gradient | [value_iteration/](https://github.com/einlang/einlang/tree/main/examples/value_iteration), [optimization/](https://github.com/einlang/einlang/tree/main/examples/optimization) |
+| **Computer vision** | MNIST CNN, quantized CNN, ViT (ImageNet) | [mnist/](https://github.com/einlang/einlang/tree/main/examples/mnist), [mnist_quantized/](https://github.com/einlang/einlang/tree/main/examples/mnist_quantized), [deit_tiny/](https://github.com/einlang/einlang/tree/main/examples/deit_tiny) |
+| **Speech & sequence** | Speech-to-text (Whisper) | [whisper_tiny/](https://github.com/einlang/einlang/tree/main/examples/whisper_tiny) |
+| **Language & basics** | Variables, matrices, Einstein notation, units | [basics/](https://github.com/einlang/einlang/tree/main/examples/basics), [demos/](https://github.com/einlang/einlang/tree/main/examples/demos), [units/](https://github.com/einlang/einlang/tree/main/examples/units) |
 
 **Quick run:** `python3 -m einlang examples/hello.ein` · `examples/ode/ode_suite.ein` · `examples/optimization/optimization_suite.ein` · `examples/finance/savings.ein` · `examples/job_search/mccall.ein` · `examples/time_series/exponential_smoothing.ein`
 
-Every simulation example has a Julia equivalent in the `.ein` file and is [accuracy-tested](tests/examples/test_simulation_accuracy.py). See [Julia demos → Einlang](docs/JULIA_DEMOS.md).
+Every simulation example has a Julia equivalent in the `.ein` file and is [accuracy-tested](https://github.com/einlang/einlang/blob/main/tests/examples/test_simulation_accuracy.py). See [Julia demos → Einlang](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md).
 
 ---
 
 ## Docs and roadmap
 
-**[Doc index](docs/README.md)** — by audience (starter, student, ML, engineer, Python/Julia/Rust, contributor, paper).  
-**[Getting started](docs/GETTING_STARTED.md)** — one-page story to first example and Python API.  
-Canonical: [reference](docs/reference.md) · [stdlib](docs/stdlib.md) · Install & run above. Design: [docs/DOCUMENTATION_DESIGN.md](docs/DOCUMENTATION_DESIGN.md).
+**[Doc index](https://github.com/einlang/einlang/blob/main/docs/README.md)** — by audience (starter, student, ML, engineer, Python/Julia/Rust, contributor, paper).  
+**[Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md)** — one-page story to first example and Python API.  
+Canonical: [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) · Install & run above. Design: [docs/DOCUMENTATION_DESIGN.md](https://github.com/einlang/einlang/blob/main/docs/DOCUMENTATION_DESIGN.md).
 
 **Roadmap:** NumPy backend (now) → MLIR via Python (next) → native/GPU. Einstein notation, where-clauses, recurrences, 300+ stdlib functions, and type and shape inference are in place.
 
@@ -158,7 +158,7 @@ Canonical: [reference](docs/reference.md) · [stdlib](docs/stdlib.md) · Install
 
 ## Community
 
-[**★ Star us**](https://github.com/einlang/einlang) — it helps others find Einlang. **Issues and PRs welcome** — [CONTRIBUTING](CONTRIBUTING.md).
+[**★ Star us**](https://github.com/einlang/einlang) — it helps others find Einlang. **Issues and PRs welcome** — [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md).
 
 ## License
 

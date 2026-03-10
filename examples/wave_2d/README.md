@@ -1,7 +1,3 @@
----
-layout: default
-title: Wave 2D
----
 
 # 2D wave equation (acoustic / linear wave)
 

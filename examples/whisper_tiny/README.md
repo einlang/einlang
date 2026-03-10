@@ -1,11 +1,7 @@
----
-layout: default
-title: Whisper-tiny
----
 
 # 6 — Whisper-tiny: Speech-to-Text
 
-> **Previous**: [`deit_tiny/`](../deit_tiny/) · **Next**: [`units/`](../units/) (reference)
+> **Previous**: [`deit_tiny/`](https://github.com/einlang/einlang/tree/main/examples/deit_tiny) · **Next**: [`units/`](https://github.com/einlang/einlang/tree/main/examples/units) (reference)
 
 **Speech to text**: transcribes audio (speech) into text. End-to-end transcription using OpenAI's [Whisper-tiny](https://huggingface.co/openai/whisper-tiny) model. This is the most complex example — it combines everything from the previous models and adds an encoder-decoder architecture with autoregressive generation.
 
@@ -23,7 +19,7 @@ title: Whisper-tiny
 
 ## What's new here
 
-Building on the self-attention from [deit_tiny/](../deit_tiny/), this example introduces:
+Building on the self-attention from [deit_tiny/](https://github.com/einlang/einlang/tree/main/examples/deit_tiny), this example introduces:
 
 - **1D convolution** — `conv` on rank-3 tensors dispatches to `conv1d`, processing mel spectrogram frames instead of 2D image patches.
 - **Encoder-decoder architecture** — the encoder processes audio into a fixed representation; the decoder generates text tokens conditioned on that representation.
@@ -86,4 +82,4 @@ This runs the NumPy reference and Einlang `main.ein` and compares their output t
    - Generates up to 36 new tokens.
 4. **Output**: Token IDs are decoded to text via the Python bridge (`whisper_helpers.py`).
 
-This completes the model examples. For a comprehensive reference of every language feature, see [`units/`](../units/).
+This completes the model examples. For a comprehensive reference of every language feature, see [`units/`](https://github.com/einlang/einlang/tree/main/examples/units).

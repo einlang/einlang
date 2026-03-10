@@ -1,7 +1,3 @@
----
-layout: default
-title: Paper & citation
----
 
 # Paper & citation
 
@@ -20,7 +16,7 @@ Short description and how to cite Einlang in papers or technical writing.
 ## Repository and license
 
 - **Repository:** [github.com/einlang/einlang](https://github.com/einlang/einlang)
-- **License:** Apache 2.0 — see [LICENSE](../LICENSE) in the repository.
+- **License:** Apache 2.0 — see [LICENSE](https://github.com/einlang/einlang/blob/main/LICENSE) in the repository.
 
 ---
 
@@ -44,6 +40,6 @@ Adjust the year to the version you used. For a specific release, add `version = 
 
 ## Technical reference
 
-- **Language:** [Language reference](reference.md)
-- **Standard library:** [Standard library](stdlib.md)
-- **Install and run:** [README — Install & run](../README.md#install--run)
+- **Language:** [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md)
+- **Standard library:** [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md)
+- **Install and run:** [README — Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run)

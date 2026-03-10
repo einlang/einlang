@@ -1,11 +1,7 @@
----
-layout: default
-title: Basics
----
 
 # 1 — Basics
 
-> **Previous**: (start here) · **Next**: [`demos/`](../demos/)
+> **Previous**: (start here) · **Next**: [`demos/`](https://github.com/einlang/einlang/tree/main/examples/demos)
 
 Your first look at Einlang. These four files cover the language fundamentals — run them in order.
 
@@ -36,4 +32,4 @@ python3 -m einlang examples/basics/data_processing.ein
 - **Comprehensions** — `[expr | var in collection, predicate]` to filter and transform
 - **Assertions** — `assert(cond, msg)` for runtime checks
 
-These are the building blocks for everything that follows. Once you're comfortable, move on to [demos/](../demos/) for matrices, tensors, and imports.
+These are the building blocks for everything that follows. Once you're comfortable, move on to [demos/](https://github.com/einlang/einlang/tree/main/examples/demos) for matrices, tensors, and imports.

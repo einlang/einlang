@@ -1,13 +1,9 @@
----
-layout: default
-title: Einlang for Julia programmers
----
 
 # Einlang for Julia programmers
 
 You write **Julia** for numerical simulation (DifferentialEquations.jl, QuantEcon.jl, SciML) or for tensor-heavy ML. This page maps that mindset to Einlang: same “write the math” feel, **compile-time shape checking**, and no stringly-typed einsum. We focus on the **numerical** side — discrete time-stepping, recurrences, stencils — not the symbolic layer (ModelingToolkit, Symbolics.jl).
 
-**Try first:** `python3 -m einlang examples/ode/ode_suite.ein` — same idea as [DiffEqDocs ODE example](https://docs.sciml.ai/DiffEqDocs/stable/getting_started/#ode_example): define the equation, step in time. Then see [Julia demos → Einlang](JULIA_DEMOS.md) for the full mapping.
+**Try first:** `python3 -m einlang examples/ode/ode_suite.ein` — same idea as [DiffEqDocs ODE example](https://docs.sciml.ai/DiffEqDocs/stable/getting_started/#ode_example): define the equation, step in time. Then see [Julia demos → Einlang](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md) for the full mapping.
 
 ---
 
@@ -171,7 +167,7 @@ File = module. Paths like `std::math::basic` map to stdlib files.
 | Reading “previous” step | Use `u[t - 1]`, `h[t-1, i, j]` etc. **Backward references only** (no `t+1` in the body). |
 | Recurrence index | Must be in the bracket: `let u[t in 1..N] = ...`, not in a `where` clause. |
 
-See [Recurrence relations](reference.md#recurrence-relations) for rules (no future indices; index only identifier or literal in the bracket).
+See [Recurrence relations](https://github.com/einlang/einlang/blob/main/docs/reference.md#recurrence-relations) for rules (no future indices; index only identifier or literal in the bracket).
 
 ### I/O and files
 
@@ -179,8 +175,8 @@ See [Recurrence relations](reference.md#recurrence-relations) for rules (no futu
 |-------|---------|
 | `read("file.txt", String)` | `use std::io;` then `read_file("file.txt")` (returns string) |
 | `write("file.txt", s)` | `write_file("file.txt", s)` (text only) |
-| `using FileIO; save("x.npy", A)` | **std::io:** `load_npy(path)` and `save_npy(path, arr)` (matches NumPy load/save). Example: `use std::io::{load_npy, save_npy}; let x = load_npy("x.npy") as [f32; 10, 20]; save_npy("out.npy", x);` See [Stdlib: std::io](stdlib.md#stdio). |
-| Directory/path helpers | `std::io`: `list_dir`, `create_dir`, `join_path`, `dirname`, `basename`, `file_exists`, `is_file`, `is_dir`, etc. See [Stdlib: std::io](stdlib.md#stdio). |
+| `using FileIO; save("x.npy", A)` | **std::io:** `load_npy(path)` and `save_npy(path, arr)` (matches NumPy load/save). Example: `use std::io::{load_npy, save_npy}; let x = load_npy("x.npy") as [f32; 10, 20]; save_npy("out.npy", x);` See [Stdlib: std::io](https://github.com/einlang/einlang/blob/main/docs/stdlib.md#stdio). |
+| Directory/path helpers | `std::io`: `list_dir`, `create_dir`, `join_path`, `dirname`, `basename`, `file_exists`, `is_file`, `is_dir`, etc. See [Stdlib: std::io](https://github.com/einlang/einlang/blob/main/docs/stdlib.md#stdio). |
 
 So: **text I/O** is in `std::io`; **binary/tensor I/O** (.npy) is read via `python::numpy::load`, and write is typically done from Python after execution or via `python::numpy::save` if available.
 
@@ -217,7 +213,7 @@ Every simulation `.ein` file has a **Julia equivalent (1-based)** in comments so
   The compiler infers ranges from shapes and checks them.
 - **No `for`/`while`:** Use Einstein notation, comprehensions `[x | i in 0..n]`, or **recurrence** declarations (see below).
 
-More: [Syntax comparison: Julia](SYNTAX_COMPARISON.md#julia) · [Language reference: Einstein notation](reference.md#einstein-notation).
+More: [Syntax comparison: Julia](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md#julia) · [Language reference: Einstein notation](https://github.com/einlang/einlang/blob/main/docs/reference.md#einstein-notation).
 
 ---
 
@@ -240,7 +236,7 @@ let u[0] = u0;
 let u[t in 1..N] = u[t - 1] + dt * f(u[t - 1]);
 ```
 
-Examples: [ode/](../examples/ode) (decay, linear, Lorenz, Lotka–Volterra, pendulum, van der Pol, SIR, harmonic, fitzhugh_nagumo, lorenz96). Same equations as in DiffEqDocs; each file has the Julia equivalent in comments and is accuracy-tested against a reference.
+Examples: [ode/](https://github.com/einlang/einlang/tree/main/examples/ode) (decay, linear, Lorenz, Lotka–Volterra, pendulum, van der Pol, SIR, harmonic, fitzhugh_nagumo, lorenz96). Same equations as in DiffEqDocs; each file has the Julia equivalent in comments and is accuracy-tested against a reference.
 
 ---
 
@@ -248,9 +244,9 @@ Examples: [ode/](../examples/ode) (decay, linear, Lorenz, Lotka–Volterra, pend
 
 Same idea: you write the **discrete update** (stencil) in Einstein notation. No MethodOfLines API — just the spatial operator and the time step.
 
-- **1D heat / advection:** [pde_1d/](../examples/pde_1d) (heat_1d.ein, advection_1d.ein).
-- **2D wave:** [wave_2d/](../examples/wave_2d) — two-level recurrence (h[t-1], h[t-2]).
-- **Brusselator:** [brusselator/](../examples/brusselator) — reaction–diffusion, 4D state.
+- **1D heat / advection:** [pde_1d/](https://github.com/einlang/einlang/tree/main/examples/pde_1d) (heat_1d.ein, advection_1d.ein).
+- **2D wave:** [wave_2d/](https://github.com/einlang/einlang/tree/main/examples/wave_2d) — two-level recurrence (h[t-1], h[t-2]).
+- **Brusselator:** [brusselator/](https://github.com/einlang/einlang/tree/main/examples/brusselator) — reaction–diffusion, 4D state.
 
 ---
 
@@ -258,15 +254,15 @@ Same idea: you write the **discrete update** (stencil) in Einstein notation. No 
 
 **Base case(s) + inductive step.** Like a `for` loop over time or state, but declared as equations.
 
-- **Fibonacci, random walk, logistic map:** [recurrence/](../examples/recurrence).
-- **Markov stationary distribution:** [recurrence_suite.ein](../examples/recurrence/recurrence_suite.ein) — ψ = ψ P (QuantEcon-style), plus fibonacci, logistic, random_walk.
-- **Optimization (gradient descent, power iteration, projected gradient, Rosenbrock):** [optimization_suite.ein](../examples/optimization/optimization_suite.ein) (Optim.jl/SciML-style).
-- **Time series (exponential smoothing):** [time_series/exponential_smoothing.ein](../examples/time_series/exponential_smoothing.ein) — StateSpaceModels.jl/TimeSeries.jl-style forecasting.
-- **Finance (savings / compound interest):** [finance/savings.ein](../examples/finance/savings.ein).
-- **Value iteration (Bellman):** [value_iteration/](../examples/value_iteration) — same idea as QuantEcon.jl.
-- **McCall job search (reservation wage):** [job_search/mccall.ein](../examples/job_search/mccall.ein) — value function iteration, QuantEcon-style.
+- **Fibonacci, random walk, logistic map:** [recurrence/](https://github.com/einlang/einlang/tree/main/examples/recurrence).
+- **Markov stationary distribution:** [recurrence_suite.ein](https://github.com/einlang/einlang/blob/main/examples/recurrence/recurrence_suite.ein) — ψ = ψ P (QuantEcon-style), plus fibonacci, logistic, random_walk.
+- **Optimization (gradient descent, power iteration, projected gradient, Rosenbrock):** [optimization_suite.ein](https://github.com/einlang/einlang/blob/main/examples/optimization/optimization_suite.ein) (Optim.jl/SciML-style).
+- **Time series (exponential smoothing):** [time_series/exponential_smoothing.ein](https://github.com/einlang/einlang/blob/main/examples/time_series/exponential_smoothing.ein) — StateSpaceModels.jl/TimeSeries.jl-style forecasting.
+- **Finance (savings / compound interest):** [finance/savings.ein](https://github.com/einlang/einlang/blob/main/examples/finance/savings.ein).
+- **Value iteration (Bellman):** [value_iteration/](https://github.com/einlang/einlang/tree/main/examples/value_iteration) — same idea as QuantEcon.jl.
+- **McCall job search (reservation wage):** [job_search/mccall.ein](https://github.com/einlang/einlang/blob/main/examples/job_search/mccall.ein) — value function iteration, QuantEcon-style.
 
-Syntax: `let x[0] = ...; let x[k in 1..K] = ...;` Multiple clauses for the same array must be **consecutive** (no other `let` in between). [Reference: Recurrence relations](reference.md#recurrence-relations).
+Syntax: `let x[0] = ...; let x[k in 1..K] = ...;` Multiple clauses for the same array must be **consecutive** (no other `let` in between). [Reference: Recurrence relations](https://github.com/einlang/einlang/blob/main/docs/reference.md#recurrence-relations).
 
 ---
 
@@ -281,9 +277,9 @@ Syntax: `let x[0] = ...; let x[k in 1..K] = ...;` Multiple clauses for the same 
 
 | You want… | Go to |
 |-----------|--------|
-| **Full Julia ↔ Einlang example mapping** | [Julia demos → Einlang](JULIA_DEMOS.md) |
-| **Syntax side-by-side (Julia, Python, Rust)** | [Syntax comparison](SYNTAX_COMPARISON.md) |
-| **All examples by domain** | [Examples README](../examples/README.md) |
-| **Language and semantics** | [Language reference](reference.md) |
-| **Stdlib (math, ML, etc.)** | [Standard library](stdlib.md) |
-| **Install and run** | [README: Install & run](../README.md#install--run) |
+| **Full Julia ↔ Einlang example mapping** | [Julia demos → Einlang](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md) |
+| **Syntax side-by-side (Julia, Python, Rust)** | [Syntax comparison](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md) |
+| **All examples by domain** | [Examples README](https://github.com/einlang/einlang/blob/main/examples/README.md) |
+| **Language and semantics** | [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) |
+| **Stdlib (math, ML, etc.)** | [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) |
+| **Install and run** | [README: Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) |

@@ -1,11 +1,7 @@
----
-layout: default
-title: Unsupported by design
----
 
 # Unsupported by design
 
-This page lists **syntax and features that Einlang intentionally does not support**, and explains why. For what *is* supported, see the [Language reference](reference.md). For planned-but-not-yet-implemented features, see [Planned features](reference.md#planned-features) in the reference.
+This page lists **syntax and features that Einlang intentionally does not support**, and explains why. For what *is* supported, see the [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md). For planned-but-not-yet-implemented features, see [Planned features](https://github.com/einlang/einlang/blob/main/docs/reference.md#planned-features) in the reference.
 
 ---
 
@@ -19,7 +15,7 @@ This page lists **syntax and features that Einlang intentionally does not suppor
 - **Comprehensions** — `[x * 2 | x in data]` — explicit generator and optional filter; the compiler sees the iteration.
 - **Recurrence declarations** — `let fib[n in 2..N] = fib[n-1] + fib[n-2]` — base cases plus recursive case; range in bracket; the compiler enforces evaluation order.
 
-**Use instead:** [Einstein notation](reference.md#einstein-notation), [Array comprehensions](reference.md#array-comprehensions), [Recurrence relations](reference.md#recurrence-relations).
+**Use instead:** [Einstein notation](https://github.com/einlang/einlang/blob/main/docs/reference.md#einstein-notation), [Array comprehensions](https://github.com/einlang/einlang/blob/main/docs/reference.md#array-comprehensions), [Recurrence relations](https://github.com/einlang/einlang/blob/main/docs/reference.md#recurrence-relations).
 
 ---
 
@@ -135,7 +131,7 @@ This page lists **syntax and features that Einlang intentionally does not suppor
 
 **Why:** Einlang’s goal is clarity and explicitness in the syntax — no magic. What you write is what is computed; the compiler checks shapes and order, it does not silently add derivative code. Automatic differentiation would hide how gradients are obtained.
 
-**Use instead:** Write gradients explicitly. See [numerics::optim](stdlib.md) (e.g. `quadratic_gradient_2d`, gradient descent) and examples such as [optimization_suite.ein](../examples/optimization/optimization_suite.ein) (Rosenbrock) and [decay_calibration](../examples/applications/decay_calibration.ein). For other objectives, write the gradient by hand or use least-squares / grid search over parameters.
+**Use instead:** Write gradients explicitly. See [numerics::optim](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) (e.g. `quadratic_gradient_2d`, gradient descent) and examples such as [optimization_suite.ein](https://github.com/einlang/einlang/blob/main/examples/optimization/optimization_suite.ein) (Rosenbrock) and [decay_calibration](https://github.com/einlang/einlang/blob/main/examples/applications/decay_calibration.ein). For other objectives, write the gradient by hand or use least-squares / grid search over parameters. Design notes **if** this were ever revisited as a future feature: [Autodiff (potential future feature)](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_FUTURE.md).
 
 ---
 
@@ -155,8 +151,8 @@ This page lists **syntax and features that Einlang intentionally does not suppor
 | LHS index expression (e.g. `t+1`) | Name or literal in bracket; refer to prior step in body (e.g. `seq[t-1]`) | [Recurrence relations](reference.md#recurrence-relations) |
 | Forward ref / future value (e.g. `h[t+1,i,j]`, `h[t,i+1,j]` when defining `h[t,i,j]`) | Backward ref only in every dim (e.g. `h[t-1,i,j]`, `h[t,i-1,j]`, `h[t,i,j-1]`) | [Recurrence relations](reference.md#recurrence-relations) |
 | Mutable bindings | New `let`; recurrences for sequences | [let](reference.md#let-declarations), [Recurrences](reference.md#recurrence-relations) |
-| Automatic differentiation | Explicit gradients (e.g. stdlib, hand-written) | [numerics::optim](stdlib.md), [optimization examples](../examples/optimization) |
+| Automatic differentiation | Explicit gradients (e.g. stdlib, hand-written) | [numerics::optim](https://github.com/einlang/einlang/blob/main/docs/stdlib.md), [optimization examples](https://github.com/einlang/einlang/tree/main/examples/optimization) |
 
 ---
 
-**Planned features** (parsed but not yet executed) are listed in the reference under [Planned features](reference.md#planned-features). Those are not “unsupported by design” — they are intended for a future release.
+**Planned features** (parsed but not yet executed) are listed in the reference under [Planned features](https://github.com/einlang/einlang/blob/main/docs/reference.md#planned-features). Those are not “unsupported by design” — they are intended for a future release.

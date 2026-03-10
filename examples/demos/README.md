@@ -1,11 +1,7 @@
----
-layout: default
-title: Demos
----
 
 # 2 — Demos
 
-> **Previous**: [`basics/`](../basics/) · **Next**: [`mnist/`](../mnist/)
+> **Previous**: [`basics/`](https://github.com/einlang/einlang/tree/main/examples/basics) · **Next**: [`mnist/`](https://github.com/einlang/einlang/tree/main/examples/mnist)
 
 Intermediate examples that build on the fundamentals. These introduce Einstein notation for tensor operations, the module/import system, and more expressive patterns.
 
@@ -73,4 +69,4 @@ cd examples/whisper_tiny && EINLANG_PROFILE_STATEMENTS=1 EINLANG_DEBUG_VECTORIZE
 - **Function overloading** — same function name with different signatures, dispatched at call time.
 - **`in` operator** — membership testing and iteration in comprehensions.
 
-After these demos, you have all the language tools needed for real neural networks. Continue to [mnist/](../mnist/) to put them to work.
+After these demos, you have all the language tools needed for real neural networks. Continue to [mnist/](https://github.com/einlang/einlang/tree/main/examples/mnist) to put them to work.

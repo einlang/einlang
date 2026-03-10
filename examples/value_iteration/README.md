@@ -1,7 +1,3 @@
----
-layout: default
-title: Value iteration
----
 
 # Value iteration & policy iteration (QuantEcon-style)
 

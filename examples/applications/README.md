@@ -1,7 +1,3 @@
----
-layout: default
-title: Parameter estimation & scenarios
----
 
 # Parameter estimation & workflow applications
 
@@ -20,8 +16,8 @@ python3 -m einlang examples/applications/kalman_filter/main.ein
 | Directory / File | Pattern | What it does |
 |------------------|---------|--------------|
 | `decay_calibration.ein` | **Parameter estimation** | Fit exponential decay (u = u0·e^{-kt}) to synthetic observations via log-linear least squares (`std::numerics::optim`), then simulate forward with RK4 (`std::numerics::ode`). Same workflow as SciML/Optim.jl calibration. |
-| `markov_credit.ein` | **Steady-state / risk** | Stationary distribution of a 3-state credit-rating transition model (Good/Fair/Poor). Converts the recurrence pattern from [recurrence/recurrence_suite.ein](../recurrence/recurrence_suite.ein) into a real-world risk/portfolio application. |
-| **[kalman_filter/](kalman_filter/)** | **Sensor fusion** | Discrete-time Kalman filter (constant-velocity model): predict/update over noisy position measurements. Migrated from a 223-line NumPy application; see [kalman_filter/README](kalman_filter/README.md). |
+| `markov_credit.ein` | **Steady-state / risk** | Stationary distribution of a 3-state credit-rating transition model (Good/Fair/Poor). Converts the recurrence pattern from [recurrence/recurrence_suite.ein](https://github.com/einlang/einlang/blob/main/examples/recurrence/recurrence_suite.ein) into a real-world risk/portfolio application. |
+| **[kalman_filter/](https://github.com/einlang/einlang/tree/main/examples/applications/kalman_filter)** | **Sensor fusion** | Discrete-time Kalman filter (constant-velocity model): predict/update over noisy position measurements. Migrated from a 223-line NumPy application; see [kalman_filter/README](https://github.com/einlang/einlang/blob/main/examples/applications/kalman_filter/README.md). |
 
 ## Julia / real-app parallel
 

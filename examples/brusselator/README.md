@@ -1,7 +1,3 @@
----
-layout: default
-title: Brusselator
----
 
 # Brusselator (reaction–diffusion)
 
@@ -29,4 +25,4 @@ Output: `state` shape (20, 2, 33, 33). The runner writes an HTML animation of th
 
 ## Julia parallel
 
-[Julia demos → Einlang](../../docs/JULIA_DEMOS.md): this folder is the direct SciML Brusselator counterpart.
+[Julia demos → Einlang](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md): this folder is the direct SciML Brusselator counterpart.

@@ -1,11 +1,7 @@
----
-layout: default
-title: Design
----
 
 # Design
 
-Non-normative notes on Einlang’s design goals and influences. For the actual language rules, see the [Language reference](reference.md).
+Non-normative notes on Einlang’s design goals and influences. For the actual language rules, see the [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md).
 
 ---
 
@@ -29,4 +25,4 @@ Non-normative notes on Einlang’s design goals and influences. For the actual l
 
 ## Where the rules live
 
-All normative syntax and semantics are in the [Language reference](reference.md). This page is for context and rationale only.
+All normative syntax and semantics are in the [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md). This page is for context and rationale only.

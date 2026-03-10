@@ -1,11 +1,7 @@
----
-layout: default
-title: Language Reference
----
 
 # Einlang Language Reference
 
-Full syntax and semantics. **New here?** [Getting started](GETTING_STARTED.md) or [run a quick example](../README.md#try-it) first. **Built-in functions:** [Standard Library](stdlib.md). **Doc index:** [README](README.md). **Syntax we intentionally do not support (and why):** [Unsupported by design](UNSUPPORTED.md).
+Full syntax and semantics. **New here?** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) or [run a quick example](https://github.com/einlang/einlang/blob/main/README.md#try-it) first. **Built-in functions:** [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md). **Doc index:** [README](https://github.com/einlang/einlang/blob/main/docs/README.md). **Syntax we intentionally do not support (and why):** [Unsupported by design](https://github.com/einlang/einlang/blob/main/docs/UNSUPPORTED.md).
 
 ---
 
@@ -559,7 +555,7 @@ Available without any import:
 
 Reduction operations (`sum`, `max`, `min`, `prod`) use Einstein notation syntax, not function-call syntax.
 
-See [Standard Library](stdlib.md) for `std::math`, `std::array`, `std::ml`, and `std::io`.
+See [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) for `std::math`, `std::array`, `std::ml`, and `std::io`.
 
 ---
 
@@ -583,7 +579,7 @@ See [Standard Library](stdlib.md) for `std::math`, `std::array`, `std::ml`, and 
 
 ## Unsupported by design
 
-Einlang does not support certain syntax or features **by design** (e.g. no `for`/`while`, no `return`, no string-based einsum, no implicit widening, no slice `:` notation). For the full list, rationale, and what to use instead, see [Unsupported by design](UNSUPPORTED.md).
+Einlang does not support certain syntax or features **by design** (e.g. no `for`/`while`, no `return`, no string-based einsum, no implicit widening, no slice `:` notation). For the full list, rationale, and what to use instead, see [Unsupported by design](https://github.com/einlang/einlang/blob/main/docs/UNSUPPORTED.md).
 
 ---
 

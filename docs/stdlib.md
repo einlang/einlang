@@ -1,11 +1,7 @@
----
-layout: default
-title: Standard Library
----
 
 # Einlang Standard Library
 
-Built-in modules and functions (300+), all implemented in pure Einlang (`.ein` in `stdlib/`). **Syntax and types:** [Language Reference](reference.md). **New here?** [Getting started](GETTING_STARTED.md) or [try an example](../README.md#try-it). **Doc index:** [README](README.md).
+Built-in modules and functions (300+), all implemented in pure Einlang (`.ein` in `stdlib/`). **Syntax and types:** [Language Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md). **New here?** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) or [try an example](https://github.com/einlang/einlang/blob/main/README.md#try-it). **Doc index:** [README](https://github.com/einlang/einlang/blob/main/docs/README.md).
 
 ---
 
@@ -113,7 +109,7 @@ let idx = argmax([3, 1, 4, 1, 5]);   // 4
 
 ## `std::numerics`
 
-General-purpose numerics (Julia-style): no hardcoded sizes; step counts and dimensions are parameters. See [Numerics stdlib design](NUMERICS_STDLIB_DESIGN.md). **20 functions** for real-world applications: ODEs (scalar decay + linear systems), optimization (quadratic + least-squares), and dynamic programming (value iteration + convergence).
+General-purpose numerics (Julia-style): no hardcoded sizes; step counts and dimensions are parameters. See [Numerics stdlib design](https://github.com/einlang/einlang/blob/main/docs/NUMERICS_STDLIB_DESIGN.md). **20 functions** for real-world applications: ODEs (scalar decay + linear systems), optimization (quadratic + least-squares), and dynamic programming (value iteration + convergence).
 
 ### `std::numerics::ode` (8 functions)
 
@@ -370,4 +366,4 @@ save_npy("output/result.npy", data);
 
 ---
 
-See [Language Reference](reference.md) for syntax and semantics.
+See [Language Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) for syntax and semantics.
