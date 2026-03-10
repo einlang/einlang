@@ -1,4 +1,5 @@
 ---
+layout: default
 title: Einlang
 ---
 
@@ -34,6 +35,6 @@ Run a real example: `python3 -m einlang examples/hello.ein`
 | **Get going** | [Getting started](GETTING_STARTED.md) |
 | **Doc index (by audience)** | [Documentation](README.md) |
 | **Language & stdlib** | [Reference](reference.md) · [Stdlib](stdlib.md) |
-| **Examples (learning path & by domain)** | [examples/README](../../examples/README.md) · [GitHub: examples](https://github.com/einlang/einlang/tree/main/examples) |
+| **Examples (learning path & by domain)** | [examples/README](../examples/README.md) · [examples](../examples) |
 
-**Repo:** [github.com/einlang/einlang](https://github.com/einlang/einlang) · **Contribute:** [CONTRIBUTING](../../CONTRIBUTING.md)
+**Repo:** [github.com/einlang/einlang](https://github.com/einlang/einlang) · **Contribute:** [CONTRIBUTING](../CONTRIBUTING.md)

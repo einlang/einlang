@@ -1,3 +1,8 @@
+---
+layout: default
+title: Numerics stdlib design
+---
+
 # Numerics stdlib: design and constraints
 
 **Goal:** A general-purpose numerics standard library (Julia-like: no hardcoded sizes, no fixed iteration counts). This doc explains why the current `examples/numerics/` modules are not suitable for stdlib as-is and what would be required for a proper `std::numerics` (or `std::ode`, `std::optim`, etc.).

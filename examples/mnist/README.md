@@ -1,3 +1,8 @@
+---
+layout: default
+title: MNIST
+---
+
 # 3 — MNIST Handwritten Digit Recognition
 
 > **Previous**: [`demos/`](../demos/) · **Next**: [`mnist_quantized/`](../mnist_quantized/)

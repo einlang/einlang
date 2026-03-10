@@ -1,3 +1,8 @@
+---
+layout: default
+title: Basics
+---
+
 # 1 — Basics
 
 > **Previous**: (start here) · **Next**: [`demos/`](../demos/)

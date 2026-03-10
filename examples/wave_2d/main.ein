@@ -4,23 +4,23 @@
 //
 // Julia equivalent (1-based; same order as below):
 //   r = 0.5
-//   cx = 20
-//   cy = 20
+//   cx = 12
+//   cy = 12
 //   sigma2 = 50.0
-//   h = zeros(200, 40, 40)
-//   for j in 1:40
-//       for i in 1:40
+//   h = zeros(60, 24, 24)
+//   for j in 1:24
+//       for i in 1:24
 //           h[1, i, j] = 10.0 * exp(-((i - cx)^2 + (j - cy)^2) / sigma2)
 //       end
 //   end
-//   for j in 1:40
-//       for i in 1:40
+//   for j in 1:24
+//       for i in 1:24
 //           h[2, i, j] = h[1, i, j]
 //       end
 //   end
-//   for t in 3:200
-//       for j in 2:39
-//           for i in 2:39
+//   for t in 3:60
+//       for j in 2:23
+//           for i in 2:23
 //               lap = h[t-1, i-1, j] + h[t-1, i+1, j] + h[t-1, i, j-1] + h[t-1, i, j+1] - 4.0 * h[t-1, i, j]
 //               h[t, i, j] = 2.0 * h[t-1, i, j] - h[t-2, i, j] + r * lap
 //           end
@@ -30,13 +30,13 @@
 use std::math::exp::exp;
 
 let r = 0.5;
-let cx = 20;
-let cy = 20;
+let cx = 12;
+let cy = 12;
 let sigma2 = 50.0;
 
-let h[0, i in 0..40, j in 0..40] = 10.0 * exp(-(((i - cx) * (i - cx) + (j - cy) * (j - cy)) as f32 / sigma2));
-let h[1, i in 0..40, j in 0..40] = h[0, i, j];
-let h[t in 2..200, i in 1..39, j in 1..39] = {
+let h[0, i in 0..24, j in 0..24] = 10.0 * exp(-(((i - cx) * (i - cx) + (j - cy) * (j - cy)) as f32 / sigma2));
+let h[1, i in 0..24, j in 0..24] = h[0, i, j];
+let h[t in 2..60, i in 1..23, j in 1..23] = {
     let lap = h[t - 1, i - 1, j] + h[t - 1, i + 1, j] + h[t - 1, i, j - 1] + h[t - 1, i, j + 1] - 4.0 * h[t - 1, i, j];
     2.0 * h[t - 1, i, j] - h[t - 2, i, j] + r * lap
 };

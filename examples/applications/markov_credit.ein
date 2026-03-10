@@ -1,0 +1,45 @@
+// Real application: stationary distribution of a credit-rating transition model.
+// Three states (e.g. Good / Fair / Poor). P[i,j] = P(rating next period = j | current = i).
+// Long-run distribution answers: "What share of the portfolio is in each rating in steady state?"
+// Same math as Markov part of examples/recurrence/recurrence_suite.ein; applied to credit/risk (QuantEcon, risk models).
+//
+// Julia parallel: [QuantEcon finite Markov](https://julia.quantecon.org/introduction_dynamics/finite_markov.html);
+// credit: transition matrices in Basel/IFRS 9 style.
+
+let P = [[0.92, 0.07, 0.01], [0.05, 0.85, 0.10], [0.02, 0.18, 0.80]];
+
+let psi[0, s in 0..3] = 1.0 / 3.0;
+let psi[k in 1..50, j in 0..3] = {
+  let row = psi[k - 1, 0] * P[0, j] + psi[k - 1, 1] * P[1, j] + psi[k - 1, 2] * P[2, j];
+  row
+};
+
+let steady[s in 0..3] = psi[49, s];
+
+// Steady-state "default" probability (share in worst rating)
+let default_prob = steady[2];
+// Expected rating index (0=Good, 1=Fair, 2=Poor) as a simple risk score
+let expected_rating = steady[0] * 0.0 + steady[1] * 1.0 + steady[2] * 2.0;
+
+// Stress scenario: worse transition matrix (more downgrades)
+let P_stress = [[0.85, 0.12, 0.03], [0.08, 0.78, 0.14], [0.03, 0.22, 0.75]];
+let psi_stress[0, s in 0..3] = 1.0 / 3.0;
+let psi_stress[k in 1..50, j in 0..3] = {
+  let row = psi_stress[k - 1, 0] * P_stress[0, j] + psi_stress[k - 1, 1] * P_stress[1, j] + psi_stress[k - 1, 2] * P_stress[2, j];
+  row
+};
+let steady_stress[s in 0..3] = psi_stress[49, s];
+let default_prob_stress = steady_stress[2];
+let expected_rating_stress = steady_stress[0] * 0.0 + steady_stress[1] * 1.0 + steady_stress[2] * 2.0;
+
+// Convergence check: compare last two iterations (should be very close at k=49)
+let diff[s in 0..3] = psi[49, s] - psi[48, s];
+let max_diff = diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2];
+
+print(steady);
+print(default_prob);
+print(expected_rating);
+print(steady_stress);
+print(default_prob_stress);
+print(expected_rating_stress);
+print(max_diff);

@@ -1,0 +1,67 @@
+// ODE suite: decay, linear, harmonic, pendulum, Van der Pol, Lotka–Volterra.
+// Single file for smaller examples; same equations and sizes as original .ein files.
+// Julia: DifferentialEquations.jl / QuantEcon / SciML.
+
+use std::math::sin;
+
+// --- 1. Exponential decay: du/dt = -k*u ---
+let k_decay = 0.05;
+let dt_decay = 0.1;
+let u0_decay = 1.0;
+let u_decay[0] = u0_decay;
+let u_decay[t in 1..50] = { let u_prev = u_decay[t - 1]; u_prev * (1.0 - k_decay * dt_decay) };
+
+// --- 2. Linear ODE: du/dt = A·u ---
+let dt_lin = 0.01;
+let A_lin = [[-1.0, 1.0], [0.5, -1.5]];
+let u0_lin = [1.0, 0.0];
+let u_linear[0, 0] = u0_lin[0];
+let u_linear[0, 1] = u0_lin[1];
+let u_linear[t in 1..100, i in 0..2] = {
+  let Au_i = A_lin[i, 0] * u_linear[t - 1, 0] + A_lin[i, 1] * u_linear[t - 1, 1];
+  u_linear[t - 1, i] + dt_lin * Au_i
+};
+
+// --- 3. Harmonic oscillator: d²x/dt² = -ω²x ---
+let omega_h = 1.0;
+let dt_h = 0.05;
+let x0_h = 1.0;
+let v0_h = 0.0;
+let state_harmonic[0, 0] = x0_h;
+let state_harmonic[0, 1] = v0_h;
+let state_harmonic[t in 1..80, 0] = { let x = state_harmonic[t - 1, 0]; let v = state_harmonic[t - 1, 1]; x + dt_h * v };
+let state_harmonic[t in 1..80, 1] = { let x = state_harmonic[t - 1, 0]; let v = state_harmonic[t - 1, 1]; v - dt_h * omega_h * omega_h * x };
+
+// --- 4. Pendulum: dθ/dt = ω, dω/dt = -(g/L) sin(θ) ---
+let g_p = 9.81;
+let L_p = 1.0;
+let dt_p = 0.05;
+let theta0_p = 0.2;
+let omega0_p = 0.0;
+let state_pendulum[0, 0] = theta0_p;
+let state_pendulum[0, 1] = omega0_p;
+let state_pendulum[t in 1..80, 0] = { let theta = state_pendulum[t - 1, 0]; let omega = state_pendulum[t - 1, 1]; theta + dt_p * omega };
+let state_pendulum[t in 1..80, 1] = { let theta = state_pendulum[t - 1, 0]; let omega = state_pendulum[t - 1, 1]; omega - dt_p * (g_p / L_p) * sin(theta) };
+
+// --- 5. Van der Pol: dx/dt = y, dy/dt = μ*((1-x²)y - x) ---
+let mu_vdp = 1.0;
+let dt_vdp = 0.05;
+let x0_vdp = 1.0;
+let y0_vdp = 0.0;
+let state_van_der_pol[0, 0] = x0_vdp;
+let state_van_der_pol[0, 1] = y0_vdp;
+let state_van_der_pol[t in 1..80, 0] = { let x = state_van_der_pol[t - 1, 0]; let y = state_van_der_pol[t - 1, 1]; x + dt_vdp * y };
+let state_van_der_pol[t in 1..80, 1] = { let x = state_van_der_pol[t - 1, 0]; let y = state_van_der_pol[t - 1, 1]; y + dt_vdp * mu_vdp * ((1.0 - x * x) * y - x) };
+
+// --- 6. Lotka–Volterra: prey u, predator v ---
+let a_lv = 1.0;
+let b_lv = 0.5;
+let c_lv = 1.0;
+let d_lv = 0.5;
+let dt_lv = 0.05;
+let u0_lv = 2.0;
+let v0_lv = 1.0;
+let state_lotka[0, 0] = u0_lv;
+let state_lotka[0, 1] = v0_lv;
+let state_lotka[t in 1..150, 0] = { let u = state_lotka[t - 1, 0]; let v = state_lotka[t - 1, 1]; u + dt_lv * (a_lv * u - b_lv * u * v) };
+let state_lotka[t in 1..150, 1] = { let u = state_lotka[t - 1, 0]; let v = state_lotka[t - 1, 1]; v + dt_lv * (-c_lv * v + d_lv * u * v) };

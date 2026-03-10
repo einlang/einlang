@@ -1,3 +1,8 @@
+---
+layout: default
+title: Demos
+---
+
 # 2 — Demos
 
 > **Previous**: [`basics/`](../basics/) · **Next**: [`mnist/`](../mnist/)

@@ -1,5 +1,4 @@
-# Legacy: used only if GitHub Pages is set to deploy from /docs.
-# Prefer deploying from repo root (/) so README, CONTRIBUTING, examples/README are on the site; see root _config.yml.
+# Not used when GitHub Pages deploys from root (/). Root _config.yml is the single source; this file is kept for reference only.
 # Site URL: https://einlang.github.io/einlang/
 title: Einlang
 description: Tensor math in Einstein notation with compile-time shape checking

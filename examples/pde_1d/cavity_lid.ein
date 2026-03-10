@@ -4,7 +4,7 @@
 // Explicit Euler in time + one Jacobi sweep for ψ per step (Poisson ∇²ψ = -ω).
 
 let n = 11;        // 11×11 grid (0..10), interior 1..9
-let nt = 40;       // time steps
+let nt = 20;       // time steps
 let dx = 1.0 / 10.0;
 let dy = 1.0 / 10.0;
 let dt = 0.005;
@@ -16,15 +16,15 @@ let U_lid = 1.0;
 let u[0, i in 0..11, j in 0..11, k in 0..2] = 0.0;
 
 // ω (k=0), t≥1: corners + edges + interior
-let u[t in 1..41, 0, 0, 0] = 0.0;
-let u[t in 1..41, 10, 0, 0] = 0.0;
-let u[t in 1..41, 0, 10, 0] = 0.0;
-let u[t in 1..41, 10, 10, 0] = 0.0;
-let u[t in 1..41, i in 1..9, 0, 0] = -2.0 * u[t - 1, i, 1, 1] / (dy * dy);
-let u[t in 1..41, i in 1..9, 10, 0] = -2.0 * u[t - 1, i, 9, 1] / (dy * dy) - 2.0 * U_lid / dy;
-let u[t in 1..41, 0, j in 1..9, 0] = -2.0 * u[t - 1, 1, j, 1] / (dx * dx);
-let u[t in 1..41, 10, j in 1..9, 0] = -2.0 * u[t - 1, 9, j, 1] / (dx * dx);
-let u[t in 1..41, i in 1..9, j in 1..9, 0] =
+let u[t in 1..21, 0, 0, 0] = 0.0;
+let u[t in 1..21, 10, 0, 0] = 0.0;
+let u[t in 1..21, 0, 10, 0] = 0.0;
+let u[t in 1..21, 10, 10, 0] = 0.0;
+let u[t in 1..21, i in 1..9, 0, 0] = -2.0 * u[t - 1, i, 1, 1] / (dy * dy);
+let u[t in 1..21, i in 1..9, 10, 0] = -2.0 * u[t - 1, i, 9, 1] / (dy * dy) - 2.0 * U_lid / dy;
+let u[t in 1..21, 0, j in 1..9, 0] = -2.0 * u[t - 1, 1, j, 1] / (dx * dx);
+let u[t in 1..21, 10, j in 1..9, 0] = -2.0 * u[t - 1, 9, j, 1] / (dx * dx);
+let u[t in 1..21, i in 1..9, j in 1..9, 0] =
   u[t - 1, i, j, 0]
   + dt * (
     -((u[t - 1, i, j + 1, 1] - u[t - 1, i, j - 1, 1]) / (2.0 * dy))
@@ -36,14 +36,14 @@ let u[t in 1..41, i in 1..9, j in 1..9, 0] =
   );
 
 // ψ (k=1), t≥1: boundary 0 + interior Jacobi
-let u[t in 1..41, 0, j in 0..11, 1] = 0.0;
-let u[t in 1..41, 10, j in 0..11, 1] = 0.0;
-let u[t in 1..41, i in 0..11, 0, 1] = 0.0;
-let u[t in 1..41, i in 0..11, 10, 1] = 0.0;
-let u[t in 1..41, i in 1..9, j in 1..9, 1] =
+let u[t in 1..21, 0, j in 0..11, 1] = 0.0;
+let u[t in 1..21, 10, j in 0..11, 1] = 0.0;
+let u[t in 1..21, i in 0..11, 0, 1] = 0.0;
+let u[t in 1..21, i in 0..11, 10, 1] = 0.0;
+let u[t in 1..21, i in 1..9, j in 1..9, 1] =
   (u[t - 1, i + 1, j, 1] + u[t - 1, i - 1, j, 1] + u[t - 1, i, j + 1, 1] + u[t - 1, i, j - 1, 1]
    + dx * dx * u[t, i, j, 0]) / 4.0;
 
 // Output: center streamfunction and vorticity at final time
-print(u[40, 5, 5, 1]);
-print(u[40, 5, 5, 0]);
+print(u[20, 5, 5, 1]);
+print(u[20, 5, 5, 0]);

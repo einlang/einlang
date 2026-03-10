@@ -1,0 +1,57 @@
+// Kalman filter (constant-velocity model): migrated from the NumPy application in numpy_reference.py.
+//
+// Use case: track position and velocity from noisy position-only measurements (radar, GPS, vision).
+// State x = [position, velocity]'. Dynamics: x_{k+1} = F x_k + w_k. Measurement: z_k = H x_k + v_k.
+// Predict: x_pred = F x, P_pred = F P F' + Q. Update: y = z - H x_pred, S = H P_pred H' + R,
+// K = P_pred H' / S, x = x_pred + K y, P = (I - K H) P_pred.
+//
+// This file uses a fixed measurement sequence (synthetic) so it runs without external data.
+// For comparison with NumPy: run numpy_reference.py to generate kalman_measurements.npy, then
+// use load_npy("kalman_measurements.npy") as [f32; 100] for z below and run from this directory.
+
+let dt = 0.1;
+let q_pos = 0.01;
+let q_vel = 0.1;
+let r_meas = 1.0;
+let n_steps = 100;
+
+let F = [[1.0, dt], [0.0, 1.0]];
+let Q = [[dt * dt * dt * dt / 4.0 * q_pos + dt * dt * q_vel, dt * dt * dt / 2.0 * q_vel], [dt * dt * dt / 2.0 * q_vel, dt * dt * q_vel]];
+let H0 = 1.0;
+let H1 = 0.0;
+let R = r_meas;
+
+let x0_0 = 0.0;
+let x0_1 = 1.0;
+let P0_00 = 1.0;
+let P0_01 = 0.0;
+let P0_10 = 0.0;
+let P0_11 = 1.0;
+
+// Synthetic measurements: true position (0 + 1*t) plus deterministic "noise" for reproducibility.
+// Replace with load_npy("kalman_measurements.npy") as [f32; 100] to match NumPy reference output.
+let z[k in 0..100] = (k as f64) * dt * 1.0 + 0.5 * ((k as f64) * 0.01 - 0.5);
+
+// Initial state and covariance
+let x[0, 0] = x0_0;
+let x[0, 1] = x0_1;
+let P[0, 0, 0] = P0_00;
+let P[0, 0, 1] = P0_01;
+let P[0, 1, 0] = P0_10;
+let P[0, 1, 1] = P0_11;
+
+// Recurrence: for t in 1..101, predict then update using measurement z[t-1]
+let x_pred[t in 1..101, i in 0..2] = F[i, 0] * x[t - 1, 0] + F[i, 1] * x[t - 1, 1];
+let P_pred[t in 1..101, i in 0..2, j in 0..2] = sum[k in 0..2](F[i, k] * sum[l in 0..2](P[t - 1, k, l] * F[j, l])) + Q[i, j];
+let y[t in 1..101] = z[t - 1] - (H0 * x_pred[t, 0] + H1 * x_pred[t, 1]);
+let S[t in 1..101] = H0 * (P_pred[t, 0, 0] * H0 + P_pred[t, 0, 1] * H1) + H1 * (P_pred[t, 1, 0] * H0 + P_pred[t, 1, 1] * H1) + R;
+let K[t in 1..101, i in 0..2] = (P_pred[t, i, 0] * H0 + P_pred[t, i, 1] * H1) / S[t];
+let x[t in 1..101, i in 0..2] = x_pred[t, i] + K[t, i] * y[t];
+let P[t in 1..101, i in 0..2, j in 0..2] = if i == 0 { (1.0 - K[t, 0]) * P_pred[t, 0, j] - K[t, 1] * P_pred[t, 1, j] } else { P_pred[t, 1, j] };
+
+let x_final[i in 0..2] = x[100, i];
+let P_final_diag[i in 0..2] = P[100, i, i];
+let innovations[t in 0..100] = if t == 0 { 0.0 } else { y[t] };
+
+print(x_final);
+print(P_final_diag);

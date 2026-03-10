@@ -1,3 +1,8 @@
+---
+layout: default
+title: Documentation design
+---
+
 # Einlang documentation design
 
 High-level design: one source of truth per topic, no large duplication, clear entry points per audience.
@@ -43,18 +48,18 @@ Entry points and paths. **Start** = first link(s); **Then** = next link(s). All 
 
 | Audience | Start here | Then |
 |----------|------------|------|
-| **Starter** | [Getting started](GETTING_STARTED.md) | [Try it](../../README.md#try-it) → [Learning path](../../examples/README.md) |
-| **Student** | [Getting started](GETTING_STARTED.md) | [Learning path](../../examples/README.md) → [Reference](reference.md) |
-| **User (any)** | [Try it](../../README.md#try-it) · [Install & run](../../README.md#install--run) | [Reference](reference.md) · [Stdlib](stdlib.md) |
-| **ML practitioner** | [Install & run](../../README.md#install--run) · [Examples: MNIST, ViT, Whisper](../../README.md#examples) | [Stdlib: ML](stdlib.md) · [Reference](reference.md) |
+| **Starter** | [Getting started](GETTING_STARTED.md) | [Try it](../README.md#try-it) → [Learning path](../examples/README.md) |
+| **Student** | [Getting started](GETTING_STARTED.md) | [Learning path](../examples/README.md) → [Reference](reference.md) |
+| **User (any)** | [Try it](../README.md#try-it) · [Install & run](../README.md#install--run) | [Reference](reference.md) · [Stdlib](stdlib.md) |
+| **ML practitioner** | [Install & run](../README.md#install--run) · [Examples: MNIST, ViT, Whisper](../README.md#examples) | [Stdlib: ML](stdlib.md) · [Reference](reference.md) |
 | **Researcher** | Same as ML | + [Paper & citation](PAPER.md) if applicable |
-| **Engineer** | [Install & run](../../README.md#install--run) · [Python API](../../README.md#install--run) | [Reference](reference.md) · [Examples](../../examples/README.md) |
+| **Engineer** | [Install & run](../README.md#install--run) · [Python API](../README.md#install--run) | [Reference](reference.md) · [Examples](../examples/README.md) |
 | **Math-focused** | [MATH](MATH.md) (equations → Einlang) | [Reference](reference.md) · [Stdlib: math](stdlib.md) |
 | **Feature / language study** | [Reference](reference.md) (TOC) | [Design](DESIGN.md) if present |
-| **Python user** | [Install & run](../../README.md#install--run) — `run(source=...)` | [Syntax comparison](SYNTAX_COMPARISON.md) · [Reference](reference.md) · [Getting started](GETTING_STARTED.md) |
-| **Julia user** | [Syntax comparison](SYNTAX_COMPARISON.md) · [Reference](reference.md) | [Getting started](GETTING_STARTED.md) · [Examples](../../examples/README.md) |
-| **Rust user** | [Syntax comparison](SYNTAX_COMPARISON.md) · [Reference](reference.md) | [Getting started](GETTING_STARTED.md) · [Examples](../../examples/README.md) |
-| **Contributor** | [CONTRIBUTING](../../CONTRIBUTING.md) | [DEVELOPMENT](DEVELOPMENT.md) |
+| **Python user** | [Install & run](../README.md#install--run) — `run(source=...)` | [Syntax comparison](SYNTAX_COMPARISON.md) · [Reference](reference.md) · [Getting started](GETTING_STARTED.md) |
+| **Julia user** | [Syntax comparison](SYNTAX_COMPARISON.md) · [Reference](reference.md) | [Getting started](GETTING_STARTED.md) · [Examples](../examples/README.md) |
+| **Rust user** | [Syntax comparison](SYNTAX_COMPARISON.md) · [Reference](reference.md) | [Getting started](GETTING_STARTED.md) · [Examples](../examples/README.md) |
+| **Contributor** | [CONTRIBUTING](../CONTRIBUTING.md) | [DEVELOPMENT](DEVELOPMENT.md) |
 | **Paper / citation** | [PAPER](PAPER.md) | — |
 
 ---

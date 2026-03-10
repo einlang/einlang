@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if page.title %}{{ page.title }} — {% endif %}{{ site.title }}</title>
+</head>
+<body>
+  <header>
+    <a href="{{ site.baseurl }}/">{{ site.title }}</a>
+    <nav><a href="{{ site.baseurl }}/README/">Docs</a></nav>
+  </header>
+  <main>
+    {{ content }}
+  </main>
+</body>
+</html>

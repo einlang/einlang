@@ -1,3 +1,8 @@
+---
+layout: default
+title: MNIST Quantized
+---
+
 # 4 — Quantized MNIST Digit Recognition
 
 > **Previous**: [`mnist/`](../mnist/) · **Next**: [`deit_tiny/`](../deit_tiny/)

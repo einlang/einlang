@@ -1,0 +1,25 @@
+// Recurrence suite: Fibonacci, logistic map, Markov stationary, random walk.
+// Single file for smaller recurrence examples. Julia: QuantEcon / DynamicalSystems.jl.
+
+// --- 1. Fibonacci: fib[0]=0, fib[1]=1, fib[n] = fib[n-1] + fib[n-2] ---
+let fib[0] = 0;
+let fib[1] = 1;
+let fib[n in 2..25] = fib[n - 1] + fib[n - 2];
+
+// --- 2. Logistic map: x[n] = r * x[n-1] * (1 - x[n-1]) ---
+let r_log = 3.7;
+let x_logistic[0] = 0.5;
+let x_logistic[n in 1..50] = r_log * x_logistic[n - 1] * (1.0 - x_logistic[n - 1]);
+
+// --- 3. Markov stationary: ψ = ψ P (power iteration) ---
+let P_markov = [[0.9, 0.1, 0.0], [0.2, 0.6, 0.2], [0.0, 0.1, 0.9]];
+let psi[0, s in 0..3] = 1.0 / 3.0;
+let psi[k in 1..50, j in 0..3] = {
+  let row = psi[k - 1, 0] * P_markov[0, j] + psi[k - 1, 1] * P_markov[1, j] + psi[k - 1, 2] * P_markov[2, j];
+  row
+};
+
+// --- 4. Random walk: x[0]=0, x[t] = x[t-1] + steps[t-1] ---
+let steps_rw = [1, -1, 1, 1, -1, -1, 1, -1, 1, 1, -1, 1, -1, -1, 1, 1, 1, -1, -1, 1];
+let x_random_walk[0] = 0;
+let x_random_walk[t in 1..21] = x_random_walk[t - 1] + steps_rw[t - 1];

@@ -6,28 +6,30 @@
 //   B = 2.0
 //   alpha = 0.02
 //   dt = 0.2
-//   state = zeros(20, 2, 33, 33)
+//   state = zeros(12, 2, 21, 21)
 //   state[1, 1, :, :] .= 1.0
-//   state[1, 2, 14:19, 14:19] .= 0.5  // center 5x5
-//   for t in 2:20 ... (boundary copy, then interior U/V updates)
+//   state[1, 2, 9:13, 9:13] .= 0.5   # center 5x5 (indices 9..13 for n=21)
+//   for t in 2:12
+//       # boundary copy, then interior U/V updates (Laplacian + reaction terms)
+//   end
 
 let A = 1.0;
 let B = 2.0;
 let alpha = 0.02;
 let dt = 0.2;
 
-// 33x33 grid (20 steps) for fast run; seed at center. Ranges are exclusive-end: 0..33 => indices 0..32.
-let state[0, 0, i in 0..33, j in 0..33] = 1.0;
-let state[0, 1, i in 0..33, j in 0..33] = if i >= 14 && i <= 18 && j >= 14 && j <= 18 { 0.5 } else { 0.0 };
+// 21×21 grid (12 steps); seed at center. Ranges exclusive-end: 0..21 => indices 0..20.
+let state[0, 0, i in 0..21, j in 0..21] = 1.0;
+let state[0, 1, i in 0..21, j in 0..21] = if i >= 8 && i <= 12 && j >= 8 && j <= 12 { 0.5 } else { 0.0 };
 
 // Boundary (copy from t-1)
-let state[t in 1..20, c in 0..2, 0, j in 0..33] = state[t - 1, c, 0, j];
-let state[t in 1..20, c in 0..2, 32, j in 0..33] = state[t - 1, c, 32, j];
-let state[t in 1..20, c in 0..2, i in 1..32, 0] = state[t - 1, c, i, 0];
-let state[t in 1..20, c in 0..2, i in 1..32, 32] = state[t - 1, c, i, 32];
+let state[t in 1..12, c in 0..2, 0, j in 0..21] = state[t - 1, c, 0, j];
+let state[t in 1..12, c in 0..2, 20, j in 0..21] = state[t - 1, c, 20, j];
+let state[t in 1..12, c in 0..2, i in 1..20, 0] = state[t - 1, c, i, 0];
+let state[t in 1..12, c in 0..2, i in 1..20, 20] = state[t - 1, c, i, 20];
 
 // Interior U (channel 0): block + U, V, lap_U to match Julia
-let state[t in 1..20, 0, i in 1..32, j in 1..32] = {
+let state[t in 1..12, 0, i in 1..20, j in 1..20] = {
   let U = state[t - 1, 0, i, j];
   let V_ = state[t - 1, 1, i, j];
   let lap_U = state[t - 1, 0, i - 1, j] + state[t - 1, 0, i + 1, j] + state[t - 1, 0, i, j - 1] + state[t - 1, 0, i, j + 1] - 4.0 * U;
@@ -35,7 +37,7 @@ let state[t in 1..20, 0, i in 1..32, j in 1..32] = {
 };
 
 // Interior V (channel 1): block + U, V, lap_V to match Julia
-let state[t in 1..20, 1, i in 1..32, j in 1..32] = {
+let state[t in 1..12, 1, i in 1..20, j in 1..20] = {
   let U = state[t - 1, 0, i, j];
   let V_ = state[t - 1, 1, i, j];
   let lap_V = state[t - 1, 1, i - 1, j] + state[t - 1, 1, i + 1, j] + state[t - 1, 1, i, j - 1] + state[t - 1, 1, i, j + 1] - 4.0 * V_;

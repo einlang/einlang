@@ -1,0 +1,45 @@
+// Optimization suite: gradient descent, power iteration, projected gradient, Rosenbrock.
+// Single file for smaller optimization examples. Julia: Optim.jl / LinearAlgebra / JuMP.
+
+use std::math::sqrt;
+use std::math::min;
+use std::math::max;
+
+// --- 1. Gradient descent 2D: x[k] = x[k-1] - α*(A*x[k-1] - b) ---
+let A_gd = [[2.0, 0.0], [0.0, 2.0]];
+let b_gd = [1.0, 1.0];
+let alpha_gd = 0.25;
+let x_gradient_descent[0, i in 0..2] = 0.0;
+let x_gradient_descent[k in 1..30, i in 0..2] = {
+  let r = A_gd[i, 0] * x_gradient_descent[k - 1, 0] + A_gd[i, 1] * x_gradient_descent[k - 1, 1] - b_gd[i];
+  x_gradient_descent[k - 1, i] - alpha_gd * r
+};
+
+// --- 2. Power iteration: v[k] = A*v[k-1] / ||A*v[k-1]|| ---
+let A_pi = [[2.0, 1.0], [1.0, 2.0]];
+let v[0, i in 0..2] = if i == 0 { 1.0 } else { 0.0 };
+let v[k in 1..20, i in 0..2] = {
+  let Av0 = A_pi[0, 0] * v[k - 1, 0] + A_pi[0, 1] * v[k - 1, 1];
+  let Av1 = A_pi[1, 0] * v[k - 1, 0] + A_pi[1, 1] * v[k - 1, 1];
+  let n = sqrt(Av0 * Av0 + Av1 * Av1);
+  if i == 0 { Av0 / n } else { Av1 / n }
+};
+
+// --- 3. Projected gradient (box [0,1]^2): x[k] = clamp(x[k-1] - α*(x[k-1]-c), 0, 1) ---
+let c_pg = [1.5, 0.3];
+let alpha_pg = 0.5;
+let x_projected[0, i in 0..2] = 0.0;
+let x_projected[k in 1..20, i in 0..2] = min(1.0, max(0.0, x_projected[k - 1, i] - alpha_pg * (x_projected[k - 1, i] - c_pg[i])));
+
+// --- 4. Rosenbrock gradient descent ---
+let a_rb = 1.0;
+let b_rb = 100.0;
+let alpha_rb = 0.001;
+let x_rosenbrock[0, i in 0..2] = 0.0;
+let x_rosenbrock[k in 1..501, i in 0..2] = {
+  let x1 = x_rosenbrock[k - 1, 0];
+  let x2 = x_rosenbrock[k - 1, 1];
+  let g1 = -2.0 * (a_rb - x1) - 4.0 * b_rb * x1 * (x2 - x1 * x1);
+  let g2 = 2.0 * b_rb * (x2 - x1 * x1);
+  if i == 0 { x1 - alpha_rb * g1 } else { x2 - alpha_rb * g2 }
+};

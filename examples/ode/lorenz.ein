@@ -9,11 +9,11 @@
 //   x0 = 1.0
 //   y0 = 1.0
 //   z0 = 1.0
-//   u = zeros(2000, 3)
+//   u = zeros(150, 3)
 //   u[1, 1] = x0
 //   u[1, 2] = y0
 //   u[1, 3] = z0
-//   for t in 2:2000
+//   for t in 2:150
 //       u[t, 1] = u[t-1, 1] + dt * (sigma * (u[t-1, 2] - u[t-1, 1]))
 //       u[t, 2] = u[t-1, 2] + dt * (u[t-1, 1] * (rho - u[t-1, 3]) - u[t-1, 2])
 //       u[t, 3] = u[t-1, 3] + dt * (u[t-1, 1] * u[t-1, 2] - beta * u[t-1, 3])
@@ -32,6 +32,6 @@ let u[0, 1] = y0;
 let u[0, 2] = z0;
 
 // Block + x, y, z temps to match Julia unpacking
-let u[t in 1..2000, 0] = { let x = u[t - 1, 0]; let y = u[t - 1, 1]; let z = u[t - 1, 2]; x + dt * (sigma * (y - x)) };
-let u[t in 1..2000, 1] = { let x = u[t - 1, 0]; let y = u[t - 1, 1]; let z = u[t - 1, 2]; y + dt * (x * (rho - z) - y) };
-let u[t in 1..2000, 2] = { let x = u[t - 1, 0]; let y = u[t - 1, 1]; let z = u[t - 1, 2]; z + dt * (x * y - beta * z) };
+let u[t in 1..150, 0] = { let x = u[t - 1, 0]; let y = u[t - 1, 1]; let z = u[t - 1, 2]; x + dt * (sigma * (y - x)) };
+let u[t in 1..150, 1] = { let x = u[t - 1, 0]; let y = u[t - 1, 1]; let z = u[t - 1, 2]; y + dt * (x * (rho - z) - y) };
+let u[t in 1..150, 2] = { let x = u[t - 1, 0]; let y = u[t - 1, 1]; let z = u[t - 1, 2]; z + dt * (x * y - beta * z) };

@@ -1,3 +1,8 @@
+---
+layout: default
+title: Math intuition
+---
+
 # Math intuition
 
 **If you think in equations and indices,** Einlang is built to match. This page shows how common math notation maps to code. Full semantics: [Language reference](reference.md).
@@ -55,4 +60,4 @@ Base cases and recursive case in one place; the compiler handles evaluation orde
 
 - **Full syntax and semantics:** [Language reference](reference.md)
 - **Math and other functions:** [Standard library](stdlib.md) — `std::math`, `std::ml`
-- **Run an example:** [Getting started](GETTING_STARTED.md) · [Examples by domain](../../examples/README.md) · [README#examples](../../README.md#examples)
+- **Run an example:** [Getting started](GETTING_STARTED.md) · [Examples by domain](../examples/README.md) · [README#examples](../README.md#examples)

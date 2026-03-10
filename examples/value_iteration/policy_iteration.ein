@@ -1,0 +1,67 @@
+// Policy iteration (Howard's algorithm): alternate policy evaluation and policy improvement.
+// More involved than value iteration: inner loop solves V^π for current policy π; outer loop
+// improves π(s) = argmax_a [ r(s,a) + β Σ_{s'} P(s'|s,a) V(s') ]. Classic dynamic programming.
+// Julia: QuantEcon.jl, [Dynamic Programming](https://julia.quantecon.org/dynamic_programming/dynamic_programming.html).
+//
+// MDP: 3 states, 2 actions. P0[s',s] = P(next=s' | s, a=0), P1[s',s] = P(next=s' | s, a=1).
+// r0[s], r1[s] = reward in state s under action 0, 1. Discount β.
+
+let beta = 0.95;
+let r0 = [0.0, 1.0, 0.5];
+let r1 = [0.5, 0.0, 2.0];
+let P0 = [[0.8, 0.1, 0.1], [0.2, 0.6, 0.2], [0.1, 0.2, 0.7]];
+let P1 = [[0.2, 0.3, 0.5], [0.4, 0.4, 0.2], [0.3, 0.3, 0.4]];
+
+// Phase 0: initial policy π(s)=0 (action 0 everywhere). Policy evaluation: 30 steps.
+let pi0[s in 0..3] = 0;
+let V0[0, s in 0..3] = 0.0;
+let V0[i in 1..31, s in 0..3] = r0[s] + beta * (P0[0, s] * V0[i - 1, 0] + P0[1, s] * V0[i - 1, 1] + P0[2, s] * V0[i - 1, 2]);
+
+// Policy improvement: π_new(s) = argmax_a [ r_a(s) + β Σ_{s'} P_a(s'|s) V(s') ]
+let Q0_0[s in 0..3] = r0[s] + beta * (P0[0, s] * V0[30, 0] + P0[1, s] * V0[30, 1] + P0[2, s] * V0[30, 2]);
+let Q1_0[s in 0..3] = r1[s] + beta * (P1[0, s] * V0[30, 0] + P1[1, s] * V0[30, 1] + P1[2, s] * V0[30, 2]);
+let pi1[s in 0..3] = if Q1_0[s] > Q0_0[s] { 1 } else { 0 };
+
+// Phase 1: policy evaluation from π1, 30 steps (warm start from V0[30,:])
+let V1[0, s in 0..3] = V0[30, s];
+let V1[i in 1..31, s in 0..3] = {
+  let use_a0 = pi1[s] == 0;
+  let val0 = r0[s] + beta * (P0[0, s] * V1[i - 1, 0] + P0[1, s] * V1[i - 1, 1] + P0[2, s] * V1[i - 1, 2]);
+  let val1 = r1[s] + beta * (P1[0, s] * V1[i - 1, 0] + P1[1, s] * V1[i - 1, 1] + P1[2, s] * V1[i - 1, 2]);
+  if use_a0 { val0 } else { val1 }
+};
+
+let Q0_1[s in 0..3] = r0[s] + beta * (P0[0, s] * V1[30, 0] + P0[1, s] * V1[30, 1] + P0[2, s] * V1[30, 2]);
+let Q1_1[s in 0..3] = r1[s] + beta * (P1[0, s] * V1[30, 0] + P1[1, s] * V1[30, 1] + P1[2, s] * V1[30, 2]);
+let pi2[s in 0..3] = if Q1_1[s] > Q0_1[s] { 1 } else { 0 };
+
+// Phase 2
+let V2[0, s in 0..3] = V1[30, s];
+let V2[i in 1..31, s in 0..3] = {
+  let val0 = r0[s] + beta * (P0[0, s] * V2[i - 1, 0] + P0[1, s] * V2[i - 1, 1] + P0[2, s] * V2[i - 1, 2]);
+  let val1 = r1[s] + beta * (P1[0, s] * V2[i - 1, 0] + P1[1, s] * V2[i - 1, 1] + P1[2, s] * V2[i - 1, 2]);
+  if pi2[s] == 0 { val0 } else { val1 }
+};
+
+let Q0_2[s in 0..3] = r0[s] + beta * (P0[0, s] * V2[30, 0] + P0[1, s] * V2[30, 1] + P0[2, s] * V2[30, 2]);
+let Q1_2[s in 0..3] = r1[s] + beta * (P1[0, s] * V2[30, 0] + P1[1, s] * V2[30, 1] + P1[2, s] * V2[30, 2]);
+let pi3[s in 0..3] = if Q1_2[s] > Q0_2[s] { 1 } else { 0 };
+
+// Phase 3
+let V3[0, s in 0..3] = V2[30, s];
+let V3[i in 1..31, s in 0..3] = {
+  let val0 = r0[s] + beta * (P0[0, s] * V3[i - 1, 0] + P0[1, s] * V3[i - 1, 1] + P0[2, s] * V3[i - 1, 2]);
+  let val1 = r1[s] + beta * (P1[0, s] * V3[i - 1, 0] + P1[1, s] * V3[i - 1, 1] + P1[2, s] * V3[i - 1, 2]);
+  if pi3[s] == 0 { val0 } else { val1 }
+};
+
+let Q0_3[s in 0..3] = r0[s] + beta * (P0[0, s] * V3[30, 0] + P0[1, s] * V3[30, 1] + P0[2, s] * V3[30, 2]);
+let Q1_3[s in 0..3] = r1[s] + beta * (P1[0, s] * V3[30, 0] + P1[1, s] * V3[30, 1] + P1[2, s] * V3[30, 2]);
+let pi4[s in 0..3] = if Q1_3[s] > Q0_3[s] { 1 } else { 0 };
+
+// Final value at convergence (last phase, last inner step)
+let V_final[s in 0..3] = V3[30, s];
+let policy_final[s in 0..3] = pi4[s];
+
+print(V_final);
+print(policy_final);

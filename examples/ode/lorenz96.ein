@@ -7,10 +7,10 @@
 //   N = 5
 //   F = 8.0
 //   dt = 0.01
-//   X = zeros(500, N)
+//   X = zeros(100, N)
 //   X[1, :] .= F  # small perturbation: set one to F+0.01
 //   X[1, 1] = F + 0.01
-//   for t in 2:500
+//   for t in 2:100
 //       for i in 1:N
 //           im2 = mod1(i-2, N)   # 1-based mod
 //           im1 = mod1(i-1, N)
@@ -28,13 +28,13 @@ let X[0, i in 0..5] = F;
 let X[0, 0] = F + 0.01;
 
 // Periodic indices: ip1, im1, im2 (block + temps to match Julia mod1(i±1, N))
-let X[t in 1..500, i in 0..5] = {
+let X[t in 1..100, i in 0..5] = {
   let ip1 = (i + 1) % 5;
   let im1 = (i + 4) % 5;
   let im2 = (i + 3) % 5;
   X[t - 1, i] + dt * ((X[t - 1, ip1] - X[t - 1, im2]) * X[t - 1, im1] - X[t - 1, i] + F)
 };
 
-print("Lorenz 96 (N=5, F=8, dt=0.01, 500 steps), initial perturbation X[0]=F+0.01:");
+print("Lorenz 96 (N=5, F=8, dt=0.01, 100 steps), initial perturbation X[0]=F+0.01:");
 print("t=0   X:", [X[0, 0], X[0, 1], X[0, 2], X[0, 3], X[0, 4]]);
-print("t=499 X:", [X[499, 0], X[499, 1], X[499, 2], X[499, 3], X[499, 4]]);
+print("t=99  X:", [X[99, 0], X[99, 1], X[99, 2], X[99, 3], X[99, 4]]);
