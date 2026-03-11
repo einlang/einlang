@@ -592,6 +592,50 @@ def _recurrence_dims(lowered: Any, variable_defid: Any, clause_indices: Optional
     return recurrence
 
 
+def _expr_is_loop_var_or_minus_one(expr: Any, loop_defid: Any) -> bool:
+    """True if expr is loop_var or (loop_var - 1). Used to detect reduction upper bound like 0..(j-1)."""
+    if expr is None or loop_defid is None:
+        return False
+    if _index_expr_is_loop_var(expr, loop_defid):
+        return True
+    if isinstance(expr, BinaryOpIR):
+        op = getattr(expr, "operator", None)
+        op_val = getattr(op, "value", None) if op is not None else None
+        if op not in ("-",) and op_val not in ("-",):
+            return False
+        left = getattr(expr, "left", None)
+        right = getattr(expr, "right", None)
+        if not _index_expr_is_loop_var(left, loop_defid):
+            return False
+        if isinstance(right, LiteralIR):
+            try:
+                return int(getattr(right, "value", 0)) == 1
+            except (TypeError, ValueError):
+                pass
+    return False
+
+
+def _reduction_var_bounded_by_loop_var(
+    read_index_expr: Any,
+    loop_defid: Any,
+    reduction_ranges: Any,
+) -> bool:
+    """True if read_index_expr is a reduction variable whose range end is loop_var or loop_var-1."""
+    if reduction_ranges is None or not read_index_expr or loop_defid is None:
+        return False
+    read_defid = getattr(read_index_expr, "defid", None)
+    if read_defid is None:
+        return False
+    loop_struct = reduction_ranges.get(read_defid) if isinstance(reduction_ranges, dict) else None
+    if loop_struct is None:
+        return False
+    iterable = getattr(loop_struct, "iterable", None)
+    if not isinstance(iterable, RangeIR):
+        return False
+    end = getattr(iterable, "end", None)
+    return _expr_is_loop_var_or_minus_one(end, loop_defid)
+
+
 def _loop_dims_from_clause_indices(clause_indices: List[Any], loops: List[Any]) -> Optional[List[int]]:
     """For each loop index k, return the output-dimension index (position in clause_indices). Literals have no loop."""
     if not clause_indices or not loops:
@@ -1309,9 +1353,6 @@ class EinsteinExecutionMixin:
                                         self.env.set_value(variable_key, output)
                 else:
                     step_items = list(recurrence_items)
-                # #region agent log
-                _debug_log("numpy_einstein.py:step_items", "step_items count", {"n_step_items": len(step_items)}, "H3")
-                # #endregion
                 rec_loop = first_ctx_iter if first_ctx is not None else execute_lowered_loops(recurrence_loops_for_outer, {}, expr_eval)
                 for rec_context in rec_loop:
                     n_iter[0] += 1
@@ -1386,21 +1427,15 @@ class EinsteinExecutionMixin:
         if not loops:
             return None
         guards = getattr(item, "guards", None) or []
-        if guards:
-            return None
         clause_indices = getattr(item, "indices", None) or []
         recurrence_dims = getattr(item, "recurrence_dims_override", None)
         if not recurrence_dims and variable_defid:
             recurrence_dims = _recurrence_dims(item, variable_defid, clause_indices)
         recurrence_dims = recurrence_dims or []
-        # Allow len(loops) == len(recurrence_loops_outer) for pure-recurrence clauses (one scalar/point per t).
-        if (
-            not recurrence_dims
-            or len(recurrence_loops_outer) > len(recurrence_dims)
-            or len(loops) < len(recurrence_loops_outer)
-        ):
-            return None
         ndim = len(loops)
+        # Allow clause to run when we have at least as many loops as outer (so we can bind current step).
+        if not recurrence_dims or len(loops) < len(recurrence_loops_outer):
+            return None
         loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
         for dim, lp in enumerate(loops):
             defid = getattr(lp.variable, "defid", None)
@@ -1412,18 +1447,69 @@ class EinsteinExecutionMixin:
                 return None
             name = getattr(lp.variable, "name", None)
             loop_info.append((defid, r, name))
-        # Map outer recurrence dims to rec_context; stencil dims (e.g. i±1, j±1) stay vectorized.
+        # Map clause dim k to k-th outer loop's defid (so all outer vars bound from rec_context for current step).
         outer_rec_defids = []
-        for k in range(len(recurrence_loops_outer)):
-            if k >= len(recurrence_dims):
-                return None
-            d = recurrence_dims[k]
+        for k in range(min(len(recurrence_loops_outer), ndim)):
             outer_defid = getattr(recurrence_loops_outer[k].variable, "defid", None)
             if outer_defid is None:
                 return None
-            outer_rec_defids.append((d, outer_defid))
+            outer_rec_defids.append((k, outer_defid))
         outer_dims_set = {d for d, _ in outer_rec_defids}
         inner_recurrence_dims = [d for d in recurrence_dims if d not in outer_dims_set]
+        # All clause dims bound from current step (e.g. diagonal clause with i==j in row-major): run body once, write one cell.
+        if len(outer_dims_set) == ndim and not inner_recurrence_dims:
+            with self.env.scope():
+                self.env.set_value(variable_defid, output)
+                for _d, odef in outer_rec_defids:
+                    if odef in rec_context:
+                        self.env.set_value(odef, rec_context[odef])
+                for dim in range(ndim):
+                    defid, (_start, _end), name = loop_info[dim]
+                    od = next((o for d, o in outer_rec_defids if d == dim), None)
+                    if od is not None and od in rec_context:
+                        self.env.set_value(defid, rec_context[od], name=name)
+                    else:
+                        self.env.set_value(defid, np.arange(_start, _end, dtype=np.intp), name=name)
+                bindings = getattr(item, "bindings", None) or []
+                if bindings:
+                    from ..runtime.compute.lowered_execution import execute_lowered_bindings
+                    loop_context = {getattr(lp.variable, "defid", None): self.env.get_value(getattr(lp.variable, "defid", None)) for lp in loops if getattr(lp.variable, "defid", None) is not None}
+                    full_context = execute_lowered_bindings(bindings, loop_context, expr_eval)
+                    for d, val in full_context.items():
+                        if d is not None:
+                            self.env.set_value(d, val)
+                if guards:
+                    from ..runtime.compute.lowered_execution import check_lowered_guards
+                    step_ctx = {loop_info[dim][0]: rec_context.get(odef) for dim, (_, odef) in enumerate(outer_rec_defids) if odef in rec_context}
+                    if not check_lowered_guards(guards, step_ctx, lambda e: self._to_bool(e.accept(self))):
+                        if variable_key is not None:
+                            self.env.set_value(variable_key, output)
+                        return output
+                _saved_rec = getattr(self, "_einstein_recurrence_clause", False)
+                _saved_vec = getattr(self, "_vectorize_parallel_shape", None)
+                try:
+                    self._einstein_recurrence_clause = True  # so reduction in body uses env (current L), not fast path
+                    self._vectorize_parallel_shape = None    # force scalar reduction path to use env
+                    res = item.body.accept(self)
+                finally:
+                    self._einstein_recurrence_clause = _saved_rec
+                    self._vectorize_parallel_shape = _saved_vec
+            if res is not None:
+                res = np.asarray(res, dtype=output.dtype)
+                slice_list: List[Any] = []
+                for dim in range(ndim):
+                    od = next((o for d, o in outer_rec_defids if d == dim), None)
+                    if od is not None and od in rec_context:
+                        v = rec_context[od]
+                        slice_list.append(int(v) if isinstance(v, (np.integer, np.floating, int, float)) else v)
+                    else:
+                        slice_list.append(slice(loop_info[dim][1][0], loop_info[dim][1][1]))
+                if len(slice_list) == output.ndim and res.size == 1:
+                    val = res.flat[0]
+                    output[tuple(slice_list)] = val
+                    if variable_key is not None:
+                        self.env.set_value(variable_key, output)
+                    return output
         # Inner recurrence dims: isolate as outer loop (iterate in order). In the body they are literals; vectorize other dims.
         if inner_recurrence_dims:
             from ..runtime.compute.lowered_execution import execute_lowered_loops
