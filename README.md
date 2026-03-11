@@ -1,8 +1,3 @@
-
----
-permalink: /
----
-
 # Einlang
 
 [![Tests](https://github.com/einlang/einlang/actions/workflows/tests.yml/badge.svg)](https://github.com/einlang/einlang/actions/workflows/tests.yml)
