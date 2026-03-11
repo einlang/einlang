@@ -6,12 +6,13 @@
   <title>{% if page.title %}{{ page.title }} — {% endif %}{{ site.title }}</title>
   <style>
     :root {
-      --bg: #0f0f0f;
-      --surface: #1a1a1a;
-      --text: #e8e8e8;
-      --muted: #888;
-      --accent: #7dd3c0;
-      --accent-hover: #9eeadc;
+      --bg: #0a0a0b;
+      --surface: #141416;
+      --text: #f0f0f2;
+      --muted: #8b8b92;
+      --accent: #5eead4;
+      --accent-hover: #99f6e4;
+      --glow: rgba(94, 234, 212, 0.15);
     }
     * { box-sizing: border-box; }
     html { font-size: 18px; scroll-behavior: smooth; }
@@ -21,42 +22,54 @@
       color: var(--text);
       margin: 0;
       min-height: 100vh;
-      line-height: 1.6;
+      line-height: 1.65;
       -webkit-font-smoothing: antialiased;
     }
     .wrap {
-      max-width: 32rem;
+      max-width: 36rem;
       margin: 0 auto;
-      padding: 3rem 1.5rem 4rem;
+      padding: 3.5rem 1.5rem 5rem;
     }
     header {
-      margin-bottom: 4rem;
+      margin-bottom: 3.5rem;
     }
     header a {
       font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
       font-weight: 500;
-      font-size: 0.95rem;
-      letter-spacing: 0.02em;
+      font-size: 0.9rem;
+      letter-spacing: 0.04em;
       color: var(--muted);
       text-decoration: none;
+      text-transform: uppercase;
     }
     header a:hover { color: var(--accent); }
     main h1 {
       font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
-      font-size: clamp(1.75rem, 5vw, 2.25rem);
-      font-weight: 500;
-      letter-spacing: -0.02em;
-      margin: 0 0 1.25rem;
+      font-size: clamp(2rem, 6vw, 2.75rem);
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      margin: 0 0 0.75rem;
       color: var(--text);
+      line-height: 1.2;
     }
     main p {
-      margin: 0 0 1rem;
+      margin: 0 0 1.25rem;
       color: var(--muted);
     }
-    main p.lead {
-      font-size: 1.05rem;
+    main p:first-of-type {
+      font-size: 1.15rem;
       color: var(--text);
-      margin-bottom: 2rem;
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+    main em {
+      color: var(--muted);
+      font-style: normal;
+      font-size: 0.95rem;
+      display: block;
+      margin: -0.5rem 0 1.5rem;
+      padding-left: 0.25rem;
+      border-left: 2px solid var(--accent);
     }
     .cta {
       display: inline-block;
@@ -74,6 +87,56 @@
     .cta:hover {
       background: var(--accent-hover);
       color: var(--bg);
+    }
+    main pre {
+      font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      background: var(--surface);
+      border: 1px solid rgba(94, 234, 212, 0.25);
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      margin: 1.75rem 0;
+      color: var(--text);
+      overflow-x: auto;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.2), 0 4px 24px var(--glow);
+    }
+    main pre code { background: none; padding: 0; }
+    main p:nth-of-type(4) {
+      font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    main p:nth-of-type(4) strong { color: var(--accent); }
+    main p:last-of-type { margin-top: 2.5rem; }
+    main p:last-of-type a {
+      display: inline-block;
+      margin-right: 0.75rem;
+      margin-bottom: 0.5rem;
+      padding: 0.75rem 1.4rem;
+      font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--bg);
+      background: var(--accent);
+      border-radius: 8px;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.2s, background 0.2s;
+    }
+    main p:last-of-type a:hover {
+      background: var(--accent-hover);
+      color: var(--bg);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px var(--glow);
+    }
+    main p:last-of-type a:last-of-type {
+      background: transparent;
+      color: var(--accent);
+      border: 1.5px solid var(--accent);
+    }
+    main p:last-of-type a:last-of-type:hover {
+      background: rgba(94, 234, 212, 0.08);
+      box-shadow: 0 0 0 1px var(--accent);
     }
   </style>
 </head>

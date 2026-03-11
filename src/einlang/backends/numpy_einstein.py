@@ -283,6 +283,53 @@ def _reduction_uses_clause_var_in_bounds(expr: Any, clause_loop_defids: List[Any
     return False
 
 
+def _collect_defids_by_name(expr: Any) -> Dict[str, List[Any]]:
+    """Collect all (name -> list of defids) from IdentifierIR/IndexVarIR in expr (e.g. for binding aliases)."""
+    out: Dict[str, List[Any]] = {}
+
+    def add(node: Any) -> None:
+        if node is None:
+            return
+        name = getattr(node, "name", None)
+        defid = getattr(node, "defid", None)
+        if name is not None and defid is not None:
+            out.setdefault(name, []).append(defid)
+        if isinstance(node, (BinaryOpIR, UnaryOpIR)):
+            add(getattr(node, "left", None))
+            add(getattr(node, "right", None))
+            add(getattr(node, "operand", None))
+        elif isinstance(node, RectangularAccessIR):
+            add(getattr(node, "array", None))
+            for idx in getattr(node, "indices", None) or []:
+                add(idx)
+        elif isinstance(node, FunctionCallIR):
+            add(getattr(node, "callee_expr", None))
+            for a in getattr(node, "arguments", None) or []:
+                add(a)
+        elif isinstance(node, IfExpressionIR):
+            add(getattr(node, "condition", None))
+            add(getattr(node, "then_expr", None))
+            add(getattr(node, "else_expr", None))
+        elif isinstance(node, LoweredReductionIR):
+            for lp in getattr(node, "loops", None) or []:
+                add(getattr(lp, "variable", None))
+                it = getattr(lp, "iterable", None)
+                if isinstance(it, RangeIR):
+                    add(getattr(it, "start", None))
+                    add(getattr(it, "end", None))
+            add(getattr(node, "body", None))
+        elif isinstance(node, RangeIR):
+            add(getattr(node, "start", None))
+            add(getattr(node, "end", None))
+        elif hasattr(node, "body"):
+            add(getattr(node, "body", None))
+        elif hasattr(node, "expr"):
+            add(getattr(node, "expr", None))
+
+    add(expr)
+    return out
+
+
 def _count_reduction_dims_in_expr(expr: Any) -> int:
     """Return max number of reduction dimensions in any LoweredReductionIR in expr (0 if none)."""
     if expr is None:
@@ -874,7 +921,7 @@ def _try_hybrid_vectorize_clause(
     )
     if not (0 < len(recurrence_dims) < ndim):
         return None
-    loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
+    loop_info: List[Tuple[Any, Optional[Tuple[int, int]], str]] = []
     for dim, lp in enumerate(loops):
         defid = getattr(lp.variable, "defid", None)
         if defid is None:
@@ -882,7 +929,7 @@ def _try_hybrid_vectorize_clause(
         try:
             r = _extract_loop_range(lp, expr_evaluator)
         except RuntimeError:
-            return None
+            r = None  # range depends on another loop var (e.g. j in k..n); extract inside loop
         name = getattr(lp.variable, "name", None)
         loop_info.append((defid, r, name))
     recurrence_loops = [loops[d] for d in recurrence_dims]
@@ -890,6 +937,7 @@ def _try_hybrid_vectorize_clause(
     n_iter = [0]
     output_ndim = output.ndim
     has_literal = bool(clause_indices and any(isinstance(idx, LiteralIR) for idx in clause_indices))
+    body_defids_by_name = _collect_defids_by_name(clause.body)
 
     try:
         for rec_context in execute_lowered_loops(recurrence_loops, {}, expr_evaluator):
@@ -901,10 +949,22 @@ def _try_hybrid_vectorize_clause(
                 )
             with backend.env.scope():
                 for dim in range(ndim):
-                    defid, (start, end), name = loop_info[dim]
+                    defid, range_val, name = loop_info[dim]
                     if dim in recurrence_dims:
-                        backend.env.set_value(defid, rec_context[defid], name=name)
+                        val = rec_context[defid]
+                        backend.env.set_value(defid, val, name=name)
+                        for other_defid in body_defids_by_name.get(name, []):
+                            if other_defid != defid:
+                                backend.env.set_value(other_defid, val, name=name)
                     else:
+                        start, end = range_val if range_val is not None else (None, None)
+                        if range_val is None:
+                            try:
+                                start, end = _extract_loop_range(
+                                    loops[dim], lambda e: e.accept(backend)
+                                )
+                            except RuntimeError:
+                                return None
                         sz = end - start
                         shape = [1] * ndim
                         shape[dim] = sz
@@ -929,7 +989,15 @@ def _try_hybrid_vectorize_clause(
                             v = rec_context[loop_info[k][0]]
                             slice_list_out.append(int(v) if hasattr(v, "__int__") else v)
                         else:
-                            start, end = loop_info[k][1]
+                            r = loop_info[k][1]
+                            if r is None:
+                                try:
+                                    r = _extract_loop_range(
+                                        loops[k], lambda e: e.accept(backend)
+                                    )
+                                except RuntimeError:
+                                    return None
+                            start, end = r
                             slice_list_out.append(slice(int(start), int(end)))
                     else:
                         return None
@@ -948,8 +1016,19 @@ def _try_hybrid_vectorize_clause(
                     if dim in recurrence_dims:
                         slice_list.append(rec_context[loop_info[dim][0]])
                     else:
-                        start, end = loop_info[dim][1]
-                        slice_list.append(slice(int(start), int(end)))
+                        r = loop_info[dim][1]
+                        if r is None:
+                            try:
+                                r = _extract_loop_range(
+                                    loops[dim], lambda e: e.accept(backend)
+                                )
+                            except RuntimeError:
+                                return None
+                            start, end = r
+                            slice_list.append(slice(int(start), int(end)))
+                        else:
+                            start, end = r
+                            slice_list.append(slice(int(start), int(end)))
                 try:
                     n_rec = len(recurrence_dims)
                     if result.ndim == ndim:

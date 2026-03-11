@@ -1,6 +1,0 @@
-# Not used when GitHub Pages deploys from root (/). Root _config.yml is the single source; this file is kept for reference only.
-# Site URL: https://einlang.github.io/einlang/
-title: Einlang
-description: Tensor math in Einstein notation with compile-time shape checking
-baseurl: "/einlang"
-permalink: pretty

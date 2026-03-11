@@ -58,3 +58,40 @@ def test_solve_cholesky(compiler, runtime):
     A = np.array([[4.0, 1.0], [1.0, 3.0]])
     b = np.array([1.0, 2.0])
     np.testing.assert_allclose(A @ x, b, rtol=1e-5)
+
+
+def test_lu(compiler, runtime):
+    # Doolittle LU: A = L*U, L unit lower, U upper. Check L*U = A.
+    source = """
+    use std::ml::linalg_ops::lu;
+    let A = [[4.0, 1.0], [1.0, 3.0]];
+    let (L, U) = lu(A);
+    """
+    result = compile_and_execute(source, compiler, runtime)
+    assert result.success, result.errors
+    L = np.array(result.outputs["L"])
+    U = np.array(result.outputs["U"])
+    A = np.array([[4.0, 1.0], [1.0, 3.0]])
+    np.testing.assert_allclose(L @ U, A, rtol=1e-5)
+    # L unit lower: diagonal 1, strict upper zero
+    np.testing.assert_allclose(np.diag(L), np.ones(2), rtol=1e-5)
+    assert L[0, 1] == 0.0, "L should be lower triangular"
+    # U upper: strict lower zero
+    assert U[1, 0] == 0.0, "U should be upper triangular"
+
+
+def test_solve_lu(compiler, runtime):
+    # Solve A*x = b via LU; A = [[4,1],[1,3]], b = [1, 2].
+    source = """
+    use std::ml::linalg_ops::solve;
+    let A = [[4.0, 1.0], [1.0, 3.0]];
+    let b = [1.0, 2.0];
+    let x = solve(A, b);
+    """
+    result = compile_and_execute(source, compiler, runtime)
+    assert result.success, result.errors
+    x = np.array(result.outputs["x"])
+    assert x.shape == (2,), f"expected shape (2,), got {x.shape}"
+    A = np.array([[4.0, 1.0], [1.0, 3.0]])
+    b = np.array([1.0, 2.0])
+    np.testing.assert_allclose(A @ x, b, rtol=1e-5)

@@ -1,26 +1,20 @@
 # GitHub Pages: deploy from branch main, folder / (root)
-# Site URL: https://einlang.github.io/einlang/
-# Building from root so README, CONTRIBUTING, examples/README.md are part of the site and relative links work.
+# Site: https://einlang.github.io/einlang/
+# Renders from index.md only; everything else excluded so no other pages are built.
 title: Einlang
-description: Tensor math in Einstein notation with compile-time shape checking
 baseurl: "/einlang"
-permalink: pretty
-plugins:
-  # Rewrite .md links to pretty URLs in built HTML so repo (with .md) and Pages (pretty) both work
-  - jekyll-relative-links
 exclude:
+  - README.md
+  - CONTRIBUTING.md
+  - docs
+  - examples
   - src
   - tests
   - stdlib
   - scripts
   - .github
+  - "*.py"
+  - "*.ein"
   - .cursorrules
   - .gitignore
   - LICENSE
-  - "*.py"
-  - "*.ein"
-  - "*.npy"
-  - docs
-  - examples
-  - README.md
-  - CONTRIBUTING.md

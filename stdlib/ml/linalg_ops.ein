@@ -83,18 +83,25 @@ pub fn solve_cholesky(A, b) {
 // ============================================================================
 
 /// Doolittle LU: A = L*U, L unit lower, U upper. Returns (L, U).
+/// Single tensor LU[2,n,n]: LU[0]=L cols (L[r,k]), LU[1]=U rows (U[k,r]); recurrence on k.
 pub fn lu(A) {
     assert(typeof(A) == "rectangular", "lu: A must be rectangular");
     let n = len(A) as i32;
     assert(n == len(A[0]) as i32, "lu: A must be square");
-    let L_init[i in 0..n, j in 0..n] = if i == j { 1.0 } else { 0.0 };
-    let U[k in 0..n, j in k..n] = A[k, j] - sum[s in 0..(k - 1)](L[k, s] * U[s, j]);
-    let L[i in 0..n, col in 0..n] = if i > col {
-        (A[i, col] - sum[s in 0..(col - 1)](L[i, s] * U[s, col])) / U[col, col]
-    } else {
-        L_init[i, col]
-    };
-    (L, U)
+    // Trick 1: One tensor LU[2,n,n] so both L and U are in scope in one recurrence (U needs L, L needs U).
+    // Trick 2: Literal first index LU[0,...] and LU[1,...] so we never put ell in where; slice is fixed by LHS.
+    // Trick 3: Layout LU[0,k,r]=L[r,k], LU[1,k,r]=U[k,r] puts recurrence index k in the same slot for both,
+    //          so the backend runs "for each k: U row k, then L column k" in order.
+    // Trick 4: Init once (identity / zero), then recurrence only writes where needed (where r>=k, r>k); no repeated 0.
+    // L slice: identity (diagonal 1, rest 0). r < k and diagonal stay; only r > k overwritten below.
+    let LU[0, k in 0..n, r in 0..n] = (k == r) as f32;
+    // U slice: zero then overwrite upper part per row.
+    let LU[1, k in 0..n, r in 0..n] = 0.0;
+    let LU[1, k in 0..n, r in 0..n] = A[k, r] - sum[s in 0..k](LU[0, s, k] * LU[1, s, r]) where r >= k;
+    let LU[0, k in 0..n, r in 0..n] = (A[r, k] - sum[s in 0..k](LU[0, s, r] * LU[1, s, k])) / LU[1, k, k] where r > k;
+    // LU[0] is L in column layout (LU[0,j,i]=L[i,j]); transpose to standard L. U = LU[1] as-is.
+    let L[i in 0..n, j in 0..n] = LU[0, j, i];
+    (L, LU[1])
 }
 
 /// Solve A*x = b via LU (A square, nonsingular).
