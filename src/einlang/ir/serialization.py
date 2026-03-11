@@ -406,14 +406,17 @@ class IRSerializer:
     # === Einstein Declarations ===
     
     def _serialize_EinsteinClauseIR(self, node) -> list:
-        """Serialize one Einstein clause (indices + value + variable_ranges)."""
-        indices = [idx.name if hasattr(idx, 'name') else self.serialize_to_sexpr(idx) for idx in (getattr(node, 'indices', None) or [])]
+        """Serialize one Einstein clause: (einstein-clause :indices ... :value ...) so deserializer has a tag."""
+        indices = [self.serialize_to_sexpr(idx) for idx in (getattr(node, 'indices', None) or [])]
         value = self.serialize_to_sexpr(node.value) if getattr(node, 'value', None) else [self._sym("nil")]
         out = [self._sym(":indices"), indices, self._sym(":value"), value]
         vr = getattr(node, 'variable_ranges', None) or {}
         var_ranges = [[self._brackets([d.krate, d.index]), self.serialize_to_sexpr(r)] for d, r in vr.items()] if vr else []
         out.extend([self._sym(":variable_ranges"), var_ranges])
-        return out
+        if self.include_location and getattr(node, 'location', None):
+            loc = node.location
+            out.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
+        return [self._sym("einstein-clause")] + out
 
     def _serialize_EinsteinIR(self, node) -> list:
         """Serialize Einstein (rvalue). Name/defid on binding."""
@@ -423,7 +426,7 @@ class IRSerializer:
             core.extend([self._sym(":shape"), [self.serialize_to_sexpr(s) for s in node.shape]])
         if getattr(node, 'element_type', None) is not None:
             core.extend([self._sym(":element_type"), self._serialize_type(node.element_type)])
-        return core
+        return self._add_expr_metadata(node, core)
 
     def _serialize_LoopStructure(self, loop) -> list:
         """Serialize loop structure: (loop (variable "name" :defid [...]) iterable)."""
@@ -618,9 +621,10 @@ class IRSerializer:
     # === Reduction Expressions ===
     
     def _serialize_ReductionExpressionIR(self, node) -> list:
-        """Serialize reduction: (reduction op (vars...) body :loop_var_ranges ...)"""
+        """Serialize reduction: (reduction op (vars...) body :loop_var_ranges ...). vars are full IR for round-trip."""
         body = self.serialize_to_sexpr(node.body)
-        core = [self._sym("reduction"), node.operation, node.loop_var_names, body]
+        loop_vars_sexpr = [self.serialize_to_sexpr(v) for v in (getattr(node, 'loop_vars', None) or [])]
+        core = [self._sym("reduction"), node.operation, loop_vars_sexpr, body]
         lvr = getattr(node, 'loop_var_ranges', None) or {}
         if lvr:
             loop_ranges = [[self._brackets([d.krate, d.index]), self.serialize_to_sexpr(r)] for d, r in lvr.items()]
@@ -1314,6 +1318,32 @@ class IRDeserializer:
         loc = self._loc_from_opts(opts)
         return RangePatternIR(start=start, end=end, inclusive=inclusive, location=loc)
 
+    def _deserialize_einstein_clause(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import EinsteinClauseIR, IndexVarIR
+        from ..shared.source_location import SourceLocation
+        _, opts = _plist(tail)
+        loc = self._loc_from_opts(opts) or SourceLocation("", 0, 0)
+        indices_sexpr = opts.get(":indices") or []
+        indices = []
+        for s in indices_sexpr if isinstance(indices_sexpr, list) else []:
+            if isinstance(s, list) and s:
+                indices.append(self.deserialize(s))
+            elif isinstance(s, str):
+                indices.append(IndexVarIR(name=s, location=loc, defid=None))
+            else:
+                indices.append(self.deserialize(s) if s is not None else None)
+        value = self.deserialize(opts.get(":value")) if opts.get(":value") else None
+        vr_sexpr = opts.get(":variable_ranges") or []
+        variable_ranges = {}
+        if isinstance(vr_sexpr, list):
+            for pair in vr_sexpr:
+                if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                    d = _parse_defid(pair[0])
+                    r = self.deserialize(pair[1]) if pair[1] is not None else None
+                    if d is not None:
+                        variable_ranges[d] = r
+        return EinsteinClauseIR(indices=indices, value=value, location=loc, variable_ranges=variable_ranges)
+
     def _deserialize_einstein_value(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import EinsteinIR
         from ..shared.source_location import SourceLocation
@@ -1324,7 +1354,8 @@ class IRDeserializer:
         shape = [self.deserialize(s) for s in shape_sexpr] if isinstance(shape_sexpr, list) else None
         element_type = self._deserialize_type(opts.get(":element_type"))
         loc = self._loc_from_opts(opts) or SourceLocation("", 0, 0)
-        return EinsteinIR(clauses=clauses, shape=shape, element_type=element_type, location=loc)
+        type_info = self._deserialize_type(opts.get(":inferred_type"))
+        return EinsteinIR(clauses=clauses, shape=shape, element_type=element_type, location=loc, type_info=type_info)
 
     def _deserialize_binding(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import BindingIR
@@ -1533,6 +1564,40 @@ class IRDeserializer:
         constraints = [self.deserialize(c) for c in constraints_sexpr] if constraints_sexpr else []
         ty = self._deserialize_type(opts.get(":inferred_type"))
         return WhereExpressionIR(expr=expr, constraints=constraints, location=loc, type_info=ty)
+
+    def _deserialize_reduction(self, _tag: str, tail: list, full: list) -> Any:
+        from ..ir.nodes import ReductionExpressionIR, IndexVarIR
+        from ..shared.source_location import SourceLocation
+        if len(tail) < 3:
+            loc = self._loc_from_opts(tail[3:]) or SourceLocation("", 0, 0)
+            return ReductionExpressionIR(operation="sum", loop_vars=[], body=None, location=loc)
+        operation = _sym_val(tail[0]) if tail[0] is not None else "sum"
+        vars_sexpr = tail[1]
+        if not isinstance(vars_sexpr, list):
+            loop_vars = []
+        else:
+            loop_vars = []
+            for v in vars_sexpr:
+                if isinstance(v, list) and v:
+                    loop_vars.append(self.deserialize(v))
+                elif isinstance(v, str):
+                    loop_vars.append(IndexVarIR(name=v, location=SourceLocation("", 0, 0), defid=None))
+                else:
+                    loop_vars.append(self.deserialize(v) if v is not None else None)
+        body = self.deserialize(tail[2])
+        _, opts = _plist(tail[3:])
+        loc = self._loc_from_opts(opts) or (getattr(body, "location", None) or SourceLocation("", 0, 0))
+        lvr_sexpr = opts.get(":loop_var_ranges") or []
+        loop_var_ranges = {}
+        if isinstance(lvr_sexpr, list):
+            for pair in lvr_sexpr:
+                if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                    d = _parse_defid(pair[0])
+                    r = self.deserialize(pair[1]) if pair[1] is not None else None
+                    if d is not None:
+                        loop_var_ranges[d] = r
+        ty = self._deserialize_type(opts.get(":inferred_type"))
+        return ReductionExpressionIR(operation=operation, loop_vars=loop_vars, body=body, location=loc, loop_var_ranges=loop_var_ranges, type_info=ty)
 
     def _deserialize_expr(self, tag: str, tail: list, full: list) -> Any:
         raise ValueError(f"Unknown IR tag: {tag}")

@@ -804,9 +804,17 @@ class MonomorphizationService:
             else:
                 from ..shared.types import UNKNOWN
                 args_list = getattr(node, "arguments", []) or []
+                params_list = (
+                    getattr(enclosing_function, "parameters", []) or []
+                    if enclosing_function
+                    else []
+                )
                 arg_types_list: List[Any] = []
-                for a in args_list:
+                for i, a in enumerate(args_list):
                     t = getattr(a, "type_info", None)
+                    if (t is None or t is UNKNOWN) and enclosing_function and i < len(params_list):
+                        p = params_list[i]
+                        t = getattr(p, "param_type", None)
                     arg_types_list.append(t)
                 all_known = bool(arg_types_list and all(t is not None and t is not UNKNOWN for t in arg_types_list))
                 if not all_known and len(arg_types_list) == 2 and fd and self._is_generic_function(fd):

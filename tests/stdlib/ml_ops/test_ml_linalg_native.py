@@ -60,6 +60,22 @@ def test_solve_cholesky(compiler, runtime):
     np.testing.assert_allclose(A @ x, b, rtol=1e-5)
 
 
+def test_solve_triangular_lower_unit(compiler, runtime):
+    # Solve L*y = b with L unit lower (L[i,i]=1). Direct call to solve_triangular_lower_unit.
+    source = """
+    use std::ml::linalg_ops::solve_triangular_lower_unit;
+    let L = [[1.0, 0.0], [0.5, 1.0]];
+    let b = [1.0, 2.0];
+    let y = solve_triangular_lower_unit(L, b);
+    """
+    result = compile_and_execute(source, compiler, runtime)
+    assert result.success, result.errors
+    y = np.array(result.outputs["y"])
+    L = np.array([[1.0, 0.0], [0.5, 1.0]])
+    b = np.array([1.0, 2.0])
+    np.testing.assert_allclose(L @ y, b, rtol=1e-5)
+
+
 def test_lu(compiler, runtime):
     # Doolittle LU: A = L*U, L unit lower, U upper. Check L*U = A.
     source = """
