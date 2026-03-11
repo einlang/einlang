@@ -24,6 +24,8 @@ from ..backends.numpy_einstein import (
     _collect_lhs_read_index_lists,
     _loop_dims_from_clause_indices,
     _index_expr_is_loop_var,
+    _index_expr_is_loop_var_or_offset,
+    _reduction_var_bounded_by_loop_var,
 )
 from ..backends.numpy_einstein import _BodyReferencesDefidVisitor
 
@@ -57,6 +59,52 @@ def _body_reads_same_recurrence_index_as_write(
         ):
             return True
     return False
+
+
+def _infer_recurrence_order_override(
+    clause: LoweredEinsteinClauseIR,
+    variable_defid: Any,
+) -> Optional[List[int]]:
+    """Infer recurrence dim order when two index vars appear on the same dim (e.g. Cholesky).
+    If exactly some dims are 'strictly backward' (every read is loop_var/offset or reduction bounded by that loop var),
+    put those first so column-major order is used. Returns override list or None."""
+    clause_indices = getattr(clause, "indices", None) or []
+    loops = getattr(clause, "loops", None) or []
+    rec_dims = _recurrence_dims(clause, variable_defid, clause_indices)
+    if len(rec_dims) < 2:
+        return None
+    loop_dims = _loop_dims_from_clause_indices(clause_indices, loops)
+    if not loop_dims:
+        return None
+    read_lists = _collect_lhs_read_index_lists(clause.body, variable_defid)
+    if not read_lists:
+        return None
+    reduction_ranges = getattr(clause, "reduction_ranges", None) or {}
+    loop_defids = [getattr(lp.variable, "defid", None) for lp in loops]
+
+    strictly_backward: List[int] = []
+    mixed: List[int] = []
+    for k in rec_dims:
+        out_d = loop_dims[k] if k < len(loop_dims) else k
+        all_backward = True
+        for idx_list in read_lists:
+            if out_d >= len(idx_list):
+                continue
+            expr = idx_list[out_d]
+            if _index_expr_is_loop_var_or_offset(expr, loop_defids[k]):
+                continue
+            if _reduction_var_bounded_by_loop_var(expr, loop_defids[k], reduction_ranges):
+                continue
+            all_backward = False
+            break
+        if all_backward:
+            strictly_backward.append(k)
+        else:
+            mixed.append(k)
+
+    if not strictly_backward:
+        return None
+    return strictly_backward + mixed
 
 
 def _annotate_recurrence_override(

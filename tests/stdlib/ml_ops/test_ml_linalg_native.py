@@ -28,7 +28,6 @@ def test_matrix_norm_frobenius(compiler, runtime):
     assert_float_close(result.outputs["n"], 5.0)
 
 
-@pytest.mark.xfail(reason="Cholesky needs column-major recurrence; backend order TBD")
 def test_cholesky(compiler, runtime):
     # Cholesky L for A = [[4,1],[1,3]]. L should be lower triangular, L*L^T = A.
     source = """
@@ -44,7 +43,6 @@ def test_cholesky(compiler, runtime):
     assert L[0, 1] == 0.0, "Cholesky L should be lower triangular"
 
 
-@pytest.mark.xfail(reason="solve_cholesky depends on Cholesky order")
 def test_solve_cholesky(compiler, runtime):
     # Solve A x = b via Cholesky; A = [[4,1],[1,3]], b = [1, 2].
     source = """
