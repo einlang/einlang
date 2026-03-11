@@ -88,6 +88,11 @@ pub fn lu(A) {
     assert(typeof(A) == "rectangular", "lu: A must be rectangular");
     let n = len(A) as i32;
     assert(n == len(A[0]) as i32, "lu: A must be square");
+    // Trick 1: One tensor LU[2,n,n] so both L and U are in scope in one recurrence (U needs L, L needs U).
+    // Trick 2: Literal first index LU[0,...] and LU[1,...] so we never put ell in where; slice is fixed by LHS.
+    // Trick 3: Layout LU[0,k,r]=L[r,k], LU[1,k,r]=U[k,r] puts recurrence index k in the same slot for both,
+    //          so the backend runs "for each k: U row k, then L column k" in order.
+    // Trick 4: Init once (identity / zero), then recurrence only writes where needed (where r>=k, r>k); no repeated 0.
     // L slice: identity (diagonal 1, rest 0). r < k and diagonal stay; only r > k overwritten below.
     let LU[0, k in 0..n, r in 0..n] = (k == r) as f32;
     // U slice: zero then overwrite upper part per row.
