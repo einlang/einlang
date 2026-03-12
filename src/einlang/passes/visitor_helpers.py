@@ -533,3 +533,139 @@ class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
     def visit_module(self, node) -> List[RectangularAccessIR]:
         return []
 
+
+class ExprInvolvesVarVisitor(IRVisitor[bool]):
+    """True if the expression tree contains an IdentifierIR with the given var_name (or BinaryOpIR with such in left/right)."""
+
+    def __init__(self, var_name: str) -> None:
+        self._var_name = var_name
+
+    def visit_identifier(self, node: IdentifierIR) -> bool:
+        return node.name == self._var_name
+
+    def visit_binary_op(self, node: BinaryOpIR) -> bool:
+        return node.left.accept(self) or node.right.accept(self)
+
+    def visit_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_index_var(self, node: Any) -> bool:
+        return node.range_ir.accept(self) if node.range_ir is not None else False
+
+    def visit_index_rest(self, node: Any) -> bool:
+        return False
+
+    def visit_rectangular_access(self, node: Any) -> bool:
+        if node.array.accept(self):
+            return True
+        return any(idx.accept(self) for idx in node.indices)
+
+    def visit_function_call(self, node: Any) -> bool:
+        if node.callee_expr.accept(self):
+            return True
+        return any(a.accept(self) for a in node.arguments)
+
+    def visit_unary_op(self, node: Any) -> bool:
+        return node.operand.accept(self)
+
+    def visit_block_expression(self, node: Any) -> bool:
+        for stmt in node.statements:
+            if stmt.accept(self):
+                return True
+        return (
+            node.final_expr.accept(self)
+            if node.final_expr is not None
+            else False
+        )
+
+    def visit_if_expression(self, node: Any) -> bool:
+        return (
+            node.condition.accept(self)
+            or node.then_expr.accept(self)
+            or (node.else_expr.accept(self) if node.else_expr is not None else False)
+        )
+
+    def visit_lambda(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_range(self, node: Any) -> bool:
+        return node.start.accept(self) or node.end.accept(self)
+
+    def visit_array_comprehension(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_module(self, node: Any) -> bool:
+        return False
+
+    def visit_array_literal(self, node: Any) -> bool:
+        return any(e.accept(self) for e in node.elements)
+
+    def visit_tuple_expression(self, node: Any) -> bool:
+        return any(e.accept(self) for e in node.elements)
+
+    def visit_tuple_access(self, node: Any) -> bool:
+        return node.tuple_expr.accept(self)
+
+    def visit_interpolated_string(self, node: Any) -> bool:
+        return any(p.accept(self) for p in node.parts)
+
+    def visit_cast_expression(self, node: Any) -> bool:
+        return node.expr.accept(self)
+
+    def visit_member_access(self, node: Any) -> bool:
+        return node.object.accept(self)
+
+    def visit_try_expression(self, node: Any) -> bool:
+        return node.operand.accept(self)
+
+    def visit_match_expression(self, node: Any) -> bool:
+        if node.scrutinee.accept(self):
+            return True
+        return any(arm.body.accept(self) for arm in node.arms)
+
+    def visit_reduction_expression(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_where_expression(self, node: Any) -> bool:
+        if node.expr.accept(self):
+            return True
+        return any(c.accept(self) for c in node.constraints)
+
+    def visit_pipeline_expression(self, node: Any) -> bool:
+        return node.left.accept(self) or node.right.accept(self)
+
+    def visit_builtin_call(self, node: Any) -> bool:
+        return any(a.accept(self) for a in node.args)
+
+    def visit_jagged_access(self, node: Any) -> bool:
+        if node.base.accept(self):
+            return True
+        return any(idx.accept(self) for idx in node.index_chain)
+
+    def visit_literal_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_wildcard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_pattern(self, node: Any) -> bool:
+        return any(e.accept(self) for e in node.elements)
+
+    def visit_array_pattern(self, node: Any) -> bool:
+        return any(e.accept(self) for e in node.elements)
+
+    def visit_rest_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_guard_pattern(self, node: Any) -> bool:
+        return node.inner_pattern.accept(self) or node.guard_expr.accept(self)
+
+    def visit_binding(self, node: Any) -> bool:
+        return node.expr.accept(self)
+
+    def visit_program(self, node: Any) -> bool:
+        return any(stmt.accept(self) for stmt in node.statements)
+

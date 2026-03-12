@@ -7,6 +7,7 @@ Non-normative notes on Einlang’s design goals and influences. For the actual l
 
 ## Goals
 
+- **Math intuitiveness (top priority)** — Everything should read like the math formula. Notation on the page = notation in code: indices, sums, derivatives, gradients. No second “programming” dialect; if you’d write it on a board, the language should support that form (in ASCII).
 - **Readable tensor math** — Code should look like the notation you’d write on a whiteboard (Einstein notation), not stringly-typed APIs or opaque DSLs.
 - **Compile-time shape safety** — Shape and index errors are caught by the compiler, not at runtime. If it type-checks, the shapes are correct.
 - **First-class index algebra** — Where-clauses express index relationships (e.g. conv2d `ih = oh + kh`) and guards; the compiler checks bounds.

@@ -14,6 +14,7 @@ from ..ir.nodes import (
     IRVisitor, BindingIR,
 )
 from ..shared.defid import DefId
+from ..shared.types import BinaryOp
 from ..utils.config import DEFAULT_EINSTEIN_LOOP_MAX
 from .numpy_helpers import _reject_non_lowered
 
@@ -111,7 +112,7 @@ class _BodyReferencesDefidVisitor(IRVisitor[bool]):
         return self._any(*(getattr(node, "parts", []) or []))
 
     def visit_cast_expression(self, node: Any) -> bool:
-        return self._any(getattr(node, "operand", None))
+        return self._any(getattr(node, "expr", None))
 
     def visit_member_access(self, node: Any) -> bool:
         return self._any(getattr(node, "object_expr", None))
@@ -202,232 +203,1225 @@ class _BodyReferencesDefidVisitor(IRVisitor[bool]):
         return self._any(*(getattr(node, "statements", []) or []))
 
 
-def _clause_body_summary(body: Any, max_len: int = 60) -> str:
-    """Short string for RHS of a clause (for profile output)."""
-    if body is None:
-        return "?"
-    if isinstance(body, LoweredReductionIR):
-        op = getattr(body, "operation", "?")
-        inner = _clause_body_summary(getattr(body, "body", None), max_len=20)
-        s = f"{op}({inner})" if inner != "?" else op
-        return s[:max_len]
-    if isinstance(body, BinaryOpIR):
-        op = getattr(body, "operator", None)
-        op_str = str(getattr(op, "name", op)) if op is not None else "?"
-        left = _clause_body_summary(getattr(body, "left", None), max_len=15)
-        right = _clause_body_summary(getattr(body, "right", None), max_len=15)
-        s = f"{left} {op_str} {right}"
-        return s[:max_len]
-    if isinstance(body, FunctionCallIR):
-        name = getattr(body, "function_name", None) or getattr(body, "callee_expr", None)
-        if name is not None and not isinstance(name, str):
-            name = getattr(name, "name", str(name))
-        fn = name if isinstance(name, str) else "call"
-        return f"{fn}(...)"[:max_len]
-    if isinstance(body, RectangularAccessIR):
-        arr = getattr(body, "array", None)
-        arr_name = getattr(arr, "name", None) if arr is not None and hasattr(arr, "name") else None
-        return (arr_name or "[]")[:max_len]
-    if isinstance(body, IdentifierIR):
-        return (getattr(body, "name", None) or "?")[:max_len]
-    if isinstance(body, UnaryOpIR):
-        op = getattr(body, "operator", None)
-        op_str = str(getattr(op, "name", op)) if op is not None else "?"
-        inner = _clause_body_summary(getattr(body, "operand", None), max_len=20)
-        return f"{op_str}({inner})"[:max_len]
-    kind = type(body).__name__
-    if "Reduction" in kind or "Unary" in kind:
-        return kind.replace("IR", "").lower()[:max_len]
-    return kind.replace("IR", "").lower()[:max_len]
+class _ReductionDimsCounter(IRVisitor[int]):
+    """Visitor that returns the max number of reduction dimensions in any LoweredReductionIR in the tree (0 if none)."""
 
+    def visit_lowered_reduction(self, node: Any) -> int:
+        loops = node.loops or []
+        body_count = node.body.accept(self)
+        return max(len(loops), body_count)
 
-def _reduction_uses_clause_var_in_bounds(expr: Any, clause_loop_defids: List[Any]) -> bool:
-    """True if any LoweredReductionIR in expr has a loop whose iterable references a clause loop var (dynamic bounds)."""
-    if expr is None or not clause_loop_defids:
-        return False
-    if isinstance(expr, LoweredReductionIR):
-        for loop in getattr(expr, "loops", None) or []:
-            it = getattr(loop, "iterable", None)
-            if it is not None and any(_BodyReferencesDefidVisitor(d).references(it) for d in clause_loop_defids):
-                return True
-        return False
-    if isinstance(expr, BinaryOpIR):
-        return (
-            _reduction_uses_clause_var_in_bounds(getattr(expr, "left", None), clause_loop_defids)
-            or _reduction_uses_clause_var_in_bounds(getattr(expr, "right", None), clause_loop_defids)
-        )
-    if isinstance(expr, RectangularAccessIR):
-        if _reduction_uses_clause_var_in_bounds(getattr(expr, "array", None), clause_loop_defids):
-            return True
-        for idx in getattr(expr, "indices", None) or []:
-            if _reduction_uses_clause_var_in_bounds(idx, clause_loop_defids):
-                return True
-        return False
-    if isinstance(expr, FunctionCallIR):
-        if _reduction_uses_clause_var_in_bounds(getattr(expr, "callee_expr", None), clause_loop_defids):
-            return True
-        for a in getattr(expr, "arguments", None) or []:
-            if _reduction_uses_clause_var_in_bounds(a, clause_loop_defids):
-                return True
-        return False
-    if hasattr(expr, "operand"):
-        return _reduction_uses_clause_var_in_bounds(getattr(expr, "operand", None), clause_loop_defids)
-    if hasattr(expr, "expr"):
-        return _reduction_uses_clause_var_in_bounds(getattr(expr, "expr", None), clause_loop_defids)
-    if hasattr(expr, "condition"):
-        return (
-            _reduction_uses_clause_var_in_bounds(getattr(expr, "condition", None), clause_loop_defids)
-            or _reduction_uses_clause_var_in_bounds(getattr(expr, "then_expr", None), clause_loop_defids)
-            or _reduction_uses_clause_var_in_bounds(getattr(expr, "else_expr", None), clause_loop_defids)
-        )
-    return False
+    def visit_binary_op(self, node: Any) -> int:
+        return max(node.left.accept(self), node.right.accept(self))
 
+    def visit_rectangular_access(self, node: Any) -> int:
+        n = node.array.accept(self)
+        for idx in node.indices:
+            n = max(n, idx.accept(self))
+        return n
 
-def _collect_defids_by_name(expr: Any) -> Dict[str, List[Any]]:
-    """Collect all (name -> list of defids) from IdentifierIR/IndexVarIR in expr (e.g. for binding aliases)."""
-    out: Dict[str, List[Any]] = {}
+    def visit_function_call(self, node: Any) -> int:
+        n = node.callee_expr.accept(self)
+        for a in node.arguments:
+            n = max(n, a.accept(self))
+        return n
 
-    def add(node: Any) -> None:
-        if node is None:
-            return
-        name = getattr(node, "name", None)
-        defid = getattr(node, "defid", None)
-        if name is not None and defid is not None:
-            out.setdefault(name, []).append(defid)
-        if isinstance(node, (BinaryOpIR, UnaryOpIR)):
-            add(getattr(node, "left", None))
-            add(getattr(node, "right", None))
-            add(getattr(node, "operand", None))
-        elif isinstance(node, RectangularAccessIR):
-            add(getattr(node, "array", None))
-            for idx in getattr(node, "indices", None) or []:
-                add(idx)
-        elif isinstance(node, FunctionCallIR):
-            add(getattr(node, "callee_expr", None))
-            for a in getattr(node, "arguments", None) or []:
-                add(a)
-        elif isinstance(node, IfExpressionIR):
-            add(getattr(node, "condition", None))
-            add(getattr(node, "then_expr", None))
-            add(getattr(node, "else_expr", None))
-        elif isinstance(node, LoweredReductionIR):
-            for lp in getattr(node, "loops", None) or []:
-                add(getattr(lp, "variable", None))
-                it = getattr(lp, "iterable", None)
-                if isinstance(it, RangeIR):
-                    add(getattr(it, "start", None))
-                    add(getattr(it, "end", None))
-            add(getattr(node, "body", None))
-        elif isinstance(node, RangeIR):
-            add(getattr(node, "start", None))
-            add(getattr(node, "end", None))
-        elif hasattr(node, "body"):
-            add(getattr(node, "body", None))
-        elif hasattr(node, "expr"):
-            add(getattr(node, "expr", None))
+    def visit_unary_op(self, node: Any) -> int:
+        return node.operand.accept(self)
 
-    add(expr)
-    return out
+    def visit_if_expression(self, node: Any) -> int:
+        c = node.condition.accept(self)
+        t = node.then_expr.accept(self)
+        e = node.else_expr.accept(self) if node.else_expr is not None else 0
+        return max(c, t, e)
+
+    def visit_block_expression(self, node: Any) -> int:
+        n = 0
+        for stmt in node.statements:
+            n = max(n, stmt.accept(self))
+        final = node.final_expr.accept(self) if node.final_expr is not None else 0
+        return max(n, final)
+
+    def visit_lambda(self, node: Any) -> int:
+        return node.body.accept(self)
+
+    def visit_range(self, node: Any) -> int:
+        return max(node.start.accept(self), node.end.accept(self))
+
+    def visit_array_comprehension(self, node: Any) -> int:
+        return node.body.accept(self)
+
+    def visit_where_expression(self, node: Any) -> int:
+        n = node.expr.accept(self)
+        for c in node.constraints:
+            n = max(n, c.accept(self))
+        return n
+
+    def visit_pipeline_expression(self, node: Any) -> int:
+        return max(node.left.accept(self), node.right.accept(self))
+
+    def visit_builtin_call(self, node: Any) -> int:
+        n = 0
+        for a in node.args:
+            n = max(n, a.accept(self))
+        return n
+
+    def visit_literal(self, node: Any) -> int:
+        return 0
+
+    def visit_identifier(self, node: Any) -> int:
+        return 0
+
+    def visit_index_var(self, node: Any) -> int:
+        return node.range_ir.accept(self) if node.range_ir is not None else 0
+
+    def visit_index_rest(self, node: Any) -> int:
+        return 0
+
+    def visit_jagged_access(self, node: Any) -> int:
+        n = node.base.accept(self)
+        for idx in node.index_chain:
+            n = max(n, idx.accept(self))
+        return n
+
+    def visit_module(self, node: Any) -> int:
+        return 0
+
+    def visit_array_literal(self, node: Any) -> int:
+        n = 0
+        for e in node.elements:
+            n = max(n, e.accept(self))
+        return n
+
+    def visit_tuple_expression(self, node: Any) -> int:
+        n = 0
+        for e in node.elements:
+            n = max(n, e.accept(self))
+        return n
+
+    def visit_tuple_access(self, node: Any) -> int:
+        return node.tuple_expr.accept(self)
+
+    def visit_interpolated_string(self, node: Any) -> int:
+        n = 0
+        for p in node.parts:
+            n = max(n, p.accept(self))
+        return n
+
+    def visit_cast_expression(self, node: Any) -> int:
+        return node.expr.accept(self)
+
+    def visit_member_access(self, node: Any) -> int:
+        return node.object.accept(self)
+
+    def visit_try_expression(self, node: Any) -> int:
+        return node.operand.accept(self)
+
+    def visit_match_expression(self, node: Any) -> int:
+        n = node.scrutinee.accept(self)
+        for arm in node.arms:
+            n = max(n, arm.body.accept(self))
+        return n
+
+    def visit_reduction_expression(self, node: Any) -> int:
+        return node.body.accept(self)
+
+    def visit_literal_pattern(self, node: Any) -> int:
+        return 0
+
+    def visit_identifier_pattern(self, node: Any) -> int:
+        return 0
+
+    def visit_wildcard_pattern(self, node: Any) -> int:
+        return 0
+
+    def visit_tuple_pattern(self, node: Any) -> int:
+        n = 0
+        for e in node.elements:
+            n = max(n, e.accept(self))
+        return n
+
+    def visit_array_pattern(self, node: Any) -> int:
+        n = 0
+        for e in node.elements:
+            n = max(n, e.accept(self))
+        return n
+
+    def visit_rest_pattern(self, node: Any) -> int:
+        return 0
+
+    def visit_guard_pattern(self, node: Any) -> int:
+        return max(node.inner_pattern.accept(self), node.guard_expr.accept(self))
+
+    def visit_binding(self, node: Any) -> int:
+        return node.expr.accept(self)
+
+    def visit_program(self, node: Any) -> int:
+        n = 0
+        for stmt in node.statements:
+            n = max(n, stmt.accept(self))
+        return n
 
 
 def _count_reduction_dims_in_expr(expr: Any) -> int:
     """Return max number of reduction dimensions in any LoweredReductionIR in expr (0 if none)."""
     if expr is None:
         return 0
-    if isinstance(expr, LoweredReductionIR):
-        return len(getattr(expr, "loops", None) or [])
-    n = 0
-    if isinstance(expr, BinaryOpIR):
-        n = max(_count_reduction_dims_in_expr(getattr(expr, "left", None)), _count_reduction_dims_in_expr(getattr(expr, "right", None)))
-    elif isinstance(expr, RectangularAccessIR):
-        n = _count_reduction_dims_in_expr(getattr(expr, "array", None))
-        for idx in getattr(expr, "indices", None) or []:
-            n = max(n, _count_reduction_dims_in_expr(idx))
-    elif isinstance(expr, FunctionCallIR):
-        n = _count_reduction_dims_in_expr(getattr(expr, "callee_expr", None))
-        for a in getattr(expr, "arguments", None) or []:
-            n = max(n, _count_reduction_dims_in_expr(a))
-    elif hasattr(expr, "operand"):
-        n = _count_reduction_dims_in_expr(getattr(expr, "operand", None))
-    elif hasattr(expr, "expr"):
-        n = _count_reduction_dims_in_expr(getattr(expr, "expr", None))
-    elif hasattr(expr, "condition"):
-        n = max(
-            _count_reduction_dims_in_expr(getattr(expr, "condition", None)),
-            _count_reduction_dims_in_expr(getattr(expr, "then_expr", None)),
-            _count_reduction_dims_in_expr(getattr(expr, "else_expr", None)),
+    return expr.accept(_ReductionDimsCounter())
+
+
+def _clause_body_summary_default(node: Any, max_len: int) -> str:
+    kind = type(node).__name__.replace("IR", "").lower()
+    return kind[:max_len]
+
+
+class _ClauseBodySummaryVisitor(IRVisitor[str]):
+    """Short string for RHS of a clause (for profile output)."""
+
+    def __init__(self, max_len: int = 60) -> None:
+        self._max_len = max_len
+
+    def visit_lowered_reduction(self, node: Any) -> str:
+        op = getattr(node, "operation", "?")
+        inner = node.body.accept(_ClauseBodySummaryVisitor(20)) if node.body is not None else "?"
+        s = f"{op}({inner})" if inner != "?" else op
+        return s[:self._max_len]
+
+    def visit_binary_op(self, node: Any) -> str:
+        op = getattr(node, "operator", None)
+        op_str = str(getattr(op, "name", op)) if op is not None else "?"
+        left = node.left.accept(_ClauseBodySummaryVisitor(15)) if node.left is not None else "?"
+        right = node.right.accept(_ClauseBodySummaryVisitor(15)) if node.right is not None else "?"
+        return f"{left} {op_str} {right}"[:self._max_len]
+
+    def visit_function_call(self, node: Any) -> str:
+        name = getattr(node, "function_name", None) or getattr(node, "callee_expr", None)
+        if name is not None and not isinstance(name, str):
+            name = getattr(name, "name", str(name))
+        fn = name if isinstance(name, str) else "call"
+        return f"{fn}(...)"[:self._max_len]
+
+    def visit_rectangular_access(self, node: Any) -> str:
+        arr = getattr(node, "array", None)
+        arr_name = getattr(arr, "name", None) if arr is not None and hasattr(arr, "name") else None
+        return (arr_name or "[]")[:self._max_len]
+
+    def visit_identifier(self, node: Any) -> str:
+        return (getattr(node, "name", None) or "?")[:self._max_len]
+
+    def visit_unary_op(self, node: Any) -> str:
+        op = getattr(node, "operator", None)
+        op_str = str(getattr(op, "name", op)) if op is not None else "?"
+        inner = node.operand.accept(_ClauseBodySummaryVisitor(20)) if node.operand is not None else "?"
+        return f"{op_str}({inner})"[:self._max_len]
+
+    def _default(self, node: Any) -> str:
+        return _clause_body_summary_default(node, self._max_len)
+
+    def visit_literal(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_index_var(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_index_rest(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_jagged_access(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_block_expression(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_if_expression(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_lambda(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_range(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_array_comprehension(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_module(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_array_literal(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_tuple_expression(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_tuple_access(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_interpolated_string(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_cast_expression(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_member_access(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_try_expression(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_match_expression(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_reduction_expression(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_where_expression(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_pipeline_expression(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_builtin_call(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_literal_pattern(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_identifier_pattern(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_wildcard_pattern(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_tuple_pattern(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_array_pattern(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_rest_pattern(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_guard_pattern(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_binding(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_program(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_lowered_comprehension(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_lowered_einstein_clause(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_lowered_einstein(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_lowered_recurrence(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_or_pattern(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_constructor_pattern(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_binding_pattern(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_range_pattern(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_function_value(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_einstein(self, node: Any) -> str:
+        return self._default(node)
+
+    def visit_einstein_clause(self, node: Any) -> str:
+        return self._default(node)
+
+
+def _clause_body_summary(body: Any, max_len: int = 60) -> str:
+    """Short string for RHS of a clause (for profile output)."""
+    if body is None:
+        return "?"
+    return body.accept(_ClauseBodySummaryVisitor(max_len))
+
+
+class _ReductionUsesClauseVarVisitor(IRVisitor[bool]):
+    """True if any LoweredReductionIR has a loop whose iterable references a clause loop var (dynamic bounds)."""
+
+    def __init__(self, clause_loop_defids: List[Any]) -> None:
+        self._clause_loop_defids = clause_loop_defids
+
+    def _any(self, *nodes: Any) -> bool:
+        for n in nodes:
+            if n is not None and getattr(n, "accept", None) is not None and n.accept(self):
+                return True
+        return False
+
+    def visit_lowered_reduction(self, node: Any) -> bool:
+        for loop in node.loops:
+            it = getattr(loop, "iterable", None)
+            if it is not None and any(
+                _BodyReferencesDefidVisitor(d).references(it) for d in self._clause_loop_defids
+            ):
+                return True
+        return node.body.accept(self)
+
+    def visit_binary_op(self, node: Any) -> bool:
+        return node.left.accept(self) or node.right.accept(self)
+
+    def visit_rectangular_access(self, node: Any) -> bool:
+        if node.array.accept(self):
+            return True
+        for idx in node.indices:
+            if idx.accept(self):
+                return True
+        return False
+
+    def visit_function_call(self, node: Any) -> bool:
+        if node.callee_expr.accept(self):
+            return True
+        for a in node.arguments:
+            if a.accept(self):
+                return True
+        return False
+
+    def visit_unary_op(self, node: Any) -> bool:
+        return node.operand.accept(self)
+
+    def visit_if_expression(self, node: Any) -> bool:
+        return (
+            node.condition.accept(self)
+            or node.then_expr.accept(self)
+            or (node.else_expr.accept(self) if node.else_expr is not None else False)
         )
-    return n
+
+    def visit_block_expression(self, node: Any) -> bool:
+        for stmt in node.statements:
+            if stmt.accept(self):
+                return True
+        return (
+            node.final_expr.accept(self)
+            if node.final_expr is not None
+            else False
+        )
+
+    def visit_lambda(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_range(self, node: Any) -> bool:
+        return node.start.accept(self) or node.end.accept(self)
+
+    def visit_array_comprehension(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_where_expression(self, node: Any) -> bool:
+        if node.expr.accept(self):
+            return True
+        for c in node.constraints:
+            if c.accept(self):
+                return True
+        return False
+
+    def visit_pipeline_expression(self, node: Any) -> bool:
+        return node.left.accept(self) or node.right.accept(self)
+
+    def visit_builtin_call(self, node: Any) -> bool:
+        return any(a.accept(self) for a in node.args)
+
+    def visit_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier(self, node: Any) -> bool:
+        return False
+
+    def visit_index_var(self, node: Any) -> bool:
+        return (
+            node.range_ir.accept(self)
+            if node.range_ir is not None
+            else False
+        )
+
+    def visit_index_rest(self, node: Any) -> bool:
+        return False
+
+    def visit_jagged_access(self, node: Any) -> bool:
+        if node.base.accept(self):
+            return True
+        return any(idx.accept(self) for idx in node.index_chain)
+
+    def visit_module(self, node: Any) -> bool:
+        return False
+
+    def visit_array_literal(self, node: Any) -> bool:
+        return any(e.accept(self) for e in node.elements)
+
+    def visit_tuple_expression(self, node: Any) -> bool:
+        return any(e.accept(self) for e in node.elements)
+
+    def visit_tuple_access(self, node: Any) -> bool:
+        return node.tuple_expr.accept(self)
+
+    def visit_interpolated_string(self, node: Any) -> bool:
+        return any(p.accept(self) for p in node.parts)
+
+    def visit_cast_expression(self, node: Any) -> bool:
+        return node.expr.accept(self)
+
+    def visit_member_access(self, node: Any) -> bool:
+        return node.object.accept(self)
+
+    def visit_try_expression(self, node: Any) -> bool:
+        return node.operand.accept(self)
+
+    def visit_match_expression(self, node: Any) -> bool:
+        if node.scrutinee.accept(self):
+            return True
+        return any(arm.body.accept(self) for arm in node.arms)
+
+    def visit_reduction_expression(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_literal_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_wildcard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_pattern(self, node: Any) -> bool:
+        return any(e.accept(self) for e in node.elements)
+
+    def visit_array_pattern(self, node: Any) -> bool:
+        return any(e.accept(self) for e in node.elements)
+
+    def visit_rest_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_guard_pattern(self, node: Any) -> bool:
+        return node.inner_pattern.accept(self) or node.guard_expr.accept(self)
+
+    def visit_binding(self, node: Any) -> bool:
+        return node.expr.accept(self)
+
+    def visit_program(self, node: Any) -> bool:
+        return any(stmt.accept(self) for stmt in node.statements)
+
+    def visit_lowered_comprehension(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_lowered_einstein_clause(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_lowered_einstein(self, node: Any) -> bool:
+        return any(item.accept(self) for item in node.items)
+
+    def visit_lowered_recurrence(self, node: Any) -> bool:
+        if getattr(node, "initial", None) is not None and node.initial.accept(self):
+            return True
+        rloop = getattr(node, "recurrence_loop", None)
+        if rloop is not None and getattr(rloop, "iterable", None) is not None:
+            if rloop.iterable.accept(self):
+                return True
+        return (
+            getattr(node, "body", None) is not None
+            and node.body.accept(self)
+        )
+
+    def visit_or_pattern(self, node: Any) -> bool:
+        return any(alt.accept(self) for alt in (getattr(node, "alternatives", []) or []))
+
+    def visit_constructor_pattern(self, node: Any) -> bool:
+        return any(p.accept(self) for p in node.patterns)
+
+    def visit_binding_pattern(self, node: Any) -> bool:
+        return node.inner_pattern.accept(self)
+
+    def visit_range_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_function_value(self, node: Any) -> bool:
+        return node.body.accept(self) if node.body is not None else False
+
+    def visit_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein_clause(self, node: Any) -> bool:
+        return False
+
+
+def _reduction_uses_clause_var_in_bounds(expr: Any, clause_loop_defids: List[Any]) -> bool:
+    """True if any LoweredReductionIR in expr has a loop whose iterable references a clause loop var (dynamic bounds)."""
+    if expr is None or not clause_loop_defids:
+        return False
+    return expr.accept(_ReductionUsesClauseVarVisitor(clause_loop_defids))
+
+
+def _merge_defids_by_name(a: Dict[str, List[Any]], b: Dict[str, List[Any]]) -> Dict[str, List[Any]]:
+    """Merge two name->defids dicts (a and b) into one. Modifies and returns a."""
+    for k, v in b.items():
+        a.setdefault(k, []).extend(v)
+    return a
+
+
+class _DefidsByNameCollector(IRVisitor[Dict[str, List[Any]]]):
+    """Collect all (name -> list of defids) from IdentifierIR/IndexVarIR in the tree."""
+
+    def _empty(self) -> Dict[str, List[Any]]:
+        return {}
+
+    def _one(self, name: str, defid: Any) -> Dict[str, List[Any]]:
+        if name is not None and defid is not None:
+            return {name: [defid]}
+        return self._empty()
+
+    def visit_literal(self, node: Any) -> Dict[str, List[Any]]:
+        return self._empty()
+
+    def visit_identifier(self, node: Any) -> Dict[str, List[Any]]:
+        return self._one(node.name, node.defid)
+
+    def visit_index_var(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._one(node.name, node.defid)
+        if node.range_ir is not None:
+            _merge_defids_by_name(out, node.range_ir.accept(self))
+        return out
+
+    def visit_index_rest(self, node: Any) -> Dict[str, List[Any]]:
+        return self._one(node.name, node.defid)
+
+    def visit_binary_op(self, node: Any) -> Dict[str, List[Any]]:
+        out = node.left.accept(self)
+        _merge_defids_by_name(out, node.right.accept(self))
+        return out
+
+    def visit_unary_op(self, node: Any) -> Dict[str, List[Any]]:
+        return node.operand.accept(self)
+
+    def visit_rectangular_access(self, node: Any) -> Dict[str, List[Any]]:
+        out = node.array.accept(self)
+        for idx in node.indices:
+            _merge_defids_by_name(out, idx.accept(self))
+        return out
+
+    def visit_function_call(self, node: Any) -> Dict[str, List[Any]]:
+        out = node.callee_expr.accept(self)
+        for a in node.arguments:
+            _merge_defids_by_name(out, a.accept(self))
+        return out
+
+    def visit_if_expression(self, node: Any) -> Dict[str, List[Any]]:
+        out = node.condition.accept(self)
+        _merge_defids_by_name(out, node.then_expr.accept(self))
+        if node.else_expr is not None:
+            _merge_defids_by_name(out, node.else_expr.accept(self))
+        return out
+
+    def visit_block_expression(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        for stmt in node.statements:
+            _merge_defids_by_name(out, stmt.accept(self))
+        if node.final_expr is not None:
+            _merge_defids_by_name(out, node.final_expr.accept(self))
+        return out
+
+    def visit_lambda(self, node: Any) -> Dict[str, List[Any]]:
+        return node.body.accept(self)
+
+    def visit_range(self, node: Any) -> Dict[str, List[Any]]:
+        out = node.start.accept(self)
+        _merge_defids_by_name(out, node.end.accept(self))
+        return out
+
+    def visit_lowered_reduction(self, node: Any) -> Dict[str, List[Any]]:
+        out = node.body.accept(self)
+        for lp in node.loops:
+            if lp.variable is not None:
+                _merge_defids_by_name(out, lp.variable.accept(self))
+            if lp.iterable is not None:
+                _merge_defids_by_name(out, lp.iterable.accept(self))
+        return out
+
+    def visit_jagged_access(self, node: Any) -> Dict[str, List[Any]]:
+        out = node.base.accept(self)
+        for idx in node.index_chain:
+            _merge_defids_by_name(out, idx.accept(self))
+        return out
+
+    def visit_module(self, node: Any) -> Dict[str, List[Any]]:
+        return self._empty()
+
+    def visit_array_literal(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        for e in node.elements:
+            _merge_defids_by_name(out, e.accept(self))
+        return out
+
+    def visit_tuple_expression(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        for e in node.elements:
+            _merge_defids_by_name(out, e.accept(self))
+        return out
+
+    def visit_tuple_access(self, node: Any) -> Dict[str, List[Any]]:
+        return node.tuple_expr.accept(self)
+
+    def visit_interpolated_string(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        for p in node.parts:
+            _merge_defids_by_name(out, p.accept(self))
+        return out
+
+    def visit_cast_expression(self, node: Any) -> Dict[str, List[Any]]:
+        return node.expr.accept(self)
+
+    def visit_member_access(self, node: Any) -> Dict[str, List[Any]]:
+        return node.object.accept(self)
+
+    def visit_try_expression(self, node: Any) -> Dict[str, List[Any]]:
+        return node.operand.accept(self)
+
+    def visit_match_expression(self, node: Any) -> Dict[str, List[Any]]:
+        out = node.scrutinee.accept(self)
+        for arm in node.arms:
+            _merge_defids_by_name(out, arm.body.accept(self))
+        return out
+
+    def visit_reduction_expression(self, node: Any) -> Dict[str, List[Any]]:
+        return node.body.accept(self)
+
+    def visit_where_expression(self, node: Any) -> Dict[str, List[Any]]:
+        out = node.expr.accept(self)
+        for c in node.constraints:
+            _merge_defids_by_name(out, c.accept(self))
+        return out
+
+    def visit_pipeline_expression(self, node: Any) -> Dict[str, List[Any]]:
+        out = node.left.accept(self)
+        _merge_defids_by_name(out, node.right.accept(self))
+        return out
+
+    def visit_builtin_call(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        for a in node.args:
+            _merge_defids_by_name(out, a.accept(self))
+        return out
+
+    def visit_array_comprehension(self, node: Any) -> Dict[str, List[Any]]:
+        return node.body.accept(self)
+
+    def visit_literal_pattern(self, node: Any) -> Dict[str, List[Any]]:
+        return self._empty()
+
+    def visit_identifier_pattern(self, node: Any) -> Dict[str, List[Any]]:
+        return self._empty()
+
+    def visit_wildcard_pattern(self, node: Any) -> Dict[str, List[Any]]:
+        return self._empty()
+
+    def visit_tuple_pattern(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        for e in node.elements:
+            _merge_defids_by_name(out, e.accept(self))
+        return out
+
+    def visit_array_pattern(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        for e in node.elements:
+            _merge_defids_by_name(out, e.accept(self))
+        return out
+
+    def visit_rest_pattern(self, node: Any) -> Dict[str, List[Any]]:
+        return self._empty()
+
+    def visit_guard_pattern(self, node: Any) -> Dict[str, List[Any]]:
+        out = node.inner_pattern.accept(self)
+        _merge_defids_by_name(out, node.guard_expr.accept(self))
+        return out
+
+    def visit_binding(self, node: Any) -> Dict[str, List[Any]]:
+        return node.expr.accept(self)
+
+    def visit_program(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        for stmt in node.statements:
+            _merge_defids_by_name(out, stmt.accept(self))
+        return out
+
+    def visit_lowered_comprehension(self, node: Any) -> Dict[str, List[Any]]:
+        return node.body.accept(self)
+
+    def visit_lowered_einstein_clause(self, node: Any) -> Dict[str, List[Any]]:
+        return node.body.accept(self)
+
+    def visit_lowered_einstein(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        for item in node.items:
+            _merge_defids_by_name(out, item.accept(self))
+        return out
+
+    def visit_lowered_recurrence(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        if getattr(node, "initial", None) is not None:
+            _merge_defids_by_name(out, node.initial.accept(self))
+        rloop = getattr(node, "recurrence_loop", None)
+        if rloop is not None and getattr(rloop, "iterable", None) is not None:
+            _merge_defids_by_name(out, rloop.iterable.accept(self))
+        if getattr(node, "body", None) is not None:
+            _merge_defids_by_name(out, node.body.accept(self))
+        return out
+
+    def visit_or_pattern(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        for alt in getattr(node, "alternatives", []) or []:
+            _merge_defids_by_name(out, alt.accept(self))
+        return out
+
+    def visit_constructor_pattern(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        for p in node.patterns:
+            _merge_defids_by_name(out, p.accept(self))
+        return out
+
+    def visit_binding_pattern(self, node: Any) -> Dict[str, List[Any]]:
+        return node.inner_pattern.accept(self)
+
+    def visit_range_pattern(self, node: Any) -> Dict[str, List[Any]]:
+        return self._empty()
+
+    def visit_function_value(self, node: Any) -> Dict[str, List[Any]]:
+        return node.body.accept(self) if node.body is not None else self._empty()
+
+    def visit_einstein(self, node: Any) -> Dict[str, List[Any]]:
+        return self._empty()
+
+    def visit_einstein_clause(self, node: Any) -> Dict[str, List[Any]]:
+        return self._empty()
+
+
+def _collect_defids_by_name(expr: Any) -> Dict[str, List[Any]]:
+    """Collect all (name -> list of defids) from IdentifierIR/IndexVarIR in expr (e.g. for binding aliases)."""
+    if expr is None:
+        return {}
+    return expr.accept(_DefidsByNameCollector())
+
+
+class _BodyContainsCallUsingLoopVarVisitor(IRVisitor[bool]):
+    """True if the tree contains a FunctionCallIR whose callee or any argument references a loop var."""
+
+    def __init__(self, loop_defids: List[Any]) -> None:
+        self._loop_defids = loop_defids
+
+    def visit_function_call(self, node: Any) -> bool:
+        for defid in self._loop_defids:
+            if _BodyReferencesDefidVisitor(defid).references(node.callee_expr):
+                return True
+            for a in node.arguments:
+                if _BodyReferencesDefidVisitor(defid).references(a):
+                    return True
+        return False
+
+    def visit_rectangular_access(self, node: Any) -> bool:
+        if node.array.accept(self):
+            return True
+        return any(idx.accept(self) for idx in node.indices)
+
+    def visit_binary_op(self, node: Any) -> bool:
+        return node.left.accept(self) or node.right.accept(self)
+
+    def visit_block_expression(self, node: Any) -> bool:
+        for stmt in node.statements:
+            if stmt.accept(self):
+                return True
+        return (
+            node.final_expr.accept(self)
+            if node.final_expr is not None
+            else False
+        )
+
+    def visit_binding(self, node: Any) -> bool:
+        return node.expr.accept(self)
+
+    def visit_guard_pattern(self, node: Any) -> bool:
+        return node.inner_pattern.accept(self) or node.guard_expr.accept(self)
+
+    def visit_or_pattern(self, node: Any) -> bool:
+        return any(alt.accept(self) for alt in (getattr(node, "alternatives", []) or []))
+
+    def visit_constructor_pattern(self, node: Any) -> bool:
+        return any(p.accept(self) for p in node.patterns)
+
+    def _false(self) -> bool:
+        return False
+
+    def visit_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier(self, node: Any) -> bool:
+        return False
+
+    def visit_index_var(self, node: Any) -> bool:
+        return (
+            node.range_ir.accept(self)
+            if node.range_ir is not None
+            else False
+        )
+
+    def visit_index_rest(self, node: Any) -> bool:
+        return False
+
+    def visit_unary_op(self, node: Any) -> bool:
+        return node.operand.accept(self)
+
+    def visit_if_expression(self, node: Any) -> bool:
+        return (
+            node.condition.accept(self)
+            or node.then_expr.accept(self)
+            or (node.else_expr.accept(self) if node.else_expr is not None else False)
+        )
+
+    def visit_lambda(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_range(self, node: Any) -> bool:
+        return node.start.accept(self) or node.end.accept(self)
+
+    def visit_array_comprehension(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_jagged_access(self, node: Any) -> bool:
+        if node.base.accept(self):
+            return True
+        return any(idx.accept(self) for idx in node.index_chain)
+
+    def visit_module(self, node: Any) -> bool:
+        return False
+
+    def visit_array_literal(self, node: Any) -> bool:
+        return any(e.accept(self) for e in node.elements)
+
+    def visit_tuple_expression(self, node: Any) -> bool:
+        return any(e.accept(self) for e in node.elements)
+
+    def visit_tuple_access(self, node: Any) -> bool:
+        return node.tuple_expr.accept(self)
+
+    def visit_interpolated_string(self, node: Any) -> bool:
+        return any(p.accept(self) for p in node.parts)
+
+    def visit_cast_expression(self, node: Any) -> bool:
+        return node.expr.accept(self)
+
+    def visit_member_access(self, node: Any) -> bool:
+        return node.object.accept(self)
+
+    def visit_try_expression(self, node: Any) -> bool:
+        return node.operand.accept(self)
+
+    def visit_match_expression(self, node: Any) -> bool:
+        if node.scrutinee.accept(self):
+            return True
+        return any(arm.body.accept(self) for arm in node.arms)
+
+    def visit_reduction_expression(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_where_expression(self, node: Any) -> bool:
+        if node.expr.accept(self):
+            return True
+        return any(c.accept(self) for c in node.constraints)
+
+    def visit_pipeline_expression(self, node: Any) -> bool:
+        return node.left.accept(self) or node.right.accept(self)
+
+    def visit_builtin_call(self, node: Any) -> bool:
+        return any(a.accept(self) for a in node.args)
+
+    def visit_literal_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_wildcard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_pattern(self, node: Any) -> bool:
+        return any(e.accept(self) for e in node.elements)
+
+    def visit_array_pattern(self, node: Any) -> bool:
+        return any(e.accept(self) for e in node.elements)
+
+    def visit_rest_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_binding_pattern(self, node: Any) -> bool:
+        return node.inner_pattern.accept(self)
+
+    def visit_range_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_program(self, node: Any) -> bool:
+        return any(stmt.accept(self) for stmt in node.statements)
+
+    def visit_lowered_reduction(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_lowered_comprehension(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_lowered_einstein_clause(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_lowered_einstein(self, node: Any) -> bool:
+        return any(item.accept(self) for item in node.items)
+
+    def visit_lowered_recurrence(self, node: Any) -> bool:
+        if getattr(node, "initial", None) is not None and node.initial.accept(self):
+            return True
+        rloop = getattr(node, "recurrence_loop", None)
+        if rloop is not None and getattr(rloop, "iterable", None) is not None:
+            if rloop.iterable.accept(self):
+                return True
+        return (
+            getattr(node, "body", None) is not None
+            and node.body.accept(self)
+        )
+
+    def visit_function_value(self, node: Any) -> bool:
+        return node.body.accept(self) if node.body is not None else False
+
+    def visit_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein_clause(self, node: Any) -> bool:
+        return False
 
 
 def _body_contains_call_using_loop_var(expr: Any, loop_defids: List[Any]) -> bool:
     """True if body contains a FunctionCallIR whose arguments (or callee) reference a loop var."""
     if not expr or not loop_defids:
         return False
-    if isinstance(expr, FunctionCallIR):
-        for defid in loop_defids:
-            if _BodyReferencesDefidVisitor(defid).references(getattr(expr, "callee_expr", None)):
-                return True
-            for a in getattr(expr, "arguments", []) or []:
-                if _BodyReferencesDefidVisitor(defid).references(a):
-                    return True
-        return False
-    if isinstance(expr, RectangularAccessIR):
-        return _body_contains_call_using_loop_var(getattr(expr, "array", None), loop_defids) or any(
-            _body_contains_call_using_loop_var(idx, loop_defids) for idx in (getattr(expr, "indices", None) or [])
-        )
-    if isinstance(expr, BinaryOpIR):
-        return _body_contains_call_using_loop_var(getattr(expr, "left", None), loop_defids) or _body_contains_call_using_loop_var(getattr(expr, "right", None), loop_defids)
-    if isinstance(expr, BlockExpressionIR):
-        for stmt in getattr(expr, "statements", []) or []:
-            if _body_contains_call_using_loop_var(stmt, loop_defids):
-                return True
-        return _body_contains_call_using_loop_var(getattr(expr, "final_expr", None), loop_defids)
-    if hasattr(expr, "expr"):
-        return _body_contains_call_using_loop_var(getattr(expr, "expr", None), loop_defids)
-    if hasattr(expr, "inner_pattern"):
-        return _body_contains_call_using_loop_var(getattr(expr, "inner_pattern", None), loop_defids)
-    if hasattr(expr, "patterns"):
-        return any(_body_contains_call_using_loop_var(p, loop_defids) for p in (getattr(expr, "patterns", None) or []))
-    return False
+    return expr.accept(_BodyContainsCallUsingLoopVarVisitor(loop_defids))
+
+
+class _DefidsInCallArgsCollector(IRVisitor[None]):
+    """Collect into _out any loop defid referenced inside a call's arguments or callee. Tracks _inside_call for RectangularAccessIR indices."""
+
+    def __init__(self, loop_defids: List[Any], out: set, inside_call: bool = False) -> None:
+        self._loop_set = {d for d in loop_defids if d is not None}
+        self._out = out
+        self._inside_call = inside_call
+
+    def visit_identifier(self, node: Any) -> None:
+        if self._inside_call and node.defid is not None and node.defid in self._loop_set:
+            self._out.add(node.defid)
+
+    def visit_index_var(self, node: Any) -> None:
+        if self._inside_call and node.defid is not None and node.defid in self._loop_set:
+            self._out.add(node.defid)
+        if node.range_ir is not None:
+            node.range_ir.accept(self)
+
+    def visit_index_rest(self, node: Any) -> None:
+        if self._inside_call and node.defid is not None and node.defid in self._loop_set:
+            self._out.add(node.defid)
+
+    def visit_rectangular_access(self, node: Any) -> None:
+        node.array.accept(self)
+        if self._inside_call:
+            for idx in node.indices:
+                idx.accept(self)
+
+    def visit_binary_op(self, node: Any) -> None:
+        node.left.accept(self)
+        node.right.accept(self)
+
+    def visit_function_call(self, node: Any) -> None:
+        prev = self._inside_call
+        self._inside_call = True
+        try:
+            for a in node.arguments:
+                a.accept(self)
+            node.callee_expr.accept(self)
+        finally:
+            self._inside_call = prev
+
+    def visit_block_expression(self, node: Any) -> None:
+        for stmt in node.statements:
+            stmt.accept(self)
+        if node.final_expr is not None:
+            node.final_expr.accept(self)
+
+    def visit_binding(self, node: Any) -> None:
+        node.expr.accept(self)
+
+    def visit_guard_pattern(self, node: Any) -> None:
+        node.inner_pattern.accept(self)
+        node.guard_expr.accept(self)
+
+    def visit_or_pattern(self, node: Any) -> None:
+        for alt in getattr(node, "alternatives", []) or []:
+            alt.accept(self)
+
+    def visit_constructor_pattern(self, node: Any) -> None:
+        for p in node.patterns:
+            p.accept(self)
+
+    def _recurse_none(self) -> None:
+        return None
+
+    def visit_literal(self, node: Any) -> None:
+        return None
+
+    def visit_unary_op(self, node: Any) -> None:
+        node.operand.accept(self)
+
+    def visit_if_expression(self, node: Any) -> None:
+        node.condition.accept(self)
+        node.then_expr.accept(self)
+        if node.else_expr is not None:
+            node.else_expr.accept(self)
+
+    def visit_lambda(self, node: Any) -> None:
+        node.body.accept(self)
+
+    def visit_range(self, node: Any) -> None:
+        node.start.accept(self)
+        node.end.accept(self)
+
+    def visit_array_comprehension(self, node: Any) -> None:
+        node.body.accept(self)
+
+    def visit_jagged_access(self, node: Any) -> None:
+        node.base.accept(self)
+        for idx in node.index_chain:
+            idx.accept(self)
+
+    def visit_module(self, node: Any) -> None:
+        return None
+
+    def visit_array_literal(self, node: Any) -> None:
+        for e in node.elements:
+            e.accept(self)
+
+    def visit_tuple_expression(self, node: Any) -> None:
+        for e in node.elements:
+            e.accept(self)
+
+    def visit_tuple_access(self, node: Any) -> None:
+        node.tuple_expr.accept(self)
+
+    def visit_interpolated_string(self, node: Any) -> None:
+        for p in node.parts:
+            p.accept(self)
+
+    def visit_cast_expression(self, node: Any) -> None:
+        node.expr.accept(self)
+
+    def visit_member_access(self, node: Any) -> None:
+        node.object.accept(self)
+
+    def visit_try_expression(self, node: Any) -> None:
+        node.operand.accept(self)
+
+    def visit_match_expression(self, node: Any) -> None:
+        node.scrutinee.accept(self)
+        for arm in node.arms:
+            arm.body.accept(self)
+
+    def visit_reduction_expression(self, node: Any) -> None:
+        node.body.accept(self)
+
+    def visit_where_expression(self, node: Any) -> None:
+        node.expr.accept(self)
+        for c in node.constraints:
+            c.accept(self)
+
+    def visit_pipeline_expression(self, node: Any) -> None:
+        node.left.accept(self)
+        node.right.accept(self)
+
+    def visit_builtin_call(self, node: Any) -> None:
+        for a in node.args:
+            a.accept(self)
+
+    def visit_literal_pattern(self, node: Any) -> None:
+        return None
+
+    def visit_identifier_pattern(self, node: Any) -> None:
+        return None
+
+    def visit_wildcard_pattern(self, node: Any) -> None:
+        return None
+
+    def visit_tuple_pattern(self, node: Any) -> None:
+        for e in node.elements:
+            e.accept(self)
+
+    def visit_array_pattern(self, node: Any) -> None:
+        for e in node.elements:
+            e.accept(self)
+
+    def visit_rest_pattern(self, node: Any) -> None:
+        return None
+
+    def visit_binding_pattern(self, node: Any) -> None:
+        node.inner_pattern.accept(self)
+
+    def visit_range_pattern(self, node: Any) -> None:
+        return None
+
+    def visit_program(self, node: Any) -> None:
+        for stmt in node.statements:
+            stmt.accept(self)
+
+    def visit_lowered_reduction(self, node: Any) -> None:
+        node.body.accept(self)
+
+    def visit_lowered_comprehension(self, node: Any) -> None:
+        node.body.accept(self)
+
+    def visit_lowered_einstein_clause(self, node: Any) -> None:
+        node.body.accept(self)
+
+    def visit_lowered_einstein(self, node: Any) -> None:
+        for item in node.items:
+            item.accept(self)
+
+    def visit_lowered_recurrence(self, node: Any) -> None:
+        if getattr(node, "initial", None) is not None:
+            node.initial.accept(self)
+        rloop = getattr(node, "recurrence_loop", None)
+        if rloop is not None and getattr(rloop, "iterable", None) is not None:
+            rloop.iterable.accept(self)
+        if getattr(node, "body", None) is not None:
+            node.body.accept(self)
+
+    def visit_function_value(self, node: Any) -> None:
+        if node.body is not None:
+            node.body.accept(self)
+
+    def visit_einstein(self, node: Any) -> None:
+        return None
+
+    def visit_einstein_clause(self, node: Any) -> None:
+        return None
 
 
 def _collect_defids_in_call_args(expr: Any, loop_defids: List[Any], out: set, inside_call: bool = False) -> None:
     """Add to out any loop defid referenced inside a call's arguments or callee (not in outer indexing like result[j])."""
     if expr is None or not loop_defids:
         return
-    if isinstance(expr, (IdentifierIR, IndexVarIR)):
-        d = getattr(expr, "defid", None)
-        if d in loop_defids:
-            out.add(d)
-        return
-    if isinstance(expr, RectangularAccessIR):
-        _collect_defids_in_call_args(expr.array, loop_defids, out, inside_call)
-        if inside_call:
-            for idx in getattr(expr, "indices", None) or []:
-                _collect_defids_in_call_args(idx, loop_defids, out, inside_call)
-        return
-    if isinstance(expr, BinaryOpIR):
-        _collect_defids_in_call_args(getattr(expr, "left", None), loop_defids, out, inside_call)
-        _collect_defids_in_call_args(getattr(expr, "right", None), loop_defids, out, inside_call)
-        return
-    if isinstance(expr, FunctionCallIR):
-        for a in getattr(expr, "arguments", []) or []:
-            _collect_defids_in_call_args(a, loop_defids, out, inside_call=True)
-        _collect_defids_in_call_args(getattr(expr, "callee_expr", None), loop_defids, out, inside_call=True)
-        return
-    if isinstance(expr, BlockExpressionIR):
-        for stmt in getattr(expr, "statements", []) or []:
-            _collect_defids_in_call_args(stmt, loop_defids, out, inside_call)
-        _collect_defids_in_call_args(getattr(expr, "final_expr", None), loop_defids, out, inside_call)
-        return
-    if hasattr(expr, "expr"):
-        _collect_defids_in_call_args(getattr(expr, "expr", None), loop_defids, out, inside_call)
-    if hasattr(expr, "inner_pattern"):
-        _collect_defids_in_call_args(getattr(expr, "inner_pattern", None), loop_defids, out, inside_call)
-    if hasattr(expr, "patterns"):
-        for p in getattr(expr, "patterns", None) or []:
-            _collect_defids_in_call_args(p, loop_defids, out, inside_call)
+    expr.accept(_DefidsInCallArgsCollector(loop_defids, out, inside_call))
 
 
 def _loop_defids_in_call_args(body: Any, loop_defids: List[Any]) -> set:
@@ -456,81 +1450,832 @@ def _body_is_elementwise_call(body: Any, loop_defids: List[Any]) -> bool:
     return False
 
 
+class _IndexExprIsLoopVarVisitor(IRVisitor[bool]):
+    """True iff expr is IdentifierIR or IndexVarIR with defid == loop_defid."""
+
+    def __init__(self, loop_defid: Any) -> None:
+        self._loop_defid = loop_defid
+
+    def visit_identifier(self, node: Any) -> bool:
+        return getattr(node, "defid", None) == self._loop_defid
+
+    def visit_index_var(self, node: Any) -> bool:
+        return getattr(node, "defid", None) == self._loop_defid
+
+    def visit_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_binary_op(self, node: Any) -> bool:
+        return False
+
+    def visit_index_rest(self, node: Any) -> bool:
+        return False
+
+    def visit_rectangular_access(self, node: Any) -> bool:
+        return False
+
+    def visit_function_call(self, node: Any) -> bool:
+        return False
+
+    def visit_unary_op(self, node: Any) -> bool:
+        return False
+
+    def visit_block_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_if_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_lambda(self, node: Any) -> bool:
+        return False
+
+    def visit_range(self, node: Any) -> bool:
+        return False
+
+    def visit_array_comprehension(self, node: Any) -> bool:
+        return False
+
+    def visit_jagged_access(self, node: Any) -> bool:
+        return False
+
+    def visit_module(self, node: Any) -> bool:
+        return False
+
+    def visit_array_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_access(self, node: Any) -> bool:
+        return False
+
+    def visit_interpolated_string(self, node: Any) -> bool:
+        return False
+
+    def visit_cast_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_member_access(self, node: Any) -> bool:
+        return False
+
+    def visit_try_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_match_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_reduction_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_where_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_pipeline_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_builtin_call(self, node: Any) -> bool:
+        return False
+
+    def visit_literal_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_wildcard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_array_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_rest_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_guard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_binding(self, node: Any) -> bool:
+        return False
+
+    def visit_program(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_reduction(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_comprehension(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_einstein_clause(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_recurrence(self, node: Any) -> bool:
+        return False
+
+    def visit_or_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_constructor_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_binding_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_range_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_function_value(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein_clause(self, node: Any) -> bool:
+        return False
+
+
 def _index_expr_is_loop_var(expr: Any, loop_defid: Any) -> bool:
     if expr is None or loop_defid is None:
         return False
-    return (isinstance(expr, (IdentifierIR, IndexVarIR)) and
-            getattr(expr, "defid", None) == loop_defid)
+    return expr.accept(_IndexExprIsLoopVarVisitor(loop_defid))
+
+
+class _IndexExprIsBackwardVisitor(IRVisitor[bool]):
+    """True if expr is loop_var or (loop_var - positive_const)."""
+
+    def __init__(self, loop_defid: Any) -> None:
+        self._loop_defid = loop_defid
+
+    def visit_identifier(self, node: Any) -> bool:
+        return getattr(node, "defid", None) == self._loop_defid
+
+    def visit_index_var(self, node: Any) -> bool:
+        return getattr(node, "defid", None) == self._loop_defid
+
+    def visit_binary_op(self, node: Any) -> bool:
+        if node.operator != BinaryOp.SUB and getattr(node.operator, "value", None) != "-":
+            return False
+        if not _index_expr_is_loop_var(node.left, self._loop_defid):
+            return False
+        if isinstance(node.right, LiteralIR):
+            try:
+                return int(getattr(node.right, "value", 0)) > 0
+            except (TypeError, ValueError):
+                pass
+        return False
+
+    def visit_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_index_rest(self, node: Any) -> bool:
+        return False
+
+    def visit_rectangular_access(self, node: Any) -> bool:
+        return False
+
+    def visit_function_call(self, node: Any) -> bool:
+        return False
+
+    def visit_unary_op(self, node: Any) -> bool:
+        return False
+
+    def visit_block_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_if_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_lambda(self, node: Any) -> bool:
+        return False
+
+    def visit_range(self, node: Any) -> bool:
+        return False
+
+    def visit_array_comprehension(self, node: Any) -> bool:
+        return False
+
+    def visit_jagged_access(self, node: Any) -> bool:
+        return False
+
+    def visit_module(self, node: Any) -> bool:
+        return False
+
+    def visit_array_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_access(self, node: Any) -> bool:
+        return False
+
+    def visit_interpolated_string(self, node: Any) -> bool:
+        return False
+
+    def visit_cast_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_member_access(self, node: Any) -> bool:
+        return False
+
+    def visit_try_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_match_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_reduction_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_where_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_pipeline_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_builtin_call(self, node: Any) -> bool:
+        return False
+
+    def visit_literal_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_wildcard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_array_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_rest_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_guard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_binding(self, node: Any) -> bool:
+        return False
+
+    def visit_program(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_reduction(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_comprehension(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_einstein_clause(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_recurrence(self, node: Any) -> bool:
+        return False
+
+    def visit_or_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_constructor_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_binding_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_range_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_function_value(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein_clause(self, node: Any) -> bool:
+        return False
 
 
 def _index_expr_is_backward(expr: Any, loop_defid: Any) -> bool:
     """True if expr is loop_var or (loop_var - positive_const). Recurrence dim: no loop var on RHS, only t-1 style."""
     if expr is None or loop_defid is None:
         return False
-    if _index_expr_is_loop_var(expr, loop_defid):
-        return True
-    if isinstance(expr, BinaryOpIR):
-        op = getattr(expr, "operator", None)
-        if op != "-" and getattr(op, "value", None) != "-":
+    return expr.accept(_IndexExprIsBackwardVisitor(loop_defid))
+
+
+class _IndexExprIsStrictlyBackwardVisitor(IRVisitor[bool]):
+    """True only for (loop_var - positive_const). False for loop_var (same index)."""
+
+    def __init__(self, loop_defid: Any) -> None:
+        self._loop_defid = loop_defid
+
+    def visit_identifier(self, node: Any) -> bool:
+        return False
+
+    def visit_index_var(self, node: Any) -> bool:
+        return False
+
+    def visit_binary_op(self, node: Any) -> bool:
+        if node.operator != BinaryOp.SUB and getattr(node.operator, "value", None) != "-":
             return False
-        left = getattr(expr, "left", None)
-        right = getattr(expr, "right", None)
-        if not _index_expr_is_loop_var(left, loop_defid):
+        if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
-        if isinstance(right, LiteralIR):
+        if isinstance(node.right, LiteralIR):
             try:
-                v = int(getattr(right, "value", 0))
-                return v > 0
+                return int(getattr(node.right, "value", 0)) > 0
             except (TypeError, ValueError):
                 pass
-    return False
+        return False
+
+    def visit_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_index_rest(self, node: Any) -> bool:
+        return False
+
+    def visit_rectangular_access(self, node: Any) -> bool:
+        return False
+
+    def visit_function_call(self, node: Any) -> bool:
+        return False
+
+    def visit_unary_op(self, node: Any) -> bool:
+        return False
+
+    def visit_block_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_if_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_lambda(self, node: Any) -> bool:
+        return False
+
+    def visit_range(self, node: Any) -> bool:
+        return False
+
+    def visit_array_comprehension(self, node: Any) -> bool:
+        return False
+
+    def visit_jagged_access(self, node: Any) -> bool:
+        return False
+
+    def visit_module(self, node: Any) -> bool:
+        return False
+
+    def visit_array_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_access(self, node: Any) -> bool:
+        return False
+
+    def visit_interpolated_string(self, node: Any) -> bool:
+        return False
+
+    def visit_cast_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_member_access(self, node: Any) -> bool:
+        return False
+
+    def visit_try_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_match_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_reduction_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_where_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_pipeline_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_builtin_call(self, node: Any) -> bool:
+        return False
+
+    def visit_literal_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_wildcard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_array_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_rest_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_guard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_binding(self, node: Any) -> bool:
+        return False
+
+    def visit_program(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_reduction(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_comprehension(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_einstein_clause(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_recurrence(self, node: Any) -> bool:
+        return False
+
+    def visit_or_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_constructor_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_binding_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_range_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_function_value(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein_clause(self, node: Any) -> bool:
+        return False
 
 
 def _index_expr_is_strictly_backward(expr: Any, loop_defid: Any) -> bool:
     """True only for (loop_var - positive_const). False for loop_var (same index). Used so hybrid recurrence is only t-1 style."""
     if expr is None or loop_defid is None:
         return False
-    if _index_expr_is_loop_var(expr, loop_defid):
-        return False
-    if isinstance(expr, BinaryOpIR):
-        op = getattr(expr, "operator", None)
-        if op != "-" and getattr(op, "value", None) != "-":
+    return expr.accept(_IndexExprIsStrictlyBackwardVisitor(loop_defid))
+
+
+class _IndexExprIsLoopVarOrOffsetVisitor(IRVisitor[bool]):
+    """True if expr is loop_var or (loop_var ± const)."""
+
+    def __init__(self, loop_defid: Any) -> None:
+        self._loop_defid = loop_defid
+
+    def visit_identifier(self, node: Any) -> bool:
+        return getattr(node, "defid", None) == self._loop_defid
+
+    def visit_index_var(self, node: Any) -> bool:
+        return getattr(node, "defid", None) == self._loop_defid
+
+    def visit_binary_op(self, node: Any) -> bool:
+        op = getattr(node, "operator", None)
+        op_val = getattr(op, "value", None) if op is not None else None
+        if op not in (BinaryOp.ADD, BinaryOp.SUB) and op_val not in ("+", "-"):
             return False
-        left = getattr(expr, "left", None)
-        right = getattr(expr, "right", None)
-        if not _index_expr_is_loop_var(left, loop_defid):
+        if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
-        if isinstance(right, LiteralIR):
+        if isinstance(node.right, LiteralIR):
             try:
-                v = int(getattr(right, "value", 0))
-                return v > 0
+                int(getattr(node.right, "value", 0))
+                return True
             except (TypeError, ValueError):
                 pass
-    return False
+        return False
+
+    def visit_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_index_rest(self, node: Any) -> bool:
+        return False
+
+    def visit_rectangular_access(self, node: Any) -> bool:
+        return False
+
+    def visit_function_call(self, node: Any) -> bool:
+        return False
+
+    def visit_unary_op(self, node: Any) -> bool:
+        return False
+
+    def visit_block_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_if_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_lambda(self, node: Any) -> bool:
+        return False
+
+    def visit_range(self, node: Any) -> bool:
+        return False
+
+    def visit_array_comprehension(self, node: Any) -> bool:
+        return False
+
+    def visit_jagged_access(self, node: Any) -> bool:
+        return False
+
+    def visit_module(self, node: Any) -> bool:
+        return False
+
+    def visit_array_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_access(self, node: Any) -> bool:
+        return False
+
+    def visit_interpolated_string(self, node: Any) -> bool:
+        return False
+
+    def visit_cast_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_member_access(self, node: Any) -> bool:
+        return False
+
+    def visit_try_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_match_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_reduction_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_where_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_pipeline_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_builtin_call(self, node: Any) -> bool:
+        return False
+
+    def visit_literal_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_wildcard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_array_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_rest_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_guard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_binding(self, node: Any) -> bool:
+        return False
+
+    def visit_program(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_reduction(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_comprehension(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_einstein_clause(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_recurrence(self, node: Any) -> bool:
+        return False
+
+    def visit_or_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_constructor_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_binding_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_range_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_function_value(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein_clause(self, node: Any) -> bool:
+        return False
 
 
 def _index_expr_is_loop_var_or_offset(expr: Any, loop_defid: Any) -> bool:
     """True if expr is loop_var or (loop_var ± const). Such dims are not recurrence; we can vectorize (e.g. i, i-1, i+1)."""
     if expr is None or loop_defid is None:
         return False
-    if _index_expr_is_loop_var(expr, loop_defid):
-        return True
-    if isinstance(expr, BinaryOpIR):
-        op = getattr(expr, "operator", None)
-        op_val = getattr(op, "value", None) if op is not None else None
-        if op not in ("+", "-") and op_val not in ("+", "-"):
+    return expr.accept(_IndexExprIsLoopVarOrOffsetVisitor(loop_defid))
+
+
+class _ExprIsLoopVarOrMinusOneVisitor(IRVisitor[bool]):
+    """True if expr is loop_var or (loop_var - 1)."""
+
+    def __init__(self, loop_defid: Any) -> None:
+        self._loop_defid = loop_defid
+
+    def visit_identifier(self, node: Any) -> bool:
+        return getattr(node, "defid", None) == self._loop_defid
+
+    def visit_index_var(self, node: Any) -> bool:
+        return getattr(node, "defid", None) == self._loop_defid
+
+    def visit_binary_op(self, node: Any) -> bool:
+        if node.operator != BinaryOp.SUB and getattr(node.operator, "value", None) != "-":
             return False
-        left = getattr(expr, "left", None)
-        right = getattr(expr, "right", None)
-        if not _index_expr_is_loop_var(left, loop_defid):
+        if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
-        if isinstance(right, LiteralIR):
+        if isinstance(node.right, LiteralIR):
             try:
-                int(getattr(right, "value", 0))
-                return True
+                return int(getattr(node.right, "value", 0)) == 1
             except (TypeError, ValueError):
                 pass
-    return False
+        return False
+
+    def visit_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_index_rest(self, node: Any) -> bool:
+        return False
+
+    def visit_rectangular_access(self, node: Any) -> bool:
+        return False
+
+    def visit_function_call(self, node: Any) -> bool:
+        return False
+
+    def visit_unary_op(self, node: Any) -> bool:
+        return False
+
+    def visit_block_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_if_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_lambda(self, node: Any) -> bool:
+        return False
+
+    def visit_range(self, node: Any) -> bool:
+        return False
+
+    def visit_array_comprehension(self, node: Any) -> bool:
+        return False
+
+    def visit_jagged_access(self, node: Any) -> bool:
+        return False
+
+    def visit_module(self, node: Any) -> bool:
+        return False
+
+    def visit_array_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_access(self, node: Any) -> bool:
+        return False
+
+    def visit_interpolated_string(self, node: Any) -> bool:
+        return False
+
+    def visit_cast_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_member_access(self, node: Any) -> bool:
+        return False
+
+    def visit_try_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_match_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_reduction_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_where_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_pipeline_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_builtin_call(self, node: Any) -> bool:
+        return False
+
+    def visit_literal_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_wildcard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_array_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_rest_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_guard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_binding(self, node: Any) -> bool:
+        return False
+
+    def visit_program(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_reduction(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_comprehension(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_einstein_clause(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_recurrence(self, node: Any) -> bool:
+        return False
+
+    def visit_or_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_constructor_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_binding_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_range_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_function_value(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein_clause(self, node: Any) -> bool:
+        return False
+
+
+def _expr_is_loop_var_or_minus_one(expr: Any, loop_defid: Any) -> bool:
+    """True if expr is loop_var or (loop_var - 1). Used to detect reduction upper bound like 0..(j-1)."""
+    if expr is None or loop_defid is None:
+        return False
+    return expr.accept(_ExprIsLoopVarOrMinusOneVisitor(loop_defid))
 
 
 def _recurrence_dims_for_hybrid(
@@ -583,35 +2328,242 @@ def _recurrence_dims_for_hybrid_or_full(
     return recurrence_for_hybrid
 
 
-def _collect_lhs_read_index_lists(body: Any, target_defid: Any) -> List[List[Any]]:
-    out: List[List[Any]] = []
-    if isinstance(body, RectangularAccessIR):
-        if _BodyReferencesDefidVisitor(target_defid).references(body.array):
-            indices = getattr(body, "indices", None) or []
-            if indices:
-                out.append(list(indices))
-        out.extend(_collect_lhs_read_index_lists(body.array, target_defid))
+class _LHSReadIndexListsCollector(IRVisitor[List[List[Any]]]):
+    """Collect index lists from RectangularAccessIR nodes whose array references target_defid (LHS read positions)."""
+
+    def __init__(self, target_defid: Any) -> None:
+        self._target_defid = target_defid
+
+    def _empty(self) -> List[List[Any]]:
+        return []
+
+    def visit_rectangular_access(self, node: Any) -> List[List[Any]]:
+        out: List[List[Any]] = []
+        if _BodyReferencesDefidVisitor(self._target_defid).references(node.array):
+            if node.indices:
+                out.append(list(node.indices))
+        out.extend(node.array.accept(self))
         return out
-    if isinstance(body, BinaryOpIR):
-        out.extend(_collect_lhs_read_index_lists(getattr(body, "left", None), target_defid))
-        out.extend(_collect_lhs_read_index_lists(getattr(body, "right", None), target_defid))
-    elif isinstance(body, FunctionCallIR):
-        for a in getattr(body, "arguments", []) or []:
-            out.extend(_collect_lhs_read_index_lists(a, target_defid))
-        out.extend(_collect_lhs_read_index_lists(getattr(body, "callee_expr", None), target_defid))
-    elif isinstance(body, BlockExpressionIR):
-        for stmt in getattr(body, "statements", []) or []:
-            out.extend(_collect_lhs_read_index_lists(stmt, target_defid))
-        out.extend(_collect_lhs_read_index_lists(getattr(body, "final_expr", None), target_defid))
-    elif hasattr(body, "expr") and getattr(body, "expr", None) is not None:
-        out.extend(_collect_lhs_read_index_lists(getattr(body, "expr", None), target_defid))
-    elif hasattr(body, "body") and getattr(body, "body", None) is not None:
-        out.extend(_collect_lhs_read_index_lists(getattr(body, "body", None), target_defid))
-    elif hasattr(body, "then_expr") or hasattr(body, "else_expr"):
-        out.extend(_collect_lhs_read_index_lists(getattr(body, "condition", None), target_defid))
-        out.extend(_collect_lhs_read_index_lists(getattr(body, "then_expr", None), target_defid))
-        out.extend(_collect_lhs_read_index_lists(getattr(body, "else_expr", None), target_defid))
-    return out
+
+    def visit_binary_op(self, node: Any) -> List[List[Any]]:
+        out = node.left.accept(self)
+        out.extend(node.right.accept(self))
+        return out
+
+    def visit_function_call(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        for a in node.arguments:
+            out.extend(a.accept(self))
+        out.extend(node.callee_expr.accept(self))
+        return out
+
+    def visit_block_expression(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        for stmt in node.statements:
+            out.extend(stmt.accept(self))
+        if node.final_expr is not None:
+            out.extend(node.final_expr.accept(self))
+        return out
+
+    def visit_binding(self, node: Any) -> List[List[Any]]:
+        return node.expr.accept(self)
+
+    def visit_lambda(self, node: Any) -> List[List[Any]]:
+        return node.body.accept(self)
+
+    def visit_if_expression(self, node: Any) -> List[List[Any]]:
+        out = node.condition.accept(self)
+        out.extend(node.then_expr.accept(self))
+        if node.else_expr is not None:
+            out.extend(node.else_expr.accept(self))
+        return out
+
+    def visit_literal(self, node: Any) -> List[List[Any]]:
+        return self._empty()
+
+    def visit_identifier(self, node: Any) -> List[List[Any]]:
+        return self._empty()
+
+    def visit_index_var(self, node: Any) -> List[List[Any]]:
+        return (
+            node.range_ir.accept(self)
+            if node.range_ir is not None
+            else self._empty()
+        )
+
+    def visit_index_rest(self, node: Any) -> List[List[Any]]:
+        return self._empty()
+
+    def visit_unary_op(self, node: Any) -> List[List[Any]]:
+        return node.operand.accept(self)
+
+    def visit_range(self, node: Any) -> List[List[Any]]:
+        out = node.start.accept(self)
+        out.extend(node.end.accept(self))
+        return out
+
+    def visit_array_comprehension(self, node: Any) -> List[List[Any]]:
+        return node.body.accept(self)
+
+    def visit_jagged_access(self, node: Any) -> List[List[Any]]:
+        out = node.base.accept(self)
+        for idx in node.index_chain:
+            out.extend(idx.accept(self))
+        return out
+
+    def visit_module(self, node: Any) -> List[List[Any]]:
+        return self._empty()
+
+    def visit_array_literal(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        for e in node.elements:
+            out.extend(e.accept(self))
+        return out
+
+    def visit_tuple_expression(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        for e in node.elements:
+            out.extend(e.accept(self))
+        return out
+
+    def visit_tuple_access(self, node: Any) -> List[List[Any]]:
+        return node.tuple_expr.accept(self)
+
+    def visit_interpolated_string(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        for p in node.parts:
+            out.extend(p.accept(self))
+        return out
+
+    def visit_cast_expression(self, node: Any) -> List[List[Any]]:
+        return node.expr.accept(self)
+
+    def visit_member_access(self, node: Any) -> List[List[Any]]:
+        return node.object.accept(self)
+
+    def visit_try_expression(self, node: Any) -> List[List[Any]]:
+        return node.operand.accept(self)
+
+    def visit_match_expression(self, node: Any) -> List[List[Any]]:
+        out = node.scrutinee.accept(self)
+        for arm in node.arms:
+            out.extend(arm.body.accept(self))
+        return out
+
+    def visit_reduction_expression(self, node: Any) -> List[List[Any]]:
+        return node.body.accept(self)
+
+    def visit_where_expression(self, node: Any) -> List[List[Any]]:
+        out = node.expr.accept(self)
+        for c in node.constraints:
+            out.extend(c.accept(self))
+        return out
+
+    def visit_pipeline_expression(self, node: Any) -> List[List[Any]]:
+        out = node.left.accept(self)
+        out.extend(node.right.accept(self))
+        return out
+
+    def visit_builtin_call(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        for a in node.args:
+            out.extend(a.accept(self))
+        return out
+
+    def visit_literal_pattern(self, node: Any) -> List[List[Any]]:
+        return self._empty()
+
+    def visit_identifier_pattern(self, node: Any) -> List[List[Any]]:
+        return self._empty()
+
+    def visit_wildcard_pattern(self, node: Any) -> List[List[Any]]:
+        return self._empty()
+
+    def visit_tuple_pattern(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        for e in node.elements:
+            out.extend(e.accept(self))
+        return out
+
+    def visit_array_pattern(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        for e in node.elements:
+            out.extend(e.accept(self))
+        return out
+
+    def visit_rest_pattern(self, node: Any) -> List[List[Any]]:
+        return self._empty()
+
+    def visit_guard_pattern(self, node: Any) -> List[List[Any]]:
+        out = node.inner_pattern.accept(self)
+        out.extend(node.guard_expr.accept(self))
+        return out
+
+    def visit_program(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        for stmt in node.statements:
+            out.extend(stmt.accept(self))
+        return out
+
+    def visit_lowered_reduction(self, node: Any) -> List[List[Any]]:
+        return node.body.accept(self)
+
+    def visit_lowered_comprehension(self, node: Any) -> List[List[Any]]:
+        return node.body.accept(self)
+
+    def visit_lowered_einstein_clause(self, node: Any) -> List[List[Any]]:
+        return node.body.accept(self)
+
+    def visit_lowered_einstein(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        for item in node.items:
+            out.extend(item.accept(self))
+        return out
+
+    def visit_lowered_recurrence(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        if getattr(node, "initial", None) is not None:
+            out.extend(node.initial.accept(self))
+        rloop = getattr(node, "recurrence_loop", None)
+        if rloop is not None and getattr(rloop, "iterable", None) is not None:
+            out.extend(rloop.iterable.accept(self))
+        if getattr(node, "body", None) is not None:
+            out.extend(node.body.accept(self))
+        return out
+
+    def visit_or_pattern(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        for alt in getattr(node, "alternatives", []) or []:
+            out.extend(alt.accept(self))
+        return out
+
+    def visit_constructor_pattern(self, node: Any) -> List[List[Any]]:
+        out = self._empty()
+        for p in node.patterns:
+            out.extend(p.accept(self))
+        return out
+
+    def visit_binding_pattern(self, node: Any) -> List[List[Any]]:
+        return node.inner_pattern.accept(self)
+
+    def visit_range_pattern(self, node: Any) -> List[List[Any]]:
+        return self._empty()
+
+    def visit_function_value(self, node: Any) -> List[List[Any]]:
+        return node.body.accept(self) if node.body is not None else self._empty()
+
+    def visit_einstein(self, node: Any) -> List[List[Any]]:
+        return self._empty()
+
+    def visit_einstein_clause(self, node: Any) -> List[List[Any]]:
+        return self._empty()
+
+
+def _collect_lhs_read_index_lists(body: Any, target_defid: Any) -> List[List[Any]]:
+    """Collect index lists from array accesses whose array references target_defid (LHS read positions)."""
+    if body is None:
+        return []
+    return body.accept(_LHSReadIndexListsCollector(target_defid))
 
 
 def _recurrence_dims(lowered: Any, variable_defid: Any, clause_indices: Optional[List[Any]] = None) -> List[int]:
@@ -637,29 +2589,6 @@ def _recurrence_dims(lowered: Any, variable_defid: Any, clause_indices: Optional
                 recurrence.append(k)
                 break
     return recurrence
-
-
-def _expr_is_loop_var_or_minus_one(expr: Any, loop_defid: Any) -> bool:
-    """True if expr is loop_var or (loop_var - 1). Used to detect reduction upper bound like 0..(j-1)."""
-    if expr is None or loop_defid is None:
-        return False
-    if _index_expr_is_loop_var(expr, loop_defid):
-        return True
-    if isinstance(expr, BinaryOpIR):
-        op = getattr(expr, "operator", None)
-        op_val = getattr(op, "value", None) if op is not None else None
-        if op not in ("-",) and op_val not in ("-",):
-            return False
-        left = getattr(expr, "left", None)
-        right = getattr(expr, "right", None)
-        if not _index_expr_is_loop_var(left, loop_defid):
-            return False
-        if isinstance(right, LiteralIR):
-            try:
-                return int(getattr(right, "value", 0)) == 1
-            except (TypeError, ValueError):
-                pass
-    return False
 
 
 def _reduction_var_bounded_by_loop_var(
