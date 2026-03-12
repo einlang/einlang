@@ -12,14 +12,181 @@ from ..passes.rest_pattern_preprocessing import RestPatternPreprocessingPass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, ArrayLiteralIR, ArrayComprehensionIR,
     FunctionCallIR, BindingIR, is_einstein_binding, is_function_binding, RectangularAccessIR,
-    IRVisitor, RangeIR, IdentifierIR, LiteralIR, MemberAccessIR,
+    IRVisitor, RangeIR, IdentifierIR, LiteralIR, MemberAccessIR, BinaryOpIR,
 )
 from ..shared.defid import DefId
 from ..shared.source_location import SourceLocation
 from ..shared.types import BinaryOp
-from .visitor_helpers import ConstantEvaluator, ArrayAccessCollector
+from .visitor_helpers import ConstantEvaluator, ArrayAccessCollector, ExprInvolvesVarVisitor
 
 logger = logging.getLogger(__name__)
+
+
+def _none_stride_offset() -> Tuple[Optional[int], Optional[int]]:
+    return (None, None)
+
+
+class _StrideOffsetExtractor(IRVisitor[Tuple[Optional[int], Optional[int]]]):
+    """Extract (stride, max_offset) from index expressions like i, i*2, i+1, i*2+di. Uses variable_ranges for offset vars."""
+
+    def __init__(
+        self,
+        index_var: str,
+        variable_ranges: Optional[Dict[DefId, Any]] = None,
+    ) -> None:
+        self._index_var = index_var
+        self._variable_ranges = variable_ranges or {}
+
+    def visit_identifier(self, node: IdentifierIR) -> Tuple[Optional[int], Optional[int]]:
+        if node.name == self._index_var:
+            return (None, 0)
+        return _none_stride_offset()
+
+    def visit_literal(self, node: LiteralIR) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_binary_op(self, node: BinaryOpIR) -> Tuple[Optional[int], Optional[int]]:
+        from ..ir.nodes import LiteralIR as LiteralIRNode
+        left, right = node.left, node.right
+        if node.operator == BinaryOp.MUL:
+            stride = None
+            if isinstance(left, IdentifierIR) and left.name == self._index_var and isinstance(right, LiteralIRNode):
+                stride = int(right.value)
+            elif isinstance(right, IdentifierIR) and right.name == self._index_var and isinstance(left, LiteralIRNode):
+                stride = int(left.value)
+            if stride:
+                logger.debug(f"[ShapeAnalysis] Found stride pattern: {self._index_var}*{stride}")
+                return (stride, 0)
+        if node.operator == BinaryOp.SUB:
+            if isinstance(left, IdentifierIR) and left.name == self._index_var and isinstance(right, IdentifierIR):
+                logger.debug(f"[ShapeAnalysis] Subtraction pattern: {self._index_var}-{right.name}, using offset=0")
+                return (None, 0)
+        if node.operator == BinaryOp.ADD:
+            stride = None
+            if isinstance(left, BinaryOpIR) and left.operator == BinaryOp.MUL:
+                if isinstance(left.left, IdentifierIR) and left.left.name == self._index_var and isinstance(left.right, LiteralIRNode):
+                    stride = int(left.right.value)
+                elif isinstance(left.right, IdentifierIR) and left.right.name == self._index_var and isinstance(left.left, LiteralIRNode):
+                    stride = int(left.left.value)
+                if stride:
+                    if isinstance(right, IdentifierIR):
+                        max_off = _range_end_to_int(self._variable_ranges.get(right.defid) if right.defid else None)
+                        if max_off is not None:
+                            return (stride, max_off)
+                    elif isinstance(right, LiteralIRNode):
+                        return (stride, int(right.value))
+            if isinstance(left, IdentifierIR) and left.name == self._index_var and isinstance(right, LiteralIRNode):
+                return (None, int(right.value))
+            if isinstance(right, IdentifierIR) and right.name == self._index_var and isinstance(left, LiteralIRNode):
+                return (None, int(left.value))
+            if isinstance(left, IdentifierIR) and left.name == self._index_var and isinstance(right, IdentifierIR):
+                max_off = _range_end_to_int(self._variable_ranges.get(right.defid) if right.defid else None)
+                if max_off is not None:
+                    return (None, max_off)
+            if isinstance(right, IdentifierIR) and right.name == self._index_var and isinstance(left, IdentifierIR):
+                max_off = _range_end_to_int(self._variable_ranges.get(left.defid) if left.defid else None)
+                if max_off is not None:
+                    return (None, max_off)
+        return _none_stride_offset()
+
+    def visit_index_var(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_index_rest(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_rectangular_access(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_jagged_access(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_function_call(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_unary_op(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_block_expression(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_if_expression(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_lambda(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_range(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_array_comprehension(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_module(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_array_literal(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_tuple_expression(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_tuple_access(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_interpolated_string(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_cast_expression(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_member_access(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_try_expression(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_match_expression(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_reduction_expression(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_where_expression(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_pipeline_expression(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_builtin_call(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_literal_pattern(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_identifier_pattern(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_wildcard_pattern(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_tuple_pattern(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_array_pattern(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_rest_pattern(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_guard_pattern(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_binding(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
+
+    def visit_program(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
+        return _none_stride_offset()
 
 
 def _range_end_to_int(range_obj: Any) -> Optional[int]:
@@ -508,196 +675,23 @@ class ShapeAnalyzer:
     
     def _expr_involves_var(self, expr: ExpressionIR, var_name: str) -> bool:
         """Check if expression involves a variable"""
-        from ..ir.nodes import IdentifierIR, BinaryOpIR
-        
-        if isinstance(expr, IdentifierIR):
-            return expr.name == var_name
-        elif isinstance(expr, BinaryOpIR):
-            return (self._expr_involves_var(expr.left, var_name) or 
-                    self._expr_involves_var(expr.right, var_name))
-        return False
-    
+        return expr.accept(ExprInvolvesVarVisitor(var_name))
+
     def _extract_stride_and_offset(
         self, idx_expr: ExpressionIR, index_var: str,
         variable_ranges: Optional[Dict[DefId, Any]] = None,
     ) -> Tuple[Optional[int], Optional[int]]:
-        """
-        Extract stride and maximum offset from index expression.
-        Uses variable_ranges (clause-scoped) when provided; no global range dict.
-        Returns: (stride, max_offset)
-        """
-        from ..ir.nodes import BinaryOpIR, IdentifierIR, LiteralIR
-        import logging
-        logger = logging.getLogger(__name__)
-        variable_ranges = variable_ranges or {}
-        
-        # Simple case: just the variable itself (i)
-        if isinstance(idx_expr, IdentifierIR) and idx_expr.name == index_var:
-            return (None, 0)
-        
-        # Pattern: i*stride (BinaryOp with MUL)
-        if isinstance(idx_expr, BinaryOpIR) and idx_expr.operator == BinaryOp.MUL:
-            # Check if it's i*literal or literal*i
-            stride = None
-            if isinstance(idx_expr.left, IdentifierIR) and idx_expr.left.name == index_var and isinstance(idx_expr.right, LiteralIR):
-                stride = int(idx_expr.right.value)
-            elif isinstance(idx_expr.right, IdentifierIR) and idx_expr.right.name == index_var and isinstance(idx_expr.left, LiteralIR):
-                stride = int(idx_expr.left.value)
-            
-            if stride:
-                logger.debug(f"[ShapeAnalysis] Found stride pattern: {index_var}*{stride}")
-                return (stride, 0)
-        
-        # Pattern: i - variable (BinaryOp with SUB)
-        # Example: data[i-k] in cumulative operations
-        if isinstance(idx_expr, BinaryOpIR) and idx_expr.operator == BinaryOp.SUB:
-            left = idx_expr.left
-            right = idx_expr.right
-            
-            # Pattern: i - variable_offset (e.g., i-k)
-            if isinstance(left, IdentifierIR) and left.name == index_var and isinstance(right, IdentifierIR):
-                # For cumulative operations like cumsum[i] = sum[k](data[i-k]),
-                # k is typically a reduction variable with dependent range (e.g., 0..i+1)
-                # We can't statically determine k's range, but we know that:
-                # - The expression i-k with valid k values will stay in array bounds
-                # - Therefore, i can range from 0 to len(array)-1
-                # - So we return offset=0 to use the full array dimension
-                logger.debug(f"[ShapeAnalysis] Subtraction pattern: {index_var}-{right.name}")
-                logger.debug(f"[ShapeAnalysis] Assuming cumulative operation pattern, using offset=0")
-                return (None, 0)
-        
-        # Pattern: i*stride + offset (BinaryOp with ADD, left is MUL)
-        if isinstance(idx_expr, BinaryOpIR) and idx_expr.operator == BinaryOp.ADD:
-            left = idx_expr.left
-            right = idx_expr.right
-            
-            # Check if left is i*stride pattern
-            stride = None
-            if isinstance(left, BinaryOpIR) and left.operator == BinaryOp.MUL:
-                # Check if it's i*literal or literal*i
-                if isinstance(left.left, IdentifierIR) and left.left.name == index_var and isinstance(left.right, LiteralIR):
-                    stride = int(left.right.value)
-                elif isinstance(left.right, IdentifierIR) and left.right.name == index_var and isinstance(left.left, LiteralIR):
-                    stride = int(left.left.value)
-                
-                if stride:
-                    # Found i*stride pattern, now extract offset from right side
-                    max_offset = None
-                    if isinstance(right, IdentifierIR):
-                        right_defid = getattr(right, 'defid', None)
-                        offset_range = variable_ranges.get(right_defid) if right_defid else None
-                        logger.debug(f"[ShapeAnalysis] Strided pattern: {index_var}*{stride}+{right.name}, range: {offset_range}")
-                        if offset_range is not None:
-                            max_offset = _range_end_to_int(offset_range)
-                        if max_offset is not None:
-                            logger.debug(f"[ShapeAnalysis] Max offset for {right.name}: {max_offset}")
-                            return (stride, max_offset)
-                    elif isinstance(right, LiteralIR):
-                        # Pattern: i*stride + literal
-                        max_offset = int(right.value)
-                        logger.debug(f"[ShapeAnalysis] Strided pattern: {index_var}*{stride}+{max_offset}")
-                        return (stride, max_offset)
-            
-            # Pattern: i + literal (e.g., i+1)
-            if isinstance(left, IdentifierIR) and left.name == index_var and isinstance(right, LiteralIR):
-                return (None, int(right.value))
-            
-            # Pattern: literal + i (e.g., 1+i)
-            if isinstance(right, IdentifierIR) and right.name == index_var and isinstance(left, LiteralIR):
-                return (None, int(left.value))
-            
-            # Pattern: i + variable_offset (e.g., i+di)
-            if isinstance(left, IdentifierIR) and left.name == index_var and isinstance(right, IdentifierIR):
-                right_defid = getattr(right, 'defid', None)
-                offset_range = variable_ranges.get(right_defid) if right_defid else None
-                logger.debug(f"[ShapeAnalysis] Looking up range for {right.name}: {offset_range}")
-                if offset_range is not None:
-                    max_offset = _range_end_to_int(offset_range)
-                    if max_offset is not None:
-                        logger.debug(f"[ShapeAnalysis] Max offset for {right.name}: {max_offset}")
-                        return (None, max_offset)
-            
-            # Pattern: variable_offset + i (e.g., di+i)
-            if isinstance(right, IdentifierIR) and right.name == index_var and isinstance(left, IdentifierIR):
-                left_defid = getattr(left, 'defid', None)
-                offset_range = variable_ranges.get(left_defid) if left_defid else None
-                if offset_range is not None:
-                    max_offset = _range_end_to_int(offset_range)
-                    if max_offset is not None:
-                        return (None, max_offset)
-        
-        # Unable to determine
-        return (None, None)
-    
+        """Extract stride and maximum offset from index expression. Returns (stride, max_offset)."""
+        return idx_expr.accept(_StrideOffsetExtractor(index_var, variable_ranges))
+
     def _extract_max_offset(
         self, idx_expr: ExpressionIR, index_var: str,
         variable_ranges: Optional[Dict[DefId, Any]] = None,
     ) -> Optional[int]:
         """Extract maximum offset from index expression. Uses variable_ranges (clause-scoped) when provided."""
-        from ..ir.nodes import BinaryOpIR, IdentifierIR, LiteralIR
-        import logging
-        logger = logging.getLogger(__name__)
-        variable_ranges = variable_ranges or {}
-        
-        # Simple case: just the variable itself (i)
-        if isinstance(idx_expr, IdentifierIR) and idx_expr.name == index_var:
-            return 0
-        
-        # Pattern: i*stride + offset (BinaryOp with ADD, left is MUL)
-        # Example: i*2+di
-        if isinstance(idx_expr, BinaryOpIR) and idx_expr.operator == BinaryOp.ADD:
-            left = idx_expr.left
-            right = idx_expr.right
-            
-            # Check if left is i*stride pattern
-            if isinstance(left, BinaryOpIR) and left.operator == BinaryOp.MUL:
-                # Check if it's i*literal or literal*i
-                if ((isinstance(left.left, IdentifierIR) and left.left.name == index_var and isinstance(left.right, LiteralIR)) or
-                    (isinstance(left.right, IdentifierIR) and left.right.name == index_var and isinstance(left.left, LiteralIR))):
-                    # Found i*stride pattern, now extract offset from right side
-                    if isinstance(right, IdentifierIR):
-                        right_defid = getattr(right, 'defid', None)
-                        offset_range = variable_ranges.get(right_defid) if right_defid else None
-                        logger.debug(f"[ShapeAnalysis] Strided pattern: {index_var}*stride+{right.name}, range: {offset_range}")
-                        if offset_range is not None:
-                            max_offset = _range_end_to_int(offset_range)
-                            if max_offset is not None:
-                                return max_offset
-                    elif isinstance(right, LiteralIR):
-                        return int(right.value)
-            
-            # Pattern: i + literal (e.g., i+1)
-            if (isinstance(left, IdentifierIR) and left.name == index_var and
-                isinstance(right, LiteralIR)):
-                return int(right.value)
-            
-            # Pattern: literal + i (e.g., 1+i)
-            if (isinstance(right, IdentifierIR) and right.name == index_var and
-                isinstance(left, LiteralIR)):
-                return int(left.value)
-            
-            # Pattern: i + variable_offset (e.g., i+di)
-            if isinstance(left, IdentifierIR) and left.name == index_var and isinstance(right, IdentifierIR):
-                right_defid = getattr(right, 'defid', None)
-                offset_range = variable_ranges.get(right_defid) if right_defid else None
-                logger.debug(f"[ShapeAnalysis] Looking up range for {right.name}: {offset_range}")
-                if offset_range is not None:
-                    max_offset = _range_end_to_int(offset_range)
-                    if max_offset is not None:
-                        return max_offset
-            
-            # Pattern: variable_offset + i (e.g., di+i)
-            if isinstance(right, IdentifierIR) and right.name == index_var and isinstance(left, IdentifierIR):
-                left_defid = getattr(left, 'defid', None)
-                offset_range = variable_ranges.get(left_defid) if left_defid else None
-                if offset_range is not None:
-                    max_offset = _range_end_to_int(offset_range)
-                    if max_offset is not None:
-                        return max_offset
-        
-        # Unable to determine offset
-        return None
-    
+        _stride, max_offset = idx_expr.accept(_StrideOffsetExtractor(index_var, variable_ranges))
+        return max_offset
+
     def check_perfect_partition(self, declarations: List[BindingIR]) -> bool:
         """Check if declarations form perfect partition"""
         # Collect all index combinations

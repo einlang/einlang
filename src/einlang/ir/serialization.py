@@ -406,10 +406,13 @@ class IRSerializer:
     # === Einstein Declarations ===
     
     def _serialize_EinsteinClauseIR(self, node) -> list:
-        """Serialize one Einstein clause: (einstein-clause :indices ... :value ...) so deserializer has a tag."""
+        """Serialize one Einstein clause: (einstein-clause :indices ... :value ... :where_clause ...) so deserializer has a tag."""
         indices = [self.serialize_to_sexpr(idx) for idx in (getattr(node, 'indices', None) or [])]
         value = self.serialize_to_sexpr(node.value) if getattr(node, 'value', None) else [self._sym("nil")]
         out = [self._sym(":indices"), indices, self._sym(":value"), value]
+        wc = getattr(node, 'where_clause', None)
+        if wc is not None:
+            out.extend([self._sym(":where_clause"), self.serialize_to_sexpr(wc)])
         vr = getattr(node, 'variable_ranges', None) or {}
         var_ranges = [[self._brackets([d.krate, d.index]), self.serialize_to_sexpr(r)] for d, r in vr.items()] if vr else []
         out.extend([self._sym(":variable_ranges"), var_ranges])
@@ -621,7 +624,7 @@ class IRSerializer:
     # === Reduction Expressions ===
     
     def _serialize_ReductionExpressionIR(self, node) -> list:
-        """Serialize reduction: (reduction op (vars...) body :loop_var_ranges ...). vars are full IR for round-trip."""
+        """Serialize reduction: (reduction op (vars...) body :loop_var_ranges ... :where_clause ...). vars are full IR for round-trip."""
         body = self.serialize_to_sexpr(node.body)
         loop_vars_sexpr = [self.serialize_to_sexpr(v) for v in (getattr(node, 'loop_vars', None) or [])]
         core = [self._sym("reduction"), node.operation, loop_vars_sexpr, body]
@@ -629,7 +632,23 @@ class IRSerializer:
         if lvr:
             loop_ranges = [[self._brackets([d.krate, d.index]), self.serialize_to_sexpr(r)] for d, r in lvr.items()]
             core.extend([self._sym(":loop_var_ranges"), loop_ranges])
+        wc = getattr(node, 'where_clause', None)
+        if wc is not None:
+            core.extend([self._sym(":where_clause"), self.serialize_to_sexpr(wc)])
         return self._add_expr_metadata(node, core)
+
+    def _serialize_WhereClauseIR(self, node) -> list:
+        """Serialize where clause: (where-clause (constraints...) :ranges [[defid range] ...])."""
+        constraints_sexpr = [self.serialize_to_sexpr(c) for c in (node.constraints or [])]
+        core = [self._sym("where-clause"), constraints_sexpr]
+        ranges = getattr(node, 'ranges', None) or {}
+        if ranges:
+            ranges_sexpr = [[self._brackets([d.krate, d.index]), self.serialize_to_sexpr(r)] for d, r in ranges.items()]
+            core.extend([self._sym(":ranges"), ranges_sexpr])
+        if self.include_location and getattr(node, 'location', None):
+            loc = node.location
+            core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
+        return core
 
     def _serialize_WhereExpressionIR(self, node) -> list:
         """Serialize where expression: (where-expression expr (constraints...))"""
@@ -1333,6 +1352,8 @@ class IRDeserializer:
             else:
                 indices.append(self.deserialize(s) if s is not None else None)
         value = self.deserialize(opts.get(":value")) if opts.get(":value") else None
+        where_clause_sexpr = opts.get(":where_clause")
+        where_clause = self.deserialize(where_clause_sexpr) if where_clause_sexpr is not None else None
         vr_sexpr = opts.get(":variable_ranges") or []
         variable_ranges = {}
         if isinstance(vr_sexpr, list):
@@ -1342,7 +1363,7 @@ class IRDeserializer:
                     r = self.deserialize(pair[1]) if pair[1] is not None else None
                     if d is not None:
                         variable_ranges[d] = r
-        return EinsteinClauseIR(indices=indices, value=value, location=loc, variable_ranges=variable_ranges)
+        return EinsteinClauseIR(indices=indices, value=value, location=loc, where_clause=where_clause, variable_ranges=variable_ranges)
 
     def _deserialize_einstein_value(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import EinsteinIR
@@ -1565,6 +1586,24 @@ class IRDeserializer:
         ty = self._deserialize_type(opts.get(":inferred_type"))
         return WhereExpressionIR(expr=expr, constraints=constraints, location=loc, type_info=ty)
 
+    def _deserialize_where_clause(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import WhereClauseIR
+        from ..shared.source_location import SourceLocation
+        pos, opts = _plist(tail)
+        loc = self._loc_from_opts(opts) or SourceLocation("", 0, 0)
+        constraints_sexpr = pos[0] if pos and isinstance(pos[0], list) else []
+        constraints = [self.deserialize(c) for c in constraints_sexpr]
+        ranges_sexpr = opts.get(":ranges") or []
+        ranges = {}
+        if isinstance(ranges_sexpr, list):
+            for pair in ranges_sexpr:
+                if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                    d = _parse_defid(pair[0])
+                    r = self.deserialize(pair[1]) if pair[1] is not None else None
+                    if d is not None:
+                        ranges[d] = r
+        return WhereClauseIR(constraints=constraints, ranges=ranges, location=loc)
+
     def _deserialize_reduction(self, _tag: str, tail: list, full: list) -> Any:
         from ..ir.nodes import ReductionExpressionIR, IndexVarIR
         from ..shared.source_location import SourceLocation
@@ -1596,8 +1635,10 @@ class IRDeserializer:
                     r = self.deserialize(pair[1]) if pair[1] is not None else None
                     if d is not None:
                         loop_var_ranges[d] = r
+        where_clause_sexpr = opts.get(":where_clause")
+        where_clause = self.deserialize(where_clause_sexpr) if where_clause_sexpr is not None else None
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return ReductionExpressionIR(operation=operation, loop_vars=loop_vars, body=body, location=loc, loop_var_ranges=loop_var_ranges, type_info=ty)
+        return ReductionExpressionIR(operation=operation, loop_vars=loop_vars, body=body, location=loc, where_clause=where_clause, loop_var_ranges=loop_var_ranges, type_info=ty)
 
     def _deserialize_expr(self, tag: str, tail: list, full: list) -> Any:
         raise ValueError(f"Unknown IR tag: {tag}")

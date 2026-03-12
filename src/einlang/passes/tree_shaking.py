@@ -11,12 +11,12 @@ generic template functions (never called directly) are naturally pruned.
 """
 
 import logging
-from typing import Set
+from typing import Any, Set
 
 from ..ir.nodes import (
-    ExpressionIR, ProgramIR, FunctionDefIR, BindingIR,
+    ProgramIR, BindingIR,
     FunctionCallIR, BuiltinCallIR,
-    IdentifierIR, LiteralIR, BinaryOpIR, UnaryOpIR,
+    IdentifierIR, BinaryOpIR, UnaryOpIR,
     RectangularAccessIR, JaggedAccessIR, MemberAccessIR, TupleAccessIR,
     ArrayLiteralIR, ArrayComprehensionIR,
     BlockExpressionIR, IfExpressionIR, MatchExpressionIR,
@@ -24,6 +24,7 @@ from ..ir.nodes import (
     CastExpressionIR, InterpolatedStringIR, TupleExpressionIR,
     ReductionExpressionIR, WhereExpressionIR,
     RangeIR, TryExpressionIR,
+    IRVisitor,
     is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
@@ -31,170 +32,226 @@ from ..shared.defid import DefId
 logger = logging.getLogger(__name__)
 
 
-def _collect_defid_refs(node, refs: Set[DefId]) -> None:
+def _visit_opt(visitor: "DefidRefsCollector", node: Any) -> None:
+    if node is not None and hasattr(node, "accept"):
+        node.accept(visitor)
+
+
+def _visit_many(visitor: "DefidRefsCollector", nodes: Any) -> None:
+    if not nodes:
+        return
+    for n in nodes:
+        if n is not None and hasattr(n, "accept"):
+            n.accept(visitor)
+
+
+class DefidRefsCollector(IRVisitor[None]):
+    """Recursively collect all function DefIds referenced from an IR node into _refs."""
+
+    def __init__(self, refs: Set[DefId]) -> None:
+        self._refs = refs
+
+    def visit_function_call(self, node: FunctionCallIR) -> None:
+        _visit_many(self, node.arguments)
+        _visit_opt(self, getattr(node, "callee_expr", None))
+
+    def visit_identifier(self, node: IdentifierIR) -> None:
+        did = getattr(node, "defid", None)
+        if did is not None:
+            self._refs.add(did)
+
+    def visit_builtin_call(self, node: BuiltinCallIR) -> None:
+        args = getattr(node, "args", None) or getattr(node, "arguments", None) or []
+        _visit_many(self, args)
+
+    def visit_block_expression(self, node: BlockExpressionIR) -> None:
+        _visit_many(self, node.statements)
+        _visit_opt(self, node.final_expr)
+
+    def visit_binding(self, node: BindingIR) -> None:
+        _visit_opt(self, getattr(node, "value", None) or getattr(node, "expr", None))
+        if is_einstein_binding(node):
+            expr = getattr(node, "expr", None)
+            clauses = getattr(expr, "clauses", None) or []
+            for clause in clauses:
+                _visit_opt(self, getattr(clause, "value", None))
+
+    def visit_if_expression(self, node: IfExpressionIR) -> None:
+        node.condition.accept(self)
+        node.then_expr.accept(self)
+        _visit_opt(self, node.else_expr)
+
+    def visit_binary_op(self, node: BinaryOpIR) -> None:
+        node.left.accept(self)
+        node.right.accept(self)
+
+    def visit_unary_op(self, node: UnaryOpIR) -> None:
+        node.operand.accept(self)
+
+    def visit_rectangular_access(self, node: RectangularAccessIR) -> None:
+        node.array.accept(self)
+        _visit_many(self, node.indices)
+
+    def visit_jagged_access(self, node: JaggedAccessIR) -> None:
+        base = getattr(node, "base", None) or getattr(node, "array", None)
+        _visit_opt(self, base)
+        chain = getattr(node, "index_chain", None)
+        if chain is not None:
+            _visit_many(self, chain)
+        else:
+            _visit_opt(self, getattr(node, "index", None))
+
+    def visit_member_access(self, node: MemberAccessIR) -> None:
+        node.object.accept(self)
+
+    def visit_tuple_access(self, node: TupleAccessIR) -> None:
+        _visit_opt(self, getattr(node, "tuple_expr", None))
+
+    def visit_cast_expression(self, node: CastExpressionIR) -> None:
+        node.expr.accept(self)
+
+    def visit_array_literal(self, node: ArrayLiteralIR) -> None:
+        _visit_many(self, node.elements)
+
+    def visit_array_comprehension(self, node: ArrayComprehensionIR) -> None:
+        _visit_opt(self, getattr(node, "body", None))
+        _visit_many(self, getattr(node, "ranges", None))
+        _visit_many(self, getattr(node, "loop_vars", None))
+        _visit_many(self, getattr(node, "constraints", None))
+
+    def visit_tuple_expression(self, node: TupleExpressionIR) -> None:
+        _visit_many(self, node.elements)
+
+    def visit_reduction_expression(self, node: Any) -> None:
+        node.body.accept(self)
+
+    def visit_where_expression(self, node: WhereExpressionIR) -> None:
+        node.expr.accept(self)
+        _visit_many(self, getattr(node, "constraints", None))
+
+    def visit_lambda(self, node: LambdaIR) -> None:
+        node.body.accept(self)
+
+    def visit_pipeline_expression(self, node: PipelineExpressionIR) -> None:
+        _visit_opt(self, getattr(node, "left", None))
+        _visit_opt(self, getattr(node, "right", None))
+
+    def visit_interpolated_string(self, node: InterpolatedStringIR) -> None:
+        _visit_many(self, node.parts)
+
+    def visit_match_expression(self, node: MatchExpressionIR) -> None:
+        node.scrutinee.accept(self)
+        for arm in getattr(node, "arms", None) or []:
+            _visit_opt(self, getattr(arm, "body", None))
+            _visit_opt(self, getattr(arm, "guard", None))
+
+    def visit_try_expression(self, node: TryExpressionIR) -> None:
+        _visit_opt(self, getattr(node, "operand", None))
+
+    def visit_range(self, node: RangeIR) -> None:
+        node.start.accept(self)
+        node.end.accept(self)
+
+    def visit_lowered_einstein(self, node: Any) -> None:
+        _visit_many(self, getattr(node, "items", None))
+        _visit_many(self, getattr(node, "shape", None))
+
+    def visit_lowered_einstein_clause(self, node: Any) -> None:
+        _visit_opt(self, getattr(node, "body", None))
+        for loop in getattr(node, "loops", None) or []:
+            _visit_opt(self, getattr(loop, "iterable", None))
+        for b in getattr(node, "bindings", None) or []:
+            _visit_opt(self, getattr(b, "value", None) or getattr(b, "expr", None))
+        for g in getattr(node, "guards", None) or []:
+            _visit_opt(self, getattr(g, "condition", None))
+
+    def visit_lowered_reduction(self, node: Any) -> None:
+        _visit_opt(self, getattr(node, "body", None))
+        for loop in getattr(node, "loops", None) or []:
+            _visit_opt(self, getattr(loop, "iterable", None))
+        for b in getattr(node, "bindings", None) or []:
+            _visit_opt(self, getattr(b, "value", None) or getattr(b, "expr", None))
+        for g in getattr(node, "guards", None) or []:
+            _visit_opt(self, getattr(g, "condition", None))
+
+    def visit_lowered_comprehension(self, node: Any) -> None:
+        _visit_opt(self, getattr(node, "body", None))
+        _visit_opt(self, getattr(node, "iterable", None))
+
+    # No-op / no DefIds for the rest
+    def visit_literal(self, node: Any) -> None:
+        pass
+
+    def visit_index_var(self, node: Any) -> None:
+        _visit_opt(self, getattr(node, "range_ir", None))
+
+    def visit_index_rest(self, node: Any) -> None:
+        pass
+
+    def visit_module(self, node: Any) -> None:
+        pass
+
+    def visit_program(self, node: ProgramIR) -> None:
+        _visit_many(self, node.statements)
+
+    def visit_literal_pattern(self, node: Any) -> None:
+        pass
+
+    def visit_identifier_pattern(self, node: Any) -> None:
+        pass
+
+    def visit_wildcard_pattern(self, node: Any) -> None:
+        pass
+
+    def visit_tuple_pattern(self, node: Any) -> None:
+        _visit_many(self, getattr(node, "elements", None))
+
+    def visit_array_pattern(self, node: Any) -> None:
+        _visit_many(self, getattr(node, "elements", None))
+
+    def visit_rest_pattern(self, node: Any) -> None:
+        pass
+
+    def visit_guard_pattern(self, node: Any) -> None:
+        inner = getattr(node, "inner_pattern", None)
+        guard_expr = getattr(node, "guard_expr", None)
+        _visit_opt(self, inner)
+        _visit_opt(self, guard_expr)
+
+    def visit_or_pattern(self, node: Any) -> None:
+        _visit_many(self, getattr(node, "alternatives", None))
+
+    def visit_constructor_pattern(self, node: Any) -> None:
+        _visit_many(self, getattr(node, "patterns", None))
+
+    def visit_binding_pattern(self, node: Any) -> None:
+        _visit_opt(self, getattr(node, "inner_pattern", None))
+
+    def visit_range_pattern(self, node: Any) -> None:
+        pass
+
+    def visit_function_value(self, node: Any) -> None:
+        _visit_opt(self, getattr(node, "body", None))
+
+    def visit_einstein(self, node: Any) -> None:
+        pass
+
+    def visit_einstein_clause(self, node: Any) -> None:
+        pass
+
+    def visit_lowered_recurrence(self, node: Any) -> None:
+        _visit_opt(self, getattr(node, "initial", None))
+        rec_loop = getattr(node, "recurrence_loop", None)
+        _visit_opt(self, getattr(rec_loop, "iterable", None) if rec_loop else None)
+        _visit_opt(self, getattr(node, "body", None))
+
+
+def _collect_defid_refs(node: Any, refs: Set[DefId]) -> None:
     """Recursively collect all function DefIds referenced from an IR node."""
     if node is None:
         return
-
-    if isinstance(node, FunctionCallIR):
-        for arg in node.arguments:
-            _collect_defid_refs(arg, refs)
-        _collect_defid_refs(getattr(node, 'callee_expr', None), refs)
-        return
-
-    if isinstance(node, IdentifierIR) and getattr(node, 'defid', None) is not None:
-        refs.add(node.defid)
-        return
-
-    if isinstance(node, BuiltinCallIR):
-        for arg in (getattr(node, 'args', None) or getattr(node, 'arguments', None) or []):
-            _collect_defid_refs(arg, refs)
-        return
-
-    if isinstance(node, BlockExpressionIR):
-        for stmt in (node.statements or []):
-            _collect_defid_refs(stmt, refs)
-        _collect_defid_refs(node.final_expr, refs)
-        return
-
-    if isinstance(node, BindingIR):
-        _collect_defid_refs(getattr(node, 'value', None), refs)
-        if is_einstein_binding(node):
-            for clause in (getattr(getattr(node, 'expr', None), 'clauses', None) or []):
-                _collect_defid_refs(getattr(clause, 'value', None), refs)
-        return
-
-    if isinstance(node, IfExpressionIR):
-        _collect_defid_refs(node.condition, refs)
-        _collect_defid_refs(node.then_expr, refs)
-        _collect_defid_refs(node.else_expr, refs)
-        return
-
-    if isinstance(node, BinaryOpIR):
-        _collect_defid_refs(node.left, refs)
-        _collect_defid_refs(node.right, refs)
-        return
-
-    if isinstance(node, UnaryOpIR):
-        _collect_defid_refs(node.operand, refs)
-        return
-
-    if isinstance(node, RectangularAccessIR):
-        _collect_defid_refs(node.array, refs)
-        for idx in (node.indices or []):
-            _collect_defid_refs(idx, refs)
-        return
-
-    if isinstance(node, JaggedAccessIR):
-        _collect_defid_refs(getattr(node, 'array', None), refs)
-        _collect_defid_refs(getattr(node, 'index', None), refs)
-        return
-
-    if isinstance(node, MemberAccessIR):
-        _collect_defid_refs(node.object, refs)
-        return
-
-    if isinstance(node, TupleAccessIR):
-        _collect_defid_refs(getattr(node, 'tuple_expr', None), refs)
-        return
-
-    if isinstance(node, CastExpressionIR):
-        _collect_defid_refs(node.expr, refs)
-        return
-
-    if isinstance(node, ArrayLiteralIR):
-        for elem in (node.elements or []):
-            _collect_defid_refs(elem, refs)
-        return
-
-    if isinstance(node, ArrayComprehensionIR):
-        _collect_defid_refs(getattr(node, 'body', None), refs)
-        for r in getattr(node, 'ranges', None) or []:
-            _collect_defid_refs(r, refs)
-        for v in getattr(node, 'loop_vars', None) or []:
-            _collect_defid_refs(v, refs)
-        for c in getattr(node, 'constraints', None) or []:
-            _collect_defid_refs(c, refs)
-        return
-
-    if isinstance(node, TupleExpressionIR):
-        for elem in (node.elements or []):
-            _collect_defid_refs(elem, refs)
-        return
-
-    if isinstance(node, ReductionExpressionIR):
-        _collect_defid_refs(node.body, refs)
-        return
-
-    if isinstance(node, WhereExpressionIR):
-        _collect_defid_refs(node.expr, refs)
-        _collect_defid_refs(getattr(node, 'condition', None), refs)
-        return
-
-    if isinstance(node, LambdaIR):
-        _collect_defid_refs(node.body, refs)
-        return
-
-    if isinstance(node, PipelineExpressionIR):
-        _collect_defid_refs(getattr(node, 'left', None), refs)
-        _collect_defid_refs(getattr(node, 'right', None), refs)
-        return
-
-    if isinstance(node, InterpolatedStringIR):
-        for part in (node.parts or []):
-            _collect_defid_refs(part, refs)
-        return
-
-    if isinstance(node, MatchExpressionIR):
-        _collect_defid_refs(getattr(node, 'scrutinee', None), refs)
-        for arm in (getattr(node, 'arms', None) or []):
-            _collect_defid_refs(getattr(arm, 'body', None), refs)
-            _collect_defid_refs(getattr(arm, 'guard', None), refs)
-        return
-
-    if isinstance(node, TryExpressionIR):
-        _collect_defid_refs(getattr(node, 'body', None), refs)
-        _collect_defid_refs(getattr(node, 'handler', None), refs)
-        return
-
-    if isinstance(node, RangeIR):
-        _collect_defid_refs(node.start, refs)
-        _collect_defid_refs(node.end, refs)
-        return
-
-    # LoweredEinsteinIR / LoweredEinsteinClauseIR
-    tn = type(node).__name__
-    if tn == 'LoweredEinsteinIR':
-        for item in (getattr(node, 'items', None) or []):
-            _collect_defid_refs(item, refs)
-        for s in (getattr(node, 'shape', None) or []):
-            _collect_defid_refs(s, refs)
-        return
-
-    if tn == 'LoweredEinsteinClauseIR':
-        _collect_defid_refs(getattr(node, 'body', None), refs)
-        for loop in (getattr(node, 'loops', None) or []):
-            _collect_defid_refs(getattr(loop, 'iterable', None), refs)
-        for b in (getattr(node, 'bindings', None) or []):
-            _collect_defid_refs(getattr(b, 'value', None) or getattr(b, 'expr', None), refs)
-        for g in (getattr(node, 'guards', None) or []):
-            _collect_defid_refs(getattr(g, 'condition', None), refs)
-        return
-
-    if tn == 'LoweredReductionIR':
-        _collect_defid_refs(getattr(node, 'body', None), refs)
-        for loop in (getattr(node, 'loops', None) or []):
-            _collect_defid_refs(getattr(loop, 'iterable', None), refs)
-        for b in (getattr(node, 'bindings', None) or []):
-            _collect_defid_refs(getattr(b, 'value', None) or getattr(b, 'expr', None), refs)
-        for g in (getattr(node, 'guards', None) or []):
-            _collect_defid_refs(getattr(g, 'condition', None), refs)
-        return
-
-    if tn == 'LoweredComprehensionIR':
-        _collect_defid_refs(getattr(node, 'body', None), refs)
-        _collect_defid_refs(getattr(node, 'iterable', None), refs)
-        return
+    if hasattr(node, "accept"):
+        node.accept(DefidRefsCollector(refs))
 
 
 def tree_shake(ir: ProgramIR) -> ProgramIR:
