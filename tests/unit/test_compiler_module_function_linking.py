@@ -33,10 +33,10 @@ class TestModuleFunctionLinking:
         
         ir_program = compilation.ir
         if ir_program:
-            from einlang.ir.nodes import FunctionCallIR
+            from einlang.ir.nodes import FunctionCallIR, BindingIR
             function_calls = []
             for stmt in ir_program.statements:
-                if hasattr(stmt, 'value') and isinstance(stmt.value, FunctionCallIR):
+                if isinstance(stmt, BindingIR) and isinstance(stmt.value, FunctionCallIR):
                     function_calls.append(stmt.value)
             
             if function_calls:
@@ -122,7 +122,7 @@ class TestModuleLinkingDebug:
 
         tcx = compilation.tcx
         assert tcx is not None, "Should have type context"
-        module_loader = getattr(tcx, "module_loader", None)
+        module_loader = tcx.module_loader
         assert module_loader is not None or compilation.ir is not None, "Should have module_loader or IR"
     
     def test_check_ir_lowering(self, compiler):
@@ -139,9 +139,9 @@ class TestModuleLinkingDebug:
         ir_program = compilation.ir
         assert ir_program is not None, "IR should be generated"
         
-        from einlang.ir.nodes import FunctionCallIR
+        from einlang.ir.nodes import FunctionCallIR, BindingIR
         for stmt in ir_program.statements:
-            if hasattr(stmt, 'value') and isinstance(stmt.value, FunctionCallIR):
+            if isinstance(stmt, BindingIR) and isinstance(stmt.value, FunctionCallIR):
                 call = stmt.value
                 callee_defid = call.function_defid
                 print(f"\nFunctionCallIR found:")

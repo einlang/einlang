@@ -765,13 +765,13 @@ class EinlangTransformer(Transformer):
     def inline_mod_stmt(self, meta: LarkMeta, name: Token, body: BlockExpression) -> InlineModule:
         """✅ Grammar: 'mod' NAME block """
         location = self._extract_location(meta)
-        statements = body.statements if hasattr(body, 'statements') else []
+        statements = body.statements
         return InlineModule(name=str(name), body=statements, is_public=False, location=location)
     
     def pub_inline_mod_stmt(self, meta: LarkMeta, name: Token, body: BlockExpression) -> InlineModule:
         """✅ Grammar: 'pub' 'mod' NAME block """
         location = self._extract_location(meta)
-        statements = body.statements if hasattr(body, 'statements') else []
+        statements = body.statements
         return InlineModule(name=str(name), body=statements, is_public=True, location=location)
     
     def import_path(self, meta: LarkMeta, path_info: ImportPathInfo) -> ImportPathInfo:

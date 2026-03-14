@@ -32,7 +32,7 @@ class TestEinsteinConcatenation:
         assert 'concat' in exec_result.outputs, f"Output keys: {list(exec_result.outputs.keys())}"
         
         result = exec_result.outputs['concat']
-        print(f"Result: {result}, shape: {result.shape if hasattr(result, 'shape') else 'no shape'}")
+        print(f"Result: {result}, shape: {result.shape}")
         
         expected = np.array([1, 2, 3, 4, 5, 6, 7])
         np.testing.assert_array_equal(result, expected)

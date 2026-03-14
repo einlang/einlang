@@ -205,8 +205,6 @@ def reset_compiler_session(request):
     """
     yield
     # Only touch runtime if this test actually requested a runtime fixture (cheap check first).
-    if not hasattr(request, 'fixturenames'):
-        return
     for fixture_name in request.fixturenames:
         if fixture_name != 'runtime':
             continue

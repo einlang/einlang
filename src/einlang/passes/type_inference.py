@@ -471,7 +471,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                     not self._is_assignment_compatible(result, type_annotation):
                 self.tcx.reporter.report_error(
                     message="mismatched types",
-                    location=node.expr.location if hasattr(node.expr, 'location') else None,
+                    location=node.expr.location,
                     code="E0308",
                     label=f"expected `{type_annotation}`, found `{result}`",
                 )
@@ -631,7 +631,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         int_types = {I8, I32, I64}
         float_types = {F8E4M3, F16, BF16, F32, F64}
         
-        if hasattr(expr, 'operator') and expr.operator in comparison_ops_enum:
+        if expr.operator in comparison_ops_enum:
             if (left_type in int_types and right_type in int_types):
                 expr.type_info = BOOL
                 return BOOL
@@ -674,7 +674,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 return target_float_type
         
         # POW special case: float ** int → float (Rust's powi)
-        if hasattr(expr, 'operator') and expr.operator == BinaryOp.POW:
+        if expr.operator == BinaryOp.POW:
             if left_type in float_types and right_type in int_types:
                 expr.type_info = left_type
                 return left_type
@@ -971,7 +971,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                     for i, t in enumerate(effective_arg_types):
                         if t is None or t == UNKNOWN:
                             effective_arg_types[i] = sig.parameter_types[i] if i < len(sig.parameter_types) else UNKNOWN
-                if not all(t is not None and t != UNKNOWN for t in effective_arg_types) and len(effective_arg_types) == 1 and self._current_function and hasattr(self._current_function, 'parameters') and self._current_function.parameters:
+                if not all(t is not None and t != UNKNOWN for t in effective_arg_types) and len(effective_arg_types) == 1 and self._current_function and self._current_function.parameters:
                     param_type = self._current_function.parameters[0].param_type
                     if param_type is not None and param_type != UNKNOWN:
                         effective_arg_types[0] = param_type
@@ -1045,7 +1045,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 expr.set_callee_defid(specialized_func.defid)
                 logger.debug(f"Updated call {expr.function_name} to use specialized DefId {specialized_func.defid}")
                 # Get return type from specialized function signature
-                if hasattr(specialized_func, 'return_type') and specialized_func.return_type:
+                if specialized_func.return_type:
                     inferred_type = specialized_func.return_type
                 else:
                     inferred_type = UNKNOWN
@@ -1428,7 +1428,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                             return_type = inferred_return_type
                             logger.debug(f"Inferred return type for '{node.name}' from final expr defid: {return_type}")
 
-                    if return_type is None and hasattr(final_expr, 'type_info') and final_expr.type_info is not None:
+                    if return_type is None and final_expr.type_info is not None:
                         return_type = final_expr.type_info
                         logger.debug(f"Inferred return type for '{node.name}' from final expr type_info: {return_type}")
 
@@ -1450,10 +1450,10 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
     def visit_einstein(self, ein_expr: Any) -> Type:
         node = self._current_binding
-        clauses = (ein_expr.clauses or []) if hasattr(ein_expr, 'clauses') else []
+        clauses = ein_expr.clauses or []
         for clause in clauses:
             index_names = set(clause.loop_vars or [])
-            where_clause = clause.where_clause if hasattr(clause, 'where_clause') else None
+            where_clause = clause.where_clause
             if where_clause and index_names:
                 for constraint in (where_clause.constraints or []):
                     if isinstance(constraint, BinaryOpIR) and constraint.operator == BinaryOp.IN:
@@ -1490,7 +1490,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 if _is_unknown_type(element_type):
                     element_type = None
 
-        if element_type is None and hasattr(ein_expr, 'element_type') and ein_expr.element_type:
+        if element_type is None and ein_expr.element_type:
             et = ein_expr.element_type
             if not _is_unknown_type(et):
                 element_type = et
@@ -1537,7 +1537,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 "Ensure NameResolutionPass runs before TypeInferencePass."
             )
 
-        if not hasattr(ein_expr, 'element_type') or ein_expr.element_type is None:
+        if ein_expr.element_type is None:
             object.__setattr__(ein_expr, 'element_type', element_type)
         object.__setattr__(ein_expr, 'type_info', array_type)
 
@@ -1748,7 +1748,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
     
     def _infer_array_literal_shape(self, array_lit) -> Optional[Tuple[int, ...]]:
         """Infer shape from array literal recursively. Returns None if jagged (inconsistent row lengths)."""
-        if not hasattr(array_lit, 'elements') or not array_lit.elements:
+        if not array_lit.elements:
             return (0,)
         from ..ir.nodes import ArrayLiteralIR
         shape = [len(array_lit.elements)]
@@ -1978,10 +1978,10 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                     self._set_var(defid, I32)
         # Visit range expressions in variable_ranges so RangeIR (and start/end) get type_info
         for rng in (node.variable_ranges or {}).values():
-            if rng is not None and hasattr(rng, 'accept'):
+            if rng is not None:
                 rng.accept(self)
         for idx in (node.indices or []):
-            if idx is not None and hasattr(idx, 'accept'):
+            if idx is not None:
                 idx.accept(self)
         if node.where_clause:
             for c in (node.where_clause.constraints or []):

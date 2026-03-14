@@ -212,7 +212,7 @@ class TestEinsteinLoweringPass:
                 for clause in node.items:
                     if clause.loops:
                         lowered_clauses_or_loops.append(clause)
-            if is_einstein_binding(node) and getattr(node, 'lowered_iteration', None):
+            if is_einstein_binding(node) and node.lowered_iteration is not None:
                 lo = node.lowered_iteration
                 if lo.loops:
                     lowered_clauses_or_loops.append(lo)
@@ -394,7 +394,7 @@ class TestEinsteinLoweringPassIntegration:
         def find_lowered(node):
             if isinstance(node, LoweredEinsteinIR):
                 lowered.append(node)
-            if is_einstein_binding(node) and getattr(node, 'lowered_iteration', None):
+            if is_einstein_binding(node) and node.lowered_iteration is not None:
                 lowered.append(node.lowered_iteration)
             if hasattr(node, 'value'):
                 find_lowered(node.value)
@@ -420,7 +420,7 @@ class TestEinsteinLoweringPassIntegration:
                 for clause in node.items:
                     if clause.loops:
                         loops_list.append(clause.loops)
-            if is_einstein_binding(node) and getattr(node, 'lowered_iteration', None):
+            if is_einstein_binding(node) and node.lowered_iteration is not None:
                 lo = node.lowered_iteration
                 if lo.loops:
                     loops_list.append(lo.loops)

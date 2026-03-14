@@ -258,7 +258,7 @@ class MonomorphizationService:
                     return True
                 from ..shared.types import RectangularType
                 if isinstance(param_type, RectangularType):
-                    if getattr(param_type, "is_dynamic_rank", False):
+                    if param_type.is_dynamic_rank:
                         return True
         return False
 
@@ -291,11 +291,10 @@ class MonomorphizationService:
         from ..shared.types import TypeKind, RectangularType
         partial: List[Type] = []
         for t in arg_types:
-            if t is not None and getattr(t, "kind", None) == TypeKind.RECTANGULAR:
-                el = getattr(t, "element_type", None)
+            if t is not None and t.kind == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
                 partial.append(
                     RectangularType(
-                        element_type=el, shape=None, is_dynamic_rank=True
+                        element_type=t.element_type, shape=None, is_dynamic_rank=True
                     )
                 )
             else:
@@ -321,11 +320,10 @@ class MonomorphizationService:
         from ..shared.types import TypeKind, RectangularType, UNKNOWN
         partial: List[Type] = []
         for t in arg_types:
-            if t is not None and getattr(t, "kind", None) == TypeKind.RECTANGULAR:
-                shape = getattr(t, "shape", None)
+            if t is not None and t.kind == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
                 partial.append(
                     RectangularType(
-                        element_type=UNKNOWN, shape=shape, is_dynamic_rank=False
+                        element_type=UNKNOWN, shape=t.shape, is_dynamic_rank=False
                     )
                 )
             else:
@@ -607,15 +605,14 @@ class MonomorphizationService:
         for t in arg_types:
             if t is None or t is UNKNOWN:
                 return False
-            kind = getattr(t, "kind", None)
-            if kind == TypeKind.RECTANGULAR:
+            if t.kind == TypeKind.RECTANGULAR:
                 if not isinstance(t, RectangularType) or t.element_type is None:
                     return False
                 if t.element_type is UNKNOWN:
                     return False
-            elif kind == TypeKind.FUNCTION:
+            elif t.kind == TypeKind.FUNCTION:
                 pass
-            elif kind != TypeKind.PRIMITIVE:
+            elif t.kind != TypeKind.PRIMITIVE:
                 return False
         return True
 
@@ -640,7 +637,7 @@ class MonomorphizationService:
         for t in arg_types:
             if t is None or t is UNKNOWN:
                 continue
-            if getattr(t, "kind", None) == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
+            if t.kind == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
                 has_rank = (
                     t.shape is not None and len(t.shape) > 0
                 )
@@ -655,13 +652,13 @@ class MonomorphizationService:
         from ..shared.types import RectangularType
         if not isinstance(type_info, RectangularType):
             return 0
-        if getattr(type_info, "shape", None) is not None:
+        if type_info.shape is not None:
             return len(type_info.shape)
         rank = 0
         current = type_info
         while isinstance(current, RectangularType):
             rank += 1
-            current = getattr(current, "element_type", None)
+            current = current.element_type
         return rank
 
     def _create_dynamic_shape_types(
@@ -673,7 +670,7 @@ class MonomorphizationService:
             if t is None:
                 result.append(t)
                 continue
-            if getattr(t, "kind", None) == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
+            if t.kind == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
                 rank = self._compute_rank(t)
                 shape = tuple(None for _ in range(rank)) if rank > 0 else None
                 el = self._create_dynamic_shape_types((t.element_type,))[0]
@@ -697,7 +694,7 @@ class MonomorphizationService:
             if t is None:
                 out.append(t)
                 continue
-            if getattr(t, "kind", None) == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
+            if t.kind == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
                 el_norm = self._normalize_types_for_instance((t.element_type,))[0]
                 shape = (
                     tuple(None for _ in t.shape) if t.shape else None
@@ -706,7 +703,7 @@ class MonomorphizationService:
                     RectangularType(
                         element_type=el_norm,
                         shape=shape,
-                        is_dynamic_rank=getattr(t, "is_dynamic_rank", False),
+                        is_dynamic_rank=t.is_dynamic_rank,
                     )
                 )
             else:
@@ -817,9 +814,8 @@ class MonomorphizationService:
                     arg_types_list.append(t)
                 all_known = bool(arg_types_list and all(t is not None and t is not UNKNOWN for t in arg_types_list))
                 if not all_known and len(arg_types_list) == 2 and fd and self._is_generic_function(fd):
-                    from ..shared.types import RectangularType, PrimitiveType
-                    from ..shared.types import F32
-                    if arg_types_list[1] is not None and arg_types_list[1] is not UNKNOWN and getattr(arg_types_list[1], "name", None) == "f32":
+                    from ..shared.types import RectangularType, PrimitiveType, F32
+                    if arg_types_list[1] is not None and arg_types_list[1] is not UNKNOWN and isinstance(arg_types_list[1], PrimitiveType) and arg_types_list[1].name == "f32":
                         fill = RectangularType(element_type=F32, shape=None)
                         arg_types_list = [fill, arg_types_list[1]]
                         all_known = True

@@ -47,19 +47,19 @@ class TestBasics:
             
             # system returns structured results
             assert result is not None, f"Execution should return a result for {basics_file.name}"
-            assert hasattr(result, 'success'), f"Result should have success attribute for {basics_file.name}"
+            assert result.success is not None, f"Result should have success attribute for {basics_file.name}"
             
             # Always check result.success unless it is a negative test
             if result.success:
                 print(f"✅ {basics_file.name} executed successfully with system (IR mode)")
                 
                 # Check that we have execution results
-                if hasattr(result, 'outputs'):
+                if result.outputs:
                     variables = result.outputs
                     print(f"   Variables: {list(variables.keys())}")
             else:
                 # If execution failed, check if it's an expected failure
-                errors = result.get_errors() if hasattr(result, 'get_errors') else result.errors if hasattr(result, 'errors') else []
+                errors = result.get_errors()
                 error_msg = str(errors) if errors else "Unknown error"
                 print(f"❌ Execution failed for {basics_file.name} (IR mode): {error_msg[:100]}...")
                 

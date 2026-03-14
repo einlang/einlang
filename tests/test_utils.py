@@ -135,7 +135,7 @@ def apply_ir_round_trip(compilation_result: Any) -> Any:
     """Replace IR with serialize->deserialize round-trip. Preserves all info used by runtime. Modifies in place."""
     if not compilation_result.success:
         return compilation_result
-    ir = (compilation_result.ir if hasattr(compilation_result, "ir") else None) or (compilation_result.ir_program if hasattr(compilation_result, "ir_program") else None)
+    ir = compilation_result.ir
     if ir is None:
         return compilation_result
     from einlang.ir.serialization import serialize_ir, deserialize_ir
@@ -163,8 +163,7 @@ def apply_ir_round_trip(compilation_result: Any) -> Any:
     for i in range(min(len(orig_stmts), len(rt_stmts))):
         orig, rt = orig_stmts[i], rt_stmts[i]
         orig_defid = getattr(orig, "defid", None)
-        rt_binding = getattr(rt, "_binding", None)
-        rt_defid = getattr(rt_binding, "defid", None) if rt_binding else getattr(rt, "defid", None)
+        rt_defid = getattr(rt, "defid", None)
         if orig_defid is not None:
             assert rt_defid is not None, (
                 f"round-trip lost defid for statement {i} (orig defid={orig_defid})"
@@ -172,10 +171,7 @@ def apply_ir_round_trip(compilation_result: Any) -> Any:
             assert rt_defid.krate == orig_defid.krate and rt_defid.index == orig_defid.index, (
                 f"round-trip defid mismatch for statement {i}: orig={orig_defid} rt={rt_defid}"
             )
-    if hasattr(compilation_result, "ir"):
-        compilation_result.ir = round_tripped
-    if hasattr(compilation_result, "ir_program"):
-        compilation_result.ir_program = round_tripped
+    compilation_result.ir = round_tripped
     return compilation_result
 
 

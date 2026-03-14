@@ -43,7 +43,7 @@ class TestFibonacciE2EV2:
         assert result.success, f"Fibonacci test failed: {result.errors}"
         
         # Check that we have execution results
-        if hasattr(result, 'outputs'):
+        if result.outputs:
             variables = result.outputs
             assert 'fib' in variables, "Fibonacci test failed: 'fib' variable not found in result"
             
@@ -75,7 +75,7 @@ class TestFibonacciE2EV2:
         assert result.success, f"Fibonacci array comparison test failed: {result.errors}"
         
         # Check execution results
-        if hasattr(result, 'outputs'):
+        if result.outputs:
             variables = result.outputs
             assert 'fib' in variables, "Fibonacci array comparison test failed: 'fib' variable not found in result"
             assert 'expected' in variables, "Expected variable should be in execution results"
@@ -107,7 +107,7 @@ class TestFibonacciE2EV2:
         assert result.success, f"Lucas sequence test failed: {result.errors}"
         
         # Check execution results
-        if hasattr(result, 'outputs'):
+        if result.outputs:
             variables = result.outputs
             assert 'lucas' in variables, "Lucas sequence test failed: 'lucas' variable not found in result"
             assert 'expected' in variables, "Expected variable should be in execution results"
@@ -141,7 +141,7 @@ class TestFibonacciE2EV2:
         assert result.success, f"Fibonacci with different base cases test failed: {result.errors}"
         
         # Check execution results
-        if hasattr(result, 'outputs'):
+        if result.outputs:
             variables = result.outputs
             assert 'fib' in variables, "Fibonacci with different base cases test failed: 'fib' variable not found in result"
             assert 'expected' in variables, "Expected variable should be in execution results"
@@ -176,7 +176,7 @@ class TestFibonacciE2EV2:
         assert result.success, f"Fibonacci large sequence test failed: {result.errors}"
         
         # Check execution results
-        if hasattr(result, 'outputs'):
+        if result.outputs:
             variables = result.outputs
             assert 'fib' in variables, "Fibonacci large sequence test failed: 'fib' variable not found in result"
             
@@ -216,7 +216,7 @@ class TestFibonacciE2EV2:
         assert result.success, f"Fibonacci with variables test failed: {result.errors}"
         
         # Check execution results
-        if hasattr(result, 'outputs'):
+        if result.outputs:
             variables = result.outputs
             assert 'fib' in variables, "Fibonacci with variables test failed: 'fib' variable not found in result"
             assert 'expected' in variables, "Expected variable should be in execution results"
@@ -240,7 +240,7 @@ class TestFibonacciE2EV2:
         # system should either succeed (if it handles missing base cases) or fail gracefully
         if result.success:
             # If it succeeds, that's also valid - the system might handle missing base cases
-            assert hasattr(result, 'outputs'), "Result should have variables attribute"
+            assert result.outputs is not None, "Result should have variables attribute"
         else:
             # If it fails, it should fail gracefully with proper error messages
             assert len(result.errors) > 0, "Should have error messages when execution fails"
@@ -271,7 +271,7 @@ class TestFibonacciE2EV2:
         assert result.success, f"Fibonacci with expressions test failed: {result.errors}"
         
         # Check execution results
-        if hasattr(result, 'outputs'):
+        if result.outputs:
             variables = result.outputs
             assert 'fib' in variables, "Fibonacci with expressions test failed: 'fib' variable not found in result"
             assert 'expected' in variables, "Expected variable should be in execution results"

@@ -29,12 +29,13 @@ from ...utils.io_utils import read_source_file
 
 # Import AST types 
 try:
-    from ...shared.nodes import Program, UseStatement, FunctionDefinition, InlineModule
+    from ...shared.nodes import Program, UseStatement, FunctionDefinition, InlineModule, BlockExpression
 except ImportError:
     Program = Any
     UseStatement = Any
     FunctionDefinition = Any
     InlineModule = Any
+    BlockExpression = Any
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +310,7 @@ class ModuleLoader:
                 declarations.append(ModuleDeclaration(
                     name=stmt.name,
                     is_public=stmt.is_public,
-                    location=(stmt.location.line, stmt.location.column) if hasattr(stmt, 'location') and stmt.location else None
+                    location=(stmt.location.line, stmt.location.column) if stmt.location else None
                 ))
         
         return declarations
@@ -346,7 +347,7 @@ class ModuleLoader:
         
         # Extract statements from the body (BlockExpression.statements or List[Statement])
         body = inline_module.body
-        if hasattr(body, 'statements'):
+        if isinstance(body, BlockExpression):
             body_statements = body.statements
         elif isinstance(body, list):
             body_statements = body

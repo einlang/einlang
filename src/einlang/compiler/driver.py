@@ -300,11 +300,11 @@ class CompilerDriver:
             if e.location is not None:
                 loc = e.location
                 span = SourceLocation(
-                    file=getattr(loc, "file", source_file),
-                    line=getattr(loc, "line", 1),
-                    column=getattr(loc, "column", 1),
-                    end_line=getattr(loc, "line", 1),
-                    end_column=getattr(loc, "column", 1) + 1,
+                    file=loc.file,
+                    line=loc.line,
+                    column=loc.column,
+                    end_line=loc.line,
+                    end_column=loc.column + 1,
                 )
             else:
                 span = SourceLocation(

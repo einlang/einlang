@@ -50,7 +50,7 @@ class TestStdlibIntegration:
                 (k, v) for k, v in result.tcx.resolver._symbol_table.items()
                 if isinstance(k, tuple) and len(k) == 2 and k[0] != () and len(k[0]) > 0 and k[0][0] == 'std'
             ]
-            stdlib_in_ir = result.ir and hasattr(result.ir, 'functions') and any(f.name.startswith('sqrt') for f in result.ir.functions)
+            stdlib_in_ir = result.ir and any(f.name.startswith('sqrt') for f in result.ir.functions)
             assert len(stdlib_funcs) > 0 or stdlib_in_ir or result.success, "Should register some stdlib functions or have sqrt in IR or succeed"
     
     def test_stdlib_function_lowering(self):

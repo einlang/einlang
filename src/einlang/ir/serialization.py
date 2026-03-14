@@ -286,7 +286,7 @@ class IRSerializer:
         """Serialize binary operation: (binary-op OP left right). Operator as symbol for canonical format."""
         left = self.serialize_to_sexpr(node.left)
         right = self.serialize_to_sexpr(node.right)
-        op_sym = node.operator.value if hasattr(node.operator, "value") else node.operator
+        op_sym = node.operator.value
         core = [self._sym("binary-op"), self._sym(op_sym), left, right]
         return self._add_expr_metadata(node, core)
     
@@ -295,7 +295,7 @@ class IRSerializer:
     def _serialize_UnaryOpIR(self, node) -> list:
         """Serialize unary operation: (unary-op OP operand). Operator as symbol."""
         operand = self.serialize_to_sexpr(node.operand)
-        op_sym = node.operator.value if hasattr(node.operator, "value") else node.operator
+        op_sym = node.operator.value
         core = [self._sym("unary-op"), self._sym(op_sym), operand]
         return self._add_expr_metadata(node, core)
     
@@ -435,10 +435,7 @@ class IRSerializer:
         """Serialize loop structure: (loop (variable "name" :defid [...]) iterable)."""
         iterable = self.serialize_to_sexpr(loop.iterable)
         var = loop.variable
-        if hasattr(var, "accept"):
-            var_sexpr = self.serialize_to_sexpr(var)
-        else:
-            var_sexpr = [self._sym("variable"), str(var)]
+        var_sexpr = self.serialize_to_sexpr(var)
         return [self._sym("loop"), var_sexpr, iterable]
     
     def _serialize_BindingIR(self, node) -> list:
@@ -957,7 +954,7 @@ class IRDeserializer:
             val = True if v == "true" else False if v == "false" else v
         elif isinstance(val, list) and val and _sym_val(val[0]) == "literal":
             des = self.deserialize(val)
-            val = des.value if hasattr(des, "value") else des
+            val = des.value if isinstance(des, LiteralIR) else des
         if isinstance(type_sym, list):
             type_sym = _sym_val(type_sym[1]) if len(type_sym) > 1 else "i32"
         ty = self._deserialize_type(opts.get(":inferred_type"))

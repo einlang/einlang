@@ -284,7 +284,7 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         body_defid = defid_of_var_in_expr(expr.body, (loop_var.name or "") or "") or loop_defid
         reduction_defids.append(body_defid)
         try:
-            iterable = loop.iterable.accept(backend) if hasattr(loop.iterable, "accept") else None
+            iterable = loop.iterable.accept(backend)
             if iterable is None:
                 return None
             reduction_sizes.append(int(len(iterable)))
@@ -297,9 +297,9 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     mul_right: Optional[Any] = None
     bias: Optional[Any] = None
     scale: Optional[float] = None
-    _add = getattr(BinaryOp, "ADD", None) or "+"
-    _mul = getattr(BinaryOp, "MUL", None) or "*"
-    _div = getattr(BinaryOp, "DIV", None) or "/"
+    _add = BinaryOp.ADD
+    _mul = BinaryOp.MUL
+    _div = BinaryOp.DIV
     body_op = body.operator
     if isinstance(body, BinaryOpIR) and body_op in (_add, "+"):
         add_left = body.left
@@ -379,11 +379,11 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
                     backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
             axes_left = _reduction_axes_in_access(backend, indices_left, reduction_defids)
             axes_right = _reduction_axes_in_access(backend, indices_right, reduction_defids)
-            if left_arr is not None and hasattr(left_arr, "accept"):
+            if left_arr is not None:
                 left_val = left_arr.accept(backend)
             else:
                 left_val = mul_left.accept(backend)
-            if right_arr is not None and hasattr(right_arr, "accept"):
+            if right_arr is not None:
                 right_val = right_arr.accept(backend)
             else:
                 right_val = mul_right.accept(backend)
@@ -483,8 +483,8 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
     body = expr.body
     if body is None:
         return None
-    _add = getattr(BinaryOp, "ADD", None) or "+"
-    _mul = getattr(BinaryOp, "MUL", None) or "*"
+    _add = BinaryOp.ADD
+    _mul = BinaryOp.MUL
     mul_left: Optional[RectangularAccessIR] = None
     mul_right: Optional[RectangularAccessIR] = None
     bias: Optional[Any] = None
@@ -550,9 +550,9 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
     try:
         input_arr = mul_left.array
         weight_arr = mul_right.array
-        if input_arr is not None and hasattr(input_arr, "accept"):
+        if input_arr is not None:
             input_arr = input_arr.accept(backend)
-        if weight_arr is not None and hasattr(weight_arr, "accept"):
+        if weight_arr is not None:
             weight_arr = weight_arr.accept(backend)
     except Exception:
         return None
@@ -669,7 +669,7 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         body_defid = defid_of_var_in_expr(expr.body, (loop_var.name or "") or "") or loop_defid
         reduction_defids.append(body_defid)
         try:
-            iterable = loop.iterable.accept(backend) if hasattr(loop.iterable, "accept") else None
+            iterable = loop.iterable.accept(backend)
             if iterable is None:
                 return None
             reduction_sizes.append(int(len(iterable)))
@@ -678,8 +678,8 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     body = expr.body
     if body is None:
         return None
-    _add = getattr(BinaryOp, "ADD", None) or "+"
-    _mul = getattr(BinaryOp, "MUL", None) or "*"
+    _add = BinaryOp.ADD
+    _mul = BinaryOp.MUL
     mul_left: Optional[RectangularAccessIR] = None
     mul_right: Optional[RectangularAccessIR] = None
     bias: Optional[Any] = None
@@ -754,11 +754,11 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
                     shape = [1] * n_red
                     shape[i] = N
                     backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
-            if left_arr is not None and hasattr(left_arr, "accept"):
+            if left_arr is not None:
                 left_val = left_arr.accept(backend)
             else:
                 left_val = mul_left.accept(backend)
-            if right_arr is not None and hasattr(right_arr, "accept"):
+            if right_arr is not None:
                 right_val = right_arr.accept(backend)
             else:
                 right_val = mul_right.accept(backend)

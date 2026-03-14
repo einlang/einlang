@@ -54,6 +54,7 @@ class TyCtxt:
         # Module system (for lazy loading / tree-shaking)
         self.module_system: Optional[Any] = None  # ModuleSystem instance
         self.discovered_modules: Dict[Any, Any] = {}  # Discovered module paths (not loaded yet)
+        self.module_loader: Optional[Any] = None  # Set by name resolution when loading modules
     
     def get_definition(self, defid: Any) -> Optional[Tuple[Any, Any]]:
         return self.def_registry.get(defid)
