@@ -10,7 +10,7 @@ from ..passes.base import BasePass, TyCtxt
 from ..passes.type_inference import TypeInferencePass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, MatchExpressionIR, MatchArmIR,
-    PatternIR, LiteralPatternIR, WildcardPatternIR,
+    PatternIR, LiteralPatternIR, WildcardPatternIR, GuardPatternIR,
     IdentifierPatternIR, TuplePatternIR, ArrayPatternIR,
     OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR,
     IRVisitor,
@@ -68,18 +68,15 @@ class ExhaustivenessChecker:
     
     def _get_scrutinee_type(self, scrutinee: ExpressionIR) -> Optional[str]:
         """Get type of scrutinee expression"""
-        # Direct attribute access - trust IR structure
-        if hasattr(scrutinee, 'type_info') and scrutinee.type_info:
-            type_info = scrutinee.type_info
-            
-            # Handle PrimitiveType objects (most common case)
-            if hasattr(type_info, 'name'):
-                return type_info.name
-            elif hasattr(type_info, '__name__'):
-                return type_info.__name__
-            elif isinstance(type_info, str):
-                return type_info
-        
+        type_info = getattr(scrutinee, 'type_info', None)
+        if type_info is None:
+            return None
+        if getattr(type_info, 'name', None):
+            return type_info.name
+        if getattr(type_info, '__name__', None):
+            return type_info.__name__
+        if isinstance(type_info, str):
+            return type_info
         return None
     
     def _flatten_patterns(self, patterns: List[PatternIR]) -> List[PatternIR]:
@@ -99,7 +96,7 @@ class ExhaustivenessChecker:
             if isinstance(pattern, BindingPatternIR):
                 if self._is_wildcard(pattern) or self._is_wildcard(pattern.inner_pattern):
                     return True
-            elif hasattr(pattern, 'inner_pattern'):  # GuardPatternIR
+            elif isinstance(pattern, GuardPatternIR):
                 if self._is_wildcard(pattern.inner_pattern):
                     return True
             elif self._is_wildcard(pattern):
@@ -139,7 +136,7 @@ class ExhaustivenessChecker:
         for pattern in patterns:
             if self._is_wildcard(pattern):
                 has_wildcard = True
-            elif hasattr(pattern, 'value'):  # LiteralPatternIR
+            elif isinstance(pattern, LiteralPatternIR):
                 if pattern.value is True:
                     has_true = True
                 elif pattern.value is False:
@@ -164,7 +161,7 @@ class ExhaustivenessChecker:
                 has_true = False
                 has_false = False
                 for p in flat:
-                    if hasattr(p, 'value'):
+                    if isinstance(p, LiteralPatternIR):
                         if p.value is True:
                             has_true = True
                         elif p.value is False:
@@ -295,10 +292,10 @@ class ExhaustivenessVisitor(IRVisitor[None]):
     def visit_binding(self, node) -> None:
         if is_function_binding(node) or is_einstein_binding(node):
             return None
-        if hasattr(node, 'value') and node.value:
-            return node.value.accept(self)
+        if node.expr is not None:
+            return node.expr.accept(self)
         return None
-    
+
     def visit_literal_pattern(self, node) -> None:
         pass
     
@@ -321,18 +318,15 @@ class ExhaustivenessVisitor(IRVisitor[None]):
         pass
     
     def visit_or_pattern(self, node) -> None:
-        if hasattr(node, 'alternatives'):
-            for alt in node.alternatives:
-                alt.accept(self)
-    
+        for alt in (node.alternatives or []):
+            alt.accept(self)
+
     def visit_constructor_pattern(self, node) -> None:
-        if hasattr(node, 'patterns'):
-            for p in node.patterns:
-                p.accept(self)
-    
+        for p in (node.patterns or []):
+            p.accept(self)
+
     def visit_binding_pattern(self, node) -> None:
-        if hasattr(node, 'inner_pattern'):
-            node.inner_pattern.accept(self)
+        node.inner_pattern.accept(self)
     
     def visit_range_pattern(self, node) -> None:
         pass

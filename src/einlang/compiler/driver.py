@@ -18,16 +18,18 @@ from ..passes.range_analysis import RangeAnalysisPass
 from ..analysis.module_system import ModuleSystem
 
 class CompilationResult:
-    """Compilation result"""
+    """Compilation result (Rust: crate output; Python: __file__ = entry source path)."""
     def __init__(
         self,
         ir: Optional[ProgramIR] = None,
         tcx: Optional[TyCtxt] = None,
-        success: bool = False
+        success: bool = False,
+        entry_source_file: Optional[str] = None,
     ):
         self.ir = ir
         self.tcx = tcx
         self.success = success
+        self.entry_source_file = entry_source_file
 
     def has_errors(self) -> bool:
         """True if compilation reported errors."""
@@ -178,7 +180,7 @@ class CompilerDriver:
 
             ast = self._run_name_resolution_pass(ast, tcx)
             if tcx.reporter.has_errors():
-                return CompilationResult(success=False, tcx=tcx)
+                return CompilationResult(success=False, tcx=tcx, entry_source_file=source_file)
             
             # Phase 3-7: Passes (all on IR after lowering)
             from ..passes.ast_to_ir import ASTToIRLoweringPass
@@ -196,7 +198,7 @@ class CompilerDriver:
 
             # Check if we should stop after lowering
             if stop_after_pass == 'ASTToIRLoweringPass':
-                return CompilationResult(success=True, ir=ir, tcx=tcx)
+                return CompilationResult(success=True, ir=ir, tcx=tcx, entry_source_file=source_file)
 
             dump_ir_per_pass = os.environ.get("EINLANG_DUMP_IR_PER_PASS", "")
             if dump_ir_per_pass:
@@ -270,7 +272,7 @@ class CompilerDriver:
 
             # Check for errors
             if tcx.reporter.has_errors():
-                return CompilationResult(success=False, tcx=tcx)
+                return CompilationResult(success=False, tcx=tcx, entry_source_file=source_file)
             
             function_ir_map = getattr(tcx, 'function_ir_map', None) or {}
             func_set = set(ir.functions)
@@ -291,7 +293,7 @@ class CompilerDriver:
                     (ir_dump_dir / "final_ir.sexpr").write_text(serialize_ir(ir), encoding="utf-8")
                 except Exception:
                     pass
-            return CompilationResult(ir=ir, tcx=tcx, success=True)
+            return CompilationResult(ir=ir, tcx=tcx, success=True, entry_source_file=source_file)
         
         except ParseError as e:
             from ..shared.source_location import SourceLocation
@@ -310,7 +312,7 @@ class CompilerDriver:
                     end_line=1, end_column=1,
                 )
             tcx.reporter.report_error(e.message, span)
-            return CompilationResult(success=False, tcx=tcx)
+            return CompilationResult(success=False, tcx=tcx, entry_source_file=source_file)
         except Exception as e:
             if not tcx.reporter.has_errors():
                 from ..shared.source_location import SourceLocation
@@ -325,5 +327,5 @@ class CompilerDriver:
                     str(e),
                     location
                 )
-            return CompilationResult(success=False, tcx=tcx)
+            return CompilationResult(success=False, tcx=tcx, entry_source_file=source_file)
 

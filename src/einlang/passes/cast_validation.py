@@ -9,9 +9,10 @@ from typing import Optional, Any
 from ..passes.base import BasePass, TyCtxt
 from ..passes.type_inference import TypeInferencePass
 from ..ir.nodes import (
-    ProgramIR, ExpressionIR, CastExpressionIR, IRVisitor,
+    ProgramIR, ExpressionIR, CastExpressionIR,
     is_function_binding, is_einstein_binding, is_constant_binding,
 )
+from ..passes.visitor_helpers import DefaultRecursingVisitor
 from ..shared.defid import DefId
 from ..shared.types import (
     Type,
@@ -80,13 +81,13 @@ class CastValidator:
     
     def _get_expression_type(self, expr: ExpressionIR) -> Optional[Any]:
         """Get type of expression (type object, e.g. PrimitiveType)."""
-        if not hasattr(expr, 'type_info') or not expr.type_info:
+        if getattr(expr, 'type_info', None) is None:
             return None
         return expr.type_info
 
     def _get_target_type(self, cast_expr: CastExpressionIR) -> Optional[Any]:
         """Get target type as type object (never None for valid IR)."""
-        return getattr(cast_expr, 'target_type', None)
+        return cast_expr.target_type
 
     def validate_cast(self, cast_expr: CastExpressionIR) -> bool:
         """Validate type cast. Source and target are type objects."""
@@ -137,28 +138,14 @@ class CastValidator:
         return False
 
 
-class CastValidationVisitor(IRVisitor[None]):
-    """Visitor to validate casts in IR"""
-    
-    def __init__(self, validator: CastValidator):
+class CastValidationVisitor(DefaultRecursingVisitor):
+    """Visitor to validate casts in IR. Uses DefaultRecursingVisitor; only cast nodes need custom handling."""
+
+    def __init__(self, validator: CastValidator) -> None:
         self.validator = validator
-    
-    def visit_program(self, node: ProgramIR) -> None:
-        """Visit program and validate all casts"""
-        # Visit all statements
-        for stmt in node.statements:
-            stmt.accept(self)
-        # Visit all functions
-        for func in node.functions:
-            func.accept(self)
-        # Visit all constants
-        for const in node.constants:
-            const.accept(self)
-    
+
     def visit_cast_expression(self, expr: CastExpressionIR) -> None:
-        """Validate cast expression"""
         is_valid = self.validator.validate_cast(expr)
-        
         if not is_valid:
             source_type = self.validator._get_expression_type(expr.expr)
             target_type = self.validator._get_target_type(expr)
@@ -168,135 +155,6 @@ class CastValidationVisitor(IRVisitor[None]):
                 code="E1003",
                 note="Valid casts: numeric types (i8, i32, i64, f8e4m3, f16, bf16, f32, f64), bool to numeric, numeric to bool, same type.",
             )
-        
-        # Process operand
         expr.expr.accept(self)
-    
-    # Required visitor methods (no-op for other nodes)
-    def visit_literal(self, node) -> None:
-        pass
-    
-    def visit_identifier(self, node) -> None:
-        pass
-    
-    def visit_binary_op(self, node) -> None:
-        pass
-    
-    def visit_function_call(self, node) -> None:
-        pass
-    
-    def visit_unary_op(self, node) -> None:
-        pass
-    
-    def visit_rectangular_access(self, node) -> None:
-        pass
-    
-    def visit_jagged_access(self, node) -> None:
-        pass
-    
-    def visit_block_expression(self, node) -> None:
-        pass
-    
-    def visit_if_expression(self, node) -> None:
-        pass
-    
-    def visit_lambda(self, node) -> None:
-        pass
-    
-    def visit_range(self, node) -> None:
-        pass
-    
-    def visit_array_comprehension(self, node) -> None:
-        pass
-    
-    def visit_array_literal(self, node) -> None:
-        pass
-    
-    def visit_tuple_expression(self, node) -> None:
-        pass
-    
-    def visit_tuple_access(self, node) -> None:
-        pass
-    
-    def visit_interpolated_string(self, node) -> None:
-        pass
-    
-    def visit_member_access(self, node) -> None:
-        pass
-    
-    def visit_try_expression(self, node) -> None:
-        pass
-    
-    def visit_match_expression(self, node) -> None:
-        pass
-    
-    def visit_reduction_expression(self, node) -> None:
-        """Visit reduction expression - traverse body and where clause"""
-        node.body.accept(self)
-        if node.where_clause:
-            for constraint in node.where_clause.constraints:
-                constraint.accept(self)
-    
-    def visit_where_expression(self, node) -> None:
-        """Visit where expression - traverse expr and constraints"""
-        node.expr.accept(self)
-        for constraint in node.constraints:
-            constraint.accept(self)
-    
-    def visit_pipeline_expression(self, node) -> None:
-        pass
-    
-    def visit_builtin_call(self, node) -> None:
-        pass
-    
-    def visit_binding(self, node) -> None:
-        if is_function_binding(node) or is_einstein_binding(node):
-            return
-        if hasattr(node, 'value') and node.value:
-            node.value.accept(self)
-
-    def visit_lowered_recurrence(self, node) -> None:
-        """Recurse into initial and body (recurrence loop is structural)."""
-        if getattr(node, "initial", None):
-            node.initial.accept(self)
-        if getattr(node, "recurrence_loop", None) and getattr(node.recurrence_loop, "iterable", None):
-            node.recurrence_loop.iterable.accept(self)
-        if getattr(node, "body", None):
-            node.body.accept(self)
-
-    def visit_lowered_einstein(self, node) -> None:
-        """Recurse into lowered Einstein items."""
-        for item in getattr(node, "items", []) or []:
-            item.accept(self)
-
-    def visit_lowered_einstein_clause(self, node) -> None:
-        """Recurse into clause body."""
-        if getattr(node, "body", None):
-            node.body.accept(self)
-
-    def visit_literal_pattern(self, node) -> None:
-        pass
-    
-    def visit_identifier_pattern(self, node) -> None:
-        pass
-    
-    def visit_wildcard_pattern(self, node) -> None:
-        pass
-    
-    def visit_tuple_pattern(self, node) -> None:
-        pass
-    
-    def visit_array_pattern(self, node) -> None:
-        pass
-    
-    def visit_rest_pattern(self, node) -> None:
-        pass
-    
-    def visit_guard_pattern(self, node) -> None:
-        pass
-    
-    
-    def visit_module(self, node) -> None:
-        pass
 
 

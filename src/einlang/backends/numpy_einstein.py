@@ -2745,6 +2745,107 @@ def _eval_clause_body_with_broadcast_loops(
         return None
 
 
+def _try_slice_vectorize_if_clause(
+    lowered: Any,
+    output: np.ndarray,
+    expr_evaluator: Any,
+    backend: Any,
+) -> Optional[np.ndarray]:
+    """
+    When body is (if loop_var < bound then then_expr else else_expr), vectorize over
+    [0..bound) and fill the rest with else_expr. Speeds up patterns like
+    emb[p,d] = if p < t then dec_tok_emb[tokens[p], d] + ... else 0.
+    """
+    body = getattr(lowered, "body", None)
+    if not isinstance(body, IfExpressionIR):
+        return None
+    cond = getattr(body, "condition", None)
+    if not isinstance(cond, BinaryOpIR):
+        return None
+    op = getattr(cond, "operator", None)
+    lt_ops = (BinaryOp.LT, "<")
+    if op not in lt_ops:
+        return None
+    left = getattr(cond, "left", None)
+    right = getattr(cond, "right", None)
+    if left is None or right is None:
+        return None
+    loops = getattr(lowered, "loops", None) or []
+    if not loops:
+        return None
+    loop_defids = [getattr(lp.variable, "defid", None) for lp in loops]
+    left_defid = getattr(left, "defid", None) if isinstance(left, (IdentifierIR, IndexVarIR)) else None
+    right_defid = getattr(right, "defid", None) if isinstance(right, (IdentifierIR, IndexVarIR)) else None
+    bound_side = None
+    dim = -1
+    if left_defid is not None and left_defid in loop_defids:
+        bound_side = right
+        dim = loop_defids.index(left_defid)
+    elif right_defid is not None and right_defid in loop_defids:
+        bound_side = left
+        dim = loop_defids.index(right_defid)
+    if bound_side is None or dim < 0:
+        return None
+    try:
+        if isinstance(bound_side, LiteralIR):
+            bound = int(getattr(bound_side, "value", 0))
+        elif getattr(bound_side, "defid", None) is not None:
+            bound = backend.env.get_value(bound_side.defid)
+            bound = int(bound) if bound is not None else None
+        else:
+            bound = bound_side.accept(backend)
+            bound = int(bound) if bound is not None else None
+        if bound is None or bound < 0:
+            return None
+    except (TypeError, ValueError, AttributeError):
+        return None
+    full_shape = list(output.shape)
+    if dim >= len(full_shape) or bound > full_shape[dim]:
+        return None
+    override: List[Tuple[int, int]] = []
+    for i, lp in enumerate(loops):
+        if i == dim:
+            override.append((0, bound))
+        else:
+            try:
+                r = _extract_loop_range(lp, expr_evaluator)
+                override.append(r)
+            except RuntimeError:
+                return None
+    slice_shape = [override[i][1] - override[i][0] for i in range(len(override))]
+    result = _try_vectorize_clause(
+        lowered, slice_shape, output.dtype, expr_evaluator, backend,
+        loop_ranges_override=override,
+    )
+    if result is None:
+        return None
+    result = np.asarray(result)
+    if result.shape != tuple(slice_shape):
+        return None
+    else_expr = getattr(body, "else_expr", None)
+    else_val = 0
+    if isinstance(else_expr, LiteralIR):
+        v = getattr(else_expr, "value", 0)
+        try:
+            else_val = float(v) if isinstance(v, (int, float)) else 0
+        except (TypeError, ValueError):
+            else_val = 0
+    elif else_expr is not None:
+        try:
+            else_val = else_expr.accept(backend)
+            if isinstance(else_val, np.ndarray) and else_val.ndim == 0:
+                else_val = float(else_val)
+            elif not isinstance(else_val, (int, float)):
+                else_val = 0
+        except Exception:
+            else_val = 0
+    output.fill(else_val)
+    sl: List[Any] = [slice(None)] * output.ndim
+    sl[dim] = slice(0, bound)
+    output[tuple(sl)] = result.astype(output.dtype, copy=False)
+    return output
+
+
 def _try_vectorize_clause(
     clause,
     output_shape,
@@ -3872,7 +3973,7 @@ class EinsteinExecutionMixin:
                     except (TypeError, ValueError):
                         break
                 elif loop_pos < len(lowered.loops):
-                    defid = getattr(lowered.loops[loop_pos].variable, "defid", None)
+                    defid = lowered.loops[loop_pos].variable.defid
                     v = full_context.get(defid)
                     if v is None and defid is not None:
                         v = self.env.get_value(defid)
@@ -3939,8 +4040,8 @@ class EinsteinExecutionMixin:
             return expr.accept(self)
 
         has_literal_idx = any(isinstance(idx, LiteralIR) for idx in clause_indices)
-        body_node = getattr(lowered, "body", None)
-        loop_defids = [getattr(lp.variable, "defid", None) for lp in (lowered.loops or [])]
+        body_node = lowered.body
+        loop_defids = [lp.variable.defid for lp in (lowered.loops or [])]
         has_call_using_loop = _body_contains_call_using_loop_var(body_node, [d for d in loop_defids if d is not None])
         # When body has a call that uses loop vars in its args (e.g. topk_2d_row_values(X, i, ...)), those vars must be scalar.
         # Try call-scalar first so we don't use wrong full-vectorize result (array-valued row index).
@@ -3953,7 +4054,7 @@ class EinsteinExecutionMixin:
             scalar_loop_indices_call = [
                 dim
                 for dim, lp in enumerate(lowered.loops)
-                if getattr(lp.variable, "defid", None) in scalar_defids
+                if lp.variable.defid in scalar_defids
             ]
             if 0 < len(scalar_loop_indices_call) < len(lowered.loops):
                 call_hybrid_out = _try_call_scalar_vectorize_clause(
@@ -3993,6 +4094,15 @@ class EinsteinExecutionMixin:
                 recurrence_needs_scalar = True  # hybrid failed; use scalar path so we read LHS[t-1] correctly
         # Try full vectorize over loop dims (literal idx -> fixed slice; other dims -> vectorize).
         if lowered.loops:
+            # Slice-vectorize: body "if p < t then ... else 0" -> vectorize over [0..t), fill rest (e.g. emb in decode).
+            if not recurrence_needs_scalar and not getattr(lowered, "guards", None) and not getattr(lowered, "bindings", None):
+                slice_vec = _try_slice_vectorize_if_clause(lowered, output, expr_evaluator, backend=self)
+                if slice_vec is not None:
+                    if variable_defid:
+                        self._clause_set_output(variable_defid, output)
+                    self._einstein_vectorized = getattr(self, "_einstein_vectorized", 0) + 1
+                    _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="vectorized")
+                    return output
             # Optional chunked execution to reduce peak memory (env EINLANG_CHUNK_ELEMENTS > 0).
             chunk_threshold = int(os.environ.get("EINLANG_CHUNK_ELEMENTS", "0") or "0")
             if (
@@ -4193,19 +4303,43 @@ class EinsteinExecutionMixin:
 
         self._einstein_scalar = getattr(self, "_einstein_scalar", 0) + 1
         _loop_defid_to_name = {}
-        for lp in lowered.loops:
+        _loops = lowered.loops
+        for lp in _loops:
             v = getattr(lp, "variable", None)
             if v and getattr(v, "defid", None):
                 _loop_defid_to_name[v.defid] = getattr(v, "name", None)
+        _body = lowered.body
+        _bindings = getattr(lowered, "bindings", None) or []
+        _guards = getattr(lowered, "guards", None) or []
+        # Precompute cell_index spec: list of (is_literal, value_or_defid) so we avoid getattr per iteration.
+        _cell_index_spec: List[Any] = []
+        _loop_pos = 0
+        for idx in clause_indices:
+            if isinstance(idx, LiteralIR):
+                try:
+                    _cell_index_spec.append((True, int(idx.value)))
+                except (TypeError, ValueError):
+                    _cell_index_spec = None
+                    break
+            elif _loop_pos < len(_loops):
+                _defid = getattr(_loops[_loop_pos].variable, "defid", None)
+                _cell_index_spec.append((False, _defid))
+                _loop_pos += 1
+            else:
+                _cell_index_spec = None
+                break
+        if _cell_index_spec is not None and _loop_pos != len(_loops):
+            _cell_index_spec = None
+        _loop_defids_tuple = tuple(getattr(lp.variable, "defid", None) for lp in _loops)
 
         with self.env.scope():
-            if not lowered.loops:
+            if not _loops:
                 if all(isinstance(idx, LiteralIR) for idx in clause_indices):
                     idx_tuple = tuple(int(idx.value) for idx in clause_indices)
                 else:
                     idx_tuple = None
                 if idx_tuple is not None:
-                    value = lowered.body.accept(self)
+                    value = _body.accept(self)
                     if value is not None:
                         if isinstance(value, np.ndarray):
                             if value.ndim == 0:
@@ -4218,43 +4352,43 @@ class EinsteinExecutionMixin:
             else:
                 _MAX = int(DEFAULT_EINSTEIN_LOOP_MAX)
                 _n = [0]
-                for loop_context in execute_lowered_loops(lowered.loops, {}, expr_evaluator):
+                _set_value = self.env.set_value
+                _to_bool = self._to_bool
+                for loop_context in execute_lowered_loops(_loops, {}, expr_evaluator):
                     _n[0] += 1
                     if _n[0] > _MAX:
                         raise RuntimeError("Einstein clause loop iterations exceeded limit.")
-                    full_context = execute_lowered_bindings(lowered.bindings, loop_context, expr_evaluator)
+                    if _bindings:
+                        full_context = execute_lowered_bindings(_bindings, loop_context, expr_evaluator)
+                    else:
+                        full_context = loop_context
                     for defid, val in full_context.items():
                         if defid is not None:
-                            vname = _loop_defid_to_name.get(defid)
-                            self.env.set_value(defid, val, name=vname)
-                    if lowered.guards and not check_lowered_guards(lowered.guards, full_context, lambda e: self._to_bool(e.accept(self))):
+                            _set_value(defid, val, name=_loop_defid_to_name.get(defid))
+                    if _guards and not check_lowered_guards(_guards, full_context, lambda e: _to_bool(e.accept(self))):
                         continue
                     try:
-                        value = lowered.body.accept(self)
+                        value = _body.accept(self)
                     except IndexError:
                         continue
-                    idx_tuple = cell_index(full_context)
-                    if idx_tuple is None and clause_indices:
-                        out_idx = []
-                        loop_pos = 0
-                        for idx in clause_indices:
-                            if isinstance(idx, LiteralIR):
-                                try:
-                                    out_idx.append(int(idx.value))
-                                except (TypeError, ValueError):
-                                    break
-                            elif loop_pos < len(lowered.loops):
-                                v = full_context.get(getattr(lowered.loops[loop_pos].variable, "defid", None))
-                                if v is None:
-                                    break
-                                out_idx.append(v)
-                                loop_pos += 1
+                    if _cell_index_spec is not None:
+                        _parts = []
+                        for _is_lit, _v in _cell_index_spec:
+                            if _is_lit:
+                                _parts.append(_v)
                             else:
-                                break
-                        if len(out_idx) == len(clause_indices):
-                            idx_tuple = tuple(out_idx)
+                                _p = full_context.get(_v)
+                                if _p is None and _v is not None:
+                                    _p = self.env.get_value(_v)
+                                if _p is None:
+                                    _parts = None
+                                    break
+                                _parts.append(_p)
+                        idx_tuple = tuple(_parts) if _parts is not None and len(_parts) == len(clause_indices) else None
+                    else:
+                        idx_tuple = cell_index(full_context)
                     if idx_tuple is None:
-                        idx_tuple = tuple(full_context.get(getattr(loop.variable, "defid", None)) for loop in lowered.loops)
+                        idx_tuple = tuple(full_context.get(d) for d in _loop_defids_tuple)
                     if idx_tuple is None or len(idx_tuple) != output.ndim:
                         continue
                     if isinstance(value, np.ndarray):
