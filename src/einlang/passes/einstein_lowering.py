@@ -1807,7 +1807,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             body_defid = defid_of_var_in_expr(node.body, var.name)
             if body_defid is not None and body_defid != getattr(var, 'defid', None):
                 loc = var.location or SourceLocation('', 0, 0)
-                ti = getattr(var, 'type_info', None)
+                ti = var.type_info
                 if isinstance(var, IndexVarIR):
                     new_var = IndexVarIR(var.name, loc, defid=body_defid, range_ir=var.range_ir, type_info=ti)
                 else:
