@@ -126,7 +126,7 @@ class IRValidationVisitor(IRVisitor[None]):
     def visit_index_rest(self, node: IndexRestIR) -> None:
         self.nodes_validated += 1
         self._report_error(
-            f"IndexRestIR (..{getattr(node, 'name', '?')}) must not reach IR validation; "
+            f"IndexRestIR (..{(node.name or '?')}) must not reach IR validation; "
             "rest patterns must be expanded in rest_pattern_preprocessing.",
             node.location,
         )

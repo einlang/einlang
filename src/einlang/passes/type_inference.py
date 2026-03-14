@@ -453,7 +453,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         is_fn = isinstance(node.expr, FunctionValueIR)
         is_ein = isinstance(node.expr, EinsteinIR)
         if not is_fn and not is_ein:
-            type_annotation = getattr(node, 'type_info', None) or getattr(node, 'type_annotation', None)
+            type_annotation = node.type_info or getattr(node, 'type_annotation', None)
             if type_annotation and type_annotation != UNKNOWN:
                 self._expected_type = type_annotation
         else:
@@ -976,7 +976,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                     if param_type is not None and param_type != UNKNOWN:
                         effective_arg_types[0] = param_type
             if not all(t is not None and t != UNKNOWN for t in effective_arg_types) and self._current_program:
-                loc = getattr(expr, 'location', None) or SourceLocation("", 0, 0)
+                loc = expr.location or SourceLocation("", 0, 0)
                 func_ir = getattr(self.tcx, 'function_ir_map', None)
                 for i in range(len(effective_arg_types)):
                     if effective_arg_types[i] is None or effective_arg_types[i] is UNKNOWN:
@@ -990,7 +990,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                         binding = func_map.get(arg_defid) if func_map else None
                         if binding is None:
                             continue
-                        rhs = getattr(binding, 'expr', None)
+                        rhs = binding.expr
                         if not isinstance(rhs, IdentifierIR):
                             continue
                         target_defid = getattr(rhs, 'defid', None)
@@ -1066,7 +1066,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 specialized_func = self.mono_service.incremental_monomorphize(
                     expr, arg_types, "type_inference", required_passes=['range', 'type']
                 )
-                if specialized_func and getattr(specialized_func, 'defid', None):
+                if specialized_func and specialized_func.defid:
                     spec_defid = specialized_func.defid
                     assert_defid(spec_defid, allow_none=False)
                     expr.set_callee_defid(spec_defid)
@@ -1452,7 +1452,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         node = self._current_binding
         clauses = (ein_expr.clauses or []) if hasattr(ein_expr, 'clauses') else []
         for clause in clauses:
-            index_names = set(getattr(clause, 'loop_vars', None) or [])
+            index_names = set(clause.loop_vars or [])
             where_clause = clause.where_clause if hasattr(clause, 'where_clause') else None
             if where_clause and index_names:
                 for constraint in (where_clause.constraints or []):
@@ -1518,7 +1518,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             ranks = [len(c.indices) for c in clauses]
             if len(set(ranks)) > 1:
                 self.tcx.reporter.report_error(
-                    f"Einstein declaration '{getattr(node, 'name', '?')}' has clauses with different ranks: {ranks}. All clauses must have the same rank.",
+                    f"Einstein declaration '{(node.name or '?')}' has clauses with different ranks: {ranks}. All clauses must have the same rank.",
                     location=node.location,
                 )
             num_dimensions = ranks[0]
@@ -1533,7 +1533,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
         if node.defid is None:
             raise RuntimeError(
-                f"Einstein declaration has no DefId (name={getattr(node, 'name', '?')}). "
+                f"Einstein declaration has no DefId (name={(node.name or '?')}). "
                 "Ensure NameResolutionPass runs before TypeInferencePass."
             )
 
@@ -1573,7 +1573,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             if expr is not None:
                 expr.accept(self)
         result_type = UNKNOWN
-        for item in getattr(node, 'items', []) or []:
+        for item in (node.items or []) or []:
             result_type = item.accept(self) or result_type
         concrete = self._concrete_shape_from_exprs(shape_exprs)
         if concrete is not None:
@@ -1585,43 +1585,43 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
     def visit_lowered_einstein_clause(self, node: Any) -> Type:
         """Visit lowered clause: recurse into body, loops, bindings, guards. Visit loop.variable so IdentifierIR gets type_info."""
-        for loop in getattr(node, 'loops', []) or []:
-            var = getattr(loop, 'variable', None)
+        for loop in (node.loops or []) or []:
+            var = loop.variable
             if var is not None and getattr(var, 'defid', None) is not None:
                 self._set_var(var.defid, I32)
                 var.accept(self)
-            if getattr(loop, 'iterable', None):
+            if loop.iterable:
                 loop.iterable.accept(self)
-        for loop in (getattr(node, 'reduction_ranges', None) or {}).values():
-            var = getattr(loop, 'variable', None)
+        for loop in (node.reduction_ranges or {}).values():
+            var = loop.variable
             if var is not None and getattr(var, 'defid', None) is not None:
                 self._set_var(var.defid, I32)
                 var.accept(self)
-            if getattr(loop, 'iterable', None):
+            if loop.iterable:
                 loop.iterable.accept(self)
-        if getattr(node, 'body', None):
+        if node.body:
             body_type = node.body.accept(self)
         else:
             body_type = UNKNOWN
-        for b in getattr(node, 'bindings', []) or []:
+        for b in (node.bindings or []) or []:
             if getattr(b, 'expr', None):
                 b.expr.accept(self)
-        for g in getattr(node, 'guards', []) or []:
+        for g in (node.guards or []) or []:
             if getattr(g, 'condition', None):
                 g.condition.accept(self)
         return body_type if body_type is not None else UNKNOWN
 
     def visit_lowered_reduction(self, node: Any) -> Type:
         """Visit lowered reduction: recurse into loops (variable + iterable), body, and guards."""
-        for loop in getattr(node, 'loops', []) or []:
-            var = getattr(loop, 'variable', None)
+        for loop in (node.loops or []) or []:
+            var = loop.variable
             if var is not None and getattr(var, 'defid', None) is not None:
                 self._set_var(var.defid, I32)
                 var.accept(self)
-            if getattr(loop, 'iterable', None):
+            if loop.iterable:
                 loop.iterable.accept(self)
-        body_type = node.body.accept(self) if getattr(node, 'body', None) else UNKNOWN
-        for g in getattr(node, 'guards', []) or []:
+        body_type = node.body.accept(self) if node.body else UNKNOWN
+        for g in (node.guards or []) or []:
             if getattr(g, 'condition', None):
                 g.condition.accept(self)
         inferred_type = body_type if body_type is not None else UNKNOWN
@@ -1630,8 +1630,8 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
     def visit_lowered_comprehension(self, node: Any) -> Type:
         """Visit lowered comprehension: recurse into body and guards. Result is array of body element type."""
-        body_type = node.body.accept(self) if getattr(node, 'body', None) else UNKNOWN
-        for g in getattr(node, 'guards', []) or []:
+        body_type = node.body.accept(self) if node.body else UNKNOWN
+        for g in (node.guards or []) or []:
             if getattr(g, 'condition', None):
                 g.condition.accept(self)
         elem = self._get_base_element_type(body_type) if body_type and body_type is not UNKNOWN else (body_type if body_type is not None else UNKNOWN)
@@ -1674,7 +1674,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         raw_defids = getattr(node, 'variable_defids', None) or []
         defids = raw_defids if isinstance(raw_defids, list) else [raw_defids] if raw_defids is not None else []
         var_names = set(getattr(node, 'variables', None) or [])
-        ranges = getattr(node, 'ranges', None) or []
+        ranges = node.ranges or []
         with self.scope():
             collected = set()
             # Infer each iteration variable type from its range (iterable). E.g. x in data -> element type of data.
@@ -1847,15 +1847,16 @@ class TypeInferencer(ScopedIRVisitor[Type]):
     def visit_reduction_expression(self, expr) -> Type:
         """Infer type of reduction. Bind loop var DefIds; visit range exprs so they get type_info; then body."""
         with self.scope():
-            for loop_var in expr.loop_vars or []:
-                if isinstance(loop_var, IdentifierIR) and getattr(loop_var, 'defid', None) is not None:
+            for loop_var in getattr(expr, "loop_vars", None) or []:
+                if isinstance(loop_var, IdentifierIR) and loop_var.defid is not None:
                     self._set_var(loop_var.defid, I32)
             # Visit range expressions in loop_var_ranges so RangeIR (and start/end) get type_info (fixes validation)
-            for range_ir in (getattr(expr, 'loop_var_ranges', None) or {}).values():
+            for range_ir in (getattr(expr, "loop_var_ranges", None) or {}).values():
                 if range_ir is not None:
                     range_ir.accept(self)
-            inferred_type = expr.body.accept(self)
-            if expr.where_clause:
+            body = getattr(expr, "body", None)
+            inferred_type = body.accept(self) if body is not None else UNKNOWN
+            if getattr(expr, "where_clause", None):
                 for constraint in expr.where_clause.constraints:
                     constraint.accept(self)
         object.__setattr__(expr, 'type_info', inferred_type)
@@ -1874,14 +1875,14 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             )
         # E0303: Reduction cannot have iteration domain in where; use sum[k in 0..4](...) instead
         if isinstance(expr.expr, ReductionExpressionIR):
-            reduction_loop_names = {getattr(ident, "name", None) for ident in (expr.expr.loop_vars or [])}
+            reduction_loop_names = {ident.name for ident in (expr.expr.loop_vars or [])}
             reduction_loop_names.discard(None)
             op_name = getattr(expr.expr, "operation", "reduction")
             for constraint in expr.constraints:
-                if isinstance(constraint, BinaryOpIR) and getattr(constraint, "operator", None) == "in":
-                    left = getattr(constraint, "left", None)
+                if isinstance(constraint, BinaryOpIR) and constraint.operator == "in":
+                    left = constraint.left
                     if isinstance(left, IdentifierIR):
-                        var_name = getattr(left, "name", None)
+                        var_name = left.name
                         if var_name and var_name in reduction_loop_names:
                             self.tcx.reporter.report_error(
                                 f"Reduction cannot have iteration domain '{var_name} in ...' in where clause. "
@@ -1912,12 +1913,12 @@ class TypeInferencer(ScopedIRVisitor[Type]):
     
     def visit_builtin_call(self, expr) -> Type:
         """Infer type of builtin call from _BUILTIN_RETURN_TABLE."""
-        args = getattr(expr, "args", []) or []
+        args = (expr.args or []) or []
         arg_types: List[Type] = []
         for arg in args:
             t = arg.accept(self)
             arg_types.append(t if t is not None else UNKNOWN)
-        builtin_name = getattr(expr, "builtin_name", None)
+        builtin_name = expr.builtin_name
         result = _BUILTIN_RETURN_TABLE.get(builtin_name, UNKNOWN)
         if callable(result):
             result = result(arg_types)
@@ -1969,7 +1970,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 for defid, _ in self._collect_identifier_defids_in_expr(c, index_names):
                     self._set_var(defid, I32)
         # Visit range expressions in variable_ranges so RangeIR (and start/end) get type_info
-        for rng in (getattr(node, 'variable_ranges', None) or {}).values():
+        for rng in (node.variable_ranges or {}).values():
             if rng is not None and hasattr(rng, 'accept'):
                 rng.accept(self)
         for idx in (node.indices or []):
@@ -2021,8 +2022,8 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         from ..ir.nodes import ModuleIR
         if not isinstance(mod, ModuleIR):
             return []
-        result = list(getattr(mod, "functions", None) or [])
-        for sub in getattr(mod, "submodules", None) or []:
+        result = list(mod.functions or [])
+        for sub in mod.submodules or []:
             result.extend(self._collect_module_functions(sub))
         return result
 

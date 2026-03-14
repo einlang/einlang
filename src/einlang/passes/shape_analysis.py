@@ -193,7 +193,7 @@ def _range_end_to_int(range_obj: Any) -> Optional[int]:
     """Return (end - 1) as int when range has literal end (max offset for exclusive range)."""
     if range_obj is None:
         return None
-    end = getattr(range_obj, 'end', None)
+    end = range_obj.end
     if end is None:
         if isinstance(range_obj, range):
             return range_obj.stop - 1
@@ -314,7 +314,7 @@ class UnifiedShapeAnalysisPass(BasePass):
             unified = tuple(unified)
             for decl in decls_without_shape:
                 analyzer.set_shape(decl, unified)
-                logger.debug(f"[ShapeAnalysis] Propagated shape {unified} to literal-index decl {decl.name}")
+                logger.debug(f"[ShapeAnalysis] Propagated shape {unified} to literal-index decl {getattr(decl, 'name', '?')}")
 
     def process_specialized_functions(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         """
@@ -393,7 +393,7 @@ class ShapeAnalyzer:
 
         first_elem = expr.elements[0]
         first_is_array = self._is_array_literal_element(first_elem)
-        loc = getattr(expr, "location", None)
+        loc = expr.location
 
         if first_is_array:
             # All elements must be arrays and have the same shape
@@ -484,11 +484,11 @@ class ShapeAnalyzer:
         """
         if not isinstance(expr, RectangularAccessIR):
             return None
-        array_expr = getattr(expr, 'array', None)
-        indices = getattr(expr, 'indices', None) or []
-        if not isinstance(array_expr, MemberAccessIR) or getattr(array_expr, 'member', None) != 'shape':
+        array_expr = expr.array
+        indices = expr.indices or []
+        if not isinstance(array_expr, MemberAccessIR) or array_expr.member != 'shape':
             return None
-        arr = getattr(array_expr, 'object', None)
+        arr = array_expr.object
         if not indices or not isinstance(indices[0], LiteralIR):
             return None
         dim_val = getattr(indices[0], 'value', None)
@@ -511,16 +511,16 @@ class ShapeAnalyzer:
         """
         from ..shared.types import infer_literal_type
         for clause in (decl.clauses or []):
-            variable_ranges = getattr(clause, 'variable_ranges', None) or {}
+            variable_ranges = clause.variable_ranges or {}
             for defid, rng in variable_ranges.items():
                 if not isinstance(rng, RangeIR):
                     continue
-                end_expr = getattr(rng, 'end', None)
+                end_expr = rng.end
                 if end_expr is None or isinstance(end_expr, LiteralIR):
                     continue
                 resolved = self._evaluate_shape_dim_expr(end_expr)
                 if resolved is not None:
-                    loc = getattr(rng, 'location', None) or getattr(decl, 'location', None)
+                    loc = rng.location or decl.location
                     new_end = LiteralIR(
                         value=resolved,
                         location=loc or SourceLocation('', 0, 0),
@@ -548,7 +548,7 @@ class ShapeAnalyzer:
 
         def shape_for_clause(clause) -> Tuple[Optional[int], ...]:
             value_expr = clause.value
-            variable_ranges = getattr(clause, 'variable_ranges', None) or {}
+            variable_ranges = clause.variable_ranges or {}
             shape: List[Optional[int]] = []
             for idx in (clause.indices or []):
                 from ..ir.nodes import IndexVarIR
@@ -561,8 +561,8 @@ class ShapeAnalyzer:
                         continue
                     shape.append(max(1, extent))
                     continue
-                index_var = getattr(idx, 'name', None)
-                defid = getattr(idx, 'defid', None)
+                index_var = idx.name
+                defid = idx.defid
                 if index_var is None:
                     continue
                 range_obj = variable_ranges.get(defid) if defid else None
@@ -572,7 +572,7 @@ class ShapeAnalyzer:
                         shape.append(range_obj.end)
                     elif isinstance(range_obj, range):
                         shape.append(range_obj.stop)
-                    elif isinstance(range_obj, RangeIR) and getattr(range_obj, 'end', None) is not None:
+                    elif isinstance(range_obj, RangeIR) and range_obj.end is not None:
                         end_expr = range_obj.end
                         if isinstance(end_expr, LiteralIR) and isinstance(getattr(end_expr, 'value', None), (int, float)):
                             shape.append(int(end_expr.value))
@@ -724,10 +724,10 @@ class ShapeAnalyzer:
                     if not clause.indices or dim >= len(clause.indices):
                         continue
                     idx = clause.indices[dim]
-                    defid = getattr(idx, 'defid', None)
+                    defid = idx.defid
                     if not defid:
                         continue
-                    variable_ranges = getattr(clause, 'variable_ranges', None) or {}
+                    variable_ranges = clause.variable_ranges or {}
                     range_obj = variable_ranges.get(defid)
                     if not range_obj:
                         continue
@@ -808,7 +808,7 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
                 self.analyzer.set_shape(node, shape_tuple)
                 # Store shape on the IR node so lowering/backend can read it without lookup
                 shape_list = []
-                loc = getattr(node, 'location', None)
+                loc = node.location
                 for dim in shape_tuple:
                     if isinstance(dim, int):
                         shape_list.append(LiteralIR(

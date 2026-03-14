@@ -291,11 +291,11 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         else:
             folded_value = node.expr.accept(self) if hasattr(node, 'expr') and node.expr else None
             return BindingIR(
-                name=getattr(node, 'name', ''),
+                name=(node.name or ''),
                 expr=folded_value,
-                type_info=getattr(node, 'type_info', None),
-                location=getattr(node, 'location', None),
-                defid=getattr(node, 'defid', None),
+                type_info=node.type_info,
+                location=node.location,
+                defid=node.defid,
             )
     
     def visit_range(self, expr) -> ExpressionIR:
@@ -467,7 +467,7 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
             left=folded_left,
             right=folded_right,
             location=expr.location,
-            operator=getattr(expr, 'operator', '|>'),
+            operator=(expr.operator or '|>'),
             type_info=expr.type_info,
             shape_info=expr.shape_info
         )

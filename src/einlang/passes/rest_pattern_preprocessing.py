@@ -269,7 +269,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                 logger.debug(f"  rest pattern '{rest_name}': from RHS access array rank={array_rank}, explicit_count={explicit_count}, spans={num_dims}")
                 break
             if num_dims is None:
-                node_name = getattr(node, 'array_name', None) or getattr(node, 'name', None) or '<unknown>'
+                node_name = getattr(node, 'array_name', None) or node.name or '<unknown>'
                 self.tcx.reporter.report_error(
                     f"Rest pattern '..{rest_name}' in '{node_name}' cannot be expanded: "
                     "array rank could not be inferred from RHS (e.g. untyped parameter).",
@@ -326,7 +326,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                     else:
                         new_indices.append(idx_expr)
                 else:
-                    defid = getattr(idx_expr, "defid", None)
+                    defid = getattr(idx_expr, 'defid', None)
                     if isinstance(idx_expr, IndexVarIR):
                         if defid is None:
                             raise ValueError(
@@ -356,9 +356,9 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
             accesses_clause = self._find_array_accesses(clause.value)
             for access in accesses_clause:
                 for dim_idx, idx_expr in enumerate(access.indices or []):
-                    defid = getattr(idx_expr, "defid", None)
+                    defid = getattr(idx_expr, 'defid', None)
                     if defid is None and isinstance(idx_expr, (IndexVarIR, IndexRestIR)):
-                        name = getattr(idx_expr, "name", "?")
+                        name = (idx_expr.name or "?")
                         raise ValueError(
                             f"Index variable '{name}' must have defid in array access. "
                             "Ensure NameResolutionPass runs on AST before ASTToIRLoweringPass."
@@ -559,7 +559,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         from ..shared.types import RectangularType, JaggedType
         from ..ir.nodes import BindingIR
         if isinstance(arr, IdentifierIR):
-            defid = getattr(arr, 'defid', None)
+            defid = arr.defid
             if defid is not None:
                 val = self.get_var(defid)
                 if isinstance(val, int):
@@ -1094,7 +1094,7 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
                 else:
                     new_indices.append(idx_expr)
             else:
-                defid = getattr(idx_expr, "defid", None)
+                defid = getattr(idx_expr, 'defid', None)
                 if isinstance(idx_expr, IdentifierIR):
                     new_idx = IndexVarIR(
                         name=idx_expr.name,
@@ -1112,7 +1112,7 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
                         name=idx_expr.name,
                         location=idx_expr.location,
                         defid=defid,
-                        range_ir=getattr(idx_expr, "range_ir", None),
+                        range_ir=idx_expr.range_ir,
                     )
                     if hasattr(idx_expr, 'type_info'):
                         new_idx.type_info = idx_expr.type_info
@@ -1201,7 +1201,7 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
         from ..ir.nodes import BuiltinCallIR
         from ..shared.defid import fixed_builtin_defid
         new_args = [arg.accept(self) if hasattr(arg, 'accept') else arg for arg in node.args]
-        defid = getattr(node, 'defid', None) or fixed_builtin_defid(node.builtin_name)
+        defid = node.defid or fixed_builtin_defid(node.builtin_name)
         new_node = BuiltinCallIR(
             builtin_name=node.builtin_name,
             args=new_args,
@@ -1216,7 +1216,7 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
         new_body = node.body.accept(self) if node.body else None
         # : preserve explicit reduction ranges (e.g. m in 0..kernel_w) so
         # einstein_lowering uses them; otherwise we lose them and infer wrong bound (shape(X)[2]).
-        loop_var_ranges = getattr(node, 'loop_var_ranges', None)
+        loop_var_ranges = node.loop_var_ranges
         new_node = ReductionExpressionIR(
             operation=node.operation,
             loop_vars=node.loop_vars,
@@ -1247,8 +1247,8 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
             expr=new_expr,
             target_type=node.target_type,
             location=node.location,
-            type_info=getattr(node, 'type_info', None),
-            shape_info=getattr(node, 'shape_info', None),
+            type_info=node.type_info,
+            shape_info=node.shape_info,
         )
     
     def visit_array_literal(self, node) -> ExpressionIR:
@@ -1264,8 +1264,8 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
             new_statements,
             node.location,
             final_expr=new_final,
-            type_info=getattr(node, 'type_info', None),
-            shape_info=getattr(node, 'shape_info', None),
+            type_info=node.type_info,
+            shape_info=node.shape_info,
         )
     
     def visit_if_expression(self, node) -> ExpressionIR:
@@ -1279,8 +1279,8 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
             then_expr=new_then,
             else_expr=new_else,
             location=node.location,
-            type_info=getattr(node, 'type_info', None),
-            shape_info=getattr(node, 'shape_info', None),
+            type_info=node.type_info,
+            shape_info=node.shape_info,
         )
     
     def visit_tuple_expression(self, node) -> ExpressionIR:

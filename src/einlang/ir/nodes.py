@@ -901,19 +901,21 @@ class BindingIR(IRNode):
 
 def is_function_binding(binding: Any) -> bool:
     """True if binding is a function definition (expr is FunctionValueIR)."""
-    return isinstance(getattr(binding, 'expr', None), FunctionValueIR)
+    if not isinstance(binding, BindingIR):
+        return False
+    return isinstance(binding.expr, FunctionValueIR)
 
 
 def is_einstein_binding(binding: Any) -> bool:
     """True if binding is an Einstein declaration (expr is EinsteinIR)."""
-    return isinstance(binding, BindingIR) and isinstance(getattr(binding, 'expr', None), EinsteinIR)
+    return isinstance(binding, BindingIR) and isinstance(binding.expr, EinsteinIR)
 
 
 def is_constant_binding(binding: Any) -> bool:
     """True if binding has defid and is not a function (variable or constant)."""
     if not isinstance(binding, BindingIR):
         return False
-    return getattr(binding, 'defid', None) is not None and not is_function_binding(binding)
+    return binding.defid is not None and not is_function_binding(binding)
 
 
 FunctionDefIR = BindingIR
@@ -1088,7 +1090,7 @@ class LoweredReductionIR(ExpressionIR):
         type_info: Optional[Any] = None,
         shape_info: Optional[Any] = None,
     ):
-        loc = location or getattr(body, 'location', None)
+        loc = location or body.location
         if loc is None:
             loc = SourceLocation(file='', line=0, column=0)
         super().__init__(loc, type_info=type_info, shape_info=shape_info)
@@ -1135,7 +1137,7 @@ class LoweredComprehensionIR(ExpressionIR):
         type_info: Optional[Any] = None,
         shape_info: Optional[Any] = None,
     ):
-        loc = location or getattr(body, 'location', None)
+        loc = location or body.location
         if loc is None:
             loc = SourceLocation(file='', line=0, column=0)
         super().__init__(loc, type_info=type_info, shape_info=shape_info)
@@ -1176,7 +1178,7 @@ class EinsteinClauseIR(IRNode):
         """Derive loop variable names from indices (IndexVarIR, IndexRestIR; legacy IdentifierIR)."""
         out: List[str] = []
         for idx in self.indices or []:
-            if isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)) and getattr(idx, "name", None):
+            if isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)) and idx.name:
                 out.append(idx.name)
             elif isinstance(idx, (list, tuple)):
                 for sub in idx:
@@ -1363,11 +1365,11 @@ class IRVisitor(ABC, Generic[T]):
     def visit_lowered_recurrence(self, node: 'LoweredRecurrenceIR') -> T:
         """Visit recurrence isolated out of Einstein. Default: recurse into initial, recurrence_loop.iterable, body."""
         result = None  # type: ignore[assignment]
-        if getattr(node, 'initial', None):
+        if node.initial:
             result = node.initial.accept(self)
-        if getattr(node, 'recurrence_loop', None) and getattr(node.recurrence_loop, 'iterable', None):
+        if node.recurrence_loop and getattr(node.recurrence_loop, 'iterable', None):
             result = node.recurrence_loop.iterable.accept(self)
-        if getattr(node, 'body', None):
+        if node.body:
             result = node.body.accept(self)
         return result
 

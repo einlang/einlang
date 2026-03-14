@@ -301,7 +301,7 @@ class IRConstraintSolver(IRVisitor):
     
     def _ensure_typed(self, expr: ExpressionIR) -> ExpressionIR:
         """Ensure IR node has type annotation"""
-        if getattr(expr, 'type_info', None) is None:
+        if expr.type_info is None:
             expr.type_info = PrimitiveType(name='i32')
         return expr
     

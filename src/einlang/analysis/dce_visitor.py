@@ -152,8 +152,8 @@ class DCEVisitor(ScopedIRVisitor[Any]):
             statements=new_stmts,
             final_expr=new_final,
             location=node.location,
-            type_info=getattr(node, 'type_info', None),
-            shape_info=getattr(node, 'shape_info', None),
+            type_info=node.type_info,
+            shape_info=node.shape_info,
         )
 
     # ------------------------------------------------------------------

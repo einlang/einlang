@@ -126,7 +126,7 @@ class _EinsteinGroupReplacementVisitor:
 
     def visit_jagged_access(self, node) -> None:
         node.base_expr.accept(self)
-        for idx in (getattr(node, "index_chain", None) or []):
+        for idx in (node.index_chain or []):
             if idx is not None and hasattr(idx, "accept"):
                 idx.accept(self)
 
@@ -444,7 +444,7 @@ class NameResolutionPass(BasePass):
                 for stmt in ast.statements:
                     if isinstance(stmt, FunctionDefinition):
                         if module_scope.defined_in_this_scope(stmt.name):
-                            loc = getattr(stmt, "location", None)
+                            loc = stmt.location
                             tcx.reporter.report_error(f"redefinition of '{stmt.name}' in same scope", loc)
                             continue
                         defid = resolver.allocate_for_item((), stmt.name, stmt, DefType.FUNCTION)
@@ -495,7 +495,7 @@ class NameResolutionPass(BasePass):
             if scope.defined_in_this_scope(func.name):
                 existing = scope._get_binding_in_this_scope(func.name)
                 if getattr(existing, "module_path", None) is None:
-                    loc = getattr(func, "location", None)
+                    loc = func.location
                     tcx.reporter.report_error(f"redefinition of '{func.name}' in same scope", loc)
                     object.__setattr__(func, 'defid', defid)
                     return
@@ -531,7 +531,7 @@ class NameResolutionPass(BasePass):
             if scope.defined_in_this_scope(func.name):
                 existing = scope._get_binding_in_this_scope(func.name)
                 if getattr(existing, "module_path", None) is None:
-                    loc = getattr(func, "location", None)
+                    loc = func.location
                     tcx.reporter.report_error(f"redefinition of '{func.name}' in same scope", loc)
                     object.__setattr__(func, 'defid', defid)
                     return
@@ -720,16 +720,16 @@ class NameResolverVisitor(ASTVisitor[None]):
         name = node.name if isinstance(node.name, str) else getattr(node.name, 'value', str(node.name))
         name = str(name)
         if not self.scope_manager:
-            loc = getattr(node, "location", None)
+            loc = node.location
             msg = f"name resolution failed: no scope for '{name}'"
             if self.tcx and self.tcx.reporter:
                 self.tcx.reporter.report_error(msg, loc)
             raise ValueError(msg)
         binding = self.scope_manager.lookup(name)
-        if binding and getattr(binding, "defid", None) is not None:
+        if binding and binding.defid is not None:
             object.__setattr__(node, "defid", binding.defid)
         else:
-            loc = getattr(node, "location", None)
+            loc = node.location
             msg = f"cannot find value `{name}` in this scope"
             if self.tcx and self.tcx.reporter:
                 self.tcx.reporter.report_error(msg, loc, code="E0425", label="not found in this scope")
@@ -856,7 +856,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                         arg.accept(self)
                     return
             if self.tcx and self.tcx.reporter:
-                loc = getattr(node, "location", None)
+                loc = node.location
                 self.tcx.reporter.report_error(
                     f"Undefined function '{func_name}'. "
                     "Use a 'use' statement to import it (e.g. use my_module::{func_name};) or call with module path (e.g. my_module::{func_name}(...)).".format(func_name=func_name),
@@ -1003,7 +1003,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                 if lambda_scope:
                     if lambda_scope.defined_in_this_scope(pn):
                         if self.tcx and self.tcx.reporter:
-                            loc = getattr(node, "location", None)
+                            loc = node.location
                             self.tcx.reporter.report_error(f"duplicate parameter '{pn}'", loc)
                     param_defid = self.resolver.allocate_for_local()
                     param_defids[pn] = param_defid
@@ -1060,10 +1060,10 @@ class NameResolverVisitor(ASTVisitor[None]):
     
     def visit_rectangular_access(self, node) -> None:
         """Resolve names in rectangular access (AST: base_expr; IR: array)."""
-        base = getattr(node, 'base_expr', None) or getattr(node, 'array', None)
+        base = getattr(node, 'base_expr', None) or node.array
         if base:
             base.accept(self)
-        for idx in (getattr(node, 'indices', None) or []):
+        for idx in (node.indices or []):
             if idx is not None and hasattr(idx, 'accept'):
                 idx.accept(self)
     
@@ -1105,7 +1105,7 @@ class NameResolverVisitor(ASTVisitor[None]):
     
     def visit_match_expression(self, node) -> None:
         """Resolve names in match expression (scrutinee, each arm pattern and body)."""
-        scrutinee = getattr(node, 'scrutinee', None) or getattr(node, 'expr', None)
+        scrutinee = node.scrutinee or node.expr
         if scrutinee:
             scrutinee.accept(self)
         if hasattr(node, 'arms'):
@@ -1117,7 +1117,7 @@ class NameResolverVisitor(ASTVisitor[None]):
 
     def visit_try_expression(self, node) -> None:
         """Resolve names in try expression."""
-        operand = getattr(node, 'operand', None) or getattr(node, 'expr', None)
+        operand = node.operand or node.expr
         if operand:
             operand.accept(self)
 
@@ -1326,7 +1326,7 @@ class NameResolverVisitor(ASTVisitor[None]):
             return
 
         if isinstance(node.expr, ASTReductionExpression):
-            outer = getattr(node, 'where_clause', None)
+            outer = node.where_clause
             from ..shared.types import BinaryOp
             from ..shared.nodes import BinaryExpression, Identifier
             reduction_loop_names = set()
@@ -1340,15 +1340,15 @@ class NameResolverVisitor(ASTVisitor[None]):
             if outer and getattr(outer, 'constraints', None) and reduction_loop_names:
                 op_name = getattr(node.expr, 'function_name', 'reduction')
                 for constraint in outer.constraints:
-                    if isinstance(constraint, BinaryExpression) and getattr(constraint, 'operator', None) == BinaryOp.IN:
-                        left = getattr(constraint, 'left', None)
+                    if isinstance(constraint, BinaryExpression) and constraint.operator == BinaryOp.IN:
+                        left = constraint.left
                         if isinstance(left, Identifier):
-                            var_name = getattr(left, 'name', None)
+                            var_name = left.name
                             if var_name is not None and not isinstance(var_name, str):
                                 var_name = getattr(var_name, 'value', str(var_name))
                             if var_name and var_name in reduction_loop_names:
                                 from ..shared.source_location import SourceLocation
-                                loc = getattr(constraint, 'location', None) or getattr(node, 'location', None)
+                                loc = constraint.location or node.location
                                 if loc is None:
                                     loc = SourceLocation(file="<test>", line=0, column=0, end_line=0, end_column=0)
                                 self.tcx.reporter.report_error(
@@ -1400,7 +1400,7 @@ class NameResolverVisitor(ASTVisitor[None]):
             existing = scope.lookup(node.array_name) if scope else None
             if existing and getattr(existing, "binding_type", None) == BindingType.VARIABLE and getattr(existing, "defid", None):
                 if getattr(existing, "definition", None) is not node:
-                    loc = getattr(node, "location", None)
+                    loc = node.location
                     if self.tcx and self.tcx.reporter:
                         self.tcx.reporter.report_error(
                             f"redefinition of '{node.array_name}' in same scope (use consecutive let for same array to merge, or use a different name)",
@@ -1428,7 +1428,7 @@ class NameResolverVisitor(ASTVisitor[None]):
             existing_binding = scope.lookup(node.array_name) if scope else None
             if existing_binding and getattr(existing_binding, "binding_type", None) == BindingType.VARIABLE and getattr(existing_binding, "defid", None):
                 if getattr(existing_binding, "definition", None) is not node:
-                    loc = getattr(node, "location", None)
+                    loc = node.location
                     if self.tcx and self.tcx.reporter:
                         self.tcx.reporter.report_error(
                             f"redefinition of '{node.array_name}' in same scope (use consecutive let for same array to merge, or use a different name)",
@@ -1458,14 +1458,14 @@ class NameResolverVisitor(ASTVisitor[None]):
 
         with self.scope_manager.scope(ScopeKind.EINSTEIN) as einstein_scope:
             # Visit all indices from all clauses (index vars get DefIds in EINSTEIN scope)
-            for clause in (getattr(node, "clauses", None) or []):
-                for idx in (getattr(clause, "indices", None) or []):
+            for clause in (node.clauses or []):
+                for idx in (clause.indices or []):
                     idx.accept(self)
             from ..shared.nodes import ReductionExpression as ASTReductionExpression
-            for clause in (getattr(node, "clauses", None) or []):
+            for clause in (node.clauses or []):
                 if getattr(clause, "value", None):
                     val = clause.value
-                    where = getattr(clause, "where_clause", None)
+                    where = clause.where_clause
                     extra = [where.constraints] if where and getattr(where, "constraints", None) else None
                     if isinstance(val, ASTReductionExpression):
                         self.visit_reduction_expression(val, extra_constraint_lists=extra)
@@ -1486,7 +1486,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                     if existing and getattr(existing, 'defid', None):
                         var_defid = existing.defid
                     else:
-                        var_defid = getattr(node, 'defid', None) or self.resolver.allocate_for_local()
+                        var_defid = node.defid or self.resolver.allocate_for_local()
                         object.__setattr__(node, 'defid', var_defid)
                     if current_scope and not current_scope.defined_in_this_scope(var_name):
                         binding = Binding(
@@ -1498,7 +1498,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                         )
                         _define_in_scope(current_scope, var_name, binding, node, self.tcx.reporter)
                 else:
-                    var_defid = getattr(node, 'defid', None)
+                    var_defid = node.defid
                     if not var_defid:
                         var_defid = self.resolver.allocate_for_local()
                         object.__setattr__(node, 'defid', var_defid)
@@ -1513,8 +1513,8 @@ class NameResolverVisitor(ASTVisitor[None]):
                         )
                         _define_in_scope(current_scope, var_name, binding, node, self.tcx.reporter)
             
-            for clause in (getattr(node, "clauses", None) or []):
-                where = getattr(clause, "where_clause", None)
+            for clause in (node.clauses or []):
+                where = clause.where_clause
                 if not where or not getattr(where, "constraints", None):
                     continue
                 if isinstance(getattr(clause, "value", None), ASTReductionExpression):
@@ -2203,8 +2203,8 @@ class NameResolverVisitor(ASTVisitor[None]):
         if not isinstance(node, IndexVar):
             return
         if not current_scope:
-            loc = getattr(node, "location", None)
-            msg = f"name resolution failed: no scope for index var '{getattr(node, 'name', '?')}'"
+            loc = node.location
+            msg = f"name resolution failed: no scope for index var '{(node.name or '?')}'"
             if self.tcx and self.tcx.reporter:
                 self.tcx.reporter.report_error(msg, loc)
             raise ValueError(msg)
@@ -2234,8 +2234,8 @@ class NameResolverVisitor(ASTVisitor[None]):
         if not isinstance(node, IndexRest):
             return
         if not current_scope:
-            loc = getattr(node, "location", None)
-            msg = f"name resolution failed: no scope for index rest '{getattr(node, 'name', '?')}'"
+            loc = node.location
+            msg = f"name resolution failed: no scope for index rest '{(node.name or '?')}'"
             if self.tcx and self.tcx.reporter:
                 self.tcx.reporter.report_error(msg, loc)
             raise ValueError(msg)

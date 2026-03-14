@@ -51,4 +51,5 @@ ERROR_POINTER_CHAR = "^"
 ERROR_LINE_PREFIX_LENGTH = 4
 
 # Backend: max recurrence/scalar loop iterations (no env override; this constant only).
-DEFAULT_EINSTEIN_LOOP_MAX = 5000
+# Must allow whisper_tiny encoder (1500*384) and similar demos.
+DEFAULT_EINSTEIN_LOOP_MAX = 1_000_000
