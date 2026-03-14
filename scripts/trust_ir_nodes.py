@@ -9,8 +9,11 @@ script leaves them unchanged and call sites stay clear.
 
 Usage:
   python3 scripts/trust_ir_nodes.py [--dry-run] [path]
-  path: default src/einlang (scans .py under it)
+  path: default src/einlang (scans .py under it), or a single .py file
   --dry-run: print changes only, do not edit files
+
+Workflow (per file): run script on file -> pytest tests/unit -q -> if fail, revert file
+  and add attr/obj to SKIP_* then re-run script; if pass, commit the file.
 """
 
 from __future__ import annotations
@@ -79,7 +82,7 @@ SKIP_ATTRS = frozenset({
     "I",  # serialization
     "file", "line", "column", "end_line", "end_column",  # SourceLocation; keep getattr for compatibility
     "expr",  # not all ExpressionIR have .expr (e.g. BuiltinCallIR has args, not expr)
-    "arguments",  # FunctionCallIR has .arguments, BuiltinCallIR has .args; call sites may see either
+    "arguments", "args",  # FunctionCallIR has .arguments, BuiltinCallIR has .args; call sites may see either
     "defid",  # AST nodes (FunctionDefinition, ModuleAccess) may not have .defid; LambdaIR has no .defid
     "name",  # ArrayLiteralIR and some IR nodes have no .name; AST vs IR differ
     "inner_pattern",  # AST BindingPattern has .pattern, IR BindingPatternIR has .inner_pattern
