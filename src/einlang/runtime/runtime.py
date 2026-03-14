@@ -8,6 +8,7 @@ Reference: RUNTIME_DESIGN.md
 import os
 from typing import Optional, Dict, Any, TYPE_CHECKING
 
+from ..compiler.driver import CompilationResult
 from ..ir.nodes import ProgramIR, ExpressionIR
 from ..shared.defid import DefId, assert_defid
 
@@ -88,17 +89,6 @@ class ExecutionResult:
     def get_errors(self) -> list:
         """Get errors (legacy API)"""
         return self.errors
-
-
-class CompilationResult:
-    """Compilation result"""
-    def __init__(
-        self,
-        ir_program: Optional[ProgramIR] = None,
-        success: bool = False
-    ):
-        self.ir_program = ir_program
-        self.success = success
 
 
 class EinlangRuntime:
