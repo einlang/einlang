@@ -1809,7 +1809,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 loc = var.location or SourceLocation('', 0, 0)
                 ti = getattr(var, 'type_info', None)
                 if isinstance(var, IndexVarIR):
-                    new_var = IndexVarIR(var.name, loc, defid=body_defid, range_ir=getattr(var, 'range_ir', None), type_info=ti)
+                    new_var = IndexVarIR(var.name, loc, defid=body_defid, range_ir=var.range_ir, type_info=ti)
                 else:
                     new_var = IdentifierIR(var.name, loc, defid=body_defid, type_info=ti)
                 object.__setattr__(loop, 'variable', new_var)

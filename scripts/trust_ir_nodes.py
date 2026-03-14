@@ -92,7 +92,6 @@ SKIP_ATTRS = frozenset({
     "name",  # ArrayLiteralIR and some IR nodes have no .name; AST vs IR differ
     "inner_pattern",  # AST BindingPattern has .pattern, IR BindingPatternIR has .inner_pattern
     "operation",  # AST ReductionExpression has .function_name, IR has .operation
-    "range_ir",  # auto-added after test failure (--iterate)
     "type_info",  # auto-added after test failure (--iterate)
 })
 
