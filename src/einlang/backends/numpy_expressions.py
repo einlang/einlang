@@ -322,7 +322,7 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
             if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(br, LiteralIR):
                 mul_left, mul_right = al, ar
                 try:
-                    scale = float(getattr(br, "value", None))
+                    scale = float(br.value)
                 except (TypeError, ValueError):
                     scale = None
         elif isinstance(br, BinaryOpIR) and br.operator in (_mul, "*"):
@@ -330,20 +330,20 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
             if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(bl, LiteralIR):
                 mul_left, mul_right = al, ar
                 try:
-                    scale = float(getattr(bl, "value", None))
+                    scale = float(bl.value)
                 except (TypeError, ValueError):
                     scale = None
     elif isinstance(body, BinaryOpIR) and body_op in (_div, "/"):
         div_left = body.left
         div_right = body.right
-        if isinstance(div_left, BinaryOpIR) and getattr(div_left, "operator", None) in (_mul, "*"):
-            al = getattr(div_left, "left", None)
-            ar = getattr(div_left, "right", None)
+        if isinstance(div_left, BinaryOpIR) and div_left.operator in (_mul, "*"):
+            al = div_left.left
+            ar = div_left.right
             if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR):
                 mul_left, mul_right = al, ar
                 try:
                     if isinstance(div_right, LiteralIR):
-                        v = float(getattr(div_right, "value", None))
+                        v = float(div_right.value)
                         if v != 0.0:
                             scale = 1.0 / v
                 except (TypeError, ValueError):
@@ -358,7 +358,7 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     for _idx in indices_left + indices_right:
         for _rd in reduction_defids:
             if _expr_contains_defid(_idx, _rd):
-                if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and getattr(_idx, "defid", None) in reduction_defids):
+                if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and _idx.defid in reduction_defids):
                     return None
     n_red = len(reduction_sizes)
     # GEMM-style: 1 or 2 reduction dims (QKV / batched matmul, or full matmul). Recurrence clauses skip this path.
@@ -467,8 +467,8 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
     loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
     if len(loops) != 2:
         return None
-    red0_var = getattr(loops[0], "variable", None)
-    red1_var = getattr(loops[1], "variable", None)
+    red0_var = loops[0].variable
+    red1_var = loops[1].variable
     if red0_var is None or red1_var is None:
         return None
     red0_defid = red0_var.defid
@@ -707,7 +707,7 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     for _idx in indices_left + indices_right:
         for _rd in reduction_defids:
             if _expr_contains_defid(_idx, _rd):
-                if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and getattr(_idx, "defid", None) in reduction_defids):
+                if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and _idx.defid in reduction_defids):
                     return None
                 break
     n_red = len(reduction_defids)
@@ -971,10 +971,10 @@ class ExpressionVisitorMixin:
             self._raise_here(e, expr)
 
     def _visit_function_call_inner(self, expr: FunctionCallIR) -> Any:
-        module_path = getattr(expr, "module_path", None) or ()
+        module_path = (expr.module_path or ())
         if expr.function_defid is None and module_path and len(module_path) > 0 and module_path[0] == "python":
             args = [arg.accept(self) for arg in expr.arguments]
-            return self._call_python_module(module_path, getattr(expr, "function_name", ""), args)
+            return self._call_python_module(module_path, expr.function_name, args)
         callee_expr = expr.callee_expr
         if callee_expr is not None:
             callee_value = callee_expr.accept(self)
@@ -1316,14 +1316,14 @@ class ExpressionVisitorMixin:
         _loop_to_body_defid = {}
         _reduction_defid_names = {}
         for _lp in (expr.loops or []) or []:
-            _v = getattr(_lp, "variable", None)
+            _v = _lp.variable
             if _v is not None:
-                _vname = getattr(_v, "name", None)
+                _vname = _v.name
                 _bd = defid_of_var_in_expr(expr.body, _vname) if _vname else None
                 if _bd is not None:
-                    _loop_to_body_defid[getattr(_v, "defid", None)] = _bd
+                    _loop_to_body_defid[_v.defid] = _bd
                     _reduction_defid_names[_bd] = _vname
-                elif getattr(_v, "defid", None):
+                elif _v.defid:
                     _reduction_defid_names[_v.defid] = _vname
         def _remap_ctx_to_body_defids(ctx):
             out = {}
@@ -1414,7 +1414,7 @@ class ExpressionVisitorMixin:
         fn = self.env.get_value(defid)
         if fn is None or not callable(fn):
             raise RuntimeError(f"Builtin not found (DefId: {defid})")
-        args_list = getattr(expr, "args", None) or getattr(expr, "arguments", None) or []
+        args_list = (expr.args or [])
         args = [arg.accept(self) for arg in args_list]
         try:
             if fn == builtin_assert:

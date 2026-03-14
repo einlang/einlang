@@ -198,7 +198,7 @@ def _range_end_to_int(range_obj: Any) -> Optional[int]:
         if isinstance(range_obj, range):
             return range_obj.stop - 1
         return None
-    if isinstance(end, LiteralIR) and isinstance(getattr(end, 'value', None), (int, float)):
+    if isinstance(end, LiteralIR) and isinstance(end.value, (int, float)):
         return int(end.value) - 1
     return None
 
@@ -212,7 +212,7 @@ def _range_bound_to_int(range_obj: Any, bound: str) -> Optional[int]:
     attr = getattr(range_obj, bound, None)
     if attr is None:
         return None
-    if isinstance(attr, LiteralIR) and isinstance(getattr(attr, 'value', None), (int, float)):
+    if isinstance(attr, LiteralIR) and isinstance(attr.value, (int, float)):
         return int(attr.value)
     return None
 
@@ -491,7 +491,7 @@ class ShapeAnalyzer:
         arr = array_expr.object
         if not indices or not isinstance(indices[0], LiteralIR):
             return None
-        dim_val = getattr(indices[0], 'value', None)
+        dim_val = indices[0].value
         if not isinstance(dim_val, (int, float)):
             return None
         dim = int(dim_val)
@@ -553,7 +553,7 @@ class ShapeAnalyzer:
             for idx in (clause.indices or []):
                 from ..ir.nodes import IndexVarIR
                 if isinstance(idx, LiteralIR):
-                    v = getattr(idx, 'value', None)
+                    v = idx.value
                     try:
                         extent = int(v) + 1 if v is not None else 1
                     except (TypeError, ValueError):
@@ -574,7 +574,7 @@ class ShapeAnalyzer:
                         shape.append(range_obj.stop)
                     elif isinstance(range_obj, RangeIR) and range_obj.end is not None:
                         end_expr = range_obj.end
-                        if isinstance(end_expr, LiteralIR) and isinstance(getattr(end_expr, 'value', None), (int, float)):
+                        if isinstance(end_expr, LiteralIR) and isinstance(end_expr.value, (int, float)):
                             shape.append(int(end_expr.value))
                         else:
                             s = self._infer_shape_from_arrays(index_var, value_expr, variable_ranges)

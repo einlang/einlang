@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from ..passes.base import BasePass, TyCtxt
 from ..ir.nodes import ProgramIR, BindingIR
 from ..shared.defid import DefType, Resolver, DefId, FIXED_BUILTIN_ORDER, fixed_builtin_defid
-from ..shared.optional_attr import opt_defid
+from ..shared.optional_attr import opt_defid, opt_name
 from ..shared.scope import ScopeManager, ScopeKind, Binding, BindingType, ScopeRedefinitionError
 from ..analysis.module_system.path_resolver import MODULE_SEPARATOR
 from ..analysis.module_system.module_loader import _read_file_cached
@@ -718,7 +718,7 @@ class NameResolverVisitor(ASTVisitor[None]):
         Resolve identifier from scope stack (innermost to outermost). Set defid from binding.
         All resolution failures are reported as errors.
         """
-        name = node.name if isinstance(node.name, str) else getattr(node.name, 'value', str(node.name))
+        name = node.name if isinstance(node.name, str) else (opt_name(node.name) or str(node.name))
         name = str(name)
         if not self.scope_manager:
             loc = node.location
@@ -873,7 +873,7 @@ class NameResolverVisitor(ASTVisitor[None]):
     def visit_function_definition(self, node: FunctionDefinition) -> None:
         """Resolve params and body. DefId/scope define may already be done by main-program pre-pass (mutual recursion)."""
         scope = self.scope_manager.current_scope()
-        defid = getattr(node, "defid", None)
+        defid = opt_defid(node)
         if defid is None:
             defid = self.resolver.allocate_for_item((), node.name, node, DefType.FUNCTION)
             object.__setattr__(node, "defid", defid)
@@ -893,7 +893,7 @@ class NameResolverVisitor(ASTVisitor[None]):
             )
         with self.scope_manager.scope(ScopeKind.FUNCTION) as func_scope:
             for param in node.parameters:
-                param_name = param.name if isinstance(param.name, str) else getattr(param.name, 'value', str(param.name))
+                param_name = param.name if isinstance(param.name, str) else (opt_name(param.name) or str(param.name))
                 param_name = str(param_name)
                 if func_scope and func_scope.defined_in_this_scope(param_name):
                     loc = param.location
@@ -931,7 +931,7 @@ class NameResolverVisitor(ASTVisitor[None]):
             if scope:
                 for stmt in node.statements:
                     if isinstance(stmt, ASTEinsteinDeclaration):
-                        name = getattr(stmt, "array_name", None)
+                        name = stmt.array_name
                         if name and not scope.defined_in_this_scope(name):
                             defid = self.resolver.allocate_for_local()
                             object.__setattr__(stmt, "defid", defid)
@@ -1293,7 +1293,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                 for group in node.over_clause.range_groups:
                     if hasattr(group, 'variables'):
                         for var_name in group.variables:
-                            var_name = var_name if isinstance(var_name, str) else getattr(var_name, 'value', str(var_name))
+                            var_name = var_name if isinstance(var_name, str) else (opt_name(var_name) or str(var_name))
                             var_name = str(var_name)
                             if not self.resolver:
                                 continue
@@ -1335,7 +1335,7 @@ class NameResolverVisitor(ASTVisitor[None]):
             if over and getattr(over, 'range_groups', None):
                 for group in over.range_groups:
                     for v in getattr(group, 'variables', []) or []:
-                        name = v if isinstance(v, str) else getattr(v, 'value', getattr(v, 'name', str(v)))
+                        name = v if isinstance(v, str) else (opt_name(v) or str(v))
                         if name:
                             reduction_loop_names.add(name)
             if outer and getattr(outer, 'constraints', None) and reduction_loop_names:
@@ -1346,7 +1346,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                         if isinstance(left, Identifier):
                             var_name = left.name
                             if var_name is not None and not isinstance(var_name, str):
-                                var_name = getattr(var_name, 'value', str(var_name))
+                                var_name = opt_name(var_name) or str(var_name)
                             if var_name and var_name in reduction_loop_names:
                                 from ..shared.source_location import SourceLocation
                                 loc = constraint.location or node.location
@@ -1474,7 +1474,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                         val.accept(self)
             
             # Bind the variable name (e.g., "max_val" in "let max_val[..batch] = ...")
-            var_name = getattr(node, 'array_name', None)
+            var_name = node.array_name
             if var_name:
                 parent_scope = None
                 if len(self.scope_manager._stack) > 1:

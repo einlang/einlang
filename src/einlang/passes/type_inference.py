@@ -453,7 +453,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         is_fn = isinstance(node.expr, FunctionValueIR)
         is_ein = isinstance(node.expr, EinsteinIR)
         if not is_fn and not is_ein:
-            type_annotation = node.type_info or getattr(node, 'type_annotation', None)
+            type_annotation = node.type_info or None
             if type_annotation and type_annotation != UNKNOWN:
                 self._expected_type = type_annotation
         else:
@@ -679,8 +679,8 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 expr.type_info = left_type
                 return left_type
             if left_type in int_types and right_type in int_types:
-                left_lit = isinstance(expr.left, LiteralIR) and isinstance(getattr(expr.left, 'value', None), int)
-                right_lit = isinstance(expr.right, LiteralIR) and isinstance(getattr(expr.right, 'value', None), int)
+                left_lit = isinstance(expr.left, LiteralIR) and isinstance(expr.left.value, int)
+                right_lit = isinstance(expr.right, LiteralIR) and isinstance(expr.right.value, int)
                 if left_lit and right_lit:
                     base = expr.left.value
                     exp = expr.right.value
@@ -967,12 +967,12 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             effective_arg_types = list(arg_types)
             if not all(t is not None and t != UNKNOWN for t in effective_arg_types):
                 sig = self._get_function(called_function_defid)
-                if sig and getattr(sig, 'parameter_types', None) and len(sig.parameter_types) == len(effective_arg_types):
+                if sig and sig.parameter_types and len(sig.parameter_types) == len(effective_arg_types):
                     for i, t in enumerate(effective_arg_types):
                         if t is None or t == UNKNOWN:
                             effective_arg_types[i] = sig.parameter_types[i] if i < len(sig.parameter_types) else UNKNOWN
                 if not all(t is not None and t != UNKNOWN for t in effective_arg_types) and len(effective_arg_types) == 1 and self._current_function and hasattr(self._current_function, 'parameters') and self._current_function.parameters:
-                    param_type = getattr(self._current_function.parameters[0], 'param_type', None)
+                    param_type = self._current_function.parameters[0].param_type
                     if param_type is not None and param_type != UNKNOWN:
                         effective_arg_types[0] = param_type
             if not all(t is not None and t != UNKNOWN for t in effective_arg_types) and self._current_program:
@@ -983,7 +983,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                         arg_node = expr.arguments[i] if i < len(expr.arguments) else None
                         if not isinstance(arg_node, IdentifierIR):
                             continue
-                        arg_defid = getattr(arg_node, 'defid', None)
+                        arg_defid = arg_node.defid
                         if arg_defid is None:
                             continue
                         func_map = getattr(self.tcx, 'function_ir_map', None)
@@ -993,7 +993,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                         rhs = binding.expr
                         if not isinstance(rhs, IdentifierIR):
                             continue
-                        target_defid = getattr(rhs, 'defid', None)
+                        target_defid = rhs.defid
                         if target_defid is None or not self.mono_service._is_generic_function(target_defid):
                             continue
                         if func_ir is None:
@@ -1001,16 +1001,16 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                         generic_binding = func_ir.get(target_defid)
                         if generic_binding is None:
                             continue
-                        fv = getattr(generic_binding, 'expr', None)
+                        fv = generic_binding.expr
                         if not isinstance(fv, FunctionValueIR):
                             continue
-                        n_params = len(getattr(fv, 'parameters', []) or [])
+                        n_params = len(fv.parameters or [])
                         if n_params <= 0 or i + n_params > len(effective_arg_types):
                             continue
                         spec_types = tuple(effective_arg_types[i + 1:i + 1 + n_params])
                         if any(st is None or st is UNKNOWN for st in spec_types):
                             continue
-                        synthetic_callee = IdentifierIR(getattr(generic_binding, 'name', ''), loc, defid=target_defid)
+                        synthetic_callee = IdentifierIR(generic_binding.name or '', loc, defid=target_defid)
                         dummy_args = [LiteralIR(0, loc, type_info=spec_types[j]) for j in range(n_params)]
                         synthetic_call = FunctionCallIR(synthetic_callee, loc, arguments=dummy_args)
                         specialized = self.mono_service.incremental_monomorphize(
@@ -1018,11 +1018,11 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                         )
                         if specialized is None:
                             continue
-                        spec_sig = self._get_function(specialized.defid) if getattr(specialized, 'defid', None) else None
+                        spec_sig = self._get_function(specialized.defid) if specialized.defid else None
                         if spec_sig is None:
                             spec_sig = self._signature_from_function_ir(specialized)
-                        param_types_sig = getattr(spec_sig, 'parameter_types', ()) or ()
-                        return_type_sig = getattr(spec_sig, 'return_type', None) or UNKNOWN
+                        param_types_sig = spec_sig.parameter_types or ()
+                        return_type_sig = spec_sig.return_type or UNKNOWN
                         ft = FunctionType(param_types_sig, return_type_sig)
                         effective_arg_types[i] = ft
                         try:
@@ -1078,7 +1078,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                     expr.set_callee_defid(spec_defid)
 
         if signature is None:
-            module_path = getattr(expr, "module_path", None) or ()
+            module_path = expr.module_path or ()
             if module_path and len(module_path) >= 1 and module_path[0] == "python":
                 inferred_type = self._infer_python_module_call_type(expr.function_name, arg_types)
                 expr.type_info = inferred_type
@@ -1090,7 +1090,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
         enclosing_is_generic = (
             self._current_function is not None
-            and getattr(self._current_function, 'defid', None) is not None
+            and self._current_function.defid is not None
             and self.mono_service._is_generic_function(self._current_function.defid)
         )
         if enclosing_is_generic or (expr.function_defid is not None and self.mono_service._is_generic_function(expr.function_defid)):
@@ -1496,11 +1496,11 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 element_type = et
 
         if element_type is None and self._current_function:
-            func_expr = getattr(self._current_function, 'expr', None)
-            params = getattr(func_expr, 'parameters', []) if func_expr else []
+            func_expr = self._current_function.expr
+            params = (func_expr.parameters if isinstance(func_expr, FunctionValueIR) else []) if func_expr else []
             from ..shared.types import JaggedType, F32, F64
             for param in params:
-                pt = getattr(param, 'param_type', None)
+                pt = param.param_type
                 if pt is None:
                     continue
                 if isinstance(pt, (RectangularType, JaggedType)):
@@ -1523,7 +1523,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 )
             num_dimensions = ranks[0]
 
-        shape_exprs = getattr(ein_expr, 'shape', []) or []
+        shape_exprs = ein_expr.shape or []
         concrete = self._concrete_shape_from_exprs(shape_exprs)
         if concrete is not None:
             elem = element_type if not _is_unknown_type(element_type) else UNKNOWN
@@ -1568,7 +1568,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
     def visit_lowered_einstein(self, node: Any) -> Type:
         """Visit lowered Einstein: recurse into shape, then all clauses so every nested node gets type_info."""
-        shape_exprs = getattr(node, 'shape', []) or []
+        shape_exprs = node.shape or []
         for expr in shape_exprs:
             if expr is not None:
                 expr.accept(self)
@@ -1587,14 +1587,14 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         """Visit lowered clause: recurse into body, loops, bindings, guards. Visit loop.variable so IdentifierIR gets type_info."""
         for loop in (node.loops or []) or []:
             var = loop.variable
-            if var is not None and getattr(var, 'defid', None) is not None:
+            if var is not None and var.defid is not None:
                 self._set_var(var.defid, I32)
                 var.accept(self)
             if loop.iterable:
                 loop.iterable.accept(self)
         for loop in (node.reduction_ranges or {}).values():
             var = loop.variable
-            if var is not None and getattr(var, 'defid', None) is not None:
+            if var is not None and var.defid is not None:
                 self._set_var(var.defid, I32)
                 var.accept(self)
             if loop.iterable:
@@ -1604,10 +1604,10 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         else:
             body_type = UNKNOWN
         for b in (node.bindings or []) or []:
-            if getattr(b, 'expr', None):
+            if b.expr:
                 b.expr.accept(self)
         for g in (node.guards or []) or []:
-            if getattr(g, 'condition', None):
+            if g.condition:
                 g.condition.accept(self)
         return body_type if body_type is not None else UNKNOWN
 
@@ -1615,14 +1615,14 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         """Visit lowered reduction: recurse into loops (variable + iterable), body, and guards."""
         for loop in (node.loops or []) or []:
             var = loop.variable
-            if var is not None and getattr(var, 'defid', None) is not None:
+            if var is not None and var.defid is not None:
                 self._set_var(var.defid, I32)
                 var.accept(self)
             if loop.iterable:
                 loop.iterable.accept(self)
         body_type = node.body.accept(self) if node.body else UNKNOWN
         for g in (node.guards or []) or []:
-            if getattr(g, 'condition', None):
+            if g.condition:
                 g.condition.accept(self)
         inferred_type = body_type if body_type is not None else UNKNOWN
         object.__setattr__(node, 'type_info', inferred_type)
@@ -1632,7 +1632,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         """Visit lowered comprehension: recurse into body and guards. Result is array of body element type."""
         body_type = node.body.accept(self) if node.body else UNKNOWN
         for g in (node.guards or []) or []:
-            if getattr(g, 'condition', None):
+            if g.condition:
                 g.condition.accept(self)
         elem = self._get_base_element_type(body_type) if body_type and body_type is not UNKNOWN else (body_type if body_type is not None else UNKNOWN)
         inferred_type = RectangularType(element_type=elem, shape=None) if elem is not UNKNOWN else UNKNOWN
@@ -1671,9 +1671,9 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
     def visit_array_comprehension(self, node) -> Type:
         """Infer type of array comprehension. Bind iteration variables from iterable element type; visit body and constraints in same scope."""
-        raw_defids = getattr(node, 'variable_defids', None) or []
+        raw_defids = node.variable_defids or []
         defids = raw_defids if isinstance(raw_defids, list) else [raw_defids] if raw_defids is not None else []
-        var_names = set(getattr(node, 'variables', None) or [])
+        var_names = set(node.variables or [])
         ranges = node.ranges or []
         with self.scope():
             collected = set()
@@ -1713,7 +1713,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         for range_expr in node.ranges or []:
             if range_expr:
                 range_expr.accept(self)
-        body_type = getattr(node.body, 'type_info', None) if node.body else None
+        body_type = node.body.type_info if node.body else None
         if body_type and body_type is not UNKNOWN and isinstance(body_type, RectangularType) and body_type.shape is not None:
             inferred_type = RectangularType(element_type=body_type.element_type, shape=(None,) + body_type.shape)
         else:
@@ -1877,7 +1877,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         if isinstance(expr.expr, ReductionExpressionIR):
             reduction_loop_names = {ident.name for ident in (expr.expr.loop_vars or [])}
             reduction_loop_names.discard(None)
-            op_name = getattr(expr.expr, "operation", "reduction")
+            op_name = expr.expr.operation
             for constraint in expr.constraints:
                 if isinstance(constraint, BinaryOpIR) and constraint.operator == "in":
                     left = constraint.left

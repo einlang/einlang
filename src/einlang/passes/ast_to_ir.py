@@ -313,8 +313,8 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                                 # Skip other errors during recursive traversal
                                 pass
                 # Name resolution has already resolved identifiers; stdlib bodies are specialized by monomorphization.
-                # Safely get function name (FunctionDefinition has 'name', not 'array_name')
-                func_name = getattr(definition, 'name', None) or getattr(definition, 'array_name', None) or func_name
+                # FunctionDefinition has 'name'
+                func_name = definition.name or func_name
 
                 func_ir = definition.accept(self)
                 if isinstance(func_ir, FunctionDefIR):
@@ -346,7 +346,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         for defid, (def_type, definition) in self.tcx.def_registry.items():
             if def_type != DefType.FUNCTION or not isinstance(definition, FunctionDefinition):
                 continue
-            func_name = getattr(definition, 'name', None)
+            func_name = definition.name
             if not func_name:
                 continue
             module_path = getattr(definition, 'module_path', None)
@@ -394,10 +394,10 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             param_location = self._get_source_location(ast_func)
             if hasattr(param, 'location') and param.location:
                 param_location = self._get_source_location_from_ast_location(param.location)
-            param_defid = getattr(param, 'defid', None)
+            param_defid = param.defid
             if param_defid is None:
                 raise RuntimeError(
-                    f"Parameter '{getattr(param, 'name', '?')}' of function '{ast_func.name}' has no defid. "
+                    f"Parameter '{param.name}' of function '{ast_func.name}' has no defid. "
                     "Ensure NameResolutionPass runs on AST before ASTToIRLoweringPass and allocates defids for parameters."
                 )
             param_type = None
@@ -442,7 +442,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     def visit_constant_def(self, ast_const: ASTConstantDef) -> Optional[ConstantDefIR]:
         """Lower constant definition - visitor pattern (no isinstance)"""
         location = self._get_source_location(ast_const)
-        defid = getattr(ast_const, 'defid', None)  # Trust infrastructure
+        defid = ast_const.defid
         
         value_ir = ast_const.value.accept(self)  # Visitor pattern
         if not isinstance(value_ir, ExpressionIR):
@@ -460,7 +460,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     def visit_parameter(self, ast_param: ASTParameter) -> Optional[ParameterIR]:
         """Lower parameter - visitor pattern (no isinstance)"""
         location = self._get_source_location(ast_param)
-        defid = getattr(ast_param, 'defid', None)  # Trust infrastructure
+        defid = ast_param.defid
         
         return ParameterIR(
             name=ast_param.name,
@@ -478,7 +478,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         """Lower identifier - defid from name resolution only (no name handling here)."""
         location = self._get_source_location(ast_id)
         name = ast_id.name if isinstance(ast_id.name, str) else getattr(ast_id.name, 'value', str(ast_id.name))
-        defid = getattr(ast_id, 'defid', None)
+        defid = ast_id.defid
         return IdentifierIR(name=name, location=location, defid=defid)
     
     def visit_binary_expression(self, ast_op: ASTBinaryOp) -> Optional[BinaryOpIR]:
@@ -605,7 +605,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         
         # Also check function_expr.defid if function_defid is None (for Identifier function calls)
         if function_defid is None and isinstance(ast_call.function_expr, ASTIdentifier):
-            function_defid = getattr(ast_call.function_expr, 'defid', None)
+            function_defid = ast_call.function_expr.defid
         
         
         # If function_expr is an Identifier, get the name directly
@@ -912,7 +912,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                             continue
                         
                         # Get the variable's DefId (attached during name resolution)
-                        variable_defid = getattr(constraint.left, 'defid', None)
+                        variable_defid = constraint.left.defid
                         range_expr_for_var = None
                         
                         # Right side can be a Range, Identifier (array), or ArrayLiteral
@@ -926,7 +926,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                                     start=start_ir,
                                     end=end_ir,
                                     location=self._get_source_location(constraint.right),
-                                    inclusive=getattr(constraint.right, 'inclusive', False)
+                                    inclusive=(constraint.right.inclusive or False)
                                 )
                         elif isinstance(constraint.right, (Identifier, ASTArrayLiteral)):
                             # Right side is an array - use array expression as iterable so we bind var to each element
@@ -1009,7 +1009,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                     idx_ir = IndexVarIR(
                         name=idx_ir.name,
                         location=idx_ir.location,
-                        defid=getattr(idx_ir, "defid", None),
+                        defid=idx_ir.defid,
                         range_ir=None,
                     )
                 indices.append(idx_ir)
@@ -1040,7 +1040,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                     idx_ir = IndexVarIR(
                         name=idx_ir.name,
                         location=idx_ir.location,
-                        defid=getattr(idx_ir, "defid", None),
+                        defid=idx_ir.defid,
                         range_ir=None,
                     )
                 index_chain.append(idx_ir)
@@ -1344,7 +1344,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         if not isinstance(node, IndexVar):
             return None
         location = self._get_source_location(node)
-        range_expr = getattr(node, "range_expr", None)
+        range_expr = node.range_expr
         range_ir = range_expr.accept(self) if range_expr else None
         if range_ir is not None and not isinstance(range_ir, RangeIR):
             range_ir = None
@@ -1425,17 +1425,17 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                     idx_ir = IndexVarIR(
                         name=idx_ir.name,
                         location=idx_ir.location,
-                        defid=getattr(idx_ir, "defid", None),
+                        defid=idx_ir.defid,
                         range_ir=None,
                     )
                 indices_ir.append(idx_ir)
-                if isinstance(idx_ir, IndexVarIR) and idx_ir.range_ir is not None and getattr(idx_ir, "defid", None) is not None:
+                if isinstance(idx_ir, IndexVarIR) and idx_ir.range_ir is not None and idx_ir.defid is not None:
                     variable_ranges[idx_ir.defid] = idx_ir.range_ir
         
         # Lower where clause if present (from clause or declaration)
         where_clause_ir = None
         where_src = clause.where_clause or node.where_clause
-        if where_src and getattr(where_src, 'constraints', None):
+        if where_src and where_src.constraints:
             constraints_ir = []
             for constraint in where_src.constraints:
                 constraint_ir = constraint.accept(self)
