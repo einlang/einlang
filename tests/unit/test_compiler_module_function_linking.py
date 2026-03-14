@@ -28,7 +28,7 @@ class TestModuleFunctionLinking:
         
         # Compile (use compile() to get IR)
         compilation = compiler.compile(source_code, "<test>")
-        errs = getattr(compilation, "errors", None) or (compilation.get_errors() if hasattr(compilation, "get_errors") else [])
+        errs = compilation.get_errors()
         assert compilation.success, f"Compilation failed: {errs}"
         
         ir_program = compilation.ir
@@ -41,8 +41,8 @@ class TestModuleFunctionLinking:
             
             if function_calls:
                 call = function_calls[0]
-                callee_defid = getattr(call, "function_defid", None) or getattr(call, "defid", None)
-                module_path = getattr(call, "module_path", None)
+                callee_defid = call.function_defid
+                module_path = call.module_path
                 has_dispatch = callee_defid is not None or (module_path and len(module_path) > 0)
                 assert has_dispatch, "function call should have defid or module_path for dispatch"
         
@@ -143,7 +143,7 @@ class TestModuleLinkingDebug:
         for stmt in ir_program.statements:
             if hasattr(stmt, 'value') and isinstance(stmt.value, FunctionCallIR):
                 call = stmt.value
-                callee_defid = getattr(call, "function_defid", None) or getattr(call, "defid", None)
+                callee_defid = call.function_defid
                 print(f"\nFunctionCallIR found:")
                 print(f"  function_name: {call.function_name}")
                 print(f"  defid: {callee_defid}")

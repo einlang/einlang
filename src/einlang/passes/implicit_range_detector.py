@@ -2505,7 +2505,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
             if is_einstein_binding(einstein_node) and einstein_node.clauses:
                 _value = einstein_node.clauses[0].value
             else:
-                _value = getattr(einstein_node, "value", None)
+                _value = einstein_node.value
         if not _value:
             return None
 

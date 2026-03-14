@@ -884,7 +884,9 @@ class BindingIR(IRNode):
 
     @property
     def clauses(self) -> List[Any]:
-        return getattr(self.expr, 'clauses', []) or []
+        if isinstance(self.expr, EinsteinIR):
+            return self.expr.clauses or []
+        return []
 
     def get_defid_binding(self) -> Optional[tuple]:
         if self.defid is not None:

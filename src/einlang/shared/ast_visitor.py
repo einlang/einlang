@@ -199,7 +199,7 @@ class ASTVisitor(ABC, Generic[T]):
     
     def visit_index_var(self, node) -> T:
         """Visit variable index slot (name + optional range). Delegate to range_expr if present."""
-        if getattr(node, "range_expr", None) is not None:
+        if node.range_expr is not None:
             node.range_expr.accept(self)
 
     def visit_index_rest(self, node) -> T:

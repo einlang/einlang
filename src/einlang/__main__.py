@@ -101,7 +101,7 @@ def main() -> int:
     result = compiler.compile(source, source_file, root_path=root_path, stdlib_root=stdlib_root)
 
     if not result.success:
-        if result.tcx and getattr(result.tcx, "reporter", None) and result.tcx.reporter.has_errors():
+        if result.tcx and result.tcx.reporter.has_errors():
             sys.stderr.write(result.tcx.reporter.format_all_errors())
         else:
             sys.stderr.write("einlang: compilation failed\n")
@@ -112,7 +112,7 @@ def main() -> int:
         out_path = args.dump_ir if args.dump_ir.suffix else Path(str(args.dump_ir) + ".sexpr")
         out_path = out_path.resolve()
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        ir = getattr(result, "ir", None)
+        ir = result.ir
         if ir is not None:
             out_path.write_text(serialize_ir(ir), encoding="utf-8")
             sys.stderr.write(f"IR dumped to {out_path}\n")

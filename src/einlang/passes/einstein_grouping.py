@@ -81,7 +81,7 @@ class EinsteinDeclarationGroupingPass(BasePass):
         for stmt in ir.statements:
             if is_einstein_binding(stmt):
                 visitor.declarations.append(stmt)
-            elif hasattr(stmt, 'accept'):
+            else:
                 stmt.accept(visitor)
         
         einstein_declarations = visitor.declarations
@@ -206,7 +206,7 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
             # DefId identifies the variable - declarations with same DefId are grouped together
             self.declarations.append(node)
             # Einstein declarations use 'array_name', not 'name'
-            node_name = getattr(node, 'array_name', None) or node.name or '<unknown>'
+            node_name = node.name or '<unknown>'
             clause_counts = [len(c.indices) for c in (node.clauses or [])]
             logger.debug(f"  - {node_name} with {len(node.clauses or [])} clause(s), indices per clause: {clause_counts}")
         elif is_function_binding(node):

@@ -52,7 +52,7 @@ class DCEVisitor(ScopedIRVisitor[Any]):
         """Evaluate ``len(x.shape)`` → int when *x* has a known RectangularType."""
         if not isinstance(node, (BuiltinCallIR, FunctionCallIR)):
             return None
-        fname = node.builtin_name if isinstance(node, BuiltinCallIR) else getattr(node, 'function_name', None)
+        fname = node.builtin_name if isinstance(node, BuiltinCallIR) else node.function_name
         if fname != 'len':
             return None
         args = (node.args if isinstance(node, BuiltinCallIR) else (node.arguments or []))

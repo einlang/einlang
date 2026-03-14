@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from ..passes.base import BasePass, TyCtxt
 from ..ir.nodes import ProgramIR, BindingIR
 from ..shared.defid import DefType, Resolver, DefId, FIXED_BUILTIN_ORDER, fixed_builtin_defid
-from ..shared.optional_attr import opt_defid, opt_name
+from ..shared.optional_attr import opt_attr, opt_defid, opt_name
 from ..shared.scope import ScopeManager, ScopeKind, Binding, BindingType, ScopeRedefinitionError
 from ..analysis.module_system.path_resolver import MODULE_SEPARATOR
 from ..analysis.module_system.module_loader import _read_file_cached
@@ -90,7 +90,7 @@ class _EinsteinGroupReplacementVisitor:
         pass
 
     def visit_index_var(self, node) -> None:
-        if getattr(node, "range_expr", None) is not None:
+        if opt_attr(node, "range_expr", None) is not None:
             node.range_expr.accept(self)
 
     def visit_index_rest(self, node) -> None:
@@ -757,19 +757,19 @@ class NameResolverVisitor(ASTVisitor[None]):
             # Resolve the module path and member
             node.function_expr.accept(self)
             
-            module_access_defid = getattr(node.function_expr, 'defid', None)
-            resolved_path = getattr(node.function_expr, '_resolved_module_path', None) or ()
+            module_access_defid = opt_attr(node.function_expr, 'defid', None)
+            resolved_path = opt_attr(node.function_expr, '_resolved_module_path', None) or ()
             is_python = bool(resolved_path and len(resolved_path) > 0 and resolved_path[0] == 'python')
             if module_access_defid:
                 object.__setattr__(node, 'function_defid', module_access_defid)
-                function_name = getattr(node.function_expr, '_resolved_function_name', None) or node.function_expr.property
+                function_name = opt_attr(node.function_expr, '_resolved_function_name', None) or node.function_expr.property
                 object.__setattr__(node, '_resolved_function_name', function_name)
             elif is_python:
-                function_name = getattr(node.function_expr, 'property', None) or '?'
+                function_name = opt_attr(node.function_expr, 'property', None) or '?'
                 object.__setattr__(node, '_resolved_function_name', function_name)
             else:
-                qual = getattr(node.function_expr, 'property', None) or '?'
-                loc = getattr(node.function_expr, "location", None)
+                qual = opt_attr(node.function_expr, 'property', None) or '?'
+                loc = opt_attr(node.function_expr, "location", None)
                 msg = f"qualified name could not be resolved: {qual}"
                 if self.tcx and self.tcx.reporter:
                     self.tcx.reporter.report_error(msg, loc)
@@ -1061,7 +1061,7 @@ class NameResolverVisitor(ASTVisitor[None]):
     
     def visit_rectangular_access(self, node) -> None:
         """Resolve names in rectangular access (AST: base_expr; IR: array)."""
-        base = getattr(node, 'base_expr', None) or node.array
+        base = opt_attr(node, 'base_expr', None) or node.array
         if base:
             base.accept(self)
         for idx in (node.indices or []):
@@ -1100,7 +1100,7 @@ class NameResolverVisitor(ASTVisitor[None]):
         if hasattr(node, 'expr') and node.expr:
             node.expr.accept(self)
         if hasattr(node, 'where_clause') and node.where_clause:
-            for c in (getattr(node.where_clause, 'constraints', None) or []):
+            for c in (opt_attr(node.where_clause, 'constraints', None) or []):
                 if c is not None and hasattr(c, 'accept'):
                     c.accept(self)
     
@@ -1331,15 +1331,15 @@ class NameResolverVisitor(ASTVisitor[None]):
             from ..shared.types import BinaryOp
             from ..shared.nodes import BinaryExpression, Identifier
             reduction_loop_names = set()
-            over = getattr(node.expr, 'over_clause', None)
-            if over and getattr(over, 'range_groups', None):
+            over = opt_attr(node.expr, 'over_clause', None)
+            if over and opt_attr(over, 'range_groups', None):
                 for group in over.range_groups:
-                    for v in getattr(group, 'variables', []) or []:
+                    for v in opt_attr(group, 'variables', []) or []:
                         name = v if isinstance(v, str) else (opt_name(v) or str(v))
                         if name:
                             reduction_loop_names.add(name)
-            if outer and getattr(outer, 'constraints', None) and reduction_loop_names:
-                op_name = getattr(node.expr, 'function_name', 'reduction')
+            if outer and opt_attr(outer, 'constraints', None) and reduction_loop_names:
+                op_name = opt_attr(node.expr, 'function_name', 'reduction')
                 for constraint in outer.constraints:
                     if isinstance(constraint, BinaryExpression) and constraint.operator == BinaryOp.IN:
                         left = constraint.left
@@ -1358,7 +1358,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                                     loc,
                                     code="E0303",
                                 )
-            extra = [outer.constraints] if outer and getattr(outer, 'constraints', None) else None
+            extra = [outer.constraints] if outer and opt_attr(outer, 'constraints', None) else None
             self.visit_reduction_expression(node.expr, extra_constraint_lists=extra)
         else:
             node.expr.accept(self)
@@ -1371,7 +1371,7 @@ class NameResolverVisitor(ASTVisitor[None]):
             node.start.accept(self)
         if node.end:
             node.end.accept(self)
-        if getattr(node, 'step', None):
+        if opt_attr(node, 'step', None):
             node.step.accept(self)
 
     def visit_interpolated_string(self, node) -> None:
@@ -1464,10 +1464,10 @@ class NameResolverVisitor(ASTVisitor[None]):
                     idx.accept(self)
             from ..shared.nodes import ReductionExpression as ASTReductionExpression
             for clause in (node.clauses or []):
-                if getattr(clause, "value", None):
+                if opt_attr(clause, "value", None):
                     val = clause.value
                     where = clause.where_clause
-                    extra = [where.constraints] if where and getattr(where, "constraints", None) else None
+                    extra = [where.constraints] if where and opt_attr(where, "constraints", None) else None
                     if isinstance(val, ASTReductionExpression):
                         self.visit_reduction_expression(val, extra_constraint_lists=extra)
                     else:
@@ -1516,9 +1516,9 @@ class NameResolverVisitor(ASTVisitor[None]):
             
             for clause in (node.clauses or []):
                 where = clause.where_clause
-                if not where or not getattr(where, "constraints", None):
+                if not where or not opt_attr(where, "constraints", None):
                     continue
-                if isinstance(getattr(clause, "value", None), ASTReductionExpression):
+                if isinstance(opt_attr(clause, "value", None), ASTReductionExpression):
                     continue
                 for constraint in where.constraints:
                     constraint.accept(self)
@@ -1573,7 +1573,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                             continue
                         func_def = module_info.functions[func_name]
                         # Only import public functions
-                        if not getattr(func_def, 'is_public', False):
+                        if not opt_attr(func_def, 'is_public', False):
                             continue
                         # Store module path on function definition for later lowering
                         object.__setattr__(func_def, 'module_path', resolved_path)
@@ -1667,7 +1667,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                 func_def = module_info.functions[func_name]
                 
                 # Check visibility - only public functions can be imported
-                if not getattr(func_def, 'is_public', False):
+                if not opt_attr(func_def, 'is_public', False):
                     error_msg = (
                         f"Cannot import private function '{func_name}' from module '{MODULE_SEPARATOR.join(module_path)}'. "
                         f"Only functions marked with 'pub' can be imported."
@@ -1690,7 +1690,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                 else:
                     defid = func_def.defid
                 
-                define_name = getattr(node, 'alias', None) or func_name
+                define_name = opt_attr(node, 'alias', None) or func_name
                 current_scope = self.scope_manager.current_scope()
                 if current_scope:
                     if current_scope.defined_in_this_scope(define_name):
@@ -2224,7 +2224,7 @@ class NameResolverVisitor(ASTVisitor[None]):
             )
             _define_in_scope(current_scope, name, binding, node, self.tcx.reporter)
             object.__setattr__(node, "defid", defid)
-        if getattr(node, "range_expr", None) is not None:
+        if opt_attr(node, "range_expr", None) is not None:
             node.range_expr.accept(self)
 
     def visit_index_rest(self, node) -> None:
@@ -2332,9 +2332,9 @@ class NameResolverVisitor(ASTVisitor[None]):
                 scope=current_scope
             )
             _define_in_scope(current_scope, node.name, binding, node, self.tcx.reporter)
-            target = getattr(node, 'identifier_pattern', node)
+            target = opt_attr(node, 'identifier_pattern', node)
             object.__setattr__(target, 'defid', defid)
-        inner = getattr(node, 'inner_pattern', None) or getattr(node, 'pattern', None)
+        inner = opt_attr(node, 'inner_pattern', None) or opt_attr(node, 'pattern', None)
         if inner and hasattr(inner, 'accept'):
             inner.accept(self)
 
@@ -2736,7 +2736,7 @@ class NameResolverVisitor(ASTVisitor[None]):
         for sub_name, sub_info in submodules.items():
             sub_path = module_path + (sub_name,)
             self._ensure_module_resolved(sub_info, sub_path)
-        if not program or not getattr(program, 'statements', None):
+        if not program or not opt_attr(program, 'statements', None):
             return
         _group_einstein_declarations_on_ast(program)
         from ..shared.scope import ScopeKind
