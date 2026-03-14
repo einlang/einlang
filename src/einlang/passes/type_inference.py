@@ -1847,16 +1847,16 @@ class TypeInferencer(ScopedIRVisitor[Type]):
     def visit_reduction_expression(self, expr) -> Type:
         """Infer type of reduction. Bind loop var DefIds; visit range exprs so they get type_info; then body."""
         with self.scope():
-            for loop_var in getattr(expr, "loop_vars", None) or []:
+            for loop_var in expr.loop_vars or []:
                 if isinstance(loop_var, IdentifierIR) and loop_var.defid is not None:
                     self._set_var(loop_var.defid, I32)
             # Visit range expressions in loop_var_ranges so RangeIR (and start/end) get type_info (fixes validation)
-            for range_ir in (getattr(expr, "loop_var_ranges", None) or {}).values():
+            for range_ir in (expr.loop_var_ranges or {}).values():
                 if range_ir is not None:
                     range_ir.accept(self)
-            body = getattr(expr, "body", None)
+            body = expr.body
             inferred_type = body.accept(self) if body is not None else UNKNOWN
-            if getattr(expr, "where_clause", None):
+            if expr.where_clause:
                 for constraint in expr.where_clause.constraints:
                     constraint.accept(self)
         object.__setattr__(expr, 'type_info', inferred_type)

@@ -3,6 +3,10 @@
 Trust IR nodes: replace getattr(obj, "attr", default) with direct attribute access
 when obj is likely an IR node and attr is a known IR slot.
 
+For optional attributes on mixed AST/IR (e.g. defid, name), use the helpers in
+shared.optional_attr (opt_defid, opt_name, opt_attr) instead of getattr so the
+script leaves them unchanged and call sites stay clear.
+
 Usage:
   python3 scripts/trust_ir_nodes.py [--dry-run] [path]
   path: default src/einlang (scans .py under it)
@@ -14,6 +18,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import Optional
 
 
 def collect_ir_slots(nodes_path: Path) -> set:
@@ -50,11 +55,13 @@ IR_LIKE_NAMES = frozenset({
 })
 
 # Object names we never replace (non-IR or optional API).
+# "clause": can be EinsteinClauseIR (.value) or LoweredEinsteinClauseIR (.body).
 SKIP_OBJ_NAMES = frozenset({
     "self", "tcx", "ty", "type_info", "source_type", "target_type",
     "definition", "definitions", "resolver", "opts", "sexpr",
     "obj", "x", "a", "v", "val", "result", "out", "c", "g", "b",
     "f", "m", "name", "tag", "method_name", "type_obj", "ti", "t", "pt", "meta",
+    "clause",
 })
 
 # Attributes often used on non-IR (AST, type objects, tcx, optional API). Do not replace.
@@ -76,6 +83,7 @@ SKIP_ATTRS = frozenset({
     "defid",  # AST nodes (FunctionDefinition, ModuleAccess) may not have .defid; LambdaIR has no .defid
     "name",  # ArrayLiteralIR and some IR nodes have no .name; AST vs IR differ
     "inner_pattern",  # AST BindingPattern has .pattern, IR BindingPatternIR has .inner_pattern
+    "operation",  # AST ReductionExpression has .function_name, IR has .operation
 })
 
 
@@ -156,16 +164,41 @@ def process_file(path: Path, ir_attrs: set, dry_run: bool) -> int:
     return len(changes)
 
 
+def _find_root_with_ir_nodes(start: Path) -> Optional[Path]:
+    """Walk up from start until we find a directory containing ir/nodes.py."""
+    p = start.resolve().parent if start.is_file() else start.resolve()
+    while p != p.parent:
+        if (p / "ir" / "nodes.py").exists():
+            return p
+        p = p.parent
+    return None
+
+
 def main() -> None:
     dry_run = "--dry-run" in sys.argv
     args = [a for a in sys.argv[1:] if a != "--dry-run"]
-    root = Path(args[0]) if args else Path(__file__).resolve().parent.parent / "src" / "einlang"
-    if not root.exists():
-        root = Path(__file__).resolve().parent.parent
-        if not (root / "src" / "einlang").exists():
+    path_arg = Path(args[0]).resolve() if args else Path(__file__).resolve().parent.parent / "src" / "einlang"
+    if not path_arg.exists():
+        path_arg = Path(__file__).resolve().parent.parent
+        if not (path_arg / "src" / "einlang").exists():
             print("Usage: python3 scripts/trust_ir_nodes.py [--dry-run] [path]", file=sys.stderr)
+            print("  path: directory (default src/einlang) or a single .py file", file=sys.stderr)
             sys.exit(2)
-        root = root / "src" / "einlang"
+        path_arg = path_arg / "src" / "einlang"
+
+    if path_arg.is_file() and path_arg.suffix == ".py":
+        root = _find_root_with_ir_nodes(path_arg)
+        if root is None:
+            print("ir/nodes.py not found above path", file=sys.stderr)
+            sys.exit(1)
+        files_to_process = [path_arg]
+    else:
+        root = path_arg
+        nodes_path = root / "ir" / "nodes.py"
+        if not nodes_path.exists():
+            print("ir/nodes.py not found", file=sys.stderr)
+            sys.exit(1)
+        files_to_process = sorted(root.rglob("*.py"))
 
     nodes_path = root / "ir" / "nodes.py"
     if not nodes_path.exists():
@@ -174,7 +207,7 @@ def main() -> None:
     ir_attrs = collect_ir_slots(nodes_path)
 
     total = 0
-    for path in sorted(root.rglob("*.py")):
+    for path in files_to_process:
         if "trust_ir_nodes" in str(path):
             continue
         n = process_file(path, ir_attrs, dry_run)
@@ -183,7 +216,7 @@ def main() -> None:
         print(f"\nWould change {total} occurrence(s). Run without --dry-run to apply.")
     elif total and not dry_run:
         print(f"Updated {total} occurrence(s).")
-    elif total == 0:
+    elif total == 0 and not dry_run:
         print("No getattr(ir_like, ir_attr, default) to replace.")
 
 
