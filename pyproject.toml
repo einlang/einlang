@@ -19,11 +19,11 @@ dependencies = [
 einlang = "einlang.__main__:main"
 
 [project.optional-dependencies]
-test = ["pytest>=7"]
+test = ["pytest>=7", "pytest-xdist>=3.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--tb=short", "-ra"]
+addopts = ["--tb=short", "-ra", "-n", "auto", "--durations=15"]

@@ -1,8 +1,20 @@
 // stdlib_v2/io.ein - Input/Output operations (single-file approach)
+//
+// Path resolution: Python = __file__ (entry path), derive dir; Rust = runner sets env var.
+// script_dir() = get_script_dir() which is dirname(abspath(entry_file)) or getcwd().
 
 pub fn current_dir() {
-    // Get current working directory
     python::os::getcwd()
+}
+
+// Directory of the entry .ein file. Python: dirname(abspath(__file__)); we call get_script_dir().
+pub fn script_dir() {
+    python::einlang::runtime::get_script_dir()
+}
+
+// Resolve path relative to script directory when path is not absolute.
+pub fn resolve_relative_to_script(path) {
+    if python::os::path::isabs(path) { path } else { python::os::path::join(script_dir(), path) }
 }
 
 pub fn list_dir(path) {
@@ -108,13 +120,14 @@ pub fn relative_path(path, start) {
 }
 
 // NumPy .npy binary format (matches np.load / np.save and existing load_npy in examples)
+// Paths are resolved relative to script_dir() so running from any CWD works.
 pub fn load_npy(path: str) -> [f32; *] {
     // Load array from .npy file (dynamic shape). Cast to concrete shape, e.g. load_npy("x.npy") as [f32; 10, 20]
-    python::numpy::load(path)
+    python::numpy::load(resolve_relative_to_script(path))
 }
 
 pub fn save_npy(path, arr) {
     // Save array to .npy file (NumPy binary format)
-    python::numpy::save(path, arr);
+    python::numpy::save(resolve_relative_to_script(path), arr);
     true
 }

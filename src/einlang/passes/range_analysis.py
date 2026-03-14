@@ -205,8 +205,8 @@ class RangeAnalyzer:
     def _extract_bound(self, constraint: BinaryOpIR, target_defid: DefId) -> Optional[Tuple[bool, int]]:
         """Extract bound from constraint (is_lower, value). Uses DefId only."""
         evaluator = ConstantEvaluator()
-        left_defid = getattr(constraint.left, 'defid', None)
-        right_defid = getattr(constraint.right, 'defid', None)
+        left_defid = constraint.left.defid if isinstance(constraint.left, (IdentifierIR, IndexVarIR)) else None
+        right_defid = constraint.right.defid if isinstance(constraint.right, (IdentifierIR, IndexVarIR)) else None
 
         if left_defid == target_defid:
             if constraint.operator == BinaryOp.LT:
@@ -302,9 +302,9 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         if program:
             program_scope: Dict[DefId, Any] = {}
             for stmt in program.statements:
-                if isinstance(stmt, BindingIR) and not is_function_binding(stmt) and getattr(stmt, 'defid', None) is not None:
+                if isinstance(stmt, BindingIR) and not is_function_binding(stmt) and stmt.defid is not None:
                     program_scope[stmt.defid] = stmt.expr
-                    val_did = getattr(stmt.expr, 'defid', None)
+                    val_did = stmt.expr.defid if isinstance(stmt.expr, (IdentifierIR, IndexVarIR)) else None
                     if val_did is not None and val_did != stmt.defid:
                         program_scope[val_did] = stmt.expr
             scope_stack.append(program_scope)
@@ -312,16 +312,15 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         detector = ImplicitRangeDetector(scope_stack, self.analyzer.tcx)
         detector._current_clause = None
         detector.infer_reduction_ranges_from_where(expr)
-        from ..ir.nodes import EinsteinClauseIR, IdentifierIR, IndexVarIR
         for loop_var_ident in (expr.loop_vars or []):
             if not isinstance(loop_var_ident, (IdentifierIR, IndexVarIR)):
                 continue
-            loop_var_defid = getattr(loop_var_ident, 'defid', None)
+            loop_var_defid = loop_var_ident.defid
             if loop_var_defid is None or loop_var_defid in expr.loop_var_ranges:
                 continue
             implicit_range = detector.infer_implicit_range(expr.body, loop_var_defid)
             if implicit_range:
-                if hasattr(implicit_range, 'to_range_ir') and callable(getattr(implicit_range, 'to_range_ir')):
+                if hasattr(implicit_range, 'to_range_ir') and callable(implicit_range.to_range_ir):
                     range_ir = implicit_range.to_range_ir(expr.location)
                 else:
                     from ..ir.nodes import LiteralIR
@@ -339,14 +338,14 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         for loop_var_ident in (expr.loop_vars or []):
             if not isinstance(loop_var_ident, (IdentifierIR, IndexVarIR)):
                 continue
-            loop_var_defid = getattr(loop_var_ident, 'defid', None)
+            loop_var_defid = loop_var_ident.defid
             if loop_var_defid is None:
                 continue
             if loop_var_defid in expr.loop_var_ranges:
                 continue
-            loc = getattr(expr, 'location', None) or getattr(loop_var_ident, 'location', None) or SourceLocation('', 0, 0)
+            loc = expr.location or loop_var_ident.location or SourceLocation('', 0, 0)
             cause = detector.diagnose_reduction_range_failure(expr.body, loop_var_defid)
-            display_name = getattr(loop_var_ident, 'name', None) or '?'
+            display_name = loop_var_ident.name or '?'
             tcx = getattr(self.analyzer, 'tcx', None)
             if tcx and getattr(tcx, 'reporter', None):
                 tcx.reporter.report_error(
@@ -368,19 +367,12 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         pass
     
     def visit_binary_op(self, node) -> None:
-        from ..ir.nodes import ReductionExpressionIR as RedIR
-        left = getattr(node, 'left', None)
-        right = getattr(node, 'right', None)
-        if left and hasattr(left, 'accept'):
-            node.left.accept(self)
-        if right and hasattr(right, 'accept'):
-            node.right.accept(self)
+        node.left.accept(self)
+        node.right.accept(self)
 
     def visit_function_call(self, node) -> None:
-        if hasattr(node, 'arguments') and node.arguments:
-            for arg in node.arguments:
-                if hasattr(arg, 'accept'):
-                    arg.accept(self)
+        for arg in (node.arguments or []):
+            arg.accept(self)
 
     def visit_unary_op(self, node) -> None:
         pass
@@ -393,8 +385,7 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
     
     def visit_block_expression(self, node) -> None:
         """Visit block expression - register all bindings in block then traverse (each stmt exposes get_defid_binding)."""
-        stmts = getattr(node, 'statements', None) or []
-        final = getattr(node, 'final_expr', None)
+        stmts = node.statements or []
         for stmt in stmts:
             get_binding = getattr(stmt, 'get_defid_binding', None)
             if get_binding is not None:
@@ -402,33 +393,25 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                 if binding is not None:
                     self.set_var(binding[0], binding[1])
         for stmt in stmts:
-            if hasattr(stmt, 'accept'):
-                stmt.accept(self)
-        
-        # Visit final expression
-        if hasattr(node, 'final_expr') and node.final_expr and hasattr(node.final_expr, 'accept'):
+            stmt.accept(self)
+        if node.final_expr is not None:
             node.final_expr.accept(self)
-    
+
     def visit_if_expression(self, node) -> None:
-        if hasattr(node, 'condition') and node.condition and hasattr(node.condition, 'accept'):
-            node.condition.accept(self)
-        if hasattr(node, 'then_expr') and node.then_expr and hasattr(node.then_expr, 'accept'):
-            node.then_expr.accept(self)
-        if hasattr(node, 'else_expr') and node.else_expr and hasattr(node.else_expr, 'accept'):
+        node.condition.accept(self)
+        node.then_expr.accept(self)
+        if node.else_expr is not None:
             node.else_expr.accept(self)
 
     def visit_lambda(self, node) -> None:
         pass
-    
+
     def visit_array_comprehension(self, node) -> None:
-        if hasattr(node, 'body') and node.body and hasattr(node.body, 'accept'):
-            node.body.accept(self)
-        for r in getattr(node, 'ranges', []) or []:
-            if hasattr(r, 'accept'):
-                r.accept(self)
-        for c in getattr(node, 'constraints', []) or []:
-            if hasattr(c, 'accept'):
-                c.accept(self)
+        node.body.accept(self)
+        for r in (node.ranges or []):
+            r.accept(self)
+        for c in (node.constraints or []):
+            c.accept(self)
 
     def visit_array_literal(self, node) -> None:
         pass
@@ -444,8 +427,7 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
     
     def visit_cast_expression(self, node) -> None:
         """Visit cast expression - traverse into inner expression"""
-        if hasattr(node, 'expr') and node.expr:
-            node.expr.accept(self)
+        node.expr.accept(self)
     
     def visit_member_access(self, node) -> None:
         pass
@@ -463,10 +445,8 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         pass
     
     def visit_builtin_call(self, node) -> None:
-        if hasattr(node, 'arguments') and node.arguments:
-            for arg in node.arguments:
-                if hasattr(arg, 'accept'):
-                    arg.accept(self)
+        for arg in (node.args or []):
+            arg.accept(self)
 
     def visit_binding(self, node: BindingIR) -> None:
         if is_function_binding(node):
@@ -483,8 +463,8 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
 
             logger.debug(f"[RangeAnalysis] Visiting function {node.name}, parameters: {[p.name for p in node.parameters]}")
             einstein_decls = []
-            body = getattr(node, 'body', None)
-            if body and hasattr(body, 'statements'):
+            body = node.body
+            if body is not None and getattr(body, 'statements', None):
                 for stmt in body.statements:
                     if is_einstein_binding(stmt):
                         einstein_decls.append(stmt)
@@ -494,21 +474,21 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
 
             with self.scope():
                 for param in node.parameters:
-                    did = getattr(param, 'defid', None)
+                    did = param.defid
                     if did is None:
                         raise RuntimeError(
-                            f"Parameter '{getattr(param, 'name', None)}' has no defid in function '{getattr(node, 'name', None)}'. "
+                            f"Parameter '{param.name}' has no defid in function '{node.name}'. "
                             "Ensure name resolution runs before range analysis and assigns defids to parameters."
                         )
                     self.set_var(did, param)
                     logger.debug(f"[RangeAnalysis] Pre-registered parameter '{param.name}' in scope")
-                if hasattr(node, 'body') and node.body:
+                if node.body is not None:
                     node.body.accept(self)
             
             self._current_function_einstein_decls = []
             self._current_function = None
         elif is_einstein_binding(node):
-            clauses = getattr(node, 'clauses', None) or []
+            clauses = node.clauses or []
             if not clauses:
                 return
             with self._einstein_scope(node):
@@ -534,25 +514,25 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                 decl_range_by_pos: List[Any] = [None] * max(rank, 1)
                 for clause in clauses:
                     inds = clause.indices or []
-                    vr = getattr(clause, 'variable_ranges', None) or {}
+                    vr = (clause.variable_ranges or {})
                     for pos, idx in enumerate(inds):
                         if pos >= len(decl_range_by_pos):
                             decl_range_by_pos.extend([None] * (pos + 1 - len(decl_range_by_pos)))
                         if not isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)):
                             continue
-                        defid = getattr(idx, 'defid', None)
+                        defid = idx.defid
                         if defid is None:
                             continue
                         rng = vr.get(defid)
                         if rng is not None and decl_range_by_pos[pos] is None:
                             decl_range_by_pos[pos] = rng
                 for clause in clauses:
-                    vr = getattr(clause, 'variable_ranges', None) or {}
+                    vr = (clause.variable_ranges or {})
                     inds = clause.indices or []
                     for pos, idx in enumerate(inds):
                         if not isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)):
                             continue
-                        defid = getattr(idx, 'defid', None)
+                        defid = idx.defid
                         if defid is None or defid in vr:
                             continue
                         if pos < len(decl_range_by_pos) and decl_range_by_pos[pos] is not None:
@@ -562,42 +542,46 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                             vr = new_vr
                 tcx = getattr(self.analyzer, 'tcx', None)
                 for clause in clauses:
-                    vr = getattr(clause, 'variable_ranges', None) or {}
+                    vr = (clause.variable_ranges or {})
                     for idx in (clause.indices or []):
                         if not isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)):
                             continue
-                        defid = getattr(idx, 'defid', None)
+                        defid = idx.defid
                         if defid is None or defid in vr:
                             continue
-                        loc = getattr(node, "location", clause.location) or SourceLocation("", 0, 0)
+                        loc = node.location or clause.location or SourceLocation("", 0, 0)
+                        idx_name = idx.name or '?'
                         if tcx and getattr(tcx, 'reporter', None):
                             tcx.reporter.report_error(
-                                f"Range for index variable '{getattr(idx, 'name', None) or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred.",
+                                f"Range for index variable '{idx_name}' (defid={defid.krate}:{defid.index}) could not be inferred.",
                                 loc,
                                 help="Ensure the RHS uses the variable in an array index or add an explicit range in the where clause (e.g. var in 0..N).",
                             )
                         else:
                             raise ValueError(
-                                f"Range for index variable '{getattr(idx, 'name', None) or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred."
+                                f"Range for index variable '{idx_name}' (defid={defid.krate}:{defid.index}) could not be inferred."
                             )
         else:
-            did = getattr(node, 'defid', None)
+            did = node.defid
             if did is None:
                 raise RuntimeError(
-                    f"Variable declaration (pattern={getattr(node, 'pattern', None)}) has no defid. "
+                    f"Variable declaration (pattern={node.pattern}) has no defid. "
                     "Ensure name resolution runs before range analysis and assigns defids to let-bindings."
                 )
-            self.set_var(did, getattr(node, 'value', node))
-            if hasattr(node, 'value') and node.value:
-                node.value.accept(self)
+            self.set_var(did, node.expr)
+            if node.expr is not None:
+                node.expr.accept(self)
 
     def _process_einstein_clause(self, declaration, clause) -> None:
         """Process one Einstein clause: set variable_ranges on the clause and register in analyzer."""
-        from ..ir.nodes import IdentifierIR, IndexVarIR, IndexRestIR, RectangularAccessIR, ArrayLiteralIR, LiteralIR
+        from ..ir.nodes import (
+            IdentifierIR, IndexVarIR, IndexRestIR, RectangularAccessIR, ArrayLiteralIR, LiteralIR,
+            BinaryOpIR as _Bop, IfExpressionIR, FunctionCallIR, ReductionExpressionIR,
+        )
         import numpy as np
         node = declaration
         # variable_ranges is keyed by DefId (index variable identity), not by name
-        existing_ranges = getattr(clause, 'variable_ranges', {}) or {}
+        existing_ranges = clause.variable_ranges or {}
         variable_ranges = {}  # DefId -> range or RangeIR
 
         if clause.value:
@@ -618,12 +602,12 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         if program:
             program_scope: Dict[DefId, Any] = {}
             for stmt in program.statements:
-                if isinstance(stmt, BindingIR) and not is_function_binding(stmt) and getattr(stmt, 'defid', None) is not None:
+                if isinstance(stmt, BindingIR) and not is_function_binding(stmt) and stmt.defid is not None:
                     val = stmt.expr
                     key = _defid_key(stmt.defid)
                     if key is not None:
                         program_scope[key] = val
-                    if getattr(val, 'defid', None) is not None and val.defid != stmt.defid:
+                    if isinstance(val, (IdentifierIR, IndexVarIR)) and val.defid is not None and val.defid != stmt.defid:
                         vkey = _defid_key(val.defid)
                         if vkey is not None:
                             program_scope[vkey] = val
@@ -648,24 +632,23 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         detector.set_current_declaration(node)
 
         from ..ir.nodes import ReductionExpressionIR as RedIR
-        loop_var_ranges: Dict[DefId, RangeIR] = getattr(clause.value, 'loop_var_ranges', {}) if isinstance(clause.value, RedIR) else {}
-        if not loop_var_ranges and clause.value:
+        loop_var_ranges: Dict[DefId, RangeIR] = (clause.value.loop_var_ranges or {}) if isinstance(clause.value, RedIR) else {}
+        if not loop_var_ranges and clause.value is not None:
             red = detector.find_reduction_in_value(clause.value)
             if red is not None:
-                loop_var_ranges = getattr(red, 'loop_var_ranges', {}) or {}
+                loop_var_ranges = red.loop_var_ranges or {}
 
         for idx_expr in (clause.indices or []):
                 if not isinstance(idx_expr, (IdentifierIR, IndexVarIR, IndexRestIR)) or not getattr(idx_expr, "name", None):
                     continue
-                defid = getattr(idx_expr, "defid", None)
+                defid = idx_expr.defid if isinstance(idx_expr, (IdentifierIR, IndexVarIR)) else None
                 var_name = idx_expr.name
                 if defid is None:
                     raise ValueError(
                         f"Index variable '{var_name}' must have defid in clause indices. "
                         "Ensure NameResolutionPass runs on AST before ASTToIRLoweringPass."
                     )
-                # Prefer this clause's LHS range (real range for this clause) over existing_ranges.
-                if isinstance(idx_expr, IndexVarIR) and getattr(idx_expr, "range_ir", None) is not None:
+                if isinstance(idx_expr, IndexVarIR) and idx_expr.range_ir is not None:
                     variable_ranges[defid] = idx_expr.range_ir
                     continue
                 if defid in existing_ranges:
@@ -721,39 +704,33 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                         # Check if the variable appears in array accesses in the value expression
                         # If so, its range can be inferred at runtime from the array shape
                         # Don't report a compile-time error - allow runtime inference
-                        from ..ir.nodes import RectangularAccessIR, IdentifierIR, IndexVarIR
                         def has_array_access_with_defid(expr, target_defid: DefId):
                             """Check if expression contains array access using this variable (by DefId)."""
                             if isinstance(expr, RectangularAccessIR):
-                                for idx in expr.indices:
-                                    if isinstance(idx, (IdentifierIR, IndexVarIR)) and getattr(idx, 'defid', None) == target_defid:
+                                for idx in (expr.indices or []):
+                                    if isinstance(idx, (IdentifierIR, IndexVarIR)) and idx.defid == target_defid:
                                         return True
-                                    elif hasattr(idx, 'left') or hasattr(idx, 'right'):
-                                        if hasattr(idx, 'left') and has_array_access_with_defid(idx.left, target_defid):
+                                    if isinstance(idx, _Bop):
+                                        if has_array_access_with_defid(idx.left, target_defid) or has_array_access_with_defid(idx.right, target_defid):
                                             return True
-                                        if hasattr(idx, 'right') and has_array_access_with_defid(idx.right, target_defid):
-                                            return True
-                            elif hasattr(expr, 'left') and hasattr(expr, 'right'):
+                            if isinstance(expr, _Bop):
                                 return (has_array_access_with_defid(expr.left, target_defid) or
                                        has_array_access_with_defid(expr.right, target_defid))
-                            elif hasattr(expr, 'then_expr') and hasattr(expr, 'else_expr'):
+                            if isinstance(expr, IfExpressionIR):
                                 result = (has_array_access_with_defid(expr.then_expr, target_defid) or
                                          has_array_access_with_defid(expr.else_expr, target_defid))
-                                if hasattr(expr, 'condition'):
-                                    result = result or has_array_access_with_defid(expr.condition, target_defid)
+                                result = result or has_array_access_with_defid(expr.condition, target_defid)
                                 return result
-                            elif hasattr(expr, 'arguments'):
-                                from ..ir.nodes import FunctionCallIR
-                                if isinstance(expr, FunctionCallIR):
-                                    for arg in expr.arguments:
-                                        if has_array_access_with_defid(arg, target_defid):
-                                            return True
-                            elif hasattr(expr, 'body'):
+                            if isinstance(expr, FunctionCallIR):
+                                for arg in (expr.arguments or []):
+                                    if has_array_access_with_defid(arg, target_defid):
+                                        return True
+                            if isinstance(expr, ReductionExpressionIR):
                                 return has_array_access_with_defid(expr.body, target_defid)
                             return False
                         
                         if has_array_access_with_defid(clause.value, defid):
-                            clause_ranges = getattr(clause, 'variable_ranges', None) or {}
+                            clause_ranges = clause.variable_ranges or {}
                             if defid in clause_ranges and isinstance(clause_ranges[defid], RangeIR):
                                 variable_ranges[defid] = clause_ranges[defid]
                             elif defid in existing_ranges and isinstance(existing_ranges[defid], RangeIR):
@@ -787,7 +764,7 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                                     rir = _to_range_ir(inferred_range, getattr(node, "location", clause.location))
                                     if rir is not None:
                                         variable_ranges[defid] = rir
-                                elif getattr(clause, 'variable_ranges', None) and defid in clause.variable_ranges:
+                                elif clause.variable_ranges and defid in clause.variable_ranges:
                                     variable_ranges[defid] = clause.variable_ranges[defid]
                             continue
                         
@@ -808,23 +785,23 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                             if rir is not None:
                                 variable_ranges[defid] = rir
                         if defid not in variable_ranges:
-                            multi_clause = len(getattr(node, 'clauses', None) or []) > 1
+                            multi_clause = len(node.clauses or []) > 1
                             if not multi_clause:
                                 loc = getattr(node, "location", clause.location) or SourceLocation("", 0, 0)
                                 tcx = getattr(self.analyzer, 'tcx', None)
                                 if tcx and getattr(tcx, 'reporter', None):
                                     tcx.reporter.report_error(
-                                        f"Range for index variable '{getattr(idx_expr, 'name', None) or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred.",
+                                        f"Range for index variable '{idx_expr.name or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred.",
                                         loc,
                                         help="Ensure the RHS uses the variable in an array index or add an explicit range in the where clause (e.g. var in 0..N).",
                                     )
                                 else:
                                     raise ValueError(
-                                        f"Range for index variable '{getattr(idx_expr, 'name', None) or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred. "
+                                        f"Range for index variable '{idx_expr.name or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred. "
                                         "Ensure RangeAnalysisPass runs and implicit_range_detector can infer the range."
                                     )
 
-        existing_on_clause = getattr(clause, 'variable_ranges', None) or {}
+        existing_on_clause = clause.variable_ranges or {}
         for defid_existing, rng in existing_on_clause.items():
             if defid_existing not in variable_ranges:
                 variable_ranges[defid_existing] = rng
@@ -870,10 +847,10 @@ class VariableInvolvementChecker(IRVisitor[bool]):
         self.target_defid = target_defid
 
     def visit_identifier(self, expr: IdentifierIR) -> bool:
-        return getattr(expr, 'defid', None) == self.target_defid
+        return expr.defid == self.target_defid
 
     def visit_index_var(self, expr) -> bool:
-        return getattr(expr, 'defid', None) == self.target_defid
+        return expr.defid == self.target_defid
     
     def visit_binary_op(self, expr: BinaryOpIR) -> bool:
         return (expr.left.accept(self) or expr.right.accept(self))
@@ -979,8 +956,8 @@ class VariableInvolvementChecker(IRVisitor[bool]):
         elif is_einstein_binding(node):
             return False
         else:
-            if hasattr(node, 'value') and node.value:
-                return node.value.accept(self)
+            if node.expr is not None:
+                return node.expr.accept(self)
             return False
     
     def visit_if_expression(self, node) -> bool:

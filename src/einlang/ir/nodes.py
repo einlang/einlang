@@ -599,9 +599,8 @@ class ProgramIR(IRNode):
     def defid_to_name(self) -> Dict[DefId, str]:
         d2n: Dict[DefId, str] = {}
         for s in self.bindings:
-            did = getattr(s, 'defid', None)
-            if did is not None:
-                d2n[did] = getattr(s, 'name', '')
+            if s.defid is not None:
+                d2n[s.defid] = s.name or ""
         return d2n
 
     @property
@@ -1457,9 +1456,8 @@ class IRVisitor(ABC, Generic[T]):
 
     def visit_binding(self, node: 'BindingIR') -> T:
         """Visit binding (name = expr). Default: delegate to node.expr.accept(self)."""
-        expr = getattr(node, 'expr', None)
-        if expr is not None and hasattr(expr, 'accept'):
-            return expr.accept(self)
+        if node.expr is not None:
+            return node.expr.accept(self)
         return None  # type: ignore[return-value]
     
     # Program visitor

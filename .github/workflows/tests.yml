@@ -21,4 +21,6 @@ jobs:
         run: pip install -e '.[test]'
 
       - name: Run tests
-        run: python3 -m pytest --tb=short -q
+        env:
+          EINLANG_ROUND_TRIP: "1"
+        run: python3 -m pytest tests/ -n auto --tb=short -q

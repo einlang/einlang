@@ -23,7 +23,11 @@ from typing import Optional
 from contextlib import contextmanager
 import logging
 
-from ..ir.nodes import ExpressionIR, IdentifierIR, IndexVarIR, BinaryOpIR, LiteralIR, IRVisitor, is_function_binding, is_einstein_binding
+from ..ir.nodes import (
+    ExpressionIR, IdentifierIR, IndexVarIR, BinaryOpIR, LiteralIR, UnaryOpIR,
+    RectangularAccessIR, MemberAccessIR, IRVisitor,
+    is_function_binding, is_einstein_binding,
+)
 from ..shared.defid import DefId
 from ..shared.types import BinaryOp, PrimitiveType
 from .range_info import RangeInfo, DynamicRange
@@ -77,7 +81,7 @@ class IRConstraintSolver(IRVisitor):
         if not isinstance(node, (IdentifierIR, IndexVarIR)):
             return False
         if self.target_defid is not None:
-            return getattr(node, 'defid', None) == self.target_defid
+            return node.defid == self.target_defid
         return self.target_var is not None and node.name == self.target_var
     
     def _is_double_variable_addition(self, node: BinaryOpIR) -> bool:
@@ -180,7 +184,7 @@ class IRConstraintSolver(IRVisitor):
                 if not right_has_target:  # k must be constant wrt target
                     k = self._ensure_typed(node.right)
                     end = self._build_mul(self.dimension_bound, k)
-                    logger.debug(f"[IndexRange] {getattr(node.left, 'name', '?')} / {k} → [0, {self.dimension_bound} * {k})")
+                    logger.debug(f"[IndexRange] {node.left.name} / {k} → [0, {self.dimension_bound} * {k})")
                     return DynamicRange(start=make_literal(0, node.location), end=end)
         
         # Multiplication: i * k → [0, ceil(bound / k))
@@ -196,7 +200,7 @@ class IRConstraintSolver(IRVisitor):
             if target_node and not self._contains_target(constant_node):
                 k = self._ensure_typed(constant_node)
                 end = self._build_ceil_div(self.dimension_bound, k)
-                logger.debug(f"[IndexRange] {getattr(target_node, 'name', '?')} * {k} → [0, ceil({self.dimension_bound} / {k}))")
+                logger.debug(f"[IndexRange] {target_node.name} * {k} → [0, ceil({self.dimension_bound} / {k}))")
                 return DynamicRange(start=make_literal(0, node.location), end=end)
             
             # Nested case: (i % r) * coeff
@@ -208,7 +212,7 @@ class IRConstraintSolver(IRVisitor):
         # Modulo: i % k → no range constraint
         elif node.operator == BinaryOp.MOD:
             if self._is_target(node.left):
-                logger.debug(f"[IndexRange] {getattr(node.left, 'name', '?')} % k → modulo doesn't constrain range")
+                logger.debug(f"[IndexRange] {node.left.name} % k → modulo doesn't constrain range")
                 return None
         
         return None
@@ -297,7 +301,7 @@ class IRConstraintSolver(IRVisitor):
     
     def _ensure_typed(self, expr: ExpressionIR) -> ExpressionIR:
         """Ensure IR node has type annotation"""
-        if not hasattr(expr, 'type_info') or expr.type_info is None:
+        if getattr(expr, 'type_info', None) is None:
             expr.type_info = PrimitiveType(name='i32')
         return expr
     
@@ -341,29 +345,170 @@ class IRConstraintSolver(IRVisitor):
         return self._build_div(adjusted_numerator, divisor)
 
 
+class _DefidsInExprCollector(IRVisitor[None]):
+    """Collect DefIds from IdentifierIR/IndexVarIR in an expression tree into _out."""
+
+    def __init__(self, out: set) -> None:
+        self._out = out
+
+    def visit_identifier(self, node: IdentifierIR) -> None:
+        if node.defid is not None:
+            self._out.add(node.defid)
+
+    def visit_index_var(self, node: IndexVarIR) -> None:
+        if node.defid is not None:
+            self._out.add(node.defid)
+
+    def visit_binary_op(self, node: BinaryOpIR) -> None:
+        node.left.accept(self)
+        node.right.accept(self)
+
+    def visit_unary_op(self, node: UnaryOpIR) -> None:
+        node.operand.accept(self)
+
+    def visit_rectangular_access(self, node: RectangularAccessIR) -> None:
+        node.array.accept(self)
+        for idx in node.indices or []:
+            idx.accept(self)
+
+    def visit_member_access(self, node: MemberAccessIR) -> None:
+        node.object.accept(self)
+
+    def visit_try_expression(self, node) -> None:
+        if node.operand is not None:
+            node.operand.accept(self)
+
+    def visit_literal(self, node) -> None:
+        pass
+
+    def visit_index_rest(self, node) -> None:
+        pass
+
+    def visit_function_call(self, node) -> None:
+        pass
+
+    def visit_jagged_access(self, node) -> None:
+        pass
+
+    def visit_block_expression(self, node) -> None:
+        pass
+
+    def visit_if_expression(self, node) -> None:
+        pass
+
+    def visit_lambda(self, node) -> None:
+        pass
+
+    def visit_range(self, node) -> None:
+        pass
+
+    def visit_array_comprehension(self, node) -> None:
+        pass
+
+    def visit_module(self, node) -> None:
+        pass
+
+    def visit_array_literal(self, node) -> None:
+        pass
+
+    def visit_tuple_expression(self, node) -> None:
+        pass
+
+    def visit_tuple_access(self, node) -> None:
+        pass
+
+    def visit_interpolated_string(self, node) -> None:
+        pass
+
+    def visit_cast_expression(self, node) -> None:
+        pass
+
+    def visit_match_expression(self, node) -> None:
+        pass
+
+    def visit_reduction_expression(self, node) -> None:
+        pass
+
+    def visit_where_expression(self, node) -> None:
+        pass
+
+    def visit_pipeline_expression(self, node) -> None:
+        pass
+
+    def visit_builtin_call(self, node) -> None:
+        pass
+
+    def visit_literal_pattern(self, node) -> None:
+        pass
+
+    def visit_identifier_pattern(self, node) -> None:
+        pass
+
+    def visit_wildcard_pattern(self, node) -> None:
+        pass
+
+    def visit_tuple_pattern(self, node) -> None:
+        pass
+
+    def visit_array_pattern(self, node) -> None:
+        pass
+
+    def visit_rest_pattern(self, node) -> None:
+        pass
+
+    def visit_guard_pattern(self, node) -> None:
+        pass
+
+    def visit_or_pattern(self, node) -> None:
+        pass
+
+    def visit_constructor_pattern(self, node) -> None:
+        pass
+
+    def visit_binding_pattern(self, node) -> None:
+        pass
+
+    def visit_range_pattern(self, node) -> None:
+        pass
+
+    def visit_function_value(self, node) -> None:
+        pass
+
+    def visit_einstein(self, node) -> None:
+        pass
+
+    def visit_einstein_clause(self, node) -> None:
+        pass
+
+    def visit_binding(self, node) -> None:
+        pass
+
+    def visit_program(self, node) -> None:
+        pass
+
+    def visit_lowered_reduction(self, node) -> None:
+        pass
+
+    def visit_lowered_comprehension(self, node) -> None:
+        pass
+
+    def visit_lowered_einstein_clause(self, node) -> None:
+        pass
+
+    def visit_lowered_einstein(self, node) -> None:
+        pass
+
+    def visit_lowered_recurrence(self, node) -> None:
+        pass
+
+
 def _collect_defids(expr) -> set:
     """Collect all DefIds referenced by IdentifierIR/IndexVarIR nodes in an expression."""
-    from ..ir.nodes import IndexVarIR, RectangularAccessIR, MemberAccessIR
-    out = set()
+    out: set = set()
     if expr is None:
         return out
-    if isinstance(expr, (IdentifierIR, IndexVarIR)):
-        d = getattr(expr, 'defid', None)
-        if d is not None:
-            out.add(d)
-        return out
-    if isinstance(expr, BinaryOpIR):
-        out |= _collect_defids(expr.left)
-        out |= _collect_defids(expr.right)
-        return out
-    if hasattr(expr, 'operand'):
-        out |= _collect_defids(getattr(expr, 'operand'))
-    if isinstance(expr, RectangularAccessIR):
-        out |= _collect_defids(expr.array)
-        for idx in (expr.indices or []):
-            out |= _collect_defids(idx)
-    if isinstance(expr, MemberAccessIR):
-        out |= _collect_defids(getattr(expr, 'object', None))
+    if expr is not None:
+        expr.accept(_DefidsInExprCollector(out))
     return out
 
 

@@ -5,33 +5,53 @@ Rust Pattern: Minimal runtime, backend delegation
 Reference: RUNTIME_DESIGN.md
 """
 
+import os
 from typing import Optional, Dict, Any, TYPE_CHECKING
+
 from ..ir.nodes import ProgramIR, ExpressionIR
 from ..shared.defid import DefId, assert_defid
-from .environment import ExecutionEnvironment, FunctionValue
 
 if TYPE_CHECKING:
     from ..backends.base import Backend
 
+# Python: interpreter sets __file__ in module globals (path to the script).
+entry_file: Optional[str] = None
+
+
+def set_entry_file(path: Optional[str]) -> None:
+    """Set entry file path for this execution. Called by backend at execute() start."""
+    global entry_file
+    entry_file = path
+
+
+def get_entry_file() -> Optional[str]:
+    """Return entry file path (Python __file__), or None if stdin/inline."""
+    return entry_file
+
+
+def get_script_dir() -> str:
+    """Script directory: Python style dirname(abspath(__file__)), or getcwd() if no file."""
+    if entry_file:
+        return os.path.dirname(os.path.abspath(entry_file))
+    return os.getcwd()
+
 
 def _resolve_input_defid(program: ProgramIR, name: str) -> Optional[DefId]:
-    for f in getattr(program, "functions", []) or []:
-        if getattr(f, "name", None) == name and getattr(f, "defid", None):
-            out = f.defid
-            assert_defid(out, allow_none=False)
-            return out
-    for c in getattr(program, "constants", []) or []:
-        if getattr(c, "name", None) == name and getattr(c, "defid", None):
-            out = c.defid
-            assert_defid(out, allow_none=False)
-            return out
+    for f in program.functions:
+        if f.name == name and f.defid:
+            assert_defid(f.defid, allow_none=False)
+            return f.defid
+    for c in program.constants:
+        if c.name == name and c.defid:
+            assert_defid(c.defid, allow_none=False)
+            return c.defid
     return None
 
 
 def _get_name_from_defid(program: ProgramIR, defid: DefId) -> Optional[str]:
     assert_defid(defid, allow_none=False)
-    for b in getattr(program, "bindings", []) or []:
-        if getattr(b, "defid", None) == defid and getattr(b, "name", None):
+    for b in program.bindings:
+        if b.defid == defid:
             return b.name
     return None
 
@@ -123,17 +143,12 @@ class EinlangRuntime:
         if not compilation_result.success:
             return ExecutionResult(error=RuntimeError("Compilation failed"))
         
-        # Get IR from compilation result (may be 'ir' or 'ir_program')
-        ir = getattr(compilation_result, 'ir', None) or getattr(compilation_result, 'ir_program', None)
-        if not ir:
+        ir = getattr(compilation_result, "ir", None) or getattr(compilation_result, "ir_program", None)
+        if ir is None:
             return ExecutionResult(error=RuntimeError("No IR in compilation result"))
-        
-        # Get resolver from compilation result (for builtin DefId lookup)
-        resolver = getattr(compilation_result, 'tcx', None)
-        if resolver:
-            resolver = resolver.resolver
-        
-        tcx = getattr(compilation_result, 'tcx', None)
+
+        tcx = getattr(compilation_result, "tcx", None)
+        resolver = tcx.resolver if tcx else None
         input_by_defid = {}
         if inputs:
             for name, value in inputs.items():
@@ -141,6 +156,7 @@ class EinlangRuntime:
                 if defid is not None:
                     input_by_defid[defid] = value
         main_defid = _resolve_input_defid(ir, "main")
+        entry_source_file = getattr(compilation_result, "entry_source_file", None)  # driver sets this
         backend = type(self.backend)()
         result = backend.execute(
             ir,
@@ -149,6 +165,7 @@ class EinlangRuntime:
             tcx=tcx,
             input_by_defid=input_by_defid,
             main_defid=main_defid,
+            entry_source_file=entry_source_file,
         )
         outputs_named = {}
         for defid, value in (result.outputs or {}).items():

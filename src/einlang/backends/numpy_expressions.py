@@ -14,6 +14,7 @@ from ..ir.nodes import (
     MemberAccessIR, TryExpressionIR, MatchExpressionIR, ReductionExpressionIR, WhereExpressionIR,
     PipelineExpressionIR, BuiltinCallIR,
     MatchArmIR, ExpressionIR, LoweredComprehensionIR, LoweredReductionIR,
+    IRVisitor,
 )
 from ..runtime.environment import FunctionValue
 from .numpy_helpers import (
@@ -33,30 +34,187 @@ def _is_scalar_like(x: Any) -> bool:
     return False
 
 
+class _ExprContainsDefidVisitor(IRVisitor[bool]):
+    """Returns True iff the expression tree contains IdentifierIR or IndexVarIR with defid == target_defid."""
+
+    def __init__(self, target_defid: Any) -> None:
+        self._target = target_defid
+
+    def visit_identifier(self, node: IdentifierIR) -> bool:
+        return getattr(node, "defid", None) == self._target
+
+    def visit_index_var(self, node: IndexVarIR) -> bool:
+        return getattr(node, "defid", None) == self._target
+
+    def visit_binary_op(self, node: BinaryOpIR) -> bool:
+        return node.left.accept(self) or node.right.accept(self)
+
+    def visit_unary_op(self, node: UnaryOpIR) -> bool:
+        return node.operand.accept(self)
+
+    def visit_rectangular_access(self, node: RectangularAccessIR) -> bool:
+        if node.array.accept(self):
+            return True
+        for idx in node.indices or []:
+            if idx.accept(self):
+                return True
+        return False
+
+    def visit_function_call(self, node: FunctionCallIR) -> bool:
+        if getattr(node, "callee_expr", None) is not None and node.callee_expr.accept(self):
+            return True
+        for a in node.arguments or []:
+            if a.accept(self):
+                return True
+        return False
+
+    def visit_jagged_access(self, node: JaggedAccessIR) -> bool:
+        if node.base.accept(self):
+            return True
+        for idx in getattr(node, "index_chain", None) or []:
+            if idx is not None and idx.accept(self):
+                return True
+        return False
+
+    def visit_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_index_rest(self, node: Any) -> bool:
+        return False
+
+    def visit_block_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_if_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_lambda(self, node: Any) -> bool:
+        return False
+
+    def visit_range(self, node: Any) -> bool:
+        return False
+
+    def visit_array_comprehension(self, node: Any) -> bool:
+        return False
+
+    def visit_module(self, node: Any) -> bool:
+        return False
+
+    def visit_array_literal(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_access(self, node: Any) -> bool:
+        return False
+
+    def visit_interpolated_string(self, node: Any) -> bool:
+        return False
+
+    def visit_cast_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_member_access(self, node: Any) -> bool:
+        return False
+
+    def visit_try_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_match_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_reduction_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_where_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_pipeline_expression(self, node: Any) -> bool:
+        return False
+
+    def visit_builtin_call(self, node: Any) -> bool:
+        return False
+
+    def visit_literal_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_identifier_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_wildcard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_tuple_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_array_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_rest_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_guard_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_or_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_constructor_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_binding_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_range_pattern(self, node: Any) -> bool:
+        return False
+
+    def visit_function_value(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein(self, node: Any) -> bool:
+        return False
+
+    def visit_einstein_clause(self, node: Any) -> bool:
+        return False
+
+    def visit_binding(self, node: Any) -> bool:
+        return False
+
+    def visit_program(self, node: Any) -> bool:
+        return False
+
+    def visit_lowered_reduction(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_lowered_comprehension(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_lowered_einstein_clause(self, node: Any) -> bool:
+        return node.body.accept(self)
+
+    def visit_lowered_einstein(self, node: Any) -> bool:
+        for item in getattr(node, "items", None) or []:
+            if item.accept(self):
+                return True
+        return False
+
+    def visit_lowered_recurrence(self, node: Any) -> bool:
+        if getattr(node, "initial", None) is not None and node.initial.accept(self):
+            return True
+        rec_loop = getattr(node, "recurrence_loop", None)
+        if rec_loop is not None and getattr(rec_loop, "iterable", None) is not None and rec_loop.iterable.accept(self):
+            return True
+        if getattr(node, "body", None) is not None and node.body.accept(self):
+            return True
+        return False
+
+
 def _expr_contains_defid(expr: Any, target_defid: Any) -> bool:
     if expr is None or target_defid is None:
         return False
-    if isinstance(expr, (IdentifierIR, IndexVarIR)) and getattr(expr, "defid", None) == target_defid:
-        return True
-    if hasattr(expr, "left") and hasattr(expr, "right"):
-        if _expr_contains_defid(getattr(expr, "left", None), target_defid):
-            return True
-        if _expr_contains_defid(getattr(expr, "right", None), target_defid):
-            return True
-    if hasattr(expr, "operand"):
-        return _expr_contains_defid(getattr(expr, "operand"), target_defid)
-    if hasattr(expr, "array") and hasattr(expr, "indices"):
-        if _expr_contains_defid(getattr(expr, "array"), target_defid):
-            return True
-        for i in getattr(expr, "indices", []) or []:
-            if _expr_contains_defid(i, target_defid):
-                return True
-    if hasattr(expr, "arguments"):
-        for a in getattr(expr, "arguments", []) or []:
-            if _expr_contains_defid(a, target_defid):
-                return True
-    if hasattr(expr, "callee_expr") and _expr_contains_defid(getattr(expr, "callee_expr"), target_defid):
-        return True
+    if hasattr(expr, "accept"):
+        return expr.accept(_ExprContainsDefidVisitor(target_defid))
     return False
 
 

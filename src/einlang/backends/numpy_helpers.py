@@ -117,7 +117,7 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
         return {} if self.value == node.value else None
 
     def visit_identifier_pattern(self, node: IdentifierPatternIR) -> Optional[Dict[DefId, Any]]:
-        did = getattr(node, "defid", None)
+        did = node.defid
         return {did: self.value} if did else {}
 
     def visit_wildcard_pattern(self, node: Any) -> Optional[Dict[DefId, Any]]:
@@ -127,9 +127,9 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
         if not isinstance(self.value, tuple):
             return None
         val_list = list(self.value)
-        has_rest = any(hasattr(p, "pattern") for p in node.patterns)
+        has_rest = any(isinstance(p, RestPatternIR) for p in node.patterns)
         if has_rest:
-            ri = next((i for i, p in enumerate(node.patterns) if hasattr(p, "pattern")), None)
+            ri = next((i for i, p in enumerate(node.patterns) if isinstance(p, RestPatternIR)), None)
             if ri is None or len(val_list) < len(node.patterns) - 1:
                 return None
             bindings: Dict[DefId, Any] = {}
@@ -139,7 +139,7 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
                 bindings.update(r)
             end = len(val_list) - (len(node.patterns) - ri - 1)
             rp = node.patterns[ri]
-            if getattr(getattr(rp, "pattern", None), "defid", None) is not None:
+            if rp.pattern.defid is not None:
                 bindings[rp.pattern.defid] = tuple(val_list[ri:end])
             for i in range(ri + 1, len(node.patterns)):
                 r = node.patterns[i].accept(_PatternMatcher(val_list[end + (i - ri - 1)], self.backend))
@@ -158,9 +158,9 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
     def visit_array_pattern(self, node: ArrayPatternIR) -> Optional[Dict[DefId, Any]]:
         lst = self.value.tolist() if isinstance(self.value, np.ndarray) else list(self.value) if isinstance(self.value, (list, tuple)) else None
         if lst is None: return None
-        has_rest = any(hasattr(p, "pattern") for p in node.patterns)
+        has_rest = any(isinstance(p, RestPatternIR) for p in node.patterns)
         if has_rest:
-            ri = next((i for i, p in enumerate(node.patterns) if hasattr(p, "pattern")), None)
+            ri = next((i for i, p in enumerate(node.patterns) if isinstance(p, RestPatternIR)), None)
             if ri is None or len(lst) < len(node.patterns) - 1: return None
             bindings: Dict[DefId, Any] = {}
             for i in range(ri):
@@ -169,7 +169,7 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
                 bindings.update(r)
             end = len(lst) - (len(node.patterns) - ri - 1)
             rp = node.patterns[ri]
-            if getattr(getattr(rp, "pattern", None), "defid", None) is not None:
+            if rp.pattern.defid is not None:
                 bindings[rp.pattern.defid] = lst[ri:end]
             for i in range(ri + 1, len(node.patterns)):
                 r = node.patterns[i].accept(_PatternMatcher(lst[end + (i - ri - 1)], self.backend))
@@ -185,7 +185,7 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
         return bindings
 
     def visit_rest_pattern(self, node: RestPatternIR) -> Optional[Dict[DefId, Any]]:
-        did = getattr(node.pattern, "defid", None)
+        did = node.pattern.defid
         return {did: self.value} if did else {}
 
     def visit_guard_pattern(self, node: GuardPatternIR) -> Optional[Dict[DefId, Any]]:
@@ -219,7 +219,7 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
         result = node.inner_pattern.accept(_PatternMatcher(self.value, self.backend))
         if result is None:
             return None
-        did = getattr(node.identifier_pattern, "defid", None)
+        did = node.identifier_pattern.defid
         if did is not None:
             result[did] = self.value
         return result
@@ -263,8 +263,8 @@ class _PatternMatcher(IRVisitor[Optional[Dict[DefId, Any]]]):
 
 
 def _extract_binding(constraint: Any) -> Optional[Tuple[DefId, Any]]:
-    if isinstance(constraint, BinaryOpIR) and getattr(constraint, "operator", None) == BinaryOp.ASSIGN and isinstance(constraint.left, IdentifierIR):
-        did = getattr(constraint.left, "defid", None)
+    if isinstance(constraint, BinaryOpIR) and constraint.operator == BinaryOp.ASSIGN and isinstance(constraint.left, IdentifierIR):
+        did = constraint.left.defid
         if did:
             return (did, constraint.right)
     return None
@@ -281,19 +281,19 @@ class FunctionDefRegistrar(IRVisitor[None]):
 
     def visit_binding(self, stmt: BindingIR) -> None:
         if is_function_binding(stmt):
-            self._scope_stack.append(getattr(stmt, "defid", None))
+            self._scope_stack.append(stmt.defid)
             try:
                 if stmt.defid:
                     self.def_table[stmt.defid] = stmt
-                if getattr(stmt, "body", None):
+                if stmt.body is not None:
                     stmt.body.accept(self)
             finally:
                 self._scope_stack.pop()
         elif is_einstein_binding(stmt):
             pass
         else:
-            if getattr(stmt, "value", None):
-                stmt.value.accept(self)
+            if stmt.expr is not None:
+                stmt.expr.accept(self)
 
     def visit_literal(self, n: Any) -> None: pass
     def visit_identifier(self, n: Any) -> None: pass
@@ -303,17 +303,17 @@ class FunctionDefRegistrar(IRVisitor[None]):
     def visit_rectangular_access(self, n: Any) -> None: pass
     def visit_jagged_access(self, n: Any) -> None: pass
     def visit_block_expression(self, n: Any) -> None:
-        for stmt in getattr(n, "statements", []) or []:
+        for stmt in (n.statements or []):
             stmt.accept(self)
-        if getattr(n, "final_expr", None):
+        if n.final_expr is not None:
             n.final_expr.accept(self)
     def visit_if_expression(self, n: Any) -> None:
-        if getattr(n, "then_expr", None):
+        if n.then_expr is not None:
             n.then_expr.accept(self)
-        if getattr(n, "else_expr", None):
+        if n.else_expr is not None:
             n.else_expr.accept(self)
     def visit_lambda(self, n: Any) -> None:
-        if getattr(n, "body", None):
+        if n.body is not None:
             n.body.accept(self)
     def visit_range(self, n: Any) -> None: pass
     def visit_array_comprehension(self, n: Any) -> None: pass
@@ -361,12 +361,12 @@ class NameToDefIdLookup(IRVisitor[Optional[DefId]]):
             return stmt.defid if stmt.name == self.name and stmt.defid else None
         if is_einstein_binding(stmt):
             return None
-        return stmt.value.accept(self) if getattr(stmt, "value", None) else None
+        return stmt.expr.accept(self) if stmt.expr is not None else None
 
     def visit_where_expression(self, node: Any) -> Optional[DefId]:
         r = node.expr.accept(self)
         if r: return r
-        for c in getattr(node, "constraints", []) or []:
+        for c in (node.constraints or []):
             r = c.accept(self)
             if r: return r
         return None
@@ -415,11 +415,12 @@ class DefIdToNameLookup(IRVisitor[Optional[str]]):
         for c in node.constants:
             r = c.accept(self)
             if r is not None: return r
-        if getattr(node, "defid_to_name", None):
-            return node.defid_to_name.get(self.defid)
+        d2n = node.defid_to_name
+        if d2n:
+            return d2n.get(self.defid)
         for stmt in node.statements:
-            if isinstance(stmt, ExpressionIR) and getattr(stmt, "defid", None) == self.defid and getattr(node, "defid_to_name", None):
-                return node.defid_to_name.get(self.defid)
+            if isinstance(stmt, ExpressionIR) and getattr(stmt, "defid", None) == self.defid and d2n:
+                return d2n.get(self.defid)
         return None
 
     def visit_binding(self, stmt: BindingIR) -> Optional[str]:
@@ -427,7 +428,7 @@ class DefIdToNameLookup(IRVisitor[Optional[str]]):
             return stmt.name if stmt.defid == self.defid else None
         if is_einstein_binding(stmt):
             return None
-        return stmt.value.accept(self) if getattr(stmt, "value", None) else None
+        return stmt.expr.accept(self) if stmt.expr is not None else None
 
     def visit_literal(self, n: Any) -> Optional[str]: return None
     def visit_identifier(self, n: Any) -> Optional[str]: return None
@@ -465,8 +466,8 @@ class DefIdToNameLookup(IRVisitor[Optional[str]]):
 
 class BindingExtractor(IRVisitor[Optional[Tuple[DefId, ExpressionIR]]]):
     def visit_binary_op(self, expr: BinaryOpIR) -> Optional[Tuple[DefId, ExpressionIR]]:
-        if getattr(expr, "operator", None) == BinaryOp.ASSIGN and isinstance(expr.left, IdentifierIR):
-            did = getattr(expr.left, "defid", None)
+        if expr.operator == BinaryOp.ASSIGN and isinstance(expr.left, IdentifierIR):
+            did = expr.left.defid
             if did:
                 return (did, expr.right)
         return None
@@ -505,5 +506,5 @@ class BindingExtractor(IRVisitor[Optional[Tuple[DefId, ExpressionIR]]]):
     def visit_binding(self, n: BindingIR) -> Optional[Tuple[DefId, ExpressionIR]]:
         if is_function_binding(n) or is_einstein_binding(n):
             return None
-        return n.value.accept(self) if getattr(n, "value", None) else None
+        return n.expr.accept(self) if n.expr is not None else None
     def visit_module(self, n: Any) -> Optional[Tuple[DefId, ExpressionIR]]: return None

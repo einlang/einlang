@@ -1396,7 +1396,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 if signature and isinstance(expr.body, BlockExpressionIR) and expr.body.final_expr:
                     final_expr = expr.body.final_expr
 
-                    from ..ir.nodes import IfExpressionIR, IdentifierIR, UnaryOpIR
+                    from ..ir.nodes import UnaryOpIR
                     if isinstance(final_expr, IfExpressionIR):
                         then_expr = final_expr.then_expr
                         else_expr = final_expr.else_expr

@@ -12,11 +12,12 @@ from ..ir.nodes import (
     ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR, BindingIR,
     LiteralIR, FunctionCallIR, IRVisitor,
     BlockExpressionIR, RectangularAccessIR, LoweredReductionIR, LoweredComprehensionIR,
-    IfExpressionIR,
+    IfExpressionIR, BinaryOpIR, UnaryOpIR,
     is_einstein_binding, is_function_binding,
 )
 from ..shared.defid import DefId, Resolver, FIXED_BUILTIN_ORDER, _BUILTIN_CRATE
 from ..runtime.environment import ExecutionEnvironment, FunctionValue
+from ..runtime.runtime import ExecutionResult
 from .numpy_helpers import (
     _reject_non_lowered,
     builtin_assert, builtin_print, builtin_len, builtin_typeof, builtin_array_append,
@@ -34,26 +35,150 @@ def _register_fixed_builtins(env: ExecutionEnvironment) -> None:
             env.set_value(DefId(krate=_BUILTIN_CRATE, index=i), fn)
 
 
-def _get_execution_result():
-    from ..runtime.runtime import ExecutionResult
-    return ExecutionResult
-
-
 def _single_array_param(func_def: Any) -> bool:
     """True if function has exactly one parameter (typical for array-in, scalar/array-out)."""
     params = getattr(func_def, "parameters", None)
     return params is not None and len(params) == 1
 
 
+class _ContainsReductionWithOpVisitor(IRVisitor[bool]):
+    """True if expression contains a LoweredReductionIR with the given operation."""
+
+    def __init__(self, operation: str) -> None:
+        self._op = operation
+
+    def _default(self) -> bool:
+        return False
+
+    def visit_lowered_reduction(self, node: LoweredReductionIR) -> bool:
+        return getattr(node, "operation", None) == self._op
+
+    def visit_binary_op(self, node: BinaryOpIR) -> bool:
+        return (node.left and node.left.accept(self)) or (node.right and node.right.accept(self))
+
+    def visit_unary_op(self, node: UnaryOpIR) -> bool:
+        return node.operand is not None and node.operand.accept(self)
+
+    def visit_block_expression(self, node: BlockExpressionIR) -> bool:
+        for stmt in (node.statements or []):
+            if stmt.accept(self):
+                return True
+        return (node.final_expr is not None and node.final_expr.accept(self))
+
+    def visit_if_expression(self, node: IfExpressionIR) -> bool:
+        return (
+            (node.condition and node.condition.accept(self))
+            or (node.then_expr and node.then_expr.accept(self))
+            or (node.else_expr and node.else_expr.accept(self))
+        )
+
+    def visit_binding(self, node: BindingIR) -> bool:
+        expr = getattr(node, "expr", getattr(node, "value", None))
+        return expr is not None and expr.accept(self)
+
+    def visit_literal(self, node: LiteralIR) -> bool:
+        return self._default()
+
+    def visit_identifier(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_rectangular_access(self, node: RectangularAccessIR) -> bool:
+        return self._default()
+
+    def visit_function_call(self, node: FunctionCallIR) -> bool:
+        return self._default()
+
+    def visit_jagged_access(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_lambda(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_range(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_array_comprehension(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_module(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_array_literal(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_tuple_expression(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_tuple_access(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_interpolated_string(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_cast_expression(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_member_access(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_try_expression(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_match_expression(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_reduction_expression(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_where_expression(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_pipeline_expression(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_builtin_call(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_literal_pattern(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_identifier_pattern(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_wildcard_pattern(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_tuple_pattern(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_array_pattern(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_rest_pattern(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_guard_pattern(self, node: Any) -> bool:
+        return self._default()
+
+    def visit_program(self, node: Any) -> bool:
+        return self._default()
+
+
 def _body_has_reduction(body: Any, operation: str) -> bool:
     """True if body (block or binding list) contains a LoweredReductionIR with the given operation."""
     statements = getattr(body, "statements", None) or []
+    visitor = _ContainsReductionWithOpVisitor(operation)
     for stmt in statements:
         if not isinstance(stmt, BindingIR):
             continue
-        expr = getattr(stmt, "expr", getattr(stmt, "value", None))
-        if isinstance(expr, LoweredReductionIR) and getattr(expr, "operation", None) == operation:
-            return True
+        expr = stmt.expr
+        if expr is None:
+            continue
+        try:
+            if expr.accept(visitor):
+                return True
+        except NotImplementedError:
+            pass
     return False
 
 
@@ -157,25 +282,39 @@ class CoreExecutionMixin:
         *,
         input_by_defid: Optional[Dict[DefId, Any]] = None,
         main_defid: Optional[DefId] = None,
+        entry_source_file: Optional[str] = None,
     ) -> Any:
         from ..shared.defid import DefType
+        from ..runtime import set_entry_file
+        # Python: set __file__ (entry file path). Rust: set env var (like CARGO_MANIFEST_DIR).
+        if entry_source_file and entry_source_file not in ("<inline>", "<stdin>"):
+            set_entry_file(entry_source_file)
+            try:
+                os.environ["EINLANG_SCRIPT_DIR"] = os.path.dirname(
+                    os.path.abspath(entry_source_file)
+                )
+            except Exception:
+                os.environ["EINLANG_SCRIPT_DIR"] = os.getcwd()
+        else:
+            set_entry_file(None)
+            os.environ["EINLANG_SCRIPT_DIR"] = os.getcwd()
         self.resolver = resolver
         self._tcx = tcx
         self.env = ExecutionEnvironment()
         _register_fixed_builtins(self.env)
         for func in program.functions:
-            if getattr(func, "defid", None):
-                self.env.set_value(func.defid, func, name=getattr(func, 'name', None))
-        for mod in getattr(program, "modules", None) or []:
+            if func.defid:
+                self.env.set_value(func.defid, func, name=func.name)
+        for mod in (program.modules or []):
             for func in self._collect_module_functions(mod):
-                if getattr(func, "defid", None):
-                    self.env.set_value(func.defid, func, name=getattr(func, 'name', None))
+                if func.defid:
+                    self.env.set_value(func.defid, func, name=func.name)
         if tcx:
             function_ir_map = getattr(tcx, "function_ir_map", None)
             if function_ir_map:
                 for func in function_ir_map.values():
-                    if is_function_binding(func) and getattr(func, "defid", None):
-                        self.env.set_value(func.defid, func, name=getattr(func, 'name', None))
+                    if func is not None and is_function_binding(func) and func.defid:
+                        self.env.set_value(func.defid, func, name=func.name)
         if resolver:
             for defid, (def_type, definition) in resolver._def_registry.items():
                 if def_type == DefType.BUILTIN:
@@ -217,7 +356,7 @@ class CoreExecutionMixin:
                         sys.stderr.write(
                             f"[vectorize] Einstein clauses: {v} vectorized, {s} scalar, {h} hybrid, {c} call-scalar (total {total})\n"
                         )
-                    return _get_execution_result()(value=result_value)
+                    return ExecutionResult(value=result_value)
             outputs = {}
             if program.statements:
                 with self.env.scope():
@@ -231,19 +370,19 @@ class CoreExecutionMixin:
                         result_value = stmt.accept(self)
                         variable_defid = None
                         if isinstance(stmt, BindingIR) and not is_function_binding(stmt):
-                            variable_defid = getattr(stmt, "defid", None)
+                            variable_defid = stmt.defid
                         if variable_defid is None:
                             binding = getattr(stmt, "_binding", None)
                             if binding is not None and isinstance(binding, BindingIR):
-                                variable_defid = getattr(binding, "defid", None)
+                                variable_defid = binding.defid
                         if variable_defid is not None:
-                            var_name = getattr(stmt, "name", None) or (getattr(getattr(stmt, "_binding", None), "name", None) if getattr(stmt, "_binding", None) else None)
+                            var_name = stmt.name if isinstance(stmt, BindingIR) else (getattr(stmt, "_binding", None).name if getattr(stmt, "_binding", None) else None)
                             self.env.set_value(variable_defid, result_value, name=var_name)
                             outputs[variable_defid] = result_value
                         if profile_statements:
                             elapsed = time.perf_counter() - self._stmt_t0
-                            line = getattr(getattr(stmt, "location", None), "line", None) or "?"
-                            name = getattr(stmt, "name", None) or ""
+                            line = (stmt.location.line if stmt.location else None) or "?"
+                            name = stmt.name if isinstance(stmt, BindingIR) else ""
                             print(f"[profile] stmt {stmt_index} (L{line}) {name}: {elapsed:.2f}s", flush=True)
                             if self._profile_buckets is not None and self._profile_buckets:
                                 size = self._profile_bucket_size
@@ -271,12 +410,12 @@ class CoreExecutionMixin:
                 sys.stderr.write(
                     f"[vectorize] Einstein clauses: {v} vectorized, {s} scalar, {h} hybrid, {c} call-scalar (total {total})\n"
                 )
-            return _get_execution_result()(outputs=outputs)
+            return ExecutionResult(outputs=outputs)
         except Exception as e:
             from ..shared.errors import EinlangSourceError
             if isinstance(e, EinlangSourceError):
-                return _get_execution_result()(error=e)
-            return _get_execution_result()(error=RuntimeError(str(e)))
+                return ExecutionResult(error=e)
+            return ExecutionResult(error=RuntimeError(str(e)))
 
     def execute_expression(self, expr: ExpressionIR, env: Dict[DefId, Any]) -> Any:
         with self.env.scope():
@@ -288,35 +427,38 @@ class CoreExecutionMixin:
         from ..ir.nodes import ModuleIR
         if not isinstance(mod, ModuleIR):
             return []
-        result = list(getattr(mod, "functions", None) or [])
-        for sub in getattr(mod, "submodules", None) or []:
+        result = list(mod.functions or [])
+        for sub in (mod.submodules or []):
             result.extend(self._collect_module_functions(sub))
         return result
 
     def _call_function(self, func_def: Union[FunctionDefIR, Any], args: List[Any]) -> Any:
-        expected = len(func_def.parameters)
+        # func_def may be BindingIR (named function) or FunctionValueIR (lambda)
+        params = func_def.parameters
+        body = func_def.body
+        name = getattr(func_def, "name", None) or "<lambda>"
+        expected = len(params)
         actual = len(args)
         if actual != expected:
-            raise RuntimeError(f"Function (name log: {getattr(func_def, 'name', '<lambda>')}) expects {expected} argument(s), got {actual}")
-        name = getattr(func_def, "name", "<unknown>")
+            raise RuntimeError(f"Function '{name}' expects {expected} argument(s), got {actual}")
         # General NumPy fast path: dispatch by body pattern (index-of-extremum, etc.)
         result = _numpy_optimized_dispatch(func_def, args)
         if result is not None:
             return result
         with self.env.scope():
-            for param, arg_value in zip(func_def.parameters, args):
+            for param, arg_value in zip(params, args):
                 if param.defid is None:
-                    raise RuntimeError(f"Parameter has no defid; cannot bind. Name: {getattr(param, 'name', '?')}")
-                self.env.set_value(param.defid, arg_value, name=getattr(param, 'name', None))
+                    raise RuntimeError(f"Parameter has no defid; cannot bind. Name: {param.name}")
+                self.env.set_value(param.defid, arg_value, name=param.name)
             if getattr(self, "_profile_functions", False):
                 t0 = time.perf_counter()
-                result = func_def.body.accept(self)
+                result = body.accept(self)
                 elapsed = time.perf_counter() - t0
                 self._profile_fn_times[name] = self._profile_fn_times.get(name, 0.0) + elapsed
                 if elapsed > 0.01:
                     print(f"[profile] fn {name}: {elapsed:.2f}s", flush=True)
                 return result
-            return func_def.body.accept(self)
+            return body.accept(self)
 
     def codegen(self, program: ProgramIR) -> str:
         return "# NumPy code generation not yet implemented"
@@ -344,9 +486,9 @@ class CoreExecutionMixin:
                     f"EinsteinLoweringPass must run before codegen. (node type: {type(node).__name__})"
                 )
         from ..ir.nodes import LoweredEinsteinIR, LoweredRecurrenceIR
-        expr = getattr(node, 'expr', None)
+        expr = node.expr
         if isinstance(expr, (LoweredEinsteinIR, LoweredRecurrenceIR)):
-            if not (hasattr(node, "value") and node.value):
+            if expr is None:
                 return None
             stack = getattr(self, "_variable_decl_stack", None)
             if stack is None:
@@ -354,15 +496,15 @@ class CoreExecutionMixin:
                 stack = self._variable_decl_stack
             stack.append(node)
             try:
-                result = node.value.accept(self)
+                result = node.expr.accept(self)
             finally:
                 stack.pop()
-            if getattr(node, "defid", None) is not None:
-                self.env.set_value(node.defid, result, name=getattr(node, "name", None))
+            if node.defid is not None:
+                self.env.set_value(node.defid, result, name=node.name)
             return result
-        value = node.value.accept(self)
-        if getattr(node, "defid", None) is not None:
-            self.env.set_value(node.defid, value, name=getattr(node, "name", None))
+        value = node.expr.accept(self)
+        if node.defid is not None:
+            self.env.set_value(node.defid, value, name=node.name)
         return value
 
     def visit_literal_pattern(self, node: Any) -> Any:

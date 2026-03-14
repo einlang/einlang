@@ -3,7 +3,12 @@ Pytest configuration and shared fixtures for all Einlang tests.
 
 This conftest.py provides session and module-scoped fixtures to speed up tests
 by reusing expensive compiler and runtime instances.
+Imports of CompilerDriver and EinlangRuntime are deferred to fixture use (faster collection).
 """
+
+import os
+# IR round-trip: off by default for fast local runs. GitHub workflow sets EINLANG_ROUND_TRIP=1 for coverage.
+os.environ.setdefault("EINLANG_ROUND_TRIP", "0")
 
 import sys
 import pytest
@@ -11,8 +16,6 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from einlang.compiler.driver import CompilerDriver
-from einlang.runtime.runtime import EinlangRuntime, ExecutionResult
 
 
 # =============================================================================
@@ -29,12 +32,14 @@ def session_compiler():
     - Parser is created once with Lark native caching (2-3x faster)
     - Safe to share: no state pollution between tests
     """
+    from einlang.compiler.driver import CompilerDriver
     return CompilerDriver()
 
 
 @pytest.fixture(scope="session")
 def session_runtime():
     """Session-scoped runtime instance shared across all tests."""
+    from einlang.runtime.runtime import EinlangRuntime
     return EinlangRuntime(backend="numpy")
 
 
@@ -51,6 +56,7 @@ def module_compiler(session_compiler):
 @pytest.fixture(scope="module")
 def module_runtime():
     """Module-scoped runtime instance shared within a test module."""
+    from einlang.runtime.runtime import EinlangRuntime
     return EinlangRuntime(backend="numpy")
 
 
@@ -67,6 +73,7 @@ def class_compiler(session_compiler):
 @pytest.fixture(scope="class")
 def class_runtime():
     """Class-scoped runtime instance shared within a test class."""
+    from einlang.runtime.runtime import EinlangRuntime
     return EinlangRuntime(backend="numpy")
 
 
@@ -86,6 +93,7 @@ def runtime():
     Function-scoped runtime - fresh backend per test.
     Ensures isolation under xdist (avoids cross-test state from reduction/comprehension).
     """
+    from einlang.runtime.runtime import EinlangRuntime
     return EinlangRuntime(backend="numpy")
 
 
@@ -103,9 +111,9 @@ def compile_and_execute_factory(session_compiler, session_runtime):
         source_code: str,
         inputs: Optional[Dict[str, Any]] = None,
         source_file: Optional[str] = None,
-        compiler: Optional[CompilerDriver] = None,
-        runtime: Optional[EinlangRuntime] = None
-    ) -> "ExecutionResult":
+        compiler: Optional[Any] = None,
+        runtime: Optional[Any] = None
+    ) -> Any:
         from tests.test_utils import ExecutionResult
         comp = compiler if compiler is not None else session_compiler
         rt = runtime if runtime is not None else session_runtime
@@ -181,6 +189,7 @@ def execution_path():
 @pytest.fixture
 def runtime_for_path():
     """Creates a runtime instance configured for IR execution."""
+    from einlang.runtime.runtime import EinlangRuntime
     return EinlangRuntime(backend="numpy")
 
 
@@ -195,13 +204,18 @@ def reset_compiler_session(request):
     This prevents state leakage while still allowing fixture reuse.
     """
     yield
-    if hasattr(request, 'fixturenames'):
-        for fixture_name in request.fixturenames:
-            if 'runtime' in fixture_name:
-                try:
-                    runtime_instance = request.getfixturevalue(fixture_name)
-                    if hasattr(runtime_instance, 'executor') and runtime_instance.executor:
-                        if hasattr(runtime_instance.executor, 'scope_manager'):
-                            runtime_instance.executor.scope_manager.reset()
-                except Exception:
-                    pass
+    # Only touch runtime if this test actually requested a runtime fixture (cheap check first).
+    if not hasattr(request, 'fixturenames'):
+        return
+    for fixture_name in request.fixturenames:
+        if fixture_name != 'runtime':
+            continue
+        try:
+            runtime_instance = request.getfixturevalue(fixture_name)
+            if runtime_instance is not None and getattr(runtime_instance, 'executor', None) is not None:
+                sm = getattr(runtime_instance.executor, 'scope_manager', None)
+                if sm is not None:
+                    sm.reset()
+        except Exception:
+            pass
+        return

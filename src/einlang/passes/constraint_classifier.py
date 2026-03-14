@@ -11,9 +11,10 @@ from typing import List, Dict, Set, Optional, Any
 from ..passes.base import BasePass, TyCtxt
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BinaryOpIR, WhereExpressionIR,
-    ReductionExpressionIR, WhereClauseIR, IRVisitor, IdentifierIR,
+    ReductionExpressionIR, WhereClauseIR, IRVisitor, IdentifierIR, IndexVarIR,
     is_function_binding, is_einstein_binding
 )
+from .visitor_helpers import VariableExtractor
 from ..shared.defid import DefId
 from ..shared.types import BinaryOp
 
@@ -261,9 +262,9 @@ class ConstraintClassificationVisitor(IRVisitor[None]):
         elif is_einstein_binding(node):
             pass
         else:
-            if hasattr(node, 'value') and node.value:
-                node.value.accept(self)
-    
+            if node.expr is not None:
+                node.expr.accept(self)
+
     def visit_module(self, node) -> None:
         pass
 
@@ -282,7 +283,7 @@ class ConstraintTypeClassifier(IRVisitor[ConstraintType]):
             else:
                 return ConstraintType.VALUE_RELATIONAL
         
-        op = getattr(expr, "operator", None)
+        op = expr.operator
         if op == BinaryOp.IN:
             return ConstraintType.INDEX_RANGE
         if op == BinaryOp.ASSIGN:
@@ -389,10 +390,10 @@ class ConstraintTypeClassifier(IRVisitor[ConstraintType]):
         elif is_einstein_binding(node):
             return ConstraintType.UNKNOWN
         else:
-            if hasattr(node, 'value') and node.value:
-                return node.value.accept(self)
+            if node.expr is not None:
+                return node.expr.accept(self)
             return None
-    
+
     def visit_module(self, node) -> ConstraintType:
         return ConstraintType.UNKNOWN
 
@@ -504,10 +505,10 @@ class IndexVarChecker(IRVisitor[bool]):
         elif is_einstein_binding(node):
             return False
         else:
-            if hasattr(node, 'value') and node.value:
-                return node.value.accept(self)
+            if node.expr is not None:
+                return node.expr.accept(self)
             return None
-    
+
     def visit_module(self, node) -> bool:
         return False
 
@@ -516,9 +517,8 @@ class BindingExtractor(IRVisitor):
     
     def visit_binary_op(self, expr: BinaryOpIR) -> Optional[tuple[str, Set[str]]]:
         """Extract binding from binary operation"""
-        if getattr(expr, "operator", None) == BinaryOp.ASSIGN:
-            # Left side is the bound variable - direct attribute access
-            bound_var = expr.left.name if hasattr(expr.left, 'name') else None
+        if expr.operator == BinaryOp.ASSIGN:
+            bound_var = expr.left.name if isinstance(expr.left, (IdentifierIR, IndexVarIR)) else None
             if bound_var:
                 # Right side contains dependencies
                 deps = expr.right.accept(VariableExtractor())
@@ -629,123 +629,4 @@ class BindingExtractor(IRVisitor):
     
     def visit_module(self, node) -> Optional[tuple[str, Set[str]]]:
         return None
-
-class VariableExtractor(IRVisitor):
-    """Visitor to extract variable names from expression"""
-    
-    def visit_program(self, node: ProgramIR) -> Set[str]:
-        """Visit program - not used for variable extraction"""
-        return set()
-    
-    def visit_identifier(self, expr: IdentifierIR) -> Set[str]:
-        """Extract identifier name"""
-        return {expr.name}
-    
-    def visit_binary_op(self, expr: BinaryOpIR) -> Set[str]:
-        """Extract variables from binary operation"""
-        vars: Set[str] = set()
-        vars.update(expr.left.accept(self))
-        vars.update(expr.right.accept(self))
-        return vars
-    
-    # Default: empty set for other expression types
-    def visit_literal(self, node) -> Set[str]:
-        return set()
-    
-    def visit_function_call(self, node) -> Set[str]:
-        return set()
-    
-    def visit_unary_op(self, node) -> Set[str]:
-        return set()
-    
-    def visit_rectangular_access(self, node) -> Set[str]:
-        return set()
-    
-    def visit_jagged_access(self, node) -> Set[str]:
-        return set()
-    
-    def visit_block_expression(self, node) -> Set[str]:
-        return set()
-    
-    def visit_if_expression(self, node) -> Set[str]:
-        return set()
-    
-    def visit_lambda(self, node) -> Set[str]:
-        return set()
-    
-    def visit_range(self, node) -> Set[str]:
-        return set()
-    
-    def visit_array_comprehension(self, node) -> Set[str]:
-        return set()
-    
-    def visit_array_literal(self, node) -> Set[str]:
-        return set()
-    
-    def visit_tuple_expression(self, node) -> Set[str]:
-        return set()
-    
-    def visit_tuple_access(self, node) -> Set[str]:
-        return set()
-    
-    def visit_interpolated_string(self, node) -> Set[str]:
-        return set()
-    
-    def visit_cast_expression(self, node) -> Set[str]:
-        return set()
-    
-    def visit_member_access(self, node) -> Set[str]:
-        return set()
-    
-    def visit_try_expression(self, node) -> Set[str]:
-        return set()
-    
-    def visit_match_expression(self, node) -> Set[str]:
-        return set()
-    
-    def visit_reduction_expression(self, node) -> Set[str]:
-        return set()
-    
-    def visit_where_expression(self, node) -> Set[str]:
-        return set()
-    
-    def visit_pipeline_expression(self, node) -> Set[str]:
-        return set()
-    
-    def visit_builtin_call(self, node) -> Set[str]:
-        return set()
-    
-    def visit_literal_pattern(self, node) -> Set[str]:
-        return set()
-    
-    def visit_identifier_pattern(self, node) -> Set[str]:
-        return set()
-    
-    def visit_wildcard_pattern(self, node) -> Set[str]:
-        return set()
-    
-    def visit_tuple_pattern(self, node) -> Set[str]:
-        return set()
-    
-    def visit_array_pattern(self, node) -> Set[str]:
-        return set()
-    
-    def visit_rest_pattern(self, node) -> Set[str]:
-        return set()
-    
-    def visit_guard_pattern(self, node) -> Set[str]:
-        return set()
-    
-    def visit_binding(self, node) -> Set[str]:
-        if is_function_binding(node):
-            return set()
-        elif is_einstein_binding(node):
-            return set()
-        else:
-            if hasattr(node, 'value') and node.value:
-                return node.value.accept(self)
-            return None
-    
-    def visit_module(self, node) -> Set[str]:
-        return set()
 
