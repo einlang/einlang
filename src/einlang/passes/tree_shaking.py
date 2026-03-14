@@ -69,9 +69,7 @@ class DefidRefsCollector(IRVisitor[None]):
         if is_einstein_binding(node):
             expr = node.expr
             for clause in (expr.clauses or []):
-                # Clause may be EinsteinClauseIR (.value) or LoweredEinsteinClauseIR (.body)
-                body_or_value = getattr(clause, "body", None) or getattr(clause, "value", None)
-                _visit_opt(self, body_or_value)
+                _visit_opt(self, clause.value)
 
     def visit_if_expression(self, node: IfExpressionIR) -> None:
         node.condition.accept(self)

@@ -43,7 +43,7 @@ def is_generic_function(func_def: 'BindingIR') -> bool:
         
         # Dynamic rank [T; *] → generic (needs monomorphization)
         if isinstance(param.param_type, RectangularType):
-            if getattr(param.param_type, 'is_dynamic_rank', False):
+            if param.param_type.is_dynamic_rank:
                 return True
     
     # All parameters have concrete types → specialized

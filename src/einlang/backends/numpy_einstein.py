@@ -30,16 +30,12 @@ class _BodyReferencesDefidVisitor(IRVisitor[bool]):
         """True if expr (IR with accept) contains any node with defid == self._target."""
         if expr is None or self._target is None:
             return False
-        accept = getattr(expr, "accept", None)
-        if accept is None:
-            return False
-        return accept(self)
+        return expr.accept(self)
 
     def _any(self, *nodes: Any) -> bool:
         for n in nodes:
-            if n is not None and getattr(n, "accept", None) is not None:
-                if n.accept(self):
-                    return True
+            if n is not None and n.accept(self):
+                return True
         return False
 
     def visit_literal(self, node: Any) -> bool:
@@ -559,7 +555,7 @@ class _ReductionUsesClauseVarVisitor(IRVisitor[bool]):
 
     def _any(self, *nodes: Any) -> bool:
         for n in nodes:
-            if n is not None and getattr(n, "accept", None) is not None and n.accept(self):
+            if n is not None and n.accept(self):
                 return True
         return False
 
@@ -3169,7 +3165,7 @@ class EinsteinExecutionMixin:
         variable_key = binding.defid or getattr(variable_decl, "defid", None)
         variable_defid = variable_key
         tensor_shape = list(output.shape) if output is not None else None
-        tensor_element_type = getattr(node.initial, "element_type", None)
+        tensor_element_type = node.initial.element_type or None
 
         def expr_eval(e: Any) -> Any:
             return e.accept(self)
@@ -3752,7 +3748,7 @@ class EinsteinExecutionMixin:
                             break
                         if isinstance(idx, LiteralIR):
                             try:
-                                slice_list_scalar.append(int(getattr(idx, "value", None)))
+                                slice_list_scalar.append(int(idx.value))
                             except (TypeError, ValueError):
                                 break
                         elif pos in recurrence_dims:

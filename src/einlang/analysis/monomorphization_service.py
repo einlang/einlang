@@ -749,12 +749,10 @@ class MonomorphizationService:
         if node in visited:
             return
         visited.add(node)
-        if isinstance(node, FunctionCallIR) and getattr(
-            node, "function_defid", None
-        ) == generic_defid:
+        if isinstance(node, FunctionCallIR) and node.function_defid == generic_defid:
             node.set_callee_defid(specialized_defid)
         if isinstance(node, IRNode):
-            for attr in getattr(node, "__slots__", ()) or []:
+            for attr in (node.__slots__ or []):
                 if hasattr(node, attr):
                     self._substitute_call_targets_in_body(
                         getattr(node, attr),
@@ -814,7 +812,7 @@ class MonomorphizationService:
                     t = a.type_info
                     if (t is None or t is UNKNOWN) and enclosing_function and i < len(params_list):
                         p = params_list[i]
-                        t = getattr(p, "param_type", None)
+                        t = p.param_type
                     arg_types_list.append(t)
                 all_known = bool(arg_types_list and all(t is not None and t is not UNKNOWN for t in arg_types_list))
                 if not all_known and len(arg_types_list) == 2 and fd and self._is_generic_function(fd):

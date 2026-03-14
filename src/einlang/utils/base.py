@@ -5,6 +5,8 @@ Base utilities for Einlang (token/location helpers used by frontend).
 from typing import Dict, Any
 import numpy as np
 
+from ..shared.source_location import SourceLocation
+
 # ==================== UTILITY FUNCTIONS ====================
 
 def handle_token(token: Any) -> Dict[str, Any]:
@@ -41,6 +43,18 @@ def extract_location_info(meta: Any) -> Dict[str, Any]:
     }
     
     if meta is None:
+        return result
+    
+    if isinstance(meta, SourceLocation):
+        result.update({
+            'has_location': True,
+            'line': meta.line or 0,
+            'column': meta.column or 0,
+            'start_pos': meta.start,
+            'end_pos': meta.end,
+            'end_line': meta.end_line or 0,
+            'end_column': meta.end_column or 0,
+        })
         return result
     
     try:

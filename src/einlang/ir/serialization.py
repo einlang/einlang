@@ -155,12 +155,12 @@ class IRSerializer:
         
         result = list(core)
         if isinstance(node, ExpressionIR) and self.include_type_info:
-            if hasattr(node, 'type_info') and node.type_info:
+            if node.type_info:
                 result.extend([self._sym(":inferred_type"), self._serialize_type(node.type_info)])
         if self.include_location and node.location:
             loc = node.location
             result.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if hasattr(node, 'shape_info') and node.shape_info is not None:
+        if node.shape_info is not None:
             result.extend([self._sym(":shape_info"), self._serialize_shape_info(node.shape_info)])
         return result
 
@@ -234,7 +234,7 @@ class IRSerializer:
             return self._add_expr_metadata(node, core)
         
         # Determine type
-        if hasattr(node, 'type_info') and node.type_info and isinstance(node.type_info, PrimitiveType):
+        if node.type_info and isinstance(node.type_info, PrimitiveType):
             type_str = node.type_info.name
         elif isinstance(value, bool):
             type_str = "bool"
@@ -334,7 +334,7 @@ class IRSerializer:
         args = [self.serialize_to_sexpr(arg) for arg in node.arguments]
         callee = self.serialize_to_sexpr(node.callee_expr)
         core = [self._sym("function-call"), [self._sym("callee"), callee], args]
-        if getattr(node, 'module_path', None):
+        if node.module_path:
             core.extend([self._sym(":module_path"), list(node.module_path)])
         return self._add_expr_metadata(node, core)
     
@@ -342,7 +342,7 @@ class IRSerializer:
         """Serialize builtin call: (builtin-call "name" (args...) :defid [krate, index])"""
         args = [self.serialize_to_sexpr(arg) for arg in node.args]
         core = [self._sym("builtin-call"), node.builtin_name, args]
-        if hasattr(node, 'defid') and node.defid:
+        if node.defid is not None:
             core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
         return self._add_expr_metadata(node, core)
     
@@ -408,7 +408,7 @@ class IRSerializer:
     def _serialize_EinsteinClauseIR(self, node) -> list:
         """Serialize one Einstein clause: (einstein-clause :indices ... :value ... :where_clause ...) so deserializer has a tag."""
         indices = [self.serialize_to_sexpr(idx) for idx in (node.indices or [])]
-        value = self.serialize_to_sexpr(node.value) if getattr(node, 'value', None) else [self._sym("nil")]
+        value = self.serialize_to_sexpr(node.value) if node.value is not None else [self._sym("nil")]
         out = [self._sym(":indices"), indices, self._sym(":value"), value]
         wc = node.where_clause
         if wc is not None:
@@ -425,9 +425,9 @@ class IRSerializer:
         """Serialize Einstein (rvalue). Name/defid on binding."""
         clauses_sexpr = [self.serialize_to_sexpr(c) for c in (node.clauses or [])]
         core = [self._sym("einstein-value"), self._sym(":clauses"), clauses_sexpr]
-        if getattr(node, 'shape', None):
+        if node.shape:
             core.extend([self._sym(":shape"), [self.serialize_to_sexpr(s) for s in node.shape]])
-        if getattr(node, 'element_type', None) is not None:
+        if node.element_type is not None:
             core.extend([self._sym(":element_type"), self._serialize_type(node.element_type)])
         return self._add_expr_metadata(node, core)
 
@@ -461,7 +461,7 @@ class IRSerializer:
         loops = [self._serialize_LoopStructure(loop) for loop in node.loops]
         loop_var_ranges = []
         for loop in node.loops:
-            d = getattr(loop.variable, "defid", None)
+            d = loop.variable.defid
             if d is not None:
                 loop_var_ranges.append([self._brackets([d.krate, d.index]), self.serialize_to_sexpr(loop.iterable)])
         bindings = [self.serialize_to_sexpr(b) for b in node.bindings]
@@ -520,7 +520,7 @@ class IRSerializer:
         loops = [self._serialize_LoopStructure(loop) for loop in node.loops]
         loop_var_ranges = []
         for loop in node.loops:
-            d = getattr(loop.variable, "defid", None)
+            d = loop.variable.defid
             if d is not None:
                 loop_var_ranges.append([self._brackets([d.krate, d.index]), self.serialize_to_sexpr(loop.iterable)])
         bindings = [self.serialize_to_sexpr(b) for b in node.bindings]
@@ -539,13 +539,13 @@ class IRSerializer:
         loops = [self._serialize_LoopStructure(loop) for loop in node.loops]
         loop_var_ranges = []
         for loop in node.loops:
-            d = getattr(loop.variable, "defid", None)
+            d = loop.variable.defid
             if d is not None:
                 loop_var_ranges.append([self._brackets([d.krate, d.index]), self.serialize_to_sexpr(loop.iterable)])
         bindings = [self.serialize_to_sexpr(b) for b in node.bindings]
         guards = [self.serialize_to_sexpr(g.condition) for g in node.guards]
         def _defid_str(loop):
-            d = getattr(loop.variable, "defid", None)
+            d = loop.variable.defid
             return f"{d.krate}:{d.index}" if d else "?"
         loop_defids_str = ",".join(_defid_str(loop) for loop in node.loops)
         core = [self._sym("lowered-reduction"), node.operation,
@@ -559,14 +559,14 @@ class IRSerializer:
     
     def _serialize_param(self, p) -> list:
         """Serialize one parameter: (param "name" :defid [krate index] :ty type)."""
-        name = getattr(p, 'name', str(p))
+        name = p.name
         param = [self._sym("param"), name]
-        if self.include_location and getattr(p, 'location', None):
+        if self.include_location and p.location:
             loc = p.location
             param.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
-        if getattr(p, 'defid', None) is not None:
+        if p.defid is not None:
             param.extend([self._sym(":defid"), self._brackets([p.defid.krate, p.defid.index])])
-        if self.include_type_info and getattr(p, 'param_type', None) is not None:
+        if self.include_type_info and p.param_type is not None:
             param.extend([self._sym(":ty"), self._serialize_type(p.param_type)])
         return param
     
@@ -788,7 +788,7 @@ class IRSerializer:
         """Serialize program: (program :bindings (...) :source_files (...))"""
         bindings_sexpr = [self.serialize_to_sexpr(s) for s in node.statements]
         core = [self._sym("program"), self._sym(":bindings"), bindings_sexpr]
-        sf = getattr(node, "source_files", None) or {}
+        sf = node.source_files or {}
         if sf:
             items = [[k, v] for k, v in sf.items()]
             core.extend([self._sym(":source_files"), items])

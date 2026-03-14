@@ -79,7 +79,7 @@ class RestPatternPreprocessingPass(BasePass):
         for stmt in ir.statements:
             if is_einstein_binding(stmt):
                 visitor.visit_einstein_declaration(stmt)
-            elif hasattr(stmt, 'accept'):
+            else:
                 stmt.accept(visitor)
         
         tcx.set_analysis(RestPatternPreprocessingPass, {})
@@ -169,7 +169,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         rest_pattern_indices = []
         output_rest_names = set()
         for i, idx_expr in enumerate(first.indices):
-            logger.debug(f"  index {i}: {type(idx_expr).__name__} = {idx_expr.name if hasattr(idx_expr, 'name') else idx_expr}")
+            logger.debug(f"  index {i}: {type(idx_expr).__name__} = {idx_expr.name if isinstance(idx_expr, (IndexVarIR, IndexRestIR, IdentifierIR)) else idx_expr}")
             if isinstance(idx_expr, IndexRestIR):
                 rest_name = idx_expr.name
                 rest_pattern_indices.append((i, rest_name))
@@ -185,7 +185,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         error = self._validate_rest_patterns(first, output_rest_names)
         if error:
             # Report error and skip expansion
-            node_name = getattr(node, 'array_name', None) or node.name or '<unknown>'
+            node_name = node.name or '<unknown>'
             self.tcx.reporter.report_error(
                 error,
                 location=node.location,
@@ -223,7 +223,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                             f"All rest patterns in access; will infer per rest pattern from RHS in expansion loop"
                         )
             else:
-                node_name = getattr(node, 'array_name', None) or node.name or '<unknown>'
+                node_name = node.name or '<unknown>'
                 self.tcx.reporter.report_error(
                     f"Rest pattern(s) {list(output_rest_names)} in '{node_name}' cannot be expanded: "
                     "no array accesses in body to infer rank from.",
@@ -270,7 +270,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                 logger.debug(f"  rest pattern '{rest_name}': from RHS access array rank={array_rank}, explicit_count={explicit_count}, spans={num_dims}")
                 break
             if num_dims is None:
-                node_name = getattr(node, 'array_name', None) or node.name or '<unknown>'
+                node_name = node.name or '<unknown>'
                 self.tcx.reporter.report_error(
                     f"Rest pattern '..{rest_name}' in '{node_name}' cannot be expanded: "
                     "array rank could not be inferred from RHS (e.g. untyped parameter).",
@@ -314,10 +314,8 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                                     defid=defid,
                                     range_ir=None
                                 )
-                                if hasattr(idx_expr, 'type_info'):
-                                    new_idx.type_info = idx_expr.type_info
-                                if hasattr(idx_expr, 'shape_info'):
-                                    new_idx.shape_info = idx_expr.shape_info
+                                new_idx.type_info = idx_expr.type_info
+                                new_idx.shape_info = idx_expr.shape_info
                                 new_indices.append(new_idx)
                                 logger.debug(f"  replaced ..{rest_name} with {rest_name}.{dim_idx}")
                             if rest_defid is not None:
@@ -340,19 +338,17 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                             defid=defid,
                             range_ir=idx_expr.range_ir,
                         )
-                        if hasattr(idx_expr, 'type_info'):
-                            new_idx.type_info = idx_expr.type_info
-                        if hasattr(idx_expr, 'shape_info'):
-                            new_idx.shape_info = idx_expr.shape_info
+                        new_idx.type_info = idx_expr.type_info
+                        new_idx.shape_info = idx_expr.shape_info
                         new_indices.append(new_idx)
                     else:
                         new_indices.append(idx_expr)
             clause.indices = tuple(new_indices)
-            logger.debug(f"  updated clause.indices: {[idx.name if hasattr(idx, 'name') else str(idx) for idx in clause.indices]}")
+            logger.debug(f"  updated clause.indices: {[idx.name if isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)) else idx for idx in clause.indices]}")
             if clause.value:
                 transformer = RestPatternBodyTransformer(rest_dim_mapping, rest_defid_to_expanded, self.tcx)
                 clause.value = clause.value.accept(transformer)
-            if not hasattr(clause, 'variable_ranges') or clause.variable_ranges is None:
+            if clause.variable_ranges is None:
                 object.__setattr__(clause, 'variable_ranges', {})
             accesses_clause = self._find_array_accesses(clause.value)
             for access in accesses_clause:
@@ -535,13 +531,13 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                     continue
                 rank = try_rank_for_access(acc)
                 if rank is not None:
-                    logger.debug(f"_infer_rank_from_body: rank={rank} from prioritized access (uses output rest patterns) array={acc.array.name if hasattr(acc.array, 'name') else None}")
+                    logger.debug(f"_infer_rank_from_body: rank={rank} from prioritized access (uses output rest patterns) array={acc.array.name if isinstance(acc.array, IdentifierIR) else None}")
                     return rank
         # Second pass – any access
         for acc in accesses:
             rank = try_rank_for_access(acc)
             if rank is not None:
-                logger.debug(f"_infer_rank_from_body: rank={rank} from access array={acc.array.name if hasattr(acc.array, 'name') else None}")
+                logger.debug(f"_infer_rank_from_body: rank={rank} from access array={acc.array.name if isinstance(acc.array, IdentifierIR) else None}")
                 return rank
         logger.debug(f"_infer_rank_from_body: cannot determine rank, deferring expansion")
         return None
@@ -572,26 +568,26 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
             current_func = self._current_function
             if current_func and is_function_binding(current_func):
                 for param in current_func.parameters:
-                    param_defid = getattr(param, 'defid', None)
-                    if param_defid is not None and param_defid == defid and getattr(param, 'param_type', None):
+                    param_defid = param.defid
+                    if param_defid is not None and param_defid == defid and param.param_type:
                         pt = param.param_type
-                        if isinstance(pt, RectangularType) and getattr(pt, 'shape', None):
+                        if isinstance(pt, RectangularType) and pt.shape is not None:
                             return len(pt.shape)
                         n = 0
                         while isinstance(pt, (RectangularType, JaggedType)):
                             n += 1
-                            pt = getattr(pt, 'element_type', None)
+                            pt = pt.element_type
                         if n > 0:
                             return n
                         break
-        if hasattr(arr, 'type_info') and arr.type_info:
+        if arr.type_info:
             t = arr.type_info
-            if isinstance(t, RectangularType) and getattr(t, 'shape', None):
+            if isinstance(t, RectangularType) and t.shape is not None:
                 return len(t.shape)
             n = 0
             while isinstance(t, (RectangularType, JaggedType)):
                 n += 1
-                t = getattr(t, 'element_type', None)
+                t = t.element_type
             if n > 0:
                 return n
         return None
@@ -614,17 +610,17 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         from ..ir.nodes import ArrayLiteralIR
         
         # Case 1 (first): Infer from array literal value - primary for top-level declarations
-        if hasattr(var_def, 'value') and isinstance(var_def.value, ArrayLiteralIR):
+        if var_def.value is not None and isinstance(var_def.value, ArrayLiteralIR):
             rank = self._compute_array_literal_rank(var_def.value)
             if rank is not None and rank > 0:
                 logger.debug(f"_try_infer_rank_from_var_def: inferred rank={rank} from array literal")
                 return rank
         
         # Case 2: Check variable's type_info (if type inference has run)
-        if hasattr(var_def, 'type_info') and var_def.type_info:
+        if var_def.type_info:
             var_type = var_def.type_info
             logger.debug(f"_try_infer_rank_from_var_def: variable {var_name} has type_info={var_type}")
-            if isinstance(var_type, RectangularType) and hasattr(var_type, 'shape') and var_type.shape is not None:
+            if isinstance(var_type, RectangularType) and var_type.shape is not None:
                 rank = len(var_type.shape)
                 logger.debug(f"_try_infer_rank_from_var_def: inferred rank={rank} from type_info shape")
                 return rank
@@ -654,7 +650,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         from ..ir.nodes import ArrayLiteralIR
         if not isinstance(array_literal, ArrayLiteralIR):
             return None
-        if not hasattr(array_literal, 'elements') or not array_literal.elements:
+        if not array_literal.elements:
             return None  # empty elements -> cannot infer rank
         rank = 1
         current = array_literal
@@ -683,19 +679,18 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
             if node.defid is not None:
                 self.set_var(node.defid, node)
                 logger.debug(f"visit_variable_declaration: tracked '{node.pattern}' (defid={node.defid}) in scope")
-            if hasattr(node, 'value') and node.value:
+            if node.value:
                 node.value.accept(self)
     
     def visit_block_expression(self, node: BlockExpressionIR) -> None:
         """Visit block expressions with a new scope."""
         with self.scope():
-            if hasattr(node, 'statements'):
-                for stmt in node.statements:
-                    if is_einstein_binding(stmt):
-                        self.visit_einstein_declaration(stmt)
-                    elif hasattr(stmt, 'accept'):
-                        stmt.accept(self)
-            if hasattr(node, 'final_expr') and node.final_expr:
+            for stmt in node.statements:
+                if is_einstein_binding(stmt):
+                    self.visit_einstein_declaration(stmt)
+                else:
+                    stmt.accept(self)
+            if node.final_expr:
                 node.final_expr.accept(self)
     
     def visit_if_expression(self, node: IfExpressionIR) -> None:
@@ -740,14 +735,14 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         if node.array:
             node.array.accept(self)
         for idx in (node.indices or []):
-            if idx is not None and hasattr(idx, "accept"):
+            if idx is not None:
                 idx.accept(self)
     
     def visit_jagged_access(self, node) -> None:
         if node.array:
             node.array.accept(self)
         for idx in (node.indices or []):
-            if idx is not None and hasattr(idx, "accept"):
+            if idx is not None:
                 idx.accept(self)
     
     def visit_array_literal(self, node) -> None:
@@ -863,7 +858,7 @@ class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
         if expr.array:
             accesses.extend(expr.array.accept(self))
         for idx in (expr.indices or []):
-            if idx is not None and hasattr(idx, "accept"):
+            if idx is not None:
                 accesses.extend(idx.accept(self))
         return accesses
     
@@ -906,17 +901,15 @@ class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
         if node.array:
             accesses.extend(node.array.accept(self))
         for idx in (node.indices or []):
-            if idx is not None and hasattr(idx, "accept"):
+            if idx is not None:
                 accesses.extend(idx.accept(self))
         return accesses
     
     def visit_block_expression(self, node) -> List[RectangularAccessIR]:
         accesses = []
-        if hasattr(node, 'statements'):
-            for stmt in node.statements:
-                if hasattr(stmt, 'accept'):
-                    accesses.extend(stmt.accept(self))
-        if hasattr(node, 'final_expr') and node.final_expr:
+        for stmt in node.statements:
+            accesses.extend(stmt.accept(self))
+        if node.final_expr:
             accesses.extend(node.final_expr.accept(self))
         return accesses
     
@@ -1023,7 +1016,7 @@ class ArrayAccessCollector(IRVisitor[List[RectangularAccessIR]]):
                 return node.body.accept(self)
             return []
         else:
-            if hasattr(node, 'value') and node.value:
+            if node.value:
                 return node.value.accept(self)
             return []
     
@@ -1087,10 +1080,8 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
                             defid=defid,
                             range_ir=None
                         )
-                        if hasattr(idx_expr, 'type_info'):
-                            new_idx.type_info = idx_expr.type_info
-                        if hasattr(idx_expr, 'shape_info'):
-                            new_idx.shape_info = idx_expr.shape_info
+                        new_idx.type_info = idx_expr.type_info
+                        new_idx.shape_info = idx_expr.shape_info
                         new_indices.append(new_idx)
                 else:
                     new_indices.append(idx_expr)
@@ -1103,10 +1094,8 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
                         defid=defid,
                         range_ir=None
                     )
-                    if hasattr(idx_expr, 'type_info'):
-                        new_idx.type_info = idx_expr.type_info
-                    if hasattr(idx_expr, 'shape_info'):
-                        new_idx.shape_info = idx_expr.shape_info
+                    new_idx.type_info = idx_expr.type_info
+                    new_idx.shape_info = idx_expr.shape_info
                     new_indices.append(new_idx)
                 elif isinstance(idx_expr, IndexVarIR):
                     new_idx = IndexVarIR(
@@ -1115,10 +1104,8 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
                         defid=defid,
                         range_ir=idx_expr.range_ir,
                     )
-                    if hasattr(idx_expr, 'type_info'):
-                        new_idx.type_info = idx_expr.type_info
-                    if hasattr(idx_expr, 'shape_info'):
-                        new_idx.shape_info = idx_expr.shape_info
+                    new_idx.type_info = idx_expr.type_info
+                    new_idx.shape_info = idx_expr.shape_info
                     new_indices.append(new_idx)
                 else:
                     new_indices.append(idx_expr.accept(self))
@@ -1128,10 +1115,8 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
             indices=new_indices,
             location=node.location
         )
-        if hasattr(node, 'type_info'):
-            new_node.type_info = node.type_info
-        if hasattr(node, 'shape_info'):
-            new_node.shape_info = node.shape_info
+        new_node.type_info = node.type_info
+        new_node.shape_info = node.shape_info
         return new_node
     
     # Identity transformations for most nodes
@@ -1150,8 +1135,7 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
             right=new_right,
             location=node.location
         )
-        if hasattr(node, 'type_info'):
-            new_node.type_info = node.type_info
+        new_node.type_info = node.type_info
         return new_node
     
     def visit_unary_op(self, node: UnaryOpIR) -> ExpressionIR:
@@ -1161,8 +1145,7 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
             operand=new_operand,
             location=node.location
         )
-        if hasattr(node, 'type_info'):
-            new_node.type_info = node.type_info
+        new_node.type_info = node.type_info
         return new_node
     
     # Stub implementations for all other required methods
@@ -1177,7 +1160,7 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
         else:
             new_value = node.expr.accept(self) if node.expr is not None else None
             return BindingIR(
-                name=node.name or getattr(node, 'pattern', ''),
+                name=node.name or node.pattern or '',
                 expr=new_value,
                 type_info=node.type_info,
                 location=node.location,
@@ -1187,21 +1170,20 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
     def visit_function_call(self, node) -> ExpressionIR:
         # Transform arguments (they may contain array accesses with rest patterns)
         from ..ir.nodes import FunctionCallIR
-        new_arguments = [arg.accept(self) if hasattr(arg, 'accept') else arg for arg in node.arguments]
+        new_arguments = [arg.accept(self) for arg in node.arguments]
         new_node = FunctionCallIR(
             callee_expr=node.callee_expr,
             location=node.location,
             arguments=new_arguments,
-            module_path=node.module_path if hasattr(node, 'module_path') else None
+            module_path=node.module_path
         )
-        if hasattr(node, 'type_info'):
-            new_node.type_info = node.type_info
+        new_node.type_info = node.type_info
         return new_node
     
     def visit_builtin_call(self, node) -> ExpressionIR:
         from ..ir.nodes import BuiltinCallIR
         from ..shared.defid import fixed_builtin_defid
-        new_args = [arg.accept(self) if hasattr(arg, 'accept') else arg for arg in node.args]
+        new_args = [arg.accept(self) for arg in node.args]
         defid = node.defid or fixed_builtin_defid(node.builtin_name)
         new_node = BuiltinCallIR(
             builtin_name=node.builtin_name,
@@ -1209,8 +1191,7 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
             location=node.location,
             defid=defid,
         )
-        if hasattr(node, 'type_info'):
-            new_node.type_info = node.type_info
+        new_node.type_info = node.type_info
         return new_node
     
     def visit_reduction_expression(self, node) -> ExpressionIR:
@@ -1226,8 +1207,7 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
             loop_var_ranges=loop_var_ranges,
             location=node.location
         )
-        if hasattr(node, 'type_info'):
-            new_node.type_info = node.type_info
+        new_node.type_info = node.type_info
         return new_node
     
     def visit_jagged_access(self, node) -> ExpressionIR:

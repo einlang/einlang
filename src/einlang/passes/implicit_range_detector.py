@@ -2554,7 +2554,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
             return node
 
         _clause = _clause_for(einstein_node)
-        _clause_indices = clause_indices if clause_indices is not None else (getattr(_clause, 'indices', None) or [])
+        _clause_indices = clause_indices if clause_indices is not None else ((_clause.indices if _clause is not None else None) or [])
         loop_var_ranges = loop_var_ranges if loop_var_ranges is not None else {}
         if _clause and hasattr(_clause, "value") and isinstance(_clause.value, ReductionExpressionIR):
             loop_var_ranges = (_clause.value.loop_var_ranges or {}) or loop_var_ranges

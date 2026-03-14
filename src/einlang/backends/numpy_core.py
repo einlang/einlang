@@ -166,7 +166,7 @@ class _ContainsReductionWithOpVisitor(IRVisitor[bool]):
 
 def _body_has_reduction(body: Any, operation: str) -> bool:
     """True if body (block or binding list) contains a LoweredReductionIR with the given operation."""
-    statements = (body.statements or []) if hasattr(body, "statements") else []
+    statements = body.statements or []
     visitor = _ContainsReductionWithOpVisitor(operation)
     for stmt in statements:
         if not isinstance(stmt, BindingIR):
@@ -376,7 +376,7 @@ class CoreExecutionMixin:
                             if binding is not None and isinstance(binding, BindingIR):
                                 variable_defid = binding.defid
                         if variable_defid is not None:
-                            var_name = stmt.name if isinstance(stmt, BindingIR) else (getattr(stmt, "_binding", None).name if getattr(stmt, "_binding", None) else None)
+                            var_name = stmt.name if isinstance(stmt, BindingIR) else (binding.name if binding else None)
                             self.env.set_value(variable_defid, result_value, name=var_name)
                             outputs[variable_defid] = result_value
                         if profile_statements:

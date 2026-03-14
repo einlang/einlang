@@ -540,7 +540,7 @@ class _HasUnexpandedRestVisitor(IRVisitor[bool]):
     """Visitor that returns True if the expression contains IndexRestIR or .. identifiers."""
 
     def _any(self, node: Optional[Any]) -> bool:
-        return bool(node is not None and getattr(node, "accept", None) and node.accept(self))
+        return bool(node is not None and node.accept(self))
 
     def visit_literal(self, node: LiteralIR) -> bool:
         return False

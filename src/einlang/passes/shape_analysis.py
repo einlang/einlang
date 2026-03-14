@@ -209,7 +209,7 @@ def _range_bound_to_int(range_obj: Any, bound: str) -> Optional[int]:
         return None
     if isinstance(range_obj, range):
         return range_obj.start if bound == 'start' else range_obj.stop
-    attr = getattr(range_obj, bound, None)
+    attr = range_obj.start if bound == 'start' else range_obj.end
     if attr is None:
         return None
     if isinstance(attr, LiteralIR) and isinstance(attr.value, (int, float)):
@@ -288,7 +288,7 @@ class UnifiedShapeAnalysisPass(BasePass):
         if not isinstance(grouping, dict):
             return
         for array_name, group in grouping.items():
-            decls = getattr(group, "declarations", None) or []
+            decls = group.declarations or []
             if not decls:
                 continue
             # Collect shapes from decls that have them (loop-bearing)
@@ -314,7 +314,7 @@ class UnifiedShapeAnalysisPass(BasePass):
             unified = tuple(unified)
             for decl in decls_without_shape:
                 analyzer.set_shape(decl, unified)
-                logger.debug(f"[ShapeAnalysis] Propagated shape {unified} to literal-index decl {getattr(decl, 'name', '?')}")
+                logger.debug(f"[ShapeAnalysis] Propagated shape {unified} to literal-index decl {decl.name or '?'}")
 
     def process_specialized_functions(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         """
@@ -371,7 +371,7 @@ class ShapeAnalyzer:
         # CRITICAL FIX: For IdentifierIR, look up shape by DefId
         # This is needed to find the shape of variables like "image"
         from ..ir.nodes import IdentifierIR
-        if isinstance(expr, IdentifierIR) and hasattr(expr, 'defid') and expr.defid:
+        if isinstance(expr, IdentifierIR) and expr.defid:
             return self.defid_to_shape.get(expr.defid, None)
         return self.shapes.get(expr, None)
 
@@ -450,30 +450,28 @@ class ShapeAnalyzer:
         return (total_size,) if total_size >= 1 else None
     
     def _get_range_size(self, range_expr: ExpressionIR) -> Optional[int]:
-        """Get size of range expression"""
+        """Get size of range expression. Only RangeIR has .start/.end; comprehension over collection (e.g. IdentifierIR) has no size here."""
+        if not isinstance(range_expr, RangeIR):
+            return None
         evaluator = ConstantEvaluator()
-        # Direct attribute access - trust IR structure
-        if hasattr(range_expr, 'start') and hasattr(range_expr, 'end'):
-            start = range_expr.start.accept(evaluator)
-            end = range_expr.end.accept(evaluator)
-            if start is not None and end is not None:
-                return max(0, end - start)
+        start = range_expr.start.accept(evaluator)
+        end = range_expr.end.accept(evaluator)
+        if start is not None and end is not None:
+            return max(0, end - start)
         return None
     
     def resolve_symbolic_shape(self, shape_expr: ExpressionIR) -> Optional[int]:
         """Resolve symbolic shape expression to concrete value"""
         evaluator = ConstantEvaluator()
-        # Direct attribute access - trust IR structure
-        if hasattr(shape_expr, 'function_name') and shape_expr.function_name == "shape":
-            if hasattr(shape_expr, 'arguments') and len(shape_expr.arguments) >= 2:
-                array_expr = shape_expr.arguments[0]
-                dim_expr = shape_expr.arguments[1]
-                
-                array_shape = self.get_shape(array_expr)
-                dim = dim_expr.accept(evaluator)
-                
-                if array_shape and dim is not None and 0 <= dim < len(array_shape):
-                    return array_shape[dim]
+        if isinstance(shape_expr, FunctionCallIR) and shape_expr.function_name == "shape" and len(shape_expr.arguments) >= 2:
+            array_expr = shape_expr.arguments[0]
+            dim_expr = shape_expr.arguments[1]
+            
+            array_shape = self.get_shape(array_expr)
+            dim = dim_expr.accept(evaluator)
+            
+            if array_shape and dim is not None and 0 <= dim < len(array_shape):
+                return array_shape[dim]
         return None
 
     def _evaluate_shape_dim_expr(self, expr: ExpressionIR) -> Optional[int]:
@@ -828,9 +826,9 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
         elif is_function_binding(node):
             pass
         else:
-            if hasattr(node, 'value') and node.value:
+            if node.value:
                 node.value.accept(self)
-                if hasattr(node, 'defid') and node.defid:
+                if node.defid:
                     shape = self.analyzer.get_shape(node.value)
                     if shape:
                         self.analyzer.defid_to_shape[node.defid] = shape
@@ -882,7 +880,7 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
         """Visit cast expression - cast doesn't change shape, so visit inner expression"""
         # Cast doesn't change shape, but we need to visit the inner expression
         # so its shape is available
-        if hasattr(node, 'expr') and node.expr:
+        if node.expr:
             node.expr.accept(self)
             # Get the shape from the inner expression and propagate it to the cast
             inner_shape = self.analyzer.get_shape(node.expr)

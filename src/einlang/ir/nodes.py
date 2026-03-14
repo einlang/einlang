@@ -306,13 +306,13 @@ class FunctionCallIR(ExpressionIR):
     @property
     def function_name(self) -> str:
         if isinstance(self.callee_expr, IdentifierIR):
-            return getattr(self.callee_expr, 'name', '') or ''
+            return self.callee_expr.name or ''
         return '<callable>'
 
     @property
     def function_defid(self) -> Optional[DefId]:
         if isinstance(self.callee_expr, IdentifierIR):
-            return getattr(self.callee_expr, 'defid', None)
+            return self.callee_expr.defid
         return None
 
     def set_callee_defid(self, defid: DefId) -> None:
@@ -362,22 +362,22 @@ class ArrayComprehensionIR(ExpressionIR):
 
     @property
     def variables(self) -> List[str]:
-        return [getattr(v, 'name', '') for v in self.loop_vars]
+        return [v.name for v in self.loop_vars]
 
     @property
     def variable_defids(self) -> List[Optional[DefId]]:
-        return [getattr(v, 'defid', None) for v in self.loop_vars]
+        return [v.defid for v in self.loop_vars]
 
     @property
     def variable(self) -> str:
         if len(self.loop_vars) == 1:
-            return getattr(self.loop_vars[0], 'name', '')
+            return self.loop_vars[0].name
         raise AttributeError("ArrayComprehensionIR has multiple variables, use .variables")
 
     @property
     def variable_defid(self) -> Optional[DefId]:
         if len(self.loop_vars) == 1:
-            return getattr(self.loop_vars[0], 'defid', None)
+            return self.loop_vars[0].defid
         raise AttributeError("ArrayComprehensionIR has multiple variables, use .variable_defids")
 
     @property
@@ -872,19 +872,19 @@ class BindingIR(IRNode):
 
     @property
     def parameters(self) -> List['ParameterIR']:
-        return getattr(self.expr, 'parameters', []) if isinstance(self.expr, FunctionValueIR) else []
+        return self.expr.parameters if isinstance(self.expr, FunctionValueIR) else []
 
     @property
     def body(self):
-        return getattr(self.expr, 'body', None) if isinstance(self.expr, FunctionValueIR) else None
+        return self.expr.body if isinstance(self.expr, FunctionValueIR) else None
 
     @property
     def return_type(self):
-        return getattr(self.expr, 'return_type', None) if isinstance(self.expr, FunctionValueIR) else None
+        return self.expr.return_type if isinstance(self.expr, FunctionValueIR) else None
 
     @property
     def clauses(self) -> List[Any]:
-        return getattr(getattr(self, 'expr', None), 'clauses', []) or []
+        return getattr(self.expr, 'clauses', []) or []
 
     def get_defid_binding(self) -> Optional[tuple]:
         if self.defid is not None:
@@ -1105,7 +1105,7 @@ class LoweredReductionIR(ExpressionIR):
         """Reduction variable ranges keyed by variable DefId (for compatibility with execute_reduction_with_loops which uses .values())."""
         result: Dict[DefId, LoopStructure] = {}
         for loop in self.loops:
-            d = getattr(loop.variable, 'defid', None)
+            d = loop.variable.defid
             if d is not None:
                 result[d] = loop
         return result
@@ -1182,7 +1182,7 @@ class EinsteinClauseIR(IRNode):
                 out.append(idx.name)
             elif isinstance(idx, (list, tuple)):
                 for sub in idx:
-                    if isinstance(sub, (IndexVarIR, IndexRestIR, IdentifierIR)) and getattr(sub, "name", None):
+                    if isinstance(sub, (IndexVarIR, IndexRestIR, IdentifierIR)) and sub.name:
                         out.append(sub.name)
         return out
 
@@ -1367,7 +1367,7 @@ class IRVisitor(ABC, Generic[T]):
         result = None  # type: ignore[assignment]
         if node.initial:
             result = node.initial.accept(self)
-        if node.recurrence_loop and getattr(node.recurrence_loop, 'iterable', None):
+        if node.recurrence_loop and node.recurrence_loop.iterable:
             result = node.recurrence_loop.iterable.accept(self)
         if node.body:
             result = node.body.accept(self)
