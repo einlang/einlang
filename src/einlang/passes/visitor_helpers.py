@@ -691,10 +691,10 @@ class ExprInvolvesVarVisitor(IRVisitor[bool]):
         return False
 
     def visit_tuple_pattern(self, node: Any) -> bool:
-        return any(e.accept(self) for e in node.elements)
+        return any(e.accept(self) for e in node.patterns)
 
     def visit_array_pattern(self, node: Any) -> bool:
-        return any(e.accept(self) for e in node.elements)
+        return any(e.accept(self) for e in node.patterns)
 
     def visit_rest_pattern(self, node: Any) -> bool:
         return False

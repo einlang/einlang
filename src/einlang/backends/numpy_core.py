@@ -433,29 +433,32 @@ class CoreExecutionMixin:
         return result
 
     def _call_function(self, func_def: Union[FunctionDefIR, Any], args: List[Any]) -> Any:
-        expected = len(func_def.parameters)
+        # func_def may be BindingIR (named function) or FunctionValueIR (lambda)
+        params = func_def.parameters
+        body = func_def.body
+        name = getattr(func_def, "name", None) or "<lambda>"
+        expected = len(params)
         actual = len(args)
         if actual != expected:
-            raise RuntimeError(f"Function '{func_def.name}' expects {expected} argument(s), got {actual}")
-        name = func_def.name
+            raise RuntimeError(f"Function '{name}' expects {expected} argument(s), got {actual}")
         # General NumPy fast path: dispatch by body pattern (index-of-extremum, etc.)
         result = _numpy_optimized_dispatch(func_def, args)
         if result is not None:
             return result
         with self.env.scope():
-            for param, arg_value in zip(func_def.parameters, args):
+            for param, arg_value in zip(params, args):
                 if param.defid is None:
                     raise RuntimeError(f"Parameter has no defid; cannot bind. Name: {param.name}")
                 self.env.set_value(param.defid, arg_value, name=param.name)
             if getattr(self, "_profile_functions", False):
                 t0 = time.perf_counter()
-                result = func_def.body.accept(self)
+                result = body.accept(self)
                 elapsed = time.perf_counter() - t0
                 self._profile_fn_times[name] = self._profile_fn_times.get(name, 0.0) + elapsed
                 if elapsed > 0.01:
                     print(f"[profile] fn {name}: {elapsed:.2f}s", flush=True)
                 return result
-            return func_def.body.accept(self)
+            return body.accept(self)
 
     def codegen(self, program: ProgramIR) -> str:
         return "# NumPy code generation not yet implemented"

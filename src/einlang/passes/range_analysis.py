@@ -514,25 +514,25 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                 decl_range_by_pos: List[Any] = [None] * max(rank, 1)
                 for clause in clauses:
                     inds = clause.indices or []
-                    vr = getattr(clause, 'variable_ranges', None) or {}
+                    vr = (clause.variable_ranges or {})
                     for pos, idx in enumerate(inds):
                         if pos >= len(decl_range_by_pos):
                             decl_range_by_pos.extend([None] * (pos + 1 - len(decl_range_by_pos)))
                         if not isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)):
                             continue
-                        defid = getattr(idx, 'defid', None)
+                        defid = idx.defid
                         if defid is None:
                             continue
                         rng = vr.get(defid)
                         if rng is not None and decl_range_by_pos[pos] is None:
                             decl_range_by_pos[pos] = rng
                 for clause in clauses:
-                    vr = getattr(clause, 'variable_ranges', None) or {}
+                    vr = (clause.variable_ranges or {})
                     inds = clause.indices or []
                     for pos, idx in enumerate(inds):
                         if not isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)):
                             continue
-                        defid = getattr(idx, 'defid', None)
+                        defid = idx.defid
                         if defid is None or defid in vr:
                             continue
                         if pos < len(decl_range_by_pos) and decl_range_by_pos[pos] is not None:
@@ -542,29 +542,30 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                             vr = new_vr
                 tcx = getattr(self.analyzer, 'tcx', None)
                 for clause in clauses:
-                    vr = getattr(clause, 'variable_ranges', None) or {}
+                    vr = (clause.variable_ranges or {})
                     for idx in (clause.indices or []):
                         if not isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)):
                             continue
-                        defid = getattr(idx, 'defid', None)
+                        defid = idx.defid
                         if defid is None or defid in vr:
                             continue
-                        loc = getattr(node, "location", clause.location) or SourceLocation("", 0, 0)
+                        loc = node.location or clause.location or SourceLocation("", 0, 0)
+                        idx_name = idx.name or '?'
                         if tcx and getattr(tcx, 'reporter', None):
                             tcx.reporter.report_error(
-                                f"Range for index variable '{getattr(idx, 'name', None) or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred.",
+                                f"Range for index variable '{idx_name}' (defid={defid.krate}:{defid.index}) could not be inferred.",
                                 loc,
                                 help="Ensure the RHS uses the variable in an array index or add an explicit range in the where clause (e.g. var in 0..N).",
                             )
                         else:
                             raise ValueError(
-                                f"Range for index variable '{getattr(idx, 'name', None) or '?'}' (defid={defid.krate}:{defid.index}) could not be inferred."
+                                f"Range for index variable '{idx_name}' (defid={defid.krate}:{defid.index}) could not be inferred."
                             )
         else:
             did = node.defid
             if did is None:
                 raise RuntimeError(
-                    f"Variable declaration (pattern={getattr(node, 'pattern', None)}) has no defid. "
+                    f"Variable declaration (pattern={node.pattern}) has no defid. "
                     "Ensure name resolution runs before range analysis and assigns defids to let-bindings."
                 )
             self.set_var(did, node.expr)
@@ -846,10 +847,10 @@ class VariableInvolvementChecker(IRVisitor[bool]):
         self.target_defid = target_defid
 
     def visit_identifier(self, expr: IdentifierIR) -> bool:
-        return getattr(expr, 'defid', None) == self.target_defid
+        return expr.defid == self.target_defid
 
     def visit_index_var(self, expr) -> bool:
-        return getattr(expr, 'defid', None) == self.target_defid
+        return expr.defid == self.target_defid
     
     def visit_binary_op(self, expr: BinaryOpIR) -> bool:
         return (expr.left.accept(self) or expr.right.accept(self))
@@ -955,8 +956,8 @@ class VariableInvolvementChecker(IRVisitor[bool]):
         elif is_einstein_binding(node):
             return False
         else:
-            if hasattr(node, 'value') and node.value:
-                return node.value.accept(self)
+            if node.expr is not None:
+                return node.expr.accept(self)
             return False
     
     def visit_if_expression(self, node) -> bool:

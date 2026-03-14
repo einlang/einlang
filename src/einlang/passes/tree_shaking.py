@@ -33,15 +33,13 @@ logger = logging.getLogger(__name__)
 
 
 def _visit_opt(visitor: "DefidRefsCollector", node: Any) -> None:
-    if node is not None and hasattr(node, "accept"):
+    if node is not None:
         node.accept(visitor)
 
 
 def _visit_many(visitor: "DefidRefsCollector", nodes: Any) -> None:
-    if not nodes:
-        return
-    for n in nodes:
-        if n is not None and hasattr(n, "accept"):
+    for n in (nodes or []):
+        if n is not None:
             n.accept(visitor)
 
 
@@ -53,28 +51,27 @@ class DefidRefsCollector(IRVisitor[None]):
 
     def visit_function_call(self, node: FunctionCallIR) -> None:
         _visit_many(self, node.arguments)
-        _visit_opt(self, getattr(node, "callee_expr", None))
+        _visit_opt(self, node.callee_expr)
 
     def visit_identifier(self, node: IdentifierIR) -> None:
-        did = getattr(node, "defid", None)
-        if did is not None:
-            self._refs.add(did)
+        if node.defid is not None:
+            self._refs.add(node.defid)
 
     def visit_builtin_call(self, node: BuiltinCallIR) -> None:
-        args = getattr(node, "args", None) or getattr(node, "arguments", None) or []
-        _visit_many(self, args)
+        _visit_many(self, node.args)
 
     def visit_block_expression(self, node: BlockExpressionIR) -> None:
         _visit_many(self, node.statements)
         _visit_opt(self, node.final_expr)
 
     def visit_binding(self, node: BindingIR) -> None:
-        _visit_opt(self, getattr(node, "value", None) or getattr(node, "expr", None))
+        _visit_opt(self, node.expr)
         if is_einstein_binding(node):
-            expr = getattr(node, "expr", None)
-            clauses = getattr(expr, "clauses", None) or []
-            for clause in clauses:
-                _visit_opt(self, getattr(clause, "value", None))
+            expr = node.expr
+            for clause in (expr.clauses or []):
+                # Clause may be EinsteinClauseIR (constraints/ranges) or LoweredEinsteinClauseIR (body)
+                body_or_value = getattr(clause, "body", None) or getattr(clause, "value", None)
+                _visit_opt(self, body_or_value)
 
     def visit_if_expression(self, node: IfExpressionIR) -> None:
         node.condition.accept(self)
@@ -93,19 +90,14 @@ class DefidRefsCollector(IRVisitor[None]):
         _visit_many(self, node.indices)
 
     def visit_jagged_access(self, node: JaggedAccessIR) -> None:
-        base = getattr(node, "base", None) or getattr(node, "array", None)
-        _visit_opt(self, base)
-        chain = getattr(node, "index_chain", None)
-        if chain is not None:
-            _visit_many(self, chain)
-        else:
-            _visit_opt(self, getattr(node, "index", None))
+        _visit_opt(self, node.base)
+        _visit_many(self, node.index_chain)
 
     def visit_member_access(self, node: MemberAccessIR) -> None:
         node.object.accept(self)
 
     def visit_tuple_access(self, node: TupleAccessIR) -> None:
-        _visit_opt(self, getattr(node, "tuple_expr", None))
+        _visit_opt(self, node.tuple_expr)
 
     def visit_cast_expression(self, node: CastExpressionIR) -> None:
         node.expr.accept(self)
@@ -114,10 +106,10 @@ class DefidRefsCollector(IRVisitor[None]):
         _visit_many(self, node.elements)
 
     def visit_array_comprehension(self, node: ArrayComprehensionIR) -> None:
-        _visit_opt(self, getattr(node, "body", None))
-        _visit_many(self, getattr(node, "ranges", None))
-        _visit_many(self, getattr(node, "loop_vars", None))
-        _visit_many(self, getattr(node, "constraints", None))
+        _visit_opt(self, node.body)
+        _visit_many(self, node.ranges)
+        _visit_many(self, node.loop_vars)
+        _visit_many(self, node.constraints)
 
     def visit_tuple_expression(self, node: TupleExpressionIR) -> None:
         _visit_many(self, node.elements)
@@ -127,63 +119,64 @@ class DefidRefsCollector(IRVisitor[None]):
 
     def visit_where_expression(self, node: WhereExpressionIR) -> None:
         node.expr.accept(self)
-        _visit_many(self, getattr(node, "constraints", None))
+        _visit_many(self, node.constraints)
 
     def visit_lambda(self, node: LambdaIR) -> None:
         node.body.accept(self)
 
     def visit_pipeline_expression(self, node: PipelineExpressionIR) -> None:
-        _visit_opt(self, getattr(node, "left", None))
-        _visit_opt(self, getattr(node, "right", None))
+        _visit_opt(self, node.left)
+        _visit_opt(self, node.right)
 
     def visit_interpolated_string(self, node: InterpolatedStringIR) -> None:
         _visit_many(self, node.parts)
 
     def visit_match_expression(self, node: MatchExpressionIR) -> None:
         node.scrutinee.accept(self)
-        for arm in getattr(node, "arms", None) or []:
-            _visit_opt(self, getattr(arm, "body", None))
-            _visit_opt(self, getattr(arm, "guard", None))
+        for arm in (node.arms or []):
+            _visit_opt(self, arm.pattern)
+            _visit_opt(self, arm.body)
 
     def visit_try_expression(self, node: TryExpressionIR) -> None:
-        _visit_opt(self, getattr(node, "operand", None))
+        _visit_opt(self, node.operand)
 
     def visit_range(self, node: RangeIR) -> None:
         node.start.accept(self)
         node.end.accept(self)
 
     def visit_lowered_einstein(self, node: Any) -> None:
-        _visit_many(self, getattr(node, "items", None))
-        _visit_many(self, getattr(node, "shape", None))
+        _visit_many(self, node.items)
+        _visit_many(self, node.shape)
 
     def visit_lowered_einstein_clause(self, node: Any) -> None:
-        _visit_opt(self, getattr(node, "body", None))
-        for loop in getattr(node, "loops", None) or []:
-            _visit_opt(self, getattr(loop, "iterable", None))
-        for b in getattr(node, "bindings", None) or []:
-            _visit_opt(self, getattr(b, "value", None) or getattr(b, "expr", None))
-        for g in getattr(node, "guards", None) or []:
-            _visit_opt(self, getattr(g, "condition", None))
+        _visit_opt(self, node.body)
+        for loop in (node.loops or []):
+            _visit_opt(self, loop.iterable)
+        for b in (node.bindings or []):
+            _visit_opt(self, b.expr)
+        for g in (node.guards or []):
+            _visit_opt(self, g.condition)
 
     def visit_lowered_reduction(self, node: Any) -> None:
-        _visit_opt(self, getattr(node, "body", None))
-        for loop in getattr(node, "loops", None) or []:
-            _visit_opt(self, getattr(loop, "iterable", None))
-        for b in getattr(node, "bindings", None) or []:
-            _visit_opt(self, getattr(b, "value", None) or getattr(b, "expr", None))
-        for g in getattr(node, "guards", None) or []:
-            _visit_opt(self, getattr(g, "condition", None))
+        _visit_opt(self, node.body)
+        for loop in (node.loops or []):
+            _visit_opt(self, loop.iterable)
+        for b in (node.bindings or []):
+            _visit_opt(self, b.expr)
+        for g in (node.guards or []):
+            _visit_opt(self, g.condition)
 
     def visit_lowered_comprehension(self, node: Any) -> None:
-        _visit_opt(self, getattr(node, "body", None))
-        _visit_opt(self, getattr(node, "iterable", None))
+        _visit_opt(self, node.body)
+        for loop in (node.loops or []):
+            _visit_opt(self, loop.iterable)
 
     # No-op / no DefIds for the rest
     def visit_literal(self, node: Any) -> None:
         pass
 
     def visit_index_var(self, node: Any) -> None:
-        _visit_opt(self, getattr(node, "range_ir", None))
+        _visit_opt(self, node.range_ir)
 
     def visit_index_rest(self, node: Any) -> None:
         pass
@@ -204,34 +197,32 @@ class DefidRefsCollector(IRVisitor[None]):
         pass
 
     def visit_tuple_pattern(self, node: Any) -> None:
-        _visit_many(self, getattr(node, "elements", None))
+        _visit_many(self, node.patterns)
 
     def visit_array_pattern(self, node: Any) -> None:
-        _visit_many(self, getattr(node, "elements", None))
+        _visit_many(self, node.patterns)
 
     def visit_rest_pattern(self, node: Any) -> None:
         pass
 
     def visit_guard_pattern(self, node: Any) -> None:
-        inner = getattr(node, "inner_pattern", None)
-        guard_expr = getattr(node, "guard_expr", None)
-        _visit_opt(self, inner)
-        _visit_opt(self, guard_expr)
+        _visit_opt(self, node.inner_pattern)
+        _visit_opt(self, node.guard_expr)
 
     def visit_or_pattern(self, node: Any) -> None:
-        _visit_many(self, getattr(node, "alternatives", None))
+        _visit_many(self, node.alternatives)
 
     def visit_constructor_pattern(self, node: Any) -> None:
-        _visit_many(self, getattr(node, "patterns", None))
+        _visit_many(self, node.patterns)
 
     def visit_binding_pattern(self, node: Any) -> None:
-        _visit_opt(self, getattr(node, "inner_pattern", None))
+        _visit_opt(self, node.inner_pattern)
 
     def visit_range_pattern(self, node: Any) -> None:
         pass
 
     def visit_function_value(self, node: Any) -> None:
-        _visit_opt(self, getattr(node, "body", None))
+        _visit_opt(self, node.body)
 
     def visit_einstein(self, node: Any) -> None:
         pass
@@ -240,17 +231,16 @@ class DefidRefsCollector(IRVisitor[None]):
         pass
 
     def visit_lowered_recurrence(self, node: Any) -> None:
-        _visit_opt(self, getattr(node, "initial", None))
-        rec_loop = getattr(node, "recurrence_loop", None)
-        _visit_opt(self, getattr(rec_loop, "iterable", None) if rec_loop else None)
-        _visit_opt(self, getattr(node, "body", None))
+        _visit_opt(self, node.initial)
+        rec_loop = node.recurrence_loop
+        if rec_loop is not None:
+            _visit_opt(self, rec_loop.iterable)
+        _visit_opt(self, node.body)
 
 
 def _collect_defid_refs(node: Any, refs: Set[DefId]) -> None:
     """Recursively collect all function DefIds referenced from an IR node."""
-    if node is None:
-        return
-    if hasattr(node, "accept"):
+    if node is not None:
         node.accept(DefidRefsCollector(refs))
 
 
@@ -263,9 +253,8 @@ def tree_shake(ir: ProgramIR) -> ProgramIR:
     """
     func_by_defid = {}
     for func in ir.functions:
-        did = getattr(func, 'defid', None)
-        if did is not None:
-            func_by_defid[did] = func
+        if func.defid is not None:
+            func_by_defid[func.defid] = func
 
     reachable: Set[DefId] = set()
 
@@ -292,17 +281,15 @@ def tree_shake(ir: ProgramIR) -> ProgramIR:
                 worklist.append(ref)
 
     before = len(ir.functions)
-    kept_defids = {f.defid for f in ir.functions
-                   if getattr(f, 'defid', None) is not None and f.defid in reachable}
-    kept = [f for f in ir.functions
-            if getattr(f, 'defid', None) is not None and f.defid in kept_defids]
+    kept_defids = {f.defid for f in ir.functions if f.defid is not None and f.defid in reachable}
+    kept = [f for f in ir.functions if f.defid is not None and f.defid in kept_defids]
     after = len(kept)
 
     if before != after:
         logger.debug(f"[TreeShaking] {before} → {after} functions ({before - after} pruned)")
 
     new_statements = [s for s in (ir.statements or [])
-                      if not is_function_binding(s) or (getattr(s, 'defid', None) in kept_defids)]
+                      if not is_function_binding(s) or (s.defid in kept_defids)]
     object.__setattr__(ir, 'statements', new_statements)
     object.__setattr__(ir, 'bindings', [s for s in new_statements if isinstance(s, BindingIR)])
     return ir
