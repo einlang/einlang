@@ -7,6 +7,7 @@ import warnings
 import numpy as np
 
 from ..shared.types import BinaryOp, UnaryOp, TypeKind
+from ..shared.optional_attr import opt_defid
 from ..ir.nodes import (
     LiteralIR, IdentifierIR, IndexVarIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     BlockExpressionIR, RangeIR, ArrayComprehensionIR, RectangularAccessIR, JaggedAccessIR,
@@ -224,7 +225,7 @@ def _reduction_axes_in_access(
     """Return the array axis index for each reduction defid (position in indices = axis in array)."""
     axes: List[Optional[int]] = [None] * len(reduction_defids)
     for axis_in_array, idx in enumerate(indices):
-        idx_defid = getattr(idx, "defid", None)
+        idx_defid = opt_defid(idx)
         if idx_defid is not None and idx_defid in reduction_defids:
             pos = reduction_defids.index(idx_defid)
             axes[pos] = axis_in_array
@@ -316,16 +317,16 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         br = body.right
         if isinstance(bl, RectangularAccessIR) and isinstance(br, RectangularAccessIR):
             mul_left, mul_right = bl, br
-        elif isinstance(bl, BinaryOpIR) and getattr(bl, "operator", None) in (_mul, "*"):
-            al, ar = getattr(bl, "left", None), getattr(bl, "right", None)
+        elif isinstance(bl, BinaryOpIR) and bl.operator in (_mul, "*"):
+            al, ar = bl.left, bl.right
             if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(br, LiteralIR):
                 mul_left, mul_right = al, ar
                 try:
                     scale = float(getattr(br, "value", None))
                 except (TypeError, ValueError):
                     scale = None
-        elif isinstance(br, BinaryOpIR) and getattr(br, "operator", None) in (_mul, "*"):
-            al, ar = getattr(br, "left", None), getattr(br, "right", None)
+        elif isinstance(br, BinaryOpIR) and br.operator in (_mul, "*"):
+            al, ar = br.left, br.right
             if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(bl, LiteralIR):
                 mul_left, mul_right = al, ar
                 try:
@@ -948,7 +949,7 @@ class ExpressionVisitorMixin:
         try:
             return fn(self, left, right)
         except (ZeroDivisionError, FloatingPointError) as e:
-            self._raise_here(e, getattr(expr, "right", expr))
+            self._raise_here(e, (expr.right or expr))
         except Exception as e:
             self._raise_here(e, expr)
 
@@ -1070,7 +1071,7 @@ class ExpressionVisitorMixin:
     def visit_range(self, expr: RangeIR) -> Any:
         start = expr.start.accept(self)
         end = expr.end.accept(self)
-        end_int = int(end) + 1 if getattr(expr, 'inclusive', False) else int(end)
+        end_int = int(end) + 1 if (expr.inclusive or False) else int(end)
         return range(int(start), end_int)
 
     def visit_array_comprehension(self, expr: ArrayComprehensionIR) -> Any:

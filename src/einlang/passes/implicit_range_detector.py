@@ -19,6 +19,7 @@ from ..ir.nodes import (
     is_function_binding, is_einstein_binding,
 )
 from ..shared.defid import DefId
+from ..shared.optional_attr import opt_name
 from ..shared.source_location import SourceLocation
 from ..shared.types import BinaryOp, infer_literal_type, UNKNOWN
 from .range_info import RangeInfo, StaticRange, DynamicRange
@@ -982,7 +983,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
         if var_def is None:
             logger.debug(f"[_get_array_shape] No definition for defid {array_defid}")
             return None
-        _name = getattr(var_def, 'name', None) or ''  # var_def may be BindingIR, ArrayLiteralIR, or other
+        _name = opt_name(var_def)  # var_def may be BindingIR, ArrayLiteralIR, or other
         _defid_for_id = array_defid
 
         if self._tcx:

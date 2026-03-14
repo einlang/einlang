@@ -403,7 +403,7 @@ class ShapeAnalyzer:
                     self.tcx.reporter.report_error(
                         "Array literal has inconsistent element types: "
                         "element 0 is array, but element {} is not an array".format(i),
-                        location=getattr(elem, "location", loc) or loc,
+                        location=(elem.location or loc) or loc,
                     )
                     return None
                 elem_shape = self._infer_array_literal_shape_from_element(elem)
@@ -423,7 +423,7 @@ class ShapeAnalyzer:
                     self.tcx.reporter.report_error(
                         "Array literal has inconsistent element types: "
                         "element 0 is scalar, but element {} is array".format(i),
-                        location=getattr(elem, "location", loc) or loc,
+                        location=(elem.location or loc) or loc,
                     )
                     return None
             return (len(expr.elements),)

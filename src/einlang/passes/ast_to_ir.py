@@ -1334,7 +1334,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             start=start_ir,
             end=end_ir,
             location=location,
-            inclusive=getattr(node, 'inclusive', False),
+            inclusive=(node.inclusive or False),
         )
     
     def visit_index_var(self, node) -> Optional[ExpressionIR]:
@@ -1575,7 +1575,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 p_ir = p.accept(self) if hasattr(p, 'accept') else self._lower_pattern(p)
                 if isinstance(p_ir, PatternIR):
                     patterns.append(p_ir)
-        is_struct = getattr(node, 'is_struct_literal', False)
+        is_struct = (node.is_struct_literal or False)
         return ConstructorPatternIR(
             constructor_name=node.constructor_name,
             patterns=patterns,

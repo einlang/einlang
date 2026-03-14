@@ -26,6 +26,7 @@ from ..ir.nodes import (
 )
 from ..ir.scoped_visitor import ScopedIRVisitor
 from ..shared.defid import DefId
+from ..shared.optional_attr import opt_defid
 from ..shared.source_location import SourceLocation
 from ..shared.types import infer_literal_type, UNKNOWN
 
@@ -326,7 +327,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                     else:
                         new_indices.append(idx_expr)
                 else:
-                    defid = getattr(idx_expr, 'defid', None)
+                    defid = opt_defid(idx_expr)
                     if isinstance(idx_expr, IndexVarIR):
                         if defid is None:
                             raise ValueError(
@@ -356,7 +357,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
             accesses_clause = self._find_array_accesses(clause.value)
             for access in accesses_clause:
                 for dim_idx, idx_expr in enumerate(access.indices or []):
-                    defid = getattr(idx_expr, 'defid', None)
+                    defid = opt_defid(idx_expr)
                     if defid is None and isinstance(idx_expr, (IndexVarIR, IndexRestIR)):
                         name = (idx_expr.name or "?")
                         raise ValueError(
@@ -1094,7 +1095,7 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
                 else:
                     new_indices.append(idx_expr)
             else:
-                defid = getattr(idx_expr, 'defid', None)
+                defid = opt_defid(idx_expr)
                 if isinstance(idx_expr, IdentifierIR):
                     new_idx = IndexVarIR(
                         name=idx_expr.name,

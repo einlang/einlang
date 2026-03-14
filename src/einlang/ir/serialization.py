@@ -399,7 +399,7 @@ class IRSerializer:
         start = self.serialize_to_sexpr(node.start) if node.start else [self._sym("nil")]
         end = self.serialize_to_sexpr(node.end) if node.end else [self._sym("nil")]
         core = [self._sym("range"), start, end]
-        if getattr(node, 'inclusive', False):
+        if (node.inclusive or False):
             core.extend([self._sym(":inclusive"), self._sym("true")])
         return self._add_expr_metadata(node, core)
     

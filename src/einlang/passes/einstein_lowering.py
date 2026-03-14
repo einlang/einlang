@@ -901,7 +901,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         decl_expr = decl.expr
         element_type = getattr(decl_expr, 'element_type', None) if decl_expr is not None else None
         if element_type is None and decl_expr is not None:
-            ti = getattr(decl_expr, 'type_info', None)
+            ti = decl_expr.type_info
             if ti is not None:
                 element_type = getattr(ti, 'element_type', None) or ti
         if element_type is None and hasattr(node.value, 'type_info') and node.value.type_info:
@@ -1874,7 +1874,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         if node.expr is not None:
             orig = node.expr
             node.expr = orig.accept(self)
-            if getattr(node.expr, 'type_info', None) is None and getattr(orig, 'type_info', None) is not None:
+            if getattr(node.expr, 'type_info', None) is None and orig.type_info is not None:
                 node.expr.type_info = orig.type_info
         return node
 

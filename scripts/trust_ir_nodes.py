@@ -60,6 +60,8 @@ IR_LIKE_NAMES = frozenset({
     "arr", "loc", "func", "decl", "idx_expr", "constraint", "c", "red",
     "cur_func", "iterable", "range_obj", "range_ir", "enc", "left", "right",
     "param", "const", "range_expr", "elem", "var", "variable_decl", "lowered",
+    "decl_expr", "bl", "br", "al", "ar", "orig", "member", "target", "sig",
+    "callee_value", "op", "enc", "guard", "condition", "start", "end",
 })
 
 # Object names we never replace (non-IR or optional API).
@@ -91,6 +93,7 @@ SKIP_ATTRS = frozenset({
     "defid",  # AST nodes (FunctionDefinition, ModuleAccess) may not have .defid; LambdaIR has no .defid
     "name",  # ArrayLiteralIR and some IR nodes have no .name; AST vs IR differ
     "inner_pattern",  # AST BindingPattern has .pattern, IR BindingPatternIR has .inner_pattern
+    "identifier_pattern",  # AST BindingPattern has no .identifier_pattern; IR has it
     "operation",  # AST ReductionExpression has .function_name, IR has .operation
 })
 
@@ -117,13 +120,20 @@ def replacement_for(obj: str, attr: str, default: str) -> str | None:
         return f"({obj}.{attr} or {{}})"
     if default.startswith('"') or default.startswith("'"):
         return f"({obj}.{attr} or {default})"
+    # default is a single identifier (e.g. loc, expr)
+    if default.isidentifier():
+        return f"({obj}.{attr} or {default})"
     return None
+
+
+# Default in getattr: None, [], {}, "", '', or single identifier (not identifier()).
+_DEFAULT_PAT = r"(None|\[\]|\{\}|\[\s*\]|\"[^\"]*\"|'[^']*'|\w+(?!\s*\())"
 
 
 def collect_replaceable_attrs(line: str, ir_attrs: set) -> set:
     """Return set of attribute names that have replaceable getattr on this line."""
     pattern = re.compile(
-        r"getattr\s*\(\s*(\w+)\s*,\s*[\"'](\w+)[\"']\s*,\s*(None|\[\]|\{\}|\[\s*\]|\"[^\"]*\"|'[^']*')\s*\)"
+        r"getattr\s*\(\s*(\w+)\s*,\s*[\"'](\w+)[\"']\s*,\s*" + _DEFAULT_PAT + r"\s*\)"
     )
     found = set()
     for m in pattern.finditer(line):
@@ -142,7 +152,7 @@ def replace_getattr_line(
     If attr_only is set, only replace getattr for that attribute name."""
     # Match getattr(obj, "attr", default) anywhere on the line
     pattern = re.compile(
-        r"getattr\s*\(\s*(\w+)\s*,\s*[\"'](\w+)[\"']\s*,\s*(None|\[\]|\{\}|\[\s*\]|\"[^\"]*\"|'[^']*')\s*\)"
+        r"getattr\s*\(\s*(\w+)\s*,\s*[\"'](\w+)[\"']\s*,\s*" + _DEFAULT_PAT + r"\s*\)"
     )
     new_line = line
     changed = False
