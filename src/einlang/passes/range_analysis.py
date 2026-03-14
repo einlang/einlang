@@ -814,6 +814,14 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
             if red_defid not in variable_ranges:
                 variable_ranges[red_defid] = red_rng
         object.__setattr__(clause, 'variable_ranges', variable_ranges if variable_ranges else {})
+        # Attach range to IndexVarIR.range_ir so lowering/backend can trust IR (no runtime re-infer).
+        for idx_expr in (clause.indices or []):
+            if isinstance(idx_expr, IndexVarIR) and idx_expr.defid is not None:
+                r = variable_ranges.get(idx_expr.defid)
+                if r is not None:
+                    rir = r if isinstance(r, RangeIR) else _to_range_ir(r, clause.location or node.location)
+                    if rir is not None:
+                        object.__setattr__(idx_expr, 'range_ir', rir)
 
     def visit_literal_pattern(self, node) -> None:
         pass

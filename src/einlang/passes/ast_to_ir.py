@@ -953,7 +953,11 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         # Nested comprehensions (body IS another comprehension) are handled separately
         variables = [var_name for var_name, _, _ in iteration_variables]
         ranges = [range_expr for _, range_expr, _ in iteration_variables]
-        variable_defids = [var_defid for _, _, var_defid in iteration_variables]
+        resolver = getattr(self.tcx, 'resolver', None)
+        variable_defids = [
+            var_defid if var_defid is not None else (resolver.allocate_for_local() if resolver is not None else None)
+            for _, _, var_defid in iteration_variables
+        ]
         
         # Check if body is already a comprehension (true nesting)
         # If so, we'll preserve the nested structure
@@ -1255,16 +1259,16 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         else:
             operation = opt_attr(operation, 'value', operation) if not isinstance(operation, str) else operation
 
-        # DefId: copy from AST (name resolution sets _reduction_loop_var_defids and body identifiers' defid); one-to-one in visit_identifier.
+        # DefId: copy from AST (name resolution sets _reduction_loop_var_defids and body identifiers' defid).
+        # If still missing, allocate so backends can trust IR (no runtime defid checks).
         reduction_loop_var_defids = opt_attr(node, '_reduction_loop_var_defids', None) or {}
-        loop_var_idents = [
-            IdentifierIR(
-                name,
-                location,
-                defid=reduction_loop_var_defids.get(name) or defid_of_var_in_expr(body_ir, name),
-            )
-            for name in loop_vars
-        ]
+        resolver = getattr(self.tcx, 'resolver', None)
+        loop_var_idents = []
+        for name in loop_vars:
+            did = reduction_loop_var_defids.get(name) or defid_of_var_in_expr(body_ir, name)
+            if did is None and resolver is not None:
+                did = resolver.allocate_for_local()
+            loop_var_idents.append(IdentifierIR(name, location, defid=did))
         loop_var_ranges_by_defid = {}
         for name, ident in zip(loop_vars, loop_var_idents):
             if ident.defid is not None and name in loop_var_ranges:

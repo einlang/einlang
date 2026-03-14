@@ -37,12 +37,13 @@ def get_script_dir() -> str:
 
 
 def _resolve_input_defid(program: ProgramIR, name: str) -> Optional[DefId]:
+    """Resolve top-level name to DefId. Compiler guarantees functions/constants have defid (IRValidationPass)."""
     for f in program.functions:
-        if f.name == name and f.defid:
+        if f.name == name:
             assert_defid(f.defid, allow_none=False)
             return f.defid
     for c in program.constants:
-        if c.name == name and c.defid:
+        if c.name == name:
             assert_defid(c.defid, allow_none=False)
             return c.defid
     return None

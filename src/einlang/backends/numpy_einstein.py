@@ -2665,6 +2665,7 @@ def _slice_list_from_clause_indices(
 def _extract_loop_range(loop, evaluator) -> Tuple[int, int]:
     """Return (start, end) for the loop range; both must be concrete int. Raises if missing or dependent."""
     it = loop.iterable
+    # IR validation (visit_lowered_einstein_clause) fails compilation if iterable is None; this is a safeguard.
     if it is None:
         raise RuntimeError("loop has no iterable; cannot extract range")
     if isinstance(it, LiteralIR) and isinstance(it.value, range):

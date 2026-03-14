@@ -318,13 +318,11 @@ class IRSerializer:
         return self._add_expr_metadata(node, core)
 
     def _serialize_MemberAccessIR(self, node) -> list:
-        """Serialize member access (e.g. t.0, arr.shape): (member-access object member)."""
+        """Serialize member access (e.g. t.0, arr.shape): (member-access object member). Member as string for round-trip stability."""
         object_sexpr = self.serialize_to_sexpr(node.object)
-        member = (node.member or "")
-        if isinstance(member, int):
-            core = [self._sym("member-access"), object_sexpr, member]
-        else:
-            core = [self._sym("member-access"), object_sexpr, str(member)]
+        member = (node.member if node.member is not None else "")
+        member_str = str(member) if isinstance(member, int) else (member if isinstance(member, str) else str(member))
+        core = [self._sym("member-access"), object_sexpr, member_str]
         return self._add_expr_metadata(node, core)
     
     # === Function Calls ===
@@ -603,12 +601,13 @@ class IRSerializer:
     # === Lambda/Arrow Expressions ===
     
     def _serialize_LambdaIR(self, node) -> list:
-        """Serialize lambda: (lambda ((param "x" :defid [...])...) body :defid [...])"""
+        """Serialize lambda: (lambda ((param "x" :defid [...])...) body [:defid [...]])"""
         params = [self._serialize_param(p) for p in node.parameters]
         body = self.serialize_to_sexpr(node.body)
         core = [self._sym("lambda"), params, body]
-        if node.defid is not None:
-            core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
+        defid = getattr(node, "defid", None)
+        if defid is not None:
+            core.extend([self._sym(":defid"), self._brackets([defid.krate, defid.index])])
         return self._add_expr_metadata(node, core)
     
     def _serialize_PipelineExpressionIR(self, node) -> list:

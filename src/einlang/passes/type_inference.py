@@ -1851,6 +1851,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             for loop_var in expr.loop_vars or []:
                 if isinstance(loop_var, IdentifierIR) and loop_var.defid is not None:
                     self._set_var(loop_var.defid, I32)
+                loop_var.accept(self)  # IndexVarIR.range_ir gets type_info via visit_index_var -> visit_range
             # Visit range expressions in loop_var_ranges so RangeIR (and start/end) get type_info (fixes validation)
             for range_ir in (expr.loop_var_ranges or {}).values():
                 if range_ir is not None:
