@@ -7,6 +7,7 @@ import warnings
 import numpy as np
 
 from ..shared.types import BinaryOp, UnaryOp, TypeKind
+from ..shared.optional_attr import opt_defid
 from ..ir.nodes import (
     LiteralIR, IdentifierIR, IndexVarIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     BlockExpressionIR, RangeIR, ArrayComprehensionIR, RectangularAccessIR, JaggedAccessIR,
@@ -41,10 +42,10 @@ class _ExprContainsDefidVisitor(IRVisitor[bool]):
         self._target = target_defid
 
     def visit_identifier(self, node: IdentifierIR) -> bool:
-        return getattr(node, "defid", None) == self._target
+        return node.defid == self._target
 
     def visit_index_var(self, node: IndexVarIR) -> bool:
-        return getattr(node, "defid", None) == self._target
+        return node.defid == self._target
 
     def visit_binary_op(self, node: BinaryOpIR) -> bool:
         return node.left.accept(self) or node.right.accept(self)
@@ -61,9 +62,9 @@ class _ExprContainsDefidVisitor(IRVisitor[bool]):
         return False
 
     def visit_function_call(self, node: FunctionCallIR) -> bool:
-        if getattr(node, "callee_expr", None) is not None and node.callee_expr.accept(self):
+        if node.callee_expr is not None and node.callee_expr.accept(self):
             return True
-        for a in node.arguments or []:
+        for a in (node.arguments or []):
             if a.accept(self):
                 return True
         return False
@@ -71,7 +72,7 @@ class _ExprContainsDefidVisitor(IRVisitor[bool]):
     def visit_jagged_access(self, node: JaggedAccessIR) -> bool:
         if node.base.accept(self):
             return True
-        for idx in getattr(node, "index_chain", None) or []:
+        for idx in (node.index_chain or []):
             if idx is not None and idx.accept(self):
                 return True
         return False
@@ -194,18 +195,18 @@ class _ExprContainsDefidVisitor(IRVisitor[bool]):
         return node.body.accept(self)
 
     def visit_lowered_einstein(self, node: Any) -> bool:
-        for item in getattr(node, "items", None) or []:
+        for item in node.items or []:
             if item.accept(self):
                 return True
         return False
 
     def visit_lowered_recurrence(self, node: Any) -> bool:
-        if getattr(node, "initial", None) is not None and node.initial.accept(self):
+        if node.initial is not None and node.initial.accept(self):
             return True
-        rec_loop = getattr(node, "recurrence_loop", None)
-        if rec_loop is not None and getattr(rec_loop, "iterable", None) is not None and rec_loop.iterable.accept(self):
+        rec_loop = node.recurrence_loop
+        if rec_loop is not None and rec_loop.iterable is not None and rec_loop.iterable.accept(self):
             return True
-        if getattr(node, "body", None) is not None and node.body.accept(self):
+        if node.body is not None and node.body.accept(self):
             return True
         return False
 
@@ -224,7 +225,7 @@ def _reduction_axes_in_access(
     """Return the array axis index for each reduction defid (position in indices = axis in array)."""
     axes: List[Optional[int]] = [None] * len(reduction_defids)
     for axis_in_array, idx in enumerate(indices):
-        idx_defid = getattr(idx, "defid", None)
+        idx_defid = opt_defid(idx)
         if idx_defid is not None and idx_defid in reduction_defids:
             pos = reduction_defids.index(idx_defid)
             axes[pos] = axis_in_array
@@ -261,88 +262,88 @@ def _infer_reduction_axes_from_shape(
 
 
 def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
-    op = getattr(expr, "operation", None)
+    op = expr.operation
     if op != "sum":
         return None
-    if getattr(expr, "guards", None) or getattr(expr, "bindings", None):
+    if expr.guards or expr.bindings:
         return None
     from ..passes.visitor_helpers import defid_of_var_in_expr
-    reduction_ranges = getattr(expr, "reduction_ranges", None) or {}
+    reduction_ranges = expr.reduction_ranges or {}
     loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
     if not loops:
         return None
     reduction_defids: List[Any] = []
     reduction_sizes: List[int] = []
     for loop in loops:
-        loop_var = getattr(loop, "variable", None)
+        loop_var = loop.variable
         if loop_var is None:
             return None
-        loop_defid = getattr(loop_var, "defid", None)
+        loop_defid = loop_var.defid
         if loop_defid is None:
             return None
-        body_defid = defid_of_var_in_expr(expr.body, getattr(loop_var, "name", "") or "") or loop_defid
+        body_defid = defid_of_var_in_expr(expr.body, (loop_var.name or "") or "") or loop_defid
         reduction_defids.append(body_defid)
         try:
-            iterable = loop.iterable.accept(backend) if hasattr(loop.iterable, "accept") else None
+            iterable = loop.iterable.accept(backend)
             if iterable is None:
                 return None
             reduction_sizes.append(int(len(iterable)))
         except Exception:
             return None
-    body = getattr(expr, "body", None)
+    body = expr.body
     if body is None:
         return None
     mul_left: Optional[Any] = None
     mul_right: Optional[Any] = None
     bias: Optional[Any] = None
     scale: Optional[float] = None
-    _add = getattr(BinaryOp, "ADD", None) or "+"
-    _mul = getattr(BinaryOp, "MUL", None) or "*"
-    _div = getattr(BinaryOp, "DIV", None) or "/"
-    body_op = getattr(body, "operator", None)
+    _add = BinaryOp.ADD
+    _mul = BinaryOp.MUL
+    _div = BinaryOp.DIV
+    body_op = body.operator
     if isinstance(body, BinaryOpIR) and body_op in (_add, "+"):
-        add_left = getattr(body, "left", None)
-        add_right = getattr(body, "right", None)
-        if isinstance(add_left, BinaryOpIR) and getattr(add_left, "operator", None) in (_mul, "*"):
-            mul_left = getattr(add_left, "left", None)
-            mul_right = getattr(add_left, "right", None)
+        add_left = body.left
+        add_right = body.right
+        if isinstance(add_left, BinaryOpIR) and add_left.operator in (_mul, "*"):
+            mul_left = add_left.left
+            mul_right = add_left.right
             bias = add_right
-        elif isinstance(add_right, BinaryOpIR) and getattr(add_right, "operator", None) in (_mul, "*"):
-            mul_left = getattr(add_right, "left", None)
-            mul_right = getattr(add_right, "right", None)
+        elif isinstance(add_right, BinaryOpIR) and add_right.operator in (_mul, "*"):
+            mul_left = add_right.left
+            mul_right = add_right.right
             bias = add_left
     elif isinstance(body, BinaryOpIR) and body_op in (_mul, "*"):
-        bl = getattr(body, "left", None)
-        br = getattr(body, "right", None)
+        bl = body.left
+        br = body.right
         if isinstance(bl, RectangularAccessIR) and isinstance(br, RectangularAccessIR):
             mul_left, mul_right = bl, br
-        elif isinstance(bl, BinaryOpIR) and getattr(bl, "operator", None) in (_mul, "*"):
-            al, ar = getattr(bl, "left", None), getattr(bl, "right", None)
+        elif isinstance(bl, BinaryOpIR) and bl.operator in (_mul, "*"):
+            al, ar = bl.left, bl.right
             if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(br, LiteralIR):
                 mul_left, mul_right = al, ar
                 try:
-                    scale = float(getattr(br, "value", None))
+                    scale = float(br.value)
                 except (TypeError, ValueError):
                     scale = None
-        elif isinstance(br, BinaryOpIR) and getattr(br, "operator", None) in (_mul, "*"):
-            al, ar = getattr(br, "left", None), getattr(br, "right", None)
+        elif isinstance(br, BinaryOpIR) and br.operator in (_mul, "*"):
+            al, ar = br.left, br.right
             if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(bl, LiteralIR):
                 mul_left, mul_right = al, ar
                 try:
-                    scale = float(getattr(bl, "value", None))
+                    scale = float(bl.value)
                 except (TypeError, ValueError):
                     scale = None
     elif isinstance(body, BinaryOpIR) and body_op in (_div, "/"):
-        div_left = getattr(body, "left", None)
-        div_right = getattr(body, "right", None)
-        if isinstance(div_left, BinaryOpIR) and getattr(div_left, "operator", None) in (_mul, "*"):
-            al = getattr(div_left, "left", None)
-            ar = getattr(div_left, "right", None)
+        div_left = body.left
+        div_right = body.right
+        if isinstance(div_left, BinaryOpIR) and div_left.operator in (_mul, "*"):
+            al = div_left.left
+            ar = div_left.right
             if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR):
                 mul_left, mul_right = al, ar
                 try:
                     if isinstance(div_right, LiteralIR):
-                        v = float(getattr(div_right, "value", None))
+                        v = float(div_right.value)
                         if v != 0.0:
                             scale = 1.0 / v
                 except (TypeError, ValueError):
@@ -351,13 +352,13 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         return None
     if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):
         return None
-    indices_left = getattr(mul_left, "indices", None) or []
-    indices_right = getattr(mul_right, "indices", None) or []
+    indices_left = mul_left.indices or []
+    indices_right = mul_right.indices or []
     from ..ir.nodes import IdentifierIR, IndexVarIR
     for _idx in indices_left + indices_right:
         for _rd in reduction_defids:
             if _expr_contains_defid(_idx, _rd):
-                if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and getattr(_idx, "defid", None) in reduction_defids):
+                if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and _idx.defid in reduction_defids):
                     return None
     n_red = len(reduction_sizes)
     # GEMM-style: 1 or 2 reduction dims (QKV / batched matmul, or full matmul). Recurrence clauses skip this path.
@@ -365,8 +366,8 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         return None
     # Evaluate base arrays (not indexed) so we get correct shapes for BLAS when parallel
     # loop vars are already set to broadcast arrays (avoids huge intermediate in vectorized path).
-    left_arr = getattr(mul_left, "array", None)
-    right_arr = getattr(mul_right, "array", None)
+    left_arr = mul_left.array
+    right_arr = mul_right.array
     try:
         with backend.env.scope():
             for i, (defid, N) in enumerate(zip(reduction_defids, reduction_sizes)):
@@ -378,11 +379,11 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
                     backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
             axes_left = _reduction_axes_in_access(backend, indices_left, reduction_defids)
             axes_right = _reduction_axes_in_access(backend, indices_right, reduction_defids)
-            if left_arr is not None and hasattr(left_arr, "accept"):
+            if left_arr is not None:
                 left_val = left_arr.accept(backend)
             else:
                 left_val = mul_left.accept(backend)
-            if right_arr is not None and hasattr(right_arr, "accept"):
+            if right_arr is not None:
                 right_val = right_arr.accept(backend)
             else:
                 right_val = mul_right.accept(backend)
@@ -456,22 +457,22 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
 def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
     """Strict 1D conv fast path: sum[ci,k](input[ci, stride*t+k] * weight[co,ci,k]) + bias, stride 1 or 2.
     Uses im2col unfold + np.einsum. Returns None if pattern does not match."""
-    op = getattr(expr, "operation", None)
+    op = expr.operation
     if op != "sum":
         return None
-    if getattr(expr, "guards", None) or getattr(expr, "bindings", None):
+    if expr.guards or expr.bindings:
         return None
     from ..passes.visitor_helpers import defid_of_var_in_expr
-    reduction_ranges = getattr(expr, "reduction_ranges", None) or {}
+    reduction_ranges = expr.reduction_ranges or {}
     loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
     if len(loops) != 2:
         return None
-    red0_var = getattr(loops[0], "variable", None)
-    red1_var = getattr(loops[1], "variable", None)
+    red0_var = loops[0].variable
+    red1_var = loops[1].variable
     if red0_var is None or red1_var is None:
         return None
-    red0_defid = getattr(red0_var, "defid", None)
-    red1_defid = getattr(red1_var, "defid", None)
+    red0_defid = red0_var.defid
+    red1_defid = red1_var.defid
     if red0_defid is None or red1_defid is None:
         return None
     try:
@@ -479,32 +480,32 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
         n_k = int(len(loops[1].iterable.accept(backend)))
     except Exception:
         return None
-    body = getattr(expr, "body", None)
+    body = expr.body
     if body is None:
         return None
-    _add = getattr(BinaryOp, "ADD", None) or "+"
-    _mul = getattr(BinaryOp, "MUL", None) or "*"
+    _add = BinaryOp.ADD
+    _mul = BinaryOp.MUL
     mul_left: Optional[RectangularAccessIR] = None
     mul_right: Optional[RectangularAccessIR] = None
     bias: Optional[Any] = None
-    body_op = getattr(body, "operator", None)
+    body_op = body.operator
     if isinstance(body, BinaryOpIR) and body_op in (_add, "+"):
-        add_left = getattr(body, "left", None)
-        add_right = getattr(body, "right", None)
-        if isinstance(add_left, BinaryOpIR) and getattr(add_left, "operator", None) in (_mul, "*"):
-            mul_left = getattr(add_left, "left", None)
-            mul_right = getattr(add_left, "right", None)
+        add_left = body.left
+        add_right = body.right
+        if isinstance(add_left, BinaryOpIR) and add_left.operator in (_mul, "*"):
+            mul_left = add_left.left
+            mul_right = add_left.right
             bias = add_right
-        elif isinstance(add_right, BinaryOpIR) and getattr(add_right, "operator", None) in (_mul, "*"):
-            mul_left = getattr(add_right, "left", None)
-            mul_right = getattr(add_right, "right", None)
+        elif isinstance(add_right, BinaryOpIR) and add_right.operator in (_mul, "*"):
+            mul_left = add_right.left
+            mul_right = add_right.right
             bias = add_left
     elif isinstance(body, BinaryOpIR) and body_op in (_mul, "*"):
-        mul_left = getattr(body, "left", None)
-        mul_right = getattr(body, "right", None)
+        mul_left = body.left
+        mul_right = body.right
     if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):
         return None
-    il, ir = getattr(mul_left, "indices", None) or [], getattr(mul_right, "indices", None) or []
+    il, ir = mul_left.indices or [], mul_right.indices or []
     if len(il) != 2 or len(ir) != 3:
         il, ir = ir, il
         mul_left, mul_right = mul_right, mul_left
@@ -515,9 +516,9 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
     second_idx = il[1]
     stride = 1
     if isinstance(second_idx, BinaryOpIR):
-        add_op = getattr(second_idx, "operator", None)
+        add_op = second_idx.operator
         if add_op in (_add, "+"):
-            left, right = getattr(second_idx, "left", None), getattr(second_idx, "right", None)
+            left, right = second_idx.left, second_idx.right
             if _expr_contains_defid(left, red1_defid) and _expr_contains_defid(right, red1_defid):
                 return None
             if _expr_contains_defid(right, red1_defid):
@@ -527,9 +528,9 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
             # Stride from the t part (right): t*stride -> stride 1 or 2; plain t -> stride 1
             if isinstance(right, (IdentifierIR, IndexVarIR)):
                 stride = 1
-            elif isinstance(right, BinaryOpIR) and getattr(right, "operator", None) in (_mul, "*"):
+            elif isinstance(right, BinaryOpIR) and right.operator in (_mul, "*"):
                 try:
-                    rL, rR = getattr(right, "left", None), getattr(right, "right", None)
+                    rL, rR = right.left, right.right
                     if isinstance(rR, LiteralIR):
                         stride = int(rR.value)
                     elif isinstance(rL, LiteralIR):
@@ -543,15 +544,15 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
             else:
                 return None
     else:
-        if not (isinstance(second_idx, (IdentifierIR, IndexVarIR)) and getattr(second_idx, "defid", None) == red1_defid):
+        if not (isinstance(second_idx, (IdentifierIR, IndexVarIR)) and second_idx.defid == red1_defid):
             return None
     # Use full arrays (no parallel/reduction indexing) so we get 2D input and 3D weight for im2col + BLAS.
     try:
-        input_arr = getattr(mul_left, "array", None)
-        weight_arr = getattr(mul_right, "array", None)
-        if input_arr is not None and hasattr(input_arr, "accept"):
+        input_arr = mul_left.array
+        weight_arr = mul_right.array
+        if input_arr is not None:
             input_arr = input_arr.accept(backend)
-        if weight_arr is not None and hasattr(weight_arr, "accept"):
+        if weight_arr is not None:
             weight_arr = weight_arr.accept(backend)
     except Exception:
         return None
@@ -591,7 +592,7 @@ def _index_to_reduction_position(idx: Any, reduction_defids: List[Any]) -> Optio
     """If index is a simple reduction variable, return its position in reduction_defids; else None."""
     if idx is None or not isinstance(idx, (IdentifierIR, IndexVarIR)):
         return None
-    did = getattr(idx, "defid", None)
+    did = idx.defid
     if did is None or did not in reduction_defids:
         return None
     return reduction_defids.index(did)
@@ -602,7 +603,7 @@ def _free_key_for_index(idx: Any, reduction_defids: List[Any], side: str, pos: i
     if idx is None or _index_to_reduction_position(idx, reduction_defids) is not None:
         return None
     if isinstance(idx, (IdentifierIR, IndexVarIR)):
-        did = getattr(idx, "defid", None)
+        did = idx.defid
         if did is not None:
             return ("defid", did)
     return (side, pos)
@@ -646,67 +647,67 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     """Generic sum-of-product fast path: sum over (left * right [+ bias]) lowered to np.einsum.
     Supports any number of reduction dims; indices must be simple (IdentifierIR/IndexVarIR) on reduction dims.
     NumPy einsum uses BLAS where applicable (e.g. matrix multiply)."""
-    op = getattr(expr, "operation", None)
+    op = expr.operation
     if op != "sum":
         return None
-    if getattr(expr, "guards", None) or getattr(expr, "bindings", None):
+    if expr.guards or expr.bindings:
         return None
     from ..passes.visitor_helpers import defid_of_var_in_expr
-    reduction_ranges = getattr(expr, "reduction_ranges", None) or {}
+    reduction_ranges = expr.reduction_ranges or {}
     loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
     if not loops:
         return None
     reduction_defids: List[Any] = []
     reduction_sizes: List[int] = []
     for loop in loops:
-        loop_var = getattr(loop, "variable", None)
+        loop_var = loop.variable
         if loop_var is None:
             return None
-        loop_defid = getattr(loop_var, "defid", None)
+        loop_defid = loop_var.defid
         if loop_defid is None:
             return None
-        body_defid = defid_of_var_in_expr(expr.body, getattr(loop_var, "name", "") or "") or loop_defid
+        body_defid = defid_of_var_in_expr(expr.body, (loop_var.name or "") or "") or loop_defid
         reduction_defids.append(body_defid)
         try:
-            iterable = loop.iterable.accept(backend) if hasattr(loop.iterable, "accept") else None
+            iterable = loop.iterable.accept(backend)
             if iterable is None:
                 return None
             reduction_sizes.append(int(len(iterable)))
         except Exception:
             return None
-    body = getattr(expr, "body", None)
+    body = expr.body
     if body is None:
         return None
-    _add = getattr(BinaryOp, "ADD", None) or "+"
-    _mul = getattr(BinaryOp, "MUL", None) or "*"
+    _add = BinaryOp.ADD
+    _mul = BinaryOp.MUL
     mul_left: Optional[RectangularAccessIR] = None
     mul_right: Optional[RectangularAccessIR] = None
     bias: Optional[Any] = None
-    body_op = getattr(body, "operator", None)
+    body_op = body.operator
     if isinstance(body, BinaryOpIR) and body_op in (_add, "+"):
-        add_left = getattr(body, "left", None)
-        add_right = getattr(body, "right", None)
-        if isinstance(add_left, BinaryOpIR) and getattr(add_left, "operator", None) in (_mul, "*"):
-            mul_left = getattr(add_left, "left", None)
-            mul_right = getattr(add_left, "right", None)
+        add_left = body.left
+        add_right = body.right
+        if isinstance(add_left, BinaryOpIR) and add_left.operator in (_mul, "*"):
+            mul_left = add_left.left
+            mul_right = add_left.right
             bias = add_right
-        elif isinstance(add_right, BinaryOpIR) and getattr(add_right, "operator", None) in (_mul, "*"):
-            mul_left = getattr(add_right, "left", None)
-            mul_right = getattr(add_right, "right", None)
+        elif isinstance(add_right, BinaryOpIR) and add_right.operator in (_mul, "*"):
+            mul_left = add_right.left
+            mul_right = add_right.right
             bias = add_left
     elif isinstance(body, BinaryOpIR) and body_op in (_mul, "*"):
-        mul_left = getattr(body, "left", None)
-        mul_right = getattr(body, "right", None)
+        mul_left = body.left
+        mul_right = body.right
     if mul_left is None or mul_right is None:
         return None
     if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):
         return None
-    indices_left = getattr(mul_left, "indices", None) or []
-    indices_right = getattr(mul_right, "indices", None) or []
+    indices_left = mul_left.indices or []
+    indices_right = mul_right.indices or []
     for _idx in indices_left + indices_right:
         for _rd in reduction_defids:
             if _expr_contains_defid(_idx, _rd):
-                if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and getattr(_idx, "defid", None) in reduction_defids):
+                if not (isinstance(_idx, (IdentifierIR, IndexVarIR)) and _idx.defid in reduction_defids):
                     return None
                 break
     n_red = len(reduction_defids)
@@ -742,8 +743,8 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     right_sub = "".join(right_sub_list)
     out_sub = "".join(free_key_to_letter[k] for k in output_order)
     # Evaluate base arrays so we get correct shapes when parallel vars are broadcast (saves memory).
-    left_arr = getattr(mul_left, "array", None)
-    right_arr = getattr(mul_right, "array", None)
+    left_arr = mul_left.array
+    right_arr = mul_right.array
     try:
         with backend.env.scope():
             for i, (defid, N) in enumerate(zip(reduction_defids, reduction_sizes)):
@@ -753,11 +754,11 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
                     shape = [1] * n_red
                     shape[i] = N
                     backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
-            if left_arr is not None and hasattr(left_arr, "accept"):
+            if left_arr is not None:
                 left_val = left_arr.accept(backend)
             else:
                 left_val = mul_left.accept(backend)
-            if right_arr is not None and hasattr(right_arr, "accept"):
+            if right_arr is not None:
                 right_val = right_arr.accept(backend)
             else:
                 right_val = mul_right.accept(backend)
@@ -880,7 +881,7 @@ class ExpressionVisitorMixin:
         if isinstance(exc, EinlangSourceError):
             raise
         clause_loc = getattr(exc, "clause_location", None)
-        loc = clause_loc if (clause_loc and (getattr(clause_loc, "line", 0) or getattr(clause_loc, "file", ""))) else getattr(expr, "location", None)
+        loc = clause_loc if (clause_loc and (getattr(clause_loc, "line", 0) or getattr(clause_loc, "file", ""))) else expr.location
         source_code = None
         tcx = getattr(self, "_tcx", None)
         if tcx and loc:
@@ -912,30 +913,30 @@ class ExpressionVisitorMixin:
 
     def visit_identifier(self, expr) -> Any:
         from ..shared.defid import DefId
-        defid = getattr(expr, "defid", None)
+        defid = expr.defid
         if defid is None:
-            raise RuntimeError(f"Variable not found (defid=None). Name: {getattr(expr, 'name', '?')}")
+            raise RuntimeError(f"Variable not found (defid=None). Name: {expr.name or '?'}")
         value = self.env.get_value(defid)
         if value is None:
-            raise RuntimeError(f"Variable not found (defid={defid}). Name: {getattr(expr, 'name', '?')}")
+            raise RuntimeError(f"Variable not found (defid={defid}). Name: {expr.name or '?'}")
         return value
 
     def visit_index_var(self, expr) -> Any:
-        defid = getattr(expr, "defid", None)
+        defid = expr.defid
         if defid is None:
-            raise RuntimeError(f"Index variable has no DefId. Name: {getattr(expr, 'name', '?')}")
+            raise RuntimeError(f"Index variable has no DefId. Name: {expr.name or '?'}")
         value = self.env.get_value(defid)
         if value is None:
-            raise RuntimeError(f"Index variable not found (defid={defid}). Name: {getattr(expr, 'name', '?')}")
+            raise RuntimeError(f"Index variable not found (defid={defid}). Name: {expr.name or '?'}")
         return value
 
     def visit_binary_op(self, expr: BinaryOpIR) -> Any:
         left = expr.left.accept(self)
         right = expr.right.accept(self)
-        op = getattr(expr, "operator", None)
+        op = expr.operator
         fn = _BINARY_OP_MAP.get(op) if isinstance(op, BinaryOp) else None
         if fn is None:
-            raise RuntimeError(f"Unknown operator: {getattr(expr, 'operator', None)}")
+            raise RuntimeError(f"Unknown operator: {expr.operator}")
         if isinstance(left, np.ndarray) and isinstance(right, np.ndarray):
             if op != BinaryOp.IN:
                 if left.ndim != right.ndim:
@@ -948,16 +949,16 @@ class ExpressionVisitorMixin:
         try:
             return fn(self, left, right)
         except (ZeroDivisionError, FloatingPointError) as e:
-            self._raise_here(e, getattr(expr, "right", expr))
+            self._raise_here(e, (expr.right or expr))
         except Exception as e:
             self._raise_here(e, expr)
 
     def visit_unary_op(self, expr: UnaryOpIR) -> Any:
         operand = expr.operand.accept(self)
-        op = getattr(expr, "operator", None)
+        op = expr.operator
         fn = _UNARY_OP_MAP.get(op) if isinstance(op, UnaryOp) else None
         if fn is None:
-            raise RuntimeError(f"Unknown unary operator: {getattr(expr, 'operator', None)}")
+            raise RuntimeError(f"Unknown unary operator: {expr.operator}")
         try:
             return fn(self, operand)
         except Exception as e:
@@ -970,11 +971,11 @@ class ExpressionVisitorMixin:
             self._raise_here(e, expr)
 
     def _visit_function_call_inner(self, expr: FunctionCallIR) -> Any:
-        module_path = getattr(expr, "module_path", None) or ()
+        module_path = (expr.module_path or ())
         if expr.function_defid is None and module_path and len(module_path) > 0 and module_path[0] == "python":
             args = [arg.accept(self) for arg in expr.arguments]
-            return self._call_python_module(module_path, getattr(expr, "function_name", ""), args)
-        callee_expr = getattr(expr, "callee_expr", None)
+            return self._call_python_module(module_path, expr.function_name, args)
+        callee_expr = expr.callee_expr
         if callee_expr is not None:
             callee_value = callee_expr.accept(self)
             if isinstance(callee_value, FunctionValue):
@@ -1027,20 +1028,20 @@ class ExpressionVisitorMixin:
 
     def visit_jagged_access(self, expr: JaggedAccessIR) -> Any:
         array = expr.base.accept(self)
-        for idx in (getattr(expr, 'index_chain', None) or []):
+        for idx in (expr.index_chain or []):
             array = array[idx.accept(self)]
         return array
 
     def visit_block_expression(self, expr: BlockExpressionIR) -> Any:
         with self.env.scope():
-            for stmt in getattr(expr, "statements", []) or []:
+            for stmt in (expr.statements or []) or []:
                 result_value = stmt.accept(self)
                 binding = getattr(stmt, "_binding", None)
-                variable_defid = getattr(binding, "defid", None) if binding else None
+                variable_defid = binding.defid if binding else None
                 if variable_defid is not None:
-                    var_name = getattr(binding, "name", None) or getattr(stmt, "name", None)
+                    var_name = binding.name or stmt.name
                     self.env.set_value(variable_defid, result_value, name=var_name)
-            if getattr(expr, "final_expr", None):
+            if expr.final_expr:
                 return expr.final_expr.accept(self)
         return None
 
@@ -1048,11 +1049,11 @@ class ExpressionVisitorMixin:
         cond = expr.condition.accept(self)
         if isinstance(cond, np.ndarray) and cond.ndim > 0:
             then_val = expr.then_expr.accept(self)
-            else_val = expr.else_expr.accept(self) if getattr(expr, "else_expr", None) else None
+            else_val = expr.else_expr.accept(self) if expr.else_expr else None
             return np.where(cond, then_val, else_val)
         if self._to_bool(cond):
             return expr.then_expr.accept(self)
-        if getattr(expr, "else_expr", None):
+        if expr.else_expr:
             return expr.else_expr.accept(self)
         return None
 
@@ -1070,7 +1071,7 @@ class ExpressionVisitorMixin:
     def visit_range(self, expr: RangeIR) -> Any:
         start = expr.start.accept(self)
         end = expr.end.accept(self)
-        end_int = int(end) + 1 if getattr(expr, 'inclusive', False) else int(end)
+        end_int = int(end) + 1 if (expr.inclusive or False) else int(end)
         return range(int(start), end_int)
 
     def visit_array_comprehension(self, expr: ArrayComprehensionIR) -> Any:
@@ -1086,8 +1087,8 @@ class ExpressionVisitorMixin:
                     if defid is not None:
                         self.env.set_value(defid, val)
                 full = {}
-                for binding in getattr(expr, "bindings", []) or []:
-                    defid = getattr(binding, "defid", None)
+                for binding in (expr.bindings or []) or []:
+                    defid = binding.defid
                     if defid is not None:
                         val = binding.expr.accept(self)
                         full[defid] = val
@@ -1097,7 +1098,7 @@ class ExpressionVisitorMixin:
         return np.array(results) if results else np.array([])
 
     def visit_array_literal(self, expr: ArrayLiteralIR) -> Any:
-        type_info = getattr(expr, "type_info", None)
+        type_info = expr.type_info
         if type_info is not None and getattr(type_info, "kind", None) == TypeKind.JAGGED:
             evaluated = [e.accept(self) for e in expr.elements]
             return list(evaluated)
@@ -1109,7 +1110,7 @@ class ExpressionVisitorMixin:
                 dtype = converter(el)
         if dtype is None and expr.elements:
             for e in expr.elements:
-                v = getattr(e, "value", None)
+                v = (e.value if isinstance(e, LiteralIR) else None)
                 if v is not None and isinstance(v, (float, np.floating)):
                     dtype = np.float32
                     break
@@ -1133,16 +1134,16 @@ class ExpressionVisitorMixin:
 
     def visit_interpolated_string(self, expr: InterpolatedStringIR) -> Any:
         parts = []
-        for part in getattr(expr, "parts", []) or []:
+        for part in (expr.parts or []) or []:
             parts.append(str(part.accept(self)) if hasattr(part, "accept") else str(part))
         return "".join(parts)
 
     def visit_cast_expression(self, expr: CastExpressionIR) -> Any:
-        inner = getattr(expr, "expr", None) or getattr(expr, "operand", None)
+        inner = expr.expr or expr.operand
         if inner is None:
             raise RuntimeError("CastExpressionIR has no expr or operand")
         val = inner.accept(self)
-        target = getattr(expr, "target_type", None)
+        target = expr.target_type
         if target is None:
             return val
         name = getattr(target, "name", None) or (target if isinstance(target, str) else None)
@@ -1221,7 +1222,7 @@ class ExpressionVisitorMixin:
 
     def visit_member_access(self, expr: MemberAccessIR) -> Any:
         obj = expr.object.accept(self)
-        member = getattr(expr, "member", None)
+        member = expr.member
         if member is None:
             return None
         if isinstance(member, str):
@@ -1298,7 +1299,7 @@ class ExpressionVisitorMixin:
                     return einsum_result
         from ..runtime.compute.lowered_execution import execute_reduction_with_loops
         from ..passes.visitor_helpers import defid_of_var_in_expr
-        loc = getattr(expr, "location", None)
+        loc = expr.location
         line = int(getattr(loc, "line", 0) or 0)
         profile_reductions = bool(os.environ.get("EINLANG_PROFILE_REDUCTIONS", ""))
         seen = getattr(self, "_reduction_profile_seen", None)
@@ -1314,15 +1315,15 @@ class ExpressionVisitorMixin:
         def ev(e): return e.accept(self)
         _loop_to_body_defid = {}
         _reduction_defid_names = {}
-        for _lp in getattr(expr, "loops", []) or []:
-            _v = getattr(_lp, "variable", None)
+        for _lp in (expr.loops or []) or []:
+            _v = _lp.variable
             if _v is not None:
-                _vname = getattr(_v, "name", None)
+                _vname = _v.name
                 _bd = defid_of_var_in_expr(expr.body, _vname) if _vname else None
                 if _bd is not None:
-                    _loop_to_body_defid[getattr(_v, "defid", None)] = _bd
+                    _loop_to_body_defid[_v.defid] = _bd
                     _reduction_defid_names[_bd] = _vname
-                elif getattr(_v, "defid", None):
+                elif _v.defid:
                     _reduction_defid_names[_v.defid] = _vname
         def _remap_ctx_to_body_defids(ctx):
             out = {}
@@ -1351,8 +1352,8 @@ class ExpressionVisitorMixin:
             from ..runtime.compute.lowered_execution import check_lowered_guards
             return check_lowered_guards(expr.guards, _ctx, lambda c: self._to_bool(c.accept(self)))
         return execute_reduction_with_loops(
-            getattr(expr, "operation", "sum"),
-            getattr(expr, "reduction_ranges", {}),
+            (expr.operation or "sum"),
+            (expr.reduction_ranges or {}),
             body_ev,
             ev,
             guard_evaluator=guard_ev if expr.guards else None,
@@ -1365,7 +1366,7 @@ class ExpressionVisitorMixin:
         return self.evaluate_lowered_reduction(expr, parallel_shape=None)
 
     def visit_where_expression(self, expr: WhereExpressionIR) -> Any:
-        constraints = getattr(expr, "constraints", []) or []
+        constraints = (expr.constraints or []) or []
         needs_scope = any(_extract_binding(c) and _extract_binding(c)[0] for c in constraints)
         if needs_scope:
             with self.env.scope():
@@ -1401,7 +1402,7 @@ class ExpressionVisitorMixin:
 
     def visit_builtin_call(self, expr: BuiltinCallIR) -> Any:
         from ..shared.defid import DefId
-        raw = getattr(expr, "defid", None)
+        raw = expr.defid
         if raw is None:
             raise RuntimeError("Builtin call has no DefId")
         if isinstance(raw, (list, tuple)) and len(raw) >= 2:
@@ -1413,7 +1414,8 @@ class ExpressionVisitorMixin:
         fn = self.env.get_value(defid)
         if fn is None or not callable(fn):
             raise RuntimeError(f"Builtin not found (DefId: {defid})")
-        args = [arg.accept(self) for arg in getattr(expr, "args", getattr(expr, "arguments", [])) or []]
+        args_list = (expr.args or [])
+        args = [arg.accept(self) for arg in args_list]
         try:
             if fn == builtin_assert:
                 if len(args) == 0:

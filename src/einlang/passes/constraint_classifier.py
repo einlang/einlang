@@ -623,8 +623,8 @@ class BindingExtractor(IRVisitor):
         elif is_einstein_binding(node):
             return None
         else:
-            if hasattr(node, 'value') and node.value:
-                return node.value.accept(self)
+            if node.expr is not None:
+                return node.expr.accept(self)
             return None
     
     def visit_module(self, node) -> Optional[tuple[str, Set[str]]]:

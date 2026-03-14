@@ -205,15 +205,14 @@ def reset_compiler_session(request):
     """
     yield
     # Only touch runtime if this test actually requested a runtime fixture (cheap check first).
-    if not hasattr(request, 'fixturenames'):
-        return
     for fixture_name in request.fixturenames:
         if fixture_name != 'runtime':
             continue
         try:
             runtime_instance = request.getfixturevalue(fixture_name)
-            if runtime_instance is not None and getattr(runtime_instance, 'executor', None) is not None:
-                sm = getattr(runtime_instance.executor, 'scope_manager', None)
+            executor = runtime_instance.executor if (runtime_instance is not None and hasattr(runtime_instance, 'executor')) else None
+            if executor is not None:
+                sm = executor.scope_manager if hasattr(executor, 'scope_manager') else None
                 if sm is not None:
                     sm.reset()
         except Exception:

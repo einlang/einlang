@@ -21,7 +21,7 @@ class TestEinsteinAnalyzer:
         assert result.success, f"Execution should succeed: {result.get_errors()}"
         
         # Check execution results
-        assert hasattr(result, 'outputs'), "Execution result should have outputs attribute"
+        assert result.outputs is not None, "Execution result should have outputs attribute"
         
         # Verify tensor was created
         if result.outputs:
@@ -38,13 +38,10 @@ class TestEinsteinAnalyzer:
         """
         
         # Uses compile() API
-        if hasattr(compiler, "compile"):
-            result = compiler.compile(invalid_source, "<test>")
-        else:
-            result = compiler.analyze(invalid_source)
+        result = compiler.compile(invalid_source, "<test>")
         assert result is not None
         if not result.success:
-            errs = result.get_errors() if hasattr(result, "get_errors") else getattr(result, "errors", [])
+            errs = result.get_errors()
             assert len(errs) > 0, "Should have error messages for invalid syntax"
     
 

@@ -172,7 +172,7 @@ def _path_to_test_name(path_or_inline) -> str:
 def _accuracy_test_impl(compiler, runtime, path, output_key, ref_fn, rtol, atol, first_n):
     """Run one example and compare output to reference. Single shared implementation."""
     result, _ = _run_ein_file(compiler, runtime, path)
-    assert result.success, getattr(result, "errors", result.error)
+    assert result.success, result.errors or result.error
     out = result.value if result.value is not None else result.outputs.get(output_key)
     label = _path_label(path)
     assert out is not None, f"no output for {label} (key={output_key})"

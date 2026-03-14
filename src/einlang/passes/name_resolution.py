@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from ..passes.base import BasePass, TyCtxt
 from ..ir.nodes import ProgramIR, BindingIR
 from ..shared.defid import DefType, Resolver, DefId, FIXED_BUILTIN_ORDER, fixed_builtin_defid
+from ..shared.optional_attr import opt_attr, opt_defid, opt_name
 from ..shared.scope import ScopeManager, ScopeKind, Binding, BindingType, ScopeRedefinitionError
 from ..analysis.module_system.path_resolver import MODULE_SEPARATOR
 from ..analysis.module_system.module_loader import _read_file_cached
@@ -89,7 +90,7 @@ class _EinsteinGroupReplacementVisitor:
         pass
 
     def visit_index_var(self, node) -> None:
-        if getattr(node, "range_expr", None) is not None:
+        if opt_attr(node, "range_expr", None) is not None:
             node.range_expr.accept(self)
 
     def visit_index_rest(self, node) -> None:
@@ -121,13 +122,13 @@ class _EinsteinGroupReplacementVisitor:
     def visit_rectangular_access(self, node) -> None:
         node.base_expr.accept(self)
         for idx in (node.indices or []):
-            if idx is not None and hasattr(idx, "accept"):
+            if idx is not None:
                 idx.accept(self)
 
     def visit_jagged_access(self, node) -> None:
         node.base_expr.accept(self)
-        for idx in (getattr(node, "index_chain", None) or []):
-            if idx is not None and hasattr(idx, "accept"):
+        for idx in (node.index_chain or []):
+            if idx is not None:
                 idx.accept(self)
 
     def visit_array_comprehension(self, node) -> None:
@@ -444,7 +445,7 @@ class NameResolutionPass(BasePass):
                 for stmt in ast.statements:
                     if isinstance(stmt, FunctionDefinition):
                         if module_scope.defined_in_this_scope(stmt.name):
-                            loc = getattr(stmt, "location", None)
+                            loc = stmt.location
                             tcx.reporter.report_error(f"redefinition of '{stmt.name}' in same scope", loc)
                             continue
                         defid = resolver.allocate_for_item((), stmt.name, stmt, DefType.FUNCTION)
@@ -495,7 +496,7 @@ class NameResolutionPass(BasePass):
             if scope.defined_in_this_scope(func.name):
                 existing = scope._get_binding_in_this_scope(func.name)
                 if getattr(existing, "module_path", None) is None:
-                    loc = getattr(func, "location", None)
+                    loc = func.location
                     tcx.reporter.report_error(f"redefinition of '{func.name}' in same scope", loc)
                     object.__setattr__(func, 'defid', defid)
                     return
@@ -531,7 +532,7 @@ class NameResolutionPass(BasePass):
             if scope.defined_in_this_scope(func.name):
                 existing = scope._get_binding_in_this_scope(func.name)
                 if getattr(existing, "module_path", None) is None:
-                    loc = getattr(func, "location", None)
+                    loc = func.location
                     tcx.reporter.report_error(f"redefinition of '{func.name}' in same scope", loc)
                     object.__setattr__(func, 'defid', defid)
                     return
@@ -555,7 +556,7 @@ class NameResolutionPass(BasePass):
             for param in func.parameters:
                 if func_scope:
                     if func_scope.defined_in_this_scope(param.name):
-                        loc = getattr(param, "location", None)
+                        loc = param.location
                         tcx.reporter.report_error(f"duplicate parameter '{param.name}'", loc)
                     else:
                         param_defid = resolver.allocate_for_local()
@@ -587,7 +588,7 @@ class NameResolutionPass(BasePass):
             if scope.defined_in_this_scope(const.name):
                 existing = scope._get_binding_in_this_scope(const.name)
                 if getattr(existing, "module_path", None) is None:
-                    loc = getattr(const, "location", None)
+                    loc = const.location
                     tcx.reporter.report_error(f"redefinition of '{const.name}' in same scope", loc)
                     object.__setattr__(const, 'defid', defid)
                     return
@@ -621,7 +622,7 @@ class NameResolutionPass(BasePass):
             if scope.defined_in_this_scope(const.name):
                 existing = scope._get_binding_in_this_scope(const.name)
                 if getattr(existing, "module_path", None) is None:
-                    loc = getattr(const, "location", None)
+                    loc = const.location
                     tcx.reporter.report_error(f"redefinition of '{const.name}' in same scope", loc)
                     object.__setattr__(const, 'defid', defid)
                     return
@@ -717,19 +718,19 @@ class NameResolverVisitor(ASTVisitor[None]):
         Resolve identifier from scope stack (innermost to outermost). Set defid from binding.
         All resolution failures are reported as errors.
         """
-        name = node.name if isinstance(node.name, str) else getattr(node.name, 'value', str(node.name))
+        name = node.name if isinstance(node.name, str) else (opt_name(node.name) or str(node.name))
         name = str(name)
         if not self.scope_manager:
-            loc = getattr(node, "location", None)
+            loc = node.location
             msg = f"name resolution failed: no scope for '{name}'"
             if self.tcx and self.tcx.reporter:
                 self.tcx.reporter.report_error(msg, loc)
             raise ValueError(msg)
         binding = self.scope_manager.lookup(name)
-        if binding and getattr(binding, "defid", None) is not None:
+        if binding and binding.defid is not None:
             object.__setattr__(node, "defid", binding.defid)
         else:
-            loc = getattr(node, "location", None)
+            loc = node.location
             msg = f"cannot find value `{name}` in this scope"
             if self.tcx and self.tcx.reporter:
                 self.tcx.reporter.report_error(msg, loc, code="E0425", label="not found in this scope")
@@ -756,19 +757,19 @@ class NameResolverVisitor(ASTVisitor[None]):
             # Resolve the module path and member
             node.function_expr.accept(self)
             
-            module_access_defid = getattr(node.function_expr, 'defid', None)
-            resolved_path = getattr(node.function_expr, '_resolved_module_path', None) or ()
+            module_access_defid = opt_attr(node.function_expr, 'defid', None)
+            resolved_path = opt_attr(node.function_expr, '_resolved_module_path', None) or ()
             is_python = bool(resolved_path and len(resolved_path) > 0 and resolved_path[0] == 'python')
             if module_access_defid:
                 object.__setattr__(node, 'function_defid', module_access_defid)
-                function_name = getattr(node.function_expr, '_resolved_function_name', None) or node.function_expr.property
+                function_name = opt_attr(node.function_expr, '_resolved_function_name', None) or node.function_expr.property
                 object.__setattr__(node, '_resolved_function_name', function_name)
             elif is_python:
-                function_name = getattr(node.function_expr, 'property', None) or '?'
+                function_name = opt_attr(node.function_expr, 'property', None) or '?'
                 object.__setattr__(node, '_resolved_function_name', function_name)
             else:
-                qual = getattr(node.function_expr, 'property', None) or '?'
-                loc = getattr(node.function_expr, "location", None)
+                qual = opt_attr(node.function_expr, 'property', None) or '?'
+                loc = opt_attr(node.function_expr, "location", None)
                 msg = f"qualified name could not be resolved: {qual}"
                 if self.tcx and self.tcx.reporter:
                     self.tcx.reporter.report_error(msg, loc)
@@ -856,7 +857,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                         arg.accept(self)
                     return
             if self.tcx and self.tcx.reporter:
-                loc = getattr(node, "location", None)
+                loc = node.location
                 self.tcx.reporter.report_error(
                     f"Undefined function '{func_name}'. "
                     "Use a 'use' statement to import it (e.g. use my_module::{func_name};) or call with module path (e.g. my_module::{func_name}(...)).".format(func_name=func_name),
@@ -872,7 +873,7 @@ class NameResolverVisitor(ASTVisitor[None]):
     def visit_function_definition(self, node: FunctionDefinition) -> None:
         """Resolve params and body. DefId/scope define may already be done by main-program pre-pass (mutual recursion)."""
         scope = self.scope_manager.current_scope()
-        defid = getattr(node, "defid", None)
+        defid = opt_defid(node)
         if defid is None:
             defid = self.resolver.allocate_for_item((), node.name, node, DefType.FUNCTION)
             object.__setattr__(node, "defid", defid)
@@ -892,10 +893,10 @@ class NameResolverVisitor(ASTVisitor[None]):
             )
         with self.scope_manager.scope(ScopeKind.FUNCTION) as func_scope:
             for param in node.parameters:
-                param_name = param.name if isinstance(param.name, str) else getattr(param.name, 'value', str(param.name))
+                param_name = param.name if isinstance(param.name, str) else (opt_name(param.name) or str(param.name))
                 param_name = str(param_name)
                 if func_scope and func_scope.defined_in_this_scope(param_name):
-                    loc = getattr(param, "location", None)
+                    loc = param.location
                     if self.tcx and self.tcx.reporter:
                         self.tcx.reporter.report_error(f"duplicate parameter '{param_name}'", loc)
                     raise ValueError(
@@ -930,7 +931,7 @@ class NameResolverVisitor(ASTVisitor[None]):
             if scope:
                 for stmt in node.statements:
                     if isinstance(stmt, ASTEinsteinDeclaration):
-                        name = getattr(stmt, "array_name", None)
+                        name = stmt.array_name
                         if name and not scope.defined_in_this_scope(name):
                             defid = self.resolver.allocate_for_local()
                             object.__setattr__(stmt, "defid", defid)
@@ -958,8 +959,9 @@ class NameResolverVisitor(ASTVisitor[None]):
             node.value.accept(self)
         scope = self.scope_manager.current_scope()
         pattern = node.pattern
-        if hasattr(pattern, "variables"):
-            for annotated_var in pattern.variables:
+        variables = opt_attr(pattern, "variables", None)
+        if variables is not None:
+            for annotated_var in variables:
                 var_name = annotated_var.name
                 defid = self.resolver.allocate_for_local()
                 object.__setattr__(annotated_var, "defid", defid)
@@ -1003,7 +1005,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                 if lambda_scope:
                     if lambda_scope.defined_in_this_scope(pn):
                         if self.tcx and self.tcx.reporter:
-                            loc = getattr(node, "location", None)
+                            loc = node.location
                             self.tcx.reporter.report_error(f"duplicate parameter '{pn}'", loc)
                     param_defid = self.resolver.allocate_for_local()
                     param_defids[pn] = param_defid
@@ -1043,42 +1045,40 @@ class NameResolverVisitor(ASTVisitor[None]):
     
     def visit_cast_expression(self, node) -> None:
         """Resolve names in cast expression"""
-        if hasattr(node, 'expr') and node.expr:
+        if node.expr:
             node.expr.accept(self)
     
     def visit_tuple_expression(self, node) -> None:
         """Resolve names in tuple expression"""
-        if hasattr(node, 'elements'):
-            for elem in node.elements:
-                if hasattr(elem, 'accept'):
-                    elem.accept(self)
+        for elem in node.elements:
+            elem.accept(self)
     
     def visit_tuple_access(self, node) -> None:
         """Resolve names in tuple access"""
-        if hasattr(node, 'tuple_expr') and node.tuple_expr:
+        if node.tuple_expr:
             node.tuple_expr.accept(self)
     
     def visit_rectangular_access(self, node) -> None:
         """Resolve names in rectangular access (AST: base_expr; IR: array)."""
-        base = getattr(node, 'base_expr', None) or getattr(node, 'array', None)
+        base = opt_attr(node, 'base_expr', None) or node.array
         if base:
             base.accept(self)
-        for idx in (getattr(node, 'indices', None) or []):
-            if idx is not None and hasattr(idx, 'accept'):
+        for idx in (node.indices or []):
+            if idx is not None:
                 idx.accept(self)
     
     def visit_member_access(self, node) -> None:
         """Resolve names in member access"""
-        if hasattr(node, 'object') and node.object:
+        if node.object:
             node.object.accept(self)
     
     def visit_range(self, node) -> None:
         """Resolve names in range expression"""
-        if hasattr(node, 'start') and node.start:
+        if node.start:
             node.start.accept(self)
-        if hasattr(node, 'end') and node.end:
+        if node.end:
             node.end.accept(self)
-        if hasattr(node, 'step') and node.step:
+        if opt_attr(node, 'step', None):
             node.step.accept(self)
     
     def visit_einstein_declaration(self, node) -> None:
@@ -1089,35 +1089,35 @@ class NameResolverVisitor(ASTVisitor[None]):
     def visit_einstein_clause(self, node) -> None:
         """Resolve names in one Einstein clause."""
         for idx in (node.indices or []):
-            if idx is not None and hasattr(idx, 'accept'):
+            if idx is not None:
                 idx.accept(self)
         if node.value:
             node.value.accept(self)
 
     def visit_where_expression(self, node) -> None:
         """Resolve names in where expression (AST: expr, where_clause.constraints)."""
-        if hasattr(node, 'expr') and node.expr:
+        if node.expr:
             node.expr.accept(self)
-        if hasattr(node, 'where_clause') and node.where_clause:
-            for c in (getattr(node.where_clause, 'constraints', None) or []):
-                if c is not None and hasattr(c, 'accept'):
+        if node.where_clause:
+            for c in (opt_attr(node.where_clause, 'constraints', None) or []):
+                if c is not None:
                     c.accept(self)
     
     def visit_match_expression(self, node) -> None:
         """Resolve names in match expression (scrutinee, each arm pattern and body)."""
-        scrutinee = getattr(node, 'scrutinee', None) or getattr(node, 'expr', None)
+        scrutinee = opt_attr(node, 'scrutinee', None) or opt_attr(node, 'expr', None)
         if scrutinee:
             scrutinee.accept(self)
-        if hasattr(node, 'arms'):
-            for arm in node.arms:
-                if hasattr(arm, 'pattern') and arm.pattern:
-                    arm.pattern.accept(self)
-                if hasattr(arm, 'body') and arm.body:
-                    arm.body.accept(self)
+        for arm in node.arms:
+            if arm.pattern:
+                arm.pattern.accept(self)
+            body = opt_attr(arm, 'body', None) or opt_attr(arm, 'expr', None)
+            if body:
+                body.accept(self)
 
     def visit_try_expression(self, node) -> None:
         """Resolve names in try expression."""
-        operand = getattr(node, 'operand', None) or getattr(node, 'expr', None)
+        operand = node.operand or node.expr
         if operand:
             operand.accept(self)
 
@@ -1180,7 +1180,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                     # Skip iteration variable constraints - they've already been processed above
                     if isinstance(constraint, BinaryExpression) and constraint.operator == BinaryOp.IN:
                         # This is an iteration variable constraint - already processed, just resolve the range
-                        if hasattr(constraint, 'right'):
+                        if opt_attr(constraint, 'right', None) is not None:
                             constraint.right.accept(self)
                         continue
                     
@@ -1201,7 +1201,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                                 _define_in_scope(self.scope_manager.current_scope(), binding_var_name, binding, constraint.left, self.tcx.reporter)
                                 object.__setattr__(constraint.left, 'defid', binding_defid)
                             # Resolve the binding expression (e.g., y + 1 in result = y + 1)
-                            if hasattr(constraint, 'right'):
+                            if opt_attr(constraint, 'right', None) is not None:
                                 constraint.right.accept(self)
                         continue
                     
@@ -1231,25 +1231,22 @@ class NameResolverVisitor(ASTVisitor[None]):
         - Pattern variables are available in the arm body
         """
         # Visit scrutinee first (outside match scope)
-        if hasattr(node, 'scrutinee'):
-            node.scrutinee.accept(self)
-        elif hasattr(node, 'expr'):
-            node.expr.accept(self)
+        scrutinee = opt_attr(node, 'scrutinee', None) or opt_attr(node, 'expr', None)
+        if scrutinee is not None:
+            scrutinee.accept(self)
         
         # Process each arm (Rust: each arm has its own scope for pattern variables)
-        if hasattr(node, 'arms'):
-            for arm in node.arms:
-                # Enter scope for this arm's pattern variables (Rust pattern: per-arm scope)
-                with self.scope_manager.scope(ScopeKind.BLOCK):
-                    # Visit pattern first - this will call visit_identifier_pattern if it's an identifier pattern
-                    # and allocate DefId and add to scope
-                    if hasattr(arm, 'pattern') and arm.pattern:
-                        arm.pattern.accept(self)
-                    # Now visit the arm body (which will resolve identifiers in the body)
-                    if hasattr(arm, 'body'):
-                        arm.body.accept(self)
-                    elif hasattr(arm, 'expr'):
-                        arm.expr.accept(self)
+        for arm in node.arms:
+            # Enter scope for this arm's pattern variables (Rust pattern: per-arm scope)
+            with self.scope_manager.scope(ScopeKind.BLOCK):
+                # Visit pattern first - this will call visit_identifier_pattern if it's an identifier pattern
+                # and allocate DefId and add to scope
+                if arm.pattern:
+                    arm.pattern.accept(self)
+                # Now visit the arm body (which will resolve identifiers in the body)
+                body = opt_attr(arm, 'body', None) or opt_attr(arm, 'expr', None)
+                if body is not None:
+                    body.accept(self)
     
     def visit_tuple_expression(self, node) -> None:
         for elem in node.elements:
@@ -1279,34 +1276,31 @@ class NameResolverVisitor(ASTVisitor[None]):
         extra_constraint_lists: optional list of constraint lists to resolve in reduction scope (e.g. outer WhereExpression constraints)."""
         from ..shared.scope import Binding, BindingType
 
-        if not hasattr(node, 'over_clause') or not node.over_clause:
+        if not node.over_clause:
             return
 
         with self.scope_manager.scope(ScopeKind.REDUCTION) as reduction_scope:
-            if hasattr(node.over_clause, 'range_groups'):
-                for group in node.over_clause.range_groups:
-                    if hasattr(group, 'range_expr') and group.range_expr:
-                        group.range_expr.accept(self)
+            for group in node.over_clause.range_groups:
+                if group.range_expr:
+                    group.range_expr.accept(self)
             loop_var_defids = {}
-            if hasattr(node.over_clause, 'range_groups'):
-                for group in node.over_clause.range_groups:
-                    if hasattr(group, 'variables'):
-                        for var_name in group.variables:
-                            var_name = var_name if isinstance(var_name, str) else getattr(var_name, 'value', str(var_name))
-                            var_name = str(var_name)
-                            if not self.resolver:
-                                continue
-                            var_defid = self.resolver.allocate_for_local()
-                            loop_var_defids[var_name] = var_defid
-                            if reduction_scope:
-                                binding = Binding(
-                                    name=var_name,
-                                    binding_type=BindingType.VARIABLE,
-                                    definition=node,
-                                    defid=var_defid,
-                                    scope=reduction_scope,
-                                )
-                                _define_in_scope(reduction_scope, var_name, binding, node, self.tcx.reporter)
+            for group in node.over_clause.range_groups:
+                for var_name in group.variables:
+                    var_name = var_name if isinstance(var_name, str) else (opt_name(var_name) or str(var_name))
+                    var_name = str(var_name)
+                    if not self.resolver:
+                        continue
+                    var_defid = self.resolver.allocate_for_local()
+                    loop_var_defids[var_name] = var_defid
+                    if reduction_scope:
+                        binding = Binding(
+                            name=var_name,
+                            binding_type=BindingType.VARIABLE,
+                            definition=node,
+                            defid=var_defid,
+                            scope=reduction_scope,
+                        )
+                        _define_in_scope(reduction_scope, var_name, binding, node, self.tcx.reporter)
             object.__setattr__(node, '_reduction_loop_var_defids', loop_var_defids)
 
             node.body.accept(self)
@@ -1326,29 +1320,29 @@ class NameResolverVisitor(ASTVisitor[None]):
             return
 
         if isinstance(node.expr, ASTReductionExpression):
-            outer = getattr(node, 'where_clause', None)
+            outer = node.where_clause
             from ..shared.types import BinaryOp
             from ..shared.nodes import BinaryExpression, Identifier
             reduction_loop_names = set()
-            over = getattr(node.expr, 'over_clause', None)
-            if over and getattr(over, 'range_groups', None):
+            over = opt_attr(node.expr, 'over_clause', None)
+            if over and opt_attr(over, 'range_groups', None):
                 for group in over.range_groups:
-                    for v in getattr(group, 'variables', []) or []:
-                        name = v if isinstance(v, str) else getattr(v, 'value', getattr(v, 'name', str(v)))
+                    for v in opt_attr(group, 'variables', []) or []:
+                        name = v if isinstance(v, str) else (opt_name(v) or str(v))
                         if name:
                             reduction_loop_names.add(name)
-            if outer and getattr(outer, 'constraints', None) and reduction_loop_names:
-                op_name = getattr(node.expr, 'function_name', 'reduction')
+            if outer and opt_attr(outer, 'constraints', None) and reduction_loop_names:
+                op_name = opt_attr(node.expr, 'function_name', 'reduction')
                 for constraint in outer.constraints:
-                    if isinstance(constraint, BinaryExpression) and getattr(constraint, 'operator', None) == BinaryOp.IN:
-                        left = getattr(constraint, 'left', None)
+                    if isinstance(constraint, BinaryExpression) and constraint.operator == BinaryOp.IN:
+                        left = constraint.left
                         if isinstance(left, Identifier):
-                            var_name = getattr(left, 'name', None)
+                            var_name = left.name
                             if var_name is not None and not isinstance(var_name, str):
-                                var_name = getattr(var_name, 'value', str(var_name))
+                                var_name = opt_name(var_name) or str(var_name)
                             if var_name and var_name in reduction_loop_names:
                                 from ..shared.source_location import SourceLocation
-                                loc = getattr(constraint, 'location', None) or getattr(node, 'location', None)
+                                loc = constraint.location or node.location
                                 if loc is None:
                                     loc = SourceLocation(file="<test>", line=0, column=0, end_line=0, end_column=0)
                                 self.tcx.reporter.report_error(
@@ -1357,7 +1351,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                                     loc,
                                     code="E0303",
                                 )
-            extra = [outer.constraints] if outer and getattr(outer, 'constraints', None) else None
+            extra = [outer.constraints] if outer and opt_attr(outer, 'constraints', None) else None
             self.visit_reduction_expression(node.expr, extra_constraint_lists=extra)
         else:
             node.expr.accept(self)
@@ -1370,7 +1364,7 @@ class NameResolverVisitor(ASTVisitor[None]):
             node.start.accept(self)
         if node.end:
             node.end.accept(self)
-        if getattr(node, 'step', None):
+        if opt_attr(node, 'step', None):
             node.step.accept(self)
 
     def visit_interpolated_string(self, node) -> None:
@@ -1380,7 +1374,7 @@ class NameResolverVisitor(ASTVisitor[None]):
     def visit_rectangular_access(self, node) -> None:
         node.base_expr.accept(self)
         for idx in (node.indices or []):
-            if idx is not None and hasattr(idx, 'accept'):
+            if idx is not None:
                 idx.accept(self)
     
     def visit_jagged_access(self, node) -> None:
@@ -1400,7 +1394,7 @@ class NameResolverVisitor(ASTVisitor[None]):
             existing = scope.lookup(node.array_name) if scope else None
             if existing and getattr(existing, "binding_type", None) == BindingType.VARIABLE and getattr(existing, "defid", None):
                 if getattr(existing, "definition", None) is not node:
-                    loc = getattr(node, "location", None)
+                    loc = node.location
                     if self.tcx and self.tcx.reporter:
                         self.tcx.reporter.report_error(
                             f"redefinition of '{node.array_name}' in same scope (use consecutive let for same array to merge, or use a different name)",
@@ -1426,9 +1420,9 @@ class NameResolverVisitor(ASTVisitor[None]):
             object.__setattr__(node, "defid", defid)
         else:
             existing_binding = scope.lookup(node.array_name) if scope else None
-            if existing_binding and getattr(existing_binding, "binding_type", None) == BindingType.VARIABLE and getattr(existing_binding, "defid", None):
-                if getattr(existing_binding, "definition", None) is not node:
-                    loc = getattr(node, "location", None)
+            if existing_binding and opt_attr(existing_binding, "binding_type", None) == BindingType.VARIABLE and opt_defid(existing_binding):
+                if opt_attr(existing_binding, "definition", None) is not node:
+                    loc = node.location
                     if self.tcx and self.tcx.reporter:
                         self.tcx.reporter.report_error(
                             f"redefinition of '{node.array_name}' in same scope (use consecutive let for same array to merge, or use a different name)",
@@ -1458,22 +1452,22 @@ class NameResolverVisitor(ASTVisitor[None]):
 
         with self.scope_manager.scope(ScopeKind.EINSTEIN) as einstein_scope:
             # Visit all indices from all clauses (index vars get DefIds in EINSTEIN scope)
-            for clause in (getattr(node, "clauses", None) or []):
-                for idx in (getattr(clause, "indices", None) or []):
+            for clause in (node.clauses or []):
+                for idx in (opt_attr(clause, 'indices', None) or []):
                     idx.accept(self)
             from ..shared.nodes import ReductionExpression as ASTReductionExpression
-            for clause in (getattr(node, "clauses", None) or []):
-                if getattr(clause, "value", None):
+            for clause in (node.clauses or []):
+                if opt_attr(clause, "value", None):
                     val = clause.value
-                    where = getattr(clause, "where_clause", None)
-                    extra = [where.constraints] if where and getattr(where, "constraints", None) else None
+                    where = clause.where_clause
+                    extra = [where.constraints] if where and opt_attr(where, "constraints", None) else None
                     if isinstance(val, ASTReductionExpression):
                         self.visit_reduction_expression(val, extra_constraint_lists=extra)
                     else:
                         val.accept(self)
             
             # Bind the variable name (e.g., "max_val" in "let max_val[..batch] = ...")
-            var_name = getattr(node, 'array_name', None)
+            var_name = node.array_name
             if var_name:
                 parent_scope = None
                 if len(self.scope_manager._stack) > 1:
@@ -1486,7 +1480,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                     if existing and getattr(existing, 'defid', None):
                         var_defid = existing.defid
                     else:
-                        var_defid = getattr(node, 'defid', None) or self.resolver.allocate_for_local()
+                        var_defid = node.defid or self.resolver.allocate_for_local()
                         object.__setattr__(node, 'defid', var_defid)
                     if current_scope and not current_scope.defined_in_this_scope(var_name):
                         binding = Binding(
@@ -1498,7 +1492,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                         )
                         _define_in_scope(current_scope, var_name, binding, node, self.tcx.reporter)
                 else:
-                    var_defid = getattr(node, 'defid', None)
+                    var_defid = node.defid
                     if not var_defid:
                         var_defid = self.resolver.allocate_for_local()
                         object.__setattr__(node, 'defid', var_defid)
@@ -1513,11 +1507,11 @@ class NameResolverVisitor(ASTVisitor[None]):
                         )
                         _define_in_scope(current_scope, var_name, binding, node, self.tcx.reporter)
             
-            for clause in (getattr(node, "clauses", None) or []):
-                where = getattr(clause, "where_clause", None)
-                if not where or not getattr(where, "constraints", None):
+            for clause in (node.clauses or []):
+                where = clause.where_clause
+                if not where or not opt_attr(where, "constraints", None):
                     continue
-                if isinstance(getattr(clause, "value", None), ASTReductionExpression):
+                if isinstance(opt_attr(clause, "value", None), ASTReductionExpression):
                     continue
                 for constraint in where.constraints:
                     constraint.accept(self)
@@ -1572,12 +1566,12 @@ class NameResolverVisitor(ASTVisitor[None]):
                             continue
                         func_def = module_info.functions[func_name]
                         # Only import public functions
-                        if not getattr(func_def, 'is_public', False):
+                        if not opt_attr(func_def, 'is_public', False):
                             continue
                         # Store module path on function definition for later lowering
                         object.__setattr__(func_def, 'module_path', resolved_path)
                         # Allocate DefId for the imported function if not already done
-                        if not hasattr(func_def, 'defid') or func_def.defid is None:
+                        if opt_defid(func_def) is None:
                             defid = self.resolver.allocate_for_item(resolved_path, func_name, func_def, DefType.FUNCTION)
                             object.__setattr__(func_def, 'defid', defid)
                         if current_scope:
@@ -1589,7 +1583,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                                         (len(resolved_path) <= len(existing_path) and existing_path[:len(resolved_path)] == resolved_path) or
                                         (len(existing_path) <= len(resolved_path) and resolved_path[:len(existing_path)] == existing_path))
                                     if not same_or_submodule and self.tcx and self.tcx.reporter:
-                                        self.tcx.reporter.report_error(f"redefinition of '{func_name}' in same scope (duplicate import)", node.location if hasattr(node, 'location') else None)
+                                        self.tcx.reporter.report_error(f"redefinition of '{func_name}' in same scope (duplicate import)", node.location)
                                     elif same_or_submodule:
                                         binding = Binding(
                                             name=func_name,
@@ -1602,7 +1596,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                                         _define_in_scope(current_scope, func_name, binding, None, self.tcx.reporter)
                                 else:
                                     if self.tcx and self.tcx.reporter:
-                                        self.tcx.reporter.report_error(f"use of '{func_name}' after local definition", node.location if hasattr(node, 'location') else None)
+                                        self.tcx.reporter.report_error(f"use of '{func_name}' after local definition", node.location)
                             else:
                                 binding = Binding(
                                     name=func_name,
@@ -1666,7 +1660,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                 func_def = module_info.functions[func_name]
                 
                 # Check visibility - only public functions can be imported
-                if not getattr(func_def, 'is_public', False):
+                if not opt_attr(func_def, 'is_public', False):
                     error_msg = (
                         f"Cannot import private function '{func_name}' from module '{MODULE_SEPARATOR.join(module_path)}'. "
                         f"Only functions marked with 'pub' can be imported."
@@ -1674,7 +1668,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                     if self.tcx and self.tcx.reporter:
                         self.tcx.reporter.report_error(
                             error_msg,
-                            node.location if hasattr(node, 'location') else None,
+                            node.location,
                         )
                     logger.error(error_msg)
                     return
@@ -1683,13 +1677,13 @@ class NameResolverVisitor(ASTVisitor[None]):
                 object.__setattr__(func_def, 'module_path', module_path)
                 
                 # Allocate DefId for the imported function
-                if not hasattr(func_def, 'defid') or func_def.defid is None:
+                if opt_defid(func_def) is None:
                     defid = self.resolver.allocate_for_item(module_path, func_name, func_def, DefType.FUNCTION)
                     object.__setattr__(func_def, 'defid', defid)
                 else:
                     defid = func_def.defid
                 
-                define_name = getattr(node, 'alias', None) or func_name
+                define_name = opt_attr(node, 'alias', None) or func_name
                 current_scope = self.scope_manager.current_scope()
                 if current_scope:
                     if current_scope.defined_in_this_scope(define_name):
@@ -1700,7 +1694,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                                 (len(module_path) <= len(existing_path) and existing_path[:len(module_path)] == module_path) or
                                 (len(existing_path) <= len(module_path) and module_path[:len(existing_path)] == existing_path))
                             if not same_or_submodule and self.tcx and self.tcx.reporter:
-                                self.tcx.reporter.report_error(f"redefinition of '{define_name}' in same scope (duplicate import)", node.location if hasattr(node, 'location') else None)
+                                self.tcx.reporter.report_error(f"redefinition of '{define_name}' in same scope (duplicate import)", node.location)
                             elif same_or_submodule:
                                 binding = Binding(
                                     name=define_name,
@@ -1714,7 +1708,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                                 logger.info(f"Function import: {define_name} from {MODULE_SEPARATOR.join(module_path)} with DefId {defid}")
                         else:
                             if self.tcx and self.tcx.reporter:
-                                self.tcx.reporter.report_error(f"use of '{define_name}' after local definition", node.location if hasattr(node, 'location') else None)
+                                self.tcx.reporter.report_error(f"use of '{define_name}' after local definition", node.location)
                     else:
                         binding = Binding(
                             name=define_name,
@@ -1737,11 +1731,7 @@ class NameResolverVisitor(ASTVisitor[None]):
         
         # Rust pattern: use std::math as m; → alias_name = 'm'
         #               use std::math;      → alias_name = 'math'
-        if hasattr(node, 'alias') and node.alias:
-            alias_name = node.alias  # Explicit alias: use python::random as rand
-        else:
-            alias_name = node.path[-1] if node.path else None  # Implicit: use python::random → 'random'
-        
+        alias_name = opt_attr(node, 'alias', None) or (node.path[-1] if node.path else None)  # Explicit alias or implicit
         if alias_name:
             # Register alias in resolver so lowering/backend can resolve np -> ('python', 'numpy')
             # Without this, ast_to_ir uses module_path = ('np',) and backend tries import_module('np') and fails
@@ -1757,7 +1747,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                             (len(resolved_path) <= len(existing_path) and existing_path[:len(resolved_path)] == resolved_path) or
                             (len(existing_path) <= len(resolved_path) and resolved_path[:len(existing_path)] == existing_path))
                         if not same_or_submodule and self.tcx and self.tcx.reporter:
-                            self.tcx.reporter.report_error(f"redefinition of '{alias_name}' in same scope (duplicate import)", node.location if hasattr(node, 'location') else None)
+                            self.tcx.reporter.report_error(f"redefinition of '{alias_name}' in same scope (duplicate import)", node.location)
                         elif same_or_submodule:
                             binding = Binding(
                                 name=alias_name,
@@ -1771,7 +1761,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                             logger.info(f"Registered module alias in scope: {alias_name} -> {MODULE_SEPARATOR.join(resolved_path)} (scope: {current_scope.kind})")
                     else:
                         if self.tcx and self.tcx.reporter:
-                            self.tcx.reporter.report_error(f"use of '{alias_name}' after local definition", node.location if hasattr(node, 'location') else None)
+                            self.tcx.reporter.report_error(f"use of '{alias_name}' after local definition", node.location)
                 else:
                     binding = Binding(
                         name=alias_name,
@@ -2174,25 +2164,25 @@ class NameResolverVisitor(ASTVisitor[None]):
                 except Exception as e:
                     pass
         
-        if self.tcx and self.tcx.reporter and getattr(node, 'defid', None) is None:
+        if self.tcx and self.tcx.reporter and opt_defid(node) is None:
             from ..analysis.module_system.path_resolver import MODULE_SEPARATOR
             if module_path and len(module_path) > 0 and module_path[0] == 'std':
                 self.tcx.reporter.report_error(
                     f"Could not resolve stdlib function '{MODULE_SEPARATOR.join(module_path)}::{item_name}'.",
-                    location=node.location if hasattr(node, 'location') else None,
+                    location=node.location,
                     code="E0433"
                 )
             elif module_path and len(module_path) > 0 and module_path[0] != 'python':
                 self.tcx.reporter.report_error(
                     f"Module '{MODULE_SEPARATOR.join(module_path)}' not found. "
                     f"Function '{item_name}' could not be resolved.",
-                    location=node.location if hasattr(node, 'location') else None,
+                    location=node.location,
                     code="E0432"
                 )
             else:
                 self.tcx.reporter.report_error(
                     f"could not resolve name '{item_name}'",
-                    location=node.location if hasattr(node, 'location') else None,
+                    location=node.location,
                 )
 
     def visit_index_var(self, node) -> None:
@@ -2203,8 +2193,8 @@ class NameResolverVisitor(ASTVisitor[None]):
         if not isinstance(node, IndexVar):
             return
         if not current_scope:
-            loc = getattr(node, "location", None)
-            msg = f"name resolution failed: no scope for index var '{getattr(node, 'name', '?')}'"
+            loc = node.location
+            msg = f"name resolution failed: no scope for index var '{(node.name or '?')}'"
             if self.tcx and self.tcx.reporter:
                 self.tcx.reporter.report_error(msg, loc)
             raise ValueError(msg)
@@ -2223,7 +2213,7 @@ class NameResolverVisitor(ASTVisitor[None]):
             )
             _define_in_scope(current_scope, name, binding, node, self.tcx.reporter)
             object.__setattr__(node, "defid", defid)
-        if getattr(node, "range_expr", None) is not None:
+        if opt_attr(node, "range_expr", None) is not None:
             node.range_expr.accept(self)
 
     def visit_index_rest(self, node) -> None:
@@ -2234,8 +2224,8 @@ class NameResolverVisitor(ASTVisitor[None]):
         if not isinstance(node, IndexRest):
             return
         if not current_scope:
-            loc = getattr(node, "location", None)
-            msg = f"name resolution failed: no scope for index rest '{getattr(node, 'name', '?')}'"
+            loc = node.location
+            msg = f"name resolution failed: no scope for index rest '{(node.name or '?')}'"
             if self.tcx and self.tcx.reporter:
                 self.tcx.reporter.report_error(msg, loc)
             raise ValueError(msg)
@@ -2282,40 +2272,33 @@ class NameResolverVisitor(ASTVisitor[None]):
     
     def visit_tuple_pattern(self, node) -> None:
         """Resolve tuple pattern - recursively visit nested patterns"""
-        if hasattr(node, 'patterns'):
-            for pattern in node.patterns:
-                if hasattr(pattern, 'accept'):
-                    pattern.accept(self)
+        for pattern in node.patterns:
+            pattern.accept(self)
     
     def visit_array_pattern(self, node) -> None:
         """Resolve array pattern - recursively visit nested patterns"""
-        if hasattr(node, 'patterns'):
-            for pattern in node.patterns:
-                if hasattr(pattern, 'accept'):
-                    pattern.accept(self)
+        for pattern in node.patterns:
+            pattern.accept(self)
     
     def visit_rest_pattern(self, node) -> None:
-        if hasattr(node, 'pattern') and node.pattern:
+        if node.pattern:
             node.pattern.accept(self)
 
     def visit_guard_pattern(self, node) -> None:
-        if hasattr(node, 'pattern') and node.pattern:
+        if node.pattern:
             node.pattern.accept(self)
-        if hasattr(node, 'guard') and node.guard:
+        if node.guard:
             node.guard.accept(self)
 
     def visit_constructor_pattern(self, node) -> None:
-        if hasattr(node, 'patterns'):
-            for p in node.patterns:
-                if p is not None and hasattr(p, 'accept'):
-                    p.accept(self)
+        for p in node.patterns:
+            if p is not None:
+                p.accept(self)
 
     def visit_or_pattern(self, node) -> None:
         """Resolve or pattern — each alternative must bind the same set of names."""
-        if hasattr(node, 'alternatives'):
-            for alt in node.alternatives:
-                if hasattr(alt, 'accept'):
-                    alt.accept(self)
+        for alt in node.alternatives:
+            alt.accept(self)
 
     def visit_binding_pattern(self, node) -> None:
         """Resolve binding pattern: name @ inner (AST) or identifier_pattern @ inner_pattern (IR)."""
@@ -2331,10 +2314,10 @@ class NameResolverVisitor(ASTVisitor[None]):
                 scope=current_scope
             )
             _define_in_scope(current_scope, node.name, binding, node, self.tcx.reporter)
-            target = getattr(node, 'identifier_pattern', node)
+            target = opt_attr(node, 'identifier_pattern', node)
             object.__setattr__(target, 'defid', defid)
-        inner = getattr(node, 'inner_pattern', None) or getattr(node, 'pattern', None)
-        if inner and hasattr(inner, 'accept'):
+        inner = opt_attr(node, 'inner_pattern', None) or opt_attr(node, 'pattern', None)
+        if inner:
             inner.accept(self)
 
     def visit_range_pattern(self, node) -> None:
@@ -2735,7 +2718,7 @@ class NameResolverVisitor(ASTVisitor[None]):
         for sub_name, sub_info in submodules.items():
             sub_path = module_path + (sub_name,)
             self._ensure_module_resolved(sub_info, sub_path)
-        if not program or not getattr(program, 'statements', None):
+        if not program or not opt_attr(program, 'statements', None):
             return
         _group_einstein_declarations_on_ast(program)
         from ..shared.scope import ScopeKind

@@ -120,13 +120,13 @@ class IRValidationVisitor(IRVisitor[None]):
     def visit_index_var(self, node) -> None:
         self.nodes_validated += 1
         self._check_type(node)
-        if getattr(node, "range_ir", None) is not None:
+        if node.range_ir is not None:
             node.range_ir.accept(self)
 
     def visit_index_rest(self, node: IndexRestIR) -> None:
         self.nodes_validated += 1
         self._report_error(
-            f"IndexRestIR (..{getattr(node, 'name', '?')}) must not reach IR validation; "
+            f"IndexRestIR (..{(node.name or '?')}) must not reach IR validation; "
             "rest patterns must be expanded in rest_pattern_preprocessing.",
             node.location,
         )
@@ -366,46 +366,104 @@ class IRValidationVisitor(IRVisitor[None]):
 
     def visit_lowered_einstein(self, node: Any) -> None:
         """Visit all lowered Einstein clauses (not just last)."""
-        for item in getattr(node, 'items', []) or []:
+        for item in (node.items or []):
             item.accept(self)
 
     def visit_lowered_recurrence(self, node: Any) -> None:
         """Visit initial, recurrence loop iterable, and body."""
-        if getattr(node, 'initial', None):
+        if node.recurrence_loop is not None and node.recurrence_loop.variable.defid is None:
+            loc = getattr(node.recurrence_loop.variable, "location", getattr(node, "location", None))
+            self._report_error(
+                "Recurrence loop variable missing DefId. RangeAnalysisPass and EinsteinLoweringPass must set defid.",
+                loc,
+            )
+        if node.initial is not None:
             node.initial.accept(self)
-        if getattr(node, 'recurrence_loop', None) and getattr(node.recurrence_loop, 'iterable', None):
+        if node.recurrence_loop is not None and node.recurrence_loop.iterable is not None:
             node.recurrence_loop.iterable.accept(self)
-        if getattr(node, 'body', None):
+        if node.body is not None:
             node.body.accept(self)
 
     def visit_lowered_einstein_clause(self, node: Any) -> None:
-        """Visit lowered clause body, loops, bindings, guards."""
-        if getattr(node, 'body', None):
+        """Visit lowered clause body, loops, bindings, guards. Validates defids (compiler guarantee for execution)."""
+        if node.body is not None:
             node.body.accept(self)
-        for loop in getattr(node, 'loops', []) or []:
-            if getattr(loop, 'iterable', None):
+        for loop in (node.loops or []):
+            if loop.variable.defid is None:
+                loc = getattr(loop.variable, "location", getattr(node, "location", None))
+                self._report_error(
+                    f"Loop variable '{getattr(loop.variable, 'name', '?')}' missing DefId. "
+                    "RangeAnalysisPass and EinsteinLoweringPass must set defid on all loop variables.",
+                    loc,
+                )
+            if loop.iterable is None:
+                loc = getattr(loop.variable, "location", None) if getattr(loop, "variable", None) else getattr(loop, "location", node.location)
+                self._report_error(
+                    "Lowered loop has no iterable; cannot execute. "
+                    "Range analysis / lowering must set iterable for every loop.",
+                    loc,
+                )
+            else:
                 loop.iterable.accept(self)
-        for b in getattr(node, 'bindings', []) or []:
-            if getattr(b, 'expr', None):
+        for b in (node.bindings or []):
+            if b.defid is None:
+                loc = getattr(b, "location", getattr(node, "location", None))
+                self._report_error(
+                    f"Lowered binding '{getattr(b, 'name', '?')}' missing DefId. Name resolution and lowering must set defid.",
+                    loc,
+                )
+            if b.expr is not None:
                 b.expr.accept(self)
-        for g in getattr(node, 'guards', []) or []:
-            if getattr(g, 'condition', None):
+        for g in (node.guards or []):
+            if g.condition is not None:
                 g.condition.accept(self)
 
     def visit_lowered_reduction(self, node: Any) -> None:
-        """Visit lowered reduction body and guards."""
-        if getattr(node, 'body', None):
+        """Visit lowered reduction body and guards. Validates defids (compiler guarantee); does not recurse into iterables."""
+        if node.body is not None:
             node.body.accept(self)
-        for g in getattr(node, 'guards', []) or []:
-            if getattr(g, 'condition', None):
+        for loop in (node.loops or []):
+            if loop.variable.defid is None:
+                loc = getattr(loop.variable, "location", getattr(node, "location", None))
+                self._report_error(
+                    f"Reduction loop variable '{getattr(loop.variable, 'name', '?')}' missing DefId.",
+                    loc,
+                )
+        for b in (node.bindings or []):
+            if b.defid is None:
+                loc = getattr(b, "location", getattr(node, "location", None))
+                self._report_error(
+                    f"Lowered binding '{getattr(b, 'name', '?')}' missing DefId.",
+                    loc,
+                )
+            if b.expr is not None:
+                b.expr.accept(self)
+        for g in (node.guards or []):
+            if g.condition is not None:
                 g.condition.accept(self)
 
     def visit_lowered_comprehension(self, node: Any) -> None:
-        """Visit lowered comprehension body and guards."""
-        if getattr(node, 'body', None):
+        """Visit lowered comprehension body and guards. Validates defids (compiler guarantee); does not recurse into iterables."""
+        if node.body is not None:
             node.body.accept(self)
-        for g in getattr(node, 'guards', []) or []:
-            if getattr(g, 'condition', None):
+        for loop in (node.loops or []):
+            if loop.variable.defid is None:
+                loc = getattr(loop.variable, "location", getattr(node, "location", None))
+                self._report_error(
+                    f"Comprehension loop variable '{getattr(loop.variable, 'name', '?')}' missing DefId.",
+                    loc,
+                )
+        for b in (node.bindings or []):
+            if b.defid is None:
+                loc = getattr(b, "location", getattr(node, "location", None))
+                self._report_error(
+                    f"Lowered binding '{getattr(b, 'name', '?')}' missing DefId.",
+                    loc,
+                )
+            if b.expr is not None:
+                b.expr.accept(self)
+        for g in (node.guards or []):
+            if g.condition is not None:
                 g.condition.accept(self)
     # Helper
     def _check_type(self, node: ExpressionIR):

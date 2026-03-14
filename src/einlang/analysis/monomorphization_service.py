@@ -60,7 +60,7 @@ class MonomorphizationService:
     def can_incrementally_specialize(
         self, call: FunctionCallIR, arg_types: Tuple[Type, ...]
     ) -> bool:
-        if not getattr(call, "function_defid", None):
+        if not call.function_defid:
             return False
         if not self._is_generic_function(call.function_defid):
             return False
@@ -90,7 +90,7 @@ class MonomorphizationService:
             existing = self._registry[instance]
             if required_passes:
                 self._run_required_passes(existing, required_passes)
-            if call is not None and existing and getattr(existing, "defid", None):
+            if call is not None and existing and existing.defid is not None:
                 call.set_callee_defid(existing.defid)
             return existing
         if generic_defid in self._monomorphizing:
@@ -104,7 +104,7 @@ class MonomorphizationService:
                 if generic_defid not in self._pending_partial_specializations:
                     self._pending_partial_specializations[generic_defid] = []
                 self._pending_partial_specializations[generic_defid].append(out)
-            if call is not None and out and getattr(out, "defid", None):
+            if call is not None and out and out.defid is not None:
                 call.set_callee_defid(out.defid)
             return out
         finally:
@@ -138,12 +138,12 @@ class MonomorphizationService:
         self._pending_specialized_functions.clear()
 
     def rewrite_calls_in_specialized_bodies(self) -> None:
-        specialized_list = getattr(self.tcx, "specialized_functions", [])
+        specialized_list = (self.tcx.specialized_functions or []) if hasattr(self.tcx, "specialized_functions") else []
         for func in specialized_list:
-            defid = getattr(func, "defid", None)
+            defid = func.defid
             if defid is not None and defid in self._rewritten_function_defids:
                 continue
-            body = getattr(func, "body", None)
+            body = func.body
             if body is not None:
                 self._rewrite_calls_in_node(body, set(), enclosing_function=func)
             if defid is not None:
@@ -158,26 +158,26 @@ class MonomorphizationService:
         call: FunctionCallIR,
         enclosing_function: Optional[BindingIR] = None,
     ) -> Optional[DefId]:
-        if not getattr(call, "function_defid", None):
+        if not call.function_defid:
             return None
         generic_defid = call.function_defid
         if not self._is_generic_function(generic_defid):
             return None
         from ..shared.types import UNKNOWN
-        args_list = getattr(call, "arguments", []) or []
+        args_list = call.arguments or []
         params_list = (
-            getattr(enclosing_function, "parameters", []) or []
+            (enclosing_function.parameters or [])
             if enclosing_function
             else []
         )
         arg_types: List[Any] = []
         for i, a in enumerate(args_list):
-            t = getattr(a, "type_info", None)
+            t = a.type_info
             if (t is None or t is UNKNOWN) and enclosing_function and i < len(
                 params_list
             ):
                 p = params_list[i]
-                t = getattr(p, "param_type", None)
+                t = p.param_type
             arg_types.append(t)
         if not arg_types or any(t is None for t in arg_types):
             return None
@@ -189,14 +189,14 @@ class MonomorphizationService:
         normalized = self._normalize_types_for_instance(param_types)
         instance = Instance(generic_defid=generic_defid, param_types=normalized)
         spec = self._registry.get(instance)
-        return getattr(spec, "defid", None) if spec else None
+        return spec.defid if spec else None
 
     def get_by_defid(self, defid: DefId) -> Optional[BindingIR]:
         return self._by_defid.get(defid)
 
     def get_generic_defid_for_specialized(self, specialized_defid: DefId) -> Optional[DefId]:
         for inst, fn in self._registry.items():
-            if getattr(fn, "defid", None) == specialized_defid:
+            if fn.defid == specialized_defid:
                 return inst.generic_defid
         return None
 
@@ -249,14 +249,16 @@ class MonomorphizationService:
         from ..shared.nodes import FunctionDefinition
         if is_function_binding(definition) or isinstance(definition, FunctionDefinition):
             for param in definition.parameters:
-                param_type = getattr(param, "param_type", None) or getattr(
-                    param, "type_annotation", None
+                param_type = (
+                    param.param_type
+                    if isinstance(param, ParameterIR)
+                    else getattr(param, "type_annotation", None)
                 )
                 if param_type is None:
                     return True
                 from ..shared.types import RectangularType
                 if isinstance(param_type, RectangularType):
-                    if getattr(param_type, "is_dynamic_rank", False):
+                    if param_type.is_dynamic_rank:
                         return True
         return False
 
@@ -289,11 +291,10 @@ class MonomorphizationService:
         from ..shared.types import TypeKind, RectangularType
         partial: List[Type] = []
         for t in arg_types:
-            if t is not None and getattr(t, "kind", None) == TypeKind.RECTANGULAR:
-                el = getattr(t, "element_type", None)
+            if t is not None and t.kind == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
                 partial.append(
                     RectangularType(
-                        element_type=el, shape=None, is_dynamic_rank=True
+                        element_type=t.element_type, shape=None, is_dynamic_rank=True
                     )
                 )
             else:
@@ -319,11 +320,10 @@ class MonomorphizationService:
         from ..shared.types import TypeKind, RectangularType, UNKNOWN
         partial: List[Type] = []
         for t in arg_types:
-            if t is not None and getattr(t, "kind", None) == TypeKind.RECTANGULAR:
-                shape = getattr(t, "shape", None)
+            if t is not None and t.kind == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
                 partial.append(
                     RectangularType(
-                        element_type=UNKNOWN, shape=shape, is_dynamic_rank=False
+                        element_type=UNKNOWN, shape=t.shape, is_dynamic_rank=False
                     )
                 )
             else:
@@ -353,7 +353,7 @@ class MonomorphizationService:
         generic_func = function_ir_map.get(generic_defid)
         if not generic_func or not is_function_binding(generic_func):
             return None
-        module_path = getattr(generic_func, "module_path", ("__specialized",))
+        module_path = (generic_func.module_path or ("__specialized",)) if hasattr(generic_func, "module_path") else ("__specialized",)
         if not isinstance(module_path, tuple):
             module_path = ("__specialized",)
         type_strs = [str(t) for t in arg_types]
@@ -371,7 +371,7 @@ class MonomorphizationService:
         instance = Instance(generic_defid=generic_defid, param_types=normalized)
         self._registry[instance] = specialized_func
         self._by_defid[specialized_defid] = specialized_func
-        if specialized_func and getattr(specialized_func, "body", None):
+        if specialized_func and specialized_func.body is not None:
             self._substitute_call_targets_in_body(
                 specialized_func.body,
                 generic_defid,
@@ -380,7 +380,7 @@ class MonomorphizationService:
             )
         if required_passes:
             specialized_func = self._run_passes(specialized_func, required_passes)
-        if is_partial and getattr(specialized_func, "expr", None) is not None:
+        if is_partial and specialized_func.expr is not None:
             object.__setattr__(specialized_func.expr, "_is_partially_specialized", True)
             object.__setattr__(specialized_func.expr, "_generic_defid", generic_defid)
         self._pending_specialized_functions.append(specialized_func)
@@ -493,7 +493,7 @@ class MonomorphizationService:
         ]
         # DCE: prune dead if-else branches on the specialized copy.
         # Evaluates len(param.shape) → constant rank, then folds constant conditions.
-        if getattr(specialized_func, 'body', None):
+        if specialized_func.body is not None:
             self._dce_specialized_body(specialized_func)
 
         if len(passes) == 1 and passes[0] in ("range", "shape"):
@@ -512,16 +512,15 @@ class MonomorphizationService:
                 result_ir = instance.run(mini, isolated)
                 if result_ir.functions:
                     new_func = result_ir.functions[0]
-                    if new_func is not specialized_func and getattr(new_func, "defid", None) == getattr(specialized_func, "defid", None):
-                        object.__setattr__(specialized_func.expr, "body", getattr(new_func, "body", specialized_func.body))
-                        if hasattr(specialized_func, "return_type"):
-                            object.__setattr__(specialized_func.expr, "return_type", getattr(new_func, "return_type", specialized_func.return_type))
+                    if new_func is not specialized_func and new_func.defid == specialized_func.defid:
+                        object.__setattr__(specialized_func.expr, "body", new_func.body or specialized_func.body)
+                        object.__setattr__(specialized_func.expr, "return_type", new_func.return_type or specialized_func.return_type)
                         object.__setattr__(mini, 'statements', [specialized_func])
                         object.__setattr__(mini, 'bindings', [specialized_func])
                     else:
                         if new_func is not specialized_func and new_func.defid:
                             for inst, fn in list(self._registry.items()):
-                                if getattr(fn, "defid", None) == new_func.defid:
+                                if fn.defid == new_func.defid:
                                     self._registry[inst] = new_func
                                     break
                             self._by_defid[new_func.defid] = new_func
@@ -606,15 +605,14 @@ class MonomorphizationService:
         for t in arg_types:
             if t is None or t is UNKNOWN:
                 return False
-            kind = getattr(t, "kind", None)
-            if kind == TypeKind.RECTANGULAR:
+            if t.kind == TypeKind.RECTANGULAR:
                 if not isinstance(t, RectangularType) or t.element_type is None:
                     return False
                 if t.element_type is UNKNOWN:
                     return False
-            elif kind == TypeKind.FUNCTION:
+            elif t.kind == TypeKind.FUNCTION:
                 pass
-            elif kind != TypeKind.PRIMITIVE:
+            elif t.kind != TypeKind.PRIMITIVE:
                 return False
         return True
 
@@ -639,7 +637,7 @@ class MonomorphizationService:
         for t in arg_types:
             if t is None or t is UNKNOWN:
                 continue
-            if getattr(t, "kind", None) == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
+            if t.kind == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
                 has_rank = (
                     t.shape is not None and len(t.shape) > 0
                 )
@@ -654,13 +652,13 @@ class MonomorphizationService:
         from ..shared.types import RectangularType
         if not isinstance(type_info, RectangularType):
             return 0
-        if getattr(type_info, "shape", None) is not None:
+        if type_info.shape is not None:
             return len(type_info.shape)
         rank = 0
         current = type_info
         while isinstance(current, RectangularType):
             rank += 1
-            current = getattr(current, "element_type", None)
+            current = current.element_type
         return rank
 
     def _create_dynamic_shape_types(
@@ -672,7 +670,7 @@ class MonomorphizationService:
             if t is None:
                 result.append(t)
                 continue
-            if getattr(t, "kind", None) == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
+            if t.kind == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
                 rank = self._compute_rank(t)
                 shape = tuple(None for _ in range(rank)) if rank > 0 else None
                 el = self._create_dynamic_shape_types((t.element_type,))[0]
@@ -696,7 +694,7 @@ class MonomorphizationService:
             if t is None:
                 out.append(t)
                 continue
-            if getattr(t, "kind", None) == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
+            if t.kind == TypeKind.RECTANGULAR and isinstance(t, RectangularType):
                 el_norm = self._normalize_types_for_instance((t.element_type,))[0]
                 shape = (
                     tuple(None for _ in t.shape) if t.shape else None
@@ -705,7 +703,7 @@ class MonomorphizationService:
                     RectangularType(
                         element_type=el_norm,
                         shape=shape,
-                        is_dynamic_rank=getattr(t, "is_dynamic_rank", False),
+                        is_dynamic_rank=t.is_dynamic_rank,
                     )
                 )
             else:
@@ -720,8 +718,8 @@ class MonomorphizationService:
         from ..ir.nodes import ModuleIR
         if not isinstance(mod, ModuleIR):
             return
-        out.extend(getattr(mod, "functions", None) or [])
-        for sub in getattr(mod, "submodules", None) or []:
+        out.extend(mod.functions or [])
+        for sub in (mod.submodules or []):
             self._collect_functions_from_module(sub, out)
 
     def _substitute_call_targets_in_body(
@@ -749,12 +747,10 @@ class MonomorphizationService:
         if node in visited:
             return
         visited.add(node)
-        if isinstance(node, FunctionCallIR) and getattr(
-            node, "function_defid", None
-        ) == generic_defid:
+        if isinstance(node, FunctionCallIR) and node.function_defid == generic_defid:
             node.set_callee_defid(specialized_defid)
         if isinstance(node, IRNode):
-            for attr in getattr(node, "__slots__", ()) or []:
+            for attr in (node.__slots__ or []):
                 if hasattr(node, attr):
                     self._substitute_call_targets_in_body(
                         getattr(node, attr),
@@ -797,30 +793,29 @@ class MonomorphizationService:
             return
         visited.add(node)
         if isinstance(node, FunctionCallIR):
-            fd = getattr(node, "function_defid", None)
+            fd = node.function_defid
             sid = self.get_specialized_defid_for_call(node, enclosing_function)
             if sid is not None:
                 node.set_callee_defid(sid)
             else:
                 from ..shared.types import UNKNOWN
-                args_list = getattr(node, "arguments", []) or []
+                args_list = node.arguments or []
                 params_list = (
-                    getattr(enclosing_function, "parameters", []) or []
+                    (enclosing_function.parameters or [])
                     if enclosing_function
                     else []
                 )
                 arg_types_list: List[Any] = []
                 for i, a in enumerate(args_list):
-                    t = getattr(a, "type_info", None)
+                    t = a.type_info
                     if (t is None or t is UNKNOWN) and enclosing_function and i < len(params_list):
                         p = params_list[i]
-                        t = getattr(p, "param_type", None)
+                        t = p.param_type
                     arg_types_list.append(t)
                 all_known = bool(arg_types_list and all(t is not None and t is not UNKNOWN for t in arg_types_list))
                 if not all_known and len(arg_types_list) == 2 and fd and self._is_generic_function(fd):
-                    from ..shared.types import RectangularType, PrimitiveType
-                    from ..shared.types import F32
-                    if arg_types_list[1] is not None and arg_types_list[1] is not UNKNOWN and getattr(arg_types_list[1], "name", None) == "f32":
+                    from ..shared.types import RectangularType, PrimitiveType, F32
+                    if arg_types_list[1] is not None and arg_types_list[1] is not UNKNOWN and isinstance(arg_types_list[1], PrimitiveType) and arg_types_list[1].name == "f32":
                         fill = RectangularType(element_type=F32, shape=None)
                         arg_types_list = [fill, arg_types_list[1]]
                         all_known = True
@@ -830,9 +825,9 @@ class MonomorphizationService:
                     spec = self.incremental_monomorphize(
                         node, tuple(arg_types_list), "rewrite", required_passes=["range", "type"]
                     )
-                    if spec and getattr(spec, "defid", None):
+                    if spec and spec.defid is not None:
                         node.set_callee_defid(spec.defid)
-            for arg in getattr(node, "arguments", []) or []:
+            for arg in (node.arguments or []):
                 self._rewrite_calls_in_node(arg, visited, enclosing_function)
             return
         if isinstance(node, IRNode):

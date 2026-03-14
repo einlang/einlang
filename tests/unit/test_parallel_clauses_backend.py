@@ -48,7 +48,7 @@ u;
             runtime,
             source_file="<pure_rec_t>",
         )
-        assert result.success, getattr(result, "errors", result.error)
+        assert result.success, (result.errors if result.errors else result.error)
         u = np.asarray(result.value if result.value is not None else result.outputs.get("u"))
         assert u is not None and u.ndim == 2 and u.shape[0] == 11 and u.shape[1] == 2
 

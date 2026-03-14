@@ -419,7 +419,7 @@ class DefIdToNameLookup(IRVisitor[Optional[str]]):
         if d2n:
             return d2n.get(self.defid)
         for stmt in node.statements:
-            if isinstance(stmt, ExpressionIR) and getattr(stmt, "defid", None) == self.defid and d2n:
+            if isinstance(stmt, ExpressionIR) and stmt.defid == self.defid and d2n:
                 return d2n.get(self.defid)
         return None
 

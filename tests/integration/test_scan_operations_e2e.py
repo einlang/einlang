@@ -42,8 +42,8 @@ class TestScanOperationsE2EV2:
         assert result.success, f"Cumulative sum computation should succeed: {result.errors}"
         
         # Check that we have execution results
-        assert hasattr(result, 'outputs'), "Result should have variables attribute"
-        if hasattr(result, 'outputs'):
+        assert result.outputs is not None, "Result should have variables attribute"
+        if result.outputs:
             variables = result.outputs
             assert 'cumsum' in variables, "cumsum variable should be in execution results"
             np.testing.assert_array_equal(variables['cumsum'], [1, 3, 6, 10], 
@@ -79,7 +79,7 @@ class TestScanOperationsE2EV2:
         assert result.success, f"Cumulative product computation should succeed: {result.errors}"
         
         # Check execution results
-        if hasattr(result, 'outputs'):
+        if result.outputs:
             variables = result.outputs
             assert 'cumprod' in variables, "cumprod variable should be in execution results"
             np.testing.assert_array_equal(variables['cumprod'], [2, 6, 6, 24],
@@ -115,7 +115,7 @@ class TestScanOperationsE2EV2:
         assert result.success, f"Cumulative maximum computation should succeed: {result.errors}"
         
         # Check execution results
-        if hasattr(result, 'outputs'):
+        if result.outputs:
             variables = result.outputs
             assert 'cummax' in variables, "cummax variable should be in execution results"
             np.testing.assert_array_equal(variables['cummax'], [3, 3, 4, 5],
@@ -152,7 +152,7 @@ class TestScanOperationsE2EV2:
         assert result.success, f"Running average computation should succeed: {result.errors}"
         
         # Check execution results
-        if hasattr(result, 'outputs'):
+        if result.outputs:
             variables = result.outputs
             assert 'running_avg' in variables, "running_avg variable should be in execution results"
             np.testing.assert_array_equal(variables['running_avg'], [10, 15, 20, 25],
@@ -188,7 +188,7 @@ class TestScanOperationsE2EV2:
         assert result.success, f"Energy accumulation computation should succeed: {result.errors}"
         
         # Check execution results
-        if hasattr(result, 'outputs'):
+        if result.outputs:
             variables = result.outputs
             assert 'energy' in variables, "energy variable should be in execution results"
             np.testing.assert_array_equal(variables['energy'], [4, 5, 14, 18],
@@ -218,7 +218,7 @@ class TestScanOperationsE2EV2:
         assert result.success, f"Financial cumulative returns computation should succeed: {result.errors}"
         
         # Check execution results
-        if hasattr(result, 'outputs'):
+        if result.outputs:
             variables = result.outputs
             assert 'cum_returns' in variables, "cum_returns variable should be in execution results"
             # Check specific values (with tolerance for float32 precision)

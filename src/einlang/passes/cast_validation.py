@@ -81,7 +81,7 @@ class CastValidator:
     
     def _get_expression_type(self, expr: ExpressionIR) -> Optional[Any]:
         """Get type of expression (type object, e.g. PrimitiveType)."""
-        if getattr(expr, 'type_info', None) is None:
+        if expr.type_info is None:
             return None
         return expr.type_info
 
@@ -105,9 +105,9 @@ class CastValidator:
             return True
 
         # Unknown allows anything
-        if source_type == UNKNOWN or getattr(source_type, "kind", None) == TypeKind.UNKNOWN:
+        if source_type == UNKNOWN or source_type.kind == TypeKind.UNKNOWN:
             return True
-        if target_type == UNKNOWN or getattr(target_type, "kind", None) == TypeKind.UNKNOWN:
+        if target_type == UNKNOWN or target_type.kind == TypeKind.UNKNOWN:
             return True
 
         # Array/tensor types: valid if element types are valid cast
@@ -117,9 +117,9 @@ class CastValidator:
             return self._is_valid_cast(src_elem, tgt_elem)
 
         # Primitive rules using type objects (no string comparison)
-        if getattr(source_type, "kind", None) != TypeKind.PRIMITIVE:
+        if source_type.kind != TypeKind.PRIMITIVE:
             return False
-        if getattr(target_type, "kind", None) != TypeKind.PRIMITIVE:
+        if target_type.kind != TypeKind.PRIMITIVE:
             return False
 
         # Numeric <-> numeric

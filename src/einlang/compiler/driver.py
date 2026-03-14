@@ -255,11 +255,11 @@ class CompilerDriver:
                     try:
                         func_map = getattr(tcx, "function_ir_map", None) or {}
                         extra = [f for f in func_map.values() if f is not None and f not in ir.functions]
-                        all_stmts = list(getattr(ir, "statements", []) or []) + extra
+                        all_stmts = list(ir.statements or []) + extra
                         combined = ProgramIR(
                             statements=all_stmts,
-                            modules=getattr(ir, "modules", []) or [],
-                            source_files=getattr(ir, "source_files", {}) or {},
+                            modules=ir.modules or [],
+                            source_files=ir.source_files or {},
                         )
                         (dump_dir / "after_einstein_lowering.sexpr").write_text(serialize_ir(combined), encoding="utf-8")
                     except Exception:
@@ -300,11 +300,11 @@ class CompilerDriver:
             if e.location is not None:
                 loc = e.location
                 span = SourceLocation(
-                    file=getattr(loc, "file", source_file),
-                    line=getattr(loc, "line", 1),
-                    column=getattr(loc, "column", 1),
-                    end_line=getattr(loc, "line", 1),
-                    end_column=getattr(loc, "column", 1) + 1,
+                    file=loc.file,
+                    line=loc.line,
+                    column=loc.column,
+                    end_line=loc.line,
+                    end_column=loc.column + 1,
                 )
             else:
                 span = SourceLocation(

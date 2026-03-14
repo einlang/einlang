@@ -41,15 +41,15 @@ def main():
     runtime = EinlangRuntime()
     result = compiler.compile(source, str(MAIN_EIN), root_path=EXAMPLE_DIR)
     if not result.success:
-        err = getattr(result, "tcx", None)
-        if err and getattr(err, "reporter", None):
+        err = result.tcx
+        if err and err.reporter:
             print(err.reporter.format_all_errors(), file=sys.stderr)
         sys.exit(1)
     exec_result = runtime.execute(result)
-    if getattr(exec_result, "error", None) is not None:
+    if exec_result.error is not None:
         print(exec_result.error, file=sys.stderr)
         sys.exit(1)
-    out = getattr(exec_result, "value", None)
+    out = exec_result.value
     if out is not None:
         print(out)
 

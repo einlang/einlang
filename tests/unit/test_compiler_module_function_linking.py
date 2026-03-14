@@ -28,21 +28,21 @@ class TestModuleFunctionLinking:
         
         # Compile (use compile() to get IR)
         compilation = compiler.compile(source_code, "<test>")
-        errs = getattr(compilation, "errors", None) or (compilation.get_errors() if hasattr(compilation, "get_errors") else [])
+        errs = compilation.get_errors()
         assert compilation.success, f"Compilation failed: {errs}"
         
         ir_program = compilation.ir
         if ir_program:
-            from einlang.ir.nodes import FunctionCallIR
+            from einlang.ir.nodes import FunctionCallIR, BindingIR
             function_calls = []
             for stmt in ir_program.statements:
-                if hasattr(stmt, 'value') and isinstance(stmt.value, FunctionCallIR):
+                if isinstance(stmt, BindingIR) and isinstance(stmt.value, FunctionCallIR):
                     function_calls.append(stmt.value)
             
             if function_calls:
                 call = function_calls[0]
-                callee_defid = getattr(call, "function_defid", None) or getattr(call, "defid", None)
-                module_path = getattr(call, "module_path", None)
+                callee_defid = call.function_defid
+                module_path = call.module_path
                 has_dispatch = callee_defid is not None or (module_path and len(module_path) > 0)
                 assert has_dispatch, "function call should have defid or module_path for dispatch"
         
@@ -122,7 +122,7 @@ class TestModuleLinkingDebug:
 
         tcx = compilation.tcx
         assert tcx is not None, "Should have type context"
-        module_loader = getattr(tcx, "module_loader", None)
+        module_loader = tcx.module_loader
         assert module_loader is not None or compilation.ir is not None, "Should have module_loader or IR"
     
     def test_check_ir_lowering(self, compiler):
@@ -139,11 +139,11 @@ class TestModuleLinkingDebug:
         ir_program = compilation.ir
         assert ir_program is not None, "IR should be generated"
         
-        from einlang.ir.nodes import FunctionCallIR
+        from einlang.ir.nodes import FunctionCallIR, BindingIR
         for stmt in ir_program.statements:
-            if hasattr(stmt, 'value') and isinstance(stmt.value, FunctionCallIR):
+            if isinstance(stmt, BindingIR) and isinstance(stmt.value, FunctionCallIR):
                 call = stmt.value
-                callee_defid = getattr(call, "function_defid", None) or getattr(call, "defid", None)
+                callee_defid = call.function_defid
                 print(f"\nFunctionCallIR found:")
                 print(f"  function_name: {call.function_name}")
                 print(f"  defid: {callee_defid}")

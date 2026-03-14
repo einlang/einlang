@@ -14,6 +14,7 @@ from ..ir.nodes import (
     IRVisitor, BindingIR,
 )
 from ..shared.defid import DefId
+from ..shared.optional_attr import opt_defid
 from ..shared.types import BinaryOp
 from ..utils.config import DEFAULT_EINSTEIN_LOOP_MAX
 from .numpy_helpers import _reject_non_lowered
@@ -29,125 +30,118 @@ class _BodyReferencesDefidVisitor(IRVisitor[bool]):
         """True if expr (IR with accept) contains any node with defid == self._target."""
         if expr is None or self._target is None:
             return False
-        accept = getattr(expr, "accept", None)
-        if accept is None:
-            return False
-        return accept(self)
+        return expr.accept(self)
 
     def _any(self, *nodes: Any) -> bool:
         for n in nodes:
-            if n is not None and getattr(n, "accept", None) is not None:
-                if n.accept(self):
-                    return True
+            if n is not None and n.accept(self):
+                return True
         return False
 
     def visit_literal(self, node: Any) -> bool:
         return False
 
     def visit_identifier(self, node: Any) -> bool:
-        return getattr(node, "defid", None) == self._target
+        return node.defid == self._target
 
     def visit_index_var(self, node: Any) -> bool:
-        return getattr(node, "defid", None) == self._target
+        return node.defid == self._target
 
     def visit_index_rest(self, node: Any) -> bool:
         return False
 
     def visit_binary_op(self, node: Any) -> bool:
-        return self._any(getattr(node, "left", None), getattr(node, "right", None))
+        return self._any(node.left, node.right)
 
     def visit_function_call(self, node: Any) -> bool:
-        args = getattr(node, "arguments", []) or []
-        return self._any(getattr(node, "callee_expr", None), *args)
+        args = node.arguments or []
+        return self._any(node.callee_expr, *args)
 
     def visit_rectangular_access(self, node: Any) -> bool:
-        if self._any(getattr(node, "array", None)):
+        if self._any(node.array):
             return True
-        for idx in getattr(node, "indices", []) or []:
+        for idx in (node.indices or []):
             if self._any(idx):
                 return True
         return False
 
     def visit_jagged_access(self, node: Any) -> bool:
-        return self._any(getattr(node, "array", None), *((getattr(node, "indices", None) or [])))
+        return self._any(node.base, *((node.index_chain or [])))
 
     def visit_block_expression(self, node: Any) -> bool:
-        for stmt in getattr(node, "statements", []) or []:
+        for stmt in (node.statements or []):
             if self._any(stmt):
                 return True
-        return self._any(getattr(node, "final_expr", None))
+        return self._any(node.final_expr)
 
     def visit_if_expression(self, node: Any) -> bool:
         return self._any(
-            getattr(node, "condition", None),
-            getattr(node, "then_expr", None),
-            getattr(node, "else_expr", None),
+            node.condition,
+            node.then_expr,
+            node.else_expr,
         )
 
     def visit_lambda(self, node: Any) -> bool:
-        return self._any(getattr(node, "body", None))
+        return self._any(node.body)
 
     def visit_unary_op(self, node: Any) -> bool:
-        return self._any(getattr(node, "operand", None))
+        return self._any(node.operand)
 
     def visit_range(self, node: Any) -> bool:
-        return self._any(getattr(node, "start", None), getattr(node, "end", None))
+        return self._any(node.start, node.end)
 
     def visit_array_comprehension(self, node: Any) -> bool:
-        return self._any(getattr(node, "body", None))
+        return self._any(node.body)
 
     def visit_module(self, node: Any) -> bool:
         return False
 
     def visit_array_literal(self, node: Any) -> bool:
-        return self._any(*(getattr(node, "elements", []) or []))
+        return self._any(*(node.elements or []))
 
     def visit_tuple_expression(self, node: Any) -> bool:
-        return self._any(*(getattr(node, "elements", []) or []))
+        return self._any(*(node.elements or []))
 
     def visit_tuple_access(self, node: Any) -> bool:
-        return self._any(getattr(node, "tuple_expr", None))
+        return self._any(node.tuple_expr)
 
     def visit_interpolated_string(self, node: Any) -> bool:
-        return self._any(*(getattr(node, "parts", []) or []))
+        return self._any(*(node.parts or []))
 
     def visit_cast_expression(self, node: Any) -> bool:
-        return self._any(getattr(node, "expr", None))
+        return self._any(node.expr)
 
     def visit_member_access(self, node: Any) -> bool:
-        return self._any(getattr(node, "object_expr", None))
+        return self._any(node.object)
 
     def visit_try_expression(self, node: Any) -> bool:
-        return self._any(
-            getattr(node, "try_expr", None),
-            getattr(node, "else_expr", None),
-        )
+        return self._any(node.operand)
 
     def visit_match_expression(self, node: Any) -> bool:
-        if self._any(getattr(node, "scrutinee", None)):
+        if self._any(node.scrutinee):
             return True
-        for arm in getattr(node, "arms", []) or []:
-            if self._any(getattr(arm, "body", None)):
+        for arm in (node.arms or []):
+            if self._any(arm.body):
                 return True
         return False
 
     def visit_reduction_expression(self, node: Any) -> bool:
-        return self._any(getattr(node, "body", None))
+        return self._any(node.body)
 
     def visit_lowered_reduction(self, node: Any) -> bool:
-        return self._any(getattr(node, "body", None))
+        return self._any(node.body)
 
     def visit_lowered_comprehension(self, node: Any) -> bool:
-        return self._any(getattr(node, "body", None))
+        return self._any(node.body)
 
     def visit_where_expression(self, node: Any) -> bool:
-        return self._any(getattr(node, "operand", None), getattr(node, "condition", None))
+        return self._any(node.expr, *(node.constraints or []))
 
     def visit_pipeline_expression(self, node: Any) -> bool:
-        return self._any(*(getattr(node, "stages", []) or []))
+        return self._any(node.left, node.right)
 
     def visit_builtin_call(self, node: Any) -> bool:
-        return self._any(getattr(node, "callee_expr", None), *(getattr(node, "arguments", []) or []))
+        return self._any(*(node.args or []))
 
     def visit_literal_pattern(self, node: Any) -> bool:
         return False
@@ -159,34 +153,34 @@ class _BodyReferencesDefidVisitor(IRVisitor[bool]):
         return False
 
     def visit_tuple_pattern(self, node: Any) -> bool:
-        return self._any(*(getattr(node, "elements", []) or []))
+        return self._any(*(node.patterns or []))
 
     def visit_array_pattern(self, node: Any) -> bool:
-        return self._any(*(getattr(node, "elements", []) or []))
+        return self._any(*(node.patterns or []))
 
     def visit_rest_pattern(self, node: Any) -> bool:
         return False
 
     def visit_guard_pattern(self, node: Any) -> bool:
-        return self._any(getattr(node, "inner_pattern", None), getattr(node, "condition", None))
+        return self._any(node.inner_pattern, node.guard_expr)
 
     def visit_or_pattern(self, node: Any) -> bool:
-        for alt in getattr(node, "alternatives", []) or []:
+        for alt in (node.alternatives or []):
             if self._any(alt):
                 return True
         return False
 
     def visit_constructor_pattern(self, node: Any) -> bool:
-        return self._any(*(getattr(node, "patterns", []) or []))
+        return self._any(*(node.patterns or []))
 
     def visit_binding_pattern(self, node: Any) -> bool:
-        return self._any(getattr(node, "inner_pattern", None))
+        return self._any(node.inner_pattern)
 
     def visit_range_pattern(self, node: Any) -> bool:
         return False
 
     def visit_function_value(self, node: Any) -> bool:
-        return self._any(getattr(node, "body", None))
+        return self._any(node.body)
 
     def visit_einstein(self, node: Any) -> bool:
         return False
@@ -196,11 +190,11 @@ class _BodyReferencesDefidVisitor(IRVisitor[bool]):
 
     def visit_binding(self, node: Any) -> bool:
         """Recurse into binding RHS (e.g. let z_cell = ... * state[t-1,...] + ...)."""
-        expr = getattr(node, "expr", None)
+        expr = node.expr
         return self._any(expr) if expr is not None else False
 
     def visit_program(self, node: Any) -> bool:
-        return self._any(*(getattr(node, "statements", []) or []))
+        return self._any(*(node.statements or []))
 
 
 class _ReductionDimsCounter(IRVisitor[int]):
@@ -382,36 +376,37 @@ class _ClauseBodySummaryVisitor(IRVisitor[str]):
         self._max_len = max_len
 
     def visit_lowered_reduction(self, node: Any) -> str:
-        op = getattr(node, "operation", "?")
+        op = node.operation
         inner = node.body.accept(_ClauseBodySummaryVisitor(20)) if node.body is not None else "?"
         s = f"{op}({inner})" if inner != "?" else op
         return s[:self._max_len]
 
     def visit_binary_op(self, node: Any) -> str:
-        op = getattr(node, "operator", None)
-        op_str = str(getattr(op, "name", op)) if op is not None else "?"
+        op = node.operator
+        op_str = str(op.name) if op is not None else "?"
         left = node.left.accept(_ClauseBodySummaryVisitor(15)) if node.left is not None else "?"
         right = node.right.accept(_ClauseBodySummaryVisitor(15)) if node.right is not None else "?"
         return f"{left} {op_str} {right}"[:self._max_len]
 
     def visit_function_call(self, node: Any) -> str:
-        name = getattr(node, "function_name", None) or getattr(node, "callee_expr", None)
+        from ..ir.nodes import BuiltinCallIR
+        name = node.builtin_name if isinstance(node, BuiltinCallIR) else node.callee_expr
         if name is not None and not isinstance(name, str):
-            name = getattr(name, "name", str(name))
+            name = name.name if hasattr(name, "name") else str(name)
         fn = name if isinstance(name, str) else "call"
         return f"{fn}(...)"[:self._max_len]
 
     def visit_rectangular_access(self, node: Any) -> str:
-        arr = getattr(node, "array", None)
-        arr_name = getattr(arr, "name", None) if arr is not None and hasattr(arr, "name") else None
+        arr = node.array
+        arr_name = arr.name if arr is not None and hasattr(arr, "name") else None
         return (arr_name or "[]")[:self._max_len]
 
     def visit_identifier(self, node: Any) -> str:
-        return (getattr(node, "name", None) or "?")[:self._max_len]
+        return (node.name or "?")[:self._max_len]
 
     def visit_unary_op(self, node: Any) -> str:
-        op = getattr(node, "operator", None)
-        op_str = str(getattr(op, "name", op)) if op is not None else "?"
+        op = node.operator
+        op_str = str(op.name) if op is not None else "?"
         inner = node.operand.accept(_ClauseBodySummaryVisitor(20)) if node.operand is not None else "?"
         return f"{op_str}({inner})"[:self._max_len]
 
@@ -560,13 +555,13 @@ class _ReductionUsesClauseVarVisitor(IRVisitor[bool]):
 
     def _any(self, *nodes: Any) -> bool:
         for n in nodes:
-            if n is not None and getattr(n, "accept", None) is not None and n.accept(self):
+            if n is not None and n.accept(self):
                 return True
         return False
 
     def visit_lowered_reduction(self, node: Any) -> bool:
         for loop in node.loops:
-            it = getattr(loop, "iterable", None)
+            it = loop.iterable
             if it is not None and any(
                 _BodyReferencesDefidVisitor(d).references(it) for d in self._clause_loop_defids
             ):
@@ -725,19 +720,19 @@ class _ReductionUsesClauseVarVisitor(IRVisitor[bool]):
         return any(item.accept(self) for item in node.items)
 
     def visit_lowered_recurrence(self, node: Any) -> bool:
-        if getattr(node, "initial", None) is not None and node.initial.accept(self):
+        if node.initial is not None and node.initial.accept(self):
             return True
-        rloop = getattr(node, "recurrence_loop", None)
-        if rloop is not None and getattr(rloop, "iterable", None) is not None:
+        rloop = node.recurrence_loop
+        if rloop is not None and rloop.iterable is not None:
             if rloop.iterable.accept(self):
                 return True
         return (
-            getattr(node, "body", None) is not None
+            node.body is not None
             and node.body.accept(self)
         )
 
     def visit_or_pattern(self, node: Any) -> bool:
-        return any(alt.accept(self) for alt in (getattr(node, "alternatives", []) or []))
+        return any(alt.accept(self) for alt in (node.alternatives or []))
 
     def visit_constructor_pattern(self, node: Any) -> bool:
         return any(p.accept(self) for p in node.patterns)
@@ -970,18 +965,18 @@ class _DefidsByNameCollector(IRVisitor[Dict[str, List[Any]]]):
 
     def visit_lowered_recurrence(self, node: Any) -> Dict[str, List[Any]]:
         out = self._empty()
-        if getattr(node, "initial", None) is not None:
+        if node.initial is not None:
             _merge_defids_by_name(out, node.initial.accept(self))
-        rloop = getattr(node, "recurrence_loop", None)
-        if rloop is not None and getattr(rloop, "iterable", None) is not None:
+        rloop = node.recurrence_loop
+        if rloop is not None and rloop.iterable is not None:
             _merge_defids_by_name(out, rloop.iterable.accept(self))
-        if getattr(node, "body", None) is not None:
+        if node.body is not None:
             _merge_defids_by_name(out, node.body.accept(self))
         return out
 
     def visit_or_pattern(self, node: Any) -> Dict[str, List[Any]]:
         out = self._empty()
-        for alt in getattr(node, "alternatives", []) or []:
+        for alt in (node.alternatives or []):
             _merge_defids_by_name(out, alt.accept(self))
         return out
 
@@ -1054,7 +1049,7 @@ class _BodyContainsCallUsingLoopVarVisitor(IRVisitor[bool]):
         return node.inner_pattern.accept(self) or node.guard_expr.accept(self)
 
     def visit_or_pattern(self, node: Any) -> bool:
-        return any(alt.accept(self) for alt in (getattr(node, "alternatives", []) or []))
+        return any(alt.accept(self) for alt in ((node.alternatives or [])))
 
     def visit_constructor_pattern(self, node: Any) -> bool:
         return any(p.accept(self) for p in node.patterns)
@@ -1185,14 +1180,14 @@ class _BodyContainsCallUsingLoopVarVisitor(IRVisitor[bool]):
         return any(item.accept(self) for item in node.items)
 
     def visit_lowered_recurrence(self, node: Any) -> bool:
-        if getattr(node, "initial", None) is not None and node.initial.accept(self):
+        if node.initial is not None and node.initial.accept(self):
             return True
-        rloop = getattr(node, "recurrence_loop", None)
-        if rloop is not None and getattr(rloop, "iterable", None) is not None:
+        rloop = node.recurrence_loop
+        if rloop is not None and rloop.iterable is not None:
             if rloop.iterable.accept(self):
                 return True
         return (
-            getattr(node, "body", None) is not None
+            node.body is not None
             and node.body.accept(self)
         )
 
@@ -1269,7 +1264,7 @@ class _DefidsInCallArgsCollector(IRVisitor[None]):
         node.guard_expr.accept(self)
 
     def visit_or_pattern(self, node: Any) -> None:
-        for alt in getattr(node, "alternatives", []) or []:
+        for alt in (node.alternatives or []):
             alt.accept(self)
 
     def visit_constructor_pattern(self, node: Any) -> None:
@@ -1398,12 +1393,12 @@ class _DefidsInCallArgsCollector(IRVisitor[None]):
             item.accept(self)
 
     def visit_lowered_recurrence(self, node: Any) -> None:
-        if getattr(node, "initial", None) is not None:
+        if node.initial is not None:
             node.initial.accept(self)
-        rloop = getattr(node, "recurrence_loop", None)
-        if rloop is not None and getattr(rloop, "iterable", None) is not None:
+        rloop = node.recurrence_loop
+        if rloop is not None and rloop.iterable is not None:
             rloop.iterable.accept(self)
-        if getattr(node, "body", None) is not None:
+        if node.body is not None:
             node.body.accept(self)
 
     def visit_function_value(self, node: Any) -> None:
@@ -1446,7 +1441,7 @@ def _body_is_elementwise_call(body: Any, loop_defids: List[Any]) -> bool:
     if isinstance(body, FunctionCallIR):
         return True
     if isinstance(body, BlockExpressionIR):
-        return _body_is_elementwise_call(getattr(body, "final_expr", None), loop_defids)
+        return _body_is_elementwise_call(body.final_expr, loop_defids)
     return False
 
 
@@ -1457,10 +1452,10 @@ class _IndexExprIsLoopVarVisitor(IRVisitor[bool]):
         self._loop_defid = loop_defid
 
     def visit_identifier(self, node: Any) -> bool:
-        return getattr(node, "defid", None) == self._loop_defid
+        return node.defid == self._loop_defid
 
     def visit_index_var(self, node: Any) -> bool:
-        return getattr(node, "defid", None) == self._loop_defid
+        return node.defid == self._loop_defid
 
     def visit_literal(self, node: Any) -> bool:
         return False
@@ -1614,19 +1609,19 @@ class _IndexExprIsBackwardVisitor(IRVisitor[bool]):
         self._loop_defid = loop_defid
 
     def visit_identifier(self, node: Any) -> bool:
-        return getattr(node, "defid", None) == self._loop_defid
+        return node.defid == self._loop_defid
 
     def visit_index_var(self, node: Any) -> bool:
-        return getattr(node, "defid", None) == self._loop_defid
+        return node.defid == self._loop_defid
 
     def visit_binary_op(self, node: Any) -> bool:
-        if node.operator != BinaryOp.SUB and getattr(node.operator, "value", None) != "-":
+        if node.operator != BinaryOp.SUB and node.operator.value != "-":
             return False
         if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
         if isinstance(node.right, LiteralIR):
             try:
-                return int(getattr(node.right, "value", 0)) > 0
+                return int(node.right.value) > 0
             except (TypeError, ValueError):
                 pass
         return False
@@ -1787,13 +1782,13 @@ class _IndexExprIsStrictlyBackwardVisitor(IRVisitor[bool]):
         return False
 
     def visit_binary_op(self, node: Any) -> bool:
-        if node.operator != BinaryOp.SUB and getattr(node.operator, "value", None) != "-":
+        if node.operator != BinaryOp.SUB and node.operator.value != "-":
             return False
         if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
         if isinstance(node.right, LiteralIR):
             try:
-                return int(getattr(node.right, "value", 0)) > 0
+                return int(node.right.value) > 0
             except (TypeError, ValueError):
                 pass
         return False
@@ -1948,21 +1943,21 @@ class _IndexExprIsLoopVarOrOffsetVisitor(IRVisitor[bool]):
         self._loop_defid = loop_defid
 
     def visit_identifier(self, node: Any) -> bool:
-        return getattr(node, "defid", None) == self._loop_defid
+        return node.defid == self._loop_defid
 
     def visit_index_var(self, node: Any) -> bool:
-        return getattr(node, "defid", None) == self._loop_defid
+        return node.defid == self._loop_defid
 
     def visit_binary_op(self, node: Any) -> bool:
-        op = getattr(node, "operator", None)
-        op_val = getattr(op, "value", None) if op is not None else None
+        op = node.operator
+        op_val = op.value if op is not None else None
         if op not in (BinaryOp.ADD, BinaryOp.SUB) and op_val not in ("+", "-"):
             return False
         if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
         if isinstance(node.right, LiteralIR):
             try:
-                int(getattr(node.right, "value", 0))
+                int(node.right.value)
                 return True
             except (TypeError, ValueError):
                 pass
@@ -2118,19 +2113,19 @@ class _ExprIsLoopVarOrMinusOneVisitor(IRVisitor[bool]):
         self._loop_defid = loop_defid
 
     def visit_identifier(self, node: Any) -> bool:
-        return getattr(node, "defid", None) == self._loop_defid
+        return node.defid == self._loop_defid
 
     def visit_index_var(self, node: Any) -> bool:
-        return getattr(node, "defid", None) == self._loop_defid
+        return node.defid == self._loop_defid
 
     def visit_binary_op(self, node: Any) -> bool:
-        if node.operator != BinaryOp.SUB and getattr(node.operator, "value", None) != "-":
+        if node.operator != BinaryOp.SUB and node.operator.value != "-":
             return False
         if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
         if isinstance(node.right, LiteralIR):
             try:
-                return int(getattr(node.right, "value", 0)) == 1
+                return int(node.right.value) == 1
             except (TypeError, ValueError):
                 pass
         return False
@@ -2283,10 +2278,10 @@ def _recurrence_dims_for_hybrid(
 ) -> List[int]:
     """Loop indices k where every LHS read is strictly backward (e.g. t-1). Same timestep (e.g. t) is not recurrence.
     Not used for partition/step: we need to accept both backward-in-time and same-timestep; use _recurrence_dims."""
-    loops = getattr(lowered, "loops", None) or []
+    loops = (lowered.loops or [])
     if not loops or variable_defid is None:
         return []
-    loop_defids = [getattr(lp.variable, "defid", None) for lp in loops]
+    loop_defids = [lp.variable.defid for lp in loops]
     read_index_lists = _collect_lhs_read_index_lists(lowered.body, variable_defid)
     if not read_index_lists:
         return []
@@ -2307,13 +2302,13 @@ def _recurrence_dims_for_hybrid_or_full(
 ) -> List[int]:
     """Strict backward only (every read t-1). Returns [] if any read is same timestep (t).
     For partition/step we accept backward-in-time and same-timestep; use _recurrence_dims. This is for hybrid vectorized path only."""
-    loops = getattr(lowered, "loops", None) or []
+    loops = (lowered.loops or [])
     if not loops or variable_defid is None:
         return []
     recurrence_for_hybrid = _recurrence_dims_for_hybrid(lowered, variable_defid, clause_indices)
     if not recurrence_for_hybrid:
         return []
-    loop_defids = [getattr(lp.variable, "defid", None) for lp in loops]
+    loop_defids = [lp.variable.defid for lp in loops]
     read_index_lists = _collect_lhs_read_index_lists(lowered.body, variable_defid)
     loop_dims = _loop_dims_from_clause_indices(clause_indices, loops) if clause_indices else None
     for k in range(len(loops)):
@@ -2522,18 +2517,18 @@ class _LHSReadIndexListsCollector(IRVisitor[List[List[Any]]]):
 
     def visit_lowered_recurrence(self, node: Any) -> List[List[Any]]:
         out = self._empty()
-        if getattr(node, "initial", None) is not None:
+        if node.initial is not None:
             out.extend(node.initial.accept(self))
-        rloop = getattr(node, "recurrence_loop", None)
-        if rloop is not None and getattr(rloop, "iterable", None) is not None:
+        rloop = node.recurrence_loop
+        if rloop is not None and rloop.iterable is not None:
             out.extend(rloop.iterable.accept(self))
-        if getattr(node, "body", None) is not None:
+        if node.body is not None:
             out.extend(node.body.accept(self))
         return out
 
     def visit_or_pattern(self, node: Any) -> List[List[Any]]:
         out = self._empty()
-        for alt in getattr(node, "alternatives", []) or []:
+        for alt in (node.alternatives or []):
             out.extend(alt.accept(self))
         return out
 
@@ -2571,10 +2566,10 @@ def _recurrence_dims(lowered: Any, variable_defid: Any, clause_indices: Optional
     Accepts both backward-in-time (e.g. t-1) and same-timestep (e.g. state[t,0] when writing state[t,1]);
     we add k if any read is not the loop var, so clauses with mixed t-1 and t reads still get k and run in timestep-major.
     When clause_indices is set, index read lists by output dim loop_dims[k], not k."""
-    loops = getattr(lowered, "loops", None) or []
+    loops = (lowered.loops or [])
     if not loops or variable_defid is None:
         return []
-    loop_defids = [getattr(lp.variable, "defid", None) for lp in loops]
+    loop_defids = [lp.variable.defid for lp in loops]
     read_index_lists = _collect_lhs_read_index_lists(lowered.body, variable_defid)
     if not read_index_lists:
         return []
@@ -2599,16 +2594,16 @@ def _reduction_var_bounded_by_loop_var(
     """True if read_index_expr is a reduction variable whose range end is loop_var or loop_var-1."""
     if reduction_ranges is None or not read_index_expr or loop_defid is None:
         return False
-    read_defid = getattr(read_index_expr, "defid", None)
+    read_defid = read_index_expr.defid
     if read_defid is None:
         return False
     loop_struct = reduction_ranges.get(read_defid) if isinstance(reduction_ranges, dict) else None
     if loop_struct is None:
         return False
-    iterable = getattr(loop_struct, "iterable", None)
+    iterable = loop_struct.iterable
     if not isinstance(iterable, RangeIR):
         return False
-    end = getattr(iterable, "end", None)
+    end = iterable.end
     return _expr_is_loop_var_or_minus_one(end, loop_defid)
 
 
@@ -2639,7 +2634,7 @@ def _slice_list_from_clause_indices(
         return None
     out: List[Any] = []
     loop_pos = 0
-    loops = getattr(lowered, "loops", None) or []
+    loops = (lowered.loops or [])
     for idx in clause_indices:
         literal_val = None
         if isinstance(idx, LiteralIR):
@@ -2649,7 +2644,7 @@ def _slice_list_from_clause_indices(
                 pass
         elif getattr(idx, "value", None) is not None:
             try:
-                literal_val = int(idx.value)
+                literal_val = int(getattr(idx, "value", None))
             except (TypeError, ValueError):
                 pass
         if literal_val is not None:
@@ -2669,13 +2664,14 @@ def _slice_list_from_clause_indices(
 
 def _extract_loop_range(loop, evaluator) -> Tuple[int, int]:
     """Return (start, end) for the loop range; both must be concrete int. Raises if missing or dependent."""
-    it = getattr(loop, "iterable", None)
+    it = loop.iterable
+    # IR validation (visit_lowered_einstein_clause) fails compilation if iterable is None; this is a safeguard.
     if it is None:
         raise RuntimeError("loop has no iterable; cannot extract range")
-    if isinstance(it, LiteralIR) and isinstance(getattr(it, "value", None), range):
+    if isinstance(it, LiteralIR) and isinstance(it.value, range):
         r = it.value
-        start = getattr(r, "start", 0)
-        stop = getattr(r, "stop", r.start)
+        start = r.start
+        stop = r.stop
         try:
             return (int(start), int(stop))
         except (TypeError, ValueError) as e:
@@ -2684,7 +2680,7 @@ def _extract_loop_range(loop, evaluator) -> Tuple[int, int]:
         end_ev = evaluator(it.end)
         if not isinstance(end_ev, (int, np.integer)):
             raise RuntimeError("loop range end must be int; got dependent or non-int")
-        start_node = getattr(it, "start", None)
+        start_node = it.start
         if start_node is not None:
             start_ev = evaluator(start_node)
             if not isinstance(start_ev, (int, np.integer)):
@@ -2703,15 +2699,15 @@ def _eval_clause_body_with_broadcast_loops(
 ) -> Optional[Any]:
     """Evaluate clause body once with loop vars set to broadcast arrays. Returns result or None on failure.
     If loop_ranges_override is set, use (start,end) per dimension instead of extracting from clause (for chunked execution)."""
-    loops = getattr(clause, "loops", None) or []
-    if not loops or getattr(clause, "guards", None) or getattr(clause, "bindings", None):
+    loops = (clause.loops or [])
+    if not loops or clause.guards or clause.bindings:
         return None
     clause_ndim = len(loops)
     n_red = _count_reduction_dims_in_expr(clause.body)
     ndim = clause_ndim + n_red
     loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
     for dim, lp in enumerate(loops):
-        defid = getattr(lp.variable, "defid", None)
+        defid = lp.variable.defid
         if defid is None:
             return None
         if loop_ranges_override is not None and dim < len(loop_ranges_override):
@@ -2721,7 +2717,7 @@ def _eval_clause_body_with_broadcast_loops(
                 r = _extract_loop_range(lp, evaluator)
             except RuntimeError:
                 return None
-        name = getattr(lp.variable, "name", None)
+        name = lp.variable.name
         loop_info.append((defid, r, name))
     clause_loop_defids = [defid for (defid, _, _) in loop_info]
     if _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids):
@@ -2756,26 +2752,26 @@ def _try_slice_vectorize_if_clause(
     [0..bound) and fill the rest with else_expr. Speeds up patterns like
     emb[p,d] = if p < t then dec_tok_emb[tokens[p], d] + ... else 0.
     """
-    body = getattr(lowered, "body", None)
+    body = lowered.body
     if not isinstance(body, IfExpressionIR):
         return None
-    cond = getattr(body, "condition", None)
+    cond = body.condition
     if not isinstance(cond, BinaryOpIR):
         return None
-    op = getattr(cond, "operator", None)
+    op = cond.operator
     lt_ops = (BinaryOp.LT, "<")
     if op not in lt_ops:
         return None
-    left = getattr(cond, "left", None)
-    right = getattr(cond, "right", None)
+    left = cond.left
+    right = cond.right
     if left is None or right is None:
         return None
-    loops = getattr(lowered, "loops", None) or []
+    loops = (lowered.loops or [])
     if not loops:
         return None
-    loop_defids = [getattr(lp.variable, "defid", None) for lp in loops]
-    left_defid = getattr(left, "defid", None) if isinstance(left, (IdentifierIR, IndexVarIR)) else None
-    right_defid = getattr(right, "defid", None) if isinstance(right, (IdentifierIR, IndexVarIR)) else None
+    loop_defids = [lp.variable.defid for lp in loops]
+    left_defid = left.defid if isinstance(left, (IdentifierIR, IndexVarIR)) else None
+    right_defid = right.defid if isinstance(right, (IdentifierIR, IndexVarIR)) else None
     bound_side = None
     dim = -1
     if left_defid is not None and left_defid in loop_defids:
@@ -2788,8 +2784,8 @@ def _try_slice_vectorize_if_clause(
         return None
     try:
         if isinstance(bound_side, LiteralIR):
-            bound = int(getattr(bound_side, "value", 0))
-        elif getattr(bound_side, "defid", None) is not None:
+            bound = int(bound_side.value)
+        elif opt_defid(bound_side) is not None:
             bound = backend.env.get_value(bound_side.defid)
             bound = int(bound) if bound is not None else None
         else:
@@ -2822,10 +2818,10 @@ def _try_slice_vectorize_if_clause(
     result = np.asarray(result)
     if result.shape != tuple(slice_shape):
         return None
-    else_expr = getattr(body, "else_expr", None)
+    else_expr = body.else_expr
     else_val = 0
     if isinstance(else_expr, LiteralIR):
-        v = getattr(else_expr, "value", 0)
+        v = else_expr.value
         try:
             else_val = float(v) if isinstance(v, (int, float)) else 0
         except (TypeError, ValueError):
@@ -2876,14 +2872,14 @@ def _try_vectorize_clause(
 
     loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
     for dim, lp in enumerate(loops):
-        defid = getattr(lp.variable, "defid", None)
+        defid = lp.variable.defid
         if defid is None:
             return None
         if loop_ranges_override is not None and dim < len(loop_ranges_override):
             r = loop_ranges_override[dim]
         else:
             r = _extract_loop_range(lp, evaluator)
-        name = getattr(lp.variable, "name", None)
+        name = lp.variable.name
         loop_info.append((defid, r, name))
 
     clause_loop_defids = [defid for (defid, _, _) in loop_info]
@@ -2938,10 +2934,10 @@ def _try_hybrid_vectorize_clause(
     recurrence_dims from _recurrence_dims_for_hybrid_or_full(..., clause_indices).
     """
     from ..runtime.compute.lowered_execution import execute_lowered_loops
-    loops = getattr(clause, "loops", None) or []
-    if not loops or getattr(clause, "guards", None):
+    loops = (clause.loops or [])
+    if not loops or clause.guards:
         return None
-    if getattr(clause, "bindings", None):
+    if clause.bindings:
         return None
     ndim = len(loops)
     loop_dims = _loop_dims_from_clause_indices(clause_indices, loops) if clause_indices else None
@@ -2953,14 +2949,14 @@ def _try_hybrid_vectorize_clause(
         return None
     loop_info: List[Tuple[Any, Optional[Tuple[int, int]], str]] = []
     for dim, lp in enumerate(loops):
-        defid = getattr(lp.variable, "defid", None)
+        defid = lp.variable.defid
         if defid is None:
             return None
         try:
             r = _extract_loop_range(lp, expr_evaluator)
         except RuntimeError:
             r = None  # range depends on another loop var (e.g. j in k..n); extract inside loop
-        name = getattr(lp.variable, "name", None)
+        name = lp.variable.name
         loop_info.append((defid, r, name))
     recurrence_loops = [loops[d] for d in recurrence_dims]
     _MAX = int(DEFAULT_EINSTEIN_LOOP_MAX)
@@ -3089,7 +3085,7 @@ def _try_call_scalar_vectorize_clause(
     vectorize over the rest. E.g. topk_2d_row_values(X, i, ...)[j]: scalar over i, vector over j.
     """
     from ..runtime.compute.lowered_execution import execute_lowered_loops
-    loops = getattr(clause, "loops", None) or []
+    loops = (clause.loops or [])
     if not loops or clause.guards or clause.bindings:
         return None
     ndim = len(loops)
@@ -3099,14 +3095,14 @@ def _try_call_scalar_vectorize_clause(
     vector_dims = [d for d in range(ndim) if d not in scalar_set]
     loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
     for dim, lp in enumerate(loops):
-        defid = getattr(lp.variable, "defid", None)
+        defid = lp.variable.defid
         if defid is None:
             return None
         try:
             r = _extract_loop_range(lp, expr_evaluator)
         except RuntimeError:
             return None
-        name = getattr(lp.variable, "name", None)
+        name = lp.variable.name
         loop_info.append((defid, r, name))
     scalar_loops = [loops[d] for d in scalar_loop_indices]
     _MAX = int(DEFAULT_EINSTEIN_LOOP_MAX)
@@ -3167,10 +3163,10 @@ class EinsteinExecutionMixin:
         from ..runtime.compute.lowered_execution import execute_lowered_loops
         output = self._execute_lowered_einstein(node.initial, variable_decl)
         binding = getattr(variable_decl, "_binding", None) or variable_decl
-        variable_key = getattr(binding, "defid", None) or getattr(variable_decl, "defid", None)
+        variable_key = binding.defid or getattr(variable_decl, "defid", None)
         variable_defid = variable_key
         tensor_shape = list(output.shape) if output is not None else None
-        tensor_element_type = getattr(node.initial, "element_type", None)
+        tensor_element_type = node.initial.element_type or None
 
         def expr_eval(e: Any) -> Any:
             return e.accept(self)
@@ -3198,7 +3194,7 @@ class EinsteinExecutionMixin:
                         pre_allocated_output=None,
                     )
                     if full_result is not None and variable_key is not None:
-                        clause_indices = getattr(item, "indices", None) or []
+                        clause_indices = item.indices or []
                         if clause_indices and len(clause_indices) == output.ndim:
                             slices_list = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
                             if len(slices_list) == output.ndim:
@@ -3262,15 +3258,15 @@ class EinsteinExecutionMixin:
             return dtype
         if clause_body is None:
             return np.int32
-        type_info = getattr(clause_body, "type_info", None)
+        type_info = clause_body.type_info
         if type_info is not None:
             dtype = self._type_info_to_numpy_dtype(type_info)
             if dtype is not None:
                 return dtype
         if isinstance(clause_body, (LoweredReductionIR, ReductionExpressionIR)):
-            body_expr = getattr(clause_body, "body", None)
+            body_expr = clause_body.body
             if body_expr is not None:
-                ti = getattr(body_expr, "type_info", None)
+                ti = body_expr.type_info
                 if ti is not None:
                     dtype = self._type_info_to_numpy_dtype(ti)
                     if dtype is not None:
@@ -3292,7 +3288,7 @@ class EinsteinExecutionMixin:
     def _execute_lowered_einstein(self, lowered_einstein: LoweredEinsteinIR, variable_decl: Any) -> Any:
         from ..runtime.compute.lowered_execution import execute_lowered_loops, execute_lowered_bindings, check_lowered_guards
         binding = getattr(variable_decl, "_binding", None)
-        variable_key = (getattr(binding, "defid", None) if binding else None) or getattr(variable_decl, "defid", None)
+        variable_key = (binding.defid if binding else None) or getattr(variable_decl, "defid", None)
         tensor_shape = lowered_einstein.shape
         tensor_element_type = lowered_einstein.element_type
         output_shape = None
@@ -3355,7 +3351,7 @@ class EinsteinExecutionMixin:
 
         items = lowered_einstein.items
         binding = getattr(variable_decl, "_binding", None)
-        variable_defid = (getattr(binding, "defid", None) if binding else None) or getattr(variable_decl, "defid", None)
+        variable_defid = (binding.defid if binding else None) or getattr(variable_decl, "defid", None)
 
         # Execution order (mental model): (1) run all non-recurrence clauses in source order; (2) for each value of
         # the recurrence dimension (outermost), run all recurrence clauses in source order. So: recurrence dim
@@ -3367,15 +3363,14 @@ class EinsteinExecutionMixin:
         recurrence_loops_for_outer: Optional[List[Any]] = None
         if len(items) > 1 and variable_defid is not None:
             for it in items:
-                clause_indices = getattr(it, "indices", None) or []
-                loops_it = getattr(it, "loops", None) or []
-                # RecurrenceOrderPass may set recurrence_dims_override for same-timestep dependent clauses.
-                rec_dims = getattr(it, "recurrence_dims_override", None)
+                clause_indices = (it.indices or [])
+                loops_it = (it.loops or [])
+                rec_dims = it.recurrence_dims_override
                 if rec_dims is None:
                     rec_dims = _recurrence_dims_for_hybrid(it, variable_defid, clause_indices)
                 if not rec_dims:
                     rec_dims = _recurrence_dims(it, variable_defid, clause_indices)
-                body_refs = _BodyReferencesDefidVisitor(variable_defid).references(getattr(it, "body", None))
+                body_refs = _BodyReferencesDefidVisitor(variable_defid).references(it.body)
                 # Recurrence = has recurrence dim(s). Allow pure recurrence (only t) so t is extracted as outer loop.
                 # When len(rec_dims) < len(loops_it) we vectorize over the rest; when equal we run one scalar/point per t.
                 has_rec = bool(
@@ -3404,10 +3399,10 @@ class EinsteinExecutionMixin:
                         output[:] = result.astype(output.dtype)
                 elif result.shape != output.shape:
                     slices_list_nr: List[Any] = []
-                    clause_indices = getattr(item, "indices", None) or []
+                    clause_indices = item.indices or []
                     if clause_indices and len(clause_indices) == output.ndim:
                         slices_list_nr = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
-                    if len(slices_list_nr) != output.ndim and getattr(item, "loops", None):
+                    if len(slices_list_nr) != output.ndim and item.loops:
                         try:
                             for lp in item.loops:
                                 start, end = _extract_loop_range(lp, expr_eval)
@@ -3416,7 +3411,7 @@ class EinsteinExecutionMixin:
                             slices_list_nr = []
                     if len(slices_list_nr) == output.ndim:
                         output[tuple(slices_list_nr)] = result.astype(output.dtype)
-                    elif result.size == 1 and getattr(item, "indices", None) and all(
+                    elif result.size == 1 and item.indices and all(
                         isinstance(idx, LiteralIR) for idx in item.indices
                     ):
                         idx_tuple = tuple(int(idx.value) for idx in item.indices)
@@ -3451,7 +3446,7 @@ class EinsteinExecutionMixin:
                                 pre_allocated_output=output,
                             )
                             if full_result is not None and variable_key is not None:
-                                clause_indices = getattr(item, "indices", None) or []
+                                clause_indices = item.indices or []
                                 if clause_indices and len(clause_indices) == output.ndim:
                                     slices_list = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
                                     if len(slices_list) == output.ndim:
@@ -3494,10 +3489,10 @@ class EinsteinExecutionMixin:
                         output[:] = result.astype(output.dtype)
                 elif result.shape != output.shape:
                     slices_list: List[Any] = []
-                    clause_indices = getattr(item, "indices", None) or []
+                    clause_indices = item.indices or []
                     if clause_indices and len(clause_indices) == output.ndim:
                         slices_list = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
-                    if len(slices_list) != output.ndim and getattr(item, "loops", None):
+                    if len(slices_list) != output.ndim and item.loops:
                         slices_list = []
                         try:
                             for lp in item.loops:
@@ -3507,7 +3502,7 @@ class EinsteinExecutionMixin:
                             slices_list = []
                     if len(slices_list) == output.ndim:
                         output[tuple(slices_list)] = result.astype(output.dtype)
-                    elif result.size == 1 and getattr(item, "indices", None) and all(
+                    elif result.size == 1 and item.indices and all(
                         isinstance(idx, LiteralIR) for idx in item.indices
                     ):
                         idx_tuple = tuple(int(idx.value) for idx in item.indices)
@@ -3532,12 +3527,12 @@ class EinsteinExecutionMixin:
         recurrence_loops_outer: loops we iterate over (same order as rec_context keys); use their variable defids
         so every clause gets the current timestep even if its own loop var has a different defid."""
         from ..runtime.compute.lowered_execution import execute_lowered_bindings
-        loops = getattr(item, "loops", None) or []
+        loops = item.loops or []
         if not loops:
             return None
-        guards = getattr(item, "guards", None) or []
-        clause_indices = getattr(item, "indices", None) or []
-        recurrence_dims = getattr(item, "recurrence_dims_override", None)
+        guards = item.guards or []
+        clause_indices = item.indices or []
+        recurrence_dims = item.recurrence_dims_override
         if not recurrence_dims and variable_defid:
             recurrence_dims = _recurrence_dims(item, variable_defid, clause_indices)
         recurrence_dims = recurrence_dims or []
@@ -3547,19 +3542,19 @@ class EinsteinExecutionMixin:
             return None
         loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
         for dim, lp in enumerate(loops):
-            defid = getattr(lp.variable, "defid", None)
+            defid = lp.variable.defid
             if defid is None:
                 return None
             try:
                 r = _extract_loop_range(lp, expr_eval)
             except RuntimeError:
                 return None
-            name = getattr(lp.variable, "name", None)
+            name = lp.variable.name
             loop_info.append((defid, r, name))
         # Map clause dim k to k-th outer loop's defid (so all outer vars bound from rec_context for current step).
         outer_rec_defids = []
         for k in range(min(len(recurrence_loops_outer), ndim)):
-            outer_defid = getattr(recurrence_loops_outer[k].variable, "defid", None)
+            outer_defid = recurrence_loops_outer[k].variable.defid
             if outer_defid is None:
                 return None
             outer_rec_defids.append((k, outer_defid))
@@ -3579,10 +3574,10 @@ class EinsteinExecutionMixin:
                         self.env.set_value(defid, rec_context[od], name=name)
                     else:
                         self.env.set_value(defid, np.arange(_start, _end, dtype=np.intp), name=name)
-                bindings = getattr(item, "bindings", None) or []
+                bindings = item.bindings or []
                 if bindings:
                     from ..runtime.compute.lowered_execution import execute_lowered_bindings
-                    loop_context = {getattr(lp.variable, "defid", None): self.env.get_value(getattr(lp.variable, "defid", None)) for lp in loops if getattr(lp.variable, "defid", None) is not None}
+                    loop_context = {lp.variable.defid: self.env.get_value(lp.variable.defid) for lp in loops if lp.variable.defid is not None}
                     full_context = execute_lowered_bindings(bindings, loop_context, expr_eval)
                     for d, val in full_context.items():
                         if d is not None:
@@ -3651,11 +3646,11 @@ class EinsteinExecutionMixin:
                                 shape[dim] = sz
                                 arr = np.arange(start, end, dtype=np.intp).reshape(shape)
                                 self.env.set_value(defid, arr, name=name)
-                        bindings = getattr(item, "bindings", None) or []
+                        bindings = item.bindings or []
                         if bindings:
                             loop_context = {}
                             for lp in loops:
-                                d = getattr(lp.variable, "defid", None)
+                                d = lp.variable.defid
                                 if d is not None:
                                     loop_context[d] = self.env.get_value(d)
                             full_context = execute_lowered_bindings(bindings, loop_context, expr_eval)
@@ -3705,7 +3700,7 @@ class EinsteinExecutionMixin:
         # Only when clause indices match loop count (no literal indices like LSTM state[t, slot, b, h]) so slice building is correct.
         non_rec_loops = [loops[i] for i in range(ndim) if i not in recurrence_dims]
         if (
-            isinstance(getattr(item, "body", None), BlockExpressionIR)
+            isinstance(item.body, BlockExpressionIR)
             and non_rec_loops
             and clause_indices
             and len(clause_indices) == len(loops)
@@ -3733,11 +3728,11 @@ class EinsteinExecutionMixin:
                                     self.env.set_value(defid, inner_ctx[defid], name=name)
                                 else:
                                     self.env.set_value(defid, np.arange(start, end, dtype=np.intp), name=name)
-                        bindings = getattr(item, "bindings", None) or []
+                        bindings = item.bindings or []
                         if bindings:
                             loop_context = {}
                             for lp in loops:
-                                d = getattr(lp.variable, "defid", None)
+                                d = lp.variable.defid
                                 if d is not None:
                                     loop_context[d] = self.env.get_value(d)
                             full_context = execute_lowered_bindings(bindings, loop_context, expr_eval)
@@ -3800,11 +3795,11 @@ class EinsteinExecutionMixin:
                         shape[dim] = sz
                         arr = np.arange(start, end, dtype=np.intp).reshape(shape)
                         self.env.set_value(defid, arr, name=name)
-                bindings = getattr(item, "bindings", None) or []
+                bindings = item.bindings or []
                 if bindings:
                     loop_context = {}
                     for lp in loops:
-                        d = getattr(lp.variable, "defid", None)
+                        d = lp.variable.defid
                         if d is not None:
                             loop_context[d] = self.env.get_value(d)
                     full_context = execute_lowered_bindings(bindings, loop_context, expr_eval)
@@ -3832,7 +3827,7 @@ class EinsteinExecutionMixin:
                         pass
                 elif getattr(idx, "value", None) is not None:
                     try:
-                        literal_val = int(idx.value)
+                        literal_val = int(getattr(idx, "value", None))
                     except (TypeError, ValueError):
                         pass
                 if literal_val is not None:
@@ -3878,7 +3873,7 @@ class EinsteinExecutionMixin:
         rank = None
         max_ends: Optional[List[int]] = None
         for item in items:
-            loops = getattr(item, "loops", None) or []
+            loops = item.loops or []
             if not loops:
                 continue
             if rank is None:
@@ -3887,10 +3882,10 @@ class EinsteinExecutionMixin:
             if len(loops) != rank:
                 return None
             for d, loop in enumerate(loops):
-                it = getattr(loop, "iterable", None)
+                it = loop.iterable
                 if it is None:
                     return None
-                if isinstance(it, LiteralIR) and isinstance(getattr(it, "value", None), range):
+                if isinstance(it, LiteralIR) and isinstance(it.value, range):
                     end = int(it.value.stop)
                 elif isinstance(it, RangeIR):
                     try:
@@ -3923,14 +3918,14 @@ class EinsteinExecutionMixin:
         pre_allocated_output: Optional[Any] = None,
     ) -> Any:
         from ..runtime.compute.lowered_execution import execute_lowered_loops, execute_lowered_bindings, check_lowered_guards
-        loc = getattr(lowered, "location", None) or getattr(variable_decl, "location", None)
+        loc = lowered.location or variable_decl.location
         line = int(getattr(loc, "line", 0) or 0)
         _clause_name = (
             getattr(variable_decl, "name", None)
             or getattr(getattr(variable_decl, "_binding", None), "name", None)
             or ""
         )
-        _clause_rhs = _clause_body_summary(getattr(lowered, "body", None))
+        _clause_rhs = _clause_body_summary(lowered.body)
         bucket_size = getattr(self, "_profile_bucket_size", 0)
         _profile_clauses = getattr(self, "_profile_functions", False) or getattr(self, "_profile_statements", False)
         t0 = time.perf_counter() if (bucket_size > 0 or _profile_clauses) else 0
@@ -3951,10 +3946,10 @@ class EinsteinExecutionMixin:
                     parts.append(f" [{path}]")
                 print("".join(parts), flush=True)
 
-        clause_indices = getattr(lowered, "indices", None) or []
+        clause_indices = lowered.indices or []
         binding = getattr(variable_decl, "_binding", None)
-        variable_defid = (getattr(binding, "defid", None) if binding else None) or getattr(variable_decl, "defid", None)
-        body_node = getattr(lowered, "body", None)
+        variable_defid = (binding.defid if binding else None) or getattr(variable_decl, "defid", None)
+        body_node = lowered.body
         has_recurrence = bool(
             variable_defid is not None
             and body_node is not None
@@ -4009,11 +4004,11 @@ class EinsteinExecutionMixin:
             if output_shape is None and lowered.loops:
                 output_shape = []
                 for loop in lowered.loops:
-                    it = getattr(loop, "iterable", None)
+                    it = loop.iterable
                     if it is None:
                         output_shape = None
                         break
-                    if isinstance(it, LiteralIR) and isinstance(getattr(it, "value", None), range):
+                    if isinstance(it, LiteralIR) and isinstance(it.value, range):
                         output_shape.append(int(it.value.stop))
                     elif isinstance(it, RangeIR):
                         try:
@@ -4032,7 +4027,7 @@ class EinsteinExecutionMixin:
                             output_shape = None
                             break
             if output_shape is None:
-                output_shape = [int(getattr(idx, "value", 0)) + 1 if isinstance(idx, LiteralIR) else 1 for idx in clause_indices] if clause_indices else [1]
+                output_shape = [int(idx.value) + 1 if isinstance(idx, LiteralIR) else 1 for idx in clause_indices] if clause_indices else [1]
             dtype = self._dtype_for_clause_result(lowered.body, element_type)
             output = np.zeros(output_shape, dtype=dtype)
 
@@ -4095,7 +4090,7 @@ class EinsteinExecutionMixin:
         # Try full vectorize over loop dims (literal idx -> fixed slice; other dims -> vectorize).
         if lowered.loops:
             # Slice-vectorize: body "if p < t then ... else 0" -> vectorize over [0..t), fill rest (e.g. emb in decode).
-            if not recurrence_needs_scalar and not getattr(lowered, "guards", None) and not getattr(lowered, "bindings", None):
+            if not recurrence_needs_scalar and not lowered.guards and not lowered.bindings:
                 slice_vec = _try_slice_vectorize_if_clause(lowered, output, expr_evaluator, backend=self)
                 if slice_vec is not None:
                     if variable_defid:
@@ -4251,7 +4246,7 @@ class EinsteinExecutionMixin:
             scalar_loop_indices = [
                 dim
                 for dim, lp in enumerate(lowered.loops)
-                if getattr(lp.variable, "defid", None) in scalar_defids
+                if lp.variable.defid in scalar_defids
             ]
             if 0 < len(scalar_loop_indices) < len(lowered.loops):
                 call_hybrid_out = _try_call_scalar_vectorize_clause(
@@ -4305,12 +4300,12 @@ class EinsteinExecutionMixin:
         _loop_defid_to_name = {}
         _loops = lowered.loops
         for lp in _loops:
-            v = getattr(lp, "variable", None)
-            if v and getattr(v, "defid", None):
-                _loop_defid_to_name[v.defid] = getattr(v, "name", None)
+            v = lp.variable
+            if v and v.defid:
+                _loop_defid_to_name[v.defid] = v.name
         _body = lowered.body
-        _bindings = getattr(lowered, "bindings", None) or []
-        _guards = getattr(lowered, "guards", None) or []
+        _bindings = lowered.bindings or []
+        _guards = lowered.guards or []
         # Precompute cell_index spec: list of (is_literal, value_or_defid) so we avoid getattr per iteration.
         _cell_index_spec: List[Any] = []
         _loop_pos = 0
@@ -4322,7 +4317,7 @@ class EinsteinExecutionMixin:
                     _cell_index_spec = None
                     break
             elif _loop_pos < len(_loops):
-                _defid = getattr(_loops[_loop_pos].variable, "defid", None)
+                _defid = _loops[_loop_pos].variable.defid
                 _cell_index_spec.append((False, _defid))
                 _loop_pos += 1
             else:
@@ -4330,7 +4325,7 @@ class EinsteinExecutionMixin:
                 break
         if _cell_index_spec is not None and _loop_pos != len(_loops):
             _cell_index_spec = None
-        _loop_defids_tuple = tuple(getattr(lp.variable, "defid", None) for lp in _loops)
+        _loop_defids_tuple = tuple(lp.variable.defid for lp in _loops)
 
         with self.env.scope():
             if not _loops:

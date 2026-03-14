@@ -17,6 +17,7 @@ from ..ir.nodes import (
     is_function_binding, is_einstein_binding, is_constant_binding
 )
 from ..shared.defid import DefId
+from ..shared.types import PrimitiveType
 
 
 class ExhaustivenessPass(BasePass):
@@ -68,10 +69,10 @@ class ExhaustivenessChecker:
     
     def _get_scrutinee_type(self, scrutinee: ExpressionIR) -> Optional[str]:
         """Get type of scrutinee expression"""
-        type_info = getattr(scrutinee, 'type_info', None)
+        type_info = scrutinee.type_info
         if type_info is None:
             return None
-        if getattr(type_info, 'name', None):
+        if isinstance(type_info, PrimitiveType):
             return type_info.name
         if getattr(type_info, '__name__', None):
             return type_info.__name__

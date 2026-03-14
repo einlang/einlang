@@ -5,6 +5,7 @@ Rust Pattern: Shared foundational types and utilities
 """
 
 from .defid import DefId, Resolver
+from .optional_attr import opt_defid, opt_name, opt_attr
 from .source_location import SourceLocation
 from .errors import Error, ErrorReporter, EinlangError, EinlangSourceError, EinlangImplementationError
 from .types import (

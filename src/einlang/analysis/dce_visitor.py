@@ -52,15 +52,15 @@ class DCEVisitor(ScopedIRVisitor[Any]):
         """Evaluate ``len(x.shape)`` → int when *x* has a known RectangularType."""
         if not isinstance(node, (BuiltinCallIR, FunctionCallIR)):
             return None
-        fname = getattr(node, 'builtin_name', None) or getattr(node, 'function_name', None)
+        fname = node.builtin_name if isinstance(node, BuiltinCallIR) else node.function_name
         if fname != 'len':
             return None
-        args = getattr(node, 'args', None) or getattr(node, 'arguments', None) or []
+        args = (node.args if isinstance(node, BuiltinCallIR) else (node.arguments or []))
         if len(args) != 1:
             return None
         arg = args[0]
-        if isinstance(arg, MemberAccessIR) and getattr(arg, 'member', None) == 'shape':
-            did = getattr(arg.object, 'defid', None)
+        if isinstance(arg, MemberAccessIR) and arg.member == 'shape':
+            did = arg.object.defid
             if did is not None:
                 rank = self._rank_of(did)
                 if rank is not None:
@@ -71,7 +71,7 @@ class DCEVisitor(ScopedIRVisitor[Any]):
         """Try to evaluate *node* to a Python constant."""
         if isinstance(node, LiteralIR):
             return node.value
-        did = getattr(node, 'defid', None)
+        did = node.defid
         if did is not None:
             val = self.get_var(did)
             if isinstance(val, (int, float, bool)):
@@ -107,7 +107,7 @@ class DCEVisitor(ScopedIRVisitor[Any]):
         if is_function_binding(node):
             with self.scope():
                 for p in node.parameters:
-                    pt = getattr(p, 'param_type', None)
+                    pt = p.param_type
                     if pt is not None and p.defid is not None:
                         self.set_var(p.defid, pt)
                 if node.body:
@@ -119,7 +119,7 @@ class DCEVisitor(ScopedIRVisitor[Any]):
             return node
         if node.value:
             new_val = node.value.accept(self)
-            did = getattr(node, 'defid', None)
+            did = node.defid
             if did is not None:
                 cv = self._try_eval(new_val)
                 if cv is not None:
@@ -140,8 +140,8 @@ class DCEVisitor(ScopedIRVisitor[Any]):
             then_expr=node.then_expr.accept(self) if node.then_expr else None,
             else_expr=node.else_expr.accept(self) if node.else_expr else None,
             location=node.location,
-            type_info=getattr(node, 'type_info', None),
-            shape_info=getattr(node, 'shape_info', None),
+            type_info=node.type_info,
+            shape_info=node.shape_info,
         )
 
     def visit_block_expression(self, node: BlockExpressionIR):
@@ -152,8 +152,8 @@ class DCEVisitor(ScopedIRVisitor[Any]):
             statements=new_stmts,
             final_expr=new_final,
             location=node.location,
-            type_info=getattr(node, 'type_info', None),
-            shape_info=getattr(node, 'shape_info', None),
+            type_info=node.type_info,
+            shape_info=node.shape_info,
         )
 
     # ------------------------------------------------------------------

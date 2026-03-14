@@ -86,10 +86,10 @@ class TestDemos:
         try:
             result = compile_and_execute(content, compiler, runtime, source_file=source_file)
 
-            if result is None or not getattr(result, 'success', False):
+            if result is None or not result.success:
                 if expected_fail:
                     return
-                errors = getattr(result, 'errors', ['Unknown']) if result else ['No result']
+                errors = result.errors if result else ['No result']
                 pytest.fail(f"{demo_name} failed: {errors}")
         except Exception as e:
             if expected_fail:

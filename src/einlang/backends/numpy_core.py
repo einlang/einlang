@@ -37,7 +37,7 @@ def _register_fixed_builtins(env: ExecutionEnvironment) -> None:
 
 def _single_array_param(func_def: Any) -> bool:
     """True if function has exactly one parameter (typical for array-in, scalar/array-out)."""
-    params = getattr(func_def, "parameters", None)
+    params = func_def.parameters
     return params is not None and len(params) == 1
 
 
@@ -51,7 +51,7 @@ class _ContainsReductionWithOpVisitor(IRVisitor[bool]):
         return False
 
     def visit_lowered_reduction(self, node: LoweredReductionIR) -> bool:
-        return getattr(node, "operation", None) == self._op
+        return node.operation == self._op
 
     def visit_binary_op(self, node: BinaryOpIR) -> bool:
         return (node.left and node.left.accept(self)) or (node.right and node.right.accept(self))
@@ -73,7 +73,7 @@ class _ContainsReductionWithOpVisitor(IRVisitor[bool]):
         )
 
     def visit_binding(self, node: BindingIR) -> bool:
-        expr = getattr(node, "expr", getattr(node, "value", None))
+        expr = node.expr
         return expr is not None and expr.accept(self)
 
     def visit_literal(self, node: LiteralIR) -> bool:
@@ -166,7 +166,7 @@ class _ContainsReductionWithOpVisitor(IRVisitor[bool]):
 
 def _body_has_reduction(body: Any, operation: str) -> bool:
     """True if body (block or binding list) contains a LoweredReductionIR with the given operation."""
-    statements = getattr(body, "statements", None) or []
+    statements = body.statements or []
     visitor = _ContainsReductionWithOpVisitor(operation)
     for stmt in statements:
         if not isinstance(stmt, BindingIR):
@@ -184,29 +184,29 @@ def _body_has_reduction(body: Any, operation: str) -> bool:
 
 def _check_block_is_index_of_extremum(body: BlockExpressionIR) -> Optional[str]:
     """If this block implements index-of-max or index-of-min, return 'argmax' or 'argmin'; else None."""
-    if getattr(body, "final_expr", None) is None:
+    if body.final_expr is None:
         return None
-    statements = getattr(body, "statements", None) or []
+    statements = body.statements or []
     final_expr = body.final_expr
     has_max = _body_has_reduction(body, "max")
     has_min = _body_has_reduction(body, "min")
     has_comprehension = any(
-        isinstance(getattr(s, "expr", getattr(s, "value", None)), LoweredComprehensionIR)
+        isinstance(s.expr, LoweredComprehensionIR)
         for s in statements if isinstance(s, BindingIR)
     )
     first_elem_ok = False
     if isinstance(final_expr, RectangularAccessIR):
-        indices = getattr(final_expr, "indices", None) or []
+        indices = final_expr.indices or []
         if len(indices) == 1:
             idx = indices[0]
             if isinstance(idx, LiteralIR):
                 try:
-                    if int(getattr(idx, "value", None)) == 0:
+                    if int(idx.value) == 0:
                         first_elem_ok = True
                 except (TypeError, ValueError):
                     pass
-    final_is_min_red = isinstance(final_expr, LoweredReductionIR) and getattr(final_expr, "operation", None) == "min"
-    final_is_max_red = isinstance(final_expr, LoweredReductionIR) and getattr(final_expr, "operation", None) == "max"
+    final_is_min_red = isinstance(final_expr, LoweredReductionIR) and final_expr.operation == "min"
+    final_is_max_red = isinstance(final_expr, LoweredReductionIR) and final_expr.operation == "max"
     if (has_max and not has_min) and (first_elem_ok and has_comprehension or final_is_min_red):
         return "argmax"
     if (has_min and not has_max) and (first_elem_ok and has_comprehension or final_is_max_red):
@@ -224,16 +224,16 @@ def _detect_index_of_extremum(func_def: Any) -> Optional[str]:
     """
     if not _single_array_param(func_def):
         return None
-    body = getattr(func_def, "body", None)
+    body = func_def.body
     if body is None:
         return None
     candidates = []
     if isinstance(body, BlockExpressionIR):
         candidates.append(body)
     elif isinstance(body, IfExpressionIR):
-        if getattr(body, "then_expr", None):
+        if body.then_expr is not None:
             candidates.append(body.then_expr)
-        if getattr(body, "else_expr", None):
+        if body.else_expr is not None:
             candidates.append(body.else_expr)
     for block in candidates:
         if isinstance(block, BlockExpressionIR):
@@ -376,7 +376,7 @@ class CoreExecutionMixin:
                             if binding is not None and isinstance(binding, BindingIR):
                                 variable_defid = binding.defid
                         if variable_defid is not None:
-                            var_name = stmt.name if isinstance(stmt, BindingIR) else (getattr(stmt, "_binding", None).name if getattr(stmt, "_binding", None) else None)
+                            var_name = stmt.name if isinstance(stmt, BindingIR) else (binding.name if binding else None)
                             self.env.set_value(variable_defid, result_value, name=var_name)
                             outputs[variable_defid] = result_value
                         if profile_statements:
@@ -436,7 +436,7 @@ class CoreExecutionMixin:
         # func_def may be BindingIR (named function) or FunctionValueIR (lambda)
         params = func_def.parameters
         body = func_def.body
-        name = getattr(func_def, "name", None) or "<lambda>"
+        name = (func_def.name if hasattr(func_def, "name") else None) or "<lambda>"
         expected = len(params)
         actual = len(args)
         if actual != expected:
@@ -479,7 +479,7 @@ class CoreExecutionMixin:
             return None
         if is_einstein_binding(node):
             from ..ir.nodes import LoweredEinsteinIR, LoweredRecurrenceIR
-            expr = getattr(node, 'expr', None)
+            expr = node.expr
             if not isinstance(expr, (LoweredEinsteinIR, LoweredRecurrenceIR)):
                 raise RuntimeError(
                     f"Non-lowered EinsteinDeclaration reached backend. "

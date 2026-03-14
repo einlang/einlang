@@ -54,8 +54,7 @@ class TestUnits:
         result = compile_and_execute(content, compiler, runtime, source_file=source_file)
         
         assert result is not None, f"No result for {unit_name}"
-        assert getattr(result, 'success', False), \
-            f"{unit_name} failed: {getattr(result, 'errors', ['Unknown'])}"
+        assert result.success, f"{unit_name} failed: {result.errors}"
 
 
 if __name__ == "__main__":

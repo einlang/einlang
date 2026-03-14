@@ -9,6 +9,8 @@ now happens at the AST level before IR lowering.
 
 import pytest
 
+from einlang.ir.nodes import BindingIR
+
 
 class TestShapeResolutionPass:
     """Test compile-time shape resolution at AST level"""
@@ -29,7 +31,7 @@ class TestShapeResolutionPass:
         
         einstein_node = None
         for stmt in result.ir.statements:
-            if getattr(stmt, 'pattern', None) == 'A':
+            if isinstance(stmt, BindingIR) and stmt.pattern == 'A':
                 einstein_node = stmt
                 break
         

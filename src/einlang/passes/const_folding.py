@@ -206,7 +206,7 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         for idx in (expr.indices or []):
             if idx is None:
                 raise ValueError("IR index slot is None")
-            res = idx.accept(self) if hasattr(idx, 'accept') else idx
+            res = idx.accept(self)
             if res is None:
                 raise ValueError("IR index slot became None after const folding")
             folded_indices.append(res)
@@ -225,7 +225,7 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         for idx in (expr.index_chain or []):
             if idx is None:
                 raise ValueError("IR index_chain slot is None")
-            res = idx.accept(self) if hasattr(idx, 'accept') else idx
+            res = idx.accept(self)
             if res is None:
                 raise ValueError("IR index_chain slot became None after const folding")
             folded_chain.append(res)
@@ -289,13 +289,13 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         elif is_einstein_binding(node):
             raise NotImplementedError("ConstantFolder only handles expressions, not Einstein declarations")
         else:
-            folded_value = node.expr.accept(self) if hasattr(node, 'expr') and node.expr else None
+            folded_value = node.expr.accept(self) if node.expr else None
             return BindingIR(
-                name=getattr(node, 'name', ''),
+                name=(node.name or ''),
                 expr=folded_value,
-                type_info=getattr(node, 'type_info', None),
-                location=getattr(node, 'location', None),
-                defid=getattr(node, 'defid', None),
+                type_info=node.type_info,
+                location=node.location,
+                defid=node.defid,
             )
     
     def visit_range(self, expr) -> ExpressionIR:
@@ -467,7 +467,7 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
             left=folded_left,
             right=folded_right,
             location=expr.location,
-            operator=getattr(expr, 'operator', '|>'),
+            operator=(expr.operator or '|>'),
             type_info=expr.type_info,
             shape_info=expr.shape_info
         )
@@ -582,12 +582,12 @@ class ConstantFoldingVisitor(IRVisitor[None]):
     def visit_binding(self, stmt: BindingIR) -> None:
         if is_einstein_binding(stmt):
             for clause in stmt.clauses or []:
-                if getattr(clause, "value", None):
+                if clause.value:
                     folded_value = clause.value.accept(self.folder)
                     clause.value = folded_value
         elif is_function_binding(stmt):
             folded_body = stmt.body.accept(self.folder)
-            if hasattr(stmt, 'expr') and stmt.expr is not None:
+            if stmt.expr is not None:
                 object.__setattr__(stmt.expr, 'body', folded_body)
             else:
                 object.__setattr__(stmt, 'body', folded_body)
@@ -595,7 +595,7 @@ class ConstantFoldingVisitor(IRVisitor[None]):
             folded_value = stmt.value.accept(self.folder)
             object.__setattr__(stmt, 'expr', folded_value)
         else:
-            if hasattr(stmt, 'expr') and stmt.expr is not None:
+            if stmt.expr is not None:
                 stmt.expr.accept(self.folder)
     
     # Required visitor methods (for IRVisitor interface) - void visitor, no-op for expressions
@@ -758,7 +758,7 @@ class LiteralExtractor(IRVisitor[Optional[Any]]):
         elif is_einstein_binding(node):
             return None
         else:
-            if hasattr(node, 'value') and node.value:
+            if node.value:
                 return node.value.accept(self)
             return None
     

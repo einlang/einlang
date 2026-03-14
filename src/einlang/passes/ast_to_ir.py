@@ -76,6 +76,7 @@ try:
 except ImportError:
     ASTConstantDef = None  # Constants handled differently
 from ..shared.ast_visitor import ASTVisitor
+from ..shared.optional_attr import opt_attr, opt_defid
 
 
 class ASTToIRLoweringPass(BasePass):
@@ -263,7 +264,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 def check_and_resolve_identifiers(node, scope_manager, resolver):
                     """Recursively check and resolve identifiers in AST"""
                     if isinstance(node, ASTIdentifier):
-                        if not hasattr(node, 'defid') or node.defid is None:
+                        if opt_defid(node) is None:
                             # Try to resolve it
                             scope = scope_manager.current_scope()
                             if scope:
@@ -276,16 +277,14 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                     from ..shared.nodes import EinsteinDeclaration as ASTEinsteinDeclaration
                     if isinstance(node, ASTEinsteinDeclaration):
                         # For Einstein declarations, visit value and where_clause, but don't access .name (use .array_name)
-                        if hasattr(node, 'value') and node.value:
+                        if node.value:
                             check_and_resolve_identifiers(node.value, scope_manager, resolver)
-                        if hasattr(node, 'where_clause') and node.where_clause:
-                            if hasattr(node.where_clause, 'constraints'):
-                                for constraint in node.where_clause.constraints:
-                                    check_and_resolve_identifiers(constraint, scope_manager, resolver)
+                        if node.where_clause:
+                            for constraint in node.where_clause.constraints:
+                                check_and_resolve_identifiers(constraint, scope_manager, resolver)
                         # Visit indices
-                        if hasattr(node, 'indices'):
-                            for idx in node.indices:
-                                check_and_resolve_identifiers(idx, scope_manager, resolver)
+                        for idx in node.indices:
+                            check_and_resolve_identifiers(idx, scope_manager, resolver)
                     else:
                         # For other nodes, recursively visit all attributes
                         # Skip 'name' attribute for EinsteinDeclaration (use 'array_name' instead)
@@ -313,8 +312,8 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                                 # Skip other errors during recursive traversal
                                 pass
                 # Name resolution has already resolved identifiers; stdlib bodies are specialized by monomorphization.
-                # Safely get function name (FunctionDefinition has 'name', not 'array_name')
-                func_name = getattr(definition, 'name', None) or getattr(definition, 'array_name', None) or func_name
+                # FunctionDefinition has 'name'
+                func_name = definition.name or func_name
 
                 func_ir = definition.accept(self)
                 if isinstance(func_ir, FunctionDefIR):
@@ -346,7 +345,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         for defid, (def_type, definition) in self.tcx.def_registry.items():
             if def_type != DefType.FUNCTION or not isinstance(definition, FunctionDefinition):
                 continue
-            func_name = getattr(definition, 'name', None)
+            func_name = definition.name
             if not func_name:
                 continue
             module_path = getattr(definition, 'module_path', None)
@@ -387,22 +386,21 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     def visit_function_definition(self, ast_func: ASTFunctionDef) -> Optional[FunctionDefIR]:
         """Lower function definition - allocate at creation"""
         location = self._get_source_location(ast_func)
-        defid = getattr(ast_func, 'defid', None)
+        defid = ast_func.defid
         logger.debug(f"[ast_to_ir] Lowering function {ast_func.name} with DefId {defid}")
         parameters = []
         for param in ast_func.parameters:
             param_location = self._get_source_location(ast_func)
-            if hasattr(param, 'location') and param.location:
-                param_location = self._get_source_location_from_ast_location(param.location)
-            param_defid = getattr(param, 'defid', None)
+            param_loc = opt_attr(param, 'location', None)
+            if param_loc:
+                param_location = self._get_source_location_from_ast_location(param_loc)
+            param_defid = param.defid
             if param_defid is None:
                 raise RuntimeError(
-                    f"Parameter '{getattr(param, 'name', '?')}' of function '{ast_func.name}' has no defid. "
+                    f"Parameter '{param.name}' of function '{ast_func.name}' has no defid. "
                     "Ensure NameResolutionPass runs on AST before ASTToIRLoweringPass and allocates defids for parameters."
                 )
-            param_type = None
-            if hasattr(param, 'type_annotation') and param.type_annotation:
-                param_type = param.type_annotation
+            param_type = opt_attr(param, 'type_annotation', None)
             param_ir = ParameterIR(
                 name=param.name,
                 param_type=param_type,
@@ -420,9 +418,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         
         # Extract return type from AST function definition
         # Type annotations are PrimitiveType objects from parser
-        return_type = None
-        if hasattr(ast_func, 'return_type') and ast_func.return_type:
-            return_type = ast_func.return_type
+        return_type = ast_func.return_type if ast_func.return_type else None
         
         func_value = FunctionValueIR(
             parameters=parameters,
@@ -442,7 +438,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     def visit_constant_def(self, ast_const: ASTConstantDef) -> Optional[ConstantDefIR]:
         """Lower constant definition - visitor pattern (no isinstance)"""
         location = self._get_source_location(ast_const)
-        defid = getattr(ast_const, 'defid', None)  # Trust infrastructure
+        defid = ast_const.defid
         
         value_ir = ast_const.value.accept(self)  # Visitor pattern
         if not isinstance(value_ir, ExpressionIR):
@@ -460,7 +456,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     def visit_parameter(self, ast_param: ASTParameter) -> Optional[ParameterIR]:
         """Lower parameter - visitor pattern (no isinstance)"""
         location = self._get_source_location(ast_param)
-        defid = getattr(ast_param, 'defid', None)  # Trust infrastructure
+        defid = ast_param.defid
         
         return ParameterIR(
             name=ast_param.name,
@@ -477,8 +473,8 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     def visit_identifier(self, ast_id: ASTIdentifier) -> IdentifierIR:
         """Lower identifier - defid from name resolution only (no name handling here)."""
         location = self._get_source_location(ast_id)
-        name = ast_id.name if isinstance(ast_id.name, str) else getattr(ast_id.name, 'value', str(ast_id.name))
-        defid = getattr(ast_id, 'defid', None)
+        name = ast_id.name if isinstance(ast_id.name, str) else (opt_attr(ast_id.name, 'value', None) or str(ast_id.name))
+        defid = ast_id.defid
         return IdentifierIR(name=name, location=location, defid=defid)
     
     def visit_binary_expression(self, ast_op: ASTBinaryOp) -> Optional[BinaryOpIR]:
@@ -546,7 +542,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         
         # First, try to get from function_expr if it's a ModuleAccess (stored during name resolution)
         if isinstance(ast_call.function_expr, ModuleAccess):
-            module_path = getattr(ast_call.function_expr, '_resolved_module_path', None)
+            module_path = opt_attr(ast_call.function_expr, '_resolved_module_path', None)
             
         
         # If not found, extract from ModuleAccess structure
@@ -605,7 +601,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         
         # Also check function_expr.defid if function_defid is None (for Identifier function calls)
         if function_defid is None and isinstance(ast_call.function_expr, ASTIdentifier):
-            function_defid = getattr(ast_call.function_expr, 'defid', None)
+            function_defid = ast_call.function_expr.defid
         
         
         # If function_expr is an Identifier, get the name directly
@@ -618,7 +614,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 function_name = ast_call.function_expr.property
                 # Also try to get DefId from module access node (set by visit_module_access)
                 if function_defid is None:
-                    module_access_defid = getattr(ast_call.function_expr, 'defid', None)
+                    module_access_defid = opt_defid(ast_call.function_expr)
                     if module_access_defid:
                         function_defid = module_access_defid
                     elif module_path and self.tcx.resolver:
@@ -664,12 +660,12 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                                         if func_defid:
                                             function_defid = func_defid
                                             function_name = func_name
-            elif hasattr(ast_call, '_resolved_function_name'):
+            elif opt_attr(ast_call, '_resolved_function_name', None) is not None:
                 # Use resolved function name if available (from name resolution)
                 function_name = ast_call._resolved_function_name
             else:
                 # Fallback: try to get name from function_expr
-                function_name = getattr(ast_call.function_expr, 'name', None) or getattr(ast_call.function_expr, 'property', None) or getattr(ast_call.function_expr, 'member', 'unknown')
+                function_name = opt_attr(ast_call.function_expr, 'name', None) or opt_attr(ast_call.function_expr, 'property', None) or opt_attr(ast_call.function_expr, 'member', 'unknown')
         
         # Check if this is a builtin function call (should use BuiltinCallIR, not FunctionCallIR)
         # Builtins are identified by having DefId with krate=1 (Rust pattern)
@@ -806,7 +802,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         location = self._get_source_location(ast_lambda)
 
         parameters = []
-        param_defids = getattr(ast_lambda, '_param_defids', {}) or {}
+        param_defids = (ast_lambda._param_defids if hasattr(ast_lambda, '_param_defids') else {}) or {}
         for param_name in ast_lambda.parameters:
             param_defid = param_defids.get(param_name)
             parameters.append(ParameterIR(
@@ -854,8 +850,8 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             file=loc.file,
             line=loc.line,
             column=loc.column,
-            end_line=getattr(loc, 'end_line', loc.line),
-            end_column=getattr(loc, 'end_column', loc.column)
+            end_line=loc.end_line if hasattr(loc, 'end_line') else loc.line,
+            end_column=loc.end_column if hasattr(loc, 'end_column') else loc.column
         )
     
     # Required visitor methods (ASTVisitor interface) - Expression visitors
@@ -912,7 +908,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                             continue
                         
                         # Get the variable's DefId (attached during name resolution)
-                        variable_defid = getattr(constraint.left, 'defid', None)
+                        variable_defid = constraint.left.defid
                         range_expr_for_var = None
                         
                         # Right side can be a Range, Identifier (array), or ArrayLiteral
@@ -926,7 +922,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                                     start=start_ir,
                                     end=end_ir,
                                     location=self._get_source_location(constraint.right),
-                                    inclusive=getattr(constraint.right, 'inclusive', False)
+                                    inclusive=(constraint.right.inclusive or False)
                                 )
                         elif isinstance(constraint.right, (Identifier, ASTArrayLiteral)):
                             # Right side is an array - use array expression as iterable so we bind var to each element
@@ -957,7 +953,11 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         # Nested comprehensions (body IS another comprehension) are handled separately
         variables = [var_name for var_name, _, _ in iteration_variables]
         ranges = [range_expr for _, range_expr, _ in iteration_variables]
-        variable_defids = [var_defid for _, _, var_defid in iteration_variables]
+        resolver = getattr(self.tcx, 'resolver', None)
+        variable_defids = [
+            var_defid if var_defid is not None else (resolver.allocate_for_local() if resolver is not None else None)
+            for _, _, var_defid in iteration_variables
+        ]
         
         # Check if body is already a comprehension (true nesting)
         # If so, we'll preserve the nested structure
@@ -1009,7 +1009,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                     idx_ir = IndexVarIR(
                         name=idx_ir.name,
                         location=idx_ir.location,
-                        defid=getattr(idx_ir, "defid", None),
+                        defid=idx_ir.defid,
                         range_ir=None,
                     )
                 indices.append(idx_ir)
@@ -1040,7 +1040,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                     idx_ir = IndexVarIR(
                         name=idx_ir.name,
                         location=idx_ir.location,
-                        defid=getattr(idx_ir, "defid", None),
+                        defid=idx_ir.defid,
                         range_ir=None,
                     )
                 index_chain.append(idx_ir)
@@ -1087,14 +1087,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             return None
         # Extract target_type from AST node
         # Pass type object directly (no string conversion - backend uses type objects)
-        target_type = None
-        if hasattr(node, 'target_type') and node.target_type:
-            target_type = node.target_type
-        elif hasattr(node, 'type_name') and node.type_name:
-            target_type = node.type_name
-        elif hasattr(node, 'type') and node.type:
-            # Pass the type object directly (e.g., PrimitiveType)
-            target_type = node.type
+        target_type = opt_attr(node, 'target_type', None) or opt_attr(node, 'type_name', None) or opt_attr(node, 'type', None)
         return CastExpressionIR(
             expr=expr_ir,
             target_type=target_type,
@@ -1137,7 +1130,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             if isinstance(arg_ir, ExpressionIR):
                 arguments.append(arg_ir)
         # Get method name from method_expr if it's an identifier
-        method_name = getattr(method_ir, 'name', 'method') if isinstance(method_ir, IdentifierIR) else 'method'
+        method_name = (method_ir.name or 'method') if isinstance(method_ir, IdentifierIR) else 'method'
         callee_expr = IdentifierIR(name=method_name, location=location, defid=None)
         return FunctionCallIR(
             callee_expr=callee_expr,
@@ -1158,7 +1151,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             raise RuntimeError(
                 f"Failed to lower pipeline right expression: expected ExpressionIR, got {type(right_ir).__name__} at {location}"
             )
-        op = getattr(node.operator, 'value', str(node.operator)) if hasattr(node, 'operator') and node.operator else "|>"
+        op = (opt_attr(node.operator, 'value', None) or str(node.operator)) if node.operator else "|>"
         return PipelineExpressionIR(
             left=left_ir,
             right=right_ir,
@@ -1191,7 +1184,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         arms = []
         for arm in node.arms:
             # Lower pattern
-            pattern_ir = arm.pattern.accept(self) if hasattr(arm.pattern, 'accept') else None
+            pattern_ir = arm.pattern.accept(self)
             if not isinstance(pattern_ir, PatternIR):
                 # Try to lower pattern manually
                 pattern_ir = self._lower_pattern(arm.pattern)
@@ -1223,35 +1216,31 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         # Extract loop variables and ranges from over_clause
         loop_vars = []
         loop_var_ranges = {}  # var_name -> RangeIR
-        if hasattr(node, 'over_clause') and node.over_clause:
-            if hasattr(node.over_clause, 'range_groups'):
-                for group in node.over_clause.range_groups:
-                    if hasattr(group, 'variables'):
-                        # Extract range expression if present
+        if node.over_clause:
+            for group in node.over_clause.range_groups:
+                # Extract range expression if present
+                range_ir = None
+                if group.range_expr:
+                    # The range_expr is an AST Range node, need to lower it
+                    from ..shared.nodes import Range as ASTRange
+                    if isinstance(group.range_expr, ASTRange):
+                        # Lower the Range AST node explicitly
+                        range_ir = self.visit_range(group.range_expr)
+                    else:
+                        # Try accept() as fallback
+                        range_ir = group.range_expr.accept(self)
+                    if not isinstance(range_ir, RangeIR):
                         range_ir = None
-                        if hasattr(group, 'range_expr') and group.range_expr:
-                            # The range_expr is an AST Range node, need to lower it
-                            from ..shared.nodes import Range as ASTRange
-                            if isinstance(group.range_expr, ASTRange):
-                                # Lower the Range AST node explicitly
-                                range_ir = self.visit_range(group.range_expr)
-                            else:
-                                # Try accept() as fallback
-                                range_ir = group.range_expr.accept(self)
-                            
-                            if not isinstance(range_ir, RangeIR):
-                                range_ir = None
-                        
-                        # Add variables and their ranges
-                        for var_name in group.variables:
-                            v = var_name if isinstance(var_name, str) else getattr(var_name, 'value', str(var_name))
-                            loop_vars.append(v)
-                            if range_ir:
-                                loop_var_ranges[v] = range_ir
+                # Add variables and their ranges
+                for var_name in group.variables:
+                    v = var_name if isinstance(var_name, str) else (opt_attr(var_name, 'value', None) or str(var_name))
+                    loop_vars.append(v)
+                    if range_ir:
+                        loop_var_ranges[v] = range_ir
         
         # Lower where clause if present
         where_clause_ir = None
-        if hasattr(node, 'where_clause') and node.where_clause:
+        if node.where_clause:
             constraints_ir = []
             for constraint in node.where_clause.constraints:
                 constraint_ir = constraint.accept(self)
@@ -1261,29 +1250,28 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 where_clause_ir = WhereClauseIR(constraints=constraints_ir)
         
         # Get operation name from function_name (AST uses function_name, IR uses operation)
-        operation = getattr(node, 'operation', None)
+        operation = opt_attr(node, 'operation', None)
         if operation is None:
             # Fallback to function_name if operation doesn't exist
-            function_name = getattr(node, 'function_name', 'sum')
-            if hasattr(function_name, 'value'):
-                function_name = function_name.value
+            function_name = opt_attr(node, 'function_name', 'sum')
+            function_name = opt_attr(function_name, 'value', function_name) if not isinstance(function_name, str) else function_name
             operation = str(function_name).lower()  # Normalize to lowercase
-        elif hasattr(operation, 'value'):
-            operation = operation.value
+        else:
+            operation = opt_attr(operation, 'value', operation) if not isinstance(operation, str) else operation
 
-        # DefId: copy from AST (name resolution sets _reduction_loop_var_defids and body identifiers' defid); one-to-one in visit_identifier.
-        reduction_loop_var_defids = getattr(node, '_reduction_loop_var_defids', None) or {}
-        loop_var_idents = [
-            IdentifierIR(
-                name,
-                location,
-                defid=reduction_loop_var_defids.get(name) or defid_of_var_in_expr(body_ir, name),
-            )
-            for name in loop_vars
-        ]
+        # DefId: copy from AST (name resolution sets _reduction_loop_var_defids and body identifiers' defid).
+        # If still missing, allocate so backends can trust IR (no runtime defid checks).
+        reduction_loop_var_defids = opt_attr(node, '_reduction_loop_var_defids', None) or {}
+        resolver = getattr(self.tcx, 'resolver', None)
+        loop_var_idents = []
+        for name in loop_vars:
+            did = reduction_loop_var_defids.get(name) or defid_of_var_in_expr(body_ir, name)
+            if did is None and resolver is not None:
+                did = resolver.allocate_for_local()
+            loop_var_idents.append(IdentifierIR(name, location, defid=did))
         loop_var_ranges_by_defid = {}
         for name, ident in zip(loop_vars, loop_var_idents):
-            if getattr(ident, 'defid', None) is not None and name in loop_var_ranges:
+            if ident.defid is not None and name in loop_var_ranges:
                 loop_var_ranges_by_defid[ident.defid] = loop_var_ranges[name]
         return ReductionExpressionIR(
             operation=operation,
@@ -1302,7 +1290,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             return None
         # Lower constraints
         constraints_ir = []
-        if hasattr(node, 'where_clause') and node.where_clause:
+        if node.where_clause:
             for constraint in node.where_clause.constraints:
                 constraint_ir = constraint.accept(self)
                 if isinstance(constraint_ir, ExpressionIR):
@@ -1334,7 +1322,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             start=start_ir,
             end=end_ir,
             location=location,
-            inclusive=getattr(node, 'inclusive', False),
+            inclusive=(node.inclusive or False),
         )
     
     def visit_index_var(self, node) -> Optional[ExpressionIR]:
@@ -1344,20 +1332,20 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         if not isinstance(node, IndexVar):
             return None
         location = self._get_source_location(node)
-        range_expr = getattr(node, "range_expr", None)
+        range_expr = node.range_expr
         range_ir = range_expr.accept(self) if range_expr else None
         if range_ir is not None and not isinstance(range_ir, RangeIR):
             range_ir = None
         # When accept returned None or non-RangeIR, build RangeIR from AST start/end if present
-        if range_ir is None and range_expr is not None and hasattr(range_expr, "start") and hasattr(range_expr, "end"):
+        if range_ir is None and range_expr is not None and opt_attr(range_expr, "start", None) is not None and opt_attr(range_expr, "end", None) is not None:
             start_ir = range_expr.start.accept(self) if range_expr.start else None
             end_ir = range_expr.end.accept(self) if range_expr.end else None
             if isinstance(start_ir, ExpressionIR) and isinstance(end_ir, ExpressionIR):
-                range_ir = RangeIR(start=start_ir, end=end_ir, location=location or getattr(range_expr, "location", None))
+                range_ir = RangeIR(start=start_ir, end=end_ir, location=location or range_expr.location)
         return IndexVarIR(
             name=node.name,
             location=location,
-            defid=getattr(node, "defid", None),
+            defid=node.defid,
             range_ir=range_ir,
         )
 
@@ -1367,7 +1355,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         from ..ir.nodes import IndexRestIR
         if not isinstance(node, IndexRest):
             return None
-        defid = getattr(node, "defid", None)
+        defid = node.defid
         if defid is None:
             raise ValueError(
                 f"IndexRest (..{node.name}) must have defid. "
@@ -1383,7 +1371,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     
     def visit_einstein_declaration(self, node: ASTEinsteinDeclaration) -> Optional[BindingIR]:
         """Lower Einstein declaration to BindingIR with expr=EinsteinIR(clauses=[...])."""
-        array_defid = getattr(node, 'defid', None)
+        array_defid = node.defid
         clause_irs: List[IRNode] = []
         for clause in node.clauses:
             one = self._lower_einstein_clause(node.array_name, clause, node, array_defid)
@@ -1425,17 +1413,17 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                     idx_ir = IndexVarIR(
                         name=idx_ir.name,
                         location=idx_ir.location,
-                        defid=getattr(idx_ir, "defid", None),
+                        defid=idx_ir.defid,
                         range_ir=None,
                     )
                 indices_ir.append(idx_ir)
-                if isinstance(idx_ir, IndexVarIR) and idx_ir.range_ir is not None and getattr(idx_ir, "defid", None) is not None:
+                if isinstance(idx_ir, IndexVarIR) and idx_ir.range_ir is not None and idx_ir.defid is not None:
                     variable_ranges[idx_ir.defid] = idx_ir.range_ir
         
         # Lower where clause if present (from clause or declaration)
         where_clause_ir = None
-        where_src = getattr(clause, 'where_clause', None) or getattr(node, 'where_clause', None)
-        if where_src and getattr(where_src, 'constraints', None):
+        where_src = clause.where_clause or node.where_clause
+        if where_src and where_src.constraints:
             constraints_ir = []
             for constraint in where_src.constraints:
                 constraint_ir = constraint.accept(self)
@@ -1464,23 +1452,22 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     # Pattern visitors
     def visit_literal_pattern(self, node) -> Optional[PatternIR]:
         """Lower literal pattern - visitor pattern"""
-        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
-        value = node.value if hasattr(node, 'value') else None
-        # If value is a Literal AST node, extract its value
-        if value is not None and hasattr(value, 'value'):
+        location = self._get_source_location(node)
+        value = opt_attr(node, 'value', None)
+        if value is not None and opt_attr(value, 'value', None) is not None:
             value = value.value
         return LiteralPatternIR(value=value, location=location)
     
     def visit_identifier_pattern(self, node) -> Optional[PatternIR]:
         """Lower identifier pattern - visitor pattern"""
-        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
-        name = node.name if hasattr(node, 'name') else None
+        location = self._get_source_location(node)
+        name = opt_attr(node, 'name', None)
         if name is None:
             raise RuntimeError(
                 f"Failed to lower identifier pattern: pattern has no name attribute at {location}"
             )
         # Transfer DefId from AST to IR (allocated during name resolution)
-        defid = getattr(node, 'defid', None)
+        defid = node.defid
         pattern = IdentifierPatternIR(name=name, location=location, defid=defid)
         if defid:
             logger.debug(f"[ast_to_ir] Transferred DefId {defid} from AST identifier pattern {name} to IR")
@@ -1488,38 +1475,36 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     
     def visit_wildcard_pattern(self, node) -> Optional[PatternIR]:
         """Lower wildcard pattern - visitor pattern"""
-        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
+        location = self._get_source_location(node)
         return WildcardPatternIR(location=location)
     
     def visit_tuple_pattern(self, node) -> Optional[PatternIR]:
         """Lower tuple pattern - visitor pattern"""
-        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
+        location = self._get_source_location(node)
         patterns = []
-        if hasattr(node, 'patterns'):
-            for pattern in node.patterns:
-                pattern_ir = pattern.accept(self) if hasattr(pattern, 'accept') else self._lower_pattern(pattern)
-                if isinstance(pattern_ir, PatternIR):
-                    patterns.append(pattern_ir)
+        for pattern in node.patterns:
+            pattern_ir = pattern.accept(self)
+            if isinstance(pattern_ir, PatternIR):
+                patterns.append(pattern_ir)
         return TuplePatternIR(patterns=patterns, location=location)
     
     def visit_array_pattern(self, node) -> Optional[PatternIR]:
         """Lower array pattern - visitor pattern"""
-        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
+        location = self._get_source_location(node)
         patterns = []
-        if hasattr(node, 'patterns'):
-            for pattern in node.patterns:
-                pattern_ir = pattern.accept(self) if hasattr(pattern, 'accept') else self._lower_pattern(pattern)
-                if isinstance(pattern_ir, PatternIR):
-                    patterns.append(pattern_ir)
+        for pattern in node.patterns:
+            pattern_ir = pattern.accept(self)
+            if isinstance(pattern_ir, PatternIR):
+                patterns.append(pattern_ir)
         return ArrayPatternIR(patterns=patterns, location=location)
     
     def visit_rest_pattern(self, node) -> Optional[PatternIR]:
         """Lower rest pattern - visitor pattern"""
-        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
+        location = self._get_source_location(node)
         # Rest pattern has an inner pattern (usually IdentifierPatternIR)
         inner_pattern = None
-        if hasattr(node, 'pattern'):
-            inner_pattern_ir = node.pattern.accept(self) if hasattr(node.pattern, 'accept') else self._lower_pattern(node.pattern)
+        if node.pattern is not None:
+            inner_pattern_ir = node.pattern.accept(self)
             if isinstance(inner_pattern_ir, IdentifierPatternIR):
                 inner_pattern = inner_pattern_ir
         if inner_pattern is None:
@@ -1529,53 +1514,43 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     
     def visit_guard_pattern(self, node) -> Optional[PatternIR]:
         """Lower guard pattern - visitor pattern"""
-        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
+        location = self._get_source_location(node)
         # Guard pattern has inner pattern and guard expression
-        inner_pattern = None
-        if hasattr(node, 'pattern'):
-            inner_pattern_ir = node.pattern.accept(self) if hasattr(node.pattern, 'accept') else self._lower_pattern(node.pattern)
-            if isinstance(inner_pattern_ir, PatternIR):
-                inner_pattern = inner_pattern_ir
+        inner_pattern_ir = node.pattern.accept(self)
+        inner_pattern = inner_pattern_ir if isinstance(inner_pattern_ir, PatternIR) else None
         if inner_pattern is None:
             raise RuntimeError(
                 f"Failed to lower guard pattern: inner pattern lowering failed at {location}"
             )
-        
-        guard_expr = None
-        if hasattr(node, 'guard') and node.guard is not None:
-            guard_expr_ir = node.guard.accept(self) if hasattr(node.guard, 'accept') else None
-            if isinstance(guard_expr_ir, ExpressionIR):
-                guard_expr = guard_expr_ir
+        guard_expr_ir = node.guard.accept(self) if node.guard else None
+        guard_expr = guard_expr_ir if isinstance(guard_expr_ir, ExpressionIR) else None
         if guard_expr is None:
             raise RuntimeError(
                 f"Failed to lower guard pattern: guard expression lowering failed at {location}"
             )
-        
         return GuardPatternIR(inner_pattern=inner_pattern, guard_expr=guard_expr, location=location)
     
     def visit_or_pattern(self, node) -> Optional[PatternIR]:
         """Lower or pattern: pat1 | pat2 | ..."""
-        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
+        location = self._get_source_location(node)
         alternatives = []
-        if hasattr(node, 'alternatives'):
-            for alt in node.alternatives:
-                alt_ir = alt.accept(self) if hasattr(alt, 'accept') else self._lower_pattern(alt)
-                if isinstance(alt_ir, PatternIR):
-                    alternatives.append(alt_ir)
+        for alt in node.alternatives:
+            alt_ir = alt.accept(self)
+            if isinstance(alt_ir, PatternIR):
+                alternatives.append(alt_ir)
         if len(alternatives) < 2:
             raise RuntimeError(f"Or pattern requires at least 2 alternatives at {location}")
         return OrPatternIR(alternatives=alternatives, location=location)
     
     def visit_constructor_pattern(self, node) -> Optional[PatternIR]:
         """Lower constructor pattern: Some(x), Circle(r)"""
-        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
+        location = self._get_source_location(node)
         patterns = []
-        if hasattr(node, 'patterns'):
-            for p in node.patterns:
-                p_ir = p.accept(self) if hasattr(p, 'accept') else self._lower_pattern(p)
-                if isinstance(p_ir, PatternIR):
-                    patterns.append(p_ir)
-        is_struct = getattr(node, 'is_struct_literal', False)
+        for p in node.patterns:
+            p_ir = p.accept(self)
+            if isinstance(p_ir, PatternIR):
+                patterns.append(p_ir)
+        is_struct = (node.is_struct_literal or False)
         return ConstructorPatternIR(
             constructor_name=node.constructor_name,
             patterns=patterns,
@@ -1585,25 +1560,25 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     
     def visit_binding_pattern(self, node) -> Optional[PatternIR]:
         """Lower binding pattern: name @ pattern"""
-        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
-        inner_ir = node.pattern.accept(self) if hasattr(node.pattern, 'accept') else self._lower_pattern(node.pattern)
+        location = self._get_source_location(node)
+        inner_ir = node.pattern.accept(self)
         if not isinstance(inner_ir, PatternIR):
             raise RuntimeError(f"Failed to lower binding pattern inner pattern at {location}")
-        defid = getattr(node, 'defid', None)
+        defid = node.defid
         ident_pat = IdentifierPatternIR(name=node.name, location=location, defid=defid)
         return BindingPatternIR(identifier_pattern=ident_pat, inner_pattern=inner_ir, location=location)
     
     def visit_range_pattern(self, node) -> Optional[PatternIR]:
         """Lower range pattern: start..end or start..=end"""
-        location = self._get_source_location(node) if hasattr(node, 'location') else self._get_default_location()
-        start_val = node.start.value if hasattr(node.start, 'value') else node.start
-        end_val = node.end.value if hasattr(node.end, 'value') else node.end
+        location = self._get_source_location(node)
+        start_val = opt_attr(node.start, 'value', node.start) if node.start is not None else None
+        end_val = opt_attr(node.end, 'value', node.end) if node.end is not None else None
         return RangePatternIR(start=start_val, end=end_val, inclusive=node.inclusive, location=location)
     
     def _lower_pattern(self, pattern_node) -> Optional[PatternIR]:
         """Helper to lower pattern node (fallback if accept() not available)"""
-        if hasattr(pattern_node, 'node_type'):
-            node_type = pattern_node.node_type
+        node_type = opt_attr(pattern_node, 'node_type', None)
+        if node_type is not None:
             if node_type == 'literal_pattern':
                 return self.visit_literal_pattern(pattern_node)
             elif node_type == 'identifier_pattern':
@@ -1626,9 +1601,9 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 return self.visit_binding_pattern(pattern_node)
             elif node_type == 'range_pattern':
                 return self.visit_range_pattern(pattern_node)
-        location = self._get_source_location(pattern_node) if hasattr(pattern_node, 'location') else self._get_default_location()
+        location = self._get_source_location(pattern_node) if opt_attr(pattern_node, 'location', None) is not None else self._get_default_location()
         raise RuntimeError(
-            f"Unknown pattern type: {getattr(pattern_node, 'node_type', '?')} at {location}"
+            f"Unknown pattern type: {opt_attr(pattern_node, 'node_type', '?')} at {location}"
         )
     
     def _get_default_location(self) -> SourceLocation:
@@ -1680,7 +1655,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
 
             for index, annotated_var in enumerate(node.pattern.variables):
                 var_name = annotated_var.name
-                var_defid = getattr(annotated_var, 'defid', None)
+                var_defid = opt_defid(annotated_var)
                 temp_identifier = IdentifierIR(
                     name=temp_name,
                     location=location,
@@ -1699,7 +1674,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                     defid=var_defid,
                 ))
             return statements
-        defid = getattr(node, 'defid', None)
+        defid = node.defid
         return BindingIR(
             name=node.name,
             expr=value_ir,
@@ -1771,8 +1746,9 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         elif module_path and len(module_path) > 0 and module_path[0] == 'std':
             # This is an Einlang stdlib function - try to get DefId
             # First check if name resolution already set a defid on the node
-            if hasattr(node, 'defid') and node.defid is not None:
-                function_defid = node.defid
+            defid_val = opt_defid(node)
+            if defid_val is not None:
+                function_defid = defid_val
                 module_path = None  # Clear module_path to indicate stdlib function
             elif self.tcx.resolver:
                 # Try to get DefId from resolver (may work if module was loaded)

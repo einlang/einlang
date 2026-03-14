@@ -8,6 +8,7 @@ Demonstrates how tuple destructuring fails gracefully with proper error messages
 
 import pytest
 from tests.test_utils import compile_and_execute
+from einlang.ir.nodes import BindingIR
 
 
 class TestTupleDestructuringErrors:
@@ -156,7 +157,7 @@ class TestTupleDestructuringErrors:
             
             for i, stmt in enumerate(ir.statements):
                 print(f"  {i+1}. {stmt}")
-                if hasattr(stmt, 'pattern') and hasattr(stmt, 'value'):
+                if isinstance(stmt, BindingIR):
                     print(f"     -> Binds: {stmt.pattern}")
                     print(f"     -> Value: {stmt.value}")
             

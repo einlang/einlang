@@ -228,19 +228,17 @@ class PipelineTypeValidator(IRVisitor[None]):
             if node.body:
                 node.body.accept(self)
         elif is_einstein_binding(node):
-            for clause in getattr(node, 'clauses', []) or []:
+            for clause in (node.clauses or []):
                 clause.accept(self)
         else:
-            if hasattr(node, 'value') and node.value:
-                node.value.accept(self)
+            if node.expr is not None:
+                node.expr.accept(self)
     
     def visit_block_expression(self, node: BlockExpressionIR) -> None:
         """Visit block expressions"""
-        if hasattr(node, 'statements'):
-            for stmt in node.statements:
-                if hasattr(stmt, 'accept'):
-                    stmt.accept(self)
-        if hasattr(node, 'final_expr') and node.final_expr:
+        for stmt in (node.statements or []):
+            stmt.accept(self)
+        if node.final_expr is not None:
             node.final_expr.accept(self)
     
     def visit_if_expression(self, node: IfExpressionIR) -> None:
@@ -277,14 +275,14 @@ class PipelineTypeValidator(IRVisitor[None]):
         if node.array:
             node.array.accept(self)
         for idx in (node.indices or []):
-            if idx is not None and hasattr(idx, 'accept'):
+            if idx is not None:
                 idx.accept(self)
     
     def visit_jagged_access(self, node) -> None:
-        if node.base:
+        if node.base is not None:
             node.base.accept(self)
         for idx in (node.index_chain or []):
-            if idx is not None and hasattr(idx, 'accept'):
+            if idx is not None:
                 idx.accept(self)
     
     def visit_array_literal(self, node) -> None:
@@ -315,22 +313,22 @@ class PipelineTypeValidator(IRVisitor[None]):
             constraint.accept(self)
 
     def visit_lowered_recurrence(self, node) -> None:
-        if getattr(node, "initial", None):
+        if node.initial is not None:
             node.initial.accept(self)
-        if getattr(node, "recurrence_loop", None) and getattr(node.recurrence_loop, "iterable", None):
+        if node.recurrence_loop is not None and node.recurrence_loop.iterable is not None:
             node.recurrence_loop.iterable.accept(self)
-        if getattr(node, "body", None):
+        if node.body is not None:
             node.body.accept(self)
 
     def visit_lowered_einstein(self, node) -> None:
-        for item in getattr(node, "items", []) or []:
+        for item in (node.items or []):
             item.accept(self)
 
     def visit_lowered_einstein_clause(self, node) -> None:
-        if getattr(node, "body", None):
+        if node.body is not None:
             node.body.accept(self)
-        for loop in getattr(node, "loops", []) or []:
-            if getattr(loop, "iterable", None):
+        for loop in (node.loops or []):
+            if loop.iterable is not None:
                 loop.iterable.accept(self)
 
     # Add stub implementations for all other IR node types

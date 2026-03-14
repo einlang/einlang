@@ -77,7 +77,7 @@ class _BodyContainsLowerableVisitor(IRVisitor[bool]):
         self._seen.add(node)
         if is_einstein_binding(node):
             return True
-        return self._recurse(getattr(node, "value", None), getattr(node, "expr", None))
+        return self._recurse(node.value, node.expr)
 
     def visit_block_expression(self, node: BlockExpressionIR) -> bool:
         if node in self._seen:
@@ -107,10 +107,7 @@ class _BodyContainsLowerableVisitor(IRVisitor[bool]):
         if node in self._seen:
             return False
         self._seen.add(node)
-        return self._recurse(
-            getattr(node, "expr", None),
-            *(getattr(node, "constraints", None) or []),
-        )
+        return self._recurse(node.expr, *(node.constraints or []))
 
     def visit_rectangular_access(self, node: RectangularAccessIR) -> bool:
         if node in self._seen:
@@ -155,28 +152,25 @@ class _BodyContainsLowerableVisitor(IRVisitor[bool]):
         if node in self._seen:
             return False
         self._seen.add(node)
-        return self._recurse(getattr(node, "expr", None))
+        return self._recurse(node.expr)
 
     def visit_tuple_expression(self, node: Any) -> bool:
         if node in self._seen:
             return False
         self._seen.add(node)
-        return self._recurse(*(getattr(node, "elements", None) or []))
+        return self._recurse(*(node.elements or []))
 
     def visit_tuple_access(self, node: Any) -> bool:
         if node in self._seen:
             return False
         self._seen.add(node)
-        return self._recurse(getattr(node, "tuple_expr", None))
+        return self._recurse(node.tuple_expr)
 
     def visit_match_expression(self, node: Any) -> bool:
         if node in self._seen:
             return False
         self._seen.add(node)
-        return self._recurse(
-            getattr(node, "scrutinee", None),
-            *(getattr(node, "arms", None) or []),
-        )
+        return self._recurse(node.scrutinee, *(node.arms or []))
 
     def visit_jagged_access(self, node: Any) -> bool:
         if node in self._seen:
@@ -239,7 +233,7 @@ class _BodyContainsLowerableVisitor(IRVisitor[bool]):
         if node in self._seen:
             return False
         self._seen.add(node)
-        return self._recurse(getattr(node, "body", None))
+        return self._recurse(node.body)
 
     def visit_einstein(self, node: Any) -> bool:
         return False
@@ -299,7 +293,7 @@ class EinsteinLoweringPass(BasePass):
         specialized_list = getattr(tcx, 'specialized_functions', []) or []
 
         def lower_function_body(func, bucket: str):
-            if not getattr(func, 'body', None):
+            if not func.body:
                 return
             visitor._current_function = func
             result = func.body.accept(visitor)
@@ -323,7 +317,7 @@ class EinsteinLoweringPass(BasePass):
 
         if function_ir_map:
             for func in function_ir_map.values():
-                if not is_function_binding(func) or not getattr(func, 'body', None):
+                if not is_function_binding(func) or not func.body:
                     continue
                 if func in lowered_ids:
                     continue
@@ -333,7 +327,7 @@ class EinsteinLoweringPass(BasePass):
                 lower_function_body(func, "function_ir_map")
 
         for func in ir.functions:
-            _body = getattr(func, 'body', None)
+            _body = func.body
             if _body is None:
                 continue
             if is_generic_function(func):
@@ -389,7 +383,7 @@ class RestPatternReplacer(IRVisitor[ExpressionIR]):
                 )
             if isinstance(idx, IndexRestIR):
                 raise ValueError(
-                    f"IndexRestIR (..{getattr(idx, 'name', '?')}) must not reach Einstein lowering; "
+                    f"IndexRestIR (..{(idx.name or '?')}) must not reach Einstein lowering; "
                     "rest patterns must be expanded in rest_pattern_preprocessing."
                 )
             res = idx.accept(self) if hasattr(idx, "accept") else idx
@@ -512,7 +506,7 @@ class RestPatternReplacer(IRVisitor[ExpressionIR]):
     
     def visit_jagged_access(self, node) -> ExpressionIR:
         node.base = node.base.accept(self)
-        chain = getattr(node, 'index_chain', None) or []
+        chain = node.index_chain or []
         new_chain = []
         for idx in chain:
             if idx is None:
@@ -546,7 +540,7 @@ class _HasUnexpandedRestVisitor(IRVisitor[bool]):
     """Visitor that returns True if the expression contains IndexRestIR or .. identifiers."""
 
     def _any(self, node: Optional[Any]) -> bool:
-        return bool(node is not None and getattr(node, "accept", None) and node.accept(self))
+        return bool(node is not None and node.accept(self))
 
     def visit_literal(self, node: LiteralIR) -> bool:
         return False
@@ -581,80 +575,80 @@ class _HasUnexpandedRestVisitor(IRVisitor[bool]):
         return False
 
     def visit_index_var(self, node: IndexVarIR) -> bool:
-        return self._any(getattr(node, "range_ir", None))
+        return self._any(node.range_ir)
 
     def visit_jagged_access(self, node: Any) -> bool:
-        if self._any(getattr(node, "base", None)):
+        if self._any(node.base):
             return True
-        for idx in getattr(node, "index_chain", None) or []:
+        for idx in (node.index_chain or []):
             if self._any(idx):
                 return True
         return False
 
     def visit_block_expression(self, node: Any) -> bool:
-        for stmt in getattr(node, "statements", None) or []:
+        for stmt in (node.statements or []):
             if self._any(stmt):
                 return True
-        return self._any(getattr(node, "final_expr", None))
+        return self._any(node.final_expr)
 
     def visit_if_expression(self, node: Any) -> bool:
         return (
-            self._any(getattr(node, "condition", None))
-            or self._any(getattr(node, "then_expr", None))
-            or self._any(getattr(node, "else_expr", None))
+            self._any(node.condition)
+            or self._any(node.then_expr)
+            or self._any(node.else_expr)
         )
 
     def visit_lambda(self, node: Any) -> bool:
-        return self._any(getattr(node, "body", None))
+        return self._any(node.body)
 
     def visit_range(self, node: Any) -> bool:
-        return self._any(getattr(node, "start", None)) or self._any(getattr(node, "end", None))
+        return self._any(node.start) or self._any(node.end)
 
     def visit_array_comprehension(self, node: Any) -> bool:
-        return self._any(getattr(node, "body", None))
+        return self._any(node.body)
 
     def visit_module(self, node: Any) -> bool:
         return False
 
     def visit_array_literal(self, node: Any) -> bool:
-        for e in getattr(node, "elements", None) or []:
+        for e in (node.elements or []):
             if self._any(e):
                 return True
         return False
 
     def visit_tuple_expression(self, node: Any) -> bool:
-        for e in getattr(node, "elements", None) or []:
+        for e in (node.elements or []):
             if self._any(e):
                 return True
         return False
 
     def visit_tuple_access(self, node: Any) -> bool:
-        return self._any(getattr(node, "tuple_expr", None))
+        return self._any(node.tuple_expr)
 
     def visit_interpolated_string(self, node: Any) -> bool:
         return False
 
     def visit_cast_expression(self, node: Any) -> bool:
-        return self._any(getattr(node, "expr", None))
+        return self._any(node.expr)
 
     def visit_member_access(self, node: Any) -> bool:
-        return self._any(getattr(node, "object", None))
+        return self._any(node.object)
 
     def visit_try_expression(self, node: Any) -> bool:
-        return self._any(getattr(node, "expr", None))
+        return self._any(node.expr)
 
     def visit_match_expression(self, node: Any) -> bool:
-        if self._any(getattr(node, "scrutinee", None)):
+        if self._any(node.scrutinee):
             return True
-        for arm in getattr(node, "arms", None) or []:
-            if self._any(getattr(arm, "pattern", None)) or self._any(getattr(arm, "body", None)):
+        for arm in (node.arms or []):
+            if self._any(arm.pattern) or self._any(arm.body):
                 return True
         return False
 
     def visit_where_expression(self, node: Any) -> bool:
-        if self._any(getattr(node, "expr", None)):
+        if self._any(node.expr):
             return True
-        for c in getattr(node, "constraints", None) or []:
+        for c in (node.constraints or []):
             if self._any(c):
                 return True
         return False
@@ -663,7 +657,7 @@ class _HasUnexpandedRestVisitor(IRVisitor[bool]):
         return False
 
     def visit_builtin_call(self, node: Any) -> bool:
-        for arg in getattr(node, "args", None) or []:
+        for arg in (node.args or []):
             if self._any(arg):
                 return True
         return False
@@ -730,7 +724,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             items = []
             all_shapes = []
             element_type = None
-            loc = getattr(node, "location", None) or SourceLocation("", 0, 0)
+            loc = node.location or SourceLocation("", 0, 0)
             for clause in clauses:
                 lowered = self._lower_einstein_clause_to_lowered(node, clause)
                 if isinstance(lowered, LoweredEinsteinIR) and lowered.items:
@@ -744,10 +738,11 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                     if lhs_shape is not None:
                         all_shapes.append(lhs_shape)
             if items:
-                decl_element_type = getattr(getattr(node, 'expr', node), 'element_type', None)
+                decl_element_type = node.expr.element_type if node.expr else None
                 if decl_element_type is not None and decl_element_type is not UNKNOWN:
                     element_type = decl_element_type
-                tensor_shape = getattr(getattr(node, 'expr', node), 'shape', None) if isinstance(getattr(getattr(node, 'expr', node), 'shape', None), list) else None
+                _expr_shape = node.expr.shape if node.expr else None
+                tensor_shape = _expr_shape if isinstance(_expr_shape, list) else None
                 if tensor_shape is None and all_shapes:
                     tensor_shape = self._compute_shape_union(all_shapes, loc)
                 if tensor_shape is None and items[0].loops:
@@ -803,21 +798,21 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 logger.debug(f"  Processing index var {idx_pos}: {var_name}")
                 loop_var_names.append(var_name)
                 range_obj = None
-                if getattr(idx, "range_ir", None) is not None:
+                if idx.range_ir is not None:
                     range_obj = idx.range_ir
-                if range_obj is None and getattr(idx, "defid", None):
-                    r = (getattr(node, "variable_ranges", None) or {}).get(idx.defid)
+                if range_obj is None and idx.defid:
+                    r = (node.variable_ranges or {}).get(idx.defid)
                     if isinstance(r, RangeIR):
                         range_obj = r
                 # Range only from clause/declaration variable_ranges or index.range_ir (no global dict).
-                if getattr(node, "variable_ranges", None) and getattr(idx, "defid", None):
+                if node.variable_ranges and idx.defid:
                     clause_r = node.variable_ranges.get(idx.defid)
                     if isinstance(clause_r, RangeIR):
                         range_obj = clause_r
                 if range_obj:
                     iterable = self._range_to_iterable_ir(range_obj, node.location)
                     loc = idx.location if hasattr(idx, "location") and idx.location else node.location
-                    ti = getattr(idx, 'type_info', None) or PrimitiveType("i32")
+                    ti = idx.type_info or PrimitiveType("i32")
                     if idx.defid is None:
                         raise ValueError(
                             f"Einstein index variable '{var_name}' must have a defid (from name resolution). "
@@ -825,7 +820,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                         )
                     var_node = IndexVarIR(var_name, loc or SourceLocation("", 0, 0), defid=idx.defid, type_info=ti)
                     loops.append(LoopStructure(variable=var_node, iterable=iterable))
-                elif getattr(idx, "defid", None) is not None:
+                elif idx.defid is not None:
                     raise ValueError(
                         f"Range for index variable '{var_name}' (defid={idx.defid.krate}:{idx.defid.index}) could not be inferred. "
                         "Ensure RangeAnalysisPass runs before EinsteinLoweringPass and variable_ranges or array access provides a range."
@@ -842,8 +837,8 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         node.indices = tuple(indices)
         
         for loop in loops:
-            v = getattr(loop, "variable", None)
-            if v is not None and getattr(v, "defid", None) is None:
+            v = loop.variable
+            if v is not None and v.defid is None:
                 raise ValueError(
                     "Loop variable has no defid; runtime cannot bind it. "
                     "Ensure index variables have defids from name resolution."
@@ -851,13 +846,13 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         
         # Sync clause variable_ranges onto reduction.loop_var_ranges so _extract_reduction_ranges and
         # lower_reduction_expression see them (mono pipeline sets clause.variable_ranges; reduction may not have loop_var_ranges).
-        if isinstance(node.value, ReductionExpressionIR) and getattr(node, 'variable_ranges', None):
+        if isinstance(node.value, ReductionExpressionIR) and node.variable_ranges:
             vr = node.variable_ranges
             for v in (node.value.loop_vars or []):
-                did = getattr(v, 'defid', None)
+                did = v.defid
                 if not did:
                     continue
-                if getattr(node.value, 'loop_var_ranges', None) and did in node.value.loop_var_ranges:
+                if node.value.loop_var_ranges and did in node.value.loop_var_ranges:
                     continue
                 r = vr.get(did)
                 if r is None and hasattr(did, 'krate') and hasattr(did, 'index'):
@@ -865,7 +860,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 if r is None and hasattr(did, '__getitem__') and len(did) >= 2:
                     r = vr.get((did[0], did[1]))
                 if r is not None:
-                    if not getattr(node.value, 'loop_var_ranges', None):
+                    if not node.value.loop_var_ranges:
                         node.value.loop_var_ranges = {}
                     node.value.loop_var_ranges[did] = r
         # Extract reduction_ranges from value BEFORE lowering: once value is replaced with LoweredReductionIR,
@@ -896,26 +891,26 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             if shape is None:
                 shape = self._compute_shape(loops)
         else:
-            # Prefer shape stored on IR by shape pass (no lookup by identity)
-            shape = getattr(decl, 'shape', None) if isinstance(getattr(decl, 'shape', None), list) else None
+            # Prefer shape stored on IR by shape pass (no lookup by identity). BindingIR has no .shape; use getattr.
+            _decl_shape = getattr(decl, "shape", None)
+            shape = _decl_shape if isinstance(_decl_shape, list) else None
             if shape is None:
                 shape = self._get_shape_from_analysis(decl)
             if shape is None and node.indices:
                 shape = self._shape_from_literal_indices(node.indices, node.location)
         
         # Element type comes only from type pass (decl.expr.element_type or type_info)
-        decl_expr = getattr(decl, 'expr', None)
-        element_type = getattr(decl_expr, 'element_type', None) if decl_expr is not None else None
-        if element_type is None and decl_expr is not None:
-            ti = getattr(decl_expr, 'type_info', None)
-            if ti is not None:
-                element_type = getattr(ti, 'element_type', None) or ti
+        decl_expr = decl.expr
+        element_type = decl_expr.element_type if decl_expr is not None else None
+        if element_type is None and decl_expr is not None and decl_expr.type_info is not None:
+            ti = decl_expr.type_info
+            element_type = getattr(ti, 'element_type', None) or ti
         if element_type is None and hasattr(node.value, 'type_info') and node.value.type_info:
             ti = node.value.type_info
             element_type = getattr(ti, 'element_type', None) or ti
 
         # Create lowered Einstein clause (range/per-clause only)
-        clause_loc = getattr(node, "location", None)
+        clause_loc = node.location
         clause = LoweredEinsteinClauseIR(
             body=node.value,
             loops=loops,
@@ -937,7 +932,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             # Get range from loop_var_ranges (explicit ranges in reduction)
             range_obj = None
             iterable = None
-            if node.loop_var_ranges and getattr(var_ident, 'defid', None) in node.loop_var_ranges:
+            if node.loop_var_ranges and var_ident.defid in node.loop_var_ranges:
                 range_ir = node.loop_var_ranges[var_ident.defid]
                 # Convert RangeIR to iterable
                 if isinstance(range_ir, RangeIR):
@@ -957,9 +952,9 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                     # Unknown type - try to use as iterable directly
                     iterable = range_ir
 
-            if not iterable and getattr(var_ident, 'defid', None) is not None:
+            if not iterable and var_ident.defid is not None:
                 enc = getattr(self, '_current_einstein_clause', None)
-                if enc and getattr(enc, 'variable_ranges', None):
+                if enc and enc.variable_ranges:
                     vr = enc.variable_ranges
                     did = var_ident.defid
                     range_ir = vr.get(did) or (vr.get((did.krate, did.index)) if hasattr(did, 'krate') else None) or (vr.get((did[0], did[1])) if hasattr(did, '__getitem__') and len(did) >= 2 else None)
@@ -974,19 +969,19 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                         iterable = range_ir
             if iterable:
                 body_defid = defid_of_var_in_expr(node.body, var_name) if node.body else None
-                defid = body_defid or getattr(var_ident, "defid", None)
+                defid = body_defid or var_ident.defid
                 if defid is None:
                     raise ValueError(
                         f"Reduction loop variable '{var_name}' has no defid; runtime cannot bind it. "
                         "Ensure reduction loop vars have defids from name resolution."
                     )
-                loc = getattr(node, 'location', None) or getattr(node.body, 'location', None)
-                ti = getattr(var_ident, 'type_info', None) or PrimitiveType("i32")
+                loc = node.location or (node.body.location if node.body else None)
+                ti = var_ident.type_info or PrimitiveType("i32")
                 var_ident = IdentifierIR(var_name, loc or SourceLocation('', 0, 0), defid=defid, type_info=ti)
                 loops.append(LoopStructure(variable=var_ident, iterable=iterable))
-            elif getattr(var_ident, 'defid', None) is not None:
+            elif var_ident.defid is not None:
                 cur_func = getattr(self, '_current_function', None)
-                func_name = getattr(cur_func, 'name', None) if cur_func else None
+                func_name = cur_func.name if cur_func else None
                 spec_list = getattr(self.tcx, 'specialized_functions', [])
                 is_specialized = cur_func is not None and cur_func in spec_list
                 raise ValueError(
@@ -1007,15 +1002,15 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             loops=loops,
             bindings=bindings,
             guards=guards,
-            location=getattr(node, 'location', None),
-            type_info=getattr(node, 'type_info', None),
+            location=node.location,
+            type_info=node.type_info,
         )
     
     def lower_array_comprehension(self, node: ArrayComprehensionIR) -> Optional[LoweredComprehensionIR]:
         """Lower array comprehension; returns new node (LoweredComprehensionIR) to replace it."""
-        variables = getattr(node, 'variables', None) or []
-        ranges_list = getattr(node, 'ranges', None) or []
-        constraints = getattr(node, 'constraints', None) or []
+        variables = node.variables or []
+        ranges_list = node.ranges or []
+        constraints = node.constraints or []
         if len(variables) != len(ranges_list):
             return None
         # Lower body first (e.g. reductions or nested comprehensions inside body)
@@ -1026,9 +1021,9 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 body = lowered_body
         loops = []
         for i, (var_name, range_ir) in enumerate(zip(variables, ranges_list)):
-            iterable = self._range_to_iterable_ir(range_ir, getattr(node, 'location', None))
+            iterable = self._range_to_iterable_ir(range_ir, node.location)
             defid = None
-            if getattr(node, 'variable_defids', None) and i < len(node.variable_defids):
+            if node.variable_defids and i < len(node.variable_defids):
                 d = node.variable_defids[i]
                 if d is not None:
                     defid = d if hasattr(d, 'krate') else getattr(d, 'defid', None)
@@ -1039,24 +1034,24 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                     f"Array comprehension variable '{var_name}' has no defid; runtime cannot bind it. "
                     "Ensure variable_defids or constraint provides defid."
                 )
-            loc = getattr(node, 'location', None)
+            loc = node.location
             var_ident = IdentifierIR(var_name, loc or SourceLocation('', 0, 0), defid=defid, type_info=PrimitiveType("i32"))
             loops.append(LoopStructure(variable=var_ident, iterable=iterable))
         # Split constraints: assignments (y = expr) -> bindings; rest -> guards.
         bindings = []
         guards = []
         for c in constraints or []:
-            if isinstance(c, BinaryOpIR) and getattr(c, 'operator', None) == BinaryOp.ASSIGN:
-                left, right = getattr(c, 'left', None), getattr(c, 'right', None)
+            if isinstance(c, BinaryOpIR) and c.operator == BinaryOp.ASSIGN:
+                left, right = c.left, c.right
                 if isinstance(left, IdentifierIR):
-                    defid = getattr(left, 'defid', None)
+                    defid = left.defid
                     if defid is None:
                         raise ValueError(
                             f"Where-clause binding '{left.name}' must have defid. "
                             "Ensure name resolution sets defid on constraint left-hand side."
                         )
                     right_lowered = right.accept(self) if right is not None else right
-                    bindings.append(BindingIR(name=left.name, expr=right_lowered if right_lowered is not None else right, defid=defid, location=getattr(c, 'location', None)))
+                    bindings.append(BindingIR(name=left.name, expr=right_lowered if right_lowered is not None else right, defid=defid, location=c.location))
                     continue
             cond_lowered = c.accept(self) if c is not None else c
             guards.append(GuardCondition(cond_lowered if cond_lowered is not None else c))
@@ -1065,7 +1060,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             loops=loops,
             bindings=bindings,
             guards=guards,
-            location=getattr(node, 'location', None),
+            location=node.location,
         )
     
     def _defid_from_in_constraint(self, constraint, variable_name: str) -> Optional[Any]:
@@ -1073,10 +1068,10 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         if not hasattr(constraint, 'left') or not hasattr(constraint, 'operator'):
             return None
         from ..ir.nodes import IdentifierIR
-        op = getattr(constraint, 'operator', None)
+        op = constraint.operator
         is_in = op == 'in' or (getattr(op, 'value', None) == 'in')
         if is_in and isinstance(constraint.left, IdentifierIR) and constraint.left.name == variable_name:
-            return getattr(constraint.left, 'defid', None)
+            return constraint.left.defid
         return None
     
     def _replace_rest_patterns_in_expr(self, expr: ExpressionIR, rest_var_mapping: Dict[str, str]) -> ExpressionIR:
@@ -1226,19 +1221,19 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         from ..ir.nodes import RectangularAccessIR, IdentifierIR, IndexVarIR, LiteralIR, MemberAccessIR
         
         def _name_of(idx_expr):
-            return getattr(idx_expr, "name", None) if (isinstance(idx_expr, (IdentifierIR, IndexVarIR))) else None
+            return idx_expr.name if (isinstance(idx_expr, (IdentifierIR, IndexVarIR))) else None
 
         def _index_expr_uses_var(idx_expr, vname: str) -> bool:
             if idx_expr is None:
                 return False
             if isinstance(idx_expr, (IdentifierIR, IndexVarIR)):
-                return getattr(idx_expr, "name", None) == vname
+                return idx_expr.name == vname
             if isinstance(idx_expr, BinaryOpIR):
-                return _index_expr_uses_var(getattr(idx_expr, "left", None), vname) or _index_expr_uses_var(getattr(idx_expr, "right", None), vname)
+                return _index_expr_uses_var(idx_expr.left, vname) or _index_expr_uses_var(idx_expr.right, vname)
             if hasattr(idx_expr, "operand"):
-                return _index_expr_uses_var(getattr(idx_expr, "operand", None), vname)
+                return _index_expr_uses_var(idx_expr.operand, vname)
             if hasattr(idx_expr, "object") and hasattr(idx_expr, "member"):
-                return _index_expr_uses_var(getattr(idx_expr, "object", None), vname)
+                return _index_expr_uses_var(idx_expr.object, vname)
             return False
         
         # Find all array accesses in the expression
@@ -1324,7 +1319,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         red = self._find_reduction_in_value(value)
         if red is None:
             return None
-        if getattr(red, 'loop_var_ranges', None) and defid in red.loop_var_ranges:
+        if red.loop_var_ranges and defid in red.loop_var_ranges:
             r = red.loop_var_ranges[defid]
             if isinstance(r, RangeIR):
                 return r
@@ -1366,7 +1361,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                     idx.accept(self)
             def visit_jagged_access(self, node) -> None:
                 if node.base: node.base.accept(self)
-                for idx in (getattr(node, 'index_chain', None) or []):
+                for idx in (node.index_chain or []):
                     idx.accept(self)
             def visit_function_call(self, node) -> None:
                 for arg in node.arguments: arg.accept(self)
@@ -1423,7 +1418,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 var_name = var_ident.name
                 # Get range from loop_var_ranges (explicit ranges in reduction)
                 range_obj = None
-                if reduction.loop_var_ranges and getattr(var_ident, 'defid', None) in reduction.loop_var_ranges:
+                if reduction.loop_var_ranges and var_ident.defid in reduction.loop_var_ranges:
                     range_ir = reduction.loop_var_ranges[var_ident.defid]
                     # Convert RangeIR to iterable
                     if isinstance(range_ir, RangeIR):
@@ -1434,13 +1429,13 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                             range_obj = range(start_val, end_val)
                         else:
                             body_defid = defid_of_var_in_expr(reduction.body, var_name) if reduction.body else None
-                            defid = body_defid or getattr(var_ident, "defid", None)
+                            defid = body_defid or var_ident.defid
                             if defid is None:
                                 raise ValueError(
                                     f"Reduction loop var '{var_name}' must have defid. "
                                     "Ensure name resolution sets defid on reduction loop_vars."
                                 )
-                            ti = getattr(var_ident, 'type_info', None) or PrimitiveType("i32")
+                            ti = var_ident.type_info or PrimitiveType("i32")
                             var_ident = IdentifierIR(var_name, location, defid=defid, type_info=ti)
                             reduction_ranges[defid] = LoopStructure(variable=var_ident, iterable=range_ir)
                             continue
@@ -1450,13 +1445,13 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 if range_obj:
                     iterable = self._range_to_iterable_ir(range_obj, location)
                     body_defid = defid_of_var_in_expr(reduction.body, var_name) if reduction.body else None
-                    defid = body_defid or getattr(var_ident, "defid", None)
+                    defid = body_defid or var_ident.defid
                     if defid is None:
                         raise ValueError(
                             f"Reduction loop var '{var_name}' must have defid. "
                             "Ensure name resolution sets defid on reduction loop_vars."
                         )
-                    ti = getattr(var_ident, 'type_info', None) or PrimitiveType("i32")
+                    ti = var_ident.type_info or PrimitiveType("i32")
                     var_ident = IdentifierIR(var_name, location, defid=defid, type_info=ti)
                     reduction_ranges[defid] = LoopStructure(variable=var_ident, iterable=iterable)
         
@@ -1487,7 +1482,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         out = []
         for idx in indices:
             if isinstance(idx, LiteralIR):
-                v = getattr(idx, "value", None)
+                v = idx.value
                 try:
                     extent = int(v) + 1 if v is not None else 1
                 except (TypeError, ValueError):
@@ -1549,7 +1544,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         shape = []
         for loop in loops:
             it = loop.iterable
-            if isinstance(it, LiteralIR) and isinstance(getattr(it, "value", None), range):
+            if isinstance(it, LiteralIR) and isinstance(it.value, range):
                 range_obj = it.value
                 shape.append(LiteralIR(
                     value=range_obj.stop, location=it.location, shape_info=None,
@@ -1558,7 +1553,6 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             elif isinstance(it, RangeIR):
                 shape.append(it.end)
             elif getattr(it, "end", None) is not None:
-                # Any iterable with .end (e.g. RangeIR from another module)
                 shape.append(it.end)
             else:
                 return None
@@ -1567,7 +1561,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
     def _shape_from_clause_indices(self, clause: EinsteinClauseIR, location: SourceLocation) -> Optional[List[ExpressionIR]]:
         """Shape from LHS indices: per-dimension end (exclusive) so union of consecutive clauses is max(ends)."""
         out = []
-        var_ranges = getattr(clause, "variable_ranges", None) or {}
+        var_ranges = clause.variable_ranges or {}
         for idx in (clause.indices or []):
             if isinstance(idx, LiteralIR):
                 try:
@@ -1580,8 +1574,8 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 ))
                 continue
             if isinstance(idx, IndexVarIR):
-                r = getattr(idx, "range_ir", None)
-                if r is None and getattr(idx, "defid", None):
+                r = idx.range_ir
+                if r is None and idx.defid:
                     r = var_ranges.get(idx.defid)
                 if isinstance(r, RangeIR):
                     out.append(r.end)
@@ -1619,7 +1613,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 return int(expr.value)
             except (TypeError, ValueError):
                 return None
-        if getattr(expr, 'end', None) is not None:
+        if expr.end is not None:
             return self._extent_from_shape_expr(expr.end)
         return None
 
@@ -1696,7 +1690,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
     def visit_rectangular_access(self, node) -> Any:
         if node.array is not None:
             node.array = node.array.accept(self)
-        indices = getattr(node, 'indices', None) or []
+        indices = node.indices or []
         new_indices = []
         for idx in indices:
             if idx is None:
@@ -1711,7 +1705,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
     def visit_jagged_access(self, node) -> Any:
         if node.base is not None:
             node.base = node.base.accept(self)
-        chain = getattr(node, 'index_chain', None) or ()
+        chain = node.index_chain or ()
         new_chain = []
         for idx in chain:
             if idx is None:
@@ -1760,7 +1754,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         return node
 
     def visit_block_expression(self, node) -> Any:
-        stmts = getattr(node, 'statements', None) or ()
+        stmts = node.statements or ()
         new_stmts = []
         for stmt in stmts:
             if stmt is None:
@@ -1768,10 +1762,10 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             result = stmt.accept(self)
             if is_einstein_binding(stmt) and isinstance(result, LoweredEinsteinIR):
                 new_stmts.append(BindingIR(
-                    name=getattr(stmt, "name", ""),
+                    name=(stmt.name or ""),
                     expr=result,
-                    location=getattr(stmt, "location", None),
-                    defid=getattr(stmt, "defid", None),
+                    location=stmt.location,
+                    defid=stmt.defid,
                 ))
             else:
                 new_stmts.append(result)
@@ -1801,58 +1795,58 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         return self.lower_reduction_expression(node)
 
     def visit_lowered_reduction(self, node) -> Any:
-        if getattr(node, 'body', None) is not None:
+        if node.body is not None:
             node.body = node.body.accept(self)
-        for loop in getattr(node, 'loops', None) or []:
-            if getattr(loop, 'iterable', None) is not None:
+        for loop in node.loops or []:
+            if loop.iterable is not None:
                 loop.iterable = loop.iterable.accept(self)
-        for loop in getattr(node, 'loops', None) or []:
-            var = getattr(loop, 'variable', None)
+        for loop in node.loops or []:
+            var = loop.variable
             if var is None:
                 continue
             body_defid = defid_of_var_in_expr(node.body, var.name)
-            if body_defid is not None and body_defid != getattr(var, 'defid', None):
-                loc = getattr(var, 'location', None) or SourceLocation('', 0, 0)
-                ti = getattr(var, 'type_info', None)
+            if body_defid is not None and body_defid != var.defid:
+                loc = var.location or SourceLocation('', 0, 0)
+                ti = var.type_info
                 if isinstance(var, IndexVarIR):
-                    new_var = IndexVarIR(var.name, loc, defid=body_defid, range_ir=getattr(var, 'range_ir', None), type_info=ti)
+                    new_var = IndexVarIR(var.name, loc, defid=body_defid, range_ir=var.range_ir, type_info=ti)
                 else:
                     new_var = IdentifierIR(var.name, loc, defid=body_defid, type_info=ti)
                 object.__setattr__(loop, 'variable', new_var)
-        for g in getattr(node, 'guards', None) or []:
-            if getattr(g, 'condition', None) is not None:
+        for g in node.guards or []:
+            if g.condition is not None:
                 g.condition = g.condition.accept(self)
         return node
 
     def visit_lowered_comprehension(self, node) -> Any:
-        if getattr(node, 'body', None) is not None:
+        if node.body is not None:
             node.body = node.body.accept(self)
-        for loop in getattr(node, 'loops', None) or []:
-            if getattr(loop, 'iterable', None) is not None:
+        for loop in node.loops or []:
+            if loop.iterable is not None:
                 loop.iterable = loop.iterable.accept(self)
-        for g in getattr(node, 'guards', None) or []:
-            if getattr(g, 'condition', None) is not None:
+        for g in node.guards or []:
+            if g.condition is not None:
                 g.condition = g.condition.accept(self)
         return node
 
     def visit_lowered_einstein_clause(self, node) -> Any:
-        if getattr(node, 'body', None) is not None:
+        if node.body is not None:
             node.body = node.body.accept(self)
-        for loop in getattr(node, 'loops', None) or []:
-            if getattr(loop, 'iterable', None) is not None:
+        for loop in node.loops or []:
+            if loop.iterable is not None:
                 loop.iterable = loop.iterable.accept(self)
-        for b in getattr(node, 'bindings', None) or []:
-            if getattr(b, 'value', None) is not None:
+        for b in node.bindings or []:
+            if b.value is not None:
                 b.value = b.value.accept(self)
-        for g in getattr(node, 'guards', None) or []:
-            if getattr(g, 'condition', None) is not None:
+        for g in node.guards or []:
+            if g.condition is not None:
                 g.condition = g.condition.accept(self)
         return node
 
     def visit_lowered_einstein(self, node) -> Any:
-        for item in getattr(node, 'items', None) or []:
+        for item in node.items or []:
             item.accept(self)
-        if getattr(node, 'shape', None) is not None:
+        if node.shape is not None:
             if isinstance(node.shape, (list, tuple)):
                 for s in node.shape:
                     if s is not None:
@@ -1869,7 +1863,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             return node
         if isinstance(node.expr, ReductionExpressionIR):
             lowered = self.lower_reduction_expression(node.expr)
-            if lowered and getattr(node, 'constraints', None):
+            if lowered and node.constraints:
                 outer_guards = [GuardCondition(condition=c) for c in node.constraints]
                 lowered.guards = tuple(lowered.guards) + tuple(outer_guards)
             return lowered
@@ -1880,7 +1874,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         if node.expr is not None:
             orig = node.expr
             node.expr = orig.accept(self)
-            if getattr(node.expr, 'type_info', None) is None and getattr(orig, 'type_info', None) is not None:
+            if node.expr.type_info is None and orig.type_info is not None:
                 node.expr.type_info = orig.type_info
         return node
 

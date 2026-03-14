@@ -333,7 +333,7 @@ class TestEinsteinLoweringIntegration:
         
         result = compile_and_execute(source, compiler, runtime)
         if not result.success:
-            errs = result.get_errors() if hasattr(result, "get_errors") else []
+            errs = result.get_errors()
             err_str = " ".join(str(e) for e in errs).lower()
             if "defid" in err_str or "identifier" in err_str:
                 pytest.skip("Name resolution for Einstein index in recurrence not yet supported")

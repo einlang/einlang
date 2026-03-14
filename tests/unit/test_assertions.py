@@ -6,7 +6,7 @@ Tests execute and check that assert properly handles all data types using system
 
 import pytest
 import numpy as np
-from tests.test_utils import compile_and_execute
+from tests.test_utils import compile_and_execute, ExecutionResult
 
 
 class TestAssertions:
@@ -17,13 +17,13 @@ class TestAssertions:
         result = compile_and_execute(source, compiler, runtime)
         assert result.success, f"Execution failed: {result.errors}"
         
-        if expected_result is not None and hasattr(result, 'outputs'):
+        if expected_result is not None and isinstance(result, ExecutionResult):
             variables = result.outputs
             # Check if any variable matches expected result
             for var_name, var_value in variables.items():
                 if var_value == expected_result:
                     return variables
-        return result.outputs if hasattr(result, 'outputs') else {}
+        return result.outputs if isinstance(result, ExecutionResult) else {}
     
     def test_scalar_assertions(self, compiler, runtime):
         """Test assert with scalar values - concatenated for speed"""

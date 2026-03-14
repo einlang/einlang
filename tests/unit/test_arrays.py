@@ -5,7 +5,7 @@ Tests execute and check results to ensure complete array coverage using system.
 """
 
 import pytest
-from tests.test_utils import compile_and_execute
+from tests.test_utils import compile_and_execute, ExecutionResult
 
 
 class TestArrays:
@@ -17,13 +17,13 @@ class TestArrays:
         # Always check exec.result.success unless it is a negative test
         assert result.success, f"Execution failed: {result.errors}"
         
-        if expected_result is not None and hasattr(result, 'outputs'):
+        if expected_result is not None and isinstance(result, ExecutionResult):
             variables = result.outputs
             # Check if any variable matches expected result
             for var_name, var_value in variables.items():
                 if var_value == expected_result:
                     return variables
-        return result.outputs if hasattr(result, 'outputs') else {}
+        return result.outputs if isinstance(result, ExecutionResult) else {}
     
     def test_array_access(self, compiler, runtime):
         """Test array indexing"""

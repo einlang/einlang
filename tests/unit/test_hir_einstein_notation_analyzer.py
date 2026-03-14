@@ -18,15 +18,12 @@ class TestEinsteinNotationAnalyzer:
         """
         
         # Uses compile() API
-        if hasattr(compiler, "compile"):
-            result = compiler.compile(source, "<test>")
-        else:
-            result = compiler.analyze(source)
+        result = compiler.compile(source, "<test>")
         assert result is not None
-        errs = result.get_errors() if hasattr(result, "get_errors") else getattr(result, "errors", [])
+        errs = result.get_errors()
         assert result.success, f"Compilation should succeed: {errs}"
         # Uses .ir attribute
-        assert getattr(result, "ir", None) is not None or getattr(result, "program", None) is not None, "Result should have IR/program"
+        assert result.ir is not None, "Result should have IR"
     
     def test_validate_reductions(self, compiler):
         """Test reduction validation using system"""
@@ -36,15 +33,12 @@ class TestEinsteinNotationAnalyzer:
         let A[i in 0..5] = sum[j](B[i,j]);
         """
         
-        if hasattr(compiler, "compile"):
-            result = compiler.compile(source, "<test>")
-        else:
-            result = compiler.analyze(source)
+        result = compiler.compile(source, "<test>")
         assert result is not None
-        errs = result.get_errors() if hasattr(result, "get_errors") else getattr(result, "errors", [])
+        errs = result.get_errors()
         assert result.success, f"Compilation should succeed: {errs}"
-        assert getattr(result, "ir", None) is not None or getattr(result, "program", None) is not None, "Result should have IR/program"
-    
+        assert result.ir is not None, "Result should have IR"
+
     def test_has_einstein_notation_in_expression(self, compiler):
         """Test Einstein notation detection in expressions using system"""
         # Test through compilation system (NEW SYNTAX: explicit reduction)
@@ -54,15 +48,12 @@ class TestEinsteinNotationAnalyzer:
         let A[i in 0..5, j in 0..3] = sum[k](B[i,k] * C[k,j]);
         """
         
-        if hasattr(compiler, "compile"):
-            result = compiler.compile(source, "<test>")
-        else:
-            result = compiler.analyze(source)
+        result = compiler.compile(source, "<test>")
         assert result is not None
-        errs = result.get_errors() if hasattr(result, "get_errors") else getattr(result, "errors", [])
+        errs = result.get_errors()
         assert result.success, f"Compilation should succeed: {errs}"
-        assert getattr(result, "ir", None) is not None or getattr(result, "program", None) is not None, "Result should have IR/program"
-    
+        assert result.ir is not None, "Result should have IR"
+
     def test_einstein_notation_analyzer_with_execution(self, compiler, runtime):
         """Test Einstein notation analyzer with execution using system"""
         # Test execution through system
@@ -76,10 +67,10 @@ class TestEinsteinNotationAnalyzer:
         assert result.success, f"Execution should succeed: {result.get_errors()}"
         
         # Check execution results
-        assert hasattr(result, 'outputs'), "Execution result should have outputs attribute"
+        assert result.outputs is not None, "Execution result should have outputs attribute"
         
         # Verify tensor was created
-        if hasattr(result, 'outputs') and result.outputs:
+        if result.outputs:
             assert 'A' in result.outputs, "Variable A should be created"
             tensor_A = result.outputs['A']
             assert len(tensor_A) >= 2, "Tensor A should have at least 2 rows"
@@ -92,13 +83,10 @@ class TestEinsteinNotationAnalyzer:
         let A[i in 0..5, j in 0..3] = 1.0  # New syntax: domain definitions inline (missing semicolon)
         """
         
-        if hasattr(compiler, "compile"):
-            result = compiler.compile(invalid_source, "<test>")
-        else:
-            result = compiler.analyze(invalid_source)
+        result = compiler.compile(invalid_source, "<test>")
         assert result is not None
         if not result.success:
-            errs = result.get_errors() if hasattr(result, "get_errors") else getattr(result, "errors", [])
+            errs = result.get_errors()
             assert len(errs) > 0, "Should have error messages for invalid syntax"
     
 
