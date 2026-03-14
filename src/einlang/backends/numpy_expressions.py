@@ -1110,7 +1110,7 @@ class ExpressionVisitorMixin:
                 dtype = converter(el)
         if dtype is None and expr.elements:
             for e in expr.elements:
-                v = getattr(e, "value", None)
+                v = (e.value if isinstance(e, LiteralIR) else None)
                 if v is not None and isinstance(v, (float, np.floating)):
                     dtype = np.float32
                     break

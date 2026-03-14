@@ -477,7 +477,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     def visit_identifier(self, ast_id: ASTIdentifier) -> IdentifierIR:
         """Lower identifier - defid from name resolution only (no name handling here)."""
         location = self._get_source_location(ast_id)
-        name = ast_id.name if isinstance(ast_id.name, str) else getattr(ast_id.name, 'value', str(ast_id.name))
+        name = ast_id.name if isinstance(ast_id.name, str) else (ast_id.name.value if hasattr(ast_id.name, 'value') else str(ast_id.name))
         defid = ast_id.defid
         return IdentifierIR(name=name, location=location, defid=defid)
     
@@ -806,7 +806,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         location = self._get_source_location(ast_lambda)
 
         parameters = []
-        param_defids = getattr(ast_lambda, '_param_defids', {}) or {}
+        param_defids = (ast_lambda._param_defids if hasattr(ast_lambda, '_param_defids') else {}) or {}
         for param_name in ast_lambda.parameters:
             param_defid = param_defids.get(param_name)
             parameters.append(ParameterIR(
@@ -854,8 +854,8 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             file=loc.file,
             line=loc.line,
             column=loc.column,
-            end_line=getattr(loc, 'end_line', loc.line),
-            end_column=getattr(loc, 'end_column', loc.column)
+            end_line=loc.end_line if hasattr(loc, 'end_line') else loc.line,
+            end_column=loc.end_column if hasattr(loc, 'end_column') else loc.column
         )
     
     # Required visitor methods (ASTVisitor interface) - Expression visitors
@@ -1158,7 +1158,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             raise RuntimeError(
                 f"Failed to lower pipeline right expression: expected ExpressionIR, got {type(right_ir).__name__} at {location}"
             )
-        op = getattr(node.operator, 'value', str(node.operator)) if hasattr(node, 'operator') and node.operator else "|>"
+        op = (node.operator.value if hasattr(node.operator, 'value') else str(node.operator)) if hasattr(node, 'operator') and node.operator else "|>"
         return PipelineExpressionIR(
             left=left_ir,
             right=right_ir,
@@ -1244,7 +1244,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                         
                         # Add variables and their ranges
                         for var_name in group.variables:
-                            v = var_name if isinstance(var_name, str) else getattr(var_name, 'value', str(var_name))
+                            v = var_name if isinstance(var_name, str) else (var_name.value if hasattr(var_name, 'value') else str(var_name))
                             loop_vars.append(v)
                             if range_ir:
                                 loop_var_ranges[v] = range_ir
@@ -1261,10 +1261,10 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 where_clause_ir = WhereClauseIR(constraints=constraints_ir)
         
         # Get operation name from function_name (AST uses function_name, IR uses operation)
-        operation = getattr(node, 'operation', None)
+        operation = node.operation if hasattr(node, 'operation') else None
         if operation is None:
             # Fallback to function_name if operation doesn't exist
-            function_name = getattr(node, 'function_name', 'sum')
+            function_name = node.function_name if hasattr(node, 'function_name') else 'sum'
             if hasattr(function_name, 'value'):
                 function_name = function_name.value
             operation = str(function_name).lower()  # Normalize to lowercase
@@ -1272,7 +1272,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             operation = operation.value
 
         # DefId: copy from AST (name resolution sets _reduction_loop_var_defids and body identifiers' defid); one-to-one in visit_identifier.
-        reduction_loop_var_defids = getattr(node, '_reduction_loop_var_defids', None) or {}
+        reduction_loop_var_defids = (node._reduction_loop_var_defids if hasattr(node, '_reduction_loop_var_defids') else None) or {}
         loop_var_idents = [
             IdentifierIR(
                 name,
@@ -1628,7 +1628,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 return self.visit_range_pattern(pattern_node)
         location = self._get_source_location(pattern_node) if hasattr(pattern_node, 'location') else self._get_default_location()
         raise RuntimeError(
-            f"Unknown pattern type: {getattr(pattern_node, 'node_type', '?')} at {location}"
+            f"Unknown pattern type: {(pattern_node.node_type if hasattr(pattern_node, 'node_type') else '?')} at {location}"
         )
     
     def _get_default_location(self) -> SourceLocation:
@@ -1680,7 +1680,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
 
             for index, annotated_var in enumerate(node.pattern.variables):
                 var_name = annotated_var.name
-                var_defid = getattr(annotated_var, 'defid', None)
+                var_defid = annotated_var.defid if hasattr(annotated_var, 'defid') else None
                 temp_identifier = IdentifierIR(
                     name=temp_name,
                     location=location,

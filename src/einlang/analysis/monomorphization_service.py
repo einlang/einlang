@@ -249,8 +249,10 @@ class MonomorphizationService:
         from ..shared.nodes import FunctionDefinition
         if is_function_binding(definition) or isinstance(definition, FunctionDefinition):
             for param in definition.parameters:
-                param_type = getattr(param, "param_type", None) or getattr(
-                    param, "type_annotation", None
+                param_type = (
+                    param.param_type
+                    if isinstance(param, ParameterIR)
+                    else getattr(param, "type_annotation", None)
                 )
                 if param_type is None:
                     return True
@@ -514,8 +516,7 @@ class MonomorphizationService:
                     new_func = result_ir.functions[0]
                     if new_func is not specialized_func and new_func.defid == specialized_func.defid:
                         object.__setattr__(specialized_func.expr, "body", new_func.body or specialized_func.body)
-                        if hasattr(specialized_func, "return_type"):
-                            object.__setattr__(specialized_func.expr, "return_type", new_func.return_type or specialized_func.return_type)
+                        object.__setattr__(specialized_func.expr, "return_type", new_func.return_type or specialized_func.return_type)
                         object.__setattr__(mini, 'statements', [specialized_func])
                         object.__setattr__(mini, 'bindings', [specialized_func])
                     else:

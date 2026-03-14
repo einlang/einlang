@@ -133,17 +133,17 @@ def _ir_data_equal_diff(
 
 def apply_ir_round_trip(compilation_result: Any) -> Any:
     """Replace IR with serialize->deserialize round-trip. Preserves all info used by runtime. Modifies in place."""
-    if not getattr(compilation_result, "success", True):
+    if not compilation_result.success:
         return compilation_result
-    ir = getattr(compilation_result, "ir", None) or getattr(compilation_result, "ir_program", None)
+    ir = (compilation_result.ir if hasattr(compilation_result, "ir") else None) or (compilation_result.ir_program if hasattr(compilation_result, "ir_program") else None)
     if ir is None:
         return compilation_result
     from einlang.ir.serialization import serialize_ir, deserialize_ir
     _ser_opts = {"pretty": False, "include_type_info": True, "include_location": True}
     sexpr_str = serialize_ir(ir, **_ser_opts)
     round_tripped = deserialize_ir(sexpr_str)
-    if getattr(round_tripped, "source_files", None) is None or not getattr(round_tripped, "source_files", {}):
-        sf = getattr(ir, "source_files", None)
+    if round_tripped.source_files is None or not round_tripped.source_files:
+        sf = ir.source_files
         if sf:
             round_tripped.source_files = sf
     _diff = _ir_data_equal_diff(round_tripped, ir, "ProgramIR")
@@ -158,8 +158,8 @@ def apply_ir_round_trip(compilation_result: Any) -> Any:
         sys.stderr.write("=== round-tripped (repr, first %d chars) ===\n" % _max)
         sys.stderr.write(_rt_r[:_max] + ("\n... truncated\n" if len(_rt_r) > _max else "\n"))
         assert False, "round-trip must preserve data: %s" % _diff
-    orig_stmts = getattr(ir, "statements", None) or []
-    rt_stmts = getattr(round_tripped, "statements", None) or []
+    orig_stmts = ir.statements or []
+    rt_stmts = round_tripped.statements or []
     for i in range(min(len(orig_stmts), len(rt_stmts))):
         orig, rt = orig_stmts[i], rt_stmts[i]
         orig_defid = getattr(orig, "defid", None)

@@ -183,7 +183,7 @@ class TestEinsteinLoweringPass:
                 find_lowered_einstein(node.right)
             if hasattr(node, 'body'):
                 find_lowered_einstein(node.body)
-            if isinstance(node, LoweredEinsteinIR) and getattr(node, 'items', None):
+            if isinstance(node, LoweredEinsteinIR) and node.items:
                 for clause in node.items:
                     find_lowered_einstein(clause)
         
@@ -208,13 +208,13 @@ class TestEinsteinLoweringPass:
         
         lowered_clauses_or_loops = []
         def find_loops(node):
-            if isinstance(node, LoweredEinsteinIR) and getattr(node, 'items', None):
+            if isinstance(node, LoweredEinsteinIR) and node.items:
                 for clause in node.items:
-                    if getattr(clause, 'loops', None):
+                    if clause.loops:
                         lowered_clauses_or_loops.append(clause)
             if is_einstein_binding(node) and getattr(node, 'lowered_iteration', None):
                 lo = node.lowered_iteration
-                if getattr(lo, 'loops', None):
+                if lo.loops:
                     lowered_clauses_or_loops.append(lo)
             if hasattr(node, 'value'):
                 find_loops(node.value)
@@ -416,13 +416,13 @@ class TestEinsteinLoweringPassIntegration:
         
         loops_list = []
         def find_loops(node):
-            if isinstance(node, LoweredEinsteinIR) and getattr(node, 'items', None):
+            if isinstance(node, LoweredEinsteinIR) and node.items:
                 for clause in node.items:
-                    if getattr(clause, 'loops', None):
+                    if clause.loops:
                         loops_list.append(clause.loops)
             if is_einstein_binding(node) and getattr(node, 'lowered_iteration', None):
                 lo = node.lowered_iteration
-                if getattr(lo, 'loops', None):
+                if lo.loops:
                     loops_list.append(lo.loops)
             if hasattr(node, 'value'):
                 find_loops(node.value)

@@ -44,7 +44,7 @@ class TestEinsteinAnalyzer:
             result = compiler.analyze(invalid_source)
         assert result is not None
         if not result.success:
-            errs = result.get_errors() if hasattr(result, "get_errors") else getattr(result, "errors", [])
+            errs = result.get_errors()
             assert len(errs) > 0, "Should have error messages for invalid syntax"
     
 

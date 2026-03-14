@@ -383,7 +383,7 @@ class _ClauseBodySummaryVisitor(IRVisitor[str]):
 
     def visit_binary_op(self, node: Any) -> str:
         op = node.operator
-        op_str = str(getattr(op, "name", op)) if op is not None else "?"
+        op_str = str(op.name) if op is not None else "?"
         left = node.left.accept(_ClauseBodySummaryVisitor(15)) if node.left is not None else "?"
         right = node.right.accept(_ClauseBodySummaryVisitor(15)) if node.right is not None else "?"
         return f"{left} {op_str} {right}"[:self._max_len]
@@ -406,7 +406,7 @@ class _ClauseBodySummaryVisitor(IRVisitor[str]):
 
     def visit_unary_op(self, node: Any) -> str:
         op = node.operator
-        op_str = str(getattr(op, "name", op)) if op is not None else "?"
+        op_str = str(op.name) if op is not None else "?"
         inner = node.operand.accept(_ClauseBodySummaryVisitor(20)) if node.operand is not None else "?"
         return f"{op_str}({inner})"[:self._max_len]
 
@@ -3257,7 +3257,7 @@ class EinsteinExecutionMixin:
             return dtype
         if clause_body is None:
             return np.int32
-        type_info = getattr(clause_body, "type_info", None)
+        type_info = clause_body.type_info
         if type_info is not None:
             dtype = self._type_info_to_numpy_dtype(type_info)
             if dtype is not None:

@@ -23,10 +23,10 @@ class TestEinsteinNotationAnalyzer:
         else:
             result = compiler.analyze(source)
         assert result is not None
-        errs = result.get_errors() if hasattr(result, "get_errors") else getattr(result, "errors", [])
+        errs = result.get_errors()
         assert result.success, f"Compilation should succeed: {errs}"
         # Uses .ir attribute
-        assert getattr(result, "ir", None) is not None or getattr(result, "program", None) is not None, "Result should have IR/program"
+        assert result.ir is not None, "Result should have IR"
     
     def test_validate_reductions(self, compiler):
         """Test reduction validation using system"""
@@ -41,10 +41,10 @@ class TestEinsteinNotationAnalyzer:
         else:
             result = compiler.analyze(source)
         assert result is not None
-        errs = result.get_errors() if hasattr(result, "get_errors") else getattr(result, "errors", [])
+        errs = result.get_errors()
         assert result.success, f"Compilation should succeed: {errs}"
-        assert getattr(result, "ir", None) is not None or getattr(result, "program", None) is not None, "Result should have IR/program"
-    
+        assert result.ir is not None, "Result should have IR"
+
     def test_has_einstein_notation_in_expression(self, compiler):
         """Test Einstein notation detection in expressions using system"""
         # Test through compilation system (NEW SYNTAX: explicit reduction)
@@ -59,10 +59,10 @@ class TestEinsteinNotationAnalyzer:
         else:
             result = compiler.analyze(source)
         assert result is not None
-        errs = result.get_errors() if hasattr(result, "get_errors") else getattr(result, "errors", [])
+        errs = result.get_errors()
         assert result.success, f"Compilation should succeed: {errs}"
-        assert getattr(result, "ir", None) is not None or getattr(result, "program", None) is not None, "Result should have IR/program"
-    
+        assert result.ir is not None, "Result should have IR"
+
     def test_einstein_notation_analyzer_with_execution(self, compiler, runtime):
         """Test Einstein notation analyzer with execution using system"""
         # Test execution through system
@@ -98,7 +98,7 @@ class TestEinsteinNotationAnalyzer:
             result = compiler.analyze(invalid_source)
         assert result is not None
         if not result.success:
-            errs = result.get_errors() if hasattr(result, "get_errors") else getattr(result, "errors", [])
+            errs = result.get_errors()
             assert len(errs) > 0, "Should have error messages for invalid syntax"
     
 

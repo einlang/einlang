@@ -70,9 +70,9 @@ def _compile(source: str, stop_after: str) -> ProgramIR:
 def _collect_bindings(ir: ProgramIR) -> dict:
     """Return {name: binding_node} for every top-level BindingIR in the program."""
     out = {}
-    for stmt in getattr(ir, "statements", []) or []:
+    for stmt in (ir.statements or []):
         if isinstance(stmt, BindingIR):
-            name = getattr(stmt, "name", None)
+            name = stmt.name
             if name:
                 out[name] = stmt
     return out
@@ -104,7 +104,7 @@ def _prim_name(type_obj) -> str:
     """Return lowercase primitive name ('f32', 'i32', …) or '' if unresolvable."""
     if type_obj is None:
         return "<None>"
-    return getattr(type_obj, "name", str(type_obj)).lower()
+    return type_obj.name.lower()
 
 
 # ---------------------------------------------------------------------------

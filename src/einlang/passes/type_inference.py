@@ -1547,10 +1547,11 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         """Extract a single int from a shape dimension expression (LiteralIR, or RangeIR.end as literal)."""
         if expr is None:
             return None
-        v = getattr(expr, 'value', None)
-        if isinstance(v, int):
-            return v
-        if hasattr(expr, 'end'):
+        if isinstance(expr, LiteralIR):
+            v = expr.value
+            if isinstance(v, int):
+                return v
+        if isinstance(expr, RangeIR) and expr.end is not None:
             return self._extract_int_from_shape_expr(expr.end)
         return None
 
@@ -1934,12 +1935,18 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             if names is None or (expr.name and expr.name in names):
                 out.append((expr.defid, expr.name))
             return out
-        for attr in ('left', 'right', 'operand', 'body', 'expr', 'condition', 'then_expr', 'else_expr', 'value'):
+        _single_attrs = (
+            ('left', lambda e: e.left), ('right', lambda e: e.right), ('operand', lambda e: e.operand),
+            ('body', lambda e: e.body), ('expr', lambda e: e.expr), ('condition', lambda e: e.condition),
+            ('then_expr', lambda e: e.then_expr), ('else_expr', lambda e: e.else_expr), ('value', lambda e: e.value),
+        )
+        for attr, getter in _single_attrs:
             if hasattr(expr, attr):
-                out.extend(self._collect_identifier_defids_in_expr(getattr(expr, attr), names))
-        for attr in ('arguments', 'indices', 'elements'):
+                out.extend(self._collect_identifier_defids_in_expr(getter(expr), names))
+        _list_attrs = (('arguments', lambda e: e.arguments), ('indices', lambda e: e.indices), ('elements', lambda e: e.elements))
+        for attr, getter in _list_attrs:
             if hasattr(expr, attr):
-                for sub in getattr(expr, attr) or []:
+                for sub in getter(expr) or []:
                     if isinstance(sub, list):
                         for s in sub:
                             out.extend(self._collect_identifier_defids_in_expr(s, names))

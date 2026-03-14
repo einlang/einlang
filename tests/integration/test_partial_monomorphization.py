@@ -53,17 +53,14 @@ class TestPartialSpecializationPrecisionOnly:
         result = compile_and_execute(source, compiler, runtime)
         
         if not result.success:
-            errors = result.get_errors() if hasattr(result, 'get_errors') else []
-            pytest.fail(f"Execution failed: {errors}")
+            pytest.fail(f"Execution failed: {result.get_errors()}")
         
         # Check if result is in outputs
-        if hasattr(result, 'outputs') and 'result' in result.outputs:
+        if 'result' in result.outputs:
             actual = result.outputs['result']
             assert actual == 20, f"Expected 20, got {actual} (type: {type(actual)})"
         else:
-            # Debug: print what we got
-            outputs = getattr(result, 'outputs', {})
-            pytest.fail(f"Result not found in outputs. Available outputs: {list(outputs.keys())}, Outputs: {outputs}")
+            pytest.fail(f"Result not found in outputs. Available outputs: {list(result.outputs.keys())}, Outputs: {result.outputs}")
 
 
 class TestPartialSpecializationRankOnly:
@@ -168,15 +165,12 @@ class TestNestedGenericCalls:
         result = compile_and_execute(source, compiler, runtime)
 
         if not result.success:
-            errors = result.get_errors() if hasattr(result, 'get_errors') else []
-            pytest.fail(f"Execution failed: {errors}")
+            pytest.fail(f"Execution failed: {result.get_errors()}")
 
         # Check if result is in outputs
-        if hasattr(result, 'outputs') and 'result' in result.outputs:
+        if 'result' in result.outputs:
             actual = result.outputs['result']
             assert actual == 42, f"Expected 42, got {actual} (type: {type(actual)})"
         else:
-            # Debug: print what we got
-            outputs = getattr(result, 'outputs', {})
-            pytest.fail(f"Result not found in outputs. Available outputs: {list(outputs.keys())}, Outputs: {outputs}")
+            pytest.fail(f"Result not found in outputs. Available outputs: {list(result.outputs.keys())}, Outputs: {result.outputs}")
 

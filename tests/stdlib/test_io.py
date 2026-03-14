@@ -61,7 +61,7 @@ class TestIOModule:
             x;
             '''
             result = compile_and_execute(source, compiler, runtime)
-            assert result.success, getattr(result, "errors", result.error)
+            assert result.success, result.errors or result.error
             out = np.load(path_out)
             np.testing.assert_array_almost_equal(out, arr)
             if result.value is not None:
