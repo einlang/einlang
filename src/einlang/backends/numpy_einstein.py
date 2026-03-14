@@ -14,6 +14,7 @@ from ..ir.nodes import (
     IRVisitor, BindingIR,
 )
 from ..shared.defid import DefId
+from ..shared.optional_attr import opt_defid
 from ..shared.types import BinaryOp
 from ..utils.config import DEFAULT_EINSTEIN_LOOP_MAX
 from .numpy_helpers import _reject_non_lowered
@@ -2787,7 +2788,7 @@ def _try_slice_vectorize_if_clause(
     try:
         if isinstance(bound_side, LiteralIR):
             bound = int(getattr(bound_side, "value", 0))
-        elif getattr(bound_side, "defid", None) is not None:
+        elif opt_defid(bound_side) is not None:
             bound = backend.env.get_value(bound_side.defid)
             bound = int(bound) if bound is not None else None
         else:
@@ -3921,7 +3922,7 @@ class EinsteinExecutionMixin:
         pre_allocated_output: Optional[Any] = None,
     ) -> Any:
         from ..runtime.compute.lowered_execution import execute_lowered_loops, execute_lowered_bindings, check_lowered_guards
-        loc = lowered.location or getattr(variable_decl, "location", None)
+        loc = lowered.location or variable_decl.location
         line = int(getattr(loc, "line", 0) or 0)
         _clause_name = (
             getattr(variable_decl, "name", None)

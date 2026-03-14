@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from ..passes.base import BasePass, TyCtxt
 from ..ir.nodes import ProgramIR, BindingIR
 from ..shared.defid import DefType, Resolver, DefId, FIXED_BUILTIN_ORDER, fixed_builtin_defid
+from ..shared.optional_attr import opt_defid
 from ..shared.scope import ScopeManager, ScopeKind, Binding, BindingType, ScopeRedefinitionError
 from ..analysis.module_system.path_resolver import MODULE_SEPARATOR
 from ..analysis.module_system.module_loader import _read_file_cached
@@ -555,7 +556,7 @@ class NameResolutionPass(BasePass):
             for param in func.parameters:
                 if func_scope:
                     if func_scope.defined_in_this_scope(param.name):
-                        loc = getattr(param, "location", None)
+                        loc = param.location
                         tcx.reporter.report_error(f"duplicate parameter '{param.name}'", loc)
                     else:
                         param_defid = resolver.allocate_for_local()
@@ -587,7 +588,7 @@ class NameResolutionPass(BasePass):
             if scope.defined_in_this_scope(const.name):
                 existing = scope._get_binding_in_this_scope(const.name)
                 if getattr(existing, "module_path", None) is None:
-                    loc = getattr(const, "location", None)
+                    loc = const.location
                     tcx.reporter.report_error(f"redefinition of '{const.name}' in same scope", loc)
                     object.__setattr__(const, 'defid', defid)
                     return
@@ -621,7 +622,7 @@ class NameResolutionPass(BasePass):
             if scope.defined_in_this_scope(const.name):
                 existing = scope._get_binding_in_this_scope(const.name)
                 if getattr(existing, "module_path", None) is None:
-                    loc = getattr(const, "location", None)
+                    loc = const.location
                     tcx.reporter.report_error(f"redefinition of '{const.name}' in same scope", loc)
                     object.__setattr__(const, 'defid', defid)
                     return
@@ -895,7 +896,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                 param_name = param.name if isinstance(param.name, str) else getattr(param.name, 'value', str(param.name))
                 param_name = str(param_name)
                 if func_scope and func_scope.defined_in_this_scope(param_name):
-                    loc = getattr(param, "location", None)
+                    loc = param.location
                     if self.tcx and self.tcx.reporter:
                         self.tcx.reporter.report_error(f"duplicate parameter '{param_name}'", loc)
                     raise ValueError(
@@ -2174,7 +2175,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                 except Exception as e:
                     pass
         
-        if self.tcx and self.tcx.reporter and getattr(node, 'defid', None) is None:
+        if self.tcx and self.tcx.reporter and opt_defid(node) is None:
             from ..analysis.module_system.path_resolver import MODULE_SEPARATOR
             if module_path and len(module_path) > 0 and module_path[0] == 'std':
                 self.tcx.reporter.report_error(

@@ -1353,7 +1353,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             start_ir = range_expr.start.accept(self) if range_expr.start else None
             end_ir = range_expr.end.accept(self) if range_expr.end else None
             if isinstance(start_ir, ExpressionIR) and isinstance(end_ir, ExpressionIR):
-                range_ir = RangeIR(start=start_ir, end=end_ir, location=location or getattr(range_expr, "location", None))
+                range_ir = RangeIR(start=start_ir, end=end_ir, location=location or range_expr.location)
         return IndexVarIR(
             name=node.name,
             location=location,
