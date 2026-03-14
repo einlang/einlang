@@ -77,7 +77,7 @@ class _BodyContainsLowerableVisitor(IRVisitor[bool]):
         self._seen.add(node)
         if is_einstein_binding(node):
             return True
-        return self._recurse(getattr(node, "value", None), getattr(node, "expr", None))
+        return self._recurse(node.value, node.expr)
 
     def visit_block_expression(self, node: BlockExpressionIR) -> bool:
         if node in self._seen:
@@ -107,10 +107,7 @@ class _BodyContainsLowerableVisitor(IRVisitor[bool]):
         if node in self._seen:
             return False
         self._seen.add(node)
-        return self._recurse(
-            getattr(node, "expr", None),
-            *(getattr(node, "constraints", None) or []),
-        )
+        return self._recurse(node.expr, *(node.constraints or []))
 
     def visit_rectangular_access(self, node: RectangularAccessIR) -> bool:
         if node in self._seen:
@@ -155,28 +152,25 @@ class _BodyContainsLowerableVisitor(IRVisitor[bool]):
         if node in self._seen:
             return False
         self._seen.add(node)
-        return self._recurse(getattr(node, "expr", None))
+        return self._recurse(node.expr)
 
     def visit_tuple_expression(self, node: Any) -> bool:
         if node in self._seen:
             return False
         self._seen.add(node)
-        return self._recurse(*(getattr(node, "elements", None) or []))
+        return self._recurse(*(node.elements or []))
 
     def visit_tuple_access(self, node: Any) -> bool:
         if node in self._seen:
             return False
         self._seen.add(node)
-        return self._recurse(getattr(node, "tuple_expr", None))
+        return self._recurse(node.tuple_expr)
 
     def visit_match_expression(self, node: Any) -> bool:
         if node in self._seen:
             return False
         self._seen.add(node)
-        return self._recurse(
-            getattr(node, "scrutinee", None),
-            *(getattr(node, "arms", None) or []),
-        )
+        return self._recurse(node.scrutinee, *(node.arms or []))
 
     def visit_jagged_access(self, node: Any) -> bool:
         if node in self._seen:
@@ -239,7 +233,7 @@ class _BodyContainsLowerableVisitor(IRVisitor[bool]):
         if node in self._seen:
             return False
         self._seen.add(node)
-        return self._recurse(getattr(node, "body", None))
+        return self._recurse(node.body)
 
     def visit_einstein(self, node: Any) -> bool:
         return False
@@ -581,80 +575,80 @@ class _HasUnexpandedRestVisitor(IRVisitor[bool]):
         return False
 
     def visit_index_var(self, node: IndexVarIR) -> bool:
-        return self._any(getattr(node, "range_ir", None))
+        return self._any(node.range_ir)
 
     def visit_jagged_access(self, node: Any) -> bool:
-        if self._any(getattr(node, "base", None)):
+        if self._any(node.base):
             return True
-        for idx in getattr(node, "index_chain", None) or []:
+        for idx in (node.index_chain or []):
             if self._any(idx):
                 return True
         return False
 
     def visit_block_expression(self, node: Any) -> bool:
-        for stmt in getattr(node, "statements", None) or []:
+        for stmt in (node.statements or []):
             if self._any(stmt):
                 return True
-        return self._any(getattr(node, "final_expr", None))
+        return self._any(node.final_expr)
 
     def visit_if_expression(self, node: Any) -> bool:
         return (
-            self._any(getattr(node, "condition", None))
-            or self._any(getattr(node, "then_expr", None))
-            or self._any(getattr(node, "else_expr", None))
+            self._any(node.condition)
+            or self._any(node.then_expr)
+            or self._any(node.else_expr)
         )
 
     def visit_lambda(self, node: Any) -> bool:
-        return self._any(getattr(node, "body", None))
+        return self._any(node.body)
 
     def visit_range(self, node: Any) -> bool:
-        return self._any(getattr(node, "start", None)) or self._any(getattr(node, "end", None))
+        return self._any(node.start) or self._any(node.end)
 
     def visit_array_comprehension(self, node: Any) -> bool:
-        return self._any(getattr(node, "body", None))
+        return self._any(node.body)
 
     def visit_module(self, node: Any) -> bool:
         return False
 
     def visit_array_literal(self, node: Any) -> bool:
-        for e in getattr(node, "elements", None) or []:
+        for e in (node.elements or []):
             if self._any(e):
                 return True
         return False
 
     def visit_tuple_expression(self, node: Any) -> bool:
-        for e in getattr(node, "elements", None) or []:
+        for e in (node.elements or []):
             if self._any(e):
                 return True
         return False
 
     def visit_tuple_access(self, node: Any) -> bool:
-        return self._any(getattr(node, "tuple_expr", None))
+        return self._any(node.tuple_expr)
 
     def visit_interpolated_string(self, node: Any) -> bool:
         return False
 
     def visit_cast_expression(self, node: Any) -> bool:
-        return self._any(getattr(node, "expr", None))
+        return self._any(node.expr)
 
     def visit_member_access(self, node: Any) -> bool:
-        return self._any(getattr(node, "object", None))
+        return self._any(node.object)
 
     def visit_try_expression(self, node: Any) -> bool:
-        return self._any(getattr(node, "expr", None))
+        return self._any(node.expr)
 
     def visit_match_expression(self, node: Any) -> bool:
-        if self._any(getattr(node, "scrutinee", None)):
+        if self._any(node.scrutinee):
             return True
-        for arm in getattr(node, "arms", None) or []:
-            if self._any(getattr(arm, "pattern", None)) or self._any(getattr(arm, "body", None)):
+        for arm in (node.arms or []):
+            if self._any(arm.pattern) or self._any(arm.body):
                 return True
         return False
 
     def visit_where_expression(self, node: Any) -> bool:
-        if self._any(getattr(node, "expr", None)):
+        if self._any(node.expr):
             return True
-        for c in getattr(node, "constraints", None) or []:
+        for c in (node.constraints or []):
             if self._any(c):
                 return True
         return False
@@ -663,7 +657,7 @@ class _HasUnexpandedRestVisitor(IRVisitor[bool]):
         return False
 
     def visit_builtin_call(self, node: Any) -> bool:
-        for arg in getattr(node, "args", None) or []:
+        for arg in (node.args or []):
             if self._any(arg):
                 return True
         return False

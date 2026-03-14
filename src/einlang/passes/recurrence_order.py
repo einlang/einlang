@@ -38,18 +38,16 @@ def _body_reads_same_recurrence_index_as_write(
     """True if the clause body reads the variable at indices that match the write on recurrence_dims (same t)."""
     if not recurrence_dims or variable_defid is None:
         return False
-    loops = getattr(clause, "loops", None) or []
+    loops = clause.loops or []
     if not loops:
         return False
-    loop_dims = _loop_dims_from_clause_indices(
-        getattr(clause, "indices", None), loops
-    )
+    loop_dims = _loop_dims_from_clause_indices(clause.indices, loops)
     if not loop_dims:
         return False
     read_lists = _collect_lhs_read_index_lists(clause.body, variable_defid)
     if not read_lists:
         return False
-    loop_defids = [getattr(lp.variable, "defid", None) for lp in loops]
+    loop_defids = [lp.variable.defid for lp in loops]
     for read in read_lists:
         if all(
             k < len(loop_dims)
@@ -68,8 +66,8 @@ def _infer_recurrence_order_override(
     """Infer recurrence dim order when two index vars appear on the same dim (e.g. Cholesky).
     If exactly some dims are 'strictly backward' (every read is loop_var/offset or reduction bounded by that loop var),
     put those first so column-major order is used. Returns override list or None."""
-    clause_indices = getattr(clause, "indices", None) or []
-    loops = getattr(clause, "loops", None) or []
+    clause_indices = clause.indices or []
+    loops = clause.loops or []
     rec_dims = _recurrence_dims(clause, variable_defid, clause_indices)
     if len(rec_dims) < 2:
         return None
@@ -79,8 +77,8 @@ def _infer_recurrence_order_override(
     read_lists = _collect_lhs_read_index_lists(clause.body, variable_defid)
     if not read_lists:
         return None
-    reduction_ranges = getattr(clause, "reduction_ranges", None) or {}
-    loop_defids = [getattr(lp.variable, "defid", None) for lp in loops]
+    reduction_ranges = clause.reduction_ranges or {}
+    loop_defids = [lp.variable.defid for lp in loops]
 
     strictly_backward: List[int] = []
     mixed: List[int] = []
@@ -112,26 +110,24 @@ def _annotate_recurrence_override(
     variable_defid: Any,
 ) -> None:
     """Set recurrence_dims_override on clauses that have same-t dependency so backend runs them in timestep-major."""
-    items = getattr(lowered, "items", None) or []
+    items = lowered.items or []
     if len(items) < 2 or variable_defid is None:
         return
     recurrence_dims: Optional[List[int]] = None
     for it in items:
-        rec = _recurrence_dims(it, variable_defid, getattr(it, "indices", None))
+        rec = _recurrence_dims(it, variable_defid, it.indices)
         if rec:
             recurrence_dims = rec
             break
     if not recurrence_dims:
         return
     for it in items:
-        if getattr(it, "recurrence_dims_override", None) is not None:
+        if it.recurrence_dims_override is not None:
             continue
-        rec = _recurrence_dims(it, variable_defid, getattr(it, "indices", None))
+        rec = _recurrence_dims(it, variable_defid, it.indices)
         if rec:
             continue
-        if not _BodyReferencesDefidVisitor(variable_defid).references(
-            getattr(it, "body", None)
-        ):
+        if not _BodyReferencesDefidVisitor(variable_defid).references(it.body):
             continue
         if _body_reads_same_recurrence_index_as_write(it, variable_defid, recurrence_dims):
             object.__setattr__(it, "recurrence_dims_override", recurrence_dims)
@@ -143,21 +139,21 @@ def _partition_recurrence(
 ) -> tuple:
     """Partition items into (non_recurrence_items, recurrence_items, recurrence_loops_for_outer).
     Mirrors backend logic. recurrence_loops_for_outer is a list of LoopStructure (one per recurrence dim)."""
-    items = getattr(lowered, "items", None) or []
+    items = lowered.items or []
     non_recurrence_items: List[Any] = []
     recurrence_items: List[Any] = []
     recurrence_loops_for_outer: Optional[List[Any]] = None
     if len(items) <= 1 or variable_defid is None:
         return (non_recurrence_items, recurrence_items, recurrence_loops_for_outer)
     for it in items:
-        clause_indices = getattr(it, "indices", None) or []
-        loops_it = getattr(it, "loops", None) or []
-        rec_dims = getattr(it, "recurrence_dims_override", None)
+        clause_indices = it.indices or []
+        loops_it = it.loops or []
+        rec_dims = it.recurrence_dims_override
         if rec_dims is None:
             rec_dims = _recurrence_dims_for_hybrid(it, variable_defid, clause_indices)
         if not rec_dims:
             rec_dims = _recurrence_dims(it, variable_defid, clause_indices)
-        body_refs = _BodyReferencesDefidVisitor(variable_defid).references(getattr(it, "body", None))
+        body_refs = _BodyReferencesDefidVisitor(variable_defid).references(it.body)
         has_rec = bool(
             rec_dims
             and body_refs
@@ -181,9 +177,9 @@ def _isolate_recurrence(
     non_rec, rec_items, rec_loops = _partition_recurrence(lowered, variable_defid)
     if not non_rec or not rec_items or not rec_loops:
         return False
-    shape = getattr(lowered, "shape", None)
-    element_type = getattr(lowered, "element_type", None)
-    loc = getattr(lowered, "location", None)
+    shape = lowered.shape
+    element_type = lowered.element_type
+    loc = lowered.location
     initial = LoweredEinsteinIR(
         items=non_rec,
         shape=shape,
@@ -214,9 +210,9 @@ class RecurrenceOrderPass(BasePass):
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         for stmt in ir.statements:
             if isinstance(stmt, BindingIR):
-                value = getattr(stmt, "value", None)
+                value = stmt.expr
                 if value is not None and isinstance(value, LoweredEinsteinIR):
-                    variable_defid = getattr(stmt, "defid", None)
+                    variable_defid = stmt.defid
                     if variable_defid is not None:
                         _annotate_recurrence_override(value, variable_defid)
                         # Isolate recurrence loop out of the Einstein: replace with LoweredRecurrenceIR when we have both initial and recurrence clauses.

@@ -81,7 +81,7 @@ class CastValidator:
     
     def _get_expression_type(self, expr: ExpressionIR) -> Optional[Any]:
         """Get type of expression (type object, e.g. PrimitiveType)."""
-        if getattr(expr, 'type_info', None) is None:
+        if expr.type_info is None:
             return None
         return expr.type_info
 

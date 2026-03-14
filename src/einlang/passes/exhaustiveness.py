@@ -68,7 +68,7 @@ class ExhaustivenessChecker:
     
     def _get_scrutinee_type(self, scrutinee: ExpressionIR) -> Optional[str]:
         """Get type of scrutinee expression"""
-        type_info = getattr(scrutinee, 'type_info', None)
+        type_info = scrutinee.type_info
         if type_info is None:
             return None
         if getattr(type_info, 'name', None):

@@ -41,10 +41,10 @@ class _ExprContainsDefidVisitor(IRVisitor[bool]):
         self._target = target_defid
 
     def visit_identifier(self, node: IdentifierIR) -> bool:
-        return getattr(node, "defid", None) == self._target
+        return node.defid == self._target
 
     def visit_index_var(self, node: IndexVarIR) -> bool:
-        return getattr(node, "defid", None) == self._target
+        return node.defid == self._target
 
     def visit_binary_op(self, node: BinaryOpIR) -> bool:
         return node.left.accept(self) or node.right.accept(self)
@@ -61,9 +61,9 @@ class _ExprContainsDefidVisitor(IRVisitor[bool]):
         return False
 
     def visit_function_call(self, node: FunctionCallIR) -> bool:
-        if getattr(node, "callee_expr", None) is not None and node.callee_expr.accept(self):
+        if node.callee_expr is not None and node.callee_expr.accept(self):
             return True
-        for a in node.arguments or []:
+        for a in (node.arguments or []):
             if a.accept(self):
                 return True
         return False
@@ -71,7 +71,7 @@ class _ExprContainsDefidVisitor(IRVisitor[bool]):
     def visit_jagged_access(self, node: JaggedAccessIR) -> bool:
         if node.base.accept(self):
             return True
-        for idx in getattr(node, "index_chain", None) or []:
+        for idx in (node.index_chain or []):
             if idx is not None and idx.accept(self):
                 return True
         return False
@@ -912,30 +912,30 @@ class ExpressionVisitorMixin:
 
     def visit_identifier(self, expr) -> Any:
         from ..shared.defid import DefId
-        defid = getattr(expr, "defid", None)
+        defid = expr.defid
         if defid is None:
-            raise RuntimeError(f"Variable not found (defid=None). Name: {getattr(expr, 'name', '?')}")
+            raise RuntimeError(f"Variable not found (defid=None). Name: {expr.name or '?'}")
         value = self.env.get_value(defid)
         if value is None:
-            raise RuntimeError(f"Variable not found (defid={defid}). Name: {getattr(expr, 'name', '?')}")
+            raise RuntimeError(f"Variable not found (defid={defid}). Name: {expr.name or '?'}")
         return value
 
     def visit_index_var(self, expr) -> Any:
-        defid = getattr(expr, "defid", None)
+        defid = expr.defid
         if defid is None:
-            raise RuntimeError(f"Index variable has no DefId. Name: {getattr(expr, 'name', '?')}")
+            raise RuntimeError(f"Index variable has no DefId. Name: {expr.name or '?'}")
         value = self.env.get_value(defid)
         if value is None:
-            raise RuntimeError(f"Index variable not found (defid={defid}). Name: {getattr(expr, 'name', '?')}")
+            raise RuntimeError(f"Index variable not found (defid={defid}). Name: {expr.name or '?'}")
         return value
 
     def visit_binary_op(self, expr: BinaryOpIR) -> Any:
         left = expr.left.accept(self)
         right = expr.right.accept(self)
-        op = getattr(expr, "operator", None)
+        op = expr.operator
         fn = _BINARY_OP_MAP.get(op) if isinstance(op, BinaryOp) else None
         if fn is None:
-            raise RuntimeError(f"Unknown operator: {getattr(expr, 'operator', None)}")
+            raise RuntimeError(f"Unknown operator: {expr.operator}")
         if isinstance(left, np.ndarray) and isinstance(right, np.ndarray):
             if op != BinaryOp.IN:
                 if left.ndim != right.ndim:
@@ -954,10 +954,10 @@ class ExpressionVisitorMixin:
 
     def visit_unary_op(self, expr: UnaryOpIR) -> Any:
         operand = expr.operand.accept(self)
-        op = getattr(expr, "operator", None)
+        op = expr.operator
         fn = _UNARY_OP_MAP.get(op) if isinstance(op, UnaryOp) else None
         if fn is None:
-            raise RuntimeError(f"Unknown unary operator: {getattr(expr, 'operator', None)}")
+            raise RuntimeError(f"Unknown unary operator: {expr.operator}")
         try:
             return fn(self, operand)
         except Exception as e:

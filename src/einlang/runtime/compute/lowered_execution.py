@@ -38,7 +38,7 @@ def _try_vectorized_reduction(
         arrs: List[np.ndarray] = []
         defids: List[Any] = []
         for loop in reduction_loops:
-            var_defid = getattr(loop.variable, 'defid', None)
+            var_defid = loop.variable.defid
             if var_defid is None:
                 return False, None
             iterable = expr_evaluator(loop.iterable)
@@ -155,9 +155,9 @@ def execute_lowered_loops(
             yield dict(current_context)
             return
         loop = loops[level]
-        var_defid = getattr(loop.variable, 'defid', None)
+        var_defid = loop.variable.defid
         if var_defid is None:
-            var_name = getattr(loop.variable, 'name', '?')
+            var_name = loop.variable.name or '?'
             raise RuntimeError(
                 f"Loop variable '{var_name}' has no defid; cannot bind at runtime. "
                 "Ensure name resolution (AST) and rest_pattern / einstein_lowering set defid on index variables."
@@ -180,9 +180,9 @@ def execute_lowered_bindings(
     """Execute local bindings. Context keyed by DefId."""
     result_context = dict(context)
     for binding in bindings:
-        defid = getattr(binding, 'defid', None)
+        defid = binding.defid
         if defid is None:
-            name = getattr(binding, 'name', '?')
+            name = binding.name or '?'
             raise RuntimeError(
                 f"Binding '{name}' has no defid; cannot bind at runtime. "
                 "Ensure name resolution sets defid on where-clause bindings."

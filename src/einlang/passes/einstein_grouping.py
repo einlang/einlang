@@ -206,15 +206,15 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
             # DefId identifies the variable - declarations with same DefId are grouped together
             self.declarations.append(node)
             # Einstein declarations use 'array_name', not 'name'
-            node_name = getattr(node, 'array_name', None) or getattr(node, 'name', None) or '<unknown>'
+            node_name = getattr(node, 'array_name', None) or node.name or '<unknown>'
             clause_counts = [len(c.indices) for c in (node.clauses or [])]
             logger.debug(f"  - {node_name} with {len(node.clauses or [])} clause(s), indices per clause: {clause_counts}")
         elif is_function_binding(node):
             if node.body:
                 node.body.accept(self)
         else:
-            if node.value:
-                node.value.accept(self)
+            if node.expr is not None:
+                node.expr.accept(self)
     
     def visit_block_expression(self, node: BlockExpressionIR) -> None:
         """Visit block expressions"""
@@ -260,14 +260,14 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
         if node.array:
             node.array.accept(self)
         for idx in (node.indices or []):
-            if idx is not None and hasattr(idx, 'accept'):
+            if idx is not None:
                 idx.accept(self)
     
     def visit_jagged_access(self, node) -> None:
-        if getattr(node, 'base', None):
+        if node.base is not None:
             node.base.accept(self)
-        for idx in (getattr(node, 'index_chain', None) or []):
-            if idx is not None and hasattr(idx, 'accept'):
+        for idx in (node.index_chain or []):
+            if idx is not None:
                 idx.accept(self)
     
     def visit_array_literal(self, node) -> None:
@@ -335,8 +335,8 @@ class EinsteinDeclarationCollector(IRVisitor[None]):
         """Recurse into lowered reduction body and guards (no Einstein decl to collect)."""
         if node.body:
             node.body.accept(self)
-        for guard in getattr(node, 'guards', None) or []:
-            if getattr(guard, 'condition', None):
+        for guard in (node.guards or []):
+            if guard.condition is not None:
                 guard.condition.accept(self)
     
     def visit_pipeline_expression(self, node) -> None:

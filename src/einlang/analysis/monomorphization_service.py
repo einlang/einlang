@@ -60,7 +60,7 @@ class MonomorphizationService:
     def can_incrementally_specialize(
         self, call: FunctionCallIR, arg_types: Tuple[Type, ...]
     ) -> bool:
-        if not getattr(call, "function_defid", None):
+        if not call.function_defid:
             return False
         if not self._is_generic_function(call.function_defid):
             return False
@@ -90,7 +90,7 @@ class MonomorphizationService:
             existing = self._registry[instance]
             if required_passes:
                 self._run_required_passes(existing, required_passes)
-            if call is not None and existing and getattr(existing, "defid", None):
+            if call is not None and existing and existing.defid is not None:
                 call.set_callee_defid(existing.defid)
             return existing
         if generic_defid in self._monomorphizing:
@@ -104,7 +104,7 @@ class MonomorphizationService:
                 if generic_defid not in self._pending_partial_specializations:
                     self._pending_partial_specializations[generic_defid] = []
                 self._pending_partial_specializations[generic_defid].append(out)
-            if call is not None and out and getattr(out, "defid", None):
+            if call is not None and out and out.defid is not None:
                 call.set_callee_defid(out.defid)
             return out
         finally:
@@ -138,12 +138,12 @@ class MonomorphizationService:
         self._pending_specialized_functions.clear()
 
     def rewrite_calls_in_specialized_bodies(self) -> None:
-        specialized_list = getattr(self.tcx, "specialized_functions", [])
+        specialized_list = (self.tcx.specialized_functions or []) if hasattr(self.tcx, "specialized_functions") else []
         for func in specialized_list:
-            defid = getattr(func, "defid", None)
+            defid = func.defid
             if defid is not None and defid in self._rewritten_function_defids:
                 continue
-            body = getattr(func, "body", None)
+            body = func.body
             if body is not None:
                 self._rewrite_calls_in_node(body, set(), enclosing_function=func)
             if defid is not None:
@@ -158,26 +158,26 @@ class MonomorphizationService:
         call: FunctionCallIR,
         enclosing_function: Optional[BindingIR] = None,
     ) -> Optional[DefId]:
-        if not getattr(call, "function_defid", None):
+        if not call.function_defid:
             return None
         generic_defid = call.function_defid
         if not self._is_generic_function(generic_defid):
             return None
         from ..shared.types import UNKNOWN
-        args_list = getattr(call, "arguments", []) or []
+        args_list = call.arguments or []
         params_list = (
-            getattr(enclosing_function, "parameters", []) or []
+            (enclosing_function.parameters or [])
             if enclosing_function
             else []
         )
         arg_types: List[Any] = []
         for i, a in enumerate(args_list):
-            t = getattr(a, "type_info", None)
+            t = a.type_info
             if (t is None or t is UNKNOWN) and enclosing_function and i < len(
                 params_list
             ):
                 p = params_list[i]
-                t = getattr(p, "param_type", None)
+                t = p.param_type
             arg_types.append(t)
         if not arg_types or any(t is None for t in arg_types):
             return None
@@ -189,14 +189,14 @@ class MonomorphizationService:
         normalized = self._normalize_types_for_instance(param_types)
         instance = Instance(generic_defid=generic_defid, param_types=normalized)
         spec = self._registry.get(instance)
-        return getattr(spec, "defid", None) if spec else None
+        return spec.defid if spec else None
 
     def get_by_defid(self, defid: DefId) -> Optional[BindingIR]:
         return self._by_defid.get(defid)
 
     def get_generic_defid_for_specialized(self, specialized_defid: DefId) -> Optional[DefId]:
         for inst, fn in self._registry.items():
-            if getattr(fn, "defid", None) == specialized_defid:
+            if fn.defid == specialized_defid:
                 return inst.generic_defid
         return None
 
@@ -353,7 +353,7 @@ class MonomorphizationService:
         generic_func = function_ir_map.get(generic_defid)
         if not generic_func or not is_function_binding(generic_func):
             return None
-        module_path = getattr(generic_func, "module_path", ("__specialized",))
+        module_path = (generic_func.module_path or ("__specialized",)) if hasattr(generic_func, "module_path") else ("__specialized",)
         if not isinstance(module_path, tuple):
             module_path = ("__specialized",)
         type_strs = [str(t) for t in arg_types]
@@ -371,7 +371,7 @@ class MonomorphizationService:
         instance = Instance(generic_defid=generic_defid, param_types=normalized)
         self._registry[instance] = specialized_func
         self._by_defid[specialized_defid] = specialized_func
-        if specialized_func and getattr(specialized_func, "body", None):
+        if specialized_func and specialized_func.body is not None:
             self._substitute_call_targets_in_body(
                 specialized_func.body,
                 generic_defid,
@@ -380,7 +380,7 @@ class MonomorphizationService:
             )
         if required_passes:
             specialized_func = self._run_passes(specialized_func, required_passes)
-        if is_partial and getattr(specialized_func, "expr", None) is not None:
+        if is_partial and specialized_func.expr is not None:
             object.__setattr__(specialized_func.expr, "_is_partially_specialized", True)
             object.__setattr__(specialized_func.expr, "_generic_defid", generic_defid)
         self._pending_specialized_functions.append(specialized_func)
@@ -493,7 +493,7 @@ class MonomorphizationService:
         ]
         # DCE: prune dead if-else branches on the specialized copy.
         # Evaluates len(param.shape) → constant rank, then folds constant conditions.
-        if getattr(specialized_func, 'body', None):
+        if specialized_func.body is not None:
             self._dce_specialized_body(specialized_func)
 
         if len(passes) == 1 and passes[0] in ("range", "shape"):
@@ -512,16 +512,16 @@ class MonomorphizationService:
                 result_ir = instance.run(mini, isolated)
                 if result_ir.functions:
                     new_func = result_ir.functions[0]
-                    if new_func is not specialized_func and getattr(new_func, "defid", None) == getattr(specialized_func, "defid", None):
-                        object.__setattr__(specialized_func.expr, "body", getattr(new_func, "body", specialized_func.body))
+                    if new_func is not specialized_func and new_func.defid == specialized_func.defid:
+                        object.__setattr__(specialized_func.expr, "body", new_func.body or specialized_func.body)
                         if hasattr(specialized_func, "return_type"):
-                            object.__setattr__(specialized_func.expr, "return_type", getattr(new_func, "return_type", specialized_func.return_type))
+                            object.__setattr__(specialized_func.expr, "return_type", new_func.return_type or specialized_func.return_type)
                         object.__setattr__(mini, 'statements', [specialized_func])
                         object.__setattr__(mini, 'bindings', [specialized_func])
                     else:
                         if new_func is not specialized_func and new_func.defid:
                             for inst, fn in list(self._registry.items()):
-                                if getattr(fn, "defid", None) == new_func.defid:
+                                if fn.defid == new_func.defid:
                                     self._registry[inst] = new_func
                                     break
                             self._by_defid[new_func.defid] = new_func
@@ -720,8 +720,8 @@ class MonomorphizationService:
         from ..ir.nodes import ModuleIR
         if not isinstance(mod, ModuleIR):
             return
-        out.extend(getattr(mod, "functions", None) or [])
-        for sub in getattr(mod, "submodules", None) or []:
+        out.extend(mod.functions or [])
+        for sub in (mod.submodules or []):
             self._collect_functions_from_module(sub, out)
 
     def _substitute_call_targets_in_body(
@@ -797,21 +797,21 @@ class MonomorphizationService:
             return
         visited.add(node)
         if isinstance(node, FunctionCallIR):
-            fd = getattr(node, "function_defid", None)
+            fd = node.function_defid
             sid = self.get_specialized_defid_for_call(node, enclosing_function)
             if sid is not None:
                 node.set_callee_defid(sid)
             else:
                 from ..shared.types import UNKNOWN
-                args_list = getattr(node, "arguments", []) or []
+                args_list = node.arguments or []
                 params_list = (
-                    getattr(enclosing_function, "parameters", []) or []
+                    (enclosing_function.parameters or [])
                     if enclosing_function
                     else []
                 )
                 arg_types_list: List[Any] = []
                 for i, a in enumerate(args_list):
-                    t = getattr(a, "type_info", None)
+                    t = a.type_info
                     if (t is None or t is UNKNOWN) and enclosing_function and i < len(params_list):
                         p = params_list[i]
                         t = getattr(p, "param_type", None)
@@ -830,9 +830,9 @@ class MonomorphizationService:
                     spec = self.incremental_monomorphize(
                         node, tuple(arg_types_list), "rewrite", required_passes=["range", "type"]
                     )
-                    if spec and getattr(spec, "defid", None):
+                    if spec and spec.defid is not None:
                         node.set_callee_defid(spec.defid)
-            for arg in getattr(node, "arguments", []) or []:
+            for arg in (node.arguments or []):
                 self._rewrite_calls_in_node(arg, visited, enclosing_function)
             return
         if isinstance(node, IRNode):

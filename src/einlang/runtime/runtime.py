@@ -143,11 +143,11 @@ class EinlangRuntime:
         if not compilation_result.success:
             return ExecutionResult(error=RuntimeError("Compilation failed"))
         
-        ir = getattr(compilation_result, "ir", None) or getattr(compilation_result, "ir_program", None)
+        ir = compilation_result.ir
         if ir is None:
             return ExecutionResult(error=RuntimeError("No IR in compilation result"))
 
-        tcx = getattr(compilation_result, "tcx", None)
+        tcx = compilation_result.tcx
         resolver = tcx.resolver if tcx else None
         input_by_defid = {}
         if inputs:
@@ -156,7 +156,7 @@ class EinlangRuntime:
                 if defid is not None:
                     input_by_defid[defid] = value
         main_defid = _resolve_input_defid(ir, "main")
-        entry_source_file = getattr(compilation_result, "entry_source_file", None)  # driver sets this
+        entry_source_file = compilation_result.entry_source_file
         backend = type(self.backend)()
         result = backend.execute(
             ir,

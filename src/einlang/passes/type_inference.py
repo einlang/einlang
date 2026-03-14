@@ -126,12 +126,12 @@ class TypeInferencePass(BasePass):
                     ir.statements.append(f)
                     ir.bindings.append(f)
                     existing_ids.add(f)
-                    if getattr(f, "defid", None):
+                    if f.defid is not None:
                         tcx.function_ir_map[f.defid] = f
-                    logger.debug(f"Added specialized function {getattr(f, 'name', '')} with DefId {getattr(f, 'defid', None)} to program IR and function_ir_map")
+                    logger.debug(f"Added specialized function {f.name} with DefId {f.defid} to program IR and function_ir_map")
                     already_typed = (
-                        getattr(f, 'return_type', None) is not None
-                        and getattr(f, 'return_type', None) != UNKNOWN
+                        f.return_type is not None
+                        and f.return_type != UNKNOWN
                     )
                     if not already_typed:
                         f.accept(inferencer)
@@ -153,7 +153,7 @@ class _PatternBindingVisitor(IRVisitor[None]):
         self._scrutinee_type = scrutinee_type
 
     def visit_identifier_pattern(self, node: IdentifierPatternIR) -> None:
-        did = getattr(node, "defid", None)
+        did = node.defid
         if did is not None:
             self._tyinf._set_var(did, self._scrutinee_type)
 
@@ -172,7 +172,7 @@ class _PatternBindingVisitor(IRVisitor[None]):
 
     def visit_rest_pattern(self, node: RestPatternIR) -> None:
         if node.pattern is not None:
-            did = getattr(node.pattern, "defid", None)
+            did = node.pattern.defid
             if did is not None:
                 self._tyinf._set_var(did, UNKNOWN)
 
@@ -181,7 +181,7 @@ class _PatternBindingVisitor(IRVisitor[None]):
             alt.accept(self)
 
     def visit_binding_pattern(self, node: BindingPatternIR) -> None:
-        did = getattr(node.identifier_pattern, "defid", None)
+        did = node.identifier_pattern.defid
         if did is not None:
             self._tyinf._set_var(did, self._scrutinee_type)
         node.inner_pattern.accept(self)
@@ -333,7 +333,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             for func in node.functions:
                 if func.defid and func.defid not in existing_fim:
                     func_map[func.defid] = func
-            for mod in getattr(node, 'modules', None) or []:
+            for mod in (node.modules or []):
                 for mfunc in self._collect_module_functions(mod):
                     if mfunc.defid and mfunc.defid not in existing_fim:
                         func_map[mfunc.defid] = mfunc
@@ -352,16 +352,15 @@ class TypeInferencer(ScopedIRVisitor[Type]):
     
     def _signature_from_function_ir(self, func: BindingIR) -> FunctionSignature:
         """Build FunctionSignature from function binding (single source of truth: IR)."""
-        expr = getattr(func, 'expr', None)
+        expr = func.expr
         if not isinstance(expr, FunctionValueIR):
             return FunctionSignature([], UNKNOWN)
         param_types: List[Type] = []
         param_names: List[str] = []
-        if hasattr(expr, 'parameters'):
-            for param in expr.parameters:
-                param_names.append(getattr(param, 'name', f"param{len(param_names)}"))
-                param_types.append(getattr(param, 'param_type', None) or UNKNOWN)
-        return_type = getattr(expr, 'return_type', None) or None
+        for param in expr.parameters:
+            param_names.append(param.name or f"param{len(param_names)}")
+            param_types.append(param.param_type or UNKNOWN)
+        return_type = expr.return_type or None
         return FunctionSignature(
             name=func.name,
             parameter_types=tuple(param_types),
@@ -414,7 +413,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 else:
                     self.tcx.reporter.report_error(
                         message=f"integer literal {expr.value} does not fit in i32; use i64 annotation, e.g. let x: i64 = ...",
-                        location=getattr(expr, "location", None),
+                        location=expr.location,
                         code="E002",
                         label="literal overflow for i32",
                     )
@@ -428,14 +427,14 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 else:
                     self.tcx.reporter.report_error(
                         message=f"float literal {expr.value} does not fit in f32; use f64 annotation if in range, e.g. let x: f64 = ...",
-                        location=getattr(expr, "location", None),
+                        location=expr.location,
                         code="E002",
                         label="literal overflow for f32",
                     )
             elif want_f64 and not self._fits_f64(val):
                 self.tcx.reporter.report_error(
                     message=f"float literal {expr.value} does not fit in f64",
-                    location=getattr(expr, "location", None),
+                    location=expr.location,
                     code="E002",
                     label="literal overflow for f64",
                 )
@@ -520,8 +519,8 @@ class TypeInferencer(ScopedIRVisitor[Type]):
     
     def visit_identifier(self, expr) -> Type:
         """Infer type by DefId. Name resolution must attach defid and bind in scope; type pass does not resolve names."""
-        name = getattr(expr, 'name', '') or ''
-        if getattr(expr, "defid", None) is None:
+        name = expr.name or ''
+        if expr.defid is None:
             raise RuntimeError(
                 f"Identifier '{name}' has no DefId. Name resolution pass must attach DefIds to all identifiers."
             )
@@ -534,7 +533,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
     def visit_index_var(self, node: IndexVarIR) -> Type:
         """Index variable slot is I32; delegate to range_ir if present."""
-        if getattr(node, "range_ir", None) is not None:
+        if node.range_ir is not None:
             node.range_ir.accept(self)
         node.type_info = I32
         return I32
@@ -696,7 +695,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                                     return I64
                                 self.tcx.reporter.report_error(
                                     message=f"integer power {base}**{exp} = {val} does not fit in i32 (range {self.I32_MIN}..{self.I32_MAX}); use i64, e.g. let x: i64 = ...",
-                                    location=getattr(expr, "location", None),
+                                    location=expr.location,
                                     code="E002",
                                     label="overflow for i32",
                                 )
@@ -707,7 +706,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                                 return I64
                             self.tcx.reporter.report_error(
                                 message=f"integer power {base}**{exp} overflows",
-                                location=getattr(expr, "location", None),
+                                location=expr.location,
                                 code="E002",
                                 label="overflow for i32",
                             )
@@ -861,7 +860,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
     
     def _get_callee_param_count(self, expr: FunctionCallIR) -> Optional[int]:
         """Get expected parameter count for the callee (function or lambda), or None if unknown (e.g. module call)."""
-        callee_expr = getattr(expr, 'callee_expr', None)
+        callee_expr = expr.callee_expr
         if callee_expr is not None and isinstance(callee_expr, LambdaIR):
             return len(callee_expr.parameters)
         if expr.function_defid is None or self._current_program is None:
@@ -894,10 +893,10 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         4. Look up function signature from registry (NOT by visiting definition)
         5. Return function's return type from signature
         """
-        callee_expr = getattr(expr, 'callee_expr', None)
-        if isinstance(callee_expr, IdentifierIR) and getattr(callee_expr, 'type_info', None) is None:
+        callee_expr = expr.callee_expr
+        if isinstance(callee_expr, IdentifierIR) and callee_expr.type_info is None:
             object.__setattr__(callee_expr, 'type_info', UNKNOWN)
-        module_path = getattr(expr, 'module_path', None) or ()
+        module_path = expr.module_path or ()
         is_python_module_call = bool(module_path and len(module_path) >= 1 and module_path[0] == "python")
         if callee_expr is not None and not is_python_module_call:
             callee_expr.accept(self)
@@ -1239,9 +1238,9 @@ class TypeInferencer(ScopedIRVisitor[Type]):
     def visit_rectangular_access(self, expr) -> Type:
         """Infer type of rectangular array access. Full indexing -> element type; partial indexing -> slice (RectangularType with remaining dims)."""
         array_type = expr.array.accept(self)
-        indices = getattr(expr, 'indices', None) or []
+        indices = expr.indices or []
         for idx in indices:
-            if idx is not None and hasattr(idx, 'accept'):
+            if idx is not None:
                 idx.accept(self)
         if isinstance(array_type, TupleType):
             self.tcx.reporter.report_error(
@@ -1274,8 +1273,8 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         """Infer type of jagged array access"""
         base_type = expr.base.accept(self)
         # Visit all indices to infer their types
-        for idx in (getattr(expr, 'index_chain', None) or []):
-            if idx is not None and hasattr(idx, 'accept'):
+        for idx in (expr.index_chain or []):
+            if idx is not None:
                 idx.accept(self)
         # TODO: Extract element type from base type
         inferred_type = UNKNOWN
@@ -1348,7 +1347,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         with self.scope():
             for i, param in enumerate(expr.parameters):
                 param_type = param_types[i] if i < len(param_types) else UNKNOWN
-                param_defid = getattr(param, 'defid', None)
+                param_defid = param.defid
                 if param_defid is not None:
                     self._set_var(param_defid, param_type)
             return_type = expr.body.accept(self)
@@ -1368,23 +1367,20 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                     parameter_names = signature.parameter_names
                     parameter_types = signature.parameter_types
 
-                if hasattr(expr, 'parameters'):
-                    for i, param in enumerate(expr.parameters):
-                        param_type = parameter_types[i] if i < len(parameter_types) else (
-                            getattr(param, 'param_type', None) or UNKNOWN
+                for i, param in enumerate(expr.parameters):
+                    param_type = parameter_types[i] if i < len(parameter_types) else (param.param_type or UNKNOWN)
+                    param_defid = param.defid
+                    if param_defid is None:
+                        raise RuntimeError(
+                            f"Parameter has no DefId (name={param.name or '?'}). "
+                            "Ensure NameResolutionPass runs before TypeInferencePass."
                         )
-                        param_defid = getattr(param, 'defid', None)
-                        if param_defid is None:
-                            raise RuntimeError(
-                                f"Parameter has no DefId (name={getattr(param, 'name', '?')}). "
-                                "Ensure NameResolutionPass runs before TypeInferencePass."
-                            )
-                        self._set_var(param_defid, param_type)
-                        if signature:
-                            logger.debug(f"Bound parameter {param_defid} → {param_type} in function {node.name}")
+                    self._set_var(param_defid, param_type)
+                    if signature:
+                        logger.debug(f"Bound parameter {param_defid} → {param_type} in function {node.name}")
 
                 prev_expected = self._expected_type
-                decl_return = getattr(expr, 'return_type', None)
+                decl_return = expr.return_type
                 if decl_return and decl_return != UNKNOWN:
                     self._expected_type = decl_return
                 try:
@@ -1413,14 +1409,14 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                             else_expr = else_expr.final_expr
                         if isinstance(else_expr, IdentifierIR):
                             else_ident = else_expr
-                        elif isinstance(else_expr, UnaryOpIR) and getattr(else_expr, "operator", None) == UnaryOp.NEG:
+                        elif isinstance(else_expr, UnaryOpIR) and else_expr.operator == UnaryOp.NEG:
                             if isinstance(else_expr.operand, IdentifierIR):
                                 else_ident = else_expr.operand
 
-                        if (then_ident and else_ident and getattr(then_ident, 'defid', None) and
-                                then_ident.defid == getattr(else_ident, 'defid', None)):
+                        if (then_ident and else_ident and then_ident.defid is not None and
+                                then_ident.defid == else_ident.defid):
                             for param_idx, param in enumerate(expr.parameters):
-                                if getattr(param, 'defid', None) == then_ident.defid:
+                                if param.defid == then_ident.defid:
                                     param_type = parameter_types[param_idx] if param_idx < len(parameter_types) else UNKNOWN
                                     return_type = param_type
                                     logger.debug(f"Inferred return type for '{node.name}' from if-expr pattern (defid): {return_type}")
@@ -1441,7 +1437,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
         is_generic = node.defid is not None and self.mono_service._is_generic_function(node.defid)
         if not is_generic and return_type is not None and return_type != UNKNOWN:
-            if not getattr(expr, 'return_type', None) or expr.return_type == UNKNOWN:
+            if not expr.return_type or expr.return_type == UNKNOWN:
                 expr.return_type = return_type
 
         param_types = tuple(
@@ -1454,20 +1450,20 @@ class TypeInferencer(ScopedIRVisitor[Type]):
 
     def visit_einstein(self, ein_expr: Any) -> Type:
         node = self._current_binding
-        clauses = getattr(ein_expr, 'clauses', []) or []
+        clauses = (ein_expr.clauses or []) if hasattr(ein_expr, 'clauses') else []
         for clause in clauses:
             index_names = set(getattr(clause, 'loop_vars', None) or [])
-            where_clause = getattr(clause, 'where_clause', None)
+            where_clause = clause.where_clause if hasattr(clause, 'where_clause') else None
             if where_clause and index_names:
-                for constraint in (getattr(where_clause, 'constraints', None) or []):
-                    if isinstance(constraint, BinaryOpIR) and getattr(constraint, 'operator', None) == BinaryOp.IN:
-                        left = getattr(constraint, 'left', None)
+                for constraint in (where_clause.constraints or []):
+                    if isinstance(constraint, BinaryOpIR) and constraint.operator == BinaryOp.IN:
+                        left = constraint.left
                         if isinstance(left, (IdentifierIR, IndexVarIR)):
-                            var_name = getattr(left, 'name', None)
+                            var_name = left.name
                             if var_name and var_name in index_names:
                                 self.tcx.reporter.report_error(
                                     f"Einstein/recurrence index range must be in the bracket, e.g. let fib[n in 2..20] = ..., not in where clause. Use [n in 2..20] instead of where n in 2..20.",
-                                    getattr(constraint, 'location', None) or getattr(node, 'location', None),
+                                    constraint.location or node.location,
                                     code="E0303",
                                 )
 

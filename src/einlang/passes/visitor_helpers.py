@@ -778,9 +778,9 @@ class DefaultRecursingVisitor(IRVisitor[None]):
         self._recurse(node.body)
 
     def visit_module(self, node: Any) -> None:
-        self._recurse_seq(getattr(node, 'functions', None))
-        self._recurse_seq(getattr(node, 'constants', None))
-        self._recurse_seq(getattr(node, 'submodules', None))
+        self._recurse_seq(node.functions)
+        self._recurse_seq(node.constants)
+        self._recurse_seq(node.submodules)
 
     def visit_array_literal(self, node: ArrayLiteralIR) -> None:
         self._recurse_seq(node.elements)
@@ -792,7 +792,7 @@ class DefaultRecursingVisitor(IRVisitor[None]):
         self._recurse(node.tuple_expr)
 
     def visit_interpolated_string(self, node: Any) -> None:
-        self._recurse_seq(getattr(node, 'parts', None))
+        self._recurse_seq(node.parts)
 
     def visit_cast_expression(self, node: CastExpressionIR) -> None:
         self._recurse(node.expr)
@@ -805,14 +805,13 @@ class DefaultRecursingVisitor(IRVisitor[None]):
 
     def visit_match_expression(self, node: MatchExpressionIR) -> None:
         self._recurse(node.scrutinee)
-        for arm in node.arms or []:
-            self._recurse(arm.body)
+        for arm in (node.arms or []):
+            self._recurse(arm.pattern, arm.body)
 
     def visit_reduction_expression(self, node: ReductionExpressionIR) -> None:
         self._recurse(node.body)
-        wc = getattr(node, 'where_clause', None)
-        if wc is not None:
-            self._recurse_seq(getattr(wc, 'constraints', None))
+        if node.where_clause is not None:
+            self._recurse_seq(node.where_clause.constraints)
 
     def visit_where_expression(self, node: WhereExpressionIR) -> None:
         self._recurse(node.expr)
@@ -834,31 +833,31 @@ class DefaultRecursingVisitor(IRVisitor[None]):
         pass
 
     def visit_tuple_pattern(self, node: Any) -> None:
-        self._recurse_seq(getattr(node, 'elements', None))
+        self._recurse_seq(node.patterns)
 
     def visit_array_pattern(self, node: Any) -> None:
-        self._recurse_seq(getattr(node, 'elements', None))
+        self._recurse_seq(node.patterns)
 
     def visit_rest_pattern(self, node: Any) -> None:
         pass
 
     def visit_guard_pattern(self, node: Any) -> None:
-        self._recurse(getattr(node, 'inner_pattern', None), getattr(node, 'guard_expr', None))
+        self._recurse(node.inner_pattern, node.guard_expr)
 
     def visit_or_pattern(self, node: Any) -> None:
-        self._recurse_seq(getattr(node, 'alternatives', None))
+        self._recurse_seq(node.alternatives)
 
     def visit_constructor_pattern(self, node: Any) -> None:
-        self._recurse_seq(getattr(node, 'patterns', None))
+        self._recurse_seq(node.patterns)
 
     def visit_binding_pattern(self, node: Any) -> None:
-        self._recurse(getattr(node, 'inner_pattern', None))
+        self._recurse(node.inner_pattern)
 
     def visit_range_pattern(self, node: Any) -> None:
         pass
 
     def visit_function_value(self, node: Any) -> None:
-        self._recurse(getattr(node, 'body', None))
+        self._recurse(node.body)
 
     def visit_einstein(self, node: Any) -> None:
         pass
@@ -872,21 +871,21 @@ class DefaultRecursingVisitor(IRVisitor[None]):
         self._recurse(node.expr)
 
     def visit_lowered_reduction(self, node: Any) -> None:
-        self._recurse(getattr(node, 'body', None))
+        self._recurse(node.body)
 
     def visit_lowered_comprehension(self, node: Any) -> None:
-        self._recurse(getattr(node, 'body', None))
+        self._recurse(node.body)
 
     def visit_lowered_einstein_clause(self, node: Any) -> None:
-        self._recurse(getattr(node, 'body', None))
+        self._recurse(node.body)
 
     def visit_lowered_einstein(self, node: Any) -> None:
-        self._recurse_seq(getattr(node, 'items', None))
+        self._recurse_seq(node.items)
 
     def visit_lowered_recurrence(self, node: Any) -> None:
-        self._recurse(getattr(node, 'initial', None))
-        rl = getattr(node, 'recurrence_loop', None)
+        self._recurse(node.initial)
+        rl = node.recurrence_loop
         if rl is not None:
-            self._recurse(getattr(rl, 'iterable', None))
-        self._recurse(getattr(node, 'body', None))
+            self._recurse(rl.iterable)
+        self._recurse(node.body)
 
