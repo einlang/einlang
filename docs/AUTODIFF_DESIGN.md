@@ -203,7 +203,13 @@ Argument list: **only primal parameters** (same as the original function). In th
 
 ---
 
-## 9. References
+## 9. Plans
+
+- **print(@y) symbolic output:** Use the IR node's `str` (or a dedicated IR visitor that formats expressions for diff source) instead of a custom pretty-printer in the autodiff pass, so one representation is maintained in `ir/nodes` or serialization.
+
+---
+
+## 10. References
 
 - **[AUTODIFF_OPS.md](AUTODIFF_OPS.md)** — Op-level VJPs and differential shapes (single reference for backward pass).
 - **[AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md)** — Implementation blueprint.

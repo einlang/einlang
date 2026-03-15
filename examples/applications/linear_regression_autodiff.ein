@@ -1,0 +1,34 @@
+// Linear regression by gradient descent: fit y = slope*x + intercept to data using autodiff.
+// Minimize SSE = sum_i (y_i - (slope*x_i + intercept))^2; gradient via @sse/@slope, @sse/@intercept.
+// Run from repo root: python3 -m einlang examples/applications/linear_regression_autodiff.ein
+
+let x0 = 1.0;
+let x1 = 2.0;
+let x2 = 3.0;
+let y0 = 1.2;
+let y1 = 2.1;
+let y2 = 2.8;
+let alpha = 0.02;
+
+// One gradient step at (slope, intercept) = (0, 0): compute SSE and its gradient via autodiff
+let slope = 0.0;
+let intercept = 0.0;
+let r0 = y0 - (slope * x0 + intercept);
+let r1 = y1 - (slope * x1 + intercept);
+let r2 = y2 - (slope * x2 + intercept);
+let sse = r0 * r0 + r1 * r1 + r2 * r2;
+let d_sse_d_slope = @sse / @slope;
+let d_sse_d_intercept = @sse / @intercept;
+let slope_next = slope - alpha * d_sse_d_slope;
+let intercept_next = intercept - alpha * d_sse_d_intercept;
+
+// Refined SSE after one step
+let r0_next = y0 - (slope_next * x0 + intercept_next);
+let r1_next = y1 - (slope_next * x1 + intercept_next);
+let r2_next = y2 - (slope_next * x2 + intercept_next);
+let sse_next = r0_next * r0_next + r1_next * r1_next + r2_next * r2_next;
+
+print(sse);
+print(sse_next);
+print(slope_next);
+print(intercept_next);

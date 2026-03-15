@@ -85,7 +85,9 @@ y = conv(x, w, b) (standard stride/padding/dilation).
 
 **max:** y = max_i x_i.  partial y / partial x_i = 1 where i = argmax(x), else 0 (subgradient; one-hot or normalized if multiple argmax).
 
-**min:** Same idea with argmin.
+**min:** Same idea with argmin. Implemented as select-at-argmin (d_body at argmin(primal)).
+
+**prod:** y = prod_i x_i.  partial y / partial x_i = prod_{j != i} x_j. Implemented as (prod body) * sum_i (d_body_i / body_i); valid when body_i != 0.
 
 ---
 

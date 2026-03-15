@@ -13,7 +13,7 @@ Einlang is a language for tensor math that’s **math-intuitive**: it looks like
 let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply — compiler checks A, B, C shapes
 ```
 
-You get **where-clauses** (index algebra, guards), **recurrences** (RNNs, dynamic programming), **built-in automatic differentiation** (derivatives and gradients from `@a / @b` — no hand-written gradient code), and a **stdlib** of 300+ functions. Real models — CNN, quantized CNN, ViT, Whisper — are written in the same language.
+You get **where-clauses** (index algebra, guards), **recurrences** (RNNs, dynamic programming), **built-in automatic differentiation** (derivatives and gradients from `@a / @b` — no hand-written gradient code), and a **stdlib** of 300+ functions. Real models — CNN, quantized CNN, ViT, Whisper — are written in the same language. **[Why Einlang?](WHY_EINLANG.md)** has the full feature highlights and comparison.
 
 ---
 

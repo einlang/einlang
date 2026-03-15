@@ -6,7 +6,7 @@ we emit d_y = (∂f/∂x1)*d_x1 + (∂f/∂x2)*d_x2 + ... in execution order. No
 pass (no propagation from dy to dx), no pullbacks, no tape.
 
 - DifferentialIR (@expr): add d_* bindings; @x -> d_x, @(expr) -> d(expr) via chain rule.
-- DIV(@num,@den): @(expr)/@x -> derivative expr (e.g. 2*x); @y/@x -> d_y when d_x=1.
+- @y is the diff (e.g. y = x**2 => dy = 2*x*dx). dx is infinitesimal (~0), so dy has no numeric value; we seed d_x (e.g. 1) so the scalar we get equals the derivative ∂y/∂x at that point. @y/@x is the derivative (∂y/∂x).
 """
 
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -42,7 +42,7 @@ from ..ir.nodes import (
     WhereClauseIR,
     is_function_binding,
 )
-from ..shared.types import BinaryOp, UnaryOp, PrimitiveType, UNKNOWN, F32
+from ..shared.types import BinaryOp, UnaryOp, PrimitiveType, UNKNOWN, F32, STR
 from ..shared.defid import DefId
 from ..shared.source_location import SourceLocation
 
@@ -54,6 +54,84 @@ from ..shared.source_location import SourceLocation
 def _float_lit(value: Any, loc: Any) -> LiteralIR:
     """Literal for derivative/scalar context; has type_info so IR validation passes."""
     return LiteralIR(value, loc, type_info=F32)
+
+
+def _simplify_diff_expr(expr: ExpressionIR, loc: SourceLocation) -> ExpressionIR:
+    """Simplify diff RHS for pretty-print: drop 0 terms, x**1 -> x, fold 2-1 -> 1, etc."""
+    if isinstance(expr, LiteralIR):
+        return expr
+    if isinstance(expr, IdentifierIR):
+        return expr
+    if isinstance(expr, BinaryOpIR):
+        left = _simplify_diff_expr(expr.left, loc)
+        right = _simplify_diff_expr(expr.right, loc)
+        op = expr.operator
+        # ADD(expr, 0) or ADD(0, expr) -> expr
+        if op == BinaryOp.ADD:
+            if isinstance(right, LiteralIR) and right.value == 0:
+                return left
+            if isinstance(left, LiteralIR) and left.value == 0:
+                return right
+        # MUL(expr, 0) or MUL(0, expr) -> 0
+        if op == BinaryOp.MUL:
+            if isinstance(left, LiteralIR) and left.value == 0:
+                return _float_lit(0, loc)
+            if isinstance(right, LiteralIR) and right.value == 0:
+                return _float_lit(0, loc)
+            if isinstance(left, LiteralIR) and left.value == 1:
+                return right
+            if isinstance(right, LiteralIR) and right.value == 1:
+                return left
+        # POW(base, 1) -> base
+        if op == BinaryOp.POW and isinstance(right, LiteralIR) and right.value == 1:
+            return left
+        # Constant-fold SUB/MUL when both sides are numeric literals
+        if op == BinaryOp.SUB and isinstance(left, LiteralIR) and isinstance(right, LiteralIR):
+            try:
+                return LiteralIR(left.value - right.value, loc, type_info=getattr(left, "type_info", None))
+            except TypeError:
+                pass
+        if op == BinaryOp.ADD and isinstance(left, LiteralIR) and isinstance(right, LiteralIR):
+            try:
+                return LiteralIR(left.value + right.value, loc, type_info=getattr(left, "type_info", None))
+            except TypeError:
+                pass
+        return BinaryOpIR(op, left, right, expr.location, type_info=getattr(expr, "type_info", None), shape_info=getattr(expr, "shape_info", None))
+    if isinstance(expr, UnaryOpIR):
+        return UnaryOpIR(expr.operator, _simplify_diff_expr(expr.operand, loc), expr.location, type_info=getattr(expr, "type_info", None), shape_info=getattr(expr, "shape_info", None))
+    return expr
+
+
+# Plan: use IR node's str (or a dedicated IR visitor that formats expressions for diff source)
+# instead of this custom pretty-printer, so one representation is maintained in ir/nodes or serialization.
+
+
+def _expr_to_diff_source(
+    expr: ExpressionIR,
+    d_defid_to_at_name: Dict[DefId, str],
+    scope_binding_by_defid: Dict[DefId, Any],
+) -> str:
+    """Pretty-print expression to source-like string; d_* refs become @name."""
+    if isinstance(expr, IdentifierIR) and expr.defid is not None:
+        if expr.defid in d_defid_to_at_name:
+            return d_defid_to_at_name[expr.defid]
+        b = scope_binding_by_defid.get(expr.defid)
+        return (b.name or "?") if b else "?"
+    if isinstance(expr, LiteralIR):
+        return str(expr.value)
+    if isinstance(expr, BinaryOpIR):
+        op_str = getattr(expr.operator, "value", str(expr.operator))
+        left_s = _expr_to_diff_source(expr.left, d_defid_to_at_name, scope_binding_by_defid)
+        right_s = _expr_to_diff_source(expr.right, d_defid_to_at_name, scope_binding_by_defid)
+        # Exponent in a**b needs parens if b is compound (e.g. 2-1) so we get x**(2-1) not x**2-1
+        if expr.operator == BinaryOp.POW and not isinstance(expr.right, (LiteralIR, IdentifierIR)):
+            right_s = "(" + right_s + ")"
+        return left_s + op_str + right_s
+    if isinstance(expr, UnaryOpIR):
+        op_str = getattr(expr.operator, "value", str(expr.operator))
+        inner = _expr_to_diff_source(expr.operand, d_defid_to_at_name, scope_binding_by_defid)
+        return op_str + inner
+    return "?"
 
 
 def _bindings_in_block(block: Any, program: Optional[ProgramIR] = None) -> List[BindingIR]:
@@ -91,6 +169,29 @@ def _flatten_product(expr: ExpressionIR) -> Optional[List[Tuple[ExpressionIR, Li
         if left is not None and right is not None:
             return left + right
     return None
+
+
+def _expr_is_scalar_derivative(expr: ExpressionIR) -> bool:
+    """True if expr does not contain EinsteinIR or ReductionExpressionIR (inlined derivative stays scalar)."""
+    if isinstance(expr, EinsteinIR) or isinstance(expr, ReductionExpressionIR):
+        return False
+    if isinstance(expr, BinaryOpIR):
+        return _expr_is_scalar_derivative(expr.left) and _expr_is_scalar_derivative(expr.right)
+    if isinstance(expr, UnaryOpIR):
+        return _expr_is_scalar_derivative(expr.operand)
+    if isinstance(expr, RectangularAccessIR):
+        return _expr_is_scalar_derivative(expr.array) and all(
+            _expr_is_scalar_derivative(i) for i in (expr.indices or [])
+        )
+    if isinstance(expr, IfExpressionIR):
+        return (
+            _expr_is_scalar_derivative(expr.condition)
+            and _expr_is_scalar_derivative(expr.then_expr)
+            and (expr.else_expr is None or _expr_is_scalar_derivative(expr.else_expr))
+        )
+    if isinstance(expr, BlockExpressionIR) and expr.final_expr is not None:
+        return _expr_is_scalar_derivative(expr.final_expr)
+    return True
 
 
 def _index_defids(indices: List[Any]) -> Set[DefId]:
@@ -769,12 +870,44 @@ def _diff_expr_wrt(
     if isinstance(expr, CastExpressionIR):
         # Treat as variable: ∂(expr as T)/∂wrt = ∂(expr)/∂wrt
         return _diff_expr_wrt(expr.expr, wrt_defid, loc, binding_by_defid, resolver)
+    if isinstance(expr, IfExpressionIR):
+        # ∂(if c then a else b)/∂wrt = if c then ∂a/∂wrt else ∂b/∂wrt (condition not differentiated)
+        d_then = _diff_expr_wrt(expr.then_expr, wrt_defid, loc, binding_by_defid, resolver)
+        d_else = (
+            _diff_expr_wrt(expr.else_expr, wrt_defid, loc, binding_by_defid, resolver)
+            if expr.else_expr is not None
+            else _float_lit(0, loc)
+        )
+        return IfExpressionIR(
+            condition=expr.condition,
+            then_expr=d_then,
+            else_expr=d_else,
+            location=loc,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
     if isinstance(expr, RectangularAccessIR):
         # ∂(array[indices])/∂wrt = (∂array/∂wrt)[indices]. Denominator/other vars treated as variable (single defid).
         d_array = _diff_expr_wrt(expr.array, wrt_defid, loc, binding_by_defid, resolver)
         if isinstance(d_array, LiteralIR) and d_array.value == 0:
             return _float_lit(0, loc)
         indices = list(expr.indices or [])
+        # Inline single-clause derivative Einstein so backend never sees RectangularAccessIR(EinsteinIR, ...).
+        if isinstance(d_array, EinsteinIR) and (d_array.clauses or []):
+            clauses = d_array.clauses
+            if len(clauses) == 1:
+                c = clauses[0]
+                clause_indices = c.indices or []
+                if len(clause_indices) == len(indices) and _expr_is_scalar_derivative(c.value):
+                    replace_map_inline: Dict[DefId, ExpressionIR] = {}
+                    for j, cidx in enumerate(clause_indices):
+                        if (isinstance(cidx, (IndexVarIR, IdentifierIR)) and cidx.defid is not None
+                                and j < len(indices)):
+                            replace_map_inline[cidx.defid] = indices[j]
+                    inlined = _substitute_expr(c.value, replace_map_inline, loc)
+                    if getattr(expr, "type_info", None) is not None or getattr(expr, "shape_info", None) is not None:
+                        _set_type_info_on_expr(inlined, getattr(expr, "type_info", None), getattr(expr, "shape_info", None))
+                    return inlined
         return RectangularAccessIR(
             d_array, indices, loc,
             type_info=getattr(expr, "type_info", None),
@@ -807,6 +940,30 @@ def _diff_expr_wrt(
                 location=loc,
                 type_info=getattr(expr, "type_info", None),
                 shape_info=getattr(expr, "shape_info", None),
+                use_argmin=False,
+            )
+        if op == "min":
+            if expr.body is None:
+                raise ValueError("Autodiff: min reduction has no body")
+            return SelectAtArgmaxIR(
+                expr.body,
+                d_body,
+                expr.loop_vars,
+                loop_var_ranges=expr.loop_var_ranges,
+                location=loc,
+                type_info=getattr(expr, "type_info", None),
+                shape_info=getattr(expr, "shape_info", None),
+                use_argmin=True,
+            )
+        if op == "prod":
+            if expr.body is None:
+                raise ValueError("Autodiff: prod reduction has no body")
+            # d(prod body)/d(body) = (prod body)/body elementwise; chain: (expr/body)*d_body
+            return BinaryOpIR(
+                BinaryOp.MUL,
+                BinaryOpIR(BinaryOp.DIV, expr, expr.body, loc),
+                d_body,
+                loc,
             )
         raise ValueError(
             f"Autodiff: unsupported reduction in ∂expr/∂wrt: {op}"
@@ -863,6 +1020,25 @@ def _build_differential_expr(
                 location=expr.location or loc,
                 type_info=getattr(expr, "type_info", None),
                 shape_info=getattr(expr, "shape_info", None),
+                use_argmin=False,
+            )
+        if op == "min":
+            return SelectAtArgmaxIR(
+                expr.body,
+                d_body,
+                expr.loop_vars,
+                loop_var_ranges=expr.loop_var_ranges,
+                location=expr.location or loc,
+                type_info=getattr(expr, "type_info", None),
+                shape_info=getattr(expr, "shape_info", None),
+                use_argmin=True,
+            )
+        if op == "prod":
+            return BinaryOpIR(
+                BinaryOp.MUL,
+                BinaryOpIR(BinaryOp.DIV, expr, expr.body, expr.location or loc),
+                d_body,
+                expr.location or loc,
             )
         raise ValueError(
             f"Autodiff: unsupported reduction for d(expr): {op}"
@@ -875,12 +1051,22 @@ def _build_differential_expr(
 def _substitute_expr(expr: ExpressionIR, replace_map: Dict[DefId, ExpressionIR], loc: SourceLocation) -> ExpressionIR:
     if isinstance(expr, IdentifierIR) and expr.defid is not None and expr.defid in replace_map:
         return replace_map[expr.defid]
+    if isinstance(expr, IndexVarIR) and expr.defid is not None and expr.defid in replace_map:
+        return replace_map[expr.defid]
     if isinstance(expr, LiteralIR):
         return _float_lit(expr.value, loc)
     if isinstance(expr, BinaryOpIR):
         return BinaryOpIR(expr.operator, _substitute_expr(expr.left, replace_map, loc), _substitute_expr(expr.right, replace_map, loc), loc)
     if isinstance(expr, UnaryOpIR):
         return UnaryOpIR(expr.operator, _substitute_expr(expr.operand, replace_map, loc), loc)
+    if isinstance(expr, RectangularAccessIR):
+        arr = _substitute_expr(expr.array, replace_map, loc)
+        new_indices = [_substitute_expr(i, replace_map, loc) for i in (expr.indices or [])]
+        return RectangularAccessIR(
+            arr, new_indices, loc,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
     if isinstance(expr, BlockExpressionIR) and expr.final_expr is not None:
         return _substitute_expr(expr.final_expr, replace_map, loc)
     if isinstance(expr, IfExpressionIR):
@@ -908,6 +1094,7 @@ def _substitute_expr(expr: ExpressionIR, replace_map: Dict[DefId, ExpressionIR],
             location=expr.location,
             type_info=getattr(expr, "type_info", None),
             shape_info=getattr(expr, "shape_info", None),
+            use_argmin=getattr(expr, "use_argmin", False),
         )
     return expr
 
@@ -995,6 +1182,7 @@ def _substitute_expr_with_diffs(
             location=expr.location,
             type_info=getattr(expr, "type_info", None),
             shape_info=getattr(expr, "shape_info", None),
+            use_argmin=getattr(expr, "use_argmin", False),
         )
     if isinstance(expr, CastExpressionIR):
         inner = _substitute_expr_with_diffs(expr.expr, replace_map, diff_replace_map, loc)
@@ -1257,16 +1445,223 @@ def _collect_quotient_pairs(program: ProgramIR) -> List[Tuple[DefId, DefId]]:
     return pairs
 
 
+def _collect_differential_targets_in_expr(expr: Any) -> List[Tuple[DefId, str]]:
+    """Collect (defid, name) for every @id that appears in expr (e.g. inside a block)."""
+    targets: List[Tuple[DefId, str]] = []
+
+    def walk(e: Any) -> None:
+        if e is None:
+            return
+        if isinstance(e, DifferentialIR):
+            t = _differential_target_from_operand(e.operand)
+            if t is not None:
+                targets.append(t)
+            walk(e.operand)
+        if isinstance(e, BinaryOpIR):
+            if e.operator == BinaryOp.DIV and isinstance(e.left, DifferentialIR) and isinstance(e.right, DifferentialIR):
+                for op in (e.left.operand, e.right.operand):
+                    t = _differential_target_from_operand(op)
+                    if t is not None:
+                        targets.append(t)
+            walk(e.left)
+            walk(e.right)
+        if isinstance(e, UnaryOpIR):
+            walk(e.operand)
+        if isinstance(e, BlockExpressionIR):
+            for s in e.statements or []:
+                walk(s)
+            walk(e.final_expr)
+        if isinstance(e, BindingIR):
+            walk(e.expr)
+        if isinstance(e, (EinsteinIR, IfExpressionIR)):
+            for c in getattr(e, "clauses", None) or []:
+                walk(getattr(c, "value", c))
+            if hasattr(e, "final_expr"):
+                walk(getattr(e, "final_expr"))
+            if hasattr(e, "then_expr"):
+                walk(e.then_expr)
+            if hasattr(e, "else_expr"):
+                walk(e.else_expr)
+        if isinstance(e, FunctionCallIR):
+            for a in e.arguments or []:
+                walk(a)
+        if isinstance(e, RectangularAccessIR):
+            walk(e.array)
+        if isinstance(e, ExpressionIR) and not isinstance(e, (DifferentialIR, BinaryOpIR, UnaryOpIR, BlockExpressionIR, BindingIR)):
+            # Other expression kinds with subexprs are visited via explicit branches above
+            pass
+
+    walk(expr)
+    return targets
+
+
+def _collect_quotient_pairs_in_expr(expr: Any) -> List[Tuple[DefId, DefId]]:
+    """Collect (num_defid, den_defid) for every @num/@den that appears in expr."""
+    pairs: List[Tuple[DefId, DefId]] = []
+
+    def walk(e: Any) -> None:
+        if e is None:
+            return
+        if isinstance(e, BinaryOpIR):
+            if e.operator == BinaryOp.DIV:
+                num_defid = _defid_from_differential_or_id(e.left)
+                den_defid = _defid_from_differential_or_id(e.right)
+                if num_defid is not None and den_defid is not None:
+                    pairs.append((num_defid, den_defid))
+            walk(e.left)
+            walk(e.right)
+        if isinstance(e, UnaryOpIR):
+            walk(e.operand)
+        if isinstance(e, BlockExpressionIR):
+            for s in e.statements or []:
+                walk(s)
+            walk(e.final_expr)
+        if isinstance(e, BindingIR):
+            walk(e.expr)
+        if isinstance(e, (EinsteinIR, IfExpressionIR)):
+            for c in getattr(e, "clauses", None) or []:
+                walk(getattr(c, "value", c))
+            if hasattr(e, "final_expr"):
+                walk(getattr(e, "final_expr"))
+            if hasattr(e, "then_expr"):
+                walk(e.then_expr)
+            if hasattr(e, "else_expr"):
+                walk(e.else_expr)
+        if isinstance(e, FunctionCallIR):
+            for a in e.arguments or []:
+                walk(a)
+        if isinstance(e, RectangularAccessIR):
+            walk(e.array)
+
+    walk(expr)
+    return pairs
+
+
+def _ensure_block_has_d_bindings(
+    block: BlockExpressionIR,
+    scope_binding_by_defid: Dict[DefId, Any],
+    scope_defid_to_expr: Dict[DefId, ExpressionIR],
+    defid_to_d_ident: Dict[DefId, IdentifierIR],
+    loc: SourceLocation,
+    resolver: Optional[Any],
+) -> None:
+    """If block contains @ or @num/@den, create d_* bindings for block-local defids and insert into block.
+    Mutates block.statements and defid_to_d_ident so expansion can resolve d_* in this scope."""
+    targets = _collect_differential_targets_in_expr(block)
+    pairs = _collect_quotient_pairs_in_expr(block)
+    if not targets and not pairs:
+        return
+    block_bindings = _bindings_in_block(block, None)
+    if not block_bindings:
+        return
+    block_defids = {b.defid for b in block_bindings if b.defid is not None}
+    target_defids: Set[DefId] = set()
+    for did, _ in targets:
+        target_defids.add(did)
+    for num, den in pairs:
+        target_defids.add(num)
+        target_defids.add(den)
+    target_defids &= block_defids
+    if not target_defids:
+        return
+    block_binding_by_defid: Dict[DefId, BindingIR] = dict(scope_binding_by_defid)
+    for b in block_bindings:
+        if b.defid is not None:
+            block_binding_by_defid[b.defid] = b
+    binding_to_deps: Dict[DefId, Set[DefId]] = {}
+    for b in block_bindings:
+        if b.defid is not None and b.expr is not None:
+            binding_to_deps[b.defid] = _collect_defids_in_expr(b.expr)
+    reachable: Set[DefId] = set(target_defids)
+    work = list(reachable)
+    while work:
+        did = work.pop()
+        for dep in binding_to_deps.get(did) or []:
+            if dep in block_defids and dep not in reachable:
+                reachable.add(dep)
+                work.append(dep)
+    forward_order: List[BindingIR] = []
+    seen: Set[DefId] = set()
+
+    def visit(did: DefId) -> None:
+        if did in seen or did not in reachable:
+            return
+        seen.add(did)
+        b = block_binding_by_defid.get(did)
+        if b is None:
+            return
+        for dep in binding_to_deps.get(b.defid) or []:
+            if dep in block_defids:
+                visit(dep)
+        forward_order.append(b)
+
+    for did in target_defids:
+        visit(did)
+    if resolver is None:
+        return
+    loc0 = SourceLocation("", 0, 0)
+    quotient_denominators = {den for _, den in pairs}
+    leaves = {did for did in reachable if not (binding_to_deps.get(did) or set())}
+    seed_value: Dict[DefId, int] = {}
+    for b in forward_order:
+        if b.defid is None:
+            continue
+        if b.defid in quotient_denominators:
+            seed_value[b.defid] = 1
+        elif b.defid in leaves and b.defid in target_defids:
+            seed_value[b.defid] = 1
+        else:
+            seed_value[b.defid] = 0
+    defid_to_d_ref_expr: Dict[DefId, ExpressionIR] = {}
+    for did, ref in defid_to_d_ident.items():
+        defid_to_d_ref_expr[did] = ref
+    use_per_quotient_seeds = len(pairs) > 0
+    d_rhs_by_defid: Dict[DefId, ExpressionIR] = {}
+    defid_to_d_binding_block: Dict[DefId, BindingIR] = {}
+    for b in forward_order:
+        if b.defid is None or b.defid in defid_to_d_ident:
+            continue
+        bloc = b.location or loc0
+        if use_per_quotient_seeds and b.defid in leaves:
+            d_rhs_by_defid[b.defid] = _float_lit(0, bloc)
+        elif b.defid in seed_value and seed_value[b.defid] == 1:
+            d_rhs_by_defid[b.defid] = _float_lit(1, bloc)
+        else:
+            for dep in binding_to_deps.get(b.defid) or []:
+                if dep not in defid_to_d_ref_expr:
+                    defid_to_d_ref_expr[dep] = _float_lit(0, bloc)
+            rhs = _forward_d_y_expr(b, defid_to_d_ref_expr, block_binding_by_defid, binding_to_deps, bloc, resolver)
+            d_rhs_by_defid[b.defid] = rhs if rhs is not None else _float_lit(0, bloc)
+        d_defid = resolver.allocate_for_local()
+        d_name = "d_" + (b.name or "")
+        d_ref = IdentifierIR(d_name, bloc, d_defid)
+        defid_to_d_ident[b.defid] = d_ref
+        defid_to_d_ref_expr[b.defid] = d_ref
+        rhs = d_rhs_by_defid.get(b.defid) or _float_lit(0, bloc)
+        ti = getattr(b, "type_info", None) or (getattr(b.expr, "type_info", None) if b.expr else None)
+        si = getattr(b, "shape_info", None) or (getattr(b.expr, "shape_info", None) if b.expr else None)
+        _set_type_info_on_expr(rhs, ti, si)
+        d_binding = BindingIR(name=d_name, expr=rhs, location=b.location, defid=d_defid, type_info=ti)
+        defid_to_d_binding_block[b.defid] = d_binding
+    new_stmts: List[Any] = []
+    for stmt in block.statements or []:
+        new_stmts.append(stmt)
+        if isinstance(stmt, BindingIR) and stmt.defid is not None and stmt.defid in defid_to_d_binding_block:
+            new_stmts.append(defid_to_d_binding_block[stmt.defid])
+    object.__setattr__(block, "statements", new_stmts)
+
+
 def _expand_derivative_in_expr(
     expr: ExpressionIR,
     defid_to_d_ident: Dict[DefId, IdentifierIR],
     quotient_to_expr: Dict[Tuple[DefId, DefId], ExpressionIR],
-    defid_to_expr: Dict[DefId, ExpressionIR],
+    scope_binding_by_defid: Dict[DefId, Any],
+    scope_defid_to_expr: Dict[DefId, ExpressionIR],
     loc: SourceLocation,
-    binding_by_defid: Optional[Dict[DefId, Any]] = None,
     resolver: Optional[Any] = None,
 ) -> ExpressionIR:
-    """Rewrite DifferentialIR -> d_ref or d(expr); expand every @xxx/@y to ∂(xxx)/∂y."""
+    """Rewrite DifferentialIR -> d_ref or d(expr); expand every @xxx/@y to ∂(xxx)/∂y.
+    scope_* are the bindings in scope at this point (program-level or block-level); used for lookup only."""
     if isinstance(expr, DifferentialIR):
         operand = expr.operand
         t = _differential_target_from_operand(operand)
@@ -1292,17 +1687,17 @@ def _expand_derivative_in_expr(
             num_operand = expr.left.operand
             den_operand = expr.right.operand
             if isinstance(den_operand, IdentifierIR) and den_operand.defid is not None:
-                # Simple denominator @y: ∂(num's definition)/∂y
+                # Simple denominator @y: ∂(num's definition)/∂y (look up num in current scope)
                 if isinstance(num_operand, IdentifierIR) and num_operand.defid is not None:
-                    num_expr = defid_to_expr.get(num_operand.defid)
+                    num_expr = scope_defid_to_expr.get(num_operand.defid)
                     if num_expr is None:
                         raise ValueError(
-                            "Autodiff: numerator of @num/@den has no defining expression in this program (e.g. from function call)"
+                            "Autodiff: numerator of @num/@den has no defining expression in this scope (e.g. from function call)"
                         )
                 else:
                     num_expr = num_operand
                 den_defid = den_operand.defid
-                der = _diff_expr_wrt(num_expr, den_defid, loc_q, binding_by_defid, resolver)
+                der = _diff_expr_wrt(num_expr, den_defid, loc_q, scope_binding_by_defid, resolver)
                 # Allow zero derivative (e.g. remainder MOD: ∂(a%b)/∂b = 0)
             else:
                 # Compound denominator @(expr): ∂num/∂den = (∂num/∂x) / (∂den/∂x). Use num as variable (e.g. @x -> x) so ∂x/∂x=1.
@@ -1321,16 +1716,16 @@ def _expand_derivative_in_expr(
                         "Autodiff: @num/@(expr) requires denominator expression to depend on exactly one variable (ambiguous otherwise)"
                     )
                 wrt_defid = next(iter(defids))
-                d_num = _diff_expr_wrt(num_expr, wrt_defid, loc_q, binding_by_defid, resolver)
-                d_den = _diff_expr_wrt(den_expr, wrt_defid, loc_q, binding_by_defid, resolver)
+                d_num = _diff_expr_wrt(num_expr, wrt_defid, loc_q, scope_binding_by_defid, resolver)
+                d_den = _diff_expr_wrt(den_expr, wrt_defid, loc_q, scope_binding_by_defid, resolver)
                 der = BinaryOpIR(BinaryOp.DIV, d_num, d_den, loc_q)
             ti = getattr(expr, "type_info", None)
             si = getattr(expr, "shape_info", None)
             if ti is not None or si is not None:
                 _set_type_info_on_expr(der, ti, si)
             return der
-        new_left = _expand_derivative_in_expr(expr.left, defid_to_d_ident, quotient_to_expr, defid_to_expr, loc, binding_by_defid, resolver)
-        new_right = _expand_derivative_in_expr(expr.right, defid_to_d_ident, quotient_to_expr, defid_to_expr, loc, binding_by_defid, resolver)
+        new_left = _expand_derivative_in_expr(expr.left, defid_to_d_ident, quotient_to_expr, scope_binding_by_defid, scope_defid_to_expr, loc, resolver)
+        new_right = _expand_derivative_in_expr(expr.right, defid_to_d_ident, quotient_to_expr, scope_binding_by_defid, scope_defid_to_expr, loc, resolver)
         return BinaryOpIR(
             expr.operator,
             new_left,
@@ -1342,18 +1737,121 @@ def _expand_derivative_in_expr(
     if isinstance(expr, UnaryOpIR):
         return UnaryOpIR(
             expr.operator,
-            _expand_derivative_in_expr(expr.operand, defid_to_d_ident, quotient_to_expr, defid_to_expr, loc, binding_by_defid, resolver),
+            _expand_derivative_in_expr(expr.operand, defid_to_d_ident, quotient_to_expr, scope_binding_by_defid, scope_defid_to_expr, loc, resolver),
             expr.location,
             type_info=getattr(expr, "type_info", None),
             shape_info=getattr(expr, "shape_info", None),
         )
+    if isinstance(expr, EinsteinIR):
+        # Recurse into each clause's value (e.g. block with @loss/@x) so inner-scope quotients are expanded.
+        new_clauses = []
+        for c in (expr.clauses or []):
+            new_value = _expand_derivative_in_expr(
+                c.value, defid_to_d_ident, quotient_to_expr, scope_binding_by_defid, scope_defid_to_expr, loc, resolver
+            )
+            new_clause = EinsteinClauseIR(
+                indices=c.indices,
+                value=new_value,
+                location=c.location,
+                where_clause=c.where_clause,
+                variable_ranges=dict(c.variable_ranges) if c.variable_ranges else {},
+            )
+            new_clauses.append(new_clause)
+        return EinsteinIR(
+            clauses=new_clauses,
+            shape=expr.shape,
+            element_type=expr.element_type,
+            location=expr.location,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
     if isinstance(expr, BlockExpressionIR):
-        new_stmts = [_expand_derivative_in_expr(s, defid_to_d_ident, quotient_to_expr, defid_to_expr, loc, binding_by_defid, resolver) if isinstance(s, ExpressionIR) else s for s in (expr.statements or [])]
-        new_final = _expand_derivative_in_expr(expr.final_expr, defid_to_d_ident, quotient_to_expr, defid_to_expr, loc, binding_by_defid, resolver) if expr.final_expr is not None else None
+        # Ensure block-local d_* exist when this scope has @ or @num/@den (autodiff works for scope, not only top-level).
+        _ensure_block_has_d_bindings(
+            expr, scope_binding_by_defid, scope_defid_to_expr, defid_to_d_ident, loc, resolver
+        )
+        # Scope-aware: extend scope with each binding in order so later statements and final_expr see earlier bindings.
+        new_scope_binding = dict(scope_binding_by_defid)
+        new_scope_expr = dict(scope_defid_to_expr)
+        new_stmts: List[Any] = []
+        for stmt in expr.statements or []:
+            if isinstance(stmt, BindingIR):
+                expanded_expr = _expand_derivative_in_expr(
+                    stmt.expr, defid_to_d_ident, quotient_to_expr, new_scope_binding, new_scope_expr, loc, resolver
+                )
+                new_binding = BindingIR(
+                    name=stmt.name,
+                    expr=expanded_expr,
+                    location=stmt.location,
+                    defid=stmt.defid,
+                    type_info=getattr(stmt, "type_info", None),
+                )
+                if new_binding.defid is not None:
+                    new_scope_binding[new_binding.defid] = new_binding
+                    new_scope_expr[new_binding.defid] = expanded_expr
+                new_stmts.append(new_binding)
+            elif isinstance(stmt, ExpressionIR):
+                new_stmts.append(_expand_derivative_in_expr(stmt, defid_to_d_ident, quotient_to_expr, new_scope_binding, new_scope_expr, loc, resolver))
+            else:
+                new_stmts.append(stmt)
+        new_final = _expand_derivative_in_expr(expr.final_expr, defid_to_d_ident, quotient_to_expr, new_scope_binding, new_scope_expr, loc, resolver) if expr.final_expr is not None else None
         return BlockExpressionIR(
             statements=new_stmts,
             location=expr.location,
             final_expr=new_final,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
+    if isinstance(expr, FunctionCallIR):
+        new_args = [
+            _expand_derivative_in_expr(a, defid_to_d_ident, quotient_to_expr, scope_binding_by_defid, scope_defid_to_expr, loc, resolver)
+            for a in (expr.arguments or [])
+        ]
+        return FunctionCallIR(
+            callee_expr=expr.callee_expr,
+            location=expr.location,
+            arguments=new_args,
+            module_path=getattr(expr, "module_path", None),
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
+    if isinstance(expr, BuiltinCallIR):
+        args = expr.args or []
+        # print(@y) -> print("@y=2*x*@x;") so we print the symbolic diff, not a number
+        if expr.builtin_name == "print" and len(args) == 1 and isinstance(args[0], DifferentialIR):
+            t = _differential_target_from_operand(args[0].operand)
+            if t is not None:
+                y_defid, y_name = t
+                y_expr = scope_defid_to_expr.get(y_defid)
+                if y_expr is not None:
+                    try:
+                        diff_rhs = _build_differential_expr(y_expr, defid_to_d_ident, loc)
+                        diff_rhs = _simplify_diff_expr(diff_rhs, expr.location or loc)
+                        d_defid_to_at_name = {}
+                        for p in defid_to_d_ident:
+                            b = scope_binding_by_defid.get(p)
+                            d_defid_to_at_name[defid_to_d_ident[p].defid] = "@" + (b.name if b and getattr(b, "name", None) else "?")
+                        rhs_str = _expr_to_diff_source(diff_rhs, d_defid_to_at_name, scope_binding_by_defid)
+                        msg = "@" + (y_name or "?") + "=" + rhs_str + ";"
+                        return BuiltinCallIR(
+                            "print",
+                            [LiteralIR(msg, expr.location, type_info=STR)],
+                            expr.location,
+                            defid=getattr(expr, "defid", None),
+                            type_info=getattr(expr, "type_info", None),
+                            shape_info=getattr(expr, "shape_info", None),
+                        )
+                    except (ValueError, KeyError):
+                        pass
+        new_args = [
+            _expand_derivative_in_expr(a, defid_to_d_ident, quotient_to_expr, scope_binding_by_defid, scope_defid_to_expr, loc, resolver)
+            for a in args
+        ]
+        return BuiltinCallIR(
+            expr.builtin_name,
+            new_args,
+            expr.location,
+            defid=getattr(expr, "defid", None),
             type_info=getattr(expr, "type_info", None),
             shape_info=getattr(expr, "shape_info", None),
         )
@@ -1364,19 +1862,49 @@ def _expand_derivative_nodes_in_program(
     program: ProgramIR,
     defid_to_d_ident: Dict[DefId, IdentifierIR],
     quotient_to_expr: Dict[Tuple[DefId, DefId], ExpressionIR],
-    defid_to_expr: Dict[DefId, ExpressionIR],
-    binding_by_defid: Optional[Dict[DefId, Any]] = None,
+    loc: SourceLocation,
     resolver: Optional[Any] = None,
+    initial_binding_by_defid: Optional[Dict[DefId, Any]] = None,
 ) -> None:
-    """In-place: replace DifferentialIR and DIV(@.,@.) in program with d_ refs / d(expr) / derivative exprs."""
-    loc = SourceLocation("", 0, 0)
+    """In-place: replace DifferentialIR and DIV(@.,@.) in program with d_ refs / d(expr) / derivative exprs.
+    Uses scope-aware expansion: scope grows with each program binding so later bindings and nested blocks see earlier ones.
+    initial_binding_by_defid: optional pre-populated scope (e.g. from function_ir_map) so @num/@den can resolve callees."""
+    scope_binding_by_defid: Dict[DefId, Any] = {}
+    scope_defid_to_expr: Dict[DefId, ExpressionIR] = {}
+    if initial_binding_by_defid:
+        scope_binding_by_defid = dict(initial_binding_by_defid)
+        scope_defid_to_expr = {
+            did: b.expr for did, b in initial_binding_by_defid.items()
+            if getattr(b, "expr", None) is not None
+        }
     for binding in program.bindings or []:
         if not isinstance(binding, BindingIR) or binding.expr is None:
             continue
         binding.expr = _expand_derivative_in_expr(
-            binding.expr, defid_to_d_ident, quotient_to_expr, defid_to_expr,
-            binding.expr.location or loc, binding_by_defid, resolver,
+            binding.expr,
+            defid_to_d_ident,
+            quotient_to_expr,
+            scope_binding_by_defid,
+            scope_defid_to_expr,
+            binding.expr.location or loc,
+            resolver,
         )
+        if binding.defid is not None:
+            scope_binding_by_defid[binding.defid] = binding
+            scope_defid_to_expr[binding.defid] = binding.expr
+    # Expand @ in non-binding statements (e.g. print(@y) -> print(d_y); that prints the diff, not the derivative)
+    stmts = program.statements or []
+    for i, stmt in enumerate(stmts):
+        if not isinstance(stmt, BindingIR) and isinstance(stmt, ExpressionIR):
+            stmts[i] = _expand_derivative_in_expr(
+                stmt,
+                defid_to_d_ident,
+                quotient_to_expr,
+                scope_binding_by_defid,
+                scope_defid_to_expr,
+                getattr(stmt, "location", None) or loc,
+                resolver,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1384,7 +1912,7 @@ def _expand_derivative_nodes_in_program(
 # ---------------------------------------------------------------------------
 
 class AutodiffPass(BasePass):
-    """Expand @ and @y/@x into plain IR via forward diff. @(expr) -> d(expr); @(expr)/@x -> derivative."""
+    """Expand @ and @y/@x into plain IR via forward diff. @y is the diff (d_y); @y/@x is the derivative. @(expr) -> d(expr)."""
 
     requires = [
         TypeInferencePass,
@@ -1402,6 +1930,10 @@ class AutodiffPass(BasePass):
         for b in bindings:
             if b.expr is not None:
                 b.expr.accept(collector)
+        # Collect @ from non-binding statements too (e.g. print(@y) so we create d_y)
+        for stmt in program.statements or []:
+            if not isinstance(stmt, BindingIR) and hasattr(stmt, "accept"):
+                stmt.accept(collector)
         differential_targets = list(collector.targets)
         quotient_pairs = _collect_quotient_pairs(program)
 
@@ -1428,8 +1960,12 @@ class AutodiffPass(BasePass):
             target_defids.add(num)
             target_defids.add(den)
 
+        # Only top-level bindings get d_* and diff_block; inner-scope quotients are expanded in place.
+        top_level_defids = {b.defid for b in bindings if b.defid is not None}
+        target_defids_for_diff = target_defids & top_level_defids
+
         reachable: Set[DefId] = set()
-        work = list(target_defids)
+        work = list(target_defids_for_diff)
         while work:
             did = work.pop()
             if did in reachable:
@@ -1456,7 +1992,7 @@ class AutodiffPass(BasePass):
                 visit(dep)
             forward_order.append(b)
 
-        for did in target_defids:
+        for did in target_defids_for_diff:
             visit(did)
         # forward_order is deps-first (e.g. a then b for b=a*a); do not reverse or d_* uses zeros for deps.
 
@@ -1478,10 +2014,10 @@ class AutodiffPass(BasePass):
             d_defid = resolver.allocate_for_local()
             d_ref = IdentifierIR(d_name, b.location or SourceLocation("", 0, 0), d_defid)
             defid_to_d_ident[b.defid] = d_ref
-            # Seed values only for single-run fallback; per-quotient runs use backend-set env (AUTODIFF_ALGORITHM §4.2).
+            # Seed values: with quotient pairs, backend sets per-quotient seeds; else seed leaves 1 so print(@y) yields ∂y/∂x (dx~0 so we need a seed to get a number).
             if b.defid in quotient_denominators:
                 seed_value[b.defid] = 1
-            elif b.defid in leaves and b.defid in target_defids:
+            elif b.defid in leaves and (b.defid in target_defids or len(quotient_pairs) == 0):
                 seed_value[b.defid] = 1
             else:
                 seed_value[b.defid] = 0
@@ -1554,13 +2090,13 @@ class AutodiffPass(BasePass):
         non_binding_stmts = [s for s in (program.statements or []) if not isinstance(s, BindingIR)]
         program.statements = new_bindings + non_binding_stmts
 
-        quotient_to_expr = {}
-        defid_to_expr = {
-            b.defid: b.expr
-            for b in (program.bindings or [])
-            if isinstance(b, BindingIR) and getattr(b, "defid", None) is not None and b.expr is not None
-        }
-        _expand_derivative_nodes_in_program(program, defid_to_d_ident, quotient_to_expr, defid_to_expr, binding_by_defid, resolver)
+        # Scope-aware expansion (does not use quotient_to_expr; inner quotients use scope_defid_to_expr).
+        # Pass binding_by_defid so @num/@den expansion can resolve function calls (incl. from function_ir_map).
+        quotient_to_expr_scope: Dict[Tuple[DefId, DefId], ExpressionIR] = {}
+        _expand_derivative_nodes_in_program(
+            program, defid_to_d_ident, quotient_to_expr_scope, loc0, resolver,
+            initial_binding_by_defid=binding_by_defid,
+        )
 
         # Diff block: d_* bindings in forward order so backend can run them with per-quotient seeds.
         diff_block_list: List[BindingIR] = [

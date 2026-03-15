@@ -1,27 +1,29 @@
-// Gradient descent on ||A*x - b||^2 using built-in autodiff for gradients (no hand-written grad).
-// One step: gradient at x=(0,0) via @loss/@x0, @loss/@x1; then x_next = x - alpha*grad; loss decreases.
-// (Multi-step GD would require differentiating loss w.r.t. intermediate x; current autodiff supports
-// quotients only when the denominator is a leaf, so we show one step here.)
+// Gradient descent on ||A*x - b||^2 using recurrence with autodiff (@loss/@x) in inner scope.
 // Run: python3 -m einlang examples/gradient_descent_autodiff.ein
 
 let A = [[2.0, 0.0], [0.0, 2.0]];
 let b = [1.0, 1.0];
 let alpha = 0.2;
 
-let x0 = 0.0;
-let x1 = 0.0;
-let r0 = A[0, 0] * x0 + A[0, 1] * x1 - b[0];
-let r1 = A[1, 0] * x0 + A[1, 1] * x1 - b[1];
-let loss = r0 * r0 + r1 * r1;
-let g0 = @loss / @x0;
-let g1 = @loss / @x1;
-let x0_next = x0 - alpha * g0;
-let x1_next = x1 - alpha * g1;
-let r0_next = A[0, 0] * x0_next + A[0, 1] * x1_next - b[0];
-let r1_next = A[1, 0] * x0_next + A[1, 1] * x1_next - b[1];
-let loss_next = r0_next * r0_next + r1_next * r1_next;
+let x[0, 0] = 0.0;
+let x[0, 1] = 0.0;
+let x[k in 1..20, i in 0..2] = {
+  let x0_k = x[k - 1, 0];
+  let x1_k = x[k - 1, 1];
+  let r0_k = A[0, 0] * x0_k + A[0, 1] * x1_k - b[0];
+  let r1_k = A[1, 0] * x0_k + A[1, 1] * x1_k - b[1];
+  let loss_k = r0_k * r0_k + r1_k * r1_k;
+  let g0_k = @loss_k / @x0_k;
+  let g1_k = @loss_k / @x1_k;
+  if i == 0 { x0_k - alpha * g0_k } else { x1_k - alpha * g1_k }
+};
 
-print(loss);
-print(loss_next);
-print(x0_next);
-print(x1_next);
+let loss_initial = (A[0, 0] * x[0, 0] + A[0, 1] * x[0, 1] - b[0]) * (A[0, 0] * x[0, 0] + A[0, 1] * x[0, 1] - b[0]) + (A[1, 0] * x[0, 0] + A[1, 1] * x[0, 1] - b[1]) * (A[1, 0] * x[0, 0] + A[1, 1] * x[0, 1] - b[1]);
+let r0_final = A[0, 0] * x[19, 0] + A[0, 1] * x[19, 1] - b[0];
+let r1_final = A[1, 0] * x[19, 0] + A[1, 1] * x[19, 1] - b[1];
+let loss_final = r0_final * r0_final + r1_final * r1_final;
+
+print(loss_initial);
+print(loss_final);
+print(x[19, 0]);
+print(x[19, 1]);

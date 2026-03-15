@@ -539,8 +539,8 @@ class ReductionExpressionIR(ExpressionIR):
 
 
 class SelectAtArgmaxIR(ExpressionIR):
-    """Autodiff: differential of max reduction. Represents d(max_i body) = d_body at argmax(primal_body)."""
-    __slots__ = ('primal_body', 'diff_body', 'loop_vars', 'loop_var_ranges')
+    """Autodiff: differential of max/min reduction. Represents d(ext_i body) = d_body at argmax/argmin(primal_body)."""
+    __slots__ = ('primal_body', 'diff_body', 'loop_vars', 'loop_var_ranges', 'use_argmin')
 
     def __init__(
         self,
@@ -551,6 +551,7 @@ class SelectAtArgmaxIR(ExpressionIR):
         location: Optional[SourceLocation] = None,
         type_info: Optional[Any] = None,
         shape_info: Optional[Any] = None,
+        use_argmin: bool = False,
     ):
         loc = location or (primal_body.location if primal_body else None)
         if loc is None:
@@ -560,6 +561,7 @@ class SelectAtArgmaxIR(ExpressionIR):
         self.diff_body = diff_body
         self.loop_vars = _t(loop_vars)
         self.loop_var_ranges = loop_var_ranges if loop_var_ranges is not None else {}
+        self.use_argmin = use_argmin
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_select_at_argmax(self)
@@ -1206,8 +1208,8 @@ class LoweredReductionIR(ExpressionIR):
 
 
 class LoweredSelectAtArgmaxIR(ExpressionIR):
-    """Lowered select-at-argmax (autodiff of max). primal_body, diff_body, loops; result = diff at argmax(primal)."""
-    __slots__ = ('primal_body', 'diff_body', 'loops', 'bindings', 'guards')
+    """Lowered select-at-argmax/argmin (autodiff of max/min). primal_body, diff_body, loops; result = diff at argmax/argmin(primal)."""
+    __slots__ = ('primal_body', 'diff_body', 'loops', 'bindings', 'guards', 'use_argmin')
 
     def __init__(
         self,
@@ -1219,6 +1221,7 @@ class LoweredSelectAtArgmaxIR(ExpressionIR):
         location: Optional[SourceLocation] = None,
         type_info: Optional[Any] = None,
         shape_info: Optional[Any] = None,
+        use_argmin: bool = False,
     ):
         loc = location or (primal_body.location if primal_body else None)
         if loc is None:
@@ -1229,6 +1232,7 @@ class LoweredSelectAtArgmaxIR(ExpressionIR):
         self.loops = _t(loops)
         self.bindings = _t(bindings)
         self.guards = _t(guards)
+        self.use_argmin = use_argmin
 
     @property
     def reduction_ranges(self) -> Dict[DefId, LoopStructure]:

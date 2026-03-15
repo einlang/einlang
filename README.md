@@ -100,6 +100,8 @@ Einlang gives you readable tensor math with compile-time shape checking. In prac
 
 ## Why it's different
 
+**[→ Why Einlang?](docs/WHY_EINLANG.md)** — Feature highlights and comparison: math-on-the-page syntax, one language for simulation + ML, gradients without gradient code.
+
 - **Math-intuitive** — Write what you’d write on a whiteboard or in a paper: Σ_k, indices, where-clauses, ∂z/∂x as `@z / @x`. No string subscripts, no mental translation from equation to code.
 - **Einstein notation as syntax** — Indices like `i, k, j` are part of the language. The compiler infers ranges from array shapes. Wrong dimensions → compile error, not a runtime crash.  
   `let C[i, j] = sum[k](A[i, k] * B[k, j]);`
