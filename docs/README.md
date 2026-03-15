@@ -10,6 +10,7 @@ One place to find your path. **Single source of truth:** [Language reference](ht
 | You want to… | Go here |
 |--------------|--------|
 | **Get going in one page** | [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) |
+| **Why Einlang? (features & comparison)** | [Why Einlang](https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md) — math-on-the-page, one language for simulation + ML, gradients without gradient code |
 | **Learn by doing** | [Try it](https://github.com/einlang/einlang/blob/main/README.md#try-it) → [Learning path](https://github.com/einlang/einlang/blob/main/examples/README.md) |
 | **Learn by background** | [Syntax comparison](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md) (Python/Julia/Rust) · [Einlang for Julia programmers](https://github.com/einlang/einlang/blob/main/docs/EINLANG_FOR_JULIA_PROGRAMMERS.md) |
 | **Common questions** | [FAQ](https://github.com/einlang/einlang/blob/main/docs/FAQ.md) |
@@ -47,6 +48,7 @@ One place to find your path. **Single source of truth:** [Language reference](ht
 | [Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) | Install, CLI, Python API (only place they're defined) |
 | [Examples README](https://github.com/einlang/einlang/blob/main/examples/README.md) | Learning path and how to run examples |
 | [GETTING_STARTED](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) | One-page story: what is Einlang → try → first example → use from Python → next |
+| [WHY_EINLANG](https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md) | **Why Einlang?** — Feature brag: math-on-the-page syntax, one language for simulation + ML, gradients without gradient code, who it's for |
 | [SYNTAX_COMPARISON](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md) | Python/NumPy, Julia, Rust → Einlang snippet mapping (links to reference) |
 | [EINLANG_FOR_JULIA_PROGRAMMERS](https://github.com/einlang/einlang/blob/main/docs/EINLANG_FOR_JULIA_PROGRAMMERS.md) | Einlang for Julia programmers: indexing, ODEs/PDEs, recurrence, where to start |
 | [JULIA_DEMOS](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md) | Julia demos and case studies with links; maps each to Einlang examples (simulation/ML overlap) |

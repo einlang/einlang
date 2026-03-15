@@ -1074,6 +1074,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             guards=[],
             location=node.location,
             type_info=node.type_info,
+            use_argmin=getattr(node, 'use_argmin', False),
         )
 
     def lower_array_comprehension(self, node: ArrayComprehensionIR) -> Optional[LoweredComprehensionIR]:

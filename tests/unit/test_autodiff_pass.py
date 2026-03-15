@@ -22,8 +22,32 @@ autodiff (callee not in program.bindings); use local user fns or @fn for such ma
 
 import math
 
+import numpy as np
+
 from einlang.compiler.driver import CompilerDriver
 from einlang.passes.autodiff import AutodiffPass
+
+
+def _assert_allclose(actual, ref, atol=1e-5, rtol=1e-5, msg=""):
+    """Compare entire array (or scalar) to NumPy reference; fail with clear diff if not close."""
+    a = np.asarray(actual, dtype=np.float64)
+    r = np.asarray(ref, dtype=np.float64)
+    if a.shape != r.shape:
+        if a.size != r.size:
+            raise AssertionError(
+                "%s shape mismatch: actual %s (size %s) vs ref %s (size %s). %s"
+                % (msg or "allclose", a.shape, a.size, r.shape, r.size, msg)
+            )
+        a = a.flat
+        r = r.flat
+    ok = np.allclose(a, r, atol=atol, rtol=rtol)
+    if not ok:
+        diff = np.abs(a - r)
+        max_diff = np.max(diff)
+        raise AssertionError(
+            "%s max |actual - ref| = %s (atol=%s). %s"
+            % (msg or "allclose", max_diff, atol, msg)
+        )
 
 
 def _scalar_float(outputs, key):
@@ -127,6 +151,44 @@ print(db_da);
         actual = _scalar_float(outputs, "db_da")
         assert actual == 6.0, "expected db/da = 2*a = 6 at a=3 for sq(a)=a^2, got %s" % actual
 
+    def test_print_differential(self, capsys):
+        """print(@y) prints the symbolic diff as @y=2*x*@x; (not a numeric value)."""
+        compiler = CompilerDriver()
+        source = """
+let x = 1.0;
+let y = x ** 2;
+print(@y);
+"""
+        result = compiler.compile(source.strip(), source_file="<test>")
+        assert result.success, result.get_errors() or "compile failed"
+        from einlang.runtime.runtime import EinlangRuntime
+        runtime = EinlangRuntime(backend="numpy")
+        exec_result = runtime.execute(result)
+        assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
+        out = capsys.readouterr().out.strip()
+        assert out == "@y=2*x*@x;", "expected print(@y) to output exactly '@y=2*x*@x;', got %r" % out
+
+    def test_autodiff_in_block_scope(self):
+        """Autodiff works in a scope (block), not only top-level: @y/@x inside block with let x, let y."""
+        compiler = CompilerDriver()
+        source = """
+let result = {
+    let x = 3.0;
+    let y = x * x;
+    @y / @x
+};
+print(result);
+"""
+        result = compiler.compile(source.strip(), source_file="<test>")
+        assert result.success, result.get_errors() or "compile failed"
+        from einlang.runtime.runtime import EinlangRuntime
+        runtime = EinlangRuntime(backend="numpy")
+        exec_result = runtime.execute(result)
+        assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
+        outputs = getattr(exec_result, "outputs", {}) or {}
+        actual = _scalar_float(outputs, "result")
+        assert actual == 6.0, "expected d(x^2)/dx = 2*x = 6 at x=3 in block scope, got %s" % actual
+
     def test_einstein_quotient_compiles_and_runs(self):
         """@C/@A when C is Einstein sum: autodiff expands to ∂C/∂A Einstein; compile and run; assert dC_dA shape."""
         compiler = CompilerDriver()
@@ -162,11 +224,7 @@ print(dC_dA);
                     for r in range(2):
                         for s in range(2):
                             ref[i, j, r, s] = B_ref[s, j] if i == r else 0.0
-            # Strict comparison with reference (enable when backend applies derivative reduction guards)
-            max_diff = np.abs(np.asarray(arr, dtype=np.float64) - ref).max()
-            assert max_diff < 1e-5, (
-                "dC_dA should match NumPy reference (∂C/∂A for C=A@B); max |diff| = %s" % max_diff
-            )
+            _assert_allclose(arr, ref, msg="dC_dA vs ∂C/∂A for C=A@B")
         except ImportError:
             pass
 
@@ -197,8 +255,7 @@ let dC_dB = @C / @B;
                     for s in range(2):
                         for t in range(2):
                             ref[i, j, s, t] = A_ref[i, s] if t == j else 0.0
-            max_diff = np.abs(np.asarray(arr, dtype=np.float64) - ref).max()
-            assert max_diff < 1e-5, "dC_dB should match ∂C/∂B; max |diff| = %s" % max_diff
+            _assert_allclose(arr, ref, msg="dC_dB vs ∂C/∂B")
         except ImportError:
             pass
 
@@ -213,22 +270,20 @@ let dC_dB = @C / @B;
 """
         _, out = _compile_run(source)
         try:
-            import numpy as np
-            dA = np.asarray(out.get("dC_dA"))
-            dB = np.asarray(out.get("dC_dB"))
-            assert dA.shape == (2, 2, 2, 2) and dB.shape == (2, 2, 2, 2)
             A_ref = np.array([[1.0, 2.0], [3.0, 4.0]])
             B_ref = np.array([[5.0, 6.0], [7.0, 8.0]])
+            ref_dA = np.zeros((2, 2, 2, 2), dtype=np.float64)
+            ref_dB = np.zeros((2, 2, 2, 2), dtype=np.float64)
             for i in range(2):
                 for j in range(2):
                     for r in range(2):
                         for s in range(2):
-                            expect_a = B_ref[s, j] if i == r else 0.0
-                            assert abs(float(dA[i, j, r, s]) - expect_a) < 1e-5
+                            ref_dA[i, j, r, s] = B_ref[s, j] if i == r else 0.0
                     for s in range(2):
                         for t in range(2):
-                            expect_b = A_ref[i, s] if t == j else 0.0
-                            assert abs(float(dB[i, j, s, t]) - expect_b) < 1e-5
+                            ref_dB[i, j, s, t] = A_ref[i, s] if t == j else 0.0
+            _assert_allclose(out.get("dC_dA"), ref_dA, msg="dC_dA both quotients")
+            _assert_allclose(out.get("dC_dB"), ref_dB, msg="dC_dB both quotients")
         except ImportError:
             pass
 
@@ -252,8 +307,7 @@ let dr_dM = @r / @M;
                 for r in range(2):
                     for s in range(2):
                         ref[i, r, s] = 1.0 if i == r else 0.0
-            max_diff = np.abs(np.asarray(arr, dtype=np.float64) - ref).max()
-            assert max_diff < 1e-5, "dr_dM should match ∂r/∂M; max |diff| = %s" % max_diff
+            _assert_allclose(arr, ref, msg="dr_dM vs ∂r/∂M")
         except ImportError:
             pass
 
@@ -271,11 +325,13 @@ let d_out_dw = @out / @w;
         try:
             import numpy as np
             arr = np.asarray(d_out_dw)
-            # out has shape (2,) for oh=0,1 (oh+kh < 3); wrt w has shape (2,) => derivative shape (2, 2)
             assert arr.ndim == 2 and arr.shape[0] == 2 and arr.shape[1] == 2, (
                 "d_out_dw shape (2,2), got %s" % (arr.shape,)
             )
-            assert np.isfinite(arr).all()
+            # ∂out[oh]/∂w[kh] = in[oh+kh]: ref[oh, kh] = in[oh+kh]
+            in_ref = np.array([1.0, 2.0, 3.0])
+            ref = np.array([[in_ref[0], in_ref[1]], [in_ref[1], in_ref[2]]], dtype=np.float64)
+            _assert_allclose(arr, ref, msg="d_out_dw vs ∂out/∂w")
         except ImportError:
             pass
 
@@ -291,10 +347,17 @@ let dC_dA = @C / @A;
         dC_dA = out.get("dC_dA")
         assert dC_dA is not None
         try:
-            import numpy as np
             arr = np.asarray(dC_dA)
             assert arr.ndim == 4 and arr.shape == (3, 3, 3, 3)
-            assert np.isfinite(arr).all()
+            A_ref = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
+            B_ref = np.array([[9.0, 8.0, 7.0], [6.0, 5.0, 4.0], [3.0, 2.0, 1.0]])
+            ref = np.zeros((3, 3, 3, 3), dtype=np.float64)
+            for i in range(3):
+                for j in range(3):
+                    for r in range(3):
+                        for s in range(3):
+                            ref[i, j, r, s] = B_ref[s, j] if i == r else 0.0
+            _assert_allclose(arr, ref, msg="dC_dA 3x3 matmul")
         except ImportError:
             pass
 
@@ -317,7 +380,7 @@ let dc_dM = @c / @M;
                 for r in range(2):
                     for s in range(2):
                         ref[j, r, s] = 1.0 if s == j else 0.0
-            assert np.allclose(arr, ref, atol=1e-5)
+            _assert_allclose(arr, ref, msg="dc_dM vs ∂c/∂M")
         except ImportError:
             pass
 
@@ -336,13 +399,74 @@ let d_sums_d_x = @sums / @x;
         assert out.get("d_max_d_x") is not None
         assert out.get("d_sums_d_x") is not None
         try:
-            import numpy as np
-            d_max = np.asarray(out.get("d_max_d_x"))
-            d_sums = np.asarray(out.get("d_sums_d_x"))
-            assert np.isfinite(d_max).all() and np.isfinite(d_sums).all()
-            # d_sums/d_x: each row sums to 1 (derivative of sum over j)
-            # d_max/d_x: 1 at argmax position per row
-            assert d_max.size >= 1 and d_sums.size >= 1
+            ref_d_max = np.array([[0.0, 0.0, 1.0]], dtype=np.float64)
+            ref_d_sums = np.array([[1.0, 1.0, 1.0]], dtype=np.float64)
+            _assert_allclose(out.get("d_max_d_x"), ref_d_max, msg="d_max_d_x")
+            _assert_allclose(out.get("d_sums_d_x"), ref_d_sums, msg="d_sums_d_x")
+        except ImportError:
+            pass
+
+    def test_reduction_autodiff_sum(self):
+        """∂(sum_j body)/∂wrt = sum_j ∂(body)/∂wrt. Derivative of sum over index is 1 at each element."""
+        source = """
+let x = [[1.0, 2.0, 3.0]];
+let y[b] = sum[j](x[b, j]);
+let dy_dx = @y / @x;
+"""
+        _, out = _compile_run(source)
+        dy_dx = out.get("dy_dx")
+        assert dy_dx is not None
+        try:
+            ref = np.ones((1, 3), dtype=np.float64)
+            _assert_allclose(dy_dx, ref, msg="dy_dx sum reduction")
+        except ImportError:
+            pass
+
+    def test_reduction_autodiff_max(self):
+        """∂(max_j body)/∂wrt = ∂(body)/∂wrt at argmax. Derivative is 1 at argmax position (per batch)."""
+        source = """
+let x = [[1.0, 3.0, 2.0]];
+let y[b] = max[j](x[b, j]);
+let dy_dx = @y / @x;
+"""
+        _, out = _compile_run(source)
+        dy_dx = out.get("dy_dx")
+        assert dy_dx is not None
+        try:
+            ref = np.array([[0.0, 1.0, 0.0]], dtype=np.float64)
+            _assert_allclose(dy_dx, ref, msg="dy_dx max reduction")
+        except ImportError:
+            pass
+
+    def test_reduction_autodiff_min(self):
+        """∂(min_j body)/∂wrt = ∂(body)/∂wrt at argmin. Derivative is 1 at argmin position (per batch)."""
+        source = """
+let x = [[1.0, 3.0, 2.0]];
+let y[b] = min[j](x[b, j]);
+let dy_dx = @y / @x;
+"""
+        _, out = _compile_run(source)
+        dy_dx = out.get("dy_dx")
+        assert dy_dx is not None
+        try:
+            ref = np.array([[1.0, 0.0, 0.0]], dtype=np.float64)
+            _assert_allclose(dy_dx, ref, msg="dy_dx min reduction")
+        except ImportError:
+            pass
+
+    def test_reduction_autodiff_prod(self):
+        """∂(prod_j body)/∂wrt = (prod body) * sum_j (d_body/body). For body=x[b,j]: d(prod)/dx[b,j] = prod_{j'!=j} x[b,j']."""
+        source = """
+let x = [[1.0, 2.0, 3.0]];
+let y[b] = prod[j](x[b, j]);
+let dy_dx = @y / @x;
+"""
+        _, out = _compile_run(source)
+        dy_dx = out.get("dy_dx")
+        assert dy_dx is not None
+        try:
+            ref = np.array([[6.0, 3.0, 2.0]], dtype=np.float64)
+            _assert_allclose(dy_dx, ref, msg="dy_dx prod reduction", atol=1e-4)
         except ImportError:
             pass
 
@@ -362,10 +486,8 @@ let d_out_d_Q = @out / @Q;
         d_out_d_Q = out.get("d_out_d_Q")
         assert d_out_d_Q is not None
         try:
-            import numpy as np
             arr = np.asarray(d_out_d_Q)
             assert np.isfinite(arr).all() or arr.size == 1, "d_out_d_Q should be finite"
-            # Full Jacobian is 6D (out indices + Q indices); per-quotient run may give tensor or scalar
             assert arr.ndim in (0, 3, 6), "d_out_d_Q ndim 0 (scalar), 3 (out shape), or 6 (full Jacobian)"
         except ImportError:
             pass
@@ -382,11 +504,17 @@ let dy_db = @y / @b;
         _, out = _compile_run(source)
         assert out.get("dy_dA") is not None and out.get("dy_db") is not None
         try:
-            import numpy as np
-            dy_dA = np.asarray(out.get("dy_dA"))
-            dy_db = np.asarray(out.get("dy_db"))
-            assert dy_dA.shape == (2, 2, 2), "∂y/∂A shape (i, i, j) = (2,2,2), got %s" % (dy_dA.shape,)
-            assert dy_db.shape == (2, 2), "∂y/∂b shape (i, j) = (2,2), got %s" % (dy_db.shape,)
+            # y[i] = sum[j](A[i,j]*b[j]) => ∂y[i]/∂A[r,s] = b[s] if i==r else 0; ∂y[i]/∂b[j] = A[i,j]
+            A_ref = np.array([[1.0, 2.0], [3.0, 4.0]])
+            b_ref = np.array([5.0, 6.0])
+            ref_dy_dA = np.zeros((2, 2, 2), dtype=np.float64)
+            for i in range(2):
+                for r in range(2):
+                    for s in range(2):
+                        ref_dy_dA[i, r, s] = b_ref[s] if i == r else 0.0
+            ref_dy_db = A_ref.copy()
+            _assert_allclose(out.get("dy_dA"), ref_dy_dA, msg="dy_dA")
+            _assert_allclose(out.get("dy_db"), ref_dy_db, msg="dy_db")
         except ImportError:
             pass
 
@@ -404,8 +532,8 @@ let dz_dx = @z / @x;
 let dz_dy = @z / @y;
 """
         _, out = _compile_run(source)
-        assert abs(_scalar_float(out, "dz_dx") - 1.0) < 1e-6
-        assert abs(_scalar_float(out, "dz_dy") - 1.0) < 1e-6
+        _assert_allclose(out.get("dz_dx"), np.array(1.0), msg="dz_dx")
+        _assert_allclose(out.get("dz_dy"), np.array(1.0), msg="dz_dy")
 
     def test_quotient_sub(self):
         """∂(x-y)/∂x = 1, ∂(x-y)/∂y = -1."""
@@ -417,8 +545,8 @@ let du_dx = @u / @x;
 let du_dy = @u / @y;
 """
         _, out = _compile_run(source)
-        assert abs(_scalar_float(out, "du_dx") - 1.0) < 1e-6
-        assert abs(_scalar_float(out, "du_dy") - (-1.0)) < 1e-6
+        _assert_allclose(out.get("du_dx"), np.array(1.0), msg="du_dx")
+        _assert_allclose(out.get("du_dy"), np.array(-1.0), msg="du_dy")
 
     def test_quotient_mul(self):
         """∂(x*y)/∂x = y, ∂(x*y)/∂y = x."""
@@ -430,8 +558,8 @@ let dw_dx = @w / @x;
 let dw_dy = @w / @y;
 """
         _, out = _compile_run(source)
-        assert abs(_scalar_float(out, "dw_dx") - 4.0) < 1e-6
-        assert abs(_scalar_float(out, "dw_dy") - 3.0) < 1e-6
+        _assert_allclose(out.get("dw_dx"), np.array(4.0), msg="dw_dx")
+        _assert_allclose(out.get("dw_dy"), np.array(3.0), msg="dw_dy")
 
     def test_quotient_div(self):
         """∂(x/y)/∂x = 1/y, ∂(x/y)/∂y = -x/y². At x=3, y=2: 0.5 and -0.75."""
@@ -443,8 +571,8 @@ let dv_dx = @v / @x;
 let dv_dy = @v / @y;
 """
         _, out = _compile_run(source)
-        assert abs(_scalar_float(out, "dv_dx") - 0.5) < 1e-6
-        assert abs(_scalar_float(out, "dv_dy") - (-0.75)) < 1e-6
+        _assert_allclose(out.get("dv_dx"), np.array(0.5), msg="dv_dx")
+        _assert_allclose(out.get("dv_dy"), np.array(-0.75), msg="dv_dy")
 
     def test_quotient_compound_denominator(self):
         """@x/@(x + x**2) = (dx/dx)/(d(x+x²)/dx) = 1/(1+2x). At x=2 => 1/5 = 0.2."""
@@ -453,7 +581,7 @@ let x = 2.0;
 let ratio = @x / @(x + x * x);
 """
         _, out = _compile_run(source)
-        assert abs(_scalar_float(out, "ratio") - 0.2) < 1e-6
+        _assert_allclose(out.get("ratio"), np.array(0.2), msg="ratio")
 
     def test_quotient_pow_literal_exponent(self):
         """∂(x^n)/∂x = n*x^(n-1). x**3 at x=2 => 3*4=12. (POW with literal exponent.)"""
@@ -463,7 +591,7 @@ let p = x ** 3.0;
 let dp_dx = @p / @x;
 """
         _, out = _compile_run(source)
-        assert abs(_scalar_float(out, "dp_dx") - 12.0) < 1e-6
+        _assert_allclose(out.get("dp_dx"), np.array(12.0), msg="dp_dx")
 
     def test_quotient_pow_square(self):
         """∂(x²)/∂x = 2*x. At x=5 => 10."""
@@ -473,7 +601,7 @@ let q = x * x;
 let dq_dx = @q / @x;
 """
         _, out = _compile_run(source)
-        assert abs(_scalar_float(out, "dq_dx") - 10.0) < 1e-6
+        _assert_allclose(out.get("dq_dx"), np.array(10.0), msg="dq_dx")
 
     def test_quotient_unary_neg(self):
         """∂(-x)/∂x = -1."""

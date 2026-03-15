@@ -3414,6 +3414,8 @@ class EinsteinExecutionMixin:
                             slices_list_nr = []
                     if len(slices_list_nr) == output.ndim:
                         output[tuple(slices_list_nr)] = result.astype(output.dtype)
+                    elif result.ndim > output.ndim or (result.ndim == output.ndim and result.size > output.size):
+                        output = result.astype(output.dtype, copy=False)
                     elif result.size == 1 and item.indices and all(
                         isinstance(idx, LiteralIR) for idx in item.indices
                     ):
@@ -3490,6 +3492,9 @@ class EinsteinExecutionMixin:
                 if result.shape == output.shape:
                     if result is not output:
                         output[:] = result.astype(output.dtype)
+                elif result.ndim > output.ndim or (result.ndim == output.ndim and result.size > output.size):
+                    # Clause grew output for array-valued elements (e.g. autodiff max derivative)
+                    output = result.astype(output.dtype, copy=False)
                 elif result.shape != output.shape:
                     slices_list: List[Any] = []
                     clause_indices = item.indices or []
@@ -4344,6 +4349,18 @@ class EinsteinExecutionMixin:
                                 value = value.item()
                             elif value.size == 1:
                                 value = value.flatten()[0].item()
+                            elif value.size > 1 and output.ndim == len(idx_tuple):
+                                # Array-valued element (e.g. derivative of max: gradient per output index)
+                                new_shape = output.shape + value.shape
+                                new_output = np.zeros(new_shape, dtype=output.dtype)
+                                for _idx in np.ndindex(output.shape):
+                                    new_output[_idx] = output[_idx]
+                                output = new_output
+                                output[(*idx_tuple, Ellipsis)] = value
+                                if variable_defid:
+                                    self._clause_set_output(variable_defid, output)
+                                _record_profile(tuple(output.shape), path="scalar")
+                                return output
                         elif isinstance(value, np.generic):
                             value = value.item()
                         output[idx_tuple] = value
@@ -4393,15 +4410,30 @@ class EinsteinExecutionMixin:
                         idx_tuple = cell_index(full_context)
                     if idx_tuple is None:
                         idx_tuple = tuple(full_context.get(d) for d in _loop_defids_tuple)
-                    if idx_tuple is None or len(idx_tuple) != output.ndim:
+                    if idx_tuple is None:
                         continue
+                    if isinstance(value, (list, tuple)):
+                        value = np.asarray(value)
+                    # After growing for array-valued elements, output.ndim > len(idx_tuple)
                     if isinstance(value, np.ndarray):
                         if value.ndim == 0:
                             value = value.item()
                         elif value.size == 1:
                             value = value.flatten()[0].item()
+                        elif value.size > 1:
+                            if output.ndim == len(idx_tuple):
+                                # Array-valued element (e.g. derivative of max): grow output
+                                new_shape = output.shape + value.shape
+                                new_output = np.zeros(new_shape, dtype=output.dtype)
+                                for _idx in np.ndindex(output.shape):
+                                    new_output[_idx] = output[_idx]
+                                output = new_output
+                            output[(*idx_tuple, Ellipsis)] = value
+                            continue
                     elif isinstance(value, np.generic):
                         value = value.item()
+                    if output.ndim > len(idx_tuple):
+                        continue  # scalar value but output was grown for array elements; skip or assign scalar?
                     if len(idx_tuple) == 1:
                         output[idx_tuple[0]] = value
                     else:

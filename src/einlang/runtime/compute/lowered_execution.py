@@ -143,12 +143,14 @@ def execute_select_at_argmax_vectorized(
     expr_evaluator: Callable,
     parallel_shape: Optional[Tuple[int, ...]] = None,
     initial_context: Optional[Sequence[Tuple[Any, Any]]] = None,
+    use_argmin: bool = False,
 ) -> Tuple[bool, Any]:
     """
-    Vectorized select-at-argmax: evaluate primal and diff bodies with broadcast reduction indices,
-    then result = diff at argmax(primal) over reduction axes. Returns (ok, result).
+    Vectorized select-at-argmax/argmin: evaluate primal and diff bodies with broadcast reduction indices,
+    then result = diff at argmax(primal) or argmin(primal) over reduction axes. Returns (ok, result).
     initial_context: optional list of (defid, array) in parallel-dim order; each array has shape
     (parallel_shape[i],) to set parallel (batch) indices when body uses them.
+    use_argmin: if True, use argmin instead of argmax.
     """
     try:
         arrs: List[np.ndarray] = []
@@ -215,19 +217,32 @@ def execute_select_at_argmax_vectorized(
         if primal_result.shape != diff_result.shape:
             return False, None
         if parallel_shape:
-            reduction_axes = tuple(range(-n, 0))
+            reduction_size = arrs[0].size if arrs else 0
             primal_flat = primal_result.reshape(parallel_shape + (-1,))
             diff_flat = diff_result.reshape(parallel_shape + (-1,))
-            idx = np.argmax(primal_flat, axis=-1)
-            out = np.take_along_axis(
-                diff_flat,
+            idx = np.argmin(primal_flat, axis=-1) if use_argmin else np.argmax(primal_flat, axis=-1)
+            # Return full Jacobian: shape (parallel_shape + (reduction_size,)) with diff at argmax, 0 elsewhere
+            out_full = np.zeros(
+                tuple(parallel_shape) + (reduction_size,),
+                dtype=diff_flat.dtype,
+            )
+            np.put_along_axis(
+                out_full,
                 np.expand_dims(idx, axis=-1),
+                np.take_along_axis(
+                    diff_flat,
+                    np.expand_dims(idx, axis=-1),
+                    axis=-1,
+                ),
                 axis=-1,
-            ).squeeze(axis=-1)
-            return True, out
+            )
+            return True, out_full
         else:
-            idx = np.argmax(primal_result)
-            return True, np.array(diff_result.flat[idx], dtype=diff_result.dtype)
+            idx = np.argmin(primal_result) if use_argmin else np.argmax(primal_result)
+            reduction_size = arrs[0].size if arrs else 0
+            out_full = np.zeros(reduction_size, dtype=diff_result.dtype)
+            out_full[idx] = diff_result.flat[idx]
+            return True, out_full
     except Exception:
         pass
     return False, None

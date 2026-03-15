@@ -1471,9 +1471,10 @@ class ExpressionVisitorMixin:
             ev,
             parallel_shape=parallel_shape,
             initial_context=initial_context if initial_context else None,
+            use_argmin=getattr(expr, "use_argmin", False),
         )
         if not ok or result is None:
-            raise RuntimeError("SelectAtArgmax vectorized execution failed")
+            raise RuntimeError("SelectAtArgmax/SelectAtArgmin vectorized execution failed")
         return result
 
     def visit_where_expression(self, expr: WhereExpressionIR) -> Any:

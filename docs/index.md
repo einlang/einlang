@@ -29,6 +29,7 @@ Run a real example: `python3 -m einlang examples/hello.ein`
 | You want to… | Go here |
 |--------------|--------|
 | **Get going** | [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) |
+| **Why Einlang? (features & comparison)** | [Why Einlang](https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md) — math-on-the-page syntax, one language for simulation + ML, gradients without gradient code |
 | **Doc index (by audience)** | [Documentation](https://github.com/einlang/einlang/blob/main/docs/README.md) |
 | **Language & stdlib** | [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [Stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) |
 | **Autodiff (gradients / derivatives)** | **Built-in automatic differentiation** — compiler derives gradients from `@expr` and `@a / @b`; no hand-written gradient code. [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
