@@ -226,12 +226,6 @@ class CompilerDriver:
             dump_dir = Path("ir_dumps") if dump_ir_per_pass else None
             pass_index = 1
             for pass_class in remaining_passes:
-                pass_instance = pass_class()
-                try:
-                    ir = pass_instance.run(ir, tcx)
-                except RecursionError as e:
-                    raise
-
                 if dump_dir is not None:
                     dump_dir.mkdir(parents=True, exist_ok=True)
                     if pass_index == 1:
@@ -239,12 +233,23 @@ class CompilerDriver:
                         if not readme.exists():
                             readme.write_text(
                                 "IR S-expr dumps per pass (EINLANG_DUMP_IR_PER_PASS=1).\n"
-                                "00 = after ASTToIRLoweringPass, 01 = after RestPatternPreprocessingPass, etc.\n"
-                                "Reductions include :loop_var_ranges only when non-empty.\n"
-                                "Compare dumps to see which pass stops setting loop_var_ranges on specialized functions.\n",
+                                "00 = after ASTToIRLoweringPass; NN_before_Pass = IR before pass N; NN_after_Pass = IR after pass N.\n"
+                                "Reductions include :loop_var_ranges only when non-empty.\n",
                                 encoding="utf-8",
                             )
                     from ..ir.serialization import serialize_ir
+                    try:
+                        before_path = dump_dir / f"{pass_index:02d}_before_{pass_class.__name__}.sexpr"
+                        before_path.write_text(serialize_ir(ir), encoding="utf-8")
+                    except Exception:
+                        pass
+                pass_instance = pass_class()
+                try:
+                    ir = pass_instance.run(ir, tcx)
+                except RecursionError as e:
+                    raise
+
+                if dump_dir is not None:
                     try:
                         out_path = dump_dir / f"{pass_index:02d}_after_{pass_class.__name__}.sexpr"
                         out_path.write_text(serialize_ir(ir), encoding="utf-8")

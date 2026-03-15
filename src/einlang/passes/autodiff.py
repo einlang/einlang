@@ -36,6 +36,7 @@ from ..ir.nodes import (
     EinsteinClauseIR,
     ReductionExpressionIR,
     WhereClauseIR,
+    is_function_binding,
 )
 from ..shared.types import BinaryOp, UnaryOp, PrimitiveType, UNKNOWN
 from ..shared.defid import DefId
@@ -1209,6 +1210,11 @@ class AutodiffPass(BasePass):
         for b in bindings:
             if b.defid is not None:
                 binding_by_defid[b.defid] = b
+        # Resolve type-inference specializations (e.g. asin_f32 [0 9]) that may not be in program bindings
+        function_ir_map = getattr(tcx, "function_ir_map", None) or {}
+        for defid, fn in function_ir_map.items():
+            if defid is not None and defid not in binding_by_defid and isinstance(fn, BindingIR) and is_function_binding(fn):
+                binding_by_defid[defid] = fn
 
         binding_to_deps: Dict[DefId, Set[DefId]] = {}
         for b in bindings:

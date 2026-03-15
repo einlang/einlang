@@ -367,6 +367,34 @@ let dlog = @yl / @b;
         _, out = _compile_run(source)
         assert abs(_scalar_float(out, "dlog") - 1.0) < 1e-5
 
+    def test_quotient_user_fn_without_at_fn(self):
+        """Differentiate through user fn body when no @fn: d/dx (x*x) = 2*x. At x=2: 4."""
+        source = """
+fn sq(x) { x * x }
+let x = 2.0;
+let y = sq(x);
+let dy_dx = @y / @x;
+"""
+        _, out = _compile_run(source)
+        assert abs(_scalar_float(out, "dy_dx") - 4.0) < 1e-5
+
+    def test_quotient_math_asin_atan(self):
+        """d/dx asin(x)=1/sqrt(1-x²), atan(x)=1/(1+x²). At x=0: 1 and 1. @fn body literals+param only."""
+        source = """
+fn asin(x) { python::numpy::arcsin(x) }
+@fn asin(x) { (1.0 / ((1.0 - x * x) ** 0.5)) * @x }
+fn atan(x) { python::numpy::arctan(x) }
+@fn atan(x) { (1.0 / (1.0 + x * x)) * @x }
+let x = 0.0;
+let ya = asin(x);
+let yt = atan(x);
+let dasin = @ya / @x;
+let datan = @yt / @x;
+"""
+        _, out = _compile_run(source)
+        assert abs(_scalar_float(out, "dasin") - 1.0) < 1e-5
+        assert abs(_scalar_float(out, "datan") - 1.0) < 1e-5
+
     def test_quotient_math_atan2(self):
         """atan2(y,x): d/dy = x/(x²+y²), d/dx = -y/(x²+y²). At (1,0): 0 and -1."""
         source = """
