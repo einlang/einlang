@@ -35,3 +35,11 @@ let u[0, 2] = z0;
 let u[t in 1..150, 0] = { let x = u[t - 1, 0]; let y = u[t - 1, 1]; let z = u[t - 1, 2]; x + dt * (sigma * (y - x)) };
 let u[t in 1..150, 1] = { let x = u[t - 1, 0]; let y = u[t - 1, 1]; let z = u[t - 1, 2]; y + dt * (x * (rho - z) - y) };
 let u[t in 1..150, 2] = { let x = u[t - 1, 0]; let y = u[t - 1, 1]; let z = u[t - 1, 2]; z + dt * (x * y - beta * z) };
+
+// Autodiff: sensitivity of first step x w.r.t. sigma (no hand-written gradient)
+let sigma_sens = 10.0;
+let x0_s = 1.0;
+let y0_s = 1.0;
+let x1_s = x0_s + dt * (sigma_sens * (y0_s - x0_s));
+let dx1_d_sigma = @x1_s / @sigma_sens;
+print(dx1_d_sigma);

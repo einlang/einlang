@@ -27,3 +27,14 @@ let u[t in 1..80, 0] = 0.0;
 let u[t in 1..80, 40] = 0.0;
 // Interior
 let u[t in 1..80, i in 1..40] = u[t - 1, i] + r * (u[t - 1, i - 1] - 2.0 * u[t - 1, i] + u[t - 1, i + 1]);
+
+// Autodiff: sensitivity of one heat step w.r.t. diffusivity r; use it for first-order correction
+let r_sens = 0.2;
+let u_c = 10.0;
+let u_l = 0.0;
+let u_r = 0.0;
+let u_c_next = u_c + r_sens * (u_l - 2.0 * u_c + u_r);
+let du_dr = @u_c_next / @r_sens;
+let r_alt = 0.25;
+let u_c_next_corrected = u_c_next + du_dr * (r_alt - r_sens);
+print(u_c_next_corrected);

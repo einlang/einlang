@@ -343,7 +343,8 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         # functions and constants are subsets of statements (properties that
         # filter bindings), so one loop covers all of them without duplication.
         for stmt in node.statements:
-            stmt.accept(self)
+            if stmt is not None:
+                stmt.accept(self)
         
         # Do not add/clear pending here; run() loop adds them and re-visits specialized bodies
         # so inner calls (e.g. row_values inside topk_2d) get inferred with concrete types.
@@ -443,6 +444,9 @@ class TypeInferencer(ScopedIRVisitor[Type]):
     
     def visit_binding(self, node: BindingIR) -> Type:
         from ..ir.nodes import FunctionValueIR, EinsteinIR
+
+        if node.expr is None:
+            return UNKNOWN
 
         # Expose binding to visit_function_value / visit_einstein.
         prev_binding, self._current_binding = self._current_binding, node

@@ -43,3 +43,12 @@ let state[t in 1..12, 1, i in 1..20, j in 1..20] = {
   let lap_V = state[t - 1, 1, i - 1, j] + state[t - 1, 1, i + 1, j] + state[t - 1, 1, i, j - 1] + state[t - 1, 1, i, j + 1] - 4.0 * V_;
   V_ + dt * (A * U - U * U * V_ + alpha * lap_V)
 };
+
+// Autodiff: sensitivity of one U-update w.r.t. dt (no hand-written gradient)
+let dt_sens = 0.2;
+let U_s = 1.0;
+let V_s = 0.5;
+let lap_U_s = 0.0;
+let U_next = U_s + dt_sens * (B + U_s * U_s * V_s - (A + 1.0) * U_s + alpha * lap_U_s);
+let dU_next_d_dt = @U_next / @dt_sens;
+print(dU_next_d_dt);

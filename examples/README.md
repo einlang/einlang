@@ -37,7 +37,7 @@ Recurrences (base case + step); Markov chains, chaos.
 
 | Directory | What it does | Run |
 |-----------|--------------|-----|
-| **Autodiff** (root) | **Built-in automatic differentiation** — compiler derives derivatives/gradients from `@expr` and `@a / @b` (no hand-written gradient code). Scalars, matmul, user fn, loss gradient; chain-through-bindings. | `python3 examples/run_autodiff_examples.py` or run `autodiff_small.ein`, `autodiff_matmul.ein`, `autodiff_chain.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein` |
+| **Autodiff** (root) | **Built-in automatic differentiation** — compiler derives derivatives/gradients from `@expr` and `@a / @b` (no hand-written gradient code). Scalars, matmul, user fn, loss gradient; **gradient descent** (one step using @loss/@x). | `python3 examples/run_autodiff_examples.py` or run `autodiff_small.ein`, `autodiff_matmul.ein`, `gradient_descent_autodiff.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein` |
 | [`value_iteration/`](https://github.com/einlang/einlang/tree/main/examples/value_iteration) | Value iteration (Bellman); **policy iteration** (Howard: evaluate + improve) | `python3 -m einlang examples/value_iteration/main.ein` · `policy_iteration.ein` |
 | [`job_search/`](https://github.com/einlang/einlang/tree/main/examples/job_search) | McCall job search (QuantEcon): value function iteration, reservation wage | `python3 -m einlang examples/job_search/mccall.ein` |
 | [`optimization/`](https://github.com/einlang/einlang/tree/main/examples/optimization) | Suite: gradient descent, power iteration, projected gradient, Rosenbrock (Optim.jl/SciML) | `python3 -m einlang examples/optimization/optimization_suite.ein` |

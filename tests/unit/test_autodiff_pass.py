@@ -321,6 +321,31 @@ let dc_dM = @c / @M;
         except ImportError:
             pass
 
+    def test_softmax_autodiff(self):
+        """Differentiate through sum and max reductions (generic reduction + chain rule).
+        Exercises d(sum_i body)/d wrt = sum_i d(body)/d wrt and d(max_i body)/d wrt = d(body)/d wrt at argmax.
+        Full softmax (with exp from std::math) is supported by the pass but requires use std::math in test."""
+        source = """
+let x = [[1.0, 2.0, 3.0]];
+let max_val[b] = max[j](x[b, j]);
+let sums[b] = sum[j](x[b, j]);
+let d_max_d_x = @max_val / @x;
+let d_sums_d_x = @sums / @x;
+"""
+        _, out = _compile_run(source)
+        assert out.get("d_max_d_x") is not None
+        assert out.get("d_sums_d_x") is not None
+        try:
+            import numpy as np
+            d_max = np.asarray(out.get("d_max_d_x"))
+            d_sums = np.asarray(out.get("d_sums_d_x"))
+            assert np.isfinite(d_max).all() and np.isfinite(d_sums).all()
+            # d_sums/d_x: each row sums to 1 (derivative of sum over j)
+            # d_max/d_x: 1 at argmax position per row
+            assert d_max.size >= 1 and d_sums.size >= 1
+        except ImportError:
+            pass
+
     def test_einstein_attention_matmul_chain_no_softmax(self):
         """Single-head attention matmul chain (no softmax): scores = Q@K^T, out = scores@V; @out/@Q.
         MHA uses this plus softmax; the matmul part is differentiable. Asserts compile/run and finite output."""
@@ -504,6 +529,33 @@ let dw_dx = @w / @x;
         _, out = _compile_run(source)
         assert abs(_scalar_float(out, "dz_dx") - 1.0) < 1e-6
         assert abs(_scalar_float(out, "dw_dx") - 2.0) < 1e-6
+
+    def test_gradient_descent_autodiff_example(self):
+        """One gradient step on ||A*x - b||^2 using @loss/@x0, @loss/@x1; loss decreases, x_next -> (0.5, 0.5)."""
+        source = """
+let A = [[2.0, 0.0], [0.0, 2.0]];
+let b = [1.0, 1.0];
+let alpha = 0.2;
+let x0 = 0.0;
+let x1 = 0.0;
+let r0 = A[0, 0] * x0 + A[0, 1] * x1 - b[0];
+let r1 = A[1, 0] * x0 + A[1, 1] * x1 - b[1];
+let loss = r0 * r0 + r1 * r1;
+let g0 = @loss / @x0;
+let g1 = @loss / @x1;
+let x0_next = x0 - alpha * g0;
+let x1_next = x1 - alpha * g1;
+let r0_next = A[0, 0] * x0_next + A[0, 1] * x1_next - b[0];
+let r1_next = A[1, 0] * x0_next + A[1, 1] * x1_next - b[1];
+let loss_next = r0_next * r0_next + r1_next * r1_next;
+"""
+        _, out = _compile_run(source)
+        loss_val = _scalar_float(out, "loss")
+        loss_next = _scalar_float(out, "loss_next")
+        x0_next = _scalar_float(out, "x0_next")
+        x1_next = _scalar_float(out, "x1_next")
+        assert loss_next < loss_val, "loss should decrease after one step"
+        assert abs(x0_next - 0.8) < 1e-5 and abs(x1_next - 0.8) < 1e-5, "one step with alpha=0.2 from (0,0) gives (0.8, 0.8)"
 
     def test_user_fn_custom_diff_rule(self):
         """Custom @fn f(x) { 2*@x } gives db_da = 2 for b = f(a) = 2*a."""

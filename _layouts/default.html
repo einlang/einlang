@@ -6,13 +6,13 @@
   <title>{% if page.title %}{{ page.title }} — {% endif %}{{ site.title }}</title>
   <style>
     :root {
-      --bg: #0a0a0b;
-      --surface: #141416;
-      --text: #f0f0f2;
-      --muted: #8b8b92;
-      --accent: #5eead4;
-      --accent-hover: #99f6e4;
-      --glow: rgba(94, 234, 212, 0.15);
+      --bg: #f8f9fa;
+      --surface: #ffffff;
+      --text: #1a1a1d;
+      --muted: #5c5c66;
+      --accent: #0d9488;
+      --accent-hover: #0f766e;
+      --glow: rgba(13, 148, 136, 0.12);
     }
     * { box-sizing: border-box; }
     html { font-size: 18px; scroll-behavior: smooth; }
@@ -78,7 +78,7 @@
       font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
       font-size: 0.9rem;
       font-weight: 500;
-      color: var(--bg);
+      color: #fff;
       background: var(--accent);
       border-radius: 6px;
       text-decoration: none;
@@ -86,20 +86,20 @@
     }
     .cta:hover {
       background: var(--accent-hover);
-      color: var(--bg);
+      color: #fff;
     }
     main pre {
       font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
       font-size: 0.9rem;
       line-height: 1.55;
       background: var(--surface);
-      border: 1px solid rgba(94, 234, 212, 0.25);
+      border: 1px solid rgba(13, 148, 136, 0.2);
       border-radius: 10px;
       padding: 1.25rem 1.5rem;
       margin: 1.75rem 0;
       color: var(--text);
       overflow-x: auto;
-      box-shadow: 0 0 0 1px rgba(0,0,0,0.2), 0 4px 24px var(--glow);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
     main pre code { background: none; padding: 0; }
     main p:nth-of-type(4) {
@@ -117,7 +117,7 @@
       font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
       font-size: 0.9rem;
       font-weight: 500;
-      color: var(--bg);
+      color: #fff;
       background: var(--accent);
       border-radius: 8px;
       text-decoration: none;
@@ -125,7 +125,7 @@
     }
     main p:last-of-type a:hover {
       background: var(--accent-hover);
-      color: var(--bg);
+      color: #fff;
       transform: translateY(-1px);
       box-shadow: 0 4px 20px var(--glow);
     }
@@ -135,7 +135,7 @@
       border: 1.5px solid var(--accent);
     }
     main p:last-of-type a:last-of-type:hover {
-      background: rgba(94, 234, 212, 0.08);
+      background: rgba(13, 148, 136, 0.08);
       box-shadow: 0 0 0 1px var(--accent);
     }
   </style>

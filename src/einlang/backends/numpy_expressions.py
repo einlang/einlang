@@ -15,6 +15,7 @@ from ..ir.nodes import (
     MemberAccessIR, TryExpressionIR, MatchExpressionIR, ReductionExpressionIR, WhereExpressionIR,
     PipelineExpressionIR, BuiltinCallIR,
     MatchArmIR, ExpressionIR, LoweredComprehensionIR, LoweredReductionIR,
+    LoweredSelectAtArgmaxIR,
     DifferentialIR,
     IRVisitor,
 )
@@ -1315,7 +1316,10 @@ class ExpressionVisitorMixin:
                 if einsum_result.shape == tuple(parallel_shape):
                     setattr(self, "_last_reduction_fast_path", "einsum")
                     return einsum_result
-        from ..runtime.compute.lowered_execution import execute_reduction_with_loops
+        from ..runtime.compute.lowered_execution import (
+            execute_reduction_with_loops,
+            execute_select_at_argmax_vectorized,
+        )
         from ..passes.visitor_helpers import defid_of_var_in_expr
         loc = expr.location
         line = int(getattr(loc, "line", 0) or 0)
@@ -1384,6 +1388,93 @@ class ExpressionVisitorMixin:
 
     def visit_lowered_reduction(self, expr: LoweredReductionIR) -> Any:
         return self.evaluate_lowered_reduction(expr, parallel_shape=None)
+
+    def visit_lowered_select_at_argmax(self, expr: LoweredSelectAtArgmaxIR) -> Any:
+        from ..passes.visitor_helpers import defid_of_var_in_expr
+        from ..runtime.compute.lowered_execution import execute_select_at_argmax_vectorized
+        from ..ir.nodes import RectangularAccessIR
+        reduction_loops = list((expr.reduction_ranges or {}).values())
+        if not reduction_loops:
+            raise RuntimeError("SelectAtArgmax has no reduction loops")
+        n_red = len(reduction_loops)
+        _loop_to_body_defid = {}
+        _reduction_defid_names = {}
+        for _lp in expr.loops or []:
+            _v = _lp.variable
+            if _v is not None:
+                _vname = _v.name
+                _bd = defid_of_var_in_expr(expr.primal_body, _vname) if _vname else None
+                if _bd is not None:
+                    _loop_to_body_defid[_v.defid] = _bd
+                    _reduction_defid_names[_bd] = _vname
+                elif _v.defid:
+                    _reduction_defid_names[_v.defid] = _vname
+        reduction_body_defids = set()
+        for _lp in expr.loops or []:
+            if _lp.variable is not None and _lp.variable.defid is not None:
+                reduction_body_defids.add(
+                    _loop_to_body_defid.get(_lp.variable.defid) or _lp.variable.defid
+                )
+        parallel_shape = None
+        parallel_defids_list: List[Any] = []
+        if isinstance(expr.primal_body, RectangularAccessIR) and expr.primal_body.array is not None:
+            try:
+                arr = expr.primal_body.array.accept(self)
+                if isinstance(arr, np.ndarray) and arr.ndim >= n_red:
+                    parallel_shape = tuple(arr.shape[:-n_red])
+                for idx in (expr.primal_body.indices or []):
+                    d = getattr(idx, "defid", None)
+                    if d is not None and d not in reduction_body_defids:
+                        parallel_defids_list.append(d)
+            except Exception:
+                pass
+        initial_context: List[Tuple[Any, Any]] = []
+        if parallel_shape and len(parallel_defids_list) == len(parallel_shape):
+            initial_context = [
+                (defid, np.arange(parallel_shape[i], dtype=np.intp))
+                for i, defid in enumerate(parallel_defids_list)
+            ]
+
+        def _remap_ctx_to_body_defids(ctx):
+            out = {}
+            for loop_defid, val in (ctx or {}).items():
+                if loop_defid is None:
+                    continue
+                body_defid = _loop_to_body_defid.get(loop_defid)
+                if body_defid is not None:
+                    out[body_defid] = val
+                else:
+                    out[loop_defid] = val
+            return out
+
+        def primal_body_ev(ctx):
+            _ctx = _remap_ctx_to_body_defids(ctx)
+            for defid, val in _ctx.items():
+                if defid is not None:
+                    self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
+            return expr.primal_body.accept(self)
+
+        def diff_body_ev(ctx):
+            _ctx = _remap_ctx_to_body_defids(ctx)
+            for defid, val in _ctx.items():
+                if defid is not None:
+                    self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
+            return expr.diff_body.accept(self)
+
+        def ev(e):
+            return e.accept(self)
+
+        ok, result = execute_select_at_argmax_vectorized(
+            primal_body_ev,
+            diff_body_ev,
+            reduction_loops,
+            ev,
+            parallel_shape=parallel_shape,
+            initial_context=initial_context if initial_context else None,
+        )
+        if not ok or result is None:
+            raise RuntimeError("SelectAtArgmax vectorized execution failed")
+        return result
 
     def visit_where_expression(self, expr: WhereExpressionIR) -> Any:
         constraints = (expr.constraints or []) or []

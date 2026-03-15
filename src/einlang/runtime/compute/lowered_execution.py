@@ -11,7 +11,7 @@ Lowered execution model.
 """
 
 import os
-from typing import Dict, List, Callable, Any, Iterator, Optional, Tuple
+from typing import Dict, List, Callable, Any, Iterator, Optional, Tuple, Sequence
 
 import numpy as np
 
@@ -131,6 +131,103 @@ def _try_vectorized_reduction(
                 return True, result.min()
             elif reduction_op in ('product', 'prod'):
                 return True, result.prod()
+    except Exception:
+        pass
+    return False, None
+
+
+def execute_select_at_argmax_vectorized(
+    primal_body_ev: Callable,
+    diff_body_ev: Callable,
+    reduction_loops: List[Any],
+    expr_evaluator: Callable,
+    parallel_shape: Optional[Tuple[int, ...]] = None,
+    initial_context: Optional[Sequence[Tuple[Any, Any]]] = None,
+) -> Tuple[bool, Any]:
+    """
+    Vectorized select-at-argmax: evaluate primal and diff bodies with broadcast reduction indices,
+    then result = diff at argmax(primal) over reduction axes. Returns (ok, result).
+    initial_context: optional list of (defid, array) in parallel-dim order; each array has shape
+    (parallel_shape[i],) to set parallel (batch) indices when body uses them.
+    """
+    try:
+        arrs: List[np.ndarray] = []
+        defids: List[Any] = []
+        for loop in reduction_loops:
+            var_defid = loop.variable.defid
+            iterable = expr_evaluator(loop.iterable)
+            if isinstance(iterable, range):
+                step = iterable.step if iterable.step is not None else 1
+                arr = np.arange(iterable.start, iterable.stop, step, dtype=np.intp)
+            else:
+                arr = np.array(list(iterable), dtype=np.intp)
+            if arr.size == 0:
+                return False, None
+            arrs.append(arr)
+            defids.append(var_defid)
+        if not arrs:
+            return False, None
+        n = len(arrs)
+        if parallel_shape is None:
+            spot_ctx: Dict[Any, Any] = {}
+            for defid, arr in (initial_context or []):
+                spot_ctx[defid] = int(np.asarray(arr).flat[0]) if np.asarray(arr).size else 0
+            for defid, arr in zip(defids, arrs):
+                spot_ctx[defid] = int(arr.flat[0])
+            spot_val = primal_body_ev(spot_ctx)
+            if isinstance(spot_val, np.ndarray):
+                parallel_shape = tuple(spot_val.shape)
+            else:
+                parallel_shape = ()
+        full_shape = tuple(parallel_shape) + tuple(arr.size for arr in arrs)
+        ctx: Dict[Any, Any] = {}
+        if initial_context and parallel_shape:
+            k_par = len(parallel_shape)
+            for i, (defid, val) in enumerate(initial_context):
+                v = np.asarray(val, dtype=np.intp)
+                v = v.reshape(
+                    (1,) * i + (v.size,) + (1,) * (k_par - 1 - i) + (1,) * n
+                )
+                ctx[defid] = np.broadcast_to(v, full_shape)
+        for i, (defid, arr) in enumerate(zip(defids, arrs)):
+            if n == 1:
+                red_shape = (arr.size,)
+            else:
+                red_shape = [1] * n
+                red_shape[i] = arr.size
+                red_shape = tuple(red_shape)
+            red_arr = arr.reshape(red_shape)
+            if parallel_shape:
+                ctx[defid] = np.broadcast_to(
+                    red_arr, full_shape
+                )
+            else:
+                ctx[defid] = red_arr
+        primal_result = primal_body_ev(ctx)
+        diff_result = diff_body_ev(ctx)
+        if not isinstance(primal_result, np.ndarray):
+            return False, None
+        if not isinstance(diff_result, np.ndarray):
+            diff_result = np.broadcast_to(
+                np.asarray(diff_result, dtype=primal_result.dtype),
+                primal_result.shape,
+            )
+        if primal_result.shape != diff_result.shape:
+            return False, None
+        if parallel_shape:
+            reduction_axes = tuple(range(-n, 0))
+            primal_flat = primal_result.reshape(parallel_shape + (-1,))
+            diff_flat = diff_result.reshape(parallel_shape + (-1,))
+            idx = np.argmax(primal_flat, axis=-1)
+            out = np.take_along_axis(
+                diff_flat,
+                np.expand_dims(idx, axis=-1),
+                axis=-1,
+            ).squeeze(axis=-1)
+            return True, out
+        else:
+            idx = np.argmax(primal_result)
+            return True, np.array(diff_result.flat[idx], dtype=diff_result.dtype)
     except Exception:
         pass
     return False, None

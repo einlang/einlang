@@ -31,3 +31,11 @@ let u[0, 10] = 1.0;
 let u[t in 1..40, i in 1..40] = u[t - 1, i] - r * (u[t - 1, i] - u[t - 1, i - 1]);
 // Periodic left boundary
 let u[t in 1..40, 0] = u[t - 1, 0] - r * (u[t - 1, 0] - u[t - 1, 39]);
+
+// Autodiff: sensitivity of one advection step w.r.t. r (no hand-written gradient)
+let r_sens = 0.5;
+let u_i = 1.0;
+let u_im1 = 0.0;
+let u_i_next = u_i - r_sens * (u_i - u_im1);
+let du_dr = @u_i_next / @r_sens;
+print(du_dr);

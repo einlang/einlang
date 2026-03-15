@@ -38,6 +38,7 @@ from ..ir.nodes import (
     EinsteinIR,
     EinsteinClauseIR,
     ReductionExpressionIR,
+    SelectAtArgmaxIR,
     WhereClauseIR,
     is_function_binding,
 )
@@ -525,7 +526,16 @@ def _diff_einstein_wrt(
     for clause in expr.clauses or []:
         val = clause.value
         if not isinstance(val, ReductionExpressionIR) or (val.operation or "").lower() != "sum":
-            raise ValueError("Autodiff: Einstein ∂/∂wrt only supports sum-of-products clauses")
+            # Elementwise clause (e.g. exp(shifted[b,j])): derivative = ∂(value)/∂wrt, same indices
+            d_val = _diff_expr_wrt(val, wrt_defid, loc, binding_by_defid, resolver)
+            derivative_clauses.append(EinsteinClauseIR(
+                indices=clause.indices,
+                value=d_val,
+                location=clause.location,
+                where_clause=clause.where_clause,
+                variable_ranges=dict(clause.variable_ranges or {}),
+            ))
+            continue
         inner = val.body
         factors = _flatten_product(inner) if inner else None
         if not factors:
@@ -695,6 +705,16 @@ def _diff_expr_wrt(
                 "Autodiff: cannot differentiate function call without binding context (binding_by_defid)"
             )
         if callee_defid is None or callee_defid not in binding_by_defid:
+            # Known math builtins (e.g. from std::math): differentiate symbolically
+            callee_name = None
+            if getattr(expr, "callee_expr", None) and isinstance(expr.callee_expr, IdentifierIR):
+                callee_name = expr.callee_expr.name
+            if callee_name and len(args) == 1:
+                d_arg = _diff_expr_wrt(args[0], wrt_defid, loc, binding_by_defid, resolver)
+                if callee_name == "exp":
+                    return BinaryOpIR(BinaryOp.MUL, expr, d_arg, loc)
+                if callee_name == "ln":
+                    return BinaryOpIR(BinaryOp.DIV, d_arg, args[0], loc)
             raise ValueError(
                 "Autodiff: function call callee is not a known user function (identifier or not in program)"
             )
@@ -760,6 +780,37 @@ def _diff_expr_wrt(
             type_info=getattr(expr, "type_info", None),
             shape_info=getattr(expr, "shape_info", None),
         )
+    if isinstance(expr, ReductionExpressionIR):
+        op = (expr.operation or "sum").lower()
+        d_body = _diff_expr_wrt(
+            expr.body, wrt_defid, loc, binding_by_defid, resolver
+        )
+        if op == "sum":
+            return ReductionExpressionIR(
+                "sum",
+                expr.loop_vars,
+                d_body,
+                loc,
+                where_clause=expr.where_clause,
+                loop_var_ranges=expr.loop_var_ranges,
+                type_info=getattr(expr, "type_info", None),
+                shape_info=getattr(expr, "shape_info", None),
+            )
+        if op == "max":
+            if expr.body is None:
+                raise ValueError("Autodiff: max reduction has no body")
+            return SelectAtArgmaxIR(
+                expr.body,
+                d_body,
+                expr.loop_vars,
+                loop_var_ranges=expr.loop_var_ranges,
+                location=loc,
+                type_info=getattr(expr, "type_info", None),
+                shape_info=getattr(expr, "shape_info", None),
+            )
+        raise ValueError(
+            f"Autodiff: unsupported reduction in ∂expr/∂wrt: {op}"
+        )
     if isinstance(expr, EinsteinIR):
         return _diff_einstein_wrt(expr, wrt_defid, loc, binding_by_defid, resolver)
     raise ValueError(f"Autodiff: cannot differentiate expression type in ∂expr/∂wrt: {type(expr).__name__}")
@@ -789,6 +840,35 @@ def _build_differential_expr(
         return _forward_unary(expr, d_operand, expr.location or loc)
     if isinstance(expr, BlockExpressionIR) and expr.final_expr is not None:
         return _build_differential_expr(expr.final_expr, defid_to_d_ident, loc)
+    if isinstance(expr, ReductionExpressionIR):
+        op = (expr.operation or "sum").lower()
+        d_body = _build_differential_expr(expr.body, defid_to_d_ident, loc)
+        if op == "sum":
+            return ReductionExpressionIR(
+                "sum",
+                expr.loop_vars,
+                d_body,
+                expr.location or loc,
+                where_clause=expr.where_clause,
+                loop_var_ranges=expr.loop_var_ranges,
+                type_info=getattr(expr, "type_info", None),
+                shape_info=getattr(expr, "shape_info", None),
+            )
+        if op == "max":
+            return SelectAtArgmaxIR(
+                expr.body,
+                d_body,
+                expr.loop_vars,
+                loop_var_ranges=expr.loop_var_ranges,
+                location=expr.location or loc,
+                type_info=getattr(expr, "type_info", None),
+                shape_info=getattr(expr, "shape_info", None),
+            )
+        raise ValueError(
+            f"Autodiff: unsupported reduction for d(expr): {op}"
+        )
+    if isinstance(expr, SelectAtArgmaxIR):
+        return expr
     raise ValueError(f"Autodiff: unsupported expression type for d(expr): {type(expr).__name__}")
 
 
@@ -808,6 +888,27 @@ def _substitute_expr(expr: ExpressionIR, replace_map: Dict[DefId, ExpressionIR],
         then_e = _substitute_expr(expr.then_expr, replace_map, loc)
         else_e = _substitute_expr(expr.else_expr, replace_map, loc) if expr.else_expr else None
         return IfExpressionIR(condition=cond, then_expr=then_e, else_expr=else_e, location=loc)
+    if isinstance(expr, ReductionExpressionIR) and expr.body is not None:
+        return ReductionExpressionIR(
+            expr.operation,
+            expr.loop_vars,
+            _substitute_expr(expr.body, replace_map, loc),
+            expr.location,
+            where_clause=expr.where_clause,
+            loop_var_ranges=expr.loop_var_ranges,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
+    if isinstance(expr, SelectAtArgmaxIR):
+        return SelectAtArgmaxIR(
+            _substitute_expr(expr.primal_body, replace_map, loc),
+            _substitute_expr(expr.diff_body, replace_map, loc),
+            expr.loop_vars,
+            loop_var_ranges=expr.loop_var_ranges,
+            location=expr.location,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
     return expr
 
 
@@ -871,6 +972,27 @@ def _substitute_expr_with_diffs(
         else_e = _substitute_expr_with_diffs(expr.else_expr, replace_map, diff_replace_map, loc) if expr.else_expr else None
         return IfExpressionIR(
             cond, then_e, loc, else_expr=else_e,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
+    if isinstance(expr, ReductionExpressionIR) and expr.body is not None:
+        return ReductionExpressionIR(
+            expr.operation,
+            expr.loop_vars,
+            _substitute_expr_with_diffs(expr.body, replace_map, diff_replace_map, loc),
+            expr.location,
+            where_clause=expr.where_clause,
+            loop_var_ranges=expr.loop_var_ranges,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
+    if isinstance(expr, SelectAtArgmaxIR):
+        return SelectAtArgmaxIR(
+            _substitute_expr_with_diffs(expr.primal_body, replace_map, diff_replace_map, loc),
+            _substitute_expr_with_diffs(expr.diff_body, replace_map, diff_replace_map, loc),
+            expr.loop_vars,
+            loop_var_ranges=expr.loop_var_ranges,
+            location=expr.location,
             type_info=getattr(expr, "type_info", None),
             shape_info=getattr(expr, "shape_info", None),
         )
@@ -1075,6 +1197,9 @@ def _set_type_info_on_expr(expr: Any, type_info: Any, shape_info: Any) -> None:
         _set_type_info_on_expr(expr.body, type_info, shape_info)
         if getattr(expr, "where_clause", None) is not None:
             _set_type_info_on_expr(expr.where_clause, type_info, shape_info)
+    elif isinstance(expr, SelectAtArgmaxIR):
+        _set_type_info_on_expr(expr.primal_body, type_info, shape_info)
+        _set_type_info_on_expr(expr.diff_body, type_info, shape_info)
     elif isinstance(expr, RectangularAccessIR):
         _set_type_info_on_expr(expr.array, type_info, shape_info)
         for idx in expr.indices or []:

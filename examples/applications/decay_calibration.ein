@@ -35,6 +35,13 @@ let u0_fit = exp(coef[1]);
 let fitted[t in 0..n_obs] = u0_fit * exp(-k_fit * (t as f64) * dt);
 let residuals[t in 0..n_obs] = data[t] - fitted[t];
 let sse = sum[t in 0..n_obs](residuals[t] * residuals[t]);
+// Autodiff: one gradient step to refine k using d(sse)/d(k)
+let k_var = k_fit;
+let fitted_at_k[t in 0..n_obs] = u0_fit * exp(-k_var * (t as f64) * dt);
+let residuals_at_k[t in 0..n_obs] = data[t] - fitted_at_k[t];
+let sse_at_k = sum[t in 0..n_obs](residuals_at_k[t] * residuals_at_k[t]);
+let d_sse_dk = @sse_at_k / @k_var;
+let k_refined = k_var - 0.001 * d_sse_dk;
 let mean_obs = sum[t in 0..n_obs](data[t]) / (n_obs as f64);
 let centered_sq[t in 0..n_obs] = (data[t] - mean_obs) * (data[t] - mean_obs);
 let tss = sum[t in 0..n_obs](centered_sq[t]);
@@ -53,6 +60,7 @@ let forecast_mid = u_forecast[n_forecast / 2];
 let forecast_end = u_forecast[n_forecast - 1];
 
 print(k_fit);
+print(k_refined);
 print(u0_fit);
 print(r_squared);
 print(half_life);
