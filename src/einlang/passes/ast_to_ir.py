@@ -192,6 +192,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         modules: List[Any] = []
         module_functions = self._lower_module_functions()
         statements.extend(module_functions)
+        # After merge, @fn rules live in FunctionDefinition.custom_diff_body (main and modules); no separate DiffRuleDef to lower.
         nested_functions = [f for f in self._all_functions if f not in statements]
         statements.extend(nested_functions)
 

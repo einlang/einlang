@@ -354,3 +354,30 @@ let db_da = @b / @a;
 """
         _, out = _compile_run(source)
         assert abs(_scalar_float(out, "db_da") - 1.0) < 1e-6
+
+    def test_quotient_math_log(self):
+        """d/dx log(x)=1/x. At x=1 => 1. @fn body has no python:: so type_info OK."""
+        source = """
+fn log(x) { python::numpy::log(x) }
+@fn log(x) { (1.0 / x) * @x }
+let b = 1.0;
+let yl = log(b);
+let dlog = @yl / @b;
+"""
+        _, out = _compile_run(source)
+        assert abs(_scalar_float(out, "dlog") - 1.0) < 1e-5
+
+    def test_quotient_math_atan2(self):
+        """atan2(y,x): d/dy = x/(x²+y²), d/dx = -y/(x²+y²). At (1,0): 0 and -1."""
+        source = """
+fn atan2(y, x) { python::numpy::arctan2(y, x) }
+@fn atan2(y, x) { (x / (x * x + y * y)) * @y + (-y / (x * x + y * y)) * @x }
+let y = 1.0;
+let x = 0.0;
+let a = atan2(y, x);
+let da_dy = @a / @y;
+let da_dx = @a / @x;
+"""
+        _, out = _compile_run(source)
+        assert abs(_scalar_float(out, "da_dy") - 0.0) < 1e-5
+        assert abs(_scalar_float(out, "da_dx") - (-1.0)) < 1e-5
