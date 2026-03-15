@@ -26,4 +26,5 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--tb=short", "-ra", "-n", "auto", "--durations=15"]
+# Do not add -n auto here: it breaks --lf (last-failed). For full runs use: pytest tests/ -n auto
+addopts = ["--tb=short", "-ra", "--durations=15"]

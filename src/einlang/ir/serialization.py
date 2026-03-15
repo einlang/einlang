@@ -773,7 +773,8 @@ class IRSerializer:
         return core
 
     def _serialize_FunctionValueIR(self, node) -> list:
-        """Serialize function value (rvalue). Name/defid on binding; format (function-value (params) body :return_type :loc)."""
+        """Serialize function value (rvalue). Name/defid on binding; format (function-value (params) body :return_type :loc).
+        Autodiff-only fields (e.g. custom_diff_body) are not serialized; they are cleared after the autodiff pass."""
         params = [self._serialize_param(p) for p in node.parameters]
         body = self.serialize_to_sexpr(node.body) if node.body else [self._sym("nil")]
         core = [self._sym("function-value"), params, body]

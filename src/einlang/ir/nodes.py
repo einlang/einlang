@@ -654,6 +654,23 @@ class ProgramIR(IRNode):
         return visitor.visit_program(self)
 
 
+def clear_autodiff_only_fields(program: 'ProgramIR') -> None:
+    """Reset autodiff-only fields on the IR (e.g. custom_diff_body). No longer needed after AutodiffPass."""
+    for b in (program.bindings or []):
+        if isinstance(b.expr, FunctionValueIR) and getattr(b.expr, 'custom_diff_body', None) is not None:
+            object.__setattr__(b.expr, 'custom_diff_body', None)
+    for mod in (program.modules or []):
+        _clear_autodiff_only_fields_module(mod)
+
+
+def _clear_autodiff_only_fields_module(mod: 'ModuleIR') -> None:
+    for b in (mod.functions or []):
+        if isinstance(b.expr, FunctionValueIR) and getattr(b.expr, 'custom_diff_body', None) is not None:
+            object.__setattr__(b.expr, 'custom_diff_body', None)
+    for sub in (mod.submodules or []):
+        _clear_autodiff_only_fields_module(sub)
+
+
 class ModuleIR(IRNode):
     """Module in IR"""
     __slots__ = ('path', 'functions', 'constants', 'submodules', 'defid')

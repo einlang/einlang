@@ -926,6 +926,10 @@ class NameResolverVisitor(ASTVisitor[None]):
                         )
             if node.body:
                 node.body.accept(self)
+            # Resolve @fn body if merged into this function (same param scope)
+            custom_diff = getattr(node, "custom_diff_body", None)
+            if custom_diff is not None:
+                custom_diff.accept(self)
 
     def visit_diff_rule_def(self, node) -> None:
         """Resolve @fn name(params) { body }: resolve name to function DefId, set param defids, then resolve body in param scope."""

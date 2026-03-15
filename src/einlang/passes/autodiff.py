@@ -1383,8 +1383,7 @@ class AutodiffPass(BasePass):
                 "differential_leaves": differential_leaves,
             },
         )
-        # Clear custom_diff_body from all functions; no longer needed after this pass.
-        for b in (program.functions or []):
-            if isinstance(b.expr, FunctionValueIR) and getattr(b.expr, 'custom_diff_body', None) is not None:
-                object.__setattr__(b.expr, 'custom_diff_body', None)
+        # Clear custom_diff_body from all functions (program + modules); no longer needed after this pass.
+        from ..ir.nodes import clear_autodiff_only_fields
+        clear_autodiff_only_fields(program)
         return program
