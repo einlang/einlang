@@ -19,12 +19,13 @@ from ..shared.source_location import SourceLocation
 from ..shared.types import BinaryOp, infer_literal_type, UNKNOWN, PrimitiveType, I32, I64, F32, F64
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, IdentifierIR, IndexVarIR, IndexRestIR, ReductionExpressionIR,
-    WhereClauseIR, RangeIR, LiteralIR, EinsteinClauseIR,
+    WhereClauseIR, RangeIR, LiteralIR, EinsteinClauseIR, EinsteinIR,
     LoopStructure, BindingIR, GuardCondition, is_einstein_binding, is_function_binding,
     LoweredEinsteinClauseIR, LoweredEinsteinIR, LoweredReductionIR, LoweredComprehensionIR,
     IRVisitor, RectangularAccessIR, MemberAccessIR,
     ArrayComprehensionIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     BlockExpressionIR, IfExpressionIR, WhereExpressionIR,
+    DifferentialIR,
 )
 
 
@@ -702,7 +703,10 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
 
     def visit_binding(self, node: BindingIR) -> Any:
         if is_einstein_binding(node):
-            return self.visit_einstein_declaration(node)
+            lowered = self.visit_einstein_declaration(node)
+            if lowered is not None:
+                object.__setattr__(node, 'expr', lowered)
+            return node
         if is_function_binding(node):
             from ..analysis.analysis_guard import should_analyze_function
             if not should_analyze_function(node, tcx=self.tcx):
@@ -717,7 +721,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
 
     def visit_einstein_declaration(self, node: BindingIR) -> Optional[Any]:
         """Lower Einstein declaration (clauses list); returns LoweredEinsteinIR."""
-        clauses = node.clauses or []
+        clauses = node.clauses or (getattr(node.expr, 'clauses', None) if isinstance(node.expr, EinsteinIR) else None) or []
         if not clauses:
             return None
         if len(clauses) > 1:
@@ -873,10 +877,10 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             result = node.value.accept(self)
             if result is not None:
                 node.value = result
-                # When body is a LoweredReductionIR with empty .loops, set .loops from pre-extracted
-                # reduction_ranges so runtime has loop vars (e.g. j) with correct DefIds.
+                # When body is a LoweredReductionIR, set .loops from pre-extracted reduction_ranges so
+                # runtime has loop vars with correct DefIds (derivative clauses need reduction over k).
                 from ..ir.nodes import LoweredReductionIR
-                if isinstance(result, LoweredReductionIR) and reduction_ranges and not result.loops:
+                if isinstance(result, LoweredReductionIR) and reduction_ranges:
                     result.loops = tuple(reduction_ranges.values())
         
         # Extract bindings and guards from where_clause
@@ -1683,6 +1687,12 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         return node
 
     def visit_unary_op(self, node) -> Any:
+        if node.operand is not None:
+            node.operand = node.operand.accept(self)
+        return node
+
+    def visit_differential(self, node: DifferentialIR) -> Any:
+        """Preserve DifferentialIR; only recurse into operand (AUTODIFF_IMPLEMENTATION.md)."""
         if node.operand is not None:
             node.operand = node.operand.accept(self)
         return node

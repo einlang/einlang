@@ -177,6 +177,22 @@ class UnaryOpIR(ExpressionIR):
         return visitor.visit_unary_op(self)
 
 
+class DifferentialIR(ExpressionIR):
+    """
+    Differential of the value of operand (@expr). Same shape and dtype as operand.
+    Differentials combine per math (e.g. dz = dx + dy); see AUTODIFF_DESIGN.md.
+    """
+    __slots__ = ('operand',)
+
+    def __init__(self, operand: ExpressionIR, location: SourceLocation,
+                 type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
+        super().__init__(location, type_info, shape_info)
+        self.operand = operand
+
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_differential(self)
+
+
 class RectangularAccessIR(ExpressionIR):
     """
     Rectangular array access: A[i, j] (multi-dimensional indexing)
@@ -1281,7 +1297,11 @@ class IRVisitor(ABC, Generic[T]):
     def visit_unary_op(self, node: UnaryOpIR) -> T:
         """Visit unary operation"""
         raise NotImplementedError
-    
+
+    def visit_differential(self, node: 'DifferentialIR') -> T:
+        """Visit differential expression (@expr). Default: recurse into operand."""
+        return node.operand.accept(self)
+
     @abstractmethod
     def visit_range(self, node: RangeIR) -> T:
         """Visit range expression"""
@@ -1384,7 +1404,11 @@ class IRVisitor(ABC, Generic[T]):
     def visit_pipeline_expression(self, node: PipelineExpressionIR) -> T:
         """Visit pipeline expression"""
         raise NotImplementedError
-    
+
+    def visit_differential(self, node: 'DifferentialIR') -> T:
+        """Visit differential expression (@expr). Default: recurse into operand."""
+        return node.operand.accept(self)
+
     @abstractmethod
     def visit_builtin_call(self, node: BuiltinCallIR) -> T:
         """Visit builtin call"""

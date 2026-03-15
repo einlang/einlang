@@ -1440,7 +1440,9 @@ class EinlangTransformer(Transformer):
         return str(op)
         
     def unary_op(self, meta, op):
-        """Convert unary operator token to string"""
+        """Convert unary operator token to string (AT -> '@' for UnaryOp.DIFF)"""
+        if isinstance(op, Token) and op.type == "AT":
+            return "@"
         return str(op)
 
     # =========================================================================
@@ -1710,7 +1712,7 @@ class EinlangTransformer(Transformer):
         pattern_list = [p for p in patterns if not (isinstance(p, str) and p in ('[', ']', ','))]
         return pattern_list
     
-    def binding_pattern(self, meta, name, pattern):
+    def binding_pattern(self, meta, name, _at, pattern):
         """Handle binding patterns: name @ pattern"""
         from ...shared.nodes import BindingPattern
         location = self._extract_location(meta)

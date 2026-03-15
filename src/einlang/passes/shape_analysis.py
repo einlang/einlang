@@ -12,7 +12,7 @@ from ..passes.rest_pattern_preprocessing import RestPatternPreprocessingPass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, ArrayLiteralIR, ArrayComprehensionIR,
     FunctionCallIR, BindingIR, is_einstein_binding, is_function_binding, RectangularAccessIR,
-    IRVisitor, RangeIR, IdentifierIR, LiteralIR, MemberAccessIR, BinaryOpIR,
+    IRVisitor, RangeIR, IdentifierIR, LiteralIR, MemberAccessIR, BinaryOpIR, DifferentialIR,
 )
 from ..shared.defid import DefId
 from ..shared.source_location import SourceLocation
@@ -840,8 +840,20 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
     def visit_identifier(self, node) -> None:
         pass
     
-    def visit_binary_op(self, node) -> None:
-        pass
+    def visit_binary_op(self, node: BinaryOpIR) -> None:
+        # Recurse so operand shapes are available.
+        if node.left:
+            node.left.accept(self)
+        if node.right:
+            node.right.accept(self)
+        # Gradient quotient (df/dx): when both operands are gradient-typed, result shape is
+        # elementwise (same as numerator). Design allows scalar or elementwise; we use elementwise.
+        if node.operator == BinaryOp.DIV and isinstance(node.left, DifferentialIR) and isinstance(node.right, DifferentialIR):
+            num_shape = self.analyzer.get_shape(node.left)
+            if num_shape:
+                shape = tuple(num_shape) if not isinstance(num_shape, tuple) else num_shape
+                self.analyzer.set_shape(node, shape)
+                node.shape_info = shape
     
     def visit_function_call(self, node) -> None:
         pass
@@ -849,6 +861,15 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
     def visit_unary_op(self, node) -> None:
         pass
     
+    def visit_differential(self, node: DifferentialIR) -> None:
+        """DifferentialIR(operand) has the same shape as operand (AUTODIFF_IMPLEMENTATION.md §5)."""
+        node.operand.accept(self)
+        operand_shape = self.analyzer.get_shape(node.operand)
+        if operand_shape:
+            shape = tuple(operand_shape) if not isinstance(operand_shape, tuple) else operand_shape
+            self.analyzer.set_shape(node, shape)
+            node.shape_info = shape
+
     def visit_rectangular_access(self, node) -> None:
         pass
     

@@ -14,7 +14,7 @@ from ..ir.scoped_visitor import ScopedIRVisitor
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BindingIR, FunctionValueIR,
     BlockExpressionIR, IRNode, IRVisitor, FunctionCallIR, LiteralIR,
-    IdentifierIR, BinaryOpIR, UnaryOpIR, RectangularAccessIR, JaggedAccessIR,
+    IdentifierIR, BinaryOpIR, UnaryOpIR, DifferentialIR, RectangularAccessIR, JaggedAccessIR,
     ArrayLiteralIR, TupleExpressionIR, ReductionExpressionIR, IfExpressionIR,
     MatchExpressionIR, CastExpressionIR, TryExpressionIR, LambdaIR, RangeIR,
     ArrayComprehensionIR, InterpolatedStringIR, TupleAccessIR, BuiltinCallIR,
@@ -27,7 +27,7 @@ from ..ir.nodes import (
     is_function_binding,
     OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR,
 )
-from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, JaggedType, TupleType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp
+from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, JaggedType, TupleType, DifferentialType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp
 from ..shared.defid import DefId, assert_defid
 from ..shared.source_location import SourceLocation
 from ..utils.config import DEFAULT_INT_TYPE, DEFAULT_FLOAT_TYPE
@@ -625,6 +625,13 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         left_type = expr.left.accept(self)
         right_type = expr.right.accept(self)
         
+        # Gradient quotient: df / dx when both sides are Gradient(T) (AUTODIFF_IMPLEMENTATION.md §5, step 7)
+        if expr.operator == BinaryOp.DIV and isinstance(left_type, DifferentialType) and isinstance(right_type, DifferentialType):
+            # Result type = derivative (same shape or scalar). Use promoted inner type (per-element ratio for same shape).
+            quotient_type = self._promote_types(left_type.inner_type, right_type.inner_type, location=expr.location)
+            expr.type_info = quotient_type
+            return quotient_type
+
         # Check if this is a comparison operator
         from ..shared.types import BOOL, I8, I32, I64, F8E4M3, F16, BF16, F32, F64
         comparison_ops_enum = {BinaryOp.LT, BinaryOp.GT, BinaryOp.LE, BinaryOp.GE, BinaryOp.EQ, BinaryOp.NE}
@@ -1234,7 +1241,14 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         # Set type_info on IR node
         expr.type_info = inferred_type
         return inferred_type
-    
+
+    def visit_differential(self, expr: DifferentialIR) -> Type:
+        """Infer type of @expr: Differential(T) where T is the type of operand (AUTODIFF_IMPLEMENTATION.md §5, step 6)."""
+        operand_type = expr.operand.accept(self)
+        diff_type = DifferentialType(operand_type)
+        expr.type_info = diff_type
+        return diff_type
+
     def visit_rectangular_access(self, expr) -> Type:
         """Infer type of rectangular array access. Full indexing -> element type; partial indexing -> slice (RectangularType with remaining dims)."""
         array_type = expr.array.accept(self)

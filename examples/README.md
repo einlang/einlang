@@ -37,6 +37,7 @@ Recurrences (base case + step); Markov chains, chaos.
 
 | Directory | What it does | Run |
 |-----------|--------------|-----|
+| **Autodiff** (root) | Compiler autodiff: `@expr`, `@a / @b` (derivatives); scalars and matmul | `python3 -m einlang examples/autodiff_small.ein`; `examples/autodiff_matmul.ein` |
 | [`value_iteration/`](https://github.com/einlang/einlang/tree/main/examples/value_iteration) | Value iteration (Bellman); **policy iteration** (Howard: evaluate + improve) | `python3 -m einlang examples/value_iteration/main.ein` · `policy_iteration.ein` |
 | [`job_search/`](https://github.com/einlang/einlang/tree/main/examples/job_search) | McCall job search (QuantEcon): value function iteration, reservation wage | `python3 -m einlang examples/job_search/mccall.ein` |
 | [`optimization/`](https://github.com/einlang/einlang/tree/main/examples/optimization) | Suite: gradient descent, power iteration, projected gradient, Rosenbrock (Optim.jl/SciML) | `python3 -m einlang examples/optimization/optimization_suite.ein` |

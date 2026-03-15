@@ -726,6 +726,10 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
     def visit_unary_op(self, node) -> None:
         if node.operand:
             node.operand.accept(self)
+
+    def visit_differential(self, node) -> None:
+        if node.operand:
+            node.operand.accept(self)
     
     def visit_function_call(self, node) -> None:
         for arg in node.arguments:

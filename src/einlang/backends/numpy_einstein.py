@@ -2702,6 +2702,9 @@ def _eval_clause_body_with_broadcast_loops(
     loops = (clause.loops or [])
     if not loops or clause.guards or clause.bindings:
         return None
+    # Body with guards (e.g. derivative reduction i==r, k==s) needs scalar path so parallel indices are in env
+    if getattr(clause.body, "guards", None):
+        return None
     clause_ndim = len(loops)
     n_red = _count_reduction_dims_in_expr(clause.body)
     ndim = clause_ndim + n_red
@@ -4363,7 +4366,13 @@ class EinsteinExecutionMixin:
                     if _guards and not check_lowered_guards(_guards, full_context, lambda e: _to_bool(e.accept(self))):
                         continue
                     try:
-                        value = _body.accept(self)
+                        # Pass parallel indices into reduction so guard/body can see them (e.g. derivative @C/@A)
+                        setattr(self, "_reduction_initial_context", dict(full_context))
+                        try:
+                            value = _body.accept(self)
+                        finally:
+                            if hasattr(self, "_reduction_initial_context"):
+                                delattr(self, "_reduction_initial_context")
                     except IndexError:
                         continue
                     if _cell_index_spec is not None:

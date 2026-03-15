@@ -13,9 +13,11 @@ from ..ir.nodes import (
     LiteralIR, FunctionCallIR, IRVisitor,
     BlockExpressionIR, RectangularAccessIR, LoweredReductionIR, LoweredComprehensionIR,
     IfExpressionIR, BinaryOpIR, UnaryOpIR,
+    DifferentialIR, IdentifierIR,
     is_einstein_binding, is_function_binding,
 )
 from ..shared.defid import DefId, Resolver, FIXED_BUILTIN_ORDER, _BUILTIN_CRATE
+from ..shared.types import BinaryOp
 from ..runtime.environment import ExecutionEnvironment, FunctionValue
 from ..runtime.runtime import ExecutionResult
 from .numpy_helpers import (
@@ -23,6 +25,17 @@ from .numpy_helpers import (
     builtin_assert, builtin_print, builtin_len, builtin_typeof, builtin_array_append,
     builtin_shape, builtin_sum, builtin_max, builtin_min,
 )
+
+# Sentinel for bindings whose RHS is DifferentialIR; value is filled after backward pass.
+_DIFFERENTIAL_PENDING = object()
+# Sentinel for bindings whose RHS is @num/@den (BinaryOpIR DIV of d_* refs); slot filled after per-quotient diff run.
+_QUOTIENT_PENDING = object()
+
+
+def _differential_operand_defid(diff_ir: DifferentialIR) -> Optional[DefId]:
+    """Return DefId of the differential target if operand is an identifier; else None."""
+    op = diff_ir.operand
+    return op.defid if isinstance(op, IdentifierIR) and op.defid is not None else None
 
 
 def _register_fixed_builtins(env: ExecutionEnvironment) -> None:
@@ -337,6 +350,7 @@ class CoreExecutionMixin:
         profile_functions = bool(os.environ.get("EINLANG_PROFILE_FUNCTIONS", ""))
         self._profile_functions = profile_functions
         self._profile_fn_times: Dict[str, float] = {} if profile_functions else {}
+        self._differential_buffers = {}  # Filled after backward pass; used by visit_gradient.
         try:
             if main_defid:
                 main_func = self.env.get_value(main_defid)
@@ -358,8 +372,21 @@ class CoreExecutionMixin:
                         )
                     return ExecutionResult(value=result_value)
             outputs = {}
+            pending_differential_slots: List[tuple] = []  # (slot_defid, target_defid) for bindings "d_w = @w"
+            pending_quotient_slots: List[tuple] = []  # (slot_defid, num_defid, den_defid) for "dz_dx = @z/@x"
             if program.statements:
                 with self.env.scope():
+                    tcx_pre = getattr(self, "_tcx", None)
+                    d_map_pre: Dict[DefId, DefId] = {}
+                    if tcx_pre is not None:
+                        try:
+                            from ..passes.autodiff import AutodiffPass
+                            ad = tcx_pre.get_analysis(AutodiffPass)
+                            d_map_pre = ad.get("autodiff_differential_map") or {}
+                        except RuntimeError:
+                            pass
+                    self._reverse_d_map = {d_defid: primal for primal, d_defid in d_map_pre.items()}
+                    self._in_top_level_forward = True
                     for stmt_index, stmt in enumerate(program.statements):
                         if stmt is None:
                             raise ValueError("IR statement is None")
@@ -368,6 +395,32 @@ class CoreExecutionMixin:
                                 self._profile_buckets = {}
                             self._stmt_t0 = time.perf_counter()
                         result_value = stmt.accept(self)
+                        # Deferred gradient slot: filled after backward pass (AUTODIFF_IMPLEMENTATION.md §9).
+                        if (
+                            isinstance(result_value, tuple)
+                            and len(result_value) == 3
+                            and result_value[0] is _DIFFERENTIAL_PENDING
+                        ):
+                            pending_differential_slots.append((result_value[1], result_value[2]))
+                            if profile_statements:
+                                elapsed = time.perf_counter() - self._stmt_t0
+                                line = (stmt.location.line if stmt.location else None) or "?"
+                                name = stmt.name if isinstance(stmt, BindingIR) else ""
+                                print(f"[profile] stmt {stmt_index} (L{line}) {name}: {elapsed:.2f}s", flush=True)
+                            continue
+                        # Deferred derivative quotient: filled after diff block (AUTODIFF_IMPLEMENTATION.md §9).
+                        if (
+                            isinstance(result_value, tuple)
+                            and len(result_value) == 4
+                            and result_value[0] is _QUOTIENT_PENDING
+                        ):
+                            pending_quotient_slots.append((result_value[1], result_value[2], result_value[3]))
+                            if profile_statements:
+                                elapsed = time.perf_counter() - self._stmt_t0
+                                line = (stmt.location.line if stmt.location else None) or "?"
+                                name = stmt.name if isinstance(stmt, BindingIR) else ""
+                                print(f"[profile] stmt {stmt_index} (L{line}) {name}: {elapsed:.2f}s", flush=True)
+                            continue
                         variable_defid = None
                         if isinstance(stmt, BindingIR) and not is_function_binding(stmt):
                             variable_defid = stmt.defid
@@ -389,6 +442,91 @@ class CoreExecutionMixin:
                                 for lo in sorted(self._profile_buckets.keys()):
                                     print(f"  L{lo}-L{lo + size}: {self._profile_buckets[lo]:.2f}s", flush=True)
                                 self._profile_buckets = {}
+                    self._in_top_level_forward = False
+                    # Backward pass (AUTODIFF_IMPLEMENTATION.md §9): if program has gradient slots and
+                    # AutodiffPass produced backward IR, run it with current env (seed 1.0 for loss is
+                    # applied inside backward IR when built). Then expose gradient buffers so bindings
+                    # like d_w = @w resolve to the buffer for w. Full backward execution is minimal/v1;
+                    # more VJPs and seed wiring are implemented in passes/autodiff.py.
+                    tcx = getattr(self, "_tcx", None)
+                    diff_ir = None
+                    d_map: Dict[DefId, DefId] = {}
+                    differential_leaves: set = set()
+                    if tcx is not None:
+                        try:
+                            from ..passes.autodiff import AutodiffPass
+                            ad = tcx.get_analysis(AutodiffPass)
+                            diff_ir = ad.get("diff_block")
+                            d_map = ad.get("autodiff_differential_map") or {}
+                            differential_leaves = ad.get("differential_leaves") or set()
+                        except RuntimeError:
+                            pass
+                    # Per-quotient run: for each @num/@den run diff block with seed den=1, others=0 (AUTODIFF_ALGORITHM §4.2).
+                    if pending_quotient_slots and diff_ir is not None and d_map and differential_leaves:
+                        leaf_d_defids = {d_map[leaf] for leaf in differential_leaves if leaf in d_map}
+                        for slot_defid, num_defid, den_defid in pending_quotient_slots:
+                            for leaf in differential_leaves:
+                                d_defid = d_map.get(leaf)
+                                if d_defid is not None:
+                                    # Use float so downstream division is true_divide, not integer division.
+                                    self.env.set_value(
+                                        d_defid, 1.0 if leaf == den_defid else 0.0, name=None
+                                    )
+                            for stmt in (diff_ir if isinstance(diff_ir, list) else [diff_ir]):
+                                if isinstance(stmt, BindingIR) and stmt.defid in leaf_d_defids:
+                                    continue
+                                stmt.accept(self)
+                            d_num_defid = d_map.get(num_defid)
+                            if d_num_defid is not None:
+                                val = self.env.get_value(d_num_defid)
+                                self.env.set_value(slot_defid, val, name=None)
+                                outputs[slot_defid] = val
+                    # Single run for differential slots and/or when no per-quotient (e.g. no quotient pairs).
+                    run_diff = (pending_differential_slots or pending_quotient_slots) and diff_ir is not None
+                    if run_diff and not (pending_quotient_slots and d_map and differential_leaves):
+                        if isinstance(diff_ir, BlockExpressionIR):
+                            for s in diff_ir.statements or []:
+                                s.accept(self)
+                        elif isinstance(diff_ir, list):
+                            for s in diff_ir:
+                                s.accept(self)
+                        differential_buffers = {
+                            target: self.env.get_value(d_defid)
+                            for target, d_defid in d_map.items()
+                        }
+                        self._differential_buffers = differential_buffers
+                        for slot_defid, target_defid in pending_differential_slots:
+                            val = differential_buffers.get(target_defid)
+                            self.env.set_value(slot_defid, val, name=None)
+                            outputs[slot_defid] = val
+                        for slot_defid, num_defid, den_defid in pending_quotient_slots:
+                            num_buf = differential_buffers.get(num_defid)
+                            den_buf = differential_buffers.get(den_defid)
+                            if num_buf is not None and den_buf is not None:
+                                val = np.true_divide(num_buf, den_buf)
+                            else:
+                                val = None
+                            self.env.set_value(slot_defid, val, name=None)
+                            outputs[slot_defid] = val
+                    elif run_diff and pending_differential_slots:
+                        # Had per-quotient run; still fill differential slots from one run with all leaves 1.
+                        for leaf in differential_leaves:
+                            d_defid = d_map.get(leaf)
+                            if d_defid is not None:
+                                self.env.set_value(d_defid, 1.0, name=None)
+                        for stmt in (diff_ir if isinstance(diff_ir, list) else [diff_ir]):
+                            stmt.accept(self)
+                        differential_buffers = {
+                            target: self.env.get_value(d_defid)
+                            for target, d_defid in d_map.items()
+                        }
+                        self._differential_buffers = differential_buffers
+                        for slot_defid, target_defid in pending_differential_slots:
+                            val = differential_buffers.get(target_defid)
+                            self.env.set_value(slot_defid, val, name=None)
+                            outputs[slot_defid] = val
+                    elif pending_differential_slots or pending_quotient_slots:
+                        self._differential_buffers = {}
                     for defid, value in self.env.get_current_scope().items():
                         if defid not in outputs:
                             outputs[defid] = value
@@ -502,6 +640,29 @@ class CoreExecutionMixin:
             if node.defid is not None:
                 self.env.set_value(node.defid, result, name=node.name)
             return result
+        # Gradient slot binding (d_w = @w): defer until backward pass has run (AUTODIFF_IMPLEMENTATION.md §9).
+        if isinstance(node.expr, DifferentialIR) and getattr(self, "_in_top_level_forward", False):
+            target_defid = _differential_operand_defid(node.expr)
+            return (_DIFFERENTIAL_PENDING, node.defid, target_defid)
+        # Derivative quotient (dz_dx = @z/@x expanded to d_z/d_x): defer until per-quotient diff run.
+        rev = getattr(self, "_reverse_d_map", None)
+        if (
+            rev is not None
+            and isinstance(node.expr, BinaryOpIR)
+            and node.expr.operator == BinaryOp.DIV
+            and getattr(self, "_in_top_level_forward", False)
+        ):
+            left = node.expr.left
+            right = node.expr.right
+            if (
+                isinstance(left, IdentifierIR)
+                and isinstance(right, IdentifierIR)
+                and left.defid is not None
+                and right.defid is not None
+                and left.defid in rev
+                and right.defid in rev
+            ):
+                return (_QUOTIENT_PENDING, node.defid, rev[left.defid], rev[right.defid])
         value = node.expr.accept(self)
         if node.defid is not None:
             self.env.set_value(node.defid, value, name=node.name)

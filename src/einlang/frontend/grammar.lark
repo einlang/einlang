@@ -98,7 +98,7 @@ match_arm: pattern (PIPE pattern)* ("where" expr)? "=>" expr
 ?pattern: tuple_pattern | array_pattern | literal_or_range_pattern | name_pattern | wildcard_pattern | struct_pattern
 
 // LALR-safe: after NAME, one-token lookahead resolves binding (@), constructor (LPAR), or plain identifier
-?name_pattern: NAME "@" pattern -> binding_pattern
+?name_pattern: NAME AT pattern -> binding_pattern
              | NAME LPAR pattern_list? RPAR -> constructor_pattern
              | NAME -> identifier_pattern
 
@@ -243,6 +243,7 @@ primitive_type: PTYPE_F8E4M3 | PTYPE_F16 | PTYPE_BF16 | PTYPE_F32 | PTYPE_F64 | 
 // OPERATORS - Using terminals instead of rules
 // =============================================================================
 
+AT: "@"
 PLUS: "+"
 MINUS: "-"
 MULTIPLY: "*"
@@ -308,7 +309,7 @@ equality_op: EQ | NE
 relational_op: LT | GT | LE | GE | IN
 logical_and_op: AND
 logical_or_op: OR
-unary_op: MINUS | NOT | PLUS
+unary_op: MINUS | NOT | PLUS | AT
 pipeline_op: PIPE_OP | QUESTION_PIPE_OP | ERROR_PIPE_OP
 
 // =============================================================================
