@@ -1,5 +1,5 @@
 // Basic Math Operations Sample
-// Demonstrates fundamental arithmetic and assertions
+// Demonstrates fundamental arithmetic, assertions, and built-in autodiff
 
 let a = 15.0;  // Float literals - clean and clear;
 let b = 4.0;
@@ -23,4 +23,13 @@ print("Difference:", difference);
 print("Product:", product);
 print("Quotient:", quotient);
 print("Remainder:", remainder);
+
+// Built-in autodiff: derivatives with no hand-written gradient code
+let d_product_da = @product / @a;
+let d_product_db = @product / @b;
+let d_quotient_da = @quotient / @a;
+let d_quotient_db = @quotient / @b;
+print("Autodiff: d(product)/da =", d_product_da, ", d(product)/db =", d_product_db);
+print("Autodiff: d(quotient)/da =", d_quotient_da, ", d(quotient)/db =", d_quotient_db);
+
 print("✅ All math operations verified!");

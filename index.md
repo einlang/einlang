@@ -5,7 +5,7 @@ title: Einlang
 
 # Einlang
 
-**Math on the page. Indices, sums, shapes—the compiler reads them too.**
+**Math on the page. Indices, sums, shapes—the compiler reads them too.** Math-intuitive: write equations, not encodings.
 
 [Install](https://github.com/einlang/einlang#readme) · [Docs](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) · [Repo](https://github.com/einlang/einlang)
 
@@ -13,9 +13,9 @@ title: Einlang
 
 ## Einlang in a Nutshell
 
-### Readable
+### Math-intuitive
 
-You write the notation you’d use on a whiteboard. Indices and sums in the open—no string subscripts, no hidden loops.
+You write the notation you’d use on a whiteboard or in a paper. Indices and sums in the open—no string subscripts, no hidden loops. Equations map directly to code.
 
 ### Checked
 
@@ -83,6 +83,20 @@ let u[t in 1..150, 0] = {
   x + dt * (sigma * (y - x))
 };
 ```
+
+### Automatic differentiation
+
+Derivatives and gradients from the compiler — no hand-written gradient code. Use `@expr` for differentials and `@a / @b` for numeric derivatives:
+
+```rust
+let x = 1.0;
+let y = 2.0;
+let z = x * y;
+let dz_dx = @z / @x;   // 2.0
+let dz_dy = @z / @y;   // 1.0
+```
+
+See [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) and [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein).
 
 ### More
 

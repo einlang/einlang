@@ -1,5 +1,6 @@
 // Run this first: python3 -m einlang examples/hello.ein
 // Matrix multiply in one line — shapes checked at compile time.
+// For derivatives of C w.r.t. A or B, see examples/autodiff_matmul.ein (built-in autodiff).
 
 let A = [[1, 2], [3, 4]];
 let B = [[5, 6], [7, 8]];

@@ -2,6 +2,8 @@
 
 This document lists **derivative formulas** for each op. It extends [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md). Notation: partial y / partial x means the derivative of y with respect to x.
 
+**Matmul, conv, and einsum:** The compiler differentiates **high-level Einstein notation** (before lowering). So **matrix multiply** (`let C[i,j] = sum[k](A[i,k]*B[k,j])`), **convolution** expressed as Einstein with a where-clause (e.g. `sum[kh,kw](in[ih,iw]*w[kh,kw]) where ih = oh+kh, iw = ow+kw`), and **any einsum-style sum-of-products** are all supported: use `@C / @A`, `@out / @w`, etc. See [AUTODIFF_EINSTEIN.md](AUTODIFF_EINSTEIN.md) and examples [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein).
+
 ---
 
 ## 1. Elementwise unary ops
@@ -36,6 +38,7 @@ y = f(a,b).
 | **mul** | y = a * b | b | a |
 | **div** | y = a / b | 1/b | -a / b^2  (b != 0) |
 | **pow** | y = a^b | b * a^(b-1) | a^b * ln(a)  (a > 0 for this one) |
+| **mod** (remainder) | y = a % b | 1 (subgradient) | 0 (subgradient; full grad would use -floor(a/b)) |
 
 Broadcasting: derivative w.r.t. a broadcasted operand is summed over the broadcast dimensions so the result has the same shape as the operand.
 
@@ -100,16 +103,15 @@ partial ell_i / partial x_j = delta_ij - p_j where p = softmax(x). So (Jacobian-
 
 ## 8. IR mapping (what to differentiate)
 
+Autodiff runs **before** Einstein lowering, so it sees **high-level `EinsteinIR`** (declarative sum-of-products, with optional where-clause). Matmul, conv (written as Einstein), and general einsum-style expressions are differentiated via the same machinery ([AUTODIFF_EINSTEIN.md](AUTODIFF_EINSTEIN.md)).
+
 | IR / construct | Differentiable? | Formula section |
 |----------------|-----------------|------------------|
-| `BinaryOpIR` ADD, SUB, MUL, DIV, POW | Yes | 2 |
+| `BinaryOpIR` ADD, SUB, MUL, DIV, POW, MOD | Yes | 2 |
 | `UnaryOpIR` NEG, POS | Yes | 1 |
 | `UnaryOpIR` NOT, BOOL_NOT | No (boolean) | — |
 | `BuiltinCallIR` (exp, ln, sqrt, sin, cos, tanh, …) | Yes | 1 |
-| `LoweredEinsteinIR` elementwise | Yes | 1, 2 |
-| `LoweredEinsteinIR` sum reduction | Yes | 6 |
-| `LoweredEinsteinIR` matmul | Yes | 3 |
-| `LoweredEinsteinIR` conv | Yes | 5 |
+| **`EinsteinIR`** (sum-of-products, optional where) — **matmul, conv, einsum** | Yes | 3, 5, 6 |
 | `LoweredRecurrenceIR` | Yes | chain rule along recurrence |
 | Comparisons, conditionals | Subgradient / branch | ReLU etc. in 1 |
 | max/min over indices | Yes | 6 |
@@ -122,5 +124,15 @@ partial ell_i / partial x_j = delta_ij - p_j where p = softmax(x). So (Jacobian-
 - **POW:** partial y/partial b = a^b * ln(a) undefined for a <= 0.
 - **Division by zero:** undefined; avoid or document (e.g. clamp denominator).
 - **MOD, integer DIV:** not differentiable in the usual sense; exclude or define subgradient.
+
+---
+
+## 10. Multi-head attention (MHA)
+
+**Stdlib:** `std::ml::attention_ops` provides `attention_dummy`, `multi_head_attention_simple`, and `multi_head_attention`. They compute **scores = Q @ K^T** (scaled), **attention_weights = softmax(scores)**, and **output = attention_weights @ V**.
+
+- **Differentiable today:** The **matmul parts** (scores, output) are sum-of-products Einstein and are supported: you can differentiate **scores** or **output** w.r.t. Q, K, V when written inline (e.g. `let scores[i,j] = sum[k](Q[i,k]*K[j,k])*scale; let out[i,d] = sum[j](scores[i,j]*V[j,d]);` then `@out/@Q`, `@scores/@K`, etc.).
+- **Not yet supported through stdlib MHA:** Full autodiff **through** `std::ml::attention_dummy` (or MHA) from a single `@out/@query` in the caller: the attention body uses **softmax** (max, sum, exp, div). Differentiating through **reduction** outputs (e.g. scalar-from-sum, or softmax’s internal max/sum) is not implemented in the pass, so the chain through softmax fails.
+- **How to get MHA gradients:** (1) Write a minimal single-head attention **inline** with a user `fn` + `@fn` for softmax (or a custom backward), or (2) add **@fn** rules for `attention_dummy` / `multi_head_attention` that define the standard backward (dL/dQ, dL/dK, dL/dV from dL/d_output). The formulas are standard (see e.g. PyTorch/TF attention backward).
 
 High-level design: [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md).
