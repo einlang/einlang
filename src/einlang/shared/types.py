@@ -27,6 +27,7 @@ class TypeKind(Enum):
     JAGGED = "jagged"            # Ragged/jagged arrays: jagged[T; depth]
     TUPLE = "tuple"
     FUNCTION = "function"  # Arrow type (function type)
+    DIFFERENTIAL = "differential"  # Differential(T): differential of a value of type T, same shape/dtype
     UNKNOWN = "unknown"
 
 
@@ -183,6 +184,30 @@ class RectangularType(Type):
     
     def __hash__(self):
         return hash((self.kind, self.element_type, self.shape, self.is_dynamic_rank))
+
+
+@dataclass(frozen=True)
+class DifferentialType(Type):
+    """
+    Differential of a value of type inner_type. Same shape and dtype as inner_type.
+    Math-first: differentials combine (e.g. dz = dx + dy); see AUTODIFF_DESIGN.md.
+    """
+    inner_type: Type
+
+    def __init__(self, inner_type: Type):
+        super().__init__(kind=TypeKind.DIFFERENTIAL)
+        object.__setattr__(self, 'inner_type', inner_type)
+
+    def __str__(self) -> str:
+        return f"Differential({self.inner_type})"
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, DifferentialType):
+            return NotImplemented
+        return self.inner_type == other.inner_type
+
+    def __hash__(self) -> int:
+        return hash((self.kind, self.inner_type))
 
 
 @dataclass(frozen=True)
@@ -354,6 +379,7 @@ class UnaryOp(Enum):
     BOOL_NOT = "!"
     NEG = "-"
     POS = "+"
+    DIFF = "@"  # differential (@expr)
 
 
 class PipelineClauseType(Enum):

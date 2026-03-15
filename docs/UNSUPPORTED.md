@@ -125,13 +125,13 @@ This page lists **syntax and features that Einlang intentionally does not suppor
 
 ---
 
-## 12. No automatic differentiation (autodiff)
+## 12. ~~No automatic differentiation~~ — Autodiff is supported
 
-**Not in the language:** A primitive or syntax that lets the compiler derive gradients from an expression (e.g. `grad(f, x)` where the compiler computes ∂f/∂x automatically).
+**Supported:** The compiler supports automatic differentiation. Use `@expr` to refer to the differential of an expression and `@a / @b` to compute the derivative (numeric quotient). The compiler derives gradients via the chain rule; no hand-written gradient code required for supported ops.
 
-**Why:** Einlang’s goal is clarity and explicitness in the syntax — no magic. What you write is what is computed; the compiler checks shapes and order, it does not silently add derivative code. Automatic differentiation would hide how gradients are obtained.
+**Docs and examples:** [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Examples: [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein). Language reference: [Automatic differentiation](reference.md#automatic-differentiation).
 
-**Use instead:** Write gradients explicitly. See [numerics::optim](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) (e.g. `quadratic_gradient_2d`, gradient descent) and examples such as [optimization_suite.ein](https://github.com/einlang/einlang/blob/main/examples/optimization/optimization_suite.ein) (Rosenbrock) and [decay_calibration](https://github.com/einlang/einlang/blob/main/examples/applications/decay_calibration.ein). For other objectives, write the gradient by hand or use least-squares / grid search over parameters. Design notes **if** this were ever revisited as a future feature: [Autodiff (potential future feature)](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_FUTURE.md).
+**You can still** use explicit gradients (e.g. [numerics::optim](https://github.com/einlang/einlang/blob/main/docs/stdlib.md), [optimization_suite.ein](https://github.com/einlang/einlang/blob/main/examples/optimization/optimization_suite.ein)) when you prefer or when autodiff does not yet cover an op.
 
 ---
 
@@ -151,7 +151,7 @@ This page lists **syntax and features that Einlang intentionally does not suppor
 | LHS index expression (e.g. `t+1`) | Name or literal in bracket; refer to prior step in body (e.g. `seq[t-1]`) | [Recurrence relations](reference.md#recurrence-relations) |
 | Forward ref / future value (e.g. `h[t+1,i,j]`, `h[t,i+1,j]` when defining `h[t,i,j]`) | Backward ref only in every dim (e.g. `h[t-1,i,j]`, `h[t,i-1,j]`, `h[t,i,j-1]`) | [Recurrence relations](reference.md#recurrence-relations) |
 | Mutable bindings | New `let`; recurrences for sequences | [let](reference.md#let-declarations), [Recurrences](reference.md#recurrence-relations) |
-| Automatic differentiation | Explicit gradients (e.g. stdlib, hand-written) | [numerics::optim](https://github.com/einlang/einlang/blob/main/docs/stdlib.md), [optimization examples](https://github.com/einlang/einlang/tree/main/examples/optimization) |
+| ~~Automatic differentiation~~ | **Supported:** `@expr`, `@a / @b` — see [AUTODIFF_DESIGN](AUTODIFF_DESIGN.md), [reference](reference.md#automatic-differentiation), [autodiff examples](https://github.com/einlang/einlang/tree/main/examples) |
 
 ---
 

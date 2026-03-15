@@ -104,9 +104,12 @@ class CompilerDriver:
         # 5. Type inference (Type analysis runs after shape)
         # This allows type inference to use shape information
         self.pass_manager.register_pass(TypeInferencePass)
-        
+
+        # 5a. Autodiff (high-level EinsteinIR only; before lowering)
+        from ..passes.autodiff import AutodiffPass
+        self.pass_manager.register_pass(AutodiffPass)
+
         # 6. Einstein lowering (lower Einstein declarations to loops)
-        # After type inference so it can access type_info for element_type
         from ..passes.einstein_lowering import EinsteinLoweringPass
         self.pass_manager.register_pass(EinsteinLoweringPass)
 

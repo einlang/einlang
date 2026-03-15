@@ -24,7 +24,7 @@ from ..ir.nodes import IRNode, ExpressionIR
 
 # Keywords/symbols (from _sym) - unquoted. Names (node.name, etc.) use "".
 _KNOWN_SYMBOLS = frozenset({
-    "nil", "program", "variable", "literal", "binary-op", "unary-op",
+    "nil", "program", "variable", "literal", "binary-op", "unary-op", "differential",
     "rectangular-access", "function-call", "builtin-call", "cast", "array-literal",
     "index", "index-var", "index-rest",
     "array-comprehension", "range", "loop", "binding", "lowered-einstein", "lowered-einstein-clause",
@@ -298,7 +298,13 @@ class IRSerializer:
         op_sym = node.operator.value
         core = [self._sym("unary-op"), self._sym(op_sym), operand]
         return self._add_expr_metadata(node, core)
-    
+
+    def _serialize_DifferentialIR(self, node) -> list:
+        """Serialize differential (@expr): (differential operand)."""
+        operand = self.serialize_to_sexpr(node.operand)
+        core = [self._sym("differential"), operand]
+        return self._add_expr_metadata(node, core)
+
     # === Array Access ===
 
     def _serialize_index_slot(self, idx: Any) -> list:
@@ -957,7 +963,8 @@ class IRDeserializer:
         if isinstance(type_sym, list):
             type_sym = _sym_val(type_sym[1]) if len(type_sym) > 1 else "i32"
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return LiteralIR(value=val, location=loc, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 2)
+        return LiteralIR(value=val, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_variable(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import IdentifierIR
@@ -968,7 +975,8 @@ class IRDeserializer:
         opts = _plist(tail[1:])[1]
         defid = _parse_defid(opts.get(":defid"))
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return IdentifierIR(name=name, location=loc, defid=defid, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 1)
+        return IdentifierIR(name=name, location=loc, defid=defid, type_info=ty, shape_info=shape_info)
 
     def _deserialize_binary_op(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import BinaryOpIR
@@ -980,7 +988,8 @@ class IRDeserializer:
         right = self.deserialize(tail[2])
         ty = self._opts_type(tail, 3)
         op_enum = next((b for b in BinaryOp if b.value == op), op)
-        return BinaryOpIR(operator=op_enum, left=left, right=right, location=loc, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 3)
+        return BinaryOpIR(operator=op_enum, left=left, right=right, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_unary_op(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import UnaryOpIR
@@ -991,7 +1000,33 @@ class IRDeserializer:
         operand = self.deserialize(tail[1])
         ty = self._opts_type(tail, 2)
         op_enum = next((u for u in UnaryOp if u.value == op), op)
-        return UnaryOpIR(operator=op_enum, operand=operand, location=loc, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 2)
+        return UnaryOpIR(operator=op_enum, operand=operand, location=loc, type_info=ty, shape_info=shape_info)
+
+    def _deserialize_differential(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import DifferentialIR
+        _, opts = _plist(tail[1:])
+        loc = self._loc_from_opts(opts)
+        operand = self.deserialize(tail[0])
+        ty = self._opts_type(tail, 1)
+        shape_info = self._opts_shape_info(tail, 1)
+        return DifferentialIR(operand=operand, location=loc, type_info=ty, shape_info=shape_info)
+
+    def _deserialize_gradient(self, tag: str, tail: list, full: list) -> Any:
+        """Backward compat: old IR used 'gradient' tag."""
+        return self._deserialize_differential(tag, tail, full)
+
+    def _deserialize_derivative_quotient(self, _tag: str, tail: list, _full: list) -> Any:
+        """Backward compat: old IR had derivative-quotient; load as BinaryOpIR(DIV, num, den)."""
+        from ..ir.nodes import BinaryOpIR
+        from ..shared.types import BinaryOp
+        _, opts = _plist(tail[2:])
+        loc = self._loc_from_opts(opts)
+        numerator = self.deserialize(tail[0])
+        denominator = self.deserialize(tail[1])
+        ty = self._opts_type(tail, 2)
+        shape_info = self._opts_shape_info(tail, 2)
+        return BinaryOpIR(BinaryOp.DIV, numerator, denominator, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_block(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import BlockExpressionIR
@@ -1001,7 +1036,8 @@ class IRDeserializer:
         stmts = [self.deserialize(s) for s in stmts_sexpr]
         final = self.deserialize(tail[1]) if len(tail) > 1 else None
         ty = self._opts_type(tail, 2)
-        return BlockExpressionIR(statements=stmts, location=loc, final_expr=final, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 2)
+        return BlockExpressionIR(statements=stmts, location=loc, final_expr=final, type_info=ty, shape_info=shape_info)
 
     def _deserialize_if(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import IfExpressionIR
@@ -1011,7 +1047,8 @@ class IRDeserializer:
         then_e = self.deserialize(tail[1])
         else_e = self.deserialize(tail[2]) if len(tail) > 2 else None
         ty = self._opts_type(tail, 3)
-        return IfExpressionIR(condition=cond, then_expr=then_e, else_expr=else_e, location=loc, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 3)
+        return IfExpressionIR(condition=cond, then_expr=then_e, else_expr=else_e, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_function_call(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import FunctionCallIR, IdentifierIR
@@ -1037,7 +1074,8 @@ class IRDeserializer:
         ty = self._deserialize_type(opts.get(":inferred_type"))
         if callee is None:
             callee = IdentifierIR(name="", location=loc, defid=None)
-        return FunctionCallIR(callee_expr=callee, location=loc, arguments=args, module_path=module_path, type_info=ty)
+        shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
+        return FunctionCallIR(callee_expr=callee, location=loc, arguments=args, module_path=module_path, type_info=ty, shape_info=shape_info)
 
     def _deserialize_builtin_call(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import BuiltinCallIR
@@ -1049,7 +1087,8 @@ class IRDeserializer:
         opts = _plist(tail[2:])[1]
         defid = _parse_defid(opts.get(":defid"))
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return BuiltinCallIR(builtin_name=name, args=args, location=loc, defid=defid, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 2)
+        return BuiltinCallIR(builtin_name=name, args=args, location=loc, defid=defid, type_info=ty, shape_info=shape_info)
 
     def _deserialize_array_literal(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import ArrayLiteralIR
@@ -1077,7 +1116,8 @@ class IRDeserializer:
         constraints_sexpr = opts.get(":constraints") or []
         constraints = [self.deserialize(c) for c in constraints_sexpr] if isinstance(constraints_sexpr, list) else []
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return ArrayComprehensionIR(body=body, loop_vars=loop_vars, ranges=ranges, constraints=constraints, location=loc, type_info=ty)
+        shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
+        return ArrayComprehensionIR(body=body, loop_vars=loop_vars, ranges=ranges, constraints=constraints, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_range(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LiteralIR, RangeIR
@@ -1087,8 +1127,9 @@ class IRDeserializer:
         end = self.deserialize(tail[1]) if len(tail) > 1 else None
         inclusive = _sym_val(opts.get(":inclusive", "")) == "true" if ":inclusive" in opts else False
         ty = self._opts_type(tail, 2)
+        shape_info = self._opts_shape_info(tail, 2)
         return RangeIR(start=start or LiteralIR(0, loc), end=end or LiteralIR(0, loc), location=loc,
-                       inclusive=inclusive, type_info=ty)
+                       inclusive=inclusive, type_info=ty, shape_info=shape_info)
 
     def _deserialize_rectangular_access(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import RectangularAccessIR
@@ -1098,7 +1139,8 @@ class IRDeserializer:
         idx_list = tail[1] if len(tail) > 1 and isinstance(tail[1], list) else []
         indices = [self.deserialize(i) for i in idx_list]
         ty = self._opts_type(tail, 2)
-        return RectangularAccessIR(array=array, indices=indices, location=loc, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 2)
+        return RectangularAccessIR(array=array, indices=indices, location=loc, type_info=ty, shape_info=shape_info)
 
     def _name_from_tail(self, tail: list) -> str:
         name = tail[0]
@@ -1113,7 +1155,8 @@ class IRDeserializer:
         defid = _parse_defid(opts.get(":defid"))
         range_ir = self.deserialize(opts.get(":range")) if ":range" in opts else None
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return IndexVarIR(name=name, location=loc, defid=defid, range_ir=range_ir, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 1)
+        return IndexVarIR(name=name, location=loc, defid=defid, range_ir=range_ir, type_info=ty, shape_info=shape_info)
 
     def _deserialize_index_rest(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import IndexRestIR
@@ -1123,7 +1166,8 @@ class IRDeserializer:
         opts = _plist(tail[1:])[1]
         defid = _parse_defid(opts.get(":defid"))
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return IndexRestIR(name=name, location=loc, defid=defid, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 1)
+        return IndexRestIR(name=name, location=loc, defid=defid, type_info=ty, shape_info=shape_info)
 
     def _deserialize_member_access(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import MemberAccessIR
@@ -1142,7 +1186,8 @@ class IRDeserializer:
             except ValueError:
                 pass
         ty = self._opts_type(tail, 2)
-        return MemberAccessIR(object=obj, member=member, location=loc, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 2)
+        return MemberAccessIR(object=obj, member=member, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_cast(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import CastExpressionIR
@@ -1158,7 +1203,8 @@ class IRDeserializer:
         else:
             target_type = PrimitiveType("i32")
         ty = self._opts_type(tail, 2)
-        return CastExpressionIR(expr=expr, target_type=target_type, location=loc, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 2)
+        return CastExpressionIR(expr=expr, target_type=target_type, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_tuple(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import TupleExpressionIR
@@ -1181,7 +1227,8 @@ class IRDeserializer:
         else:
             idx = int(idx)
         ty = self._opts_type(tail, 2)
-        return TupleAccessIR(tuple_expr=tup, index=idx, location=loc, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 2)
+        return TupleAccessIR(tuple_expr=tup, index=idx, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_lambda(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LiteralIR, LambdaIR
@@ -1192,7 +1239,8 @@ class IRDeserializer:
         body = self.deserialize(tail[1]) if len(tail) > 1 else None
         body = body if body is not None else LiteralIR(value=None, location=loc)
         ty = self._opts_type(tail, 2)
-        return LambdaIR(parameters=params, body=body, location=loc, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 2)
+        return LambdaIR(parameters=params, body=body, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_pipeline_expression(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import PipelineExpressionIR
@@ -1220,7 +1268,8 @@ class IRDeserializer:
         arm_list = [self._deserialize_match_arm_item(a) for a in arms_sexpr if isinstance(a, list) and len(a) >= 3 and _sym_val(a[0]) == "match-arm"]
         arms = [x for x in arm_list if x is not None]
         ty = self._opts_type(tail, 2)
-        return MatchExpressionIR(scrutinee=scrutinee, arms=arms, location=loc, type_info=ty)
+        shape_info = self._opts_shape_info(tail, 2)
+        return MatchExpressionIR(scrutinee=scrutinee, arms=arms, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_match_arm_item(self, sexpr: list) -> Any:
         from ..ir.nodes import MatchArmIR
@@ -1372,7 +1421,8 @@ class IRDeserializer:
         element_type = self._deserialize_type(opts.get(":element_type"))
         loc = self._loc_from_opts(opts) or SourceLocation("", 0, 0)
         type_info = self._deserialize_type(opts.get(":inferred_type"))
-        return EinsteinIR(clauses=clauses, shape=shape, element_type=element_type, location=loc, type_info=type_info)
+        shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
+        return EinsteinIR(clauses=clauses, shape=shape, element_type=element_type, location=loc, type_info=type_info, shape_info=shape_info)
 
     def _deserialize_binding(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import BindingIR
@@ -1570,7 +1620,8 @@ class IRDeserializer:
                 if part is not None:
                     parts.append(part)
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return InterpolatedStringIR(parts=parts, location=loc, type_info=ty)
+        shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
+        return InterpolatedStringIR(parts=parts, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_where_expression(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import WhereExpressionIR
@@ -1580,7 +1631,8 @@ class IRDeserializer:
         constraints_sexpr = pos[1] if len(pos) > 1 and isinstance(pos[1], list) else []
         constraints = [self.deserialize(c) for c in constraints_sexpr] if constraints_sexpr else []
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return WhereExpressionIR(expr=expr, constraints=constraints, location=loc, type_info=ty)
+        shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
+        return WhereExpressionIR(expr=expr, constraints=constraints, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_where_clause(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import WhereClauseIR
@@ -1634,7 +1686,8 @@ class IRDeserializer:
         where_clause_sexpr = opts.get(":where_clause")
         where_clause = self.deserialize(where_clause_sexpr) if where_clause_sexpr is not None else None
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return ReductionExpressionIR(operation=operation, loop_vars=loop_vars, body=body, location=loc, where_clause=where_clause, loop_var_ranges=loop_var_ranges, type_info=ty)
+        shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
+        return ReductionExpressionIR(operation=operation, loop_vars=loop_vars, body=body, location=loc, where_clause=where_clause, loop_var_ranges=loop_var_ranges, type_info=ty, shape_info=shape_info)
 
     def _deserialize_expr(self, tag: str, tail: list, full: list) -> Any:
         raise ValueError(f"Unknown IR tag: {tag}")

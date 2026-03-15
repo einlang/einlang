@@ -15,6 +15,7 @@ from ..ir.nodes import (
     MemberAccessIR, TryExpressionIR, MatchExpressionIR, ReductionExpressionIR, WhereExpressionIR,
     PipelineExpressionIR, BuiltinCallIR,
     MatchArmIR, ExpressionIR, LoweredComprehensionIR, LoweredReductionIR,
+    DifferentialIR,
     IRVisitor,
 )
 from ..runtime.environment import FunctionValue
@@ -921,6 +922,20 @@ class ExpressionVisitorMixin:
             raise RuntimeError(f"Variable not found (defid={defid}). Name: {expr.name or '?'}")
         return value
 
+    def visit_differential(self, expr: DifferentialIR) -> Any:
+        """Return differential of operand; from buffer filled by backward pass (AUTODIFF_IMPLEMENTATION §9)."""
+        op = expr.operand
+        target_defid = op.defid if isinstance(op, IdentifierIR) and op.defid is not None else None
+        if target_defid is None:
+            raise RuntimeError("DifferentialIR operand must be an identifier in v1 backend.")
+        buffers = getattr(self, "_differential_buffers", {})
+        if target_defid not in buffers:
+            raise RuntimeError(
+                f"Differential for {getattr(op, 'name', '?')} not in _differential_buffers; "
+                "run backward pass first or ensure AutodiffPass produced backward IR."
+            )
+        return buffers[target_defid]
+
     def visit_index_var(self, expr) -> Any:
         defid = expr.defid
         if defid is None:
@@ -1022,6 +1037,9 @@ class ExpressionVisitorMixin:
             if isinstance(array, (list, tuple, str)):
                 idx = indices[0] if indices else 0
                 return array[int(idx)]
+            # Forward AD: seeded derivative may be scalar 1 (broadcast over indices)
+            if np.isscalar(array) or (isinstance(array, np.ndarray) and array.ndim == 0):
+                return array
         except (IndexError, KeyError) as e:
             self._raise_here(e, expr)
         raise RuntimeError(f"rectangular_access: expected ndarray, list, or str, got {type(array).__name__}")
@@ -1351,13 +1369,15 @@ class ExpressionVisitorMixin:
                     self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
             from ..runtime.compute.lowered_execution import check_lowered_guards
             return check_lowered_guards(expr.guards, _ctx, lambda c: self._to_bool(c.accept(self)))
+        # When reduction has guards, pass parallel indices (e.g. derivative clause i,j,r,s) so guards see them
+        initial_ctx = getattr(self, "_reduction_initial_context", None) or {}
         return execute_reduction_with_loops(
             (expr.operation or "sum"),
             (expr.reduction_ranges or {}),
             body_ev,
             ev,
             guard_evaluator=guard_ev if expr.guards else None,
-            initial_context={},
+            initial_context=initial_ctx,
             profile_callback=reduction_profile if profile_reductions else None,
             parallel_shape=parallel_shape,
         )

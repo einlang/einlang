@@ -83,8 +83,9 @@ Einlang gives you readable tensor math with compile-time shape checking. In prac
 | **Where clauses** | Index algebra (`where ih = oh + kh`) and guards (`where data[i] > 0`) next to the math |
 | **Recurrences** | `let fib[0]=0; let fib[1]=1; let fib[n in 2..20]=fib[n-1]+fib[n-2]` — range in bracket; compiler handles order |
 | **Reductions** | `sum[i](x[i])`, `max[j](M[i,j])`, `sum[i,j](A[i,j]*A[i,j])` with inferred ranges |
+| **Autodiff** | `@x` (differential), `@z / @x` (derivative); compiler derives gradients. [Autodiff docs](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
 | **Stdlib** | `use std::math::{sin, sqrt};` · 300+ functions · [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [Stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) |
-| **Real models** | [MNIST CNN](https://github.com/einlang/einlang/blob/main/examples/mnist/main.ein), [quantized (int8)](https://github.com/einlang/einlang/blob/main/examples/mnist_quantized/main.ein), [ViT](https://github.com/einlang/einlang/tree/main/examples/deit_tiny), [Whisper](https://github.com/einlang/einlang/tree/main/examples/whisper_tiny) — same language, same checks |
+| **Real models** | [MNIST CNN](https://github.com/einlang/einlang/blob/main/examples/mnist/main.ein), [quantized (int8)](https://github.com/einlang/einlang/blob/main/examples/mnist_quantized/main.ein), [ViT](https://github.com/einlang/einlang/tree/main/examples/deit_tiny), [Whisper](https://github.com/einlang/einlang/blob/main/examples/whisper_tiny) — same language, same checks |
 
 **Real-world use cases** (same space as [Julia’s demos](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md): one language for simulation and ML.
 
@@ -133,6 +134,7 @@ Grouped **by domain**; full list: [examples/README](https://github.com/einlang/e
 | **Economics / optimization** | Bellman value iteration; gradient descent, power iteration, projected gradient | [value_iteration/](https://github.com/einlang/einlang/tree/main/examples/value_iteration), [optimization/](https://github.com/einlang/einlang/tree/main/examples/optimization) |
 | **Computer vision** | MNIST CNN, quantized CNN, ViT (ImageNet) | [mnist/](https://github.com/einlang/einlang/tree/main/examples/mnist), [mnist_quantized/](https://github.com/einlang/einlang/tree/main/examples/mnist_quantized), [deit_tiny/](https://github.com/einlang/einlang/tree/main/examples/deit_tiny) |
 | **Speech & sequence** | Speech-to-text (Whisper) | [whisper_tiny/](https://github.com/einlang/einlang/tree/main/examples/whisper_tiny) |
+| **Autodiff** | Derivatives and gradients from `@` and quotient syntax | [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
 | **Language & basics** | Variables, matrices, Einstein notation, units | [basics/](https://github.com/einlang/einlang/tree/main/examples/basics), [demos/](https://github.com/einlang/einlang/tree/main/examples/demos), [units/](https://github.com/einlang/einlang/tree/main/examples/units) |
 
 **Quick run:** `python3 -m einlang examples/hello.ein` · `examples/ode/ode_suite.ein` · `examples/optimization/optimization_suite.ein` · `examples/finance/savings.ein` · `examples/job_search/mccall.ein` · `examples/time_series/exponential_smoothing.ein`

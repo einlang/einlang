@@ -15,7 +15,7 @@ from ..passes.base import BasePass, TyCtxt
 from ..passes.visitor_helpers import defid_of_var_in_expr
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BindingIR, FunctionDefIR, FunctionValueIR, ConstantDefIR, EinsteinIR,
-    LiteralIR, IdentifierIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
+    LiteralIR, IdentifierIR, BinaryOpIR, UnaryOpIR, DifferentialIR, FunctionCallIR,
     ParameterIR, BlockExpressionIR, IfExpressionIR, LambdaIR,
     ModuleIR, IRNode, RectangularAccessIR, JaggedAccessIR,
     ArrayLiteralIR, TupleExpressionIR, TupleAccessIR, InterpolatedStringIR,
@@ -31,6 +31,7 @@ from ..ir.nodes import (
 )
 from ..shared.source_location import SourceLocation
 from ..shared.defid import DefId, DefType
+from ..shared.types import UnaryOp
 import sys
 import os
 
@@ -494,7 +495,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             location=location
         )
     
-    def visit_unary_expression(self, ast_op: ASTUnaryOp) -> Optional[UnaryOpIR]:
+    def visit_unary_expression(self, ast_op: ASTUnaryOp) -> Optional[Union[UnaryOpIR, DifferentialIR]]:
         """Lower unary operation - visitor pattern (no isinstance)"""
         location = self._get_source_location(ast_op)
         
@@ -504,6 +505,13 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 f"Failed to lower unary operation operand: expected ExpressionIR, got {type(operand).__name__} at {location}"
             )
         
+        if ast_op.operator == UnaryOp.DIFF:
+            return DifferentialIR(
+                operand=operand,
+                location=location,
+                type_info=None,
+                shape_info=None,
+            )
         return UnaryOpIR(
             operator=ast_op.operator,
             operand=operand,

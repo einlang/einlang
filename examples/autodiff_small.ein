@@ -1,0 +1,30 @@
+let x = 1.0;
+let y = 2.0;
+
+let z = x + y;
+let dz_dx = @z / @x;
+let dz_dy = @z / @y;
+print("z = x + y: dz_dx, dz_dy");
+print(dz_dx);
+print(dz_dy);
+
+let w = x * y;
+let dw_dx = @w / @x;
+let dw_dy = @w / @y;
+print("w = x * y: dw_dx, dw_dy");
+print(dw_dx);
+print(dw_dy);
+
+let u = x - y;
+let du_dx = @u / @x;
+let du_dy = @u / @y;
+print("u = x - y: du_dx, du_dy");
+print(du_dx);
+print(du_dy);
+
+let v = x / y;
+let dv_dx = @v / @x;
+let dv_dy = @v / @y;
+print("v = x / y: dv_dx, dv_dy");
+print(dv_dx);
+print(dv_dy);

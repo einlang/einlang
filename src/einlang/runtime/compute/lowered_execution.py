@@ -308,18 +308,19 @@ def execute_reduction_with_loops(
     else:
         raise ValueError(f"Unknown reduction operation: {reduction_op}")
     
-    # Execute loops for reduction variables
+    # Execute loops for reduction variables (initial_context carries parallel indices when reduction has guards)
     for reduction_context in execute_lowered_loops(
         reduction_loops,
         initial_context,
         expr_evaluator
     ):
-        # Check guards if provided
-        if guard_evaluator and not guard_evaluator(reduction_context):
+        full_context = {**initial_context, **reduction_context}
+        # Check guards if provided (guard may reference parallel indices from initial_context)
+        if guard_evaluator and not guard_evaluator(full_context):
             continue
         
         # Evaluate body
-        value = body_evaluator(reduction_context)
+        value = body_evaluator(full_context)
         
         # Skip None values (from where expressions that filtered this item)
         if value is None:

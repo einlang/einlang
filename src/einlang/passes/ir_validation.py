@@ -475,7 +475,8 @@ class IRValidationVisitor(IRVisitor[None]):
         - Type inference should complete during TypeInferencePass
         - Missing types indicate incomplete lowering or analysis
         """
-        if node.type_info is None:
+        type_info = getattr(node, "type_info", None)
+        if type_info is None:
             self._report_error(
                 f"Expression {type(node).__name__} missing type_info. "
                 "IR must be well-typed (all nodes have type_info from TypeInferencePass). "

@@ -1,0 +1,8 @@
+let A = [[1.0, 2.0], [3.0, 4.0]];
+let B = [[5.0, 6.0], [7.0, 8.0]];
+
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+
+let dC_dA = @C / @A;
+print("matmul: dC_dA (partial C / partial A)");
+print(dC_dA);
