@@ -1,0 +1,7 @@
+// Differentiate through a user-defined function: b = sq(a), db_da = @b/@a = 2*a. At a=3 we get 6.
+fn sq(x) {
+    x * x
+}
+let a = 3.0;
+let b = sq(a);
+let db_da = @b / @a;

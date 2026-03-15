@@ -79,7 +79,6 @@ RUNTIME_CRATE = -1
 
 FIXED_BUILTIN_ORDER = (
     "assert", "print", "len", "typeof", "array_append", "shape", "sum", "max", "min",
-    "exp", "tanh",
 )
 
 

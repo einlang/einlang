@@ -4,7 +4,7 @@
 
 program: statement*
 
-?statement: function_def | pub_function_def | var_decl | const_decl | einstein_decl | expr_stmt | use_stmt | pub_use_stmt | mod_stmt | pub_mod_stmt | inline_mod_stmt | pub_inline_mod_stmt | enum_def | struct_def
+?statement: function_def | pub_function_def | diff_rule_def | var_decl | const_decl | einstein_decl | expr_stmt | use_stmt | pub_use_stmt | mod_stmt | pub_mod_stmt | inline_mod_stmt | pub_inline_mod_stmt | enum_def | struct_def
 
 // =============================================================================
 // FUNCTION DEFINITIONS - WITH ALIASES
@@ -13,6 +13,7 @@ program: statement*
 // SIMPLIFIED with aliases - reduces transformer complexity
 function_def: "fn" NAME LPAR param_list? RPAR ("->" type)? block
 pub_function_def: "pub" "fn" NAME LPAR param_list? RPAR ("->" type)? block
+diff_rule_def: AT "fn" NAME LPAR param_list? RPAR block
 param_list: parameter ("," parameter)* 
 parameter: NAME (":" type)?
 

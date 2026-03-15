@@ -353,7 +353,11 @@ class ASTVisitor(ABC, Generic[T]):
     def visit_function_definition(self, node) -> T:
         if node.body:
             node.body.accept(self)
-    
+
+    def visit_diff_rule_def(self, node) -> T:
+        if node.body:
+            node.body.accept(self)
+
     def visit_variable_declaration(self, node) -> T:
         if node.value:
             node.value.accept(self)

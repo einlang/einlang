@@ -773,7 +773,7 @@ class IRSerializer:
         return core
 
     def _serialize_FunctionValueIR(self, node) -> list:
-        """Serialize function value (rvalue). Name/defid on binding; format (function-value (params) body :return_type :loc)."""
+        """Serialize function value (rvalue). Name/defid on binding; format (function-value (params) body :return_type :custom_diff_body :loc)."""
         params = [self._serialize_param(p) for p in node.parameters]
         body = self.serialize_to_sexpr(node.body) if node.body else [self._sym("nil")]
         core = [self._sym("function-value"), params, body]
@@ -782,6 +782,9 @@ class IRSerializer:
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
         if self.include_type_info and node.return_type is not None:
             core.extend([self._sym(":return_type"), self._serialize_type(node.return_type)])
+        custom_diff = getattr(node, "custom_diff_body", None)
+        if custom_diff is not None:
+            core.extend([self._sym(":custom_diff_body"), self.serialize_to_sexpr(custom_diff)])
         return core
 
     # === Programs ===

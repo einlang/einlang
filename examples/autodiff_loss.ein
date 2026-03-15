@@ -1,0 +1,5 @@
+// Gradient of squared error: loss = (pred - target)^2, d_loss_d_pred = 2*(pred - target). At pred=2, target=1 → 2.
+let pred = 2.0;
+let target = 1.0;
+let loss = (pred - target) * (pred - target);
+let d_loss_d_pred = @loss / @pred;

@@ -286,14 +286,16 @@ class LambdaIR(ExpressionIR):
 
 
 class FunctionValueIR(ExpressionIR):
-    """Function value (rvalue). Name and defid live on BindingIR; this holds parameters, body, return_type."""
-    __slots__ = ('parameters', 'return_type', 'body', '_is_partially_specialized', '_generic_defid')
+    """Function value (rvalue). Name and defid live on BindingIR; this holds parameters, body, return_type.
+    custom_diff_body: optional @fn rule body; used only by AutodiffPass and cleared after it runs."""
+    __slots__ = ('parameters', 'return_type', 'body', '_is_partially_specialized', '_generic_defid', 'custom_diff_body')
 
     def __init__(self, parameters: List['ParameterIR'], body: ExpressionIR,
                  location: SourceLocation, return_type: Optional[Any] = None,
                  shape_info: Optional[Any] = None, type_info: Optional[Any] = None,
                  _is_partially_specialized: bool = False,
-                 _generic_defid: Optional[DefId] = None):
+                 _generic_defid: Optional[DefId] = None,
+                 custom_diff_body: Optional['ExpressionIR'] = None):
         super().__init__(location, type_info, shape_info)
         assert_defid(_generic_defid)
         self.parameters = _t(parameters)
@@ -301,6 +303,7 @@ class FunctionValueIR(ExpressionIR):
         self.body = body
         self._is_partially_specialized = _is_partially_specialized
         self._generic_defid = _generic_defid
+        self.custom_diff_body = custom_diff_body
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_function_value(self)
@@ -595,6 +598,22 @@ class ParameterIR(IRNode):
         self.param_type = param_type
 
 
+class DiffRuleIR(IRNode):
+    """Custom autodiff rule for a user function: @fn f(params) { body }. Keyed by callee_defid; body uses @param -> DifferentialIR."""
+    __slots__ = ('callee_defid', 'body')
+
+    def __init__(self, callee_defid: Optional[DefId] = None, body: Optional[ExpressionIR] = None,
+                 location: Optional[SourceLocation] = None):
+        super().__init__(location or SourceLocation('', 0, 0))
+        self.callee_defid = callee_defid
+        self.body = body
+
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        if hasattr(visitor, 'visit_diff_rule'):
+            return visitor.visit_diff_rule(self)
+        return None  # type: ignore[return-value]
+
+
 class ProgramIR(IRNode):
     """
     Complete program in IR. statements is the preserved list (includes BindingIR and may include other statement types).
@@ -627,8 +646,29 @@ class ProgramIR(IRNode):
     def constants(self) -> List['BindingIR']:
         return [b for b in self.bindings if is_constant_binding(b)]
 
+    @property
+    def diff_rules(self) -> List['DiffRuleIR']:
+        return [s for s in (self.statements or []) if isinstance(s, DiffRuleIR)]
+
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_program(self)
+
+
+def clear_autodiff_only_fields(program: 'ProgramIR') -> None:
+    """Reset autodiff-only fields on the IR (e.g. custom_diff_body). No longer needed after AutodiffPass."""
+    for b in (program.bindings or []):
+        if isinstance(b.expr, FunctionValueIR) and getattr(b.expr, 'custom_diff_body', None) is not None:
+            object.__setattr__(b.expr, 'custom_diff_body', None)
+    for mod in (program.modules or []):
+        _clear_autodiff_only_fields_module(mod)
+
+
+def _clear_autodiff_only_fields_module(mod: 'ModuleIR') -> None:
+    for b in (mod.functions or []):
+        if isinstance(b.expr, FunctionValueIR) and getattr(b.expr, 'custom_diff_body', None) is not None:
+            object.__setattr__(b.expr, 'custom_diff_body', None)
+    for sub in (mod.submodules or []):
+        _clear_autodiff_only_fields_module(sub)
 
 
 class ModuleIR(IRNode):
