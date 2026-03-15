@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 from ..passes.base import BasePass, TyCtxt
 from ..passes.visitor_helpers import defid_of_var_in_expr
 from ..ir.nodes import (
-    ProgramIR, ExpressionIR, BindingIR, FunctionDefIR, FunctionValueIR, ConstantDefIR, EinsteinIR,
+    ProgramIR, ExpressionIR, BindingIR, FunctionDefIR, FunctionValueIR, ConstantDefIR, DiffRuleIR, EinsteinIR,
+    is_function_binding,
     LiteralIR, IdentifierIR, BinaryOpIR, UnaryOpIR, DifferentialIR, FunctionCallIR,
     ParameterIR, BlockExpressionIR, IfExpressionIR, LambdaIR,
     ModuleIR, IRNode, RectangularAccessIR, JaggedAccessIR,
@@ -78,6 +79,26 @@ except ImportError:
     ASTConstantDef = None  # Constants handled differently
 from ..shared.ast_visitor import ASTVisitor
 from ..shared.optional_attr import opt_attr, opt_defid
+
+
+def _attach_diff_rules_to_functions(program: ProgramIR) -> None:
+    """Bind each @fn rule to its function and remove DiffRuleIR from statements. Idempotent."""
+    statements = program.statements or []
+    binding_by_defid: Dict[DefId, BindingIR] = {}
+    for s in statements:
+        if isinstance(s, BindingIR) and s.defid is not None:
+            binding_by_defid[s.defid] = s
+    new_statements: List[Any] = []
+    for s in statements:
+        if isinstance(s, DiffRuleIR):
+            if s.callee_defid is not None and s.body is not None:
+                binding = binding_by_defid.get(s.callee_defid)
+                if binding is not None and is_function_binding(binding) and isinstance(binding.expr, FunctionValueIR):
+                    object.__setattr__(binding.expr, 'custom_diff_body', s.body)
+            continue
+        new_statements.append(s)
+    object.__setattr__(program, 'statements', new_statements)
+    object.__setattr__(program, 'bindings', [s for s in new_statements if isinstance(s, BindingIR)])
 
 
 class ASTToIRLoweringPass(BasePass):
@@ -163,7 +184,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                         statements.append(sub_stmt)
                 continue
 
-            if isinstance(stmt_ir, (FunctionDefIR, ConstantDefIR, BindingIR)):
+            if isinstance(stmt_ir, (FunctionDefIR, ConstantDefIR, BindingIR, DiffRuleIR)):
                 statements.append(stmt_ir)
             elif isinstance(stmt_ir, ExpressionIR):
                 statements.append(stmt_ir)
@@ -174,11 +195,13 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         nested_functions = [f for f in self._all_functions if f not in statements]
         statements.extend(nested_functions)
 
-        return ProgramIR(
+        program = ProgramIR(
             statements=statements,
             source_files=self.tcx.source_files,
             modules=modules,
         )
+        _attach_diff_rules_to_functions(program)
+        return program
     
     def _lower_module_functions(self) -> List[FunctionDefIR]:
         """
@@ -1376,7 +1399,30 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
     def visit_expression_statement(self, node: ASTExpressionStatement) -> Optional[ExpressionIR]:
         """Lower expression statement - visitor pattern"""
         return node.expr.accept(self)  # Just lower the expression
-    
+
+    def visit_diff_rule_def(self, node: Any) -> Optional[DiffRuleIR]:
+        """Lower @fn name(params) { body } to DiffRuleIR(callee_defid, body_expr)."""
+        from ..shared.nodes import DiffRuleDef
+        if not isinstance(node, DiffRuleDef):
+            return None
+        callee_defid = getattr(node, "function_defid", None)
+        if callee_defid is None:
+            raise RuntimeError(
+                f"@fn {node.name}: function_defid not set. Ensure NameResolutionPass runs before ASTToIRLoweringPass."
+            )
+        body_ir = node.body.accept(self)
+        if not isinstance(body_ir, BlockExpressionIR):
+            body_ir = None
+        final_expr = body_ir.final_expr if body_ir else None
+        if final_expr is None and body_ir and body_ir.statements:
+            last = body_ir.statements[-1]
+            if isinstance(last, ExpressionIR):
+                final_expr = last
+        if final_expr is None:
+            raise RuntimeError(f"@fn {node.name}: body must have a final expression.")
+        loc = self._get_source_location(node)
+        return DiffRuleIR(callee_defid=callee_defid, body=final_expr, location=loc)
+
     def visit_einstein_declaration(self, node: ASTEinsteinDeclaration) -> Optional[BindingIR]:
         """Lower Einstein declaration to BindingIR with expr=EinsteinIR(clauses=[...])."""
         array_defid = node.defid

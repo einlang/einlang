@@ -1,0 +1,5 @@
+// Chain rule: c = b + 1, b = a*a, so dc/da = 2*a. At a=3 we get dc_da = 6.
+let a = 3.0;
+let b = a * a;
+let c = b + 1.0;
+let dc_da = @c / @a;

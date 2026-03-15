@@ -1,7 +1,9 @@
 
 # Einlang Standard Library
 
-Built-in modules and functions (300+), all implemented in pure Einlang (`.ein` in `stdlib/`). **Syntax and types:** [Language Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md). **New here?** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) or [try an example](https://github.com/einlang/einlang/blob/main/README.md#try-it). **Doc index:** [README](https://github.com/einlang/einlang/blob/main/docs/README.md).
+The **standard library** is a set of modules and functions (300+) implemented in Einlang (`.ein` in `stdlib/`). It is **not** the same as **language built-ins**: built-ins (e.g. `print`, `assert`, `len`, `shape`, `sum`, `max`, `min`) are primitives available without import; stdlib you bring in with `use std::math::{...};` etc. See [Reference: Built-in vs stdlib](reference.md#built-in-vs-stdlib).
+
+**Syntax and types:** [Language Reference](reference.md). **New here?** [Getting started](GETTING_STARTED.md) or [try an example](https://github.com/einlang/einlang/blob/main/README.md#try-it). **Doc index:** [README](README.md).
 
 ---
 

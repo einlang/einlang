@@ -48,6 +48,10 @@ class _EinsteinGroupReplacementVisitor:
         if node.body:
             node.body.accept(self)
 
+    def visit_diff_rule_def(self, node) -> None:
+        if node.body:
+            node.body.accept(self)
+
     def visit_block_expression(self, node) -> None:
         _replace_einstein_groups_with_blocks(node.statements)
         for stmt in node.statements:
@@ -922,7 +926,57 @@ class NameResolverVisitor(ASTVisitor[None]):
                         )
             if node.body:
                 node.body.accept(self)
-    
+
+    def visit_diff_rule_def(self, node) -> None:
+        """Resolve @fn name(params) { body }: resolve name to function DefId, set param defids, then resolve body in param scope."""
+        from ..shared.nodes import DiffRuleDef, FunctionDefinition
+        scope = self.scope_manager.current_scope()
+        if not scope:
+            if self.tcx and self.tcx.reporter:
+                self.tcx.reporter.report_error(f"@fn {node.name}: no scope", node.location)
+            return
+        binding = scope.lookup(node.name)
+        if not binding or binding.defid is None:
+            if self.tcx and self.tcx.reporter:
+                self.tcx.reporter.report_error(f"@fn {node.name}: cannot find function '{node.name}' in this scope", node.location)
+            return
+        if getattr(binding, "binding_type", None) != BindingType.FUNCTION:
+            if self.tcx and self.tcx.reporter:
+                self.tcx.reporter.report_error(f"@fn {node.name}: '{node.name}' is not a function", node.location)
+            return
+        func_defid = binding.defid
+        def_type, definition = self.tcx.get_definition(func_defid) or (None, None)
+        if def_type != DefType.FUNCTION or not isinstance(definition, FunctionDefinition):
+            if self.tcx and self.tcx.reporter:
+                self.tcx.reporter.report_error(f"@fn {node.name}: function definition not found", node.location)
+            return
+        param_defids = [getattr(p, "defid", None) for p in definition.parameters]
+        if any(d is None for d in param_defids):
+            if self.tcx and self.tcx.reporter:
+                self.tcx.reporter.report_error(f"@fn {node.name}: function parameters have no defids", node.location)
+            return
+        object.__setattr__(node, "function_defid", func_defid)
+        object.__setattr__(node, "param_defids", param_defids)
+        with self.scope_manager.scope(ScopeKind.FUNCTION) as rule_scope:
+            for param, param_defid in zip(definition.parameters, param_defids):
+                pname = getattr(param, "name", None) or ""
+                if rule_scope and pname and not rule_scope.defined_in_this_scope(pname):
+                    _define_in_scope(
+                        rule_scope,
+                        pname,
+                        Binding(
+                            name=pname,
+                            binding_type=BindingType.PARAMETER,
+                            definition=param,
+                            defid=param_defid,
+                            scope=rule_scope,
+                        ),
+                        param,
+                        self.tcx.reporter,
+                    )
+            if node.body:
+                node.body.accept(self)
+
     def visit_block_expression(self, node) -> None:
         """Allocate for block-local defs, then resolve statements and final_expr."""
         with self.scope_manager.scope(ScopeKind.BLOCK):

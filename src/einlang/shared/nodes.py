@@ -37,6 +37,7 @@ class NodeType(Enum):
     """AST node types"""
     PROGRAM = "program"
     FUNCTION_DEF = "function_def"
+    DIFF_RULE_DEF = "diff_rule_def"
     VARIABLE_DECL = "variable_decl"
     EINSTEIN_DECL = "einstein_decl"  # Single or multiple clauses (array_name + clauses)
     EXPR_STMT = "expr_stmt"  # Expression used as statement
@@ -287,6 +288,26 @@ class FunctionDefinition(Statement):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_function_definition(self)
+
+
+@dataclass
+class DiffRuleDef(Statement):
+    """Autodiff custom rule: @fn f(params) { body }. Body uses @param for differential of param."""
+    name: str
+    parameters: List['Parameter']
+    body: 'BlockExpression'
+
+    def __init__(self, name: str, parameters: List['Parameter'], body: 'BlockExpression', location: SourceLocation = None):
+        super().__init__(NodeType.DIFF_RULE_DEF, location)
+        self.name = name
+        self.parameters = parameters
+        self.body = body
+        self.function_defid: Optional[Any] = None  # Set by name resolution: DefId of the function
+        self.param_defids: Optional[List[Any]] = None  # Set by name resolution: DefIds of params (same order as parameters)
+
+    def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
+        return visitor.visit_diff_rule_def(self)
+
 
 @dataclass
 class Parameter:

@@ -540,6 +540,15 @@ When resolving a name, the compiler searches:
 
 ---
 
+## Built-in vs stdlib
+
+- **Built-ins** are language primitives: a small, fixed set known to the compiler and runtime (e.g. by DefId in a builtin crate). They are available without any `use` and cannot be removed. Examples: `print`, `assert`, `len`, `shape`, `typeof`, `array_append`, `sum`, `max`, `min`.
+- **Stdlib** is the standard library: modules and functions implemented in Einlang (`.ein` in `stdlib/`). You bring them in with `use std::math::{...};` etc. They are normal code; the compiler does not treat them as primitives. Many call out to Python/NumPy or (in future) C under the hood.
+
+So: built-in = part of the language; stdlib = library that ships with the language. See [BUILTINS_VS_C.md](BUILTINS_VS_C.md) for the design rationale and comparison with Julia/MATLAB.
+
+---
+
 ## Built-in Functions
 
 Available without any import:
@@ -578,7 +587,7 @@ print(dz_dx);
 print(dz_dy);
 ```
 
-The compiler derives gradients via the chain rule. Supported operations and rules are documented in [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Design and pipeline: [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md). Examples: [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein).
+The compiler derives gradients via the chain rule. Supported operations and rules are documented in [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Design and pipeline: [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) (`autodiff_small.ein`, `autodiff_matmul.ein`, `autodiff_chain.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein`).
 
 ---
 

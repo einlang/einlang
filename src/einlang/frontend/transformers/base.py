@@ -168,7 +168,19 @@ class EinlangTransformer(Transformer):
     def pub_function_def(self, meta: LarkMeta, name: Token, lpar: Token, *args: Union[List[Parameter], Dict[str, Any], TypeAnnotation]) -> FunctionDefinition:
         """✅ Grammar: 'pub' 'fn' NAME LPAR param_list? RPAR ('->' type)? block - 'pub', 'fn' and '->' filtered"""
         return self.function_parser.parse_function_definition(meta, name, lpar, *args, is_public=True)
-    
+
+    def diff_rule_def(self, meta: LarkMeta, at_tok: Token, name_tok: Token, fn_tok: Token, lpar: Token, *rest: Union[List[Parameter], Token, Any]) -> 'DiffRuleDef':
+        """@fn name(params) { body }. Grammar order: AT, 'fn', NAME, LPAR, ... so 3rd child is NAME (name_tok)."""
+        from ...shared.nodes import DiffRuleDef, BlockExpression
+        location = self._extract_location(meta)
+        name = str(name_tok.value if hasattr(name_tok, 'value') else name_tok)
+        block = rest[-1] if rest else None
+        params: List[Parameter] = []
+        if len(rest) >= 3 and isinstance(rest[0], list):
+            params = rest[0]
+        body = block if isinstance(block, BlockExpression) else BlockExpression(statements=[], final_expr=None)
+        return DiffRuleDef(name=name, parameters=params, body=body, location=location)
+
     def parameter(self, meta: LarkMeta, name: Token, type_annotation: Optional[TypeAnnotation] = None) -> Parameter:
         """✅ Uses grammar alias with meta location"""
         return self.parameter_parser.parse_parameter(meta, name, type_annotation)

@@ -618,7 +618,14 @@ def _diff_expr_wrt(
             return _diff_expr_wrt(expr.final_expr, wrt_defid, loc, binding_by_defid, resolver)
         raise ValueError("Autodiff: cannot differentiate block expression with no final expression")
     if isinstance(expr, IdentifierIR):
-        return LiteralIR(1, loc) if expr.defid == wrt_defid else LiteralIR(0, loc)
+        if expr.defid == wrt_defid:
+            return LiteralIR(1, loc)
+        # Chain rule: identifier is a let-bound variable; differentiate its defining expr w.r.t. wrt_defid
+        if binding_by_defid is not None and expr.defid is not None:
+            binding = binding_by_defid.get(expr.defid)
+            if binding is not None and binding.expr is not None:
+                return _diff_expr_wrt(binding.expr, wrt_defid, loc, binding_by_defid, resolver)
+        return LiteralIR(0, loc)
     if isinstance(expr, LiteralIR):
         return LiteralIR(0, loc)
     if isinstance(expr, BinaryOpIR):
@@ -667,6 +674,25 @@ def _diff_expr_wrt(
                 "Autodiff: function call callee is not a known user function (identifier or not in program)"
             )
         binding = binding_by_defid[callee_defid]
+        rule_body = getattr(binding.expr, 'custom_diff_body', None) if isinstance(binding.expr, FunctionValueIR) else None
+        if rule_body is not None:
+            fv = binding.expr
+            params = fv.parameters or [] if isinstance(fv, FunctionValueIR) else []
+            if len(params) == len(args):
+                replace_map = {p.defid: args[j] for j, p in enumerate(params) if p.defid is not None}
+                terms = []
+                for i, param in enumerate(params):
+                    if param.defid is None:
+                        continue
+                    diff_replace_i = {params[j].defid: (LiteralIR(1, loc) if j == i else LiteralIR(0, loc)) for j in range(len(params)) if params[j].defid is not None}
+                    coef_i = _substitute_expr_with_diffs(rule_body, replace_map, diff_replace_i, loc)
+                    d_arg = _diff_expr_wrt(args[i], wrt_defid, loc, binding_by_defid, resolver)
+                    terms.append(BinaryOpIR(BinaryOp.MUL, coef_i, d_arg, loc))
+                if terms:
+                    out = terms[0]
+                    for t in terms[1:]:
+                        out = BinaryOpIR(BinaryOp.ADD, out, t, loc)
+                    return out
         if not isinstance(binding.expr, FunctionValueIR):
             raise ValueError(
                 "Autodiff: function call callee is not a user function value (e.g. builtin or unknown)"
@@ -680,11 +706,8 @@ def _diff_expr_wrt(
             raise ValueError(
                 f"Autodiff: function call arity mismatch: {len(args)} arguments vs {len(params)} parameters"
             )
-        replace_map: Dict[DefId, ExpressionIR] = {}
-        for j, p in enumerate(params):
-            if p.defid is not None:
-                replace_map[p.defid] = args[j]
-        terms: List[ExpressionIR] = []
+        replace_map = {p.defid: args[j] for j, p in enumerate(params) if p.defid is not None}
+        terms = []
         for i, param in enumerate(params):
             if param.defid is None:
                 raise ValueError("Autodiff: function parameter has no defid")
@@ -741,6 +764,55 @@ def _substitute_expr(expr: ExpressionIR, replace_map: Dict[DefId, ExpressionIR],
         return UnaryOpIR(expr.operator, _substitute_expr(expr.operand, replace_map, loc), loc)
     if isinstance(expr, BlockExpressionIR) and expr.final_expr is not None:
         return _substitute_expr(expr.final_expr, replace_map, loc)
+    return expr
+
+
+def _substitute_expr_with_diffs(
+    expr: ExpressionIR,
+    replace_map: Dict[DefId, ExpressionIR],
+    diff_replace_map: Dict[DefId, ExpressionIR],
+    loc: SourceLocation,
+) -> ExpressionIR:
+    """Substitute identifiers by replace_map and DifferentialIR(IdentifierIR(defid)) by diff_replace_map[defid]. Used for @fn rule bodies."""
+    if isinstance(expr, IdentifierIR) and expr.defid is not None:
+        if expr.defid in replace_map:
+            return replace_map[expr.defid]
+    if isinstance(expr, DifferentialIR):
+        op = expr.operand
+        if isinstance(op, IdentifierIR) and op.defid is not None and op.defid in diff_replace_map:
+            return diff_replace_map[op.defid]
+        return DifferentialIR(operand=_substitute_expr_with_diffs(op, replace_map, diff_replace_map, loc), location=loc)
+    if isinstance(expr, LiteralIR):
+        return LiteralIR(expr.value, loc)
+    if isinstance(expr, BinaryOpIR):
+        return BinaryOpIR(
+            expr.operator,
+            _substitute_expr_with_diffs(expr.left, replace_map, diff_replace_map, loc),
+            _substitute_expr_with_diffs(expr.right, replace_map, diff_replace_map, loc),
+            loc,
+        )
+    if isinstance(expr, UnaryOpIR):
+        return UnaryOpIR(
+            expr.operator,
+            _substitute_expr_with_diffs(expr.operand, replace_map, diff_replace_map, loc),
+            loc,
+        )
+    if isinstance(expr, BlockExpressionIR) and expr.final_expr is not None:
+        return _substitute_expr_with_diffs(expr.final_expr, replace_map, diff_replace_map, loc)
+    if isinstance(expr, FunctionCallIR):
+        new_args = [_substitute_expr_with_diffs(a, replace_map, diff_replace_map, loc) for a in (expr.arguments or [])]
+        return FunctionCallIR(
+            callee_expr=expr.callee_expr,
+            location=expr.location,
+            arguments=new_args,
+            module_path=expr.module_path,
+            type_info=expr.type_info,
+            shape_info=getattr(expr, "shape_info", None),
+        )
+    if isinstance(expr, RectangularAccessIR):
+        arr = _substitute_expr_with_diffs(expr.array, replace_map, diff_replace_map, loc)
+        indices = [_substitute_expr_with_diffs(i, replace_map, diff_replace_map, loc) for i in (expr.indices or [])]
+        return RectangularAccessIR(array=arr, indices=indices, location=expr.location)
     return expr
 
 
@@ -858,6 +930,21 @@ def _forward_d_y_expr(
         if callee_defid is None or len(args) == 0:
             return None
         callee_binding = binding_by_defid.get(callee_defid)
+        rule_body = getattr(callee_binding.expr, 'custom_diff_body', None) if callee_binding is not None and isinstance(callee_binding.expr, FunctionValueIR) else None
+        if rule_body is not None and callee_binding is not None:
+            fv = callee_binding.expr
+            params = fv.parameters or [] if isinstance(fv, FunctionValueIR) else []
+            if len(params) == len(args):
+                replace_map = {p.defid: args[j] for j, p in enumerate(params) if p.defid is not None}
+                diff_replace_map = {}
+                for i, param in enumerate(params):
+                    if param.defid is None:
+                        continue
+                    arg_defid = _defid_from_expr(args[i])
+                    d_arg = defid_to_d_ref.get(arg_defid) if arg_defid else None
+                    diff_replace_map[param.defid] = d_arg if isinstance(d_arg, ExpressionIR) else LiteralIR(0, loc)
+                d_y = _substitute_expr_with_diffs(rule_body, replace_map, diff_replace_map, expr.location or loc)
+                return d_y
         if callee_binding is None or not isinstance(callee_binding.expr, FunctionValueIR):
             return None
         fv = callee_binding.expr
@@ -866,7 +953,7 @@ def _forward_d_y_expr(
         if body is None or len(params) != len(args):
             return None
         replace_map = {p.defid: args[j] for j, p in enumerate(params)}
-        terms: List[ExpressionIR] = []
+        terms = []
         for i, param in enumerate(params):
             partial = _diff_expr_wrt(body, param.defid, expr.location, binding_by_defid, resolver)
             partial_at_call = _substitute_expr(partial, replace_map, expr.location)
@@ -1288,4 +1375,8 @@ class AutodiffPass(BasePass):
                 "differential_leaves": differential_leaves,
             },
         )
+        # Clear custom_diff_body from all functions; no longer needed after this pass.
+        for b in (program.functions or []):
+            if isinstance(b.expr, FunctionValueIR) and getattr(b.expr, 'custom_diff_body', None) is not None:
+                object.__setattr__(b.expr, 'custom_diff_body', None)
         return program
