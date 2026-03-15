@@ -47,3 +47,11 @@ let u[t in 1..21, i in 1..9, j in 1..9, 1] =
 // Output: center streamfunction and vorticity at final time
 print(u[20, 5, 5, 1]);
 print(u[20, 5, 5, 0]);
+
+// Autodiff: sensitivity of one diffusion step w.r.t. dt (no hand-written gradient)
+let dt_sens = 0.005;
+let omega_c = 1.0;
+let lap_omega = -4.0;
+let omega_next = omega_c + dt_sens * (nu * lap_omega / (dx * dx));
+let d_omega_d_dt = @omega_next / @dt_sens;
+print(d_omega_d_dt);

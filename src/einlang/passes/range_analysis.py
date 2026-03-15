@@ -275,7 +275,8 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
     def visit_program(self, node: ProgramIR) -> None:
         """Visit program and analyze ranges in all statements and functions"""
         for stmt in node.statements:
-            stmt.accept(self)
+            if stmt is not None:
+                stmt.accept(self)
     
     def visit_range(self, expr: RangeIR) -> None:
         """Extract range from RangeIR"""

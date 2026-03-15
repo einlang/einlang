@@ -21,3 +21,27 @@ let r = [0.0, 1.0, 2.0];
 let P = [[0.5, 0.2, 0.1], [0.3, 0.5, 0.2], [0.2, 0.3, 0.7]];
 let V_traj = quantecon::value_iteration(r, P, 0.95);
 print(V_traj);
+
+// Autodiff: sensitivity of final decay state w.r.t. k
+let k = 0.05;
+let u_decay_traj = diffeq::euler_decay(1.0, k, 0.1);
+let u_final = u_decay_traj[50];
+let du_final_dk = @u_final / @k;
+print(du_final_dk);
+
+// Autodiff: gradient of ||A*x - b||^2 at x = (0, 0), then use it for one gradient step
+let x0 = 0.0;
+let x1 = 0.0;
+let r0 = A[0, 0] * x0 + A[0, 1] * x1 - b[0];
+let r1 = A[1, 0] * x0 + A[1, 1] * x1 - b[1];
+let loss = r0 * r0 + r1 * r1;
+let d_loss_d_x0 = @loss / @x0;
+let d_loss_d_x1 = @loss / @x1;
+let alpha_step = 0.25;
+let x0_next = x0 - alpha_step * d_loss_d_x0;
+let x1_next = x1 - alpha_step * d_loss_d_x1;
+let r0_next = A[0, 0] * x0_next + A[0, 1] * x1_next - b[0];
+let r1_next = A[1, 0] * x0_next + A[1, 1] * x1_next - b[1];
+let loss_next = r0_next * r0_next + r1_next * r1_next;
+print(loss);
+print(loss_next);

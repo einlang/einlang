@@ -131,6 +131,8 @@ let dL_dk  = d_loss / d_k;
 // k_next = k - alpha * dL_dk or pass to numerics::optim
 ```
 
+**Utilizing derivatives (not just printing):** The quotient `@y / @x` is a normal numeric value. Use it in expressions: gradient steps (`x_next = x - alpha * (@loss / @x)`), first-order sensitivity corrections (`u_corrected = u + (du_dk) * (k_alt - k)`), or refinement steps in calibration (`k_refined = k - step * (@sse / @k)`). See `examples/run_numerics.ein` (one gradient step), `examples/ode/ode_suite.ein` and `examples/pde_1d/heat_1d.ein` (sensitivity correction), and `examples/applications/decay_calibration.ein` (gradient refinement of k).
+
 **Sensitivity:** Gradient of an output w.r.t. parameters.
 
 ```text

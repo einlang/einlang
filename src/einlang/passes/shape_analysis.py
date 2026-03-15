@@ -757,9 +757,9 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
     
     def visit_program(self, node: ProgramIR) -> None:
         """Visit program and analyze shapes in all statements and functions"""
-        # Visit all statements
         for stmt in node.statements:
-            stmt.accept(self)
+            if stmt is not None:
+                stmt.accept(self)
         # Visit all functions
         for func in node.functions:
             func.accept(self)

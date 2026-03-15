@@ -65,3 +65,13 @@ let state_lotka[0, 0] = u0_lv;
 let state_lotka[0, 1] = v0_lv;
 let state_lotka[t in 1..150, 0] = { let u = state_lotka[t - 1, 0]; let v = state_lotka[t - 1, 1]; u + dt_lv * (a_lv * u - b_lv * u * v) };
 let state_lotka[t in 1..150, 1] = { let u = state_lotka[t - 1, 0]; let v = state_lotka[t - 1, 1]; v + dt_lv * (-c_lv * v + d_lv * u * v) };
+
+// Autodiff: sensitivity of one decay step w.r.t. rate k; use it for first-order correction
+let k_sens = 0.05;
+let dt_sens = 0.1;
+let u0_sens = 1.0;
+let u1_decay = u0_sens * (1.0 - k_sens * dt_sens);
+let du1_dk = @u1_decay / @k_sens;
+let k_alt = 0.06;
+let u1_linear_corrected = u1_decay + du1_dk * (k_alt - k_sens);
+print(u1_linear_corrected);

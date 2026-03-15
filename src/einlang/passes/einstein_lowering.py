@@ -19,6 +19,7 @@ from ..shared.source_location import SourceLocation
 from ..shared.types import BinaryOp, infer_literal_type, UNKNOWN, PrimitiveType, I32, I64, F32, F64
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, IdentifierIR, IndexVarIR, IndexRestIR, ReductionExpressionIR,
+    SelectAtArgmaxIR, LoweredSelectAtArgmaxIR,
     WhereClauseIR, RangeIR, LiteralIR, EinsteinClauseIR, EinsteinIR,
     LoopStructure, BindingIR, GuardCondition, is_einstein_binding, is_function_binding,
     LoweredEinsteinClauseIR, LoweredEinsteinIR, LoweredReductionIR, LoweredComprehensionIR,
@@ -1009,7 +1010,72 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             location=node.location,
             type_info=node.type_info,
         )
-    
+
+    def lower_select_at_argmax(self, node: SelectAtArgmaxIR) -> LoweredSelectAtArgmaxIR:
+        """Lower select-at-argmax (autodiff of max) to loops + primal/diff bodies."""
+        loops = []
+        body_for_defid = node.primal_body
+        for var_ident in node.loop_vars:
+            var_name = var_ident.name
+            range_obj = None
+            iterable = None
+            if node.loop_var_ranges and var_ident.defid in node.loop_var_ranges:
+                range_ir = node.loop_var_ranges[var_ident.defid]
+                if isinstance(range_ir, RangeIR):
+                    start_val = self._evaluate_constant(range_ir.start)
+                    end_val = self._evaluate_constant(range_ir.end)
+                    if start_val is not None and end_val is not None:
+                        range_obj = range(start_val, end_val)
+                        iterable = self._range_to_iterable_ir(range_obj, node.location)
+                    else:
+                        iterable = range_ir
+                elif isinstance(range_ir, LiteralIR) and isinstance(range_ir.value, range):
+                    range_obj = range_ir.value
+                    iterable = self._range_to_iterable_ir(range_obj, node.location)
+                else:
+                    iterable = range_ir
+            if not iterable and var_ident.defid is not None:
+                enc = getattr(self, '_current_einstein_clause', None)
+                if enc and enc.variable_ranges:
+                    vr = enc.variable_ranges
+                    did = var_ident.defid
+                    range_ir = vr.get(did) or (vr.get((did.krate, did.index)) if hasattr(did, 'krate') else None) or (vr.get((did[0], did[1])) if hasattr(did, '__getitem__') and len(did) >= 2 else None)
+                    if isinstance(range_ir, RangeIR):
+                        start_val = self._evaluate_constant(range_ir.start)
+                        end_val = self._evaluate_constant(range_ir.end)
+                        if start_val is not None and end_val is not None:
+                            iterable = self._range_to_iterable_ir(range(start_val, end_val), node.location)
+                        else:
+                            iterable = range_ir
+                    elif range_ir is not None:
+                        iterable = range_ir
+            if iterable:
+                body_defid = defid_of_var_in_expr(body_for_defid, var_name) if body_for_defid else None
+                defid = body_defid or var_ident.defid
+                if defid is None:
+                    raise ValueError(
+                        f"SelectAtArgmax loop variable '{var_name}' has no defid; runtime cannot bind it."
+                    )
+                loc = node.location or (body_for_defid.location if body_for_defid else None)
+                ti = var_ident.type_info or PrimitiveType("i32")
+                var_ident = IdentifierIR(var_name, loc or SourceLocation('', 0, 0), defid=defid, type_info=ti)
+                loops.append(LoopStructure(variable=var_ident, iterable=iterable))
+            elif var_ident.defid is not None:
+                raise ValueError(
+                    f"Range for SelectAtArgmax loop variable '{var_name}' could not be inferred."
+                )
+        lowered_primal = node.primal_body.accept(self) if node.primal_body else node.primal_body
+        lowered_diff = node.diff_body.accept(self) if node.diff_body else node.diff_body
+        return LoweredSelectAtArgmaxIR(
+            primal_body=lowered_primal or node.primal_body,
+            diff_body=lowered_diff or node.diff_body,
+            loops=loops,
+            bindings=[],
+            guards=[],
+            location=node.location,
+            type_info=node.type_info,
+        )
+
     def lower_array_comprehension(self, node: ArrayComprehensionIR) -> Optional[LoweredComprehensionIR]:
         """Lower array comprehension; returns new node (LoweredComprehensionIR) to replace it."""
         variables = node.variables or []
@@ -1804,6 +1870,11 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
     def visit_reduction_expression(self, node) -> Any:
         return self.lower_reduction_expression(node)
 
+    def visit_select_at_argmax(self, node: SelectAtArgmaxIR) -> Any:
+        if node.primal_body is None or node.diff_body is None:
+            raise ValueError("SelectAtArgmaxIR requires primal_body and diff_body")
+        return self.lower_select_at_argmax(node)
+
     def visit_lowered_reduction(self, node) -> Any:
         if node.body is not None:
             node.body = node.body.accept(self)
@@ -1815,6 +1886,32 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             if var is None:
                 continue
             body_defid = defid_of_var_in_expr(node.body, var.name)
+            if body_defid is not None and body_defid != var.defid:
+                loc = var.location or SourceLocation('', 0, 0)
+                ti = var.type_info
+                if isinstance(var, IndexVarIR):
+                    new_var = IndexVarIR(var.name, loc, defid=body_defid, range_ir=var.range_ir, type_info=ti)
+                else:
+                    new_var = IdentifierIR(var.name, loc, defid=body_defid, type_info=ti)
+                object.__setattr__(loop, 'variable', new_var)
+        for g in node.guards or []:
+            if g.condition is not None:
+                g.condition = g.condition.accept(self)
+        return node
+
+    def visit_lowered_select_at_argmax(self, node: LoweredSelectAtArgmaxIR) -> Any:
+        if node.primal_body is not None:
+            node.primal_body = node.primal_body.accept(self)
+        if node.diff_body is not None:
+            node.diff_body = node.diff_body.accept(self)
+        for loop in node.loops or []:
+            if loop.iterable is not None:
+                loop.iterable = loop.iterable.accept(self)
+        for loop in node.loops or []:
+            var = loop.variable
+            if var is None:
+                continue
+            body_defid = defid_of_var_in_expr(node.primal_body, var.name)
             if body_defid is not None and body_defid != var.defid:
                 loc = var.location or SourceLocation('', 0, 0)
                 ti = var.type_info

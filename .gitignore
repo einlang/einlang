@@ -38,7 +38,9 @@ ir_dumps/
 # Generated / large files (obtain via example setup scripts)
 *.html
 examples/*/weights/
-!examples/whisper_tiny/weights/
-!examples/whisper_tiny/weights/**
+!examples/deit_tiny/weights/
+!examples/deit_tiny/weights/**
 examples/*/samples/
+!examples/deit_tiny/samples/
+!examples/deit_tiny/samples/**
 examples/whisper_tiny/tokenizer.json

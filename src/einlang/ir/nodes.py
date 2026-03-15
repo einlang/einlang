@@ -538,6 +538,33 @@ class ReductionExpressionIR(ExpressionIR):
         return visitor.visit_reduction_expression(self)
 
 
+class SelectAtArgmaxIR(ExpressionIR):
+    """Autodiff: differential of max reduction. Represents d(max_i body) = d_body at argmax(primal_body)."""
+    __slots__ = ('primal_body', 'diff_body', 'loop_vars', 'loop_var_ranges')
+
+    def __init__(
+        self,
+        primal_body: ExpressionIR,
+        diff_body: ExpressionIR,
+        loop_vars: Optional[List[Union['IndexVarIR', 'IdentifierIR']]],
+        loop_var_ranges: Optional[Dict[DefId, 'RangeIR']] = None,
+        location: Optional[SourceLocation] = None,
+        type_info: Optional[Any] = None,
+        shape_info: Optional[Any] = None,
+    ):
+        loc = location or (primal_body.location if primal_body else None)
+        if loc is None:
+            loc = SourceLocation(file='', line=0, column=0)
+        super().__init__(loc, type_info=type_info, shape_info=shape_info)
+        self.primal_body = primal_body
+        self.diff_body = diff_body
+        self.loop_vars = _t(loop_vars)
+        self.loop_var_ranges = loop_var_ranges if loop_var_ranges is not None else {}
+
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_select_at_argmax(self)
+
+
 class WhereExpressionIR(ExpressionIR):
     """Where expression: expr where constraint"""
     __slots__ = ('expr', 'constraints')
@@ -1178,6 +1205,44 @@ class LoweredReductionIR(ExpressionIR):
         return "LoweredReductionIR(" + ", ".join(parts) + ")"
 
 
+class LoweredSelectAtArgmaxIR(ExpressionIR):
+    """Lowered select-at-argmax (autodiff of max). primal_body, diff_body, loops; result = diff at argmax(primal)."""
+    __slots__ = ('primal_body', 'diff_body', 'loops', 'bindings', 'guards')
+
+    def __init__(
+        self,
+        primal_body: ExpressionIR,
+        diff_body: ExpressionIR,
+        loops: Optional[List[LoopStructure]] = None,
+        bindings: Optional[List['BindingIR']] = None,
+        guards: Optional[List[GuardCondition]] = None,
+        location: Optional[SourceLocation] = None,
+        type_info: Optional[Any] = None,
+        shape_info: Optional[Any] = None,
+    ):
+        loc = location or (primal_body.location if primal_body else None)
+        if loc is None:
+            loc = SourceLocation(file='', line=0, column=0)
+        super().__init__(loc, type_info=type_info, shape_info=shape_info)
+        self.primal_body = primal_body
+        self.diff_body = diff_body
+        self.loops = _t(loops)
+        self.bindings = _t(bindings)
+        self.guards = _t(guards)
+
+    @property
+    def reduction_ranges(self) -> Dict[DefId, LoopStructure]:
+        result: Dict[DefId, LoopStructure] = {}
+        for loop in self.loops or []:
+            d = loop.variable.defid
+            if d is not None:
+                result[d] = loop
+        return result
+
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_lowered_select_at_argmax(self)
+
+
 class LoweredComprehensionIR(ExpressionIR):
     """
     Lowered array comprehension (LoweredIteration shape). Replaces ArrayComprehensionIR.
@@ -1406,6 +1471,22 @@ class IRVisitor(ABC, Generic[T]):
     def visit_lowered_reduction(self, node: 'LoweredReductionIR') -> T:
         """Visit lowered reduction (replaces ReductionExpressionIR in tree). Default: recurse into body."""
         return node.body.accept(self)
+
+    def visit_select_at_argmax(self, node: 'SelectAtArgmaxIR') -> T:
+        """Visit select-at-argmax (autodiff of max reduction). Default: recurse into bodies."""
+        if node.primal_body is not None:
+            node.primal_body.accept(self)
+        if node.diff_body is not None:
+            return node.diff_body.accept(self)
+        return None  # type: ignore[return-value]
+
+    def visit_lowered_select_at_argmax(self, node: 'LoweredSelectAtArgmaxIR') -> T:
+        """Visit lowered select-at-argmax. Default: recurse into bodies."""
+        if node.primal_body is not None:
+            node.primal_body.accept(self)
+        if node.diff_body is not None:
+            return node.diff_body.accept(self)
+        return None  # type: ignore[return-value]
 
     def visit_lowered_comprehension(self, node: 'LoweredComprehensionIR') -> T:
         """Visit lowered array comprehension (replaces ArrayComprehensionIR in tree). Default: recurse into body."""

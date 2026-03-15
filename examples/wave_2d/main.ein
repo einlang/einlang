@@ -40,3 +40,12 @@ let h[t in 2..60, i in 1..23, j in 1..23] = {
     let lap = h[t - 1, i - 1, j] + h[t - 1, i + 1, j] + h[t - 1, i, j - 1] + h[t - 1, i, j + 1] - 4.0 * h[t - 1, i, j];
     2.0 * h[t - 1, i, j] - h[t - 2, i, j] + r * lap
 };
+
+// Autodiff: sensitivity of one leapfrog step w.r.t. r (no hand-written gradient)
+let r_sens = 0.5;
+let h_n = 10.0;
+let h_nm1 = 10.0;
+let lap_s = -40.0;
+let h_next = 2.0 * h_n - h_nm1 + r_sens * lap_s;
+let dh_dr = @h_next / @r_sens;
+print(dh_dr);
