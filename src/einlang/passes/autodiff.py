@@ -28,6 +28,8 @@ from ..ir.nodes import (
     IRVisitor,
     RectangularAccessIR,
     IndexVarIR,
+    RangeIR,
+    MemberAccessIR,
     FunctionCallIR,
     FunctionValueIR,
     EinsteinIR,
@@ -35,7 +37,7 @@ from ..ir.nodes import (
     ReductionExpressionIR,
     WhereClauseIR,
 )
-from ..shared.types import BinaryOp, UnaryOp
+from ..shared.types import BinaryOp, UnaryOp, PrimitiveType, UNKNOWN
 from ..shared.defid import DefId
 from ..shared.source_location import SourceLocation
 
@@ -524,11 +526,20 @@ def _diff_einstein_wrt(
         if not wrt_occurrence_positions:
             continue
         # Derivative indices R: one new index var per dimension of the wrt array (same for all occurrences).
+        # Use explicit symbolic ranges 0..wrt.shape[p] so range analysis does not rely on where-clause inference.
         first_wrt_indices = factors[wrt_occurrence_positions[0]][1]
+        wrt_binding = binding_by_defid.get(wrt_defid)
+        wrt_name = (wrt_binding.name if wrt_binding else "") or "?"
+        wrt_id = IdentifierIR(wrt_name, loc, wrt_defid, type_info=UNKNOWN)
         new_index_vars: List[IndexVarIR] = []
         for p in range(len(first_wrt_indices)):
             new_defid = resolver.allocate_for_local()
-            new_index_vars.append(IndexVarIR("_ad_%d" % p, loc, new_defid))
+            shape_member = MemberAccessIR(object=wrt_id, member="shape", location=loc, type_info=UNKNOWN)
+            dim_lit = LiteralIR(p, loc, type_info=PrimitiveType("i32"))
+            shape_dim = RectangularAccessIR(array=shape_member, indices=[dim_lit], location=loc, type_info=UNKNOWN)
+            start_lit = LiteralIR(0, loc, type_info=PrimitiveType("i32"))
+            range_ir = RangeIR(start=start_lit, end=shape_dim, location=loc, type_info=UNKNOWN)
+            new_index_vars.append(IndexVarIR("_ad_%d" % p, loc, new_defid, range_ir=range_ir))
         clause_indices = list(clause.indices or [])
         loop_vars = list(val.loop_vars or [])
         # Original reduction where-clause φ_red (AUTODIFF_EINSTEIN.md §6: conjoin with delta).
@@ -579,11 +590,8 @@ def _diff_einstein_wrt(
         new_indices = clause_indices + new_index_vars
         new_variable_ranges = dict(clause.variable_ranges or {})
         for p in range(len(first_wrt_indices)):
-            idx_expr = first_wrt_indices[p]
-            if isinstance(idx_expr, (IndexVarIR, IdentifierIR)) and getattr(idx_expr, "defid", None) is not None:
-                rng = (clause.variable_ranges or {}).get(idx_expr.defid)
-                if rng is not None and new_index_vars[p].defid is not None:
-                    new_variable_ranges[new_index_vars[p].defid] = rng
+            if new_index_vars[p].defid is not None and new_index_vars[p].range_ir is not None:
+                new_variable_ranges[new_index_vars[p].defid] = new_index_vars[p].range_ir
         new_clause = EinsteinClauseIR(
             indices=new_indices,
             value=clause_value,
