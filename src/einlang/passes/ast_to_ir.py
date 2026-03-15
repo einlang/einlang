@@ -81,26 +81,6 @@ from ..shared.ast_visitor import ASTVisitor
 from ..shared.optional_attr import opt_attr, opt_defid
 
 
-def _attach_diff_rules_to_functions(program: ProgramIR) -> None:
-    """Bind each @fn rule to its function and remove DiffRuleIR from statements. Idempotent."""
-    statements = program.statements or []
-    binding_by_defid: Dict[DefId, BindingIR] = {}
-    for s in statements:
-        if isinstance(s, BindingIR) and s.defid is not None:
-            binding_by_defid[s.defid] = s
-    new_statements: List[Any] = []
-    for s in statements:
-        if isinstance(s, DiffRuleIR):
-            if s.callee_defid is not None and s.body is not None:
-                binding = binding_by_defid.get(s.callee_defid)
-                if binding is not None and is_function_binding(binding) and isinstance(binding.expr, FunctionValueIR):
-                    object.__setattr__(binding.expr, 'custom_diff_body', s.body)
-            continue
-        new_statements.append(s)
-    object.__setattr__(program, 'statements', new_statements)
-    object.__setattr__(program, 'bindings', [s for s in new_statements if isinstance(s, BindingIR)])
-
-
 class ASTToIRLoweringPass(BasePass):
     """
     AST to IR lowering pass (Rust naming: rustc_hir::lowering).
@@ -201,7 +181,6 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             source_files=self.tcx.source_files,
             modules=modules,
         )
-        _attach_diff_rules_to_functions(program)
         return program
     
     def _lower_module_functions(self) -> List[FunctionDefIR]:

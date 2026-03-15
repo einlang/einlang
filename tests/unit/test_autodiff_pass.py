@@ -13,6 +13,8 @@ Note: stdlib module calls (use std::math::sqrt etc.) are not yet supported for
 autodiff (callee not in program.bindings); use local user fns or @fn for such math.
 """
 
+import math
+
 from einlang.compiler.driver import CompilerDriver
 from einlang.passes.autodiff import AutodiffPass
 
@@ -409,3 +411,120 @@ let da_dx = @a / @x;
         _, out = _compile_run(source)
         assert abs(_scalar_float(out, "da_dy") - 0.0) < 1e-5
         assert abs(_scalar_float(out, "da_dx") - (-1.0)) < 1e-5
+
+    def test_quotient_math_exp(self):
+        """d/dx exp(x)=exp(x). At x=0 => 1."""
+        source = """
+fn exp(x) { python::numpy::exp(x) }
+@fn exp(x) { python::numpy::exp(x) * @x }
+let x = 0.0;
+let y = exp(x);
+let d = @y / @x;
+"""
+        _, out = _compile_run(source)
+        assert abs(_scalar_float(out, "d") - 1.0) < 1e-5
+
+    def test_quotient_math_sin_cos_tan(self):
+        """d/dx sin=cos, cos=-sin, tan=1/cos². At x=0: 1, 0, 1."""
+        source = """
+fn sin(x) { python::numpy::sin(x) }
+fn cos(x) { python::numpy::cos(x) }
+fn tan(x) { python::numpy::tan(x) }
+@fn sin(x) { cos(x) * @x }
+@fn cos(x) { (-sin(x)) * @x }
+@fn tan(x) { (1.0 / (cos(x) * cos(x))) * @x }
+let x = 0.0;
+let ys = sin(x);
+let yc = cos(x);
+let yt = tan(x);
+let ds = @ys / @x;
+let dc = @yc / @x;
+let dt = @yt / @x;
+"""
+        _, out = _compile_run(source)
+        assert abs(_scalar_float(out, "ds") - 1.0) < 1e-5
+        assert abs(_scalar_float(out, "dc") - 0.0) < 1e-5
+        assert abs(_scalar_float(out, "dt") - 1.0) < 1e-5
+
+    def test_quotient_math_acos(self):
+        """d/dx acos(x)=-1/sqrt(1-x²). At x=0 => -1."""
+        source = """
+fn acos(x) { python::numpy::arccos(x) }
+@fn acos(x) { (-1.0 / ((1.0 - x * x) ** 0.5)) * @x }
+let x = 0.0;
+let y = acos(x);
+let d = @y / @x;
+"""
+        _, out = _compile_run(source)
+        assert abs(_scalar_float(out, "d") - (-1.0)) < 1e-5
+
+    def test_quotient_math_sqrt(self):
+        """d/dx sqrt(x)=1/(2*sqrt(x)). At x=1 => 0.5."""
+        source = """
+fn sqrt(x) { python::numpy::sqrt(x) }
+@fn sqrt(x) { (0.5 / python::numpy::sqrt(x)) * @x }
+let x = 1.0;
+let y = sqrt(x);
+let d = @y / @x;
+"""
+        _, out = _compile_run(source)
+        assert abs(_scalar_float(out, "d") - 0.5) < 1e-5
+
+    def test_quotient_math_sinh_cosh_tanh(self):
+        """d/dx sinh=cosh, cosh=sinh, tanh=1-tanh². At x=0: 1, 0, 1."""
+        source = """
+fn sinh(x) { python::numpy::sinh(x) }
+fn cosh(x) { python::numpy::cosh(x) }
+fn tanh(x) { python::numpy::tanh(x) }
+@fn sinh(x) { cosh(x) * @x }
+@fn cosh(x) { sinh(x) * @x }
+@fn tanh(x) { (1.0 - tanh(x) * tanh(x)) * @x }
+let x = 0.0;
+let ys = sinh(x);
+let yc = cosh(x);
+let yt = tanh(x);
+let ds = @ys / @x;
+let dc = @yc / @x;
+let dt = @yt / @x;
+"""
+        _, out = _compile_run(source)
+        assert abs(_scalar_float(out, "ds") - 1.0) < 1e-5
+        assert abs(_scalar_float(out, "dc") - 0.0) < 1e-5
+        assert abs(_scalar_float(out, "dt") - 1.0) < 1e-5
+
+    def test_quotient_math_asinh(self):
+        """d/dx asinh(x)=1/sqrt(1+x²). At x=0 => 1."""
+        source = """
+fn asinh(x) { python::numpy::arcsinh(x) }
+@fn asinh(x) { (1.0 / ((1.0 + x * x) ** 0.5)) * @x }
+let x = 0.0;
+let y = asinh(x);
+let d = @y / @x;
+"""
+        _, out = _compile_run(source)
+        assert abs(_scalar_float(out, "d") - 1.0) < 1e-5
+
+    def test_quotient_math_log10_log2_log1p_expm1(self):
+        """log10'(x)=1/(x*ln(10)), log2'(x)=1/(x*ln(2)), log1p'(x)=1/(1+x), expm1'(x)=exp(x)."""
+        source = """
+fn log10(x) { python::numpy::log10(x) }
+fn log2(x) { python::numpy::log2(x) }
+fn log1p(x) { python::numpy::log1p(x) }
+fn expm1(x) { python::numpy::expm1(x) }
+@fn log10(x) { (1.0 / (x * python::numpy::log(10.0))) * @x }
+@fn log2(x) { (1.0 / (x * python::numpy::log(2.0))) * @x }
+@fn log1p(x) { (1.0 / (1.0 + x)) * @x }
+@fn expm1(x) { python::numpy::exp(x) * @x }
+let x10 = 10.0;
+let x2 = 2.0;
+let x0 = 0.0;
+let d10 = @log10(x10) / @x10;
+let d2 = @log2(x2) / @x2;
+let d1p = @log1p(x0) / @x0;
+let dem1 = @expm1(x0) / @x0;
+"""
+        _, out = _compile_run(source)
+        assert abs(_scalar_float(out, "d10") - (1.0 / (10.0 * math.log(10)))) < 1e-5
+        assert abs(_scalar_float(out, "d2") - (1.0 / (2.0 * math.log(2)))) < 1e-5
+        assert abs(_scalar_float(out, "d1p") - 1.0) < 1e-5
+        assert abs(_scalar_float(out, "dem1") - 1.0) < 1e-5

@@ -1402,6 +1402,9 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 finally:
                     self._expected_type = prev_expected
 
+                if getattr(expr, "custom_diff_body", None) is not None:
+                    expr.custom_diff_body.accept(self)
+
                 return_type = None
                 if signature and isinstance(expr.body, BlockExpressionIR) and expr.body.final_expr:
                     final_expr = expr.body.final_expr
