@@ -181,6 +181,10 @@ class CompilerDriver:
             tcx.discovered_modules = {}
             tcx.source_files[source_file] = source
 
+            # Merge @fn into fn at AST so one DefId per function; no separate DiffRuleDef after this.
+            from ..passes.merge_diff_rules import merge_diff_rules_into_functions
+            merge_diff_rules_into_functions(ast)
+
             ast = self._run_name_resolution_pass(ast, tcx)
             if tcx.reporter.has_errors():
                 return CompilationResult(success=False, tcx=tcx, entry_source_file=source_file)
