@@ -142,6 +142,12 @@ let matrix_sum_elements = sum[i](sum[j](matrix_3x3_a[i,j]));
 print("Trace of 3x3 matrix A:", identity_trace);
 print("Sum of all elements in 3x3 A:", matrix_sum_elements);
 
+// Built-in autodiff: derivative of trace w.r.t. one element (no hand-written gradient code)
+let a_00 = matrix_3x3_a[0, 0];
+let trace_3x3 = a_00 + matrix_3x3_a[1, 1] + matrix_3x3_a[2, 2];
+let d_trace_d_a00 = @trace_3x3 / @a_00;
+print("Autodiff: d(trace(A))/d(A[0,0]) =", d_trace_d_a00);
+
 // Enhanced statistical operations
 let matrix_mean_3x3 = matrix_sum_elements / 9.0;
 let matrix_variance_3x3 = sum[i](sum[j]((matrix_3x3_a[i,j] - matrix_mean_3x3) * (matrix_3x3_a[i,j] - matrix_mean_3x3))) / 9.0;

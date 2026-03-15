@@ -30,9 +30,15 @@ Full install and CLI options: [Install & run](https://github.com/einlang/einlang
 
 ---
 
+## How do I get derivatives or gradients?
+
+Einlang has **built-in automatic differentiation**. Use `@expr` for the differential of an expression and `@a / @b` for the derivative (e.g. `let dz_dx = @z / @x;`). The compiler derives gradients via the chain rule — no hand-written gradient code. See [reference: Automatic differentiation](https://github.com/einlang/einlang/blob/main/docs/reference.md#automatic-differentiation), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), and run `python3 -m einlang examples/autodiff_small.ein` or `examples/autodiff_matmul.ein`.
+
+---
+
 ## Where are the examples?
 
-[examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md) — learning path and list by domain (simulation, recurrence, finance, value_iteration, job_search, optimization, time_series, ML, etc.). Run from repo root: `python3 -m einlang examples/hello.ein`.
+[examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md) — learning path and list by domain (simulation, recurrence, finance, value_iteration, job_search, optimization, time_series, ML, autodiff, etc.). Run from repo root: `python3 -m einlang examples/hello.ein`.
 
 ---
 

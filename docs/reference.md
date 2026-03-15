@@ -1,7 +1,7 @@
 
 # Einlang Language Reference
 
-Full syntax and semantics. **New here?** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) or [run a quick example](https://github.com/einlang/einlang/blob/main/README.md#try-it) first. **Built-in functions:** [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md). **Doc index:** [README](https://github.com/einlang/einlang/blob/main/docs/README.md). **Syntax we intentionally do not support (and why):** [Unsupported by design](https://github.com/einlang/einlang/blob/main/docs/UNSUPPORTED.md).
+Full syntax and semantics. Einlang is **math-intuitive**: indices, sums, where-clauses, and derivatives map directly from equation to code. **New here?** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) or [run a quick example](https://github.com/einlang/einlang/blob/main/README.md#try-it) first. **Built-in functions:** [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md). **Doc index:** [README](https://github.com/einlang/einlang/blob/main/docs/README.md). **Math notation → code:** [MATH.md](https://github.com/einlang/einlang/blob/main/docs/MATH.md). **Syntax we intentionally do not support (and why):** [Unsupported by design](https://github.com/einlang/einlang/blob/main/docs/UNSUPPORTED.md).
 
 ---
 
@@ -570,10 +570,12 @@ See [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.
 
 ## Automatic differentiation
 
-The compiler supports **automatic differentiation**. You can obtain derivatives of program values without writing gradient code by hand.
+The compiler supports **built-in automatic differentiation**: you get derivatives and gradients of program values without writing any gradient code by hand. Use `@expr` for differentials and `@a / @b` for numeric derivatives; the compiler applies the chain rule for you.
 
 - **`@expr`** — the **differential** of an expression (e.g. `@z`, `@x`). Differentials are symbolic; they have no numeric value until used in a quotient.
 - **`@a / @b`** — the **derivative** (numeric quotient): derivative of the quantity `@a` refers to with respect to the quantity `@b` refers to. This expression has a numeric value and can be printed or used in further computation.
+
+**Matmul, conv, einsum:** Derivatives of Einstein expressions are supported: e.g. `let C[i,j] = sum[k](A[i,k]*B[k,j]); let dC_dA = @C / @A;` (matmul), or convolution written as `sum[kh,kw](in[ih,iw]*w[kh,kw]) where ih = oh+kh, iw = ow+kw`. Any sum-of-products declaration can be differentiated w.r.t. any input array. See [AUTODIFF_OPS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_OPS.md) and [AUTODIFF_EINSTEIN.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_EINSTEIN.md).
 
 Example:
 

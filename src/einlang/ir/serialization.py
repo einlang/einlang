@@ -334,12 +334,16 @@ class IRSerializer:
     # === Function Calls ===
     
     def _serialize_FunctionCallIR(self, node) -> list:
-        """Serialize function call: (function-call (callee <expr>) (args...) :module_path ...)"""
+        """Serialize function call: (function-call (callee <expr>) (args...) :module_path :function_defid ...).
+        S-expr keywords use underscore (:function_defid) to match Python attribute names."""
         args = [self.serialize_to_sexpr(arg) for arg in node.arguments]
         callee = self.serialize_to_sexpr(node.callee_expr)
         core = [self._sym("function-call"), [self._sym("callee"), callee], args]
         if node.module_path:
             core.extend([self._sym(":module_path"), list(node.module_path)])
+        fid = getattr(node, "function_defid", None)
+        if fid is not None:
+            core.extend([self._sym(":function_defid"), self._brackets([fid.krate, fid.index])])
         return self._add_expr_metadata(node, core)
     
     def _serialize_BuiltinCallIR(self, node) -> list:
@@ -1057,6 +1061,7 @@ class IRDeserializer:
         from ..ir.nodes import FunctionCallIR, IdentifierIR
         pos, opts = _plist(tail)
         loc = self._loc_from_opts(opts)
+        func_defid = _parse_defid(opts.get(":function_defid"))
         callee, args = None, []
         if pos:
             first = pos[0]
@@ -1070,13 +1075,12 @@ class IRDeserializer:
                     name = name.strip('"')
                 if len(pos) > 1 and isinstance(pos[1], list):
                     args = [self.deserialize(a) for a in pos[1]]
-                func_defid = _parse_defid(opts.get(":function-defid"))
                 callee = IdentifierIR(name=name or "", location=loc, defid=func_defid)
         module_path_raw = opts.get(":module_path")
         module_path = tuple(module_path_raw) if isinstance(module_path_raw, list) else None
         ty = self._deserialize_type(opts.get(":inferred_type"))
         if callee is None:
-            callee = IdentifierIR(name="", location=loc, defid=None)
+            callee = IdentifierIR(name="", location=loc, defid=func_defid)
         shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
         return FunctionCallIR(callee_expr=callee, location=loc, arguments=args, module_path=module_path, type_info=ty, shape_info=shape_info)
 

@@ -310,7 +310,7 @@ class FunctionValueIR(ExpressionIR):
 
 
 class FunctionCallIR(ExpressionIR):
-    """Function call. Callee is an expression (IdentifierIR for name-based calls, LambdaIR for callables)."""
+    """Function call. Callee is IdentifierIR (has defid = binding we call) or other expr (lambda)."""
     __slots__ = ('callee_expr', 'arguments', 'module_path')
 
     def __init__(self, callee_expr: ExpressionIR, location: SourceLocation,

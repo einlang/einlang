@@ -15,9 +15,11 @@ from .base import BasePass, TyCtxt
 from .type_inference import TypeInferencePass
 from .shape_analysis import UnifiedShapeAnalysisPass
 from ..ir.nodes import (
+    ArrayLiteralIR,
     ProgramIR,
     BindingIR,
     BlockExpressionIR,
+    CastExpressionIR,
     DifferentialIR,
     BinaryOpIR,
     UnaryOpIR,
@@ -26,6 +28,7 @@ from ..ir.nodes import (
     IdentifierIR,
     ExpressionIR,
     IRVisitor,
+    IfExpressionIR,
     RectangularAccessIR,
     IndexVarIR,
     RangeIR,
@@ -38,7 +41,7 @@ from ..ir.nodes import (
     WhereClauseIR,
     is_function_binding,
 )
-from ..shared.types import BinaryOp, UnaryOp, PrimitiveType, UNKNOWN
+from ..shared.types import BinaryOp, UnaryOp, PrimitiveType, UNKNOWN, F32
 from ..shared.defid import DefId
 from ..shared.source_location import SourceLocation
 
@@ -46,6 +49,11 @@ from ..shared.source_location import SourceLocation
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _float_lit(value: Any, loc: Any) -> LiteralIR:
+    """Literal for derivative/scalar context; has type_info so IR validation passes."""
+    return LiteralIR(value, loc, type_info=F32)
+
 
 def _bindings_in_block(block: Any, program: Optional[ProgramIR] = None) -> List[BindingIR]:
     if block is program or isinstance(block, ProgramIR):
@@ -472,16 +480,19 @@ def _forward_binary(
     if op == BinaryOp.DIV:
         # d(y) = d(left/right) = d_left/right - left*d_right/right^2
         t1 = BinaryOpIR(BinaryOp.DIV, d_left, right, loc)
-        t2 = BinaryOpIR(BinaryOp.DIV, BinaryOpIR(BinaryOp.MUL, left, d_right, loc), BinaryOpIR(BinaryOp.POW, right, LiteralIR(2, loc), loc), loc)
+        t2 = BinaryOpIR(BinaryOp.DIV, BinaryOpIR(BinaryOp.MUL, left, d_right, loc), BinaryOpIR(BinaryOp.POW, right, _float_lit(2, loc), loc), loc)
         return BinaryOpIR(BinaryOp.SUB, t1, t2, loc)
     if op == BinaryOp.POW:
         # y = left^right => d_y = right*left^(right-1)*d_left + left^right*ln(left)*d_right (skip second if const)
-        b_minus_one = BinaryOpIR(BinaryOp.SUB, right, LiteralIR(1, loc), loc)
+        b_minus_one = BinaryOpIR(BinaryOp.SUB, right, _float_lit(1, loc), loc)
         a_bm1 = BinaryOpIR(BinaryOp.POW, left, b_minus_one, loc)
         term_left = BinaryOpIR(BinaryOp.MUL, BinaryOpIR(BinaryOp.MUL, right, a_bm1, loc), d_left, loc)
         a_b = BinaryOpIR(BinaryOp.POW, left, right, loc)
         term_right = BinaryOpIR(BinaryOp.MUL, a_b, d_right, loc)
         return BinaryOpIR(BinaryOp.ADD, term_left, term_right, loc)
+    if op == BinaryOp.MOD:
+        # remainder: subgradient ∂(a%b)/∂a = 1, ∂(a%b)/∂b = 0 (PyTorch-style; full grad would use -floor(a/b) for b)
+        return d_left
     raise ValueError(f"Autodiff: unsupported binary op: {op}")
 
 
@@ -562,7 +573,7 @@ def _diff_einstein_wrt(
             where = WhereClauseIR(constraints=combined_constraints, location=loc) if combined_constraints else None
             # Body: product of other factors (wrt factor replaced by δ via where).
             if not other_factors:
-                body = LiteralIR(1, loc)
+                body = _float_lit(1, loc)
             else:
                 b = binding_by_defid.get(other_factors[0][0].defid) if isinstance(other_factors[0][0], IdentifierIR) else None
                 nm = other_factors[0][0].name or (b.name if b else "") or ""
@@ -602,7 +613,7 @@ def _diff_einstein_wrt(
         )
         derivative_clauses.append(new_clause)
     if not derivative_clauses:
-        return LiteralIR(0, loc)
+        return _float_lit(0, loc)
     # Single EinsteinIR with all derivative clauses (doc §4: multi-clause → add into same tensor).
     return EinsteinIR(
         clauses=derivative_clauses,
@@ -628,15 +639,17 @@ def _diff_expr_wrt(
         raise ValueError("Autodiff: cannot differentiate block expression with no final expression")
     if isinstance(expr, IdentifierIR):
         if expr.defid == wrt_defid:
-            return LiteralIR(1, loc)
+            return _float_lit(1, loc)
         # Chain rule: identifier is a let-bound variable; differentiate its defining expr w.r.t. wrt_defid
         if binding_by_defid is not None and expr.defid is not None:
             binding = binding_by_defid.get(expr.defid)
             if binding is not None and binding.expr is not None:
                 return _diff_expr_wrt(binding.expr, wrt_defid, loc, binding_by_defid, resolver)
-        return LiteralIR(0, loc)
+        return _float_lit(0, loc)
     if isinstance(expr, LiteralIR):
-        return LiteralIR(0, loc)
+        return _float_lit(0, loc)
+    if isinstance(expr, ArrayLiteralIR):
+        return _float_lit(0, loc)
     if isinstance(expr, BinaryOpIR):
         left, right = expr.left, expr.right
         d_left = _diff_expr_wrt(left, wrt_defid, loc, binding_by_defid, resolver)
@@ -655,14 +668,17 @@ def _diff_expr_wrt(
             )
         if op == BinaryOp.DIV:
             num = BinaryOpIR(BinaryOp.SUB, BinaryOpIR(BinaryOp.MUL, d_left, right, loc), BinaryOpIR(BinaryOp.MUL, left, d_right, loc), loc)
-            den = BinaryOpIR(BinaryOp.POW, right, LiteralIR(2, loc), loc)
+            den = BinaryOpIR(BinaryOp.POW, right, _float_lit(2, loc), loc)
             return BinaryOpIR(BinaryOp.DIV, num, den, loc)
         if op == BinaryOp.POW and isinstance(right, LiteralIR):
             c = right.value
             if isinstance(c, (int, float)) and c != 0:
-                bm1 = LiteralIR(c - 1, loc)
+                bm1 = _float_lit(c - 1, loc)
                 a_bm1 = BinaryOpIR(BinaryOp.POW, left, bm1, loc)
-                return BinaryOpIR(BinaryOp.MUL, BinaryOpIR(BinaryOp.MUL, LiteralIR(c, loc), a_bm1, loc), d_left, loc)
+                return BinaryOpIR(BinaryOp.MUL, BinaryOpIR(BinaryOp.MUL, _float_lit(c, loc), a_bm1, loc), d_left, loc)
+        if op == BinaryOp.MOD:
+            # remainder: subgradient ∂(a%b)/∂a = 1, ∂(a%b)/∂b = 0
+            return d_left
         raise ValueError(f"Autodiff: unsupported binary operator in ∂expr/∂wrt: {op}")
     if isinstance(expr, UnaryOpIR):
         d_operand = _diff_expr_wrt(expr.operand, wrt_defid, loc, binding_by_defid, resolver)
@@ -693,7 +709,7 @@ def _diff_expr_wrt(
                 for i, param in enumerate(params):
                     if param.defid is None:
                         continue
-                    diff_replace_i = {params[j].defid: (LiteralIR(1, loc) if j == i else LiteralIR(0, loc)) for j in range(len(params)) if params[j].defid is not None}
+                    diff_replace_i = {params[j].defid: (_float_lit(1, loc) if j == i else _float_lit(0, loc)) for j in range(len(params)) if params[j].defid is not None}
                     coef_i = _substitute_expr_with_diffs(rule_body, replace_map, diff_replace_i, loc)
                     d_arg = _diff_expr_wrt(args[i], wrt_defid, loc, binding_by_defid, resolver)
                     terms.append(BinaryOpIR(BinaryOp.MUL, coef_i, d_arg, loc))
@@ -725,11 +741,25 @@ def _diff_expr_wrt(
             d_arg = _diff_expr_wrt(args[i], wrt_defid, loc, binding_by_defid, resolver)
             terms.append(BinaryOpIR(BinaryOp.MUL, partial_subst, d_arg, loc))
         if not terms:
-            return LiteralIR(0, loc)
+            return _float_lit(0, loc)
         out = terms[0]
         for t in terms[1:]:
             out = BinaryOpIR(BinaryOp.ADD, out, t, loc)
         return out
+    if isinstance(expr, CastExpressionIR):
+        # Treat as variable: ∂(expr as T)/∂wrt = ∂(expr)/∂wrt
+        return _diff_expr_wrt(expr.expr, wrt_defid, loc, binding_by_defid, resolver)
+    if isinstance(expr, RectangularAccessIR):
+        # ∂(array[indices])/∂wrt = (∂array/∂wrt)[indices]. Denominator/other vars treated as variable (single defid).
+        d_array = _diff_expr_wrt(expr.array, wrt_defid, loc, binding_by_defid, resolver)
+        if isinstance(d_array, LiteralIR) and d_array.value == 0:
+            return _float_lit(0, loc)
+        indices = list(expr.indices or [])
+        return RectangularAccessIR(
+            d_array, indices, loc,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
     if isinstance(expr, EinsteinIR):
         return _diff_einstein_wrt(expr, wrt_defid, loc, binding_by_defid, resolver)
     raise ValueError(f"Autodiff: cannot differentiate expression type in ∂expr/∂wrt: {type(expr).__name__}")
@@ -749,7 +779,7 @@ def _build_differential_expr(
             f"Autodiff: @(expr) operand identifier not in differential targets (defid not in d_* map)"
         )
     if isinstance(expr, LiteralIR):
-        return LiteralIR(0, loc)
+        return _float_lit(0, loc)
     if isinstance(expr, BinaryOpIR):
         d_left = _build_differential_expr(expr.left, defid_to_d_ident, loc)
         d_right = _build_differential_expr(expr.right, defid_to_d_ident, loc)
@@ -766,13 +796,18 @@ def _substitute_expr(expr: ExpressionIR, replace_map: Dict[DefId, ExpressionIR],
     if isinstance(expr, IdentifierIR) and expr.defid is not None and expr.defid in replace_map:
         return replace_map[expr.defid]
     if isinstance(expr, LiteralIR):
-        return LiteralIR(expr.value, loc)
+        return _float_lit(expr.value, loc)
     if isinstance(expr, BinaryOpIR):
         return BinaryOpIR(expr.operator, _substitute_expr(expr.left, replace_map, loc), _substitute_expr(expr.right, replace_map, loc), loc)
     if isinstance(expr, UnaryOpIR):
         return UnaryOpIR(expr.operator, _substitute_expr(expr.operand, replace_map, loc), loc)
     if isinstance(expr, BlockExpressionIR) and expr.final_expr is not None:
         return _substitute_expr(expr.final_expr, replace_map, loc)
+    if isinstance(expr, IfExpressionIR):
+        cond = _substitute_expr(expr.condition, replace_map, loc)
+        then_e = _substitute_expr(expr.then_expr, replace_map, loc)
+        else_e = _substitute_expr(expr.else_expr, replace_map, loc) if expr.else_expr else None
+        return IfExpressionIR(condition=cond, then_expr=then_e, else_expr=else_e, location=loc)
     return expr
 
 
@@ -792,19 +827,23 @@ def _substitute_expr_with_diffs(
             return diff_replace_map[op.defid]
         return DifferentialIR(operand=_substitute_expr_with_diffs(op, replace_map, diff_replace_map, loc), location=loc)
     if isinstance(expr, LiteralIR):
-        return LiteralIR(expr.value, loc)
+        return _float_lit(expr.value, loc)
     if isinstance(expr, BinaryOpIR):
         return BinaryOpIR(
             expr.operator,
             _substitute_expr_with_diffs(expr.left, replace_map, diff_replace_map, loc),
             _substitute_expr_with_diffs(expr.right, replace_map, diff_replace_map, loc),
             loc,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
         )
     if isinstance(expr, UnaryOpIR):
         return UnaryOpIR(
             expr.operator,
             _substitute_expr_with_diffs(expr.operand, replace_map, diff_replace_map, loc),
             loc,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
         )
     if isinstance(expr, BlockExpressionIR) and expr.final_expr is not None:
         return _substitute_expr_with_diffs(expr.final_expr, replace_map, diff_replace_map, loc)
@@ -821,7 +860,27 @@ def _substitute_expr_with_diffs(
     if isinstance(expr, RectangularAccessIR):
         arr = _substitute_expr_with_diffs(expr.array, replace_map, diff_replace_map, loc)
         indices = [_substitute_expr_with_diffs(i, replace_map, diff_replace_map, loc) for i in (expr.indices or [])]
-        return RectangularAccessIR(array=arr, indices=indices, location=expr.location)
+        return RectangularAccessIR(
+            array=arr, indices=indices, location=expr.location,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
+    if isinstance(expr, IfExpressionIR):
+        cond = _substitute_expr_with_diffs(expr.condition, replace_map, diff_replace_map, loc)
+        then_e = _substitute_expr_with_diffs(expr.then_expr, replace_map, diff_replace_map, loc)
+        else_e = _substitute_expr_with_diffs(expr.else_expr, replace_map, diff_replace_map, loc) if expr.else_expr else None
+        return IfExpressionIR(
+            cond, then_e, loc, else_expr=else_e,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
+    if isinstance(expr, CastExpressionIR):
+        inner = _substitute_expr_with_diffs(expr.expr, replace_map, diff_replace_map, loc)
+        return CastExpressionIR(
+            inner, expr.target_type, loc,
+            type_info=getattr(expr, "type_info", None),
+            shape_info=getattr(expr, "shape_info", None),
+        )
     return expr
 
 
@@ -918,18 +977,18 @@ def _forward_d_y_expr(
     if isinstance(expr, BinaryOpIR):
         left_defid = _defid_from_expr(expr.left)
         right_defid = _defid_from_expr(expr.right)
-        d_left = defid_to_d_ref.get(left_defid) if left_defid else LiteralIR(0, loc)
-        d_right = defid_to_d_ref.get(right_defid) if right_defid else LiteralIR(0, loc)
+        d_left = defid_to_d_ref.get(left_defid) if left_defid else _float_lit(0, loc)
+        d_right = defid_to_d_ref.get(right_defid) if right_defid else _float_lit(0, loc)
         if not isinstance(d_left, ExpressionIR):
-            d_left = LiteralIR(0, loc)
+            d_left = _float_lit(0, loc)
         if not isinstance(d_right, ExpressionIR):
-            d_right = LiteralIR(0, loc)
+            d_right = _float_lit(0, loc)
         return _forward_binary(expr, d_left, d_right, expr.location)
     if isinstance(expr, UnaryOpIR):
         operand_defid = _defid_from_expr(expr.operand)
-        d_operand = defid_to_d_ref.get(operand_defid) if operand_defid else LiteralIR(0, loc)
+        d_operand = defid_to_d_ref.get(operand_defid) if operand_defid else _float_lit(0, loc)
         if not isinstance(d_operand, ExpressionIR):
-            d_operand = LiteralIR(0, loc)
+            d_operand = _float_lit(0, loc)
         return _forward_unary(expr, d_operand, expr.location)
     if isinstance(expr, BuiltinCallIR):
         return None
@@ -939,10 +998,12 @@ def _forward_d_y_expr(
         if callee_defid is None or len(args) == 0:
             return None
         callee_binding = binding_by_defid.get(callee_defid)
-        rule_body = getattr(callee_binding.expr, 'custom_diff_body', None) if callee_binding is not None and isinstance(callee_binding.expr, FunctionValueIR) else None
-        if rule_body is not None and callee_binding is not None:
-            fv = callee_binding.expr
-            params = fv.parameters or [] if isinstance(fv, FunctionValueIR) else []
+        if callee_binding is None or not isinstance(callee_binding.expr, FunctionValueIR):
+            return None
+        fv = callee_binding.expr
+        rule_body = getattr(fv, 'custom_diff_body', None)
+        if rule_body is not None:
+            params = fv.parameters or []
             if len(params) == len(args):
                 replace_map = {p.defid: args[j] for j, p in enumerate(params) if p.defid is not None}
                 diff_replace_map = {}
@@ -951,12 +1012,9 @@ def _forward_d_y_expr(
                         continue
                     arg_defid = _defid_from_expr(args[i])
                     d_arg = defid_to_d_ref.get(arg_defid) if arg_defid else None
-                    diff_replace_map[param.defid] = d_arg if isinstance(d_arg, ExpressionIR) else LiteralIR(0, loc)
+                    diff_replace_map[param.defid] = d_arg if isinstance(d_arg, ExpressionIR) else _float_lit(0, loc)
                 d_y = _substitute_expr_with_diffs(rule_body, replace_map, diff_replace_map, expr.location or loc)
                 return d_y
-        if callee_binding is None or not isinstance(callee_binding.expr, FunctionValueIR):
-            return None
-        fv = callee_binding.expr
         params = fv.parameters or []
         body = fv.body
         if body is None or len(params) != len(args):
@@ -1105,26 +1163,42 @@ def _expand_derivative_in_expr(
     if isinstance(expr, BinaryOpIR):
         # Expand @xxx/@y to ∂(xxx)/∂y; raise if denominator is not a simple identifier or we cannot differentiate.
         if expr.operator == BinaryOp.DIV and isinstance(expr.left, DifferentialIR) and isinstance(expr.right, DifferentialIR):
-            den_operand = expr.right.operand
-            if not isinstance(den_operand, IdentifierIR) or den_operand.defid is None:
-                raise ValueError(
-                    "Autodiff: @num/@den quotient requires denominator to be a simple identifier (e.g. @x)"
-                )
-            den_defid = den_operand.defid
+            loc_q = expr.location or loc
             num_operand = expr.left.operand
-            if isinstance(num_operand, IdentifierIR) and num_operand.defid is not None:
-                num_expr = defid_to_expr.get(num_operand.defid)
-                if num_expr is None:
-                    raise ValueError(
-                        "Autodiff: numerator of @num/@den has no defining expression in this program (e.g. from function call)"
-                    )
+            den_operand = expr.right.operand
+            if isinstance(den_operand, IdentifierIR) and den_operand.defid is not None:
+                # Simple denominator @y: ∂(num's definition)/∂y
+                if isinstance(num_operand, IdentifierIR) and num_operand.defid is not None:
+                    num_expr = defid_to_expr.get(num_operand.defid)
+                    if num_expr is None:
+                        raise ValueError(
+                            "Autodiff: numerator of @num/@den has no defining expression in this program (e.g. from function call)"
+                        )
+                else:
+                    num_expr = num_operand
+                den_defid = den_operand.defid
+                der = _diff_expr_wrt(num_expr, den_defid, loc_q, binding_by_defid, resolver)
+                # Allow zero derivative (e.g. remainder MOD: ∂(a%b)/∂b = 0)
             else:
-                num_expr = num_operand
-            der = _diff_expr_wrt(num_expr, den_defid, expr.location or loc, binding_by_defid, resolver)
-            if isinstance(der, LiteralIR) and der.value == 0 and not isinstance(num_expr, LiteralIR):
-                raise ValueError(
-                    "Autodiff: ∂(numerator)/∂(denominator) is not supported for this expression type (e.g. Einstein/sum)"
-                )
+                # Compound denominator @(expr): ∂num/∂den = (∂num/∂x) / (∂den/∂x). Use num as variable (e.g. @x -> x) so ∂x/∂x=1.
+                if isinstance(num_operand, IdentifierIR) and num_operand.defid is not None:
+                    num_expr = num_operand
+                else:
+                    num_expr = num_operand
+                den_expr = den_operand
+                defids = _collect_defids_in_expr(den_expr)
+                if len(defids) == 0:
+                    raise ValueError(
+                        "Autodiff: @num/@(expr) requires denominator expression to depend on at least one variable"
+                    )
+                if len(defids) > 1:
+                    raise ValueError(
+                        "Autodiff: @num/@(expr) requires denominator expression to depend on exactly one variable (ambiguous otherwise)"
+                    )
+                wrt_defid = next(iter(defids))
+                d_num = _diff_expr_wrt(num_expr, wrt_defid, loc_q, binding_by_defid, resolver)
+                d_den = _diff_expr_wrt(den_expr, wrt_defid, loc_q, binding_by_defid, resolver)
+                der = BinaryOpIR(BinaryOp.DIV, d_num, d_den, loc_q)
             ti = getattr(expr, "type_info", None)
             si = getattr(expr, "shape_info", None)
             if ti is not None or si is not None:
@@ -1301,18 +1375,18 @@ class AutodiffPass(BasePass):
                 continue
             bloc = b.location or loc0
             if use_per_quotient_seeds and b.defid in leaves:
-                d_rhs_by_defid[b.defid] = LiteralIR(0, bloc)
+                d_rhs_by_defid[b.defid] = _float_lit(0, bloc)
             elif b.defid in seed_value and seed_value[b.defid] == 1:
-                d_rhs_by_defid[b.defid] = LiteralIR(1, bloc)
+                d_rhs_by_defid[b.defid] = _float_lit(1, bloc)
             else:
                 for dep in binding_to_deps.get(b.defid) or []:
                     if dep not in defid_to_d_ref_expr:
-                        defid_to_d_ref_expr[dep] = LiteralIR(0, bloc)
+                        defid_to_d_ref_expr[dep] = _float_lit(0, bloc)
                 rhs = _forward_d_y_expr(b, defid_to_d_ref_expr, binding_by_defid, binding_to_deps, bloc, resolver)
                 if rhs is not None:
                     d_rhs_by_defid[b.defid] = rhs
                 else:
-                    d_rhs_by_defid[b.defid] = LiteralIR(0, bloc)
+                    d_rhs_by_defid[b.defid] = _float_lit(0, bloc)
 
         type_info = None
         shape_info = None
@@ -1325,7 +1399,7 @@ class AutodiffPass(BasePass):
         for b in forward_order:
             if b.defid is None or b.defid not in reachable:
                 continue
-            rhs = d_rhs_by_defid.get(b.defid) or LiteralIR(0, b.location or SourceLocation("", 0, 0))
+            rhs = d_rhs_by_defid.get(b.defid) or _float_lit(0, b.location or SourceLocation("", 0, 0))
             ti = getattr(b, "type_info", None) or (
                 getattr(b.expr, "type_info", None) if b.expr is not None else None
             ) or type_info

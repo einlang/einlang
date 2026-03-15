@@ -7,13 +7,13 @@ One page: what Einlang is, try it, run your first real example, use it from Pyth
 
 ## What is Einlang?
 
-Einlang is a language for tensor math that looks like the notation you’d write on a whiteboard — **Einstein notation** — and checks shapes at **compile time**. No stringly-typed `einsum`, no shape bugs at 3am. If it type-checks, the shapes are correct.
+Einlang is a language for tensor math that’s **math-intuitive**: it looks like the notation you’d write on a whiteboard or in a paper — **Einstein notation**, sums, indices, where-clauses — and checks shapes at **compile time**. No stringly-typed `einsum`, no shape bugs at 3am. If it type-checks, the shapes are correct.
 
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply — compiler checks A, B, C shapes
 ```
 
-You get **where-clauses** (index algebra, guards), **recurrences** (RNNs, dynamic programming), and a **stdlib** of 300+ functions. Real models — CNN, quantized CNN, ViT, Whisper — are written in the same language.
+You get **where-clauses** (index algebra, guards), **recurrences** (RNNs, dynamic programming), **built-in automatic differentiation** (derivatives and gradients from `@a / @b` — no hand-written gradient code), and a **stdlib** of 300+ functions. Real models — CNN, quantized CNN, ViT, Whisper — are written in the same language.
 
 ---
 
@@ -66,6 +66,7 @@ One call and you’re a user. See [Install & run](https://github.com/einlang/ein
 |--------------|--------|
 | **Learn the language** | [Language Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) — syntax, types, Einstein notation, where-clauses, recurrences |
 | **Look up functions** | [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) — math, arrays, ML ops |
+| **Try autodiff** | [Autodiff design](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · run `python3 -m einlang examples/autodiff_small.ein` or [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) for derivatives/gradients |
 | **Run examples by feature or step** | [README — Examples](https://github.com/einlang/einlang/blob/main/README.md#examples) · [Examples guide](https://github.com/einlang/einlang/blob/main/examples/README.md) |
 | **See the full doc map** | [Docs index](https://github.com/einlang/einlang/blob/main/docs/README.md) |
 | **Contribute** | [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md) — doc fixes and small bugs are a great start |
