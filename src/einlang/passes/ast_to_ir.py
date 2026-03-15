@@ -439,16 +439,23 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             raise RuntimeError(
                 f"Failed to lower function body for '{ast_func.name}': expected ExpressionIR, got {type(body_ir).__name__} at {location}"
             )
-        
+        # Lower @fn body if merged into this function (before DefId allocation)
+        custom_diff_ir: Optional[ExpressionIR] = None
+        custom_diff_ast = getattr(ast_func, "custom_diff_body", None)
+        if custom_diff_ast is not None:
+            diff_block_ir = custom_diff_ast.accept(self)
+            if isinstance(diff_block_ir, BlockExpressionIR) and diff_block_ir.final_expr is not None:
+                custom_diff_ir = diff_block_ir.final_expr
+            elif isinstance(diff_block_ir, ExpressionIR):
+                custom_diff_ir = diff_block_ir
         # Extract return type from AST function definition
-        # Type annotations are PrimitiveType objects from parser
         return_type = ast_func.return_type if ast_func.return_type else None
-        
         func_value = FunctionValueIR(
             parameters=parameters,
             body=body_ir,
             location=location,
             return_type=return_type,
+            custom_diff_body=custom_diff_ir,
         )
         func_ir = FunctionDefIR(
             name=ast_func.name,

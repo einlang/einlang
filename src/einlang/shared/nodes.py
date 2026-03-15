@@ -285,7 +285,9 @@ class FunctionDefinition(Statement):
         self._instantiation: Optional[Any] = None  # Instantiation info for specialized functions
         self._return_type_info: Optional[Any] = None  # Inferred return type from type analysis
         self._function_signature: Optional[Any] = None  # Function signature tracked by type analysis
-    
+        # @fn merged into this function (AST pass before defid): body only; param order matches self.parameters
+        self.custom_diff_body: Optional['BlockExpression'] = None
+
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_function_definition(self)
 

@@ -170,15 +170,26 @@ class EinlangTransformer(Transformer):
         return self.function_parser.parse_function_definition(meta, name, lpar, *args, is_public=True)
 
     def diff_rule_def(self, meta: LarkMeta, at_tok: Token, name_tok: Token, fn_tok: Token, lpar: Token, *rest: Union[List[Parameter], Token, Any]) -> 'DiffRuleDef':
-        """@fn name(params) { body }. Grammar order: AT, 'fn', NAME, LPAR, ... so 3rd child is NAME (name_tok)."""
-        from ...shared.nodes import DiffRuleDef, BlockExpression
+        """@fn name(params) { body }. Grammar order: AT, 'fn', NAME, LPAR, param_list?, RPAR, block."""
+        from ...shared.nodes import DiffRuleDef, BlockExpression, Parameter
         location = self._extract_location(meta)
         name = str(name_tok.value if hasattr(name_tok, 'value') else name_tok)
-        block = rest[-1] if rest else None
         params: List[Parameter] = []
-        if len(rest) >= 3 and isinstance(rest[0], list):
-            params = rest[0]
-        body = block if isinstance(block, BlockExpression) else BlockExpression(statements=[], final_expr=None)
+        block = None
+        for r in rest:
+            if isinstance(r, list):
+                params = r
+                break
+            if isinstance(r, Parameter):
+                params = [r]
+                break
+        for r in rest:
+            if isinstance(r, BlockExpression):
+                block = r
+                break
+        if block is None:
+            block = BlockExpression(statements=[], final_expr=None)
+        body = block
         return DiffRuleDef(name=name, parameters=params, body=body, location=location)
 
     def parameter(self, meta: LarkMeta, name: Token, type_annotation: Optional[TypeAnnotation] = None) -> Parameter:
