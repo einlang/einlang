@@ -201,6 +201,41 @@ Argument list: **only primal parameters** (same as the original function). In th
 
 **Summary:** Julia’s rrule is **reverse-mode native** (pullback from output tangent to input tangents). Einlang’s @fn is **forward-diff native** (output diff as a linear combination of input diffs). The compiler can derive the reverse rule from the forward one (contribution to d_x is d_out × coefficient of @x), so both support reverse-mode AD; the difference is whether the **user** writes the forward equation (Einlang) or the backward map (Julia). Einlang’s form matches the usual calculus notation (dy = … dx) and keeps the same parameter list as the primal.
 
+### 8.1 Learning from Julia: reduction autodiff
+
+Julia’s **ChainRules.jl** defines differentiation for reductions in `mapreduce.jl`. Aligning with it keeps semantics and shapes consistent:
+
+- **Sum**  
+  - **Julia:** `rrule(sum, x; dims=dims)` returns primal `y = sum(x; dims=dims)` and a pullback that, given output tangent `dy`, fills input tangent by *broadcasting* `dy` to the shape of `x`: `_unsum(x, dy, dims) = broadcast(last∘tuple, x, dy)`. So ∂(sum)/∂x has the same shape as `x`; each element gets the same (or broadcast) sensitivity.  
+  - **Einlang:** Same idea: ∂y/∂x_i = 1 (broadcast); gradient w.r.t. `x` has shape of `x`. We implement this as vectorized sum of differentials (no scalar loop).
+
+- **Max / argmax (select-at-argmax)**  
+  - **Julia:** The gradient of `maximum(x)` w.r.t. `x` is a **subgradient**: 1 at the argmax index, 0 elsewhere (or normalized if there are ties). So the pullback takes a scalar `dy` and returns a vector `dx` with `dx[argmax] = dy` and `dx[i] = 0` for i ≠ argmax. Shape of `dx` = shape of `x`; the result is **squeezed** (one gradient per parallel position, not a full Jacobian over the reduction dimension).  
+  - **Einlang:** We implement “select at argmax” as: primal = value at argmax; differential = **d_body at argmax(primal)**. The gradient w.r.t. the reduction input has shape **parallel_shape** (one selected value per parallel index), not parallel_shape × reduction_size. So the backend should return the **squeezed** result (shape `parallel_shape`) from select-at-argmax/argmin; a full Jacobian is not required for standard reverse-mode and would complicate downstream assignment.
+
+- **Prod**  
+  - **Julia (ChainRules, mapreduce.jl):** ∂(prod_i x_i)/∂x_k = prod_{j≠k} x_j = (prod x)/x_k. Gradient has **shape of x** (same as sum). Special handling for **zeros**: (1) **no zero** → gradient at k is (prod x)/x_k; (2) **exactly one zero** at index k₀ → gradient is zero except at k₀, where it is prod_{j≠k₀} x_j (the limit); (3) **multiple zeros** → gradient is zero everywhere. So the pullback returns a full-shaped gradient array, not squeezed.  
+  - **Einlang:** We use (prod body) × sum_i (d_body_i / body_i), which equals (prod x)/x_k when body = x and body_i ≠ 0; see [AUTODIFF_OPS.md](AUTODIFF_OPS.md) §6. Gradient has shape of the reduction body (same as input to the reduction). **Zero handling:** current formula is valid when body_i ≠ 0; matching Julia’s one-zero / multi-zero behaviour would require a separate branch (e.g. count zeros, then fill gradient accordingly).
+
+- **General sum(f, xs)**  
+  - **Julia:** Either a fast path when `f` only depends on the input (no need to store `f(x_i)`), or stores pullbacks for each `f(x_i)` and in the pullback combines them with the incoming `dy`.  
+  - **Einlang:** Reductions are lowered to a single body over indices; we differentiate the body and then apply the reduction’s VJP (sum → broadcast; max → select-at-argmax).
+
+**Takeaway:** For max/argmax, the gradient w.r.t. the reduced array has the same shape as the **output** of the reduction (e.g. `parallel_shape`), not an expanded “full Jacobian”. Returning the squeezed result keeps backend and autodiff semantics aligned with Julia and avoids unnecessary large arrays and slow paths.
+
+### 8.2 Design (Julia-aligned): gradient shape = shape of x
+
+In Julia ChainRules, **the pullback return shape matches the input shape** of the primal: if `x` has shape `(m,)`, the gradient `x̄` has shape `(m,)`. So for sum, max, min, prod the gradient is always **shape of x** — no special “squeezed” array. Our design matches that:
+
+| Reduction | Gradient semantics | Stored gradient shape (Julia and Einlang) |
+|-----------|--------------------|-------------------------------------------|
+| **Sum**   | ∂y/∂x_i = 1 (broadcast) | shape of x |
+| **Max**   | Subgradient: value at argmax, 0 elsewhere | shape of x |
+| **Min**   | Subgradient: value at argmin, 0 elsewhere | shape of x |
+| **Prod**  | ∂y/∂x_k = (prod x)/x_k | shape of x |
+
+**Backend does not treat autodiff differently.** The backend just assigns clause result to the output buffer. So we need: (1) **Compiler:** the gradient variable has shape of x (quotient shape = denominator in shape analysis; lowering allocates that shape). (2) **Runtime:** select-at-argmax returns a full-shaped array (value at argmax, 0 elsewhere), same shape as the reduction input. Then result.shape == output.shape and the existing `output[:] = result` path applies. No diff-specific backend logic. If the scalar path is used and the body returns an array with shape == output.shape, assigning that to the whole output (instead of a single cell) is a general rule for any such clause, not autodiff-specific.
+
 ---
 
 ## 9. Plans

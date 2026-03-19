@@ -1,0 +1,38 @@
+(program
+  :bindings
+  ((binding "x" (literal 2.0 f32) (nil) :defid [0 0])
+    (binding "d_x" (literal 0 f32) (type f32) :defid [0 3])
+    (binding
+      "y"
+      (function-call
+        (callee (variable "exp"))
+        ((variable "x" :defid [0 0]))
+        :module_path
+        ("python" "numpy")
+      )
+      (nil)
+      :defid
+      [0 1]
+    )
+    (binding "d_y" (literal 0 f32) (type f32) :defid [0 4])
+    (binding
+      "dy_dx"
+      (function-call
+        (callee (variable "exp"))
+        ((variable "x" :defid [0 0]))
+        :module_path
+        ("python" "numpy")
+      )
+      (nil)
+      :defid
+      [0 2]
+    )
+  )
+  :source_files
+  (("<test>"
+      "let x = 2.0;
+let y = python::numpy::exp(x);
+let dy_dx = @y / @x;"
+    )
+  )
+)

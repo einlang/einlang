@@ -703,6 +703,10 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         self._current_einstein_clause = None
 
     def visit_binding(self, node: BindingIR) -> Any:
+        # Preserve derivative quotient (e.g. dy_dx = d_y/d_x): keep as BinaryOpIR so backend can defer
+        # per-quotient diff run (AUTODIFF_DESIGN.md §8.2). Do not lower to Einstein.
+        if isinstance(node.expr, BinaryOpIR) and node.expr.operator == BinaryOp.DIV:
+            return self.visit_variable_declaration(node)
         if is_einstein_binding(node):
             lowered = self.visit_einstein_declaration(node)
             if lowered is not None:
@@ -888,11 +892,23 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         bindings, guards = self._extract_bindings_and_guards(node.where_clause)
         
         # Allocation shape: when we have loops, derive from loops unless clause has literal indices.
-        # Mixed literal + loop indices (e.g. [0, i]) need full rank from clause indices so backend writes at (0, i).
+        # For gradient quotients (e.g. let dy_dx = @y/@x) the variable has shape of x; prefer decl shape over loop shape.
         if loops:
             shape = None
             if any(isinstance(idx, LiteralIR) for idx in (node.indices or [])):
                 shape = self._shape_from_clause_indices(node, node.location)
+            if shape is None:
+                shape = self._get_shape_from_analysis(decl)
+            if shape is None and decl.expr is not None:
+                si = getattr(decl.expr, "shape_info", None)
+                if si is not None and isinstance(si, (list, tuple)):
+                    try:
+                        shape = [
+                            LiteralIR(value=int(d), location=node.location, shape_info=None, type_info=infer_literal_type(int(d)))
+                            for d in si
+                        ]
+                    except (TypeError, ValueError):
+                        shape = None
             if shape is None:
                 shape = self._compute_shape(loops)
         else:
@@ -901,8 +917,26 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             shape = _decl_shape if isinstance(_decl_shape, list) else None
             if shape is None:
                 shape = self._get_shape_from_analysis(decl)
+            if shape is None and decl.expr is not None:
+                si = getattr(decl.expr, "shape_info", None)
+                if si is not None and isinstance(si, (list, tuple)):
+                    try:
+                        shape = [
+                            LiteralIR(value=int(d), location=node.location, shape_info=None, type_info=infer_literal_type(int(d)))
+                            for d in si
+                        ]
+                    except (TypeError, ValueError):
+                        shape = None
             if shape is None and node.indices:
                 shape = self._shape_from_literal_indices(node.indices, node.location)
+
+        # If this clause declares more indices than the binding's pre-analysis shape (common for autodiff
+        # quotients like `dC_dA = @C / @A` where AutodiffPass runs after shape analysis), prefer the
+        # shape implied by the clause indices' ranges.
+        if node.indices:
+            lhs_shape = self._shape_from_clause_indices(node, node.location)
+            if lhs_shape is not None and (shape is None or len(lhs_shape) != len(shape)):
+                shape = lhs_shape
         
         # Element type comes only from type pass (decl.expr.element_type or type_info)
         decl_expr = decl.expr
@@ -1582,28 +1616,26 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         
         try:
             shape_analysis = self.tcx.get_analysis(UnifiedShapeAnalysisPass)
-            if isinstance(shape_analysis, dict) and 'expr_shapes' in shape_analysis:
-                expr_shapes = shape_analysis['expr_shapes']
-                logger.debug(f"[EinsteinLowering] {node.name}: Checking shape in expr_shapes, found {len(expr_shapes)} entries")
-                logger.debug(f"[EinsteinLowering] {node.name}: Node id={id(node)}, in dict? {node in expr_shapes}")
-                if node in expr_shapes:
-                    shape_tuple = expr_shapes[node]
-                    logger.debug(f"[EinsteinLowering] {node.name}: Found shape: {shape_tuple}")
-                    # Convert tuple of ints to List[LiteralIR]
-                    shape_list = []
-                    for dim in shape_tuple:
-                        if isinstance(dim, int):
-                            shape_list.append(LiteralIR(
-                                value=dim,
-                                location=node.location,
-                                shape_info=None,
-                                type_info=infer_literal_type(dim)
-                            ))
-                        else:
-                            logger.debug(f"[EinsteinLowering] Non-static shape dimension: {dim}")
-                            return None
-                    return shape_list
-                # No shape in analysis
+            if not isinstance(shape_analysis, dict):
+                return None
+            shape_tuple = None
+            if 'expr_shapes' in shape_analysis and node in shape_analysis['expr_shapes']:
+                shape_tuple = shape_analysis['expr_shapes'][node]
+            elif node.defid is not None and 'defid_shapes' in shape_analysis:
+                shape_tuple = shape_analysis['defid_shapes'].get(node.defid)
+            if shape_tuple is not None:
+                shape_list = []
+                for dim in shape_tuple:
+                    if isinstance(dim, int):
+                        shape_list.append(LiteralIR(
+                            value=dim,
+                            location=node.location,
+                            shape_info=None,
+                            type_info=infer_literal_type(dim)
+                        ))
+                    else:
+                        return None
+                return shape_list
         except RuntimeError:
             pass
         return None

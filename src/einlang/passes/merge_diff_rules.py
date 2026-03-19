@@ -33,14 +33,6 @@ def merge_diff_rules_into_functions(ast: Any) -> None:
                     break
             if target is not None:
                 object.__setattr__(target, "custom_diff_body", stmt.body)
-                # #region agent log
-                try:
-                    import json
-                    with open("/Users/user/Documents/einlang/.cursor/debug-5ef5e6.log", "a") as f:
-                        f.write(json.dumps({"sessionId": "5ef5e6", "location": "merge_diff_rules.py", "message": "merged @fn into fn", "data": {"fn_name": stmt.name, "has_body": stmt.body is not None}, "hypothesisId": "H1"}) + "\n")
-                except Exception:
-                    pass
-                # #endregion
             # Do not append the DiffRuleDef (it is merged)
             continue
         new_statements.append(stmt)

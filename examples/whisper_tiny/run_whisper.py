@@ -28,11 +28,19 @@ def main():
     import argparse
     ap = argparse.ArgumentParser(description="Run Whisper-tiny and print transcript")
     ap.add_argument("--profile-einlang", action="store_true", help="Print backend path (vectorized/hybrid/scalar) and per-statement profile")
+    ap.add_argument("--profile-verbose", action="store_true", help="Full debug: statements, functions, blocks, reductions, vectorize summary")
     args = ap.parse_args()
 
     os.chdir(EXAMPLE_DIR)
 
-    if args.profile_einlang:
+    if args.profile_verbose:
+        os.environ["EINLANG_PROFILE_STATEMENTS"] = "1"
+        os.environ["EINLANG_PROFILE_FUNCTIONS"] = "1"
+        os.environ["EINLANG_PROFILE_BLOCKS"] = "1"
+        os.environ["EINLANG_PROFILE_REDUCTIONS"] = "1"
+        os.environ["EINLANG_DEBUG_VECTORIZE"] = "1"
+        os.environ.setdefault("EINLANG_PROFILE_LINES", "20")
+    elif args.profile_einlang:
         os.environ["EINLANG_DEBUG_VECTORIZE"] = "1"
         os.environ["EINLANG_PROFILE_STATEMENTS"] = "1"
 

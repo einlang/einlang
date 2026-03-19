@@ -288,7 +288,7 @@ let dC_dB = @C / @B;
             pass
 
     def test_einstein_row_sum_derivative(self):
-        """r[i] = sum[j](M[i,j]); @r/@M is 3-tensor: ∂r[i]/∂M[r,s] = 1 if i==r and s any, else 0."""
+        """r[i] = sum[j](M[i,j]); @r/@M grad shape matches M (PyTorch): ∂r/∂M has shape of M, ones."""
         source = """
 let M = [[1.0, 2.0], [3.0, 4.0]];
 let r[i] = sum[j](M[i, j]);
@@ -300,14 +300,10 @@ let dr_dM = @r / @M;
         try:
             import numpy as np
             arr = np.asarray(dr_dM)
-            assert arr.ndim == 3, "dr_dM should be 3D (i, r, s), got ndim %s" % arr.ndim
-            assert arr.shape == (2, 2, 2), "shape (2,2,2), got %s" % (arr.shape,)
-            ref = np.zeros((2, 2, 2), dtype=np.float64)
-            for i in range(2):
-                for r in range(2):
-                    for s in range(2):
-                        ref[i, r, s] = 1.0 if i == r else 0.0
-            _assert_allclose(arr, ref, msg="dr_dM vs ∂r/∂M")
+            assert arr.ndim == 2, "dr_dM should be 2D (grad shape = M.shape), got ndim %s" % arr.ndim
+            assert arr.shape == (2, 2), "shape (2,2), got %s" % (arr.shape,)
+            ref = np.ones((2, 2), dtype=np.float64)
+            _assert_allclose(arr, ref, msg="dr_dM vs ∂r/∂M (ones)")
         except ImportError:
             pass
 
@@ -362,7 +358,7 @@ let dC_dA = @C / @A;
             pass
 
     def test_einstein_column_sum_derivative(self):
-        """c[j] = sum[i](M[i,j]); @c/@M is 3-tensor (output j, wrt i,j)."""
+        """c[j] = sum[i](M[i,j]); @c/@M grad shape matches M (PyTorch): shape of M, ones."""
         source = """
 let M = [[1.0, 2.0], [3.0, 4.0]];
 let c[j] = sum[i](M[i, j]);
@@ -374,13 +370,9 @@ let dc_dM = @c / @M;
         try:
             import numpy as np
             arr = np.asarray(dc_dM)
-            assert arr.ndim == 3 and arr.shape == (2, 2, 2)
-            ref = np.zeros((2, 2, 2), dtype=np.float64)
-            for j in range(2):
-                for r in range(2):
-                    for s in range(2):
-                        ref[j, r, s] = 1.0 if s == j else 0.0
-            _assert_allclose(arr, ref, msg="dc_dM vs ∂c/∂M")
+            assert arr.ndim == 2 and arr.shape == (2, 2)
+            ref = np.ones((2, 2), dtype=np.float64)
+            _assert_allclose(arr, ref, msg="dc_dM vs ∂c/∂M (ones)")
         except ImportError:
             pass
 
@@ -493,7 +485,7 @@ let d_out_d_Q = @out / @Q;
             pass
 
     def test_einstein_two_factor_product(self):
-        """Single-index sum: y[i] = sum[j](A[i,j]*b[j]); @y/@A and @y/@b."""
+        """y[i] = sum[j](A[i,j]*b[j]); @y/@A and @y/@b; grad shapes match inputs (PyTorch)."""
         source = """
 let A = [[1.0, 2.0], [3.0, 4.0]];
 let b = [5.0, 6.0];
@@ -504,19 +496,116 @@ let dy_db = @y / @b;
         _, out = _compile_run(source)
         assert out.get("dy_dA") is not None and out.get("dy_db") is not None
         try:
-            # y[i] = sum[j](A[i,j]*b[j]) => ∂y[i]/∂A[r,s] = b[s] if i==r else 0; ∂y[i]/∂b[j] = A[i,j]
             A_ref = np.array([[1.0, 2.0], [3.0, 4.0]])
             b_ref = np.array([5.0, 6.0])
-            ref_dy_dA = np.zeros((2, 2, 2), dtype=np.float64)
-            for i in range(2):
-                for r in range(2):
-                    for s in range(2):
-                        ref_dy_dA[i, r, s] = b_ref[s] if i == r else 0.0
+            ref_dy_dA = np.broadcast_to(b_ref, (2, 2)).astype(np.float64)
             ref_dy_db = A_ref.copy()
             _assert_allclose(out.get("dy_dA"), ref_dy_dA, msg="dy_dA")
             _assert_allclose(out.get("dy_db"), ref_dy_db, msg="dy_db")
         except ImportError:
             pass
+
+    def test_einstein_affine_derivatives(self):
+        """Affine y[i,j] = sum[k](x[i,k]*W[j,k]) + b[j]; @y/@x, @y/@W, @y/@b (AUTODIFF_EINSTEIN_OPS §4)."""
+        source = """
+let x = [[1.0, 2.0], [3.0, 4.0]];
+let W = [[0.5, 0.5], [0.1, 0.2]];
+let b = [0.1, 0.2];
+let y[i, j] = sum[k](x[i, k] * W[j, k]) + b[j];
+let dy_dx = @y / @x;
+let dy_dW = @y / @W;
+let dy_db = @y / @b;
+"""
+        _, out = _compile_run(source)
+        assert out.get("dy_dx") is not None, "dy_dx"
+        assert out.get("dy_dW") is not None, "dy_dW"
+        assert out.get("dy_db") is not None, "dy_db"
+        try:
+            x_ref = np.array([[1.0, 2.0], [3.0, 4.0]])
+            W_ref = np.array([[0.5, 0.5], [0.1, 0.2]])
+            ref_dy_dx = np.array([[np.sum(W_ref[0, :]), np.sum(W_ref[1, :])]] * 2, dtype=np.float64)
+            _assert_allclose(np.asarray(out.get("dy_dx")), ref_dy_dx, msg="dy_dx")
+            ref_dy_dW = np.zeros((2, 2), dtype=np.float64)
+            for p in range(2):
+                ref_dy_dW[p, :] = np.sum(x_ref[p, :])
+            _assert_allclose(np.asarray(out.get("dy_dW")), ref_dy_dW, msg="dy_dW")
+            ref_dy_db = np.ones((2, 2), dtype=np.float64)
+            _assert_allclose(np.asarray(out.get("dy_db")), ref_dy_db, msg="dy_db")
+        except ImportError:
+            pass
+
+    def test_einstein_batched_matmul_3d_vs_doc(self):
+        """3D batched matmul: C[b,i,j]=sum[k](A[b,i,k]*B[b,k,j]); compare dC_dA, dC_dB to doc (∂C/∂A)_{bijrs}=δ_{ir}B_{bsj}, (∂C/∂B)_{bijrs}=δ_{js}A_{bir}."""
+        source = """
+let A = [[[1.0, 2.0], [3.0, 4.0]], [[0.5, 0.5], [0.1, 0.2]]];
+let B = [[[5.0, 6.0], [7.0, 8.0]], [[1.0, 1.0], [1.0, 1.0]]];
+let C[b, i, j] = sum[k](A[b, i, k] * B[b, k, j]);
+let dC_dA = @C / @A;
+let dC_dB = @C / @B;
+"""
+        _, out = _compile_run(source)
+        dC_dA = np.asarray(out.get("dC_dA"))
+        dC_dB = np.asarray(out.get("dC_dB"))
+        assert dC_dA is not None and dC_dB is not None
+        A_ref = np.array([[[1.0, 2.0], [3.0, 4.0]], [[0.5, 0.5], [0.1, 0.2]]])
+        B_ref = np.array([[[5.0, 6.0], [7.0, 8.0]], [[1.0, 1.0], [1.0, 1.0]]])
+        if dC_dA.ndim == 6:
+            ref_dC_dA = np.zeros_like(dC_dA)
+            for b in range(ref_dC_dA.shape[0]):
+                for i in range(ref_dC_dA.shape[1]):
+                    for j in range(ref_dC_dA.shape[2]):
+                        for bp in range(ref_dC_dA.shape[3]):
+                            for r in range(ref_dC_dA.shape[4]):
+                                for s in range(ref_dC_dA.shape[5]):
+                                    ref_dC_dA[b, i, j, bp, r, s] = (B_ref[b, s, j] if (i == r and b == bp) else 0.0)
+            ref_dC_dB = np.zeros_like(dC_dB)
+            for b in range(ref_dC_dB.shape[0]):
+                for i in range(ref_dC_dB.shape[1]):
+                    for j in range(ref_dC_dB.shape[2]):
+                        for bp in range(ref_dC_dB.shape[3]):
+                            for r in range(ref_dC_dB.shape[4]):
+                                for s in range(ref_dC_dB.shape[5]):
+                                    ref_dC_dB[b, i, j, bp, r, s] = (A_ref[b, i, r] if (j == s and b == bp) else 0.0)
+            _assert_allclose(dC_dA, ref_dC_dA, msg="dC_dA 3D vs doc")
+            _assert_allclose(dC_dB, ref_dC_dB, msg="dC_dB 3D vs doc")
+        elif dC_dA.ndim == 5:
+            ref_dC_dA = np.zeros_like(dC_dA)
+            for b in range(ref_dC_dA.shape[0]):
+                for i in range(ref_dC_dA.shape[1]):
+                    for j in range(ref_dC_dA.shape[2]):
+                        for r in range(ref_dC_dA.shape[3]):
+                            for s in range(ref_dC_dA.shape[4]):
+                                ref_dC_dA[b, i, j, r, s] = B_ref[b, s, j] if i == r else 0.0
+            ref_dC_dB = np.zeros_like(dC_dB)
+            for b in range(ref_dC_dB.shape[0]):
+                for i in range(ref_dC_dB.shape[1]):
+                    for j in range(ref_dC_dB.shape[2]):
+                        for r in range(ref_dC_dB.shape[3]):
+                            for s in range(ref_dC_dB.shape[4]):
+                                ref_dC_dB[b, i, j, r, s] = A_ref[b, i, r] if j == s else 0.0
+            _assert_allclose(dC_dA, ref_dC_dA, msg="dC_dA 3D vs doc")
+            _assert_allclose(dC_dB, ref_dC_dB, msg="dC_dB 3D vs doc")
+        else:
+            assert dC_dA.shape == A_ref.shape and dC_dB.shape == B_ref.shape
+            ref_dA = np.einsum("bij,bkj->bik", np.ones_like(A_ref), B_ref)
+            ref_dB = np.einsum("bij,bir->brj", np.ones_like(B_ref), A_ref)
+            _assert_allclose(dC_dA, ref_dA, msg="dC_dA 3D grad shape vs doc")
+            _assert_allclose(dC_dB, ref_dB, msg="dC_dB 3D grad shape vs doc")
+
+    def test_einstein_batched_reduction_sum_3d_vs_doc(self):
+        """3D batched sum: y[b,i]=sum[j](x[b,i,j]); compare dy_dx to doc ∂y_{bi}/∂x_{bpq}=1 (grad shape of x, ones)."""
+        source = """
+let x = [[[1.0, 2.0], [3.0, 4.0]], [[0.5, 0.5], [0.1, 0.2]]];
+let y[b, i] = sum[j](x[b, i, j]);
+let dy_dx = @y / @x;
+"""
+        _, out = _compile_run(source)
+        dy_dx = np.asarray(out.get("dy_dx"))
+        assert dy_dx is not None
+        x_ref = np.array([[[1.0, 2.0], [3.0, 4.0]], [[0.5, 0.5], [0.1, 0.2]]])
+        assert dy_dx.shape == x_ref.shape, "dy_dx shape %s vs x %s" % (dy_dx.shape, x_ref.shape)
+        ref = np.ones_like(x_ref, dtype=np.float64)
+        _assert_allclose(dy_dx, ref, msg="dy_dx 3D vs doc (ones)")
 
     # -------------------------------------------------------------------------
     # Scalar math: each binary op and unary op
@@ -1391,3 +1480,285 @@ let d = @y / @x;
 """
         _, out = _compile_run(source)
         assert abs(_scalar_float(out, "d") - (-0.25)) < 1e-6
+
+
+def test_autodiff_ir_dump_sexpr():
+    """Compile a program with multiple @y/@x (matmul, sum, affine), dump result.ir to autodiff_ir_dump.sexpr for inspection."""
+    from pathlib import Path
+    from einlang.ir.serialization import serialize_ir
+    source = """
+let A = [[1.0, 2.0], [3.0, 4.0]];
+let B = [[5.0, 6.0], [7.0, 8.0]];
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+let dC_dA = @C / @A;
+let M = [[1.0, 2.0], [3.0, 4.0]];
+let r[i] = sum[j](M[i, j]);
+let dr_dM = @r / @M;
+let x = [[1.0, 2.0], [3.0, 4.0]];
+let W = [[0.5, 0.5], [0.1, 0.2]];
+let b = [0.1, 0.2];
+let y[i, j] = sum[k](x[i, k] * W[j, k]) + b[j];
+let dy_dx = @y / @x;
+"""
+    compiler = CompilerDriver()
+    result = compiler.compile(source.strip(), source_file="<test>")
+    assert result.success, result.get_errors() or "compile failed"
+    sexpr = serialize_ir(result.ir)
+    dump_path = Path(__file__).parent / "autodiff_ir_dump.sexpr"
+    dump_path.write_text(sexpr, encoding="utf-8")
+    assert dump_path.exists(), "dump file should exist"
+    assert len(sexpr) > 1000, "autodiff IR dump should contain expanded d_* bindings"
+
+
+_IR_DUMP_OPS = [
+    ("elementwise_unary", """
+let x = 2.0;
+let y = python::numpy::exp(x);
+let dy_dx = @y / @x;
+"""),
+    ("elementwise_binary", """
+let a = 3.0;
+let b = 4.0;
+let z = a * b;
+let dz_da = @z / @a;
+let dz_db = @z / @b;
+"""),
+    ("matmul", """
+let A = [[1.0, 2.0], [3.0, 4.0]];
+let B = [[5.0, 6.0], [7.0, 8.0]];
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+let dC_dA = @C / @A;
+let dC_dB = @C / @B;
+"""),
+    ("affine", """
+let x = [[1.0, 2.0], [3.0, 4.0]];
+let W = [[0.5, 0.5], [0.1, 0.2]];
+let b = [0.1, 0.2];
+let y[i, j] = sum[k](x[i, k] * W[j, k]) + b[j];
+let dy_dx = @y / @x;
+let dy_dW = @y / @W;
+let dy_db = @y / @b;
+"""),
+    ("conv1d", """
+let x = [[1.0, 2.0, 3.0, 4.0]];
+let w = [0.5, 0.3];
+let out[i, c] = sum[k](x[c, i + k] * w[k]) where i + k < 4;
+let d_out_dw = @out / @w;
+"""),
+    ("reduction_sum", """
+let M = [[1.0, 2.0], [3.0, 4.0]];
+let r[i] = sum[j](M[i, j]);
+let dr_dM = @r / @M;
+"""),
+    ("reduction_max", """
+let x = [[1.0, 3.0, 2.0]];
+let y[b] = max[j](x[b, j]);
+let dy_dx = @y / @x;
+"""),
+    ("reduction_min", """
+let x = [[1.0, 3.0, 2.0]];
+let y[b] = min[j](x[b, j]);
+let dy_dx = @y / @x;
+"""),
+    ("reduction_prod", """
+let x = [[1.0, 2.0, 3.0]];
+let y[b] = prod[j](x[b, j]);
+let dy_dx = @y / @x;
+"""),
+    ("row_sum", """
+let M = [[1.0, 2.0], [3.0, 4.0]];
+let r[i] = sum[j](M[i, j]);
+let dr_dM = @r / @M;
+"""),
+    ("column_sum", """
+let M = [[1.0, 2.0], [3.0, 4.0]];
+let c[j] = sum[i](M[i, j]);
+let dc_dM = @c / @M;
+"""),
+    ("two_factor", """
+let A = [[1.0, 2.0], [3.0, 4.0]];
+let b = [5.0, 6.0];
+let y[i] = sum[j](A[i, j] * b[j]);
+let dy_dA = @y / @A;
+let dy_db = @y / @b;
+"""),
+    ("attention_matmul_chain", """
+let scale = 0.5;
+let Q = [[[1.0, 2.0], [3.0, 4.0]]];
+let K = [[[1.0, 2.0], [3.0, 4.0]]];
+let V = [[[1.0, 0.0], [0.0, 1.0]]];
+let scores[b, i, j] = sum[d](Q[b, i, d] * K[b, j, d]) * scale;
+let out[b, i, d] = sum[j](scores[b, i, j] * V[b, j, d]);
+let d_out_d_Q = @out / @Q;
+"""),
+    ("batched_matmul", """
+let A = [[[1.0, 2.0], [3.0, 4.0]], [[0.5, 0.5], [0.1, 0.2]]];
+let B = [[[5.0, 6.0], [7.0, 8.0]], [[1.0, 1.0], [1.0, 1.0]]];
+let C[b, i, j] = sum[k](A[b, i, k] * B[b, k, j]);
+let dC_dA = @C / @A;
+let dC_dB = @C / @B;
+"""),
+    ("batched_reduction_sum", """
+let x = [[[1.0, 2.0], [3.0, 4.0]], [[0.5, 0.5], [0.1, 0.2]]];
+let y[b, i] = sum[j](x[b, i, j]);
+let dy_dx = @y / @x;
+"""),
+]
+
+
+def _is_autodiff_generated_binding(binding):
+    try:
+        name = (binding.name or "").strip()
+        return name.startswith("d") and "_" in name
+    except Exception:
+        return False
+
+
+def test_autodiff_ir_dump_all_ops():
+    """Dump result.ir (after autodiff) to one file per op under autodiff_ir_dumps/ for comparison with docs/AUTODIFF_EINSTEIN_OPS.md."""
+    from pathlib import Path
+    from einlang.ir.serialization import serialize_ir
+    dump_dir = Path(__file__).parent / "autodiff_ir_dumps"
+    dump_dir.mkdir(exist_ok=True)
+    compiler = CompilerDriver()
+    for op_name, source in _IR_DUMP_OPS:
+        result = compiler.compile(source.strip(), source_file="<test>")
+        assert result.success, "op %s: %s" % (op_name, result.get_errors())
+        sexpr = serialize_ir(result.ir)
+        (dump_dir / ("%s.sexpr" % op_name)).write_text(sexpr, encoding="utf-8")
+    assert dump_dir.exists()
+    assert len(list(dump_dir.glob("*.sexpr"))) >= len(_IR_DUMP_OPS)
+
+
+def test_autodiff_ir_dump_generated_only():
+    """Dump only the autodiff-generated bindings (d_*_d_*) per op to <op>_autodiff_only.sexpr for comparison with doc."""
+    from pathlib import Path
+    from einlang.ir.serialization import serialize_ir
+    from einlang.ir.nodes import ProgramIR
+    dump_dir = Path(__file__).parent / "autodiff_ir_dumps"
+    dump_dir.mkdir(exist_ok=True)
+    compiler = CompilerDriver()
+    for op_name, source in _IR_DUMP_OPS:
+        result = compiler.compile(source.strip(), source_file="<test>")
+        assert result.success, "op %s: %s" % (op_name, result.get_errors())
+        program = result.ir
+        derivative_bindings = [b for b in (program.bindings or []) if _is_autodiff_generated_binding(b)]
+        assert len(derivative_bindings) > 0, "op %s: expected at least one autodiff-generated binding (name with _d_)" % op_name
+        autodiff_only = ProgramIR(statements=derivative_bindings, source_files=program.source_files, modules=program.modules)
+        sexpr = serialize_ir(autodiff_only)
+        (dump_dir / ("%s_autodiff_only.sexpr" % op_name)).write_text(sexpr, encoding="utf-8")
+    assert len(list(dump_dir.glob("*_autodiff_only.sexpr"))) == len(_IR_DUMP_OPS)
+
+
+def _expr_contains_node_type(expr, node_type, binding_by_defid=None, visited_defids=None):
+    """Return True if expr tree contains a node of type node_type. If binding_by_defid is given, follow IdentifierIR to binding expr (one level per call to avoid infinite loop)."""
+    if expr is None:
+        return False
+    if visited_defids is None:
+        visited_defids = set()
+    if type(expr).__name__ == node_type:
+        return True
+    if type(expr).__name__ == "IdentifierIR" and binding_by_defid and getattr(expr, "defid", None) and expr.defid not in visited_defids:
+        b = binding_by_defid.get(expr.defid)
+        if b and b.expr is not None:
+            visited_defids.add(expr.defid)
+            if _expr_contains_node_type(b.expr, node_type, binding_by_defid, visited_defids):
+                return True
+    for attr in ("left", "right", "operand", "expr", "body", "condition", "then_expr", "else_expr", "array", "callee_expr", "arguments", "primal_body", "diff_body"):
+        if hasattr(expr, attr):
+            val = getattr(expr, attr)
+            if val is not None and _expr_contains_node_type(val, node_type, binding_by_defid, visited_defids):
+                return True
+    for attr in ("clauses", "statements", "items", "loops", "bindings"):
+        if hasattr(expr, attr):
+            for item in (getattr(expr, attr) or []):
+                if _expr_contains_node_type(item, node_type, binding_by_defid, visited_defids):
+                    return True
+                if hasattr(item, "expr") and _expr_contains_node_type(getattr(item, "expr"), node_type, binding_by_defid, visited_defids):
+                    return True
+                if hasattr(item, "value") and _expr_contains_node_type(getattr(item, "value"), node_type, binding_by_defid, visited_defids):
+                    return True
+    return False
+
+
+_OP_DOC_EXPECTATIONS = [
+    ("elementwise_unary", {"dy_dx"}, "scalar"),
+    ("elementwise_binary", {"dz_da", "dz_db"}, "scalar"),
+    ("matmul", {"dC_dA", "dC_dB"}, "einstein"),
+    ("affine", {"dy_dx", "dy_dW", "dy_db"}, "einstein"),
+    ("conv1d", {"d_out_dw"}, "einstein"),
+    ("reduction_sum", {"dr_dM"}, "einstein"),
+    ("reduction_max", {"dy_dx"}, "select_at_argmax"),
+    ("reduction_min", {"dy_dx"}, "select_at_argmax"),
+    ("reduction_prod", {"dy_dx"}, "einstein"),
+    ("row_sum", {"dr_dM"}, "einstein"),
+    ("column_sum", {"dc_dM"}, "einstein"),
+    ("two_factor", {"dy_dA", "dy_db"}, "einstein"),
+    ("attention_matmul_chain", {"d_out_d_Q"}, "einstein_or_any"),
+    ("batched_matmul", {"dC_dA", "dC_dB"}, "einstein"),
+    ("batched_reduction_sum", {"dy_dx"}, "einstein"),
+]
+
+_OP_DOC_EXPECTED_SHAPES = {
+    "elementwise_unary": [("dy_dx", ())],
+    "elementwise_binary": [("dz_da", ()), ("dz_db", ())],
+    "matmul": [("dC_dA", (2, 2, 2, 2)), ("dC_dB", (2, 2, 2, 2))],
+    "affine": [("dy_dx", (2, 2)), ("dy_dW", (2, 2)), ("dy_db", (2, 2))],
+    "reduction_sum": [("dr_dM", (2, 2))],
+    "reduction_max": [("dy_dx", (1, 3))],
+    "reduction_min": [("dy_dx", (1, 3))],
+    "reduction_prod": [("dy_dx", (1, 3))],
+    "row_sum": [("dr_dM", (2, 2))],
+    "column_sum": [("dc_dM", (2, 2))],
+    "two_factor": [("dy_dA", (2, 2)), ("dy_db", (2, 2))],
+    "attention_matmul_chain": [("d_out_d_Q", (1, 2, 2))],
+    "batched_matmul": [("dC_dA", (2, 2, 2, 2, 2, 2)), ("dC_dB", (2, 2, 2, 2, 2, 2))],
+    "batched_reduction_sum": [("dy_dx", (2, 2, 2))],
+}
+_OP_DOC_EXPECTED_SHAPES_SKIP_RUNTIME = frozenset({"conv1d"})
+
+
+def test_autodiff_dumped_ir_matches_doc():
+    """Compare autodiff-generated IR (after compile) to doc: expected binding names and expr structure per AUTODIFF_EINSTEIN_OPS.md."""
+    from einlang.ir.nodes import EinsteinIR, LoweredEinsteinIR, SelectAtArgmaxIR, LoweredSelectAtArgmaxIR, BindingIR
+    compiler = CompilerDriver()
+    for op_name, expected_names, structure in _OP_DOC_EXPECTATIONS:
+        source = next(s for n, s in _IR_DUMP_OPS if n == op_name)
+        result = compiler.compile(source.strip(), source_file="<test>")
+        assert result.success, "op %s: %s" % (op_name, result.get_errors())
+        program = result.ir
+        binding_by_defid = {b.defid: b for b in (program.bindings or []) if getattr(b, "defid", None) is not None}
+        derivative_bindings = [b for b in (program.bindings or []) if _is_autodiff_generated_binding(b)]
+        names = {b.name for b in derivative_bindings}
+        missing = expected_names - names
+        assert not missing, "op %s: doc expects bindings %s; missing %s; got %s" % (op_name, expected_names, missing, names)
+        for b in derivative_bindings:
+            if b.name not in expected_names:
+                continue
+            if structure == "scalar":
+                assert not _expr_contains_node_type(b.expr, "EinsteinIR", binding_by_defid) and not _expr_contains_node_type(b.expr, "LoweredEinsteinIR", binding_by_defid), (
+                    "op %s binding %s: doc §1/§2 scalar derivative, but expr has Einstein" % (op_name, b.name))
+            elif structure == "einstein":
+                assert _expr_contains_node_type(b.expr, "EinsteinIR", binding_by_defid) or _expr_contains_node_type(b.expr, "LoweredEinsteinIR", binding_by_defid), (
+                    "op %s binding %s: doc expects Einstein derivative clause; expr has no EinsteinIR/LoweredEinsteinIR" % (op_name, b.name))
+            elif structure == "select_at_argmax":
+                assert _expr_contains_node_type(b.expr, "SelectAtArgmaxIR", binding_by_defid) or _expr_contains_node_type(b.expr, "LoweredSelectAtArgmaxIR", binding_by_defid), (
+                    "op %s binding %s: doc §6 max/min δ at argmax/argmin; expr has no SelectAtArgmaxIR" % (op_name, b.name))
+            elif structure == "einstein_or_any":
+                pass
+
+
+def test_autodiff_dumped_ir_shapes_match_doc():
+    """Assert runtime output shapes of derivative bindings match doc (AUTODIFF_EINSTEIN_OPS): full Jacobian or grad shape = input shape."""
+    for op_name, shape_specs in _OP_DOC_EXPECTED_SHAPES.items():
+        if op_name in _OP_DOC_EXPECTED_SHAPES_SKIP_RUNTIME:
+            continue
+        source = next(s for n, s in _IR_DUMP_OPS if n == op_name)
+        _, out = _compile_run(source)
+        for binding_name, expected_shape in shape_specs:
+            val = out.get(binding_name)
+            assert val is not None, "op %s: missing output %s" % (op_name, binding_name)
+            arr = np.asarray(val)
+            actual = arr.shape
+            assert actual == expected_shape, (
+                "op %s binding %s: doc expects shape %s, got %s" % (op_name, binding_name, expected_shape, actual))

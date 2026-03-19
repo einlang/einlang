@@ -260,7 +260,7 @@ def _replace_einstein_groups_with_blocks(statements: list) -> None:
         else:
             run.sort(key=lambda d: (d.location.line if d.location else 0, d.location.column if d.location else 0))
             clauses = [
-                EinsteinClause(d.indices, d.value, d.where_clause, d.location)
+                EinsteinClause(d.indices, d.value, d.where_clause, location=d.location)
                 for d in run
             ]
             loc = run[0].location if run[0].location else None
