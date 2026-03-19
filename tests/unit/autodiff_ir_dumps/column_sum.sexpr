@@ -1,0 +1,223 @@
+(program
+  :bindings
+  ((binding
+      "M"
+      (array-literal
+        ((array-literal ((literal 1.0 f32) (literal 2.0 f32)) :shape_info (2))
+          (array-literal ((literal 3.0 f32) (literal 4.0 f32)) :shape_info (2))
+        )
+        :shape_info
+        (2 2)
+      )
+      (nil)
+      :defid
+      [0 0]
+    )
+    (binding "d_M" (literal 0 f32 :shape_info (2 2)) (rectangular-type (type f32) (2 2)) :defid [0 5])
+    (binding
+      "c"
+      (lowered-einstein
+        :shape
+        ((literal 2 i32))
+        :element_type
+        (type f32)
+        :items
+        ((lowered-einstein-clause
+            :body
+            (lowered-reduction
+              sum
+              :loop_defids
+              "0:3"
+              :loop_var_ranges
+              (([0 3] (range (literal 0 i32) (literal 2 i32))))
+              :body
+              (rectangular-access
+                (variable "M" :defid [0 0])
+                ((index-var "i" :defid [0 3] :shape_info (2 2)) (index-var "j" :defid [0 2] :shape_info (2 2)))
+              )
+              :loops
+              ((loop (variable "i" :defid [0 3]) (range (literal 0 i32) (literal 2 i32))))
+              :bindings
+              ()
+              :guards
+              ()
+            )
+            :loops
+            ((loop (index-var "j" :defid [0 2]) (range (literal 0 i32) (literal 2 i32))))
+            :loop_var_ranges
+            (([0 2] (range (literal 0 i32) (literal 2 i32))))
+            :bindings
+            ()
+            :guards
+            ()
+            :reduction_ranges
+            (([0 3] (loop (variable "i" :defid [0 3]) (range (literal 0 i32) (literal 2 i32)))))
+            :indices
+            ((index-var "j" :defid [0 2] :range (range (literal 0 i32) (literal 2 i32)) :shape_info (2 2)))
+            :recurrence_dims_override
+            ()
+            :reduction_loop_defids
+            "0:3"
+          )
+        )
+      )
+      (nil)
+      :defid
+      [0 1]
+    )
+    (binding
+      "d_c"
+      (lowered-einstein
+        :shape
+        ((literal 2 i32))
+        :element_type
+        (type f32)
+        :items
+        ((lowered-einstein-clause
+            :body
+            (lowered-reduction
+              sum
+              :loop_defids
+              "0:3"
+              :loop_var_ranges
+              (([0 3] (range (literal 0 i32) (literal 2 i32))))
+              :body
+              (rectangular-access
+                (variable "d_M" :defid [0 5] :shape_info (2 2))
+                ((index-var "i" :defid [0 3] :shape_info (2 2)) (index-var "j" :defid [0 2] :shape_info (2 2)))
+                :shape_info
+                (2 2)
+              )
+              :loops
+              ((loop (variable "i" :defid [0 3]) (range (literal 0 i32) (literal 2 i32))))
+              :bindings
+              ()
+              :guards
+              ()
+            )
+            :loops
+            ((loop (index-var "j" :defid [0 2]) (range (literal 0 i32) (literal 2 i32))))
+            :loop_var_ranges
+            (([0 2] (range (literal 0 i32) (literal 2 i32))))
+            :bindings
+            ()
+            :guards
+            ()
+            :reduction_ranges
+            (([0 3] (loop (variable "i" :defid [0 3]) (range (literal 0 i32) (literal 2 i32)))))
+            :indices
+            ((index-var "j" :defid [0 2] :range (range (literal 0 i32) (literal 2 i32)) :shape_info (2 2)))
+            :recurrence_dims_override
+            ()
+            :reduction_loop_defids
+            "0:3"
+          )
+        )
+      )
+      (rectangular-type (type f32) (2))
+      :defid
+      [0 6]
+    )
+    (binding
+      "dc_dM"
+      (lowered-einstein
+        :shape
+        ((literal 2 i32) (literal 2 i32))
+        :element_type
+        (type f32)
+        :items
+        ((lowered-einstein-clause
+            :body
+            (lowered-reduction
+              sum
+              :loop_defids
+              "0:3"
+              :loop_var_ranges
+              (([0 3] (range (literal 0 i32) (literal 2 i32))))
+              :body
+              (literal 1 f32 :shape_info (2 2))
+              :loops
+              ((loop (variable "i" :defid [0 3]) (range (literal 0 i32) (literal 2 i32))))
+              :bindings
+              ()
+              :guards
+              ((binary-op
+                  ==
+                  (index-var "i" :defid [0 3] :shape_info (2 2))
+                  (index-var
+                    "_ad_0"
+                    :defid
+                    [0 7]
+                    :range
+                    (range
+                      (literal 0 i32)
+                      (rectangular-access (member-access (variable "M" :defid [0 0]) "shape") ((literal 0 i32)))
+                    )
+                    :shape_info
+                    (2 2)
+                  )
+                  :shape_info
+                  (2 2)
+                )
+              )
+            )
+            :loops
+            ((loop
+                (index-var "_ad_0" :defid [0 7])
+                (range
+                  (literal 0 i32)
+                  (rectangular-access (member-access (variable "M" :defid [0 0]) "shape") ((literal 0 i32)))
+                )
+              )
+              (loop (index-var "j" :defid [0 2]) (range (literal 0 i32) (literal 2 i32)))
+            )
+            :loop_var_ranges
+            (([0 7]
+                (range
+                  (literal 0 i32)
+                  (rectangular-access (member-access (variable "M" :defid [0 0]) "shape") ((literal 0 i32)))
+                )
+              )
+              ([0 2] (range (literal 0 i32) (literal 2 i32)))
+            )
+            :bindings
+            ()
+            :guards
+            ()
+            :reduction_ranges
+            (([0 3] (loop (variable "i" :defid [0 3]) (range (literal 0 i32) (literal 2 i32)))))
+            :indices
+            ((index-var
+                "_ad_0"
+                :defid
+                [0 7]
+                :range
+                (range
+                  (literal 0 i32)
+                  (rectangular-access (member-access (variable "M" :defid [0 0]) "shape") ((literal 0 i32)))
+                )
+                :shape_info
+                (2 2)
+              )
+              (index-var "j" :defid [0 2] :range (range (literal 0 i32) (literal 2 i32)) :shape_info (2 2))
+            )
+            :recurrence_dims_override
+            ()
+            :reduction_loop_defids
+            "0:3"
+          )
+        )
+      )
+      (nil)
+      :defid
+      [0 4]
+    )
+  )
+  :source_files
+  (("<test>"
+      "let M = [[1.0, 2.0], [3.0, 4.0]];
+let c[j] = sum[i](M[i, j]);
+let dc_dM = @c / @M;"
+    )
+  )
+)

@@ -832,6 +832,7 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
                     shape = self.analyzer.get_shape(node.value)
                     if shape:
                         self.analyzer.defid_to_shape[node.defid] = shape
+                        self.analyzer.set_shape(node, shape)
     
     # Required visitor methods (no-op for other nodes)
     def visit_literal(self, node) -> None:
@@ -846,12 +847,11 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
             node.left.accept(self)
         if node.right:
             node.right.accept(self)
-        # Gradient quotient (df/dx): when both operands are gradient-typed, result shape is
-        # elementwise (same as numerator). Design allows scalar or elementwise; we use elementwise.
+        # Gradient quotient (@num/@den): ∂num/∂den has shape of denominator (wrt). Julia-aligned: gradient has shape of x.
         if node.operator == BinaryOp.DIV and isinstance(node.left, DifferentialIR) and isinstance(node.right, DifferentialIR):
-            num_shape = self.analyzer.get_shape(node.left)
-            if num_shape:
-                shape = tuple(num_shape) if not isinstance(num_shape, tuple) else num_shape
+            den_shape = self.analyzer.get_shape(node.right)
+            if den_shape:
+                shape = tuple(den_shape) if not isinstance(den_shape, tuple) else den_shape
                 self.analyzer.set_shape(node, shape)
                 node.shape_info = shape
     

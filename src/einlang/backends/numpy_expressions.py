@@ -264,8 +264,9 @@ def _infer_reduction_axes_from_shape(
 
 
 def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
+    from ..shared.types import ReductionOp
     op = expr.operation
-    if op != "sum":
+    if op != ReductionOp.SUM:
         return None
     if expr.guards or expr.bindings:
         return None
@@ -459,8 +460,9 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
 def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
     """Strict 1D conv fast path: sum[ci,k](input[ci, stride*t+k] * weight[co,ci,k]) + bias, stride 1 or 2.
     Uses im2col unfold + np.einsum. Returns None if pattern does not match."""
+    from ..shared.types import ReductionOp
     op = expr.operation
-    if op != "sum":
+    if op != ReductionOp.SUM:
         return None
     if expr.guards or expr.bindings:
         return None
@@ -649,8 +651,9 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     """Generic sum-of-product fast path: sum over (left * right [+ bias]) lowered to np.einsum.
     Supports any number of reduction dims; indices must be simple (IdentifierIR/IndexVarIR) on reduction dims.
     NumPy einsum uses BLAS where applicable (e.g. matrix multiply)."""
+    from ..shared.types import ReductionOp
     op = expr.operation
-    if op != "sum":
+    if op != ReductionOp.SUM:
         return None
     if expr.guards or expr.bindings:
         return None
@@ -1373,10 +1376,127 @@ class ExpressionVisitorMixin:
                     self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
             from ..runtime.compute.lowered_execution import check_lowered_guards
             return check_lowered_guards(expr.guards, _ctx, lambda c: self._to_bool(c.accept(self)))
-        # When reduction has guards, pass parallel indices (e.g. derivative clause i,j,r,s) so guards see them
+        # Pass parallel indices into reduction so body/guards can see them.
+        # In scalar Einstein execution, numpy_einstein sets `_reduction_initial_context` per-iteration.
+        # In fully vectorized execution via _eval_clause_body_with_broadcast_loops, parallel vars are
+        # already in the env with correct ndim (clause_ndim + n_red). Do NOT rebuild initial_ctx in
+        # that case — rebuilding would create arrays with wrong dimensionality (parallel-only ndim)
+        # that clobber the correct env values when body_ev sets them.
         initial_ctx = getattr(self, "_reduction_initial_context", None) or {}
+        if (not initial_ctx) and parallel_shape:
+            order_defids = getattr(self, "_vectorize_parallel_defids_order", None)
+            if order_defids is not None and len(order_defids) == len(parallel_shape):
+                pass
+            else:
+                try:
+                    from ..ir.nodes import RectangularAccessIR
+                    reduction_body_defids = set(_loop_to_body_defid.values()) | set(_loop_to_body_defid.keys())
+                    if isinstance(expr.body, RectangularAccessIR):
+                        par_defids: List[Any] = []
+                        for idx in (expr.body.indices or []):
+                            d = getattr(idx, "defid", None)
+                            if d is not None and d not in reduction_body_defids:
+                                par_defids.append(d)
+                        if len(par_defids) == len(parallel_shape):
+                            par_shape = tuple(parallel_shape)
+                            initial_ctx = {}
+                            for i, did in enumerate(par_defids):
+                                n = par_shape[i]
+                                shape = (1,) * i + (n,) + (1,) * (len(par_shape) - i - 1)
+                                initial_ctx[did] = np.arange(n, dtype=np.intp).reshape(shape)
+                except Exception:
+                    pass
+
+        # Guarded vectorized reduction: evaluate guards elementwise as arrays and keep the reduction
+        # on a vectorized path (instead of scalar loops). This is safe when guards/body are pure
+        # NumPy expressions. Works both with parallel dims (parallel_shape) and standalone guarded
+        # reductions (treat parallel_shape as ()).
+        if expr.guards:
+            from ..shared.types import ReductionOp
+            op = expr.operation
+            if op in (ReductionOp.SUM, ReductionOp.PROD, ReductionOp.MIN, ReductionOp.MAX):
+                try:
+                    reduction_loops = list((expr.reduction_ranges or {}).values())
+                    n_red = len(reduction_loops)
+                    par_shape = tuple(parallel_shape) if parallel_shape is not None else ()
+                    # Build broadcasted index arrays for reduction loops (same strategy as vectorized reduction).
+                    arrs: List[np.ndarray] = []
+                    loop_defids: List[Any] = []
+                    for loop in reduction_loops:
+                        d = loop.variable.defid
+                        iterable = ev(loop.iterable)
+                        if isinstance(iterable, range):
+                            step = iterable.step if iterable.step is not None else 1
+                            a = np.arange(iterable.start, iterable.stop, step, dtype=np.intp)
+                        else:
+                            a = np.array(list(iterable), dtype=np.intp)
+                        arrs.append(a)
+                        loop_defids.append(d)
+                    expected_shape = tuple(int(a.size) for a in arrs)
+                    full_shape = par_shape + expected_shape
+                    ctx: Dict[Any, Any] = {}
+                    # Parallel indices (e.g. b) → broadcast to full shape
+                    if initial_ctx:
+                        for did, val in initial_ctx.items():
+                            if did is None:
+                                continue
+                            v = np.asarray(val, dtype=np.intp)
+                            if par_shape:
+                                if v.ndim == 1 and len(par_shape) == 1 and v.shape[0] == par_shape[0]:
+                                    v = v.reshape((par_shape[0],) + (1,) * n_red)
+                                elif v.shape == tuple(par_shape):
+                                    v = v.reshape(tuple(par_shape) + (1,) * n_red)
+                            else:
+                                # Standalone reduction: scalar initial_ctx values broadcast over reduction grid.
+                                if v.ndim == 0:
+                                    v = v.reshape((1,) * n_red)
+                            ctx[did] = np.broadcast_to(v, full_shape)
+                    # Reduction indices
+                    for i, (did, a) in enumerate(zip(loop_defids, arrs)):
+                        red_shape = (a.size,) if n_red == 1 else tuple((a.size if j == i else 1) for j in range(n_red))
+                        red_arr = a.reshape(red_shape)
+                        ctx[did] = np.broadcast_to(red_arr, full_shape)
+
+                    # Evaluate body + guards elementwise.
+                    body_val = body_ev(ctx)
+                    body_arr = np.asarray(body_val) if not isinstance(body_val, np.ndarray) else body_val
+                    if body_arr.shape != full_shape:
+                        body_arr = np.broadcast_to(body_arr, full_shape)
+                    mask = np.ones(full_shape, dtype=bool)
+                    for g in (expr.guards or []):
+                        gv = g.condition.accept(self)
+                        gv_arr = np.asarray(gv, dtype=bool) if not isinstance(gv, np.ndarray) else gv.astype(bool, copy=False)
+                        if gv_arr.shape != full_shape:
+                            gv_arr = np.broadcast_to(gv_arr, full_shape)
+                        mask &= gv_arr
+
+                    # Apply mask then reduce over last n_red axes.
+                    red_axes = tuple(range(-n_red, 0))
+                    if op == ReductionOp.SUM:
+                        out = np.where(mask, body_arr, 0).sum(axis=red_axes)
+                    elif op == ReductionOp.PROD:
+                        out = np.where(mask, body_arr, 1).prod(axis=red_axes)
+                    elif op == ReductionOp.MIN:
+                        out = np.where(mask, body_arr, np.inf).min(axis=red_axes)
+                    elif op == ReductionOp.MAX:
+                        out = np.where(mask, body_arr, -np.inf).max(axis=red_axes)
+                    else:
+                        out = None
+                    if out is not None:
+                        # NumPy may return np.ndarray for parallel outputs, but for scalar outputs
+                        # it may return a NumPy scalar (np.generic). Treat both as success.
+                        if isinstance(out, np.ndarray):
+                            if out.shape == par_shape:
+                                reduction_profile("vectorized")
+                                return out
+                        else:
+                            if par_shape == () and isinstance(out, (np.generic, int, float, bool)):
+                                reduction_profile("vectorized")
+                                return out
+                except Exception:
+                    pass
         return execute_reduction_with_loops(
-            (expr.operation or "sum"),
+            expr.operation,
             (expr.reduction_ranges or {}),
             body_ev,
             ev,
@@ -1474,7 +1594,7 @@ class ExpressionVisitorMixin:
             use_argmin=getattr(expr, "use_argmin", False),
         )
         if not ok or result is None:
-            raise RuntimeError("SelectAtArgmax/SelectAtArgmin vectorized execution failed")
+            raise RuntimeError("SelectAtArgmax vectorized execution failed")
         return result
 
     def visit_where_expression(self, expr: WhereExpressionIR) -> Any:

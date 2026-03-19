@@ -511,7 +511,7 @@ class EinlangTransformer(Transformer):
             where_clause = value.where_clause
             value = value.expr
         from ...shared.nodes import EinsteinClause
-        clause = EinsteinClause(indices, value, where_clause, location)
+        clause = EinsteinClause(indices, value, where_clause, location=location)
         return EinsteinDeclaration(array_name=str(name), clauses=[clause], location=location)
     
     # =========================================================================

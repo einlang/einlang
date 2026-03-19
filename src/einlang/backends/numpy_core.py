@@ -18,6 +18,7 @@ from ..ir.nodes import (
 )
 from ..shared.defid import DefId, Resolver, FIXED_BUILTIN_ORDER, _BUILTIN_CRATE
 from ..shared.types import BinaryOp
+from ..shared.types import ReductionOp
 from ..runtime.environment import ExecutionEnvironment, FunctionValue
 from ..runtime.runtime import ExecutionResult
 from .numpy_helpers import (
@@ -57,7 +58,7 @@ def _single_array_param(func_def: Any) -> bool:
 class _ContainsReductionWithOpVisitor(IRVisitor[bool]):
     """True if expression contains a LoweredReductionIR with the given operation."""
 
-    def __init__(self, operation: str) -> None:
+    def __init__(self, operation: ReductionOp) -> None:
         self._op = operation
 
     def _default(self) -> bool:
@@ -180,7 +181,7 @@ class _ContainsReductionWithOpVisitor(IRVisitor[bool]):
 def _body_has_reduction(body: Any, operation: str) -> bool:
     """True if body (block or binding list) contains a LoweredReductionIR with the given operation."""
     statements = body.statements or []
-    visitor = _ContainsReductionWithOpVisitor(operation)
+    visitor = _ContainsReductionWithOpVisitor(ReductionOp.parse(operation))
     for stmt in statements:
         if not isinstance(stmt, BindingIR):
             continue
@@ -218,8 +219,8 @@ def _check_block_is_index_of_extremum(body: BlockExpressionIR) -> Optional[str]:
                         first_elem_ok = True
                 except (TypeError, ValueError):
                     pass
-    final_is_min_red = isinstance(final_expr, LoweredReductionIR) and final_expr.operation == "min"
-    final_is_max_red = isinstance(final_expr, LoweredReductionIR) and final_expr.operation == "max"
+    final_is_min_red = isinstance(final_expr, LoweredReductionIR) and final_expr.operation == ReductionOp.MIN
+    final_is_max_red = isinstance(final_expr, LoweredReductionIR) and final_expr.operation == ReductionOp.MAX
     if (has_max and not has_min) and (first_elem_ok and has_comprehension or final_is_min_red):
         return "argmax"
     if (has_min and not has_max) and (first_elem_ok and has_comprehension or final_is_max_red):
@@ -421,6 +422,12 @@ class CoreExecutionMixin:
                                 name = stmt.name if isinstance(stmt, BindingIR) else ""
                                 print(f"[profile] stmt {stmt_index} (L{line}) {name}: {elapsed:.2f}s", flush=True)
                             continue
+                        if profile_statements:
+                            elapsed = time.perf_counter() - self._stmt_t0
+                            line = (stmt.location.line if stmt.location else None) or "?"
+                            name = stmt.name if isinstance(stmt, BindingIR) else ""
+                            print(f"[profile] stmt {stmt_index} (L{line}) {name}: {elapsed:.2f}s", flush=True)
+                            continue
                         variable_defid = None
                         if isinstance(stmt, BindingIR) and not is_function_binding(stmt):
                             variable_defid = stmt.defid
@@ -468,10 +475,21 @@ class CoreExecutionMixin:
                             for leaf in differential_leaves:
                                 d_defid = d_map.get(leaf)
                                 if d_defid is not None:
-                                    # Use float so downstream division is true_divide, not integer division.
-                                    self.env.set_value(
-                                        d_defid, 1.0 if leaf == den_defid else 0.0, name=None
-                                    )
+                                    # Seed leaf differentials with shape-correct arrays when possible so
+                                    # autodiff-expanded reductions stay vectorizable. Fall back to scalar
+                                    # seeds for scalar leaves.
+                                    primal_val = self.env.get_value(leaf)
+                                    on = (leaf == den_defid)
+                                    if isinstance(primal_val, np.ndarray):
+                                        seed = (
+                                            np.ones_like(primal_val, dtype=np.float32)
+                                            if on
+                                            else np.zeros_like(primal_val, dtype=np.float32)
+                                        )
+                                    else:
+                                        # Use float so downstream division is true_divide, not integer division.
+                                        seed = 1.0 if on else 0.0
+                                    self.env.set_value(d_defid, seed, name=None)
                             for stmt in (diff_ir if isinstance(diff_ir, list) else [diff_ir]):
                                 if isinstance(stmt, BindingIR) and stmt.defid in leaf_d_defids:
                                     continue
@@ -513,7 +531,12 @@ class CoreExecutionMixin:
                         for leaf in differential_leaves:
                             d_defid = d_map.get(leaf)
                             if d_defid is not None:
-                                self.env.set_value(d_defid, 1.0, name=None)
+                                primal_val = self.env.get_value(leaf)
+                                if isinstance(primal_val, np.ndarray):
+                                    seed = np.ones_like(primal_val, dtype=np.float32)
+                                else:
+                                    seed = 1.0
+                                self.env.set_value(d_defid, seed, name=None)
                         for stmt in (diff_ir if isinstance(diff_ir, list) else [diff_ir]):
                             stmt.accept(self)
                         differential_buffers = {

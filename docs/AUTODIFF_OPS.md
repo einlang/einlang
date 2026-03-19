@@ -2,6 +2,8 @@
 
 This document lists **derivative formulas** for each op. It extends [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md). Notation: partial y / partial x means the derivative of y with respect to x.
 
+**Einstein notation:** For the same derivatives expressed in index/Einstein form (∂y/∂x for all ML ops), see [AUTODIFF_EINSTEIN_OPS.md](AUTODIFF_EINSTEIN_OPS.md).
+
 **Matmul, conv, and einsum:** The compiler differentiates **high-level Einstein notation** (before lowering). So **matrix multiply** (`let C[i,j] = sum[k](A[i,k]*B[k,j])`), **convolution** expressed as Einstein with a where-clause (e.g. `sum[kh,kw](in[ih,iw]*w[kh,kw]) where ih = oh+kh, iw = ow+kw`), and **any einsum-style sum-of-products** are all supported: use `@C / @A`, `@out / @w`, etc. See [AUTODIFF_EINSTEIN.md](AUTODIFF_EINSTEIN.md) and examples [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein).
 
 ---
@@ -83,11 +85,11 @@ y = conv(x, w, b) (standard stride/padding/dilation).
 
 **sum over subset:** e.g. y[i] = sum_j x[i,j].  partial y[i] / partial x[i,j] = 1 (broadcast along j).
 
-**max:** y = max_i x_i.  partial y / partial x_i = 1 where i = argmax(x), else 0 (subgradient; one-hot or normalized if multiple argmax).
+**max:** y = max_i x_i.  partial y / partial x_i = 1 where i = argmax(x), else 0 (subgradient; one-hot or normalized if multiple argmax). Gradient shape is **squeezed** (output shape = parallel_shape), aligned with Julia ChainRules; see AUTODIFF_DESIGN.md §8.1.
 
-**min:** Same idea with argmin. Implemented as select-at-argmin (d_body at argmin(primal)).
+**min:** Same idea with argmin. Implemented as select-at-argmin (d_body at argmin(primal)). Same squeezed gradient shape as max.
 
-**prod:** y = prod_i x_i.  partial y / partial x_i = prod_{j != i} x_j. Implemented as (prod body) * sum_i (d_body_i / body_i); valid when body_i != 0.
+**prod:** y = prod_i x_i.  partial y / partial x_i = prod_{j != i} x_j = (prod x)/x_i. Implemented as (prod body) * sum_i (d_body_i / body_i); valid when body_i != 0. Gradient has **shape of x** (like sum; unlike max/min which are squeezed). Julia ChainRules: same formula; special handling when body has zeros (one zero → gradient only at that index; multiple zeros → zero); see AUTODIFF_DESIGN.md §8.1.
 
 ---
 

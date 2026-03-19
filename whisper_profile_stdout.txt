@@ -1,0 +1,97 @@
+[profile] fn load_npy: 0.01s
+[profile] stmt 0 (L11) enc_conv1_w: 0.01s
+[profile] stmt 1 (L12) enc_conv1_b: 0.00s
+[profile] fn load_npy: 0.01s
+[profile] stmt 2 (L13) enc_conv2_w: 0.01s
+[profile] stmt 3 (L14) enc_conv2_b: 0.00s
+[profile] stmt 4 (L15) enc_pos_emb: 0.01s
+[profile] stmt 5 (L17) enc_blk_sa_ln_w: 0.00s
+[profile] stmt 6 (L18) enc_blk_sa_ln_b: 0.00s
+[profile] stmt 7 (L19) enc_blk_sa_q_w: 0.01s
+[profile] stmt 8 (L20) enc_blk_sa_q_b: 0.00s
+[profile] stmt 9 (L21) enc_blk_sa_k_w: 0.00s
+[profile] stmt 10 (L22) enc_blk_sa_v_w: 0.01s
+[profile] stmt 11 (L23) enc_blk_sa_v_b: 0.00s
+[profile] fn load_npy: 0.01s
+[profile] stmt 12 (L24) enc_blk_sa_o_w: 0.01s
+[profile] stmt 13 (L25) enc_blk_sa_o_b: 0.01s
+[profile] stmt 14 (L26) enc_blk_mlp_ln_w: 0.00s
+[profile] fn load_npy: 0.01s
+[profile] stmt 15 (L27) enc_blk_mlp_ln_b: 0.01s
+[profile] fn load_npy: 0.01s
+[profile] stmt 16 (L28) enc_blk_fc1_w: 0.02s
+[profile] stmt 17 (L29) enc_blk_fc1_b: 0.00s
+[profile] fn load_npy: 0.01s
+[profile] stmt 18 (L30) enc_blk_fc2_w: 0.01s
+[profile] stmt 19 (L31) enc_blk_fc2_b: 0.01s
+[profile] stmt 20 (L33) enc_ln_w: 0.01s
+[profile] stmt 21 (L34) enc_ln_b: 0.00s
+[profile] fn load_npy: 0.10s
+[profile] stmt 22 (L37) dec_tok_emb: 0.10s
+[profile] stmt 23 (L38) dec_pos_emb: 0.01s
+[profile] stmt 24 (L40) dec_blk_sa_ln_w: 0.01s
+[profile] stmt 25 (L41) dec_blk_sa_ln_b: 0.01s
+[profile] stmt 26 (L42) dec_blk_sa_q_w: 0.01s
+[profile] stmt 27 (L43) dec_blk_sa_q_b: 0.01s
+[profile] fn load_npy: 0.01s
+[profile] stmt 28 (L44) dec_blk_sa_k_w: 0.01s
+[profile] stmt 29 (L45) dec_blk_sa_v_w: 0.00s
+[profile] stmt 30 (L46) dec_blk_sa_v_b: 0.00s
+[profile] stmt 31 (L47) dec_blk_sa_o_w: 0.01s
+[profile] stmt 32 (L48) dec_blk_sa_o_b: 0.00s
+[profile] stmt 33 (L50) dec_blk_ca_ln_w: 0.00s
+[profile] stmt 34 (L51) dec_blk_ca_ln_b: 0.00s
+[profile] stmt 35 (L52) dec_blk_ca_q_w: 0.01s
+[profile] stmt 36 (L53) dec_blk_ca_q_b: 0.00s
+[profile] stmt 37 (L54) dec_blk_ca_k_w: 0.00s
+[profile] stmt 38 (L55) dec_blk_ca_v_w: 0.00s
+[profile] stmt 39 (L56) dec_blk_ca_v_b: 0.00s
+[profile] stmt 40 (L57) dec_blk_ca_o_w: 0.00s
+[profile] stmt 41 (L58) dec_blk_ca_o_b: 0.00s
+[profile] stmt 42 (L60) dec_blk_mlp_ln_w: 0.00s
+[profile] stmt 43 (L61) dec_blk_mlp_ln_b: 0.00s
+[profile] fn load_npy: 0.02s
+[profile] stmt 44 (L62) dec_blk_fc1_w: 0.02s
+[profile] stmt 45 (L63) dec_blk_fc1_b: 0.00s
+[profile] fn load_npy: 0.01s
+[profile] stmt 46 (L64) dec_blk_fc2_w: 0.02s
+[profile] stmt 47 (L65) dec_blk_fc2_b: 0.01s
+[profile] stmt 48 (L67) dec_ln_w: 0.00s
+[profile] stmt 49 (L68) dec_ln_b: 0.00s
+[profile] stmt 50 (L72) encoder_block: 0.00s
+[profile] stmt 51 (L115) encode: 0.00s
+[profile] stmt 52 (L147) decoder_block: 0.00s
+[profile] fn load_npy: 0.01s
+[profile] stmt 53 (L223) mel: 0.01s
+[profile] clause L1 mel_pad = mel (80, 3002): [32m0.007s[0m [vectorized]
+[profile] clause L1 mel_pad = literal (80, 3002): [32m0.000s[0m [vectorized]
+[profile] clause L1 mel_pad = literal (80, 3002): [32m0.000s[0m [vectorized]
+[profile] clause L1 mel_pad = mel (80, 3002): [32m0.003s[0m [vectorized]
+[profile] clause L1 mel_pad = literal (80, 3002): [32m0.000s[0m [vectorized]
+[profile] clause L1 mel_pad = literal (80, 3002): [32m0.000s[0m [vectorized]
+[reduction] vectorized L121
+[profile] clause L1 c1 = ReductionOp.SUM ADD enc_conv1_b (384, 3000): [32m10.256s[0m [vectorized]
+[profile] fn tanh_f32: 0.04s
+[profile] fn gelu_f32: 0.06s
+[profile] clause L1 c1a = gelu(...) (384, 3000): [32m0.063s[0m [vectorized]
+[profile] clause L1 c1_pad = c1a (384, 3002): [32m0.013s[0m [vectorized]
+[profile] clause L1 c1_pad = literal (384, 3002): [32m0.001s[0m [vectorized]
+[profile] clause L1 c1_pad = literal (384, 3002): [32m0.001s[0m [vectorized]
+[profile] clause L1 c1_pad = c1a (384, 3002): [32m0.007s[0m [vectorized]
+[profile] clause L1 c1_pad = literal (384, 3002): [32m0.001s[0m [vectorized]
+[profile] clause L1 c1_pad = literal (384, 3002): [32m0.001s[0m [vectorized]
+[reduction] vectorized L130
+[profile] clause L1 c2 = ReductionOp.SUM ADD enc_conv2_b (384, 1500): [32m70.406s[0m [vectorized]
+[profile] fn gelu_f32: 0.03s
+[profile] clause L1 c2a = gelu(...) (384, 1500): [32m0.042s[0m [vectorized]
+[profile] clause L1 enc_in = c2a ADD enc_pos_emb (1500, 384): [32m0.022s[0m [vectorized]
+[reduction] vectorized L86
+[profile] clause L1 mean = ReductionOp.SUM DIV n (1500,): [32m0.017s[0m [vectorized]
+[reduction] vectorized L87
+[profile] clause L1 variance = ReductionOp.SUM DIV n (1500,): [32m0.018s[0m [vectorized]
+[profile] clause L1 std = sqrt(...) (1500,): [32m0.002s[0m [vectorized]
+[profile] clause L1 output = scale MUL X SUB ADD B (1500, 384): [32m0.014s[0m [vectorized]
+[profile] fn layer_normalization_[f32; ?, ?]_[f32; ?]_[f32; ?]_f32_i32: 0.08s
+[reduction] vectorized L76
+[profile] clause L1 Q = ReductionOp.SUM ADD enc_blk_sa_q_b (1500, 384): [32m6.554s[0m [vectorized]
+[reduction] scalar L78

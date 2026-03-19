@@ -34,6 +34,7 @@ _KNOWN_SYMBOLS = frozenset({
     "tuple-type", "function-type", "callee", "true", "false", "...",
     "i8", "i32", "i64", "f8e4m3", "f16", "bf16", "f32", "f64", "bool", "str", "+", "-", "*", "/", "%", "**",
     "==", "!=", "<", "<=", ">", ">=", "&&", "||", "!", "sum", "prod", "min", "max",
+    "select-at-argmax", "lowered-select-at-argmax",
 })
 
 
@@ -540,6 +541,8 @@ class IRSerializer:
     
     def _serialize_LoweredReductionIR(self, node) -> list:
         """Serialize LoweredReductionIR: (lowered-reduction op :body ... :loops ...)"""
+        from ..shared.types import ReductionOp
+        op = node.operation.value if isinstance(node.operation, ReductionOp) else node.operation
         body = self.serialize_to_sexpr(node.body)
         loops = [self._serialize_LoopStructure(loop) for loop in node.loops]
         loop_var_ranges = []
@@ -553,7 +556,7 @@ class IRSerializer:
             d = loop.variable.defid
             return f"{d.krate}:{d.index}" if d else "?"
         loop_defids_str = ",".join(_defid_str(loop) for loop in node.loops)
-        core = [self._sym("lowered-reduction"), node.operation,
+        core = [self._sym("lowered-reduction"), self._sym(op),
                 self._sym(":loop_defids"), loop_defids_str,
                 self._sym(":loop_var_ranges"), loop_var_ranges,
                 self._sym(":body"), body,
@@ -629,11 +632,42 @@ class IRSerializer:
     
     # === Reduction Expressions ===
     
+    def _serialize_SelectAtArgmaxIR(self, node) -> list:
+        """Serialize select-at-argmax: (select-at-argmax primal_body diff_body (loop_vars...) :loop_var_ranges ... :use_argmin)."""
+        primal = self.serialize_to_sexpr(node.primal_body)
+        diff = self.serialize_to_sexpr(node.diff_body)
+        loop_vars_sexpr = [self.serialize_to_sexpr(v) for v in (node.loop_vars or [])]
+        core = [self._sym("select-at-argmax"), primal, diff, loop_vars_sexpr]
+        lvr = node.loop_var_ranges or {}
+        if lvr:
+            loop_ranges = [[self._brackets([d.krate, d.index]), self.serialize_to_sexpr(r)] for d, r in lvr.items()]
+            core.extend([self._sym(":loop_var_ranges"), loop_ranges])
+        if getattr(node, "use_argmin", False):
+            core.extend([self._sym(":use_argmin"), self._sym("true")])
+        return self._add_expr_metadata(node, core)
+
+    def _serialize_LoweredSelectAtArgmaxIR(self, node) -> list:
+        """Serialize lowered-select-at-argmax: (lowered-select-at-argmax primal_body diff_body :loops ... :bindings ... :guards ... :use_argmin)."""
+        primal = self.serialize_to_sexpr(node.primal_body)
+        diff = self.serialize_to_sexpr(node.diff_body)
+        core = [self._sym("lowered-select-at-argmax"), primal, diff]
+        if node.loops:
+            core.extend([self._sym(":loops"), [self._serialize_LoopStructure(loop) for loop in node.loops]])
+        if node.bindings:
+            core.extend([self._sym(":bindings"), [self.serialize_to_sexpr(b) for b in node.bindings]])
+        if node.guards:
+            core.extend([self._sym(":guards"), [self.serialize_to_sexpr(g.condition) for g in node.guards]])
+        if getattr(node, "use_argmin", False):
+            core.extend([self._sym(":use_argmin"), self._sym("true")])
+        return self._add_expr_metadata(node, core)
+
     def _serialize_ReductionExpressionIR(self, node) -> list:
         """Serialize reduction: (reduction op (vars...) body :loop_var_ranges ... :where_clause ...). vars are full IR for round-trip."""
+        from ..shared.types import ReductionOp
         body = self.serialize_to_sexpr(node.body)
         loop_vars_sexpr = [self.serialize_to_sexpr(v) for v in (node.loop_vars or [])]
-        core = [self._sym("reduction"), node.operation, loop_vars_sexpr, body]
+        op = node.operation.value if isinstance(node.operation, ReductionOp) else node.operation
+        core = [self._sym("reduction"), op, loop_vars_sexpr, body]
         lvr = node.loop_var_ranges or {}
         if lvr:
             loop_ranges = [[self._brackets([d.krate, d.index]), self.serialize_to_sexpr(r)] for d, r in lvr.items()]
@@ -1485,9 +1519,11 @@ class IRDeserializer:
 
     def _deserialize_lowered_reduction(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LoweredReductionIR, GuardCondition, BindingIR
+        from ..shared.types import ReductionOp
         pos, opts = _plist(tail)
         loc = self._loc_from_opts(opts)
-        operation = _sym_val(pos[0]) if pos else "sum"
+        op_str = _sym_val(pos[0]) if pos else "sum"
+        operation = ReductionOp.parse(op_str) if isinstance(op_str, str) else op_str
         body = self.deserialize(opts.get(":body"))
         loops_sexpr = opts.get(":loops")
         loops = []
@@ -1661,10 +1697,11 @@ class IRDeserializer:
 
     def _deserialize_reduction(self, _tag: str, tail: list, full: list) -> Any:
         from ..ir.nodes import ReductionExpressionIR, IndexVarIR
+        from ..shared.types import ReductionOp
         from ..shared.source_location import SourceLocation
         if len(tail) < 3:
             loc = self._loc_from_opts(tail[3:]) or SourceLocation("", 0, 0)
-            return ReductionExpressionIR(operation="sum", loop_vars=[], body=None, location=loc)
+            return ReductionExpressionIR(operation=ReductionOp.SUM, loop_vars=[], body=None, location=loc)
         operation = _sym_val(tail[0]) if tail[0] is not None else "sum"
         vars_sexpr = tail[1]
         if not isinstance(vars_sexpr, list):
@@ -1694,7 +1731,7 @@ class IRDeserializer:
         where_clause = self.deserialize(where_clause_sexpr) if where_clause_sexpr is not None else None
         ty = self._deserialize_type(opts.get(":inferred_type"))
         shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
-        return ReductionExpressionIR(operation=operation, loop_vars=loop_vars, body=body, location=loc, where_clause=where_clause, loop_var_ranges=loop_var_ranges, type_info=ty, shape_info=shape_info)
+        return ReductionExpressionIR(operation=ReductionOp.parse(operation), loop_vars=loop_vars, body=body, location=loc, where_clause=where_clause, loop_var_ranges=loop_var_ranges, type_info=ty, shape_info=shape_info)
 
     def _deserialize_expr(self, tag: str, tail: list, full: list) -> Any:
         raise ValueError(f"Unknown IR tag: {tag}")

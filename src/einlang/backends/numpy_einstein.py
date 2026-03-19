@@ -364,188 +364,6 @@ def _count_reduction_dims_in_expr(expr: Any) -> int:
     return expr.accept(_ReductionDimsCounter())
 
 
-def _clause_body_summary_default(node: Any, max_len: int) -> str:
-    kind = type(node).__name__.replace("IR", "").lower()
-    return kind[:max_len]
-
-
-class _ClauseBodySummaryVisitor(IRVisitor[str]):
-    """Short string for RHS of a clause (for profile output)."""
-
-    def __init__(self, max_len: int = 60) -> None:
-        self._max_len = max_len
-
-    def visit_lowered_reduction(self, node: Any) -> str:
-        op = node.operation
-        inner = node.body.accept(_ClauseBodySummaryVisitor(20)) if node.body is not None else "?"
-        s = f"{op}({inner})" if inner != "?" else op
-        return s[:self._max_len]
-
-    def visit_binary_op(self, node: Any) -> str:
-        op = node.operator
-        op_str = str(op.name) if op is not None else "?"
-        left = node.left.accept(_ClauseBodySummaryVisitor(15)) if node.left is not None else "?"
-        right = node.right.accept(_ClauseBodySummaryVisitor(15)) if node.right is not None else "?"
-        return f"{left} {op_str} {right}"[:self._max_len]
-
-    def visit_function_call(self, node: Any) -> str:
-        from ..ir.nodes import BuiltinCallIR
-        name = node.builtin_name if isinstance(node, BuiltinCallIR) else node.callee_expr
-        if name is not None and not isinstance(name, str):
-            name = name.name if hasattr(name, "name") else str(name)
-        fn = name if isinstance(name, str) else "call"
-        return f"{fn}(...)"[:self._max_len]
-
-    def visit_rectangular_access(self, node: Any) -> str:
-        arr = node.array
-        arr_name = arr.name if arr is not None and hasattr(arr, "name") else None
-        return (arr_name or "[]")[:self._max_len]
-
-    def visit_identifier(self, node: Any) -> str:
-        return (node.name or "?")[:self._max_len]
-
-    def visit_unary_op(self, node: Any) -> str:
-        op = node.operator
-        op_str = str(op.name) if op is not None else "?"
-        inner = node.operand.accept(_ClauseBodySummaryVisitor(20)) if node.operand is not None else "?"
-        return f"{op_str}({inner})"[:self._max_len]
-
-    def _default(self, node: Any) -> str:
-        return _clause_body_summary_default(node, self._max_len)
-
-    def visit_literal(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_index_var(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_index_rest(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_jagged_access(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_block_expression(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_if_expression(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_lambda(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_range(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_array_comprehension(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_module(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_array_literal(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_tuple_expression(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_tuple_access(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_interpolated_string(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_cast_expression(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_member_access(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_try_expression(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_match_expression(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_reduction_expression(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_where_expression(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_pipeline_expression(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_builtin_call(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_literal_pattern(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_identifier_pattern(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_wildcard_pattern(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_tuple_pattern(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_array_pattern(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_rest_pattern(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_guard_pattern(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_binding(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_program(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_lowered_comprehension(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_lowered_einstein_clause(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_lowered_einstein(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_lowered_recurrence(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_or_pattern(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_constructor_pattern(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_binding_pattern(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_range_pattern(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_function_value(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_einstein(self, node: Any) -> str:
-        return self._default(node)
-
-    def visit_einstein_clause(self, node: Any) -> str:
-        return self._default(node)
-
-
-def _clause_body_summary(body: Any, max_len: int = 60) -> str:
-    """Short string for RHS of a clause (for profile output)."""
-    if body is None:
-        return "?"
-    return body.accept(_ClauseBodySummaryVisitor(max_len))
-
 
 class _ReductionUsesClauseVarVisitor(IRVisitor[bool]):
     """True if any LoweredReductionIR has a loop whose iterable references a clause loop var (dynamic bounds)."""
@@ -2702,7 +2520,6 @@ def _eval_clause_body_with_broadcast_loops(
     loops = (clause.loops or [])
     if not loops or clause.guards or clause.bindings:
         return None
-    # Body with guards (e.g. derivative reduction i==r, k==s) needs scalar path so parallel indices are in env
     if getattr(clause.body, "guards", None):
         return None
     clause_ndim = len(loops)
@@ -2737,7 +2554,12 @@ def _eval_clause_body_with_broadcast_loops(
             parallel_shape_tuple = tuple(output_shape)
             try:
                 setattr(backend, "_vectorize_parallel_shape", parallel_shape_tuple)
-                return clause.body.accept(backend)
+                setattr(backend, "_vectorize_parallel_defids_order", clause_loop_defids)
+                try:
+                    return clause.body.accept(backend)
+                finally:
+                    if hasattr(backend, "_vectorize_parallel_defids_order"):
+                        delattr(backend, "_vectorize_parallel_defids_order")
             finally:
                 setattr(backend, "_vectorize_parallel_shape", None)
     except Exception:
@@ -3414,8 +3236,6 @@ class EinsteinExecutionMixin:
                             slices_list_nr = []
                     if len(slices_list_nr) == output.ndim:
                         output[tuple(slices_list_nr)] = result.astype(output.dtype)
-                    elif result.ndim > output.ndim or (result.ndim == output.ndim and result.size > output.size):
-                        output = result.astype(output.dtype, copy=False)
                     elif result.size == 1 and item.indices and all(
                         isinstance(idx, LiteralIR) for idx in item.indices
                     ):
@@ -3492,9 +3312,6 @@ class EinsteinExecutionMixin:
                 if result.shape == output.shape:
                     if result is not output:
                         output[:] = result.astype(output.dtype)
-                elif result.ndim > output.ndim or (result.ndim == output.ndim and result.size > output.size):
-                    # Clause grew output for array-valued elements (e.g. autodiff max derivative)
-                    output = result.astype(output.dtype, copy=False)
                 elif result.shape != output.shape:
                     slices_list: List[Any] = []
                     clause_indices = item.indices or []
@@ -3933,7 +3750,7 @@ class EinsteinExecutionMixin:
             or getattr(getattr(variable_decl, "_binding", None), "name", None)
             or ""
         )
-        _clause_rhs = _clause_body_summary(lowered.body)
+        _clause_rhs = str(lowered.body)[:60] if lowered.body is not None else "?"
         bucket_size = getattr(self, "_profile_bucket_size", 0)
         _profile_clauses = getattr(self, "_profile_functions", False) or getattr(self, "_profile_statements", False)
         t0 = time.perf_counter() if (bucket_size > 0 or _profile_clauses) else 0
@@ -4345,25 +4162,19 @@ class EinsteinExecutionMixin:
                     value = _body.accept(self)
                     if value is not None:
                         if isinstance(value, np.ndarray):
-                            if value.ndim == 0:
-                                value = value.item()
-                            elif value.size == 1:
-                                value = value.flatten()[0].item()
-                            elif value.size > 1 and output.ndim == len(idx_tuple):
-                                # Array-valued element (e.g. derivative of max: gradient per output index)
-                                new_shape = output.shape + value.shape
-                                new_output = np.zeros(new_shape, dtype=output.dtype)
-                                for _idx in np.ndindex(output.shape):
-                                    new_output[_idx] = output[_idx]
-                                output = new_output
-                                output[(*idx_tuple, Ellipsis)] = value
-                                if variable_defid:
-                                    self._clause_set_output(variable_defid, output)
-                                _record_profile(tuple(output.shape), path="scalar")
-                                return output
+                            if value.shape == output.shape:
+                                output[:] = value.astype(output.dtype, copy=False)
+                            else:
+                                if value.ndim == 0:
+                                    value = value.item()
+                                elif value.size == 1:
+                                    value = value.flatten()[0].item()
+                                if not isinstance(value, np.ndarray):
+                                    output[idx_tuple] = value
                         elif isinstance(value, np.generic):
-                            value = value.item()
-                        output[idx_tuple] = value
+                            output[idx_tuple] = value.item()
+                        else:
+                            output[idx_tuple] = value
             else:
                 _MAX = int(DEFAULT_EINSTEIN_LOOP_MAX)
                 _n = [0]
@@ -4410,30 +4221,15 @@ class EinsteinExecutionMixin:
                         idx_tuple = cell_index(full_context)
                     if idx_tuple is None:
                         idx_tuple = tuple(full_context.get(d) for d in _loop_defids_tuple)
-                    if idx_tuple is None:
+                    if idx_tuple is None or len(idx_tuple) != output.ndim:
                         continue
-                    if isinstance(value, (list, tuple)):
-                        value = np.asarray(value)
-                    # After growing for array-valued elements, output.ndim > len(idx_tuple)
                     if isinstance(value, np.ndarray):
                         if value.ndim == 0:
                             value = value.item()
                         elif value.size == 1:
                             value = value.flatten()[0].item()
-                        elif value.size > 1:
-                            if output.ndim == len(idx_tuple):
-                                # Array-valued element (e.g. derivative of max): grow output
-                                new_shape = output.shape + value.shape
-                                new_output = np.zeros(new_shape, dtype=output.dtype)
-                                for _idx in np.ndindex(output.shape):
-                                    new_output[_idx] = output[_idx]
-                                output = new_output
-                            output[(*idx_tuple, Ellipsis)] = value
-                            continue
                     elif isinstance(value, np.generic):
                         value = value.item()
-                    if output.ndim > len(idx_tuple):
-                        continue  # scalar value but output was grown for array elements; skip or assign scalar?
                     if len(idx_tuple) == 1:
                         output[idx_tuple[0]] = value
                     else:

@@ -1,0 +1,37 @@
+(program
+  :bindings
+  ((binding "a" (literal 3.0 f32) (nil) :defid [0 0])
+    (binding "d_a" (literal 0 f32) (type f32) :defid [0 6])
+    (binding "b" (literal 4.0 f32) (nil) :defid [0 1])
+    (binding "d_b" (literal 0 f32) (type f32) :defid [0 5])
+    (binding
+      "z"
+      (binary-op * (variable "a" :defid [0 0]) (variable "b" :defid [0 1]))
+      (nil)
+      :defid
+      [0 2]
+    )
+    (binding
+      "d_z"
+      (binary-op
+        +
+        (binary-op * (variable "d_a" :defid [0 6]) (variable "b" :defid [0 1]))
+        (binary-op * (variable "a" :defid [0 0]) (variable "d_b" :defid [0 5]))
+      )
+      (type f32)
+      :defid
+      [0 7]
+    )
+    (binding "dz_da" (variable "b" :defid [0 1]) (nil) :defid [0 3])
+    (binding "dz_db" (variable "a" :defid [0 0]) (nil) :defid [0 4])
+  )
+  :source_files
+  (("<test>"
+      "let a = 3.0;
+let b = 4.0;
+let z = a * b;
+let dz_da = @z / @a;
+let dz_db = @z / @b;"
+    )
+  )
+)

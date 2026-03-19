@@ -31,6 +31,32 @@ class TypeKind(Enum):
     UNKNOWN = "unknown"
 
 
+class ReductionOp(Enum):
+    SUM = "sum"
+    MAX = "max"
+    MIN = "min"
+    PROD = "prod"
+    ALL = "all"
+    ANY = "any"
+
+    @staticmethod
+    def parse(value: str) -> "ReductionOp":
+        v = (value or "").strip().lower()
+        if v == "sum":
+            return ReductionOp.SUM
+        if v == "max":
+            return ReductionOp.MAX
+        if v == "min":
+            return ReductionOp.MIN
+        if v in ("prod", "product"):
+            return ReductionOp.PROD
+        if v == "all":
+            return ReductionOp.ALL
+        if v == "any":
+            return ReductionOp.ANY
+        raise ValueError(f"Unknown reduction op: {value!r}")
+
+
 T = TypeVar('T')
 
 

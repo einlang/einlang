@@ -9,7 +9,7 @@ from typing import List, Optional, Any, Tuple, Dict, Union, TYPE_CHECKING
 from ..shared.source_location import SourceLocation
 from ..shared.defid import DefId, assert_defid
 if TYPE_CHECKING:
-    from ..shared.types import BinaryOp, UnaryOp
+    from ..shared.types import BinaryOp, UnaryOp, ReductionOp
 
 
 def _t(x: Optional[list]) -> tuple:
@@ -78,6 +78,9 @@ class LiteralIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_literal(self)
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class IdentifierIR(ExpressionIR):
     """
@@ -95,6 +98,9 @@ class IdentifierIR(ExpressionIR):
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_identifier(self)
+
+    def __str__(self) -> str:
+        return self.name or '?'
 
 
 class IndexVarIR(ExpressionIR):
@@ -122,6 +128,9 @@ class IndexVarIR(ExpressionIR):
     def accept(self, visitor: "IRVisitor[T]") -> "T":
         return visitor.visit_index_var(self)
 
+    def __str__(self) -> str:
+        return self.name or '?'
+
 
 class IndexRestIR(ExpressionIR):
     """
@@ -146,6 +155,9 @@ class IndexRestIR(ExpressionIR):
     def accept(self, visitor: "IRVisitor[T]") -> "T":
         return visitor.visit_index_rest(self)
 
+    def __str__(self) -> str:
+        return f"..{self.name}" if self.name else ".."
+
 
 class BinaryOpIR(ExpressionIR):
     """Binary operation. Rust: expressions have no DefId."""
@@ -162,6 +174,10 @@ class BinaryOpIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_binary_op(self)
 
+    def __str__(self) -> str:
+        op = self.operator.value if hasattr(self.operator, 'value') else str(self.operator)
+        return f"{self.left} {op} {self.right}"
+
 
 class UnaryOpIR(ExpressionIR):
     """Unary operation"""
@@ -175,6 +191,11 @@ class UnaryOpIR(ExpressionIR):
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_unary_op(self)
+
+    def __str__(self) -> str:
+        op = self.operator.value if hasattr(self.operator, 'value') else str(self.operator)
+        sep = ' ' if op.isalpha() else ''
+        return f"{op}{sep}{self.operand}"
 
 
 class DifferentialIR(ExpressionIR):
@@ -191,6 +212,9 @@ class DifferentialIR(ExpressionIR):
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_differential(self)
+
+    def __str__(self) -> str:
+        return f"@{self.operand}"
 
 
 class RectangularAccessIR(ExpressionIR):
@@ -210,6 +234,11 @@ class RectangularAccessIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_rectangular_access(self)
 
+    def __str__(self) -> str:
+        arr = str(self.array) if self.array is not None else '?'
+        idx = ', '.join(str(i) for i in self.indices)
+        return f"{arr}[{idx}]"
+
 
 class JaggedAccessIR(ExpressionIR):
     """
@@ -227,6 +256,11 @@ class JaggedAccessIR(ExpressionIR):
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_jagged_access(self)
+
+    def __str__(self) -> str:
+        base = str(self.base) if self.base is not None else '?'
+        chain = ''.join(f'[{i}]' for i in self.index_chain)
+        return f"{base}{chain}"
 
 
 class BlockExpressionIR(ExpressionIR):
@@ -253,6 +287,11 @@ class BlockExpressionIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_block_expression(self)
 
+    def __str__(self) -> str:
+        if self.final_expr is not None:
+            return f"{{ ...; {self.final_expr} }}"
+        return "{ ... }"
+
 
 class IfExpressionIR(ExpressionIR):
     """If expression"""
@@ -269,6 +308,12 @@ class IfExpressionIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_if_expression(self)
 
+    def __str__(self) -> str:
+        s = f"if {self.condition} then {self.then_expr}"
+        if self.else_expr is not None:
+            s += f" else {self.else_expr}"
+        return s
+
 
 class LambdaIR(ExpressionIR):
     """Lambda expression (rvalue). No defid; closure identity is at use/call site."""
@@ -283,6 +328,10 @@ class LambdaIR(ExpressionIR):
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_lambda(self)
+
+    def __str__(self) -> str:
+        params = ', '.join(p.name for p in self.parameters)
+        return f"|{params}| {self.body}"
 
 
 class FunctionValueIR(ExpressionIR):
@@ -307,6 +356,10 @@ class FunctionValueIR(ExpressionIR):
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_function_value(self)
+
+    def __str__(self) -> str:
+        params = ', '.join(p.name for p in self.parameters)
+        return f"fn({params}) {{ ... }}"
 
 
 class FunctionCallIR(ExpressionIR):
@@ -341,6 +394,11 @@ class FunctionCallIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_function_call(self)
 
+    def __str__(self) -> str:
+        name = self.function_name
+        args = ', '.join(str(a) for a in self.arguments)
+        return f"{name}({args})"
+
 
 class RangeIR(ExpressionIR):
     """Range expression: start..end (exclusive) or start..=end (inclusive)"""
@@ -356,6 +414,10 @@ class RangeIR(ExpressionIR):
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_range(self)
+
+    def __str__(self) -> str:
+        op = '..=' if self.inclusive else '..'
+        return f"{self.start}{op}{self.end}"
 
 
 class ArrayComprehensionIR(ExpressionIR):
@@ -412,6 +474,12 @@ class ArrayComprehensionIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_array_comprehension(self)
 
+    def __str__(self) -> str:
+        vars_ranges = ', '.join(
+            f"{v.name} in {r}" for v, r in zip(self.loop_vars, self.ranges)
+        )
+        return f"[{self.body} | {vars_ranges}]"
+
 
 class ArrayLiteralIR(ExpressionIR):
     """Array literal: [1, 2, 3]"""
@@ -426,6 +494,10 @@ class ArrayLiteralIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_array_literal(self)
 
+    def __str__(self) -> str:
+        elems = ', '.join(str(e) for e in self.elements)
+        return f"[{elems}]"
+
 
 class TupleExpressionIR(ExpressionIR):
     """Tuple expression: (a, b, c)"""
@@ -439,6 +511,10 @@ class TupleExpressionIR(ExpressionIR):
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_tuple_expression(self)
+
+    def __str__(self) -> str:
+        elems = ', '.join(str(e) for e in self.elements)
+        return f"({elems})"
 
 
 class TupleAccessIR(ExpressionIR):
@@ -455,6 +531,9 @@ class TupleAccessIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_tuple_access(self)
 
+    def __str__(self) -> str:
+        return f"{self.tuple_expr}.{self.index}"
+
 
 class InterpolatedStringIR(ExpressionIR):
     """Interpolated string: "Hello {name}" """
@@ -468,6 +547,15 @@ class InterpolatedStringIR(ExpressionIR):
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_interpolated_string(self)
+
+    def __str__(self) -> str:
+        pieces = []
+        for p in self.parts:
+            if isinstance(p, str):
+                pieces.append(p)
+            else:
+                pieces.append(f"{{{p}}}")
+        return f'"{"".join(pieces)}"'
 
 
 class CastExpressionIR(ExpressionIR):
@@ -484,6 +572,9 @@ class CastExpressionIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_cast_expression(self)
 
+    def __str__(self) -> str:
+        return f"{self.expr} as {self.target_type}"
+
 
 class MemberAccessIR(ExpressionIR):
     """Member access: arr.size, arr.shape"""
@@ -499,6 +590,9 @@ class MemberAccessIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_member_access(self)
 
+    def __str__(self) -> str:
+        return f"{self.object}.{self.member}"
+
 
 class TryExpressionIR(ExpressionIR):
     """Try expression: try expr"""
@@ -513,12 +607,15 @@ class TryExpressionIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_try_expression(self)
 
+    def __str__(self) -> str:
+        return f"try {self.operand}"
+
 
 class ReductionExpressionIR(ExpressionIR):
     """Reduction expression: sum[i](A[i]). Loop vars are IndexVarIR or IdentifierIR (each has .name and .defid)."""
     __slots__ = ('operation', 'loop_vars', 'body', 'where_clause', 'loop_var_ranges')
 
-    def __init__(self, operation: str, loop_vars: Optional[List[Union['IndexVarIR', 'IdentifierIR']]], body: ExpressionIR,
+    def __init__(self, operation: "ReductionOp", loop_vars: Optional[List[Union['IndexVarIR', 'IdentifierIR']]], body: ExpressionIR,
                  location: SourceLocation, where_clause: Optional['WhereClauseIR'] = None,
                  loop_var_ranges: Optional[Dict[DefId, 'RangeIR']] = None,
                  type_info: Optional[Any] = None,
@@ -536,6 +633,11 @@ class ReductionExpressionIR(ExpressionIR):
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_reduction_expression(self)
+
+    def __str__(self) -> str:
+        op = self.operation.value if hasattr(self.operation, 'value') else str(self.operation)
+        vars_str = ', '.join(v.name for v in self.loop_vars) if self.loop_vars else ''
+        return f"{op}[{vars_str}]({self.body})"
 
 
 class SelectAtArgmaxIR(ExpressionIR):
@@ -566,6 +668,11 @@ class SelectAtArgmaxIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_select_at_argmax(self)
 
+    def __str__(self) -> str:
+        fn = 'argmin' if self.use_argmin else 'argmax'
+        vars_str = ', '.join(v.name for v in self.loop_vars) if self.loop_vars else ''
+        return f"{self.diff_body} at {fn}[{vars_str}]({self.primal_body})"
+
 
 class WhereExpressionIR(ExpressionIR):
     """Where expression: expr where constraint"""
@@ -579,6 +686,10 @@ class WhereExpressionIR(ExpressionIR):
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_where_expression(self)
+
+    def __str__(self) -> str:
+        constraints = ', '.join(str(c) for c in self.constraints)
+        return f"{self.expr} where {constraints}"
 
 
 class PipelineExpressionIR(ExpressionIR):
@@ -596,6 +707,9 @@ class PipelineExpressionIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_pipeline_expression(self)
 
+    def __str__(self) -> str:
+        return f"{self.left} {self.operator} {self.right}"
+
 
 class BuiltinCallIR(ExpressionIR):
     """Builtin function call. Rust: references builtin definition (DefId)."""
@@ -612,6 +726,10 @@ class BuiltinCallIR(ExpressionIR):
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_builtin_call(self)
+
+    def __str__(self) -> str:
+        args = ', '.join(str(a) for a in self.args)
+        return f"{self.builtin_name}({args})"
 
 
 class ParameterIR(IRNode):
@@ -898,6 +1016,9 @@ class MatchExpressionIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_match_expression(self)
 
+    def __str__(self) -> str:
+        return f"match {self.scrutinee} {{ {len(self.arms)} arms }}"
+
 
 # Where Clause IR
 
@@ -1068,19 +1189,8 @@ class LoweredIteration(IRNode):
         return True
     
     def __str__(self) -> str:
-        """Human-readable representation"""
-        parts = [f"body: {self.body}"]
-        if self.loops:
-            parts.append(f"loops: {[str(l) for l in self.loops]}")
-        if self.reduction_ranges:
-            parts.append(f"reduction_ranges: {list(self.reduction_ranges.keys())}")
-        if self.bindings:
-            parts.append(f"bindings: {[str(b) for b in self.bindings]}")
-        if self.guards:
-            parts.append(f"guards: {[str(g) for g in self.guards]}")
-        if self.shape:
-            parts.append(f"shape: {self.shape}")
-        return "LoweredIteration(" + ", ".join(parts) + ")"
+        vars_str = ', '.join(f"{l.variable.name} in {l.iterable}" for l in self.loops) if self.loops else ''
+        return f"for {vars_str}: {self.body}" if vars_str else str(self.body)
 
 
 class LoweredEinsteinClauseIR(IRNode):
@@ -1109,10 +1219,8 @@ class LoweredEinsteinClauseIR(IRNode):
         self.recurrence_dims_override = recurrence_dims_override
     
     def __str__(self) -> str:
-        parts = [f"body: {self.body}"]
-        if self.loops:
-            parts.append(f"loops: {[str(l) for l in self.loops]}")
-        return "LoweredEinsteinClauseIR(" + ", ".join(parts) + ")"
+        idx = ', '.join(str(i) for i in self.indices) if self.indices else ''
+        return f"[{idx}] = {self.body}"
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_lowered_einstein_clause(self)
@@ -1158,6 +1266,10 @@ class LoweredRecurrenceIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_lowered_recurrence(self)
 
+    def __str__(self) -> str:
+        loop_var = self.recurrence_loop.variable.name if self.recurrence_loop else '?'
+        return f"recurrence[{loop_var}]({self.body})"
+
 
 class LoweredReductionIR(ExpressionIR):
     """
@@ -1169,7 +1281,7 @@ class LoweredReductionIR(ExpressionIR):
     def __init__(
         self,
         body: ExpressionIR,
-        operation: str,
+        operation: "ReductionOp",
         loops: Optional[List[LoopStructure]] = None,
         bindings: Optional[List['BindingIR']] = None,
         guards: Optional[List[GuardCondition]] = None,
@@ -1201,10 +1313,9 @@ class LoweredReductionIR(ExpressionIR):
         return visitor.visit_lowered_reduction(self)
     
     def __str__(self) -> str:
-        parts = [f"body: {self.body}"]
-        if self.loops:
-            parts.append(f"loops: {[str(l) for l in self.loops]}")
-        return "LoweredReductionIR(" + ", ".join(parts) + ")"
+        op = self.operation.value if hasattr(self.operation, 'value') else str(self.operation)
+        vars_str = ', '.join(l.variable.name for l in self.loops) if self.loops else ''
+        return f"{op}[{vars_str}]({self.body})"
 
 
 class LoweredSelectAtArgmaxIR(ExpressionIR):
@@ -1246,6 +1357,11 @@ class LoweredSelectAtArgmaxIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_lowered_select_at_argmax(self)
 
+    def __str__(self) -> str:
+        fn = 'argmin' if self.use_argmin else 'argmax'
+        vars_str = ', '.join(l.variable.name for l in self.loops) if self.loops else ''
+        return f"{self.diff_body} at {fn}[{vars_str}]({self.primal_body})"
+
 
 class LoweredComprehensionIR(ExpressionIR):
     """
@@ -1277,10 +1393,8 @@ class LoweredComprehensionIR(ExpressionIR):
         return visitor.visit_lowered_comprehension(self)
     
     def __str__(self) -> str:
-        parts = [f"body: {self.body}"]
-        if self.loops:
-            parts.append(f"loops: {[str(l) for l in self.loops]}")
-        return "LoweredComprehensionIR(" + ", ".join(parts) + ")"
+        vars_ranges = ', '.join(f"{l.variable.name} in {l.iterable}" for l in self.loops) if self.loops else ''
+        return f"[{self.body} | {vars_ranges}]"
 
 
 # Einstein IR: one clause (indices, value, where_clause). EinsteinIR holds list of EinsteinClauseIR.
@@ -1316,6 +1430,10 @@ class EinsteinClauseIR(IRNode):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_einstein_clause(self)
 
+    def __str__(self) -> str:
+        idx = ', '.join(str(i) for i in self.indices) if self.indices else ''
+        return f"[{idx}] = {self.value}"
+
 
 class EinsteinIR(ExpressionIR):
     """Einstein value (rvalue). Name/defid on BindingIR; this holds clauses, shape, element_type."""
@@ -1333,6 +1451,10 @@ class EinsteinIR(ExpressionIR):
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_einstein(self)
+
+    def __str__(self) -> str:
+        clauses = '; '.join(str(c) for c in self.clauses) if self.clauses else ''
+        return f"{{ {clauses} }}"
 
 
 

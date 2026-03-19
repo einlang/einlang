@@ -32,7 +32,7 @@ from ..ir.nodes import (
 )
 from ..shared.source_location import SourceLocation
 from ..shared.defid import DefId, DefType
-from ..shared.types import UnaryOp
+from ..shared.types import UnaryOp, ReductionOp
 import sys
 import os
 
@@ -1267,15 +1267,15 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             if constraints_ir:
                 where_clause_ir = WhereClauseIR(constraints=constraints_ir)
         
-        # Get operation name from function_name (AST uses function_name, IR uses operation)
-        operation = opt_attr(node, 'operation', None)
-        if operation is None:
-            # Fallback to function_name if operation doesn't exist
+        # Reduction op: normalize to shared enum (single source of truth).
+        operation_raw = opt_attr(node, 'operation', None)
+        if operation_raw is None:
             function_name = opt_attr(node, 'function_name', 'sum')
             function_name = opt_attr(function_name, 'value', function_name) if not isinstance(function_name, str) else function_name
-            operation = str(function_name).lower()  # Normalize to lowercase
+            operation_raw = function_name
         else:
-            operation = opt_attr(operation, 'value', operation) if not isinstance(operation, str) else operation
+            operation_raw = opt_attr(operation_raw, 'value', operation_raw) if not isinstance(operation_raw, str) else operation_raw
+        operation = ReductionOp.parse(str(operation_raw))
 
         # DefId: copy from AST (name resolution sets _reduction_loop_var_defids and body identifiers' defid).
         # If still missing, allocate so backends can trust IR (no runtime defid checks).

@@ -34,6 +34,7 @@ def main() -> int:
     parser.add_argument("--profile-functions", action="store_true", help="Print runtime per Einlang function (e.g. encode, encoder_block)")
     parser.add_argument("--profile-blocks", action="store_true", help="Print runtime per block expression (e.g. LSTM gate body)")
     parser.add_argument("--profile-reductions", action="store_true", help="Print reduction path per sum/max/min: matmul, vectorized, or scalar (with source line)")
+    parser.add_argument("--profile-verbose", action="store_true", help="Enable all profile/debug: statements, functions, blocks, reductions, vectorize summary (verbose log)")
     parser.add_argument("--cprofile", action="store_true", help="Run execution under cProfile and print stats")
     parser.add_argument("--cprofile-out", type=Path, default=None, metavar="FILE", help="Write cProfile stats to FILE (for snakeviz, etc.)")
     parser.add_argument("--dump-ir", type=Path, default=None, metavar="FILE", help="After compile, dump IR S-expr to FILE (default: <source_dir>/ir_dump.sexpr)")
@@ -49,8 +50,16 @@ def main() -> int:
         os.environ["EINLANG_PROFILE_REDUCTIONS"] = "1"
     if args.debug_vectorize:
         os.environ["EINLANG_DEBUG_VECTORIZE"] = "1"
+    if args.profile_verbose:
+        os.environ["EINLANG_PROFILE_STATEMENTS"] = "1"
+        os.environ["EINLANG_PROFILE_FUNCTIONS"] = "1"
+        os.environ["EINLANG_PROFILE_BLOCKS"] = "1"
+        os.environ["EINLANG_PROFILE_REDUCTIONS"] = "1"
+        os.environ["EINLANG_DEBUG_VECTORIZE"] = "1"
+        if args.profile_lines == 0:
+            os.environ["EINLANG_PROFILE_LINES"] = "20"
 
-    if args.profile_functions or args.profile_statements or args.profile_blocks or args.profile_lines or args.profile_reductions:
+    if args.profile_functions or args.profile_statements or args.profile_blocks or args.profile_lines or args.profile_reductions or args.profile_verbose:
         sys.stdout.flush()
         sys.stderr.flush()
 
@@ -130,7 +139,7 @@ def main() -> int:
         exec_result = runtime.execute(result, inputs={})
         prof.disable()
         if args.cprofile_out:
-            prof.dump(str(args.cprofile_out))
+            prof.dump_stats(str(args.cprofile_out))
         stats = pstats.Stats(prof)
         stats.sort_stats(pstats.SortKey.CUMULATIVE)
         stats.print_stats(60)

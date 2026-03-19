@@ -16,14 +16,16 @@ from typing import Dict, List, Callable, Any, Iterator, Optional, Tuple, Sequenc
 import numpy as np
 
 from ...shared.defid import DefId
+from ...shared.types import ReductionOp
 
 
 def _try_vectorized_reduction(
-    reduction_op: str,
+    reduction_op: ReductionOp,
     reduction_loops: List[Any],
     body_evaluator: Callable,
     expr_evaluator: Callable,
     parallel_shape: Optional[Tuple[int, ...]] = None,
+    initial_context: Optional[Dict[Any, Any]] = None,
 ) -> Tuple[bool, Any]:
     """
     Vectorized reduction: single rule parallel_shape + reduction_shape.
@@ -32,7 +34,7 @@ def _try_vectorized_reduction(
     When parallel_shape is None (standalone reduction), infer it by evaluating
     body with scalar reduction indices. Falls back to False, None on failure.
     """
-    if reduction_op not in ('sum', 'max', 'min', 'product', 'prod'):
+    if reduction_op not in (ReductionOp.SUM, ReductionOp.MAX, ReductionOp.MIN, ReductionOp.PROD):
         return False, None
     try:
         arrs: List[np.ndarray] = []
@@ -46,7 +48,7 @@ def _try_vectorized_reduction(
             else:
                 arr = np.array(list(iterable), dtype=np.intp)
             if arr.size == 0:
-                return True, (0 if reduction_op == 'sum' else None)
+                return True, (0 if reduction_op == ReductionOp.SUM else None)
             arrs.append(arr)
             defids.append(var_defid)
 
@@ -66,6 +68,30 @@ def _try_vectorized_reduction(
                 parallel_shape = ()
 
         ctx: Dict[Any, Any] = {}
+        # Broadcast any initial context (typically parallel indices like b) to full shape so
+        # advanced indexing in the reduction body sees compatible index array shapes.
+        if parallel_shape and initial_context:
+            full_shape = tuple(parallel_shape) + expected_shape
+            n_red = len(expected_shape)
+            for defid, val in initial_context.items():
+                if defid is None or defid in defids:
+                    continue
+                try:
+                    v = np.asarray(val, dtype=np.intp) if isinstance(val, (list, tuple, range, np.ndarray)) else val
+                    if isinstance(v, np.ndarray):
+                        if v.ndim == 1 and len(parallel_shape) == 1 and v.shape[0] == parallel_shape[0]:
+                            v2 = v.reshape((parallel_shape[0],) + (1,) * n_red)
+                            ctx[defid] = np.broadcast_to(v2, full_shape)
+                            continue
+                        if v.shape == parallel_shape:
+                            v2 = v.reshape(tuple(parallel_shape) + (1,) * n_red)
+                            ctx[defid] = np.broadcast_to(v2, full_shape)
+                            continue
+                        ctx[defid] = np.broadcast_to(v, full_shape)
+                    else:
+                        ctx[defid] = np.broadcast_to(np.asarray(v, dtype=np.intp), full_shape)
+                except Exception:
+                    pass
         for i, (defid, arr) in enumerate(zip(defids, arrs)):
             if n == 1:
                 red_shape = (arr.size,)
@@ -84,6 +110,27 @@ def _try_vectorized_reduction(
         result = body_evaluator(ctx)
 
         if not isinstance(result, np.ndarray):
+            # Scalar body: constant w.r.t. reduction indices. We can still do a fast path by
+            # applying the reduction analytically over the reduction extent.
+            #
+            # This shows up frequently in autodiff-expanded programs (e.g. seeded differentials),
+            # and avoiding the scalar loop is both correct and faster.
+            try:
+                red_count = int(np.prod(expected_shape)) if expected_shape else 1
+                if reduction_op == ReductionOp.SUM:
+                    reduced_scalar = result * red_count
+                elif reduction_op == ReductionOp.PROD:
+                    reduced_scalar = result ** red_count
+                elif reduction_op in (ReductionOp.MAX, ReductionOp.MIN):
+                    reduced_scalar = result
+                else:
+                    reduced_scalar = None
+                if reduced_scalar is not None:
+                    if parallel_shape:
+                        return True, np.broadcast_to(np.asarray(reduced_scalar), parallel_shape)
+                    return True, reduced_scalar
+            except Exception:
+                pass
             return False, None
 
         if parallel_shape:
@@ -93,13 +140,13 @@ def _try_vectorized_reduction(
                         and result.shape[-n:] == expected_shape
                         and np.prod(result.shape[:-n]) == np.prod(parallel_shape)):
                     try:
-                        if reduction_op == 'sum':
+                        if reduction_op == ReductionOp.SUM:
                             reduced = result.sum(axis=reduction_axes)
-                        elif reduction_op == 'max':
+                        elif reduction_op == ReductionOp.MAX:
                             reduced = result.max(axis=reduction_axes)
-                        elif reduction_op == 'min':
+                        elif reduction_op == ReductionOp.MIN:
                             reduced = result.min(axis=reduction_axes)
-                        elif reduction_op in ('product', 'prod'):
+                        elif reduction_op == ReductionOp.PROD:
                             reduced = result.prod(axis=reduction_axes)
                         else:
                             reduced = None
@@ -109,13 +156,13 @@ def _try_vectorized_reduction(
                     except (ValueError, AttributeError):
                         pass
                 return False, None
-            if reduction_op == 'sum':
+            if reduction_op == ReductionOp.SUM:
                 reduced = result.sum(axis=reduction_axes)
-            elif reduction_op == 'max':
+            elif reduction_op == ReductionOp.MAX:
                 reduced = result.max(axis=reduction_axes)
-            elif reduction_op == 'min':
+            elif reduction_op == ReductionOp.MIN:
                 reduced = result.min(axis=reduction_axes)
-            elif reduction_op in ('product', 'prod'):
+            elif reduction_op == ReductionOp.PROD:
                 reduced = result.prod(axis=reduction_axes)
             else:
                 return False, None
@@ -123,13 +170,13 @@ def _try_vectorized_reduction(
         else:
             if result.shape != expected_shape:
                 return False, None
-            if reduction_op == 'sum':
+            if reduction_op == ReductionOp.SUM:
                 return True, result.sum()
-            elif reduction_op == 'max':
+            elif reduction_op == ReductionOp.MAX:
                 return True, result.max()
-            elif reduction_op == 'min':
+            elif reduction_op == ReductionOp.MIN:
                 return True, result.min()
-            elif reduction_op in ('product', 'prod'):
+            elif reduction_op == ReductionOp.PROD:
                 return True, result.prod()
     except Exception:
         pass
@@ -146,11 +193,10 @@ def execute_select_at_argmax_vectorized(
     use_argmin: bool = False,
 ) -> Tuple[bool, Any]:
     """
-    Vectorized select-at-argmax/argmin: evaluate primal and diff bodies with broadcast reduction indices,
-    then result = diff at argmax(primal) or argmin(primal) over reduction axes. Returns (ok, result).
+    Vectorized select-at-argmax: evaluate primal and diff bodies, then scatter: result has shape
+    (parallel_shape + reduction_dims) with value at argmax, 0 elsewhere. Julia-aligned: gradient of max has shape of x.
     initial_context: optional list of (defid, array) in parallel-dim order; each array has shape
     (parallel_shape[i],) to set parallel (batch) indices when body uses them.
-    use_argmin: if True, use argmin instead of argmax.
     """
     try:
         arrs: List[np.ndarray] = []
@@ -170,6 +216,7 @@ def execute_select_at_argmax_vectorized(
         if not arrs:
             return False, None
         n = len(arrs)
+        red_shape_tuple = tuple(int(arr.size) for arr in arrs)
         if parallel_shape is None:
             spot_ctx: Dict[Any, Any] = {}
             for defid, arr in (initial_context or []):
@@ -181,7 +228,7 @@ def execute_select_at_argmax_vectorized(
                 parallel_shape = tuple(spot_val.shape)
             else:
                 parallel_shape = ()
-        full_shape = tuple(parallel_shape) + tuple(arr.size for arr in arrs)
+        full_shape = tuple(parallel_shape) + red_shape_tuple
         ctx: Dict[Any, Any] = {}
         if initial_context and parallel_shape:
             k_par = len(parallel_shape)
@@ -217,32 +264,28 @@ def execute_select_at_argmax_vectorized(
         if primal_result.shape != diff_result.shape:
             return False, None
         if parallel_shape:
-            reduction_size = arrs[0].size if arrs else 0
             primal_flat = primal_result.reshape(parallel_shape + (-1,))
             diff_flat = diff_result.reshape(parallel_shape + (-1,))
-            idx = np.argmin(primal_flat, axis=-1) if use_argmin else np.argmax(primal_flat, axis=-1)
-            # Return full Jacobian: shape (parallel_shape + (reduction_size,)) with diff at argmax, 0 elsewhere
-            out_full = np.zeros(
-                tuple(parallel_shape) + (reduction_size,),
+            idx_flat = np.argmin(primal_flat, axis=-1) if use_argmin else np.argmax(primal_flat, axis=-1)
+            out = np.take_along_axis(
+                diff_flat,
+                np.expand_dims(idx_flat, axis=-1),
+                axis=-1,
+            ).squeeze(axis=-1)
+            full_result = np.zeros(
+                full_shape,
                 dtype=diff_flat.dtype,
             )
-            np.put_along_axis(
-                out_full,
-                np.expand_dims(idx, axis=-1),
-                np.take_along_axis(
-                    diff_flat,
-                    np.expand_dims(idx, axis=-1),
-                    axis=-1,
-                ),
-                axis=-1,
-            )
-            return True, out_full
+            par_ind = np.indices(parallel_shape) if parallel_shape else ()
+            red_multi = np.unravel_index(idx_flat, red_shape_tuple)
+            full_result[(*par_ind, *red_multi)] = out
+            return True, full_result
         else:
-            idx = np.argmin(primal_result) if use_argmin else np.argmax(primal_result)
-            reduction_size = arrs[0].size if arrs else 0
-            out_full = np.zeros(reduction_size, dtype=diff_result.dtype)
-            out_full[idx] = diff_result.flat[idx]
-            return True, out_full
+            idx_flat = int(np.argmin(primal_result) if use_argmin else np.argmax(primal_result))
+            full_result = np.zeros(red_shape_tuple, dtype=diff_result.dtype)
+            red_multi = np.unravel_index(idx_flat, red_shape_tuple)
+            full_result[red_multi] = np.array(diff_result.flat[idx_flat], dtype=diff_result.dtype)
+            return True, full_result
     except Exception:
         pass
     return False, None
@@ -330,7 +373,7 @@ def execute_full_lowered_iteration(
 
 
 def execute_reduction_with_loops(
-    reduction_op: str,
+    reduction_op: ReductionOp,
     reduction_ranges: Dict[Any, Any],  # Dict[DefId, LoopStructure]; use .values() for loops
     body_evaluator: Callable[[Dict[DefId, Any]], Any],
     expr_evaluator: Callable[[Any], Any],
@@ -357,7 +400,7 @@ def execute_reduction_with_loops(
         >>> # Execute: sum[k in 0..5](k * 2)
         >>> def body(bindings): return bindings['k'] * 2
         >>> ranges = {'k': LoopStructure('k', LiteralIR(range(5)))}
-        >>> execute_reduction_with_loops('sum', ranges, body, evaluator)
+        >>> execute_reduction_with_loops(ReductionOp.SUM, ranges, body, evaluator)
         20
     """
     if initial_context is None:
@@ -374,6 +417,7 @@ def execute_reduction_with_loops(
             body_evaluator,
             expr_evaluator,
             parallel_shape=parallel_shape,
+            initial_context=initial_context,
         )
         if ok and vec_result is not None:
             if profile_callback is not None:
@@ -383,19 +427,19 @@ def execute_reduction_with_loops(
         profile_callback("scalar")
 
     # Initialize accumulator based on operation
-    if reduction_op == 'sum':
+    if reduction_op == ReductionOp.SUM:
         accumulator = 0
         def combine(acc, val): return acc + val
-    elif reduction_op == 'product' or reduction_op == 'prod':
+    elif reduction_op == ReductionOp.PROD:
         accumulator = 1
         def combine(acc, val): return acc * val
-    elif reduction_op == 'min':
+    elif reduction_op == ReductionOp.MIN:
         accumulator = None
         def combine(acc, val):
             if acc is None:
                 return val
             return min(acc, val)
-    elif reduction_op == 'max':
+    elif reduction_op == ReductionOp.MAX:
         accumulator = None
         def combine(acc, val):
             import numpy as np
@@ -405,13 +449,13 @@ def execute_reduction_with_loops(
             if isinstance(acc, np.ndarray) or isinstance(val, np.ndarray):
                 return np.maximum(acc, val)
             return max(acc, val)
-    elif reduction_op == 'all':
+    elif reduction_op == ReductionOp.ALL:
         accumulator = True
         def combine(acc, val):
             import numpy as np
             v = bool(np.all(val)) if isinstance(val, np.ndarray) else bool(val)
             return acc and v
-    elif reduction_op == 'any':
+    elif reduction_op == ReductionOp.ANY:
         accumulator = False
         def combine(acc, val):
             import numpy as np
@@ -438,10 +482,10 @@ def execute_reduction_with_loops(
         if value is None:
             continue
         
-        if reduction_op in ['all', 'any']:
+        if reduction_op in (ReductionOp.ALL, ReductionOp.ANY):
             import numpy as np
             if isinstance(value, np.ndarray):
-                value = bool(value.item()) if value.size == 1 else (bool(np.all(value)) if reduction_op == 'all' else bool(np.any(value)))
+                value = bool(value.item()) if value.size == 1 else (bool(np.all(value)) if reduction_op == ReductionOp.ALL else bool(np.any(value)))
             else:
                 value = bool(value)
         
@@ -449,7 +493,7 @@ def execute_reduction_with_loops(
         accumulator = combine(accumulator, value)
     
     # Handle empty reduction case for max/min
-    if accumulator is None and reduction_op in ['min', 'max']:
+    if accumulator is None and reduction_op in (ReductionOp.MIN, ReductionOp.MAX):
         raise ValueError(f"{reduction_op}() arg is an empty sequence")
     
     return accumulator
