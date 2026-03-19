@@ -368,9 +368,7 @@ class CoreExecutionMixin:
                         h = getattr(self, "_einstein_hybrid", 0)
                         c = getattr(self, "_einstein_call_scalar", 0)
                         total = v + s + h + c
-                        sys.stderr.write(
-                            f"[vectorize] Einstein clauses: {v} vectorized, {s} scalar, {h} hybrid, {c} call-scalar (total {total})\n"
-                        )
+                        print(f"[vectorize] Einstein clauses: {v} vectorized, {s} scalar, {h} hybrid, {c} call-scalar (total {total})", flush=True)
                     return ExecutionResult(value=result_value)
             outputs = {}
             pending_differential_slots: List[tuple] = []  # (slot_defid, target_defid) for bindings "d_w = @w"
@@ -568,9 +566,7 @@ class CoreExecutionMixin:
                 h = getattr(self, "_einstein_hybrid", 0)
                 c = getattr(self, "_einstein_call_scalar", 0)
                 total = v + s + h + c
-                sys.stderr.write(
-                    f"[vectorize] Einstein clauses: {v} vectorized, {s} scalar, {h} hybrid, {c} call-scalar (total {total})\n"
-                )
+                print(f"[vectorize] Einstein clauses: {v} vectorized, {s} scalar, {h} hybrid, {c} call-scalar (total {total})", flush=True)
             return ExecutionResult(outputs=outputs)
         except Exception as e:
             from ..shared.errors import EinlangSourceError
