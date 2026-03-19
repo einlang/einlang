@@ -107,17 +107,12 @@ class PipelineTypeValidator(IRVisitor[None]):
             return
         
         # Validate based on operator
-        if node.operator == "|>":
-            # Standard pipeline: x |> f
-            # f must accept x's type, and return type becomes new left type
+        from ..shared.types import BinaryOp
+        if node.operator == BinaryOp.PIPE:
             self._validate_standard_pipeline(node, left_type, right_type)
-        elif node.operator == "?>":
-            # Option pipeline: x ?> f
-            # x must be Option<T>, f must accept T and return Option<U>
+        elif node.operator == BinaryOp.PIPE_OPTIONAL:
             self._validate_option_pipeline(node, left_type, right_type)
-        elif node.operator == "!>":
-            # Result pipeline: x !> f
-            # x must be Result<T, E>, f must accept T and return Result<U, E>
+        elif node.operator == BinaryOp.PIPE_ERROR:
             self._validate_result_pipeline(node, left_type, right_type)
         
         # Visit nested expressions

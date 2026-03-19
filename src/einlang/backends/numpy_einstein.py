@@ -1433,7 +1433,7 @@ class _IndexExprIsBackwardVisitor(IRVisitor[bool]):
         return node.defid == self._loop_defid
 
     def visit_binary_op(self, node: Any) -> bool:
-        if node.operator != BinaryOp.SUB and node.operator.value != "-":
+        if node.operator != BinaryOp.SUB:
             return False
         if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
@@ -1600,7 +1600,7 @@ class _IndexExprIsStrictlyBackwardVisitor(IRVisitor[bool]):
         return False
 
     def visit_binary_op(self, node: Any) -> bool:
-        if node.operator != BinaryOp.SUB and node.operator.value != "-":
+        if node.operator != BinaryOp.SUB:
             return False
         if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
@@ -1768,8 +1768,7 @@ class _IndexExprIsLoopVarOrOffsetVisitor(IRVisitor[bool]):
 
     def visit_binary_op(self, node: Any) -> bool:
         op = node.operator
-        op_val = op.value if op is not None else None
-        if op not in (BinaryOp.ADD, BinaryOp.SUB) and op_val not in ("+", "-"):
+        if op not in (BinaryOp.ADD, BinaryOp.SUB):
             return False
         if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
@@ -1937,7 +1936,7 @@ class _ExprIsLoopVarOrMinusOneVisitor(IRVisitor[bool]):
         return node.defid == self._loop_defid
 
     def visit_binary_op(self, node: Any) -> bool:
-        if node.operator != BinaryOp.SUB and node.operator.value != "-":
+        if node.operator != BinaryOp.SUB:
             return False
         if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False

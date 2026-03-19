@@ -1173,8 +1173,9 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         if not hasattr(constraint, 'left') or not hasattr(constraint, 'operator'):
             return None
         from ..ir.nodes import IdentifierIR
+        from ..shared.types import BinaryOp
         op = constraint.operator
-        is_in = op == 'in' or (getattr(op, 'value', None) == 'in')
+        is_in = op == BinaryOp.IN
         if is_in and isinstance(constraint.left, IdentifierIR) and constraint.left.name == variable_name:
             return constraint.left.defid
         return None
