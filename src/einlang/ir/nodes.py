@@ -1498,7 +1498,7 @@ class IRVisitor(ABC, Generic[T]):
     def visit_function_call(self, node: FunctionCallIR) -> T:
         """Visit function call"""
         raise NotImplementedError
-    
+
     @abstractmethod
     def visit_rectangular_access(self, node: RectangularAccessIR) -> T:
         """Visit rectangular array access"""

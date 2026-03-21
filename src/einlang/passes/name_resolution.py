@@ -980,6 +980,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                     )
             if node.body:
                 node.body.accept(self)
+        object.__setattr__(definition, "custom_diff_body", node.body)
 
     def visit_block_expression(self, node) -> None:
         """Allocate for block-local defs, then resolve statements and final_expr."""
@@ -2550,6 +2551,11 @@ class NameResolverVisitor(ASTVisitor[None]):
                                         
                                         if func_stmt.body:
                                             func_stmt.body.accept(self)
+                        
+                        from ..shared.nodes import DiffRuleDef as _DiffRuleDef
+                        for stmt in ast.statements:
+                            if isinstance(stmt, _DiffRuleDef):
+                                stmt.accept(self)
                 
                 finally:
                     self.current_module_path = saved_module_path
@@ -2670,6 +2676,11 @@ class NameResolverVisitor(ASTVisitor[None]):
                                     name_resolver.module_loader = self.module_loader
                                     name_resolver.symbol_linker = self.symbol_linker
                                     func_stmt.body.accept(name_resolver)
+                    
+                    from ..shared.nodes import DiffRuleDef as _DiffRuleDef
+                    for stmt in ast.statements:
+                        if isinstance(stmt, _DiffRuleDef):
+                            stmt.accept(self)
             
             # Return DefId for requested function (if specified)
             if function_name:

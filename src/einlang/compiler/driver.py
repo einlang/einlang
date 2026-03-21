@@ -9,6 +9,15 @@ import os
 from typing import Optional
 from pathlib import Path
 from ..passes.base import TyCtxt, PassManager, BasePass
+
+
+def _env_ir_dump_enabled(var_name: str) -> bool:
+    """Per-pass / final IR file dumps are off unless explicitly enabled (1/true/yes/on).
+
+    Any other value (including unset, empty, 0, false) keeps dumps disabled.
+    """
+    v = (os.environ.get(var_name) or "").strip().lower()
+    return v in ("1", "true", "yes", "on")
 from ..ir.nodes import ProgramIR
 from ..shared.errors import ErrorReporter
 from ..frontend.parser import Parser, ParseError
@@ -170,6 +179,7 @@ class CompilerDriver:
         # In-memory module sources (avoid I/O on critical path when possible)
         tcx.source_overlay = source_overlay if source_overlay is not None else {}
 
+        ir: Optional[ProgramIR] = None
         try:
             # Phase 1: Parsing (source → AST)
             ast = self.parser.parse(source, source_file)
@@ -194,7 +204,8 @@ class CompilerDriver:
             lowering_pass = ASTToIRLoweringPass()
             ir = lowering_pass.run(ast, tcx)
 
-            if os.environ.get("EINLANG_DUMP_IR_PER_PASS"):
+            dump_ir_per_pass = _env_ir_dump_enabled("EINLANG_DUMP_IR_PER_PASS")
+            if dump_ir_per_pass:
                 from ..ir.serialization import serialize_ir
                 ir_dump_dir = Path("ir_dump")
                 ir_dump_dir.mkdir(parents=True, exist_ok=True)
@@ -207,7 +218,6 @@ class CompilerDriver:
             if stop_after_pass == 'ASTToIRLoweringPass':
                 return CompilationResult(success=True, ir=ir, tcx=tcx, entry_source_file=source_file)
 
-            dump_ir_per_pass = os.environ.get("EINLANG_DUMP_IR_PER_PASS", "")
             if dump_ir_per_pass:
                 from ..ir.serialization import serialize_ir
                 dump_dir = Path("ir_dumps")
@@ -226,7 +236,6 @@ class CompilerDriver:
             
             # Run remaining passes using pass manager (handles dependencies automatically)
             # Design Pattern: Use pass manager for dependency resolution (no manual isinstance checks)
-            dump_ir_per_pass = os.environ.get("EINLANG_DUMP_IR_PER_PASS", "")
             dump_dir = Path("ir_dumps") if dump_ir_per_pass else None
             pass_index = 1
             for pass_class in remaining_passes:
@@ -259,7 +268,9 @@ class CompilerDriver:
                         out_path.write_text(serialize_ir(ir), encoding="utf-8")
                     except Exception:
                         pass
-                if pass_class.__name__ == "EinsteinLoweringPass" and os.environ.get("EINLANG_DUMP_IR_AFTER_EINSTEIN_LOWERING", ""):
+                if pass_class.__name__ == "EinsteinLoweringPass" and _env_ir_dump_enabled(
+                    "EINLANG_DUMP_IR_AFTER_EINSTEIN_LOWERING"
+                ):
                     from ..ir.serialization import serialize_ir
                     from ..ir.nodes import ProgramIR
                     dump_dir = Path("ir_dumps")
@@ -284,7 +295,9 @@ class CompilerDriver:
 
             # Check for errors
             if tcx.reporter.has_errors():
-                return CompilationResult(success=False, tcx=tcx, entry_source_file=source_file)
+                return CompilationResult(
+                    success=False, ir=ir, tcx=tcx, entry_source_file=source_file
+                )
             
             function_ir_map = getattr(tcx, 'function_ir_map', None) or {}
             func_set = set(ir.functions)
@@ -297,7 +310,7 @@ class CompilerDriver:
             from ..passes.tree_shaking import tree_shake
             ir = tree_shake(ir)
 
-            if os.environ.get("EINLANG_DUMP_FINAL_IR"):
+            if _env_ir_dump_enabled("EINLANG_DUMP_FINAL_IR"):
                 from ..ir.serialization import serialize_ir
                 ir_dump_dir = Path("ir_dump")
                 ir_dump_dir.mkdir(parents=True, exist_ok=True)
@@ -324,7 +337,9 @@ class CompilerDriver:
                     end_line=1, end_column=1,
                 )
             tcx.reporter.report_error(e.message, span)
-            return CompilationResult(success=False, tcx=tcx, entry_source_file=source_file)
+            return CompilationResult(
+                success=False, ir=ir, tcx=tcx, entry_source_file=source_file
+            )
         except Exception as e:
             if not tcx.reporter.has_errors():
                 from ..shared.source_location import SourceLocation
@@ -339,5 +354,7 @@ class CompilerDriver:
                     str(e),
                     location
                 )
-            return CompilationResult(success=False, tcx=tcx, entry_source_file=source_file)
+            return CompilationResult(
+                success=False, ir=ir, tcx=tcx, entry_source_file=source_file
+            )
 

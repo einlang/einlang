@@ -12,7 +12,7 @@ from ..passes.base import BasePass, TyCtxt
 from ..passes.shape_analysis import UnifiedShapeAnalysisPass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BinaryOpIR, IdentifierIR, IndexVarIR, IndexRestIR,
-    ReductionExpressionIR, WhereClauseIR, RangeIR, IRVisitor, LiteralIR,
+    ReductionExpressionIR, SelectAtArgmaxIR, WhereClauseIR, RangeIR, IRVisitor, LiteralIR,
     BindingIR, is_einstein_binding, is_function_binding, is_constant_binding, ParameterIR, IfExpressionIR,
     RectangularAccessIR, MemberAccessIR, TupleAccessIR, BuiltinCallIR,
 )
@@ -358,6 +358,80 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                 raise ValueError(
                     f"Range for reduction loop variable '{display_name}' (defid={loop_var_defid.krate}:{loop_var_defid.index}) could not be inferred. {cause} "
                     "Ensure RangeAnalysisPass runs before EinsteinLoweringPass and that implicit_range_detector can infer the range."
+                )
+
+    def visit_select_at_argmax(self, expr: SelectAtArgmaxIR) -> None:
+        """Infer ``loop_var_ranges`` from ``primal_body`` (same rules as reductions). Autodiff emits these nodes."""
+        if expr.primal_body:
+            expr.primal_body.accept(self)
+        if expr.diff_body:
+            expr.diff_body.accept(self)
+        program = self.analyzer.program_ir
+
+        scope_stack: List[Dict[DefId, Any]] = []
+        if program:
+            program_scope: Dict[DefId, Any] = {}
+            for stmt in program.statements:
+                if isinstance(stmt, BindingIR) and not is_function_binding(stmt) and stmt.defid is not None:
+                    program_scope[stmt.defid] = stmt.expr
+                    val_did = stmt.expr.defid if isinstance(stmt.expr, (IdentifierIR, IndexVarIR)) else None
+                    if val_did is not None and val_did != stmt.defid:
+                        program_scope[val_did] = stmt.expr
+            scope_stack.append(program_scope)
+        scope_stack.extend(self._scope_stack)
+        detector = ImplicitRangeDetector(scope_stack, self.analyzer.tcx)
+        detector._current_clause = None
+        for loop_var_ident in (expr.loop_vars or []):
+            if not isinstance(loop_var_ident, (IdentifierIR, IndexVarIR)):
+                continue
+            loop_var_defid = loop_var_ident.defid
+            if loop_var_defid is None or loop_var_defid in expr.loop_var_ranges:
+                continue
+            implicit_range = detector.infer_implicit_range(expr.primal_body, loop_var_defid)
+            if implicit_range:
+                if hasattr(implicit_range, "to_range_ir") and callable(implicit_range.to_range_ir):
+                    range_ir = implicit_range.to_range_ir(expr.location)
+                else:
+                    start_ir = LiteralIR(
+                        value=implicit_range.start,
+                        location=expr.location,
+                        type_info=infer_literal_type(implicit_range.start),
+                    )
+                    end_ir = LiteralIR(
+                        value=implicit_range.stop,
+                        location=expr.location,
+                        type_info=infer_literal_type(implicit_range.stop),
+                    )
+                    range_ir = RangeIR(start=start_ir, end=end_ir, location=expr.location, type_info=UNKNOWN)
+                expr.loop_var_ranges[loop_var_defid] = range_ir
+                continue
+            range_ir = detector.infer_reduction_var_range_from_body(
+                expr.primal_body, loop_var_defid, expr.location
+            )
+            if range_ir:
+                expr.loop_var_ranges[loop_var_defid] = range_ir
+
+        for loop_var_ident in (expr.loop_vars or []):
+            if not isinstance(loop_var_ident, (IdentifierIR, IndexVarIR)):
+                continue
+            loop_var_defid = loop_var_ident.defid
+            if loop_var_defid is None:
+                continue
+            if loop_var_defid in expr.loop_var_ranges:
+                continue
+            loc = expr.location or loop_var_ident.location or SourceLocation("", 0, 0)
+            cause = detector.diagnose_reduction_range_failure(expr.primal_body, loop_var_defid)
+            display_name = loop_var_ident.name or "?"
+            tcx = self.analyzer.tcx
+            if tcx and tcx.reporter:
+                tcx.reporter.report_error(
+                    f"Range for SelectAtArgmax loop variable '{display_name}' (defid={loop_var_defid.krate}:{loop_var_defid.index}) could not be inferred. {cause}",
+                    loc,
+                    help="Ensure the primal body indexes an array with that variable or add explicit reduction ranges.",
+                )
+            else:
+                raise ValueError(
+                    f"Range for SelectAtArgmax loop variable '{display_name}' (defid={loop_var_defid.krate}:{loop_var_defid.index}) could not be inferred. {cause}"
                 )
 
     # Required visitor methods (no-op for other nodes)

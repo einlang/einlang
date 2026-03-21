@@ -760,11 +760,57 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             return None
         return self._lower_einstein_clause_to_lowered(node, clauses[0])
 
-    def _lower_einstein_clause_to_lowered(self, decl: BindingIR, clause: EinsteinClauseIR) -> Optional[LoweredEinsteinIR]:
-        """Lower one Einstein clause (EinsteinClauseIR) to LoweredEinsteinIR. Uses decl for rest expansion key and shape."""
+    def visit_einstein(self, node: EinsteinIR) -> Any:
+        """Lower Einstein rvalue (e.g. ∂x * einstein{{...}}). Base IRVisitor.visit_einstein returns None,
+        which visit_binary_op would assign to the operand and corrupt the IR."""
+        clauses = list(node.clauses or ())
+        if not clauses:
+            return node
+        if len(clauses) > 1:
+            items: List[LoweredEinsteinClauseIR] = []
+            all_shapes: List[Any] = []
+            element_type = None
+            loc = node.location or SourceLocation("", 0, 0)
+            for clause in clauses:
+                lowered = self._lower_einstein_clause_to_lowered(None, clause, rvalue_einstein=node)
+                if isinstance(lowered, LoweredEinsteinIR) and lowered.items:
+                    items.extend(lowered.items)
+                    if lowered.element_type and element_type is None:
+                        element_type = lowered.element_type
+                    if lowered.shape:
+                        all_shapes.append(lowered.shape)
+                    lhs_shape = self._shape_from_clause_indices(clause, loc)
+                    if lhs_shape is not None:
+                        all_shapes.append(lhs_shape)
+            if items:
+                decl_element_type = node.element_type
+                if decl_element_type is not None and decl_element_type is not UNKNOWN:
+                    element_type = decl_element_type
+                _expr_shape = node.shape
+                tensor_shape = _expr_shape if isinstance(_expr_shape, list) else None
+                if tensor_shape is None and all_shapes:
+                    tensor_shape = self._compute_shape_union(all_shapes, loc)
+                if tensor_shape is None and items[0].loops:
+                    tensor_shape = self._compute_shape(items[0].loops)
+                return LoweredEinsteinIR(items=items, shape=tensor_shape, element_type=element_type)
+            return node
+        lowered_single = self._lower_einstein_clause_to_lowered(None, clauses[0], rvalue_einstein=node)
+        return lowered_single if lowered_single is not None else node
+
+    def _lower_einstein_clause_to_lowered(
+        self,
+        decl: Optional[BindingIR],
+        einstein_clause: EinsteinClauseIR,
+        *,
+        rvalue_einstein: Optional[EinsteinIR] = None,
+    ) -> Optional[LoweredEinsteinIR]:
+        """Lower one Einstein clause (EinsteinClauseIR) to LoweredEinsteinIR. Uses decl and/or rvalue_einstein for shape/type."""
+        if decl is None and rvalue_einstein is None:
+            raise ValueError("_lower_einstein_clause_to_lowered: decl and rvalue_einstein cannot both be None")
         import logging
         logger = logging.getLogger("einlang.passes.einstein_lowering")
-        node = clause  # Use clause for indices, value, where_clause, variable_ranges
+        node = einstein_clause  # Use clause for indices, value, where_clause, variable_ranges
+        meta_expr: Optional[ExpressionIR] = decl.expr if decl is not None else rvalue_einstein
         prev_clause = self._current_einstein_clause
         self._current_einstein_clause = node
         # Rest patterns must be expanded by rest_pattern_preprocessing; we never see IndexRestIR here.
@@ -897,10 +943,10 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             shape = None
             if any(isinstance(idx, LiteralIR) for idx in (node.indices or [])):
                 shape = self._shape_from_clause_indices(node, node.location)
-            if shape is None:
+            if shape is None and decl is not None:
                 shape = self._get_shape_from_analysis(decl)
-            if shape is None and decl.expr is not None:
-                si = getattr(decl.expr, "shape_info", None)
+            if shape is None and meta_expr is not None:
+                si = getattr(meta_expr, "shape_info", None)
                 if si is not None and isinstance(si, (list, tuple)):
                     try:
                         shape = [
@@ -913,12 +959,16 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 shape = self._compute_shape(loops)
         else:
             # Prefer shape stored on IR by shape pass (no lookup by identity). BindingIR has no .shape; use getattr.
-            _decl_shape = getattr(decl, "shape", None)
+            _decl_shape = getattr(decl, "shape", None) if decl is not None else None
+            if _decl_shape is None and rvalue_einstein is not None:
+                rs = rvalue_einstein.shape
+                if rs is not None:
+                    _decl_shape = list(rs) if isinstance(rs, tuple) else rs
             shape = _decl_shape if isinstance(_decl_shape, list) else None
-            if shape is None:
+            if shape is None and decl is not None:
                 shape = self._get_shape_from_analysis(decl)
-            if shape is None and decl.expr is not None:
-                si = getattr(decl.expr, "shape_info", None)
+            if shape is None and meta_expr is not None:
+                si = getattr(meta_expr, "shape_info", None)
                 if si is not None and isinstance(si, (list, tuple)):
                     try:
                         shape = [
@@ -939,7 +989,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 shape = lhs_shape
         
         # Element type comes only from type pass (decl.expr.element_type or type_info)
-        decl_expr = decl.expr
+        decl_expr = meta_expr
         element_type = decl_expr.element_type if decl_expr is not None else None
         if element_type is None and decl_expr is not None and decl_expr.type_info is not None:
             ti = decl_expr.type_info
@@ -950,7 +1000,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
 
         # Create lowered Einstein clause (range/per-clause only)
         clause_loc = node.location
-        clause = LoweredEinsteinClauseIR(
+        lowered_clause_ir = LoweredEinsteinClauseIR(
             body=node.value,
             loops=loops,
             reduction_ranges=reduction_ranges,
@@ -961,7 +1011,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         )
         # Wrap in group with shared shape, element_type
         self._current_einstein_clause = prev_clause
-        return LoweredEinsteinIR(items=[clause], shape=shape, element_type=element_type)
+        return LoweredEinsteinIR(items=[lowered_clause_ir], shape=shape, element_type=element_type)
 
     def lower_reduction_expression(self, node: ReductionExpressionIR) -> None:
         """Lower a reduction expression to LoweredIteration. loop_vars is the single source of truth."""
