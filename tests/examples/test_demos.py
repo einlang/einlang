@@ -247,7 +247,7 @@ class TestDemos:
                 "(2) numerical/implementation difference -> if einlang output is correct, update golden_ref.txt "
                 "with: echo -n '<output>' > examples/whisper_tiny/golden_ref.txt"
             )
-        _assert_vectorize_counts(full_output, min_vectorized=13811, max_scalar=4, label="whisper_tiny")
+        _assert_vectorize_counts(full_output, min_vectorized=13811, max_scalar=2, label="whisper_tiny")
 
 
 if __name__ == "__main__":
