@@ -2127,7 +2127,7 @@ def _is_autodiff_generated_binding(binding):
 
 
 def test_autodiff_ir_dump_all_ops():
-    """Dump result.ir (after autodiff) to one file per op under autodiff_ir_dumps/ for local comparison with docs (gitignored *.sexpr)."""
+    """Dump result.ir (after autodiff) to one file per op under autodiff_ir_dumps/ for local comparison with docs (gitignored *.sexpr). See docs/AUTODIFF_EINSTEIN_OPS.md."""
     from einlang.ir.serialization import serialize_ir
     dump_dir = Path(__file__).parent / "autodiff_ir_dumps"
     dump_dir.mkdir(exist_ok=True)
