@@ -2403,6 +2403,64 @@ def _recurrence_dims(lowered: Any, variable_defid: Any, clause_indices: Optional
     return recurrence
 
 
+def _infer_lowered_einstein_output_defid(lowered: LoweredEinsteinIR) -> Any:
+    """
+    DefId of the tensor this Einstein declaration writes: any DefId that appears as the array of a
+    RectangularAccessIR in a clause body and is self-referenced there. Used when Autodiff nests
+    LoweredEinsteinIR under RectangularAccessIR (pullback) so execution can push a synthetic decl stack.
+
+    When the array is itself a nested LoweredEinsteinIR (re-materialized primal), recurse to the inner
+    tensor (same DefId as the leaf read, e.g. u inside euler_decay).
+    """
+    candidates: set = set()
+    inner_einsteins: List[LoweredEinsteinIR] = []
+
+    def collect_rect_array_defids(expr: Any) -> None:
+        if expr is None:
+            return
+        if isinstance(expr, RectangularAccessIR):
+            arr = expr.array
+            if isinstance(arr, IdentifierIR) and arr.defid is not None:
+                candidates.add(arr.defid)
+            elif isinstance(arr, LoweredEinsteinIR):
+                inner_einsteins.append(arr)
+            collect_rect_array_defids(arr)
+            for ix in expr.indices or []:
+                collect_rect_array_defids(ix)
+        elif isinstance(expr, BinaryOpIR):
+            collect_rect_array_defids(expr.left)
+            collect_rect_array_defids(expr.right)
+        elif isinstance(expr, UnaryOpIR):
+            collect_rect_array_defids(expr.operand)
+        elif isinstance(expr, IfExpressionIR):
+            collect_rect_array_defids(expr.condition)
+            collect_rect_array_defids(expr.then_expr)
+            if expr.else_expr is not None:
+                collect_rect_array_defids(expr.else_expr)
+        elif isinstance(expr, FunctionCallIR):
+            collect_rect_array_defids(expr.callee_expr)
+            for a in expr.arguments or []:
+                collect_rect_array_defids(a)
+        elif isinstance(expr, BlockExpressionIR):
+            for st in expr.statements or []:
+                collect_rect_array_defids(st)
+            if expr.final_expr is not None:
+                collect_rect_array_defids(expr.final_expr)
+
+    for item in lowered.items or []:
+        if item.body is not None:
+            collect_rect_array_defids(item.body)
+    for d in candidates:
+        for item in lowered.items or []:
+            if item.body is not None and _BodyReferencesDefidVisitor(d).references(item.body):
+                return d
+    for inner in inner_einsteins:
+        inner_d = _infer_lowered_einstein_output_defid(inner)
+        if inner_d is not None:
+            return inner_d
+    return None
+
+
 def _reduction_var_bounded_by_loop_var(
     read_index_expr: Any,
     loop_defid: Any,
@@ -2968,6 +3026,32 @@ def _try_call_scalar_vectorize_clause(
 
 
 class EinsteinExecutionMixin:
+    def _evaluate_lowered_einstein_subexpr(self, lowered: LoweredEinsteinIR) -> Any:
+        """Run a nested LoweredEinsteinIR (e.g. under RectangularAccessIR from autodiff) with a synthetic decl."""
+        out_defid = _infer_lowered_einstein_output_defid(lowered)
+        if out_defid is None:
+            raise RuntimeError(
+                "LoweredEinsteinIR nested under indexing: could not infer output DefId for execution."
+            )
+
+        class _SyntheticEinsteinDecl:
+            __slots__ = ("defid", "name")
+
+            def __init__(self, defid: Any) -> None:
+                self.defid = defid
+                self.name = "?"
+
+        decl = _SyntheticEinsteinDecl(out_defid)
+        stack = getattr(self, "_variable_decl_stack", None)
+        if stack is None:
+            self._variable_decl_stack = []
+            stack = self._variable_decl_stack
+        stack.append(decl)
+        try:
+            return lowered.accept(self)
+        finally:
+            stack.pop()
+
     def visit_lowered_einstein_clause(self, node: LoweredEinsteinClauseIR) -> Any:
         stack = getattr(self, "_variable_decl_stack", None)
         variable_decl = stack[-1] if stack else None

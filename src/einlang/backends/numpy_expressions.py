@@ -16,6 +16,7 @@ from ..ir.nodes import (
     PipelineExpressionIR, BuiltinCallIR,
     MatchArmIR, ExpressionIR, LoweredComprehensionIR, LoweredReductionIR,
     LoweredSelectAtArgmaxIR,
+    LoweredEinsteinIR,
     DifferentialIR,
     IRVisitor,
 )
@@ -1033,7 +1034,11 @@ class ExpressionVisitorMixin:
         return callee(*args)
 
     def visit_rectangular_access(self, expr: RectangularAccessIR) -> Any:
-        array = expr.array.accept(self)
+        # Autodiff pullback may place LoweredEinsteinIR here; evaluate with synthetic variable_decl stack.
+        if isinstance(expr.array, LoweredEinsteinIR):
+            array = self._evaluate_lowered_einstein_subexpr(expr.array)
+        else:
+            array = expr.array.accept(self)
         indices = [idx.accept(self) for idx in (expr.indices or []) if idx is not None]
         try:
             if isinstance(array, np.ndarray):
