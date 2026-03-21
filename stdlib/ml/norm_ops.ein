@@ -79,15 +79,44 @@ pub fn layer_normalization(X, scale, B, epsilon, axis) {
     // epsilon: Small constant (default: 1e-5)
     // axis: Axis to normalize from (typically -1 for last dimension)
     //
-    // Normalizes over the last dimension
+    // Normalizes over the last dimension. Count `n` must be the last-axis length:
+    // for 2D [*, D] use len(X[0]); for 3D [*, *, D] use len(X[0, 0]); etc.
+    // (Using len(X[0]) alone is wrong for rank > 2 — e.g. ViT [1,197,192] would use 197 not 192.)
     assert(typeof(X) == "rectangular", "layer_normalization: X must be rectangular");
     
-    let n = len(X[0]) as f32;
-    let mean[..batch] = sum[j](X[..batch, j]) / n;
-    let variance[..batch] = sum[j]((X[..batch, j] - mean[..batch]) ** 2.0) / n;
-    let std[..batch] = sqrt(variance[..batch] + epsilon);
-    let output[..batch, j] = scale[j] * (X[..batch, j] - mean[..batch]) / std[..batch] + B[j];
-    output
+    let rank = len(X.shape);
+    if rank == 2 {
+        let n = len(X[0]) as f32;
+        let mean[..batch] = sum[j](X[..batch, j]) / n;
+        let variance[..batch] = sum[j]((X[..batch, j] - mean[..batch]) ** 2.0) / n;
+        let std[..batch] = sqrt(variance[..batch] + epsilon);
+        let output[..batch, j] = scale[j] * (X[..batch, j] - mean[..batch]) / std[..batch] + B[j];
+        output
+    } else if rank == 3 {
+        let n = len(X[0, 0]) as f32;
+        let mean[..batch] = sum[j](X[..batch, j]) / n;
+        let variance[..batch] = sum[j]((X[..batch, j] - mean[..batch]) ** 2.0) / n;
+        let std[..batch] = sqrt(variance[..batch] + epsilon);
+        let output[..batch, j] = scale[j] * (X[..batch, j] - mean[..batch]) / std[..batch] + B[j];
+        output
+    } else if rank == 4 {
+        let n = len(X[0, 0, 0]) as f32;
+        let mean[..batch] = sum[j](X[..batch, j]) / n;
+        let variance[..batch] = sum[j]((X[..batch, j] - mean[..batch]) ** 2.0) / n;
+        let std[..batch] = sqrt(variance[..batch] + epsilon);
+        let output[..batch, j] = scale[j] * (X[..batch, j] - mean[..batch]) / std[..batch] + B[j];
+        output
+    } else if rank == 5 {
+        let n = len(X[0, 0, 0, 0]) as f32;
+        let mean[..batch] = sum[j](X[..batch, j]) / n;
+        let variance[..batch] = sum[j]((X[..batch, j] - mean[..batch]) ** 2.0) / n;
+        let std[..batch] = sqrt(variance[..batch] + epsilon);
+        let output[..batch, j] = scale[j] * (X[..batch, j] - mean[..batch]) / std[..batch] + B[j];
+        output
+    } else {
+        assert(false, "layer_normalization: unsupported tensor rank (need 2..5)");
+        X
+    }
 }
 
 

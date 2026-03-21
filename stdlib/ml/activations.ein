@@ -30,8 +30,6 @@ pub fn softmax(x) {
     output
 }
 
-
-
 pub fn log_softmax(x) {
     // Log Softmax: numerically stable log(softmax(x))
     // log_softmax(x_i) = x_i - log(Σ_j exp(x_j))
@@ -45,7 +43,6 @@ pub fn log_softmax(x) {
     let output[..batch, j] = x[..batch, j] - log_sum[..batch];
     output
 }
-
 
 pub fn leaky_relu(x, alpha) {
     // Leaky ReLU: LReLU(x) = max(αx, x) = x if x > 0 else αx
