@@ -42,3 +42,11 @@ pub fn atan2(y, x) {
     // Uses numpy for array support
     python::numpy::arctan2(y, x)
 }
+
+@fn sin(x) { cos(x) * @x }
+@fn cos(x) { (-sin(x)) * @x }
+@fn tan(x) { (1.0 / (cos(x) * cos(x))) * @x }
+@fn asin(x) { (1.0 / ((1.0 - x * x) ** 0.5)) * @x }
+@fn acos(x) { (-1.0 / ((1.0 - x * x) ** 0.5)) * @x }
+@fn atan(x) { (1.0 / (1.0 + x * x)) * @x }
+@fn atan2(y, x) { (x / (x * x + y * y)) * @y + (-y / (x * x + y * y)) * @x }
