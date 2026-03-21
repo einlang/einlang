@@ -10,7 +10,7 @@ come from shape analysis and lowered IR (see IR_DESIGN.md).
 """
 
 from dataclasses import dataclass
-from typing import Tuple, Optional, Generic, TypeVar, Any
+from typing import Tuple, Optional, List, Generic, TypeVar, Any
 from abc import ABC, abstractmethod
 from enum import Enum
 
@@ -234,6 +234,56 @@ class DifferentialType(Type):
 
     def __hash__(self) -> int:
         return hash((self.kind, self.inner_type))
+
+
+def strip_differential_types_deep(ty: Optional[Any]) -> Optional[Any]:
+    """
+    Remove every DifferentialType layer and recurse through composite types.
+    Used after AutodiffPass: IR must not retain differential typing on plain values.
+    """
+    if ty is None:
+        return None
+    while isinstance(ty, DifferentialType):
+        ty = ty.inner_type
+    if ty is UNKNOWN or (isinstance(ty, Type) and ty.kind == TypeKind.UNKNOWN):
+        return UNKNOWN
+    if not isinstance(ty, Type):
+        return ty
+    if isinstance(ty, PrimitiveType):
+        return ty
+    if isinstance(ty, RectangularType):
+        el = strip_differential_types_deep(ty.element_type)
+        new_shape: Optional[Tuple[Any, ...]] = None
+        if ty.shape is not None:
+            dims: List[Any] = []
+            for d in ty.shape:
+                if isinstance(d, Type):
+                    sd = strip_differential_types_deep(d)
+                    dims.append(sd)
+                else:
+                    dims.append(d)
+            new_shape = tuple(dims)
+        return RectangularType(
+            element_type=el,
+            shape=new_shape,
+            is_dynamic_rank=ty.is_dynamic_rank,
+        )
+    if isinstance(ty, JaggedType):
+        return JaggedType(
+            element_type=strip_differential_types_deep(ty.element_type),
+            nesting_depth=ty.nesting_depth,
+            is_dynamic_depth=ty.is_dynamic_depth,
+        )
+    if isinstance(ty, TupleType):
+        return TupleType(
+            element_types=tuple(strip_differential_types_deep(e) for e in ty.element_types),
+        )
+    if isinstance(ty, FunctionType):
+        return FunctionType(
+            param_types=tuple(strip_differential_types_deep(p) for p in ty.param_types),
+            return_type=strip_differential_types_deep(ty.return_type),
+        )
+    return ty
 
 
 @dataclass(frozen=True)

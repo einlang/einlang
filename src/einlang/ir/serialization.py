@@ -180,7 +180,17 @@ class IRSerializer:
     
     def _serialize_type(self, type_obj: Any) -> Any:
         """Serialize type objects to structured sexpr"""
-        from ..shared.types import PrimitiveType, RectangularType, JaggedType, TupleType, FunctionType, UNKNOWN, Type, TypeKind
+        from ..shared.types import (
+            PrimitiveType,
+            RectangularType,
+            JaggedType,
+            TupleType,
+            FunctionType,
+            DifferentialType,
+            UNKNOWN,
+            Type,
+            TypeKind,
+        )
 
         if type_obj is UNKNOWN or (isinstance(type_obj, Type) and type_obj.kind == TypeKind.UNKNOWN):
             return [self._sym("type"), self._sym("unknown")]
@@ -214,6 +224,8 @@ class IRSerializer:
             params = [self._serialize_type(p) for p in type_obj.param_types]
             ret = self._serialize_type(type_obj.return_type)
             return [self._sym("function-type"), params, ret]
+        elif isinstance(type_obj, DifferentialType):
+            return [self._sym("differential-type"), self._serialize_type(type_obj.inner_type)]
         elif isinstance(type_obj, list):
             if len(type_obj) == 1:
                 return [self._sym("rectangular-type"), self._serialize_type(type_obj[0])]
@@ -1488,7 +1500,17 @@ class IRDeserializer:
         _, opts = _plist(tail[2:])
         loc = self._loc_from_opts(opts)
         return_type = self._deserialize_type(opts.get(":return_type"))
-        return FunctionValueIR(parameters=params, body=body, location=loc, return_type=return_type)
+        custom_diff_sexpr = opts.get(":custom_diff_body")
+        custom_diff_body = (
+            self.deserialize(custom_diff_sexpr) if custom_diff_sexpr is not None else None
+        )
+        return FunctionValueIR(
+            parameters=params,
+            body=body,
+            location=loc,
+            return_type=return_type,
+            custom_diff_body=custom_diff_body,
+        )
 
     def _deserialize_program(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import ProgramIR
@@ -1827,6 +1849,13 @@ class IRDeserializer:
                     elif isinstance(third, int):
                         depth = third
                 return JaggedType(element_type=element, nesting_depth=depth, is_dynamic_depth=is_dynamic)
+            if tag == "differential-type" and len(sexpr) >= 2:
+                from ..shared.types import DifferentialType
+
+                inner = self._deserialize_type(sexpr[1])
+                if inner is None:
+                    return None
+                return DifferentialType(inner)
         return None
 
 

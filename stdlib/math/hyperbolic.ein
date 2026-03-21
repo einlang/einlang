@@ -1,38 +1,53 @@
 // stdlib_v2/math/hyperbolic.ein - Hyperbolic functions
+//
+// Pure Einlang implementations tuned for f32 tensors: avoid exp(+large) overflow
+// that breaks sinh/cosh/tanh via (exp(x)-exp(-x))/2 and sinh/cosh for tanh.
+// tanh uses the exp(-2|x|) split (NumPy/Cephes-style); sinh/cosh use a magnitude branch.
+
+use std::math::{exp, log, abs};
+
+pub fn tanh(x) {
+    // tanh(x) = (exp(2x)-1)/(exp(2x)+1) for x<0, (1-exp(-2x))/(1+exp(-2x)) for x>=0
+    // Avoids computing exp(x) and exp(-x) simultaneously for large |x| (no inf/inf).
+    if (x as f32) >= 0.0 {
+        let t = exp(-2.0 * x);
+        (1.0 - t) / (1.0 + t)
+    } else {
+        let t = exp(2.0 * x);
+        (t - 1.0) / (t + 1.0)
+    }
+}
 
 pub fn sinh(x) {
-    // Hyperbolic sine
-    // Uses numpy for array support
-    python::numpy::sinh(x)
+    let ax = abs(x);
+    if ax < 20.0 {
+        (exp(x) - exp(-x)) * 0.5
+    } else {
+        let s = if (x as f32) >= 0.0 { 1.0 } else { -1.0 };
+        s * 0.5 * exp(ax)
+    }
 }
 
 pub fn cosh(x) {
-    // Hyperbolic cosine
-    // Uses numpy for array support
-    python::numpy::cosh(x)
-}
-
-pub fn tanh(x) {
-    // Hyperbolic tangent
-    // Uses numpy for array support
-    python::numpy::tanh(x)
+    let ax = abs(x);
+    if ax < 20.0 {
+        (exp(x) + exp(-x)) * 0.5
+    } else {
+        0.5 * exp(ax)
+    }
 }
 
 pub fn asinh(x) {
-    // Inverse hyperbolic sine
-    // Uses numpy for array support
-    python::numpy::arcsinh(x)
+    // log(x + sqrt(x^2+1)); stable for moderate |x| used in ML
+    log(x + (x * x + 1.0) ** 0.5)
 }
 
 pub fn acosh(x) {
-    // Inverse hyperbolic cosine
-    // Uses numpy for array support
-    python::numpy::arccosh(x)
+    // Domain x >= 1
+    log(x + (x * x - 1.0) ** 0.5)
 }
 
 pub fn atanh(x) {
-    // Inverse hyperbolic tangent
-    // Uses numpy for array support
-    python::numpy::arctanh(x)
+    // Domain |x| < 1
+    0.5 * log((1.0 + x) / (1.0 - x))
 }
-

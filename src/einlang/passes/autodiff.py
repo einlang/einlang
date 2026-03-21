@@ -28,6 +28,8 @@ from ..ir.nodes import (
     ExpressionIR,
     IRVisitor,
     IfExpressionIR,
+    InterpolatedStringIR,
+    LambdaIR,
     RectangularAccessIR,
     IndexVarIR,
     RangeIR,
@@ -38,10 +40,21 @@ from ..ir.nodes import (
     EinsteinClauseIR,
     ReductionExpressionIR,
     SelectAtArgmaxIR,
+    WhereExpressionIR,
     WhereClauseIR,
+    IndexRestIR,
+    DiffRuleIR,
+    TupleExpressionIR,
+    TupleAccessIR,
+    MatchExpressionIR,
+    PipelineExpressionIR,
+    ArrayComprehensionIR,
+    TryExpressionIR,
+    JaggedAccessIR,
     is_function_binding,
 )
-from ..shared.types import BinaryOp, UnaryOp, PrimitiveType, UNKNOWN, F32, STR, BOOL
+from ..shared.types import BinaryOp, UnaryOp, PrimitiveType, UNKNOWN, F32, STR, BOOL, Type
+from ..shared.types import strip_differential_types_deep
 from ..shared.types import ReductionOp
 from ..shared.defid import DefId
 from ..shared.source_location import SourceLocation
@@ -411,6 +424,261 @@ class _DefIdCollector(IRVisitor[None]):
 
     def visit_range_pattern(self, node: Any) -> None:
         pass
+
+
+class _StripDiffTypesWalker(_DefIdCollector):
+    """Strip DifferentialType from type_info and type-bearing fields while walking the IR."""
+
+    @staticmethod
+    def _strip_ty(ty: Any) -> Any:
+        return strip_differential_types_deep(ty)
+
+    def _strip_expr(self, node: ExpressionIR) -> None:
+        if node.type_info is not None:
+            node.type_info = self._strip_ty(node.type_info)
+
+    def visit_literal(self, node: LiteralIR) -> None:
+        self._strip_expr(node)
+
+    def visit_identifier(self, node: IdentifierIR) -> None:
+        self._strip_expr(node)
+        if node.defid is not None:
+            self.defids.add(node.defid)
+
+    def visit_binary_op(self, node: BinaryOpIR) -> None:
+        self._strip_expr(node)
+        node.left.accept(self)
+        node.right.accept(self)
+
+    def visit_unary_op(self, node: UnaryOpIR) -> None:
+        self._strip_expr(node)
+        node.operand.accept(self)
+
+    def visit_builtin_call(self, node: BuiltinCallIR) -> None:
+        self._strip_expr(node)
+        for a in node.args or []:
+            a.accept(self)
+
+    def visit_function_call(self, node: FunctionCallIR) -> None:
+        self._strip_expr(node)
+        if node.callee_expr is not None:
+            node.callee_expr.accept(self)
+        for a in node.arguments or []:
+            a.accept(self)
+
+    def visit_rectangular_access(self, node: RectangularAccessIR) -> None:
+        self._strip_expr(node)
+        node.array.accept(self)
+        for i in node.indices or []:
+            i.accept(self)
+
+    def visit_jagged_access(self, node: JaggedAccessIR) -> None:
+        self._strip_expr(node)
+        if node.base is not None:
+            node.base.accept(self)
+        for idx in node.index_chain or []:
+            idx.accept(self)
+
+    def visit_block_expression(self, node: BlockExpressionIR) -> None:
+        self._strip_expr(node)
+        for s in node.statements or []:
+            if hasattr(s, "accept"):
+                s.accept(self)
+        if node.final_expr is not None:
+            node.final_expr.accept(self)
+
+    def visit_if_expression(self, node: IfExpressionIR) -> None:
+        self._strip_expr(node)
+        node.condition.accept(self)
+        node.then_expr.accept(self)
+        if node.else_expr is not None:
+            node.else_expr.accept(self)
+
+    def visit_cast_expression(self, node: CastExpressionIR) -> None:
+        self._strip_expr(node)
+        tt = node.target_type
+        if tt is not None and isinstance(tt, Type):
+            node.target_type = self._strip_ty(tt)
+        node.expr.accept(self)
+
+    def visit_differential(self, node: DifferentialIR) -> None:
+        self._strip_expr(node)
+        node.operand.accept(self)
+
+    def visit_lambda(self, node: LambdaIR) -> None:
+        self._strip_expr(node)
+        for p in node.parameters or []:
+            if p.param_type is not None:
+                p.param_type = self._strip_ty(p.param_type)
+        node.body.accept(self)
+
+    def visit_range(self, node: RangeIR) -> None:
+        self._strip_expr(node)
+        node.start.accept(self)
+        node.end.accept(self)
+
+    def visit_reduction_expression(self, node: ReductionExpressionIR) -> None:
+        self._strip_expr(node)
+        for lv in node.loop_vars or []:
+            lv.accept(self)
+        node.body.accept(self)
+        if node.where_clause is not None:
+            for c in node.where_clause.constraints or []:
+                c.accept(self)
+
+    def visit_where_expression(self, node: WhereExpressionIR) -> None:
+        self._strip_expr(node)
+        node.expr.accept(self)
+        for c in node.constraints or []:
+            c.accept(self)
+
+    def visit_pipeline_expression(self, node: PipelineExpressionIR) -> None:
+        self._strip_expr(node)
+        node.left.accept(self)
+        node.right.accept(self)
+
+    def visit_array_comprehension(self, node: ArrayComprehensionIR) -> None:
+        self._strip_expr(node)
+        for v in node.loop_vars or []:
+            v.accept(self)
+        for r in node.ranges or []:
+            r.accept(self)
+        for c in node.constraints or []:
+            c.accept(self)
+        node.body.accept(self)
+
+    def visit_array_literal(self, node: ArrayLiteralIR) -> None:
+        self._strip_expr(node)
+        for e in node.elements or []:
+            e.accept(self)
+
+    def visit_tuple_expression(self, node: TupleExpressionIR) -> None:
+        self._strip_expr(node)
+        for e in node.elements or []:
+            e.accept(self)
+
+    def visit_tuple_access(self, node: TupleAccessIR) -> None:
+        self._strip_expr(node)
+        node.tuple_expr.accept(self)
+
+    def visit_member_access(self, node: MemberAccessIR) -> None:
+        self._strip_expr(node)
+        node.object.accept(self)
+
+    def visit_function_value(self, node: FunctionValueIR) -> None:
+        self._strip_expr(node)
+        if node.return_type is not None:
+            object.__setattr__(node, "return_type", self._strip_ty(node.return_type))
+        for p in node.parameters or []:
+            if p.param_type is not None:
+                p.param_type = self._strip_ty(p.param_type)
+        if node.body is not None:
+            node.body.accept(self)
+
+    def visit_try_expression(self, node: TryExpressionIR) -> None:
+        self._strip_expr(node)
+        node.operand.accept(self)
+
+    def visit_match_expression(self, node: MatchExpressionIR) -> None:
+        self._strip_expr(node)
+        node.scrutinee.accept(self)
+        for arm in node.arms or []:
+            if getattr(arm, "body", None) is not None:
+                arm.body.accept(self)
+
+    def visit_interpolated_string(self, node: InterpolatedStringIR) -> None:
+        self._strip_expr(node)
+        for p in node.parts or []:
+            if isinstance(p, ExpressionIR):
+                p.accept(self)
+
+    def visit_binding(self, node: BindingIR) -> None:
+        if node.type_info is not None:
+            node.type_info = self._strip_ty(node.type_info)
+        if node.expr is not None:
+            node.expr.accept(self)
+
+    def visit_einstein(self, node: EinsteinIR) -> None:
+        self._strip_expr(node)
+        et = node.element_type
+        if et is not None and isinstance(et, Type):
+            node.element_type = self._strip_ty(et)
+        for c in node.clauses or []:
+            if hasattr(c, "accept"):
+                c.accept(self)
+
+    def visit_einstein_clause(self, node: EinsteinClauseIR) -> None:
+        for idx in node.indices or []:
+            if isinstance(idx, ExpressionIR):
+                idx.accept(self)
+            elif isinstance(idx, (list, tuple)):
+                for sub in idx:
+                    if isinstance(sub, ExpressionIR):
+                        sub.accept(self)
+        if node.value is not None:
+            node.value.accept(self)
+        if node.where_clause is not None:
+            for c in node.where_clause.constraints or []:
+                c.accept(self)
+
+    def visit_select_at_argmax(self, node: SelectAtArgmaxIR) -> None:
+        self._strip_expr(node)
+        if node.primal_body is not None:
+            node.primal_body.accept(self)
+        if node.diff_body is not None:
+            node.diff_body.accept(self)
+
+    def visit_index_var(self, node: IndexVarIR) -> None:
+        self._strip_expr(node)
+        if node.range_ir is not None:
+            node.range_ir.accept(self)
+
+    def visit_index_rest(self, node: IndexRestIR) -> None:
+        self._strip_expr(node)
+        if node.defid is not None:
+            self.defids.add(node.defid)
+
+
+class _ClearAutodiffArtifactsVisitor(_StripDiffTypesWalker):
+    """
+    After AutodiffPass: clear custom_diff bodies, drop DiffRuleIR statements,
+    and strip DifferentialType from all IR type annotations.
+    """
+
+    def visit_function_value(self, node: FunctionValueIR) -> None:
+        cdb = getattr(node, "custom_diff_body", None)
+        if cdb is not None:
+            cdb.accept(self)
+            object.__setattr__(node, "custom_diff_body", None)
+        super().visit_function_value(node)
+
+    def visit_program(self, node: ProgramIR) -> None:
+        node.statements = [s for s in (node.statements or []) if not isinstance(s, DiffRuleIR)]
+        node.bindings = [s for s in node.statements if isinstance(s, BindingIR)]
+        for s in node.statements or []:
+            if isinstance(s, BindingIR):
+                s.accept(self)
+            elif hasattr(s, "accept"):
+                s.accept(self)
+        for mod in node.modules or []:
+            mod.accept(self)
+
+    def visit_module(self, node: Any) -> None:
+        for b in node.functions or []:
+            b.accept(self)
+        for b in node.constants or []:
+            b.accept(self)
+        for sub in node.submodules or []:
+            sub.accept(self)
+
+    def visit_diff_rule(self, node: DiffRuleIR) -> None:
+        if node.body is not None:
+            node.body.accept(self)
+
+
+def clear_custom_diff_body_everywhere(program: ProgramIR) -> None:
+    """Clear autodiff-only IR: custom_diff_body, DiffRuleIR stmts, DifferentialType annotations."""
+    program.accept(_ClearAutodiffArtifactsVisitor())
 
 
 def _collect_defids(expr: Optional[ExpressionIR]) -> Set[DefId]:
@@ -2289,6 +2557,14 @@ class AutodiffPass(BasePass):
 
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         program = ir
+        try:
+            return self._run_autodiff_core(program, tcx)
+        finally:
+            from ..ir.nodes import clear_autodiff_only_fields
+
+            clear_autodiff_only_fields(program)
+
+    def _run_autodiff_core(self, program: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         bindings = _bindings_in_block(program, program) or []
         if not bindings:
             tcx.set_analysis(AutodiffPass, {
@@ -2485,6 +2761,4 @@ class AutodiffPass(BasePass):
             },
         )
 
-        from ..ir.nodes import clear_autodiff_only_fields
-        clear_autodiff_only_fields(program)
         return program

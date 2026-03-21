@@ -12,6 +12,7 @@ from .types import (
     Type, TypeKind, PrimitiveType, FunctionType, RectangularType, JaggedType, TupleType, DifferentialType, TypeVisitor,
     I32, F32, F64, I64, BOOL, STR, UNKNOWN, UNIT,
     BinaryOp, UnaryOp, PipelineClauseType,
+    strip_differential_types_deep,
 )
 from .nodes import (
     ASTNode, Expression, Statement, Program, NodeType,
