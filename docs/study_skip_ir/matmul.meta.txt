@@ -1,0 +1,7 @@
+label: matmul
+compile_success: True
+pytest_skip_reason: matmul shape inference error in print(@y)
+has_ir: True
+
+--- errors ---
+(none)

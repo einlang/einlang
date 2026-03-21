@@ -1,0 +1,16 @@
+softmax	compile_ok=True	IR=yes	bytes=1949710	softmax autodiff not yet supported witho
+log_softmax	compile_ok=True	IR=yes	bytes=1938249	log_softmax autodiff not yet supported w
+reduce_sum	compile_ok=True	IR=yes	bytes=484601	print(@y) for multi-step inlined functio
+reduce_mean	compile_ok=True	IR=yes	bytes=494653	print(@y) for multi-step inlined functio
+reduce_l1	compile_ok=False	IR=yes	bytes=2076395	Einstein clause body with function call 
+reduce_l2	compile_ok=False	IR=yes	bytes=2076370	print(@y) for multi-step inlined functio
+reduce_sum_square	compile_ok=False	IR=yes	bytes=2076409	Einstein clause body with power not yet 
+reduce_log_sum	compile_ok=True	IR=yes	bytes=494335	print(@y) for multi-step inlined functio
+reduce_log_sum_exp	compile_ok=False	IR=yes	bytes=2076411	print(@y) for multi-step inlined functio
+linear	compile_ok=True	IR=yes	bytes=499616	print(@y) for multi-step inlined functio
+matmul	compile_ok=True	IR=yes	bytes=510419	matmul shape inference error in print(@y
+mse_loss	compile_ok=True	IR=yes	bytes=498601	print(@y) for multi-step inlined functio
+mae_loss	compile_ok=True	IR=yes	bytes=503023	print(@y) for multi-step inlined functio
+huber_loss	compile_ok=True	IR=yes	bytes=1894409	print(@y) for multi-step inlined functio
+binary_cross_entropy	compile_ok=True	IR=yes	bytes=579111	print(@y) for multi-step inlined functio
+cosine_similarity	compile_ok=True	IR=yes	bytes=607819	print(@y) for multi-step inlined functio

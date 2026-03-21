@@ -1,0 +1,13 @@
+label: reduce_l1
+compile_success: False
+pytest_skip_reason: Einstein clause body with function call not yet supported
+has_ir: True
+
+--- errors ---
+error: Autodiff: Einstein clause body is not a product of indexed arrays
+ --> <test>:1:1
+  |
+1 | use std::ml;
+  | ^^^
+
+error: aborting due to 1 previous error
