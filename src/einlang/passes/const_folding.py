@@ -510,39 +510,29 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         """Modules are not expressions - should not be called"""
         raise NotImplementedError("ConstantFolder only handles expressions, not modules")
     
-    def _eval_binary_op(self, op: str, left: Any, right: Any) -> Optional[Any]:
-        """
-        Evaluate binary operation at compile-time.
-        
-        Rust Pattern: Constant evaluation for binary operations
-        """
+    def _eval_binary_op(self, op: Any, left: Any, right: Any) -> Optional[Any]:
+        from ..shared.types import BinaryOp
         try:
-            if op == '+':
+            if op == BinaryOp.ADD:
                 return left + right
-            elif op == '-':
+            elif op == BinaryOp.SUB:
                 return left - right
-            elif op == '*':
+            elif op == BinaryOp.MUL:
                 return left * right
-            elif op == '/':
+            elif op == BinaryOp.DIV:
                 if right == 0:
-                    return None  # Division by zero
+                    return None
                 return left / right
-            # ... other operators
         except Exception:
             return None
     
-    def _eval_unary_op(self, op: str, operand: Any) -> Optional[Any]:
-        """
-        Evaluate unary operation at compile-time.
-        
-        Rust Pattern: Constant evaluation for unary operations
-        """
+    def _eval_unary_op(self, op: Any, operand: Any) -> Optional[Any]:
+        from ..shared.types import UnaryOp
         try:
-            if op == '-':
+            if op == UnaryOp.NEG:
                 return -operand
-            elif op == '!':
+            elif op == UnaryOp.BOOL_NOT:
                 return not operand
-            # ... other operators
         except Exception:
             return None
 

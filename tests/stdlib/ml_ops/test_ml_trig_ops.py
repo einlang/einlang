@@ -116,3 +116,27 @@ def test_trig_ops_clustered_accuracy(compiler, runtime):
     expected = np.arctanh(x_3)
     actual = np.array(result.outputs['result_8'])
     np.testing.assert_allclose(actual, expected, rtol=1e-5)
+
+
+def test_hyperbolic_large_magnitude_finite_and_matches_numpy(compiler, runtime):
+    """tanh stays finite for very large |x|; sinh/cosh use asymptotic branch below f32 exp overflow."""
+    source = """use std::ml;
+    let xt = [[-100.0, -50.0, 0.0, 50.0, 100.0]];
+    let xsc = [[-25.0, -20.0, 0.0, 20.0, 25.0]];
+    let t = std::ml::tanh(xt);
+    let s = std::ml::sinh(xsc);
+    let c = std::ml::cosh(xsc);
+    """
+    result = compile_and_execute(source, compiler, runtime)
+    assert result.success, f"Execution failed: {result.errors}"
+    xt = np.array([[-100.0, -50.0, 0.0, 50.0, 100.0]], dtype=np.float32)
+    xsc = np.array([[-25.0, -20.0, 0.0, 20.0, 25.0]], dtype=np.float32)
+    t = np.array(result.outputs["t"])
+    s = np.array(result.outputs["s"])
+    c = np.array(result.outputs["c"])
+    assert np.isfinite(t).all(), t
+    assert np.isfinite(s).all(), s
+    assert np.isfinite(c).all(), c
+    np.testing.assert_allclose(t, np.tanh(xt), rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(s, np.sinh(xsc), rtol=1e-4, atol=5e-3)
+    np.testing.assert_allclose(c, np.cosh(xsc), rtol=1e-4, atol=5e-3)

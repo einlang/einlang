@@ -16,16 +16,20 @@ program, row-sum ∂r/∂M and column-sum ∂c/∂M, 1D conv (index expr) ∂out
 product y[i]=sum[j](A[i,j]*b[j]) with ∂y/∂A and ∂y/∂b. Only sum-of-products Einstein
 clauses are differentiated; scalar-from-reduction and elementwise-only Einstein are not.
 
-Note: stdlib module calls (use std::math::sqrt etc.) are not yet supported for
-autodiff (callee not in program.bindings); use local user fns or @fn for such math.
+Note: IR dump fixtures use qualified stdlib (e.g. std::math::exp) with repo root_path.
+Other tests may use local fn + @fn or python::numpy::* where no defid is required.
 """
 
 import math
+from pathlib import Path
 
 import numpy as np
+import pytest
 
 from einlang.compiler.driver import CompilerDriver
 from einlang.passes.autodiff import AutodiffPass
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def _assert_allclose(actual, ref, atol=1e-5, rtol=1e-5, msg=""):
@@ -57,10 +61,9 @@ def _scalar_float(outputs, key):
 
 
 def _compile_run(source, expect_success=True, root_path=None):
-    from pathlib import Path
     compiler = CompilerDriver()
     if root_path is None:
-        root_path = Path.cwd()
+        root_path = _REPO_ROOT
     result = compiler.compile(source.strip(), source_file="<test>", root_path=root_path)
     if expect_success:
         assert result.success, result.get_errors() or "compile failed"
@@ -107,7 +110,7 @@ let dw = @w;
         diff_block = analysis["diff_block"]
         assert diff_block is not None and len(diff_block) >= 1
         bindings = getattr(result.ir, "bindings", None) or []
-        d_bindings = [b for b in bindings if getattr(b, "name", "").startswith("d_")]
+        d_bindings = [b for b in bindings if getattr(b, "name", "").startswith("∂")]
         assert len(d_bindings) >= 1
 
     def test_quotient_binary_expr(self):
@@ -152,7 +155,7 @@ print(db_da);
         assert actual == 6.0, "expected db/da = 2*a = 6 at a=3 for sq(a)=a^2, got %s" % actual
 
     def test_print_differential(self, capsys):
-        """print(@y) prints the symbolic diff as @y=2*x*@x; (not a numeric value)."""
+        """print(@y) prints the symbolic tangent (not a numeric value)."""
         compiler = CompilerDriver()
         source = """
 let x = 1.0;
@@ -166,7 +169,50 @@ print(@y);
         exec_result = runtime.execute(result)
         assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
         out = capsys.readouterr().out.strip()
-        assert out == "@y=2*x*@x;", "expected print(@y) to output exactly '@y=2*x*@x;', got %r" % out
+        assert out == "@y = 2 * x * @x", "expected print(@y) symbolic line, got %r" % out
+
+    def test_print_differential_call_plus_x_shows_at_fx_then_sum(self, capsys):
+        """print(@y) for y = x + f(x): callee tangent as @fx = … then @x + @fx (print-only IR)."""
+        compiler = CompilerDriver()
+        source = """
+fn f(t) { t + 1.0 }
+let x = 1.0;
+let y = x + f(x);
+print(@y);
+"""
+        result = compiler.compile(source.strip(), source_file="<test>")
+        assert result.success, result.get_errors() or "compile failed"
+        from einlang.runtime.runtime import EinlangRuntime
+        runtime = EinlangRuntime(backend="numpy")
+        exec_result = runtime.execute(result)
+        assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
+        out = capsys.readouterr().out.strip()
+        assert "@fx" in out, "expected @fx binding in print output, got %r" % out
+        lines = out.split("\n")
+        assert lines[-1].startswith("@y = "), "expected @y = only on last line, got %r" % out
+        assert "@x + @fx" in lines[-1] or "+ @fx" in lines[-1], "expected @x + @fx on final line, got %r" % out
+        assert not any(l.startswith("@y = ") for l in lines[:-1]), "expected no @y = on preamble lines, got %r" % out
+
+    def test_std_ml_reduce_sum_print_at_y_runs(self, capsys):
+        """Regression: _substitute must recurse into ReductionExpressionIR loop_var_ranges and
+        where_clause so callee-parameter x is replaced after symbolic diff (was Variable not found)."""
+        compiler = CompilerDriver()
+        source = """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::reduce_sum(x);
+print(@y);
+"""
+        result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
+        assert result.success, result.get_errors() or "compile failed"
+        from einlang.runtime.runtime import EinlangRuntime
+
+        runtime = EinlangRuntime(backend="numpy")
+        exec_result = runtime.execute(result)
+        assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
+        out = capsys.readouterr().out.strip()
+        assert len(out) > 0, "expected print(@y) output, got empty"
+        assert "@y" in out, "expected @y in symbolic print, got %r" % out
 
     def test_autodiff_in_block_scope(self):
         """Autodiff works in a scope (block), not only top-level: @y/@x inside block with let x, let y."""
@@ -796,8 +842,8 @@ let dw = @w;
         result, out = _compile_run(source)
         analysis = result.tcx.get_analysis(AutodiffPass)
         assert analysis["diff_block"] is not None
-        d_bindings = [b for b in (getattr(result.ir, "bindings", None) or []) if getattr(b, "name", "").startswith("d_")]
-        assert any(getattr(b, "name", "") == "d_w" for b in d_bindings)
+        d_bindings = [b for b in (getattr(result.ir, "bindings", None) or []) if getattr(b, "name", "").startswith("∂")]
+        assert any(getattr(b, "name", "") == "∂w" for b in d_bindings)
 
     # -------------------------------------------------------------------------
     # Math-like derivatives via user-defined functions (same as stdlib formulas)
@@ -1482,8 +1528,474 @@ let d = @y / @x;
         assert abs(_scalar_float(out, "d") - (-0.25)) < 1e-6
 
 
+_PRINT_DIFF_ML_OPS = [
+    ("relu", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::relu(x);
+print(@y);
+"""),
+    ("sigmoid", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::sigmoid(x);
+print(@y);
+"""),
+    ("leaky_relu", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::leaky_relu(x, 0.01);
+print(@y);
+"""),
+    ("elu", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::elu(x, 1.0);
+print(@y);
+"""),
+    ("swish", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::swish(x);
+print(@y);
+"""),
+    ("softsign", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::softsign(x);
+print(@y);
+"""),
+    ("hardtanh", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::hardtanh(x, -1.0, 1.0);
+print(@y);
+"""),
+    ("relu6", """
+use std::ml;
+let x = 3.0;
+let y = std::ml::relu6(x);
+print(@y);
+"""),
+    ("prelu", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::prelu(x, 0.1);
+print(@y);
+"""),
+    ("elu_alpha", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::elu_alpha(x, 0.5);
+print(@y);
+"""),
+    ("celu", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::celu(x, 1.0);
+print(@y);
+"""),
+    ("softshrink", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::softshrink(x, 0.5);
+print(@y);
+"""),
+    ("threshold", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::threshold(x, 0.5, 0.0);
+print(@y);
+"""),
+    ("hardswish", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::hardswish(x);
+print(@y);
+"""),
+    ("thresholded_relu", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::thresholded_relu(x, 0.5);
+print(@y);
+"""),
+    ("exp", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::exp(x);
+print(@y);
+"""),
+    ("sqrt", """
+use std::ml;
+let x = 4.0;
+let y = std::ml::sqrt(x);
+print(@y);
+"""),
+    ("abs", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::abs(x);
+print(@y);
+"""),
+    ("neg", """
+use std::ml;
+let x = 3.0;
+let y = std::ml::neg(x);
+print(@y);
+"""),
+    ("square", """
+use std::ml;
+let x = 3.0;
+let y = std::ml::square(x);
+print(@y);
+"""),
+    ("reciprocal", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::reciprocal(x);
+print(@y);
+"""),
+    ("rsqrt", """
+use std::ml;
+let x = 4.0;
+let y = std::ml::rsqrt(x);
+print(@y);
+"""),
+    ("add", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::add(x, 3.0);
+print(@y);
+"""),
+    ("subtract", """
+use std::ml;
+let x = 5.0;
+let y = std::ml::subtract(x, 2.0);
+print(@y);
+"""),
+    ("multiply", """
+use std::ml;
+let x = 3.0;
+let y = std::ml::multiply(x, 4.0);
+print(@y);
+"""),
+    ("divide", """
+use std::ml;
+let x = 6.0;
+let y = std::ml::divide(x, 2.0);
+print(@y);
+"""),
+    pytest.param("softmax", """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::softmax(x);
+print(@y);
+""", id="softmax", marks=pytest.mark.skip(reason="softmax autodiff not yet supported without @fn rule")),
+    pytest.param("log_softmax", """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::log_softmax(x);
+print(@y);
+""", id="log_softmax", marks=pytest.mark.skip(reason="log_softmax autodiff not yet supported without @fn rule")),
+    ("tanh", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::tanh(x);
+print(@y);
+"""),
+    ("selu", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::selu(x);
+print(@y);
+"""),
+    ("hardshrink", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::hardshrink(x, 0.5);
+print(@y);
+"""),
+    ("hardsigmoid", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::hardsigmoid(x);
+print(@y);
+"""),
+    ("sinh", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::sinh(x);
+print(@y);
+"""),
+    ("cosh", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::cosh(x);
+print(@y);
+"""),
+    ("softplus", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::softplus(x);
+print(@y);
+"""),
+    ("gelu", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::gelu(x);
+print(@y);
+"""),
+    ("mish", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::mish(x);
+print(@y);
+"""),
+    ("gelu_tanh", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::gelu_tanh(x);
+print(@y);
+"""),
+    ("tanhshrink", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::tanhshrink(x);
+print(@y);
+"""),
+    ("log", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::log(x);
+print(@y);
+"""),
+    ("sin", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::sin(x);
+print(@y);
+"""),
+    ("cos", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::cos(x);
+print(@y);
+"""),
+    ("tan", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::tan(x);
+print(@y);
+"""),
+    # ── Missing scalar math ops ──
+    ("log1p", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::log1p(x);
+print(@y);
+"""),
+    ("expm1", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::expm1(x);
+print(@y);
+"""),
+    ("sign", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::sign(x);
+print(@y);
+"""),
+    ("power", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::power(x, 3.0);
+print(@y);
+"""),
+    ("min", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::min(x, 5.0);
+print(@y);
+"""),
+    ("max", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::max(x, 0.0);
+print(@y);
+"""),
+    # ── Inverse trig (all have @fn rules) ──
+    ("asin", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::asin(x);
+print(@y);
+"""),
+    ("acos", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::acos(x);
+print(@y);
+"""),
+    ("atan", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::atan(x);
+print(@y);
+"""),
+    ("atan2", """
+use std::ml;
+let y_val = 1.0;
+let x_val = 2.0;
+let y = std::ml::atan2(y_val, x_val);
+print(@y);
+"""),
+    # ── Inverse hyperbolic ──
+    ("asinh", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::asinh(x);
+print(@y);
+"""),
+    ("acosh", """
+use std::ml;
+let x = 2.0;
+let y = std::ml::acosh(x);
+print(@y);
+"""),
+    ("atanh", """
+use std::ml;
+let x = 0.5;
+let y = std::ml::atanh(x);
+print(@y);
+"""),
+    # ── Special ──
+    ("erf", """
+use std::ml;
+let x = 1.0;
+let y = std::ml::erf(x);
+print(@y);
+"""),
+    # ── Tensor reduction ops (print(@y) for multi-step inlined functions:
+    #    the symbolic diff references intermediate variables from the function body
+    #    that are not in the caller's scope — @y/@x numeric derivative works) ──
+    pytest.param("reduce_sum", """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::reduce_sum(x);
+print(@y);
+""", id="reduce_sum", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+    pytest.param("reduce_mean", """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::reduce_mean(x);
+print(@y);
+""", id="reduce_mean", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+    pytest.param("reduce_l1", """
+use std::ml;
+let x = [[1.0, -2.0, 3.0]];
+let y = std::ml::reduce_l1(x);
+print(@y);
+""", id="reduce_l1", marks=pytest.mark.skip(reason="Einstein clause body with function call not yet supported")),
+    pytest.param("reduce_l2", """
+use std::ml;
+let x = [[3.0, 4.0]];
+let y = std::ml::reduce_l2(x);
+print(@y);
+""", id="reduce_l2", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+    pytest.param("reduce_sum_square", """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::reduce_sum_square(x);
+print(@y);
+""", id="reduce_sum_square", marks=pytest.mark.skip(reason="Einstein clause body with power not yet supported")),
+    pytest.param("reduce_log_sum", """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::reduce_log_sum(x);
+print(@y);
+""", id="reduce_log_sum", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+    pytest.param("reduce_log_sum_exp", """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::reduce_log_sum_exp(x);
+print(@y);
+""", id="reduce_log_sum_exp", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+    # ── Layer ops ──
+    pytest.param("linear", """
+use std::ml;
+let x = [[1.0, 2.0]];
+let W = [[0.5, 0.3], [0.2, 0.4]];
+let b = [0.1, 0.2];
+let y = std::ml::linear(x, W, b);
+print(@y);
+""", id="linear", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+    pytest.param("matmul", """
+use std::ml;
+let A = [[1.0, 2.0], [3.0, 4.0]];
+let B = [[5.0, 6.0], [7.0, 8.0]];
+let C = std::ml::matmul(A, B);
+print(@C);
+""", id="matmul", marks=pytest.mark.skip(reason="matmul shape inference error in print(@y)")),
+    # ── Loss functions ──
+    pytest.param("mse_loss", """
+use std::ml;
+let pred = [[1.0, 2.0, 3.0]];
+let target = [[1.5, 2.5, 3.5]];
+let y = std::ml::mse_loss(pred, target);
+print(@y);
+""", id="mse_loss", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+    pytest.param("mae_loss", """
+use std::ml;
+let pred = [[1.0, 2.0, 3.0]];
+let target = [[1.5, 2.5, 3.5]];
+let y = std::ml::mae_loss(pred, target);
+print(@y);
+""", id="mae_loss", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+    pytest.param("huber_loss", """
+use std::ml;
+let pred = [[1.0, 2.0, 3.0]];
+let target = [[1.5, 2.5, 3.5]];
+let y = std::ml::huber_loss(pred, target, 1.0);
+print(@y);
+""", id="huber_loss", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+    pytest.param("binary_cross_entropy", """
+use std::ml;
+let pred = [[0.8, 0.3, 0.9]];
+let target = [[1.0, 0.0, 1.0]];
+let y = std::ml::binary_cross_entropy(pred, target);
+print(@y);
+""", id="binary_cross_entropy", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+    pytest.param("cosine_similarity", """
+use std::ml;
+let a = [[1.0, 2.0, 3.0]];
+let b = [[4.0, 5.0, 6.0]];
+let y = std::ml::cosine_similarity(a, b);
+print(@y);
+""", id="cosine_similarity", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+]
+
+
+class TestPrintDifferentialMLOps:
+    """print(@y) tests for ML ops: verify symbolic derivative printing compiles and runs."""
+
+    @pytest.mark.parametrize("op_name,source", _PRINT_DIFF_ML_OPS, ids=[x.id if hasattr(x, 'id') else x[0] for x in _PRINT_DIFF_ML_OPS])
+    def test_print_at_y(self, capsys, op_name, source):
+        from pathlib import Path
+        compiler = CompilerDriver()
+        root_path = Path(__file__).parent.parent.parent
+        result = compiler.compile(source.strip(), source_file="<test>", root_path=root_path)
+        assert result.success, "%s: %s" % (op_name, result.get_errors() or "compile failed")
+        from einlang.runtime.runtime import EinlangRuntime
+        runtime = EinlangRuntime(backend="numpy")
+        exec_result = runtime.execute(result)
+        assert exec_result.success, "%s: %s" % (op_name, getattr(exec_result, "error", None) or exec_result.errors)
+        out = capsys.readouterr().out.strip()
+        assert len(out) > 0, "%s: expected print(@y) to produce output, got empty" % op_name
+
+
 def test_autodiff_ir_dump_sexpr():
-    """Compile a program with multiple @y/@x (matmul, sum, affine), dump result.ir to autodiff_ir_dump.sexpr for inspection."""
+    """Compile a program with multiple @y/@x (matmul, sum, affine), dump result.ir to autodiff_ir_dump.sexpr for local inspection (gitignored)."""
     from pathlib import Path
     from einlang.ir.serialization import serialize_ir
     source = """
@@ -1501,7 +2013,7 @@ let y[i, j] = sum[k](x[i, k] * W[j, k]) + b[j];
 let dy_dx = @y / @x;
 """
     compiler = CompilerDriver()
-    result = compiler.compile(source.strip(), source_file="<test>")
+    result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
     assert result.success, result.get_errors() or "compile failed"
     sexpr = serialize_ir(result.ir)
     dump_path = Path(__file__).parent / "autodiff_ir_dump.sexpr"
@@ -1513,7 +2025,7 @@ let dy_dx = @y / @x;
 _IR_DUMP_OPS = [
     ("elementwise_unary", """
 let x = 2.0;
-let y = python::numpy::exp(x);
+let y = std::math::exp(x);
 let dy_dx = @y / @x;
 """),
     ("elementwise_binary", """
@@ -1615,14 +2127,13 @@ def _is_autodiff_generated_binding(binding):
 
 
 def test_autodiff_ir_dump_all_ops():
-    """Dump result.ir (after autodiff) to one file per op under autodiff_ir_dumps/ for comparison with docs/AUTODIFF_EINSTEIN_OPS.md."""
-    from pathlib import Path
+    """Dump result.ir (after autodiff) to one file per op under autodiff_ir_dumps/ for local comparison with docs (gitignored *.sexpr). See docs/AUTODIFF_EINSTEIN_OPS.md."""
     from einlang.ir.serialization import serialize_ir
     dump_dir = Path(__file__).parent / "autodiff_ir_dumps"
     dump_dir.mkdir(exist_ok=True)
     compiler = CompilerDriver()
     for op_name, source in _IR_DUMP_OPS:
-        result = compiler.compile(source.strip(), source_file="<test>")
+        result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
         assert result.success, "op %s: %s" % (op_name, result.get_errors())
         sexpr = serialize_ir(result.ir)
         (dump_dir / ("%s.sexpr" % op_name)).write_text(sexpr, encoding="utf-8")
@@ -1631,15 +2142,14 @@ def test_autodiff_ir_dump_all_ops():
 
 
 def test_autodiff_ir_dump_generated_only():
-    """Dump only the autodiff-generated bindings (d_*_d_*) per op to <op>_autodiff_only.sexpr for comparison with doc."""
-    from pathlib import Path
+    """Dump only the autodiff-generated bindings (d_*_d_*) per op to <op>_autodiff_only.sexpr for local comparison with doc (gitignored)."""
     from einlang.ir.serialization import serialize_ir
     from einlang.ir.nodes import ProgramIR
     dump_dir = Path(__file__).parent / "autodiff_ir_dumps"
     dump_dir.mkdir(exist_ok=True)
     compiler = CompilerDriver()
     for op_name, source in _IR_DUMP_OPS:
-        result = compiler.compile(source.strip(), source_file="<test>")
+        result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
         assert result.success, "op %s: %s" % (op_name, result.get_errors())
         program = result.ir
         derivative_bindings = [b for b in (program.bindings or []) if _is_autodiff_generated_binding(b)]
@@ -1724,7 +2234,7 @@ def test_autodiff_dumped_ir_matches_doc():
     compiler = CompilerDriver()
     for op_name, expected_names, structure in _OP_DOC_EXPECTATIONS:
         source = next(s for n, s in _IR_DUMP_OPS if n == op_name)
-        result = compiler.compile(source.strip(), source_file="<test>")
+        result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
         assert result.success, "op %s: %s" % (op_name, result.get_errors())
         program = result.ir
         binding_by_defid = {b.defid: b for b in (program.bindings or []) if getattr(b, "defid", None) is not None}

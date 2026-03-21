@@ -35,7 +35,7 @@ pub fn sign(x) {
 pub fn pow(x, y) {
     // Power function: x^y
     // Use Python's pow for automatic type coercion (scalar and arrays)
-    python::numpy::power(x, y)
+    x ** y
 }
 
 pub fn floor(x) {

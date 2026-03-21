@@ -1902,7 +1902,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             reduction_loop_names.discard(None)
             op_name = expr.expr.operation
             for constraint in expr.constraints:
-                if isinstance(constraint, BinaryOpIR) and constraint.operator == "in":
+                if isinstance(constraint, BinaryOpIR) and constraint.operator == BinaryOp.IN:
                     left = constraint.left
                     if isinstance(left, IdentifierIR):
                         var_name = left.name

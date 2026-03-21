@@ -50,6 +50,11 @@ def test_normalization_clustered_accuracy(compiler, runtime):
     let input6 = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
     let axes = [1];
     let result3 = std::ml::layer_normalization(input3, scale3, bias3, 1e-5, -1);
+    // 3D: normalize over last dim only (len must not use len(X[0]) — regression for ViT-style tensors)
+    let input_ln_3d = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];
+    let scale_ln_3d = [1.0, 1.0];
+    let bias_ln_3d = [0.0, 0.0];
+    let result_ln_3d = std::ml::layer_normalization(input_ln_3d, scale_ln_3d, bias_ln_3d, 1e-5, -1);
     let result4 = std::ml::lrn(input4, size, alpha, beta, bias);
     let result5 = std::ml::lp_normalization(input5, -1, p);
     let result6 = std::ml::mean_variance_normalization(input6, axes);
@@ -111,6 +116,14 @@ def test_normalization_clustered_accuracy(compiler, runtime):
     actual = np.array(result.outputs['result3'])
     np.testing.assert_allclose(actual, expected, rtol=1e-5)
 
+    input_ln_3d = np.array([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]], dtype=np.float32)
+    scale_ln_3d = np.array([1.0, 1.0], dtype=np.float32)
+    bias_ln_3d = np.array([0.0, 0.0], dtype=np.float32)
+    mean_3d = np.mean(input_ln_3d, axis=-1, keepdims=True)
+    var_3d = np.var(input_ln_3d, axis=-1, keepdims=True)
+    expected_ln_3d = scale_ln_3d * (input_ln_3d - mean_3d) / np.sqrt(var_3d + 1e-5) + bias_ln_3d
+    actual_ln_3d = np.array(result.outputs['result_ln_3d'])
+    np.testing.assert_allclose(actual_ln_3d, expected_ln_3d, rtol=1e-5)
 
     # Verify lrn - Test Local Response Normalization
     input4 = np.array([[[[1.0, 2.0], [3.0, 4.0]]]], dtype=np.float32)  # Using input4 from source

@@ -1,0 +1,7 @@
+label: log_softmax
+compile_success: True
+pytest_skip_reason: log_softmax autodiff not yet supported without @fn rule
+has_ir: True
+
+--- errors ---
+(none)

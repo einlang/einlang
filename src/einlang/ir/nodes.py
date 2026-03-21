@@ -802,20 +802,10 @@ class ProgramIR(IRNode):
 
 
 def clear_autodiff_only_fields(program: 'ProgramIR') -> None:
-    """Reset autodiff-only fields on the IR (e.g. custom_diff_body). No longer needed after AutodiffPass."""
-    for b in (program.bindings or []):
-        if isinstance(b.expr, FunctionValueIR) and getattr(b.expr, 'custom_diff_body', None) is not None:
-            object.__setattr__(b.expr, 'custom_diff_body', None)
-    for mod in (program.modules or []):
-        _clear_autodiff_only_fields_module(mod)
+    """Remove autodiff-only IR: custom_diff_body, DiffRuleIR statements, DifferentialType annotations (lazy import)."""
+    from ..passes.autodiff import clear_custom_diff_body_everywhere
 
-
-def _clear_autodiff_only_fields_module(mod: 'ModuleIR') -> None:
-    for b in (mod.functions or []):
-        if isinstance(b.expr, FunctionValueIR) and getattr(b.expr, 'custom_diff_body', None) is not None:
-            object.__setattr__(b.expr, 'custom_diff_body', None)
-    for sub in (mod.submodules or []):
-        _clear_autodiff_only_fields_module(sub)
+    clear_custom_diff_body_everywhere(program)
 
 
 class ModuleIR(IRNode):
@@ -1498,7 +1488,7 @@ class IRVisitor(ABC, Generic[T]):
     def visit_function_call(self, node: FunctionCallIR) -> T:
         """Visit function call"""
         raise NotImplementedError
-    
+
     @abstractmethod
     def visit_rectangular_access(self, node: RectangularAccessIR) -> T:
         """Visit rectangular array access"""

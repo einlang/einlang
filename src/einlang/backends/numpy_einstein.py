@@ -1433,7 +1433,7 @@ class _IndexExprIsBackwardVisitor(IRVisitor[bool]):
         return node.defid == self._loop_defid
 
     def visit_binary_op(self, node: Any) -> bool:
-        if node.operator != BinaryOp.SUB and node.operator.value != "-":
+        if node.operator != BinaryOp.SUB:
             return False
         if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
@@ -1600,7 +1600,7 @@ class _IndexExprIsStrictlyBackwardVisitor(IRVisitor[bool]):
         return False
 
     def visit_binary_op(self, node: Any) -> bool:
-        if node.operator != BinaryOp.SUB and node.operator.value != "-":
+        if node.operator != BinaryOp.SUB:
             return False
         if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
@@ -1768,8 +1768,7 @@ class _IndexExprIsLoopVarOrOffsetVisitor(IRVisitor[bool]):
 
     def visit_binary_op(self, node: Any) -> bool:
         op = node.operator
-        op_val = op.value if op is not None else None
-        if op not in (BinaryOp.ADD, BinaryOp.SUB) and op_val not in ("+", "-"):
+        if op not in (BinaryOp.ADD, BinaryOp.SUB):
             return False
         if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
@@ -1937,7 +1936,7 @@ class _ExprIsLoopVarOrMinusOneVisitor(IRVisitor[bool]):
         return node.defid == self._loop_defid
 
     def visit_binary_op(self, node: Any) -> bool:
-        if node.operator != BinaryOp.SUB and node.operator.value != "-":
+        if node.operator != BinaryOp.SUB:
             return False
         if not _index_expr_is_loop_var(node.left, self._loop_defid):
             return False
@@ -2402,6 +2401,64 @@ def _recurrence_dims(lowered: Any, variable_defid: Any, clause_indices: Optional
                 recurrence.append(k)
                 break
     return recurrence
+
+
+def _infer_lowered_einstein_output_defid(lowered: LoweredEinsteinIR) -> Any:
+    """
+    DefId of the tensor this Einstein declaration writes: any DefId that appears as the array of a
+    RectangularAccessIR in a clause body and is self-referenced there. Used when Autodiff nests
+    LoweredEinsteinIR under RectangularAccessIR (pullback) so execution can push a synthetic decl stack.
+
+    When the array is itself a nested LoweredEinsteinIR (re-materialized primal), recurse to the inner
+    tensor (same DefId as the leaf read, e.g. u inside euler_decay).
+    """
+    candidates: set = set()
+    inner_einsteins: List[LoweredEinsteinIR] = []
+
+    def collect_rect_array_defids(expr: Any) -> None:
+        if expr is None:
+            return
+        if isinstance(expr, RectangularAccessIR):
+            arr = expr.array
+            if isinstance(arr, IdentifierIR) and arr.defid is not None:
+                candidates.add(arr.defid)
+            elif isinstance(arr, LoweredEinsteinIR):
+                inner_einsteins.append(arr)
+            collect_rect_array_defids(arr)
+            for ix in expr.indices or []:
+                collect_rect_array_defids(ix)
+        elif isinstance(expr, BinaryOpIR):
+            collect_rect_array_defids(expr.left)
+            collect_rect_array_defids(expr.right)
+        elif isinstance(expr, UnaryOpIR):
+            collect_rect_array_defids(expr.operand)
+        elif isinstance(expr, IfExpressionIR):
+            collect_rect_array_defids(expr.condition)
+            collect_rect_array_defids(expr.then_expr)
+            if expr.else_expr is not None:
+                collect_rect_array_defids(expr.else_expr)
+        elif isinstance(expr, FunctionCallIR):
+            collect_rect_array_defids(expr.callee_expr)
+            for a in expr.arguments or []:
+                collect_rect_array_defids(a)
+        elif isinstance(expr, BlockExpressionIR):
+            for st in expr.statements or []:
+                collect_rect_array_defids(st)
+            if expr.final_expr is not None:
+                collect_rect_array_defids(expr.final_expr)
+
+    for item in lowered.items or []:
+        if item.body is not None:
+            collect_rect_array_defids(item.body)
+    for d in candidates:
+        for item in lowered.items or []:
+            if item.body is not None and _BodyReferencesDefidVisitor(d).references(item.body):
+                return d
+    for inner in inner_einsteins:
+        inner_d = _infer_lowered_einstein_output_defid(inner)
+        if inner_d is not None:
+            return inner_d
+    return None
 
 
 def _reduction_var_bounded_by_loop_var(
@@ -2969,6 +3026,32 @@ def _try_call_scalar_vectorize_clause(
 
 
 class EinsteinExecutionMixin:
+    def _evaluate_lowered_einstein_subexpr(self, lowered: LoweredEinsteinIR) -> Any:
+        """Run a nested LoweredEinsteinIR (e.g. under RectangularAccessIR from autodiff) with a synthetic decl."""
+        out_defid = _infer_lowered_einstein_output_defid(lowered)
+        if out_defid is None:
+            raise RuntimeError(
+                "LoweredEinsteinIR nested under indexing: could not infer output DefId for execution."
+            )
+
+        class _SyntheticEinsteinDecl:
+            __slots__ = ("defid", "name")
+
+            def __init__(self, defid: Any) -> None:
+                self.defid = defid
+                self.name = "?"
+
+        decl = _SyntheticEinsteinDecl(out_defid)
+        stack = getattr(self, "_variable_decl_stack", None)
+        if stack is None:
+            self._variable_decl_stack = []
+            stack = self._variable_decl_stack
+        stack.append(decl)
+        try:
+            return lowered.accept(self)
+        finally:
+            stack.pop()
+
     def visit_lowered_einstein_clause(self, node: LoweredEinsteinClauseIR) -> Any:
         stack = getattr(self, "_variable_decl_stack", None)
         variable_decl = stack[-1] if stack else None
@@ -3137,7 +3220,9 @@ class EinsteinExecutionMixin:
         elif output_shape and lowered_einstein.items:
             # Compiler shape may underestimate for multi-segment declarations
             # (e.g. _compute_shape_union picks a symbolic expr that evaluates to
-            # the first clause's end, not the union).  Widen to cover all items.
+            # the first clause's end, not the union).  Widen only when loop ranks match
+            # across items — clauses with different loop *counts* (e.g. [i,j] vs [t,i,j])
+            # must not be merged dimension-wise (would corrupt axes).
             items_shape = self._shape_from_all_items(lowered_einstein.items)
             if items_shape and len(items_shape) == len(output_shape):
                 output_shape = [max(a, b) for a, b in zip(output_shape, items_shape)]
@@ -3223,24 +3308,35 @@ class EinsteinExecutionMixin:
                     if result is not output:
                         output[:] = result.astype(output.dtype)
                 elif result.shape != output.shape:
-                    slices_list_nr: List[Any] = []
-                    clause_indices = item.indices or []
-                    if clause_indices and len(clause_indices) == output.ndim:
-                        slices_list_nr = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
-                    if len(slices_list_nr) != output.ndim and item.loops:
-                        try:
-                            for lp in item.loops:
-                                start, end = _extract_loop_range(lp, expr_eval)
-                                slices_list_nr.append(slice(int(start), int(end)))
-                        except RuntimeError:
-                            slices_list_nr = []
-                    if len(slices_list_nr) == output.ndim:
-                        output[tuple(slices_list_nr)] = result.astype(output.dtype)
-                    elif result.size == 1 and item.indices and all(
-                        isinstance(idx, LiteralIR) for idx in item.indices
+                    # Autodiff pullback only: 1D buffer (e.g. shape (B,)) vs Jacobian row (B, J, ...).
+                    # Do not adopt for general primals — higher-rank clause results can be slice writes.
+                    if (
+                        result.ndim > output.ndim
+                        and output.ndim == 1
+                        and result.shape[0] == output.shape[0]
+                        and result.size > output.size
                     ):
-                        idx_tuple = tuple(int(idx.value) for idx in item.indices)
-                        output[idx_tuple] = result.flat[0] if result.size == 1 else result
+                        output = np.asarray(result, dtype=output.dtype)
+                        self.env.set_value(variable_key, output)
+                    else:
+                        slices_list_nr: List[Any] = []
+                        clause_indices = item.indices or []
+                        if clause_indices and len(clause_indices) == output.ndim:
+                            slices_list_nr = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
+                        if len(slices_list_nr) != output.ndim and item.loops:
+                            try:
+                                for lp in item.loops:
+                                    start, end = _extract_loop_range(lp, expr_eval)
+                                    slices_list_nr.append(slice(int(start), int(end)))
+                            except RuntimeError:
+                                slices_list_nr = []
+                        if len(slices_list_nr) == output.ndim:
+                            output[tuple(slices_list_nr)] = result.astype(output.dtype)
+                        elif result.size == 1 and item.indices and all(
+                            isinstance(idx, LiteralIR) for idx in item.indices
+                        ):
+                            idx_tuple = tuple(int(idx.value) for idx in item.indices)
+                            output[idx_tuple] = result.flat[0] if result.size == 1 else result
                 self.env.set_value(variable_key, output)
 
         # When we have recurrence items: run recurrence dim outermost, all recurrence clauses inside (timestep-major).
@@ -3313,25 +3409,34 @@ class EinsteinExecutionMixin:
                     if result is not output:
                         output[:] = result.astype(output.dtype)
                 elif result.shape != output.shape:
-                    slices_list: List[Any] = []
-                    clause_indices = item.indices or []
-                    if clause_indices and len(clause_indices) == output.ndim:
-                        slices_list = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
-                    if len(slices_list) != output.ndim and item.loops:
-                        slices_list = []
-                        try:
-                            for lp in item.loops:
-                                start, end = _extract_loop_range(lp, expr_eval)
-                                slices_list.append(slice(int(start), int(end)))
-                        except RuntimeError:
-                            slices_list = []
-                    if len(slices_list) == output.ndim:
-                        output[tuple(slices_list)] = result.astype(output.dtype)
-                    elif result.size == 1 and item.indices and all(
-                        isinstance(idx, LiteralIR) for idx in item.indices
+                    if (
+                        result.ndim > output.ndim
+                        and output.ndim == 1
+                        and result.shape[0] == output.shape[0]
+                        and result.size > output.size
                     ):
-                        idx_tuple = tuple(int(idx.value) for idx in item.indices)
-                        output[idx_tuple] = result.flat[0] if result.size == 1 else result
+                        output = np.asarray(result, dtype=output.dtype)
+                        self.env.set_value(variable_key, output)
+                    else:
+                        slices_list: List[Any] = []
+                        clause_indices = item.indices or []
+                        if clause_indices and len(clause_indices) == output.ndim:
+                            slices_list = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
+                        if len(slices_list) != output.ndim and item.loops:
+                            slices_list = []
+                            try:
+                                for lp in item.loops:
+                                    start, end = _extract_loop_range(lp, expr_eval)
+                                    slices_list.append(slice(int(start), int(end)))
+                            except RuntimeError:
+                                slices_list = []
+                        if len(slices_list) == output.ndim:
+                            output[tuple(slices_list)] = result.astype(output.dtype)
+                        elif result.size == 1 and item.indices and all(
+                            isinstance(idx, LiteralIR) for idx in item.indices
+                        ):
+                            idx_tuple = tuple(int(idx.value) for idx in item.indices)
+                            output[idx_tuple] = result.flat[0] if result.size == 1 else result
                 self.env.set_value(variable_key, output)
         return output
 
@@ -3692,7 +3797,13 @@ class EinsteinExecutionMixin:
             self._vectorize_parallel_shape = _saved_vectorize_shape
 
     def _shape_from_all_items(self, items: List) -> Optional[List[int]]:
-        """Compute output shape from the max absolute end across ALL items (not just the first)."""
+        """Compute output shape from the max absolute end across ALL items (not just the first).
+
+        All non-empty items must use the same number of loops; otherwise return None so the
+        compiler-provided shape is used (mixed loop ranks would mis-align axes, e.g. ``[i,j]``
+        vs ``[t,i,j]``).  Autodiff softmax-style cases with a too-small buffer are handled in
+        ``_execute_lowered_einstein_clause`` / result adoption, not by cross-rank union here.
+        """
         if not items:
             return None
         rank = None
@@ -3758,9 +3869,9 @@ class EinsteinExecutionMixin:
             if bucket_size > 0 and getattr(self, "_profile_buckets", None) is not None:
                 key = (line // bucket_size) * bucket_size
                 self._profile_buckets[key] = self._profile_buckets.get(key, 0) + (time.perf_counter() - t0)
-            if _profile_clauses and line and t0:
+            if _profile_clauses and t0:
                 elapsed = time.perf_counter() - t0
-                parts = [f"[profile] clause L{line}"]
+                parts = [f"[profile] clause L{line or '?'}"]
                 if _clause_name or _clause_rhs:
                     lhs = _clause_name or "?"
                     parts.append(f" {lhs} = {_clause_rhs}")
@@ -3912,6 +4023,10 @@ class EinsteinExecutionMixin:
                     _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="hybrid")
                     return output
                 recurrence_needs_scalar = True  # hybrid failed; use scalar path so we read LHS[t-1] correctly
+            elif len(recurrence_dims) == len(lowered.loops) and recurrence_dims:
+                # Every loop dim is recurrence (e.g. u[t] = f(u[t-1]) with a single t). Cannot vectorize over t;
+                # must run scalar loop so prior indices of u are visible (e.g. numerics::euler_decay).
+                recurrence_needs_scalar = True
         # Try full vectorize over loop dims (literal idx -> fixed slice; other dims -> vectorize).
         if lowered.loops:
             # Slice-vectorize: body "if p < t then ... else 0" -> vectorize over [0..t), fill rest (e.g. emb in decode).
@@ -4121,7 +4236,6 @@ class EinsteinExecutionMixin:
                     _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path=_path)
                     return output
 
-        self._einstein_scalar = getattr(self, "_einstein_scalar", 0) + 1
         _loop_defid_to_name = {}
         _loops = lowered.loops
         for lp in _loops:
@@ -4153,6 +4267,9 @@ class EinsteinExecutionMixin:
         _loop_defids_tuple = tuple(lp.variable.defid for lp in _loops)
 
         with self.env.scope():
+            # Child scope must see the clause output tensor (e.g. u in u[t-1]).
+            if variable_defid is not None:
+                self.env.set_value(variable_defid, output)
             if not _loops:
                 if all(isinstance(idx, LiteralIR) for idx in clause_indices):
                     idx_tuple = tuple(int(idx.value) for idx in clause_indices)
@@ -4221,8 +4338,32 @@ class EinsteinExecutionMixin:
                         idx_tuple = cell_index(full_context)
                     if idx_tuple is None:
                         idx_tuple = tuple(full_context.get(d) for d in _loop_defids_tuple)
-                    if idx_tuple is None or len(idx_tuple) != output.ndim:
+                    if idx_tuple is None:
                         continue
+                    if len(idx_tuple) > output.ndim:
+                        continue
+                    # ∂(reduction)/∂x has the same shape as x. Pullback IR may use only batch index b (shape (B,))
+                    # while the body returns a full (B, J) tensor or a single row as length-J vector (prod chain rule).
+                    if (
+                        len(idx_tuple) == 1
+                        and isinstance(value, np.ndarray)
+                        and output.ndim == 1
+                        and value.size > output.size
+                    ):
+                        if (
+                            value.ndim >= 2
+                            and value.shape[0] == output.shape[0]
+                        ):
+                            output = np.zeros(value.shape, dtype=output.dtype)
+                            if variable_defid is not None:
+                                self.env.set_value(variable_defid, output)
+                        elif value.ndim == 1 and tuple(output.shape) == (1,):
+                            output = np.zeros((1, int(value.size)), dtype=output.dtype)
+                            if variable_defid is not None:
+                                self.env.set_value(variable_defid, output)
+                    if len(idx_tuple) != output.ndim:
+                        if not (len(idx_tuple) == 1 and output.ndim > 1):
+                            continue
                     if isinstance(value, np.ndarray):
                         if value.ndim == 0:
                             value = value.item()
@@ -4231,11 +4372,24 @@ class EinsteinExecutionMixin:
                     elif isinstance(value, np.generic):
                         value = value.item()
                     if len(idx_tuple) == 1:
+                        # Row slice output[i] expects shape output.shape[1:]; reduction bodies may
+                        # return (1, n1, n2, ...) (leading batch of 1) and trigger NumPy
+                        # "setting an array element with a sequence" without reshape.
+                        if isinstance(value, np.ndarray) and output.ndim > 1:
+                            tail = output.shape[1:]
+                            if tail and value.shape == (1,) + tail:
+                                value = value.reshape(tail)
+                            elif tail and value.shape == tail:
+                                pass
+                            elif tail and value.shape == output.shape:
+                                ri = int(np.asarray(idx_tuple[0]).item())
+                                value = value[ri]
                         output[idx_tuple[0]] = value
                     else:
                         output[idx_tuple] = value
 
         if variable_defid:
             self._clause_set_output(variable_defid, output)
+        self._einstein_scalar = getattr(self, "_einstein_scalar", 0) + 1
         _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="scalar")
         return output

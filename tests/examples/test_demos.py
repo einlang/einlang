@@ -3,11 +3,35 @@
 Parametrized demos tests - loads all file contents together upfront for speed.
 """
 
+import re
 import subprocess
 import sys
 import pytest
 from pathlib import Path
 from tests.test_utils import compile_and_execute
+
+
+def _parse_vectorize_counts(output: str):
+    """Extract (vectorized, scalar, hybrid, call_scalar) from --debug-vectorize output."""
+    m = re.search(
+        r"\[vectorize\] Einstein clauses: (\d+) vectorized, (\d+) scalar, (\d+) hybrid, (\d+) call-scalar",
+        output,
+    )
+    if m is None:
+        return None
+    return int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+
+
+def _assert_vectorize_counts(output: str, min_vectorized: int, max_scalar: int, label: str):
+    counts = _parse_vectorize_counts(output)
+    assert counts is not None, f"{label}: --debug-vectorize summary line not found in output"
+    vectorized, scalar, hybrid, call_scalar = counts
+    assert vectorized >= min_vectorized, (
+        f"{label}: vectorized count regressed: {vectorized} < {min_vectorized}"
+    )
+    assert scalar <= max_scalar, (
+        f"{label}: scalar count increased: {scalar} > {max_scalar}"
+    )
 
 
 # Load all file contents once at module import time
@@ -109,14 +133,16 @@ class TestDemos:
         _ensure_weights_on_demand(project_root, mnist_dir, required, "download_weights.py")
 
         result = subprocess.run(
-            [sys.executable, "-m", "einlang", str(main_ein)],
+            [sys.executable, "-m", "einlang", str(main_ein), "--debug-vectorize"],
             capture_output=True, text=True, cwd=mnist_dir,
             env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
             timeout=300,
         )
         assert result.returncode == 0, result.stderr or result.stdout
-        output = result.stdout.strip()
+        full_output = result.stdout.strip()
+        output = "\n".join(l for l in full_output.split("\n") if not l.startswith("[vectorize]")).strip()
         assert output == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]", f"unexpected output: {output!r}"
+        _assert_vectorize_counts(full_output, min_vectorized=290, max_scalar=0, label="mnist")
 
     def test_mnist_quantized(self):
         """Run examples/mnist_quantized/main.ein and verify 10/10 digit predictions."""
@@ -172,14 +198,16 @@ class TestDemos:
         _ensure_weights_on_demand(project_root, deit_dir, required, "download_weights.py", timeout=600)
 
         result = subprocess.run(
-            [sys.executable, "-m", "einlang", str(main_ein)],
+            [sys.executable, "-m", "einlang", str(main_ein), "--debug-vectorize"],
             capture_output=True, text=True, cwd=deit_dir,
             env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
             timeout=1800,
         )
         assert result.returncode == 0, result.stderr or result.stdout
-        output = result.stdout.strip()
+        full_output = result.stdout.strip()
+        output = "\n".join(l for l in full_output.split("\n") if not l.startswith("[vectorize]")).strip()
         assert output == "['Egyptian Mau', 'Golden Retriever', 'strawberry']", f"unexpected output: {output!r}"
+        _assert_vectorize_counts(full_output, min_vectorized=963, max_scalar=0, label="deit_tiny")
 
     def test_whisper_tiny(self):
         """Run examples/whisper_tiny/main.ein and assert transcript matches golden_ref.txt."""
@@ -191,7 +219,6 @@ class TestDemos:
         main_ein = whisper_dir / "main.ein"
         if not main_ein.exists():
             pytest.fail("whisper_tiny: required main.ein missing")
-        # Download weights and JFK sample on demand (weights/ and samples/jfk.npy).
         required = [
             whisper_dir / "weights" / "enc_conv1_w.npy",
             whisper_dir / "samples" / "jfk.npy",
@@ -203,13 +230,14 @@ class TestDemos:
         golden_text = golden.read_text(encoding="utf-8").strip()
 
         result = subprocess.run(
-            [sys.executable, "-m", "einlang", str(main_ein)],
+            [sys.executable, "-m", "einlang", str(main_ein), "--debug-vectorize"],
             capture_output=True, text=True, cwd=str(whisper_dir),
             env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
             timeout=3600,
         )
         assert result.returncode == 0, result.stderr or result.stdout or "no output"
-        output = result.stdout.strip()
+        full_output = result.stdout.strip()
+        output = "\n".join(l for l in full_output.split("\n") if not l.startswith("[vectorize]")).strip()
         if output != golden_text:
             print(f"\nwhisper_tiny transcription:\n  golden:  {golden_text!r}\n  einlang: {output!r}")
             pytest.fail(
@@ -219,6 +247,7 @@ class TestDemos:
                 "(2) numerical/implementation difference -> if einlang output is correct, update golden_ref.txt "
                 "with: echo -n '<output>' > examples/whisper_tiny/golden_ref.txt"
             )
+        _assert_vectorize_counts(full_output, min_vectorized=13811, max_scalar=2, label="whisper_tiny")
 
 
 if __name__ == "__main__":

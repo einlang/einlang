@@ -1,8 +1,7 @@
-// Exponential function (e^x) using numpy for array support
+// Exponential function (e^x) via NumPy for scalar/tensor support
 
 pub fn exp(x) {
-    // Exponential function
-    // Uses numpy for array support
     python::numpy::exp(x)
 }
 
+@fn exp(x) { exp(x) * @x }

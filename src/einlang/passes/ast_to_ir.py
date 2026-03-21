@@ -425,7 +425,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         if custom_diff_ast is not None:
             diff_block_ir = custom_diff_ast.accept(self)
             if isinstance(diff_block_ir, BlockExpressionIR) and diff_block_ir.final_expr is not None:
-                custom_diff_ir = diff_block_ir.final_expr
+                custom_diff_ir = diff_block_ir
             elif isinstance(diff_block_ir, ExpressionIR):
                 custom_diff_ir = diff_block_ir
         # Extract return type from AST function definition
@@ -1397,6 +1397,12 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             raise RuntimeError(
                 f"@fn {node.name}: function_defid not set. Ensure NameResolutionPass runs before ASTToIRLoweringPass."
             )
+        from ..shared.nodes import FunctionDefinition as ASTFunctionDefinition
+        def_pair = self.tcx.get_definition(callee_defid)
+        if def_pair is not None:
+            _, ast_func = def_pair
+            if isinstance(ast_func, ASTFunctionDefinition) and getattr(ast_func, "custom_diff_body", None) is not None:
+                return None
         body_ir = node.body.accept(self)
         if not isinstance(body_ir, BlockExpressionIR):
             body_ir = None

@@ -1,6 +1,6 @@
 // ml/trig_ops.ein - Trigonometric Operations
 
-use std::math::{exp, atan};
+use std::math::atan;
 
 // ============================================================================
 // Basic Trigonometric Functions
@@ -11,34 +11,10 @@ pub use std::math::trig::{sin, cos, tan};
 
 
 // ============================================================================
-// Hyperbolic Trigonometric Functions
+// Hyperbolic Trigonometric Functions (delegate to stable std::math::hyperbolic)
 // ============================================================================
 
-pub fn tanh(x) {
-    // Element-wise hyperbolic tangent: output = tanh(x)
-    use std::ml::math_ops::exp;
-    let exp_x = exp(x);
-    let exp_neg_x = exp(-x);
-    (exp_x - exp_neg_x) / (exp_x + exp_neg_x)
-}
-
-
-pub fn sinh(x) {
-    // Element-wise hyperbolic sine: output = sinh(x)
-    use std::ml::math_ops::exp;
-    let exp_x = exp(x);
-    let exp_neg_x = exp(-x);
-    (exp_x - exp_neg_x) / 2.0
-}
-
-
-pub fn cosh(x) {
-    // Element-wise hyperbolic cosine: output = cosh(x)
-    use std::ml::math_ops::exp;
-    let exp_x = exp(x);
-    let exp_neg_x = exp(-x);
-    (exp_x + exp_neg_x) / 2.0
-}
+pub use std::math::hyperbolic::{tanh, sinh, cosh};
 
 
 // ============================================================================

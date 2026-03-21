@@ -16,6 +16,7 @@ from ..ir.nodes import (
     PipelineExpressionIR, BuiltinCallIR,
     MatchArmIR, ExpressionIR, LoweredComprehensionIR, LoweredReductionIR,
     LoweredSelectAtArgmaxIR,
+    LoweredEinsteinIR,
     DifferentialIR,
     IRVisitor,
 )
@@ -303,24 +304,24 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     _add = BinaryOp.ADD
     _mul = BinaryOp.MUL
     _div = BinaryOp.DIV
-    body_op = body.operator
-    if isinstance(body, BinaryOpIR) and body_op in (_add, "+"):
+    body_op = getattr(body, "operator", None)
+    if isinstance(body, BinaryOpIR) and body_op == _add:
         add_left = body.left
         add_right = body.right
-        if isinstance(add_left, BinaryOpIR) and add_left.operator in (_mul, "*"):
+        if isinstance(add_left, BinaryOpIR) and add_left.operator == _mul:
             mul_left = add_left.left
             mul_right = add_left.right
             bias = add_right
-        elif isinstance(add_right, BinaryOpIR) and add_right.operator in (_mul, "*"):
+        elif isinstance(add_right, BinaryOpIR) and add_right.operator == _mul:
             mul_left = add_right.left
             mul_right = add_right.right
             bias = add_left
-    elif isinstance(body, BinaryOpIR) and body_op in (_mul, "*"):
+    elif isinstance(body, BinaryOpIR) and body_op == _mul:
         bl = body.left
         br = body.right
         if isinstance(bl, RectangularAccessIR) and isinstance(br, RectangularAccessIR):
             mul_left, mul_right = bl, br
-        elif isinstance(bl, BinaryOpIR) and bl.operator in (_mul, "*"):
+        elif isinstance(bl, BinaryOpIR) and bl.operator == _mul:
             al, ar = bl.left, bl.right
             if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(br, LiteralIR):
                 mul_left, mul_right = al, ar
@@ -328,7 +329,7 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
                     scale = float(br.value)
                 except (TypeError, ValueError):
                     scale = None
-        elif isinstance(br, BinaryOpIR) and br.operator in (_mul, "*"):
+        elif isinstance(br, BinaryOpIR) and br.operator == _mul:
             al, ar = br.left, br.right
             if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(bl, LiteralIR):
                 mul_left, mul_right = al, ar
@@ -336,10 +337,10 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
                     scale = float(bl.value)
                 except (TypeError, ValueError):
                     scale = None
-    elif isinstance(body, BinaryOpIR) and body_op in (_div, "/"):
+    elif isinstance(body, BinaryOpIR) and body_op == _div:
         div_left = body.left
         div_right = body.right
-        if isinstance(div_left, BinaryOpIR) and div_left.operator in (_mul, "*"):
+        if isinstance(div_left, BinaryOpIR) and div_left.operator == _mul:
             al = div_left.left
             ar = div_left.right
             if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR):
@@ -492,19 +493,19 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
     mul_left: Optional[RectangularAccessIR] = None
     mul_right: Optional[RectangularAccessIR] = None
     bias: Optional[Any] = None
-    body_op = body.operator
-    if isinstance(body, BinaryOpIR) and body_op in (_add, "+"):
+    body_op = getattr(body, "operator", None)
+    if isinstance(body, BinaryOpIR) and body_op == _add:
         add_left = body.left
         add_right = body.right
-        if isinstance(add_left, BinaryOpIR) and add_left.operator in (_mul, "*"):
+        if isinstance(add_left, BinaryOpIR) and add_left.operator == _mul:
             mul_left = add_left.left
             mul_right = add_left.right
             bias = add_right
-        elif isinstance(add_right, BinaryOpIR) and add_right.operator in (_mul, "*"):
+        elif isinstance(add_right, BinaryOpIR) and add_right.operator == _mul:
             mul_left = add_right.left
             mul_right = add_right.right
             bias = add_left
-    elif isinstance(body, BinaryOpIR) and body_op in (_mul, "*"):
+    elif isinstance(body, BinaryOpIR) and body_op == _mul:
         mul_left = body.left
         mul_right = body.right
     if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):
@@ -521,7 +522,7 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
     stride = 1
     if isinstance(second_idx, BinaryOpIR):
         add_op = second_idx.operator
-        if add_op in (_add, "+"):
+        if add_op == _add:
             left, right = second_idx.left, second_idx.right
             if _expr_contains_defid(left, red1_defid) and _expr_contains_defid(right, red1_defid):
                 return None
@@ -532,7 +533,7 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
             # Stride from the t part (right): t*stride -> stride 1 or 2; plain t -> stride 1
             if isinstance(right, (IdentifierIR, IndexVarIR)):
                 stride = 1
-            elif isinstance(right, BinaryOpIR) and right.operator in (_mul, "*"):
+            elif isinstance(right, BinaryOpIR) and right.operator == _mul:
                 try:
                     rL, rR = right.left, right.right
                     if isinstance(rR, LiteralIR):
@@ -688,19 +689,19 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     mul_left: Optional[RectangularAccessIR] = None
     mul_right: Optional[RectangularAccessIR] = None
     bias: Optional[Any] = None
-    body_op = body.operator
-    if isinstance(body, BinaryOpIR) and body_op in (_add, "+"):
+    body_op = getattr(body, "operator", None)
+    if isinstance(body, BinaryOpIR) and body_op == _add:
         add_left = body.left
         add_right = body.right
-        if isinstance(add_left, BinaryOpIR) and add_left.operator in (_mul, "*"):
+        if isinstance(add_left, BinaryOpIR) and add_left.operator == _mul:
             mul_left = add_left.left
             mul_right = add_left.right
             bias = add_right
-        elif isinstance(add_right, BinaryOpIR) and add_right.operator in (_mul, "*"):
+        elif isinstance(add_right, BinaryOpIR) and add_right.operator == _mul:
             mul_left = add_right.left
             mul_right = add_right.right
             bias = add_left
-    elif isinstance(body, BinaryOpIR) and body_op in (_mul, "*"):
+    elif isinstance(body, BinaryOpIR) and body_op == _mul:
         mul_left = body.left
         mul_right = body.right
     if mul_left is None or mul_right is None:
@@ -1033,7 +1034,11 @@ class ExpressionVisitorMixin:
         return callee(*args)
 
     def visit_rectangular_access(self, expr: RectangularAccessIR) -> Any:
-        array = expr.array.accept(self)
+        # Autodiff pullback may place LoweredEinsteinIR here; evaluate with synthetic variable_decl stack.
+        if isinstance(expr.array, LoweredEinsteinIR):
+            array = self._evaluate_lowered_einstein_subexpr(expr.array)
+        else:
+            array = expr.array.accept(self)
         indices = [idx.accept(self) for idx in (expr.indices or []) if idx is not None]
         try:
             if isinstance(array, np.ndarray):
