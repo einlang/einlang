@@ -29,7 +29,7 @@ from .numpy_helpers import (
 
 # Sentinel for bindings whose RHS is DifferentialIR; value is filled after backward pass.
 _DIFFERENTIAL_PENDING = object()
-# Sentinel for bindings whose RHS is @num/@den (BinaryOpIR DIV of d_* refs); slot filled after per-quotient diff run.
+# Sentinel for bindings whose RHS is @num/@den (BinaryOpIR DIV of ∂* refs); slot filled after per-quotient diff run.
 _QUOTIENT_PENDING = object()
 
 
@@ -451,7 +451,7 @@ class CoreExecutionMixin:
                     # Backward pass (AUTODIFF_IMPLEMENTATION.md §9): if program has gradient slots and
                     # AutodiffPass produced backward IR, run it with current env (seed 1.0 for loss is
                     # applied inside backward IR when built). Then expose gradient buffers so bindings
-                    # like d_w = @w resolve to the buffer for w. Full backward execution is minimal/v1;
+                    # like ∂w = @w resolve to the buffer for w. Full backward execution is minimal/v1;
                     # more VJPs and seed wiring are implemented in passes/autodiff.py.
                     tcx = getattr(self, "_tcx", None)
                     diff_ir = None
@@ -572,7 +572,9 @@ class CoreExecutionMixin:
             from ..shared.errors import EinlangSourceError
             if isinstance(e, EinlangSourceError):
                 return ExecutionResult(error=e)
-            return ExecutionResult(error=RuntimeError(str(e)))
+            import traceback
+            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+            return ExecutionResult(error=RuntimeError(f"{e!s}\n--- traceback ---\n{tb}"))
 
     def execute_expression(self, expr: ExpressionIR, env: Dict[DefId, Any]) -> Any:
         with self.env.scope():

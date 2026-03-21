@@ -3136,7 +3136,9 @@ class EinsteinExecutionMixin:
         elif output_shape and lowered_einstein.items:
             # Compiler shape may underestimate for multi-segment declarations
             # (e.g. _compute_shape_union picks a symbolic expr that evaluates to
-            # the first clause's end, not the union).  Widen to cover all items.
+            # the first clause's end, not the union).  Widen only when loop ranks match
+            # across items — clauses with different loop *counts* (e.g. [i,j] vs [t,i,j])
+            # must not be merged dimension-wise (would corrupt axes).
             items_shape = self._shape_from_all_items(lowered_einstein.items)
             if items_shape and len(items_shape) == len(output_shape):
                 output_shape = [max(a, b) for a, b in zip(output_shape, items_shape)]
@@ -3222,24 +3224,35 @@ class EinsteinExecutionMixin:
                     if result is not output:
                         output[:] = result.astype(output.dtype)
                 elif result.shape != output.shape:
-                    slices_list_nr: List[Any] = []
-                    clause_indices = item.indices or []
-                    if clause_indices and len(clause_indices) == output.ndim:
-                        slices_list_nr = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
-                    if len(slices_list_nr) != output.ndim and item.loops:
-                        try:
-                            for lp in item.loops:
-                                start, end = _extract_loop_range(lp, expr_eval)
-                                slices_list_nr.append(slice(int(start), int(end)))
-                        except RuntimeError:
-                            slices_list_nr = []
-                    if len(slices_list_nr) == output.ndim:
-                        output[tuple(slices_list_nr)] = result.astype(output.dtype)
-                    elif result.size == 1 and item.indices and all(
-                        isinstance(idx, LiteralIR) for idx in item.indices
+                    # Autodiff pullback only: 1D buffer (e.g. shape (B,)) vs Jacobian row (B, J, ...).
+                    # Do not adopt for general primals — higher-rank clause results can be slice writes.
+                    if (
+                        result.ndim > output.ndim
+                        and output.ndim == 1
+                        and result.shape[0] == output.shape[0]
+                        and result.size > output.size
                     ):
-                        idx_tuple = tuple(int(idx.value) for idx in item.indices)
-                        output[idx_tuple] = result.flat[0] if result.size == 1 else result
+                        output = np.asarray(result, dtype=output.dtype)
+                        self.env.set_value(variable_key, output)
+                    else:
+                        slices_list_nr: List[Any] = []
+                        clause_indices = item.indices or []
+                        if clause_indices and len(clause_indices) == output.ndim:
+                            slices_list_nr = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
+                        if len(slices_list_nr) != output.ndim and item.loops:
+                            try:
+                                for lp in item.loops:
+                                    start, end = _extract_loop_range(lp, expr_eval)
+                                    slices_list_nr.append(slice(int(start), int(end)))
+                            except RuntimeError:
+                                slices_list_nr = []
+                        if len(slices_list_nr) == output.ndim:
+                            output[tuple(slices_list_nr)] = result.astype(output.dtype)
+                        elif result.size == 1 and item.indices and all(
+                            isinstance(idx, LiteralIR) for idx in item.indices
+                        ):
+                            idx_tuple = tuple(int(idx.value) for idx in item.indices)
+                            output[idx_tuple] = result.flat[0] if result.size == 1 else result
                 self.env.set_value(variable_key, output)
 
         # When we have recurrence items: run recurrence dim outermost, all recurrence clauses inside (timestep-major).
@@ -3312,25 +3325,34 @@ class EinsteinExecutionMixin:
                     if result is not output:
                         output[:] = result.astype(output.dtype)
                 elif result.shape != output.shape:
-                    slices_list: List[Any] = []
-                    clause_indices = item.indices or []
-                    if clause_indices and len(clause_indices) == output.ndim:
-                        slices_list = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
-                    if len(slices_list) != output.ndim and item.loops:
-                        slices_list = []
-                        try:
-                            for lp in item.loops:
-                                start, end = _extract_loop_range(lp, expr_eval)
-                                slices_list.append(slice(int(start), int(end)))
-                        except RuntimeError:
-                            slices_list = []
-                    if len(slices_list) == output.ndim:
-                        output[tuple(slices_list)] = result.astype(output.dtype)
-                    elif result.size == 1 and item.indices and all(
-                        isinstance(idx, LiteralIR) for idx in item.indices
+                    if (
+                        result.ndim > output.ndim
+                        and output.ndim == 1
+                        and result.shape[0] == output.shape[0]
+                        and result.size > output.size
                     ):
-                        idx_tuple = tuple(int(idx.value) for idx in item.indices)
-                        output[idx_tuple] = result.flat[0] if result.size == 1 else result
+                        output = np.asarray(result, dtype=output.dtype)
+                        self.env.set_value(variable_key, output)
+                    else:
+                        slices_list: List[Any] = []
+                        clause_indices = item.indices or []
+                        if clause_indices and len(clause_indices) == output.ndim:
+                            slices_list = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
+                        if len(slices_list) != output.ndim and item.loops:
+                            slices_list = []
+                            try:
+                                for lp in item.loops:
+                                    start, end = _extract_loop_range(lp, expr_eval)
+                                    slices_list.append(slice(int(start), int(end)))
+                            except RuntimeError:
+                                slices_list = []
+                        if len(slices_list) == output.ndim:
+                            output[tuple(slices_list)] = result.astype(output.dtype)
+                        elif result.size == 1 and item.indices and all(
+                            isinstance(idx, LiteralIR) for idx in item.indices
+                        ):
+                            idx_tuple = tuple(int(idx.value) for idx in item.indices)
+                            output[idx_tuple] = result.flat[0] if result.size == 1 else result
                 self.env.set_value(variable_key, output)
         return output
 
@@ -3691,7 +3713,13 @@ class EinsteinExecutionMixin:
             self._vectorize_parallel_shape = _saved_vectorize_shape
 
     def _shape_from_all_items(self, items: List) -> Optional[List[int]]:
-        """Compute output shape from the max absolute end across ALL items (not just the first)."""
+        """Compute output shape from the max absolute end across ALL items (not just the first).
+
+        All non-empty items must use the same number of loops; otherwise return None so the
+        compiler-provided shape is used (mixed loop ranks would mis-align axes, e.g. ``[i,j]``
+        vs ``[t,i,j]``).  Autodiff softmax-style cases with a too-small buffer are handled in
+        ``_execute_lowered_einstein_clause`` / result adoption, not by cross-rank union here.
+        """
         if not items:
             return None
         rank = None
@@ -3757,9 +3785,9 @@ class EinsteinExecutionMixin:
             if bucket_size > 0 and getattr(self, "_profile_buckets", None) is not None:
                 key = (line // bucket_size) * bucket_size
                 self._profile_buckets[key] = self._profile_buckets.get(key, 0) + (time.perf_counter() - t0)
-            if _profile_clauses and line and t0:
+            if _profile_clauses and t0:
                 elapsed = time.perf_counter() - t0
-                parts = [f"[profile] clause L{line}"]
+                parts = [f"[profile] clause L{line or '?'}"]
                 if _clause_name or _clause_rhs:
                     lhs = _clause_name or "?"
                     parts.append(f" {lhs} = {_clause_rhs}")
@@ -4120,7 +4148,6 @@ class EinsteinExecutionMixin:
                     _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path=_path)
                     return output
 
-        self._einstein_scalar = getattr(self, "_einstein_scalar", 0) + 1
         _loop_defid_to_name = {}
         _loops = lowered.loops
         for lp in _loops:
@@ -4220,8 +4247,32 @@ class EinsteinExecutionMixin:
                         idx_tuple = cell_index(full_context)
                     if idx_tuple is None:
                         idx_tuple = tuple(full_context.get(d) for d in _loop_defids_tuple)
-                    if idx_tuple is None or len(idx_tuple) != output.ndim:
+                    if idx_tuple is None:
                         continue
+                    if len(idx_tuple) > output.ndim:
+                        continue
+                    # ∂(reduction)/∂x has the same shape as x. Pullback IR may use only batch index b (shape (B,))
+                    # while the body returns a full (B, J) tensor or a single row as length-J vector (prod chain rule).
+                    if (
+                        len(idx_tuple) == 1
+                        and isinstance(value, np.ndarray)
+                        and output.ndim == 1
+                        and value.size > output.size
+                    ):
+                        if (
+                            value.ndim >= 2
+                            and value.shape[0] == output.shape[0]
+                        ):
+                            output = np.zeros(value.shape, dtype=output.dtype)
+                            if variable_defid is not None:
+                                self.env.set_value(variable_defid, output)
+                        elif value.ndim == 1 and tuple(output.shape) == (1,):
+                            output = np.zeros((1, int(value.size)), dtype=output.dtype)
+                            if variable_defid is not None:
+                                self.env.set_value(variable_defid, output)
+                    if len(idx_tuple) != output.ndim:
+                        if not (len(idx_tuple) == 1 and output.ndim > 1):
+                            continue
                     if isinstance(value, np.ndarray):
                         if value.ndim == 0:
                             value = value.item()
@@ -4230,11 +4281,24 @@ class EinsteinExecutionMixin:
                     elif isinstance(value, np.generic):
                         value = value.item()
                     if len(idx_tuple) == 1:
+                        # Row slice output[i] expects shape output.shape[1:]; reduction bodies may
+                        # return (1, n1, n2, ...) (leading batch of 1) and trigger NumPy
+                        # "setting an array element with a sequence" without reshape.
+                        if isinstance(value, np.ndarray) and output.ndim > 1:
+                            tail = output.shape[1:]
+                            if tail and value.shape == (1,) + tail:
+                                value = value.reshape(tail)
+                            elif tail and value.shape == tail:
+                                pass
+                            elif tail and value.shape == output.shape:
+                                ri = int(np.asarray(idx_tuple[0]).item())
+                                value = value[ri]
                         output[idx_tuple[0]] = value
                     else:
                         output[idx_tuple] = value
 
         if variable_defid:
             self._clause_set_output(variable_defid, output)
+        self._einstein_scalar = getattr(self, "_einstein_scalar", 0) + 1
         _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="scalar")
         return output
