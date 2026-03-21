@@ -3939,6 +3939,10 @@ class EinsteinExecutionMixin:
                     _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="hybrid")
                     return output
                 recurrence_needs_scalar = True  # hybrid failed; use scalar path so we read LHS[t-1] correctly
+            elif len(recurrence_dims) == len(lowered.loops) and recurrence_dims:
+                # Every loop dim is recurrence (e.g. u[t] = f(u[t-1]) with a single t). Cannot vectorize over t;
+                # must run scalar loop so prior indices of u are visible (e.g. numerics::euler_decay).
+                recurrence_needs_scalar = True
         # Try full vectorize over loop dims (literal idx -> fixed slice; other dims -> vectorize).
         if lowered.loops:
             # Slice-vectorize: body "if p < t then ... else 0" -> vectorize over [0..t), fill rest (e.g. emb in decode).
@@ -4179,6 +4183,9 @@ class EinsteinExecutionMixin:
         _loop_defids_tuple = tuple(lp.variable.defid for lp in _loops)
 
         with self.env.scope():
+            # Child scope must see the clause output tensor (e.g. u in u[t-1]).
+            if variable_defid is not None:
+                self.env.set_value(variable_defid, output)
             if not _loops:
                 if all(isinstance(idx, LiteralIR) for idx in clause_indices):
                     idx_tuple = tuple(int(idx.value) for idx in clause_indices)
