@@ -1,17 +1,56 @@
+"""Autodiff pass — expand ``@expr`` and ``@y/@x`` into plain IR.
+
+Design doc: ``docs/autodiff_design.md``
+
+Forward mode propagates differentials (tangents).  For ``y = f(x₁, x₂, …)``
+we emit ``d(y) = Σᵢ (∂f/∂xᵢ) · d(xᵢ)`` in execution order.
+
+Float-only constraint
+---------------------
+Autodiff is only defined for **floating-point** types (``f32``, ``f64``, or
+tensors thereof).  Differentiating an integer-typed expression is
+mathematically undefined — integers form a discrete set with no smooth
+structure.  ``print(@y)`` and ``@y/@x`` are therefore a type error if ``y``
+does not have a float type.  This mirrors Julia's ForwardDiff.jl, which
+requires ``AbstractFloat`` inputs and rejects integer arguments.
+
+Practically, all literal coefficients produced by the pass (e.g. the ``2.0``
+in ``d(x²) = 2.0 * x * _@x``) are float-typed ``LiteralIR`` nodes.  The
+``_@*`` tangent bindings carry the same type as their primal.
+
+Concepts
+--------
+- ``@expr``   — differential of *expr* (same shape/type as *expr*).
+- ``@y / @x`` — derivative (Jacobian coefficient), extracted from ``d(y)``
+                 by setting ``d(x)=1`` and all other leaf tangents to ``0``.
+- ``_@*``     — internal prefix for differential bindings (user-visible in
+                 ``print(@y)`` output as ``let _@name: type = expr;``).
+
+Phases
+------
+1. **Analysis** — collect targets, build dep graph, topo-sort.
+2. **Forward differentiation** — ``DiffVisitor`` computes ``d(expr)`` via
+   ``DiffContext``; ``_@*`` bindings inserted after their primals.
+3. **Expansion** — replace ``DifferentialIR`` with ``_@*`` refs;
+   ``JacobianVisitor`` for ``@y/@x``; format ``print(@y)``.
+4. **Cleanup** — strip ``DifferentialType``, remove ``DiffRuleIR``.
+
+Pass order / IR shape
+---------------------
+``AutodiffPass`` runs **before** ``EinsteinLoweringPass``.  Visitors reject
+``LoweredEinsteinIR``, ``LoweredRecurrenceIR``, and other lowered-* nodes;
+differentiation is defined on ``EinsteinIR`` (and ordinary expressions) only.
+
+Public API (imported by other modules)
+--------------------------------------
+- ``AutodiffPass``
+- ``DIFF_PREFIX``
+- ``clear_custom_diff_body_everywhere``
 """
-Autodiff pass v2: expand @ and @y/@x into plain IR (forward diff).
 
-Forward diff only: from dx to dy. For each binding y = f(x1, x2, ...)
-we emit ∂y = (df/dx1)*∂x1 + (df/dx2)*∂x2 + ... in execution order.
+from __future__ import annotations
 
-- DifferentialIR (@expr): @x -> ∂x.
-- @y/@x: derivative (dy/dx). Direct dep -> symbolic Jacobian; transitive -> quotient form.
-
-Differential buffer names use the ∂ prefix (U+2202) which is not a valid
-identifier in user code, preventing name collisions.
-"""
-
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, NoReturn, Optional, Set, Tuple, Union, cast
 
 from .base import BasePass, TyCtxt
 from .type_inference import TypeInferencePass
@@ -46,7 +85,6 @@ from ..ir.nodes import (
     SelectAtArgmaxIR,
     WhereExpressionIR,
     WhereClauseIR,
-    IndexRestIR,
     DiffRuleIR,
     TupleExpressionIR,
     TupleAccessIR,
@@ -57,3868 +95,2800 @@ from ..ir.nodes import (
     JaggedAccessIR,
     is_function_binding,
 )
-from ..shared.types import BinaryOp, UnaryOp, PrimitiveType, UNKNOWN, F32, STR, BOOL, Type
-from ..shared.types import strip_differential_types_deep
-from ..shared.types import ReductionOp
+from ..shared.types import (
+    BinaryOp, UnaryOp, PrimitiveType, UNKNOWN, F32, I32, STR, BOOL, Type,
+    RectangularType,
+    strip_differential_types_deep, ReductionOp,
+)
 from ..shared.defid import DefId, DefType
 from ..shared.source_location import SourceLocation
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Constants
+# ═══════════════════════════════════════════════════════════════════════════
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+DIFF_PREFIX = "_@"       # compiler-introduced intermediates (callee-locals, call tangents)
+USER_DIFF_PREFIX = "@"  # tangents of user-written bindings (visible in print(@y))
 
-DIFF_PREFIX = "∂"
+def _is_diff_name(name: str) -> bool:
+    """Return True for any differential binding name (either prefix)."""
+    return name.startswith(DIFF_PREFIX) or name.startswith(USER_DIFF_PREFIX)
 
-def _float_lit(value: Any, loc: SourceLocation) -> LiteralIR:
-    return LiteralIR(value, loc, type_info=F32)
+_LOC0 = SourceLocation("", 0, 0)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Tiny helpers
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _fl(v: float, loc: SourceLocation) -> LiteralIR:
+    return LiteralIR(float(v), loc, type_info=F32)
+
+def _z(loc: SourceLocation) -> LiteralIR:
+    """Literal scalar zero (float).
+
+    Allowed uses (do not use ``_z`` to mean "unsupported"):
+    - Derivative of a float literal; constant array literal tangents in DiffVisitor.
+    - JacobianVisitor: identifier independent of ``wrt`` (true zero partial).
+    - Algebraic simplification in ``_simplify`` when a factor is literally zero.
+    - Missing ``else`` branch / empty sum in structured IR builders where zero is correct.
+    - ``stmt_partial`` when the simplified partial is ``_is_zero`` (literal 0).
+    - Quotient expansion when the numerator does not depend on the denominator variable.
+    - AutodiffPass: seed tangents for quotient leaves and missing deps in the dep map.
+    - Einstein forward/Jacobian helpers when no clauses contribute (all-zero tensor).
+    - Binding RHS absent or function value (no scalar/tensor tangent binding).
+
+    Unsupported IR nodes must call ``_unsupported_autodiff_ir`` (raise) instead of ``_z``.
+    """
+    return _fl(0, loc)
 
 
-def _std_math_log_call(
-    arg: ExpressionIR,
-    bindings: Dict[DefId, Any],
-    resolver: Any,
-    loc: SourceLocation,
-    out_ty: Any,
-) -> ExpressionIR:
-    """Natural log for chain rule on u**v: d/du term uses v*u**(v-1); d/dv uses u**v*ln(u)."""
-    log_defid: Optional[DefId] = None
-    if resolver is not None:
-        log_defid = resolver.get_defid(("std", "math", "log"), "log", DefType.FUNCTION)
-    if log_defid is None:
-        for b in bindings.values():
-            if getattr(b, "name", None) == "log":
-                did = getattr(b, "defid", None)
-                expr = getattr(b, "expr", None)
-                if did is not None and isinstance(expr, FunctionValueIR):
-                    log_defid = did
-                    break
-    if log_defid is None:
-        raise ValueError(
-            "Autodiff: d(u**v) chain rule needs log(u); ensure std::math::log is available or use @fn."
-        )
-    log_b = bindings.get(log_defid)
-    callee_ty = None
-    if log_b is not None and getattr(log_b, "expr", None) is not None:
-        callee_ty = getattr(log_b.expr, "type_info", None)
-    callee = IdentifierIR(
-        "log", loc, log_defid, type_info=callee_ty or UNKNOWN, shape_info=getattr(arg, "shape_info", None)
-    )
-    return FunctionCallIR(
-        callee,
-        loc,
-        arguments=[arg],
-        type_info=out_ty,
-        shape_info=getattr(arg, "shape_info", None),
+def _unsupported_autodiff_ir(visitor: str, node: object) -> NoReturn:
+    """Fail fast: unsupported IR must not silently yield a zero derivative."""
+    raise ValueError(
+        f"Autodiff: {visitor} does not support IR node {type(node).__name__} "
+        f"(do not substitute literal zero; add a visitor or lowering rule)"
     )
 
 
-def _is_zero_const(expr: ExpressionIR) -> bool:
-    return isinstance(expr, LiteralIR) and expr.value == 0
+def _reject_lowered_ir(visitor: str, node: object) -> NoReturn:
+    """Autodiff is defined on EinsteinIR; lowered-* nodes appear only after EinsteinLoweringPass."""
+    raise ValueError(
+        f"Autodiff: {visitor} does not support {type(node).__name__}. "
+        f"Run AutodiffPass before EinsteinLoweringPass; differentiate EinsteinIR only, not lowered-* IR."
+    )
 
 
-def _pow_chain_rule_terms(
-    node: BinaryOpIR,
-    d_left: ExpressionIR,
-    d_right: ExpressionIR,
-    bindings: Dict[DefId, Any],
-    resolver: Any,
-    loc: SourceLocation,
-) -> ExpressionIR:
-    """u**v: v*u**(v-1)*du + u**v*ln(u)*dv (omit ln term when dv is 0; omit power term when du is 0)."""
-    ty = getattr(node, "type_info", None) or F32
-    sh = getattr(node, "shape_info", None)
-    b_minus_one = BinaryOpIR(
-        BinaryOp.SUB, node.right, _float_lit(1, loc), loc,
-        type_info=ty, shape_info=sh,
-    )
-    a_bm1 = BinaryOpIR(
-        BinaryOp.POW, node.left, b_minus_one, loc,
-        type_info=ty, shape_info=sh,
-    )
-    term_left = BinaryOpIR(
-        BinaryOp.MUL,
-        BinaryOpIR(
-            BinaryOp.MUL, node.right, a_bm1, loc,
-            type_info=ty, shape_info=sh,
-        ),
-        d_left,
-        loc,
-        type_info=ty,
-        shape_info=sh,
-    )
-    if _is_zero_const(d_left) and _is_zero_const(d_right):
-        return _float_lit(0, loc)
-    if _is_zero_const(d_right):
-        return term_left
-    a_b = BinaryOpIR(
-        BinaryOp.POW, node.left, node.right, loc,
-        type_info=ty, shape_info=sh,
-    )
-    ln_u = _std_math_log_call(node.left, bindings, resolver, loc, ty)
-    term_right = BinaryOpIR(
-        BinaryOp.MUL,
-        BinaryOpIR(
-            BinaryOp.MUL, a_b, ln_u, loc,
-            type_info=ty, shape_info=sh,
-        ),
-        d_right,
-        loc,
-        type_info=ty,
-        shape_info=sh,
-    )
-    if _is_zero_const(d_left):
-        return term_right
-    return BinaryOpIR(BinaryOp.ADD, term_left, term_right, loc, type_info=ty, shape_info=sh)
+# Builtins that do not contribute a float tangent w.r.t. tensor inputs (metadata, shape, asserts).
+_AD_ZERO_TANGENT_BUILTINS = frozenset({"assert", "len", "typeof", "shape"})
 
 
-def _ir_structurally_equal(a: ExpressionIR, b: ExpressionIR) -> bool:
-    """Shallow structural equality for simplification (identifiers by defid, literals by value)."""
+def _is_zero(e: ExpressionIR) -> bool:
+    return isinstance(e, LiteralIR) and e.value == 0
+
+def _ti(n: Any) -> Any:
+    return getattr(n, "type_info", None)
+
+def _si(n: Any) -> Any:
+    return getattr(n, "shape_info", None)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Structural equality (for simplification)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _seq(a: ExpressionIR, b: ExpressionIR) -> bool:
     if type(a) is not type(b):
         return False
     if isinstance(a, IdentifierIR):
-        return a.defid == b.defid
+        if a.defid is not None and b.defid is not None:
+            return a.defid == b.defid
+        if a.defid is None and b.defid is None:
+            return a.name == b.name
+        return False
     if isinstance(a, LiteralIR):
         return a.value == b.value
-    if isinstance(a, BinaryOpIR):
-        return (a.operator == b.operator
-                and _ir_structurally_equal(a.left, b.left)
-                and _ir_structurally_equal(a.right, b.right))
-    if isinstance(a, UnaryOpIR):
-        return a.operator == b.operator and _ir_structurally_equal(a.operand, b.operand)
-    if isinstance(a, RectangularAccessIR):
-        if not _ir_structurally_equal(a.array, b.array):
-            return False
-        ai, bi = a.indices or [], b.indices or []
-        if len(ai) != len(bi):
-            return False
-        return all(_ir_structurally_equal(x, y) for x, y in zip(ai, bi))
     if isinstance(a, IndexVarIR):
-        return getattr(a, "defid", None) == getattr(b, "defid", None)
+        return a.defid is not None and a.defid == b.defid
+    if isinstance(a, BinaryOpIR):
+        return a.operator == b.operator and _seq(a.left, b.left) and _seq(a.right, b.right)
+    if isinstance(a, UnaryOpIR):
+        return a.operator == b.operator and _seq(a.operand, b.operand)
+    if isinstance(a, RectangularAccessIR):
+        ai, bi = a.indices or [], b.indices or []
+        return (_seq(a.array, b.array) and len(ai) == len(bi)
+                and all(_seq(x, y) for x, y in zip(ai, bi)))
     if isinstance(a, FunctionCallIR):
-        if getattr(a, "function_defid", None) != getattr(b, "function_defid", None):
-            return False
         aa, ba = a.arguments or [], b.arguments or []
-        return len(aa) == len(ba) and all(_ir_structurally_equal(x, y) for x, y in zip(aa, ba))
+        return (getattr(a, "function_defid", None) == getattr(b, "function_defid", None)
+                and len(aa) == len(ba) and all(_seq(x, y) for x, y in zip(aa, ba)))
+    if isinstance(a, BuiltinCallIR):
+        aa, ba = a.args or [], b.args or []
+        return (a.builtin_name == b.builtin_name
+                and len(aa) == len(ba) and all(_seq(x, y) for x, y in zip(aa, ba)))
+    if isinstance(a, CastExpressionIR):
+        return getattr(a, "target_type", None) == getattr(b, "target_type", None) and _seq(a.expr, b.expr)
     return False
 
+# keep public name used in old code
+_ir_structurally_equal = _seq
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Algebraic simplification
+# ═══════════════════════════════════════════════════════════════════════════
 
 def _simplify(expr: ExpressionIR, loc: SourceLocation) -> ExpressionIR:
-    """Algebraic simplification: 0+x->x, 0*x->0, 1*x->x, x**1->x, constant fold, like-terms."""
+    if isinstance(expr, BinaryOpIR):
+        L = _simplify(expr.left, loc)
+        R = _simplify(expr.right, loc)
+        op = expr.operator
+        lz, rz = _is_zero(L), _is_zero(R)
+        l1 = isinstance(L, LiteralIR) and L.value == 1
+        r1 = isinstance(R, LiteralIR) and R.value == 1
+        ll, rl = isinstance(L, LiteralIR), isinstance(R, LiteralIR)
+
+        if op == BinaryOp.ADD:
+            if lz: return R
+            if rz: return L
+            if ll and rl: return _fl(L.value + R.value, loc)
+            if _seq(L, R): return BinaryOpIR(BinaryOp.MUL, _fl(2, loc), L, loc)
+        elif op == BinaryOp.SUB:
+            if rz: return L
+            if ll and rl: return _fl(L.value - R.value, loc)
+        elif op == BinaryOp.MUL:
+            if lz or rz: return _z(loc)
+            if l1: return R
+            if r1: return L
+            if ll and rl: return _fl(L.value * R.value, loc)
+        elif op == BinaryOp.DIV:
+            if lz: return _z(loc)
+            if (isinstance(R, BinaryOpIR) and R.operator == BinaryOp.POW
+                    and isinstance(R.right, LiteralIR) and R.right.value == 2):
+                base = R.left
+                if isinstance(L, BinaryOpIR) and L.operator == BinaryOp.MUL:
+                    if _seq(L.left, base):
+                        return BinaryOpIR(BinaryOp.DIV, L.right, base, loc)
+                    if _seq(L.right, base):
+                        return BinaryOpIR(BinaryOp.DIV, L.left, base, loc)
+        elif op == BinaryOp.POW:
+            if r1: return L
+
+        return BinaryOpIR(op, L, R, loc)
+
+    if isinstance(expr, UnaryOpIR):
+        inner = _simplify(expr.operand, loc)
+        if expr.operator == UnaryOp.NEG and isinstance(inner, UnaryOpIR) and inner.operator == UnaryOp.NEG:
+            return inner.operand
+        return UnaryOpIR(expr.operator, inner, expr.location or loc)
+
     if isinstance(expr, EinsteinIR):
-        new_clauses = []
-        for c in (expr.clauses or []):
-            sv = _simplify(c.value, loc)
-            new_clauses.append(EinsteinClauseIR(
-                indices=c.indices, value=sv, location=c.location,
-                where_clause=c.where_clause,
-                variable_ranges=c.variable_ranges,
-            ))
-        return EinsteinIR(
-            clauses=new_clauses, shape=expr.shape,
-            element_type=expr.element_type, location=expr.location,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
+        nc = []
+        for c in expr.clauses or []:
+            sv = _simplify(c.value, c.location or loc)
+            nc.append(EinsteinClauseIR(indices=c.indices, value=sv, location=c.location,
+                      where_clause=c.where_clause, variable_ranges=c.variable_ranges))
+        return EinsteinIR(clauses=nc, shape=expr.shape, element_type=expr.element_type,
+                          location=expr.location, type_info=_ti(expr), shape_info=_si(expr))
+
     if isinstance(expr, ReductionExpressionIR):
         sb = _simplify(expr.body, loc)
-        return ReductionExpressionIR(
-            expr.operation, expr.loop_vars, sb, expr.location,
-            where_clause=expr.where_clause,
-            loop_var_ranges=expr.loop_var_ranges,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
+        return ReductionExpressionIR(expr.operation, expr.loop_vars, sb, expr.location,
+               where_clause=expr.where_clause, loop_var_ranges=expr.loop_var_ranges,
+               type_info=_ti(expr), shape_info=_si(expr))
+
+    return expr
+
+# ═══════════════════════════════════════════════════════════════════════════
+# log() lookup for power chain rule
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _log_call(arg: ExpressionIR, bindings: Dict[DefId, Any], resolver: Any, loc: SourceLocation) -> ExpressionIR:
+    for did, b in bindings.items():
+        if not isinstance(b, BindingIR) or not isinstance(b.expr, FunctionValueIR):
+            continue
+        nm = b.name or ""
+        if nm == "log" or nm.endswith("::log"):
+            callee = IdentifierIR(nm, loc, did, type_info=b.type_info)
+            return FunctionCallIR(callee_expr=callee, location=loc, arguments=[arg], type_info=F32)
+    return FunctionCallIR(callee_expr=IdentifierIR("log", loc, None), location=loc, arguments=[arg], type_info=F32)
+
+
+def _pow_chain(node: BinaryOpIR, dL: ExpressionIR, dR: ExpressionIR,
+               bindings: Dict[DefId, Any], resolver: Any, loc: SourceLocation) -> ExpressionIR:
+    a, b = node.left, node.right
+    if isinstance(b, LiteralIR):
+        n = b.value
+        return BinaryOpIR(BinaryOp.MUL,
+                   BinaryOpIR(BinaryOp.MUL, _fl(n, loc),
+                              BinaryOpIR(BinaryOp.POW, a, _fl(n - 1, loc), loc), loc),
+                   dL, loc)
+    if isinstance(a, LiteralIR):
+        c = a.value
+        return BinaryOpIR(BinaryOp.MUL,
+                   BinaryOpIR(BinaryOp.MUL, node, _log_call(_fl(c, loc), bindings, resolver, loc), loc),
+                   dR, loc)
+    log_a = _log_call(a, bindings, resolver, loc)
+    t1 = BinaryOpIR(BinaryOp.MUL, BinaryOpIR(BinaryOp.DIV, b, a, loc), dL, loc)
+    t2 = BinaryOpIR(BinaryOp.MUL, log_a, dR, loc)
+    return BinaryOpIR(BinaryOp.MUL, node, BinaryOpIR(BinaryOp.ADD, t1, t2, loc), loc)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Substitution
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class _Rewriter(IRVisitor[ExpressionIR]):
+    """Default tree rewrite: rebuild compound nodes via ``child.accept(self)``."""
+
+    def __init__(self, loc: SourceLocation) -> None:
+        self._loc = loc
+
+    def _rw_wc(self, wc: Any) -> Any:
+        if wc is None:
+            return None
+        cc = getattr(wc, "constraints", None)
+        if not cc:
+            return wc
+        return WhereClauseIR(constraints=[c.accept(self) for c in cc], location=self._loc)
+
+    def _rw_lr(self, lr: Optional[Dict]) -> Optional[Dict]:
+        if not lr:
+            return lr
+        out: Dict = {}
+        for k, v in lr.items():
+            if isinstance(v, RangeIR):
+                out[k] = RangeIR(
+                    start=v.start.accept(self),
+                    end=v.end.accept(self),
+                    location=v.location or self._loc,
+                    type_info=v.type_info,
+                )
+            elif isinstance(v, ExpressionIR):
+                out[k] = v.accept(self)
+            else:
+                out[k] = v
+        return out
+
+    def visit_literal(self, n: LiteralIR) -> ExpressionIR:
+        return n
+
+    def visit_identifier(self, n: IdentifierIR) -> ExpressionIR:
+        return n
+
+    def visit_index_var(self, n: IndexVarIR) -> ExpressionIR:
+        return n
+
+    def visit_index_rest(self, n: IndexRestIR) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_binary_op(self, n: BinaryOpIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        return BinaryOpIR(
+            n.operator,
+            n.left.accept(self),
+            n.right.accept(self),
+            loc,
+            type_info=_ti(n),
+            shape_info=_si(n),
         )
-    if not isinstance(expr, BinaryOpIR):
-        if isinstance(expr, UnaryOpIR):
-            return UnaryOpIR(expr.operator, _simplify(expr.operand, loc), expr.location,
-                             type_info=getattr(expr, "type_info", None),
-                             shape_info=getattr(expr, "shape_info", None))
-        return expr
-    left = _simplify(expr.left, loc)
-    right = _simplify(expr.right, loc)
-    op = expr.operator
-    if op == BinaryOp.ADD:
-        if isinstance(right, LiteralIR) and right.value == 0:
-            return left
-        if isinstance(left, LiteralIR) and left.value == 0:
-            return right
-        if isinstance(left, LiteralIR) and isinstance(right, LiteralIR):
-            try:
-                return LiteralIR(left.value + right.value, loc,
-                                 type_info=getattr(left, "type_info", None))
-            except TypeError:
-                pass
-        # a + a → 2*a
-        if _ir_structurally_equal(left, right):
-            return BinaryOpIR(BinaryOp.MUL, LiteralIR(2, loc), left, loc)
-        # a*b + a*b → 2*a*b ;  a*b + b*a → 2*a*b  (primal first, differential last)
-        if isinstance(left, BinaryOpIR) and left.operator == BinaryOp.MUL and \
-           isinstance(right, BinaryOpIR) and right.operator == BinaryOp.MUL:
-            if (_ir_structurally_equal(left.left, right.left) and _ir_structurally_equal(left.right, right.right)) or \
-               (_ir_structurally_equal(left.left, right.right) and _ir_structurally_equal(left.right, right.left)):
-                a, b = left.left, left.right
-                if isinstance(a, IdentifierIR) and (a.name or "").startswith(DIFF_PREFIX):
-                    a, b = b, a
-                return BinaryOpIR(BinaryOp.MUL, LiteralIR(2, loc),
-                                  BinaryOpIR(BinaryOp.MUL, a, b, loc), loc)
-        # Factor out common rightmost factor from MUL chains:
-        #   A*b + b → (A+1)*b  ;  A*b + C*b → (A+C)*b
-        def _split_rightmost(e: ExpressionIR) -> Tuple[ExpressionIR, ExpressionIR]:
-            """Split rightmost factor: A*...*b → (A*..., b). Atom → (1, atom)."""
-            if isinstance(e, BinaryOpIR) and e.operator == BinaryOp.MUL:
-                # Peel rightmost: (A * b) → (A, b)
-                # But if right is also MUL, don't recurse — just take this level's right.
-                return e.left, e.right
-            return LiteralIR(1, loc), e
-        # Try peeling one level
-        cl, bl = _split_rightmost(left)
-        cr, br = _split_rightmost(right)
-        if _ir_structurally_equal(bl, br):
-            coeff = _simplify(BinaryOpIR(BinaryOp.ADD, cl, cr, loc), loc)
-            return BinaryOpIR(BinaryOp.MUL, coeff, bl, loc)
-        # Try peeling deeper on left: MUL(A, MUL(B, c)) → coeff=MUL(A,B), base=c
-        if isinstance(left, BinaryOpIR) and left.operator == BinaryOp.MUL \
-                and isinstance(left.right, BinaryOpIR) and left.right.operator == BinaryOp.MUL:
-            deep_coeff = BinaryOpIR(BinaryOp.MUL, left.left, left.right.left, loc)
-            deep_base = left.right.right
-            cr2, br2 = _split_rightmost(right)
-            if _ir_structurally_equal(deep_base, br2):
-                coeff = _simplify(BinaryOpIR(BinaryOp.ADD, deep_coeff, cr2, loc), loc)
-                return BinaryOpIR(BinaryOp.MUL, coeff, deep_base, loc)
-    if op == BinaryOp.SUB:
-        if isinstance(right, LiteralIR) and right.value == 0:
-            return left
-        if isinstance(left, LiteralIR) and isinstance(right, LiteralIR):
-            try:
-                return LiteralIR(left.value - right.value, loc,
-                                 type_info=getattr(left, "type_info", None))
-            except TypeError:
-                pass
-    if op == BinaryOp.MUL:
-        if isinstance(left, LiteralIR) and left.value == 0:
-            return _float_lit(0, loc)
-        if isinstance(right, LiteralIR) and right.value == 0:
-            return _float_lit(0, loc)
-        if isinstance(left, LiteralIR) and left.value == 1:
-            return right
-        if isinstance(right, LiteralIR) and right.value == 1:
-            return left
-    if op == BinaryOp.DIV:
-        if isinstance(left, LiteralIR) and left.value == 0:
-            return _float_lit(0, loc)
-    if op == BinaryOp.POW and isinstance(right, LiteralIR) and right.value == 1:
-        return left
-    return BinaryOpIR(op, left, right, expr.location,
-                      type_info=getattr(expr, "type_info", None),
-                      shape_info=getattr(expr, "shape_info", None))
 
+    def visit_unary_op(self, n: UnaryOpIR) -> ExpressionIR:
+        return UnaryOpIR(
+            n.operator,
+            n.operand.accept(self),
+            n.location or self._loc,
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
 
-def _differential_target_from_operand(operand: ExpressionIR) -> Optional[Tuple[DefId, str]]:
-    if isinstance(operand, IdentifierIR) and operand.defid is not None:
-        return (operand.defid, operand.name or "")
-    return None
+    def visit_function_call(self, n: FunctionCallIR) -> ExpressionIR:
+        return FunctionCallIR(
+            callee_expr=n.callee_expr,
+            location=n.location or self._loc,
+            arguments=[a.accept(self) for a in (n.arguments or [])],
+            module_path=getattr(n, "module_path", None),
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
 
+    def visit_rectangular_access(self, n: RectangularAccessIR) -> ExpressionIR:
+        return RectangularAccessIR(
+            n.array.accept(self),
+            [i.accept(self) for i in (n.indices or [])],
+            n.location or self._loc,
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
 
-def _binary_op_precedence(op: BinaryOp) -> int:
-    """Binding strength for diff-source parentheses (higher = tighter)."""
-    return {
-        BinaryOp.ADD: 1,
-        BinaryOp.SUB: 1,
-        BinaryOp.MUL: 2,
-        BinaryOp.DIV: 2,
-        BinaryOp.MOD: 2,
-        BinaryOp.POW: 3,
-    }.get(op, 0)
+    def visit_jagged_access(self, n: JaggedAccessIR) -> ExpressionIR:
+        return n
 
-
-def _needs_parens_left(child: ExpressionIR, parent_op: BinaryOp) -> bool:
-    """Left operand of parent_op: parenthesize if child binds looser than parent."""
-    if not isinstance(child, BinaryOpIR):
-        return False
-    return _binary_op_precedence(child.operator) < _binary_op_precedence(parent_op)
-
-
-def _needs_parens_right(child: ExpressionIR, parent_op: BinaryOp) -> bool:
-    """Right operand of parent_op: / and - are not associative; * is left-associative."""
-    if not isinstance(child, BinaryOpIR):
-        return False
-    cp = _binary_op_precedence(child.operator)
-    pp = _binary_op_precedence(parent_op)
-    if parent_op in (BinaryOp.DIV, BinaryOp.MOD):
-        return cp <= pp
-    if parent_op == BinaryOp.SUB:
-        return cp <= pp
-    if parent_op == BinaryOp.POW:
-        return cp < pp
-    if parent_op == BinaryOp.MUL:
-        if cp < pp:
-            return True
-        if cp > pp:
-            return False
-        return child.operator in (BinaryOp.DIV, BinaryOp.MOD)
-    if parent_op == BinaryOp.ADD:
-        if cp < pp:
-            return True
-        if cp > pp:
-            return False
-        return child.operator == BinaryOp.SUB
-    return cp < pp
-
-
-def _needs_parens(expr: ExpressionIR, parent_op: Optional[BinaryOp] = None) -> bool:
-    """Whether a binary expr needs parentheses when the immediate parent is parent_op (left-child rule)."""
-    if not isinstance(expr, BinaryOpIR) or parent_op is None:
-        return False
-    return _binary_op_precedence(expr.operator) < _binary_op_precedence(parent_op)
-
-
-def _idx_str(idx: Any) -> str:
-    if isinstance(idx, IndexVarIR):
-        return idx.name or "?"
-    if isinstance(idx, IndexRestIR):
-        return f"..{idx.name}" if idx.name else ".."
-    if isinstance(idx, IdentifierIR):
-        return idx.name or "?"
-    return "?"
-
-
-def _expr_to_diff_source(
-    expr: ExpressionIR,
-    d_defid_to_at_name: Dict[DefId, str],
-    scope_binding_by_defid: Dict[DefId, Any],
-    parent_op: Optional[BinaryOp] = None,
-) -> str:
-    _ds = lambda e, pop=None: _expr_to_diff_source(e, d_defid_to_at_name, scope_binding_by_defid, pop)
-
-    if isinstance(expr, IdentifierIR) and expr.defid is not None:
-        if expr.defid in d_defid_to_at_name:
-            return d_defid_to_at_name[expr.defid]
-        b = scope_binding_by_defid.get(expr.defid)
-        return (b.name or "?") if b else (expr.name or "?")
-    if isinstance(expr, LiteralIR):
-        v = expr.value
-        if isinstance(v, float) and v == int(v) and abs(v) < 1e6:
-            return str(int(v))
-        return str(v)
-    if isinstance(expr, BinaryOpIR):
-        op = expr.operator
-        op_str = getattr(op, "value", str(op))
-        left_s = _ds(expr.left)
-        right_s = _ds(expr.right)
-        if _needs_parens_left(expr.left, op):
-            left_s = "(" + left_s + ")"
-        if _needs_parens_right(expr.right, op):
-            right_s = "(" + right_s + ")"
-        result = left_s + " " + op_str + " " + right_s
-        if _needs_parens(expr, parent_op):
-            result = "(" + result + ")"
-        return result
-    if isinstance(expr, UnaryOpIR):
-        op_str = getattr(expr.operator, "value", str(expr.operator))
-        inner = _ds(expr.operand)
-        return op_str + inner
-    if isinstance(expr, IfExpressionIR):
-        cond_s = _ds(expr.condition)
-        then_s = _ds(expr.then_expr)
-        else_s = _ds(expr.else_expr) if expr.else_expr is not None else "0"
-        return "if " + cond_s + " { " + then_s + " } else { " + else_s + " }"
-    if isinstance(expr, FunctionCallIR):
-        fe = expr.callee_expr
-        name = fe.name if isinstance(fe, IdentifierIR) else "?"
-        args = expr.arguments or []
-        inner = ", ".join(_ds(a) for a in args)
-        return name + "(" + inner + ")"
-    if isinstance(expr, RectangularAccessIR):
-        arr_s = _ds(expr.array)
-        idx_s = ", ".join(_idx_str(idx) for idx in (expr.indices or []))
-        return arr_s + "[" + idx_s + "]"
-    if isinstance(expr, ReductionExpressionIR):
-        op_name = expr.operation.value if hasattr(expr.operation, "value") else str(expr.operation)
-        loop_vars = ", ".join(v.name or "?" for v in (expr.loop_vars or []) if hasattr(v, "name"))
-        body_s = _ds(expr.body)
-        return op_name + "[" + loop_vars + "](" + body_s + ")"
-    if isinstance(expr, EinsteinIR):
-        clauses = expr.clauses or []
-        if len(clauses) == 1:
-            c = clauses[0]
-            return _ds(c.value)
-        parts = []
-        for c in clauses:
-            idx_s = ", ".join(_idx_str(idx) for idx in (c.indices or []))
-            parts.append("[" + idx_s + "] = " + _ds(c.value))
-        return "{ " + "; ".join(parts) + " }"
-    if isinstance(expr, IndexVarIR):
-        return expr.name or "?"
-    if isinstance(expr, CastExpressionIR):
-        return _ds(expr.expr)
-    if isinstance(expr, BlockExpressionIR):
-        if expr.final_expr is None:
-            return "?"
-        parts: List[str] = []
-        for s in expr.statements or []:
+    def visit_block_expression(self, n: BlockExpressionIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        ns: List[Any] = []
+        for s in n.statements or []:
             if isinstance(s, BindingIR) and s.expr is not None:
-                n = s.name or "?"
-                parts.append(n + " = " + _ds(s.expr))
-        fin = _ds(expr.final_expr, parent_op)
-        if parts:
-            return ";\n".join(parts) + ";\n" + fin
-        inlined = _inline_block_lets(expr)
-        if inlined is expr:
-            return "?"
-        return _ds(inlined, parent_op)
-    if isinstance(expr, BuiltinCallIR):
-        bname = expr.builtin_name
-        inner = ", ".join(_ds(a) for a in (expr.args or []))
-        return bname + "(" + inner + ")"
-    if isinstance(expr, SelectAtArgmaxIR):
-        pb = _ds(expr.primal_body) if expr.primal_body is not None else "?"
-        db = _ds(expr.diff_body) if expr.diff_body is not None else "?"
-        tag = "argmin" if getattr(expr, "use_argmin", False) else "argmax"
-        return f"select_at_{tag}({pb}, {db})"
-    if isinstance(expr, ArrayLiteralIR):
-        elems = ", ".join(_ds(el) for el in (expr.elements or []))
-        return "[" + elems + "]"
-    if isinstance(expr, DifferentialIR):
-        inner = _ds(expr.operand) if expr.operand is not None else "?"
-        return "@" + inner if not inner.startswith("@") else inner
-    return "?"
+                ns.append(
+                    BindingIR(
+                        name=s.name,
+                        expr=s.expr.accept(self),
+                        location=s.location,
+                        defid=s.defid,
+                        type_info=_ti(s),
+                    )
+                )
+            else:
+                ns.append(s)
+        nf = n.final_expr.accept(self) if n.final_expr is not None else None
+        return BlockExpressionIR(ns, loc, nf, type_info=_ti(n), shape_info=_si(n))
+
+    def visit_if_expression(self, n: IfExpressionIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        return IfExpressionIR(
+            condition=n.condition.accept(self),
+            then_expr=n.then_expr.accept(self),
+            location=loc,
+            else_expr=n.else_expr.accept(self) if n.else_expr is not None else None,
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
+
+    def visit_lambda(self, n: LambdaIR) -> ExpressionIR:
+        return n
+
+    def visit_differential(self, n: DifferentialIR) -> ExpressionIR:
+        return DifferentialIR(
+            n.operand.accept(self),
+            n.location or self._loc,
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
+
+    def visit_range(self, n: RangeIR) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_array_comprehension(self, n: ArrayComprehensionIR) -> ExpressionIR:
+        return n
+
+    def visit_module(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_array_literal(self, n: ArrayLiteralIR) -> ExpressionIR:
+        return n
+
+    def visit_tuple_expression(self, n: TupleExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_tuple_access(self, n: TupleAccessIR) -> ExpressionIR:
+        return n
+
+    def visit_interpolated_string(self, n: InterpolatedStringIR) -> ExpressionIR:
+        return n
+
+    def visit_cast_expression(self, n: CastExpressionIR) -> ExpressionIR:
+        return CastExpressionIR(
+            n.expr.accept(self),
+            n.target_type,
+            n.location or self._loc,
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
+
+    def visit_member_access(self, n: MemberAccessIR) -> ExpressionIR:
+        return MemberAccessIR(
+            n.object.accept(self),
+            n.member,
+            n.location or self._loc,
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
+
+    def visit_try_expression(self, n: TryExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_match_expression(self, n: MatchExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_reduction_expression(self, n: ReductionExpressionIR) -> ExpressionIR:
+        return ReductionExpressionIR(
+            n.operation,
+            n.loop_vars,
+            n.body.accept(self),
+            n.location or self._loc,
+            where_clause=self._rw_wc(n.where_clause),
+            loop_var_ranges=self._rw_lr(n.loop_var_ranges),
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
+
+    def visit_builtin_call(self, n: BuiltinCallIR) -> ExpressionIR:
+        return BuiltinCallIR(
+            n.builtin_name,
+            [a.accept(self) for a in (n.args or [])],
+            n.location or self._loc,
+            defid=getattr(n, "defid", None),
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
+
+    def visit_where_expression(self, n: WhereExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_pipeline_expression(self, n: PipelineExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_literal_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_identifier_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_wildcard_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_tuple_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_array_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_rest_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_guard_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_or_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_constructor_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_binding_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_range_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_function_value(self, n: FunctionValueIR) -> ExpressionIR:
+        return n
+
+    def visit_einstein(self, n: EinsteinIR) -> ExpressionIR:
+        nc: List[EinsteinClauseIR] = []
+        for c in n.clauses or []:
+            nc.append(
+                EinsteinClauseIR(
+                    indices=[i.accept(self) for i in (c.indices or [])],
+                    value=c.value.accept(self) if c.value is not None else None,
+                    location=c.location,
+                    where_clause=self._rw_wc(c.where_clause),
+                    variable_ranges=dict(self._rw_lr(c.variable_ranges) or {}),
+                )
+            )
+        new_shape = tuple(s.accept(self) for s in n.shape) if n.shape else n.shape
+        return EinsteinIR(
+            clauses=nc,
+            shape=new_shape,
+            element_type=n.element_type,
+            location=n.location,
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
+
+    def visit_einstein_clause(self, n: EinsteinClauseIR) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_binding(self, n: BindingIR) -> ExpressionIR:
+        if n.expr is None:
+            return cast(ExpressionIR, n)
+        return n.expr.accept(self)
+
+    def visit_program(self, n: ProgramIR) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_select_at_argmax(self, n: SelectAtArgmaxIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        pb = n.primal_body.accept(self) if n.primal_body is not None else None
+        db = n.diff_body.accept(self) if n.diff_body is not None else None
+        return SelectAtArgmaxIR(
+            pb,
+            db,
+            n.loop_vars,
+            loop_var_ranges=self._rw_lr(n.loop_var_ranges),
+            location=loc,
+            type_info=_ti(n),
+            shape_info=_si(n),
+            use_argmin=n.use_argmin,
+        )
+
+    def visit_lowered_reduction(self, n: Any) -> ExpressionIR:
+        return n
+
+    def visit_lowered_select_at_argmax(self, n: Any) -> ExpressionIR:
+        return n
+
+    def visit_lowered_comprehension(self, n: Any) -> ExpressionIR:
+        return n
+
+    def visit_lowered_einstein_clause(self, n: Any) -> ExpressionIR:
+        return n
+
+    def visit_lowered_einstein(self, n: Any) -> ExpressionIR:
+        return n
+
+    def visit_lowered_recurrence(self, n: Any) -> ExpressionIR:
+        return n
 
 
-def _format_print_differential_message(lhs: str, rhs_str: str) -> str:
-    """Format ``print(@y)`` string: one line is ``lhs = rhs``; multiline is math-style
-    (intermediate equalities, then ``lhs =`` only on the last line)."""
-    s = rhs_str.rstrip("\n")
-    if "\n" not in s:
-        return lhs + " = " + s
-    lines = s.split("\n")
-    if len(lines) < 2:
-        return lhs + " = " + s
-    *preamble, last = lines
-    cleaned_pre: List[str] = []
-    for ln in preamble:
-        t = ln.rstrip()
-        if t.endswith(";"):
-            t = t[:-1].rstrip()
-        cleaned_pre.append(t)
-    head = "\n".join(cleaned_pre)
-    last_stripped = last.strip()
-    return head + "\n" + lhs + " = " + last_stripped
+class _SubstVisitor(_Rewriter):
+    def __init__(self, m: Dict[DefId, ExpressionIR], loc: SourceLocation) -> None:
+        super().__init__(loc)
+        self._m = m
+
+    def visit_identifier(self, n: IdentifierIR) -> ExpressionIR:
+        if n.defid is not None and n.defid in self._m:
+            return self._m[n.defid]
+        return n
 
 
-def _flatten_product(expr: ExpressionIR) -> Optional[List[Tuple[ExpressionIR, List[Any]]]]:
-    """Extract (array_ident, [indices]) factors from a product of RectangularAccessIR."""
-    if isinstance(expr, RectangularAccessIR):
-        arr = expr.array
-        indices = list(expr.indices or [])
-        if isinstance(arr, IdentifierIR) and arr.defid is not None:
-            return [(arr, indices)]
-        return None
-    if isinstance(expr, BinaryOpIR) and expr.operator == BinaryOp.MUL:
-        left = _flatten_product(expr.left)
-        right = _flatten_product(expr.right)
-        if left is not None and right is not None:
-            return left + right
-    return None
+class _SubstDiffsVisitor(_SubstVisitor):
+    def __init__(
+        self,
+        pm: Dict[DefId, ExpressionIR],
+        dm: Dict[DefId, ExpressionIR],
+        loc: SourceLocation,
+    ) -> None:
+        super().__init__(pm, loc)
+        self._dm = dm
+
+    def visit_differential(self, n: DifferentialIR) -> ExpressionIR:
+        op = n.operand
+        if isinstance(op, IdentifierIR) and op.defid is not None and op.defid in self._dm:
+            return self._dm[op.defid]
+        return DifferentialIR(
+            op.accept(self),
+            n.location or self._loc,
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
 
 
-def _is_reachable(source_defid: DefId, target_defid: DefId,
-                  binding_by_defid: Dict[DefId, BindingIR]) -> bool:
-    """BFS: is target_defid reachable from source_defid via binding dependencies?"""
-    visited: Set[DefId] = set()
-    queue = [source_defid]
-    while queue:
-        cur = queue.pop()
-        if cur == target_defid:
-            return True
-        if cur in visited:
-            continue
-        visited.add(cur)
-        b = binding_by_defid.get(cur)
-        if b is not None and b.expr is not None:
-            for dep in _collect_defids(b.expr):
-                if dep not in visited:
-                    queue.append(dep)
-    return False
-
-
-def _path_has_einstein(source_defid: DefId, target_defid: DefId,
-                       binding_by_defid: Dict[DefId, BindingIR]) -> bool:
-    """BFS: does any binding on the path from source to target have an EinsteinIR expr?"""
-    visited: Set[DefId] = set()
-    queue = [source_defid]
-    while queue:
-        cur = queue.pop()
-        if cur == target_defid:
-            continue
-        if cur in visited:
-            continue
-        visited.add(cur)
-        b = binding_by_defid.get(cur)
-        if b is not None and b.expr is not None:
-            if isinstance(b.expr, EinsteinIR):
-                return True
-            for dep in _collect_defids(b.expr):
-                if dep not in visited:
-                    queue.append(dep)
-    return False
-
-
-def _set_type_info(expr: Any, type_info: Any, shape_info: Any) -> None:
-    """Propagate type_info/shape_info onto expr tree (in-place, only fills None slots)."""
+def _sub(expr: ExpressionIR, m: Dict[DefId, ExpressionIR], loc: SourceLocation) -> ExpressionIR:
+    """Replace IdentifierIR whose defid ∈ m."""
     if expr is None:
-        return
-    if hasattr(expr, "type_info") and getattr(expr, "type_info", None) is None and type_info is not None:
-        expr.type_info = type_info
-    if hasattr(expr, "shape_info") and getattr(expr, "shape_info", None) is None and shape_info is not None:
-        expr.shape_info = shape_info
-    if isinstance(expr, BinaryOpIR):
-        _set_type_info(expr.left, type_info, shape_info)
-        _set_type_info(expr.right, type_info, shape_info)
-    elif isinstance(expr, UnaryOpIR):
-        _set_type_info(expr.operand, type_info, shape_info)
-    elif isinstance(expr, BlockExpressionIR):
-        for s in expr.statements or []:
-            if isinstance(s, BindingIR):
-                bti = s.type_info or type_info
-                bsi = shape_info
-                if s.type_info is None and bti is not None:
-                    s.type_info = bti
-                if s.expr is not None:
-                    _set_type_info(s.expr, bti, bsi)
-            elif isinstance(s, ExpressionIR):
-                _set_type_info(s, type_info, shape_info)
-        _set_type_info(expr.final_expr, type_info, shape_info)
-    elif isinstance(expr, EinsteinIR):
-        for c in expr.clauses or []:
-            for idx in getattr(c, "indices", None) or []:
-                _set_type_info(idx, type_info, shape_info)
-            if getattr(c, "value", None) is not None:
-                _set_type_info(c.value, type_info, shape_info)
-    elif isinstance(expr, ReductionExpressionIR):
-        _set_type_info(expr.body, type_info, shape_info)
-        if getattr(expr, "where_clause", None) is not None:
-            _set_type_info(expr.where_clause, type_info, shape_info)
-    elif isinstance(expr, SelectAtArgmaxIR):
-        _set_type_info(expr.primal_body, type_info, shape_info)
-        _set_type_info(expr.diff_body, type_info, shape_info)
-    elif isinstance(expr, RectangularAccessIR):
-        _set_type_info(expr.array, type_info, shape_info)
-        for idx in expr.indices or []:
-            if isinstance(idx, ExpressionIR):
-                _set_type_info(idx, type_info, shape_info)
-    elif isinstance(expr, WhereClauseIR):
-        for c in getattr(expr, "constraints", None) or []:
-            _set_type_info(c, type_info, shape_info)
-    elif isinstance(expr, IfExpressionIR):
-        _set_type_info(expr.condition, type_info, shape_info)
-        _set_type_info(expr.then_expr, type_info, shape_info)
-        if expr.else_expr is not None:
-            _set_type_info(expr.else_expr, type_info, shape_info)
-    elif isinstance(expr, FunctionCallIR):
-        for arg in (expr.arguments or []):
-            _set_type_info(arg, type_info, shape_info)
-    elif isinstance(expr, BuiltinCallIR):
-        for arg in (expr.args or []):
-            _set_type_info(arg, type_info, shape_info)
-    elif isinstance(expr, CastExpressionIR):
-        _set_type_info(expr.expr, type_info, shape_info)
-    elif isinstance(expr, DifferentialIR):
-        _set_type_info(expr.operand, type_info, shape_info)
-    elif isinstance(expr, BindingIR):
-        if expr.expr is not None:
-            _set_type_info(expr.expr, type_info, shape_info)
+        return expr  # type: ignore[return-value]
+    return expr.accept(_SubstVisitor(m, loc))
 
 
-# ---------------------------------------------------------------------------
-# Visitor 1: _DefIdCollector
-# ---------------------------------------------------------------------------
+_substitute = _sub
+
+
+def _sub_wd(
+    expr: ExpressionIR,
+    pm: Dict[DefId, ExpressionIR],
+    dm: Dict[DefId, ExpressionIR],
+    loc: SourceLocation,
+) -> ExpressionIR:
+    """Substitute identifiers AND DifferentialIR(@param) nodes."""
+    if expr is None:
+        return expr  # type: ignore[return-value]
+    return expr.accept(_SubstDiffsVisitor(pm, dm, loc))
+
+
+_substitute_with_diffs = _sub_wd
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DefId collector
+# ═══════════════════════════════════════════════════════════════════════════
+
+# We define a single _ZERO_VISITOR_STUBS string technique is not available,
+# so all pattern stubs are written out explicitly.
 
 class _DefIdCollector(IRVisitor[None]):
     """Collect all DefIds referenced in an expression tree."""
-
     def __init__(self) -> None:
         self.defids: Set[DefId] = set()
 
-    def visit_identifier(self, node: IdentifierIR) -> None:
-        if node.defid is not None:
-            self.defids.add(node.defid)
-
-    def visit_literal(self, node: LiteralIR) -> None:
-        pass
-
-    def visit_binary_op(self, node: BinaryOpIR) -> None:
-        node.left.accept(self)
-        node.right.accept(self)
-
-    def visit_unary_op(self, node: UnaryOpIR) -> None:
-        node.operand.accept(self)
-
-    def visit_builtin_call(self, node: BuiltinCallIR) -> None:
-        for a in node.args or []:
-            a.accept(self)
-
-    def visit_function_call(self, node: FunctionCallIR) -> None:
-        if node.callee_expr is not None:
-            node.callee_expr.accept(self)
-        for a in node.arguments or []:
-            a.accept(self)
-
-    def visit_rectangular_access(self, node: RectangularAccessIR) -> None:
-        node.array.accept(self)
-        for i in node.indices or []:
-            i.accept(self)
-
-    def visit_jagged_access(self, node: Any) -> None:
-        if node.base is not None:
-            node.base.accept(self)
-
-    def visit_block_expression(self, node: BlockExpressionIR) -> None:
-        for s in node.statements or []:
-            if hasattr(s, "accept"):
-                s.accept(self)
-        if node.final_expr is not None:
-            node.final_expr.accept(self)
-
-    def visit_if_expression(self, node: IfExpressionIR) -> None:
-        node.condition.accept(self)
-        node.then_expr.accept(self)
-        if node.else_expr is not None:
-            node.else_expr.accept(self)
-
-    def visit_cast_expression(self, node: CastExpressionIR) -> None:
-        node.expr.accept(self)
-
-    def visit_differential(self, node: DifferentialIR) -> None:
-        node.operand.accept(self)
-
-    def visit_lambda(self, node: Any) -> None:
-        node.body.accept(self)
-
-    def visit_range(self, node: RangeIR) -> None:
-        node.start.accept(self)
-        node.end.accept(self)
-
-    def visit_reduction_expression(self, node: ReductionExpressionIR) -> None:
-        node.body.accept(self)
-
-    def visit_where_expression(self, node: Any) -> None:
-        node.expr.accept(self)
-        for c in node.constraints or []:
-            c.accept(self)
-
-    def visit_pipeline_expression(self, node: Any) -> None:
-        node.left.accept(self)
-        node.right.accept(self)
-
-    def visit_array_comprehension(self, node: Any) -> None:
-        node.body.accept(self)
-
-    def visit_array_literal(self, node: ArrayLiteralIR) -> None:
-        for e in node.elements or []:
-            e.accept(self)
-
-    def visit_tuple_expression(self, node: Any) -> None:
-        for e in node.elements or []:
-            e.accept(self)
-
-    def visit_tuple_access(self, node: Any) -> None:
-        node.tuple_expr.accept(self)
-
-    def visit_member_access(self, node: MemberAccessIR) -> None:
-        node.object.accept(self)
-
-    def visit_function_value(self, node: FunctionValueIR) -> None:
-        if node.body is not None:
-            node.body.accept(self)
-
-    def visit_try_expression(self, node: Any) -> None:
-        node.operand.accept(self)
-
-    def visit_match_expression(self, node: Any) -> None:
-        node.scrutinee.accept(self)
-        for arm in node.arms or []:
-            if getattr(arm, "body", None) is not None:
-                arm.body.accept(self)
-
-    def visit_interpolated_string(self, node: Any) -> None:
-        pass
-
-    def visit_binding(self, node: BindingIR) -> None:
-        if node.expr is not None:
-            node.expr.accept(self)
-
-    def visit_program(self, node: ProgramIR) -> None:
-        for b in node.bindings or []:
-            b.accept(self)
-
-    def visit_einstein(self, node: EinsteinIR) -> None:
-        for c in node.clauses or []:
-            if hasattr(c, "accept"):
-                c.accept(self)
-
-    def visit_einstein_clause(self, node: EinsteinClauseIR) -> None:
-        if node.value is not None:
-            node.value.accept(self)
-
-    def visit_select_at_argmax(self, node: SelectAtArgmaxIR) -> None:
-        if node.primal_body is not None:
-            node.primal_body.accept(self)
-        if node.diff_body is not None:
-            node.diff_body.accept(self)
-
-    def visit_module(self, node: Any) -> None:
-        pass
-
-    def visit_index_var(self, node: Any) -> None:
-        pass
-
-    def visit_index_rest(self, node: Any) -> None:
-        pass
-
-    def visit_identifier_pattern(self, node: Any) -> None:
-        pass
-
-    def visit_wildcard_pattern(self, node: Any) -> None:
-        pass
-
-    def visit_literal_pattern(self, node: Any) -> None:
-        pass
-
-    def visit_tuple_pattern(self, node: Any) -> None:
-        pass
-
-    def visit_array_pattern(self, node: Any) -> None:
-        pass
-
-    def visit_rest_pattern(self, node: Any) -> None:
-        pass
-
-    def visit_guard_pattern(self, node: Any) -> None:
-        pass
-
-    def visit_or_pattern(self, node: Any) -> None:
-        pass
-
-    def visit_constructor_pattern(self, node: Any) -> None:
-        pass
-
-    def visit_binding_pattern(self, node: Any) -> None:
-        pass
-
-    def visit_range_pattern(self, node: Any) -> None:
-        pass
-
-
-class _StripDiffTypesWalker(_DefIdCollector):
-    """Strip DifferentialType from type_info and type-bearing fields while walking the IR."""
-
-    @staticmethod
-    def _strip_ty(ty: Any) -> Any:
-        return strip_differential_types_deep(ty)
-
-    def _strip_expr(self, node: ExpressionIR) -> None:
-        if node.type_info is not None:
-            node.type_info = self._strip_ty(node.type_info)
-
-    def visit_literal(self, node: LiteralIR) -> None:
-        self._strip_expr(node)
-
-    def visit_identifier(self, node: IdentifierIR) -> None:
-        self._strip_expr(node)
-        if node.defid is not None:
-            self.defids.add(node.defid)
-
-    def visit_binary_op(self, node: BinaryOpIR) -> None:
-        self._strip_expr(node)
-        node.left.accept(self)
-        node.right.accept(self)
-
-    def visit_unary_op(self, node: UnaryOpIR) -> None:
-        self._strip_expr(node)
-        node.operand.accept(self)
-
-    def visit_builtin_call(self, node: BuiltinCallIR) -> None:
-        self._strip_expr(node)
-        for a in node.args or []:
-            a.accept(self)
-
-    def visit_function_call(self, node: FunctionCallIR) -> None:
-        self._strip_expr(node)
-        if node.callee_expr is not None:
-            node.callee_expr.accept(self)
-        for a in node.arguments or []:
-            a.accept(self)
-
-    def visit_rectangular_access(self, node: RectangularAccessIR) -> None:
-        self._strip_expr(node)
-        node.array.accept(self)
-        for i in node.indices or []:
-            i.accept(self)
-
-    def visit_jagged_access(self, node: JaggedAccessIR) -> None:
-        self._strip_expr(node)
-        if node.base is not None:
-            node.base.accept(self)
-        for idx in node.index_chain or []:
-            idx.accept(self)
-
-    def visit_block_expression(self, node: BlockExpressionIR) -> None:
-        self._strip_expr(node)
-        for s in node.statements or []:
-            if hasattr(s, "accept"):
-                s.accept(self)
-        if node.final_expr is not None:
-            node.final_expr.accept(self)
-
-    def visit_if_expression(self, node: IfExpressionIR) -> None:
-        self._strip_expr(node)
-        node.condition.accept(self)
-        node.then_expr.accept(self)
-        if node.else_expr is not None:
-            node.else_expr.accept(self)
-
-    def visit_cast_expression(self, node: CastExpressionIR) -> None:
-        self._strip_expr(node)
-        tt = node.target_type
-        if tt is not None and isinstance(tt, Type):
-            node.target_type = self._strip_ty(tt)
-        node.expr.accept(self)
-
-    def visit_differential(self, node: DifferentialIR) -> None:
-        self._strip_expr(node)
-        node.operand.accept(self)
-
-    def visit_lambda(self, node: LambdaIR) -> None:
-        self._strip_expr(node)
-        for p in node.parameters or []:
-            if p.param_type is not None:
-                p.param_type = self._strip_ty(p.param_type)
-        node.body.accept(self)
-
-    def visit_range(self, node: RangeIR) -> None:
-        self._strip_expr(node)
-        node.start.accept(self)
-        node.end.accept(self)
-
-    def visit_reduction_expression(self, node: ReductionExpressionIR) -> None:
-        self._strip_expr(node)
-        for lv in node.loop_vars or []:
-            lv.accept(self)
-        node.body.accept(self)
-        if node.where_clause is not None:
-            for c in node.where_clause.constraints or []:
-                c.accept(self)
-
-    def visit_where_expression(self, node: WhereExpressionIR) -> None:
-        self._strip_expr(node)
-        node.expr.accept(self)
-        for c in node.constraints or []:
-            c.accept(self)
-
-    def visit_pipeline_expression(self, node: PipelineExpressionIR) -> None:
-        self._strip_expr(node)
-        node.left.accept(self)
-        node.right.accept(self)
-
-    def visit_array_comprehension(self, node: ArrayComprehensionIR) -> None:
-        self._strip_expr(node)
-        for v in node.loop_vars or []:
-            v.accept(self)
-        for r in node.ranges or []:
-            r.accept(self)
-        for c in node.constraints or []:
-            c.accept(self)
-        node.body.accept(self)
-
-    def visit_array_literal(self, node: ArrayLiteralIR) -> None:
-        self._strip_expr(node)
-        for e in node.elements or []:
-            e.accept(self)
-
-    def visit_tuple_expression(self, node: TupleExpressionIR) -> None:
-        self._strip_expr(node)
-        for e in node.elements or []:
-            e.accept(self)
-
-    def visit_tuple_access(self, node: TupleAccessIR) -> None:
-        self._strip_expr(node)
-        node.tuple_expr.accept(self)
-
-    def visit_member_access(self, node: MemberAccessIR) -> None:
-        self._strip_expr(node)
-        node.object.accept(self)
-
-    def visit_function_value(self, node: FunctionValueIR) -> None:
-        self._strip_expr(node)
-        if node.return_type is not None:
-            object.__setattr__(node, "return_type", self._strip_ty(node.return_type))
-        for p in node.parameters or []:
-            if p.param_type is not None:
-                p.param_type = self._strip_ty(p.param_type)
-        if node.body is not None:
-            node.body.accept(self)
-
-    def visit_try_expression(self, node: TryExpressionIR) -> None:
-        self._strip_expr(node)
-        node.operand.accept(self)
-
-    def visit_match_expression(self, node: MatchExpressionIR) -> None:
-        self._strip_expr(node)
-        node.scrutinee.accept(self)
-        for arm in node.arms or []:
-            if getattr(arm, "body", None) is not None:
-                arm.body.accept(self)
-
-    def visit_interpolated_string(self, node: InterpolatedStringIR) -> None:
-        self._strip_expr(node)
-        for p in node.parts or []:
-            if isinstance(p, ExpressionIR):
-                p.accept(self)
-
-    def visit_binding(self, node: BindingIR) -> None:
-        if node.type_info is not None:
-            node.type_info = self._strip_ty(node.type_info)
-        if node.expr is not None:
-            node.expr.accept(self)
-
-    def visit_einstein(self, node: EinsteinIR) -> None:
-        self._strip_expr(node)
-        et = node.element_type
-        if et is not None and isinstance(et, Type):
-            node.element_type = self._strip_ty(et)
-        for c in node.clauses or []:
-            if hasattr(c, "accept"):
-                c.accept(self)
-
-    def visit_einstein_clause(self, node: EinsteinClauseIR) -> None:
-        for idx in node.indices or []:
-            if isinstance(idx, ExpressionIR):
-                idx.accept(self)
-            elif isinstance(idx, (list, tuple)):
-                for sub in idx:
-                    if isinstance(sub, ExpressionIR):
-                        sub.accept(self)
-        if node.value is not None:
-            node.value.accept(self)
-        if node.where_clause is not None:
-            for c in node.where_clause.constraints or []:
-                c.accept(self)
-
-    def visit_select_at_argmax(self, node: SelectAtArgmaxIR) -> None:
-        self._strip_expr(node)
-        if node.primal_body is not None:
-            node.primal_body.accept(self)
-        if node.diff_body is not None:
-            node.diff_body.accept(self)
-
-    def visit_index_var(self, node: IndexVarIR) -> None:
-        self._strip_expr(node)
-        if node.range_ir is not None:
-            node.range_ir.accept(self)
-
-    def visit_index_rest(self, node: IndexRestIR) -> None:
-        self._strip_expr(node)
-        if node.defid is not None:
-            self.defids.add(node.defid)
-
-
-class _ClearAutodiffArtifactsVisitor(_StripDiffTypesWalker):
-    """
-    After AutodiffPass: clear custom_diff bodies, drop DiffRuleIR statements,
-    and strip DifferentialType from all IR type annotations.
-    """
-
-    def visit_function_value(self, node: FunctionValueIR) -> None:
-        cdb = getattr(node, "custom_diff_body", None)
-        if cdb is not None:
-            cdb.accept(self)
-            object.__setattr__(node, "custom_diff_body", None)
-        super().visit_function_value(node)
-
-    def visit_program(self, node: ProgramIR) -> None:
-        node.statements = [s for s in (node.statements or []) if not isinstance(s, DiffRuleIR)]
-        node.bindings = [s for s in node.statements if isinstance(s, BindingIR)]
-        for s in node.statements or []:
-            if isinstance(s, BindingIR):
-                s.accept(self)
-            elif hasattr(s, "accept"):
-                s.accept(self)
-        for mod in node.modules or []:
-            mod.accept(self)
-
-    def visit_module(self, node: Any) -> None:
-        for b in node.functions or []:
-            b.accept(self)
-        for b in node.constants or []:
-            b.accept(self)
-        for sub in node.submodules or []:
-            sub.accept(self)
-
-    def visit_diff_rule(self, node: DiffRuleIR) -> None:
-        if node.body is not None:
-            node.body.accept(self)
-
-
-def clear_custom_diff_body_everywhere(program: ProgramIR) -> None:
-    """Clear autodiff-only IR: custom_diff_body, DiffRuleIR stmts, DifferentialType annotations."""
-    program.accept(_ClearAutodiffArtifactsVisitor())
+    # -- meaningful visits ---------------------------------------------------
+    def visit_identifier(self, n: IdentifierIR) -> None:
+        if n.defid is not None: self.defids.add(n.defid)
+    def visit_literal(self, n: LiteralIR) -> None: pass
+    def visit_binary_op(self, n: BinaryOpIR) -> None:
+        n.left.accept(self); n.right.accept(self)
+    def visit_unary_op(self, n: UnaryOpIR) -> None: n.operand.accept(self)
+    def visit_builtin_call(self, n: BuiltinCallIR) -> None:
+        for a in n.args or []: a.accept(self)
+    def visit_function_call(self, n: FunctionCallIR) -> None:
+        if n.callee_expr is not None: n.callee_expr.accept(self)
+        for a in n.arguments or []: a.accept(self)
+    def visit_rectangular_access(self, n: RectangularAccessIR) -> None:
+        n.array.accept(self)
+        for i in n.indices or []: i.accept(self)
+    def visit_jagged_access(self, n: JaggedAccessIR) -> None:
+        if n.base is not None: n.base.accept(self)
+    def visit_block_expression(self, n: BlockExpressionIR) -> None:
+        for s in n.statements or []:
+            if isinstance(s, (BindingIR, ExpressionIR)): s.accept(self)
+        if n.final_expr is not None: n.final_expr.accept(self)
+    def visit_if_expression(self, n: IfExpressionIR) -> None:
+        n.condition.accept(self); n.then_expr.accept(self)
+        if n.else_expr is not None: n.else_expr.accept(self)
+    def visit_cast_expression(self, n: CastExpressionIR) -> None: n.expr.accept(self)
+    def visit_differential(self, n: DifferentialIR) -> None: n.operand.accept(self)
+    def visit_lambda(self, n: LambdaIR) -> None: n.body.accept(self)
+    def visit_range(self, n: RangeIR) -> None: n.start.accept(self); n.end.accept(self)
+    def visit_reduction_expression(self, n: ReductionExpressionIR) -> None: n.body.accept(self)
+    def visit_where_expression(self, n: Any) -> None:
+        n.expr.accept(self)
+        for c in n.constraints or []: c.accept(self)
+    def visit_pipeline_expression(self, n: Any) -> None: n.left.accept(self); n.right.accept(self)
+    def visit_array_comprehension(self, n: Any) -> None: n.body.accept(self)
+    def visit_array_literal(self, n: ArrayLiteralIR) -> None:
+        for e in n.elements or []: e.accept(self)
+    def visit_tuple_expression(self, n: Any) -> None:
+        for e in n.elements or []: e.accept(self)
+    def visit_tuple_access(self, n: Any) -> None: n.tuple_expr.accept(self)
+    def visit_member_access(self, n: MemberAccessIR) -> None: n.object.accept(self)
+    def visit_function_value(self, n: FunctionValueIR) -> None:
+        if n.body is not None: n.body.accept(self)
+    def visit_try_expression(self, n: Any) -> None: n.operand.accept(self)
+    def visit_match_expression(self, n: Any) -> None:
+        n.scrutinee.accept(self)
+        for arm in n.arms or []:
+            if getattr(arm, "body", None) is not None: arm.body.accept(self)
+    def visit_interpolated_string(self, n: Any) -> None: pass
+    def visit_binding(self, n: BindingIR) -> None:
+        if n.expr is not None: n.expr.accept(self)
+    def visit_program(self, n: ProgramIR) -> None:
+        for b in n.bindings or []: b.accept(self)
+    def visit_einstein(self, n: EinsteinIR) -> None:
+        for c in n.clauses or []:
+            if isinstance(c, EinsteinClauseIR): c.accept(self)
+    def visit_einstein_clause(self, n: EinsteinClauseIR) -> None:
+        if n.value is not None: n.value.accept(self)
+    def visit_select_at_argmax(self, n: SelectAtArgmaxIR) -> None:
+        if n.primal_body is not None: n.primal_body.accept(self)
+        if n.diff_body is not None: n.diff_body.accept(self)
+    def visit_index_rest(self, n: Any) -> None:
+        if getattr(n, "defid", None) is not None: self.defids.add(n.defid)
+    # -- no-op stubs --------------------------------------------------------
+    def visit_module(self, n: Any) -> None: pass
+    def visit_index_var(self, n: Any) -> None: pass
+    def visit_identifier_pattern(self, n: Any) -> None: pass
+    def visit_wildcard_pattern(self, n: Any) -> None: pass
+    def visit_literal_pattern(self, n: Any) -> None: pass
+    def visit_tuple_pattern(self, n: Any) -> None: pass
+    def visit_array_pattern(self, n: Any) -> None: pass
+    def visit_rest_pattern(self, n: Any) -> None: pass
+    def visit_guard_pattern(self, n: Any) -> None: pass
+    def visit_or_pattern(self, n: Any) -> None: pass
+    def visit_constructor_pattern(self, n: Any) -> None: pass
+    def visit_binding_pattern(self, n: Any) -> None: pass
+    def visit_range_pattern(self, n: Any) -> None: pass
 
 
 def _collect_defids(expr: Optional[ExpressionIR]) -> Set[DefId]:
-    if expr is None:
-        return set()
-    c = _DefIdCollector()
-    expr.accept(c)
-    return c.defids
+    if expr is None: return set()
+    c = _DefIdCollector(); expr.accept(c); return c.defids
 
 
-# ---------------------------------------------------------------------------
-# Visitor 2: _SymbolicDiffVisitor  (d(expr)/d(wrt))
-# ---------------------------------------------------------------------------
+class _TargetCollector(_DefIdCollector):
+    """Single walk: differential targets + ``@num/@den`` quotient pairs."""
 
-class _SymbolicDiffVisitor(IRVisitor[ExpressionIR]):
-    """Compute symbolic partial derivative d(expr)/d(wrt_defid).
+    def __init__(self) -> None:
+        super().__init__()
+        self.targets: List[Tuple[DefId, str]] = []
+        self.quotient_pairs: List[Tuple[DefId, DefId]] = []
 
-    Each visit_* method returns the derivative expression (IR).
-
-    When ``stmt_partial_by_defid`` is set (forward chain rule through a block),
-    identifiers for prior ``let`` bindings in that block map to the already
-    computed ∂(binding)/∂(wrt) expression (typically a ref to a ∂* binding).
-    """
-
-    def __init__(
-        self,
-        wrt_defid: DefId,
-        loc: SourceLocation,
-        binding_by_defid: Dict[DefId, BindingIR],
-        resolver: Any,
-        stmt_partial_by_defid: Optional[Dict[DefId, ExpressionIR]] = None,
-    ) -> None:
-        self._wrt = wrt_defid
-        self._loc = loc
-        self._bindings = binding_by_defid
-        self._resolver = resolver
-        self._stmt_partial_by_defid = stmt_partial_by_defid
-
-    # -- atoms --
-
-    def visit_identifier(self, node: IdentifierIR) -> ExpressionIR:
-        if node.defid == self._wrt:
-            return _float_lit(1, self._loc)
-        if node.defid is not None and self._stmt_partial_by_defid is not None:
-            pre = self._stmt_partial_by_defid.get(node.defid)
-            if pre is not None:
-                return pre
-        if node.defid is not None:
-            b = self._bindings.get(node.defid)
-            if b is not None and b.expr is not None:
-                return b.expr.accept(self)
-        return _float_lit(0, self._loc)
-
-    def visit_literal(self, node: LiteralIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_array_literal(self, node: ArrayLiteralIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    # -- binary --
-
-    def visit_binary_op(self, node: BinaryOpIR) -> ExpressionIR:
-        loc = node.location or self._loc
-        d_left = node.left.accept(self)
-        d_right = node.right.accept(self)
-        op = node.operator
-        if op == BinaryOp.ADD:
-            return BinaryOpIR(BinaryOp.ADD, d_left, d_right, loc)
-        if op == BinaryOp.SUB:
-            return BinaryOpIR(BinaryOp.SUB, d_left, d_right, loc)
-        if op == BinaryOp.MUL:
-            # Leibniz: d(uv) = u dv + v du
-            return BinaryOpIR(
-                BinaryOp.ADD,
-                BinaryOpIR(BinaryOp.MUL, node.left, d_right, loc),
-                BinaryOpIR(BinaryOp.MUL, node.right, d_left, loc),
-                loc,
-            )
-        if op == BinaryOp.DIV:
-            num = BinaryOpIR(
-                BinaryOp.SUB,
-                BinaryOpIR(BinaryOp.MUL, node.right, d_left, loc),
-                BinaryOpIR(BinaryOp.MUL, node.left, d_right, loc),
-                loc,
-            )
-            den = BinaryOpIR(BinaryOp.POW, node.right, _float_lit(2, loc), loc)
-            return BinaryOpIR(BinaryOp.DIV, num, den, loc)
-        if op == BinaryOp.POW:
-            return _pow_chain_rule_terms(
-                node, d_left, d_right, self._bindings, self._resolver, loc
-            )
-        if op == BinaryOp.MOD:
-            return d_left
-        raise ValueError(f"Autodiff: unsupported binary op in d/d(wrt): {op}")
-
-    # -- unary --
-
-    def visit_unary_op(self, node: UnaryOpIR) -> ExpressionIR:
-        d_op = node.operand.accept(self)
-        if node.operator == UnaryOp.NEG:
-            return UnaryOpIR(UnaryOp.NEG, d_op, node.location or self._loc)
-        if node.operator == UnaryOp.POS:
-            return d_op
-        raise ValueError(f"Autodiff: unsupported unary op in d/d(wrt): {node.operator}")
-
-    # -- function call --
-
-    def visit_function_call(self, node: FunctionCallIR) -> ExpressionIR:
-        loc = node.location or self._loc
-        callee_defid = node.function_defid
-        args = node.arguments or []
-
-        if callee_defid is None or callee_defid not in self._bindings:
-            raise ValueError(
-                "Autodiff: callee must be a resolved function with defid; use a named fn and @fn rule for derivatives (not raw python:: calls)."
-            )
-        binding = self._bindings[callee_defid]
-
-        rule_body = getattr(binding.expr, "custom_diff_body", None) if isinstance(binding.expr, FunctionValueIR) else None
-        if rule_body is not None:
-            fv = binding.expr
-            params = fv.parameters or []
-            if len(params) == len(args):
-                replace_map = {p.defid: args[j] for j, p in enumerate(params) if p.defid is not None}
-                params_with_defid = [(i, p) for i, p in enumerate(params) if p.defid is not None]
-                if len(params_with_defid) == 1:
-                    i0, param0 = params_with_defid[0]
-                    d_arg0 = args[i0].accept(self)
-                    diff_replace_map = {param0.defid: d_arg0}
-                    out = _substitute_with_diffs(rule_body, replace_map, diff_replace_map, loc)
-                    return _substitute_custom_diff_after_wrt_diff(out, fv, replace_map, loc)
-                terms: List[ExpressionIR] = []
-                for i, param in enumerate(params):
-                    if param.defid is None:
-                        continue
-                    diff_replace_i = {
-                        params[j].defid: (_float_lit(1, loc) if j == i else _float_lit(0, loc))
-                        for j in range(len(params)) if params[j].defid is not None
-                    }
-                    coef = _substitute_with_diffs(rule_body, replace_map, diff_replace_i, loc)
-                    coef = _substitute_custom_diff_after_wrt_diff(coef, fv, replace_map, loc)
-                    d_arg = args[i].accept(self)
-                    terms.append(BinaryOpIR(BinaryOp.MUL, coef, d_arg, loc))
-                if terms:
-                    out = terms[0]
-                    for t in terms[1:]:
-                        out = BinaryOpIR(BinaryOp.ADD, out, t, loc)
-                    return out
-
-        if not isinstance(binding.expr, FunctionValueIR):
-            raise ValueError("Autodiff: callee is not a function value")
-        fv = binding.expr
-        body = fv.body
-        params = fv.parameters or []
-        if body is None:
-            raise ValueError("Autodiff: user function has no body")
-        if len(params) != len(args):
-            raise ValueError(f"Autodiff: arity mismatch: {len(args)} args vs {len(params)} params")
-
-        replace_map = {p.defid: args[j] for j, p in enumerate(params) if p.defid is not None}
-        terms: List[ExpressionIR] = []
-        for i, param in enumerate(params):
-            if param.defid is None:
-                raise ValueError("Autodiff: function parameter has no defid")
-            d_arg = args[i].accept(self)
-            if isinstance(body, BlockExpressionIR) and self._resolver is not None:
-                partial_block = _symbolic_diff_function_body_block(
-                    body, param.defid, loc, self._bindings, self._resolver, replace_map
-                )
-                inner = partial_block.final_expr
-                if inner is None:
-                    continue
-                mul_e = BinaryOpIR(BinaryOp.MUL, inner, d_arg, loc)
-                if partial_block.statements:
-                    terms.append(
-                        BlockExpressionIR(
-                            list(partial_block.statements),
-                            loc,
-                            mul_e,
-                            type_info=getattr(inner, "type_info", None),
-                            shape_info=getattr(inner, "shape_info", None),
-                        )
-                    )
-                else:
-                    terms.append(mul_e)
-            else:
-                inner_vis = _SymbolicDiffVisitor(param.defid, loc, self._bindings, self._resolver)
-                partial = body.accept(inner_vis)
-                partial_subst = _substitute(partial, replace_map, loc)
-                terms.append(BinaryOpIR(BinaryOp.MUL, partial_subst, d_arg, loc))
-        if not terms:
-            return _float_lit(0, loc)
-        out = _flatten_add_block_terms(terms, loc)
-        return _substitute_with_callee_primal_map(out, fv, replace_map, loc)
-
-    # -- cast --
-
-    def visit_cast_expression(self, node: CastExpressionIR) -> ExpressionIR:
-        return node.expr.accept(self)
-
-    # -- if --
-
-    def visit_if_expression(self, node: IfExpressionIR) -> ExpressionIR:
-        d_then = node.then_expr.accept(self)
-        d_else = node.else_expr.accept(self) if node.else_expr is not None else _float_lit(0, self._loc)
-        return IfExpressionIR(
-            condition=node.condition,
-            then_expr=d_then,
-            else_expr=d_else,
-            location=node.location or self._loc,
-            type_info=getattr(node, "type_info", None),
-            shape_info=getattr(node, "shape_info", None),
-        )
-
-    # -- rectangular access --
-
-    def visit_rectangular_access(self, node: RectangularAccessIR) -> ExpressionIR:
-        loc = node.location or self._loc
-        d_array = node.array.accept(self)
-        if isinstance(d_array, LiteralIR) and d_array.value == 0:
-            return _float_lit(0, loc)
-        indices = list(node.indices or [])
-        if isinstance(d_array, EinsteinIR) and (d_array.clauses or []):
-            clauses = d_array.clauses
-            if len(clauses) == 1:
-                c = clauses[0]
-                clause_indices = c.indices or []
-                if len(clause_indices) == len(indices):
-                    replace_map: Dict[DefId, ExpressionIR] = {}
-                    for j, cidx in enumerate(clause_indices):
-                        if isinstance(cidx, (IndexVarIR, IdentifierIR)) and cidx.defid is not None and j < len(indices):
-                            replace_map[cidx.defid] = indices[j]
-                    inlined = _substitute(c.value, replace_map, loc)
-                    ti = getattr(node, "type_info", None)
-                    si = getattr(node, "shape_info", None)
-                    if ti is not None or si is not None:
-                        _set_type_info(inlined, ti, si)
-                    return inlined
-        return RectangularAccessIR(
-            d_array, indices, loc,
-            type_info=getattr(node, "type_info", None),
-            shape_info=getattr(node, "shape_info", None),
-        )
-
-    # -- block --
-
-    def visit_block_expression(self, node: BlockExpressionIR) -> ExpressionIR:
-        if node.final_expr is None:
-            raise ValueError("Autodiff: cannot differentiate block expression with no final expression")
-        inlined = _inline_block_lets(node)
-        return inlined.accept(self)
-
-    # -- reduction --
-
-    def visit_reduction_expression(self, node: ReductionExpressionIR) -> ExpressionIR:
-        loc = node.location or self._loc
-        d_body = node.body.accept(self)
-        op = node.operation
-        if op == ReductionOp.SUM:
-            return ReductionExpressionIR(
-                ReductionOp.SUM, node.loop_vars, d_body, loc,
-                where_clause=node.where_clause,
-                loop_var_ranges=node.loop_var_ranges,
-                type_info=getattr(node, "type_info", None),
-                shape_info=getattr(node, "shape_info", None),
-            )
-        if op == ReductionOp.MAX:
-            return SelectAtArgmaxIR(
-                node.body, d_body, node.loop_vars,
-                loop_var_ranges=node.loop_var_ranges,
-                location=loc,
-                type_info=getattr(node, "type_info", None),
-                shape_info=getattr(node, "shape_info", None),
-                use_argmin=False,
-            )
-        if op == ReductionOp.MIN:
-            return SelectAtArgmaxIR(
-                node.body, d_body, node.loop_vars,
-                loop_var_ranges=node.loop_var_ranges,
-                location=loc,
-                type_info=getattr(node, "type_info", None),
-                shape_info=getattr(node, "shape_info", None),
-                use_argmin=True,
-            )
-        if op == ReductionOp.PROD:
-            return BinaryOpIR(
-                BinaryOp.MUL,
-                BinaryOpIR(BinaryOp.DIV, node, node.body, loc),
-                d_body,
-                loc,
-            )
-        raise ValueError(f"Autodiff: unsupported reduction in d/d(wrt): {op}")
-
-    # -- einstein --
-
-    def visit_einstein(self, node: EinsteinIR) -> ExpressionIR:
-        return _diff_einstein_wrt(node, self._wrt, self._loc, self._bindings, self._resolver)
-
-    # -- stubs for non-differentiable nodes --
-
-    def visit_jagged_access(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lambda(self, node: Any) -> ExpressionIR:
-        raise ValueError("Autodiff: cannot differentiate lambda")
-
-    def visit_range(self, node: RangeIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_array_comprehension(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_tuple_expression(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_tuple_access(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_interpolated_string(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_member_access(self, node: MemberAccessIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_try_expression(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_match_expression(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_where_expression(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_pipeline_expression(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_builtin_call(self, node: BuiltinCallIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_module(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_program(self, node: ProgramIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_function_value(self, node: FunctionValueIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_select_at_argmax(self, node: SelectAtArgmaxIR) -> ExpressionIR:
-        return node
-
-    def visit_differential(self, node: DifferentialIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_binding(self, node: BindingIR) -> ExpressionIR:
-        if node.expr is not None:
-            return node.expr.accept(self)
-        return _float_lit(0, self._loc)
-
-    def visit_index_var(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_index_rest(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_einstein_clause(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lowered_reduction(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lowered_select_at_argmax(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lowered_comprehension(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lowered_einstein_clause(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lowered_einstein(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lowered_recurrence(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_literal_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_identifier_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_wildcard_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_tuple_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_array_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_rest_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_guard_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_or_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_constructor_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_binding_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_range_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-
-# ---------------------------------------------------------------------------
-# Einstein differentiation (used by _SymbolicDiffVisitor.visit_einstein)
-# ---------------------------------------------------------------------------
-
-def _build_derivative_index_vars(
-    clause_indices: List[Any],
-    wrt_indices: List[Any],
-    wrt_id: IdentifierIR,
-    resolver: Any,
-    loc: SourceLocation,
-    allow_reuse: bool,
-) -> Tuple[List[Any], Set[DefId], Dict[Any, Any]]:
-    """Build index vars for derivative tensor dimensions.
-    If allow_reuse, reuse clause index when same DefId; else always new _ad_p."""
-    clause_index_by_defid: Dict[DefId, Any] = {}
-    for c in clause_indices:
-        if getattr(c, "defid", None) is not None:
-            clause_index_by_defid[c.defid] = c
-    derivative_index_vars: List[Any] = []
-    new_defids: Set[DefId] = set()
-    new_variable_ranges: Dict[Any, Any] = {}
-    for p in range(len(wrt_indices)):
-        idx_p = wrt_indices[p]
-        defid_p = getattr(idx_p, "defid", None) if idx_p is not None else None
-        if allow_reuse and defid_p is not None and defid_p in clause_index_by_defid:
-            derivative_index_vars.append(clause_index_by_defid[defid_p])
-        else:
-            new_defid = resolver.allocate_for_local()
-            shape_member = MemberAccessIR(object=wrt_id, member="shape", location=loc, type_info=UNKNOWN)
-            dim_lit = LiteralIR(p, loc, type_info=PrimitiveType("i32"))
-            shape_dim = RectangularAccessIR(array=shape_member, indices=[dim_lit], location=loc, type_info=UNKNOWN)
-            start_lit = LiteralIR(0, loc, type_info=PrimitiveType("i32"))
-            range_ir = RangeIR(start=start_lit, end=shape_dim, location=loc, type_info=UNKNOWN)
-            new_iv = IndexVarIR("_ad_%d" % p, loc, new_defid, range_ir=range_ir)
-            derivative_index_vars.append(new_iv)
-            new_defids.add(new_defid)
-            if new_iv.defid is not None and new_iv.range_ir is not None:
-                new_variable_ranges[new_iv.defid] = new_iv.range_ir
-    return derivative_index_vars, new_defids, new_variable_ranges
-
-
-def _merged_reduction_loop_var_ranges(
-    val: ReductionExpressionIR,
-    clause: EinsteinClauseIR,
-) -> Dict[DefId, RangeIR]:
-    """Reduction loop ranges for derivative IR: primal ``loop_var_ranges`` plus any matching
-    ``clause.variable_ranges`` entries so autodiff never relies on implicit inference alone
-    for Einstein-embedded reductions (max/min/prod/sum w.r.t. x)."""
-    out: Dict[DefId, RangeIR] = dict(val.loop_var_ranges or {})
-    vr = clause.variable_ranges or {}
-    for lv in val.loop_vars or []:
-        did = getattr(lv, "defid", None)
-        if did is not None and did not in out and did in vr:
-            out[did] = vr[did]
-    return out
-
-
-def _diff_einstein_wrt(
-    expr: EinsteinIR,
-    wrt_defid: DefId,
-    loc: SourceLocation,
-    binding_by_defid: Dict[DefId, BindingIR],
-    resolver: Any,
-) -> ExpressionIR:
-    """d(EinsteinIR)/d(wrt): build derivative EinsteinIR following AUTODIFF_EINSTEIN_OPS.md."""
-    derivative_clauses: List[EinsteinClauseIR] = []
-
-    for clause in expr.clauses or []:
-        val = clause.value
-        if not isinstance(val, ReductionExpressionIR):
-            vis = _SymbolicDiffVisitor(wrt_defid, loc, binding_by_defid, resolver)
-            d_val = val.accept(vis)
-            derivative_clauses.append(EinsteinClauseIR(
-                indices=clause.indices,
-                value=d_val,
-                location=clause.location,
-                where_clause=clause.where_clause,
-                variable_ranges=dict(clause.variable_ranges or {}),
-            ))
-            continue
-
-        inner = val.body
-        factors = _flatten_product(inner) if inner else None
-
-        if not factors:
-            if val.operation == ReductionOp.SUM:
-                raise ValueError("Autodiff: Einstein clause body is not a product of indexed arrays")
-            vis = _SymbolicDiffVisitor(wrt_defid, loc, binding_by_defid, resolver)
-            d_val = val.accept(vis)
-            derivative_clauses.append(EinsteinClauseIR(
-                indices=clause.indices,
-                value=d_val,
-                location=clause.location,
-                where_clause=clause.where_clause,
-                variable_ranges=dict(clause.variable_ranges or {}),
-            ))
-            continue
-
-        wrt_positions: List[int] = [
-            i for i, (arr_expr, _) in enumerate(factors)
-            if isinstance(arr_expr, IdentifierIR) and arr_expr.defid == wrt_defid
-        ]
-
-        if not wrt_positions:
-            # wrt may only appear inside a factor (e.g. out = sum[j](scores[b,i,j]*V[...]) and Q only in scores).
-            # Chain rule: d(sum_r f)/d(wrt) = sum_r d(f)/d(wrt).
-            if val.operation == ReductionOp.SUM:
-                vis = _SymbolicDiffVisitor(wrt_defid, loc, binding_by_defid, resolver)
-                d_inner = inner.accept(vis)
-                merged_lr = _merged_reduction_loop_var_ranges(val, clause)
-                derivative_clauses.append(
-                    EinsteinClauseIR(
-                        indices=list(clause.indices or []),
-                        value=ReductionExpressionIR(
-                            ReductionOp.SUM,
-                            list(val.loop_vars or []),
-                            d_inner,
-                            loc,
-                            where_clause=val.where_clause,
-                            loop_var_ranges=merged_lr,
-                            type_info=val.type_info,
-                            shape_info=val.shape_info,
-                        ),
-                        location=clause.location,
-                        where_clause=clause.where_clause,
-                        variable_ranges=dict(clause.variable_ranges or {}),
-                    )
-                )
-            continue
-
-        first_wrt_indices = factors[wrt_positions[0]][1]
-        wrt_binding = binding_by_defid.get(wrt_defid)
-        wrt_name = (wrt_binding.name if wrt_binding else "") or "?"
-        wrt_id = IdentifierIR(wrt_name, loc, wrt_defid, type_info=UNKNOWN)
-
-        clause_indices_list = list(clause.indices or [])
-        allow_reuse = len(clause_indices_list) < len(first_wrt_indices)
-        derivative_index_vars, new_defids, new_var_ranges = _build_derivative_index_vars(
-            clause_indices_list, first_wrt_indices, wrt_id, resolver, loc, allow_reuse
-        )
-
-        loop_vars = list(val.loop_vars or [])
-        red_loop_ranges = _merged_reduction_loop_var_ranges(val, clause)
-
-        # MAX / MIN: SelectAtArgmaxIR
-        if val.operation == ReductionOp.MAX or val.operation == ReductionOp.MIN:
-            diff_body: ExpressionIR = _float_lit(1, loc)
-            scalar_type = val.type_info if getattr(val, "type_info", None) is not None else F32
-            for p in range(len(first_wrt_indices)):
-                if getattr(derivative_index_vars[p], "defid", None) in new_defids:
-                    idx_expr = first_wrt_indices[p]
-                    der_var = derivative_index_vars[p]
-                    eq = BinaryOpIR(BinaryOp.EQ, idx_expr, der_var, loc, type_info=BOOL)
-                    diff_body = IfExpressionIR(
-                        eq, diff_body, loc, else_expr=_float_lit(0, loc),
-                        type_info=scalar_type,
-                        shape_info=getattr(diff_body, "shape_info", None),
-                    )
-            sel = SelectAtArgmaxIR(
-                val.body, diff_body, loop_vars,
-                loop_var_ranges=red_loop_ranges,
-                location=loc,
-                type_info=val.type_info,
-                shape_info=val.shape_info,
-                use_argmin=(val.operation == ReductionOp.MIN),
-            )
-            new_variable_ranges = dict(clause.variable_ranges or {})
-            new_variable_ranges.update(new_var_ranges)
-            derivative_clauses.append(EinsteinClauseIR(
-                indices=derivative_index_vars,
-                value=sel,
-                location=clause.location,
-                where_clause=clause.where_clause,
-                variable_ranges=new_variable_ranges,
-            ))
-            continue
-
-        # PROD: prod over all factors except wrt (k != j constraint)
-        if val.operation == ReductionOp.PROD and allow_reuse:
-            prod_exclude_constraints = [
-                BinaryOpIR(BinaryOp.NE, first_wrt_indices[p], derivative_index_vars[p], loc, type_info=BOOL)
-                for p in range(len(first_wrt_indices))
-                if getattr(derivative_index_vars[p], "defid", None) in new_defids
-            ]
-            original_where = getattr(val, "where_clause", None)
-            orig_c = list(getattr(original_where, "constraints", None) or []) if original_where else []
-            prod_where = WhereClauseIR(constraints=orig_c + prod_exclude_constraints, location=loc) if (orig_c or prod_exclude_constraints) else None
-            prod_red = ReductionExpressionIR(
-                ReductionOp.PROD, loop_vars, val.body, loc,
-                where_clause=prod_where,
-                loop_var_ranges=red_loop_ranges,
-                type_info=val.type_info,
-                shape_info=val.shape_info,
-            )
-            new_variable_ranges = dict(clause.variable_ranges or {})
-            new_variable_ranges.update(new_var_ranges)
-            derivative_clauses.append(EinsteinClauseIR(
-                indices=derivative_index_vars,
-                value=prod_red,
-                location=clause.location,
-                where_clause=clause.where_clause,
-                variable_ranges=new_variable_ranges,
-            ))
-            continue
-
-        if val.operation != ReductionOp.SUM:
-            vis = _SymbolicDiffVisitor(wrt_defid, loc, binding_by_defid, resolver)
-            d_val = val.accept(vis)
-            derivative_clauses.append(EinsteinClauseIR(
-                indices=clause.indices,
-                value=d_val,
-                location=clause.location,
-                where_clause=clause.where_clause,
-                variable_ranges=dict(clause.variable_ranges or {}),
-            ))
-            continue
-
-        # SUM: product rule with delta constraints
-        original_red_constraints: List[ExpressionIR] = (
-            list(getattr(val.where_clause, "constraints", None) or [])
-            if getattr(val, "where_clause", None) is not None else []
-        )
-        reduction_terms: List[ExpressionIR] = []
-        for pos in wrt_positions:
-            _, wrt_indices = factors[pos]
-            other_factors = [factors[i] for i in range(len(factors)) if i != pos]
-            delta_constraints = [
-                BinaryOpIR(BinaryOp.EQ, wrt_indices[p], derivative_index_vars[p], loc)
-                for p in range(len(wrt_indices))
-                if getattr(derivative_index_vars[p], "defid", None) in new_defids
-            ]
-            combined_constraints = original_red_constraints + delta_constraints
-            where = WhereClauseIR(constraints=combined_constraints, location=loc) if combined_constraints else None
-
-            if not other_factors:
-                body: ExpressionIR = _float_lit(1, loc)
-            else:
-                b = binding_by_defid.get(other_factors[0][0].defid) if isinstance(other_factors[0][0], IdentifierIR) else None
-                nm = other_factors[0][0].name or (b.name if b else "") or ""
-                ref0 = IdentifierIR(nm, loc, other_factors[0][0].defid) if isinstance(other_factors[0][0], IdentifierIR) else other_factors[0][0]
-                body = RectangularAccessIR(ref0, list(other_factors[0][1]), loc)
-                for arr_expr, idx_list in other_factors[1:]:
-                    b = binding_by_defid.get(arr_expr.defid) if isinstance(arr_expr, IdentifierIR) else None
-                    nm = arr_expr.name or (b.name if b else "") or ""
-                    ref = IdentifierIR(nm, loc, arr_expr.defid) if isinstance(arr_expr, IdentifierIR) else arr_expr
-                    body = BinaryOpIR(BinaryOp.MUL, body, RectangularAccessIR(ref, list(idx_list), loc), loc)
-
-            red = ReductionExpressionIR(
-                operation=val.operation,
-                loop_vars=loop_vars,
-                body=body,
-                location=loc,
-                where_clause=where,
-                loop_var_ranges=red_loop_ranges,
-                type_info=val.type_info,
-                shape_info=val.shape_info,
-            )
-            reduction_terms.append(red)
-
-        clause_value: ExpressionIR = reduction_terms[0]
-        for r in reduction_terms[1:]:
-            clause_value = BinaryOpIR(BinaryOp.ADD, clause_value, r, loc)
-
-        new_indices = derivative_index_vars if allow_reuse else (clause_indices_list + derivative_index_vars)
-        new_variable_ranges = dict(clause.variable_ranges or {})
-        new_variable_ranges.update(new_var_ranges)
-        derivative_clauses.append(EinsteinClauseIR(
-            indices=new_indices,
-            value=clause_value,
-            location=clause.location,
-            where_clause=clause.where_clause,
-            variable_ranges=new_variable_ranges,
-        ))
-
-    if not derivative_clauses:
-        return _float_lit(0, loc)
-
-    return EinsteinIR(
-        clauses=derivative_clauses,
-        shape=None,
-        element_type=expr.element_type,
-        location=expr.location,
-        type_info=expr.type_info,
-        shape_info=None,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Visitor 3: _ForwardDiffVisitor  (d(expr) in terms of d_x refs)
-# ---------------------------------------------------------------------------
-
-class _ForwardDiffVisitor(IRVisitor[ExpressionIR]):
-    """Build d(expr) using d_x refs (forward mode chain rule)."""
-
-    def __init__(
-        self,
-        defid_to_d_ident: Dict[DefId, IdentifierIR],
-        loc: SourceLocation,
-        scope_binding_by_defid: Optional[Dict[DefId, Any]] = None,
-        resolver: Optional[Any] = None,
-        pretty_call_tangents: bool = False,
-    ) -> None:
-        self._d_map = defid_to_d_ident
-        self._loc = loc
-        self._bindings: Dict[DefId, Any] = dict(scope_binding_by_defid) if scope_binding_by_defid else {}
-        self._resolver = resolver
-        self._pretty_call_tangents = pretty_call_tangents
-
-    def visit_identifier(self, node: IdentifierIR) -> ExpressionIR:
-        if node.defid is not None:
-            ref = self._d_map.get(node.defid)
-            if ref is not None:
-                return IdentifierIR(ref.name, node.location or self._loc, ref.defid)
-        raise ValueError("Autodiff: identifier not in differential map for d(expr)")
-
-    def visit_literal(self, node: LiteralIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_binary_op(self, node: BinaryOpIR) -> ExpressionIR:
-        loc = node.location or self._loc
-        d_left = node.left.accept(self)
-        d_right = node.right.accept(self)
-        op = node.operator
-        if op == BinaryOp.ADD:
-            if self._pretty_call_tangents:
-                return _lift_block_for_binary_op(BinaryOp.ADD, d_left, d_right, loc)
-            return BinaryOpIR(BinaryOp.ADD, d_left, d_right, loc)
-        if op == BinaryOp.SUB:
-            if self._pretty_call_tangents:
-                return _lift_block_for_binary_op(BinaryOp.SUB, d_left, d_right, loc)
-            return BinaryOpIR(BinaryOp.SUB, d_left, d_right, loc)
-        if op == BinaryOp.MUL:
-            # Leibniz: d(uv) = u dv + v du
-            return BinaryOpIR(
-                BinaryOp.ADD,
-                BinaryOpIR(BinaryOp.MUL, node.left, d_right, loc),
-                BinaryOpIR(BinaryOp.MUL, node.right, d_left, loc),
-                loc,
-            )
-        if op == BinaryOp.DIV:
-            num = BinaryOpIR(
-                BinaryOp.SUB,
-                BinaryOpIR(BinaryOp.MUL, node.right, d_left, loc),
-                BinaryOpIR(BinaryOp.MUL, node.left, d_right, loc),
-                loc,
-            )
-            den = BinaryOpIR(BinaryOp.POW, node.right, _float_lit(2, loc), loc)
-            return BinaryOpIR(BinaryOp.DIV, num, den, loc)
-        if op == BinaryOp.POW:
-            return _pow_chain_rule_terms(
-                node, d_left, d_right, self._bindings, self._resolver, loc
-            )
-        if op == BinaryOp.MOD:
-            return d_left
-        raise ValueError(f"Autodiff: unsupported binary op for d(expr): {op}")
-
-    def visit_unary_op(self, node: UnaryOpIR) -> ExpressionIR:
-        d_op = node.operand.accept(self)
-        if node.operator == UnaryOp.NEG:
-            return UnaryOpIR(UnaryOp.NEG, d_op, node.location or self._loc)
-        if node.operator == UnaryOp.POS:
-            return d_op
-        raise ValueError(f"Autodiff: unsupported unary op for d(expr): {node.operator}")
-
-    def visit_reduction_expression(self, node: ReductionExpressionIR) -> ExpressionIR:
-        loc = node.location or self._loc
-        d_body = node.body.accept(self)
-        op = node.operation
-        if op == ReductionOp.SUM:
-            return ReductionExpressionIR(
-                ReductionOp.SUM, node.loop_vars, d_body, loc,
-                where_clause=node.where_clause,
-                loop_var_ranges=node.loop_var_ranges,
-                type_info=getattr(node, "type_info", None),
-                shape_info=getattr(node, "shape_info", None),
-            )
-        if op == ReductionOp.MAX:
-            return SelectAtArgmaxIR(
-                node.body, d_body, node.loop_vars,
-                loop_var_ranges=node.loop_var_ranges,
-                location=loc,
-                type_info=getattr(node, "type_info", None),
-                shape_info=getattr(node, "shape_info", None),
-                use_argmin=False,
-            )
-        if op == ReductionOp.MIN:
-            return SelectAtArgmaxIR(
-                node.body, d_body, node.loop_vars,
-                loop_var_ranges=node.loop_var_ranges,
-                location=loc,
-                type_info=getattr(node, "type_info", None),
-                shape_info=getattr(node, "shape_info", None),
-                use_argmin=True,
-            )
-        if op == ReductionOp.PROD:
-            return BinaryOpIR(
-                BinaryOp.MUL,
-                BinaryOpIR(BinaryOp.DIV, node, node.body, loc),
-                d_body,
-                loc,
-            )
-        raise ValueError(f"Autodiff: unsupported reduction for d(expr): {op}")
-
-    def visit_block_expression(self, node: BlockExpressionIR) -> ExpressionIR:
-        if node.final_expr is None:
-            return _float_lit(0, self._loc)
-        inlined = _inline_block_lets(node)
-        return inlined.accept(self)
-
-    def visit_select_at_argmax(self, node: SelectAtArgmaxIR) -> ExpressionIR:
-        return node
-
-    def visit_function_call(self, node: FunctionCallIR) -> ExpressionIR:
-        loc = node.location or self._loc
-        callee_defid = node.function_defid
-        args = node.arguments or []
-
-        if callee_defid is None or callee_defid not in self._bindings:
-            raise ValueError(
-                "Autodiff: callee must be a resolved function with defid; use a named fn and @fn rule for derivatives (not raw python:: calls)."
-            )
-        binding = self._bindings[callee_defid]
-
-        rule_body = getattr(binding.expr, "custom_diff_body", None) if isinstance(binding.expr, FunctionValueIR) else None
-        if rule_body is not None:
-            fv = binding.expr
-            params = fv.parameters or []
-            if len(params) == len(args):
-                replace_map = {p.defid: args[j] for j, p in enumerate(params) if p.defid is not None}
-                params_with_defid = [(i, p) for i, p in enumerate(params) if p.defid is not None]
-                if len(params_with_defid) == 1:
-                    i0, param0 = params_with_defid[0]
-                    d_arg0 = args[i0].accept(self)
-                    diff_replace_map = {param0.defid: d_arg0}
-                    out = _substitute_with_diffs(rule_body, replace_map, diff_replace_map, loc)
-                    return _substitute_custom_diff_after_wrt_diff(out, fv, replace_map, loc)
-                terms: List[ExpressionIR] = []
-                for i, param in enumerate(params):
-                    if param.defid is None:
-                        continue
-                    diff_replace_i = {
-                        params[j].defid: (_float_lit(1, loc) if j == i else _float_lit(0, loc))
-                        for j in range(len(params))
-                        if params[j].defid is not None
-                    }
-                    coef = _substitute_with_diffs(rule_body, replace_map, diff_replace_i, loc)
-                    coef = _substitute_custom_diff_after_wrt_diff(coef, fv, replace_map, loc)
-                    d_arg = args[i].accept(self)
-                    terms.append(BinaryOpIR(BinaryOp.MUL, coef, d_arg, loc))
-                if terms:
-                    out = terms[0]
-                    for t in terms[1:]:
-                        out = BinaryOpIR(BinaryOp.ADD, out, t, loc)
-                    return out
-
-        if not isinstance(binding.expr, FunctionValueIR):
-            raise ValueError("Autodiff: callee is not a function value")
-        fv = binding.expr
-        body = fv.body
-        params = fv.parameters or []
-        if body is None:
-            raise ValueError("Autodiff: user function has no body")
-        if len(params) != len(args):
-            raise ValueError(f"Autodiff: arity mismatch: {len(args)} args vs {len(params)} params")
-
-        replace_map = {p.defid: args[j] for j, p in enumerate(params) if p.defid is not None}
-        terms: List[ExpressionIR] = []
-        for i, param in enumerate(params):
-            if param.defid is None:
-                raise ValueError("Autodiff: function parameter has no defid")
-            d_arg = args[i].accept(self)
-            if isinstance(body, BlockExpressionIR) and self._resolver is not None:
-                partial_block = _symbolic_diff_function_body_block(
-                    body, param.defid, loc, self._bindings, self._resolver, replace_map
-                )
-                inner = partial_block.final_expr
-                if inner is None:
-                    continue
-                mul_e = BinaryOpIR(BinaryOp.MUL, inner, d_arg, loc)
-                if partial_block.statements:
-                    terms.append(
-                        BlockExpressionIR(
-                            list(partial_block.statements),
-                            loc,
-                            mul_e,
-                            type_info=getattr(inner, "type_info", None),
-                            shape_info=getattr(inner, "shape_info", None),
-                        )
-                    )
-                else:
-                    terms.append(mul_e)
-            else:
-                inner_vis = _SymbolicDiffVisitor(param.defid, loc, self._bindings, self._resolver)
-                partial = body.accept(inner_vis)
-                partial_subst = _substitute(partial, replace_map, loc)
-                terms.append(BinaryOpIR(BinaryOp.MUL, partial_subst, d_arg, loc))
-        if not terms:
-            return _float_lit(0, loc)
-        out = _flatten_add_block_terms(terms, loc)
-        tang = _substitute_with_callee_primal_map(out, fv, replace_map, loc)
-        if self._pretty_call_tangents:
-            return _wrap_forward_call_tangent_binding(
-                tang,
-                callee_defid,
-                fv,
-                params,
-                list(args),
-                node.callee_expr,
-                self._bindings,
-                self._resolver,
-                loc,
-                getattr(node, "type_info", None),
-                getattr(node, "shape_info", None),
-            )
-        return tang
-
-    def visit_rectangular_access(self, node: RectangularAccessIR) -> ExpressionIR:
-        loc = node.location or self._loc
-        d_array = node.array.accept(self)
-        if isinstance(d_array, LiteralIR) and d_array.value == 0:
-            return _float_lit(0, loc)
-        indices = list(node.indices or [])
-        if isinstance(d_array, EinsteinIR) and (d_array.clauses or []):
-            clauses = d_array.clauses
-            if len(clauses) == 1:
-                c = clauses[0]
-                clause_indices = c.indices or []
-                if len(clause_indices) == len(indices):
-                    replace_map: Dict[DefId, ExpressionIR] = {}
-                    for j, cidx in enumerate(clause_indices):
-                        if isinstance(cidx, (IndexVarIR, IdentifierIR)) and cidx.defid is not None and j < len(indices):
-                            replace_map[cidx.defid] = indices[j]
-                    inlined = _substitute(c.value, replace_map, loc)
-                    ti = getattr(node, "type_info", None)
-                    si = getattr(node, "shape_info", None)
-                    if ti is not None or si is not None:
-                        _set_type_info(inlined, ti, si)
-                    return inlined
-        return RectangularAccessIR(
-            d_array,
-            indices,
-            loc,
-            type_info=getattr(node, "type_info", None),
-            shape_info=getattr(node, "shape_info", None),
-        )
-
-    def visit_jagged_access(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_if_expression(self, node: IfExpressionIR) -> ExpressionIR:
-        d_then = node.then_expr.accept(self)
-        d_else = node.else_expr.accept(self) if node.else_expr is not None else _float_lit(0, self._loc)
-        return IfExpressionIR(
-            condition=node.condition,
-            then_expr=d_then,
-            else_expr=d_else,
-            location=node.location or self._loc,
-            type_info=getattr(node, "type_info", None),
-            shape_info=getattr(node, "shape_info", None),
-        )
-
-    def visit_cast_expression(self, node: CastExpressionIR) -> ExpressionIR:
-        return node.expr.accept(self)
-
-    def visit_lambda(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_range(self, node: RangeIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_array_comprehension(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_array_literal(self, node: ArrayLiteralIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_tuple_expression(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_tuple_access(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_interpolated_string(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_member_access(self, node: MemberAccessIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_function_value(self, node: FunctionValueIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_try_expression(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_match_expression(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_where_expression(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_pipeline_expression(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_builtin_call(self, node: BuiltinCallIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_module(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_program(self, node: ProgramIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_einstein(self, node: EinsteinIR) -> ExpressionIR:
-        new_clauses: List[EinsteinClauseIR] = []
-        for clause in node.clauses or []:
-            val = clause.value
-            try:
-                d_val = val.accept(self)
-            except (ValueError, KeyError):
-                continue
-            if isinstance(d_val, LiteralIR) and d_val.value == 0:
-                continue
-            new_clauses.append(EinsteinClauseIR(
-                indices=list(clause.indices or []),
-                value=d_val,
-                location=clause.location,
-                where_clause=clause.where_clause,
-                variable_ranges=dict(clause.variable_ranges or {}),
-            ))
-        if not new_clauses:
-            return _float_lit(0, self._loc)
-        return EinsteinIR(
-            clauses=new_clauses,
-            shape=node.shape,
-            element_type=node.element_type,
-            location=node.location,
-            type_info=getattr(node, "type_info", None),
-            shape_info=getattr(node, "shape_info", None),
-        )
-
-    def visit_differential(self, node: DifferentialIR) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_binding(self, node: BindingIR) -> ExpressionIR:
-        if node.expr is not None:
-            return node.expr.accept(self)
-        return _float_lit(0, self._loc)
-
-    def visit_index_var(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_index_rest(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_einstein_clause(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lowered_reduction(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lowered_select_at_argmax(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lowered_comprehension(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lowered_einstein_clause(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lowered_einstein(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_lowered_recurrence(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_literal_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_identifier_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_wildcard_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_tuple_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_array_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_rest_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_guard_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_or_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_constructor_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_binding_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-    def visit_range_pattern(self, node: Any) -> ExpressionIR:
-        return _float_lit(0, self._loc)
-
-
-# ---------------------------------------------------------------------------
-# Block inlining helper
-# ---------------------------------------------------------------------------
-
-def _inline_block_lets(block: BlockExpressionIR) -> ExpressionIR:
-    """Inline all let bindings from a BlockExpressionIR into its final expression."""
-    if block.final_expr is None:
-        return block
-    local_map: Dict[DefId, ExpressionIR] = {}
-    loc = block.location or SourceLocation("", 0, 0)
-    for stmt in (block.statements or []):
-        if isinstance(stmt, BindingIR) and stmt.defid is not None and stmt.expr is not None:
-            local_map[stmt.defid] = _substitute(stmt.expr, local_map, loc)
-    return _substitute(block.final_expr, local_map, loc)
-
-
-def _inline_derivative_rhs_block(rhs: ExpressionIR, loc: SourceLocation) -> ExpressionIR:
-    """Forward-mode d_* RHS may be BlockExpressionIR with let ∂local = …; final uses ∂local.
-    Those ∂local DefIds are not top-level runtime bindings — inline like visit_block_expression."""
-    if isinstance(rhs, BlockExpressionIR) and rhs.final_expr is not None:
-        return _inline_block_lets(rhs)
-    return rhs
-
-
-def _callee_primal_replace_map(
-    body: Optional[ExpressionIR],
-    param_replace_map: Dict[DefId, ExpressionIR],
-    loc: SourceLocation,
-) -> Dict[DefId, ExpressionIR]:
-    """Map callee parameter and block-local DefIds to call-site expressions (no callee-local ids).
-
-    Same construction as the start of _symbolic_diff_function_body_block so @fn / custom_diff_body
-    tangents cannot retain IdentifierIRs that only exist inside the callee runtime frame.
-    """
-    primal_map: Dict[DefId, ExpressionIR] = dict(param_replace_map)
-    if not isinstance(body, BlockExpressionIR):
-        return primal_map
-    for stmt in body.statements or []:
-        if isinstance(stmt, BindingIR) and stmt.defid is not None and stmt.expr is not None:
-            primal_map[stmt.defid] = _substitute(stmt.expr, primal_map, loc)
-    return primal_map
-
-
-def _substitute_custom_diff_after_wrt_diff(
-    expr: ExpressionIR,
-    fv: FunctionValueIR,
-    replace_map: Dict[DefId, ExpressionIR],
-    loc: SourceLocation,
-) -> ExpressionIR:
-    """Apply primal inlining to custom_diff IR so it references only caller-visible subexpressions."""
-    pm = _callee_primal_replace_map(fv.body, replace_map, loc)
-    return _substitute(expr, pm, loc)
-
-
-def _substitute_with_callee_primal_map(
-    expr: ExpressionIR,
-    fv: FunctionValueIR,
-    replace_map: Dict[DefId, ExpressionIR],
-    loc: SourceLocation,
-) -> ExpressionIR:
-    """Replace callee parameter and block-local DefIds in expr (derivative IR) with caller-site primals."""
-    pm = _callee_primal_replace_map(fv.body, replace_map, loc)
-    return _substitute(expr, pm, loc)
-
-
-def _symbolic_diff_function_body_block(
-    block: BlockExpressionIR,
-    wrt_defid: DefId,
-    loc: SourceLocation,
-    binding_by_defid: Dict[DefId, BindingIR],
-    resolver: Any,
-    param_replace_map: Dict[DefId, ExpressionIR],
-) -> BlockExpressionIR:
-    """∂(block)/∂(wrt) as a block: ``let ∂a = …; let ∂b = …;`` … ``final_expr = ∂(return)``.
-
-    Uses the chain rule on each ``let`` in order instead of inlining the whole
-    body into one expression. ``param_replace_map`` substitutes callee parameters
-    with call-site argument expressions (primals only).
-    """
-    if block.final_expr is None:
-        raise ValueError("Autodiff: cannot differentiate block with no final expression")
-    # Primal chain: map each local defid -> RHS in terms of params (and earlier locals),
-    # so tangents can drop callee-local IdentifierIRs (Leibniz leaves primal factors).
-    primal_map: Dict[DefId, ExpressionIR] = dict(param_replace_map)
-    for stmt in block.statements or []:
-        if isinstance(stmt, BindingIR) and stmt.defid is not None and stmt.expr is not None:
-            primal_map[stmt.defid] = _substitute(stmt.expr, primal_map, loc)
-    stmt_partial: Dict[DefId, ExpressionIR] = {}
-    vis = _SymbolicDiffVisitor(
-        wrt_defid, loc, binding_by_defid, resolver, stmt_partial_by_defid=stmt_partial
-    )
-    out_stmts: List[BindingIR] = []
-    for stmt in block.statements or []:
-        if not isinstance(stmt, BindingIR) or stmt.defid is None or stmt.expr is None:
-            continue
-        # Differentiate in callee coordinates (parameter DefIds). Substituting call-site
-        # args before visit breaks wrt_defid == node.defid for the callee parameter.
-        partial_v = stmt.expr.accept(vis)
-        partial_v = _substitute(partial_v, primal_map, loc)
-        partial_v = _simplify(partial_v, loc)
-        d_defid = resolver.allocate_for_local()
-        d_name = DIFF_PREFIX + (stmt.name or "")
-        d_ref = IdentifierIR(
-            d_name,
-            stmt.location or loc,
-            d_defid,
-            type_info=getattr(stmt, "type_info", None),
-        )
-        stmt_partial[stmt.defid] = d_ref
-        out_stmts.append(
-            BindingIR(
-                name=d_name,
-                expr=partial_v,
-                location=stmt.location or loc,
-                defid=d_defid,
-                type_info=getattr(stmt, "type_info", None),
-            )
-        )
-    final_partial = block.final_expr.accept(vis)
-    final_partial = _substitute(final_partial, primal_map, loc)
-    final_partial = _simplify(final_partial, loc)
-    return BlockExpressionIR(
-        out_stmts,
-        block.location or loc,
-        final_partial,
-        type_info=getattr(block, "type_info", None),
-        shape_info=getattr(block, "shape_info", None),
-    )
-
-
-def _flatten_add_block_terms(terms: List[ExpressionIR], loc: SourceLocation) -> ExpressionIR:
-    """Combine terms with ADD; merge leading BlockExpressionIR statement lists."""
-    if not terms:
-        return _float_lit(0, loc)
-    if len(terms) == 1:
-        return terms[0]
-    merged_stmts: List[BindingIR] = []
-    finals: List[ExpressionIR] = []
-    for t in terms:
-        if isinstance(t, BlockExpressionIR) and t.final_expr is not None:
-            for s in t.statements or []:
-                if isinstance(s, BindingIR):
-                    merged_stmts.append(s)
-            finals.append(t.final_expr)
-        else:
-            finals.append(t)
-    acc = finals[0]
-    for fe in finals[1:]:
-        acc = BinaryOpIR(BinaryOp.ADD, acc, fe, loc)
-    if merged_stmts:
-        return BlockExpressionIR(merged_stmts, loc, acc)
-    return acc
-
-
-def _lift_block_for_binary_op(
-    op: BinaryOp,
-    left: ExpressionIR,
-    right: ExpressionIR,
-    loc: SourceLocation,
-) -> ExpressionIR:
-    """Hoist BlockExpressionIR on either operand: {s1} e1 + {s2} e2 -> {s1;s2} (e1 op e2)."""
-    sl: List[Any] = []
-    sr: List[Any] = []
-    l = left
-    r = right
-    if isinstance(left, BlockExpressionIR) and left.final_expr is not None:
-        sl = list(left.statements or [])
-        l = left.final_expr
-    if isinstance(right, BlockExpressionIR) and right.final_expr is not None:
-        sr = list(right.statements or [])
-        r = right.final_expr
-    if not sl and not sr:
-        return BinaryOpIR(op, left, right, loc)
-    ti = getattr(left, "type_info", None) or getattr(right, "type_info", None)
-    si = getattr(left, "shape_info", None) or getattr(right, "shape_info", None)
-    return BlockExpressionIR(
-        sl + sr,
-        loc,
-        BinaryOpIR(op, l, r, loc, type_info=ti, shape_info=si),
-        type_info=ti,
-        shape_info=si,
-    )
-
-
-def _wrap_forward_call_tangent_binding(
-    tangent_expr: ExpressionIR,
-    callee_defid: DefId,
-    fv: FunctionValueIR,
-    params: List[Any],
-    call_args: List[ExpressionIR],
-    callee_expr: Optional[ExpressionIR],
-    bindings: Dict[DefId, Any],
-    resolver: Any,
-    loc: SourceLocation,
-    type_info: Optional[Any] = None,
-    shape_info: Optional[Any] = None,
-) -> ExpressionIR:
-    """For print(@y): emit ``@fx = …; @x + @fx``-style IR (let callee tangent, then use name)."""
-    if resolver is None:
-        return tangent_expr
-    if isinstance(callee_expr, IdentifierIR) and callee_expr.name:
-        cn = callee_expr.name
-    else:
-        callee_b = bindings.get(callee_defid)
-        cn = (callee_b.name if callee_b and getattr(callee_b, "name", None) else "fn") or "fn"
-    if len(params) == 1:
-        arg0 = call_args[0] if call_args else None
-        if isinstance(arg0, IdentifierIR) and arg0.name:
-            pn = arg0.name
-        else:
-            pn = params[0].name or "x"
-        temp_name = f"@{cn}{pn}" if len(cn) == 1 else f"@{cn}_{pn}"
-    else:
-        temp_name = f"@{cn}_call"
-    contrib_defid = resolver.allocate_for_local()
-    bi = BindingIR(
-        name=temp_name,
-        expr=tangent_expr,
-        location=loc,
-        defid=contrib_defid,
-        type_info=type_info,
-    )
-    return BlockExpressionIR(
-        [bi],
-        loc,
-        IdentifierIR(temp_name, loc, contrib_defid, type_info=type_info, shape_info=shape_info),
-        type_info=type_info,
-        shape_info=shape_info,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Substitution helpers
-# ---------------------------------------------------------------------------
-
-def _substitute_where_clause(
-    wc: Optional[WhereClauseIR],
-    loc: SourceLocation,
-    sub: Callable[[ExpressionIR], ExpressionIR],
-) -> Optional[WhereClauseIR]:
-    """Apply *sub* to every expression inside a reduction/Einstein where-clause."""
-    if wc is None:
-        return None
-    new_constraints = [sub(c) for c in (wc.constraints or [])]
-    new_ranges: Dict[DefId, Any] = {}
-    for k, v in (wc.ranges or {}).items():
-        if isinstance(v, RangeIR):
-            new_ranges[k] = RangeIR(
-                sub(v.start),
-                sub(v.end),
-                v.location or loc,
-                inclusive=v.inclusive,
-                type_info=getattr(v, "type_info", None),
-                shape_info=getattr(v, "shape_info", None),
-            )
-        elif hasattr(v, "accept"):
-            new_ranges[k] = sub(v)
-        else:
-            new_ranges[k] = v
-    return WhereClauseIR(new_constraints, new_ranges, wc.location)
-
-
-def _substitute_loop_var_ranges(
-    loop_var_ranges: Optional[Dict[DefId, RangeIR]],
-    loc: SourceLocation,
-    sub: Callable[[ExpressionIR], ExpressionIR],
-) -> Dict[DefId, RangeIR]:
-    out: Dict[DefId, RangeIR] = {}
-    for k, r in (loop_var_ranges or {}).items():
-        out[k] = RangeIR(
-            sub(r.start),
-            sub(r.end),
-            r.location or loc,
-            inclusive=r.inclusive,
-            type_info=getattr(r, "type_info", None),
-            shape_info=getattr(r, "shape_info", None),
-        )
-    return out
-
-
-def _substitute(expr: ExpressionIR, replace_map: Dict[DefId, ExpressionIR],
-                loc: SourceLocation) -> ExpressionIR:
-    if isinstance(expr, IdentifierIR) and expr.defid is not None and expr.defid in replace_map:
-        return replace_map[expr.defid]
-    if isinstance(expr, IndexVarIR):
-        if expr.defid is not None and expr.defid in replace_map:
-            return replace_map[expr.defid]
-        ri = expr.range_ir
-        if ri is not None:
-            new_ri = RangeIR(
-                _substitute(ri.start, replace_map, loc),
-                _substitute(ri.end, replace_map, loc),
-                ri.location or loc,
-                inclusive=ri.inclusive,
-                type_info=getattr(ri, "type_info", None),
-                shape_info=getattr(ri, "shape_info", None),
-            )
-            return IndexVarIR(
-                expr.name,
-                expr.location or loc,
-                expr.defid,
-                range_ir=new_ri,
-                type_info=getattr(expr, "type_info", None),
-                shape_info=getattr(expr, "shape_info", None),
-            )
-        return expr
-    if isinstance(expr, LiteralIR):
-        return LiteralIR(expr.value, loc, type_info=getattr(expr, "type_info", None))
-    if isinstance(expr, BinaryOpIR):
-        return BinaryOpIR(expr.operator,
-                          _substitute(expr.left, replace_map, loc),
-                          _substitute(expr.right, replace_map, loc), loc,
-                          type_info=getattr(expr, "type_info", None),
-                          shape_info=getattr(expr, "shape_info", None))
-    if isinstance(expr, UnaryOpIR):
-        return UnaryOpIR(expr.operator, _substitute(expr.operand, replace_map, loc), loc,
-                         type_info=getattr(expr, "type_info", None),
-                         shape_info=getattr(expr, "shape_info", None))
-    if isinstance(expr, MemberAccessIR):
-        return MemberAccessIR(
-            _substitute(expr.object, replace_map, loc),
-            expr.member,
-            expr.location or loc,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    if isinstance(expr, RangeIR):
-        return RangeIR(
-            _substitute(expr.start, replace_map, loc),
-            _substitute(expr.end, replace_map, loc),
-            expr.location or loc,
-            inclusive=expr.inclusive,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    if isinstance(expr, RectangularAccessIR):
-        arr = _substitute(expr.array, replace_map, loc)
-        new_indices = [_substitute(i, replace_map, loc) for i in (expr.indices or [])]
-        return RectangularAccessIR(arr, new_indices, loc,
-                                   type_info=getattr(expr, "type_info", None),
-                                   shape_info=getattr(expr, "shape_info", None))
-    if isinstance(expr, BlockExpressionIR):
-        new_stmts: List[Any] = []
-        for s in expr.statements or []:
-            if isinstance(s, BindingIR) and s.expr is not None:
-                new_stmts.append(
-                    BindingIR(
-                        name=s.name,
-                        expr=_substitute(s.expr, replace_map, loc),
-                        type_info=getattr(s, "type_info", None),
-                        location=s.location or loc,
-                        defid=s.defid,
-                    )
-                )
-            elif isinstance(s, ExpressionIR):
-                new_stmts.append(_substitute(s, replace_map, loc))
-            else:
-                new_stmts.append(s)
-        fe = (
-            _substitute(expr.final_expr, replace_map, loc)
-            if expr.final_expr is not None
-            else None
-        )
-        return BlockExpressionIR(
-            new_stmts,
-            expr.location or loc,
-            fe,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    if isinstance(expr, IfExpressionIR):
-        cond = _substitute(expr.condition, replace_map, loc)
-        then_e = _substitute(expr.then_expr, replace_map, loc)
-        else_e = _substitute(expr.else_expr, replace_map, loc) if expr.else_expr else None
-        return IfExpressionIR(condition=cond, then_expr=then_e, else_expr=else_e, location=loc,
-                              type_info=getattr(expr, "type_info", None),
-                              shape_info=getattr(expr, "shape_info", None))
-    if isinstance(expr, CastExpressionIR):
-        return CastExpressionIR(
-            _substitute(expr.expr, replace_map, loc), expr.target_type, loc,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None))
-    if isinstance(expr, FunctionCallIR):
-        new_args = [_substitute(a, replace_map, loc) for a in (expr.arguments or [])]
-        return FunctionCallIR(
-            callee_expr=expr.callee_expr, location=expr.location,
-            arguments=new_args,
-            module_path=getattr(expr, "module_path", None),
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None))
-    if isinstance(expr, BuiltinCallIR):
-        new_args = [_substitute(a, replace_map, loc) for a in (expr.args or [])]
-        return BuiltinCallIR(
-            expr.builtin_name, new_args, expr.location,
-            defid=getattr(expr, "defid", None),
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None))
-    if isinstance(expr, ReductionExpressionIR) and expr.body is not None:
-        sub_e = lambda e: _substitute(e, replace_map, loc)
-        return ReductionExpressionIR(
-            expr.operation, expr.loop_vars,
-            _substitute(expr.body, replace_map, loc),
-            expr.location,
-            where_clause=_substitute_where_clause(expr.where_clause, loc, sub_e),
-            loop_var_ranges=_substitute_loop_var_ranges(expr.loop_var_ranges, loc, sub_e),
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    if isinstance(expr, SelectAtArgmaxIR):
-        return SelectAtArgmaxIR(
-            _substitute(expr.primal_body, replace_map, loc),
-            _substitute(expr.diff_body, replace_map, loc),
-            expr.loop_vars,
-            loop_var_ranges=expr.loop_var_ranges,
-            location=expr.location,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-            use_argmin=getattr(expr, "use_argmin", False),
-        )
-    if isinstance(expr, EinsteinIR):
-        new_clauses: List[EinsteinClauseIR] = []
-        for c in expr.clauses or []:
-            new_indices: List[Any] = []
-            for ix in c.indices or []:
-                if isinstance(ix, (list, tuple)):
-                    new_indices.append(
-                        tuple(_substitute(sub, replace_map, loc) for sub in ix)
-                    )
-                else:
-                    new_indices.append(_substitute(ix, replace_map, loc))
-            nv = _substitute(c.value, replace_map, loc)
-            sub_e = lambda e: _substitute(e, replace_map, loc)
-            wc = _substitute_where_clause(c.where_clause, loc, sub_e)
-            vr = dict(c.variable_ranges) if c.variable_ranges else {}
-            new_vr: Dict[Any, Any] = {}
-            for k, v in vr.items():
-                new_vr[k] = (
-                    _substitute(v, replace_map, loc)
-                    if hasattr(v, "accept")
-                    else v
-                )
-            new_clauses.append(
-                EinsteinClauseIR(
-                    indices=list(new_indices),
-                    value=nv,
-                    location=c.location,
-                    where_clause=wc,
-                    variable_ranges=new_vr,
-                )
-            )
-        return EinsteinIR(
-            clauses=new_clauses,
-            shape=expr.shape,
-            element_type=expr.element_type,
-            location=expr.location,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    return expr
-
-
-def _substitute_with_diffs(
-    expr: ExpressionIR,
-    replace_map: Dict[DefId, ExpressionIR],
-    diff_replace_map: Dict[DefId, ExpressionIR],
-    loc: SourceLocation,
-) -> ExpressionIR:
-    """Substitute identifiers by replace_map and DifferentialIR(IdentifierIR(defid)) by diff_replace_map[defid]."""
-    if isinstance(expr, IdentifierIR) and expr.defid is not None:
-        if expr.defid in replace_map:
-            return replace_map[expr.defid]
-    if isinstance(expr, DifferentialIR):
-        op = expr.operand
-        if isinstance(op, IdentifierIR) and op.defid is not None and op.defid in diff_replace_map:
-            return diff_replace_map[op.defid]
-        return DifferentialIR(operand=_substitute_with_diffs(op, replace_map, diff_replace_map, loc), location=loc)
-    if isinstance(expr, LiteralIR):
-        return LiteralIR(expr.value, loc, type_info=getattr(expr, "type_info", None))
-    if isinstance(expr, BinaryOpIR):
-        return BinaryOpIR(
-            expr.operator,
-            _substitute_with_diffs(expr.left, replace_map, diff_replace_map, loc),
-            _substitute_with_diffs(expr.right, replace_map, diff_replace_map, loc),
-            loc,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    if isinstance(expr, UnaryOpIR):
-        return UnaryOpIR(
-            expr.operator,
-            _substitute_with_diffs(expr.operand, replace_map, diff_replace_map, loc),
-            loc,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    if isinstance(expr, BlockExpressionIR) and expr.final_expr is not None:
-        new_stmts: List[Any] = []
-        for stmt in expr.statements or []:
-            if isinstance(stmt, BindingIR):
-                se = _substitute_with_diffs(stmt.expr, replace_map, diff_replace_map, loc)
-                new_stmts.append(
-                    BindingIR(
-                        stmt.name,
-                        se,
-                        type_info=getattr(stmt, "type_info", None),
-                        location=stmt.location,
-                        defid=stmt.defid,
-                    )
-                )
-            elif isinstance(stmt, ExpressionIR):
-                new_stmts.append(_substitute_with_diffs(stmt, replace_map, diff_replace_map, loc))
-            else:
-                new_stmts.append(stmt)
-        nf = _substitute_with_diffs(expr.final_expr, replace_map, diff_replace_map, loc)
-        blk = BlockExpressionIR(
-            new_stmts,
-            expr.location or loc,
-            final_expr=nf,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-        return _inline_block_lets(blk)
-    if isinstance(expr, FunctionCallIR):
-        new_args = [_substitute_with_diffs(a, replace_map, diff_replace_map, loc) for a in (expr.arguments or [])]
-        return FunctionCallIR(
-            callee_expr=expr.callee_expr,
-            location=expr.location,
-            arguments=new_args,
-            module_path=expr.module_path,
-            type_info=expr.type_info,
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    if isinstance(expr, RectangularAccessIR):
-        arr = _substitute_with_diffs(expr.array, replace_map, diff_replace_map, loc)
-        indices = [_substitute_with_diffs(i, replace_map, diff_replace_map, loc) for i in (expr.indices or [])]
-        return RectangularAccessIR(
-            array=arr, indices=indices, location=expr.location,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    if isinstance(expr, IfExpressionIR):
-        cond = _substitute_with_diffs(expr.condition, replace_map, diff_replace_map, loc)
-        then_e = _substitute_with_diffs(expr.then_expr, replace_map, diff_replace_map, loc)
-        else_e = _substitute_with_diffs(expr.else_expr, replace_map, diff_replace_map, loc) if expr.else_expr else None
-        return IfExpressionIR(
-            cond, then_e, loc, else_expr=else_e,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    if isinstance(expr, ReductionExpressionIR) and expr.body is not None:
-        sub_d = lambda e: _substitute_with_diffs(e, replace_map, diff_replace_map, loc)
-        return ReductionExpressionIR(
-            expr.operation, expr.loop_vars,
-            _substitute_with_diffs(expr.body, replace_map, diff_replace_map, loc),
-            expr.location,
-            where_clause=_substitute_where_clause(expr.where_clause, loc, sub_d),
-            loop_var_ranges=_substitute_loop_var_ranges(expr.loop_var_ranges, loc, sub_d),
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    if isinstance(expr, SelectAtArgmaxIR):
-        return SelectAtArgmaxIR(
-            _substitute_with_diffs(expr.primal_body, replace_map, diff_replace_map, loc),
-            _substitute_with_diffs(expr.diff_body, replace_map, diff_replace_map, loc),
-            expr.loop_vars,
-            loop_var_ranges=expr.loop_var_ranges,
-            location=expr.location,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-            use_argmin=getattr(expr, "use_argmin", False),
-        )
-    if isinstance(expr, CastExpressionIR):
-        inner = _substitute_with_diffs(expr.expr, replace_map, diff_replace_map, loc)
-        return CastExpressionIR(
-            inner, expr.target_type, loc,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    if isinstance(expr, EinsteinIR):
-        new_clauses: List[EinsteinClauseIR] = []
-        for c in expr.clauses or []:
-            new_indices: List[Any] = []
-            for ix in c.indices or []:
-                if isinstance(ix, (list, tuple)):
-                    new_indices.append(
-                        tuple(_substitute_with_diffs(sub, replace_map, diff_replace_map, loc) for sub in ix)
-                    )
-                else:
-                    new_indices.append(_substitute_with_diffs(ix, replace_map, diff_replace_map, loc))
-            nv = _substitute_with_diffs(c.value, replace_map, diff_replace_map, loc)
-            sub_d = lambda e: _substitute_with_diffs(e, replace_map, diff_replace_map, loc)
-            wc = _substitute_where_clause(c.where_clause, loc, sub_d)
-            vr = dict(c.variable_ranges) if c.variable_ranges else {}
-            new_vr: Dict[Any, Any] = {}
-            for k, v in vr.items():
-                new_vr[k] = (
-                    _substitute_with_diffs(v, replace_map, diff_replace_map, loc)
-                    if hasattr(v, "accept")
-                    else v
-                )
-            new_clauses.append(
-                EinsteinClauseIR(
-                    indices=list(new_indices),
-                    value=nv,
-                    location=c.location,
-                    where_clause=wc,
-                    variable_ranges=new_vr,
-                )
-            )
-        return EinsteinIR(
-            clauses=new_clauses,
-            shape=expr.shape,
-            element_type=expr.element_type,
-            location=expr.location,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-    return expr
-
-
-# ---------------------------------------------------------------------------
-# Forward-diff for Einstein  (d_C from d_A, d_B)
-# ---------------------------------------------------------------------------
-
-def _forward_einstein_ir(
-    expr: EinsteinIR,
-    d_ref_by_defid: Dict[DefId, IdentifierIR],
-    binding_by_defid: Dict[DefId, BindingIR],
-    loc: SourceLocation,
-) -> Optional[ExpressionIR]:
-    clause_terms: List[ExpressionIR] = []
-    for clause in expr.clauses or []:
-        val = clause.value
-
-        # --- Sum-of-products fast path (matmul patterns) ---
-        if isinstance(val, ReductionExpressionIR) and val.operation == ReductionOp.SUM:
-            inner = val.body
-            factors = _flatten_product(inner) if inner else None
-            if factors and len(factors) >= 1:
-                loop_vars = list(val.loop_vars or [])
-                reduction_parts: List[ExpressionIR] = []
-                for arr_expr, index_list in factors:
-                    if not isinstance(arr_expr, IdentifierIR) or arr_expr.defid is None:
-                        continue
-                    if arr_expr.defid not in d_ref_by_defid:
-                        continue
-                    d_ref = d_ref_by_defid[arr_expr.defid]
-                    prod: ExpressionIR = RectangularAccessIR(d_ref, index_list, loc)
-                    for other_expr, other_indices in factors:
-                        if other_expr is arr_expr:
-                            continue
-                        if not isinstance(other_expr, IdentifierIR) or other_expr.defid is None:
-                            continue
-                        b = binding_by_defid.get(other_expr.defid)
-                        nm = other_expr.name or (b.name if b else "") or ""
-                        other_ref = IdentifierIR(nm, loc, other_expr.defid)
-                        prod = BinaryOpIR(BinaryOp.MUL, prod, RectangularAccessIR(other_ref, other_indices, loc), loc)
-                    red = ReductionExpressionIR(
-                        operation=val.operation,
-                        loop_vars=loop_vars,
-                        body=prod,
-                        location=loc,
-                        where_clause=val.where_clause,
-                        loop_var_ranges=_merged_reduction_loop_var_ranges(val, clause),
-                        type_info=val.type_info,
-                        shape_info=val.shape_info,
-                    )
-                    reduction_parts.append(red)
-                if reduction_parts:
-                    combined_val: ExpressionIR = reduction_parts[0]
-                    for rp in reduction_parts[1:]:
-                        combined_val = BinaryOpIR(BinaryOp.ADD, combined_val, rp, loc)
-                    new_clause = EinsteinClauseIR(
-                        indices=list(clause.indices or []),
-                        value=combined_val,
-                        location=clause.location,
-                        where_clause=clause.where_clause,
-                        variable_ranges=dict(clause.variable_ranges or {}),
-                    )
-                    clause_terms.append(
-                        EinsteinIR(
-                            clauses=[new_clause],
-                            shape=expr.shape,
-                            element_type=expr.element_type,
-                            location=expr.location,
-                            type_info=expr.type_info,
-                            shape_info=expr.shape_info,
-                        )
-                    )
-                    continue
-
-        # --- Generic fallback: apply _ForwardDiffVisitor to clause value ---
-        vis = _ForwardDiffVisitor(d_ref_by_defid, loc, binding_by_defid)
-        try:
-            d_val = val.accept(vis)
-        except (ValueError, KeyError):
-            continue
-        if isinstance(d_val, LiteralIR) and d_val.value == 0:
-            continue
-        new_clause = EinsteinClauseIR(
-            indices=list(clause.indices or []),
-            value=d_val,
-            location=clause.location,
-            where_clause=clause.where_clause,
-            variable_ranges=dict(clause.variable_ranges or {}),
-        )
-        clause_terms.append(
-            EinsteinIR(
-                clauses=[new_clause],
-                shape=expr.shape,
-                element_type=expr.element_type,
-                location=expr.location,
-                type_info=expr.type_info,
-                shape_info=expr.shape_info,
-            )
-        )
-
-    if not clause_terms:
-        return None
-    out = clause_terms[0]
-    for t in clause_terms[1:]:
-        out = BinaryOpIR(BinaryOp.ADD, out, t, loc)
-    return out
-
-
-def _forward_d_y_expr(
-    binding: BindingIR,
-    defid_to_d_ref: Dict[DefId, ExpressionIR],
-    binding_by_defid: Dict[DefId, BindingIR],
-    binding_to_deps: Dict[DefId, Set[DefId]],
-    loc: SourceLocation,
-    resolver: Optional[Any] = None,
-) -> Optional[ExpressionIR]:
-    """Forward: expression for d_y from d_x1, d_x2 (deps)."""
-    expr = binding.expr
-    if expr is None:
-        return None
-    deps = binding_to_deps.get(binding.defid) or set()
-    if not deps:
+    @staticmethod
+    def _tgt_op(op: Any) -> Optional[Tuple[DefId, str]]:
+        if isinstance(op, IdentifierIR) and op.defid is not None:
+            return (op.defid, op.name or "")
         return None
 
-    def _defid_from(e: ExpressionIR) -> Optional[DefId]:
-        return e.defid if isinstance(e, IdentifierIR) else None
-
-    if isinstance(expr, BinaryOpIR):
-        left_defid = _defid_from(expr.left)
-        right_defid = _defid_from(expr.right)
-        d_left = defid_to_d_ref.get(left_defid) if left_defid else _float_lit(0, loc)
-        d_right = defid_to_d_ref.get(right_defid) if right_defid else _float_lit(0, loc)
-        if not isinstance(d_left, ExpressionIR):
-            d_left = _float_lit(0, loc)
-        if not isinstance(d_right, ExpressionIR):
-            d_right = _float_lit(0, loc)
-        op = expr.operator
-        if op == BinaryOp.ADD:
-            return BinaryOpIR(BinaryOp.ADD, d_left, d_right, loc)
-        if op == BinaryOp.SUB:
-            return BinaryOpIR(BinaryOp.SUB, d_left, d_right, loc)
-        if op == BinaryOp.MUL:
-            return BinaryOpIR(
-                BinaryOp.ADD,
-                BinaryOpIR(BinaryOp.MUL, d_left, expr.right, loc),
-                BinaryOpIR(BinaryOp.MUL, expr.left, d_right, loc),
-                loc,
-            )
-        if op == BinaryOp.DIV:
-            t1 = BinaryOpIR(BinaryOp.DIV, d_left, expr.right, loc)
-            t2 = BinaryOpIR(BinaryOp.DIV,
-                            BinaryOpIR(BinaryOp.MUL, expr.left, d_right, loc),
-                            BinaryOpIR(BinaryOp.POW, expr.right, _float_lit(2, loc), loc), loc)
-            return BinaryOpIR(BinaryOp.SUB, t1, t2, loc)
-        if op == BinaryOp.POW:
-            return _pow_chain_rule_terms(
-                expr, d_left, d_right, binding_by_defid, resolver, loc
-            )
-        if op == BinaryOp.MOD:
-            return d_left
-        return None
-
-    if isinstance(expr, UnaryOpIR):
-        operand_defid = _defid_from(expr.operand)
-        d_operand = defid_to_d_ref.get(operand_defid) if operand_defid else _float_lit(0, loc)
-        if not isinstance(d_operand, ExpressionIR):
-            d_operand = _float_lit(0, loc)
-        if expr.operator == UnaryOp.NEG:
-            return UnaryOpIR(UnaryOp.NEG, d_operand, loc)
-        if expr.operator == UnaryOp.POS:
-            return d_operand
-        return None
-
-    if isinstance(expr, BuiltinCallIR):
-        return None
-
-    if isinstance(expr, FunctionCallIR):
-        callee_defid = expr.function_defid
-        args = expr.arguments or []
-        if callee_defid is None or len(args) == 0:
-            return None
-        callee_binding = binding_by_defid.get(callee_defid)
-        if callee_binding is None or not isinstance(callee_binding.expr, FunctionValueIR):
-            return None
-        fv = callee_binding.expr
-        rule_body = getattr(fv, 'custom_diff_body', None)
-        if rule_body is not None:
-            params = fv.parameters or []
-            if len(params) == len(args):
-                replace_map = {p.defid: args[j] for j, p in enumerate(params) if p.defid is not None}
-                diff_replace_map: Dict[DefId, ExpressionIR] = {}
-                for i, param in enumerate(params):
-                    if param.defid is None:
-                        continue
-                    arg_defid = _defid_from(args[i])
-                    d_arg = defid_to_d_ref.get(arg_defid) if arg_defid else None
-                    diff_replace_map[param.defid] = d_arg if isinstance(d_arg, ExpressionIR) else _float_lit(0, loc)
-                use_loc = expr.location or loc
-                d_y = _substitute_with_diffs(rule_body, replace_map, diff_replace_map, use_loc)
-                return _substitute_custom_diff_after_wrt_diff(d_y, fv, replace_map, use_loc)
-        params = fv.parameters or []
-        body = fv.body
-        if body is None or len(params) != len(args):
-            return None
-        replace_map = {p.defid: args[j] for j, p in enumerate(params) if p.defid is not None}
-        terms: List[ExpressionIR] = []
-        bloc = expr.location or loc
-        for i, param in enumerate(params):
-            if param.defid is None:
-                raise ValueError("Autodiff: function parameter has no defid")
-            arg_defid = _defid_from(args[i])
-            if arg_defid is None:
-                continue
-            d_arg = defid_to_d_ref.get(arg_defid)
-            if d_arg is None:
-                continue
-            if isinstance(body, BlockExpressionIR) and resolver is not None:
-                partial_block = _symbolic_diff_function_body_block(
-                    body, param.defid, bloc, binding_by_defid, resolver, replace_map
-                )
-                inner = partial_block.final_expr
-                if inner is None:
-                    continue
-                mul_e = BinaryOpIR(BinaryOp.MUL, inner, d_arg, bloc)
-                if partial_block.statements:
-                    terms.append(
-                        BlockExpressionIR(
-                            list(partial_block.statements),
-                            bloc,
-                            mul_e,
-                            type_info=getattr(inner, "type_info", None),
-                            shape_info=getattr(inner, "shape_info", None),
-                        )
-                    )
-                else:
-                    terms.append(mul_e)
-            else:
-                vis = _SymbolicDiffVisitor(param.defid, bloc, binding_by_defid, resolver)
-                partial = body.accept(vis)
-                partial_at_call = _substitute(partial, replace_map, bloc)
-                terms.append(BinaryOpIR(BinaryOp.MUL, partial_at_call, d_arg, bloc))
-        if not terms:
-            return None
-        out = _flatten_add_block_terms(terms, bloc)
-        out = _substitute_with_callee_primal_map(out, fv, replace_map, bloc)
-        return _simplify(out, bloc)
-
-    if isinstance(expr, ReductionExpressionIR):
-        vis = _ForwardDiffVisitor(defid_to_d_ref, loc, binding_by_defid)
-        try:
-            d_val = expr.accept(vis)
-        except (ValueError, KeyError):
-            return None
-        if isinstance(d_val, LiteralIR) and d_val.value == 0:
-            return None
-        return d_val
-
-    if isinstance(expr, EinsteinIR):
-        d_ref_map = {did: ref for did, ref in defid_to_d_ref.items() if isinstance(ref, IdentifierIR)}
-        return _forward_einstein_ir(expr, d_ref_map, binding_by_defid, loc)
-
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Collection helpers
-# ---------------------------------------------------------------------------
-
-def _collect_differential_targets(program: ProgramIR) -> List[Tuple[DefId, str]]:
-    """Collect (defid, name) for every @id in the program."""
-    targets: List[Tuple[DefId, str]] = []
-
-    def _target_from(operand: ExpressionIR) -> Optional[Tuple[DefId, str]]:
-        if isinstance(operand, IdentifierIR) and operand.defid is not None:
-            return (operand.defid, operand.name or "")
-        return None
-
-    def walk(e: Any) -> None:
-        if e is None:
-            return
-        if isinstance(e, DifferentialIR):
-            t = _target_from(e.operand)
-            if t is not None:
-                targets.append(t)
-            walk(e.operand)
-        if isinstance(e, BinaryOpIR):
-            if e.operator == BinaryOp.DIV and isinstance(e.left, DifferentialIR) and isinstance(e.right, DifferentialIR):
-                for op in (e.left.operand, e.right.operand):
-                    t = _target_from(op)
-                    if t is not None:
-                        targets.append(t)
-            walk(e.left)
-            walk(e.right)
-        if isinstance(e, UnaryOpIR):
-            walk(e.operand)
-        if isinstance(e, BlockExpressionIR):
-            for s in e.statements or []:
-                walk(s)
-            walk(e.final_expr)
-        if isinstance(e, BindingIR):
-            walk(e.expr)
-        if isinstance(e, ProgramIR):
-            for b in e.bindings or []:
-                walk(b)
-            for s in e.statements or []:
-                if not isinstance(s, BindingIR):
-                    walk(s)
-        if isinstance(e, FunctionValueIR) and e.body is not None:
-            walk(e.body)
-        if isinstance(e, IfExpressionIR):
-            walk(e.condition)
-            walk(e.then_expr)
-            walk(e.else_expr)
-        if isinstance(e, (EinsteinIR,)):
-            for c in getattr(e, "clauses", None) or []:
-                walk(getattr(c, "value", c))
-        if isinstance(e, FunctionCallIR):
-            for a in e.arguments or []:
-                walk(a)
-        if isinstance(e, RectangularAccessIR):
-            walk(e.array)
-        if isinstance(e, BuiltinCallIR):
-            for a in e.args or []:
-                walk(a)
-
-    walk(program)
-    return targets
-
-
-def _collect_quotient_pairs(program: ProgramIR) -> List[Tuple[DefId, DefId]]:
-    """Collect (numerator_defid, denominator_defid) from BinaryOpIR(DIV, @num, @den)."""
-    pairs: List[Tuple[DefId, DefId]] = []
-
-    def _defid_from_diff_or_id(e: Any) -> Optional[DefId]:
-        if isinstance(e, DifferentialIR):
-            if isinstance(e.operand, IdentifierIR):
-                return e.operand.defid
-        if isinstance(e, IdentifierIR):
-            return e.defid
-        return None
-
-    def walk(e: Any) -> None:
-        if e is None:
-            return
-        if isinstance(e, BinaryOpIR):
-            if e.operator == BinaryOp.DIV:
-                num = _defid_from_diff_or_id(e.left)
-                den = _defid_from_diff_or_id(e.right)
-                if num is not None and den is not None:
-                    pairs.append((num, den))
-            walk(e.left)
-            walk(e.right)
-        if isinstance(e, UnaryOpIR):
-            walk(e.operand)
-        if isinstance(e, BlockExpressionIR):
-            for s in e.statements or []:
-                walk(s)
-            walk(e.final_expr)
-        if isinstance(e, BindingIR):
-            walk(e.expr)
-        if isinstance(e, ProgramIR):
-            for b in e.bindings or []:
-                walk(b)
-        if isinstance(e, (EinsteinIR, IfExpressionIR)):
-            for c in getattr(e, "clauses", None) or []:
-                walk(getattr(c, "value", c))
-            if hasattr(e, "then_expr"):
-                walk(e.then_expr)
-            if hasattr(e, "else_expr"):
-                walk(e.else_expr)
-        if isinstance(e, FunctionCallIR):
-            for a in e.arguments or []:
-                walk(a)
-        if isinstance(e, RectangularAccessIR):
-            walk(e.array)
-        if isinstance(e, BuiltinCallIR):
-            for a in e.args or []:
-                walk(a)
-
-    walk(program)
-    return pairs
-
-
-def _collect_quotient_pairs_in_expr(expr: Any) -> List[Tuple[DefId, DefId]]:
-    pairs: List[Tuple[DefId, DefId]] = []
-
-    def _defid_from_diff_or_id(e: Any) -> Optional[DefId]:
+    @staticmethod
+    def _diff_defid(e: Any) -> Optional[DefId]:
         if isinstance(e, DifferentialIR) and isinstance(e.operand, IdentifierIR):
             return e.operand.defid
         if isinstance(e, IdentifierIR):
             return e.defid
         return None
 
-    def walk(e: Any) -> None:
-        if e is None:
-            return
-        if isinstance(e, BinaryOpIR):
-            if e.operator == BinaryOp.DIV:
-                num = _defid_from_diff_or_id(e.left)
-                den = _defid_from_diff_or_id(e.right)
-                if num is not None and den is not None:
-                    pairs.append((num, den))
-            walk(e.left)
-            walk(e.right)
-        if isinstance(e, UnaryOpIR):
-            walk(e.operand)
-        if isinstance(e, BlockExpressionIR):
-            for s in e.statements or []:
-                walk(s)
-            walk(e.final_expr)
-        if isinstance(e, BindingIR):
-            walk(e.expr)
-        if isinstance(e, (EinsteinIR, IfExpressionIR)):
-            for c in getattr(e, "clauses", None) or []:
-                walk(getattr(c, "value", c))
-            if hasattr(e, "then_expr"):
-                walk(e.then_expr)
-            if hasattr(e, "else_expr"):
-                walk(e.else_expr)
-        if isinstance(e, FunctionCallIR):
-            for a in e.arguments or []:
-                walk(a)
-        if isinstance(e, RectangularAccessIR):
-            walk(e.array)
+    def visit_differential(self, n: DifferentialIR) -> None:
+        t = self._tgt_op(n.operand)
+        if t is not None:
+            self.targets.append(t)
+        n.operand.accept(self)
 
-    walk(expr)
-    return pairs
+    def visit_binary_op(self, n: BinaryOpIR) -> None:
+        if (n.operator == BinaryOp.DIV and isinstance(n.left, DifferentialIR)
+                and isinstance(n.right, DifferentialIR)):
+            for op in (n.left.operand, n.right.operand):
+                tt = self._tgt_op(op)
+                if tt is not None:
+                    self.targets.append(tt)
+            num, den = self._diff_defid(n.left), self._diff_defid(n.right)
+            if num is not None and den is not None:
+                self.quotient_pairs.append((num, den))
+        n.left.accept(self)
+        n.right.accept(self)
+
+    def visit_program(self, n: ProgramIR) -> None:
+        for b in n.bindings or []:
+            b.accept(self)
+        for s in n.statements or []:
+            if not isinstance(s, BindingIR) and isinstance(s, ExpressionIR):
+                s.accept(self)
 
 
-def _collect_differential_targets_in_expr(expr: Any) -> List[Tuple[DefId, str]]:
-    targets: List[Tuple[DefId, str]] = []
+# ═══════════════════════════════════════════════════════════════════════════
+# Cleanup visitor  (Phase 4)
+# ═══════════════════════════════════════════════════════════════════════════
 
-    def _target_from(operand: ExpressionIR) -> Optional[Tuple[DefId, str]]:
-        if isinstance(operand, IdentifierIR) and operand.defid is not None:
-            return (operand.defid, operand.name or "")
+class _TypeStripper(_DefIdCollector):
+    """Walk IR in-place: strip DifferentialType from type_info."""
+    @staticmethod
+    def _st(ty: Any) -> Any:
+        return strip_differential_types_deep(ty)
+    def _se(self, n: ExpressionIR) -> None:
+        if n.type_info is not None: n.type_info = self._st(n.type_info)
+    # override visits that also strip
+    def visit_literal(self, n: LiteralIR) -> None: self._se(n)
+    def visit_identifier(self, n: IdentifierIR) -> None:
+        self._se(n)
+        if n.defid is not None: self.defids.add(n.defid)
+    def visit_binary_op(self, n: BinaryOpIR) -> None:
+        self._se(n); n.left.accept(self); n.right.accept(self)
+    def visit_unary_op(self, n: UnaryOpIR) -> None:
+        self._se(n); n.operand.accept(self)
+    def visit_builtin_call(self, n: BuiltinCallIR) -> None:
+        self._se(n)
+        for a in n.args or []: a.accept(self)
+    def visit_function_call(self, n: FunctionCallIR) -> None:
+        self._se(n)
+        if n.callee_expr is not None: n.callee_expr.accept(self)
+        for a in n.arguments or []: a.accept(self)
+    def visit_rectangular_access(self, n: RectangularAccessIR) -> None:
+        self._se(n); n.array.accept(self)
+        for i in n.indices or []: i.accept(self)
+    def visit_jagged_access(self, n: JaggedAccessIR) -> None:
+        self._se(n)
+        if n.base is not None: n.base.accept(self)
+        for idx in n.index_chain or []: idx.accept(self)
+    def visit_block_expression(self, n: BlockExpressionIR) -> None:
+        self._se(n)
+        for s in n.statements or []:
+            if isinstance(s, (BindingIR, ExpressionIR)): s.accept(self)
+        if n.final_expr is not None: n.final_expr.accept(self)
+    def visit_if_expression(self, n: IfExpressionIR) -> None:
+        self._se(n); n.condition.accept(self); n.then_expr.accept(self)
+        if n.else_expr is not None: n.else_expr.accept(self)
+    def visit_cast_expression(self, n: CastExpressionIR) -> None:
+        self._se(n)
+        tt = n.target_type
+        if tt is not None and isinstance(tt, Type): n.target_type = self._st(tt)
+        n.expr.accept(self)
+    def visit_differential(self, n: DifferentialIR) -> None:
+        self._se(n); n.operand.accept(self)
+    def visit_lambda(self, n: LambdaIR) -> None:
+        self._se(n)
+        for p in n.parameters or []:
+            if p.param_type is not None: p.param_type = self._st(p.param_type)
+        n.body.accept(self)
+    def visit_range(self, n: RangeIR) -> None:
+        self._se(n); n.start.accept(self); n.end.accept(self)
+    def visit_reduction_expression(self, n: ReductionExpressionIR) -> None:
+        self._se(n)
+        for lv in n.loop_vars or []: lv.accept(self)
+        n.body.accept(self)
+        if n.where_clause is not None:
+            for c in n.where_clause.constraints or []: c.accept(self)
+    def visit_where_expression(self, n: WhereExpressionIR) -> None:
+        self._se(n); n.expr.accept(self)
+        for c in n.constraints or []: c.accept(self)
+    def visit_pipeline_expression(self, n: PipelineExpressionIR) -> None:
+        self._se(n); n.left.accept(self); n.right.accept(self)
+    def visit_array_comprehension(self, n: ArrayComprehensionIR) -> None:
+        self._se(n)
+        for v in n.loop_vars or []: v.accept(self)
+        for r in n.ranges or []: r.accept(self)
+        for c in n.constraints or []: c.accept(self)
+        n.body.accept(self)
+    def visit_array_literal(self, n: ArrayLiteralIR) -> None:
+        self._se(n)
+        for e in n.elements or []: e.accept(self)
+    def visit_tuple_expression(self, n: TupleExpressionIR) -> None:
+        self._se(n)
+        for e in n.elements or []: e.accept(self)
+    def visit_tuple_access(self, n: TupleAccessIR) -> None:
+        self._se(n); n.tuple_expr.accept(self)
+    def visit_member_access(self, n: MemberAccessIR) -> None:
+        self._se(n); n.object.accept(self)
+    def visit_function_value(self, n: FunctionValueIR) -> None:
+        self._se(n)
+        if n.return_type is not None: object.__setattr__(n, "return_type", self._st(n.return_type))
+        for p in n.parameters or []:
+            if p.param_type is not None: p.param_type = self._st(p.param_type)
+        if n.body is not None: n.body.accept(self)
+    def visit_try_expression(self, n: TryExpressionIR) -> None:
+        self._se(n); n.operand.accept(self)
+    def visit_match_expression(self, n: MatchExpressionIR) -> None:
+        self._se(n); n.scrutinee.accept(self)
+        for arm in n.arms or []:
+            if getattr(arm, "body", None) is not None: arm.body.accept(self)
+    def visit_interpolated_string(self, n: InterpolatedStringIR) -> None:
+        self._se(n)
+        for p in n.parts or []:
+            if isinstance(p, ExpressionIR): p.accept(self)
+    def visit_binding(self, n: BindingIR) -> None:
+        if n.type_info is not None: n.type_info = self._st(n.type_info)
+        if n.expr is not None: n.expr.accept(self)
+    def visit_einstein(self, n: EinsteinIR) -> None:
+        self._se(n)
+        et = n.element_type
+        if et is not None and isinstance(et, Type): n.element_type = self._st(et)
+        for c in n.clauses or []:
+            if isinstance(c, EinsteinClauseIR): c.accept(self)
+    def visit_einstein_clause(self, n: EinsteinClauseIR) -> None:
+        for idx in n.indices or []:
+            if isinstance(idx, ExpressionIR): idx.accept(self)
+        if n.value is not None: n.value.accept(self)
+        if n.where_clause is not None:
+            for c in n.where_clause.constraints or []: c.accept(self)
+    def visit_select_at_argmax(self, n: SelectAtArgmaxIR) -> None:
+        self._se(n)
+        if n.primal_body is not None: n.primal_body.accept(self)
+        if n.diff_body is not None: n.diff_body.accept(self)
+    def visit_index_var(self, n: IndexVarIR) -> None:
+        self._se(n)
+        if n.range_ir is not None: n.range_ir.accept(self)
+    def visit_index_rest(self, n: IndexRestIR) -> None:
+        self._se(n)
+        if getattr(n, "defid", None) is not None: self.defids.add(n.defid)
+
+
+class _CleanupVisitor(_TypeStripper):
+    """Post-pass: clear custom_diff_body, drop DiffRuleIR, strip DifferentialType."""
+    def visit_function_value(self, n: FunctionValueIR) -> None:
+        cdb = getattr(n, "custom_diff_body", None)
+        if cdb is not None:
+            cdb.accept(self)
+            object.__setattr__(n, "custom_diff_body", None)
+        super().visit_function_value(n)
+    def visit_program(self, n: ProgramIR) -> None:
+        n.statements = [s for s in (n.statements or []) if not isinstance(s, DiffRuleIR)]
+        n.bindings = [s for s in n.statements if isinstance(s, BindingIR)]
+        for s in n.statements or []:
+            if isinstance(s, (BindingIR, ExpressionIR)): s.accept(self)
+        for mod in n.modules or []: mod.accept(self)
+    def visit_module(self, n: Any) -> None:
+        for b in n.functions or []: b.accept(self)
+        for b in n.constants or []: b.accept(self)
+        for sub in n.submodules or []: sub.accept(self)
+    def visit_diff_rule(self, n: DiffRuleIR) -> None:
+        if n.body is not None: n.body.accept(self)
+
+
+def clear_custom_diff_body_everywhere(program: ProgramIR) -> None:
+    """Public API: clear autodiff-only IR artefacts."""
+    program.accept(_CleanupVisitor())
+
+# ═══════════════════════════════════════════════════════════════════════════
+# JacobianVisitor  — ∂(expr)/∂(wrt)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class JacobianVisitor(IRVisitor[ExpressionIR]):
+    """Symbolic partial derivative ∂(expr)/∂(wrt) as IR.
+
+    Used for ``@y/@x`` quotients and callee-body differentiation.
+    """
+    def __init__(self, wrt: DefId, loc: SourceLocation,
+                 bindings: Dict[DefId, BindingIR], resolver: Any,
+                 stmt_partial: Optional[Dict[DefId, ExpressionIR]] = None,
+                 wrt_tangent: Optional[ExpressionIR] = None,
+                 primal_subst: Optional[Dict[DefId, ExpressionIR]] = None) -> None:
+        self._wrt = wrt; self._loc = loc; self._B = bindings
+        self._R = resolver; self._sp = stmt_partial; self._wt = wrt_tangent
+        self._ps = primal_subst
+
+    # -- atoms ---------------------------------------------------------------
+    def visit_identifier(self, n: IdentifierIR) -> ExpressionIR:
+        if n.defid == self._wrt:
+            return self._wt if self._wt is not None else _fl(1, self._loc)
+        if n.defid is not None and self._sp is not None:
+            pre = self._sp.get(n.defid)
+            if pre is not None: return pre
+        if n.defid is not None and self._ps is not None:
+            sub = self._ps.get(n.defid)
+            if sub is not None:
+                return sub.accept(self)
+        if n.defid is not None:
+            b = self._B.get(n.defid)
+            if b is not None and b.expr is not None:
+                if _is_diff_name(b.name or ""): return n
+                return b.expr.accept(self)
+        return _z(self._loc)
+
+    def visit_literal(self, n: LiteralIR) -> ExpressionIR: return _z(self._loc)
+    def visit_array_literal(self, n: ArrayLiteralIR) -> ExpressionIR: return _z(self._loc)
+
+    # -- binary / unary ------------------------------------------------------
+    def visit_binary_op(self, n: BinaryOpIR) -> ExpressionIR:
+        L = n.left; R = n.right; loc = n.location or self._loc
+        dL = L.accept(self); dR = R.accept(self)
+        op = n.operator
+        if op == BinaryOp.ADD: return BinaryOpIR(BinaryOp.ADD, dL, dR, loc)
+        if op == BinaryOp.SUB: return BinaryOpIR(BinaryOp.SUB, dL, dR, loc)
+        if op == BinaryOp.MUL:
+            return BinaryOpIR(BinaryOp.ADD,
+                              BinaryOpIR(BinaryOp.MUL, L, dR, loc),
+                              BinaryOpIR(BinaryOp.MUL, R, dL, loc), loc)
+        if op == BinaryOp.DIV:
+            num = BinaryOpIR(BinaryOp.SUB,
+                             BinaryOpIR(BinaryOp.MUL, R, dL, loc),
+                             BinaryOpIR(BinaryOp.MUL, L, dR, loc), loc)
+            den = BinaryOpIR(BinaryOp.POW, R, _fl(2, loc), loc)
+            return BinaryOpIR(BinaryOp.DIV, num, den, loc)
+        if op == BinaryOp.POW: return _pow_chain(n, dL, dR, self._B, self._R, loc)
+        if op == BinaryOp.MOD: return dL
+        raise ValueError(f"Autodiff: unsupported binary op: {op}")
+
+    def visit_unary_op(self, n: UnaryOpIR) -> ExpressionIR:
+        d = n.operand.accept(self)
+        if n.operator == UnaryOp.NEG: return UnaryOpIR(UnaryOp.NEG, d, n.location or self._loc)
+        if n.operator == UnaryOp.POS: return d
+        raise ValueError(f"Autodiff: unsupported unary op: {n.operator}")
+
+    # -- reductions ----------------------------------------------------------
+    def visit_reduction_expression(self, n: ReductionExpressionIR) -> ExpressionIR:
+        loc = n.location or self._loc; d_body = n.body.accept(self); op = n.operation
+        if op == ReductionOp.SUM:
+            return ReductionExpressionIR(ReductionOp.SUM, n.loop_vars, d_body, loc,
+                   where_clause=n.where_clause, loop_var_ranges=n.loop_var_ranges,
+                   type_info=_ti(n), shape_info=_si(n))
+        if op == ReductionOp.MAX:
+            return SelectAtArgmaxIR(n.body, d_body, n.loop_vars, loop_var_ranges=n.loop_var_ranges,
+                   location=loc, type_info=_ti(n), shape_info=_si(n))
+        if op == ReductionOp.MIN:
+            return SelectAtArgmaxIR(n.body, d_body, n.loop_vars, loop_var_ranges=n.loop_var_ranges,
+                   location=loc, type_info=_ti(n), shape_info=_si(n), use_argmin=True)
+        if op == ReductionOp.PROD:
+            return BinaryOpIR(BinaryOp.MUL,
+                              BinaryOpIR(BinaryOp.DIV, n, n.body, loc), d_body, loc)
+        raise ValueError(f"Autodiff: unsupported reduction: {op}")
+
+    # -- indexing / cast / control flow --------------------------------------
+    def visit_rectangular_access(self, n: RectangularAccessIR) -> ExpressionIR:
+        return RectangularAccessIR(n.array.accept(self), list(n.indices or []),
+                                   n.location or self._loc, type_info=_ti(n), shape_info=_si(n))
+    def visit_cast_expression(self, n: CastExpressionIR) -> ExpressionIR:
+        return n.expr.accept(self)
+    def visit_if_expression(self, n: IfExpressionIR) -> ExpressionIR:
+        dt = n.then_expr.accept(self)
+        de = n.else_expr.accept(self) if n.else_expr is not None else _z(self._loc)
+        return IfExpressionIR(condition=n.condition, then_expr=dt, location=n.location or self._loc,
+                              else_expr=de, type_info=_ti(n), shape_info=_si(n))
+    def visit_block_expression(self, n: BlockExpressionIR) -> ExpressionIR:
+        if n.final_expr is None:
+            raise ValueError("Autodiff: JacobianVisitor block has no final expression")
+        return n.final_expr.accept(self)
+
+    # -- function call -------------------------------------------------------
+    def visit_function_call(self, n: FunctionCallIR) -> ExpressionIR:
+        loc = n.location or self._loc; args = n.arguments or []
+        cdid = n.function_defid
+        if cdid is None or cdid not in self._B:
+            raise ValueError("Autodiff: JacobianVisitor callee is unresolved or not in binding map")
+        b = self._B[cdid]
+        if not isinstance(b.expr, FunctionValueIR):
+            raise ValueError("Autodiff: JacobianVisitor callee is not a function value")
+        fv = b.expr; ps = fv.parameters or []; body = fv.body
+        rm = {p.defid: args[j] for j, p in enumerate(ps) if p.defid is not None and j < len(args)}
+
+        rule_body = getattr(fv, "custom_diff_body", None)
+        if rule_body is not None and len(ps) == len(args):
+            if len(ps) == 1 and ps[0].defid is not None:
+                return _sub_callee(_sub_wd(rule_body, rm, {ps[0].defid: args[0].accept(self)}, loc), fv, rm, loc)
+            terms: List[ExpressionIR] = []
+            for i, p in enumerate(ps):
+                if p.defid is None: continue
+                ud = {ps[j].defid: (_fl(1, loc) if j == i else _z(loc)) for j in range(len(ps)) if ps[j].defid is not None}
+                coef = _simplify(_sub_callee(_sub_wd(rule_body, rm, ud, loc), fv, rm, loc), loc)
+                terms.append(BinaryOpIR(BinaryOp.MUL, coef, args[i].accept(self), loc))
+            return _sum_terms(terms, loc)
+        if body is None:
+            raise ValueError("Autodiff: JacobianVisitor cannot differentiate function with no body")
+        if isinstance(body, BlockExpressionIR) and self._R is not None:
+            # Same as ``_callee_forward_jvp``: inline callee locals into call-site IR. Without
+            # ``_sub_callee``, replayed primal bindings keep fresh DefIds (e.g. recurrence ``u``
+            # inside ``euler_decay``) that never exist at runtime → "Variable not found".
+            return _sub_callee(
+                _diff_callee_block(body, self._wrt, loc, self._B, self._R, rm, self._wt),
+                fv, rm, loc,
+            )
+        terms = []
+        for i, p in enumerate(ps):
+            if p.defid is None or i >= len(args): continue
+            iv = JacobianVisitor(p.defid, loc, self._B, self._R)
+            terms.append(BinaryOpIR(BinaryOp.MUL, _sub(body.accept(iv), rm, loc), args[i].accept(self), loc))
+        return _sum_terms(terms, loc)
+
+    # -- einstein (index expansion for jacobians) ----------------------------
+    def visit_einstein(self, n: EinsteinIR) -> ExpressionIR:
+        return _diff_einstein_wrt(n, self._wrt, self._loc, self._B, self._R, self._wt,
+                                  sp=self._sp, ps=self._ps)
+    def visit_select_at_argmax(self, n: SelectAtArgmaxIR) -> ExpressionIR: return n
+
+    def visit_lowered_einstein(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("JacobianVisitor", n)
+
+    # -- unsupported IR (do not return literal zero) -------------------------
+    def visit_differential(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_jagged_access(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_lambda(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_range(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_array_comprehension(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_tuple_expression(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_tuple_access(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_interpolated_string(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_member_access(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_function_value(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_try_expression(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_match_expression(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_where_expression(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_pipeline_expression(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_builtin_call(self, n: BuiltinCallIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        if n.builtin_name in _AD_ZERO_TANGENT_BUILTINS:
+            return _z(loc)
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_module(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_program(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_binding(self, n: BindingIR) -> ExpressionIR:
+        if n.expr is None:
+            raise ValueError("Autodiff: JacobianVisitor binding has no expression")
+        return n.expr.accept(self)
+    def visit_index_var(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_index_rest(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_einstein_clause(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_lowered_reduction(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("JacobianVisitor", n)
+    def visit_lowered_select_at_argmax(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("JacobianVisitor", n)
+    def visit_lowered_comprehension(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("JacobianVisitor", n)
+    def visit_lowered_einstein_clause(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("JacobianVisitor", n)
+    def visit_lowered_recurrence(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("JacobianVisitor", n)
+    def visit_literal_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_identifier_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_wildcard_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_tuple_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_array_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_rest_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_guard_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_or_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_constructor_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_binding_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_range_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("JacobianVisitor", n)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Einstein Jacobian helpers
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _flatten_product(expr: ExpressionIR) -> Optional[List[Tuple[ExpressionIR, List]]]:
+    if isinstance(expr, RectangularAccessIR):
+        arr = expr.array
+        if isinstance(arr, IdentifierIR) and arr.defid is not None:
+            return [(arr, list(expr.indices or []))]
         return None
+    if isinstance(expr, BinaryOpIR) and expr.operator == BinaryOp.MUL:
+        l = _flatten_product(expr.left); r = _flatten_product(expr.right)
+        if l is not None and r is not None: return l + r
+    return None
 
-    def walk(e: Any) -> None:
-        if e is None:
+def _build_deriv_idx(clause_indices: List, wrt_indices: List, wrt_id: IdentifierIR,
+                     resolver: Any, loc: SourceLocation, allow_reuse: bool
+                     ) -> Tuple[List, Set[DefId], Dict]:
+    ci_by_did: Dict[DefId, Any] = {}
+    for c in clause_indices:
+        did = getattr(c, "defid", None)
+        if did is not None: ci_by_did[did] = c
+    dvars: List = []; new_dids: Set[DefId] = set(); new_vr: Dict = {}
+    for p in range(len(wrt_indices)):
+        ip = wrt_indices[p]; did_p = getattr(ip, "defid", None)
+        if allow_reuse and did_p is not None and did_p in ci_by_did:
+            dvars.append(ci_by_did[did_p])
+        else:
+            nd = resolver.allocate_for_local()
+            sh = MemberAccessIR(object=wrt_id, member="shape", location=loc, type_info=UNKNOWN)
+            dim = LiteralIR(p, loc, type_info=PrimitiveType("i32"))
+            sd = RectangularAccessIR(array=sh, indices=[dim], location=loc, type_info=UNKNOWN)
+            rng = RangeIR(start=LiteralIR(0, loc, type_info=PrimitiveType("i32")),
+                          end=sd, location=loc, type_info=UNKNOWN)
+            iv = IndexVarIR("_ad_%d" % p, loc, nd, range_ir=rng)
+            dvars.append(iv); new_dids.add(nd)
+            if iv.defid is not None and iv.range_ir is not None: new_vr[iv.defid] = iv.range_ir
+    return dvars, new_dids, new_vr
+
+def _merged_lr(val: ReductionExpressionIR, clause: EinsteinClauseIR) -> Dict:
+    out: Dict = dict(val.loop_var_ranges or {})
+    vr = clause.variable_ranges or {}
+    for lv in val.loop_vars or []:
+        did = getattr(lv, "defid", None)
+        if did is not None and did not in out and did in vr: out[did] = vr[did]
+    return out
+
+
+def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
+                       B: Dict[DefId, BindingIR], R: Any,
+                       wt: Optional[ExpressionIR] = None,
+                       sp: Optional[Dict[DefId, ExpressionIR]] = None,
+                       ps: Optional[Dict[DefId, ExpressionIR]] = None) -> ExpressionIR:
+    dc: List[EinsteinClauseIR] = []
+    for clause in expr.clauses or []:
+        val = clause.value
+        if not isinstance(val, ReductionExpressionIR):
+            d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps))
+            dc.append(EinsteinClauseIR(indices=clause.indices, value=d_val, location=clause.location,
+                      where_clause=clause.where_clause, variable_ranges=dict(clause.variable_ranges or {})))
+            continue
+        inner = val.body; factors = _flatten_product(inner) if inner else None
+        if not factors:
+            if val.operation == ReductionOp.SUM:
+                d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps))
+                dc.append(EinsteinClauseIR(indices=list(clause.indices or []),
+                    value=ReductionExpressionIR(ReductionOp.SUM, list(val.loop_vars or []), d_inner, loc,
+                          where_clause=val.where_clause, loop_var_ranges=_merged_lr(val, clause),
+                          type_info=_ti(val), shape_info=_si(val)),
+                    location=clause.location, where_clause=clause.where_clause,
+                    variable_ranges=dict(clause.variable_ranges or {})))
+            else:
+                d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps))
+                dc.append(EinsteinClauseIR(indices=clause.indices, value=d_val, location=clause.location,
+                          where_clause=clause.where_clause, variable_ranges=dict(clause.variable_ranges or {})))
+            continue
+        wrt_pos = [i for i, (a, _) in enumerate(factors) if isinstance(a, IdentifierIR) and a.defid == wrt]
+        if not wrt_pos:
+            if val.operation == ReductionOp.SUM:
+                d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps))
+                dc.append(EinsteinClauseIR(indices=list(clause.indices or []),
+                    value=ReductionExpressionIR(ReductionOp.SUM, list(val.loop_vars or []), d_inner, loc,
+                          where_clause=val.where_clause, loop_var_ranges=_merged_lr(val, clause),
+                          type_info=_ti(val), shape_info=_si(val)),
+                    location=clause.location, where_clause=clause.where_clause,
+                    variable_ranges=dict(clause.variable_ranges or {})))
+            continue
+        if val.operation == ReductionOp.SUM and len(wrt_pos) == 1 and len(factors) == 1:
+            d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps))
+            dc.append(EinsteinClauseIR(indices=list(clause.indices or []),
+                value=ReductionExpressionIR(ReductionOp.SUM, list(val.loop_vars or []), d_inner, loc,
+                      where_clause=val.where_clause, loop_var_ranges=_merged_lr(val, clause),
+                      type_info=_ti(val), shape_info=_si(val)),
+                location=clause.location, where_clause=clause.where_clause,
+                variable_ranges=dict(clause.variable_ranges or {})))
+            continue
+
+        first_wi = factors[wrt_pos[0]][1]
+        wb = B.get(wrt); wid = IdentifierIR((wb.name if wb else "") or "?", loc, wrt, type_info=UNKNOWN)
+        ci = list(clause.indices or [])
+        allow_reuse = len(ci) < len(first_wi)
+        dvars, new_dids, new_vr = _build_deriv_idx(ci, first_wi, wid, R, loc, allow_reuse)
+        lvs = list(val.loop_vars or []); mlr = _merged_lr(val, clause)
+
+        if val.operation in (ReductionOp.MAX, ReductionOp.MIN):
+            db: ExpressionIR = _fl(1, loc)
+            for p in range(len(first_wi)):
+                if getattr(dvars[p], "defid", None) in new_dids:
+                    eq = BinaryOpIR(BinaryOp.EQ, first_wi[p], dvars[p], loc, type_info=BOOL)
+                    db = IfExpressionIR(eq, db, loc, else_expr=_z(loc), type_info=_ti(val) or F32)
+            sel = SelectAtArgmaxIR(val.body, db, lvs, loop_var_ranges=mlr, location=loc,
+                                   type_info=_ti(val), shape_info=_si(val),
+                                   use_argmin=(val.operation == ReductionOp.MIN))
+            nvr = dict(clause.variable_ranges or {}); nvr.update(new_vr)
+            dc.append(EinsteinClauseIR(indices=dvars, value=sel, location=clause.location,
+                      where_clause=clause.where_clause, variable_ranges=nvr))
+            continue
+
+        if val.operation == ReductionOp.PROD and allow_reuse:
+            exc = [BinaryOpIR(BinaryOp.NE, first_wi[p], dvars[p], loc, type_info=BOOL)
+                   for p in range(len(first_wi)) if getattr(dvars[p], "defid", None) in new_dids]
+            ow = getattr(val, "where_clause", None)
+            oc = list(getattr(ow, "constraints", None) or []) if ow else []
+            pw = WhereClauseIR(constraints=oc + exc, location=loc) if (oc or exc) else None
+            pr = ReductionExpressionIR(ReductionOp.PROD, lvs, val.body, loc,
+                                       where_clause=pw, loop_var_ranges=mlr,
+                                       type_info=_ti(val), shape_info=_si(val))
+            nvr = dict(clause.variable_ranges or {}); nvr.update(new_vr)
+            dc.append(EinsteinClauseIR(indices=dvars, value=pr, location=clause.location,
+                      where_clause=clause.where_clause, variable_ranges=nvr))
+            continue
+
+        if val.operation != ReductionOp.SUM:
+            d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps))
+            dc.append(EinsteinClauseIR(indices=clause.indices, value=d_val, location=clause.location,
+                      where_clause=clause.where_clause, variable_ranges=dict(clause.variable_ranges or {})))
+            continue
+
+        orig_rc: List[ExpressionIR] = list(getattr(val.where_clause, "constraints", None) or []) if val.where_clause else []
+        rterms: List[ExpressionIR] = []
+        for pos in wrt_pos:
+            _, wi = factors[pos]
+            others = [factors[i] for i in range(len(factors)) if i != pos]
+            deltas = [BinaryOpIR(BinaryOp.EQ, wi[p], dvars[p], loc)
+                      for p in range(len(wi)) if getattr(dvars[p], "defid", None) in new_dids]
+            wh = WhereClauseIR(constraints=orig_rc + deltas, location=loc) if (orig_rc or deltas) else None
+            if not others:
+                body: ExpressionIR = _fl(1, loc)
+            else:
+                def _mkref(a: ExpressionIR, idxs: List) -> ExpressionIR:
+                    bf = B.get(a.defid) if isinstance(a, IdentifierIR) else None
+                    nm = a.name or (bf.name if bf else "") or ""
+                    ref = IdentifierIR(nm, loc, a.defid) if isinstance(a, IdentifierIR) else a
+                    return RectangularAccessIR(ref, list(idxs), loc)
+                body = _mkref(*others[0])
+                for ae, il in others[1:]:
+                    body = BinaryOpIR(BinaryOp.MUL, body, _mkref(ae, il), loc)
+            rterms.append(ReductionExpressionIR(val.operation, lvs, body, loc,
+                          where_clause=wh, loop_var_ranges=mlr, type_info=_ti(val), shape_info=_si(val)))
+        cv: ExpressionIR = rterms[0]
+        for r in rterms[1:]: cv = BinaryOpIR(BinaryOp.ADD, cv, r, loc)
+        ni = dvars if allow_reuse else (ci + dvars)
+        nvr = dict(clause.variable_ranges or {}); nvr.update(new_vr)
+        dc.append(EinsteinClauseIR(indices=ni, value=cv, location=clause.location,
+                  where_clause=clause.where_clause, variable_ranges=nvr))
+
+    if not dc: return _z(loc)
+    return EinsteinIR(clauses=dc, shape=None, element_type=expr.element_type,
+                      location=expr.location, type_info=expr.type_info, shape_info=None)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Callee-body differentiation (zero-inlining)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _callee_block_build_primal(
+    block: BlockExpressionIR,
+    pm: Dict[DefId, ExpressionIR],
+    loc: SourceLocation,
+    R: Any,
+) -> Tuple[List[BindingIR], Dict[DefId, ExpressionIR]]:
+    """Replay callee locals once: primal bindings + map callee DefIds to fresh IdentifierIRs."""
+    primal_map: Dict[DefId, ExpressionIR] = dict(pm)
+    primal_stmts: List[BindingIR] = []
+    for s in block.statements or []:
+        if not isinstance(s, BindingIR) or s.defid is None or s.expr is None:
+            continue
+        subst_expr = _sub(s.expr, primal_map, loc)
+        pd = R.allocate_for_local()
+        pn = s.name or "_p"
+        pr = IdentifierIR(pn, s.location or loc, pd, type_info=_ti(s))
+        primal_map[s.defid] = pr
+        primal_stmts.append(
+            BindingIR(
+                name=pn,
+                expr=subst_expr,
+                location=s.location or loc,
+                defid=pd,
+                type_info=_ti(s),
+            )
+        )
+    return primal_stmts, primal_map
+
+
+def _diff_callee_block_tangent(
+    block: BlockExpressionIR,
+    wrt: DefId,
+    loc: SourceLocation,
+    B: Dict[DefId, BindingIR],
+    R: Any,
+    primal_map: Dict[DefId, ExpressionIR],
+    param_subst: Dict[DefId, ExpressionIR],
+    wt: Optional[ExpressionIR] = None,
+) -> Tuple[List[BindingIR], ExpressionIR]:
+    """∂/∂wrt for callee body given an already-built ``primal_map`` (no primal statements)."""
+    if block.final_expr is None:
+        raise ValueError("Autodiff: callee block has no final expression")
+    sp: Dict[DefId, ExpressionIR] = {}
+    # Quotient Jacobians use wrt = a call-site DefId (denominator of @y/@x); parameters are
+    # keys of ``param_subst``.  Forward-mode uses wrt = callee parameter DefId ∈ param_subst.
+    # primal_subst must only apply to the quotient case (see tests using std::ml).
+    ps_map = primal_map if wrt not in param_subst else None
+    vis = JacobianVisitor(
+        wrt, loc, B, R, stmt_partial=sp, wrt_tangent=wt, primal_subst=ps_map
+    )
+    diff_stmts: List[BindingIR] = []
+    for s in block.statements or []:
+        if not isinstance(s, BindingIR) or s.defid is None or s.expr is None:
+            continue
+        pv = _simplify(_sub(s.expr.accept(vis), primal_map, loc), loc)
+        if _is_zero(pv):
+            sp[s.defid] = _z(loc)
+        else:
+            dd = R.allocate_for_local()
+            dn = DIFF_PREFIX + (s.name or "")
+            dr = IdentifierIR(dn, s.location or loc, dd, type_info=_ti(s))
+            sp[s.defid] = dr
+            diff_stmts.append(
+                BindingIR(
+                    name=dn,
+                    expr=pv,
+                    location=s.location or loc,
+                    defid=dd,
+                    type_info=_ti(s),
+                )
+            )
+    fp = _simplify(_sub(block.final_expr.accept(vis), primal_map, loc), loc)
+    return diff_stmts, fp
+
+
+def _callee_args_all_identifier_expressions(
+    rm: Dict[DefId, ExpressionIR], ps: List[Any]
+) -> bool:
+    """True if every parameter is bound to a bare ``IdentifierIR`` (typical call sites)."""
+    for p in ps:
+        if p.defid is None:
+            return False
+        arg = rm.get(p.defid)
+        if not isinstance(arg, IdentifierIR) or arg.defid is None:
+            return False
+    return True
+
+
+def _diff_callee_block_combined_forward(
+    block: BlockExpressionIR,
+    primal_map: Dict[DefId, ExpressionIR],
+    rm: Dict[DefId, ExpressionIR],
+    tangent_by_param: Dict[DefId, ExpressionIR],
+    loc: SourceLocation,
+    B: Dict[DefId, BindingIR],
+    R: Any,
+    ps: List[Any],
+) -> Tuple[List[BindingIR], ExpressionIR]:
+    """Single forward-mode sweep: one ``_@v`` per callee local, full JVP Σᵢ ∂/∂pᵢ·dpᵢ.
+
+    Requires every argument in ``rm`` to be a bare identifier so tangents attach to call-site
+    ``DefId``s. Non-identifier arguments fall back to per-parameter ``JacobianVisitor`` sweeps.
+    """
+    if block.final_expr is None:
+        raise ValueError("Autodiff: callee block has no final expression")
+    dre: Dict[DefId, ExpressionIR] = {}
+    for p in ps:
+        if p.defid is None:
+            raise ValueError("Autodiff: parameter has no defid")
+        da = tangent_by_param.get(p.defid)
+        if da is None:
+            raise ValueError("Autodiff: missing tangent for callee parameter")
+        arg = rm[p.defid]
+        if not isinstance(arg, IdentifierIR) or arg.defid is None:
+            raise ValueError("Autodiff: combined callee forward requires identifier arguments")
+        dre[arg.defid] = da
+
+    diff_stmts: List[BindingIR] = []
+    bl = block.location or loc
+    for s in block.statements or []:
+        if not isinstance(s, BindingIR) or s.defid is None or s.expr is None:
+            continue
+        e_sub = _sub(s.expr, primal_map, loc)
+        pv = _simplify(e_sub.accept(DiffVisitor(dre, loc, B, R)), loc)
+        prim = primal_map.get(s.defid)
+        if not isinstance(prim, IdentifierIR) or prim.defid is None:
+            raise ValueError("Autodiff: primal_map missing identifier for callee local")
+        pd = prim.defid
+        if _is_zero(pv):
+            dre[pd] = _z(bl)
+            continue
+        dd = R.allocate_for_local()
+        dn = DIFF_PREFIX + (s.name or "")
+        dr = IdentifierIR(dn, s.location or bl, dd, type_info=_ti(s))
+        dre[pd] = dr
+        diff_stmts.append(
+            BindingIR(
+                name=dn,
+                expr=pv,
+                location=s.location or bl,
+                defid=dd,
+                type_info=_ti(s),
+            )
+        )
+    fe_sub = _sub(block.final_expr, primal_map, loc)
+    fp = _simplify(fe_sub.accept(DiffVisitor(dre, loc, B, R)), loc)
+    return diff_stmts, fp
+
+
+def _diff_callee_block(block: BlockExpressionIR, wrt: DefId, loc: SourceLocation,
+                       B: Dict[DefId, BindingIR], R: Any,
+                       pm: Dict[DefId, ExpressionIR],
+                       wt: Optional[ExpressionIR] = None) -> ExpressionIR:
+    if block.final_expr is None:
+        raise ValueError("Autodiff: callee block has no final expression")
+    # Build primal_map mapping each callee-local DefId to a NEW IdentifierIR so differential
+    # expressions reference named bindings rather than inlined expressions.  (Autodiff runs
+    # before Einstein lowering; callee bodies must be EinsteinIR here, not lowered-* IR.)
+    primal_stmts, primal_map = _callee_block_build_primal(block, pm, loc, R)
+    diff_stmts, fp = _diff_callee_block_tangent(block, wrt, loc, B, R, primal_map, pm, wt)
+    out_stmts = primal_stmts + diff_stmts
+    if out_stmts:
+        return BlockExpressionIR(out_stmts, block.location or loc, fp,
+                                 type_info=_ti(block), shape_info=_si(block))
+    return fp
+
+def _sub_callee(expr: ExpressionIR, fv: FunctionValueIR,
+                rm: Dict[DefId, ExpressionIR], loc: SourceLocation) -> ExpressionIR:
+    cm: Dict[DefId, ExpressionIR] = dict(rm)
+    body = fv.body
+    if isinstance(body, BlockExpressionIR):
+        for s in body.statements or []:
+            if isinstance(s, BindingIR) and s.defid is not None and s.expr is not None:
+                cm[s.defid] = _sub(s.expr, cm, loc)
+    return _sub(expr, cm, loc)
+
+def _sum_terms(terms: List[ExpressionIR], loc: SourceLocation) -> ExpressionIR:
+    if not terms: return _z(loc)
+    out = terms[0]
+    for t in terms[1:]: out = BinaryOpIR(BinaryOp.ADD, out, t, loc)
+    return out
+
+
+def _callee_primal_subst_map(fv: FunctionValueIR, args: List[ExpressionIR]) -> Dict[DefId, ExpressionIR]:
+    """Map each parameter defid to the corresponding call-site argument expression."""
+    ps = fv.parameters or []
+    return {p.defid: args[j] for j, p in enumerate(ps) if p.defid is not None and j < len(args)}
+
+
+def _callee_forward_jvp(
+    fv: FunctionValueIR,
+    args: List[ExpressionIR],
+    tangent_by_param: Dict[DefId, ExpressionIR],
+    loc: SourceLocation,
+    B: Dict[DefId, BindingIR],
+    R: Any,
+) -> ExpressionIR:
+    """Forward JVP for a user function call: ``Σᵢ ∂f/∂pᵢ · dpᵢ`` in IR.
+
+    **Unified with ``custom_diff_body``:** When ``fv.custom_diff_body`` is set and arity
+    matches, the JVP is exactly ``_sub_callee(_sub_wd(rule, rm, tangent_by_param, loc), …)`` —
+    the same substitution pipeline as an ``@fn`` rule written in terms of
+    ``DifferentialIR(IdentifierIR(param))``. When there is no custom rule and every argument
+    is a bare identifier, one ``DiffVisitor`` sweep (``_diff_callee_block_combined_forward``)
+    emits a single ``_@v`` per callee local. Otherwise per-parameter ``JacobianVisitor`` sweeps
+    are summed (``_diff_callee_block_tangent`` in a loop).
+    """
+    ps = fv.parameters or []
+    rule_body = getattr(fv, "custom_diff_body", None)
+    if rule_body is not None and len(ps) == len(args):
+        rm = _callee_primal_subst_map(fv, args)
+        return _sub_callee(_sub_wd(rule_body, rm, tangent_by_param, loc), fv, rm, loc)
+
+    body = fv.body
+    if body is None:
+        raise ValueError("Autodiff: user function has no body")
+    if len(ps) != len(args):
+        raise ValueError("Autodiff: arity mismatch")
+    rm = _callee_primal_subst_map(fv, args)
+    if isinstance(body, BlockExpressionIR) and R is not None:
+        primal_stmts, primal_map = _callee_block_build_primal(body, rm, loc, R)
+        if _callee_args_all_identifier_expressions(rm, ps):
+            all_diff, acc = _diff_callee_block_combined_forward(
+                body, primal_map, rm, tangent_by_param, loc, B, R, ps
+            )
+        else:
+            all_diff = []
+            fps: List[ExpressionIR] = []
+            for p in ps:
+                if p.defid is None:
+                    raise ValueError("Autodiff: parameter has no defid")
+                da = tangent_by_param.get(p.defid)
+                if da is None:
+                    raise ValueError("Autodiff: missing tangent for callee parameter")
+                ds, fp = _diff_callee_block_tangent(body, p.defid, loc, B, R, primal_map, rm, wt=da)
+                all_diff.extend(ds)
+                fps.append(fp)
+            if not fps:
+                raise ValueError("Autodiff: callee forward JVP produced no tangent terms")
+            acc = fps[0]
+            for fe in fps[1:]:
+                acc = BinaryOpIR(BinaryOp.ADD, acc, fe, loc)
+        out: ExpressionIR
+        if primal_stmts or all_diff:
+            out = BlockExpressionIR(
+                primal_stmts + all_diff,
+                body.location or loc,
+                acc,
+                type_info=_ti(body),
+                shape_info=_si(body),
+            )
+        else:
+            out = acc
+        return _sub_callee(out, fv, rm, loc)
+
+    terms: List[ExpressionIR] = []
+    for p in ps:
+        if p.defid is None:
+            raise ValueError("Autodiff: parameter has no defid")
+        da = tangent_by_param.get(p.defid)
+        if da is None:
+            raise ValueError("Autodiff: missing tangent for callee parameter")
+        iv = JacobianVisitor(p.defid, loc, B, R, wrt_tangent=da)
+        terms.append(_sub(body.accept(iv), rm, loc))
+    if not terms:
+        raise ValueError("Autodiff: callee forward JVP produced no tangent terms")
+    out2 = _flatten_add_terms(terms, loc)
+    return _sub_callee(out2, fv, rm, loc)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Block lifting
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _inline_block_lets(block: BlockExpressionIR) -> ExpressionIR:
+    if block.final_expr is None: return block
+    stmts = [s for s in (block.statements or []) if isinstance(s, BindingIR)]
+    if not stmts:
+        return block.final_expr
+    if len(stmts) == 1 and isinstance(block.final_expr, IdentifierIR):
+        if block.final_expr.defid == stmts[0].defid and stmts[0].expr is not None:
+            return stmts[0].expr
+    return block
+
+def _lift_block_binop(op: BinaryOp, L: ExpressionIR, R: ExpressionIR, loc: SourceLocation) -> ExpressionIR:
+    sl: List = []; sr: List = []; l, r = L, R
+    if isinstance(L, BlockExpressionIR) and L.final_expr is not None:
+        sl = list(L.statements or []); l = L.final_expr
+    if isinstance(R, BlockExpressionIR) and R.final_expr is not None:
+        sr = list(R.statements or []); r = R.final_expr
+    if not sl and not sr: return BinaryOpIR(op, L, R, loc)
+    ti = _ti(L) or _ti(R); si = _si(L) or _si(R)
+    return BlockExpressionIR(sl + sr, loc, BinaryOpIR(op, l, r, loc, type_info=ti, shape_info=si),
+                             type_info=ti, shape_info=si)
+
+def _flatten_add_terms(terms: List[ExpressionIR], loc: SourceLocation) -> ExpressionIR:
+    if not terms: return _z(loc)
+    if len(terms) == 1: return terms[0]
+    ms: List[BindingIR] = []; fs: List[ExpressionIR] = []
+    for t in terms:
+        if isinstance(t, BlockExpressionIR) and t.final_expr is not None:
+            for s in t.statements or []:
+                if isinstance(s, BindingIR): ms.append(s)
+            fs.append(t.final_expr)
+        else:
+            fs.append(t)
+    acc = fs[0]
+    for f in fs[1:]: acc = BinaryOpIR(BinaryOp.ADD, acc, f, loc)
+    return BlockExpressionIR(ms, loc, acc) if ms else acc
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DiffVisitor  — forward-mode d(expr)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class DiffVisitor(IRVisitor[ExpressionIR]):
+    """Forward-mode differential: d(expr) via symbolic tangent refs."""
+    def __init__(self, d_map: Dict[DefId, ExpressionIR], loc: SourceLocation,
+                 bindings: Optional[Dict[DefId, Any]] = None,
+                 resolver: Any = None, pretty: bool = False) -> None:
+        self._d = d_map; self._loc = loc
+        self._B: Dict[DefId, Any] = dict(bindings) if bindings else {}
+        self._R = resolver; self._pretty = pretty
+
+    def visit_identifier(self, n: IdentifierIR) -> ExpressionIR:
+        if n.defid is not None:
+            ref = self._d.get(n.defid)
+            if ref is not None:
+                if isinstance(ref, IdentifierIR):
+                    return IdentifierIR(
+                        ref.name,
+                        n.location or self._loc,
+                        ref.defid,
+                        type_info=_ti(ref),
+                        shape_info=_si(ref),
+                    )
+                return ref
+        raise ValueError("Autodiff: identifier not in differential map")
+
+    def visit_literal(self, n: LiteralIR) -> ExpressionIR: return _z(self._loc)
+
+    def visit_binary_op(self, n: BinaryOpIR) -> ExpressionIR:
+        L = n.left; R = n.right; loc = n.location or self._loc
+        dL = L.accept(self); dR = R.accept(self)
+        op = n.operator
+        if op == BinaryOp.ADD:
+            return _lift_block_binop(BinaryOp.ADD, dL, dR, loc) if self._pretty else BinaryOpIR(BinaryOp.ADD, dL, dR, loc)
+        if op == BinaryOp.SUB:
+            return _lift_block_binop(BinaryOp.SUB, dL, dR, loc) if self._pretty else BinaryOpIR(BinaryOp.SUB, dL, dR, loc)
+        if op == BinaryOp.MUL:
+            return BinaryOpIR(BinaryOp.ADD,
+                              BinaryOpIR(BinaryOp.MUL, L, dR, loc),
+                              BinaryOpIR(BinaryOp.MUL, R, dL, loc), loc)
+        if op == BinaryOp.DIV:
+            num = BinaryOpIR(BinaryOp.SUB,
+                             BinaryOpIR(BinaryOp.MUL, R, dL, loc),
+                             BinaryOpIR(BinaryOp.MUL, L, dR, loc), loc)
+            den = BinaryOpIR(BinaryOp.POW, R, _fl(2, loc), loc)
+            return BinaryOpIR(BinaryOp.DIV, num, den, loc)
+        if op == BinaryOp.POW: return _pow_chain(n, dL, dR, self._B, self._R, loc)
+        if op == BinaryOp.MOD: return dL
+        raise ValueError(f"Autodiff: unsupported binary op: {op}")
+
+    def visit_unary_op(self, n: UnaryOpIR) -> ExpressionIR:
+        d = n.operand.accept(self)
+        if n.operator == UnaryOp.NEG: return UnaryOpIR(UnaryOp.NEG, d, n.location or self._loc)
+        if n.operator == UnaryOp.POS: return d
+        raise ValueError(f"Autodiff: unsupported unary op: {n.operator}")
+
+    def visit_reduction_expression(self, n: ReductionExpressionIR) -> ExpressionIR:
+        loc = n.location or self._loc; db = n.body.accept(self); op = n.operation
+        if op == ReductionOp.SUM:
+            return ReductionExpressionIR(ReductionOp.SUM, n.loop_vars, db, loc,
+                   where_clause=n.where_clause, loop_var_ranges=n.loop_var_ranges,
+                   type_info=_ti(n), shape_info=_si(n))
+        if op == ReductionOp.MAX:
+            return SelectAtArgmaxIR(n.body, db, n.loop_vars, loop_var_ranges=n.loop_var_ranges,
+                   location=loc, type_info=_ti(n), shape_info=_si(n))
+        if op == ReductionOp.MIN:
+            return SelectAtArgmaxIR(n.body, db, n.loop_vars, loop_var_ranges=n.loop_var_ranges,
+                   location=loc, type_info=_ti(n), shape_info=_si(n), use_argmin=True)
+        if op == ReductionOp.PROD:
+            return BinaryOpIR(BinaryOp.MUL,
+                              BinaryOpIR(BinaryOp.DIV, n, n.body, loc), db, loc)
+        raise ValueError(f"Autodiff: unsupported reduction: {op}")
+
+    def visit_block_expression(self, n: BlockExpressionIR) -> ExpressionIR:
+        if n.final_expr is None:
+            raise ValueError("Autodiff: DiffVisitor block has no final expression")
+        inl = _inline_block_lets(n)
+        if inl is n:
+            return n.final_expr.accept(self)
+        return inl.accept(self)
+
+    def visit_select_at_argmax(self, n: SelectAtArgmaxIR) -> ExpressionIR: return n
+
+    def visit_function_call(self, n: FunctionCallIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        args = n.arguments or []
+        cdid = n.function_defid
+        if cdid is None or cdid not in self._B:
+            raise ValueError("Autodiff: callee must be a resolved function")
+        binding = self._B[cdid]
+        if not isinstance(binding.expr, FunctionValueIR):
+            raise ValueError("Autodiff: callee is not a function value")
+        fv = binding.expr
+        ps = fv.parameters or []
+        tangent_by_param = {
+            p.defid: args[i].accept(self) for i, p in enumerate(ps) if p.defid is not None
+        }
+        tang = _callee_forward_jvp(fv, args, tangent_by_param, loc, self._B, self._R)
+        if self._pretty:
+            return _wrap_tangent_binding(
+                tang, cdid, fv, ps, list(args), n.callee_expr,
+                self._B, self._R, loc, _ti(n), _si(n),
+            )
+        return tang
+
+    def visit_rectangular_access(self, n: RectangularAccessIR) -> ExpressionIR:
+        loc = n.location or self._loc; da = n.array.accept(self)
+        if _is_zero(da): return _z(loc)
+        indices = list(n.indices or [])
+        if isinstance(da, EinsteinIR) and da.clauses and len(da.clauses) == 1:
+            c = da.clauses[0]; ci = c.indices or []
+            if len(ci) == len(indices):
+                rm: Dict[DefId, ExpressionIR] = {}
+                for j, cidx in enumerate(ci):
+                    if isinstance(cidx, (IndexVarIR, IdentifierIR)) and cidx.defid is not None and j < len(indices):
+                        rm[cidx.defid] = indices[j]
+                inl = _sub(c.value, rm, loc)
+                ti = _ti(n); si = _si(n)
+                if ti is not None or si is not None: _propagate_ti(inl, ti, si)
+                return inl
+        return RectangularAccessIR(da, indices, loc, type_info=_ti(n), shape_info=_si(n))
+
+    def visit_if_expression(self, n: IfExpressionIR) -> ExpressionIR:
+        dt = n.then_expr.accept(self)
+        de = n.else_expr.accept(self) if n.else_expr is not None else _z(self._loc)
+        return IfExpressionIR(condition=n.condition, then_expr=dt, location=n.location or self._loc,
+                              else_expr=de, type_info=_ti(n), shape_info=_si(n))
+
+    def visit_cast_expression(self, n: CastExpressionIR) -> ExpressionIR:
+        return n.expr.accept(self)
+
+    def visit_einstein(self, n: EinsteinIR) -> ExpressionIR:
+        nc: List[EinsteinClauseIR] = []
+        for c in n.clauses or []:
+            try: dv = _simplify(c.value.accept(self), c.location or self._loc)
+            except (ValueError, KeyError): continue
+            if _is_zero(dv): continue
+            nc.append(EinsteinClauseIR(indices=list(c.indices or []), value=dv, location=c.location,
+                      where_clause=c.where_clause, variable_ranges=dict(c.variable_ranges or {})))
+        if not nc: return _z(self._loc)
+        return EinsteinIR(clauses=nc, shape=n.shape, element_type=n.element_type,
+                          location=n.location, type_info=_ti(n), shape_info=_si(n))
+
+    def visit_lowered_einstein(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("DiffVisitor", n)
+
+    def visit_differential(self, n: DifferentialIR) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+
+    # -- unsupported IR (do not return literal zero) -----------------------
+    def visit_jagged_access(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_lambda(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_range(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_array_comprehension(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_array_literal(self, n: ArrayLiteralIR) -> ExpressionIR: return _z(self._loc)
+    def visit_tuple_expression(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_tuple_access(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_interpolated_string(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_member_access(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_function_value(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_try_expression(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_match_expression(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_where_expression(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_pipeline_expression(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_builtin_call(self, n: BuiltinCallIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        if n.builtin_name in _AD_ZERO_TANGENT_BUILTINS:
+            return _z(loc)
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_module(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_program(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_binding(self, n: BindingIR) -> ExpressionIR:
+        if n.expr is None:
+            raise ValueError("Autodiff: DiffVisitor binding has no expression")
+        return n.expr.accept(self)
+    def visit_index_var(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_index_rest(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_einstein_clause(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_lowered_reduction(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("DiffVisitor", n)
+    def visit_lowered_select_at_argmax(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("DiffVisitor", n)
+    def visit_lowered_comprehension(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("DiffVisitor", n)
+    def visit_lowered_einstein_clause(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("DiffVisitor", n)
+    def visit_lowered_recurrence(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("DiffVisitor", n)
+    def visit_literal_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_identifier_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_wildcard_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_tuple_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_array_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_rest_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_guard_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_or_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_constructor_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_binding_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_range_pattern(self, n: Any) -> ExpressionIR:
+        _unsupported_autodiff_ir("DiffVisitor", n)
+
+
+def _wrap_tangent_binding(tang: ExpressionIR, cdid: DefId, fv: FunctionValueIR,
+                          ps: List, args: List[ExpressionIR], callee_expr: ExpressionIR,
+                          B: Dict, R: Any, loc: SourceLocation, ti: Any, si: Any) -> ExpressionIR:
+    cn = getattr(callee_expr, "name", None) or "f"
+    dd = R.allocate_for_local()
+    # Internal binding name; print(@y) maps defid → "@" + tail (see PRINT_DIFFERENTIAL.md).
+    if len(args) == 1 and isinstance(args[0], IdentifierIR):
+        an = args[0].name or ""
+        if len(cn) == 1:
+            dn = DIFF_PREFIX + cn + an
+        else:
+            dn = DIFF_PREFIX + cn + "_" + an
+    elif len(args) > 1:
+        dn = DIFF_PREFIX + cn + "_call"
+    else:
+        dn = DIFF_PREFIX + cn
+    db = BindingIR(name=dn, expr=tang, location=loc, defid=dd, type_info=ti)
+    dr = IdentifierIR(dn, loc, dd, type_info=ti, shape_info=si)
+    return BlockExpressionIR([db], loc, dr, type_info=ti, shape_info=si)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Formatting  — print(@y) support
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _idx_str(idx: Any) -> str:
+    if isinstance(idx, IndexVarIR): return idx.name or "?"
+    if isinstance(idx, IndexRestIR): return f"..{idx.name}" if idx.name else ".."
+    if isinstance(idx, IdentifierIR): return idx.name or "?"
+    return "?"
+
+def _str_ir(expr: ExpressionIR) -> str:
+    """Render an IR expression as pseudo-einlang code via each node's ``__str__``."""
+    return str(expr)
+
+_expr_to_diff_source = _str_ir
+
+def _fmt_print_msg(lhs: str, rhs: str) -> str:
+    return "let " + lhs + " = " + rhs.rstrip("\n") + ";"
+
+_format_print_differential_message = _fmt_print_msg
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Target collection  (unified: one walk → targets + quotient pairs)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _collect_targets(node: Any) -> Tuple[List[Tuple[DefId, str]], List[Tuple[DefId, DefId]]]:
+    c = _TargetCollector()
+    node.accept(c)
+    return c.targets, c.quotient_pairs
+
+_collect_autodiff_targets = _collect_targets
+
+def _collect_targets_expr(expr: Any) -> Tuple[List[Tuple[DefId, str]], List[Tuple[DefId, DefId]]]:
+    return _collect_targets(expr)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Graph utilities
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _is_reachable(src: DefId, tgt: DefId, B: Dict[DefId, BindingIR]) -> bool:
+    vis: Set[DefId] = set(); q = [src]
+    while q:
+        cur = q.pop()
+        if cur == tgt: return True
+        if cur in vis: continue
+        vis.add(cur)
+        b = B.get(cur)
+        if b is not None and b.expr is not None:
+            for d in _collect_defids(b.expr):
+                if d not in vis: q.append(d)
+    return False
+
+class _TypePropagator(_DefIdCollector):
+    """Walk-and-mutate: fill missing ``type_info`` / ``shape_info`` like legacy ``_propagate_ti``."""
+
+    def __init__(self, ti: Any, si: Any) -> None:
+        super().__init__()
+        self._ti = ti
+        self._si = si
+
+    def _stamp(self, n: Any) -> None:
+        if self._ti is None:
+            ti_apply = None
+        elif isinstance(n, LiteralIR):
+            ti_apply = F32 if isinstance(self._ti, RectangularType) else self._ti
+        elif isinstance(n, IndexVarIR):
+            ti_apply = I32 if isinstance(self._ti, RectangularType) else self._ti
+        else:
+            ti_apply = self._ti
+        if ti_apply is not None and hasattr(n, "type_info") and n.type_info is None:
+            n.type_info = ti_apply
+        if isinstance(n, (LiteralIR, IndexVarIR)):
             return
-        if isinstance(e, DifferentialIR):
-            t = _target_from(e.operand)
-            if t is not None:
-                targets.append(t)
-            walk(e.operand)
-        if isinstance(e, BinaryOpIR):
-            if e.operator == BinaryOp.DIV and isinstance(e.left, DifferentialIR) and isinstance(e.right, DifferentialIR):
-                for op in (e.left.operand, e.right.operand):
-                    t = _target_from(op)
-                    if t is not None:
-                        targets.append(t)
-            walk(e.left)
-            walk(e.right)
-        if isinstance(e, UnaryOpIR):
-            walk(e.operand)
-        if isinstance(e, BlockExpressionIR):
-            for s in e.statements or []:
-                walk(s)
-            walk(e.final_expr)
-        if isinstance(e, BindingIR):
-            walk(e.expr)
-        if isinstance(e, (EinsteinIR, IfExpressionIR)):
-            for c in getattr(e, "clauses", None) or []:
-                walk(getattr(c, "value", c))
-            if hasattr(e, "final_expr"):
-                walk(getattr(e, "final_expr"))
-            if hasattr(e, "then_expr"):
-                walk(e.then_expr)
-            if hasattr(e, "else_expr"):
-                walk(e.else_expr)
-        if isinstance(e, FunctionCallIR):
-            for a in e.arguments or []:
-                walk(a)
-        if isinstance(e, RectangularAccessIR):
-            walk(e.array)
-        if isinstance(e, BuiltinCallIR):
-            for a in e.args or []:
-                walk(a)
+        if hasattr(n, "shape_info") and n.shape_info is None and self._si is not None:
+            n.shape_info = self._si
 
-    walk(expr)
-    return targets
+    def visit_literal(self, n: LiteralIR) -> None:
+        self._stamp(n)
+
+    def visit_identifier(self, n: IdentifierIR) -> None:
+        self._stamp(n)
+        if n.defid is not None:
+            self.defids.add(n.defid)
+
+    def visit_binary_op(self, n: BinaryOpIR) -> None:
+        self._stamp(n)
+        n.left.accept(self)
+        n.right.accept(self)
+
+    def visit_unary_op(self, n: UnaryOpIR) -> None:
+        self._stamp(n)
+        n.operand.accept(self)
+
+    def visit_block_expression(self, n: BlockExpressionIR) -> None:
+        self._stamp(n)
+        for s in n.statements or []:
+            if isinstance(s, BindingIR):
+                bti = s.type_info or self._ti
+                if s.type_info is None and bti:
+                    s.type_info = bti
+                if s.expr is not None:
+                    s.expr.accept(_TypePropagator(bti, self._si))
+            elif isinstance(s, ExpressionIR):
+                s.accept(self)
+        if n.final_expr is not None:
+            n.final_expr.accept(self)
+
+    def visit_einstein(self, n: EinsteinIR) -> None:
+        self._stamp(n)
+        for c in n.clauses or []:
+            if not isinstance(c, EinsteinClauseIR):
+                continue
+            for idx in c.indices or []:
+                if isinstance(idx, ExpressionIR):
+                    idx.accept(self)
+            if c.value is not None:
+                c.value.accept(self)
+            wc = c.where_clause
+            if wc is not None:
+                for ct in wc.constraints or []:
+                    if isinstance(ct, ExpressionIR):
+                        ct.accept(self)
+            for _k, v in (c.variable_ranges or {}).items():
+                if isinstance(v, RangeIR):
+                    v.start.accept(self)
+                    v.end.accept(self)
+                elif isinstance(v, ExpressionIR):
+                    v.accept(self)
+
+    def visit_reduction_expression(self, n: ReductionExpressionIR) -> None:
+        self._stamp(n)
+        n.body.accept(self)
+        for _k, v in (n.loop_var_ranges or {}).items():
+            if isinstance(v, RangeIR):
+                v.start.accept(self)
+                v.end.accept(self)
+            elif isinstance(v, ExpressionIR):
+                v.accept(self)
+        wc = n.where_clause
+        if wc is not None:
+            for ct in wc.constraints or []:
+                if isinstance(ct, ExpressionIR):
+                    ct.accept(self)
+
+    def visit_select_at_argmax(self, n: SelectAtArgmaxIR) -> None:
+        self._stamp(n)
+        if n.primal_body is not None:
+            n.primal_body.accept(self)
+        if n.diff_body is not None:
+            n.diff_body.accept(self)
+        for _k, v in (n.loop_var_ranges or {}).items():
+            if isinstance(v, RangeIR):
+                v.start.accept(self)
+                v.end.accept(self)
+            elif isinstance(v, ExpressionIR):
+                v.accept(self)
+
+    def visit_rectangular_access(self, n: RectangularAccessIR) -> None:
+        self._stamp(n)
+        n.array.accept(self)
+        for i in n.indices or []:
+            if isinstance(i, ExpressionIR):
+                i.accept(self)
+
+    def visit_if_expression(self, n: IfExpressionIR) -> None:
+        self._stamp(n)
+        n.then_expr.accept(self)
+        if n.else_expr is not None:
+            n.else_expr.accept(self)
+
+    def visit_function_call(self, n: FunctionCallIR) -> None:
+        self._stamp(n)
+        for a in n.arguments or []:
+            a.accept(self)
+
+    def visit_cast_expression(self, n: CastExpressionIR) -> None:
+        self._stamp(n)
+        n.expr.accept(self)
+
+    def visit_builtin_call(self, n: BuiltinCallIR) -> None:
+        self._stamp(n)
+        for a in n.args or []:
+            a.accept(self)
+
+    def visit_differential(self, n: DifferentialIR) -> None:
+        self._stamp(n)
+
+    def visit_jagged_access(self, n: JaggedAccessIR) -> None:
+        self._stamp(n)
+
+    def visit_lambda(self, n: LambdaIR) -> None:
+        self._stamp(n)
+
+    def visit_range(self, n: RangeIR) -> None:
+        self._stamp(n)
+        n.start.accept(self)
+        n.end.accept(self)
+
+    def visit_array_comprehension(self, n: ArrayComprehensionIR) -> None:
+        self._stamp(n)
+
+    def visit_array_literal(self, n: ArrayLiteralIR) -> None:
+        self._stamp(n)
+
+    def visit_tuple_expression(self, n: TupleExpressionIR) -> None:
+        self._stamp(n)
+
+    def visit_tuple_access(self, n: TupleAccessIR) -> None:
+        self._stamp(n)
+
+    def visit_interpolated_string(self, n: InterpolatedStringIR) -> None:
+        self._stamp(n)
+
+    def visit_member_access(self, n: MemberAccessIR) -> None:
+        self._stamp(n)
+        n.object.accept(self)
+
+    def visit_try_expression(self, n: TryExpressionIR) -> None:
+        self._stamp(n)
+
+    def visit_match_expression(self, n: MatchExpressionIR) -> None:
+        self._stamp(n)
+
+    def visit_where_expression(self, n: WhereExpressionIR) -> None:
+        self._stamp(n)
+
+    def visit_pipeline_expression(self, n: PipelineExpressionIR) -> None:
+        self._stamp(n)
+
+    def visit_function_value(self, n: FunctionValueIR) -> None:
+        self._stamp(n)
+
+    def visit_index_var(self, n: IndexVarIR) -> None:
+        self._stamp(n)
+
+    def visit_index_rest(self, n: IndexRestIR) -> None:
+        self._stamp(n)
+        if getattr(n, "defid", None) is not None:
+            self.defids.add(n.defid)
+
+    def visit_einstein_clause(self, n: EinsteinClauseIR) -> None:
+        if n.value is not None:
+            n.value.accept(self)
+
+    def visit_lowered_reduction(self, n: Any) -> None:
+        self._stamp(n)
+
+    def visit_lowered_select_at_argmax(self, n: Any) -> None:
+        self._stamp(n)
+
+    def visit_lowered_comprehension(self, n: Any) -> None:
+        self._stamp(n)
+
+    def visit_lowered_einstein_clause(self, n: Any) -> None:
+        self._stamp(n)
+
+    def visit_lowered_einstein(self, n: Any) -> None:
+        self._stamp(n)
+
+    def visit_lowered_recurrence(self, n: Any) -> None:
+        self._stamp(n)
 
 
-# ---------------------------------------------------------------------------
-# Block-level d_* creation
-# ---------------------------------------------------------------------------
+def _propagate_ti(expr: Any, ti: Any, si: Any) -> None:
+    if expr is None:
+        return
+    if isinstance(expr, BindingIR):
+        if expr.expr is not None:
+            _propagate_ti(expr.expr, ti, si)
+        return
+    if isinstance(expr, ExpressionIR):
+        expr.accept(_TypePropagator(ti, si))
 
-def _bindings_in_block(block: Any, program: Optional[ProgramIR] = None) -> List[BindingIR]:
+
+_set_type_info = _propagate_ti
+
+def _bindings_in(block: Any, program: Optional[ProgramIR] = None) -> List[BindingIR]:
     if block is program or isinstance(block, ProgramIR):
         return [b for b in (program.bindings or []) if isinstance(b, BindingIR)] if program else []
     if isinstance(block, BlockExpressionIR):
         return [s for s in (block.statements or []) if isinstance(s, BindingIR)]
     return []
 
+_bindings_in_block = _bindings_in
 
-def _ensure_block_has_d_bindings(
-    block: BlockExpressionIR,
-    scope_binding_by_defid: Dict[DefId, Any],
-    scope_defid_to_expr: Dict[DefId, ExpressionIR],
-    defid_to_d_ident: Dict[DefId, IdentifierIR],
-    loc: SourceLocation,
-    resolver: Optional[Any],
-) -> None:
-    """If block contains @ or @num/@den, create d_* bindings for block-local defids."""
-    targets = _collect_differential_targets_in_expr(block)
-    pairs = _collect_quotient_pairs_in_expr(block)
-    if not targets and not pairs:
-        return
-    block_bindings = _bindings_in_block(block, None)
-    if not block_bindings:
-        return
-    block_defids = {b.defid for b in block_bindings if b.defid is not None}
-    target_defids: Set[DefId] = set()
-    for did, _ in targets:
-        target_defids.add(did)
-    for num, den in pairs:
-        target_defids.add(num)
-        target_defids.add(den)
-    target_defids &= block_defids
-    if not target_defids:
-        return
+# ═══════════════════════════════════════════════════════════════════════════
+# Expansion  (Phase 3)
+# ═══════════════════════════════════════════════════════════════════════════
 
-    block_binding_by_defid: Dict[DefId, BindingIR] = dict(scope_binding_by_defid)
-    for b in block_bindings:
-        if b.defid is not None:
-            block_binding_by_defid[b.defid] = b
-    binding_to_deps: Dict[DefId, Set[DefId]] = {}
-    for b in block_bindings:
-        if b.defid is not None and b.expr is not None:
-            binding_to_deps[b.defid] = _collect_defids(b.expr)
+def _primal_to_diff_map(bindings: List) -> Dict[DefId, BindingIR]:
+    out: Dict[DefId, BindingIR] = {}
+    lst = list(bindings or [])
+    for i in range(len(lst) - 1):
+        a, b = lst[i], lst[i + 1]
+        if not isinstance(a, BindingIR) or not isinstance(b, BindingIR): continue
+        if a.defid is None: continue
+        bn = b.name or ""; an2 = a.name or ""
+        if _is_diff_name(bn) and (bn == DIFF_PREFIX + an2 or bn == USER_DIFF_PREFIX + an2):
+            out[a.defid] = b
+    return out
 
-    reachable: Set[DefId] = set(target_defids)
-    work = list(reachable)
-    while work:
-        did = work.pop()
-        for dep in binding_to_deps.get(did) or []:
-            if dep in block_defids and dep not in reachable:
-                reachable.add(dep)
-                work.append(dep)
+_primal_to_following_diff_binding_map = _primal_to_diff_map
 
-    forward_order: List[BindingIR] = []
-    seen: Set[DefId] = set()
-
-    def visit(did: DefId) -> None:
-        if did in seen or did not in reachable:
-            return
-        seen.add(did)
-        b = block_binding_by_defid.get(did)
-        if b is None:
-            return
-        for dep in binding_to_deps.get(b.defid) or []:
-            if dep in block_defids:
-                visit(dep)
-        forward_order.append(b)
-
-    for did in target_defids:
-        visit(did)
-
-    if resolver is None:
-        return
-
-    loc0 = SourceLocation("", 0, 0)
-    quotient_denominators = {den for _, den in pairs}
-    leaves = {did for did in reachable if not (binding_to_deps.get(did) or set())}
-    seed_value: Dict[DefId, int] = {}
-    for b in forward_order:
-        if b.defid is None:
+def _trans_deps(expr: Optional[ExpressionIR], B: Dict[DefId, BindingIR]) -> Set[DefId]:
+    out: Set[DefId] = set()
+    vis: Set[DefId] = set()
+    pending: List[DefId] = []
+    for d in _collect_defids(expr):
+        pending.append(d)
+    while pending:
+        did = pending.pop()
+        if did in vis:
             continue
-        if b.defid in quotient_denominators:
-            seed_value[b.defid] = 1
-        elif b.defid in leaves and b.defid in target_defids:
-            seed_value[b.defid] = 1
-        else:
-            seed_value[b.defid] = 0
-
-    defid_to_d_ref_expr: Dict[DefId, ExpressionIR] = {}
-    for did, ref in defid_to_d_ident.items():
-        defid_to_d_ref_expr[did] = ref
-
-    use_per_quotient_seeds = len(pairs) > 0
-    defid_to_d_binding_block: Dict[DefId, BindingIR] = {}
-    for b in forward_order:
-        if b.defid is None or b.defid in defid_to_d_ident:
+        vis.add(did)
+        out.add(did)
+        b = B.get(did)
+        if b is None or b.expr is None or isinstance(b.expr, FunctionValueIR):
             continue
-        bloc = b.location or loc0
-        if use_per_quotient_seeds and b.defid in leaves:
-            d_rhs: ExpressionIR = _float_lit(0, bloc)
-        elif b.defid in seed_value and seed_value[b.defid] == 1:
-            d_rhs = _float_lit(1, bloc)
-        else:
-            for dep in binding_to_deps.get(b.defid) or []:
-                if dep not in defid_to_d_ref_expr:
-                    defid_to_d_ref_expr[dep] = _float_lit(0, bloc)
-            rhs = _forward_d_y_expr(b, defid_to_d_ref_expr, block_binding_by_defid, binding_to_deps, bloc, resolver)
-            d_rhs = rhs if rhs is not None else _float_lit(0, bloc)
-            d_rhs = _inline_derivative_rhs_block(d_rhs, bloc)
+        for d2 in _collect_defids(b.expr):
+            if d2 not in vis:
+                pending.append(d2)
+    return out
 
-        d_defid = resolver.allocate_for_local()
-        d_name = DIFF_PREFIX + (b.name or "")
-        d_ref = IdentifierIR(d_name, bloc, d_defid)
-        defid_to_d_ident[b.defid] = d_ref
-        defid_to_d_ref_expr[b.defid] = d_ref
-        ti = getattr(b, "type_info", None) or (getattr(b.expr, "type_info", None) if b.expr else None)
-        si = getattr(b, "shape_info", None) or (getattr(b.expr, "shape_info", None) if b.expr else None)
-        _set_type_info(d_rhs, ti, si)
-        d_binding = BindingIR(name=d_name, expr=d_rhs, location=b.location, defid=d_defid, type_info=ti)
-        defid_to_d_binding_block[b.defid] = d_binding
-
-    new_stmts: List[Any] = []
-    for stmt in block.statements or []:
-        new_stmts.append(stmt)
-        if isinstance(stmt, BindingIR) and stmt.defid is not None and stmt.defid in defid_to_d_binding_block:
-            new_stmts.append(defid_to_d_binding_block[stmt.defid])
-    object.__setattr__(block, "statements", new_stmts)
+_transitive_primal_dep_defids_from_expr = _trans_deps
 
 
-# ---------------------------------------------------------------------------
-# Expansion: replace DifferentialIR and @num/@den in program
-# ---------------------------------------------------------------------------
+class _ExpansionVisitor(_Rewriter):
+    """Phase-3 expansion: ``DifferentialIR``, quotients, ``print(@y)``, scoped blocks."""
 
-def _expand_derivative_in_expr(
-    expr: ExpressionIR,
-    defid_to_d_ident: Dict[DefId, IdentifierIR],
-    scope_binding_by_defid: Dict[DefId, Any],
-    scope_defid_to_expr: Dict[DefId, ExpressionIR],
-    loc: SourceLocation,
-    resolver: Optional[Any] = None,
-) -> ExpressionIR:
-    """Rewrite DifferentialIR -> d_ref; expand @num/@den to derivative.
+    def __init__(
+        self,
+        D: Dict[DefId, IdentifierIR],
+        SB: Dict[DefId, Any],
+        SE: Dict[DefId, ExpressionIR],
+        loc: SourceLocation,
+        R: Any = None,
+        P: Optional[ProgramIR] = None,
+    ) -> None:
+        super().__init__(loc)
+        self._D = D
+        self._SB = SB
+        self._SE = SE
+        self._R = R
+        self._P = P
 
-    Quotient decision:
-      - Direct dep (den_defid in num_expr AST): symbolic Jacobian via _SymbolicDiffVisitor
-      - Transitive dep (reachable but not in AST): d_num / d_den quotient form
-      - No dep: LiteralIR(0)
-    """
-    if isinstance(expr, DifferentialIR):
-        operand = expr.operand
-        if isinstance(operand, IdentifierIR) and operand.defid is not None:
-            ref = defid_to_d_ident.get(operand.defid)
+    def visit_differential(self, n: DifferentialIR) -> ExpressionIR:
+        op = n.operand
+        if isinstance(op, IdentifierIR) and op.defid is not None:
+            ref = self._D.get(op.defid)
             if ref is not None:
-                return IdentifierIR(
-                    ref.name, expr.location, ref.defid,
-                    type_info=getattr(expr, "type_info", None),
-                    shape_info=getattr(expr, "shape_info", None),
-                )
-        vis = _ForwardDiffVisitor(defid_to_d_ident, loc, scope_binding_by_defid, resolver)
-        out = operand.accept(vis)
-        if getattr(expr, "type_info", None) is not None and hasattr(out, "type_info"):
-            out.type_info = expr.type_info
-        if getattr(expr, "shape_info", None) is not None and hasattr(out, "shape_info"):
-            out.shape_info = expr.shape_info
-        return out
+                return IdentifierIR(ref.name, n.location, ref.defid, type_info=_ti(n), shape_info=_si(n))
+        return op.accept(DiffVisitor(self._D, self._loc, self._SB, self._R))
 
-    if isinstance(expr, BinaryOpIR):
-        if expr.operator == BinaryOp.DIV and isinstance(expr.left, DifferentialIR) and isinstance(expr.right, DifferentialIR):
-            loc_q = expr.location or loc
-            num_operand = expr.left.operand
-            den_operand = expr.right.operand
-
-            if isinstance(den_operand, IdentifierIR) and den_operand.defid is not None:
-                den_defid = den_operand.defid
-
-                if isinstance(num_operand, IdentifierIR) and num_operand.defid is not None:
-                    num_expr = scope_defid_to_expr.get(num_operand.defid)
-                    if num_expr is None:
-                        raise ValueError("Autodiff: numerator of @num/@den has no defining expression")
-                else:
-                    num_expr = num_operand
-
-                direct_deps = _collect_defids(num_expr)
-
-                if den_defid in direct_deps:
-                    vis = _SymbolicDiffVisitor(den_defid, loc_q, scope_binding_by_defid, resolver)
-                    der = num_expr.accept(vis)
-                    der = _simplify(der, loc_q)
-                    ti = getattr(expr, "type_info", None)
-                    si = getattr(expr, "shape_info", None)
-                    if ti is not None or si is not None:
-                        _set_type_info(der, ti, si)
-                    return der
-                elif (
-                    isinstance(num_operand, IdentifierIR)
-                    and num_operand.defid is not None
-                    and _is_reachable(num_operand.defid, den_defid, scope_binding_by_defid)
-                ):
-                    vis = _SymbolicDiffVisitor(den_defid, loc_q, scope_binding_by_defid, resolver)
-                    der = num_expr.accept(vis)
-                    der = _simplify(der, loc_q)
-                    ti = getattr(expr, "type_info", None)
-                    si = getattr(expr, "shape_info", None)
-                    if ti is not None or si is not None:
-                        _set_type_info(der, ti, si)
-                    return der
-                else:
-                    return _float_lit(0, loc_q)
-            else:
-                if isinstance(num_operand, IdentifierIR) and num_operand.defid is not None:
-                    num_e = num_operand
-                else:
-                    num_e = num_operand
-                den_expr = den_operand
-                defids = _collect_defids(den_expr)
-                if len(defids) == 0:
-                    raise ValueError("Autodiff: @num/@(expr) denominator depends on no variables")
-                if len(defids) > 1:
-                    raise ValueError("Autodiff: @num/@(expr) denominator depends on more than one variable")
-                wrt_defid = next(iter(defids))
-                vis_num = _SymbolicDiffVisitor(wrt_defid, loc, scope_binding_by_defid, resolver)
-                vis_den = _SymbolicDiffVisitor(wrt_defid, loc, scope_binding_by_defid, resolver)
-                d_num = num_e.accept(vis_num)
-                d_den = den_expr.accept(vis_den)
-                der = BinaryOpIR(BinaryOp.DIV, d_num, d_den, loc)
-                ti = getattr(expr, "type_info", None)
-                si = getattr(expr, "shape_info", None)
-                if ti is not None or si is not None:
-                    _set_type_info(der, ti, si)
+    def visit_binary_op(self, n: BinaryOpIR) -> ExpressionIR:
+        if (n.operator == BinaryOp.DIV and isinstance(n.left, DifferentialIR)
+                and isinstance(n.right, DifferentialIR)):
+            ql = n.location or self._loc
+            nop = n.left.operand
+            dop = n.right.operand
+            if isinstance(dop, IdentifierIR) and dop.defid is not None:
+                dd = dop.defid
+                ne = self._SE.get(nop.defid) if isinstance(nop, IdentifierIR) and nop.defid is not None else nop
+                if ne is None:
+                    raise ValueError("Autodiff: numerator has no defining expr")
+                cdn = dd in _collect_defids(ne)
+                rch = (isinstance(nop, IdentifierIR) and nop.defid is not None
+                       and _is_reachable(nop.defid, dd, self._SB))
+                if not cdn and not rch:
+                    return _z(ql)
+                jv = JacobianVisitor(dd, ql, self._SB, self._R)
+                der = _simplify(ne.accept(jv), ql)
+                ti = _ti(n)
+                si = _si(n)
+                if ti or si:
+                    _propagate_ti(der, ti, si)
                 return der
+            dids = _collect_defids(dop)
+            if len(dids) != 1:
+                raise ValueError("Autodiff: @num/@(expr) denominator depends on != 1 variable")
+            wd = next(iter(dids))
+            dn = nop.accept(JacobianVisitor(wd, self._loc, self._SB, self._R))
+            dd_ = dop.accept(JacobianVisitor(wd, self._loc, self._SB, self._R))
+            der = BinaryOpIR(BinaryOp.DIV, dn, dd_, self._loc)
+            ti = _ti(n)
+            si = _si(n)
+            if ti or si:
+                _propagate_ti(der, ti, si)
+            return der
+        nL = n.left.accept(self)
+        nR = n.right.accept(self)
+        return BinaryOpIR(n.operator, nL, nR, n.location, type_info=_ti(n), shape_info=_si(n))
 
-        new_left = _expand_derivative_in_expr(expr.left, defid_to_d_ident, scope_binding_by_defid, scope_defid_to_expr, loc, resolver)
-        new_right = _expand_derivative_in_expr(expr.right, defid_to_d_ident, scope_binding_by_defid, scope_defid_to_expr, loc, resolver)
-        return BinaryOpIR(
-            expr.operator, new_left, new_right, expr.location,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
-
-    if isinstance(expr, UnaryOpIR):
+    def visit_unary_op(self, n: UnaryOpIR) -> ExpressionIR:
         return UnaryOpIR(
-            expr.operator,
-            _expand_derivative_in_expr(expr.operand, defid_to_d_ident, scope_binding_by_defid, scope_defid_to_expr, loc, resolver),
-            expr.location,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
+            n.operator,
+            n.operand.accept(self),
+            n.location,
+            type_info=_ti(n),
+            shape_info=_si(n),
         )
 
-    if isinstance(expr, EinsteinIR):
-        new_clauses = []
-        for c in (expr.clauses or []):
-            new_value = _expand_derivative_in_expr(
-                c.value, defid_to_d_ident, scope_binding_by_defid, scope_defid_to_expr, loc, resolver
+    def visit_einstein(self, n: EinsteinIR) -> ExpressionIR:
+        nc: List[EinsteinClauseIR] = []
+        for c in n.clauses or []:
+            cv = c.value.accept(self) if c.value is not None else None
+            nc.append(
+                EinsteinClauseIR(
+                    indices=c.indices,
+                    value=cv,
+                    location=c.location,
+                    where_clause=c.where_clause,
+                    variable_ranges=dict(c.variable_ranges) if c.variable_ranges else {},
+                )
             )
-            new_clauses.append(EinsteinClauseIR(
-                indices=c.indices, value=new_value, location=c.location,
-                where_clause=c.where_clause,
-                variable_ranges=dict(c.variable_ranges) if c.variable_ranges else {},
-            ))
         return EinsteinIR(
-            clauses=new_clauses, shape=expr.shape, element_type=expr.element_type,
-            location=expr.location,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
+            clauses=nc,
+            shape=n.shape,
+            element_type=n.element_type,
+            location=n.location,
+            type_info=_ti(n),
+            shape_info=_si(n),
         )
 
-    if isinstance(expr, BlockExpressionIR):
-        _ensure_block_has_d_bindings(
-            expr, scope_binding_by_defid, scope_defid_to_expr, defid_to_d_ident, loc, resolver
+    def visit_block_expression(self, n: BlockExpressionIR) -> ExpressionIR:
+        # ``_ensure_block_d`` mutates ``block.statements`` in place. The same ``BlockExpressionIR``
+        # can be shared between ``tcx.function_ir_map`` (pub fn body) and a top-level expr subtree;
+        # mutating ``n`` would corrupt callee bodies (e.g. recurrence ``u`` inside euler_decay).
+        blk = BlockExpressionIR(
+            list(n.statements or []),
+            n.location or self._loc,
+            n.final_expr,
+            type_info=_ti(n),
+            shape_info=_si(n),
         )
-        new_scope_binding = dict(scope_binding_by_defid)
-        new_scope_expr = dict(scope_defid_to_expr)
-        new_stmts: List[Any] = []
-        for stmt in expr.statements or []:
-            if isinstance(stmt, BindingIR):
-                expanded_expr = _expand_derivative_in_expr(
-                    stmt.expr, defid_to_d_ident, new_scope_binding, new_scope_expr, loc, resolver
-                )
-                new_binding = BindingIR(
-                    name=stmt.name, expr=expanded_expr, location=stmt.location,
-                    defid=stmt.defid,
-                    type_info=getattr(stmt, "type_info", None),
-                )
-                if new_binding.defid is not None:
-                    new_scope_binding[new_binding.defid] = new_binding
-                    new_scope_expr[new_binding.defid] = expanded_expr
-                new_stmts.append(new_binding)
-            elif isinstance(stmt, ExpressionIR):
-                new_stmts.append(_expand_derivative_in_expr(stmt, defid_to_d_ident, new_scope_binding, new_scope_expr, loc, resolver))
+        _ensure_block_d(blk, self._SB, self._SE, self._D, self._loc, self._R)
+        nsb = dict(self._SB)
+        nse = dict(self._SE)
+        ns: List[Any] = []
+        for s in blk.statements or []:
+            if isinstance(s, BindingIR):
+                v = _ExpansionVisitor(self._D, nsb, nse, self._loc, self._R, self._P)
+                ex = s.expr.accept(v) if s.expr is not None else None
+                nb = BindingIR(name=s.name, expr=ex, location=s.location, defid=s.defid, type_info=_ti(s))
+                if nb.defid is not None:
+                    nsb[nb.defid] = nb
+                    nse[nb.defid] = ex
+                ns.append(nb)
+            elif isinstance(s, ExpressionIR):
+                v = _ExpansionVisitor(self._D, nsb, nse, self._loc, self._R, self._P)
+                ns.append(s.accept(v))
             else:
-                new_stmts.append(stmt)
-        new_final = _expand_derivative_in_expr(expr.final_expr, defid_to_d_ident, new_scope_binding, new_scope_expr, loc, resolver) if expr.final_expr is not None else None
-        return BlockExpressionIR(
-            statements=new_stmts, location=expr.location, final_expr=new_final,
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
-        )
+                ns.append(s)
+        vfin = _ExpansionVisitor(self._D, nsb, nse, self._loc, self._R, self._P)
+        nf = blk.final_expr.accept(vfin) if blk.final_expr is not None else None
+        return BlockExpressionIR(ns, blk.location, nf, type_info=_ti(n), shape_info=_si(n))
 
-    if isinstance(expr, FunctionCallIR):
-        new_args = [
-            _expand_derivative_in_expr(a, defid_to_d_ident, scope_binding_by_defid, scope_defid_to_expr, loc, resolver)
-            for a in (expr.arguments or [])
-        ]
+    def visit_function_call(self, n: FunctionCallIR) -> ExpressionIR:
+        na = [a.accept(self) for a in (n.arguments or [])]
         return FunctionCallIR(
-            callee_expr=expr.callee_expr, location=expr.location,
-            arguments=new_args,
-            module_path=getattr(expr, "module_path", None),
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
+            callee_expr=n.callee_expr,
+            location=n.location,
+            arguments=na,
+            module_path=getattr(n, "module_path", None),
+            type_info=_ti(n),
+            shape_info=_si(n),
         )
 
-    if isinstance(expr, BuiltinCallIR):
-        args = expr.args or []
-        if expr.builtin_name == "print" and len(args) == 1 and isinstance(args[0], DifferentialIR):
-            t = _differential_target_from_operand(args[0].operand)
-            if t is not None:
-                y_defid, y_name = t
-                y_expr = scope_defid_to_expr.get(y_defid)
-                if y_expr is not None:
+    def visit_builtin_call(self, n: BuiltinCallIR) -> ExpressionIR:
+        args = n.args or []
+        if n.builtin_name == "print" and len(args) == 1 and isinstance(args[0], DifferentialIR):
+            op = args[0].operand
+            if isinstance(op, IdentifierIR) and op.defid is not None:
+                yd, yn = op.defid, op.name or ""
+                ye = self._SE.get(yd)
+                if ye is not None:
                     try:
-                        fwd_vis = _ForwardDiffVisitor(
-                            defid_to_d_ident,
-                            loc,
-                            scope_binding_by_defid,
-                            resolver,
-                            pretty_call_tangents=True,
-                        )
-                        diff_rhs = y_expr.accept(fwd_vis)
-                        diff_rhs = _simplify(diff_rhs, expr.location or loc)
-                        d_defid_to_at_name: Dict[DefId, str] = {}
-                        for p in defid_to_d_ident:
-                            b = scope_binding_by_defid.get(p)
-                            d_defid_to_at_name[defid_to_d_ident[p].defid] = "@" + (b.name if b and getattr(b, "name", None) else "?")
-                        rhs_str = _expr_to_diff_source(diff_rhs, d_defid_to_at_name, scope_binding_by_defid)
-                        lhs = "@" + (y_name or "?")
-                        if isinstance(y_expr, EinsteinIR) and y_expr.clauses and len(y_expr.clauses) == 1:
-                            idx_s = ", ".join(
-                                _idx_str(idx) for idx in (y_expr.clauses[0].indices or [])
-                            )
+                        fv = DiffVisitor(self._D, self._loc, self._SB, self._R, pretty=True)
+                        dr = _simplify(ye.accept(fv), n.location or self._loc)
+                        pre: List[str] = []
+                        P = self._P
+                        if P is not None:
+                            dm = _primal_to_diff_map(P.bindings or [])
+                            needed = _trans_deps(ye, self._SB)
+                            porder: Dict[DefId, int] = {}
+                            for idx, bb in enumerate(P.bindings or []):
+                                if (isinstance(bb, BindingIR) and bb.defid is not None
+                                        and not _is_diff_name(bb.name or "")):
+                                    if bb.defid not in porder:
+                                        porder[bb.defid] = idx
+                            for did in sorted((d for d in needed if d != yd), key=lambda d: porder.get(d, 10**9)):
+                                pb = self._SB.get(did)
+                                if pb is None or pb.expr is None or isinstance(pb.expr, FunctionValueIR):
+                                    continue
+                                if not _collect_defids(pb.expr):
+                                    continue
+                                db = dm.get(did)
+                                if db is None or db.expr is None:
+                                    continue
+                                nm = (pb.name if pb and getattr(pb, "name", None) else None) or "?"
+                                pb_idx = ""
+                                if isinstance(pb.expr, EinsteinIR):
+                                    pb_cc = pb.expr.clauses or []
+                                    if pb_cc and pb_cc[0].indices:
+                                        pb_idx = ", ".join(_idx_str(i) for i in pb_cc[0].indices)
+                                pre_lhs = "@" + nm + ("[" + pb_idx + "]" if pb_idx else "")
+                                se = _simplify(db.expr, n.location or self._loc)
+                                pre.append("let " + pre_lhs + " = " + _str_ir(se) + ";")
+                        rhs = _str_ir(dr)
+                        lhs = "@" + (yn or "?")
+                        if isinstance(ye, EinsteinIR) and ye.clauses and len(ye.clauses) == 1:
+                            idx_s = ", ".join(_idx_str(i) for i in (ye.clauses[0].indices or []))
                             if idx_s:
                                 lhs += "[" + idx_s + "]"
-                        msg = _format_print_differential_message(lhs, rhs_str)
+                        if pre:
+                            msg = "\n".join(pre) + "\n" + _fmt_print_msg(lhs, rhs)
+                        else:
+                            msg = _fmt_print_msg(lhs, rhs)
                         return BuiltinCallIR(
                             "print",
-                            [LiteralIR(msg, expr.location, type_info=STR)],
-                            expr.location,
-                            defid=getattr(expr, "defid", None),
-                            type_info=getattr(expr, "type_info", None),
-                            shape_info=getattr(expr, "shape_info", None),
+                            [LiteralIR(msg, n.location, type_info=STR)],
+                            n.location,
+                            defid=getattr(n, "defid", None),
+                            type_info=_ti(n),
+                            shape_info=_si(n),
                         )
                     except (ValueError, KeyError):
                         pass
-        new_args = [
-            _expand_derivative_in_expr(a, defid_to_d_ident, scope_binding_by_defid, scope_defid_to_expr, loc, resolver)
-            for a in args
-        ]
+        na = [a.accept(self) for a in args]
         return BuiltinCallIR(
-            expr.builtin_name, new_args, expr.location,
-            defid=getattr(expr, "defid", None),
-            type_info=getattr(expr, "type_info", None),
-            shape_info=getattr(expr, "shape_info", None),
+            n.builtin_name,
+            na,
+            n.location,
+            defid=getattr(n, "defid", None),
+            type_info=_ti(n),
+            shape_info=_si(n),
         )
 
-    return expr
+    def visit_rectangular_access(self, n: RectangularAccessIR) -> ExpressionIR:
+        return n
+
+    def visit_if_expression(self, n: IfExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_cast_expression(self, n: CastExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_reduction_expression(self, n: ReductionExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_select_at_argmax(self, n: SelectAtArgmaxIR) -> ExpressionIR:
+        return n
+
+    def visit_jagged_access(self, n: JaggedAccessIR) -> ExpressionIR:
+        return n
+
+    def visit_lambda(self, n: LambdaIR) -> ExpressionIR:
+        return n
+
+    def visit_range(self, n: RangeIR) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_array_comprehension(self, n: ArrayComprehensionIR) -> ExpressionIR:
+        return n
+
+    def visit_module(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_array_literal(self, n: ArrayLiteralIR) -> ExpressionIR:
+        return n
+
+    def visit_tuple_expression(self, n: TupleExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_tuple_access(self, n: TupleAccessIR) -> ExpressionIR:
+        return n
+
+    def visit_interpolated_string(self, n: InterpolatedStringIR) -> ExpressionIR:
+        return n
+
+    def visit_member_access(self, n: MemberAccessIR) -> ExpressionIR:
+        return n
+
+    def visit_try_expression(self, n: TryExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_match_expression(self, n: MatchExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_where_expression(self, n: WhereExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_pipeline_expression(self, n: PipelineExpressionIR) -> ExpressionIR:
+        return n
+
+    def visit_function_value(self, n: FunctionValueIR) -> ExpressionIR:
+        return n
+
+    def visit_einstein_clause(self, n: EinsteinClauseIR) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_binding(self, n: BindingIR) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_program(self, n: ProgramIR) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_lowered_reduction(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("ExpansionVisitor", n)
+
+    def visit_lowered_select_at_argmax(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("ExpansionVisitor", n)
+
+    def visit_lowered_comprehension(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("ExpansionVisitor", n)
+
+    def visit_lowered_einstein_clause(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("ExpansionVisitor", n)
+
+    def visit_lowered_einstein(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("ExpansionVisitor", n)
+
+    def visit_lowered_recurrence(self, n: Any) -> ExpressionIR:
+        _reject_lowered_ir("ExpansionVisitor", n)
+
+    def visit_literal_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_identifier_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_wildcard_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_tuple_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_array_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_rest_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_guard_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_or_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_constructor_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_binding_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
+
+    def visit_range_pattern(self, n: Any) -> ExpressionIR:
+        return cast(ExpressionIR, n)
 
 
-def _expand_derivative_nodes_in_program(
-    program: ProgramIR,
-    defid_to_d_ident: Dict[DefId, IdentifierIR],
+def _expand(
+    expr: ExpressionIR,
+    D: Dict[DefId, IdentifierIR],
+    SB: Dict[DefId, Any],
+    SE: Dict[DefId, ExpressionIR],
     loc: SourceLocation,
-    resolver: Optional[Any] = None,
-    initial_binding_by_defid: Optional[Dict[DefId, Any]] = None,
-) -> None:
-    """In-place: replace DifferentialIR and DIV(@.,@.) in program bindings."""
-    scope_binding_by_defid: Dict[DefId, Any] = {}
-    scope_defid_to_expr: Dict[DefId, ExpressionIR] = {}
-    if initial_binding_by_defid:
-        scope_binding_by_defid = dict(initial_binding_by_defid)
-        scope_defid_to_expr = {
-            did: b.expr for did, b in initial_binding_by_defid.items()
-            if getattr(b, "expr", None) is not None
-        }
-    for binding in program.bindings or []:
-        if not isinstance(binding, BindingIR) or binding.expr is None:
-            continue
-        binding.expr = _expand_derivative_in_expr(
-            binding.expr, defid_to_d_ident,
-            scope_binding_by_defid, scope_defid_to_expr,
-            binding.expr.location or loc, resolver,
-        )
-        if binding.defid is not None:
-            scope_binding_by_defid[binding.defid] = binding
-            scope_defid_to_expr[binding.defid] = binding.expr
+    R: Any = None,
+    P: Optional[ProgramIR] = None,
+) -> ExpressionIR:
+    """Expand DifferentialIR → _@* ref;  @num/@den → derivative quotient."""
+    return expr.accept(_ExpansionVisitor(D, SB, SE, loc, R, P))
+
+
+_expand_derivative_in_expr = _expand
+
+
+def _expand_program(program: ProgramIR, D: Dict[DefId, IdentifierIR], loc: SourceLocation,
+                    R: Any = None, init_B: Optional[Dict[DefId, Any]] = None) -> None:
+    sb: Dict[DefId, Any] = dict(init_B) if init_B else {}
+    se: Dict[DefId, ExpressionIR] = {d: b.expr for d, b in sb.items() if getattr(b, "expr", None) is not None}
+    for b in program.bindings or []:
+        if not isinstance(b, BindingIR) or b.expr is None: continue
+        b.expr = _expand(b.expr, D, sb, se, b.expr.location or loc, R, program)
+        if b.defid is not None: sb[b.defid] = b; se[b.defid] = b.expr
     stmts = program.statements or []
-    for i, stmt in enumerate(stmts):
-        if not isinstance(stmt, BindingIR) and isinstance(stmt, ExpressionIR):
-            stmts[i] = _expand_derivative_in_expr(
-                stmt, defid_to_d_ident,
-                scope_binding_by_defid, scope_defid_to_expr,
-                getattr(stmt, "location", None) or loc, resolver,
-            )
+    for i, s in enumerate(stmts):
+        if not isinstance(s, BindingIR) and isinstance(s, ExpressionIR):
+            stmts[i] = _expand(s, D, sb, se, getattr(s, "location", None) or loc, R, program)
+
+_expand_derivative_nodes_in_program = _expand_program
 
 
-# ---------------------------------------------------------------------------
-# AutodiffPass
-# ---------------------------------------------------------------------------
+def _ensure_block_d(block: BlockExpressionIR, SB: Dict[DefId, Any], SE: Dict[DefId, ExpressionIR],
+                    D: Dict[DefId, IdentifierIR], loc: SourceLocation, R: Any) -> None:
+    tgts, qps = _collect_targets_expr(block)
+    if not tgts and not qps: return
+    bb = _bindings_in(block, None)
+    if not bb: return
+    bd = {b.defid for b in bb if b.defid is not None}
+    td: Set[DefId] = set()
+    for did, _ in tgts: td.add(did)
+    for n, d_ in qps: td.add(n); td.add(d_)
+    td &= bd
+    if not td: return
+
+    bbd: Dict[DefId, BindingIR] = dict(SB)
+    for b in bb:
+        if b.defid is not None: bbd[b.defid] = b
+    b2d: Dict[DefId, Set[DefId]] = {}
+    for b in bb:
+        if b.defid is not None and b.expr is not None:
+            if is_function_binding(b):
+                b2d[b.defid] = set()
+            else:
+                b2d[b.defid] = _collect_defids(b.expr)
+
+    reach: Set[DefId] = set(td); wk = list(reach)
+    while wk:
+        did = wk.pop()
+        for dep in b2d.get(did) or []:
+            if dep in bd and dep not in reach: reach.add(dep); wk.append(dep)
+
+    fwd: List[BindingIR] = []; seen: Set[DefId] = set()
+    def vis(did: DefId) -> None:
+        if did in seen or did not in reach: return
+        seen.add(did); b = bbd.get(did)
+        if b is None: return
+        for dep in b2d.get(b.defid) or []:
+            if dep in bd: vis(dep)
+        fwd.append(b)
+    for did in td: vis(did)
+    if R is None: return
+
+    qd = {d_ for _, d_ in qps}; lvs = {did for did in reach if not (b2d.get(did) or set())}
+    sv: Dict[DefId, int] = {}
+    for b in fwd:
+        if b.defid is None: continue
+        if b.defid in qd: sv[b.defid] = 1
+        elif b.defid in lvs and b.defid in td: sv[b.defid] = 1
+        else: sv[b.defid] = 0
+
+    dre: Dict[DefId, ExpressionIR] = {}
+    for did, ref in D.items(): dre[did] = ref
+    upq = len(qps) > 0
+    d2b: Dict[DefId, BindingIR] = {}
+    for b in fwd:
+        if b.defid is None or b.defid in D: continue
+        bl = b.location or _LOC0
+        if upq and b.defid in lvs: drhs: ExpressionIR = _z(bl)
+        elif b.defid in sv and sv[b.defid] == 1: drhs = _fl(1, bl)
+        else:
+            for dep in b2d.get(b.defid) or []:
+                if dep not in dre: dre[dep] = _z(bl)
+            drhs = _fwd_expr(b, dre, bbd, b2d, bl, R)
+            drhs = _inline_drhs(drhs, bl)
+        dd = R.allocate_for_local(); dn = USER_DIFF_PREFIX + (b.name or "")
+        dr = IdentifierIR(dn, bl, dd); D[b.defid] = dr; dre[b.defid] = dr
+        ti = _ti(b) or (_ti(b.expr) if b.expr else None)
+        si = _si(b) or (_si(b.expr) if b.expr else None)
+        _propagate_ti(drhs, ti, si)
+        d2b[b.defid] = BindingIR(name=dn, expr=drhs, location=b.location, defid=dd, type_info=ti)
+
+    ns: List = []
+    for s in block.statements or []:
+        ns.append(s)
+        if isinstance(s, BindingIR) and s.defid is not None and s.defid in d2b: ns.append(d2b[s.defid])
+    object.__setattr__(block, "statements", ns)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Forward diff for top-level bindings  (Phase 2 core)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _inline_drhs(rhs: ExpressionIR, loc: SourceLocation) -> ExpressionIR:
+    if isinstance(rhs, BlockExpressionIR) and rhs.final_expr is not None:
+        stmts = [s for s in (rhs.statements or []) if isinstance(s, BindingIR)]
+        if len(stmts) == 1 and stmts[0].expr is not None:
+            if isinstance(rhs.final_expr, IdentifierIR) and rhs.final_expr.defid == stmts[0].defid:
+                return stmts[0].expr
+    return rhs
+
+_inline_derivative_rhs_block = _inline_drhs
+
+def _fwd_einstein(expr: EinsteinIR, dre: Dict[DefId, ExpressionIR],
+                  B: Dict[DefId, BindingIR], loc: SourceLocation) -> ExpressionIR:
+    vis = DiffVisitor(dre, loc, B)
+    nc: List[EinsteinClauseIR] = []
+    for c in expr.clauses or []:
+        try: dv = _simplify(c.value.accept(vis), loc)
+        except (ValueError, KeyError): continue
+        if _is_zero(dv): continue
+        nc.append(EinsteinClauseIR(indices=list(c.indices or []), value=dv, location=c.location,
+                  where_clause=c.where_clause, variable_ranges=dict(c.variable_ranges or {})))
+    if not nc: return _z(loc)
+    return EinsteinIR(clauses=nc, shape=expr.shape, element_type=expr.element_type,
+                      location=expr.location, type_info=_ti(expr), shape_info=_si(expr))
+
+def _fwd_expr(b: BindingIR, dre: Dict[DefId, ExpressionIR], B: Dict[DefId, BindingIR],
+              b2d: Dict[DefId, Set[DefId]], loc: SourceLocation, R: Any) -> ExpressionIR:
+    expr = b.expr
+    if expr is None: return _z(loc)
+    if isinstance(expr, FunctionValueIR): return _z(loc)
+    if isinstance(expr, EinsteinIR): return _fwd_einstein(expr, dre, B, loc)
+    vis = DiffVisitor(dre, loc, B, R)
+    return expr.accept(vis)
+
+_forward_d_y_expr = _fwd_expr
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Pass entry point
+# ═══════════════════════════════════════════════════════════════════════════
 
 class AutodiffPass(BasePass):
-    """Expand @ and @y/@x into plain IR via forward diff."""
-
-    requires = [
-        TypeInferencePass,
-        UnifiedShapeAnalysisPass,
-    ]
+    """Expand @expr and @y/@x into plain IR via forward-mode autodiff."""
+    requires = [TypeInferencePass, UnifiedShapeAnalysisPass]
 
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
-        program = ir
         try:
-            return self._run_autodiff_core(program, tcx)
+            return self._core(ir, tcx)
         finally:
             from ..ir.nodes import clear_autodiff_only_fields
+            clear_autodiff_only_fields(ir)
 
-            clear_autodiff_only_fields(program)
-
-    def _run_autodiff_core(self, program: ProgramIR, tcx: TyCtxt) -> ProgramIR:
-        bindings = _bindings_in_block(program, program) or []
+    def _core(self, program: ProgramIR, tcx: TyCtxt) -> ProgramIR:
+        bindings = _bindings_in(program, program) or []
         if not bindings:
-            tcx.set_analysis(AutodiffPass, {
-                "diff_block": None,
-                "differential_targets": set(),
-                "differential_buffer_by_defid": {},
-            })
+            tcx.set_analysis(AutodiffPass, {"diff_block": None, "differential_targets": set(), "differential_buffer_by_defid": {}})
             return program
 
         # 1. Collect targets
-        differential_targets = _collect_differential_targets(program)
-        quotient_pairs = _collect_quotient_pairs(program)
+        diff_targets, q_pairs = _collect_targets(program)
 
-        # 2. Build binding map
-        binding_by_defid: Dict[DefId, BindingIR] = {}
+        # 2. Binding map
+        B: Dict[DefId, BindingIR] = {}
+        for b in bindings:
+            if b.defid is not None: B[b.defid] = b
+        fim = getattr(tcx, "function_ir_map", None) or {}
+        for did, fn in fim.items():
+            if did is not None and did not in B and isinstance(fn, BindingIR) and is_function_binding(fn):
+                B[did] = fn
+
+        # 3. Dep graph (top-level bindings only)
+        # Function definitions (expr is FunctionValueIR) must not contribute inner DefIds: walking the
+        # body pulls in callee-local bindings (e.g. recurrence tensor u inside euler_decay). Those
+        # DefIds are not keys in B, so they become false "leaves" in lvs, pollute reach, and can
+        # break runtime (seeds / tangents keyed by inner DefIds) even for unrelated calls like
+        # let u = euler_decay(...) before any @-quotient.  Call-site autodiff still sees the body
+        # via DiffVisitor / JacobianVisitor on FunctionCallIR.
+        b2d: Dict[DefId, Set[DefId]] = {}
         for b in bindings:
             if b.defid is not None:
-                binding_by_defid[b.defid] = b
-        function_ir_map = getattr(tcx, "function_ir_map", None) or {}
-        for defid, fn in function_ir_map.items():
-            if defid is not None and defid not in binding_by_defid and isinstance(fn, BindingIR) and is_function_binding(fn):
-                binding_by_defid[defid] = fn
+                if is_function_binding(b):
+                    b2d[b.defid] = set()
+                else:
+                    b2d[b.defid] = _collect_defids(b.expr)
 
-        # 3. Build dep graph
-        binding_to_deps: Dict[DefId, Set[DefId]] = {}
-        for b in bindings:
-            if b.defid is not None:
-                binding_to_deps[b.defid] = _collect_defids(b.expr)
-
-        # 4. Compute reachable set from targets
-        target_defids: Set[DefId] = set()
-        for did, _ in differential_targets:
-            target_defids.add(did)
-        for num, den in quotient_pairs:
-            target_defids.add(num)
-            target_defids.add(den)
-
-        top_level_defids = {b.defid for b in bindings if b.defid is not None}
-        target_defids_for_diff = target_defids & top_level_defids
-
-        reachable: Set[DefId] = set()
-        work = list(target_defids_for_diff)
-        while work:
-            did = work.pop()
-            if did in reachable:
-                continue
-            reachable.add(did)
-            b = binding_by_defid.get(did)
-            if b is None:
-                continue
-            for dep in binding_to_deps.get(b.defid) or []:
-                if dep not in reachable:
-                    work.append(dep)
+        # 4. Reachable set
+        td: Set[DefId] = set()
+        for did, _ in diff_targets: td.add(did)
+        for n, d in q_pairs: td.add(n); td.add(d)
+        top = {b.defid for b in bindings if b.defid is not None}
+        td_top = td & top
+        reach: Set[DefId] = set(); wk = list(td_top)
+        while wk:
+            did = wk.pop()
+            if did in reach: continue
+            reach.add(did)
+            b = B.get(did)
+            if b is None: continue
+            for dep in b2d.get(b.defid) or []:
+                if dep not in reach: wk.append(dep)
 
         # 5. Topo sort
-        forward_order: List[BindingIR] = []
-        seen: Set[DefId] = set()
+        fwd: List[BindingIR] = []; seen: Set[DefId] = set()
+        def _vis(did: DefId) -> None:
+            if did in seen or did not in reach: return
+            seen.add(did); b = B.get(did)
+            if b is None: return
+            for dep in b2d.get(b.defid) or []: _vis(dep)
+            fwd.append(b)
+        for did in td_top: _vis(did)
 
-        def _visit(did: DefId) -> None:
-            if did in seen or did not in reachable:
-                return
-            seen.add(did)
-            b = binding_by_defid.get(did)
-            if b is None:
-                return
-            for dep in binding_to_deps.get(b.defid) or []:
-                _visit(dep)
-            forward_order.append(b)
-
-        for did in target_defids_for_diff:
-            _visit(did)
-
-        resolver = getattr(tcx, "resolver", None)
-        if resolver is None:
-            tcx.set_analysis(AutodiffPass, {
-                "diff_block": None,
-                "differential_targets": set(differential_targets),
-                "differential_buffer_by_defid": {},
-            })
+        R = getattr(tcx, "resolver", None)
+        if R is None:
+            tcx.set_analysis(AutodiffPass, {"diff_block": None, "differential_targets": set(diff_targets), "differential_buffer_by_defid": {}})
             return program
 
-        # 6. Create d_* identifiers
-        defid_to_d_ident: Dict[DefId, IdentifierIR] = {}
-        defid_to_d_binding: Dict[DefId, BindingIR] = {}
-        seed_value: Dict[DefId, int] = {}
-        quotient_denominators = {den for _, den in quotient_pairs}
-        leaves = {did for did in reachable if not (binding_to_deps.get(did) or set())}
+        # 6. Create _@* identifiers + seeds
+        D: Dict[DefId, IdentifierIR] = {}
+        d2b: Dict[DefId, BindingIR] = {}
+        sv: Dict[DefId, int] = {}
+        qd = {d for _, d in q_pairs}
+        lvs = {did for did in reach if not (b2d.get(did) or set())}
+        for b in fwd:
+            if b.defid is None or b.defid not in reach: continue
+            dn = USER_DIFF_PREFIX + (b.name or ""); dd = R.allocate_for_local()
+            D[b.defid] = IdentifierIR(dn, b.location or _LOC0, dd)
+            if b.defid in qd: sv[b.defid] = 1
+            elif b.defid in lvs and (b.defid in td or not q_pairs): sv[b.defid] = 1
+            else: sv[b.defid] = 0
 
-        for b in forward_order:
-            if b.defid is None or b.defid not in reachable:
-                continue
-            d_name = DIFF_PREFIX + (b.name or "")
-            d_defid = resolver.allocate_for_local()
-            d_ref = IdentifierIR(d_name, b.location or SourceLocation("", 0, 0), d_defid)
-            defid_to_d_ident[b.defid] = d_ref
-            if b.defid in quotient_denominators:
-                seed_value[b.defid] = 1
-            elif b.defid in leaves and (b.defid in target_defids or len(quotient_pairs) == 0):
-                seed_value[b.defid] = 1
+        # 7. Build _@* RHS
+        dre: Dict[DefId, ExpressionIR] = {}
+        for did, ref in D.items(): dre[did] = ref
+        drhs_map: Dict[DefId, ExpressionIR] = {}
+        upq = len(q_pairs) > 0
+        for b in fwd:
+            if b.defid is None or b.defid not in reach: continue
+            bl = b.location or _LOC0
+            if b.defid in sv and sv[b.defid] == 1: drhs_map[b.defid] = _fl(1, bl)
+            elif upq and b.defid in lvs: drhs_map[b.defid] = _z(bl)
             else:
-                seed_value[b.defid] = 0
+                for dep in b2d.get(b.defid) or []:
+                    if dep not in dre: dre[dep] = _z(bl)
+                rhs = _fwd_expr(b, dre, B, b2d, bl, R)
+                drhs_map[b.defid] = _inline_drhs(rhs if rhs is not None else _z(bl), bl)
 
-        # 7. Build d_* RHS expressions
-        defid_to_d_ref_expr: Dict[DefId, ExpressionIR] = {}
-        for did, ref in defid_to_d_ident.items():
-            defid_to_d_ref_expr[did] = ref
-
-        d_rhs_by_defid: Dict[DefId, ExpressionIR] = {}
-        loc0 = SourceLocation("", 0, 0)
-        use_per_quotient_seeds = len(quotient_pairs) > 0
-
-        for b in forward_order:
-            if b.defid is None or b.defid not in reachable:
-                continue
-            bloc = b.location or loc0
-            # Quotient denominator (and other explicit seeds) must win over the leaf-zero rule:
-            # denominators like Q in @out/@Q are graph leaves but need ∂=1 to seed the pullback.
-            if b.defid in seed_value and seed_value[b.defid] == 1:
-                d_rhs_by_defid[b.defid] = _float_lit(1, bloc)
-            elif use_per_quotient_seeds and b.defid in leaves:
-                d_rhs_by_defid[b.defid] = _float_lit(0, bloc)
-            else:
-                for dep in binding_to_deps.get(b.defid) or []:
-                    if dep not in defid_to_d_ref_expr:
-                        defid_to_d_ref_expr[dep] = _float_lit(0, bloc)
-                rhs = _forward_d_y_expr(b, defid_to_d_ref_expr, binding_by_defid, binding_to_deps, bloc, resolver)
-                rhs = rhs if rhs is not None else _float_lit(0, bloc)
-                rhs = _inline_derivative_rhs_block(rhs, bloc)
-                d_rhs_by_defid[b.defid] = rhs
-
-        # 8. Create d_* bindings with type info
-        type_info = None
-        shape_info = None
+        # 8. Create bindings with type info
+        gti = gsi = None
         for b in bindings:
             if b.expr is not None and not isinstance(b.expr, FunctionValueIR):
-                type_info = getattr(b, "type_info", None) or getattr(b.expr, "type_info", None)
-                shape_info = getattr(b, "shape_info", None) or getattr(b.expr, "shape_info", None)
-                if type_info is not None:
-                    break
+                gti = _ti(b) or _ti(b.expr); gsi = _si(b) or _si(b.expr)
+                if gti is not None: break
+        for b in fwd:
+            if b.defid is None or b.defid not in reach: continue
+            rhs = drhs_map.get(b.defid) or _z(b.location or _LOC0)
+            ti = _ti(b) or (_ti(b.expr) if b.expr else None) or gti
+            si = _si(b) or (_si(b.expr) if b.expr else None) or gsi
+            _propagate_ti(rhs, ti, si)
+            ref = D[b.defid]
+            d2b[b.defid] = BindingIR(name=ref.name, expr=rhs, location=b.location, defid=ref.defid, type_info=ti)
 
-        for b in forward_order:
-            if b.defid is None or b.defid not in reachable:
-                continue
-            rhs = d_rhs_by_defid.get(b.defid) or _float_lit(0, b.location or loc0)
-            ti = getattr(b, "type_info", None) or (
-                getattr(b.expr, "type_info", None) if b.expr is not None else None
-            ) or type_info
-            si = getattr(b, "shape_info", None) or (
-                getattr(b.expr, "shape_info", None) if b.expr is not None else None
-            ) or shape_info
-            _set_type_info(rhs, ti, si)
-            d_ref = defid_to_d_ident[b.defid]
-            d_binding = BindingIR(
-                name=d_ref.name, expr=rhs, location=b.location,
-                defid=d_ref.defid, type_info=ti,
-            )
-            defid_to_d_binding[b.defid] = d_binding
-
-        # 9. Insert d_* bindings after their primal
-        new_bindings: List[BindingIR] = []
+        # 9. Insert after primals
+        nb: List[BindingIR] = []
         for b in bindings:
-            new_bindings.append(b)
-            d_b = defid_to_d_binding.get(b.defid)
-            if d_b is not None:
-                new_bindings.append(d_b)
+            nb.append(b)
+            db = d2b.get(b.defid)
+            if db is not None: nb.append(db)
+        program.bindings = nb
+        non_b = [s for s in (program.statements or []) if not isinstance(s, BindingIR)]
+        program.statements = nb + non_b
 
-        program.bindings = new_bindings
-        non_binding_stmts = [s for s in (program.statements or []) if not isinstance(s, BindingIR)]
-        program.statements = new_bindings + non_binding_stmts
+        # 10. Expand
+        _expand_program(program, D, _LOC0, R, init_B=B)
 
-        # 10. Expand @ and @num/@den in program
-        _expand_derivative_nodes_in_program(
-            program, defid_to_d_ident, loc0, resolver,
-            initial_binding_by_defid=binding_by_defid,
-        )
-
-        # 11. Store analysis for backend
-        diff_block_list: List[BindingIR] = [
-            defid_to_d_binding[b.defid]
-            for b in forward_order
-            if b.defid in defid_to_d_binding
-        ]
-        diff_block: Optional[List[BindingIR]] = diff_block_list if diff_block_list else None
-        autodiff_differential_map: Dict[DefId, DefId] = {
-            primal: d_binding.defid
-            for primal, d_binding in defid_to_d_binding.items()
-        }
-        differential_leaves: Set[DefId] = leaves
-
-        tcx.set_analysis(
-            AutodiffPass,
-            {
-                "diff_block": diff_block,
-                "differential_targets": set(differential_targets),
-                "differential_buffer_by_defid": {},
-                "autodiff_differential_map": autodiff_differential_map,
-                "differential_leaves": differential_leaves,
-            },
-        )
-
+        # 11. Analysis
+        dbl = [d2b[b.defid] for b in fwd if b.defid in d2b]
+        adm: Dict[DefId, DefId] = {p: d2b[p].defid for p in d2b}
+        tcx.set_analysis(AutodiffPass, {
+            "diff_block": dbl or None,
+            "differential_targets": set(diff_targets),
+            "differential_buffer_by_defid": {},
+            "autodiff_differential_map": adm,
+            "differential_leaves": lvs,
+        })
         return program

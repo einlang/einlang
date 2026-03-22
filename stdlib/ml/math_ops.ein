@@ -1,3 +1,5 @@
+// We should add a base module that will be imported automatically. Like Julia does.
+
 // ml/math_ops.ein - Element-wise Math Operations
 
 // ============================================================================

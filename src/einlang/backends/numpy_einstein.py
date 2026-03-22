@@ -3203,7 +3203,12 @@ class EinsteinExecutionMixin:
         if tensor_shape:
             output_shape = []
             for shape_dim in tensor_shape:
-                dim_value = shape_dim.accept(self)
+                try:
+                    dim_value = shape_dim.accept(self)
+                except RuntimeError:
+                    # Symbolic shape may reference vars not in env during pullback (e.g. len(x[0])); infer from clauses.
+                    output_shape = None
+                    break
                 if isinstance(dim_value, (int, np.integer)):
                     output_shape.append(int(dim_value))
                 elif isinstance(dim_value, np.ndarray) and dim_value.ndim == 0:

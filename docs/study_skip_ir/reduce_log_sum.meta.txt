@@ -1,7 +1,0 @@
-label: reduce_log_sum
-compile_success: True
-pytest_skip_reason: print(@y) for multi-step inlined function: intermediate var out of scope
-has_ir: True
-
---- errors ---
-(none)

@@ -27,7 +27,127 @@ from ..ir.nodes import (
     ArrayComprehensionIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     BlockExpressionIR, IfExpressionIR, WhereExpressionIR,
     DifferentialIR,
+    CastExpressionIR,
+    TupleAccessIR,
 )
+
+
+def _expr_sig_for_einstein_key(expr: Optional[ExpressionIR]) -> Any:
+    if expr is None:
+        return None
+    if isinstance(expr, RectangularAccessIR):
+        return (
+            "ra",
+            _expr_sig_for_einstein_key(expr.array),
+            tuple(_expr_sig_for_einstein_key(i) for i in (expr.indices or [])),
+        )
+    if isinstance(expr, IdentifierIR):
+        return ("id", expr.name)
+    if isinstance(expr, IndexVarIR):
+        return ("iv", expr.name)
+    if isinstance(expr, LiteralIR):
+        return ("lit", expr.value)
+    if isinstance(expr, ReductionExpressionIR):
+        lv = tuple(
+            ("iv", v.name) if isinstance(v, IndexVarIR) else type(v).__name__
+            for v in (expr.loop_vars or [])
+        )
+        return ("red", expr.operation, lv, _expr_sig_for_einstein_key(expr.body))
+    if isinstance(expr, BinaryOpIR):
+        return (
+            "bin",
+            expr.operator,
+            _expr_sig_for_einstein_key(expr.left),
+            _expr_sig_for_einstein_key(expr.right),
+        )
+    if isinstance(expr, UnaryOpIR):
+        return ("un", expr.operator, _expr_sig_for_einstein_key(expr.operand))
+    if isinstance(expr, FunctionCallIR):
+        return (
+            "call",
+            _expr_sig_for_einstein_key(expr.callee_expr),
+            tuple(_expr_sig_for_einstein_key(a) for a in (expr.arguments or [])),
+        )
+    if isinstance(expr, CastExpressionIR):
+        return ("cast", _expr_sig_for_einstein_key(expr.expr))
+    return ("?", type(expr).__name__)
+
+
+def _einstein_binding_key(e: EinsteinIR) -> Tuple[Any, ...]:
+    clauses = e.clauses or ()
+    parts: List[Any] = []
+    for c in clauses:
+        idx_sig = tuple(_expr_sig_for_einstein_key(i) for i in (c.indices or []))
+        parts.append((idx_sig, _expr_sig_for_einstein_key(c.value)))
+    return (len(parts), tuple(parts))
+
+
+def _expr_sig_loose(expr: Optional[ExpressionIR]) -> Any:
+    if expr is None:
+        return None
+    if isinstance(expr, RectangularAccessIR):
+        return (
+            "ra",
+            _expr_sig_loose(expr.array),
+            tuple(_expr_sig_loose(i) for i in (expr.indices or [])),
+        )
+    if isinstance(expr, IdentifierIR):
+        return ("id", expr.name)
+    if isinstance(expr, IndexVarIR):
+        return ("*")
+    if isinstance(expr, LiteralIR):
+        return ("lit", expr.value)
+    if isinstance(expr, ReductionExpressionIR):
+        return (
+            "red",
+            expr.operation,
+            tuple("*" for _ in (expr.loop_vars or [])),
+            _expr_sig_loose(expr.body),
+        )
+    if isinstance(expr, BinaryOpIR):
+        return (
+            "bin",
+            expr.operator,
+            _expr_sig_loose(expr.left),
+            _expr_sig_loose(expr.right),
+        )
+    if isinstance(expr, UnaryOpIR):
+        return ("un", expr.operator, _expr_sig_loose(expr.operand))
+    if isinstance(expr, FunctionCallIR):
+        return (
+            "call",
+            _expr_sig_loose(expr.callee_expr),
+            tuple(_expr_sig_loose(a) for a in (expr.arguments or [])),
+        )
+    if isinstance(expr, CastExpressionIR):
+        return ("cast", _expr_sig_loose(expr.expr))
+    return ("?", type(expr).__name__)
+
+
+def _einstein_binding_key_loose(e: EinsteinIR) -> Tuple[Any, ...]:
+    clauses = e.clauses or ()
+    parts: List[Any] = []
+    for c in clauses:
+        idx_sig = tuple(_expr_sig_loose(i) for i in (c.indices or []))
+        parts.append((idx_sig, _expr_sig_loose(c.value)))
+    return (len(parts), tuple(parts))
+
+
+def _einstein_value_loose_key(e: EinsteinIR) -> Optional[Any]:
+    cs = e.clauses or ()
+    if len(cs) != 1:
+        return None
+    return _expr_sig_loose(cs[0].value)
+
+
+def _einstein_reduction_arity_key(e: EinsteinIR) -> Optional[Any]:
+    cs = e.clauses or ()
+    if len(cs) != 1:
+        return None
+    v = cs[0].value
+    if isinstance(v, ReductionExpressionIR):
+        return (v.operation, len(v.loop_vars or []))
+    return None
 
 
 def _body_contains_lowerable(node: Any, seen: Optional[Set[Any]] = None) -> bool:
@@ -297,14 +417,18 @@ class EinsteinLoweringPass(BasePass):
         def lower_function_body(func, bucket: str):
             if not func.body:
                 return
-            visitor._current_function = func
-            result = func.body.accept(visitor)
-            if result is None:
-                raise ValueError("Einstein lowering returned None for function body")
-            if hasattr(func, 'expr') and func.expr is not None:
-                object.__setattr__(func.expr, 'body', result)
-            else:
-                object.__setattr__(func, 'body', result)
+            visitor._einstein_binding_frames.append([])
+            try:
+                visitor._current_function = func
+                result = func.body.accept(visitor)
+                if result is None:
+                    raise ValueError("Einstein lowering returned None for function body")
+                if hasattr(func, 'expr') and func.expr is not None:
+                    object.__setattr__(func.expr, 'body', result)
+                else:
+                    object.__setattr__(func, 'body', result)
+            finally:
+                visitor._einstein_binding_frames.pop()
 
         lowered_ids = set()
         if specialized_list:
@@ -701,6 +825,44 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         self.tcx = tcx
         self._current_function = None
         self._current_einstein_clause = None
+        self._einstein_binding_frames: List[
+            List[
+                Tuple[Any, Any, Optional[Any], Optional[Any], str, DefId, Optional[SourceLocation]]
+            ]
+        ] = [[]]
+
+    def _resolve_prior_einstein_binding(self, e: EinsteinIR) -> IdentifierIR:
+        k = _einstein_binding_key(e)
+        lk = _einstein_binding_key_loose(e)
+        vk = _einstein_value_loose_key(e)
+        rk = _einstein_reduction_arity_key(e)
+        for frame in reversed(self._einstein_binding_frames):
+            for sk, slk, svk, srk, name, defid, loc in reversed(frame):
+                if (
+                    sk == k
+                    or slk == lk
+                    or (vk is not None and vk == svk)
+                    or (rk is not None and rk == srk)
+                ):
+                    if defid is None:
+                        raise ValueError(
+                            f"Einstein shape resolution matched binding {name!r} but defid is None"
+                        )
+                    return IdentifierIR(
+                        name=name,
+                        location=loc or (e.location or SourceLocation("", 0, 0)),
+                        defid=defid,
+                        type_info=UNKNOWN,
+                    )
+        raise ValueError(
+            "EinsteinIR used as tensor for shape inference has no matching prior "
+            f"einstein binding in scope: {e!s}"
+        )
+
+    def _shape_inference_array_expr(self, array_expr: ExpressionIR) -> ExpressionIR:
+        if isinstance(array_expr, EinsteinIR):
+            return self._resolve_prior_einstein_binding(array_expr)
+        return array_expr
 
     def visit_binding(self, node: BindingIR) -> Any:
         # Preserve derivative quotient (e.g. dy_dx = d_y/d_x): keep as BinaryOpIR so backend can defer
@@ -708,9 +870,20 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         if isinstance(node.expr, BinaryOpIR) and node.expr.operator == BinaryOp.DIV:
             return self.visit_variable_declaration(node)
         if is_einstein_binding(node):
+            pre_einstein = node.expr
+            ein_key = _einstein_binding_key(pre_einstein)
+            ein_lk = _einstein_binding_key_loose(pre_einstein)
+            ein_vk = _einstein_value_loose_key(pre_einstein)
+            ein_rk = _einstein_reduction_arity_key(pre_einstein)
             lowered = self.visit_einstein_declaration(node)
             if lowered is not None:
                 object.__setattr__(node, 'expr', lowered)
+                lowered.accept(self)
+            if lowered is not None and node.defid is not None:
+                loc = node.location
+                self._einstein_binding_frames[-1].append(
+                    (ein_key, ein_lk, ein_vk, ein_rk, node.name or "", node.defid, loc)
+                )
             return node
         if is_function_binding(node):
             from ..analysis.analysis_guard import should_analyze_function
@@ -1348,8 +1521,9 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                     continue
                 if isinstance(idx_expr, IdentifierIR) and (idx_expr.name == expanded_name or idx_expr.name == rest_var_name):
                     # Found expanded var or unexpanded rest pattern at this dimension - infer from array shape
+                    arr = self._shape_inference_array_expr(access.array)
                     shape_access = MemberAccessIR(
-                        object=access.array, member="shape", location=location, type_info=UNKNOWN
+                        object=arr, member="shape", location=location, type_info=UNKNOWN
                     )
                     dim_lit = LiteralIR(value=dim_idx, location=location, type_info=infer_literal_type(dim_idx))
                     shape_dim = RectangularAccessIR(
@@ -1427,7 +1601,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                             # Adjust dimension index: if rest patterns come before, we need to account for them
                             # For now, use the position in the current group
                             # The actual dimension will be determined at runtime from the array shape
-                            array_expr = access.array
+                            array_expr = self._shape_inference_array_expr(access.array)
                             # Create array.shape[dim_idx] expression
                             # Note: dim_idx here is the position in the indices, which should match the array dimension
                             shape_access = MemberAccessIR(
@@ -1449,7 +1623,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 # Flat list (indices are often IndexVarIR, or compound e.g. j-k)
                 for dim_idx, idx_expr in enumerate(indices_list):
                     if _name_of(idx_expr) == var_name or _index_expr_uses_var(idx_expr, var_name):
-                        array_expr = access.array
+                        array_expr = self._shape_inference_array_expr(access.array)
                         shape_access = MemberAccessIR(
                             object=array_expr,
                             member='shape',
@@ -1914,25 +2088,29 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         return node
 
     def visit_block_expression(self, node) -> Any:
-        stmts = node.statements or ()
-        new_stmts = []
-        for stmt in stmts:
-            if stmt is None:
-                raise ValueError("IR block statement is None")
-            result = stmt.accept(self)
-            if is_einstein_binding(stmt) and isinstance(result, LoweredEinsteinIR):
-                new_stmts.append(BindingIR(
-                    name=(stmt.name or ""),
-                    expr=result,
-                    location=stmt.location,
-                    defid=stmt.defid,
-                ))
-            else:
-                new_stmts.append(result)
-        node.statements = tuple(new_stmts)
-        if node.final_expr is not None:
-            node.final_expr = node.final_expr.accept(self)
-        return node
+        self._einstein_binding_frames.append([])
+        try:
+            stmts = node.statements or ()
+            new_stmts = []
+            for stmt in stmts:
+                if stmt is None:
+                    raise ValueError("IR block statement is None")
+                result = stmt.accept(self)
+                if is_einstein_binding(stmt) and isinstance(result, LoweredEinsteinIR):
+                    new_stmts.append(BindingIR(
+                        name=(stmt.name or ""),
+                        expr=result,
+                        location=stmt.location,
+                        defid=stmt.defid,
+                    ))
+                else:
+                    new_stmts.append(result)
+            node.statements = tuple(new_stmts)
+            if node.final_expr is not None:
+                node.final_expr = node.final_expr.accept(self)
+            return node
+        finally:
+            self._einstein_binding_frames.pop()
 
     def visit_if_expression(self, node) -> Any:
         if node.condition is not None:
@@ -1949,6 +2127,10 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         return node
 
     def visit_range(self, node) -> Any:
+        if node.start is not None:
+            node.start = node.start.accept(self)
+        if node.end is not None:
+            node.end = node.end.accept(self)
         return node
 
     def visit_reduction_expression(self, node) -> Any:
@@ -2071,7 +2253,10 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
 
     def visit_member_access(self, node) -> Any:
         if node.object is not None:
-            node.object = node.object.accept(self)
+            if isinstance(node.object, EinsteinIR) and node.member == "shape":
+                node.object = self._resolve_prior_einstein_binding(node.object)
+            else:
+                node.object = node.object.accept(self)
         return node
 
     def visit_try_expression(self, node) -> Any:
