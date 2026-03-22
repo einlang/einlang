@@ -715,6 +715,11 @@ class _SubstVisitor(_Rewriter):
             return self._m[n.defid]
         return n
 
+    def visit_index_var(self, n: IndexVarIR) -> ExpressionIR:
+        if n.defid is not None and n.defid in self._m:
+            return self._m[n.defid]
+        return n
+
 
 class _SubstDiffsVisitor(_SubstVisitor):
     def __init__(
@@ -761,6 +766,68 @@ def _sub_wd(
 
 
 _substitute_with_diffs = _sub_wd
+
+
+def _fresh_prod_interior_index_names(loop_names: Tuple[str, ...]) -> List[str]:
+    """Names for cloned ``prod`` binders so they do not reuse the partial-index name in ``/ body``."""
+    if len(loop_names) == 1 and loop_names[0] == "j":
+        return ["k"]
+    if len(loop_names) == 1 and loop_names[0] == "i":
+        return ["k"]
+    return [f"{n}_p{i}" for i, n in enumerate(loop_names)]
+
+
+def _prod_reduction_clone_interior_indices(
+    n: ReductionExpressionIR,
+    loc: SourceLocation,
+    resolver: Any,
+) -> ReductionExpressionIR:
+    """Clone ``prod`` primal: same value, fresh loop DefIds and distinct names from ``n.body`` indices."""
+    if resolver is None:
+        raise ValueError("Autodiff: prod interior clone requires resolver for fresh DefIds")
+    lv = list(n.loop_vars or ())
+    if not lv:
+        return n
+    new_names = _fresh_prod_interior_index_names(tuple(v.name for v in lv))
+    if len(new_names) != len(lv):
+        raise ValueError("Autodiff: prod interior name list mismatch")
+    did_sub: Dict[DefId, ExpressionIR] = {}
+    new_lvs: List[Union[IndexVarIR, IdentifierIR]] = []
+    new_ranges: Dict[DefId, RangeIR] = {}
+    old_ranges = n.loop_var_ranges or {}
+    for v, interior_name in zip(lv, new_names):
+        if v.defid is None:
+            raise ValueError("Autodiff: prod reduction loop var missing defid")
+        new_did = resolver.allocate_for_local()
+        vl = v.location or loc
+        if isinstance(v, IndexVarIR):
+            nw = IndexVarIR(
+                interior_name,
+                vl,
+                defid=new_did,
+                range_ir=v.range_ir,
+                type_info=_ti(v),
+                shape_info=_si(v),
+            )
+        else:
+            nw = IdentifierIR(interior_name, vl, defid=new_did, type_info=_ti(v), shape_info=_si(v))
+        new_lvs.append(nw)
+        did_sub[v.defid] = nw
+        r = old_ranges.get(v.defid)
+        if r is not None:
+            new_ranges[new_did] = r
+    new_body = _sub(n.body, did_sub, loc)
+    return ReductionExpressionIR(
+        n.operation,
+        new_lvs,
+        new_body,
+        n.location or loc,
+        where_clause=n.where_clause,
+        loop_var_ranges=new_ranges,
+        type_info=_ti(n),
+        shape_info=_si(n),
+    )
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # DefId collector
@@ -1138,8 +1205,9 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
             return SelectAtArgmaxIR(n.body, d_body, n.loop_vars, loop_var_ranges=n.loop_var_ranges,
                    location=loc, type_info=_ti(n), shape_info=_si(n), use_argmin=True)
         if op == ReductionOp.PROD:
+            num = _prod_reduction_clone_interior_indices(n, loc, self._R)
             return BinaryOpIR(BinaryOp.MUL,
-                              BinaryOpIR(BinaryOp.DIV, n, n.body, loc), d_body, loc)
+                              BinaryOpIR(BinaryOp.DIV, num, n.body, loc), d_body, loc)
         raise ValueError(f"Autodiff: unsupported reduction: {op}")
 
     # -- indexing / cast / control flow --------------------------------------
@@ -1738,16 +1806,23 @@ def _diff_callee_block_tangent(
     return diff_stmts, fp
 
 
-def _callee_args_all_identifier_expressions(
+def _callee_args_support_combined_forward(
     rm: Dict[DefId, ExpressionIR], ps: List[Any]
 ) -> bool:
-    """True if every parameter is bound to a bare ``IdentifierIR`` (typical call sites)."""
+    """True if callee JVP can use a single ``DiffVisitor`` sweep (identifiers + constant args).
+
+    Literal (or other non-identifier) actuals are inlined in ``primal_map``; they need no
+    ``dre`` entry.  Per-parameter ``JacobianVisitor`` sweeps would duplicate tangent lets.
+    """
     for p in ps:
         if p.defid is None:
             return False
         arg = rm.get(p.defid)
-        if not isinstance(arg, IdentifierIR) or arg.defid is None:
-            return False
+        if isinstance(arg, IdentifierIR) and arg.defid is not None:
+            continue
+        if isinstance(arg, LiteralIR):
+            continue
+        return False
     return True
 
 
@@ -1763,8 +1838,8 @@ def _diff_callee_block_combined_forward(
 ) -> Tuple[List[BindingIR], ExpressionIR]:
     """Single forward-mode sweep: one ``_@v`` per callee local, full JVP Σᵢ ∂/∂pᵢ·dpᵢ.
 
-    Requires every argument in ``rm`` to be a bare identifier so tangents attach to call-site
-    ``DefId``s. Non-identifier arguments fall back to per-parameter ``JacobianVisitor`` sweeps.
+    Call-site tangents attach to ``IdentifierIR`` arguments' ``DefId``s. Constant actuals are
+    already substituted in ``primal_map`` and are omitted from ``dre``.
     """
     if block.final_expr is None:
         raise ValueError("Autodiff: callee block has no final expression")
@@ -1776,8 +1851,10 @@ def _diff_callee_block_combined_forward(
         if da is None:
             raise ValueError("Autodiff: missing tangent for callee parameter")
         arg = rm[p.defid]
+        if isinstance(arg, LiteralIR):
+            continue
         if not isinstance(arg, IdentifierIR) or arg.defid is None:
-            raise ValueError("Autodiff: combined callee forward requires identifier arguments")
+            raise ValueError("Autodiff: combined callee forward requires identifier or literal arguments")
         dre[arg.defid] = da
 
     diff_stmts: List[BindingIR] = []
@@ -1918,10 +1995,11 @@ def _callee_forward_jvp(
     **Unified with ``custom_diff_body``:** When ``fv.custom_diff_body`` is set and arity
     matches, the JVP is exactly ``_sub_callee(_sub_wd(rule, rm, tangent_by_param, loc), …)`` —
     the same substitution pipeline as an ``@fn`` rule written in terms of
-    ``DifferentialIR(IdentifierIR(param))``. When there is no custom rule and every argument
-    is a bare identifier, one ``DiffVisitor`` sweep (``_diff_callee_block_combined_forward``)
-    emits a single ``_@v`` per callee local. Otherwise per-parameter ``JacobianVisitor`` sweeps
-    are summed (``_diff_callee_block_tangent`` in a loop).
+    ``DifferentialIR(IdentifierIR(param))``. When there is no custom rule and each argument
+    is a bare identifier or a literal (inlined in the primal substitution), one ``DiffVisitor``
+    sweep (``_diff_callee_block_combined_forward``) emits a single ``_@v`` per callee local.
+    Otherwise per-parameter ``JacobianVisitor`` sweeps are summed
+    (``_diff_callee_block_tangent`` in a loop).
     """
     ps = fv.parameters or []
     rule_body = getattr(fv, "custom_diff_body", None)
@@ -1943,7 +2021,7 @@ def _callee_forward_jvp(
     rm = _callee_primal_subst_map(fv, args)
     if isinstance(body, BlockExpressionIR) and R is not None:
         primal_stmts, primal_map = _callee_block_build_primal(body, rm, loc, R)
-        if _callee_args_all_identifier_expressions(rm, ps):
+        if _callee_args_support_combined_forward(rm, ps):
             all_diff, acc = _diff_callee_block_combined_forward(
                 body, primal_map, rm, tangent_by_param, loc, B, R, ps
             )
@@ -2105,8 +2183,9 @@ class DiffVisitor(IRVisitor[ExpressionIR]):
             return SelectAtArgmaxIR(n.body, db, n.loop_vars, loop_var_ranges=n.loop_var_ranges,
                    location=loc, type_info=_ti(n), shape_info=_si(n), use_argmin=True)
         if op == ReductionOp.PROD:
+            num = _prod_reduction_clone_interior_indices(n, loc, self._R)
             return BinaryOpIR(BinaryOp.MUL,
-                              BinaryOpIR(BinaryOp.DIV, n, n.body, loc), db, loc)
+                              BinaryOpIR(BinaryOp.DIV, num, n.body, loc), db, loc)
         raise ValueError(f"Autodiff: unsupported reduction: {op}")
 
     def visit_block_expression(self, n: BlockExpressionIR) -> ExpressionIR:
@@ -3265,8 +3344,8 @@ def _inline_drhs(rhs: ExpressionIR, loc: SourceLocation) -> ExpressionIR:
 _inline_derivative_rhs_block = _inline_drhs
 
 def _fwd_einstein(expr: EinsteinIR, dre: Dict[DefId, ExpressionIR],
-                  B: Dict[DefId, BindingIR], loc: SourceLocation) -> ExpressionIR:
-    vis = DiffVisitor(dre, loc, B)
+                  B: Dict[DefId, BindingIR], loc: SourceLocation, R: Any) -> ExpressionIR:
+    vis = DiffVisitor(dre, loc, B, R)
     nc: List[EinsteinClauseIR] = []
     for c in expr.clauses or []:
         try: dv = _unwrap_trivial_einstein_rhs(_simplify(c.value.accept(vis), loc))
@@ -3283,7 +3362,7 @@ def _fwd_expr(b: BindingIR, dre: Dict[DefId, ExpressionIR], B: Dict[DefId, Bindi
     expr = b.expr
     if expr is None: return _z(loc)
     if isinstance(expr, FunctionValueIR): return _z(loc)
-    if isinstance(expr, EinsteinIR): return _fwd_einstein(expr, dre, B, loc)
+    if isinstance(expr, EinsteinIR): return _fwd_einstein(expr, dre, B, loc, R)
     vis = DiffVisitor(dre, loc, B, R)
     return expr.accept(vis)
 

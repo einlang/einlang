@@ -1,6 +1,6 @@
 // stdlib_v2/math/special.ein - Special mathematical functions
 
-use std::math::{abs, exp, sign};
+use std::math::{abs, exp, sign, sqrt, pi};
 
 pub fn erf(x) {
     // Error function
@@ -23,4 +23,6 @@ pub fn erf(x) {
     let erf_approx = 1.0 - (a1 * t + a2 * t2 + a3 * t3 + a4 * t4 + a5 * t5) * exp(-(abs_x * abs_x));
     sign_x * erf_approx
 }
+
+@fn erf(x) { (2.0 / sqrt(pi())) * exp(0.0 - x * x) * @x }
 

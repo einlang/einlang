@@ -19,19 +19,11 @@ _HUBER_LOSS_PRINT_AT_GOLDEN = """let @y = {
         let n = len(pred[0]) as f32;
         let diff[batch.0, j] = pred[batch.0, j] - target[batch.0, j];
         let abs_diff[batch.0, j] = abs(diff[batch.0, j]);
-        let _@diff[batch.0, j] = @pred[batch.0, j] - 0.0[batch.0, j];
-        let _@abs_diff[batch.0, j] = if diff[batch.0, j] as f32 >= 0.0 { 0.0[batch.0, j] } else { -0.0[batch.0, j] };
+        let _@diff[batch.0, j] = @pred[batch.0, j] - @target[batch.0, j];
+        let _@abs_diff[batch.0, j] = sign(diff[batch.0, j]) * _@diff[batch.0, j];
         let _@huber_elem[batch.0, j] = if abs_diff[batch.0, j] <= 1.0 { 0.5 * diff[batch.0, j] * _@diff[batch.0, j] + diff[batch.0, j] * 0.5 * _@diff[batch.0, j] } else { _@abs_diff[batch.0, j] };
         let _@loss[batch.0] = sum[j](_@huber_elem[batch.0, j]) / n;
-        let _@diff[batch.0, j] = 0.0[batch.0, j] - @target[batch.0, j];
-        let _@abs_diff[batch.0, j] = if diff[batch.0, j] as f32 >= 0.0 { 0.0[batch.0, j] } else { -0.0[batch.0, j] };
-        let _@huber_elem[batch.0, j] = if abs_diff[batch.0, j] <= 1.0 { 0.5 * diff[batch.0, j] * _@diff[batch.0, j] + diff[batch.0, j] * 0.5 * _@diff[batch.0, j] } else { _@abs_diff[batch.0, j] };
-        let _@loss[batch.0] = sum[j](_@huber_elem[batch.0, j]) / n;
-        let _@diff[batch.0, j] = 0.0[batch.0, j] - 0.0[batch.0, j];
-        let _@abs_diff[batch.0, j] = if diff[batch.0, j] as f32 >= 0.0 { 0.0[batch.0, j] } else { -0.0[batch.0, j] };
-        let _@huber_elem[batch.0, j] = if abs_diff[batch.0, j] <= 1.0 { 0.5 * diff[batch.0, j] * _@diff[batch.0, j] + diff[batch.0, j] * 0.5 * _@diff[batch.0, j] } else { _@abs_diff[batch.0, j] };
-        let _@loss[batch.0] = sum[j](_@huber_elem[batch.0, j]) / n;
-        _@loss + _@loss + _@loss
+        _@loss
     };
     _@huber_loss_call
 };"""
@@ -338,7 +330,7 @@ let x = 0.5;
 let y = std::math::sinh(x);
 print(@y);
 """,
-        "let @y = {\n    let _@sinh_x: f32 = {\n        let ax = abs(x);\n        let _@ax = if x as f32 >= 0.0 { @x } else { -@x };\n        if ax < 20.0 { 0.5 * ({ exp(x) * @x } - { exp(-x) * -@x }) } else {\n        let s = if x as f32 >= 0.0 { 1.0 } else { -1.0 };\n        let _@s = if x as f32 >= 0.0 { 0.0 } else { 0.0 };\n        s * 0.5 * { exp(ax) * _@ax } + exp(ax) * 0.5 * _@s\n    }\n    };\n    _@sinh_x\n};",
+        "let @y = {\n    let _@sinh_x: f32 = {\n        let ax = abs(x);\n        let _@ax = { sign(x) * @x };\n        if ax < 20.0 { 0.5 * ({ exp(x) * @x } - { exp(-x) * -@x }) } else {\n        let s = if x as f32 >= 0.0 { 1.0 } else { -1.0 };\n        let _@s = if x as f32 >= 0.0 { 0.0 } else { 0.0 };\n        s * 0.5 * { exp(ax) * _@ax } + exp(ax) * 0.5 * _@s\n    }\n    };\n    _@sinh_x\n};",
     ),
     (
         "cosh_scalar",
@@ -347,7 +339,7 @@ let x = 0.5;
 let y = std::math::cosh(x);
 print(@y);
 """,
-        "let @y = {\n    let _@cosh_x: f32 = {\n        let ax = abs(x);\n        let _@ax = if x as f32 >= 0.0 { @x } else { -@x };\n        if ax < 20.0 { 0.5 * ({ exp(x) * @x } + { exp(-x) * -@x }) } else { 0.5 * { exp(ax) * _@ax } }\n    };\n    _@cosh_x\n};",
+        "let @y = {\n    let _@cosh_x: f32 = {\n        let ax = abs(x);\n        let _@ax = { sign(x) * @x };\n        if ax < 20.0 { 0.5 * ({ exp(x) * @x } + { exp(-x) * -@x }) } else { 0.5 * { exp(ax) * _@ax } }\n    };\n    _@cosh_x\n};",
     ),
     (
         "asinh_scalar",
@@ -383,31 +375,7 @@ let x = 1.0;
 let y = std::math::erf(x);
 print(@y);
 """,
-        """let @y = {
-    let a1 = 0.254829592;
-    let a2 = -0.284496736;
-    let a3 = 1.421413741;
-    let a4 = -1.453152027;
-    let a5 = 1.061405429;
-    let p = 0.3275911;
-    let sign_x = sign(x);
-    let abs_x = abs(x);
-    let t = 1.0 / (1.0 + p * abs_x);
-    let t2 = t * t;
-    let t3 = t2 * t;
-    let t4 = t3 * t;
-    let t5 = t4 * t;
-    let erf_approx = 1.0 - (a1 * t + a2 * t2 + a3 * t3 + a4 * t4 + a5 * t5) * exp(-abs_x * abs_x);
-    let _@sign_x = if x as f32 > 0.0 { 0.0 } else if x as f32 < 0.0 { 0.0 } else { 0.0 };
-    let _@abs_x = if x as f32 >= 0.0 { @x } else { -@x };
-    let _@t = (0.0 - p * _@abs_x) / (1.0 + p * abs_x) ** 2.0;
-    let _@t2 = 2.0 * t * _@t;
-    let _@t3 = t2 * _@t + t * _@t2;
-    let _@t4 = t3 * _@t + t * _@t3;
-    let _@t5 = t4 * _@t + t * _@t4;
-    let _@erf_approx = 0.0 - ((a1 * t + a2 * t2 + a3 * t3 + a4 * t4 + a5 * t5) * { exp(-abs_x * abs_x) * -2.0 * abs_x * _@abs_x } + exp(-abs_x * abs_x) * (a1 * _@t + a2 * _@t2 + a3 * _@t3 + a4 * _@t4 + a5 * _@t5));
-    sign_x * _@erf_approx + erf_approx * _@sign_x
-};""",
+        "let @y = 2.0 / sqrt(pi()) * exp(0.0 - x * x) * @x;",
     ),
     (
         "abs_scalar",
@@ -416,7 +384,7 @@ let x = 2.0;
 let y = std::math::abs(x);
 print(@y);
 """,
-        "let @y = {\n    let _@abs_x: f32 = if x as f32 >= 0.0 { @x } else { -@x };\n    _@abs_x\n};",
+        "let @y = sign(x) * @x;",
     ),
     (
         "sign_scalar",
@@ -434,7 +402,7 @@ let x = 2.0;
 let y = std::math::min(x, 5.0);
 print(@y);
 """,
-        "let @y = {\n    let _@min_call: f32 = if x < 5.0 { @x } else { 0.0 } + if x < 5.0 { 0.0 } else { 0.0 };\n    _@min_call\n};",
+        "let @y = {\n    let _@min_call: f32 = if x < 5.0 { @x } else { 0.0 };\n    _@min_call\n};",
     ),
     (
         "max_scalar",
@@ -443,7 +411,7 @@ let x = 2.0;
 let y = std::math::max(x, 0.0);
 print(@y);
 """,
-        "let @y = {\n    let _@max_call: f32 = if x > 0.0 { @x } else { 0.0 } + if x > 0.0 { 0.0 } else { 0.0 };\n    _@max_call\n};",
+        "let @y = {\n    let _@max_call: f32 = if x > 0.0 { @x } else { 0.0 };\n    _@max_call\n};",
     ),
     (
         "reciprocal_scalar",
@@ -506,7 +474,7 @@ let x = [1.0, 2.0, 3.0];
 let p = prod[j](x[j]);
 print(@p);
 """,
-        "let @p = prod[j](x[j]) / x[j] * @x[j];",
+        "let @p = prod[k](x[k]) / x[j] * @x[j];",
     ),
     (
         "reduce_sum",
@@ -526,7 +494,7 @@ let x = [[1.0, -2.0, 3.0]];
 let y = std::ml::reduce_l1(x);
 print(@y);
 """,
-        "let @y = {\n    let _@reduce_l1_x: [f32; *] = {\n        let _@result[batch.0] = sum[j](if x[batch.0, j] as f32 >= 0.0 { @x[batch.0, j] } else { -@x[batch.0, j] });\n        _@result\n    };\n    _@reduce_l1_x\n};",
+        "let @y = {\n    let _@reduce_l1_x: [f32; *] = {\n        let _@result[batch.0] = sum[j]({ sign(x[batch.0, j]) * @x[batch.0, j] });\n        _@result\n    };\n    _@reduce_l1_x\n};",
     ),
     (
         "reduce_sum_square",
@@ -580,7 +548,7 @@ let target = [[1.5, 2.5, 3.5]];
 let y = std::ml::mae_loss(pred, target);
 print(@y);
 """,
-        "let @y = {\n    let _@mae_loss_call: [f32; ?] = {\n        let n = len(pred[0]) as f32;\n        let _@loss[batch.0] = sum[j](0.5 * ((pred[batch.0, j] - target[batch.0, j]) ** 2.0) ** -0.5 * 2.0 * (pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j])) / n;\n        _@loss\n    };\n    _@mae_loss_call\n};",
+        "let @y = {\n    let _@mae_loss_call: [f32; ?] = {\n        let n = len(pred[0]) as f32;\n        let _@loss[batch.0] = sum[j]({ sign(pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j]) }) / n;\n        _@loss\n    };\n    _@mae_loss_call\n};",
     ),
     (
         "huber_loss",
@@ -739,3 +707,15 @@ print(@y);
             1 for s in (d_binding.expr.statements or []) if isinstance(s, BindingIR)
         )
         assert n_lets >= 2, "expected at least 2 ∂ lets in block, got %s" % n_lets
+
+
+def test_print_at_calculus_catalog_covers_all_goldens() -> None:
+    from tests.print_at_calculus_catalog import GOLDEN_CALCULUS
+    from tests.unit.test_print_at_ml_smoke import ML_ACTIVATION_PRINT_AT_GOLDEN_CASES
+
+    labels = {row[0] for row in GOLDEN_PRINT_CASES}
+    labels |= {row[0] for row in ML_ACTIVATION_PRINT_AT_GOLDEN_CASES}
+    missing = sorted(labels - GOLDEN_CALCULUS.keys())
+    extra = sorted(set(GOLDEN_CALCULUS.keys()) - labels)
+    assert not missing, "GOLDEN_CALCULUS missing: %s" % missing
+    assert not extra, "GOLDEN_CALCULUS has unknown keys: %s" % extra
