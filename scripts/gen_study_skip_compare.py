@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Regenerate docs/TEST_PRINT_AT_STUDY_SKIP_COMPARE.md from live compile/exec of STUDY_SKIP_CASES."""
+"""Regenerate docs/TEST_PRINT_AT_STUDY_SKIP_COMPARE.md from live compile/exec.
+
+Study programs are **not** shared with pytest goldens; add ``(label, source, skip_reason)`` tuples to
+``CASES`` and optional math lines to ``MATH`` below, then run this script.
+"""
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import sys
 from io import StringIO
 from pathlib import Path
@@ -14,12 +17,9 @@ sys.path.insert(0, str(REPO / "src"))
 from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
 
-
-def _load_test_print_at():
-    spec = importlib.util.spec_from_file_location("test_print_at", REPO / "scripts" / "test_print_at.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+# Populate when comparing non-golden print(@…) programs (historical "study skip" workflow).
+CASES: list[tuple[str, str, str]] = []
+MATH: dict[str, str] = {}
 
 
 def run_case(source: str) -> tuple[str, str, str]:
@@ -42,9 +42,8 @@ def run_case(source: str) -> tuple[str, str, str]:
 
 
 def main() -> None:
-    tpa = _load_test_print_at()
-    cases = tpa.STUDY_SKIP_CASES
-    math = tpa.STUDY_MATH_REFERENCE
+    cases = CASES
+    math = MATH
 
     rows: list[tuple[str, str, str, str, str, str]] = []
     n_compile = n_exec = n_ok = 0
@@ -67,7 +66,7 @@ def main() -> None:
     lines: list[str] = [
         "# Study-skip cases: expected math vs actual result",
         "",
-        "Programs from [`scripts/test_print_at.py`](../scripts/test_print_at.py) (`STUDY_SKIP_CASES`).",
+        "Programs from ``CASES`` in [`scripts/gen_study_skip_compare.py`](../scripts/gen_study_skip_compare.py).",
         "",
         "**Regenerate:** `python3 scripts/gen_study_skip_compare.py`",
         "",
@@ -105,7 +104,7 @@ def main() -> None:
     lines.extend(
         [
             "",
-            "## Full expected math (same as `STUDY_MATH_REFERENCE`)",
+            "## Full expected math (same as `MATH` in gen script)",
             "",
         ]
     )
@@ -122,6 +121,7 @@ def main() -> None:
             "",
             "- [TEST_PRINT_AT_STUDY_SKIP_DUMP.md](TEST_PRINT_AT_STUDY_SKIP_DUMP.md)",
             "- [PRINT_DIFFERENTIAL.md](PRINT_DIFFERENTIAL.md)",
+            "- Golden `print(@…)` checks: `tests/unit/test_print_at_golden.py`",
             "",
         ]
     )

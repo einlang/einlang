@@ -1,0 +1,741 @@
+"""Exact stdout goldens for ``print(@…)``.
+
+``std::ml`` here is only reductions, layers, matmul, softmax/loss-style calls;
+activation ``print(@…)`` goldens live in ``test_print_at_ml_smoke`` (disjoint ``std::ml`` symbols).
+"""
+
+from __future__ import annotations
+
+from typing import List, Tuple
+
+import pytest
+
+from einlang.compiler.driver import CompilerDriver
+from einlang.ir.nodes import BindingIR, BlockExpressionIR
+from tests.print_at_fixtures import compile_exec_capture_print_at
+
+_HUBER_LOSS_PRINT_AT_GOLDEN = """let @y = {
+    let _@huber_loss_call: [f32; ?] = {
+        let n = len(pred[0]) as f32;
+        let diff[batch.0, j] = pred[batch.0, j] - target[batch.0, j];
+        let abs_diff[batch.0, j] = abs(diff[batch.0, j]);
+        let _@diff[batch.0, j] = @pred[batch.0, j] - 0.0[batch.0, j];
+        let _@abs_diff[batch.0, j] = if diff[batch.0, j] as f32 >= 0.0 { 0.0[batch.0, j] } else { -0.0[batch.0, j] };
+        let _@huber_elem[batch.0, j] = if abs_diff[batch.0, j] <= 1.0 { 0.5 * diff[batch.0, j] * _@diff[batch.0, j] + diff[batch.0, j] * 0.5 * _@diff[batch.0, j] } else { _@abs_diff[batch.0, j] };
+        let _@loss[batch.0] = sum[j](_@huber_elem[batch.0, j]) / n;
+        let _@diff[batch.0, j] = 0.0[batch.0, j] - @target[batch.0, j];
+        let _@abs_diff[batch.0, j] = if diff[batch.0, j] as f32 >= 0.0 { 0.0[batch.0, j] } else { -0.0[batch.0, j] };
+        let _@huber_elem[batch.0, j] = if abs_diff[batch.0, j] <= 1.0 { 0.5 * diff[batch.0, j] * _@diff[batch.0, j] + diff[batch.0, j] * 0.5 * _@diff[batch.0, j] } else { _@abs_diff[batch.0, j] };
+        let _@loss[batch.0] = sum[j](_@huber_elem[batch.0, j]) / n;
+        let _@diff[batch.0, j] = 0.0[batch.0, j] - 0.0[batch.0, j];
+        let _@abs_diff[batch.0, j] = if diff[batch.0, j] as f32 >= 0.0 { 0.0[batch.0, j] } else { -0.0[batch.0, j] };
+        let _@huber_elem[batch.0, j] = if abs_diff[batch.0, j] <= 1.0 { 0.5 * diff[batch.0, j] * _@diff[batch.0, j] + diff[batch.0, j] * 0.5 * _@diff[batch.0, j] } else { _@abs_diff[batch.0, j] };
+        let _@loss[batch.0] = sum[j](_@huber_elem[batch.0, j]) / n;
+        _@loss + _@loss + _@loss
+    };
+    _@huber_loss_call
+};"""
+
+GOLDEN_PRINT_CASES: List[Tuple[str, str, str]] = [
+    (
+        "constant",
+        """
+let x = 3.0;
+let y = 5.0;
+print(@y);
+""",
+        "let @y = 0.0;",
+    ),
+    (
+        "identity",
+        """
+let x = 3.0;
+let y = x;
+print(@y);
+""",
+        "let @y = @x;",
+    ),
+    (
+        "add",
+        """
+let x = 3.0;
+let y = x + x;
+print(@y);
+""",
+        "let @y = 2.0 * @x;",
+    ),
+    (
+        "sub",
+        """
+let x = 3.0;
+let y = x - 1.0;
+print(@y);
+""",
+        "let @y = @x;",
+    ),
+    (
+        "product",
+        """
+let x = 3.0;
+let y = x * x;
+print(@y);
+""",
+        "let @y = 2.0 * x * @x;",
+    ),
+    (
+        "product_two_vars",
+        """
+let a = 3.0;
+let b = 4.0;
+let y = a * b;
+print(@y);
+""",
+        "let @y = a * @b + b * @a;",
+    ),
+    (
+        "quotient",
+        """
+let a = 3.0;
+let b = 4.0;
+let y = a / b;
+print(@y);
+""",
+        "let @y = (b * @a - a * @b) / b ** 2.0;",
+    ),
+    (
+        "power_const",
+        """
+let x = 2.0;
+let y = x ** 3.0;
+print(@y);
+""",
+        "let @y = 3.0 * x ** 2.0 * @x;",
+    ),
+    (
+        "power_square",
+        """
+let x = 1.0;
+let y = x ** 2;
+print(@y);
+""",
+        "let @y = 2.0 * x * @x;",
+    ),
+    (
+        "neg",
+        """
+let x = 3.0;
+let y = -x;
+print(@y);
+""",
+        "let @y = -@x;",
+    ),
+    (
+        "chain_let",
+        """
+let x = 2.0;
+let z = x * x;
+let y = z + z;
+print(@y);
+""",
+        "let @z = 2.0 * x * @x;\nlet @y = 2.0 * @z;",
+    ),
+    (
+        "exp_scalar",
+        """
+let x = 1.0;
+let y = std::math::exp(x);
+print(@y);
+""",
+        "let @y = exp(x) * @x;",
+    ),
+    (
+        "exp_einstein",
+        """
+let x = [1.0, 2.0, 3.0];
+let e[i] = std::math::exp(x[i]);
+print(@e);
+""",
+        "let @e[i] = exp(x[i]) * @x[i];",
+    ),
+    (
+        "sum_reduction",
+        """
+let x = [1.0, 2.0, 3.0];
+let e[i] = std::math::exp(x[i]);
+let s = sum[k](e[k]);
+print(@s);
+""",
+        "let @e[i] = exp(x[i]) * @x[i];\nlet @s = sum[k](@e[k]);",
+    ),
+    (
+        "softmax_quotient",
+        """
+let x = [1.0, 2.0, 3.0];
+let e[i] = std::math::exp(x[i]);
+let s = sum[k](e[k]);
+let y[i] = e[i] / s;
+print(@y);
+""",
+        "let @e[i] = exp(x[i]) * @x[i];\n"
+        "let @s = sum[k](@e[k]);\n"
+        "let @y[i] = (s * @e[i] - e[i] * @s) / s ** 2.0;",
+    ),
+    (
+        "if_else",
+        """
+let x = 3.0;
+let y = if x > 0.0 { x } else { 0.0 };
+print(@y);
+""",
+        "let @y = if x > 0.0 { @x } else { 0.0 };",
+    ),
+    (
+        "scalar_mul",
+        """
+let x = 3.0;
+let y = 2.0 * x;
+print(@y);
+""",
+        "let @y = 2.0 * @x;",
+    ),
+    (
+        "compound",
+        """
+let x = 3.0;
+let y = x * x + x;
+print(@y);
+""",
+        "let @y = 2.0 * x * @x + @x;",
+    ),
+    (
+        "call_plus_fn",
+        """
+fn f(t) { t + 1.0 }
+let x = 1.0;
+let y = x + f(x);
+print(@y);
+""",
+        "let @y = 2.0 * @x;",
+    ),
+    (
+        "multistatement_callee_g",
+        """
+fn g(t) {
+    let a = t + 1.0;
+    let b = a * 2.0;
+    b
+}
+let x = 3.0;
+let y = g(x);
+print(@y);
+""",
+        "let @y = {\n    let _@a = @x;\n    let _@b = 2.0 * _@a;\n    _@b\n};",
+    ),
+    (
+        "log_scalar",
+        """
+let x = 2.0;
+let y = std::math::log(x);
+print(@y);
+""",
+        "let @y = 1.0 / x * @x;",
+    ),
+    (
+        "sin_scalar",
+        """
+let x = 1.0;
+let y = std::math::sin(x);
+print(@y);
+""",
+        "let @y = cos(x) * @x;",
+    ),
+    (
+        "cos_scalar",
+        """
+let x = 1.0;
+let y = std::math::cos(x);
+print(@y);
+""",
+        "let @y = -sin(x) * @x;",
+    ),
+    (
+        "tan_scalar",
+        """
+let x = 0.5;
+let y = std::math::tan(x);
+print(@y);
+""",
+        "let @y = 1.0 / (cos(x) * cos(x)) * @x;",
+    ),
+    (
+        "log1p_scalar",
+        """
+let x = 0.5;
+let y = std::math::log1p(x);
+print(@y);
+""",
+        "let @y = 1.0 / (1.0 + x) * @x;",
+    ),
+    (
+        "expm1_scalar",
+        """
+let x = 0.5;
+let y = std::math::expm1(x);
+print(@y);
+""",
+        "let @y = exp(x) * @x;",
+    ),
+    (
+        "atan_scalar",
+        """
+let x = 0.5;
+let y = std::math::atan(x);
+print(@y);
+""",
+        "let @y = 1.0 / (1.0 + x * x) * @x;",
+    ),
+    (
+        "asin_scalar",
+        """
+let x = 0.5;
+let y = std::math::asin(x);
+print(@y);
+""",
+        "let @y = 1.0 / (1.0 - x * x) ** 0.5 * @x;",
+    ),
+    (
+        "acos_scalar",
+        """
+let x = 0.5;
+let y = std::math::acos(x);
+print(@y);
+""",
+        "let @y = -1.0 / (1.0 - x * x) ** 0.5 * @x;",
+    ),
+    (
+        "atan2_two_vars",
+        """
+let y = 1.0;
+let x = 2.0;
+let z = std::math::atan2(y, x);
+print(@z);
+""",
+        "let @z = x / (x * x + y * y) * @y + -y / (x * x + y * y) * @x;",
+    ),
+    (
+        "tanh_scalar",
+        """
+let x = 0.5;
+let y = std::math::tanh(x);
+print(@y);
+""",
+        "let @y = {\n    let _@tanh_x: f32 = if x as f32 >= 0.0 {\n        let t = exp(-2.0 * x);\n        let _@t = { exp(-2.0 * x) * -2.0 * @x };\n        ((1.0 + t) * (0.0 - _@t) - (1.0 - t) * _@t) / (1.0 + t) ** 2.0\n    } else {\n        let t = exp(2.0 * x);\n        let _@t = { exp(2.0 * x) * 2.0 * @x };\n        ((t + 1.0) * _@t - (t - 1.0) * _@t) / (t + 1.0) ** 2.0\n    };\n    _@tanh_x\n};",
+    ),
+    (
+        "sinh_scalar",
+        """
+let x = 0.5;
+let y = std::math::sinh(x);
+print(@y);
+""",
+        "let @y = {\n    let _@sinh_x: f32 = {\n        let ax = abs(x);\n        let _@ax = if x as f32 >= 0.0 { @x } else { -@x };\n        if ax < 20.0 { 0.5 * ({ exp(x) * @x } - { exp(-x) * -@x }) } else {\n        let s = if x as f32 >= 0.0 { 1.0 } else { -1.0 };\n        let _@s = if x as f32 >= 0.0 { 0.0 } else { 0.0 };\n        s * 0.5 * { exp(ax) * _@ax } + exp(ax) * 0.5 * _@s\n    }\n    };\n    _@sinh_x\n};",
+    ),
+    (
+        "cosh_scalar",
+        """
+let x = 0.5;
+let y = std::math::cosh(x);
+print(@y);
+""",
+        "let @y = {\n    let _@cosh_x: f32 = {\n        let ax = abs(x);\n        let _@ax = if x as f32 >= 0.0 { @x } else { -@x };\n        if ax < 20.0 { 0.5 * ({ exp(x) * @x } + { exp(-x) * -@x }) } else { 0.5 * { exp(ax) * _@ax } }\n    };\n    _@cosh_x\n};",
+    ),
+    (
+        "asinh_scalar",
+        """
+let x = 0.5;
+let y = std::math::asinh(x);
+print(@y);
+""",
+        "let @y = 1.0 / (x + (x * x + 1.0) ** 0.5) * (@x + 0.5 * (x * x + 1.0) ** -0.5 * 2.0 * x * @x);",
+    ),
+    (
+        "acosh_scalar",
+        """
+let x = 2.0;
+let y = std::math::acosh(x);
+print(@y);
+""",
+        "let @y = 1.0 / (x + (x * x - 1.0) ** 0.5) * (@x + 0.5 * (x * x - 1.0) ** -0.5 * 2.0 * x * @x);",
+    ),
+    (
+        "atanh_scalar",
+        """
+let x = 0.5;
+let y = std::math::atanh(x);
+print(@y);
+""",
+        "let @y = 0.5 * { 1.0 / ((1.0 + x) / (1.0 - x)) * ((1.0 - x) * @x - (1.0 + x) * (0.0 - @x)) / (1.0 - x) ** 2.0 };",
+    ),
+    (
+        "erf_scalar",
+        """
+let x = 1.0;
+let y = std::math::erf(x);
+print(@y);
+""",
+        """let @y = {
+    let a1 = 0.254829592;
+    let a2 = -0.284496736;
+    let a3 = 1.421413741;
+    let a4 = -1.453152027;
+    let a5 = 1.061405429;
+    let p = 0.3275911;
+    let sign_x = sign(x);
+    let abs_x = abs(x);
+    let t = 1.0 / (1.0 + p * abs_x);
+    let t2 = t * t;
+    let t3 = t2 * t;
+    let t4 = t3 * t;
+    let t5 = t4 * t;
+    let erf_approx = 1.0 - (a1 * t + a2 * t2 + a3 * t3 + a4 * t4 + a5 * t5) * exp(-abs_x * abs_x);
+    let _@sign_x = if x as f32 > 0.0 { 0.0 } else if x as f32 < 0.0 { 0.0 } else { 0.0 };
+    let _@abs_x = if x as f32 >= 0.0 { @x } else { -@x };
+    let _@t = (0.0 - p * _@abs_x) / (1.0 + p * abs_x) ** 2.0;
+    let _@t2 = 2.0 * t * _@t;
+    let _@t3 = t2 * _@t + t * _@t2;
+    let _@t4 = t3 * _@t + t * _@t3;
+    let _@t5 = t4 * _@t + t * _@t4;
+    let _@erf_approx = 0.0 - ((a1 * t + a2 * t2 + a3 * t3 + a4 * t4 + a5 * t5) * { exp(-abs_x * abs_x) * -2.0 * abs_x * _@abs_x } + exp(-abs_x * abs_x) * (a1 * _@t + a2 * _@t2 + a3 * _@t3 + a4 * _@t4 + a5 * _@t5));
+    sign_x * _@erf_approx + erf_approx * _@sign_x
+};""",
+    ),
+    (
+        "abs_scalar",
+        """
+let x = 2.0;
+let y = std::math::abs(x);
+print(@y);
+""",
+        "let @y = {\n    let _@abs_x: f32 = if x as f32 >= 0.0 { @x } else { -@x };\n    _@abs_x\n};",
+    ),
+    (
+        "sign_scalar",
+        """
+let x = 2.0;
+let y = std::math::sign(x);
+print(@y);
+""",
+        "let @y = {\n    let _@sign_x: f32 = if x as f32 > 0.0 { 0.0 } else if x as f32 < 0.0 { 0.0 } else { 0.0 };\n    _@sign_x\n};",
+    ),
+    (
+        "min_scalar",
+        """
+let x = 2.0;
+let y = std::math::min(x, 5.0);
+print(@y);
+""",
+        "let @y = {\n    let _@min_call: f32 = if x < 5.0 { @x } else { 0.0 } + if x < 5.0 { 0.0 } else { 0.0 };\n    _@min_call\n};",
+    ),
+    (
+        "max_scalar",
+        """
+let x = 2.0;
+let y = std::math::max(x, 0.0);
+print(@y);
+""",
+        "let @y = {\n    let _@max_call: f32 = if x > 0.0 { @x } else { 0.0 } + if x > 0.0 { 0.0 } else { 0.0 };\n    _@max_call\n};",
+    ),
+    (
+        "reciprocal_scalar",
+        """
+let x = 2.0;
+let y = std::math::reciprocal(x);
+print(@y);
+""",
+        "let @y = (0.0 - @x) / x ** 2.0;",
+    ),
+    (
+        "rsqrt_scalar",
+        """
+let x = 4.0;
+let y = std::math::rsqrt(x);
+print(@y);
+""",
+        "let @y = (0.0 - 0.5 * x ** -0.5 * @x) / (x ** 0.5) ** 2.0;",
+    ),
+    (
+        "sqrt_via_pow",
+        """
+let x = 4.0;
+let y = x ** 0.5;
+print(@y);
+""",
+        "let @y = 0.5 * x ** -0.5 * @x;",
+    ),
+    (
+        "mod_scalar",
+        """
+let x = 7.0;
+let y = x % 3.0;
+print(@y);
+""",
+        "let @y = @x;",
+    ),
+    (
+        "quotient_chain",
+        """
+let x = 3.0;
+let y = x / (x + 1.0);
+print(@y);
+""",
+        "let @y = ((x + 1.0) * @x - x * @x) / (x + 1.0) ** 2.0;",
+    ),
+    (
+        "einstein_square",
+        """
+let x = [1.0, 2.0, 3.0];
+let t[i] = x[i] * x[i];
+print(@t);
+""",
+        "let @t[i] = 2.0 * x[i] * @x[i];",
+    ),
+    (
+        "prod_reduction",
+        """
+let x = [1.0, 2.0, 3.0];
+let p = prod[j](x[j]);
+print(@p);
+""",
+        "let @p = prod[j](x[j]) / x[j] * @x[j];",
+    ),
+    (
+        "reduce_sum",
+        """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::reduce_sum(x);
+print(@y);
+""",
+        "let @y = {\n    let _@reduce_sum_x: [f32; ?] = {\n        let _@result[batch.0] = sum[j](@x[batch.0, j]);\n        _@result\n    };\n    _@reduce_sum_x\n};",
+    ),
+    (
+        "reduce_l1",
+        """
+use std::ml;
+let x = [[1.0, -2.0, 3.0]];
+let y = std::ml::reduce_l1(x);
+print(@y);
+""",
+        "let @y = {\n    let _@reduce_l1_x: [f32; *] = {\n        let _@result[batch.0] = sum[j](if x[batch.0, j] as f32 >= 0.0 { @x[batch.0, j] } else { -@x[batch.0, j] });\n        _@result\n    };\n    _@reduce_l1_x\n};",
+    ),
+    (
+        "reduce_sum_square",
+        """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::reduce_sum_square(x);
+print(@y);
+""",
+        "let @y = {\n    let _@reduce_sum_square_x: [f32; *] = {\n        let _@result[batch.0] = sum[j](2.0 * x[batch.0, j] * @x[batch.0, j]);\n        _@result\n    };\n    _@reduce_sum_square_x\n};",
+    ),
+    (
+        "reduce_mean",
+        """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::reduce_mean(x);
+print(@y);
+""",
+        "let @y = {\n    let count = len(x[0]) as f32;\n    let _@sum_val[batch.0] = sum[j](@x[batch.0, j]);\n    let _@mean[batch.0] = _@sum_val[batch.0] / count;\n    _@mean\n};",
+    ),
+    (
+        "linear",
+        """
+use std::ml;
+let x = [[1.0, 2.0]];
+let W = [[0.5, 0.3], [0.2, 0.4]];
+let b = [0.1, 0.2];
+let y = std::ml::linear(x, W, b);
+print(@y);
+""",
+        "let @y = {\n    let _@linear_call: [f32; ?, ?] = {\n        let _@output[batch.0, j] = sum[k](x[batch.0, k] * @W[j, k] + W[j, k] * @x[batch.0, k]) + @b[j];\n        _@output\n    };\n    _@linear_call\n};",
+    ),
+    (
+        "mse_loss",
+        """
+use std::ml;
+let pred = [[1.0, 2.0, 3.0]];
+let target = [[1.5, 2.5, 3.5]];
+let y = std::ml::mse_loss(pred, target);
+print(@y);
+""",
+        "let @y = {\n    let _@mse_loss_call: [f32; ?] = {\n        let n = len(pred[0]) as f32;\n        let _@loss[batch.0] = sum[j](2.0 * (pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j])) / n;\n        _@loss\n    };\n    _@mse_loss_call\n};",
+    ),
+    (
+        "mae_loss",
+        """
+use std::ml;
+let pred = [[1.0, 2.0, 3.0]];
+let target = [[1.5, 2.5, 3.5]];
+let y = std::ml::mae_loss(pred, target);
+print(@y);
+""",
+        "let @y = {\n    let _@mae_loss_call: [f32; ?] = {\n        let n = len(pred[0]) as f32;\n        let _@loss[batch.0] = sum[j](0.5 * ((pred[batch.0, j] - target[batch.0, j]) ** 2.0) ** -0.5 * 2.0 * (pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j])) / n;\n        _@loss\n    };\n    _@mae_loss_call\n};",
+    ),
+    (
+        "huber_loss",
+        """
+use std::ml;
+let pred = [[1.0, 2.0, 3.0]];
+let target = [[1.5, 2.5, 3.5]];
+let y = std::ml::huber_loss(pred, target, 1.0);
+print(@y);
+""",
+        _HUBER_LOSS_PRINT_AT_GOLDEN,
+    ),
+    (
+        "binary_cross_entropy",
+        """
+use std::ml;
+let pred = [[0.8, 0.3, 0.9]];
+let target = [[1.0, 0.0, 1.0]];
+let y = std::ml::binary_cross_entropy(pred, target);
+print(@y);
+""",
+        "let @y = {\n    let _@binary_cross_entropy_call: [f32; ?] = {\n        let eps = 1e-07;\n        let clipped_pred[batch.0, j] = if pred[batch.0, j] < eps { eps } else if pred[batch.0, j] > 1.0 - eps { 1.0 - eps } else { pred[batch.0, j] };\n        let _@clipped_pred[batch.0, j] = if pred[batch.0, j] < eps { 0.0 } else if pred[batch.0, j] > 1.0 - eps { 0.0 } else { @pred[batch.0, j] };\n        let _@loss[batch.0] = -sum[j](target[batch.0, j] * { 1.0 / clipped_pred[batch.0, j] * _@clipped_pred[batch.0, j] } + ln(clipped_pred[batch.0, j]) * @target[batch.0, j] + (1.0 - target[batch.0, j]) * { 1.0 / (1.0 - clipped_pred[batch.0, j]) * (0.0 - _@clipped_pred[batch.0, j]) } + ln(1.0 - clipped_pred[batch.0, j]) * (0.0 - @target[batch.0, j]));\n        _@loss\n    };\n    _@binary_cross_entropy_call\n};",
+    ),
+    (
+        "softmax",
+        """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::softmax(x);
+print(@y);
+""",
+        "let @y = {\n    let max_val[batch.0] = max[j](x[batch.0, j]);\n    let shifted[batch.0, j] = x[batch.0, j] - max_val[batch.0];\n    let exp_vals[batch.0, j] = exp(shifted[batch.0, j]);\n    let sums[batch.0] = sum[k](exp_vals[batch.0, k]);\n    let _@max_val[batch.0] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0, j] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@exp_vals[batch.0, j] = exp(shifted[batch.0, j]) * _@shifted[batch.0, j];\n    let _@sums[batch.0] = sum[k](_@exp_vals[batch.0, k]);\n    let _@output[batch.0, j] = (sums[batch.0] * _@exp_vals[batch.0, j] - exp_vals[batch.0, j] * _@sums[batch.0]) / sums[batch.0] ** 2.0;\n    _@output\n};",
+    ),
+    (
+        "log_softmax",
+        """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::log_softmax(x);
+print(@y);
+""",
+        "let @y = {\n    let max_val[batch.0] = max[j](x[batch.0, j]);\n    let shifted[batch.0, j] = x[batch.0, j] - max_val[batch.0];\n    let exp_vals[batch.0, j] = exp(shifted[batch.0, j]);\n    let sum_exp[batch.0] = sum[k](exp_vals[batch.0, k]);\n    let _@max_val[batch.0] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0, j] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@exp_vals[batch.0, j] = exp(shifted[batch.0, j]) * _@shifted[batch.0, j];\n    let _@sum_exp[batch.0] = sum[k](_@exp_vals[batch.0, k]);\n    let _@log_sum[batch.0] = { 1.0 / sum_exp[batch.0] * _@sum_exp[batch.0] } + _@max_val[batch.0];\n    let _@output[batch.0, j] = @x[batch.0, j] - _@log_sum[batch.0];\n    _@output\n};",
+    ),
+    (
+        "reduce_l2",
+        """
+use std::ml;
+let x = [[3.0, 4.0]];
+let y = std::ml::reduce_l2(x);
+print(@y);
+""",
+        "let @y = {\n    let sum_squares[batch.0] = sum[j](x[batch.0, j] ** 2.0);\n    let _@sum_squares[batch.0] = sum[j](2.0 * x[batch.0, j] * @x[batch.0, j]);\n    let _@result[batch.0] = 0.5 * sum_squares[batch.0] ** -0.5 * _@sum_squares[batch.0];\n    _@result\n};",
+    ),
+    (
+        "reduce_log_sum",
+        """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::reduce_log_sum(x);
+print(@y);
+""",
+        "let @y = {\n    let sum_val[batch.0] = sum[j](x[batch.0, j]);\n    let _@sum_val[batch.0] = sum[j](@x[batch.0, j]);\n    let _@result[batch.0] = 1.0 / sum_val[batch.0] * _@sum_val[batch.0];\n    _@result\n};",
+    ),
+    (
+        "reduce_log_sum_exp",
+        """
+use std::ml;
+let x = [[1.0, 2.0, 3.0]];
+let y = std::ml::reduce_log_sum_exp(x);
+print(@y);
+""",
+        "let @y = {\n    let max_val[batch.0] = max[j](x[batch.0, j]);\n    let shifted[batch.0, j] = x[batch.0, j] - max_val[batch.0];\n    let sum_exp[batch.0] = sum[j](exp(shifted[batch.0, j]));\n    let _@max_val[batch.0] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0, j] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@sum_exp[batch.0] = sum[j]({ exp(shifted[batch.0, j]) * _@shifted[batch.0, j] });\n    let _@result[batch.0] = _@max_val[batch.0] + { 1.0 / sum_exp[batch.0] * _@sum_exp[batch.0] };\n    _@result\n};",
+    ),
+    (
+        "cosine_similarity",
+        """
+use std::ml;
+let a = [[1.0, 2.0, 3.0]];
+let b = [[4.0, 5.0, 6.0]];
+let y = std::ml::cosine_similarity(a, b);
+print(@y);
+""",
+        "let @y = {\n    let _@cosine_similarity_call: [f32; ?] = {\n        let dot_product[batch.0] = sum[j](a[batch.0, j] * b[batch.0, j]);\n        let norm_a_sq[batch.0] = sum[j](a[batch.0, j] * a[batch.0, j]);\n        let norm_b_sq[batch.0] = sum[j](b[batch.0, j] * b[batch.0, j]);\n        let norm_a[batch.0] = sqrt(norm_a_sq[batch.0]);\n        let norm_b[batch.0] = sqrt(norm_b_sq[batch.0]);\n        let _@dot_product[batch.0] = sum[j](a[batch.0, j] * @b[batch.0, j] + b[batch.0, j] * @a[batch.0, j]);\n        let _@norm_a_sq[batch.0] = sum[j](2.0 * a[batch.0, j] * @a[batch.0, j]);\n        let _@norm_b_sq[batch.0] = sum[j](2.0 * b[batch.0, j] * @b[batch.0, j]);\n        let _@norm_a[batch.0] = 0.5 * norm_a_sq[batch.0] ** -0.5 * _@norm_a_sq[batch.0];\n        let _@norm_b[batch.0] = 0.5 * norm_b_sq[batch.0] ** -0.5 * _@norm_b_sq[batch.0];\n        let _@similarity[batch.0] = (norm_a[batch.0] * norm_b[batch.0] * _@dot_product[batch.0] - dot_product[batch.0] * (norm_a[batch.0] * _@norm_b[batch.0] + norm_b[batch.0] * _@norm_a[batch.0])) / (norm_a[batch.0] * norm_b[batch.0]) ** 2.0;\n        _@similarity\n    };\n    _@cosine_similarity_call\n};",
+    ),
+    (
+        "matmul",
+        """
+use std::ml;
+let A = [[1.0, 2.0], [3.0, 4.0]];
+let B = [[5.0, 6.0], [7.0, 8.0]];
+let C = std::ml::matmul(A, B);
+print(@C);
+""",
+        "let @C = {\n    let _@matmul_call: [f32; ?, ?] = {\n        let _@output[i, j] = sum[k](A[i, k] * @B[k, j] + B[k, j] * @A[i, k]);\n        _@output\n    };\n    _@matmul_call\n};",
+    ),
+    (
+        # Golden string is print(@C); math: @C[b,i,j]=Σ_k(A[b,i,k]@B[b,k,j]+B[b,k,j]@A[b,i,k]).
+        "batch_matmul",
+        """
+use std::ml;
+let A = [[[1.0, 2.0], [3.0, 4.0]], [[0.5, 0.5], [0.1, 0.2]]];
+let B = [[[5.0, 6.0], [7.0, 8.0]], [[1.0, 1.0], [1.0, 1.0]]];
+let C = std::ml::batch_matmul(A, B);
+print(@C);
+""",
+        "let @C = {\n    let _@batch_matmul_call: [f32; ?, ?, ?] = {\n        let _@result[batch.0, i, j] = sum[k](A[batch.0, i, k] * @B[batch.0, k, j] + B[batch.0, k, j] * @A[batch.0, i, k]);\n        _@result\n    };\n    _@batch_matmul_call\n};",
+    ),
+]
+
+
+class TestPrintAtGolden:
+    @pytest.mark.parametrize(
+        "label,source,expected",
+        [(row[0], row[1], row[2]) for row in GOLDEN_PRINT_CASES],
+        ids=[row[0] for row in GOLDEN_PRINT_CASES],
+    )
+    def test_golden_stdout(self, label: str, source: str, expected: str) -> None:
+        c_ok, e_ok, out, err = compile_exec_capture_print_at(source)
+        assert c_ok, "%s: compile failed: %s" % (label, err)
+        assert e_ok, "%s: exec failed: %s" % (label, err)
+        assert out == expected, "%s: got %r, expected %r" % (label, out, expected)
+
+
+class TestPrintAtCalleeTangentIr:
+    def test_multistatement_callee_tangent_stays_block_not_inlined(self) -> None:
+        """Callees with 2+ lets keep ∂y as BlockExpressionIR, not one big expr."""
+        compiler = CompilerDriver()
+        source = """
+fn g(t) {
+    let a = t + 1.0;
+    let b = a * 2.0;
+    b
+}
+let x = 3.0;
+let y = g(x);
+print(@y);
+"""
+        result = compiler.compile(
+            source.strip(), source_file="<test>", stop_after_pass="AutodiffPass"
+        )
+        assert result.success, result.get_errors() or "compile failed"
+        d_binding = next(
+            (
+                b
+                for b in (result.ir.bindings or [])
+                if isinstance(b, BindingIR) and b.name == "@y"
+            ),
+            None,
+        )
+        assert d_binding is not None, "expected @y binding after AutodiffPass"
+        assert isinstance(d_binding.expr, BlockExpressionIR), (
+            "expected multi-let callee tangent to stay a block, got %s"
+            % type(d_binding.expr).__name__
+        )
+        n_lets = sum(
+            1 for s in (d_binding.expr.statements or []) if isinstance(s, BindingIR)
+        )
+        assert n_lets >= 2, "expected at least 2 ∂ lets in block, got %s" % n_lets
