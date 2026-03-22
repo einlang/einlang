@@ -5,7 +5,7 @@ from __future__ import annotations
 from io import StringIO
 from pathlib import Path
 import sys
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
@@ -42,3 +42,20 @@ def compile_exec_capture_print_at(source: str) -> Tuple[bool, bool, str, str]:
         err = getattr(exec_result, "error", None) or exec_result.errors or "exec failed"
         return True, False, "", short_err_print_at(err)
     return True, True, buf.getvalue().strip(), ""
+
+
+def compile_exec_capture_outputs(source: str) -> Tuple[bool, bool, Dict[str, Any], str]:
+    """Compile ``source``, run with numpy backend, return ``(compile_ok, exec_ok, outputs, err)``.
+
+    ``outputs`` maps top-level binding names to values (same as ``ExecutionResult.outputs``).
+    """
+    compiler = CompilerDriver()
+    result = compiler.compile(source.strip(), source_file="<test>", root_path=REPO_ROOT)
+    if not result.success:
+        return False, False, {}, short_err_print_at(result.get_errors())
+    runtime = EinlangRuntime(backend="numpy")
+    exec_result = runtime.execute(result)
+    if not exec_result.success:
+        err = getattr(exec_result, "error", None) or exec_result.errors or "exec failed"
+        return True, False, {}, short_err_print_at(err)
+    return True, True, dict(exec_result.outputs or {}), ""

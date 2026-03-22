@@ -165,6 +165,14 @@ _AD_ZERO_TANGENT_BUILTINS = frozenset({"assert", "len", "typeof", "shape"})
 def _is_zero(e: ExpressionIR) -> bool:
     return isinstance(e, LiteralIR) and e.value == 0
 
+
+def _is_sum_reduction_of_zero(e: ExpressionIR) -> bool:
+    return (
+        isinstance(e, ReductionExpressionIR)
+        and e.operation == ReductionOp.SUM
+        and _is_zero(e.body)
+    )
+
 def _ti(n: Any) -> Any:
     return getattr(n, "type_info", None)
 
@@ -255,6 +263,10 @@ def _simplify(expr: ExpressionIR, loc: SourceLocation) -> ExpressionIR:
         if op == BinaryOp.ADD:
             if lz: return R
             if rz: return L
+            if isinstance(L, ReductionExpressionIR) and L.operation == ReductionOp.SUM and _is_zero(L.body):
+                return R
+            if isinstance(R, ReductionExpressionIR) and R.operation == ReductionOp.SUM and _is_zero(R.body):
+                return L
             if ll and rl: return _fl(L.value + R.value, loc)
             if _seq(L, R): return BinaryOpIR(BinaryOp.MUL, _fl(2, loc), L, loc)
         elif op == BinaryOp.SUB:
@@ -947,6 +959,35 @@ class _DefIdCollector(IRVisitor[None]):
     def visit_range_pattern(self, n: Any) -> None: pass
 
 
+class _RectReadsRootDefIdVisitor(_DefIdCollector):
+    """True after walk if any ``RectangularAccess`` uses ``IdentifierIR(tensor_did)`` as array root."""
+
+    def __init__(self, tensor_did: DefId) -> None:
+        super().__init__()
+        self._tensor_did = tensor_did
+        self.found = False
+
+    def visit_rectangular_access(self, n: RectangularAccessIR) -> None:
+        a = n.array
+        if isinstance(a, IdentifierIR) and a.defid == self._tensor_did:
+            self.found = True
+        if a is not None:
+            a.accept(self)
+        for i in n.indices or []:
+            i.accept(self)
+
+
+def _einstein_clause_values_rect_read_tensor(ein: EinsteinIR, tensor_did: DefId) -> bool:
+    for c in ein.clauses or []:
+        if c.value is None:
+            continue
+        vis = _RectReadsRootDefIdVisitor(tensor_did)
+        c.value.accept(vis)
+        if vis.found:
+            return True
+    return False
+
+
 def _collect_defids(expr: Optional[ExpressionIR]) -> Set[DefId]:
     if expr is None: return set()
     c = _DefIdCollector(); expr.accept(c); return c.defids
@@ -1195,6 +1236,220 @@ def clear_custom_diff_body_everywhere(program: ProgramIR) -> None:
     """Public API: clear autodiff-only IR artefacts."""
     program.accept(_CleanupVisitor())
 
+
+def _tensor_rank_from_literal_array(expr: Optional[ExpressionIR]) -> int:
+    if expr is None or not isinstance(expr, ArrayLiteralIR):
+        return 0
+    el = expr.elements or []
+    if not el:
+        return 0
+    if isinstance(el[0], ArrayLiteralIR):
+        return 1 + _tensor_rank_from_literal_array(el[0])
+    return 1
+
+
+def _tensor_rank_from_binding(b: Optional[BindingIR]) -> int:
+    if b is None:
+        return 0
+    si = getattr(b, "shape_info", None)
+    if isinstance(si, tuple) and len(si) > 0:
+        return len(si)
+    ti = getattr(b, "type_info", None)
+    if isinstance(ti, RectangularType):
+        if getattr(ti, "is_dynamic_rank", False):
+            pass
+        elif ti.shape is not None:
+            return len(ti.shape)
+        else:
+            return 1
+    rk_lit = _tensor_rank_from_literal_array(getattr(b, "expr", None))
+    if rk_lit > 0:
+        return rk_lit
+    return 0
+
+
+def _alloc_wrt_gradient_axes(
+    wb: BindingIR, wrt: DefId, resolver: Any, loc: SourceLocation
+) -> List[IndexVarIR]:
+    wid = IdentifierIR(
+        wb.name or "_wrt",
+        wb.location or loc,
+        wrt,
+        type_info=_ti(wb) or UNKNOWN,
+        shape_info=_si(wb),
+    )
+    rank = _tensor_rank_from_binding(wb)
+    if rank <= 0:
+        return []
+    out: List[IndexVarIR] = []
+    for p in range(rank):
+        nd = resolver.allocate_for_local()
+        sh = MemberAccessIR(object=wid, member="shape", location=loc, type_info=UNKNOWN)
+        dim = LiteralIR(p, loc, type_info=PrimitiveType("i32"))
+        sd = RectangularAccessIR(array=sh, indices=[dim], location=loc, type_info=UNKNOWN)
+        rng = RangeIR(
+            start=LiteralIR(0, loc, type_info=PrimitiveType("i32")),
+            end=sd,
+            location=loc,
+            type_info=UNKNOWN,
+        )
+        iv = IndexVarIR("_jcot_%d" % p, loc, nd, range_ir=rng)
+        out.append(iv)
+    return out
+
+
+def _kronecker_delta_indices(
+    accessed: List[ExpressionIR],
+    wrt_axes: List[IndexVarIR],
+    loc: SourceLocation,
+) -> ExpressionIR:
+    if len(accessed) != len(wrt_axes):
+        raise ValueError("Autodiff: Kronecker index list length mismatch for tensor `wrt` Jacobian")
+    if not accessed:
+        return _fl(1, loc)
+    tail_a = accessed[1:]
+    tail_x = wrt_axes[1:]
+    if tail_a:
+        inner = _kronecker_delta_indices(tail_a, tail_x, loc)
+    else:
+        inner = _fl(1, loc)
+    eq = BinaryOpIR(BinaryOp.EQ, accessed[0], wrt_axes[0], loc, type_info=BOOL)
+    return IfExpressionIR(eq, inner, loc, else_expr=_z(loc), type_info=F32)
+
+
+def _is_bare_wrt_tensor_deriv(
+    e: ExpressionIR, wrt: DefId, wrt_axes: Optional[List[IndexVarIR]]
+) -> bool:
+    return bool(wrt_axes) and isinstance(e, IdentifierIR) and e.defid == wrt
+
+
+def _reject_bare_wrt_tensor_jacobian(
+    e: ExpressionIR, wrt: DefId, wrt_axes: Optional[List[IndexVarIR]], ctx: str
+) -> None:
+    if _is_bare_wrt_tensor_deriv(e, wrt, wrt_axes):
+        raise ValueError(
+            "Autodiff: JacobianVisitor (%s) hit an unindexed use of a tensor `wrt` binding; "
+            "index it (e.g. x[i]) or use Einstein reductions."
+            % (ctx,)
+        )
+
+
+def _unwrap_jacobian_add_zero(expr: ExpressionIR) -> ExpressionIR:
+    if isinstance(expr, BinaryOpIR) and expr.operator == BinaryOp.ADD and _is_zero(expr.right):
+        return _unwrap_jacobian_add_zero(expr.left)
+    return expr
+
+
+def _merge_primal_clause_with_cotangent_einstein(
+    clause: EinsteinClauseIR, d_val: ExpressionIR
+) -> Tuple[List, ExpressionIR, Dict]:
+    dv = _unwrap_jacobian_add_zero(d_val)
+    if isinstance(dv, EinsteinIR) and len(dv.clauses or []) == 1:
+        ic = dv.clauses[0]
+        ix = list(ic.indices or [])
+        if ix and all(getattr(iv, "name", "").startswith("_jcot_") for iv in ix):
+            merged_idx = list(clause.indices or []) + ix
+            nvr = dict(clause.variable_ranges or {})
+            nvr.update(ic.variable_ranges or {})
+            return merged_idx, ic.value, nvr
+    return list(clause.indices or []), dv, dict(clause.variable_ranges or {})
+
+
+def _expr_uses_index_defids(expr: Optional[ExpressionIR], defids: Set[DefId]) -> bool:
+    if expr is None or not defids:
+        return False
+    if isinstance(expr, IndexVarIR):
+        return expr.defid is not None and expr.defid in defids
+    if isinstance(expr, (LiteralIR, IdentifierIR)):
+        return False
+    if isinstance(expr, UnaryOpIR):
+        return _expr_uses_index_defids(expr.operand, defids)
+    if isinstance(expr, BinaryOpIR):
+        return _expr_uses_index_defids(expr.left, defids) or _expr_uses_index_defids(expr.right, defids)
+    if isinstance(expr, IfExpressionIR):
+        if _expr_uses_index_defids(expr.condition, defids):
+            return True
+        if _expr_uses_index_defids(expr.then_expr, defids):
+            return True
+        return _expr_uses_index_defids(expr.else_expr, defids)
+    if isinstance(expr, RectangularAccessIR):
+        if _expr_uses_index_defids(expr.array, defids):
+            return True
+        for ix in expr.indices or []:
+            if _expr_uses_index_defids(ix, defids):
+                return True
+        return False
+    if isinstance(expr, ReductionExpressionIR):
+        ow = getattr(expr, "where_clause", None)
+        if ow is not None:
+            for c in getattr(ow, "constraints", None) or []:
+                if _expr_uses_index_defids(c, defids):
+                    return True
+        return _expr_uses_index_defids(expr.body, defids)
+    if isinstance(expr, CastExpressionIR):
+        return _expr_uses_index_defids(expr.expr, defids)
+    if isinstance(expr, EinsteinIR):
+        for c in expr.clauses or []:
+            cw = getattr(c, "where_clause", None)
+            if cw is not None:
+                for cn in getattr(cw, "constraints", None) or []:
+                    if _expr_uses_index_defids(cn, defids):
+                        return True
+            if _expr_uses_index_defids(c.value, defids):
+                return True
+        return False
+    if isinstance(expr, SelectAtArgmaxIR):
+        return _expr_uses_index_defids(expr.primal_body, defids) or _expr_uses_index_defids(
+            expr.diff_body, defids
+        )
+    if isinstance(expr, FunctionCallIR):
+        for a in expr.arguments or []:
+            if _expr_uses_index_defids(a, defids):
+                return True
+        return False
+    if isinstance(expr, BlockExpressionIR):
+        if expr.final_expr is not None and _expr_uses_index_defids(expr.final_expr, defids):
+            return True
+        for s in expr.statements or []:
+            if isinstance(s, BindingIR) and s.expr is not None and _expr_uses_index_defids(s.expr, defids):
+                return True
+        return False
+    return False
+
+
+def _clause_index_defids(indices: Optional[List]) -> Set[DefId]:
+    out: Set[DefId] = set()
+    for ix in indices or []:
+        did = getattr(ix, "defid", None)
+        if did is not None:
+            out.add(did)
+    return out
+
+
+def _ensure_cotangent_axes_on_clause_indices(
+    mi: List,
+    nvr: Dict[DefId, RangeIR],
+    d_val: ExpressionIR,
+    axes: Optional[List[IndexVarIR]],
+) -> Tuple[List, Dict[DefId, RangeIR]]:
+    if not axes:
+        return mi, nvr
+    axis_ids = {iv.defid for iv in axes if getattr(iv, "defid", None) is not None}
+    if not axis_ids or not _expr_uses_index_defids(d_val, axis_ids):
+        return mi, nvr
+    have = _clause_index_defids(mi)
+    out_i = list(mi)
+    out_v = dict(nvr)
+    for iv in axes:
+        did = getattr(iv, "defid", None)
+        if did is not None and did not in have:
+            out_i.append(iv)
+            have.add(did)
+        if did is not None and iv.range_ir is not None:
+            out_v[did] = iv.range_ir
+    return out_i, out_v
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # JacobianVisitor  — ∂(expr)/∂(wrt)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1208,14 +1463,61 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                  bindings: Dict[DefId, BindingIR], resolver: Any,
                  stmt_partial: Optional[Dict[DefId, ExpressionIR]] = None,
                  wrt_tangent: Optional[ExpressionIR] = None,
-                 primal_subst: Optional[Dict[DefId, ExpressionIR]] = None) -> None:
+                 primal_subst: Optional[Dict[DefId, ExpressionIR]] = None,
+                 shared_cotangent_axes: Optional[List[IndexVarIR]] = None) -> None:
         self._wrt = wrt; self._loc = loc; self._B = bindings
         self._R = resolver; self._sp = stmt_partial; self._wt = wrt_tangent
         self._ps = primal_subst
+        self._wrt_axes: Optional[List[IndexVarIR]] = None
+        wb = bindings.get(wrt)
+        if wb is not None and _tensor_rank_from_binding(wb) > 0:
+            self._wrt_axes = (
+                list(shared_cotangent_axes)
+                if shared_cotangent_axes is not None
+                else _alloc_wrt_gradient_axes(wb, wrt, resolver, loc)
+            )
+
+    def _wrap_if_cotangent_indices(self, inner: ExpressionIR, n: ReductionExpressionIR) -> ExpressionIR:
+        ax = self._wrt_axes
+        if not ax:
+            return inner
+        loc = n.location or self._loc
+        axis_ids = {iv.defid for iv in ax if getattr(iv, "defid", None) is not None}
+        if not axis_ids or not _expr_uses_index_defids(inner, axis_ids):
+            return inner
+        mlr: Dict[DefId, RangeIR] = dict(n.loop_var_ranges or {})
+        for iv in ax:
+            did = getattr(iv, "defid", None)
+            if did is not None and iv.range_ir is not None:
+                mlr[did] = iv.range_ir
+        return EinsteinIR(
+            clauses=[
+                EinsteinClauseIR(
+                    indices=list(ax),
+                    value=inner,
+                    location=loc,
+                    variable_ranges=mlr,
+                )
+            ],
+            shape=None,
+            element_type=None,
+            location=loc,
+            type_info=_ti(n),
+            shape_info=None,
+        )
 
     # -- atoms ---------------------------------------------------------------
     def visit_identifier(self, n: IdentifierIR) -> ExpressionIR:
         if n.defid == self._wrt:
+            if self._wrt_axes:
+                wb = self._B.get(self._wrt)
+                return IdentifierIR(
+                    n.name or "?",
+                    n.location or self._loc,
+                    n.defid,
+                    type_info=_ti(n) or ( _ti(wb) if wb is not None else None ) or UNKNOWN,
+                    shape_info=_si(n) or ( _si(wb) if wb is not None else None ),
+                )
             return self._wt if self._wt is not None else _fl(1, self._loc)
         if n.defid is not None and self._sp is not None:
             pre = self._sp.get(n.defid)
@@ -1230,6 +1532,13 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                 if _is_diff_name(b.name or ""): return n
                 if not _jacobian_rhs_depends_on_wrt(b.expr, self._wrt, self._B):
                     return _z(self._loc)
+                if (
+                    isinstance(b.expr, EinsteinIR)
+                    and n.defid != self._wrt
+                    and self._wrt_axes is None
+                    and _einstein_clause_values_rect_read_tensor(b.expr, n.defid)
+                ):
+                    return _z(self._loc)
                 return b.expr.accept(self)
         return _z(self._loc)
 
@@ -1240,8 +1549,15 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
     def visit_binary_op(self, n: BinaryOpIR) -> ExpressionIR:
         L = n.left; R = n.right; loc = n.location or self._loc
         dL = L.accept(self); dR = R.accept(self)
+        _reject_bare_wrt_tensor_jacobian(dL, self._wrt, self._wrt_axes, "binary left")
+        _reject_bare_wrt_tensor_jacobian(dR, self._wrt, self._wrt_axes, "binary right")
         op = n.operator
-        if op == BinaryOp.ADD: return BinaryOpIR(BinaryOp.ADD, dL, dR, loc)
+        if op == BinaryOp.ADD:
+            if _is_zero(dR) or _is_sum_reduction_of_zero(dR):
+                return dL
+            if _is_zero(dL) or _is_sum_reduction_of_zero(dL):
+                return dR
+            return BinaryOpIR(BinaryOp.ADD, dL, dR, loc)
         if op == BinaryOp.SUB: return BinaryOpIR(BinaryOp.SUB, dL, dR, loc)
         if op == BinaryOp.MUL:
             return BinaryOpIR(BinaryOp.ADD,
@@ -1259,6 +1575,7 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
 
     def visit_unary_op(self, n: UnaryOpIR) -> ExpressionIR:
         d = n.operand.accept(self)
+        _reject_bare_wrt_tensor_jacobian(d, self._wrt, self._wrt_axes, "unary")
         if n.operator == UnaryOp.NEG: return UnaryOpIR(UnaryOp.NEG, d, n.location or self._loc)
         if n.operator == UnaryOp.POS: return d
         raise ValueError(f"Autodiff: unsupported unary op: {n.operator}")
@@ -1267,24 +1584,37 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
     def visit_reduction_expression(self, n: ReductionExpressionIR) -> ExpressionIR:
         loc = n.location or self._loc; d_body = n.body.accept(self); op = n.operation
         if op == ReductionOp.SUM:
-            return ReductionExpressionIR(ReductionOp.SUM, n.loop_vars, d_body, loc,
+            inner = ReductionExpressionIR(ReductionOp.SUM, n.loop_vars, d_body, loc,
                    where_clause=n.where_clause, loop_var_ranges=n.loop_var_ranges,
                    type_info=_ti(n), shape_info=_si(n))
+            return self._wrap_if_cotangent_indices(inner, n)
         if op == ReductionOp.MAX:
-            return SelectAtArgmaxIR(n.body, d_body, n.loop_vars, loop_var_ranges=n.loop_var_ranges,
+            inner = SelectAtArgmaxIR(n.body, d_body, n.loop_vars, loop_var_ranges=n.loop_var_ranges,
                    location=loc, type_info=_ti(n), shape_info=_si(n))
+            return self._wrap_if_cotangent_indices(inner, n)
         if op == ReductionOp.MIN:
-            return SelectAtArgmaxIR(n.body, d_body, n.loop_vars, loop_var_ranges=n.loop_var_ranges,
+            inner = SelectAtArgmaxIR(n.body, d_body, n.loop_vars, loop_var_ranges=n.loop_var_ranges,
                    location=loc, type_info=_ti(n), shape_info=_si(n), use_argmin=True)
+            return self._wrap_if_cotangent_indices(inner, n)
         if op == ReductionOp.PROD:
-            return _prod_pullback_via_sum(n, d_body, loc, self._R)
+            inner = _prod_pullback_via_sum(n, d_body, loc, self._R)
+            return self._wrap_if_cotangent_indices(inner, n)
         raise ValueError(f"Autodiff: unsupported reduction: {op}")
 
     # -- indexing / cast / control flow --------------------------------------
     def visit_rectangular_access(self, n: RectangularAccessIR) -> ExpressionIR:
         loc = n.location or self._loc
-        da = n.array.accept(self)
         indices = list(n.indices or [])
+        da = n.array.accept(self)
+        if _is_zero(da):
+            return _z(loc)
+        if isinstance(da, IdentifierIR) and da.defid == self._wrt and self._wrt_axes:
+            if len(indices) != len(self._wrt_axes):
+                raise ValueError(
+                    "Autodiff: Jacobian indexed access has %d indices but `wrt` tensor rank is %d"
+                    % (len(indices), len(self._wrt_axes))
+                )
+            return _kronecker_delta_indices(indices, self._wrt_axes, loc)
         if isinstance(da, RectangularAccessIR):
             dai = list(da.indices or [])
             if _rc_index_lists_equivalent(indices, dai):
@@ -1295,6 +1625,8 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
     def visit_if_expression(self, n: IfExpressionIR) -> ExpressionIR:
         dt = n.then_expr.accept(self)
         de = n.else_expr.accept(self) if n.else_expr is not None else _z(self._loc)
+        _reject_bare_wrt_tensor_jacobian(dt, self._wrt, self._wrt_axes, "if then")
+        _reject_bare_wrt_tensor_jacobian(de, self._wrt, self._wrt_axes, "if else")
         return IfExpressionIR(condition=n.condition, then_expr=dt, location=n.location or self._loc,
                               else_expr=de, type_info=_ti(n), shape_info=_si(n))
     def visit_block_expression(self, n: BlockExpressionIR) -> ExpressionIR:
@@ -1330,11 +1662,13 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
             stmt_partial=sp_ext,
             wrt_tangent=self._wt,
             primal_subst=self._ps,
+            shared_cotangent_axes=self._wrt_axes,
         )
         for s in stmts:
             pv = _simplify(s.expr.accept(child), loc)
             sp_ext[s.defid] = _z(loc) if _is_zero(pv) else pv
-        return n.final_expr.accept(child)
+        der = n.final_expr.accept(child)
+        return BlockExpressionIR(list(stmts), loc, der, type_info=_ti(n), shape_info=_si(n))
 
     # -- function call -------------------------------------------------------
     def visit_function_call(self, n: FunctionCallIR) -> ExpressionIR:
@@ -1359,6 +1693,7 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                 # ∂(arg)/∂wrt is wrong for forward JVP when arg is already call-site IR with no
                 # wrt identifier (e.g. ln(1+exp(x)) via ln → log @fn: need (1/x)*d_arg with d_arg=wt).
                 d_arg = self._wt if self._wt is not None else args[0].accept(self)
+                _reject_bare_wrt_tensor_jacobian(d_arg, self._wrt, self._wrt_axes, "custom_diff d_arg")
                 return _sub_callee(
                     _sub_wd(rule_body, rm, {ps[0].defid: d_arg}, loc),
                     fv,
@@ -1380,7 +1715,9 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                     ),
                     loc,
                 )
-                terms.append(BinaryOpIR(BinaryOp.MUL, coef, args[i].accept(self), loc))
+                av = args[i].accept(self)
+                _reject_bare_wrt_tensor_jacobian(av, self._wrt, self._wrt_axes, "custom_diff chain")
+                terms.append(BinaryOpIR(BinaryOp.MUL, coef, av, loc))
             return _sum_terms(terms, loc)
         if body is None:
             raise ValueError("Autodiff: JacobianVisitor cannot differentiate function with no body")
@@ -1396,13 +1733,16 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
         for i, p in enumerate(ps):
             if p.defid is None or i >= len(args): continue
             iv = JacobianVisitor(p.defid, loc, self._B, self._R)
-            terms.append(BinaryOpIR(BinaryOp.MUL, _sub(body.accept(iv), rm, loc), args[i].accept(self), loc))
+            av = args[i].accept(self)
+            _reject_bare_wrt_tensor_jacobian(av, self._wrt, self._wrt_axes, "call arg partial")
+            terms.append(BinaryOpIR(BinaryOp.MUL, _sub(body.accept(iv), rm, loc), av, loc))
         return _sum_terms(terms, loc)
 
     # -- einstein (index expansion for jacobians) ----------------------------
     def visit_einstein(self, n: EinsteinIR) -> ExpressionIR:
         return _diff_einstein_wrt(n, self._wrt, self._loc, self._B, self._R, self._wt,
-                                  sp=self._sp, ps=self._ps)
+                                  sp=self._sp, ps=self._ps,
+                                  cotangent_axes=self._wrt_axes)
     def visit_select_at_argmax(self, n: SelectAtArgmaxIR) -> ExpressionIR: return n
 
     def visit_lowered_einstein(self, n: Any) -> ExpressionIR:
@@ -1541,19 +1881,25 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
                        B: Dict[DefId, BindingIR], R: Any,
                        wt: Optional[ExpressionIR] = None,
                        sp: Optional[Dict[DefId, ExpressionIR]] = None,
-                       ps: Optional[Dict[DefId, ExpressionIR]] = None) -> ExpressionIR:
+                       ps: Optional[Dict[DefId, ExpressionIR]] = None,
+                       cotangent_axes: Optional[List[IndexVarIR]] = None) -> ExpressionIR:
     dc: List[EinsteinClauseIR] = []
     for clause in expr.clauses or []:
         val = clause.value
         if not isinstance(val, ReductionExpressionIR):
-            d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps))
-            dc.append(EinsteinClauseIR(indices=clause.indices, value=d_val, location=clause.location,
-                      where_clause=clause.where_clause, variable_ranges=dict(clause.variable_ranges or {})))
+            jv = JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
+                                 shared_cotangent_axes=[])
+            d_val = _simplify(val.accept(jv), loc)
+            mi, merged_v, nvr = _merge_primal_clause_with_cotangent_einstein(clause, d_val)
+            mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, merged_v, jv._wrt_axes)
+            dc.append(EinsteinClauseIR(indices=mi, value=merged_v, location=clause.location,
+                      where_clause=clause.where_clause, variable_ranges=nvr))
             continue
         inner = val.body; factors = _flatten_product(inner) if inner else None
         if not factors:
             if val.operation == ReductionOp.SUM:
-                d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps))
+                d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
+                                                     shared_cotangent_axes=[]))
                 dc.append(EinsteinClauseIR(indices=list(clause.indices or []),
                     value=ReductionExpressionIR(ReductionOp.SUM, list(val.loop_vars or []), d_inner, loc,
                           where_clause=val.where_clause, loop_var_ranges=_merged_lr(val, clause),
@@ -1561,14 +1907,16 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
                     location=clause.location, where_clause=clause.where_clause,
                     variable_ranges=dict(clause.variable_ranges or {})))
             else:
-                d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps))
+                d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
+                                                   shared_cotangent_axes=[]))
                 dc.append(EinsteinClauseIR(indices=clause.indices, value=d_val, location=clause.location,
                           where_clause=clause.where_clause, variable_ranges=dict(clause.variable_ranges or {})))
             continue
         wrt_pos = [i for i, (a, _) in enumerate(factors) if isinstance(a, IdentifierIR) and a.defid == wrt]
         if not wrt_pos:
             if val.operation == ReductionOp.SUM:
-                d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps))
+                d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
+                                                     shared_cotangent_axes=[]))
                 dc.append(EinsteinClauseIR(indices=list(clause.indices or []),
                     value=ReductionExpressionIR(ReductionOp.SUM, list(val.loop_vars or []), d_inner, loc,
                           where_clause=val.where_clause, loop_var_ranges=_merged_lr(val, clause),
@@ -1613,9 +1961,10 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
             continue
 
         if val.operation != ReductionOp.SUM:
-            d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps))
+            d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
+                                               shared_cotangent_axes=[]))
             dc.append(EinsteinClauseIR(indices=clause.indices, value=d_val, location=clause.location,
-                      where_clause=clause.where_clause, variable_ranges=dict(clause.variable_ranges or {})))
+                          where_clause=clause.where_clause, variable_ranges=dict(clause.variable_ranges or {})))
             continue
 
         orig_rc: List[ExpressionIR] = list(getattr(val.where_clause, "constraints", None) or []) if val.where_clause else []
@@ -2988,6 +3337,18 @@ class _ExpansionVisitor(_Rewriter):
                        and _is_reachable(nop.defid, dd, self._SB))
                 if not cdn and not rch:
                     return _z(ql)
+                if isinstance(ne, FunctionCallIR) and _function_call_ir_label(ne) in (
+                    "std::ml::binary_cross_entropy",
+                    "std::ml::cosine_similarity",
+                ):
+                    nL = n.left.accept(self)
+                    nR = n.right.accept(self)
+                    out = BinaryOpIR(BinaryOp.DIV, nL, nR, ql, type_info=_ti(n), shape_info=_si(n))
+                    ti = _ti(n)
+                    si = _si(n)
+                    if ti or si:
+                        _propagate_ti(out, ti, si)
+                    return out
                 jv = JacobianVisitor(dd, ql, self._SB, self._R)
                 der = _simplify(ne.accept(jv), ql)
                 ti = _ti(n)

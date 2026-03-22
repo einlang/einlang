@@ -876,6 +876,7 @@ class RangeGroup:
     """Range group within over clause"""
     range_expr: Optional[Range]
     variables: List[str]
+    is_rest_pattern: bool = False
 
 @dataclass(frozen=True)
 class WhereClause:

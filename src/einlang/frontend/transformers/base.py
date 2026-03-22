@@ -591,21 +591,22 @@ class EinlangTransformer(Transformer):
         range_groups = []
         for idx in indices:
             if isinstance(idx, Identifier):
-                range_groups.append(RangeGroup(range_expr=None, variables=[idx.name]))
+                range_groups.append(RangeGroup(range_expr=None, variables=[idx.name], is_rest_pattern=False))
             elif isinstance(idx, IndexRest):
-                range_groups.append(RangeGroup(range_expr=None, variables=[idx.name]))
+                range_groups.append(RangeGroup(range_expr=None, variables=[idx.name], is_rest_pattern=True))
             elif isinstance(idx, BinaryExpression) and idx.operator == BinaryOp.IN:
                 if isinstance(idx.left, Identifier):
                     var_name = idx.left.name
                     range_expr = idx.right
-                    range_groups.append(RangeGroup(range_expr=range_expr, variables=[var_name]))
+                    range_groups.append(RangeGroup(range_expr=range_expr, variables=[var_name], is_rest_pattern=False))
                 elif isinstance(idx.left, IndexRest):
                     # Rest pattern with range: sum[..batch in 0..N](...)
                     # This is more complex - defer to analysis passes
                     # Store rest pattern name without ".." prefix (parser normalizes this)
                     range_groups.append(RangeGroup(
                         range_expr=idx.right,
-                        variables=[idx.left.name]
+                        variables=[idx.left.name],
+                        is_rest_pattern=True,
                     ))
                 else:
                     # Fallback - shouldn't happen with valid syntax

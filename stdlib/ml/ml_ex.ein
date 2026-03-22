@@ -178,10 +178,8 @@ pub fn flip(x) {
 use std::math::{exp, ln, sqrt, tanh, abs, sign, min, max};
 
 pub fn cross_entropy_loss(predictions, targets) {
-    // L = -Σ_i y_i * ln(softmax(x_i))
-    // Generic: works with arbitrary batch dimensions (operators work directly on tensors)
-    // Input shape: [..batch, classes], Output shape: [..batch]
-    // Inlined softmax to avoid nested generic module function calls
+    // PyTorch F.cross_entropy(..., reduction='mean'): mean over batch of per-row −Σ_c y_c ln(softmax(p)_c).
+    // Input shape: [..batch, classes], output: scalar f32.
     assert(typeof(predictions) == "rectangular", "cross_entropy_loss: predictions must be rectangular array");
     assert(typeof(targets) == "rectangular", "cross_entropy_loss: targets must be rectangular array");
     
@@ -192,51 +190,51 @@ pub fn cross_entropy_loss(predictions, targets) {
     let sums[..batch] = sum[k](exp_vals[..batch, k]);
     let probs[..batch, j] = exp_vals[..batch, j] / sums[..batch];
     
-    // Compute cross entropy loss
-    let loss[..batch] = -sum[j](targets[..batch, j] * ln(probs[..batch, j]));
+    let nb = len(predictions) as f32;
+    let row_ce[..batch] = -sum[j](targets[..batch, j] * ln(probs[..batch, j]));
+    let loss = sum[..batch](row_ce[..batch]) / nb;
     loss
 }
 
 
 pub fn mse_loss(predictions, targets) {
-    // L = (1/n) * Σ_i (y_i - ŷ_i)²
-    // Generic: works with arbitrary batch dimensions (operators work directly on tensors)
-    // Input shape: [..batch, features], Output shape: [..batch]
+    // PyTorch nn.MSELoss(reduction='mean'): mean of (p−t)² over all batch × feature elements.
+    // Input shape: [..batch, features], output: scalar f32.
     assert(typeof(predictions) == "rectangular", "mse_loss: predictions must be rectangular array");
     assert(typeof(targets) == "rectangular", "mse_loss: targets must be rectangular array");
     
-    let n = len(predictions[0]) as f32;
-    // Reduction nested in division now works with backend fix!
-    let loss[..batch] = sum[j]((predictions[..batch, j] - targets[..batch, j]) ** 2.0) / n;
+    let nb = len(predictions) as f32;
+    let nf = len(predictions[0]) as f32;
+    let row_sse[..batch] = sum[j]((predictions[..batch, j] - targets[..batch, j]) ** 2.0);
+    let loss = sum[..batch](row_sse[..batch]) / (nb * nf);
     loss
 }
 
 
 pub fn mae_loss(predictions, targets) {
-    // MAE (Mean Absolute Error) / L1 Loss: L = (1/n) * Σ_i |y_i - ŷ_i|
-    // Generic: works with arbitrary batch dimensions
-    // Input shape: [..batch, features], Output shape: [..batch]
+    // PyTorch nn.L1Loss(reduction='mean'): mean of |p−t| over all elements.
+    // Input shape: [..batch, features], output: scalar f32.
     assert(typeof(predictions) == "rectangular", "mae_loss: predictions must be rectangular array");
     assert(typeof(targets) == "rectangular", "mae_loss: targets must be rectangular array");
     
-    let n = len(predictions[0]) as f32;
-    let loss[..batch] = sum[j](abs(predictions[..batch, j] - targets[..batch, j])) / n;
+    let nb = len(predictions) as f32;
+    let nf = len(predictions[0]) as f32;
+    let row_l1[..batch] = sum[j](abs(predictions[..batch, j] - targets[..batch, j]));
+    let loss = sum[..batch](row_l1[..batch]) / (nb * nf);
     loss
 }
 
 
 pub fn huber_loss(predictions, targets, delta) {
-    // Huber Loss: robust loss that's quadratic for small errors, linear for large
-    // L = (1/n) * Σ_i huber_i where:
-    //   huber_i = 0.5 * (y_i - ŷ_i)² if |y_i - ŷ_i| <= δ
-    //   huber_i = δ * (|y_i - ŷ_i| - 0.5 * δ) otherwise
-    // Generic: works with arbitrary batch dimensions
-    // Input shape: [..batch, features], Output shape: [..batch]
+    // PyTorch nn.HuberLoss(reduction='mean'): mean of elementwise Huber/Smooth L1 over all elements.
+    // Element: 0.5*r² if |r|≤δ else δ*(|r|−0.5*δ), r = p−t.
+    // Input shape: [..batch, features], output: scalar f32.
     assert(typeof(predictions) == "rectangular", "huber_loss: predictions must be rectangular array");
     assert(typeof(targets) == "rectangular", "huber_loss: targets must be rectangular array");
     
     use std::math::abs;
-    let n = len(predictions[0]) as f32;
+    let nb = len(predictions) as f32;
+    let nf = len(predictions[0]) as f32;
     let diff[..batch, j] = predictions[..batch, j] - targets[..batch, j];
     let abs_diff[..batch, j] = abs(diff[..batch, j]);
     let huber_elem[..batch, j] = if abs_diff[..batch, j] <= delta {
@@ -244,16 +242,15 @@ pub fn huber_loss(predictions, targets, delta) {
     } else {
         delta * (abs_diff[..batch, j] - 0.5 * delta)
     };
-    let loss[..batch] = sum[j](huber_elem[..batch, j]) / n;
+    let row_huber[..batch] = sum[j](huber_elem[..batch, j]);
+    let loss = sum[..batch](row_huber[..batch]) / (nb * nf);
     loss
 }
 
 
 pub fn binary_cross_entropy(predictions, targets) {
-    // Binary Cross Entropy: L = -Σ_i (y_i * ln(p_i) + (1-y_i) * ln(1-p_i))
-    // Generic: works with arbitrary batch dimensions
-    // Input shape: [..batch, features], Output shape: [..batch]
-    // predictions should be in [0, 1] range (use sigmoid first if needed)
+    // PyTorch F.binary_cross_entropy(..., reduction='mean'): mean of elementwise BCE over all elements.
+    // Input shape: [..batch, features], output: scalar f32.
     assert(typeof(predictions) == "rectangular", "binary_cross_entropy: predictions must be rectangular array");
     assert(typeof(targets) == "rectangular", "binary_cross_entropy: targets must be rectangular array");
     
@@ -266,19 +263,20 @@ pub fn binary_cross_entropy(predictions, targets) {
         predictions[..batch, j]
     };
     
-    let loss[..batch] = -sum[j](
+    let nb = len(predictions) as f32;
+    let nf = len(predictions[0]) as f32;
+    let row_bce[..batch] = -sum[j](
         targets[..batch, j] * ln(clipped_pred[..batch, j]) + 
         (1.0 - targets[..batch, j]) * ln(1.0 - clipped_pred[..batch, j])
     );
+    let loss = sum[..batch](row_bce[..batch]) / (nb * nf);
     loss
 }
 
 
 pub fn softmax_cross_entropy_loss(predictions, targets) {
-    // Softmax Cross Entropy: numerically stable combined operation
-    // L = -Σ_i (y_i * log(softmax(x_i)))
-    // = -Σ_i (y_i * (x_i - log_sum_exp(x)))
-    // Input shape: [..batch, classes], Output shape: [..batch]
+    // PyTorch F.cross_entropy(logits, soft/hard target, reduction='mean') over batch (same as cross_entropy_loss layout).
+    // Input shape: [..batch, classes], output: scalar f32.
     assert(typeof(predictions) == "rectangular", "softmax_cross_entropy_loss: predictions must be rectangular");
     assert(typeof(targets) == "rectangular", "softmax_cross_entropy_loss: targets must be rectangular");
     
@@ -289,8 +287,9 @@ pub fn softmax_cross_entropy_loss(predictions, targets) {
     let sum_exp[..batch] = sum[k](exp_shifted[..batch, k]);
     let log_sum_exp[..batch] = max_pred[..batch] + ln(sum_exp[..batch]);
     
-    // Loss = -Σ(target * (pred - log_sum_exp))
-    let loss[..batch] = -sum[j](targets[..batch, j] * (predictions[..batch, j] - log_sum_exp[..batch]));
+    let nb = len(predictions) as f32;
+    let row_sce[..batch] = -sum[j](targets[..batch, j] * (predictions[..batch, j] - log_sum_exp[..batch]));
+    let loss = sum[..batch](row_sce[..batch]) / nb;
     loss
 }
 

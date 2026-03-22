@@ -347,6 +347,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
             clause.indices = tuple(new_indices)
             logger.debug(f"  updated clause.indices: {[idx.name if isinstance(idx, (IndexVarIR, IndexRestIR, IdentifierIR)) else idx for idx in clause.indices]}")
             if clause.value:
+                clause.value.accept(self)
                 transformer = RestPatternBodyTransformer(rest_dim_mapping, rest_defid_to_expanded, self.tcx)
                 clause.value = clause.value.accept(transformer)
             if clause.variable_ranges is None:
@@ -400,39 +401,39 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
         if not accesses:
             # No array accesses - cannot validate
             return f"Rest pattern {list(output_rest_names)} in output but no array accesses in body"
-        
-        # Collect rest patterns that appear in body
+        return self._validate_rest_pattern_accesses_core(accesses, output_rest_names, ctx_label="output")
+
+    def _validate_rest_pattern_accesses_core(
+        self, accesses: List[RectangularAccessIR], output_rest_names: set, *, ctx_label: str
+    ) -> Optional[str]:
+        """Shared validation for Einstein output rests and reduction bracket rests (rules 1–3)."""
         body_rest_names = set()
         for access in accesses:
             for idx in (access.indices or []):
                 if isinstance(idx, IndexRestIR):
                     body_rest_names.add(idx.name)
-        
-        # Rule 1: Rest patterns in output must appear in body
+
         undetermined = output_rest_names - body_rest_names
         if undetermined:
-            return f"Rest pattern {list(undetermined)} appears in output but not in body - cannot determine dimensions"
-        
-        # Rule 2: Determine which rest patterns appear alone (determination-first rule)
-        # Also check for consistency - same rest pattern must span same number of dimensions
+            return (
+                f"Rest pattern {list(undetermined)} appears in {ctx_label} but not in body - "
+                "cannot determine dimensions"
+            )
+
         determined_patterns = set()
-        rest_pattern_dims = {}  # rest_name -> dimension_count
-        
+        rest_pattern_dims = {}
+
         for access in accesses:
             indices_flat = (access.indices or [])
             rest_in_access = []
             for idx in indices_flat:
                 if isinstance(idx, IndexRestIR):
                     rest_in_access.append(idx.name)
-            
-            # If exactly one rest pattern in this access, it's determined
+
             if len(rest_in_access) == 1:
                 rest_name = rest_in_access[0]
                 determined_patterns.add(rest_name)
-                
-                # Check consistency - compute dimension count for this rest pattern.
-                # Use same array_rank source as expansion (_get_rank_for_array); override only for
-                # same-block previous Einstein output rank so we don't use wrong/incomplete type_info.
+
                 logger.debug(f"  checking consistency for rest_name={rest_name}")
                 array_rank = None
                 arr_defid = access.array.defid if isinstance(access.array, IdentifierIR) else None
@@ -444,12 +445,7 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                 if array_rank is None:
                     array_rank = self._get_rank_for_array(access.array)
                 array_rank = array_rank or 0
-                # Count explicit (non-rest) indices and how many dimensions this rest pattern spans
                 explicit_count = sum(1 for idx in indices_flat if not isinstance(idx, IndexRestIR))
-                # When we have rest + explicit indices, rest must span at least 1 dimension.
-                # If array_rank inferred as 0 (e.g. param_type not yet set on specialized func),
-                # use minimum: explicit_count + 1. If array_rank gives rest_dim_count <= 0
-                # (e.g. param_type has wrong rank), clamp to 1 to avoid "0 vs 1" inconsistency.
                 if array_rank == 0 and explicit_count > 0:
                     array_rank = explicit_count + 1
                     logger.debug(f"    array_rank inferred as 0 but rest+explicit indices present; using min rank={array_rank}")
@@ -461,25 +457,29 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                 if rest_dim_count <= 0 and explicit_count > 0:
                     rest_dim_count = 1
                     logger.debug(f"    rest_dim_count was <=0 with explicit indices; clamped to 1")
-                # Do not cap rest_dim_count by rest_positions (single ..pattern spans array_rank - explicit_count).
-                
+
                 logger.debug(f"    explicit_count={explicit_count}, rest_dim_count={rest_dim_count}")
                 logger.debug(f"    rest_pattern_dims so far: {rest_pattern_dims}")
-                
+
                 if rest_name in rest_pattern_dims:
                     logger.debug(f"    rest_name '{rest_name}' already seen with {rest_pattern_dims[rest_name]} dims")
                     if rest_pattern_dims[rest_name] != rest_dim_count:
                         if arr_defid is not None and isinstance(self.get_var(arr_defid), int):
-                            logger.debug(f"    previous Einstein output (defid={arr_defid}) has different rank; using canonical {rest_pattern_dims[rest_name]} (expansion will set correct rank)")
+                            logger.debug(
+                                f"    previous Einstein output (defid={arr_defid}) has different rank; "
+                                f"using canonical {rest_pattern_dims[rest_name]} (expansion will set correct rank)"
+                            )
                             continue
-                        error_msg = f"Rest pattern '..{rest_name}' has inconsistent dimensions: spans {rest_pattern_dims[rest_name]} dimensions in one array but {rest_dim_count} in another"
+                        error_msg = (
+                            f"Rest pattern '..{rest_name}' has inconsistent dimensions: spans "
+                            f"{rest_pattern_dims[rest_name]} dimensions in one array but {rest_dim_count} in another"
+                        )
                         logger.debug(f"    INCONSISTENCY DETECTED: {error_msg}")
                         return error_msg
                 else:
                     rest_pattern_dims[rest_name] = rest_dim_count
                     logger.debug(f"    set rest_pattern_dims['{rest_name}'] = {rest_dim_count}")
-        
-        # Rule 3: Check if multiple rest patterns appear together without all being determined
+
         undetermined_multi = output_rest_names - determined_patterns
         if undetermined_multi:
             for access in accesses:
@@ -487,15 +487,162 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
                 for idx in (access.indices or []):
                     if isinstance(idx, IndexRestIR):
                         rest_in_access.append(idx.name)
-                
-                # Multiple rest patterns in same access
+
                 if len(rest_in_access) > 1:
                     overlapping = set(rest_in_access) & undetermined_multi
                     if overlapping:
-                        return f"Rest patterns {sorted(rest_in_access)} appear together but not determined separately first. Each rest pattern must appear alone in at least one array access (determination-first rule)."
-        
-            return None
-        
+                        return (
+                            f"Rest patterns {sorted(rest_in_access)} appear together but not determined separately first. "
+                            "Each rest pattern must appear alone in at least one array access (determination-first rule)."
+                        )
+
+        return None
+
+    def _infer_num_dims_for_rest_from_accesses(
+        self, accesses: List[RectangularAccessIR], rest_name: str
+    ) -> Optional[int]:
+        """How many dimensions ..rest_name spans, from the first body access that uses it (same as Einstein expansion)."""
+        num_dims = None
+        for access in accesses:
+            indices_flat = (access.indices or [])
+            rest_in_this = [
+                idx for idx in indices_flat if isinstance(idx, IndexRestIR) and idx.name == rest_name
+            ]
+            if not rest_in_this:
+                continue
+            has_rest_in_flat = any(isinstance(idx, IndexRestIR) for idx in indices_flat)
+            array_rank = len(indices_flat) if (indices_flat and not has_rest_in_flat) else None
+            if array_rank is None:
+                array_rank = self._get_rank_for_array(access.array)
+            if array_rank is None and indices_flat:
+                array_rank = len(indices_flat)
+            if array_rank is None:
+                continue
+            explicit_count = sum(1 for idx in indices_flat if not isinstance(idx, IndexRestIR))
+            num_dims = array_rank - explicit_count
+            if num_dims <= 0 and explicit_count > 0 and len(indices_flat) > explicit_count:
+                array_rank = len(indices_flat)
+                num_dims = array_rank - explicit_count
+            if num_dims < 0:
+                num_dims = 0
+            break
+        return num_dims
+
+    def _expand_reduction_rest_patterns(self, node: ReductionExpressionIR) -> None:
+        """Expand sum[..batch](...) style loop rests to batch.0, batch.1, ... and shape-derived loop_var_ranges."""
+        loop_rest_entries = [(i, lv) for i, lv in enumerate(node.loop_vars or []) if isinstance(lv, IndexRestIR)]
+        if not loop_rest_entries:
+            return
+        loop_rest_names = {lv.name for _, lv in loop_rest_entries}
+        accesses = self._find_array_accesses(node.body)
+        if not accesses:
+            self.tcx.reporter.report_error(
+                f"Rest pattern {list(loop_rest_names)} in reduction but no array accesses in body",
+                location=node.location,
+                code="E0005",
+            )
+            return
+        err = self._validate_rest_pattern_accesses_core(accesses, loop_rest_names, ctx_label="reduction")
+        if err:
+            self.tcx.reporter.report_error(err, location=node.location, code="E0005")
+            return
+
+        rest_dim_mapping: Dict[str, List[int]] = {}
+        for _, ir in loop_rest_entries:
+            rn = ir.name
+            if rn in rest_dim_mapping:
+                continue
+            num_dims = self._infer_num_dims_for_rest_from_accesses(accesses, rn)
+            if num_dims is None:
+                self.tcx.reporter.report_error(
+                    f"Rest pattern '..{rn}' in reduction cannot be expanded: "
+                    "array rank could not be inferred from body.",
+                    location=node.location,
+                    code="E0005",
+                )
+                return
+            rest_dim_mapping[rn] = list(range(num_dims)) if num_dims > 0 else []
+
+        rest_defid_to_expanded: Dict[Any, List[Any]] = {}
+        new_loop_vars: List[Any] = []
+        old_rest_defids = set()
+        for lv in (node.loop_vars or []):
+            if isinstance(lv, IndexRestIR):
+                rn = lv.name
+                rest_defid = lv.defid
+                if rest_defid is not None:
+                    old_rest_defids.add(rest_defid)
+                dim_indices = rest_dim_mapping[rn]
+                expanded_list: List[Any] = []
+                if dim_indices:
+                    for dim_idx in dim_indices:
+                        defid = self.tcx.resolver.allocate_for_local()
+                        expanded_list.append(defid)
+                        nv = IndexVarIR(
+                            name=f"{rn}.{dim_idx}",
+                            location=lv.location,
+                            defid=defid,
+                            range_ir=None,
+                        )
+                        nv.type_info = lv.type_info
+                        nv.shape_info = lv.shape_info
+                        new_loop_vars.append(nv)
+                if rest_defid is not None:
+                    rest_defid_to_expanded[rest_defid] = expanded_list
+            else:
+                new_loop_vars.append(lv)
+
+        transformer = RestPatternBodyTransformer(rest_dim_mapping, rest_defid_to_expanded, self.tcx)
+        new_body = node.body.accept(transformer)
+        new_ranges = {k: v for k, v in (node.loop_var_ranges or {}).items() if k not in old_rest_defids}
+
+        expanded_new_defids: set = set()
+        for defids in rest_defid_to_expanded.values():
+            for d in defids:
+                expanded_new_defids.add(d)
+
+        loc = node.location
+        for access in self._find_array_accesses(new_body):
+            for dim_idx, idx_expr in enumerate(access.indices or []):
+                defid = opt_defid(idx_expr)
+                if defid is None or defid not in expanded_new_defids:
+                    continue
+                if not isinstance(idx_expr, (IndexVarIR, IndexRestIR)):
+                    continue
+                array_expr = access.array
+                shape_access = MemberAccessIR(
+                    object=array_expr,
+                    member='shape',
+                    location=loc or idx_expr.location,
+                )
+                dim_literal = LiteralIR(
+                    value=dim_idx,
+                    location=loc or idx_expr.location,
+                    type_info=infer_literal_type(dim_idx),
+                )
+                shape_dim = RectangularAccessIR(
+                    array=shape_access,
+                    indices=[dim_literal],
+                    location=loc or idx_expr.location,
+                )
+                start_lit = LiteralIR(
+                    value=0,
+                    location=loc or idx_expr.location,
+                    type_info=infer_literal_type(0),
+                )
+                range_ir = RangeIR(
+                    start=start_lit,
+                    end=shape_dim,
+                    location=loc or idx_expr.location,
+                    type_info=UNKNOWN,
+                )
+                new_ranges[defid] = range_ir
+
+        node.loop_vars = new_loop_vars
+        node.body = new_body
+        node.loop_var_ranges = new_ranges
+        self.patterns_preprocessed += len(loop_rest_entries)
+
     def _access_uses_output_rest_patterns(self, access, output_rest_names: set) -> bool:
         """True if this access uses any of the rest pattern names that appear in the output (LHS). ."""
         for idx in (access.indices or []):
@@ -704,12 +851,14 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
             node.else_expr.accept(self)
     
     def visit_reduction_expression(self, node: ReductionExpressionIR) -> None:
-        """Visit reduction expressions"""
+        """Visit reduction expressions; expand named rest in brackets (sum[..batch](...)) before leaves."""
         if node.body:
             node.body.accept(self)
         if node.where_clause:
             for constraint in node.where_clause.constraints:
                 constraint.accept(self)
+        if any(isinstance(v, IndexRestIR) for v in (node.loop_vars or [])):
+            self._expand_reduction_rest_patterns(node)
     
     # Default implementations for other nodes
     def visit_literal(self, node) -> None:

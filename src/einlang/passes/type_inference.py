@@ -631,8 +631,32 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         
         # Gradient quotient: df / dx when both sides are Gradient(T) (AUTODIFF_IMPLEMENTATION.md §5, step 7)
         if expr.operator == BinaryOp.DIV and isinstance(left_type, DifferentialType) and isinstance(right_type, DifferentialType):
-            # Result type = derivative (same shape or scalar). Use promoted inner type (per-element ratio for same shape).
-            quotient_type = self._promote_types(left_type.inner_type, right_type.inner_type, location=expr.location)
+            li = left_type.inner_type
+            ri = right_type.inner_type
+            if isinstance(ri, RectangularType):
+                rk = 0
+                if ri.is_dynamic_rank:
+                    rk = -1
+                elif ri.shape is not None:
+                    rk = len(ri.shape)
+                else:
+                    rk = 1
+                if rk != 0:
+                    elem = ri.element_type
+                    prom = self._promote_types(li, elem, location=expr.location)
+                    if prom != UNKNOWN:
+                        elem = prom
+                    if ri.is_dynamic_rank:
+                        qt = RectangularType(element_type=elem, shape=None, is_dynamic_rank=True)
+                    else:
+                        qt = RectangularType(
+                            element_type=elem,
+                            shape=ri.shape,
+                            is_dynamic_rank=False,
+                        )
+                    expr.type_info = qt
+                    return qt
+            quotient_type = self._promote_types(li, ri, location=expr.location)
             expr.type_info = quotient_type
             return quotient_type
 
@@ -1871,6 +1895,8 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         with self.scope():
             for loop_var in expr.loop_vars or []:
                 if isinstance(loop_var, IdentifierIR) and loop_var.defid is not None:
+                    self._set_var(loop_var.defid, I32)
+                if isinstance(loop_var, IndexRestIR) and loop_var.defid is not None:
                     self._set_var(loop_var.defid, I32)
                 loop_var.accept(self)  # IndexVarIR.range_ir gets type_info via visit_index_var -> visit_range
             # Visit range expressions in loop_var_ranges so RangeIR (and start/end) get type_info (fixes validation)
