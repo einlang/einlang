@@ -40,9 +40,11 @@ Example: `y = f(x) + g(x)`.
 - Each call gets its own wrapped name (`@fx`, `@gx`, …).
 - ADD lifting merges blocks → multiple preamble lines, then `@y = @fx + @gx`.
 
-### 4. Callee name patterns (`_wrap_forward_call_tangent_binding`)
+### 4. Callee name patterns (`_wrap_tangent_binding`)
 
 Uses call-site `IdentifierIR` for the callee when present; else the function binding’s name.
+
+**No wrapper** (pretty `DiffVisitor` only): unary call `g(x)` with `x` an identifier, callee has **no** `@fn` rule, primal body has **≥2** top-level `let`s, and the JVP is already a block with tangent bindings — the block is printed directly under `@y` (no `_@g_x` shell). Examples: `let y = g(x); print(@y)` with a multi-let `g`. Single-let stdlib callees and multi-argument calls still get a wrapper when the JVP is not “inlineable”.
 
 | Situation | Pattern | Example |
 |-----------|---------|---------|
@@ -52,7 +54,7 @@ Uses call-site `IdentifierIR` for the callee when present; else the function bin
 
 ### 5. Custom `@fn` derivative (`custom_diff_body`)
 
-If the callee has an `@fn` rule, `visit_function_call` returns on that path and **does not** apply `_wrap_forward_call_tangent_binding`.
+If the callee has an `@fn` rule, `visit_function_call` uses the rule path and **does not** apply `_wrap_tangent_binding` for that callee.
 
 Example: `fn f(t){ t+1 }` + `@fn f(t){ @t }`, `y = x + f(x)`:
 

@@ -1,6 +1,6 @@
-# `test_print_at.py` — study-only cases (`STUDY_SKIP_CASES`)
+# Archived: study-only `print(@…)` cases
 
-Same programs as `pytest.mark.skip` entries in `tests/unit/test_autodiff_pass.py::_PRINT_DIFF_ML_OPS`. Run `python3 scripts/test_print_at.py --study-only` to attempt compile+exec (diagnostic; no exit failure).
+Same programs as `pytest.mark.skip` entries in `tests/unit/test_autodiff_pass.py::_PRINT_DIFF_ML_OPS`. Goldens now live in `tests/print_at_fixtures.py` / `tests/unit/test_print_at.py`; to revive ad-hoc study rows, add tuples to `CASES` in `scripts/gen_study_skip_compare.py` and regenerate [TEST_PRINT_AT_STUDY_SKIP_COMPARE.md](TEST_PRINT_AT_STUDY_SKIP_COMPARE.md).
 
 ---
 

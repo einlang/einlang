@@ -1,20 +1,14 @@
-"""CLI for ``print(@…)`` diagnostics (goldens live in ``tests/print_at_fixtures.py``).
+"""CLI for ``print(@…)`` diagnostics (goldens in ``tests/unit/test_print_at_golden.py``).
 
-**New golden:** Run ``compile_exec_capture_print_at`` on the program, compare stdout to calculus /
-``GOLDEN_CALCULUS``, optionally ``python3 scripts/dump_autodiff_ir.py -c '…' --autodiff-only``, then add
-``(label, source, expected)`` to ``GOLDEN_PRINT_CASES`` and an entry to ``GOLDEN_CALCULUS`` in
-``tests/print_at_fixtures.py``.
+**New golden:** Run ``compile_exec_capture_print_at`` on the program, optionally
+``python3 scripts/dump_autodiff_ir.py -c '…' --autodiff-only``, then add
+``(label, source, expected)`` to ``GOLDEN_PRINT_CASES`` in ``tests/unit/test_print_at_golden.py``.
 
 Usage:
-  python3 -m pytest tests/unit/test_print_at.py -q   # golden stdout checks
+  python3 -m pytest tests/unit/test_print_at_golden.py -q   # golden stdout checks
+  python3 -m pytest tests/unit/test_print_at_ml_smoke.py -q # std::ml activation goldens
   python3 scripts/test_print_at.py                    # same goldens (CLI)
-  python3 scripts/test_print_at.py --report         # markdown table vs math refs
   python3 scripts/test_print_at.py --help
-
-``--report`` alone prints the table and exits (status 1 if any golden mismatch).
-
-Report focus: **compile → exec ok →** compare printed tangents to the math reference (structural fit,
-not symbolic proof). ``?`` inside shape prints like ``[f32; ?, ?]`` is ignored for the stray-``?`` check.
 """
 from __future__ import annotations
 
@@ -25,11 +19,8 @@ _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO / "src"))
 sys.path.insert(0, str(_REPO))
 
-from tests.print_at_fixtures import (  # noqa: E402
-    GOLDEN_PRINT_CASES,
-    compile_exec_capture_print_at,
-    run_report_to_stdout,
-)
+from tests.print_at_fixtures import compile_exec_capture_print_at  # noqa: E402
+from tests.unit.test_print_at_golden import GOLDEN_PRINT_CASES  # noqa: E402
 
 failures: list[tuple[str, str]] = []
 
@@ -62,14 +53,9 @@ def main() -> None:
     if "-h" in argv or "--help" in argv:
         print(__doc__)
         sys.exit(0)
-
-    report_code = 0
-    argv_set = set(argv)
-    if "--report" in argv_set:
-        report_code = run_report_to_stdout()
-        print()
-        if argv_set <= {"--report"}:
-            sys.exit(report_code)
+    if argv:
+        print(f"Unknown arguments: {argv!r}", file=sys.stderr)
+        sys.exit(2)
 
     golden_tests()
     print()
@@ -79,7 +65,7 @@ def main() -> None:
             print(f"  {label}: {msg}")
         sys.exit(1)
     print("All passed.")
-    sys.exit(report_code)
+    sys.exit(0)
 
 
 if __name__ == "__main__":

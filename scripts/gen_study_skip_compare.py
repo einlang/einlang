@@ -121,7 +121,7 @@ def main() -> None:
             "",
             "- [TEST_PRINT_AT_STUDY_SKIP_DUMP.md](TEST_PRINT_AT_STUDY_SKIP_DUMP.md)",
             "- [PRINT_DIFFERENTIAL.md](PRINT_DIFFERENTIAL.md)",
-            "- Golden `print(@…)` checks: `tests/unit/test_print_at.py`",
+            "- Golden `print(@…)` checks: `tests/unit/test_print_at_golden.py`",
             "",
         ]
     )

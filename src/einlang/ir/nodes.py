@@ -311,7 +311,9 @@ class BlockExpressionIR(ExpressionIR):
         parts = [str(s) for s in (self.statements or []) if isinstance(s, BindingIR) and s.expr is not None]
         if self.final_expr is not None:
             if not parts:
-                return str(self.final_expr)
+                if isinstance(self.final_expr, IfExpressionIR):
+                    return str(self.final_expr)
+                return f"{{ {self.final_expr} }}"
             inner = "\n".join("    " + line for p in parts for line in p.splitlines())
             inner += "\n    " + str(self.final_expr)
             return "{\n" + inner + "\n}"
@@ -334,9 +336,9 @@ class IfExpressionIR(ExpressionIR):
         return visitor.visit_if_expression(self)
 
     def __str__(self) -> str:
-        s = f"if {self.condition} {{ {self.then_expr} }}"
+        s = f"if {self.condition} {self.then_expr}"
         if self.else_expr is not None:
-            s += f" else {{ {self.else_expr} }}"
+            s += f" else {self.else_expr}"
         return s
 
 
