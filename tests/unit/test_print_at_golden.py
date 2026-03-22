@@ -15,14 +15,16 @@ from einlang.ir.nodes import BindingIR, BlockExpressionIR
 from tests.print_at_fixtures import compile_exec_capture_print_at
 
 _HUBER_LOSS_PRINT_AT_GOLDEN = """let @y = {
-    let _@huber_loss_call: [f32; ?] = {
-        let n = len(pred[0]) as f32;
+    let _@huber_loss_call: f32 = {
+        let nb = len(pred) as f32;
+        let nf = len(pred[0]) as f32;
         let diff[batch.0, j] = pred[batch.0, j] - target[batch.0, j];
         let abs_diff[batch.0, j] = abs(diff[batch.0, j]);
         let _@diff[batch.0, j] = @pred[batch.0, j] - @target[batch.0, j];
         let _@abs_diff[batch.0, j] = sign(diff[batch.0, j]) * _@diff[batch.0, j];
         let _@huber_elem[batch.0, j] = if abs_diff[batch.0, j] <= 1.0 { 0.5 * diff[batch.0, j] * _@diff[batch.0, j] + diff[batch.0, j] * 0.5 * _@diff[batch.0, j] } else { _@abs_diff[batch.0, j] };
-        let _@loss[batch.0] = sum[j](_@huber_elem[batch.0, j]) / n;
+        let _@row_huber[batch.0] = sum[j](_@huber_elem[batch.0, j]);
+        let _@loss = sum[b](_@row_huber[b]) / (nb * nf);
         _@loss
     };
     _@huber_loss_call
@@ -537,7 +539,7 @@ let target = [[1.5, 2.5, 3.5]];
 let y = std::ml::mse_loss(pred, target);
 print(@y);
 """,
-        "let @y = {\n    let _@mse_loss_call: [f32; ?] = {\n        let n = len(pred[0]) as f32;\n        let _@loss[batch.0] = sum[j](2.0 * (pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j])) / n;\n        _@loss\n    };\n    _@mse_loss_call\n};",
+        "let @y = {\n    let _@mse_loss_call: f32 = {\n        let nb = len(pred) as f32;\n        let nf = len(pred[0]) as f32;\n        let _@row_sse[batch.0] = sum[j](2.0 * (pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j]));\n        let _@loss = sum[b](_@row_sse[b]) / (nb * nf);\n        _@loss\n    };\n    _@mse_loss_call\n};",
     ),
     (
         "mae_loss",
@@ -548,7 +550,7 @@ let target = [[1.5, 2.5, 3.5]];
 let y = std::ml::mae_loss(pred, target);
 print(@y);
 """,
-        "let @y = {\n    let _@mae_loss_call: [f32; ?] = {\n        let n = len(pred[0]) as f32;\n        let _@loss[batch.0] = sum[j]({ sign(pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j]) }) / n;\n        _@loss\n    };\n    _@mae_loss_call\n};",
+        "let @y = {\n    let _@mae_loss_call: f32 = {\n        let nb = len(pred) as f32;\n        let nf = len(pred[0]) as f32;\n        let _@row_l1[batch.0] = sum[j]({ sign(pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j]) });\n        let _@loss = sum[b](_@row_l1[b]) / (nb * nf);\n        _@loss\n    };\n    _@mae_loss_call\n};",
     ),
     (
         "huber_loss",
@@ -570,7 +572,7 @@ let target = [[1.0, 0.0, 1.0]];
 let y = std::ml::binary_cross_entropy(pred, target);
 print(@y);
 """,
-        "let @y = {\n    let _@binary_cross_entropy_call: [f32; ?] = {\n        let eps = 1e-07;\n        let clipped_pred[batch.0, j] = if pred[batch.0, j] < eps { eps } else if pred[batch.0, j] > 1.0 - eps { 1.0 - eps } else { pred[batch.0, j] };\n        let _@clipped_pred[batch.0, j] = if pred[batch.0, j] < eps { 0.0 } else if pred[batch.0, j] > 1.0 - eps { 0.0 } else { @pred[batch.0, j] };\n        let _@loss[batch.0] = -sum[j](target[batch.0, j] * { 1.0 / clipped_pred[batch.0, j] * _@clipped_pred[batch.0, j] } + ln(clipped_pred[batch.0, j]) * @target[batch.0, j] + (1.0 - target[batch.0, j]) * { 1.0 / (1.0 - clipped_pred[batch.0, j]) * (0.0 - _@clipped_pred[batch.0, j]) } + ln(1.0 - clipped_pred[batch.0, j]) * (0.0 - @target[batch.0, j]));\n        _@loss\n    };\n    _@binary_cross_entropy_call\n};",
+        "let @y = {\n    let _@binary_cross_entropy_call: f32 = {\n        let eps = 1e-07;\n        let clipped_pred[batch.0, j] = if pred[batch.0, j] < eps { eps } else if pred[batch.0, j] > 1.0 - eps { 1.0 - eps } else { pred[batch.0, j] };\n        let nb = len(pred) as f32;\n        let nf = len(pred[0]) as f32;\n        let _@clipped_pred[batch.0, j] = if pred[batch.0, j] < eps { 0.0 } else if pred[batch.0, j] > 1.0 - eps { 0.0 } else { @pred[batch.0, j] };\n        let _@row_bce[batch.0] = -sum[j](target[batch.0, j] * { 1.0 / clipped_pred[batch.0, j] * _@clipped_pred[batch.0, j] } + ln(clipped_pred[batch.0, j]) * @target[batch.0, j] + (1.0 - target[batch.0, j]) * { 1.0 / (1.0 - clipped_pred[batch.0, j]) * (0.0 - _@clipped_pred[batch.0, j]) } + ln(1.0 - clipped_pred[batch.0, j]) * (0.0 - @target[batch.0, j]));\n        let _@loss = sum[b](_@row_bce[b]) / (nb * nf);\n        _@loss\n    };\n    _@binary_cross_entropy_call\n};",
     ),
     (
         "softmax",

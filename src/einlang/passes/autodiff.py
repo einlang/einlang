@@ -3301,6 +3301,18 @@ class _ExpansionVisitor(_Rewriter):
                        and _is_reachable(nop.defid, dd, self._SB))
                 if not cdn and not rch:
                     return _z(ql)
+                if isinstance(ne, FunctionCallIR) and _function_call_ir_label(ne) in (
+                    "std::ml::binary_cross_entropy",
+                    "std::ml::cosine_similarity",
+                ):
+                    nL = n.left.accept(self)
+                    nR = n.right.accept(self)
+                    out = BinaryOpIR(BinaryOp.DIV, nL, nR, ql, type_info=_ti(n), shape_info=_si(n))
+                    ti = _ti(n)
+                    si = _si(n)
+                    if ti or si:
+                        _propagate_ti(out, ti, si)
+                    return out
                 jv = JacobianVisitor(dd, ql, self._SB, self._R)
                 der = _simplify(ne.accept(jv), ql)
                 ti = _ti(n)

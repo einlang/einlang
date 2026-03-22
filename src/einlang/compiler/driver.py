@@ -9,6 +9,14 @@ import os
 from typing import Optional
 from pathlib import Path
 from ..passes.base import TyCtxt, PassManager, BasePass
+from ..shared.source_location import SourceLocation
+from ..ir.nodes import ProgramIR
+from ..shared.errors import ErrorReporter
+from ..frontend.parser import Parser, ParseError
+from ..passes.ast_to_ir import ASTToIRLoweringPass
+from ..passes.type_inference import TypeInferencePass
+from ..passes.range_analysis import RangeAnalysisPass
+from ..analysis.module_system import ModuleSystem
 
 
 def _env_ir_dump_enabled(var_name: str) -> bool:
@@ -18,13 +26,95 @@ def _env_ir_dump_enabled(var_name: str) -> bool:
     """
     v = (os.environ.get(var_name) or "").strip().lower()
     return v in ("1", "true", "yes", "on")
-from ..ir.nodes import ProgramIR
-from ..shared.errors import ErrorReporter
-from ..frontend.parser import Parser, ParseError
-from ..passes.ast_to_ir import ASTToIRLoweringPass
-from ..passes.type_inference import TypeInferencePass
-from ..passes.range_analysis import RangeAnalysisPass
-from ..analysis.module_system import ModuleSystem
+
+
+def _location_is_meaningful(loc: Optional[SourceLocation]) -> bool:
+    if loc is None:
+        return False
+    if loc.line <= 0:
+        return False
+    fn = (loc.file or "").strip()
+    if not fn or fn in ("<generated>", "<unknown>"):
+        return False
+    return True
+
+
+def _same_user_file(loc_file: str, entry_file: str) -> bool:
+    if loc_file == entry_file:
+        return True
+    try:
+        a, b = Path(loc_file), Path(entry_file)
+        if a.is_absolute() and b.is_absolute():
+            try:
+                if a.resolve() == b.resolve():
+                    return True
+            except OSError:
+                pass
+        return a.name == b.name and bool(a.name)
+    except Exception:
+        return False
+
+
+def _first_span_from_program(ir: Optional[ProgramIR], entry_file: str) -> Optional[SourceLocation]:
+    if ir is None:
+        return None
+    entry_match: Optional[SourceLocation] = None
+    any_match: Optional[SourceLocation] = None
+    for stmt in ir.statements or []:
+        loc = getattr(stmt, "location", None)
+        if not _location_is_meaningful(loc):
+            continue
+        assert loc is not None
+        if _same_user_file(loc.file, entry_file):
+            if entry_match is None:
+                entry_match = loc
+        elif any_match is None:
+            any_match = loc
+    return entry_match or any_match
+
+
+def span_for_uncaught_compile_exception(
+    exception: BaseException,
+    ir: Optional[ProgramIR],
+    entry_file: str,
+) -> SourceLocation:
+    """Best-effort source span when a pass raises instead of using the error reporter."""
+    from ..shared.errors import EinlangError
+
+    if isinstance(exception, EinlangError) and _location_is_meaningful(exception.location):
+        assert exception.location is not None
+        return exception.location
+    span = _first_span_from_program(ir, entry_file)
+    if span is not None:
+        return span
+    return SourceLocation(
+        file=entry_file,
+        line=1,
+        column=1,
+        end_line=1,
+        end_column=1,
+    )
+
+
+def _report_uncaught_exception_as_diagnostic(
+    tcx: TyCtxt,
+    exception: BaseException,
+    ir: Optional[ProgramIR],
+    entry_file: str,
+    pass_name: Optional[str] = None,
+) -> None:
+    if tcx.reporter.has_errors():
+        return
+    loc = span_for_uncaught_compile_exception(exception, ir, entry_file)
+    help_txt: Optional[str] = None
+    if isinstance(exception, RecursionError):
+        help_txt = (
+            "Python recursion limit exceeded inside the compiler (often autodiff or deep IR traversal). "
+            "Try simplifying the program; for local debugging you can raise sys.setrecursionlimit."
+        )
+    note = f"while running compiler pass `{pass_name}`" if pass_name else None
+    tcx.reporter.report_error(str(exception), loc, note=note, help=help_txt)
+
 
 class CompilationResult:
     """Compilation result (Rust: crate output; Python: __file__ = entry source path)."""
@@ -202,7 +292,15 @@ class CompilerDriver:
             # Phase 3-7: Passes (all on IR after lowering)
             from ..passes.ast_to_ir import ASTToIRLoweringPass
             lowering_pass = ASTToIRLoweringPass()
-            ir = lowering_pass.run(ast, tcx)
+            try:
+                ir = lowering_pass.run(ast, tcx)
+            except Exception as e:
+                _report_uncaught_exception_as_diagnostic(
+                    tcx, e, None, source_file, pass_name="ASTToIRLoweringPass"
+                )
+                return CompilationResult(
+                    success=False, ir=None, tcx=tcx, entry_source_file=source_file
+                )
 
             dump_ir_per_pass = _env_ir_dump_enabled("EINLANG_DUMP_IR_PER_PASS")
             if dump_ir_per_pass:
@@ -259,8 +357,13 @@ class CompilerDriver:
                 pass_instance = pass_class()
                 try:
                     ir = pass_instance.run(ir, tcx)
-                except RecursionError as e:
-                    raise
+                except Exception as e:
+                    _report_uncaught_exception_as_diagnostic(
+                        tcx, e, ir, source_file, pass_name=pass_class.__name__
+                    )
+                    return CompilationResult(
+                        success=False, ir=ir, tcx=tcx, entry_source_file=source_file
+                    )
 
                 if dump_dir is not None:
                     try:
@@ -341,19 +444,7 @@ class CompilerDriver:
                 success=False, ir=ir, tcx=tcx, entry_source_file=source_file
             )
         except Exception as e:
-            if not tcx.reporter.has_errors():
-                from ..shared.source_location import SourceLocation
-                location = SourceLocation(
-                    file=source_file,
-                    line=1,
-                    column=1,
-                    end_line=1,
-                    end_column=1
-                )
-                tcx.reporter.report_error(
-                    str(e),
-                    location
-                )
+            _report_uncaught_exception_as_diagnostic(tcx, e, ir, source_file, pass_name=None)
             return CompilationResult(
                 success=False, ir=ir, tcx=tcx, entry_source_file=source_file
             )

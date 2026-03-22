@@ -1,24 +1,47 @@
-"""Numeric stdout checks for ``print(@num / @x)`` for each ``test_print_at_golden`` case.
+"""Numeric checks for ``let q = @num / @den`` for each golden case in ``test_print_at_golden``.
 
-Covers both scalar and tensor quotients.  Scalar cases print a single float;
-tensor cases print a bracketed array (1-D or 2-D).  Expected values live in
-``_EXPECTED_DY_DX`` (float or nested list).
-
-``print(@y)`` is compile-time formatted to a string literal. ``print(@y / @x)`` lowers to a
-runtime value, so we assert the printed output against calculus.
+Expected values live in ``_EXPECTED_DY_DX`` (float or nested list).  Values are read from
+``ExecutionResult.outputs['q']``.
 """
 
 from __future__ import annotations
 
-import ast
 import math
 import re
-from typing import Any, Dict, FrozenSet, List, Optional, Tuple, Union
+from pathlib import Path
+from typing import Any, Dict, List, Tuple, Union
 
+import numpy as np
 import pytest
 
-from tests.print_at_fixtures import compile_exec_capture_print_at
+from einlang.compiler.driver import CompilerDriver
+from einlang.runtime.runtime import EinlangRuntime
+
 from tests.unit.test_print_at_golden import GOLDEN_PRINT_CASES
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _short_err(obj: object, limit: int = 600) -> str:
+    if obj is None:
+        return ""
+    s = str(obj)
+    if len(s) > limit:
+        return s[:limit] + "..."
+    return s
+
+
+def _compile_exec_capture_outputs(source: str) -> Tuple[bool, bool, Dict[str, Any], str]:
+    compiler = CompilerDriver()
+    result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
+    if not result.success:
+        return False, False, {}, _short_err(result.get_errors())
+    runtime = EinlangRuntime(backend="numpy")
+    exec_result = runtime.execute(result)
+    if not exec_result.success:
+        err = exec_result.error or exec_result.errors or "exec failed"
+        return True, False, {}, _short_err(err)
+    return True, True, dict(exec_result.outputs or {}), ""
 
 
 def _build_quotient_source(label: str, source: str) -> str:
@@ -28,20 +51,75 @@ def _build_quotient_source(label: str, source: str) -> str:
 let x = 3.0;
 let b = 4.0;
 let y = x * b;
-print(@y / @x);
+let q = @y / @x;
 """
     if label == "quotient":
         return """
 let x = 3.0;
 let b = 4.0;
 let y = x / b;
-print(@y / @x);
+let q = @y / @x;
+"""
+    if label == "matmul":
+        return """
+use std::ml;
+let A = [[1.0, 2.0], [3.0, 4.0]];
+let B = [[5.0, 6.0], [7.0, 8.0]];
+let C = std::ml::matmul(A, B);
+let q = @C / @A;
+"""
+    if label == "batch_matmul":
+        return """
+use std::ml;
+let A = [[[1.0, 2.0], [3.0, 4.0]], [[0.5, 0.5], [0.1, 0.2]]];
+let B = [[[5.0, 6.0], [7.0, 8.0]], [[1.0, 1.0], [1.0, 1.0]]];
+let C = std::ml::batch_matmul(A, B);
+let q = @C / @A;
+"""
+    if label == "mse_loss":
+        return """
+use std::ml;
+let pred = [[1.0, 2.0, 3.0]];
+let target = [[1.5, 2.5, 3.5]];
+let y = std::ml::mse_loss(pred, target);
+let q = @y / @pred;
+"""
+    if label == "mae_loss":
+        return """
+use std::ml;
+let pred = [[1.0, 2.0, 3.0]];
+let target = [[1.5, 2.5, 3.5]];
+let y = std::ml::mae_loss(pred, target);
+let q = @y / @pred;
+"""
+    if label == "huber_loss":
+        return """
+use std::ml;
+let pred = [[1.0, 2.0, 3.0]];
+let target = [[1.5, 2.5, 3.5]];
+let y = std::ml::huber_loss(pred, target, 1.0);
+let q = @y / @pred;
+"""
+    if label == "binary_cross_entropy":
+        return """
+use std::ml;
+let pred = [[0.8, 0.3, 0.9]];
+let target = [[1.0, 0.0, 1.0]];
+let y = std::ml::binary_cross_entropy(pred, target);
+let q = @y / @pred;
+"""
+    if label == "cosine_similarity":
+        return """
+use std::ml;
+let a = [[1.0, 2.0, 3.0]];
+let b = [[4.0, 5.0, 6.0]];
+let y = std::ml::cosine_similarity(a, b);
+let q = @y / @a;
 """
     m = re.search(r"print\(@(\w+)\)\s*;", s)
     if not m:
         raise ValueError(f"{label}: no print(@ID); found")
-    sym = m.group(1)
-    return re.sub(r"print\(@(\w+)\)\s*;", f"print(@{sym} / @x);", s, count=1)
+    return re.sub(r"print\(@(\w+)\)\s*;", r"let q = @\1 / @x;\n", s, count=1)
 
 
 _ExpectedValue = Union[float, List[Any]]
@@ -105,38 +183,21 @@ _EXPECTED_DY_DX: Dict[str, _ExpectedValue] = {
     "reduce_l2": [0.0],
     "reduce_log_sum": [0.0],
     "reduce_log_sum_exp": [0.0],
+    "matmul": [[12.0, 14.0], [12.0, 14.0]],
+    "batch_matmul": [[[12.0, 14.0], [12.0, 14.0]], [[2.0, 2.0], [2.0, 2.0]]],
+    "mse_loss": -1.0,
+    "mae_loss": -1.0,
+    "huber_loss": -0.5,
+    "binary_cross_entropy": -0.31084656715393066,
+    "cosine_similarity": 0.039159368723630905,
 }
 
 
-_QUOTIENT_SKIP: FrozenSet[str] = frozenset(
-    {
-        "mse_loss",
-        "mae_loss",
-        "huber_loss",
-        "binary_cross_entropy",
-        "cosine_similarity",
-        "matmul",
-        "batch_matmul",
-    }
-)
-
-
-def _parse_printed_value(out: str) -> Union[float, List[Any]]:
-    s = out.strip()
-    if not s:
-        raise AssertionError("empty stdout")
-    lines = [ln for ln in s.splitlines() if ln.strip()]
-    if len(lines) != 1:
-        raise AssertionError("expected single-line stdout, got %r" % s)
-    tok = lines[0].strip()
-    if tok.startswith("["):
-        return ast.literal_eval(tok)  # type: ignore[return-value]
-    return float(tok)
-
-
 def _flatten(v: Any) -> List[float]:
-    if isinstance(v, (int, float)):
+    if isinstance(v, (int, float, np.integer, np.floating)):
         return [float(v)]
+    if isinstance(v, np.ndarray):
+        return [float(x) for x in np.ravel(v)]
     out: List[float] = []
     for item in v:
         out.extend(_flatten(item))
@@ -155,26 +216,25 @@ def _approx_equal(got: Any, expected: Any, abs_tol: float = 1e-5) -> bool:
     [(row[0], row[1]) for row in GOLDEN_PRINT_CASES],
     ids=[row[0] for row in GOLDEN_PRINT_CASES],
 )
-def test_print_at_quotient_vs_calculus(label: str, orig_source: str) -> None:
-    if label in _QUOTIENT_SKIP:
-        pytest.skip("quotient adapter uses @x but golden source has no `x` (pred/target/A/B only)")
+def test_quotient_vs_calculus(label: str, orig_source: str) -> None:
     expected = _EXPECTED_DY_DX.get(label)
     if expected is None:
         pytest.fail("missing _EXPECTED_DY_DX for label %r (add entry or add to _QUOTIENT_SKIP)" % label)
 
     qsrc = _build_quotient_source(label, orig_source)
-    c_ok, e_ok, out, err = compile_exec_capture_print_at(qsrc)
+    c_ok, e_ok, outputs, err = _compile_exec_capture_outputs(qsrc)
     assert c_ok, "%s: compile failed: %s" % (label, err)
     assert e_ok, "%s: exec failed: %s" % (label, err)
-    got = _parse_printed_value(out)
+    got = outputs.get("q")
+    assert got is not None, "%s: missing outputs['q'], have %r" % (label, sorted(outputs.keys()))
     assert _approx_equal(got, expected), (
-        "%s: print(@…/@x) got %r expected ∂y/∂x ≈ %s" % (label, out.strip(), expected)
+        "%s: @…/@x got %r expected ∂y/∂x ≈ %s" % (label, got, expected)
     )
 
 
-def test_quotient_cases_partition_print_at_golden() -> None:
+def test_quotient_golden_cases_partition() -> None:
     labels = {row[0] for row in GOLDEN_PRINT_CASES}
-    covered = set(_EXPECTED_DY_DX) | set(_QUOTIENT_SKIP)
+    covered = set(_EXPECTED_DY_DX)
     assert covered == labels, (
         "partition mismatch: extra %s missing %s"
         % (sorted(covered - labels), sorted(labels - covered))

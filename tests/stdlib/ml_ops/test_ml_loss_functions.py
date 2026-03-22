@@ -51,7 +51,7 @@ def test_loss_functions_clustered_accuracy(compiler, runtime):
     # Verify mse_loss - Test MSE Loss
     pred = np.array([[1.0, 2.0, 3.0]])
     target = np.array([[1.5, 2.5, 2.5]])
-    expected = np.mean((pred - target)**2, axis=-1)
+    expected = np.mean((pred - target) ** 2)
     actual = np.array(result.outputs['result_0'])
     np.testing.assert_allclose(actual, expected, rtol=1e-6)
 
@@ -59,7 +59,7 @@ def test_loss_functions_clustered_accuracy(compiler, runtime):
     # Verify mae_loss - Test MAE Loss
     pred = np.array([[1.0, 2.0, 3.0]])
     target = np.array([[1.5, 2.5, 2.5]])
-    expected = np.mean(np.abs(pred - target), axis=-1)
+    expected = np.mean(np.abs(pred - target))
     actual = np.array(result.outputs['result_1'])
     np.testing.assert_allclose(actual, expected, rtol=1e-6)
 
@@ -69,7 +69,7 @@ def test_loss_functions_clustered_accuracy(compiler, runtime):
     target = np.array([[0.0, 0.0, 1.0]])  # Using target_3 from source
     exp_pred = np.exp(pred - np.max(pred, axis=-1, keepdims=True))
     softmax_pred = exp_pred / np.sum(exp_pred, axis=-1, keepdims=True)
-    expected = -np.sum(target * np.log(softmax_pred), axis=-1)
+    expected = np.mean(-np.sum(target * np.log(softmax_pred), axis=-1))
     actual = np.array(result.outputs['result_4'])
     np.testing.assert_allclose(actual, expected, rtol=1e-5)
 
@@ -80,7 +80,7 @@ def test_loss_functions_clustered_accuracy(compiler, runtime):
     delta = 1.0  # Using delta from source
     diff = pred - target
     abs_diff = np.abs(diff)
-    expected = np.mean(np.where(abs_diff <= delta, 0.5 * diff**2, delta * (abs_diff - 0.5 * delta)), axis=-1)
+    expected = np.mean(np.where(abs_diff <= delta, 0.5 * diff**2, delta * (abs_diff - 0.5 * delta)))
     actual = np.array(result.outputs['result_5'])
     np.testing.assert_allclose(actual, expected, rtol=1e-5)
 
@@ -90,6 +90,7 @@ def test_loss_functions_clustered_accuracy(compiler, runtime):
     target_bce = np.array([[0.0, 1.0, 1.0]], dtype=np.float32)  # Using target_bce from source
     eps = 1e-7
     clipped_pred = np.clip(pred_bce, eps, 1.0 - eps)
-    expected = -np.sum(target_bce * np.log(clipped_pred) + (1.0 - target_bce) * np.log(1.0 - clipped_pred), axis=-1)
+    bce_elem = -(target_bce * np.log(clipped_pred) + (1.0 - target_bce) * np.log(1.0 - clipped_pred))
+    expected = np.mean(bce_elem)
     actual = np.array(result.outputs['result_6'])
     np.testing.assert_allclose(actual, expected, rtol=1e-5)
