@@ -2403,6 +2403,75 @@ def _recurrence_dims(lowered: Any, variable_defid: Any, clause_indices: Optional
     return recurrence
 
 
+def _indices_exact_diagonal_match(rect_indices: List[Any], clause_indices: List[Any]) -> bool:
+    """True iff each index is an IndexVarIR and pairwise defids match clause output indices."""
+    ri = list(rect_indices or [])
+    ci = list(clause_indices or [])
+    if len(ri) != len(ci):
+        return False
+    for a, b in zip(ri, ci):
+        if not isinstance(a, IndexVarIR) or not isinstance(b, IndexVarIR):
+            return False
+        if a.defid is None or b.defid is None or a.defid != b.defid:
+            return False
+    return True
+
+
+def _has_recurrence_style_read_of_defid(
+    body: Any, target_defid: Any, clause_indices: List[Any],
+) -> bool:
+    """True if some read of ``target_defid`` is a recurrence (e.g. u[t-1]), not input diagonal (x[i])."""
+    found = False
+
+    def walk(expr: Any) -> None:
+        nonlocal found
+        if expr is None or found:
+            return
+        if isinstance(expr, RectangularAccessIR):
+            arr = expr.array
+            if isinstance(arr, IdentifierIR) and arr.defid == target_defid:
+                ridx = list(expr.indices or [])
+                cidx = list(clause_indices or [])
+                if _indices_exact_diagonal_match(ridx, cidx):
+                    pass
+                elif len(ridx) == len(cidx):
+                    for ix in ridx:
+                        if not isinstance(ix, IndexVarIR):
+                            found = True
+                            return
+                    for a, b in zip(ridx, cidx):
+                        if isinstance(a, IndexVarIR) and isinstance(b, IndexVarIR) and a.defid != b.defid:
+                            found = True
+                            return
+                else:
+                    pass
+            walk(arr)
+            for ix in expr.indices or []:
+                walk(ix)
+        elif isinstance(expr, BinaryOpIR):
+            walk(expr.left)
+            walk(expr.right)
+        elif isinstance(expr, UnaryOpIR):
+            walk(expr.operand)
+        elif isinstance(expr, IfExpressionIR):
+            walk(expr.condition)
+            walk(expr.then_expr)
+            if expr.else_expr is not None:
+                walk(expr.else_expr)
+        elif isinstance(expr, FunctionCallIR):
+            walk(expr.callee_expr)
+            for a in expr.arguments or []:
+                walk(a)
+        elif isinstance(expr, BlockExpressionIR):
+            for st in expr.statements or []:
+                walk(st)
+            if expr.final_expr is not None:
+                walk(expr.final_expr)
+
+    walk(body)
+    return found
+
+
 def _infer_lowered_einstein_output_defid(lowered: LoweredEinsteinIR) -> Any:
     """
     DefId of the tensor this Einstein declaration writes: any DefId that appears as the array of a
@@ -2411,53 +2480,60 @@ def _infer_lowered_einstein_output_defid(lowered: LoweredEinsteinIR) -> Any:
 
     When the array is itself a nested LoweredEinsteinIR (re-materialized primal), recurse to the inner
     tensor (same DefId as the leaf read, e.g. u inside euler_decay).
+
+    Diagonal input reads (``x[i]`` with clause ``[i]``) are excluded: they must use a fresh buffer so
+    nested pullback does not alias ``x`` and corrupt it. Recurrence reads (``u[t - 1]`` with clause ``[t]``)
+    still resolve to ``u`` so in-place recurrence execution works.
     """
-    candidates: set = set()
-    inner_einsteins: List[LoweredEinsteinIR] = []
-
-    def collect_rect_array_defids(expr: Any) -> None:
-        if expr is None:
-            return
-        if isinstance(expr, RectangularAccessIR):
-            arr = expr.array
-            if isinstance(arr, IdentifierIR) and arr.defid is not None:
-                candidates.add(arr.defid)
-            elif isinstance(arr, LoweredEinsteinIR):
-                inner_einsteins.append(arr)
-            collect_rect_array_defids(arr)
-            for ix in expr.indices or []:
-                collect_rect_array_defids(ix)
-        elif isinstance(expr, BinaryOpIR):
-            collect_rect_array_defids(expr.left)
-            collect_rect_array_defids(expr.right)
-        elif isinstance(expr, UnaryOpIR):
-            collect_rect_array_defids(expr.operand)
-        elif isinstance(expr, IfExpressionIR):
-            collect_rect_array_defids(expr.condition)
-            collect_rect_array_defids(expr.then_expr)
-            if expr.else_expr is not None:
-                collect_rect_array_defids(expr.else_expr)
-        elif isinstance(expr, FunctionCallIR):
-            collect_rect_array_defids(expr.callee_expr)
-            for a in expr.arguments or []:
-                collect_rect_array_defids(a)
-        elif isinstance(expr, BlockExpressionIR):
-            for st in expr.statements or []:
-                collect_rect_array_defids(st)
-            if expr.final_expr is not None:
-                collect_rect_array_defids(expr.final_expr)
-
     for item in lowered.items or []:
-        if item.body is not None:
-            collect_rect_array_defids(item.body)
-    for d in candidates:
-        for item in lowered.items or []:
-            if item.body is not None and _BodyReferencesDefidVisitor(d).references(item.body):
+        if item.body is None:
+            continue
+        candidates: set = set()
+        inner_einsteins: List[LoweredEinsteinIR] = []
+
+        def collect_rect_array_defids(expr: Any) -> None:
+            if expr is None:
+                return
+            if isinstance(expr, RectangularAccessIR):
+                arr = expr.array
+                if isinstance(arr, IdentifierIR) and arr.defid is not None:
+                    candidates.add(arr.defid)
+                elif isinstance(arr, LoweredEinsteinIR):
+                    inner_einsteins.append(arr)
+                collect_rect_array_defids(arr)
+                for ix in expr.indices or []:
+                    collect_rect_array_defids(ix)
+            elif isinstance(expr, BinaryOpIR):
+                collect_rect_array_defids(expr.left)
+                collect_rect_array_defids(expr.right)
+            elif isinstance(expr, UnaryOpIR):
+                collect_rect_array_defids(expr.operand)
+            elif isinstance(expr, IfExpressionIR):
+                collect_rect_array_defids(expr.condition)
+                collect_rect_array_defids(expr.then_expr)
+                if expr.else_expr is not None:
+                    collect_rect_array_defids(expr.else_expr)
+            elif isinstance(expr, FunctionCallIR):
+                collect_rect_array_defids(expr.callee_expr)
+                for a in expr.arguments or []:
+                    collect_rect_array_defids(a)
+            elif isinstance(expr, BlockExpressionIR):
+                for st in expr.statements or []:
+                    collect_rect_array_defids(st)
+                if expr.final_expr is not None:
+                    collect_rect_array_defids(expr.final_expr)
+
+        collect_rect_array_defids(item.body)
+        clause_indices = list(item.indices or [])
+        for d in candidates:
+            if not _has_recurrence_style_read_of_defid(item.body, d, clause_indices):
+                continue
+            if _BodyReferencesDefidVisitor(d).references(item.body):
                 return d
-    for inner in inner_einsteins:
-        inner_d = _infer_lowered_einstein_output_defid(inner)
-        if inner_d is not None:
-            return inner_d
+        for inner in inner_einsteins:
+            inner_d = _infer_lowered_einstein_output_defid(inner)
+            if inner_d is not None:
+                return inner_d
     return None
 
 
@@ -3027,7 +3103,12 @@ def _try_call_scalar_vectorize_clause(
 
 class EinsteinExecutionMixin:
     def _evaluate_lowered_einstein_subexpr(self, lowered: LoweredEinsteinIR) -> Any:
-        """Run a nested LoweredEinsteinIR (e.g. under RectangularAccessIR from autodiff) with a synthetic decl."""
+        """Run a nested LoweredEinsteinIR (e.g. under RectangularAccessIR from autodiff) with a synthetic decl.
+
+        Prefer the inferred output DefId for recurrence (``u[t-1]`` reads) so execution
+        reuses ``u``'s storage. Use a fresh DefId when inference finds only diagonal
+        input reads (``x[i]``) so pullback output does not alias ``x``.
+        """
         out_defid = _infer_lowered_einstein_output_defid(lowered)
         if out_defid is None:
             seq = getattr(self, "_nested_einstein_synth_seq", 0) + 1

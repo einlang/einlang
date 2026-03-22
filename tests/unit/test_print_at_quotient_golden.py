@@ -1,20 +1,19 @@
 """Numeric stdout checks for ``print(@num / @x)`` for each ``test_print_at_golden`` case.
 
-**Scope:** every adapted program keeps **scalar** ``x`` (and scalar ``y`` / quotient), so a
-single printed float is expected. Do **not** treat a rank-0 ``@…/@x`` result as correct when
-``x`` is a tensor — see ``test_autodiff_tensor_quotient_reductions`` and
-``_assert_quotient_not_scalar_rank0`` there.
+Covers both scalar and tensor quotients.  Scalar cases print a single float;
+tensor cases print a bracketed array (1-D or 2-D).  Expected values live in
+``_EXPECTED_DY_DX`` (float or nested list).
 
 ``print(@y)`` is compile-time formatted to a string literal. ``print(@y / @x)`` lowers to a
-runtime value (here a scalar because ``x`` is scalar), so we assert the printed float against
-calculus.
+runtime value, so we assert the printed output against calculus.
 """
 
 from __future__ import annotations
 
+import ast
 import math
 import re
-from typing import Dict, FrozenSet, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple, Union
 
 import pytest
 
@@ -45,8 +44,9 @@ print(@y / @x);
     return re.sub(r"print\(@(\w+)\)\s*;", f"print(@{sym} / @x);", s, count=1)
 
 
-# ∂(num)/∂x at the primal values in each golden source (denominator is always scalar ``x``).
-_EXPECTED_DY_DX: Dict[str, float] = {
+_ExpectedValue = Union[float, List[Any]]
+
+_EXPECTED_DY_DX: Dict[str, _ExpectedValue] = {
     "constant": 0.0,
     "identity": 1.0,
     "add": 2.0,
@@ -90,30 +90,30 @@ _EXPECTED_DY_DX: Dict[str, float] = {
     "sqrt_via_pow": 0.25,
     "mod_scalar": 1.0,
     "quotient_chain": 1.0 / 16.0,
+    "exp_einstein": [math.exp(1.0), math.exp(2.0), math.exp(3.0)],
+    "einstein_square": [2.0, 4.0, 6.0],
+    "softmax": [[0.0, 0.0, 0.0]],
+    "linear": [[0.8, 0.6]],
+    "softmax_quotient": [0.0, 0.0, 0.0],
+    "sum_reduction": 30.192874908447266,
+    "prod_reduction": [18.0, 9.0, 6.0],
+    "reduce_sum": [3.0],
+    "reduce_l1": [1.0],
+    "reduce_sum_square": [12.0],
+    "reduce_mean": [1.0],
+    "log_softmax": [[1.0, 1.0, 1.0]],
+    "reduce_l2": [0.0],
+    "reduce_log_sum": [0.0],
+    "reduce_log_sum_exp": [0.0],
 }
 
 
 _QUOTIENT_SKIP: FrozenSet[str] = frozenset(
     {
-        "exp_einstein",
-        "sum_reduction",
-        "softmax_quotient",
-        "einstein_square",
-        "prod_reduction",
-        "reduce_sum",
-        "reduce_l1",
-        "reduce_sum_square",
-        "reduce_mean",
-        "linear",
         "mse_loss",
         "mae_loss",
         "huber_loss",
         "binary_cross_entropy",
-        "softmax",
-        "log_softmax",
-        "reduce_l2",
-        "reduce_log_sum",
-        "reduce_log_sum_exp",
         "cosine_similarity",
         "matmul",
         "batch_matmul",
@@ -121,14 +121,33 @@ _QUOTIENT_SKIP: FrozenSet[str] = frozenset(
 )
 
 
-def _parse_printed_float(out: str) -> float:
+def _parse_printed_value(out: str) -> Union[float, List[Any]]:
     s = out.strip()
     if not s:
         raise AssertionError("empty stdout")
     lines = [ln for ln in s.splitlines() if ln.strip()]
     if len(lines) != 1:
-        raise AssertionError("expected single line float stdout, got %r" % s)
-    return float(lines[0].strip())
+        raise AssertionError("expected single-line stdout, got %r" % s)
+    tok = lines[0].strip()
+    if tok.startswith("["):
+        return ast.literal_eval(tok)  # type: ignore[return-value]
+    return float(tok)
+
+
+def _flatten(v: Any) -> List[float]:
+    if isinstance(v, (int, float)):
+        return [float(v)]
+    out: List[float] = []
+    for item in v:
+        out.extend(_flatten(item))
+    return out
+
+
+def _approx_equal(got: Any, expected: Any, abs_tol: float = 1e-5) -> bool:
+    fg, fe = _flatten(got), _flatten(expected)
+    if len(fg) != len(fe):
+        return False
+    return all(abs(a - b) <= abs_tol for a, b in zip(fg, fe))
 
 
 @pytest.mark.parametrize(
@@ -138,7 +157,7 @@ def _parse_printed_float(out: str) -> float:
 )
 def test_print_at_quotient_vs_calculus(label: str, orig_source: str) -> None:
     if label in _QUOTIENT_SKIP:
-        pytest.skip("not a scalar ∂y/∂x with scalar x (tensor / reduction / loss layout)")
+        pytest.skip("quotient adapter uses @x but golden source has no `x` (pred/target/A/B only)")
     expected = _EXPECTED_DY_DX.get(label)
     if expected is None:
         pytest.fail("missing _EXPECTED_DY_DX for label %r (add entry or add to _QUOTIENT_SKIP)" % label)
@@ -147,8 +166,8 @@ def test_print_at_quotient_vs_calculus(label: str, orig_source: str) -> None:
     c_ok, e_ok, out, err = compile_exec_capture_print_at(qsrc)
     assert c_ok, "%s: compile failed: %s" % (label, err)
     assert e_ok, "%s: exec failed: %s" % (label, err)
-    got = _parse_printed_float(out)
-    assert got == pytest.approx(expected, rel=0.0, abs=1e-5), (
+    got = _parse_printed_value(out)
+    assert _approx_equal(got, expected), (
         "%s: print(@…/@x) got %r expected ∂y/∂x ≈ %s" % (label, out.strip(), expected)
     )
 
