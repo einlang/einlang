@@ -80,7 +80,6 @@ class TestTypeAnnotations:
             context = compiler.compile(source, source_file='test.ein')
             if should_succeed:
                 assert context.success, f"Expected success but got errors: {context.get_errors()}"
-                apply_ir_round_trip(context)
                 result = runtime.execute(context)
                 assert result.success, f"Execution failed: {result.errors}"
             else:

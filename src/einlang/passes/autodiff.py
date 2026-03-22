@@ -829,6 +829,34 @@ def _prod_reduction_clone_interior_indices(
     )
 
 
+def _prod_pullback_via_sum(
+    n: ReductionExpressionIR,
+    d_body: ExpressionIR,
+    loc: SourceLocation,
+    resolver: Any,
+) -> ExpressionIR:
+    """d(∏_j f_j) = ∑_j ((∏ f) / f_j · df_j). SUM over j ensures DIV's lhs (cloned full prod) is evaluated in its own reduction before f_j uses the outer j."""
+    if resolver is None:
+        raise ValueError("Autodiff: prod pullback requires resolver for fresh DefIds")
+    num = _prod_reduction_clone_interior_indices(n, loc, resolver)
+    inner = BinaryOpIR(
+        BinaryOp.MUL,
+        BinaryOpIR(BinaryOp.DIV, num, n.body, loc),
+        d_body,
+        loc,
+    )
+    return ReductionExpressionIR(
+        ReductionOp.SUM,
+        list(n.loop_vars or ()),
+        inner,
+        loc,
+        where_clause=n.where_clause,
+        loop_var_ranges=n.loop_var_ranges,
+        type_info=_ti(n),
+        shape_info=_si(n),
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # DefId collector
 # ═══════════════════════════════════════════════════════════════════════════
@@ -922,6 +950,48 @@ class _DefIdCollector(IRVisitor[None]):
 def _collect_defids(expr: Optional[ExpressionIR]) -> Set[DefId]:
     if expr is None: return set()
     c = _DefIdCollector(); expr.accept(c); return c.defids
+
+
+def _function_call_ir_label(n: FunctionCallIR) -> str:
+    name = n.function_name or "<non-identifier callee>"
+    mp = n.module_path
+    if mp:
+        return "::".join(mp) + "::" + name
+    return name
+
+
+def _autodiff_primal_data_defids(expr: Optional[ExpressionIR], B: Dict[DefId, Any]) -> Set[DefId]:
+    if expr is None:
+        return set()
+    out: Set[DefId] = set()
+    for d in _collect_defids(expr):
+        if d is None:
+            continue
+        bb = B.get(d)
+        if bb is not None and is_function_binding(bb):
+            continue
+        out.add(d)
+    return out
+
+
+def _jacobian_rhs_depends_on_wrt(expr: Optional[ExpressionIR], wrt: DefId, B: Dict[DefId, BindingIR]) -> bool:
+    """True if ``expr`` references ``wrt`` transitively through non-diff ``let`` bindings (surface DefIds + binding RHS closure)."""
+    if expr is None:
+        return False
+    work = [d for d in _collect_defids(expr) if d is not None]
+    closure: Set[DefId] = set()
+    while work:
+        d = work.pop()
+        if d in closure:
+            continue
+        closure.add(d)
+        b = B.get(d)
+        if b is None or b.expr is None or _is_diff_name(b.name or ""):
+            continue
+        for e in _collect_defids(b.expr):
+            if e is not None and e not in closure:
+                work.append(e)
+    return wrt in closure
 
 
 class _TargetCollector(_DefIdCollector):
@@ -1158,6 +1228,8 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
             b = self._B.get(n.defid)
             if b is not None and b.expr is not None:
                 if _is_diff_name(b.name or ""): return n
+                if not _jacobian_rhs_depends_on_wrt(b.expr, self._wrt, self._B):
+                    return _z(self._loc)
                 return b.expr.accept(self)
         return _z(self._loc)
 
@@ -1205,9 +1277,7 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
             return SelectAtArgmaxIR(n.body, d_body, n.loop_vars, loop_var_ranges=n.loop_var_ranges,
                    location=loc, type_info=_ti(n), shape_info=_si(n), use_argmin=True)
         if op == ReductionOp.PROD:
-            num = _prod_reduction_clone_interior_indices(n, loc, self._R)
-            return BinaryOpIR(BinaryOp.MUL,
-                              BinaryOpIR(BinaryOp.DIV, num, n.body, loc), d_body, loc)
+            return _prod_pullback_via_sum(n, d_body, loc, self._R)
         raise ValueError(f"Autodiff: unsupported reduction: {op}")
 
     # -- indexing / cast / control flow --------------------------------------
@@ -1270,11 +1340,16 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
     def visit_function_call(self, n: FunctionCallIR) -> ExpressionIR:
         loc = n.location or self._loc; args = n.arguments or []
         cdid = n.function_defid
+        lab = _function_call_ir_label(n)
         if cdid is None or cdid not in self._B:
-            raise ValueError("Autodiff: JacobianVisitor callee is unresolved or not in binding map")
+            detail = "missing function_defid" if cdid is None else "function_defid not in binding map"
+            raise ValueError(f"Autodiff: JacobianVisitor cannot differentiate unresolved call {lab!r} ({detail})")
         b = self._B[cdid]
         if not isinstance(b.expr, FunctionValueIR):
-            raise ValueError("Autodiff: JacobianVisitor callee is not a function value")
+            bname = b.name or "?"
+            raise ValueError(
+                f"Autodiff: JacobianVisitor call {lab!r} resolves to non-function binding {bname!r}"
+            )
         fv = b.expr; ps = fv.parameters or []; body = fv.body
         rm = {p.defid: args[j] for j, p in enumerate(ps) if p.defid is not None and j < len(args)}
 
@@ -1500,15 +1575,6 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
                           type_info=_ti(val), shape_info=_si(val)),
                     location=clause.location, where_clause=clause.where_clause,
                     variable_ranges=dict(clause.variable_ranges or {})))
-            continue
-        if val.operation == ReductionOp.SUM and len(wrt_pos) == 1 and len(factors) == 1:
-            d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps))
-            dc.append(EinsteinClauseIR(indices=list(clause.indices or []),
-                value=ReductionExpressionIR(ReductionOp.SUM, list(val.loop_vars or []), d_inner, loc,
-                      where_clause=val.where_clause, loop_var_ranges=_merged_lr(val, clause),
-                      type_info=_ti(val), shape_info=_si(val)),
-                location=clause.location, where_clause=clause.where_clause,
-                variable_ranges=dict(clause.variable_ranges or {})))
             continue
 
         first_wi = factors[wrt_pos[0]][1]
@@ -2183,9 +2249,7 @@ class DiffVisitor(IRVisitor[ExpressionIR]):
             return SelectAtArgmaxIR(n.body, db, n.loop_vars, loop_var_ranges=n.loop_var_ranges,
                    location=loc, type_info=_ti(n), shape_info=_si(n), use_argmin=True)
         if op == ReductionOp.PROD:
-            num = _prod_reduction_clone_interior_indices(n, loc, self._R)
-            return BinaryOpIR(BinaryOp.MUL,
-                              BinaryOpIR(BinaryOp.DIV, num, n.body, loc), db, loc)
+            return _prod_pullback_via_sum(n, db, loc, self._R)
         raise ValueError(f"Autodiff: unsupported reduction: {op}")
 
     def visit_block_expression(self, n: BlockExpressionIR) -> ExpressionIR:
@@ -2264,11 +2328,16 @@ class DiffVisitor(IRVisitor[ExpressionIR]):
         loc = n.location or self._loc
         args = n.arguments or []
         cdid = n.function_defid
+        lab = _function_call_ir_label(n)
         if cdid is None or cdid not in self._B:
-            raise ValueError("Autodiff: callee must be a resolved function")
+            detail = "missing function_defid" if cdid is None else "function_defid not in autodiff binding map"
+            raise ValueError(f"Autodiff: cannot differentiate unresolved function call {lab!r} ({detail})")
         binding = self._B[cdid]
         if not isinstance(binding.expr, FunctionValueIR):
-            raise ValueError("Autodiff: callee is not a function value")
+            bname = binding.name or "?"
+            raise ValueError(
+                f"Autodiff: call {lab!r} resolves to non-function binding {bname!r}; expected a function value"
+            )
         fv = binding.expr
         ps = fv.parameters or []
         tangent_by_param = {
@@ -3274,7 +3343,7 @@ def _ensure_block_d(block: BlockExpressionIR, SB: Dict[DefId, Any], SE: Dict[Def
             if is_function_binding(b):
                 b2d[b.defid] = set()
             else:
-                b2d[b.defid] = _collect_defids(b.expr)
+                b2d[b.defid] = _autodiff_primal_data_defids(b.expr, bbd)
 
     reach: Set[DefId] = set(td); wk = list(reach)
     while wk:
@@ -3414,7 +3483,7 @@ class AutodiffPass(BasePass):
                 if is_function_binding(b):
                     b2d[b.defid] = set()
                 else:
-                    b2d[b.defid] = _collect_defids(b.expr)
+                    b2d[b.defid] = _autodiff_primal_data_defids(b.expr, B)
 
         # 4. Reachable set
         td: Set[DefId] = set()

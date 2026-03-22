@@ -1469,7 +1469,14 @@ class ExpressionVisitorMixin:
                         body_arr = np.broadcast_to(body_arr, full_shape)
                     mask = np.ones(full_shape, dtype=bool)
                     for g in (expr.guards or []):
-                        gv = g.condition.accept(self)
+                        with self.env.scope():
+                            _ctx_g = _remap_ctx_to_body_defids(ctx)
+                            for defid, val in _ctx_g.items():
+                                if defid is not None:
+                                    self.env.set_value(
+                                        defid, val, name=_reduction_defid_names.get(defid)
+                                    )
+                            gv = g.condition.accept(self)
                         gv_arr = np.asarray(gv, dtype=bool) if not isinstance(gv, np.ndarray) else gv.astype(bool, copy=False)
                         if gv_arr.shape != full_shape:
                             gv_arr = np.broadcast_to(gv_arr, full_shape)

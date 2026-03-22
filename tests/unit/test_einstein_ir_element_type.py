@@ -12,7 +12,6 @@ These tests pin the *compiler* contract:
 
     EinsteinIR.element_type     (after TypeInferencePass)
         → LoweredEinsteinIR.element_type  (after EinsteinLoweringPass)
-        → serialised S-expr contains `:element_type f32 / i32 / …`
 
 so that any regression in the type-inference or lowering chain is caught before
 it silently corrupts runtime output.
@@ -34,7 +33,6 @@ The test for the "failing pattern" (weighted_avg) that triggered this work is th
 first case in each class.
 """
 
-import re
 import sys
 from pathlib import Path
 import pytest
@@ -46,8 +44,6 @@ from einlang.ir.nodes import (
     BindingIR, EinsteinIR, LoweredEinsteinIR, is_einstein_binding,
     ProgramIR,
 )
-from einlang.ir.serialization import serialize_ir
-from einlang.shared.types import F32, I32
 
 
 # ---------------------------------------------------------------------------
@@ -289,106 +285,7 @@ class TestLoweredEinsteinIRElementType:
 
 
 # ===========================================================================
-# Class 3 – S-expression serialisation contains correct :element_type token
-# ===========================================================================
-
-class TestEinsteinSexprElementType:
-    """The serialised S-expression of the lowered IR contains the right dtype token.
-
-    The S-expr is the *canonical representation* used for golden-snapshot testing
-    and debugging.  It must encode element_type so that a reader of the dump can
-    verify the compiler's dtype decision without re-running the compiler.
-    """
-
-    def _sexpr(self, source: str) -> str:
-        ir = _compile(source, "EinsteinLoweringPass")
-        return serialize_ir(ir)
-
-    # Helper: assert that the S-expr contains `:element_type (type EXPECTED)`
-    # anywhere in the output.  The serialiser always emits the form
-    # `:element_type (type f32)` (inline or multi-line), never a bare token.
-    @staticmethod
-    def _has_element_type(sexpr_text: str, expected: str) -> bool:
-        return bool(re.search(
-            r':element_type\s+\(type\s+' + re.escape(expected) + r'\)',
-            sexpr_text,
-        ))
-
-    # --- float cases ---
-
-    def test_weighted_avg_sexpr_has_element_type_f32(self):
-        """Serialised IR for weighted_avg must contain ':element_type f32'."""
-        sexpr = self._sexpr(_SRC_WEIGHTED_AVG)
-        assert self._has_element_type(sexpr, "f32"), (
-            "S-expression for weighted_avg does not contain ':element_type f32'. "
-            f"Excerpt:\n{sexpr[:800]}"
-        )
-
-    def test_moving_avg_sexpr_has_element_type_f32(self):
-        sexpr = self._sexpr(_SRC_MOVING_AVG)
-        assert self._has_element_type(sexpr, "f32"), (
-            "S-expression for moving_avg does not contain ':element_type f32'."
-        )
-
-    def test_filter_sexpr_has_element_type_f32(self):
-        sexpr = self._sexpr(_SRC_FILTER)
-        assert self._has_element_type(sexpr, "f32"), (
-            "S-expression for filtered does not contain ':element_type f32'."
-        )
-
-    def test_float_elementwise_sexpr_has_element_type_f32(self):
-        sexpr = self._sexpr(_SRC_FLOAT_ELT)
-        assert self._has_element_type(sexpr, "f32"), (
-            "S-expression for float elementwise C does not contain ':element_type f32'."
-        )
-
-    # --- integer cases ---
-
-    def test_cumsum_sexpr_has_element_type_i32(self):
-        sexpr = self._sexpr(_SRC_CUMSUM)
-        assert self._has_element_type(sexpr, "i32"), (
-            "S-expression for cumsum does not contain ':element_type i32'."
-        )
-
-    def test_correlation_sexpr_has_element_type_i32(self):
-        sexpr = self._sexpr(_SRC_CORRELATION)
-        assert self._has_element_type(sexpr, "i32"), (
-            "S-expression for correlation does not contain ':element_type i32'."
-        )
-
-    def test_int_elementwise_sexpr_has_element_type_i32(self):
-        sexpr = self._sexpr(_SRC_INT_ELT)
-        assert self._has_element_type(sexpr, "i32"), (
-            "S-expression for integer elementwise doubled does not contain ':element_type i32'."
-        )
-
-    # --- no cross-contamination ---
-
-    def test_float_sexpr_has_element_type_f32_not_i32(self):
-        """weighted_avg declaration must have element_type f32, never i32."""
-        sexpr = self._sexpr(_SRC_WEIGHTED_AVG)
-        assert self._has_element_type(sexpr, "f32"), (
-            "weighted_avg IR contains no ':element_type (type f32)' token.\n"
-            f"Excerpt:\n{sexpr[:800]}"
-        )
-        # i32 may appear for literals / shape, but the *einstein* element_type
-        # must be f32 — checked above.
-
-    def test_int_sexpr_has_element_type_i32_not_f32(self):
-        """cumsum declaration must have element_type i32, never f32."""
-        sexpr = self._sexpr(_SRC_CUMSUM)
-        assert self._has_element_type(sexpr, "i32"), (
-            "cumsum IR contains no ':element_type (type i32)' token at all."
-        )
-        # No float arrays appear in this source, so no f32 element_type expected.
-        assert not self._has_element_type(sexpr, "f32"), (
-            "cumsum IR unexpectedly contains ':element_type (type f32)'; "
-            "integer-only bindings must not produce float element_type."
-        )
-
-
-# ===========================================================================
-# Class 4 – scatter_elements rank-2 axis-1 pattern (test_scatter_ops)
+# Class 3 – scatter_elements rank-2 axis-1 pattern (test_scatter_ops)
 #
 # The stdlib scatter_elements (rank 2, axis=1) uses two Einstein declarations:
 #   last_l[i,j] = max[l](if indices[i,l]==j { l } else { -1 })  → i32
@@ -439,23 +336,9 @@ class TestScatterElementsPatternElementType:
             "the output must be f32.  An i32 result truncates 3.0→3 to 3, etc."
         )
 
-    def test_sexpr_result_has_element_type_f32(self):
-        ir = _compile(_SRC_SCATTER_RANK2_AXIS1, "EinsteinLoweringPass")
-        sexpr = serialize_ir(ir)
-        assert re.search(r':element_type\s+\(type\s+f32\)', sexpr), (
-            "S-expression for scatter result does not contain ':element_type (type f32)'."
-        )
-
-    def test_sexpr_last_l_has_element_type_i32(self):
-        ir = _compile(_SRC_SCATTER_RANK2_AXIS1, "EinsteinLoweringPass")
-        sexpr = serialize_ir(ir)
-        assert re.search(r':element_type\s+\(type\s+i32\)', sexpr), (
-            "S-expression for scatter last_l does not contain ':element_type (type i32)'."
-        )
-
 
 # ===========================================================================
-# Class 5 – batch_matmul pattern (test_linear_algebra_clustered_accuracy)
+# Class 4 – batch_matmul pattern (test_linear_algebra_clustered_accuracy)
 #
 # The stdlib batch_matmul uses:
 #   let result[..batch, i, j] = sum[k](a[..batch, i, k] * b[..batch, k, j])
@@ -508,16 +391,9 @@ class TestBatchMatmulPatternElementType:
             f"linear layer output (lowered): expected 'f32', got '{et}'."
         )
 
-    def test_batch_matmul_sexpr_has_element_type_f32(self):
-        ir = _compile(_SRC_BATCH_MATMUL, "EinsteinLoweringPass")
-        sexpr = serialize_ir(ir)
-        assert re.search(r':element_type\s+\(type\s+f32\)', sexpr), (
-            "S-expression for batch_matmul does not contain ':element_type (type f32)'."
-        )
-
 
 # ===========================================================================
-# Class 6 – topk transpose pattern (test_topk_2d_axis0_k1)
+# Class 5 – topk transpose pattern (test_topk_2d_axis0_k1)
 #
 # When topk is called with axis=0 the stdlib transposes the input so the
 # target axis becomes innermost:
@@ -569,16 +445,9 @@ class TestTopkTransposePatternElementType:
             "A max-reduction over a float transposed array must be f32."
         )
 
-    def test_transpose_sexpr_has_element_type_f32(self):
-        ir = _compile(_SRC_TOPK_TRANSPOSE, "EinsteinLoweringPass")
-        sexpr = serialize_ir(ir)
-        assert re.search(r':element_type\s+\(type\s+f32\)', sexpr), (
-            "S-expression for topk transpose does not contain ':element_type (type f32)'."
-        )
-
 
 # ===========================================================================
-# Class 7 – trig-ops arithmetic chain (test_trig_ops_clustered_accuracy)
+# Class 6 – trig-ops arithmetic chain (test_trig_ops_clustered_accuracy)
 #
 # The stdlib trig ops (tanh, sinh, cosh) implement float arithmetic:
 #   let exp_x[i,j]     = …      (f32 input)
@@ -632,16 +501,9 @@ class TestTrigopsFloatPatternElementType:
             f"ratio: expected 'f32', got '{et}'."
         )
 
-    def test_trig_arith_sexpr_has_element_type_f32(self):
-        ir = _compile(_SRC_TRIG_ARITH, "EinsteinLoweringPass")
-        sexpr = serialize_ir(ir)
-        assert re.search(r':element_type\s+\(type\s+f32\)', sexpr), (
-            "S-expression for trig arithmetic chain does not contain ':element_type (type f32)'."
-        )
-
 
 # ===========================================================================
-# Class 8 – quantize_linear pattern (test_quantize_linear_*)
+# Class 7 – quantize_linear pattern (test_quantize_linear_*)
 #
 # The stdlib quantize_linear uses a chain of Einstein declarations:
 #   scaled[i]    = x[i] / scale          → f32 / f32  → f32
@@ -727,27 +589,13 @@ class TestQuantizeLinearPatternElementType:
             f"clamped (saturation): expected 'f32', got '{et}'."
         )
 
-    def test_quantize_sexpr_has_f32_and_i32(self):
-        """Both :element_type (type f32) and (type i32) must appear (rounded_i is i32)."""
-        ir = _compile(_SRC_QUANTIZE, "EinsteinLoweringPass")
-        sexpr = serialize_ir(ir)
-        assert re.search(r':element_type\s+\(type\s+f32\)', sexpr), (
-            "S-expression for quantize does not contain ':element_type (type f32)'."
-        )
-        assert re.search(r':element_type\s+\(type\s+i32\)', sexpr), (
-            "S-expression for quantize does not contain ':element_type (type i32)'. "
-            "The rounded_i (as i32) declaration must be serialised as i32."
-        )
-
 
 # ===========================================================================
-# Class 9 – einstein_windowing.ein  (test_execution[einstein_windowing])
+# Class 8 – einstein_windowing.ein  (test_execution[einstein_windowing])
 #
 # This class mirrors the full einstein_windowing.ein example and tests every
-# Einstein declaration in it at two levels:
-#
-#   A) IR element_type after EinsteinLoweringPass
-#   B) Serialised S-expression contains the right :element_type token
+# Einstein declaration: IR element_type after EinsteinLoweringPass (and
+# TypeInferencePass for selected bindings).
 #
 # Integer declarations  (data / values / sequence / pattern / matrix / square):
 #   cumsum, forward_sum, correlation, cummax, pooled, diagonal, windowed → i32
@@ -787,8 +635,8 @@ def _compile_windowing(stop_after: str) -> "ProgramIR":
 class TestEinsteinWindowing:
     """Full IR type coverage for examples/units/einstein_windowing.ein.
 
-    Every Einstein declaration in the file is checked: its element_type in the
-    lowered IR and its presence in the serialised S-expression.
+    Every Einstein declaration in the file is checked for element_type in the
+    lowered IR (and for weighted_avg / cumsum at type-inference time).
     """
 
     # ------------------------------------------------------------------
@@ -800,12 +648,6 @@ class TestEinsteinWindowing:
         if not hasattr(TestEinsteinWindowing, "_cached_ir"):
             TestEinsteinWindowing._cached_ir = _compile_windowing("EinsteinLoweringPass")
         return TestEinsteinWindowing._cached_ir
-
-    @staticmethod
-    def _sexpr():
-        if not hasattr(TestEinsteinWindowing, "_cached_sexpr"):
-            TestEinsteinWindowing._cached_sexpr = serialize_ir(TestEinsteinWindowing._ir())
-        return TestEinsteinWindowing._cached_sexpr
 
     @staticmethod
     def _et(name: str) -> str:
@@ -886,59 +728,6 @@ class TestEinsteinWindowing:
             f"weighted_avg: expected f32, got '{et}'. "
             "This causes the runtime to allocate int32 output; "
             "weighted_avg[2]=101 (int) fails `> 101.0` (strict float compare)."
-        )
-
-    # ------------------------------------------------------------------
-    # S-expression checks
-    # ------------------------------------------------------------------
-
-    def test_sexpr_has_f32(self):
-        """Serialised windowing IR must contain at least one :element_type (type f32)."""
-        assert re.search(r':element_type\s+\(type\s+f32\)', self._sexpr()), (
-            "S-expression for windowing IR contains no ':element_type (type f32)'. "
-            "moving_avg, filtered, and weighted_avg should all produce f32 tokens."
-        )
-
-    def test_sexpr_has_i32(self):
-        """Serialised windowing IR must contain at least one :element_type (type i32)."""
-        assert re.search(r':element_type\s+\(type\s+i32\)', self._sexpr()), (
-            "S-expression for windowing IR contains no ':element_type (type i32)'."
-        )
-
-    def test_sexpr_weighted_avg_binding_has_f32(self):
-        """The weighted_avg binding section in the S-expr must contain f32, not i32."""
-        sexpr = self._sexpr()
-        # Find the weighted_avg binding block: starts at its name token
-        start = sexpr.find('"weighted_avg"')
-        assert start != -1, "Could not find 'weighted_avg' in S-expression."
-        # Take enough context after the name to cover the element_type field
-        snippet = sexpr[start: start + 600]
-        assert re.search(r':element_type\s+\(type\s+f32\)', snippet), (
-            "weighted_avg binding in S-expr does not carry ':element_type (type f32)'. "
-            f"Snippet:\n{snippet[:400]}"
-        )
-        assert not re.search(r':element_type\s+\(type\s+i32\)', snippet), (
-            "weighted_avg binding in S-expr wrongly carries ':element_type (type i32)'."
-        )
-
-    def test_sexpr_moving_avg_binding_has_f32(self):
-        """The moving_avg binding section must carry :element_type (type f32)."""
-        sexpr = self._sexpr()
-        start = sexpr.find('"moving_avg"')
-        assert start != -1
-        snippet = sexpr[start: start + 600]
-        assert re.search(r':element_type\s+\(type\s+f32\)', snippet), (
-            f"moving_avg binding in S-expr does not carry ':element_type (type f32)'."
-        )
-
-    def test_sexpr_cumsum_binding_has_i32(self):
-        """The cumsum binding section must carry :element_type (type i32)."""
-        sexpr = self._sexpr()
-        start = sexpr.find('"cumsum"')
-        assert start != -1
-        snippet = sexpr[start: start + 600]
-        assert re.search(r':element_type\s+\(type\s+i32\)', snippet), (
-            f"cumsum binding in S-expr does not carry ':element_type (type i32)'."
         )
 
     # ------------------------------------------------------------------

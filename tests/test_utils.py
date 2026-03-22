@@ -132,7 +132,7 @@ def _ir_data_equal_diff(
 
 
 def apply_ir_round_trip(compilation_result: Any) -> Any:
-    """Replace IR with serialize->deserialize round-trip. Preserves all info used by runtime. Modifies in place."""
+    """Replace IR with in-memory serialize→deserialize round-trip. No file I/O."""
     if not compilation_result.success:
         return compilation_result
     ir = compilation_result.ir
@@ -140,8 +140,8 @@ def apply_ir_round_trip(compilation_result: Any) -> Any:
         return compilation_result
     from einlang.ir.serialization import serialize_ir, deserialize_ir
     _ser_opts = {"pretty": False, "include_type_info": True, "include_location": True}
-    sexpr_str = serialize_ir(ir, **_ser_opts)
-    round_tripped = deserialize_ir(sexpr_str)
+    wire = serialize_ir(ir, **_ser_opts)
+    round_tripped = deserialize_ir(wire)
     if round_tripped.source_files is None or not round_tripped.source_files:
         sf = ir.source_files
         if sf:

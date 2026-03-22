@@ -474,7 +474,7 @@ let x = [1.0, 2.0, 3.0];
 let p = prod[j](x[j]);
 print(@p);
 """,
-        "let @p = prod[k](x[k]) / x[j] * @x[j];",
+        "let @p = sum[j](prod[k](x[k]) / x[j] * @x[j]);",
     ),
     (
         "reduce_sum",

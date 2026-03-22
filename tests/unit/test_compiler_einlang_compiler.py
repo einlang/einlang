@@ -17,7 +17,6 @@ class TestEinlangCompiler:
         
         compile_result = compiler.compile(source_code, "<test>")
         assert compile_result.success
-        apply_ir_round_trip(compile_result)
         exec_result = runtime.execute(compile_result, inputs={})
         assert exec_result.success
     

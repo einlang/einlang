@@ -14,7 +14,7 @@ Scalar and std::math-style derivative rules (arithmetic, trig, activations, etc.
 asserted via exact stdout in tests/unit/test_print_at_golden.py and
 tests/unit/test_print_at_ml_smoke.py instead of duplicating numeric quotient tests here.
 
-Note: IR dump fixtures use qualified stdlib (e.g. std::math::exp) with repo root_path.
+Note: IR expansion catalog (_IR_DUMP_OPS) uses qualified stdlib (e.g. std::math::exp) with repo root_path.
 Other tests may use local fn + @fn or python::numpy::* where no defid is required.
 """
 
@@ -24,12 +24,41 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-pytestmark = pytest.mark.skip(reason="autodiff pass under active development")
-
 from einlang.compiler.driver import CompilerDriver
-from einlang.passes.autodiff import AutodiffPass, DIFF_PREFIX
+from einlang.ir.nodes import IRNode, ProgramIR
+from einlang.passes.autodiff import AutodiffPass, DIFF_PREFIX, USER_DIFF_PREFIX
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _ir_unique_node_count(program) -> int:
+    """Count distinct IRNode objects reachable from *program* (shared nodes counted once)."""
+    seen_obj: set[int] = set()
+    ir_ids: set[int] = set()
+
+    def walk(obj) -> None:
+        if obj is None:
+            return
+        oid = id(obj)
+        if oid in seen_obj:
+            return
+        seen_obj.add(oid)
+        if isinstance(obj, IRNode):
+            ir_ids.add(oid)
+        if isinstance(obj, (list, tuple)):
+            for x in obj:
+                walk(x)
+        elif isinstance(obj, dict):
+            for k, v in obj.items():
+                walk(k)
+                walk(v)
+        elif isinstance(obj, IRNode):
+            for cls in type(obj).__mro__:
+                for slot in getattr(cls, "__slots__", ()):
+                    walk(getattr(obj, slot, None))
+
+    walk(program)
+    return len(ir_ids)
 
 
 def _assert_allclose(actual, ref, atol=1e-5, rtol=1e-5, msg=""):
@@ -110,8 +139,13 @@ let dw = @w;
         diff_block = analysis["diff_block"]
         assert diff_block is not None and len(diff_block) >= 1
         bindings = getattr(result.ir, "bindings", None) or []
-        d_bindings = [b for b in bindings if getattr(b, "name", "").startswith(DIFF_PREFIX)]
-        assert len(d_bindings) >= 1
+        tangent_bindings = [
+            b
+            for b in bindings
+            if (getattr(b, "name", "") or "").startswith(DIFF_PREFIX)
+            or (getattr(b, "name", "") or "").startswith(USER_DIFF_PREFIX)
+        ]
+        assert len(tangent_bindings) >= 1
 
     def test_quotient_binary_expr(self):
         """@b/@a for b = a*a: compile and run; assert db_da == 2*a == 6 at a=3."""
@@ -252,6 +286,10 @@ let dC_dB = @C / @B;
 """
         _, out = _compile_run(source)
         try:
+            dca = np.asarray(out.get("dC_dA"))
+            dcb = np.asarray(out.get("dC_dB"))
+            assert dca.shape == (2, 2, 2, 2), "dC_dA full Jacobian layout (Julia ∂C/∂A as 4-tensor), got %s" % (dca.shape,)
+            assert dcb.shape == (2, 2, 2, 2), "dC_dB full Jacobian layout, got %s" % (dcb.shape,)
             A_ref = np.array([[1.0, 2.0], [3.0, 4.0]])
             B_ref = np.array([[5.0, 6.0], [7.0, 8.0]])
             ref_dA = np.zeros((2, 2, 2, 2), dtype=np.float64)
@@ -270,7 +308,7 @@ let dC_dB = @C / @B;
             pass
 
     def test_einstein_row_sum_derivative(self):
-        """r[i] = sum[j](M[i,j]); @r/@M grad shape matches M (PyTorch): ∂r/∂M has shape of M, ones."""
+        """r[i] = sum[j](M[i,j]); @r/@M cotangent same shape as M (Julia Zygote / ChainRules style), ones."""
         source = """
 let M = [[1.0, 2.0], [3.0, 4.0]];
 let r[i] = sum[j](M[i, j]);
@@ -282,10 +320,9 @@ let dr_dM = @r / @M;
         try:
             import numpy as np
             arr = np.asarray(dr_dM)
-            assert arr.ndim == 2, "dr_dM should be 2D (grad shape = M.shape), got ndim %s" % arr.ndim
-            assert arr.shape == (2, 2), "shape (2,2), got %s" % (arr.shape,)
+            assert arr.shape == (2, 2), "dr_dM shape (2,2), got %s" % (arr.shape,)
             ref = np.ones((2, 2), dtype=np.float64)
-            _assert_allclose(arr, ref, msg="dr_dM vs ∂r/∂M (ones)")
+            _assert_allclose(arr, ref, msg="dr_dM row-sum pullback")
         except ImportError:
             pass
 
@@ -340,7 +377,7 @@ let dC_dA = @C / @A;
             pass
 
     def test_einstein_column_sum_derivative(self):
-        """c[j] = sum[i](M[i,j]); @c/@M grad shape matches M (PyTorch): shape of M, ones."""
+        """c[j] = sum[i](M[i,j]); @c/@M cotangent same shape as M (Julia-style), ones."""
         source = """
 let M = [[1.0, 2.0], [3.0, 4.0]];
 let c[j] = sum[i](M[i, j]);
@@ -352,9 +389,9 @@ let dc_dM = @c / @M;
         try:
             import numpy as np
             arr = np.asarray(dc_dM)
-            assert arr.ndim == 2 and arr.shape == (2, 2)
+            assert arr.shape == (2, 2), "dc_dM shape (2,2), got %s" % (arr.shape,)
             ref = np.ones((2, 2), dtype=np.float64)
-            _assert_allclose(arr, ref, msg="dc_dM vs ∂c/∂M (ones)")
+            _assert_allclose(arr, ref, msg="dc_dM column-sum pullback")
         except ImportError:
             pass
 
@@ -374,7 +411,7 @@ let d_sums_d_x = @sums / @x;
         assert out.get("d_sums_d_x") is not None
         try:
             ref_d_max = np.array([[0.0, 0.0, 1.0]], dtype=np.float64)
-            ref_d_sums = np.array([[1.0, 1.0, 1.0]], dtype=np.float64)
+            ref_d_sums = np.ones((1, 3), dtype=np.float64)
             _assert_allclose(out.get("d_max_d_x"), ref_d_max, msg="d_max_d_x")
             _assert_allclose(out.get("d_sums_d_x"), ref_d_sums, msg="d_sums_d_x")
         except ImportError:
@@ -392,7 +429,9 @@ let dy_dx = @y / @x;
         assert dy_dx is not None
         try:
             ref = np.ones((1, 3), dtype=np.float64)
-            _assert_allclose(dy_dx, ref, msg="dy_dx sum reduction")
+            arr = np.asarray(dy_dx)
+            assert arr.shape == (1, 3), "dy_dx shape (1,3), got %s" % (arr.shape,)
+            _assert_allclose(arr, ref, msg="dy_dx sum reduction")
         except ImportError:
             pass
 
@@ -407,6 +446,8 @@ let dy_dx = @y / @x;
         dy_dx = out.get("dy_dx")
         assert dy_dx is not None
         try:
+            arr = np.asarray(dy_dx)
+            assert arr.shape == (1, 3), "dy_dx shape (1,3) same as x (Julia pullback), got %s" % (arr.shape,)
             ref = np.array([[0.0, 1.0, 0.0]], dtype=np.float64)
             _assert_allclose(dy_dx, ref, msg="dy_dx max reduction")
         except ImportError:
@@ -423,6 +464,8 @@ let dy_dx = @y / @x;
         dy_dx = out.get("dy_dx")
         assert dy_dx is not None
         try:
+            arr = np.asarray(dy_dx)
+            assert arr.shape == (1, 3), "dy_dx shape (1,3) same as x (Julia pullback), got %s" % (arr.shape,)
             ref = np.array([[1.0, 0.0, 0.0]], dtype=np.float64)
             _assert_allclose(dy_dx, ref, msg="dy_dx min reduction")
         except ImportError:
@@ -439,6 +482,8 @@ let dy_dx = @y / @x;
         dy_dx = out.get("dy_dx")
         assert dy_dx is not None
         try:
+            arr = np.asarray(dy_dx)
+            assert arr.shape == (1, 3), "dy_dx shape (1,3) same as x (Julia pullback), got %s" % (arr.shape,)
             ref = np.array([[6.0, 3.0, 2.0]], dtype=np.float64)
             _assert_allclose(dy_dx, ref, msg="dy_dx prod reduction", atol=1e-4)
         except ImportError:
@@ -446,7 +491,7 @@ let dy_dx = @y / @x;
 
     def test_einstein_attention_matmul_chain_no_softmax(self):
         """Single-head attention matmul chain (no softmax): scores = Q@K^T, out = scores@V; @out/@Q.
-        MHA uses this plus softmax; the matmul part is differentiable. Asserts compile/run and finite output."""
+        MHA uses this plus softmax; the matmul part is differentiable. Cotangent ∂out/∂Q has the same shape as Q (Julia-style)."""
         source = """
 let scale = 0.5;
 let Q = [[[1.0, 2.0], [3.0, 4.0]]];
@@ -461,13 +506,15 @@ let d_out_d_Q = @out / @Q;
         assert d_out_d_Q is not None
         try:
             arr = np.asarray(d_out_d_Q)
-            assert np.isfinite(arr).all() or arr.size == 1, "d_out_d_Q should be finite"
-            assert arr.ndim in (0, 3, 6), "d_out_d_Q ndim 0 (scalar), 3 (out shape), or 6 (full Jacobian)"
+            assert np.isfinite(arr).all(), "d_out_d_Q should be finite"
+            assert arr.shape == (1, 2, 2), (
+                "d_out_d_Q shape (1,2,2) same as Q (Julia pullback), got %s" % (arr.shape,)
+            )
         except ImportError:
             pass
 
     def test_einstein_two_factor_product(self):
-        """y[i] = sum[j](A[i,j]*b[j]); @y/@A and @y/@b; grad shapes match inputs (PyTorch)."""
+        """y[i] = sum[j](A[i,j]*b[j]); @y/@A and @y/@b; cotangents same shape as A and b (Julia-style)."""
         source = """
 let A = [[1.0, 2.0], [3.0, 4.0]];
 let b = [5.0, 6.0];
@@ -478,6 +525,8 @@ let dy_db = @y / @b;
         _, out = _compile_run(source)
         assert out.get("dy_dA") is not None and out.get("dy_db") is not None
         try:
+            assert np.asarray(out.get("dy_dA")).shape == (2, 2)
+            assert np.asarray(out.get("dy_db")).shape == (2, 2)
             A_ref = np.array([[1.0, 2.0], [3.0, 4.0]])
             b_ref = np.array([5.0, 6.0])
             ref_dy_dA = np.broadcast_to(b_ref, (2, 2)).astype(np.float64)
@@ -488,7 +537,7 @@ let dy_db = @y / @b;
             pass
 
     def test_einstein_affine_derivatives(self):
-        """Affine y[i,j] = sum[k](x[i,k]*W[j,k]) + b[j]; @y/@x, @y/@W, @y/@b (AUTODIFF_EINSTEIN_OPS §4)."""
+        """Affine y[i,j] = sum[k](x[i,k]*W[j,k]) + b[j]; cotangents same shape as x, W, b (Julia-style; AUTODIFF_EINSTEIN_OPS §4)."""
         source = """
 let x = [[1.0, 2.0], [3.0, 4.0]];
 let W = [[0.5, 0.5], [0.1, 0.2]];
@@ -503,6 +552,9 @@ let dy_db = @y / @b;
         assert out.get("dy_dW") is not None, "dy_dW"
         assert out.get("dy_db") is not None, "dy_db"
         try:
+            for nm, sh in (("dy_dx", (2, 2)), ("dy_dW", (2, 2)), ("dy_db", (2, 2))):
+                a = np.asarray(out.get(nm))
+                assert a.shape == sh, "%s shape %s same as primal (Julia pullback), got %s" % (nm, sh, a.shape)
             x_ref = np.array([[1.0, 2.0], [3.0, 4.0]])
             W_ref = np.array([[0.5, 0.5], [0.1, 0.2]])
             ref_dy_dx = np.array([[np.sum(W_ref[0, :]), np.sum(W_ref[1, :])]] * 2, dtype=np.float64)
@@ -585,9 +637,9 @@ let dy_dx = @y / @x;
         dy_dx = np.asarray(out.get("dy_dx"))
         assert dy_dx is not None
         x_ref = np.array([[[1.0, 2.0], [3.0, 4.0]], [[0.5, 0.5], [0.1, 0.2]]])
-        assert dy_dx.shape == x_ref.shape, "dy_dx shape %s vs x %s" % (dy_dx.shape, x_ref.shape)
-        ref = np.ones_like(x_ref, dtype=np.float64)
-        _assert_allclose(dy_dx, ref, msg="dy_dx 3D vs doc (ones)")
+        assert dy_dx.shape == (2, 2, 2), "dy_dx shape (2,2,2), got %s vs x %s" % (dy_dx.shape, x_ref.shape)
+        ref = np.ones((2, 2, 2), dtype=np.float64)
+        _assert_allclose(dy_dx, ref, msg="dy_dx 3D batched sum pullback")
 
     def test_gradient_descent_autodiff_example(self):
         """One gradient step on ||A*x - b||^2 using @loss/@x0, @loss/@x1; loss decreases, x_next -> (0.5, 0.5)."""
@@ -638,8 +690,8 @@ let dw = @w;
         result, out = _compile_run(source)
         analysis = result.tcx.get_analysis(AutodiffPass)
         assert analysis["diff_block"] is not None
-        d_bindings = [b for b in (getattr(result.ir, "bindings", None) or []) if getattr(b, "name", "").startswith(DIFF_PREFIX)]
-        assert any(getattr(b, "name", "") == DIFF_PREFIX + "w" for b in d_bindings)
+        names = {getattr(b, "name", "") for b in (getattr(result.ir, "bindings", None) or [])}
+        assert USER_DIFF_PREFIX + "w" in names
 
     # -------------------------------------------------------------------------
     # Math-like derivatives via user-defined functions (same as stdlib formulas)
@@ -822,10 +874,8 @@ let dy_dr = @y / @r;
         assert abs(_scalar_float(out, "dy_dr") - (180.0 / math.pi)) < 1e-6
 
 
-def test_autodiff_ir_dump_sexpr():
-    """Compile a program with multiple @y/@x (matmul, sum, affine), dump result.ir to autodiff_ir_dump.sexpr for local inspection (gitignored)."""
-    from pathlib import Path
-    from einlang.ir.serialization import serialize_ir
+def test_autodiff_ir_expanded_derivative_bindings_are_substantial():
+    """Compile a program with multiple @y/@x (matmul, sum, affine); IR graph is large (expanded d_* bindings)."""
     source = """
 let A = [[1.0, 2.0], [3.0, 4.0]];
 let B = [[5.0, 6.0], [7.0, 8.0]];
@@ -843,11 +893,9 @@ let dy_dx = @y / @x;
     compiler = CompilerDriver()
     result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
     assert result.success, result.get_errors() or "compile failed"
-    sexpr = serialize_ir(result.ir)
-    dump_path = Path(__file__).parent / "autodiff_ir_dump.sexpr"
-    dump_path.write_text(sexpr, encoding="utf-8")
-    assert dump_path.exists(), "dump file should exist"
-    assert len(sexpr) > 1000, "autodiff IR dump should contain expanded d_* bindings"
+    ad = [b for b in (result.ir.bindings or []) if _is_autodiff_generated_binding(b)]
+    assert len(ad) >= 3, "expected multiple autodiff-generated bindings (d*_* names)"
+    assert _ir_unique_node_count(result.ir) > 200, "autodiff should expand to a non-trivial IR graph"
 
 
 _IR_DUMP_OPS = [
@@ -955,26 +1003,16 @@ def _is_autodiff_generated_binding(binding):
 
 
 def test_autodiff_ir_dump_all_ops():
-    """Dump result.ir (after autodiff) to one file per op under autodiff_ir_dumps/ for local comparison with docs (gitignored *.sexpr). See docs/AUTODIFF_EINSTEIN_OPS.md."""
-    from einlang.ir.serialization import serialize_ir
-    dump_dir = Path(__file__).parent / "autodiff_ir_dumps"
-    dump_dir.mkdir(exist_ok=True)
+    """Each catalog op compiles after autodiff; full-program IR is non-trivial. See docs/AUTODIFF_EINSTEIN_OPS.md."""
     compiler = CompilerDriver()
     for op_name, source in _IR_DUMP_OPS:
         result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
         assert result.success, "op %s: %s" % (op_name, result.get_errors())
-        sexpr = serialize_ir(result.ir)
-        (dump_dir / ("%s.sexpr" % op_name)).write_text(sexpr, encoding="utf-8")
-    assert dump_dir.exists()
-    assert len(list(dump_dir.glob("*.sexpr"))) >= len(_IR_DUMP_OPS)
+        assert _ir_unique_node_count(result.ir) > 15, "op %s: expected non-trivial IR" % op_name
 
 
 def test_autodiff_ir_dump_generated_only():
-    """Dump only the autodiff-generated bindings (d_*_d_*) per op to <op>_autodiff_only.sexpr for local comparison with doc (gitignored)."""
-    from einlang.ir.serialization import serialize_ir
-    from einlang.ir.nodes import ProgramIR
-    dump_dir = Path(__file__).parent / "autodiff_ir_dumps"
-    dump_dir.mkdir(exist_ok=True)
+    """Autodiff-generated bindings (d_* / quotient names) form a non-empty IR subtree per catalog op."""
     compiler = CompilerDriver()
     for op_name, source in _IR_DUMP_OPS:
         result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
@@ -983,9 +1021,7 @@ def test_autodiff_ir_dump_generated_only():
         derivative_bindings = [b for b in (program.bindings or []) if _is_autodiff_generated_binding(b)]
         assert len(derivative_bindings) > 0, "op %s: expected at least one autodiff-generated binding (name with _d_)" % op_name
         autodiff_only = ProgramIR(statements=derivative_bindings, source_files=program.source_files, modules=program.modules)
-        sexpr = serialize_ir(autodiff_only)
-        (dump_dir / ("%s_autodiff_only.sexpr" % op_name)).write_text(sexpr, encoding="utf-8")
-    assert len(list(dump_dir.glob("*_autodiff_only.sexpr"))) == len(_IR_DUMP_OPS)
+        assert _ir_unique_node_count(autodiff_only) >= 5, "op %s: expected non-trivial derivative-only IR" % op_name
 
 
 def _expr_contains_node_type(expr, node_type, binding_by_defid=None, visited_defids=None):
@@ -1032,7 +1068,7 @@ _OP_DOC_EXPECTATIONS = [
     ("row_sum", {"dr_dM"}, "einstein"),
     ("column_sum", {"dc_dM"}, "einstein"),
     ("two_factor", {"dy_dA", "dy_db"}, "einstein"),
-    ("attention_matmul_chain", {"d_out_d_Q"}, "einstein_or_any"),
+    ("attention_matmul_chain", {"d_out_d_Q"}, "einstein"),
     ("batched_matmul", {"dC_dA", "dC_dB"}, "einstein"),
     ("batched_reduction_sum", {"dy_dx"}, "einstein"),
 ]
