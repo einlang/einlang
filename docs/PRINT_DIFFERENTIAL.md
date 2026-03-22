@@ -80,9 +80,9 @@ Example: `y` a small tensor literal — `print(@y)` may simplify to something li
 
 In `tests/unit/test_autodiff_pass.py`, `_PRINT_DIFF_ML_OPS` includes **skipped** programs (pytest `marks=`): e.g. softmax/log_softmax without `@fn`, many `reduce_*` / composite ML ops (“multi-step inlined function: intermediate var out of scope”), matmul shape issues, etc. Reasons are in the test file.
 
-Local diagnosis: `python3 scripts/test_print_at.py --study` (see header in `scripts/test_print_at.py`).
+Local diagnosis: `python3 scripts/test_print_at.py` (goldens) or `python3 scripts/test_print_at.py --report` (markdown vs `GOLDEN_CALCULUS` in `tests/print_at_fixtures.py`).
 
-**Full dump of each skipped program + pytest reason + math reference:** [TEST_PRINT_AT_STUDY_SKIP_DUMP.md](TEST_PRINT_AT_STUDY_SKIP_DUMP.md) (regenerate with `python3 scripts/test_print_at.py --dump-study-only > docs/TEST_PRINT_AT_STUDY_SKIP_DUMP.md`).
+**Archived dump of skipped programs:** [TEST_PRINT_AT_STUDY_SKIP_DUMP.md](TEST_PRINT_AT_STUDY_SKIP_DUMP.md) (static; add cases to `scripts/gen_study_skip_compare.py` / related tooling if you revive the workflow).
 
 **Table: expected math vs actual compile/exec:** [TEST_PRINT_AT_STUDY_SKIP_COMPARE.md](TEST_PRINT_AT_STUDY_SKIP_COMPARE.md) (regenerate with `python3 scripts/gen_study_skip_compare.py`).
 
@@ -100,10 +100,31 @@ Repro: `PYTHONPATH=src python3` with `CompilerDriver` + `EinlangRuntime(backend=
 | `y = x + f(x)` with `@fn f` | `@y = 2 * @x` (no `@fx` line) |
 | `y = std::ml::relu(x)` | Preamble `@relu_x = …` then `@y = @relu_x` (rule-dependent); **parenthesization** in `_expr_to_diff_source` may omit parens around `if` in products — readability quirk. |
 
+### Batched matmul (`std::ml::batch_matmul`, `print(@y)`)
+
+Let `y = batch_matmul(A, B)` with `C[b,i,j] = Σ_k A[b,i,k] B[b,k,j]`. **`print(@y)`** shows the **JVP** (forward-mode tangent) in the independent tangents `@A`, `@B`:
+
+- **Math:** `@y[b,i,j] = Σ_k ( A[b,i,k]·@B[b,k,j] + B[b,k,j]·@A[b,i,k] )` — the usual matrix-product rule applied **per batch slice** (same as 2D `matmul` on each `b`).
+
+- **Typical printed IR** (names from lowering; see golden in `tests/print_at_fixtures.py`): inner binding  
+  `_@result[batch.0, i, j] = sum[k](A[batch.0, i, k] * @B[batch.0, k, j] + B[batch.0, k, j] * @A[batch.0, i, k])`  
+  wrapped in `let @y = { let _@batch_matmul_call = { … }; _@batch_matmul_call };` when the binding is `y`. If the program uses `let C = …; print(@C)`, the outer line is `let @C = …` instead; the **inner** Einstein sum is the calculus above with `batch.0` ≡ `b`.
+
+- **Compare to math:** `tests/print_at_fixtures.py` → `GOLDEN_CALCULUS["batch_matmul"]` and `scripts/test_print_at.py --report` tie the captured string to this formula.
+
+## IR dump (S-expr, autodiff slice)
+
+- **`scripts/dump_autodiff_ir.py`** — compile with `stop_after_pass=AutodiffPass` (default), then `serialize_ir` to stdout or `-o file.sexpr`.
+- **`--autodiff-only`** — drop primal `let`s; keep only tangent / Jacobian bindings (`_@…`, `@…`, or `d*_*` names). Handy for inspecting AD output without the full program.
+- **Examples:**  
+  `python3 scripts/dump_autodiff_ir.py -c 'let x=1.0; let y=x*x; print(@y);' -o /tmp/ad.sexpr`  
+  `python3 scripts/dump_autodiff_ir.py -c '…' --autodiff-only -o /tmp/ad_slice.sexpr`
+- **Pytest bulk dumps** (many fixed programs): `test_autodiff_ir_dump_all_ops` / `test_autodiff_ir_dump_generated_only` in `tests/unit/test_autodiff_pass.py`; see [AUTODIFF_EINSTEIN_OPS_IR_COMPARISON.md](AUTODIFF_EINSTEIN_OPS_IR_COMPARISON.md).
+
 ## Tests
 
 - **Unit:** `tests/unit/test_autodiff_pass.py` — `test_print_differential`, `test_print_differential_call_plus_x_shows_at_fx_then_sum`, parametrized `_PRINT_DIFF_ML_OPS`.
-- **Script:** `scripts/test_print_at.py` — golden substrings / `--study` / `--dump-study-only` (see [TEST_PRINT_AT_STUDY_SKIP_DUMP.md](TEST_PRINT_AT_STUDY_SKIP_DUMP.md)).
+- **Goldens:** `tests/unit/test_print_at.py` (pytest) and CLI `scripts/test_print_at.py` / `--report` — expected strings in `tests/print_at_fixtures.py`.
 
 ## Related docs
 

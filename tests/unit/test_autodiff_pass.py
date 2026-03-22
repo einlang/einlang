@@ -1720,18 +1720,18 @@ let x = 6.0;
 let y = std::ml::divide(x, 2.0);
 print(@y);
 """),
-    pytest.param("softmax", """
+    ("softmax", """
 use std::ml;
 let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::softmax(x);
 print(@y);
-""", id="softmax", marks=pytest.mark.skip(reason="softmax autodiff not yet supported without @fn rule")),
-    pytest.param("log_softmax", """
+"""),
+    ("log_softmax", """
 use std::ml;
 let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::log_softmax(x);
 print(@y);
-""", id="log_softmax", marks=pytest.mark.skip(reason="log_softmax autodiff not yet supported without @fn rule")),
+"""),
     ("tanh", """
 use std::ml;
 let x = 0.5;
@@ -1932,30 +1932,30 @@ let x = [[1.0, -2.0, 3.0]];
 let y = std::ml::reduce_l1(x);
 print(@y);
 """, id="reduce_l1", marks=pytest.mark.skip(reason="Einstein clause body with function call not yet supported")),
-    pytest.param("reduce_l2", """
+    ("reduce_l2", """
 use std::ml;
 let x = [[3.0, 4.0]];
 let y = std::ml::reduce_l2(x);
 print(@y);
-""", id="reduce_l2", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+"""),
     pytest.param("reduce_sum_square", """
 use std::ml;
 let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::reduce_sum_square(x);
 print(@y);
 """, id="reduce_sum_square", marks=pytest.mark.skip(reason="Einstein clause body with power not yet supported")),
-    pytest.param("reduce_log_sum", """
+    ("reduce_log_sum", """
 use std::ml;
 let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::reduce_log_sum(x);
 print(@y);
-""", id="reduce_log_sum", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
-    pytest.param("reduce_log_sum_exp", """
+"""),
+    ("reduce_log_sum_exp", """
 use std::ml;
 let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::reduce_log_sum_exp(x);
 print(@y);
-""", id="reduce_log_sum_exp", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+"""),
     # ── Layer ops ──
     pytest.param("linear", """
 use std::ml;
@@ -1965,13 +1965,20 @@ let b = [0.1, 0.2];
 let y = std::ml::linear(x, W, b);
 print(@y);
 """, id="linear", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
-    pytest.param("matmul", """
+    ("matmul", """
 use std::ml;
 let A = [[1.0, 2.0], [3.0, 4.0]];
 let B = [[5.0, 6.0], [7.0, 8.0]];
 let C = std::ml::matmul(A, B);
 print(@C);
-""", id="matmul", marks=pytest.mark.skip(reason="matmul shape inference error in print(@y)")),
+"""),
+    ("batch_matmul", """
+use std::ml;
+let A = [[[1.0, 2.0], [3.0, 4.0]], [[0.5, 0.5], [0.1, 0.2]]];
+let B = [[[5.0, 6.0], [7.0, 8.0]], [[1.0, 1.0], [1.0, 1.0]]];
+let C = std::ml::batch_matmul(A, B);
+print(@C);
+"""),
     # ── Loss functions ──
     pytest.param("mse_loss", """
 use std::ml;
@@ -2001,13 +2008,13 @@ let target = [[1.0, 0.0, 1.0]];
 let y = std::ml::binary_cross_entropy(pred, target);
 print(@y);
 """, id="binary_cross_entropy", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
-    pytest.param("cosine_similarity", """
+    ("cosine_similarity", """
 use std::ml;
 let a = [[1.0, 2.0, 3.0]];
 let b = [[4.0, 5.0, 6.0]];
 let y = std::ml::cosine_similarity(a, b);
 print(@y);
-""", id="cosine_similarity", marks=pytest.mark.skip(reason="print(@y) for multi-step inlined function: intermediate var out of scope")),
+"""),
 ]
 
 

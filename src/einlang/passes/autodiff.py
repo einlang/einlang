@@ -1786,6 +1786,9 @@ class DiffVisitor(IRVisitor[ExpressionIR]):
         }
         tang = _callee_forward_jvp(fv, args, tangent_by_param, loc, self._B, self._R)
         if self._pretty:
+            peeled = _peel_inlineable_tangent_blocks(tang)
+            if _pretty_callee_tangent_inlineable(peeled):
+                return peeled
             return _wrap_tangent_binding(
                 tang, cdid, fv, ps, list(args), n.callee_expr,
                 self._B, self._R, loc, _ti(n), _si(n),
@@ -1917,6 +1920,49 @@ class DiffVisitor(IRVisitor[ExpressionIR]):
         _unsupported_autodiff_ir("DiffVisitor", n)
 
 
+def _peel_inlineable_tangent_blocks(expr: ExpressionIR) -> ExpressionIR:
+    """Peel ``let _@x = rhs; _@x``-style blocks until fixed point (bounded)."""
+    cur: ExpressionIR = expr
+    for _ in range(64):
+        if not isinstance(cur, BlockExpressionIR):
+            return cur
+        nxt = _inline_block_lets(cur)
+        if nxt is cur:
+            return cur
+        cur = nxt
+    return cur
+
+
+def _pretty_callee_tangent_inlineable(e: ExpressionIR) -> bool:
+    """True if ``print(@y)`` can show callee JVP without an extra ``_@…`` wrapper binding."""
+    if isinstance(e, BlockExpressionIR):
+        stmts = [s for s in (e.statements or []) if isinstance(s, BindingIR)]
+        if stmts:
+            return False
+        if e.final_expr is None:
+            return False
+        return _pretty_callee_tangent_inlineable(e.final_expr)
+    if isinstance(e, (LiteralIR, IdentifierIR, IndexVarIR, IndexRestIR)):
+        return True
+    if isinstance(e, UnaryOpIR):
+        return _pretty_callee_tangent_inlineable(e.operand)
+    if isinstance(e, BinaryOpIR):
+        return _pretty_callee_tangent_inlineable(e.left) and _pretty_callee_tangent_inlineable(e.right)
+    if isinstance(e, CastExpressionIR):
+        return _pretty_callee_tangent_inlineable(e.expr)
+    if isinstance(e, FunctionCallIR):
+        if e.callee_expr is not None and not _pretty_callee_tangent_inlineable(e.callee_expr):
+            return False
+        return all(_pretty_callee_tangent_inlineable(a) for a in (e.arguments or []))
+    if isinstance(e, BuiltinCallIR):
+        return all(_pretty_callee_tangent_inlineable(a) for a in (e.args or []))
+    if isinstance(e, RectangularAccessIR):
+        if not _pretty_callee_tangent_inlineable(e.array):
+            return False
+        return all(_pretty_callee_tangent_inlineable(i) for i in (e.indices or []))
+    return False
+
+
 def _wrap_tangent_binding(tang: ExpressionIR, cdid: DefId, fv: FunctionValueIR,
                           ps: List, args: List[ExpressionIR], callee_expr: ExpressionIR,
                           B: Dict, R: Any, loc: SourceLocation, ti: Any, si: Any) -> ExpressionIR:
@@ -1950,6 +1996,74 @@ def _idx_str(idx: Any) -> str:
 def _str_ir(expr: ExpressionIR) -> str:
     """Render an IR expression as pseudo-einlang code via each node's ``__str__``."""
     return str(expr)
+
+
+def _live_primal_defids_for_print_display(
+    stmts: List[Any], final_expr: Optional[ExpressionIR]
+) -> Set[DefId]:
+    """Primal (non-``_@``) binding DefIds referenced from tangent lines or the block final."""
+    need: Set[DefId] = set()
+    if final_expr is not None:
+        need |= _collect_defids(final_expr)
+    for s in stmts:
+        if isinstance(s, BindingIR) and s.expr is not None and _is_diff_name(s.name or ""):
+            need |= _collect_defids(s.expr)
+    primal_by_did: Dict[DefId, BindingIR] = {}
+    for s in stmts:
+        if isinstance(s, BindingIR) and s.defid is not None and not _is_diff_name(s.name or ""):
+            primal_by_did[s.defid] = s
+    while True:
+        prev = len(need)
+        for pd in list(need):
+            pb = primal_by_did.get(pd)
+            if pb is not None and pb.expr is not None:
+                need |= _collect_defids(pb.expr)
+        if len(need) == prev:
+            break
+    return set(primal_by_did.keys()) & need
+
+
+class _TrimDeadPrimalPrintRewriter(_Rewriter):
+    """Drop callee primal replay lines unused by ``_@*`` / final (``print(@y)`` display only)."""
+
+    def visit_block_expression(self, n: BlockExpressionIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        if n.final_expr is None:
+            return n
+        ns: List[Any] = []
+        for s in n.statements or []:
+            if isinstance(s, BindingIR) and s.expr is not None:
+                ns.append(
+                    BindingIR(
+                        name=s.name,
+                        expr=s.expr.accept(self),
+                        location=s.location,
+                        defid=s.defid,
+                        type_info=_ti(s),
+                    )
+                )
+            elif isinstance(s, ExpressionIR):
+                ns.append(s.accept(self))
+            else:
+                ns.append(s)
+        nf = n.final_expr.accept(self)
+        live = _live_primal_defids_for_print_display(ns, nf)
+        out: List[Any] = []
+        for s in ns:
+            if isinstance(s, BindingIR):
+                nm = s.name or ""
+                if _is_diff_name(nm) or s.defid is None or s.defid in live:
+                    out.append(s)
+            else:
+                out.append(s)
+        return BlockExpressionIR(out, loc, nf, type_info=_ti(n), shape_info=_si(n))
+
+
+def _str_ir_print_differential_rhs(expr: ExpressionIR, loc: SourceLocation) -> str:
+    """``_str_ir`` for ``print(@…)`` after eliding dead callee primals (does not change executed IR)."""
+    trimmed = expr.accept(_TrimDeadPrimalPrintRewriter(loc))
+    return str(trimmed)
+
 
 _expr_to_diff_source = _str_ir
 
@@ -2446,7 +2560,7 @@ class _ExpansionVisitor(_Rewriter):
                                 pre_lhs = "@" + nm + ("[" + pb_idx + "]" if pb_idx else "")
                                 se = _simplify(db.expr, n.location or self._loc)
                                 pre.append("let " + pre_lhs + " = " + _str_ir(se) + ";")
-                        rhs = _str_ir(dr)
+                        rhs = _str_ir_print_differential_rhs(dr, n.location or self._loc)
                         lhs = "@" + (yn or "?")
                         if isinstance(ye, EinsteinIR) and ye.clauses and len(ye.clauses) == 1:
                             idx_s = ", ".join(_idx_str(i) for i in (ye.clauses[0].indices or []))

@@ -33,7 +33,7 @@ def test_linear_algebra_clustered_accuracy(compiler, runtime):
     let bias = [0.5, 1.0];
     let a_1 = [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]];
     let b_1 = [[[1.0, 0.0], [0.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]]];
-    let result_0 = std::ml::matmul(a, b);
+    let result_0 = std::ml::batch_matmul(a, b);
     let result_1 = std::ml::linear(x, weights, bias);
     let result_2 = std::ml::batch_matmul(a_1, b_1);
     """
