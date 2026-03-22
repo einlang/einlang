@@ -174,9 +174,29 @@ class BinaryOpIR(ExpressionIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_binary_op(self)
 
+    @staticmethod
+    def _prec(op: "BinaryOp") -> int:
+        v = op.value if hasattr(op, "value") else str(op)
+        if v in ("+", "-"): return 1
+        if v in ("*", "/", "%"): return 2
+        if v == "**": return 3
+        return 0
+
     def __str__(self) -> str:
-        op = self.operator.value if hasattr(self.operator, 'value') else str(self.operator)
-        return f"{self.left} {op} {self.right}"
+        op = self.operator
+        os = op.value if hasattr(op, "value") else str(op)
+        prec = BinaryOpIR._prec(op)
+        ls = str(self.left)
+        rs = str(self.right)
+        if isinstance(self.left, BinaryOpIR):
+            lp = BinaryOpIR._prec(self.left.operator)
+            if lp < prec or (lp == prec and os == "**"):
+                ls = f"({ls})"
+        if isinstance(self.right, BinaryOpIR):
+            rp = BinaryOpIR._prec(self.right.operator)
+            if rp < prec or (rp == prec and os in ("-", "/", "**")):
+                rs = f"({rs})"
+        return f"{ls} {os} {rs}"
 
 
 class UnaryOpIR(ExpressionIR):
@@ -288,8 +308,13 @@ class BlockExpressionIR(ExpressionIR):
         return visitor.visit_block_expression(self)
 
     def __str__(self) -> str:
+        parts = [str(s) for s in (self.statements or []) if isinstance(s, BindingIR) and s.expr is not None]
         if self.final_expr is not None:
-            return f"{{ ...; {self.final_expr} }}"
+            if not parts:
+                return str(self.final_expr)
+            inner = "\n".join("    " + line for p in parts for line in p.splitlines())
+            inner += "\n    " + str(self.final_expr)
+            return "{\n" + inner + "\n}"
         return "{ ... }"
 
 
@@ -309,9 +334,9 @@ class IfExpressionIR(ExpressionIR):
         return visitor.visit_if_expression(self)
 
     def __str__(self) -> str:
-        s = f"if {self.condition} then {self.then_expr}"
+        s = f"if {self.condition} {{ {self.then_expr} }}"
         if self.else_expr is not None:
-            s += f" else {self.else_expr}"
+            s += f" else {{ {self.else_expr} }}"
         return s
 
 
@@ -1094,7 +1119,22 @@ class BindingIR(IRNode):
 
     def __str__(self) -> str:
         type_str = f": {self.type_info}" if self.type_info else ""
-        return f"{self.name}{type_str} = {self.expr}"
+        name = self.name
+        if isinstance(self.expr, EinsteinIR):
+            cc = self.expr.clauses or []
+            if cc and cc[0].indices:
+                idx_parts = []
+                for idx in cc[0].indices:
+                    if isinstance(idx, IndexRestIR):
+                        idx_parts.append(f"..{idx.name}" if idx.name else "..")
+                    elif isinstance(idx, (IndexVarIR, IdentifierIR)):
+                        idx_parts.append(idx.name or "?")
+                    elif isinstance(idx, LiteralIR):
+                        idx_parts.append(str(idx.value))
+                    else:
+                        idx_parts.append("?")
+                name = f"{self.name}[{', '.join(idx_parts)}]"
+        return f"let {name}{type_str} = {self.expr};"
 
 
 def is_function_binding(binding: Any) -> bool:
@@ -1443,8 +1483,10 @@ class EinsteinIR(ExpressionIR):
         return visitor.visit_einstein(self)
 
     def __str__(self) -> str:
-        clauses = '; '.join(str(c) for c in self.clauses) if self.clauses else ''
-        return f"{{ {clauses} }}"
+        cc = self.clauses or []
+        if len(cc) == 1:
+            return str(cc[0].value)
+        return "{ " + "; ".join(str(c) for c in cc) + " }"
 
 
 

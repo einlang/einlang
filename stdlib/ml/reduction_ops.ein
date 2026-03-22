@@ -9,7 +9,8 @@ use std::math::{ln, sqrt, abs, min, max};
 pub fn reduce_mean(x) {
     // Reduce mean over last dimension
     // Input: [..batch, features], Output: [..batch]
-    // Note: Requires at least 2D input to determine feature count
+    // Scalar feature count from first row length (same for all batch rows). Backend falls back to
+    // clause-inferred shape when symbolic shape eval hits out-of-scope x[0] during print(@y)/pullback.
     assert(typeof(x) == "rectangular", "reduce_mean: input must be rectangular");
     let sum_val[..batch] = sum[j](x[..batch, j]);
     let count = len(x[0]) as f32;

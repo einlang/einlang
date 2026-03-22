@@ -473,6 +473,8 @@ class MonomorphizationService:
         if getattr(self.tcx, "function_ir_map", None) is not None:
             isolated.function_ir_map = self.tcx.function_ir_map
         isolated.specialized_functions = [specialized_func]
+        # Do not run EinsteinLoweringPass here: specialized bodies in function_ir_map must stay
+        # EinsteinIR until the main pipeline's AutodiffPass runs; global EinsteinLoweringPass runs after.
         pass_map = {
             "einstein_grouping": self._get_einstein_grouping_pass,
             "constraint_classifier": self._get_constraint_classifier_pass,
@@ -480,7 +482,6 @@ class MonomorphizationService:
             "range": self._get_range_analysis_pass,
             "shape": self._get_shape_analysis_pass,
             "type": self._get_type_inference_pass,
-            "einstein_lowering": self._get_einstein_lowering_pass,
         }
         full_order = [
             "einstein_grouping",
@@ -489,7 +490,6 @@ class MonomorphizationService:
             "range",
             "shape",
             "type",
-            "einstein_lowering",
         ]
         # DCE: prune dead if-else branches on the specialized copy.
         # Evaluates len(param.shape) → constant rank, then folds constant conditions.
@@ -581,10 +581,6 @@ class MonomorphizationService:
     def _get_type_inference_pass(self):
         from ..passes.type_inference import TypeInferencePass
         return TypeInferencePass()
-
-    def _get_einstein_lowering_pass(self):
-        from ..passes.einstein_lowering import EinsteinLoweringPass
-        return EinsteinLoweringPass()
 
     # ---------- Type helpers (_has_*, normalize) ----------
 
