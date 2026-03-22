@@ -1,6 +1,6 @@
 // MNIST Training Demo: learn digit classification from scratch using autodiff.
 // Architecture: linear classifier (784 -> 10), MSE loss, gradient descent.
-// Autodiff computes @logits/@W for the matmul Jacobian (verified at step 0).
+// Autodiff computes @logits/@W for the matmul Jacobian (verified at step 0) and dumps @loss (MSE on sample 0).
 // Training uses the analytical MSE gradient: 2 * residual[j] * X[n,i].
 // Run from repo root: python3 -m einlang examples/mnist_train/main.ein
 
@@ -18,6 +18,8 @@ let lr = 0.01;
 let W_init = load_weights() as [f32; 784, 10];
 let logits_v[j in 0..10] = sum[i in 0..784](X[0, i] * W_init[i, j]);
 let d_logits_dW = @logits_v / @W_init;
+let loss = sum[j in 0..10]((logits_v[j] - Y[0, j]) * (logits_v[j] - Y[0, j]));
+print(@loss);
 
 // --- Training: 100 SGD steps (10 epochs over 10 samples) ---
 let W[0, i in 0..784, j in 0..10] = 0.0;

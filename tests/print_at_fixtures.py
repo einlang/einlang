@@ -10,6 +10,8 @@ from typing import Tuple
 from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
 
+from tests.print_at_calculus_catalog import GOLDEN_CALCULUS
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 

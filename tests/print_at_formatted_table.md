@@ -1,0 +1,93 @@
+# Expected print(@…) goldens vs calculus reference
+
+Full multiline expected: `python3 scripts/test_print_at.py --print-audit`
+
+| label | calculus | expected_einlang (one line, truncated) |
+| :--- | :--- | :--- |
+| constant | y independent of x ⇒ ∂y/∂x = 0. | let @y = 0.0; |
+| identity | y = x ⇒ dy = dx (JVP: @y = @x). | let @y = @x; |
+| add | y = x + x ⇒ dy/dx = 2. | let @y = 2.0 * @x; |
+| sub | y = x − c ⇒ dy = dx. | let @y = @x; |
+| product | y = x² ⇒ dy = 2x dx. | let @y = 2.0 * x * @x; |
+| product_two_vars | y = ab ⇒ dy = a db + b da. | let @y = a * @b + b * @a; |
+| quotient | y = a/b ⇒ dy = (b da − a db) / b². | let @y = (b * @a - a * @b) / b ** 2.0; |
+| power_const | y = x^n ⇒ dy = n x^(n−1) dx. | let @y = 3.0 * x ** 2.0 * @x; |
+| power_square | y = x² ⇒ dy = 2x dx. | let @y = 2.0 * x * @x; |
+| neg | y = −x ⇒ dy = −dx. | let @y = -@x; |
+| chain_let | z = x², y = 2z ⇒ dz = 2x dx, dy = 2 dz. | let @z = 2.0 * x * @x; let @y = 2.0 * @z; |
+| exp_scalar | y = e^x ⇒ dy = e^x dx. | let @y = exp(x) * @x; |
+| exp_einstein | e[i] = exp(x[i]) ⇒ @e[i] = exp(x[i]) @x[i] (elementwise). | let @e[i] = exp(x[i]) * @x[i]; |
+| sum_reduction | s = Σ_k exp(x[k]) ⇒ ∂s/∂x_i = exp(x_i); with intermediate e, @s = Σ @e. | let @e[i] = exp(x[i]) * @x[i]; let @s = sum[k](@e[k]); |
+| softmax_quotient | y[i] = e[i]/s, s = Σ e[k]; quotient + sum rule ⇒ @y[i] = (s @e[i] − e[i] @s)/s². | let @e[i] = exp(x[i]) * @x[i]; let @s = sum[k](@e[k]); let @y[i] = (s * @e[i] - e[i] * @s) / s ** 2.0; |
+| if_else | Piecewise: y = x if x>0 else 0 ⇒ dy = dx on active branch, 0 else. | let @y = if x > 0.0 { @x } else { 0.0 }; |
+| scalar_mul | y = c x ⇒ dy = c dx. | let @y = 2.0 * @x; |
+| compound | y = (x+1)*(x+2); product + chain rules. | let @y = 2.0 * x * @x + @x; |
+| call_plus_fn | y = x + f(x); with f(t)=t+1 inlined, f'=1 ⇒ @y = 2 @x (generic rule would be @y = @x + @f). | let @y = 2.0 * @x; |
+| multistatement_callee_g | g(t)=2(t+1); y=g(x) ⇒ chain rule through internal lets. | let @y = {     let _@a = @x;     let _@b = 2.0 * _@a;     _@b }; |
+| log_scalar | y = ln x ⇒ dy = dx / x. | let @y = 1.0 / x * @x; |
+| sin_scalar | y = sin x ⇒ dy = cos x dx. | let @y = cos(x) * @x; |
+| cos_scalar | y = cos x ⇒ dy = −sin x dx. | let @y = -sin(x) * @x; |
+| tan_scalar | y = tan x ⇒ dy = sec² x dx. | let @y = 1.0 / (cos(x) * cos(x)) * @x; |
+| log1p_scalar | y = ln(1+x) ⇒ dy = dx / (1+x). | let @y = 1.0 / (1.0 + x) * @x; |
+| expm1_scalar | y = e^x − 1 ⇒ dy = e^x dx. | let @y = exp(x) * @x; |
+| atan_scalar | y = arctan x ⇒ dy = dx / (1+x²). | let @y = 1.0 / (1.0 + x * x) * @x; |
+| asin_scalar | y = arcsin x ⇒ dy = dx / √(1−x²). | let @y = 1.0 / (1.0 - x * x) ** 0.5 * @x; |
+| acos_scalar | y = arccos x ⇒ dy = −dx / √(1−x²). | let @y = -1.0 / (1.0 - x * x) ** 0.5 * @x; |
+| atan2_two_vars | z = atan2(y,x) ⇒ ∂z/∂y = x/(x²+y²), ∂z/∂x = −y/(x²+y²). | let @z = x / (x * x + y * y) * @y + -y / (x * x + y * y) * @x; |
+| tanh_scalar | y = tanh x ⇒ dy = sech² x dx (here via stable exp form). | let @y = {     let _@tanh_x: f32 = if x as f32 >= 0.0 {         let t = exp(-2.0 * x);         let _@t = { exp(-2.0 *... |
+| sinh_scalar | y = sinh x ⇒ dy = cosh x dx (piecewise exp for stability). | let @y = {     let _@sinh_x: f32 = {         let ax = abs(x);         let _@ax = { sign(x) * @x };         if ax < 20... |
+| cosh_scalar | y = cosh x ⇒ dy = sinh x dx. | let @y = {     let _@cosh_x: f32 = {         let ax = abs(x);         let _@ax = { sign(x) * @x };         if ax < 20... |
+| asinh_scalar | y = asinh x ⇒ dy = dx / √(1+x²) (algebraic form in IR). | let @y = 1.0 / (x + (x * x + 1.0) ** 0.5) * (@x + 0.5 * (x * x + 1.0) ** -0.5 * 2.0 * x * @x); |
+| acosh_scalar | y = acosh x ⇒ dy = dx / √(x²−1) (x>1). | let @y = 1.0 / (x + (x * x - 1.0) ** 0.5) * (@x + 0.5 * (x * x - 1.0) ** -0.5 * 2.0 * x * @x); |
+| atanh_scalar | y = artanh x ⇒ dy = dx / (1−x²) (chain on log form in IR). | let @y = 0.5 * { 1.0 / ((1.0 + x) / (1.0 - x)) * ((1.0 - x) * @x - (1.0 + x) * (0.0 - @x)) / (1.0 - x) ** 2.0 }; |
+| erf_scalar | y = erf(x) (A&S primal in stdlib); JVP is @fn rule ∂y/∂x = (2/√π) e^(−x²) dx. | let @y = 2.0 / sqrt(pi()) * exp(0.0 - x * x) * @x; |
+| abs_scalar | y = \|x\| ⇒ dy = sign(x) dx (0 subgradient choice at 0). | let @y = sign(x) * @x; |
+| sign_scalar | y = sign(x) ⇒ dy = 0 off 0 (subgradient). | let @y = {     let _@sign_x: f32 = if x as f32 > 0.0 { 0.0 } else if x as f32 < 0.0 { 0.0 } else { 0.0 };     _@sign_... |
+| min_scalar | y = min(x,c) ⇒ dy = dx on x<c, 0 on x>c. | let @y = {     let _@min_call: f32 = if x < 5.0 { @x } else { 0.0 };     _@min_call }; |
+| max_scalar | y = max(x,0) ⇒ dy = dx on x>0, 0 on x<0. | let @y = {     let _@max_call: f32 = if x > 0.0 { @x } else { 0.0 };     _@max_call }; |
+| reciprocal_scalar | y = 1/x ⇒ dy = −dx / x². | let @y = (0.0 - @x) / x ** 2.0; |
+| rsqrt_scalar | y = x^(−1/2) ⇒ dy = −½ x^(−3/2) dx. | let @y = (0.0 - 0.5 * x ** -0.5 * @x) / (x ** 0.5) ** 2.0; |
+| sqrt_via_pow | y = x^0.5 ⇒ dy = 0.5 x^(−0.5) dx. | let @y = 0.5 * x ** -0.5 * @x; |
+| mod_scalar | y = a % b with b fixed ⇒ ∂y/∂a = 1 a.e. (piecewise). | let @y = @x; |
+| quotient_chain | Nested quotients; quotient + chain rules. | let @y = ((x + 1.0) * @x - x * @x) / (x + 1.0) ** 2.0; |
+| einstein_square | y[i] = x[i]² ⇒ @y[i] = 2 x[i] @x[i]. | let @t[i] = 2.0 * x[i] * @x[i]; |
+| prod_reduction | Product over index; log-derivative / product rule. | let @p = prod[k](x[k]) / x[j] * @x[j]; |
+| reduce_sum | Row sum of x ⇒ each @output[batch] = Σ_j @x[batch,j]. | let @y = {     let _@reduce_sum_x: [f32; ?] = {         let _@result[batch.0] = sum[j](@x[batch.0, j]);         _@res... |
+| reduce_l1 | Σ_j \|x_j\|; ∂/∂x_j = sign(x_j) (JVP: Σ sign(x)·@x). | let @y = {     let _@reduce_l1_x: [f32; *] = {         let _@result[batch.0] = sum[j]({ sign(x[batch.0, j]) * @x[batc... |
+| reduce_sum_square | Σ x² ⇒ ∂/∂x_ij = 2 x_ij. | let @y = {     let _@reduce_sum_square_x: [f32; *] = {         let _@result[batch.0] = sum[j](2.0 * x[batch.0, j] * @... |
+| reduce_mean | mean = (1/n) Σ x ⇒ same as sum scaled by 1/n. | let @y = {     let count = len(x[0]) as f32;     let _@sum_val[batch.0] = sum[j](@x[batch.0, j]);     let _@mean[batc... |
+| linear | y[b,j] = Σ_k W[j,k] x[b,k] + b[j] ⇒ matrix-vector product rule per row. | let @y = {     let _@linear_call: [f32; ?, ?] = {         let _@output[batch.0, j] = sum[k](x[batch.0, k] * @W[j, k] ... |
+| mse_loss | L = (1/n) Σ (pred−target)² (no ½); ∂L/∂pred = 2(pred−target)/n (and ∂L/∂target = −2(pred−target)/n). | let @y = {     let _@mse_loss_call: [f32; ?] = {         let n = len(pred[0]) as f32;         let _@loss[batch.0] = s... |
+| mae_loss | L = (1/n) Σ \|pred−target\|; ∂L/∂pred = (1/n) Σ sign(pred−target) (pairwise; @fn abs). | let @y = {     let _@mae_loss_call: [f32; ?] = {         let n = len(pred[0]) as f32;         let _@loss[batch.0] = s... |
+| huber_loss | Smooth L1: quadratic inside \|r\|≤δ, linear outside; d\|r\| = sign(r) dr (@fn abs) in linear branch. | let @y = {     let _@huber_loss_call: [f32; ?] = {         let n = len(pred[0]) as f32;         let diff[batch.0, j] ... |
+| binary_cross_entropy | −Σ [ t log p + (1−t) log(1−p) ]; ∂/∂p = −t/p + (1−t)/(1−p) with clamp. | let @y = {     let _@binary_cross_entropy_call: [f32; ?] = {         let eps = 1e-07;         let clipped_pred[batch.... |
+| softmax | y_i = exp(z_i)/Σ exp(z_k); ∂y_i/∂z_j = y_i (δ_ij − y_j) (stable z = x − max). | let @y = {     let max_val[batch.0] = max[j](x[batch.0, j]);     let shifted[batch.0, j] = x[batch.0, j] - max_val[ba... |
+| log_softmax | log softmax = z − log Σ exp(z); derivative combines softmax Jacobian and shift. | let @y = {     let max_val[batch.0] = max[j](x[batch.0, j]);     let shifted[batch.0, j] = x[batch.0, j] - max_val[ba... |
+| reduce_l2 | ‖x‖_2 ⇒ ∂/∂x = x/‖x‖. | let @y = {     let sum_squares[batch.0] = sum[j](x[batch.0, j] ** 2.0);     let _@sum_squares[batch.0] = sum[j](2.0 *... |
+| reduce_log_sum | log(Σ x) ⇒ ∂/∂x_i = 1/(Σ x). | let @y = {     let sum_val[batch.0] = sum[j](x[batch.0, j]);     let _@sum_val[batch.0] = sum[j](@x[batch.0, j]);    ... |
+| reduce_log_sum_exp | log Σ exp(x) (log-sum-exp); ∂/∂x_i = softmax_i. | let @y = {     let max_val[batch.0] = max[j](x[batch.0, j]);     let shifted[batch.0, j] = x[batch.0, j] - max_val[ba... |
+| cosine_similarity | dot(a,b)/(‖a‖‖b‖); gradients are projections orthogonal to a and b in numerator layout. | let @y = {     let _@cosine_similarity_call: [f32; ?] = {         let dot_product[batch.0] = sum[j](a[batch.0, j] * b... |
+| matmul | C[i,j] = Σ_k A[i,k] B[k,j] ⇒ @C[i,j] = Σ_k (A[i,k] @B[k,j] + B[k,j] @A[i,k]). | let @C = {     let _@matmul_call: [f32; ?, ?] = {         let _@output[i, j] = sum[k](A[i, k] * @B[k, j] + B[k, j] * ... |
+| batch_matmul | Same as matmul per batch slice b: @C[b,i,j] = Σ_k (A[b,i,k] @B[b,k,j] + B[b,k,j] @A[b,i,k]). | let @C = {     let _@batch_matmul_call: [f32; ?, ?, ?] = {         let _@result[batch.0, i, j] = sum[k](A[batch.0, i,... |
+| relu | y = max(0,x) ⇒ dy = dx if x>0 else 0. | let @y = {     let _@relu_x: f32 = if x > 0.0 { @x } else { 0.0 };     _@relu_x }; |
+| sigmoid | σ(x) = 1/(1+e^(−x)) ⇒ σ' = σ(1−σ). | let @y = (0.0 - { exp(-x) * -@x }) / (1.0 + exp(-x)) ** 2.0; |
+| leaky_relu | y = x if x>0 else α x ⇒ piecewise 1 or α. | let @y = {     let _@leaky_relu_call: f32 = if x > 0 { @x } else { 0.01 * @x };     _@leaky_relu_call }; |
+| elu | y = x if x>0 else α(e^x−1) ⇒ 1 or α e^x. | let @y = {     let _@elu_call: f32 = if x > 0 { @x } else { { exp(x) * @x } };     _@elu_call }; |
+| swish | y = x σ(x) ⇒ product + σ' term. | let @y = x * (0.0 - { exp(-x) * -@x }) / (1.0 + exp(-x)) ** 2.0 + sigmoid(x) * @x; |
+| softsign | y = x/(1+\|x\|) ⇒ quotient rule with d\|x\| = sign(x) dx (@fn abs). | let @y = ((1.0 + abs(x)) * @x - x * { sign(x) * @x }) / (1.0 + abs(x)) ** 2.0; |
+| hardtanh | clip to [−1,1] ⇒ derivative 1 inside, 0 outside. | let @y = {     let _@hardtanh_call: f32 = if x < -1.0 { 0.0 } else if x > 1.0 { 0.0 } else { @x };     _@hardtanh_cal... |
+| relu6 | min(max(x,0),6) ⇒ piecewise 1 on (0,6), else 0. | let @y = {     let _@relu6_x: f32 = if x <= 0.0 { 0.0 } else if x >= 6.0 { 0.0 } else { @x };     _@relu6_x }; |
+| prelu | like leaky_relu with learned α. | let @y = {     let _@prelu_call: f32 = if x > 0.0 { @x } else { 0.1 * @x };     _@prelu_call }; |
+| elu_alpha | ELU with parameter α. | let @y = {     let _@elu_alpha_call: f32 = if x > 0.0 { @x } else { 0.5 * { exp(x) * @x } };     _@elu_alpha_call }; |
+| celu | continuously differentiable ELU variant. | let @y = {     let _@celu_call: f32 = if x > 0.0 { @x } else { { exp(x / 1.0) * @x / 1.0 ** 2.0 } };     _@celu_call }; |
+| softshrink | shrink toward zero by λ; derivative 1 outside ±λ, 0 inside. | let @y = {     let _@softshrink_call: f32 = if x > 0.5 { @x } else if x < -0.5 { @x } else { 0.0 };     _@softshrink_... |
+| hardshrink | 0 if \|x\|≤λ else x; derivative via \|x\| and thresholds. | let @y = {     let _@hardshrink_call: f32 = {         let abs_x = if x < 0.0 { -x } else { x };         let _@abs_x =... |
+| threshold | y = x if x>θ else v; piecewise. | let @y = {     let _@threshold_call: f32 = if x <= 0.5 { 0.0 } else { @x };     _@threshold_call }; |
+| hardswish | x * ReLU6(x+3)/6; product + ReLU6 branches. | let @y = {     let _@hardswish_x: f32 = (x * if x + 3.0 <= 0.0 { 0.0 } else if x + 3.0 >= 6.0 { 0.0 } else { @x } + r... |
+| thresholded_relu | ReLU with threshold θ. | let @y = {     let _@thresholded_relu_call: f32 = if x > 0.5 { @x } else { 0.0 };     _@thresholded_relu_call }; |
+| selu | scaled ELU with fixed λ, α. | let @y = {     let lambda = 1.0507009873554805;     let alpha = 1.6732632423543772;     if x > 0 { lambda * @x } else... |
+| hardsigmoid | piecewise linear clamp of (x+3)/6. | let @y = {     let shifted = x + 3.0;     let _@shifted = @x;     let _@clamped = if shifted < 0.0 { 0.0 } else if sh... |
+| softplus | log(1+e^x); derivative ≈ σ(x); large-x linearization. | let @y = {     let _@softplus_x: f32 = if x > 20.0 { @x } else { { 1.0 / (1.0 + exp(x)) * { exp(x) * @x } } };     _@... |
+| gelu | x Φ(x) (approx); product + tanh-inner derivative in implementation. | let @y = {     let sqrt_2_over_pi = 0.7978845608028654;     let coeff = 0.044715;     let inner = sqrt_2_over_pi * (x... |
+| mish | x tanh(softplus(x)); product + chain. | let @y = {     let _@mish_x: f32 = {         let sp = softplus(x);         let _@sp = if x > 20.0 { @x } else { { 1.0... |
+| tanhshrink | x − tanh x ⇒ @y = @x − sech² x @x. | let @y = {     let _@tanhshrink_x: f32 = @x - if x as f32 >= 0.0 {         let t = exp(-2.0 * x);         let _@t = {... |

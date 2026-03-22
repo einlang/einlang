@@ -32,6 +32,8 @@ pub fn sign(x) {
     }
 }
 
+@fn abs(x) { sign(x) * @x }
+
 pub fn pow(x, y) {
     // Power function: x^y
     // Use Python's pow for automatic type coercion (scalar and arrays)

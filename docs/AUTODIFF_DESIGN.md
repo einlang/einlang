@@ -606,6 +606,8 @@ with input dimensions.
 This is handled by `_build_jacobian_indices` which creates new `IndexVarIR`
 nodes with ranges derived from `x.shape[dim]`.
 
+When the backend materializes a **cotangent w.r.t. a single array argument** (the usual `@y/@x` use case), that value has **`size` matching the argument** — the same shape convention as Julia Zygote and ChainRules pullbacks. Full Jacobians keep the concatenated index layout above; reductions that contract with the primal indices still yield an array-shaped result for each input, not a ragged or squeezed layout unless the primal rule is inherently lower-rank (documented separately for max/min).
+
 ---
 
 ## 11. print(@y) Formatting

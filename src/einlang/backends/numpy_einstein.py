@@ -13,7 +13,7 @@ from ..ir.nodes import (
     is_function_binding, is_einstein_binding,
     IRVisitor, BindingIR,
 )
-from ..shared.defid import DefId
+from ..shared.defid import DefId, RUNTIME_CRATE
 from ..shared.optional_attr import opt_defid
 from ..shared.types import BinaryOp
 from ..utils.config import DEFAULT_EINSTEIN_LOOP_MAX
@@ -3030,9 +3030,9 @@ class EinsteinExecutionMixin:
         """Run a nested LoweredEinsteinIR (e.g. under RectangularAccessIR from autodiff) with a synthetic decl."""
         out_defid = _infer_lowered_einstein_output_defid(lowered)
         if out_defid is None:
-            raise RuntimeError(
-                "LoweredEinsteinIR nested under indexing: could not infer output DefId for execution."
-            )
+            seq = getattr(self, "_nested_einstein_synth_seq", 0) + 1
+            self._nested_einstein_synth_seq = seq
+            out_defid = DefId(RUNTIME_CRATE, seq)
 
         class _SyntheticEinsteinDecl:
             __slots__ = ("defid", "name")

@@ -24,8 +24,6 @@ from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
 from einlang.ir.nodes import ReductionExpressionIR
 from tests.test_utils import apply_ir_round_trip
-
-
 @pytest.fixture
 def compiler():
     return CompilerDriver()

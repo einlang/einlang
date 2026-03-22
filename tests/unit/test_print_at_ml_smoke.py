@@ -24,12 +24,12 @@ ML_ACTIVATION_PRINT_AT_GOLDEN_CASES: List[Tuple[str, str, str]] = [
     (
         'leaky_relu',
         '\n\nuse std::ml;\nlet x = 1.0;\nlet y = std::ml::leaky_relu(x, 0.01);\nprint(@y);\n',
-        'let @y = {\n    let _@leaky_relu_call: f32 = if x > 0 { @x } else { 0.01 * @x } + if x > 0 { 0.0 } else { 0.0 };\n    _@leaky_relu_call\n};',
+        'let @y = {\n    let _@leaky_relu_call: f32 = if x > 0 { @x } else { 0.01 * @x };\n    _@leaky_relu_call\n};',
     ),
     (
         'elu',
         '\n\nuse std::ml;\nlet x = 1.0;\nlet y = std::ml::elu(x, 1.0);\nprint(@y);\n',
-        'let @y = {\n    let _@elu_call: f32 = if x > 0 { @x } else { { exp(x) * @x } } + if x > 0 { 0.0 } else { { 0.0 } };\n    _@elu_call\n};',
+        'let @y = {\n    let _@elu_call: f32 = if x > 0 { @x } else { { exp(x) * @x } };\n    _@elu_call\n};',
     ),
     (
         'swish',
@@ -39,12 +39,12 @@ ML_ACTIVATION_PRINT_AT_GOLDEN_CASES: List[Tuple[str, str, str]] = [
     (
         'softsign',
         '\n\nuse std::ml;\nlet x = 1.0;\nlet y = std::ml::softsign(x);\nprint(@y);\n',
-        'let @y = {\n    let _@softsign_x: f32 = ((1.0 + abs(x)) * @x - x * if x as f32 >= 0.0 { @x } else { -@x }) / (1.0 + abs(x)) ** 2.0;\n    _@softsign_x\n};',
+        'let @y = ((1.0 + abs(x)) * @x - x * { sign(x) * @x }) / (1.0 + abs(x)) ** 2.0;',
     ),
     (
         'hardtanh',
         '\n\nuse std::ml;\nlet x = 0.5;\nlet y = std::ml::hardtanh(x, -1.0, 1.0);\nprint(@y);\n',
-        'let @y = {\n    let _@hardtanh_call: f32 = if x < -1.0 { 0.0 } else if x > 1.0 { 0.0 } else { @x } + if x < -1.0 { 0.0 } else if x > 1.0 { 0.0 } else { 0.0 } + if x < -1.0 { 0.0 } else if x > 1.0 { 0.0 } else { 0.0 };\n    _@hardtanh_call\n};',
+        'let @y = {\n    let _@hardtanh_call: f32 = if x < -1.0 { 0.0 } else if x > 1.0 { 0.0 } else { @x };\n    _@hardtanh_call\n};',
     ),
     (
         'relu6',
@@ -54,32 +54,32 @@ ML_ACTIVATION_PRINT_AT_GOLDEN_CASES: List[Tuple[str, str, str]] = [
     (
         'prelu',
         '\n\nuse std::ml;\nlet x = 1.0;\nlet y = std::ml::prelu(x, 0.1);\nprint(@y);\n',
-        'let @y = {\n    let _@prelu_call: f32 = if x > 0.0 { @x } else { 0.1 * @x } + if x > 0.0 { 0.0 } else { 0.0 };\n    _@prelu_call\n};',
+        'let @y = {\n    let _@prelu_call: f32 = if x > 0.0 { @x } else { 0.1 * @x };\n    _@prelu_call\n};',
     ),
     (
         'elu_alpha',
         '\n\nuse std::ml;\nlet x = 1.0;\nlet y = std::ml::elu_alpha(x, 0.5);\nprint(@y);\n',
-        'let @y = {\n    let _@elu_alpha_call: f32 = if x > 0.0 { @x } else { 0.5 * { exp(x) * @x } } + if x > 0.0 { 0.0 } else { 0.5 * { 0.0 } };\n    _@elu_alpha_call\n};',
+        'let @y = {\n    let _@elu_alpha_call: f32 = if x > 0.0 { @x } else { 0.5 * { exp(x) * @x } };\n    _@elu_alpha_call\n};',
     ),
     (
         'celu',
         '\n\nuse std::ml;\nlet x = 1.0;\nlet y = std::ml::celu(x, 1.0);\nprint(@y);\n',
-        'let @y = {\n    let _@celu_call: f32 = if x > 0.0 { @x } else { { exp(x / 1.0) * @x } } + if x > 0.0 { 0.0 } else { { 0.0 } };\n    _@celu_call\n};',
+        'let @y = {\n    let _@celu_call: f32 = if x > 0.0 { @x } else { { exp(x / 1.0) * @x / 1.0 ** 2.0 } };\n    _@celu_call\n};',
     ),
     (
         'softshrink',
         '\n\nuse std::ml;\nlet x = 2.0;\nlet y = std::ml::softshrink(x, 0.5);\nprint(@y);\n',
-        'let @y = {\n    let _@softshrink_call: f32 = if x > 0.5 { @x } else if x < -0.5 { @x } else { 0.0 } + if x > 0.5 { 0.0 } else if x < -0.5 { 0.0 } else { 0.0 };\n    _@softshrink_call\n};',
+        'let @y = {\n    let _@softshrink_call: f32 = if x > 0.5 { @x } else if x < -0.5 { @x } else { 0.0 };\n    _@softshrink_call\n};',
     ),
     (
         'hardshrink',
         '\n\nuse std::ml;\nlet x = 2.0;\nlet y = std::ml::hardshrink(x, 0.5);\nprint(@y);\n',
-        'let @y = {\n    let _@hardshrink_call: f32 = {\n        let abs_x = if x < 0.0 { -x } else { x };\n        let _@abs_x = if x < 0.0 { -@x } else { @x };\n        let _@abs_x = if x < 0.0 { -0.0 } else { 0.0 };\n        if abs_x > 0.5 { @x } else { 0.0 } + if abs_x > 0.5 { 0.0 } else { 0.0 }\n    };\n    _@hardshrink_call\n};',
+        'let @y = {\n    let _@hardshrink_call: f32 = {\n        let abs_x = if x < 0.0 { -x } else { x };\n        let _@abs_x = if x < 0.0 { -@x } else { @x };\n        if abs_x > 0.5 { @x } else { 0.0 }\n    };\n    _@hardshrink_call\n};',
     ),
     (
         'threshold',
         '\n\nuse std::ml;\nlet x = 2.0;\nlet y = std::ml::threshold(x, 0.5, 0.0);\nprint(@y);\n',
-        'let @y = {\n    let _@threshold_call: f32 = if x <= 0.5 { 0.0 } else { @x } + if x <= 0.5 { 0.0 } else { 0.0 } + if x <= 0.5 { 0.0 } else { 0.0 };\n    _@threshold_call\n};',
+        'let @y = {\n    let _@threshold_call: f32 = if x <= 0.5 { 0.0 } else { @x };\n    _@threshold_call\n};',
     ),
     (
         'hardswish',
@@ -89,7 +89,7 @@ ML_ACTIVATION_PRINT_AT_GOLDEN_CASES: List[Tuple[str, str, str]] = [
     (
         'thresholded_relu',
         '\n\nuse std::ml;\nlet x = 2.0;\nlet y = std::ml::thresholded_relu(x, 0.5);\nprint(@y);\n',
-        'let @y = {\n    let _@thresholded_relu_call: f32 = if x > 0.5 { @x } else { 0.0 } + if x > 0.5 { 0.0 } else { 0.0 };\n    _@thresholded_relu_call\n};',
+        'let @y = {\n    let _@thresholded_relu_call: f32 = if x > 0.5 { @x } else { 0.0 };\n    _@thresholded_relu_call\n};',
     ),
     (
         'selu',
