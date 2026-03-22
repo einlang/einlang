@@ -29,6 +29,7 @@ from ..ir.nodes import (
     MatchArmIR, WhereClauseIR, EinsteinClauseIR, PatternIR,
     RangeIR, ArrayComprehensionIR,
     IndexVarIR,
+    IndexRestIR,
 )
 from ..shared.source_location import SourceLocation
 from ..shared.defid import DefId, DefType
@@ -1236,9 +1237,15 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         loop_var_ranges = {}  # var_name -> RangeIR
         if node.over_clause:
             for group in node.over_clause.range_groups:
+                is_rest = bool(getattr(group, "is_rest_pattern", False))
                 # Extract range expression if present
                 range_ir = None
                 if group.range_expr:
+                    if is_rest:
+                        raise RuntimeError(
+                            "Named rest in reduction brackets cannot use an explicit 'in range' yet "
+                            "(e.g. sum[..batch in 0..n](...)). Use sum[..batch](...) and infer bounds from the body."
+                        )
                     # The range_expr is an AST Range node, need to lower it
                     from ..shared.nodes import Range as ASTRange
                     if isinstance(group.range_expr, ASTRange):
@@ -1282,11 +1289,24 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         reduction_loop_var_defids = opt_attr(node, '_reduction_loop_var_defids', None) or {}
         resolver = getattr(self.tcx, 'resolver', None)
         loop_var_idents = []
-        for name in loop_vars:
-            did = reduction_loop_var_defids.get(name) or defid_of_var_in_expr(body_ir, name)
-            if did is None and resolver is not None:
-                did = resolver.allocate_for_local()
-            loop_var_idents.append(IdentifierIR(name, location, defid=did))
+        if node.over_clause:
+            for group in node.over_clause.range_groups:
+                is_rest = bool(getattr(group, "is_rest_pattern", False))
+                for var_name in group.variables:
+                    name = var_name if isinstance(var_name, str) else (opt_attr(var_name, 'value', None) or str(var_name))
+                    did = reduction_loop_var_defids.get(name) or defid_of_var_in_expr(body_ir, name)
+                    if did is None and resolver is not None:
+                        did = resolver.allocate_for_local()
+                    if is_rest:
+                        loop_var_idents.append(IndexRestIR(name=name, location=location, defid=did))
+                    else:
+                        loop_var_idents.append(IdentifierIR(name, location, defid=did))
+        else:
+            for name in loop_vars:
+                did = reduction_loop_var_defids.get(name) or defid_of_var_in_expr(body_ir, name)
+                if did is None and resolver is not None:
+                    did = resolver.allocate_for_local()
+                loop_var_idents.append(IdentifierIR(name, location, defid=did))
         loop_var_ranges_by_defid = {}
         for name, ident in zip(loop_vars, loop_var_idents):
             if ident.defid is not None and name in loop_var_ranges:

@@ -35,6 +35,21 @@ class TestRestPatternReductions:
         result = compile_and_execute(source, compiler, runtime)
         assert result.success, f"Execution failed: {result.errors}"
     
+    def test_reduction_bracket_named_rest(self, compiler, runtime):
+        """
+        Named rest in reduction brackets: sum over all ..batch axes (not only on LHS).
+        """
+        source = """
+        let x = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+        let row_totals[..batch] = sum[j](x[..batch, j]);
+        let grand = sum[..batch](x[..batch]);
+        assert(row_totals[0] == 6.0);
+        assert(row_totals[1] == 15.0);
+        assert(grand == 21.0);
+        """
+        result = compile_and_execute(source, compiler, runtime)
+        assert result.success, f"Execution failed: {result.errors}"
+
     def test_multidimensional_batch_reduction(self, compiler, runtime):
         """
         Test rest pattern spanning multiple dimensions.

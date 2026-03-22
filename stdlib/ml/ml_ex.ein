@@ -192,7 +192,7 @@ pub fn cross_entropy_loss(predictions, targets) {
     
     let nb = len(predictions) as f32;
     let row_ce[..batch] = -sum[j](targets[..batch, j] * ln(probs[..batch, j]));
-    let loss = sum[b](row_ce[b]) / nb;
+    let loss = sum[..batch](row_ce[..batch]) / nb;
     loss
 }
 
@@ -206,7 +206,7 @@ pub fn mse_loss(predictions, targets) {
     let nb = len(predictions) as f32;
     let nf = len(predictions[0]) as f32;
     let row_sse[..batch] = sum[j]((predictions[..batch, j] - targets[..batch, j]) ** 2.0);
-    let loss = sum[b](row_sse[b]) / (nb * nf);
+    let loss = sum[..batch](row_sse[..batch]) / (nb * nf);
     loss
 }
 
@@ -220,7 +220,7 @@ pub fn mae_loss(predictions, targets) {
     let nb = len(predictions) as f32;
     let nf = len(predictions[0]) as f32;
     let row_l1[..batch] = sum[j](abs(predictions[..batch, j] - targets[..batch, j]));
-    let loss = sum[b](row_l1[b]) / (nb * nf);
+    let loss = sum[..batch](row_l1[..batch]) / (nb * nf);
     loss
 }
 
@@ -243,7 +243,7 @@ pub fn huber_loss(predictions, targets, delta) {
         delta * (abs_diff[..batch, j] - 0.5 * delta)
     };
     let row_huber[..batch] = sum[j](huber_elem[..batch, j]);
-    let loss = sum[b](row_huber[b]) / (nb * nf);
+    let loss = sum[..batch](row_huber[..batch]) / (nb * nf);
     loss
 }
 
@@ -269,7 +269,7 @@ pub fn binary_cross_entropy(predictions, targets) {
         targets[..batch, j] * ln(clipped_pred[..batch, j]) + 
         (1.0 - targets[..batch, j]) * ln(1.0 - clipped_pred[..batch, j])
     );
-    let loss = sum[b](row_bce[b]) / (nb * nf);
+    let loss = sum[..batch](row_bce[..batch]) / (nb * nf);
     loss
 }
 
@@ -289,7 +289,7 @@ pub fn softmax_cross_entropy_loss(predictions, targets) {
     
     let nb = len(predictions) as f32;
     let row_sce[..batch] = -sum[j](targets[..batch, j] * (predictions[..batch, j] - log_sum_exp[..batch]));
-    let loss = sum[b](row_sce[b]) / nb;
+    let loss = sum[..batch](row_sce[..batch]) / nb;
     loss
 }
 

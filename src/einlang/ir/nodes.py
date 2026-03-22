@@ -639,10 +639,10 @@ class TryExpressionIR(ExpressionIR):
 
 
 class ReductionExpressionIR(ExpressionIR):
-    """Reduction expression: sum[i](A[i]). Loop vars are IndexVarIR or IdentifierIR (each has .name and .defid)."""
+    """Reduction expression: sum[i](A[i]). Loop vars are IndexVarIR, IdentifierIR, or IndexRestIR (each has .name and .defid)."""
     __slots__ = ('operation', 'loop_vars', 'body', 'where_clause', 'loop_var_ranges')
 
-    def __init__(self, operation: "ReductionOp", loop_vars: Optional[List[Union['IndexVarIR', 'IdentifierIR']]], body: ExpressionIR,
+    def __init__(self, operation: "ReductionOp", loop_vars: Optional[List[Union['IndexVarIR', 'IdentifierIR', 'IndexRestIR']]], body: ExpressionIR,
                  location: SourceLocation, where_clause: Optional['WhereClauseIR'] = None,
                  loop_var_ranges: Optional[Dict[DefId, 'RangeIR']] = None,
                  type_info: Optional[Any] = None,

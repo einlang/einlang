@@ -686,6 +686,9 @@ class _HasUnexpandedRestVisitor(IRVisitor[bool]):
         return False
 
     def visit_reduction_expression(self, node: ReductionExpressionIR) -> bool:
+        for v in (node.loop_vars or []):
+            if isinstance(v, IndexRestIR):
+                return True
         return self._any(node.body)
 
     def visit_binary_op(self, node: BinaryOpIR) -> bool:

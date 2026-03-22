@@ -959,6 +959,35 @@ class _DefIdCollector(IRVisitor[None]):
     def visit_range_pattern(self, n: Any) -> None: pass
 
 
+class _RectReadsRootDefIdVisitor(_DefIdCollector):
+    """True after walk if any ``RectangularAccess`` uses ``IdentifierIR(tensor_did)`` as array root."""
+
+    def __init__(self, tensor_did: DefId) -> None:
+        super().__init__()
+        self._tensor_did = tensor_did
+        self.found = False
+
+    def visit_rectangular_access(self, n: RectangularAccessIR) -> None:
+        a = n.array
+        if isinstance(a, IdentifierIR) and a.defid == self._tensor_did:
+            self.found = True
+        if a is not None:
+            a.accept(self)
+        for i in n.indices or []:
+            i.accept(self)
+
+
+def _einstein_clause_values_rect_read_tensor(ein: EinsteinIR, tensor_did: DefId) -> bool:
+    for c in ein.clauses or []:
+        if c.value is None:
+            continue
+        vis = _RectReadsRootDefIdVisitor(tensor_did)
+        c.value.accept(vis)
+        if vis.found:
+            return True
+    return False
+
+
 def _collect_defids(expr: Optional[ExpressionIR]) -> Set[DefId]:
     if expr is None: return set()
     c = _DefIdCollector(); expr.accept(c); return c.defids
@@ -1502,6 +1531,13 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
             if b is not None and b.expr is not None:
                 if _is_diff_name(b.name or ""): return n
                 if not _jacobian_rhs_depends_on_wrt(b.expr, self._wrt, self._B):
+                    return _z(self._loc)
+                if (
+                    isinstance(b.expr, EinsteinIR)
+                    and n.defid != self._wrt
+                    and self._wrt_axes is None
+                    and _einstein_clause_values_rect_read_tensor(b.expr, n.defid)
+                ):
                     return _z(self._loc)
                 return b.expr.accept(self)
         return _z(self._loc)
