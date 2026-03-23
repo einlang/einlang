@@ -18,12 +18,12 @@ _HUBER_LOSS_PRINT_AT_GOLDEN = """let @y = {
     let _@huber_loss_call: f32 = {
         let nb = len(pred) as f32;
         let nf = len(pred[0]) as f32;
-        let diff[batch.0, j] = pred[batch.0, j] - target[batch.0, j];
-        let abs_diff[batch.0, j] = abs(diff[batch.0, j]);
-        let _@diff[batch.0, j] = @pred[batch.0, j] - @target[batch.0, j];
-        let _@abs_diff[batch.0, j] = sign(diff[batch.0, j]) * _@diff[batch.0, j];
-        let _@huber_elem[batch.0, j] = if abs_diff[batch.0, j] <= 1.0 { 0.5 * diff[batch.0, j] * _@diff[batch.0, j] + diff[batch.0, j] * 0.5 * _@diff[batch.0, j] } else { _@abs_diff[batch.0, j] };
-        let _@row_huber[batch.0] = sum[j](_@huber_elem[batch.0, j]);
+        let diff[batch.0 in 0..targets.shape[0], j in 0..targets.shape[1]] = pred[batch.0, j] - target[batch.0, j];
+        let abs_diff[batch.0 in 0..diff.shape[0], j in 0..diff.shape[1]] = abs(diff[batch.0, j]);
+        let _@diff[batch.0 in 0..targets.shape[0], j in 0..targets.shape[1]] = @pred[batch.0, j] - @target[batch.0, j];
+        let _@abs_diff[batch.0 in 0..diff.shape[0], j in 0..diff.shape[1]] = sign(diff[batch.0, j]) * _@diff[batch.0, j];
+        let _@huber_elem[batch.0 in 0..abs_diff.shape[0], j in 0..abs_diff.shape[1]] = if abs_diff[batch.0, j] <= 1.0 { 0.5 * diff[batch.0, j] * _@diff[batch.0, j] + diff[batch.0, j] * 0.5 * _@diff[batch.0, j] } else { _@abs_diff[batch.0, j] };
+        let _@row_huber[batch.0 in 0..huber_elem.shape[0]] = sum[j](_@huber_elem[batch.0, j]);
         let _@loss = sum[batch.0](_@row_huber[batch.0]) / (nb * nf);
         _@loss
     };
@@ -332,7 +332,7 @@ let x = 0.5;
 let y = std::math::sinh(x);
 print(@y);
 """,
-        "let @y = {\n    let _@sinh_x: f32 = {\n        let ax = abs(x);\n        let _@ax = { sign(x) * @x };\n        if ax < 20.0 { 0.5 * ({ exp(x) * @x } - { exp(-x) * -@x }) } else {\n        let s = if x as f32 >= 0.0 { 1.0 } else { -1.0 };\n        let _@s = if x as f32 >= 0.0 { 0.0 } else { 0.0 };\n        s * 0.5 * { exp(ax) * _@ax } + exp(ax) * 0.5 * _@s\n    }\n    };\n    _@sinh_x\n};",
+        "let @y = {\n    let _@sinh_x: f32 = {\n        let ax = abs(x);\n        let _@ax = { sign(x) * @x };\n        if ax < 20.0 { 0.5 * ({ exp(x) * @x } - { exp(-x) * -@x }) } else {\n            let s = if x as f32 >= 0.0 { 1.0 } else { -1.0 };\n            let _@s = if x as f32 >= 0.0 { 0.0 } else { 0.0 };\n            s * 0.5 * { exp(ax) * _@ax } + exp(ax) * 0.5 * _@s\n        }\n    };\n    _@sinh_x\n};",
     ),
     (
         "cosh_scalar",
@@ -486,7 +486,7 @@ let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::reduce_sum(x);
 print(@y);
 """,
-        "let @y = {\n    let _@reduce_sum_x: [f32; ?] = {\n        let _@result[batch.0] = sum[j](@x[batch.0, j]);\n        _@result\n    };\n    _@reduce_sum_x\n};",
+        "let @y = {\n    let _@reduce_sum_x: [f32; ?] = {\n        let _@result[batch.0 in 0..x.shape[0]] = sum[j](@x[batch.0, j]);\n        _@result\n    };\n    _@reduce_sum_x\n};",
     ),
     (
         "reduce_l1",
@@ -496,7 +496,7 @@ let x = [[1.0, -2.0, 3.0]];
 let y = std::ml::reduce_l1(x);
 print(@y);
 """,
-        "let @y = {\n    let _@reduce_l1_x: [f32; *] = {\n        let _@result[batch.0] = sum[j]({ sign(x[batch.0, j]) * @x[batch.0, j] });\n        _@result\n    };\n    _@reduce_l1_x\n};",
+        "let @y = {\n    let _@reduce_l1_x: [f32; *] = {\n        let _@result[batch.0 in 0..x.shape[0]] = sum[j]({ sign(x[batch.0, j]) * @x[batch.0, j] });\n        _@result\n    };\n    _@reduce_l1_x\n};",
     ),
     (
         "reduce_sum_square",
@@ -506,7 +506,7 @@ let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::reduce_sum_square(x);
 print(@y);
 """,
-        "let @y = {\n    let _@reduce_sum_square_x: [f32; *] = {\n        let _@result[batch.0] = sum[j](2.0 * x[batch.0, j] * @x[batch.0, j]);\n        _@result\n    };\n    _@reduce_sum_square_x\n};",
+        "let @y = {\n    let _@reduce_sum_square_x: [f32; *] = {\n        let _@result[batch.0 in 0..x.shape[0]] = sum[j](2.0 * x[batch.0, j] * @x[batch.0, j]);\n        _@result\n    };\n    _@reduce_sum_square_x\n};",
     ),
     (
         "reduce_mean",
@@ -516,7 +516,7 @@ let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::reduce_mean(x);
 print(@y);
 """,
-        "let @y = {\n    let count = len(x[0]) as f32;\n    let _@sum_val[batch.0] = sum[j](@x[batch.0, j]);\n    let _@mean[batch.0] = _@sum_val[batch.0] / count;\n    _@mean\n};",
+        "let @y = {\n    let count = len(x[0]) as f32;\n    let _@sum_val[batch.0 in 0..x.shape[0]] = sum[j](@x[batch.0, j]);\n    let _@mean[batch.0 in 0..sum_val.shape[0]] = _@sum_val[batch.0] / count;\n    _@mean\n};",
     ),
     (
         "linear",
@@ -528,7 +528,7 @@ let b = [0.1, 0.2];
 let y = std::ml::linear(x, W, b);
 print(@y);
 """,
-        "let @y = {\n    let _@linear_call: [f32; ?, ?] = {\n        let _@output[batch.0, j] = sum[k](x[batch.0, k] * @W[j, k] + W[j, k] * @x[batch.0, k]) + @b[j];\n        _@output\n    };\n    _@linear_call\n};",
+        "let @y = {\n    let _@linear_call: [f32; ?, ?] = {\n        let _@output[batch.0 in 0..x.shape[0], j in 0..bias.shape[0]] = sum[k](x[batch.0, k] * @W[j, k] + W[j, k] * @x[batch.0, k]) + @b[j];\n        _@output\n    };\n    _@linear_call\n};",
     ),
     (
         "mse_loss",
@@ -539,7 +539,7 @@ let target = [[1.5, 2.5, 3.5]];
 let y = std::ml::mse_loss(pred, target);
 print(@y);
 """,
-        "let @y = {\n    let _@mse_loss_call: f32 = {\n        let nb = len(pred) as f32;\n        let nf = len(pred[0]) as f32;\n        let _@row_sse[batch.0] = sum[j](2.0 * (pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j]));\n        let _@loss = sum[batch.0](_@row_sse[batch.0]) / (nb * nf);\n        _@loss\n    };\n    _@mse_loss_call\n};",
+        "let @y = {\n    let _@mse_loss_call: f32 = {\n        let nb = len(pred) as f32;\n        let nf = len(pred[0]) as f32;\n        let _@row_sse[batch.0 in 0..targets.shape[0]] = sum[j](2.0 * (pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j]));\n        let _@loss = sum[batch.0](_@row_sse[batch.0]) / (nb * nf);\n        _@loss\n    };\n    _@mse_loss_call\n};",
     ),
     (
         "mae_loss",
@@ -550,7 +550,7 @@ let target = [[1.5, 2.5, 3.5]];
 let y = std::ml::mae_loss(pred, target);
 print(@y);
 """,
-        "let @y = {\n    let _@mae_loss_call: f32 = {\n        let nb = len(pred) as f32;\n        let nf = len(pred[0]) as f32;\n        let _@row_l1[batch.0] = sum[j]({ sign(pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j]) });\n        let _@loss = sum[batch.0](_@row_l1[batch.0]) / (nb * nf);\n        _@loss\n    };\n    _@mae_loss_call\n};",
+        "let @y = {\n    let _@mae_loss_call: f32 = {\n        let nb = len(pred) as f32;\n        let nf = len(pred[0]) as f32;\n        let _@row_l1[batch.0 in 0..targets.shape[0]] = sum[j]({ sign(pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j]) });\n        let _@loss = sum[batch.0](_@row_l1[batch.0]) / (nb * nf);\n        _@loss\n    };\n    _@mae_loss_call\n};",
     ),
     (
         "huber_loss",
@@ -572,7 +572,7 @@ let target = [[1.0, 0.0, 1.0]];
 let y = std::ml::binary_cross_entropy(pred, target);
 print(@y);
 """,
-        "let @y = {\n    let _@binary_cross_entropy_call: f32 = {\n        let eps = 1e-07;\n        let clipped_pred[batch.0, j] = if pred[batch.0, j] < eps { eps } else if pred[batch.0, j] > 1.0 - eps { 1.0 - eps } else { pred[batch.0, j] };\n        let nb = len(pred) as f32;\n        let nf = len(pred[0]) as f32;\n        let _@clipped_pred[batch.0, j] = if pred[batch.0, j] < eps { 0.0 } else if pred[batch.0, j] > 1.0 - eps { 0.0 } else { @pred[batch.0, j] };\n        let _@row_bce[batch.0] = -sum[j](target[batch.0, j] * { 1.0 / clipped_pred[batch.0, j] * _@clipped_pred[batch.0, j] } + ln(clipped_pred[batch.0, j]) * @target[batch.0, j] + (1.0 - target[batch.0, j]) * { 1.0 / (1.0 - clipped_pred[batch.0, j]) * (0.0 - _@clipped_pred[batch.0, j]) } + ln(1.0 - clipped_pred[batch.0, j]) * (0.0 - @target[batch.0, j]));\n        let _@loss = sum[batch.0](_@row_bce[batch.0]) / (nb * nf);\n        _@loss\n    };\n    _@binary_cross_entropy_call\n};",
+        "let @y = {\n    let _@binary_cross_entropy_call: f32 = {\n        let eps = 1e-07;\n        let clipped_pred[batch.0 in 0..predictions.shape[0], j in 0..predictions.shape[1]] = if pred[batch.0, j] < eps { eps } else if pred[batch.0, j] > 1.0 - eps { 1.0 - eps } else { pred[batch.0, j] };\n        let nb = len(pred) as f32;\n        let nf = len(pred[0]) as f32;\n        let _@clipped_pred[batch.0 in 0..predictions.shape[0], j in 0..predictions.shape[1]] = if pred[batch.0, j] < eps { 0.0 } else if pred[batch.0, j] > 1.0 - eps { 0.0 } else { @pred[batch.0, j] };\n        let _@row_bce[batch.0 in 0..clipped_pred.shape[0]] = -sum[j](target[batch.0, j] * { 1.0 / clipped_pred[batch.0, j] * _@clipped_pred[batch.0, j] } + ln(clipped_pred[batch.0, j]) * @target[batch.0, j] + (1.0 - target[batch.0, j]) * { 1.0 / (1.0 - clipped_pred[batch.0, j]) * (0.0 - _@clipped_pred[batch.0, j]) } + ln(1.0 - clipped_pred[batch.0, j]) * (0.0 - @target[batch.0, j]));\n        let _@loss = sum[batch.0](_@row_bce[batch.0]) / (nb * nf);\n        _@loss\n    };\n    _@binary_cross_entropy_call\n};",
     ),
     (
         "softmax",
@@ -582,7 +582,7 @@ let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::softmax(x);
 print(@y);
 """,
-        "let @y = {\n    let max_val[batch.0] = max[j](x[batch.0, j]);\n    let shifted[batch.0, j] = x[batch.0, j] - max_val[batch.0];\n    let exp_vals[batch.0, j] = exp(shifted[batch.0, j]);\n    let sums[batch.0] = sum[k](exp_vals[batch.0, k]);\n    let _@max_val[batch.0] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0, j] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@exp_vals[batch.0, j] = exp(shifted[batch.0, j]) * _@shifted[batch.0, j];\n    let _@sums[batch.0] = sum[k](_@exp_vals[batch.0, k]);\n    let _@output[batch.0, j] = (sums[batch.0] * _@exp_vals[batch.0, j] - exp_vals[batch.0, j] * _@sums[batch.0]) / sums[batch.0] ** 2.0;\n    _@output\n};",
+        "let @y = {\n    let max_val[batch.0 in 0..x.shape[0]] = max[j](x[batch.0, j]);\n    let shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]] = x[batch.0, j] - max_val[batch.0];\n    let exp_vals[batch.0 in 0..shifted.shape[0], j in 0..shifted.shape[1]] = exp(shifted[batch.0, j]);\n    let sums[batch.0 in 0..exp_vals.shape[0]] = sum[k](exp_vals[batch.0, k]);\n    let _@max_val[batch.0 in 0..x.shape[0]] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@exp_vals[batch.0 in 0..shifted.shape[0], j in 0..shifted.shape[1]] = exp(shifted[batch.0, j]) * _@shifted[batch.0, j];\n    let _@sums[batch.0 in 0..exp_vals.shape[0]] = sum[k](_@exp_vals[batch.0, k]);\n    let _@output[batch.0 in 0..sums.shape[0], j in 0..exp_vals.shape[1]] = (sums[batch.0] * _@exp_vals[batch.0, j] - exp_vals[batch.0, j] * _@sums[batch.0]) / sums[batch.0] ** 2.0;\n    _@output\n};",
     ),
     (
         "log_softmax",
@@ -592,7 +592,7 @@ let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::log_softmax(x);
 print(@y);
 """,
-        "let @y = {\n    let max_val[batch.0] = max[j](x[batch.0, j]);\n    let shifted[batch.0, j] = x[batch.0, j] - max_val[batch.0];\n    let exp_vals[batch.0, j] = exp(shifted[batch.0, j]);\n    let sum_exp[batch.0] = sum[k](exp_vals[batch.0, k]);\n    let _@max_val[batch.0] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0, j] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@exp_vals[batch.0, j] = exp(shifted[batch.0, j]) * _@shifted[batch.0, j];\n    let _@sum_exp[batch.0] = sum[k](_@exp_vals[batch.0, k]);\n    let _@log_sum[batch.0] = { 1.0 / sum_exp[batch.0] * _@sum_exp[batch.0] } + _@max_val[batch.0];\n    let _@output[batch.0, j] = @x[batch.0, j] - _@log_sum[batch.0];\n    _@output\n};",
+        "let @y = {\n    let max_val[batch.0 in 0..x.shape[0]] = max[j](x[batch.0, j]);\n    let shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]] = x[batch.0, j] - max_val[batch.0];\n    let exp_vals[batch.0 in 0..shifted.shape[0], j in 0..shifted.shape[1]] = exp(shifted[batch.0, j]);\n    let sum_exp[batch.0 in 0..exp_vals.shape[0]] = sum[k](exp_vals[batch.0, k]);\n    let _@max_val[batch.0 in 0..x.shape[0]] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@exp_vals[batch.0 in 0..shifted.shape[0], j in 0..shifted.shape[1]] = exp(shifted[batch.0, j]) * _@shifted[batch.0, j];\n    let _@sum_exp[batch.0 in 0..exp_vals.shape[0]] = sum[k](_@exp_vals[batch.0, k]);\n    let _@log_sum[batch.0 in 0..max_val.shape[0]] = { 1.0 / sum_exp[batch.0] * _@sum_exp[batch.0] } + _@max_val[batch.0];\n    let _@output[batch.0 in 0..log_sum.shape[0], j in 0..x.shape[1]] = @x[batch.0, j] - _@log_sum[batch.0];\n    _@output\n};",
     ),
     (
         "reduce_l2",
@@ -602,7 +602,7 @@ let x = [[3.0, 4.0]];
 let y = std::ml::reduce_l2(x);
 print(@y);
 """,
-        "let @y = {\n    let sum_squares[batch.0] = sum[j](x[batch.0, j] ** 2.0);\n    let _@sum_squares[batch.0] = sum[j](2.0 * x[batch.0, j] * @x[batch.0, j]);\n    let _@result[batch.0] = 0.5 * sum_squares[batch.0] ** -0.5 * _@sum_squares[batch.0];\n    _@result\n};",
+        "let @y = {\n    let sum_squares[batch.0 in 0..x.shape[0]] = sum[j](x[batch.0, j] ** 2.0);\n    let _@sum_squares[batch.0 in 0..x.shape[0]] = sum[j](2.0 * x[batch.0, j] * @x[batch.0, j]);\n    let _@result[batch.0 in 0..sum_squares.shape[0]] = 0.5 * sum_squares[batch.0] ** -0.5 * _@sum_squares[batch.0];\n    _@result\n};",
     ),
     (
         "reduce_log_sum",
@@ -612,7 +612,7 @@ let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::reduce_log_sum(x);
 print(@y);
 """,
-        "let @y = {\n    let sum_val[batch.0] = sum[j](x[batch.0, j]);\n    let _@sum_val[batch.0] = sum[j](@x[batch.0, j]);\n    let _@result[batch.0] = 1.0 / sum_val[batch.0] * _@sum_val[batch.0];\n    _@result\n};",
+        "let @y = {\n    let sum_val[batch.0 in 0..x.shape[0]] = sum[j](x[batch.0, j]);\n    let _@sum_val[batch.0 in 0..x.shape[0]] = sum[j](@x[batch.0, j]);\n    let _@result[batch.0 in 0..sum_val.shape[0]] = 1.0 / sum_val[batch.0] * _@sum_val[batch.0];\n    _@result\n};",
     ),
     (
         "reduce_log_sum_exp",
@@ -622,7 +622,7 @@ let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::reduce_log_sum_exp(x);
 print(@y);
 """,
-        "let @y = {\n    let max_val[batch.0] = max[j](x[batch.0, j]);\n    let shifted[batch.0, j] = x[batch.0, j] - max_val[batch.0];\n    let sum_exp[batch.0] = sum[j](exp(shifted[batch.0, j]));\n    let _@max_val[batch.0] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0, j] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@sum_exp[batch.0] = sum[j]({ exp(shifted[batch.0, j]) * _@shifted[batch.0, j] });\n    let _@result[batch.0] = _@max_val[batch.0] + { 1.0 / sum_exp[batch.0] * _@sum_exp[batch.0] };\n    _@result\n};",
+        "let @y = {\n    let max_val[batch.0 in 0..x.shape[0]] = max[j](x[batch.0, j]);\n    let shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]] = x[batch.0, j] - max_val[batch.0];\n    let sum_exp[batch.0 in 0..shifted.shape[0]] = sum[j](exp(shifted[batch.0, j]));\n    let _@max_val[batch.0 in 0..x.shape[0]] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@sum_exp[batch.0 in 0..shifted.shape[0]] = sum[j]({ exp(shifted[batch.0, j]) * _@shifted[batch.0, j] });\n    let _@result[batch.0 in 0..sum_exp.shape[0]] = _@max_val[batch.0] + { 1.0 / sum_exp[batch.0] * _@sum_exp[batch.0] };\n    _@result\n};",
     ),
     (
         "cosine_similarity",
@@ -633,7 +633,7 @@ let b = [[4.0, 5.0, 6.0]];
 let y = std::ml::cosine_similarity(a, b);
 print(@y);
 """,
-        "let @y = {\n    let _@cosine_similarity_call: [f32; ?] = {\n        let dot_product[batch.0] = sum[j](a[batch.0, j] * b[batch.0, j]);\n        let norm_a_sq[batch.0] = sum[j](a[batch.0, j] * a[batch.0, j]);\n        let norm_b_sq[batch.0] = sum[j](b[batch.0, j] * b[batch.0, j]);\n        let norm_a[batch.0] = sqrt(norm_a_sq[batch.0]);\n        let norm_b[batch.0] = sqrt(norm_b_sq[batch.0]);\n        let _@dot_product[batch.0] = sum[j](a[batch.0, j] * @b[batch.0, j] + b[batch.0, j] * @a[batch.0, j]);\n        let _@norm_a_sq[batch.0] = sum[j](2.0 * a[batch.0, j] * @a[batch.0, j]);\n        let _@norm_b_sq[batch.0] = sum[j](2.0 * b[batch.0, j] * @b[batch.0, j]);\n        let _@norm_a[batch.0] = 0.5 * norm_a_sq[batch.0] ** -0.5 * _@norm_a_sq[batch.0];\n        let _@norm_b[batch.0] = 0.5 * norm_b_sq[batch.0] ** -0.5 * _@norm_b_sq[batch.0];\n        let _@similarity[batch.0] = (norm_a[batch.0] * norm_b[batch.0] * _@dot_product[batch.0] - dot_product[batch.0] * (norm_a[batch.0] * _@norm_b[batch.0] + norm_b[batch.0] * _@norm_a[batch.0])) / (norm_a[batch.0] * norm_b[batch.0]) ** 2.0;\n        _@similarity\n    };\n    _@cosine_similarity_call\n};",
+        "let @y = {\n    let _@cosine_similarity_call: [f32; ?] = {\n        let dot_product[batch.0 in 0..b.shape[0]] = sum[j](a[batch.0, j] * b[batch.0, j]);\n        let norm_a_sq[batch.0 in 0..a.shape[0]] = sum[j](a[batch.0, j] * a[batch.0, j]);\n        let norm_b_sq[batch.0 in 0..b.shape[0]] = sum[j](b[batch.0, j] * b[batch.0, j]);\n        let norm_a[batch.0 in 0..norm_a_sq.shape[0]] = sqrt(norm_a_sq[batch.0]);\n        let norm_b[batch.0 in 0..norm_b_sq.shape[0]] = sqrt(norm_b_sq[batch.0]);\n        let _@dot_product[batch.0 in 0..b.shape[0]] = sum[j](a[batch.0, j] * @b[batch.0, j] + b[batch.0, j] * @a[batch.0, j]);\n        let _@norm_a_sq[batch.0 in 0..a.shape[0]] = sum[j](2.0 * a[batch.0, j] * @a[batch.0, j]);\n        let _@norm_b_sq[batch.0 in 0..b.shape[0]] = sum[j](2.0 * b[batch.0, j] * @b[batch.0, j]);\n        let _@norm_a[batch.0 in 0..norm_a_sq.shape[0]] = 0.5 * norm_a_sq[batch.0] ** -0.5 * _@norm_a_sq[batch.0];\n        let _@norm_b[batch.0 in 0..norm_b_sq.shape[0]] = 0.5 * norm_b_sq[batch.0] ** -0.5 * _@norm_b_sq[batch.0];\n        let _@similarity[batch.0 in 0..norm_b.shape[0]] = (norm_a[batch.0] * norm_b[batch.0] * _@dot_product[batch.0] - dot_product[batch.0] * (norm_a[batch.0] * _@norm_b[batch.0] + norm_b[batch.0] * _@norm_a[batch.0])) / (norm_a[batch.0] * norm_b[batch.0]) ** 2.0;\n        _@similarity\n    };\n    _@cosine_similarity_call\n};",
     ),
     (
         "matmul",
@@ -644,7 +644,7 @@ let B = [[5.0, 6.0], [7.0, 8.0]];
 let C = std::ml::matmul(A, B);
 print(@C);
 """,
-        "let @C = {\n    let _@matmul_call: [f32; ?, ?] = {\n        let _@output[i, j] = sum[k](A[i, k] * @B[k, j] + B[k, j] * @A[i, k]);\n        _@output\n    };\n    _@matmul_call\n};",
+        "let @C = {\n    let _@matmul_call: [f32; ?, ?] = {\n        let _@output[i in 0..a.shape[0], j in 0..b.shape[1]] = sum[k](A[i, k] * @B[k, j] + B[k, j] * @A[i, k]);\n        _@output\n    };\n    _@matmul_call\n};",
     ),
     (
         # Golden string is print(@C); math: @C[b,i,j]=Σ_k(A[b,i,k]@B[b,k,j]+B[b,k,j]@A[b,i,k]).
@@ -656,7 +656,7 @@ let B = [[[5.0, 6.0], [7.0, 8.0]], [[1.0, 1.0], [1.0, 1.0]]];
 let C = std::ml::batch_matmul(A, B);
 print(@C);
 """,
-        "let @C = {\n    let _@batch_matmul_call: [f32; ?, ?, ?] = {\n        let _@result[batch.0, i, j] = sum[k](A[batch.0, i, k] * @B[batch.0, k, j] + B[batch.0, k, j] * @A[batch.0, i, k]);\n        _@result\n    };\n    _@batch_matmul_call\n};",
+        "let @C = {\n    let _@batch_matmul_call: [f32; ?, ?, ?] = {\n        let _@result[batch.0 in 0..b.shape[0], i in 0..a.shape[1], j in 0..b.shape[2]] = sum[k](A[batch.0, i, k] * @B[batch.0, k, j] + B[batch.0, k, j] * @A[batch.0, i, k]);\n        _@result\n    };\n    _@batch_matmul_call\n};",
     ),
 ]
 

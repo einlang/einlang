@@ -1,6 +1,6 @@
 """Training data loader for the MNIST training demo.
 
-Called from main.ein via python::data_loader::{load_images, load_labels}.
+Called from train.ein via python::data_loader::{load_images, load_labels}.
 Returns flattened, inverted images [10, 784] and one-hot labels [10, 10].
 """
 
@@ -8,7 +8,7 @@ import os
 import numpy as np
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
-_SAMPLES = os.path.join(_DIR, "..", "mnist", "samples")
+_SAMPLES = os.path.join(_DIR, "samples")
 
 
 def load_images() -> np.ndarray:

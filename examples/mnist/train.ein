@@ -1,6 +1,6 @@
-// Run (repo root): PYTHONPATH=src python3 -m einlang examples/mnist_train/main.ein
+// Run (repo root): PYTHONPATH=src python3 -m einlang examples/mnist/train.ein
 // Verbose profile + vectorize detail + reductions + block vectorize + recurrence-block logs (cwd = this dir):
-//   cd examples/mnist_train && PYTHONPATH=../../src python3 -m einlang main.ein --profile-verbose --debug-recurrence-block
+//   cd examples/mnist && PYTHONPATH=../../src python3 -m einlang train.ein --profile-verbose --debug-recurrence-block
 // Same plus compile ir_dump/final_ir.sexpr: add --profile-all
 
 use std::array::argmax;
@@ -32,4 +32,4 @@ let final_logits[n in 0..10, j in 0..10] = sum[i in 0..784](X[n, i] * W[15, i, j
 let predictions = [argmax(final_logits[n]) | n in 0..10];
 
 print(predictions);
-assert(len(predictions) == 10, "mnist_train: predictions length");
+assert(predictions == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "mnist_train: predictions");
