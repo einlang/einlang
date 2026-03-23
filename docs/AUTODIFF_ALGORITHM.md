@@ -2,6 +2,8 @@
 
 **Status:** Formal specification. Defines the autodiff algorithm in math and pseudocode. Builds on [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md), [AUTODIFF_OPS.md](AUTODIFF_OPS.md), and [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md).
 
+**Overview (why Einlang’s autodiff):** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md)
+
 ---
 
 ## 1. Notation and semantics

@@ -109,12 +109,12 @@ ML_ACTIVATION_PRINT_AT_GOLDEN_CASES: List[Tuple[str, str, str]] = [
     (
         'gelu',
         '\n\nuse std::ml;\nlet x = 1.0;\nlet y = std::ml::gelu(x);\nprint(@y);\n',
-        'let @y = {\n    let sqrt_2_over_pi = 0.7978845608028654;\n    let coeff = 0.044715;\n    let inner = sqrt_2_over_pi * (x + coeff * x * x * x);\n    let _@inner = sqrt_2_over_pi * (@x + coeff * (x * x * @x + x * 2.0 * x * @x));\n    0.5 * x * if inner as f32 >= 0.0 {\n    let t = exp(-2.0 * inner);\n    let _@t = { exp(-2.0 * inner) * -2.0 * _@inner };\n    ((1.0 + t) * (0.0 - _@t) - (1.0 - t) * _@t) / (1.0 + t) ** 2.0\n} else {\n    let t = exp(2.0 * inner);\n    let _@t = { exp(2.0 * inner) * 2.0 * _@inner };\n    ((t + 1.0) * _@t - (t - 1.0) * _@t) / (t + 1.0) ** 2.0\n} + (1.0 + tanh(inner)) * 0.5 * @x\n};',
+        'let @y = {\n    let sqrt_2_over_pi = 0.7978845608028654;\n    let coeff = 0.044715;\n    let inner = sqrt_2_over_pi * (x + coeff * x * x * x);\n    let _@inner = sqrt_2_over_pi * (@x + coeff * (x * x * @x + x * 2.0 * x * @x));\n    0.5 * x * if inner as f32 >= 0.0 {\n        let t = exp(-2.0 * inner);\n        let _@t = { exp(-2.0 * inner) * -2.0 * _@inner };\n        ((1.0 + t) * (0.0 - _@t) - (1.0 - t) * _@t) / (1.0 + t) ** 2.0\n    } else {\n        let t = exp(2.0 * inner);\n        let _@t = { exp(2.0 * inner) * 2.0 * _@inner };\n        ((t + 1.0) * _@t - (t - 1.0) * _@t) / (t + 1.0) ** 2.0\n    } + (1.0 + tanh(inner)) * 0.5 * @x\n};',
     ),
     (
         'mish',
         '\n\nuse std::ml;\nlet x = 1.0;\nlet y = std::ml::mish(x);\nprint(@y);\n',
-        'let @y = {\n    let _@mish_x: f32 = {\n        let sp = softplus(x);\n        let _@sp = if x > 20.0 { @x } else { { 1.0 / (1.0 + exp(x)) * { exp(x) * @x } } };\n        x * if sp as f32 >= 0.0 {\n        let t = exp(-2.0 * sp);\n        let _@t = { exp(-2.0 * sp) * -2.0 * _@sp };\n        ((1.0 + t) * (0.0 - _@t) - (1.0 - t) * _@t) / (1.0 + t) ** 2.0\n    } else {\n        let t = exp(2.0 * sp);\n        let _@t = { exp(2.0 * sp) * 2.0 * _@sp };\n        ((t + 1.0) * _@t - (t - 1.0) * _@t) / (t + 1.0) ** 2.0\n    } + tanh(sp) * @x\n    };\n    _@mish_x\n};',
+        'let @y = {\n    let _@mish_x: f32 = {\n        let sp = softplus(x);\n        let _@sp = if x > 20.0 { @x } else { { 1.0 / (1.0 + exp(x)) * { exp(x) * @x } } };\n        x * if sp as f32 >= 0.0 {\n            let t = exp(-2.0 * sp);\n            let _@t = { exp(-2.0 * sp) * -2.0 * _@sp };\n            ((1.0 + t) * (0.0 - _@t) - (1.0 - t) * _@t) / (1.0 + t) ** 2.0\n        } else {\n            let t = exp(2.0 * sp);\n            let _@t = { exp(2.0 * sp) * 2.0 * _@sp };\n            ((t + 1.0) * _@t - (t - 1.0) * _@t) / (t + 1.0) ** 2.0\n        } + tanh(sp) * @x\n    };\n    _@mish_x\n};',
     ),
     (
         'tanhshrink',

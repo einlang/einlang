@@ -1,5 +1,7 @@
 # `print(@y)` symbolic tangent output
 
+**Overview (why Einlang’s autodiff):** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md)
+
 This document catalogs how the autodiff pass builds the **string** passed to `print` when the argument is a differential on a binding (e.g. `print(@y)`). It is **display-only**: lowered programs for `@y / @x` and other uses of forward diff are unchanged.
 
 ## Where it lives (code)
@@ -130,5 +132,6 @@ Let `y = batch_matmul(A, B)` with `C[b,i,j] = Σ_k A[b,i,k] B[b,k,j]`. **`print(
 
 ## Related docs
 
+- [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md) — narrative overview of Einlang’s autodiff.
 - [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md) — language meaning of `@` and quotients.
 - [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md) — pass order (this rewrite runs during derivative expansion).

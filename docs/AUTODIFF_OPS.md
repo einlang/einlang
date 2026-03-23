@@ -1,5 +1,7 @@
 # Autodiff: derivative formulas by op
 
+**Overview (why Einlang’s autodiff):** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md)
+
 This document lists **derivative formulas** for each op. It extends [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md). Notation: partial y / partial x means the derivative of y with respect to x.
 
 **Einstein notation:** For the same derivatives expressed in index/Einstein form (∂y/∂x for all ML ops), see [AUTODIFF_EINSTEIN_OPS.md](AUTODIFF_EINSTEIN_OPS.md).

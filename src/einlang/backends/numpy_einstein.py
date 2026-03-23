@@ -20,6 +20,50 @@ from ..utils.config import DEFAULT_EINSTEIN_LOOP_MAX
 from .numpy_helpers import _reject_non_lowered
 
 
+def _einlang_vectorize_debug_detail_enabled() -> bool:
+    """Per-clause ``[vectorize] detail …`` lines (not only the summary)."""
+    v = os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip().lower()
+    return v in ("2", "verbose", "all", "detail")
+
+
+def _einlang_recurrence_block_vectorized_binding_enabled() -> bool:
+    """Recurrence clauses with a block body use broadcast index tensors and one body evaluation
+    per timestep (same as non-block recurrence). Set EINLANG_VECTORIZE_RECURRENCE_BLOCK=0 to use
+    scalar iteration over non-recurrence dims (debug / legacy)."""
+    v = os.environ.get("EINLANG_VECTORIZE_RECURRENCE_BLOCK", "").strip().lower()
+    if v in ("0", "false", "no", "off"):
+        return False
+    return True
+
+
+def _einlang_debug_recurrence_block_enabled() -> bool:
+    v = os.environ.get("EINLANG_DEBUG_RECURRENCE_BLOCK", "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
+def _lowered_clause_loop_axis_names(lowered: Any) -> str:
+    """Comma-separated Einstein clause loop index names (order = loop nesting)."""
+    parts: List[str] = []
+    for lp in lowered.loops or []:
+        v = lp.variable
+        if v is not None and getattr(v, "name", None):
+            parts.append(v.name)
+    return ",".join(parts)
+
+
+def _vectorize_axes_scalar_vs_vector(lowered: Any, scalar_dim_indices: List[int]) -> str:
+    """Human-readable which loop axes are scalar-iterated vs vectorized (broadcast arrays)."""
+    loops = lowered.loops or []
+    scalar_set = set(scalar_dim_indices)
+    sn = [loops[d].variable.name for d in scalar_dim_indices if 0 <= d < len(loops) and loops[d].variable and loops[d].variable.name]
+    vn = [
+        loops[k].variable.name
+        for k in range(len(loops))
+        if k not in scalar_set and loops[k].variable and loops[k].variable.name
+    ]
+    return f"scalar_axes={','.join(sn)} vector_axes={','.join(vn)}"
+
+
 class _BodyReferencesDefidVisitor(IRVisitor[bool]):
     """Visitor that returns True iff the tree contains an IdentifierIR or IndexVarIR with defid == target_defid."""
 
@@ -2653,8 +2697,6 @@ def _eval_clause_body_with_broadcast_loops(
     loops = (clause.loops or [])
     if not loops or clause.guards or clause.bindings:
         return None
-    if getattr(clause.body, "guards", None):
-        return None
     clause_ndim = len(loops)
     n_red = _count_reduction_dims_in_expr(clause.body)
     ndim = clause_ndim + n_red
@@ -3102,6 +3144,61 @@ def _try_call_scalar_vectorize_clause(
 
 
 class EinsteinExecutionMixin:
+    def _vectorize_debug_log(
+        self,
+        path: str,
+        lowered: Any,
+        variable_decl: Any,
+        *,
+        axes: str = "",
+    ) -> None:
+        if not _einlang_vectorize_debug_detail_enabled():
+            return
+        loc = getattr(lowered, "location", None)
+        if loc is None and variable_decl is not None:
+            loc = getattr(variable_decl, "location", None)
+        line = int(getattr(loc, "line", 0) or 0)
+        binder = getattr(variable_decl, "_binding", None) or variable_decl
+        name = getattr(binder, "name", None) or getattr(variable_decl, "name", None) or "?"
+        loop_s = _lowered_clause_loop_axis_names(lowered)
+        loop_part = f" loops={loop_s}" if loop_s else ""
+        axes_part = f" | {axes}" if axes else ""
+        print(f"[vectorize] detail {path} L{line} {name}{loop_part}{axes_part}", flush=True)
+
+    def _recurrence_block_strategy_log(
+        self,
+        strategy: str,
+        item: Any,
+        variable_decl: Any,
+        rec_context: Optional[Dict[Any, Any]] = None,
+    ) -> None:
+        """``[recurrence-block]`` lines: broadcast-binding when verbose vectorize or DEBUG_RECURRENCE_BLOCK; scalar-loop when DEBUG_RECURRENCE_BLOCK only."""
+        if strategy == "scalar-loop":
+            if not _einlang_debug_recurrence_block_enabled():
+                return
+        elif strategy == "broadcast-binding":
+            if not (
+                _einlang_vectorize_debug_detail_enabled()
+                or _einlang_debug_recurrence_block_enabled()
+            ):
+                return
+        else:
+            return
+        loc = getattr(item, "location", None)
+        if loc is None and variable_decl is not None:
+            loc = getattr(variable_decl, "location", None)
+        line = int(getattr(loc, "line", 0) or 0)
+        binder = getattr(variable_decl, "_binding", None) or variable_decl
+        name = getattr(binder, "name", None) or getattr(variable_decl, "name", None) or "?"
+        step_s = "?"
+        if rec_context:
+            try:
+                first = next(iter(rec_context.values()))
+                step_s = str(int(first) if isinstance(first, (np.integer, int)) else int(np.asarray(first).item()))
+            except (StopIteration, TypeError, ValueError):
+                step_s = "?"
+        print(f"[recurrence-block] {strategy} L{line} {name} step={step_s}", flush=True)
+
     def _evaluate_lowered_einstein_subexpr(self, lowered: LoweredEinsteinIR) -> Any:
         """Run a nested LoweredEinsteinIR (e.g. under RectangularAccessIR from autodiff) with a synthetic decl.
 
@@ -3656,12 +3753,19 @@ class EinsteinExecutionMixin:
                                     self.env.set_value(defid, inner_ctx[defid], name=name)
                                 else:
                                     self.env.set_value(defid, np.arange(start, end, dtype=np.intp), name=name)
-                            else:
-                                sz = end - start
-                                shape = [1] * ndim
-                                shape[dim] = sz
-                                arr = np.arange(start, end, dtype=np.intp).reshape(shape)
-                                self.env.set_value(defid, arr, name=name)
+                        vector_dims_list = [
+                            d
+                            for d in range(ndim)
+                            if d not in outer_dims_set and d not in inner_recurrence_dims
+                        ]
+                        vec_rank = len(vector_dims_list)
+                        for vec_idx, vdim in enumerate(vector_dims_list):
+                            vdefid, (vstart, vend), vname = loop_info[vdim]
+                            vsz = vend - vstart
+                            vshape = [1] * vec_rank
+                            vshape[vec_idx] = vsz
+                            arr = np.arange(vstart, vend, dtype=np.intp).reshape(vshape)
+                            self.env.set_value(vdefid, arr, name=vname)
                         bindings = item.bindings or []
                         if bindings:
                             loop_context = {}
@@ -3673,7 +3777,23 @@ class EinsteinExecutionMixin:
                             for d, val in full_context.items():
                                 if d is not None:
                                     self.env.set_value(d, val)
-                        res = item.body.accept(self)
+                        _vec_par_shape = getattr(self, "_vectorize_parallel_shape", None)
+                        _vec_par_defids = getattr(self, "_vectorize_parallel_defids_order", None)
+                        try:
+                            par_shape_inner = tuple(
+                                int(loop_info[d][1][1] - loop_info[d][1][0]) for d in vector_dims_list
+                            )
+                            self._vectorize_parallel_shape = par_shape_inner
+                            self._vectorize_parallel_defids_order = [
+                                loop_info[d][0] for d in vector_dims_list
+                            ]
+                            res = item.body.accept(self)
+                        finally:
+                            self._vectorize_parallel_shape = _vec_par_shape
+                            if _vec_par_defids is not None:
+                                self._vectorize_parallel_defids_order = _vec_par_defids
+                            elif hasattr(self, "_vectorize_parallel_defids_order"):
+                                delattr(self, "_vectorize_parallel_defids_order")
                     if res is None:
                         continue
                         res = np.asarray(res, dtype=output.dtype)
@@ -3720,11 +3840,13 @@ class EinsteinExecutionMixin:
             and non_rec_loops
             and clause_indices
             and len(clause_indices) == len(loops)
+            and not _einlang_recurrence_block_vectorized_binding_enabled()
         ):
             from ..runtime.compute.lowered_execution import execute_lowered_loops
             _saved_rec = getattr(self, "_einstein_recurrence_clause", False)
             try:
                 self._einstein_recurrence_clause = True
+                self._recurrence_block_strategy_log("scalar-loop", item, variable_decl, rec_context)
                 for inner_ctx in execute_lowered_loops(non_rec_loops, {}, expr_eval):
                     with self.env.scope():
                         self.env.set_value(variable_defid, output)
@@ -3784,11 +3906,35 @@ class EinsteinExecutionMixin:
                 self._einstein_recurrence_clause = _saved_rec
         _saved_recurrence_flag = getattr(self, "_einstein_recurrence_clause", False)
         _saved_vectorize_shape = getattr(self, "_vectorize_parallel_shape", None)
+        _saved_vec_defids = getattr(self, "_vectorize_parallel_defids_order", None)
         try:
-            self._einstein_recurrence_clause = True  # so reduction in body uses env (correct t), not fast path
-            self._vectorize_parallel_shape = None  # force scalar reduction path to use env's t
+            self._einstein_recurrence_clause = True  # keep matmul/einsum fast paths off in evaluate_lowered_reduction
+            # One timestep per call: only outer recurrence dims bound from rec_context are scalar; other
+            # clause loops use the broadcast grid (not full output.shape, which includes all steps).
+            scalar_clause_dims = set()
+            for d in range(ndim):
+                if d in outer_dims_set:
+                    od = next((o for od_d, o in outer_rec_defids if od_d == d), None)
+                    if od is not None and od in rec_context:
+                        scalar_clause_dims.add(d)
+            par_shape = tuple(
+                int(loop_info[d][1][1] - loop_info[d][1][0])
+                for d in range(ndim)
+                if d not in scalar_clause_dims
+            )
+            self._vectorize_parallel_shape = par_shape
+            self._vectorize_parallel_defids_order = [
+                loop_info[d][0] for d in range(ndim) if d not in scalar_clause_dims
+            ]
             with self.env.scope():
                 self.env.set_value(variable_defid, output)
+                # Block bodies log when IR is still BlockExpressionIR; braced `{ expr }` often lowers to
+                # a plain expression, so also log when this clause has non-recurrence loop dims (i,j,…):
+                # same broadcast-index path runs here (see _recurrence_block_strategy_log gates).
+                if isinstance(item.body, BlockExpressionIR) or (
+                    _einlang_recurrence_block_vectorized_binding_enabled() and non_rec_loops
+                ):
+                    self._recurrence_block_strategy_log("broadcast-binding", item, variable_decl, rec_context)
                 # Bind outer recurrence loop vars so body sees current timestep (body may reference outer defid).
                 for _d, outer_defid in outer_rec_defids:
                     if outer_defid in rec_context:
@@ -3881,6 +4027,10 @@ class EinsteinExecutionMixin:
         finally:
             self._einstein_recurrence_clause = _saved_recurrence_flag
             self._vectorize_parallel_shape = _saved_vectorize_shape
+            if _saved_vec_defids is not None:
+                self._vectorize_parallel_defids_order = _saved_vec_defids
+            elif hasattr(self, "_vectorize_parallel_defids_order"):
+                delattr(self, "_vectorize_parallel_defids_order")
 
     def _shape_from_all_items(self, items: List) -> Optional[List[int]]:
         """Compute output shape from the max absolute end across ALL items (not just the first).
@@ -4086,6 +4236,12 @@ class EinsteinExecutionMixin:
                     if variable_defid:
                         self._clause_set_output(variable_defid, output)
                     self._einstein_call_scalar = getattr(self, "_einstein_call_scalar", 0) + 1
+                    self._vectorize_debug_log(
+                        "call-scalar",
+                        lowered,
+                        variable_decl,
+                        axes=_vectorize_axes_scalar_vs_vector(lowered, scalar_loop_indices_call),
+                    )
                     _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="call-scalar")
                     return output
         # Literal idx / self-ref (recurrence) -> scalar; other indices -> vectorize.
@@ -4106,6 +4262,7 @@ class EinsteinExecutionMixin:
                     if variable_defid:
                         self._clause_set_output(variable_defid, output)
                     self._einstein_hybrid = getattr(self, "_einstein_hybrid", 0) + 1
+                    self._vectorize_debug_log("hybrid", lowered, variable_decl, axes="recurrence_hybrid")
                     _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="hybrid")
                     return output
                 recurrence_needs_scalar = True  # hybrid failed; use scalar path so we read LHS[t-1] correctly
@@ -4122,6 +4279,12 @@ class EinsteinExecutionMixin:
                     if variable_defid:
                         self._clause_set_output(variable_defid, output)
                     self._einstein_vectorized = getattr(self, "_einstein_vectorized", 0) + 1
+                    self._vectorize_debug_log(
+                        "vectorized",
+                        lowered,
+                        variable_decl,
+                        axes="vectorized=all_loop_axes slice_if_pattern",
+                    )
                     _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="vectorized")
                     return output
             # Optional chunked execution to reduce peak memory (env EINLANG_CHUNK_ELEMENTS > 0).
@@ -4159,6 +4322,12 @@ class EinsteinExecutionMixin:
                                 _path = getattr(self, "_last_reduction_fast_path", None) or "vectorized"
                                 if hasattr(self, "_last_reduction_fast_path"):
                                     delattr(self, "_last_reduction_fast_path")
+                                self._vectorize_debug_log(
+                                    f"vectorized-chunk:{_path}",
+                                    lowered,
+                                    variable_decl,
+                                    axes=f"vectorized=chunked fast={_path}",
+                                )
                                 _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path=_path)
                                 return output
                 except (RuntimeError, TypeError, ValueError):
@@ -4212,6 +4381,12 @@ class EinsteinExecutionMixin:
                                         if variable_defid:
                                             self._clause_set_output(variable_defid, output)
                                         self._einstein_hybrid = getattr(self, "_einstein_hybrid", 0) + 1
+                                        self._vectorize_debug_log(
+                                            "hybrid-partial",
+                                            lowered,
+                                            variable_decl,
+                                            axes="hybrid_partial+sliced_write",
+                                        )
                                         _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="hybrid")
                                         return output
                                     vec_result = None
@@ -4259,6 +4434,12 @@ class EinsteinExecutionMixin:
                     _path = getattr(self, "_last_reduction_fast_path", None) or "vectorized"
                     if hasattr(self, "_last_reduction_fast_path"):
                         delattr(self, "_last_reduction_fast_path")
+                    self._vectorize_debug_log(
+                        _path,
+                        lowered,
+                        variable_decl,
+                        axes=f"vectorized=all_loop_axes fast={_path}",
+                    )
                     _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path=_path)
                     return output
 
@@ -4287,6 +4468,12 @@ class EinsteinExecutionMixin:
                     if variable_defid:
                         self._clause_set_output(variable_defid, output)
                     self._einstein_call_scalar = getattr(self, "_einstein_call_scalar", 0) + 1
+                    self._vectorize_debug_log(
+                        "call-scalar-fallback",
+                        lowered,
+                        variable_decl,
+                        axes=_vectorize_axes_scalar_vs_vector(lowered, scalar_loop_indices),
+                    )
                     _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="call-scalar")
                     return output
 
@@ -4319,6 +4506,12 @@ class EinsteinExecutionMixin:
                     _path = getattr(self, "_last_reduction_fast_path", None) or "vectorized"
                     if hasattr(self, "_last_reduction_fast_path"):
                         delattr(self, "_last_reduction_fast_path")
+                    self._vectorize_debug_log(
+                        f"elem-call:{_path}",
+                        lowered,
+                        variable_decl,
+                        axes=f"vectorized=elem_broadcast fast={_path}",
+                    )
                     _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path=_path)
                     return output
 
@@ -4477,5 +4670,11 @@ class EinsteinExecutionMixin:
         if variable_defid:
             self._clause_set_output(variable_defid, output)
         self._einstein_scalar = getattr(self, "_einstein_scalar", 0) + 1
+        self._vectorize_debug_log(
+            "scalar",
+            lowered,
+            variable_decl,
+            axes="scalar=all_loop_axes_nested_loops",
+        )
         _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="scalar")
         return output

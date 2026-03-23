@@ -1,0 +1,24 @@
+// Recurrence timestep + (i,j); source uses braces `{ … }` but a single expression often lowers to
+// a non-block IR. Broadcast binding for block bodies is the default; `[recurrence-block] broadcast-binding`
+// prints with `--vectorize-recurrence-block`, `--profile-verbose`, or `--debug-vectorize-detail` (verbose vectorize).
+// True multi-let blocks stay BlockExpressionIR; use `EINLANG_VECTORIZE_RECURRENCE_BLOCK=0` and
+// `--debug-recurrence-block` to run the scalar non-recurrence path and see `scalar-loop` for those.
+//
+// Confirm strategy: `EINLANG_VECTORIZE_RECURRENCE_BLOCK=0` and `--debug-recurrence-block` → `scalar-loop … step=…`;
+// default or explicit broadcast + verbose vectorize → `broadcast-binding … step=…` (once per timestep).
+// `[vectorize] detail` still reflects lowered Einstein clauses only, not this choice.
+//
+// Scalar path + log:
+//   EINLANG_VECTORIZE_RECURRENCE_BLOCK=0 PYTHONPATH=src python3 -m einlang examples/profile_vectorize_block/main.ein --debug-recurrence-block
+//
+// Broadcast path + log:
+//   PYTHONPATH=src python3 -m einlang examples/profile_vectorize_block/main.ein --vectorize-recurrence-block
+//   (same recurrence-block env: PYTHONPATH=src python3 -m einlang examples/profile_vectorize_block/main.ein --profile-verbose)
+
+let N = 64;
+let A[0, i in 0..N, j in 0..N] = 0.0;
+let A[t in 1..4, i in 0..N, j in 0..N] = {
+    A[t - 1, i, j] + 1.0
+};
+
+print(A[3, 0, 0]);

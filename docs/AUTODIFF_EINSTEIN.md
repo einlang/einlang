@@ -2,6 +2,8 @@
 
 **Status:** Standalone math specification for differentiating tensor expressions in Einstein notation. Reference for [AUTODIFF_ALGORITHM.md](AUTODIFF_ALGORITHM.md) and the implementation in `passes/autodiff.py` (`_diff_einstein_wrt`).
 
+**Overview (why Einlang’s autodiff):** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md)
+
 ---
 
 ## 1. Einstein notation and sum-of-products
@@ -185,6 +187,7 @@ This yields an Einstein-style expression (same IR shape) for \partial Y / \parti
 
 ## 7. References
 
+- [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md) — narrative overview of Einlang’s autodiff (compiler pass, Einstein, `@fn`).
 - Standard multivariable calculus: partial derivative of a sum = sum of partials; derivative of a product uses the product rule.
 - Kronecker delta: \delta_{ab} = 1 if a=b, else 0; for index tuples, \delta_{R,J} = 1 iff R = J element-wise.
 - [AUTODIFF_ALGORITHM.md](AUTODIFF_ALGORITHM.md) for the overall pass and quotient semantics; [AUTODIFF_OPS.md](AUTODIFF_OPS.md) for scalar/binary rules.

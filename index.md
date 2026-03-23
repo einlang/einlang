@@ -96,7 +96,7 @@ let dz_dx = @z / @x;   // 2.0
 let dz_dy = @z / @y;   // 1.0
 ```
 
-See [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) and [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein).
+See [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), and [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein).
 
 ### More
 

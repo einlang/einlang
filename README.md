@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/einlang/einlang/actions/workflows/tests.yml/badge.svg)](https://github.com/einlang/einlang/actions/workflows/tests.yml)
 
-**Tensor code is either readable or safe—usually neither.** Einlang is both: write math the way it looks on the page—Einstein notation, sums, indices—and get shape errors at compile time instead of at 3am. **Math-intuitive:** the code reads like the equation.
+**Tensor code is either readable or safe—usually neither.** Einlang is both: write math the way it looks on the page—Einstein notation, sums, indices—and get shape errors at compile time instead of at 3am. **Math-intuitive:** the code reads like the equation. **Built-in autodiff:** write `@loss / @w` (and `@expr` differentials); the compiler derives gradients and derivative tensors—no hand-written backprop or separate AD library.
 
 ```rust
 let A = [[1, 2], [3, 4]];
@@ -83,7 +83,7 @@ Einlang gives you readable tensor math with compile-time shape checking. In prac
 | **Where clauses** | Index algebra (`where ih = oh + kh`) and guards (`where data[i] > 0`) next to the math |
 | **Recurrences** | `let fib[0]=0; let fib[1]=1; let fib[n in 2..20]=fib[n-1]+fib[n-2]` — range in bracket; compiler handles order |
 | **Reductions** | `sum[i](x[i])`, `max[j](M[i,j])`, `sum[i,j](A[i,j]*A[i,j])` with inferred ranges |
-| **Autodiff** | **Built-in automatic differentiation** — get derivatives and gradients from `@expr` and `@a / @b`; the compiler derives them via the chain rule (no hand-written gradient code). [Autodiff docs](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
+| **Autodiff** | **Built-in automatic differentiation** — get derivatives and gradients from `@expr` and `@a / @b`; the compiler derives them via the chain rule (no hand-written gradient code). [Autodiff highlights](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [Autodiff design](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
 | **Stdlib** | `use std::math::{sin, sqrt};` · 300+ functions · [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [Stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) |
 | **Real models** | [MNIST CNN](https://github.com/einlang/einlang/blob/main/examples/mnist/main.ein), [quantized (int8)](https://github.com/einlang/einlang/blob/main/examples/mnist_quantized/main.ein), [ViT](https://github.com/einlang/einlang/tree/main/examples/deit_tiny), [Whisper](https://github.com/einlang/einlang/blob/main/examples/whisper_tiny) — same language, same checks |
 
@@ -153,7 +153,7 @@ Every simulation example has a Julia equivalent in the `.ein` file and is [accur
 **[Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md)** — one-page story to first example and Python API.  
 Canonical: [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) · Install & run above. Design: [docs/DOCUMENTATION_DESIGN.md](https://github.com/einlang/einlang/blob/main/docs/DOCUMENTATION_DESIGN.md).
 
-**Roadmap:** NumPy backend (now) → MLIR via Python (next) → native/GPU. Einstein notation, where-clauses, recurrences, 300+ stdlib functions, and type and shape inference are in place.
+**Roadmap:** NumPy backend (now) → MLIR via Python (next) → native/GPU. Einstein notation, where-clauses, recurrences, 300+ stdlib functions, and type and shape inference are in place. **Detailed roadmap:** [docs/ROADMAP.md](https://github.com/einlang/einlang/blob/main/docs/ROADMAP.md) (e.g. nested step + `W_step[i,j]` for per-step `print` and clearer training loops).
 
 ---
 

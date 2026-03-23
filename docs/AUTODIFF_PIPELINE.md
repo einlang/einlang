@@ -2,7 +2,11 @@
 
 **Status:** Design. Defines where the autodiff pass sits, what it assumes, what it guarantees, and how it interacts with other passes. No ad-hoc workarounds; every contract is explicit.
 
-**References:** [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md), [AUTODIFF_OPS.md](AUTODIFF_OPS.md), [AUTODIFF_ALGORITHM.md](AUTODIFF_ALGORITHM.md).
+**Overview (why Einlang’s autodiff):** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md)
+
+**References:** [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md), [AUTODIFF_OPS.md](AUTODIFF_OPS.md), [AUTODIFF_ALGORITHM.md](AUTODIFF_ALGORITHM.md), [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md).
+
+**Current compiler order:** In `src/einlang/compiler/driver.py`, `AutodiffPass` is registered **before** `EinsteinLoweringPass` (differentiation on high-level `EinsteinIR`). Sections below that describe a different ordering are design alternatives; verify against the driver when in doubt.
 
 ---
 

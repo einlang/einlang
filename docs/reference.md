@@ -570,7 +570,7 @@ See [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.
 
 ## Automatic differentiation
 
-The compiler supports **built-in automatic differentiation**: you get derivatives and gradients of program values without writing any gradient code by hand. Use `@expr` for differentials and `@a / @b` for numeric derivatives; the compiler applies the chain rule for you.
+The compiler supports **built-in automatic differentiation**: you get derivatives and gradients of program values without writing any gradient code by hand. Use `@expr` for differentials and `@a / @b` for numeric derivatives; the compiler applies the chain rule for you. For a narrative overview of how this fits the compiler (pass-based AD, `@fn`, Einstein, guardrails), see [AUTODIFF_HIGHLIGHTS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md).
 
 - **`@expr`** — the **differential** of an expression (e.g. `@z`, `@x`). Differentials are symbolic; they have no numeric value until used in a quotient.
 - **`@a / @b`** — the **derivative** (numeric quotient): derivative of the quantity `@a` refers to with respect to the quantity `@b` refers to. This expression has a numeric value and can be printed or used in further computation.
@@ -589,7 +589,7 @@ print(dz_dx);
 print(dz_dy);
 ```
 
-The compiler derives gradients via the chain rule. Supported operations and rules are documented in [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Design and pipeline: [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) (`autodiff_small.ein`, `autodiff_matmul.ein`, `autodiff_chain.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein`).
+The compiler derives gradients via the chain rule. Supported operations and rules are documented in [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Overview: [AUTODIFF_HIGHLIGHTS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md). Design and pipeline: [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) (`autodiff_small.ein`, `autodiff_matmul.ein`, `autodiff_chain.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein`).
 
 ---
 

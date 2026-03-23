@@ -2,6 +2,8 @@
 
 **Status:** Implementation blueprint. Builds on [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md) and [AUTODIFF_OPS.md](AUTODIFF_OPS.md). For a formal step-by-step algorithm, see [AUTODIFF_ALGORITHM.md](AUTODIFF_ALGORITHM.md).
 
+**Overview (why Einlang’s autodiff):** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md)
+
 This document specifies how to implement the `@expr` (differential) and `df / dx` (derivative quotient) semantics in the compiler and runtime. The presentation is **math-oriented**: differentials (d·), chain rule, and derivative quotients—not ML terms like “gradient” or “VJP.”
 
 ---
@@ -213,4 +215,4 @@ This implementation design is intended to be followed step-by-step; each step ca
 | **Autodiff pass** | `src/einlang/passes/autodiff.py` |
 | Pass registration | `src/einlang/compiler/driver.py` |
 | NumPy backend | `src/einlang/backends/numpy_core.py` |
-| Design / ops reference | `docs/AUTODIFF_DESIGN.md`, `docs/AUTODIFF_OPS.md` |
+| Design / ops reference | `docs/AUTODIFF_HIGHLIGHTS.md`, `docs/AUTODIFF_DESIGN.md`, `docs/AUTODIFF_OPS.md` |

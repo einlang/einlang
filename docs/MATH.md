@@ -61,11 +61,13 @@ Base cases and recursive case in one place; the compiler handles evaluation orde
 
 ## Derivatives and autodiff
 
+**Overview:** [AUTODIFF_HIGHLIGHTS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md)
+
 
 | In math                       | In Einlang                                                  | Reference                                                                                                                                                                               |
 | ----------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ∂z/∂x, gradient of z w.r.t. x | `let dz_dx = @z / @x;`                                      | [Automatic differentiation](reference.md#automatic-differentiation)                                                                                                                     |
-| Chain rule (compiler-derived) | Write `z = f(x)`; use `@z / @x` — no hand-written gradients | [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein) |
+| Chain rule (compiler-derived) | Write `z = f(x)`; use `@z / @x` — no hand-written gradients | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein) |
 
 
 The compiler supports **built-in automatic differentiation**: derivatives and gradients from `@expr` and `@a / @b`.
@@ -140,6 +142,6 @@ In Einlang, **stdlib functions** (e.g. `std::math::sqrt`, `std::ml::relu`) are d
 
 - **Full syntax and semantics:** [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md)
 - **Math and other functions:** [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) — `std::math`, `std::ml`
-- **Autodiff:** [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein)
+- **Autodiff:** [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein)
 - **Run an example:** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) · [Examples by domain](https://github.com/einlang/einlang/blob/main/examples/README.md) · [README#examples](https://github.com/einlang/einlang/blob/main/README.md#examples)
 

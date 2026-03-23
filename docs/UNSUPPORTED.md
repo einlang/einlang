@@ -129,7 +129,7 @@ This page lists **syntax and features that Einlang intentionally does not suppor
 
 **Supported:** The compiler supports automatic differentiation. Use `@expr` to refer to the differential of an expression and `@a / @b` to compute the derivative (numeric quotient). The compiler derives gradients via the chain rule; no hand-written gradient code required for supported ops.
 
-**Docs and examples:** [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Examples: [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein). Language reference: [Automatic differentiation](reference.md#automatic-differentiation).
+**Docs and examples:** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Examples: [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein). Language reference: [Automatic differentiation](reference.md#automatic-differentiation).
 
 **You can still** use explicit gradients (e.g. [numerics::optim](https://github.com/einlang/einlang/blob/main/docs/stdlib.md), [optimization_suite.ein](https://github.com/einlang/einlang/blob/main/examples/optimization/optimization_suite.ein)) when you prefer or when autodiff does not yet cover an op.
 
@@ -151,7 +151,7 @@ This page lists **syntax and features that Einlang intentionally does not suppor
 | LHS index expression (e.g. `t+1`) | Name or literal in bracket; refer to prior step in body (e.g. `seq[t-1]`) | [Recurrence relations](reference.md#recurrence-relations) |
 | Forward ref / future value (e.g. `h[t+1,i,j]`, `h[t,i+1,j]` when defining `h[t,i,j]`) | Backward ref only in every dim (e.g. `h[t-1,i,j]`, `h[t,i-1,j]`, `h[t,i,j-1]`) | [Recurrence relations](reference.md#recurrence-relations) |
 | Mutable bindings | New `let`; recurrences for sequences | [let](reference.md#let-declarations), [Recurrences](reference.md#recurrence-relations) |
-| ~~Automatic differentiation~~ | **Supported:** `@expr`, `@a / @b` — see [AUTODIFF_DESIGN](AUTODIFF_DESIGN.md), [reference](reference.md#automatic-differentiation), [autodiff examples](https://github.com/einlang/einlang/tree/main/examples) |
+| ~~Automatic differentiation~~ | **Supported:** `@expr`, `@a / @b` — see [AUTODIFF_HIGHLIGHTS](AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](AUTODIFF_DESIGN.md), [reference](reference.md#automatic-differentiation), [autodiff examples](https://github.com/einlang/einlang/tree/main/examples) |
 
 ---
 

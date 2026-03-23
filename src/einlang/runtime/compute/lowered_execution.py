@@ -381,6 +381,7 @@ def execute_reduction_with_loops(
     initial_context: Optional[Dict[DefId, Any]] = None,
     profile_callback: Optional[Callable[[str], None]] = None,
     parallel_shape: Optional[Tuple[int, ...]] = None,
+    vector_parallel_context: Optional[Dict[Any, Any]] = None,
 ) -> Any:
     """
     Execute reduction operation using nested loops with accumulators.
@@ -405,6 +406,10 @@ def execute_reduction_with_loops(
     """
     if initial_context is None:
         initial_context = {}
+    if vector_parallel_context is None:
+        vector_parallel_context = {}
+    merged_for_vector = dict(initial_context)
+    merged_for_vector.update(vector_parallel_context)
 
     # Convert reduction_ranges to list of loops
     reduction_loops = list(reduction_ranges.values())
@@ -417,7 +422,7 @@ def execute_reduction_with_loops(
             body_evaluator,
             expr_evaluator,
             parallel_shape=parallel_shape,
-            initial_context=initial_context,
+            initial_context=merged_for_vector,
         )
         if ok and vec_result is not None:
             if profile_callback is not None:

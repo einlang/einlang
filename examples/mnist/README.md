@@ -26,18 +26,28 @@ Achieves 10/10 on the bundled PGM samples.
 
 | File | Description |
 |------|-------------|
-| `main.ein` | Model definition and inference loop |
+| `main.ein` | CNN inference — consumes pre-trained weights |
+| `train.ein` | Linear model training — autodiff + recurrence |
 | `pgm_io.py` | PGM image loader (called via `python::pgm_io::load`) |
+| `data_loader.py` | Training data loader (called via `python::data_loader::*`) |
 | `samples/*.pgm` | 28x28 grayscale images of digits 0-9 |
 | `weights/` | Pre-trained NumPy weight files (conv1, conv2, fc) |
 
 ## Usage
 
+Inference (CNN with pre-trained weights):
+
 ```bash
 python3 -m einlang examples/mnist/main.ein
 ```
 
-To run on a single digit:
+Training (linear model with autodiff):
+
+```bash
+python3 -m einlang examples/mnist/train.ein
+```
+
+To run inference on a single digit:
 
 ```bash
 EINLANG_MNIST_INPUT=samples/7.pgm python3 -m einlang examples/mnist/main.ein
@@ -45,6 +55,8 @@ EINLANG_MNIST_INPUT=samples/7.pgm python3 -m einlang examples/mnist/main.ein
 
 ## How it works
 
-Weights are loaded from `.npy` files and sample images from PGM files using Python interop. The `infer` function runs a forward pass through two convolutional layers with ReLU and max-pooling, then a fully-connected layer, returning the predicted digit via `argmax`. The demo classifies all ten bundled samples and asserts the predictions match.
+**`main.ein`** — Weights are loaded from `.npy` files and sample images from PGM files using Python interop. The `infer` function runs a forward pass through two convolutional layers with ReLU and max-pooling, then a fully-connected layer, returning the predicted digit via `argmax`. The demo classifies all ten bundled samples and asserts the predictions match.
+
+**`train.ein`** — Trains a single-layer linear model from scratch using autodiff (`@`) and recurrence (multi-clause Einstein with temporal dependency). Gradient descent runs for 15 steps over the 10 sample digits, achieving 10/10 accuracy.
 
 Once you're comfortable with this, [mnist_quantized/](https://github.com/einlang/einlang/tree/main/examples/mnist_quantized) takes the exact same network and shows how to run it with int8 weights.

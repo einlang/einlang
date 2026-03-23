@@ -176,7 +176,7 @@ If hybrid fails (e.g. iteration limit), the clause can still use **full vectoriz
 ## 8. Environment and profiling
 
 - **Loop limit**: Max iterations for hybrid, call-scalar, and scalar loops is `DEFAULT_EINSTEIN_LOOP_MAX` in `einlang.utils.config` (5000). No env override. When exceeded, the backend **raises** immediately (fail-fast). To allow longer recurrences, change the constant in config.
-- **EINLANG_DEBUG_VECTORIZE**: When set (e.g. `1`), backend prints per-clause path (vectorized / hybrid / scalar / call-scalar) and a one-line summary of clause counts.
+- **EINLANG_DEBUG_VECTORIZE**: When set to `1` / `true` / `yes`, backend prints a one-line **summary** of clause counts (`vectorized`, `scalar`, `hybrid`, `call-scalar`). Values `verbose`, `2`, `all`, or `detail` also emit **`[vectorize] detail …`** lines per clause: each line includes the **path name**, **source line**, **binding name**, **`loops=`** (comma-separated Einstein loop index names in order), and **`|`** an **axes** note (`scalar_axes=…` / `vector_axes=…` for call-scalar hybrids, `recurrence_hybrid`, `vectorized=all_loop_axes`, etc.).
 - **EINLANG_PROFILE_STATEMENTS**: Enables per-statement / per-clause timing in profile output.
 - **EINLANG_CHUNK_ELEMENTS**: If > 0, full vectorize may run in chunks along the first dimension to limit memory.
 
