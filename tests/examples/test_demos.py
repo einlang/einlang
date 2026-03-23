@@ -120,6 +120,49 @@ class TestDemos:
                 return
             pytest.fail(f"{demo_name} exception: {e}")
 
+    def test_tiny_train(self):
+        """Run examples/tiny_train/main.ein: verify predictions length and all reductions vectorized."""
+        project_root = Path(__file__).parent.parent.parent
+        train_dir = project_root / "examples" / "tiny_train"
+        main_ein = train_dir / "main.ein"
+
+        result = subprocess.run(
+            [sys.executable, "-m", "einlang", str(main_ein), "--profile-reductions"],
+            capture_output=True, text=True, cwd=train_dir,
+            env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
+            timeout=120,
+        )
+        assert result.returncode == 0, result.stderr or result.stdout
+        full_output = result.stdout.strip()
+        lines = full_output.split("\n")
+        pred_line = [l for l in lines if not l.startswith("[reduction]")][-1]
+        preds = eval(pred_line)
+        assert len(preds) == 32, f"expected 32 predictions, got {len(preds)}"
+        reduction_lines = [l for l in lines if l.startswith("[reduction]")]
+        scalar = [l for l in reduction_lines if "scalar" in l]
+        assert not scalar, f"expected all reductions vectorized, got scalar: {scalar}"
+
+    def test_mnist_train(self):
+        """Run examples/mnist_train/main.ein: verify 10/10 accuracy and all reductions vectorized."""
+        project_root = Path(__file__).parent.parent.parent
+        train_dir = project_root / "examples" / "mnist_train"
+        main_ein = train_dir / "main.ein"
+
+        result = subprocess.run(
+            [sys.executable, "-m", "einlang", str(main_ein), "--profile-reductions"],
+            capture_output=True, text=True, cwd=train_dir,
+            env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
+            timeout=300,
+        )
+        assert result.returncode == 0, result.stderr or result.stdout
+        full_output = result.stdout.strip()
+        lines = full_output.split("\n")
+        pred_line = [l for l in lines if not l.startswith("[reduction]")][-1]
+        assert pred_line == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]", f"unexpected predictions: {pred_line!r}"
+        reduction_lines = [l for l in lines if l.startswith("[reduction]")]
+        scalar = [l for l in reduction_lines if "scalar" in l]
+        assert not scalar, f"expected all reductions vectorized, got scalar: {scalar}"
+
     def test_mnist(self):
         """Run examples/mnist/main.ein and verify 10/10 digit predictions."""
         project_root = Path(__file__).parent.parent.parent

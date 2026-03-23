@@ -1,6 +1,7 @@
 // MNIST handwritten digit recognition.
 // Architecture: Conv(5x5,pad=2) -> ReLU -> MaxPool(2x2) -> Conv(5x5,pad=2) -> ReLU -> MaxPool(3x3) -> FC
 // Achieves 10/10 on the bundled PGM samples.
+// Profile (cwd = examples/mnist): PYTHONPATH=../../src python3 -m einlang main.ein --profile-verbose
 
 use std::ml::{conv, relu, max_pool};
 use std::array::argmax;

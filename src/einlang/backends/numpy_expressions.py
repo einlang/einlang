@@ -1366,12 +1366,21 @@ class ExpressionVisitorMixin:
                 else:
                     out[loop_defid] = val
             return out
+
         def body_ev(ctx):
             _ctx = _remap_ctx_to_body_defids(ctx)
-            for defid, val in _ctx.items():
+            saved: Dict[Any, Any] = {}
+            for defid in _ctx:
                 if defid is not None:
+                    saved[defid] = self.env.get_value(defid)
+            try:
+                for defid, val in _ctx.items():
+                    if defid is not None:
+                        self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
+                return expr.body.accept(self)
+            finally:
+                for defid, val in saved.items():
                     self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
-            return expr.body.accept(self)
         def guard_ev(ctx):
             if not expr.guards:
                 return True
@@ -1388,13 +1397,27 @@ class ExpressionVisitorMixin:
         # that case — rebuilding would create arrays with wrong dimensionality (parallel-only ndim)
         # that clobber the correct env values when body_ev sets them.
         initial_ctx = getattr(self, "_reduction_initial_context", None) or {}
+        vector_parallel_ctx: Dict[Any, Any] = {}
         if (not initial_ctx) and parallel_shape:
             order_defids = getattr(self, "_vectorize_parallel_defids_order", None)
             if order_defids is not None and len(order_defids) == len(parallel_shape):
-                pass
+                n_red_ix = len(expr.reduction_ranges or {})
+                if n_red_ix >= 1:
+                    for idx, did in enumerate(order_defids):
+                        if did is None:
+                            continue
+                        cur = self.env.get_value(did)
+                        if not isinstance(cur, np.ndarray):
+                            continue
+                        sz = int(parallel_shape[idx])
+                        flat = np.asarray(cur, dtype=np.intp).reshape(-1)
+                        start = int(flat[0]) if flat.size else 0
+                        shape_pv = [1] * (len(parallel_shape) + n_red_ix)
+                        shape_pv[idx] = sz
+                        arr = np.arange(start, start + sz, dtype=np.intp).reshape(shape_pv)
+                        vector_parallel_ctx[did] = arr
             else:
                 try:
-                    from ..ir.nodes import RectangularAccessIR
                     reduction_body_defids = set(_loop_to_body_defid.values()) | set(_loop_to_body_defid.keys())
                     if isinstance(expr.body, RectangularAccessIR):
                         par_defids: List[Any] = []
@@ -1441,8 +1464,10 @@ class ExpressionVisitorMixin:
                     full_shape = par_shape + expected_shape
                     ctx: Dict[Any, Any] = {}
                     # Parallel indices (e.g. b) → broadcast to full shape
-                    if initial_ctx:
-                        for did, val in initial_ctx.items():
+                    _par_idx = dict(initial_ctx)
+                    _par_idx.update(vector_parallel_ctx)
+                    if _par_idx:
+                        for did, val in _par_idx.items():
                             if did is None:
                                 continue
                             v = np.asarray(val, dtype=np.intp)
@@ -1516,6 +1541,7 @@ class ExpressionVisitorMixin:
             initial_context=initial_ctx,
             profile_callback=reduction_profile if profile_reductions else None,
             parallel_shape=parallel_shape,
+            vector_parallel_context=vector_parallel_ctx,
         )
 
     def visit_lowered_reduction(self, expr: LoweredReductionIR) -> Any:

@@ -9,6 +9,7 @@
 - **Math on the page** — Write what you’d write on a whiteboard. Indices, sums, where-clauses, and derivatives are **syntax**, not string APIs or callback libraries. If it type-checks, the shapes are correct.
 - **One language for simulation and ML** — ODEs, PDEs, recurrences, gradient descent, calibration, and neural nets use the same notation and the same compiler. No switching between “numerical” and “differentiable” dialects.
 - **Gradients without gradient code** — `@loss / @w` is the gradient. The compiler derives it; you never write backprop or VJPs by hand. Same mechanism for training, sensitivity analysis, and adjoints.
+- **Autodiff as syntax, not a library** — You do not import an AD package or build a tape. `@` and `/` in `@f / @x` are parsed and lowered like any other operator; the autodiff pass is part of the same compiler that does shapes and Einstein lowering.
 - **No stringly-typed einsum** — No `einsum('ik,kj->ij', A, B)`. Indices are first-class; the compiler infers ranges from shapes and catches rank and dimension errors at compile time.
 
 ---
@@ -20,7 +21,7 @@
 | **Einstein notation as syntax** | `let C[i, j] = sum[k](A[i, k] * B[k, j]);` — indices and shapes checked at compile time. Wrong dimensions → compile error, not a runtime crash. |
 | **Where clauses** | Index algebra (`ih = oh + kh`), guards (`where data[i] > 0`), and bindings live next to the computation. Convolutions, stencils, and masks read like the math. |
 | **Recurrences as declarations** | Base cases + recursive rule; range in the bracket; compiler handles evaluation order. RNNs, dynamic programming, and time stepping without manual loop wiring. |
-| **Built-in autodiff** | `@z / @x` is the derivative. One primitive (`@`), one quotient form. No tapes, no dual types, no separate AD library. The compiler expands to forward diff and fills gradient slots. |
+| **Built-in autodiff** | `@z / @x` is the derivative; `@z` is the differential. One primitive family, quotient form for partials, `print(@y)` for debug. **No tapes, no dual numbers, no `grad(f)(x)` API** — the compiler emits IR you could not reasonably write by hand for large models, then executes it on the same NumPy backend as the primal. |
 | **Same shapes for gradients** | Gradient w.r.t. a variable has the same shape as that variable. No surprise reshapes or “grad has wrong size” at runtime. |
 | **300+ stdlib functions** | `use std::math::{sin, sqrt, exp};` — same language, same shape checking. No ad-hoc FFI for basic math. |
 | **Real models in one language** | MNIST CNN, quantized (int8) CNN, ViT, Whisper — same syntax, same checks. Simulation examples are [accuracy-tested against Julia](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md). |
@@ -54,4 +55,4 @@ pip install -e .
 python3 -m einlang examples/hello.ein
 ```
 
-**Next:** [Getting started](GETTING_STARTED.md) · [Autodiff design](AUTODIFF_DESIGN.md) · [Examples](https://github.com/einlang/einlang/tree/main/examples)
+**Next:** [Getting started](GETTING_STARTED.md) · [Autodiff highlights](AUTODIFF_HIGHLIGHTS.md) · [Autodiff design](AUTODIFF_DESIGN.md) · [Examples](https://github.com/einlang/einlang/tree/main/examples)

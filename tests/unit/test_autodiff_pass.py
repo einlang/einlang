@@ -206,6 +206,36 @@ let result = {
         actual = _scalar_float(outputs, "result")
         assert actual == 6.0, "expected d(x^2)/dx = 2*x = 6 at x=3 in block scope, got %s" % actual
 
+    def test_quotient_tensor_slice_alias_in_einstein_clause(self):
+        """@loss/@w when w = W[i,j] and loss uses sum[a](… W[a,j] …): ∂loss/∂w is nonzero (slice aliases storage)."""
+        compiler = CompilerDriver()
+        source = """
+let W = [[0.0]];
+let x = [2.0];
+let y0 = 3.0;
+let G[i in 0..1] = {
+    let logit = sum[a in 0..1](x[a] * W[a, 0]);
+    let loss_b = (logit - y0) ** 2.0;
+    let w_ij = W[i, 0];
+    @loss_b / @w_ij
+};
+"""
+        result = compiler.compile(source.strip(), source_file="<test>")
+        assert result.success, result.get_errors() or "compile failed"
+        from einlang.runtime.runtime import EinlangRuntime
+
+        runtime = EinlangRuntime(backend="numpy")
+        exec_result = runtime.execute(result)
+        assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
+        outputs = getattr(exec_result, "outputs", {}) or {}
+        g0 = outputs.get("G")
+        assert g0 is not None, "expected G output, got %s" % list(outputs.keys())
+        import numpy as np
+
+        arr = np.asarray(g0)
+        assert arr.shape == (1,), "expected G shape (1,), got %s" % (arr.shape,)
+        assert abs(float(arr[0]) - (-12.0)) < 1e-5, "expected d(loss)/dW[0,0] = 2*(0-3)*2 = -12, got %s" % arr[0]
+
     def test_einstein_quotient_compiles_and_runs(self):
         """@C/@A when C is Einstein sum: autodiff expands to ∂C/∂A Einstein; compile and run; assert dC_dA shape."""
         compiler = CompilerDriver()

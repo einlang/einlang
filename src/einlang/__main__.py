@@ -30,11 +30,44 @@ def main() -> int:
     parser.add_argument("--stdlib", type=Path, default=None, metavar="DIR", help="Stdlib root (default: search up from --root). EINLANG_STDLIB env overrides if set.")
     parser.add_argument("--profile-lines", type=int, default=0, metavar="N", help="Profile by source line buckets (e.g. 10 for L0-L10, L10-L20, ...)")
     parser.add_argument("--profile-statements", action="store_true", help="Profile each top-level statement separately (reset buckets per statement)")
-    parser.add_argument("--debug-vectorize", action="store_true", help="Print [vectorized] or [scalar] per Einstein clause")
+    parser.add_argument(
+        "--debug-vectorize",
+        action="store_true",
+        help="Print Einstein vectorization summary (counts). Per-clause lines: EINLANG_DEBUG_VECTORIZE=verbose or --debug-vectorize-detail",
+    )
+    parser.add_argument(
+        "--debug-vectorize-detail",
+        action="store_true",
+        help="Like --debug-vectorize plus [vectorize] detail lines per clause (sets EINLANG_DEBUG_VECTORIZE=verbose)",
+    )
+    parser.add_argument(
+        "--vectorize-recurrence-block",
+        action="store_true",
+        help="Recurrence-block broadcast binding is the default; sets EINLANG_VECTORIZE_RECURRENCE_BLOCK=1 (overrides prior 0). Prints [recurrence-block] broadcast-binding when EINLANG_DEBUG_VECTORIZE=verbose; also sets EINLANG_DEBUG_VECTORIZE=verbose when unset.",
+    )
+    parser.add_argument(
+        "--debug-recurrence-block",
+        action="store_true",
+        help="Print [recurrence-block] scalar-loop … when block recurrence uses scalar (i,j) iteration (EINLANG_DEBUG_RECURRENCE_BLOCK=1)",
+    )
     parser.add_argument("--profile-functions", action="store_true", help="Print runtime per Einlang function (e.g. encode, encoder_block)")
     parser.add_argument("--profile-blocks", action="store_true", help="Print runtime per block expression (e.g. LSTM gate body)")
     parser.add_argument("--profile-reductions", action="store_true", help="Print reduction path per sum/max/min: matmul, vectorized, or scalar (with source line)")
-    parser.add_argument("--profile-verbose", action="store_true", help="Enable all profile/debug: statements, functions, blocks, reductions, vectorize summary (verbose log)")
+    parser.add_argument(
+        "--profile-verbose",
+        action="store_true",
+        help="All runtime profile/debug: statements, functions, blocks, reductions, line buckets (20 unless --profile-lines), Einstein vectorize summary + per-clause [vectorize] detail ([recurrence-block] broadcast-binding when applicable)",
+    )
+    parser.add_argument(
+        "--profile-all",
+        action="store_true",
+        help="Same as --profile-verbose plus compile-time EINLANG_DUMP_FINAL_IR (writes ir_dump/final_ir.sexpr in cwd)",
+    )
+    parser.add_argument(
+        "--debug-all",
+        action="store_true",
+        help="All runtime debug logs: same env as --profile-verbose plus EINLANG_DEBUG_RECURRENCE_BLOCK=1 (no IR file dumps; use --profile-all for EINLANG_DUMP_FINAL_IR)",
+    )
     parser.add_argument("--cprofile", action="store_true", help="Run execution under cProfile and print stats")
     parser.add_argument("--cprofile-out", type=Path, default=None, metavar="FILE", help="Write cProfile stats to FILE (for snakeviz, etc.)")
     parser.add_argument("--dump-ir", type=Path, default=None, metavar="FILE", help="After compile, dump IR S-expr to FILE (default: <source_dir>/ir_dump.sexpr)")
@@ -48,18 +81,50 @@ def main() -> int:
         os.environ["EINLANG_PROFILE_FUNCTIONS"] = "1"
     if args.profile_reductions:
         os.environ["EINLANG_PROFILE_REDUCTIONS"] = "1"
-    if args.debug_vectorize:
+    if args.vectorize_recurrence_block:
+        os.environ["EINLANG_VECTORIZE_RECURRENCE_BLOCK"] = "1"
+    if args.debug_recurrence_block:
+        os.environ["EINLANG_DEBUG_RECURRENCE_BLOCK"] = "1"
+    if args.debug_vectorize_detail:
+        os.environ["EINLANG_DEBUG_VECTORIZE"] = "verbose"
+    elif args.debug_vectorize:
         os.environ["EINLANG_DEBUG_VECTORIZE"] = "1"
-    if args.profile_verbose:
+    if args.profile_all or args.profile_verbose:
         os.environ["EINLANG_PROFILE_STATEMENTS"] = "1"
         os.environ["EINLANG_PROFILE_FUNCTIONS"] = "1"
         os.environ["EINLANG_PROFILE_BLOCKS"] = "1"
         os.environ["EINLANG_PROFILE_REDUCTIONS"] = "1"
-        os.environ["EINLANG_DEBUG_VECTORIZE"] = "1"
+        os.environ["EINLANG_DEBUG_VECTORIZE"] = "verbose"
         if args.profile_lines == 0:
             os.environ["EINLANG_PROFILE_LINES"] = "20"
+    if args.profile_all:
+        os.environ["EINLANG_DUMP_FINAL_IR"] = "1"
+    if args.debug_all:
+        os.environ["EINLANG_PROFILE_STATEMENTS"] = "1"
+        os.environ["EINLANG_PROFILE_FUNCTIONS"] = "1"
+        os.environ["EINLANG_PROFILE_BLOCKS"] = "1"
+        os.environ["EINLANG_PROFILE_REDUCTIONS"] = "1"
+        os.environ["EINLANG_DEBUG_VECTORIZE"] = "verbose"
+        os.environ["EINLANG_DEBUG_RECURRENCE_BLOCK"] = "1"
+        if args.profile_lines == 0:
+            os.environ["EINLANG_PROFILE_LINES"] = "20"
+    if args.vectorize_recurrence_block and not (os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip()):
+        os.environ["EINLANG_DEBUG_VECTORIZE"] = "verbose"
 
-    if args.profile_functions or args.profile_statements or args.profile_blocks or args.profile_lines or args.profile_reductions or args.profile_verbose:
+    if (
+        args.profile_functions
+        or args.profile_statements
+        or args.profile_blocks
+        or args.profile_lines
+        or args.profile_reductions
+        or args.profile_verbose
+        or args.profile_all
+        or args.debug_all
+        or args.debug_vectorize
+        or args.debug_vectorize_detail
+        or args.vectorize_recurrence_block
+        or args.debug_recurrence_block
+    ):
         sys.stdout.flush()
         sys.stderr.flush()
 

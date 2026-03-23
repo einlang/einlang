@@ -1,5 +1,7 @@
 # ML operator derivatives in Einstein notation
 
+**Overview (why Einlang’s autodiff):** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md)
+
 This document expresses **∂y/∂x** (and, where relevant, ∂y/∂w, ∂y/∂b) for all ML operators using **Einstein/index notation**. It complements [AUTODIFF_OPS.md](AUTODIFF_OPS.md) and [AUTODIFF_EINSTEIN.md](AUTODIFF_EINSTEIN.md). All formulas are **output gradient w.r.t. inputs** (∂y/∂x), not loss gradients (∂L/∂x).
 
 **Notation:**

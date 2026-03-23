@@ -1,8 +1,10 @@
 # Autodiff Pass — Design Document
 
-> Canonical reference for the forward-mode automatic differentiation pass in
-> Einlang. Every algorithm described here maps 1-to-1 to the implementation
-> in `src/einlang/passes/autodiff.py`.
+> **Einlang’s autodiff is a compiler pass, not a library:** users write `@y` and `@y / @x`; the implementation in `src/einlang/passes/autodiff.py` rewrites the program into differentiable IR, then the NumPy backend runs primals and tangents like any other Einlang code.
+>
+> Canonical reference for the forward-mode automatic differentiation pass. Every algorithm described here maps 1-to-1 to that implementation.
+
+**Narrative overview (why Einlang’s autodiff):** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md)
 
 ---
 

@@ -35,7 +35,7 @@ def builtin_print(*args: Any) -> None:
     out = []
     for a in args:
         out.append(a.tolist() if hasattr(a, "tolist") else (list(a) if isinstance(a, (list, tuple)) else a))
-    print(*out)
+    print(*out, flush=True)
 
 def builtin_len(collection: Any) -> int:
     if hasattr(collection, "__len__"):

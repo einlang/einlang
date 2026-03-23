@@ -362,7 +362,8 @@ class CoreExecutionMixin:
                         for name, total in sorted(self._profile_fn_times.items(), key=lambda x: -x[1]):
                             if total > 0.01:
                                 print(f"  {name}: {total:.2f}", flush=True)
-                    if os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip().lower() in ("1", "true", "yes"):
+                    _dv = os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip().lower()
+                    if _dv in ("1", "true", "yes", "2", "verbose", "all", "detail"):
                         v = getattr(self, "_einstein_vectorized", 0)
                         s = getattr(self, "_einstein_scalar", 0)
                         h = getattr(self, "_einstein_hybrid", 0)
@@ -560,7 +561,8 @@ class CoreExecutionMixin:
                 size = self._profile_bucket_size
                 for lo in sorted(self._profile_buckets.keys()):
                     print(f"[profile] L{lo}-L{lo + size}: {self._profile_buckets[lo]:.2f}s", flush=True)
-            if os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip().lower() in ("1", "true", "yes"):
+            _dv = os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip().lower()
+            if _dv in ("1", "true", "yes", "2", "verbose", "all", "detail"):
                 v = getattr(self, "_einstein_vectorized", 0)
                 s = getattr(self, "_einstein_scalar", 0)
                 h = getattr(self, "_einstein_hybrid", 0)

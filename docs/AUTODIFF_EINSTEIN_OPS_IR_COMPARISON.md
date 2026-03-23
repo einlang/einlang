@@ -1,5 +1,7 @@
 # IR dumps vs Einstein notation (AUTODIFF_EINSTEIN_OPS.md)
 
+**Overview (why Einlang’s autodiff):** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md)
+
 This document compares the **autodiff-generated IR** (dumped per-op) to the **Einstein formulas** in [AUTODIFF_EINSTEIN_OPS.md](AUTODIFF_EINSTEIN_OPS.md). Use it to verify that the implementation matches the doc.
 
 **How to generate dumps:** Run `python3 -m pytest tests/unit/test_autodiff_pass.py::test_autodiff_ir_dump_all_ops -v`. This writes one S-expr file per op under `tests/unit/autodiff_ir_dumps/`:

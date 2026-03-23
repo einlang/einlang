@@ -1,6 +1,6 @@
 """Autodiff pass — expand ``@expr`` and ``@y/@x`` into plain IR.
 
-Design doc: ``docs/autodiff_design.md``
+Design: ``docs/AUTODIFF_DESIGN.md`` · overview: ``docs/AUTODIFF_HIGHLIGHTS.md``
 
 Forward mode propagates differentials (tangents).  For ``y = f(x₁, x₂, …)``
 we emit ``d(y) = Σᵢ (∂f/∂xᵢ) · d(xᵢ)`` in execution order.
@@ -1015,8 +1015,33 @@ def _autodiff_primal_data_defids(expr: Optional[ExpressionIR], B: Dict[DefId, An
     return out
 
 
+def _rectangular_read_root_defid(expr: Optional[ExpressionIR]) -> Optional[DefId]:
+    """If ``expr`` is (possibly nested) ``RectangularAccessIR`` ending in ``IdentifierIR``, return that array root's DefId."""
+    if expr is None:
+        return None
+    cur: ExpressionIR = expr
+    while isinstance(cur, RectangularAccessIR):
+        arr = cur.array
+        if isinstance(arr, IdentifierIR) and arr.defid is not None:
+            return arr.defid
+        cur = arr
+    return None
+
+
+def _binding_is_rect_slice_of_tensor(wrt: DefId, tensor_did: DefId, B: Dict[DefId, BindingIR]) -> bool:
+    """True if the binding for ``wrt`` is a rectangular read whose storage root is ``tensor_did``."""
+    wb = B.get(wrt)
+    if wb is None or wb.expr is None:
+        return False
+    return _rectangular_read_root_defid(wb.expr) == tensor_did
+
+
 def _jacobian_rhs_depends_on_wrt(expr: Optional[ExpressionIR], wrt: DefId, B: Dict[DefId, BindingIR]) -> bool:
-    """True if ``expr`` references ``wrt`` transitively through non-diff ``let`` bindings (surface DefIds + binding RHS closure)."""
+    """True if ``expr`` references ``wrt`` transitively through non-diff ``let`` bindings (surface DefIds + binding RHS closure).
+
+    Also true when ``wrt`` is a slice alias ``let w_ij = T[…]`` and ``expr`` depends on the same storage tensor ``T``
+    (e.g. ``logit_j = sum[a](… T[a, j] …)`` and ``w_ij = T[i, j]``).
+    """
     if expr is None:
         return False
     work = [d for d in _collect_defids(expr) if d is not None]
@@ -1032,7 +1057,14 @@ def _jacobian_rhs_depends_on_wrt(expr: Optional[ExpressionIR], wrt: DefId, B: Di
         for e in _collect_defids(b.expr):
             if e is not None and e not in closure:
                 work.append(e)
-    return wrt in closure
+    if wrt in closure:
+        return True
+    wb = B.get(wrt)
+    if wb is not None and wb.expr is not None:
+        root = _rectangular_read_root_defid(wb.expr)
+        if root is not None and root in closure:
+            return True
+    return False
 
 
 class _TargetCollector(_DefIdCollector):
@@ -1298,6 +1330,46 @@ def _alloc_wrt_gradient_axes(
     return out
 
 
+def _jacobian_rect_read_wrt_slice_binding(
+    read_indices: List[ExpressionIR],
+    wrt: DefId,
+    loc: SourceLocation,
+    B: Dict[DefId, BindingIR],
+    array_root: Optional[DefId] = None,
+) -> Optional[ExpressionIR]:
+    """∂(T[r₀,…])/∂w when ``let w = T[s₀,…]``: product of (rₖ == sₖ) indicators; ``None`` if not a rect slice."""
+    wb = B.get(wrt)
+    if wb is None or wb.expr is None:
+        return None
+    ex = wb.expr
+    if isinstance(ex, CastExpressionIR) and ex.expr is not None:
+        ex = ex.expr
+    if not isinstance(ex, RectangularAccessIR):
+        return None
+    root = _rectangular_read_root_defid(ex)
+    if root is None:
+        return None
+    if array_root is not None and root != array_root:
+        return None
+    slice_idxs: List[ExpressionIR] = []
+    cur: Optional[ExpressionIR] = ex
+    while isinstance(cur, RectangularAccessIR):
+        slice_idxs = list(cur.indices or []) + slice_idxs
+        cur = cur.array
+    read = list(read_indices)
+    if len(slice_idxs) != len(read):
+        return None
+
+    def chain(k: int) -> ExpressionIR:
+        if k >= len(read):
+            return _fl(1, loc)
+        eq = BinaryOpIR(BinaryOp.EQ, read[k], slice_idxs[k], loc, type_info=BOOL)
+        rest = chain(k + 1)
+        return IfExpressionIR(eq, rest, loc, else_expr=_z(loc), type_info=F32)
+
+    return chain(0)
+
+
 def _kronecker_delta_indices(
     accessed: List[ExpressionIR],
     wrt_axes: List[IndexVarIR],
@@ -1530,8 +1602,23 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
             b = self._B.get(n.defid)
             if b is not None and b.expr is not None:
                 if _is_diff_name(b.name or ""): return n
-                if not _jacobian_rhs_depends_on_wrt(b.expr, self._wrt, self._B):
+                w_b = self._B.get(self._wrt)
+                slice_root = (
+                    _rectangular_read_root_defid(w_b.expr)
+                    if w_b is not None and w_b.expr is not None
+                    else None
+                )
+                tensor_alias = slice_root is not None and slice_root == n.defid
+                if not tensor_alias and not _jacobian_rhs_depends_on_wrt(b.expr, self._wrt, self._B):
                     return _z(self._loc)
+                if _binding_is_rect_slice_of_tensor(self._wrt, n.defid, self._B):
+                    return IdentifierIR(
+                        n.name or "?",
+                        n.location or self._loc,
+                        n.defid,
+                        type_info=_ti(n),
+                        shape_info=_si(n),
+                    )
                 if (
                     isinstance(b.expr, EinsteinIR)
                     and n.defid != self._wrt
@@ -1608,6 +1695,16 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
         da = n.array.accept(self)
         if _is_zero(da):
             return _z(loc)
+        if (
+            isinstance(da, IdentifierIR)
+            and da.defid is not None
+            and self._wrt_axes is None
+        ):
+            sl = _jacobian_rect_read_wrt_slice_binding(
+                indices, self._wrt, loc, self._B, array_root=da.defid
+            )
+            if sl is not None:
+                return sl
         if isinstance(da, IdentifierIR) and da.defid == self._wrt and self._wrt_axes:
             if len(indices) != len(self._wrt_axes):
                 raise ValueError(
@@ -3333,8 +3430,14 @@ class _ExpansionVisitor(_Rewriter):
                 if ne is None:
                     raise ValueError("Autodiff: numerator has no defining expr")
                 cdn = dd in _collect_defids(ne)
-                rch = (isinstance(nop, IdentifierIR) and nop.defid is not None
-                       and _is_reachable(nop.defid, dd, self._SB))
+                rch = False
+                if isinstance(nop, IdentifierIR) and nop.defid is not None:
+                    rch = _is_reachable(nop.defid, dd, self._SB)
+                    if not rch:
+                        den_b = self._SB.get(dd)
+                        t_root = _rectangular_read_root_defid(den_b.expr) if den_b is not None and den_b.expr is not None else None
+                        if t_root is not None:
+                            rch = _is_reachable(nop.defid, t_root, self._SB)
                 if not cdn and not rch:
                     return _z(ql)
                 if isinstance(ne, FunctionCallIR) and _function_call_ir_label(ne) in (

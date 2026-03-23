@@ -1,6 +1,7 @@
 // Whisper-tiny — Speech-to-text transcription.
 // Architecture: 2×Conv1D encoder + 4 Encoder blocks + 4 Decoder blocks (autoregressive)
 // d_model=384, n_heads=6, mlp_ratio=4, encoder_seq=1500, max_decode=40
+// Weights: python3 download_weights.py (once). Profile: PYTHONPATH=../../src python3 -m einlang main.ein --profile-verbose
 
 use std::ml::{layer_normalization, gelu};
 use std::array::argmax;

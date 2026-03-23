@@ -79,6 +79,12 @@ class LiteralIR(ExpressionIR):
         return visitor.visit_literal(self)
 
     def __str__(self) -> str:
+        if self.value is True:
+            return "true"
+        if self.value is False:
+            return "false"
+        if isinstance(self.value, str):
+            return f'"{self.value}"'
         return str(self.value)
 
 
@@ -129,7 +135,10 @@ class IndexVarIR(ExpressionIR):
         return visitor.visit_index_var(self)
 
     def __str__(self) -> str:
-        return self.name or '?'
+        n = self.name or '?'
+        if self.range_ir is not None:
+            return f"{n} in {self.range_ir}"
+        return n
 
 
 class IndexRestIR(ExpressionIR):
@@ -308,16 +317,15 @@ class BlockExpressionIR(ExpressionIR):
         return visitor.visit_block_expression(self)
 
     def __str__(self) -> str:
-        parts = [str(s) for s in (self.statements or []) if isinstance(s, BindingIR) and s.expr is not None]
+        parts = [str(s) for s in (self.statements or [])]
         if self.final_expr is not None:
-            if not parts:
-                if isinstance(self.final_expr, IfExpressionIR):
-                    return str(self.final_expr)
-                return f"{{ {self.final_expr} }}"
-            inner = "\n".join("    " + line for p in parts for line in p.splitlines())
-            inner += "\n    " + str(self.final_expr)
-            return "{\n" + inner + "\n}"
-        return "{ ... }"
+            parts.append(str(self.final_expr))
+        if not parts:
+            return "{}"
+        if len(parts) == 1 and not self.statements:
+            return f"{{ {parts[0]} }}"
+        inner = "\n".join("    " + line for p in parts for line in p.splitlines())
+        return "{\n" + inner + "\n}"
 
 
 class IfExpressionIR(ExpressionIR):
@@ -357,7 +365,7 @@ class LambdaIR(ExpressionIR):
         return visitor.visit_lambda(self)
 
     def __str__(self) -> str:
-        params = ', '.join(p.name for p in self.parameters)
+        params = ', '.join(str(p) for p in self.parameters)
         return f"|{params}| {self.body}"
 
 
@@ -385,8 +393,9 @@ class FunctionValueIR(ExpressionIR):
         return visitor.visit_function_value(self)
 
     def __str__(self) -> str:
-        params = ', '.join(p.name for p in self.parameters)
-        return f"fn({params}) {{ ... }}"
+        params = ', '.join(str(p) for p in self.parameters)
+        ret = f" -> {self.return_type}" if self.return_type else ""
+        return f"fn({params}){ret} {self.body}"
 
 
 class FunctionCallIR(ExpressionIR):
@@ -664,7 +673,10 @@ class ReductionExpressionIR(ExpressionIR):
     def __str__(self) -> str:
         op = self.operation.value if hasattr(self.operation, 'value') else str(self.operation)
         vars_str = ', '.join(v.name for v in self.loop_vars) if self.loop_vars else ''
-        return f"{op}[{vars_str}]({self.body})"
+        s = f"{op}[{vars_str}]({self.body})"
+        if self.where_clause and self.where_clause.constraints:
+            s += " where " + ', '.join(str(c) for c in self.where_clause.constraints)
+        return s
 
 
 class SelectAtArgmaxIR(ExpressionIR):
@@ -771,6 +783,11 @@ class ParameterIR(IRNode):
         self.name = name
         self.param_type = param_type
 
+    def __str__(self) -> str:
+        if self.param_type is not None:
+            return f"{self.name}: {self.param_type}"
+        return self.name
+
 
 class DiffRuleIR(IRNode):
     """Custom autodiff rule for a user function: @fn f(params) { body }. Keyed by callee_defid; body uses @param -> DifferentialIR."""
@@ -875,6 +892,15 @@ class LiteralPatternIR(PatternIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_literal_pattern(self)
 
+    def __str__(self) -> str:
+        if self.value is True:
+            return "true"
+        if self.value is False:
+            return "false"
+        if isinstance(self.value, str):
+            return f'"{self.value}"'
+        return str(self.value)
+
 
 class IdentifierPatternIR(PatternIR):
     """Identifier pattern: x (binds value to variable). Only pattern type with defid."""
@@ -889,6 +915,9 @@ class IdentifierPatternIR(PatternIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_identifier_pattern(self)
 
+    def __str__(self) -> str:
+        return self.name
+
 
 class WildcardPatternIR(PatternIR):
     """Wildcard pattern: _ (matches anything, no binding)"""
@@ -899,6 +928,9 @@ class WildcardPatternIR(PatternIR):
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_wildcard_pattern(self)
+
+    def __str__(self) -> str:
+        return "_"
 
 
 class TuplePatternIR(PatternIR):
@@ -912,6 +944,9 @@ class TuplePatternIR(PatternIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_tuple_pattern(self)
 
+    def __str__(self) -> str:
+        return f"({', '.join(str(p) for p in self.patterns)})"
+
 
 class ArrayPatternIR(PatternIR):
     """Array pattern: [a, b, ..rest]"""
@@ -924,6 +959,9 @@ class ArrayPatternIR(PatternIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_array_pattern(self)
 
+    def __str__(self) -> str:
+        return f"[{', '.join(str(p) for p in self.patterns)}]"
+
 
 class RestPatternIR(PatternIR):
     """Rest pattern: ..rest"""
@@ -935,6 +973,9 @@ class RestPatternIR(PatternIR):
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_rest_pattern(self)
+
+    def __str__(self) -> str:
+        return f"..{self.pattern}"
 
 
 class GuardPatternIR(PatternIR):
@@ -949,6 +990,9 @@ class GuardPatternIR(PatternIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_guard_pattern(self)
 
+    def __str__(self) -> str:
+        return f"{self.inner_pattern} where {self.guard_expr}"
+
 
 class OrPatternIR(PatternIR):
     """Or pattern: pat1 | pat2 | ..."""
@@ -960,6 +1004,9 @@ class OrPatternIR(PatternIR):
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_or_pattern(self)
+
+    def __str__(self) -> str:
+        return ' | '.join(str(a) for a in self.alternatives)
 
 
 class ConstructorPatternIR(PatternIR):
@@ -975,6 +1022,10 @@ class ConstructorPatternIR(PatternIR):
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_constructor_pattern(self)
+
+    def __str__(self) -> str:
+        args = ', '.join(str(p) for p in self.patterns)
+        return f"{self.constructor_name}({args})"
 
 
 class BindingPatternIR(PatternIR):
@@ -993,6 +1044,9 @@ class BindingPatternIR(PatternIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_binding_pattern(self)
 
+    def __str__(self) -> str:
+        return f"{self.identifier_pattern} @ {self.inner_pattern}"
+
 
 class RangePatternIR(PatternIR):
     """Range pattern: start..end (exclusive) or start..=end (inclusive)"""
@@ -1008,6 +1062,10 @@ class RangePatternIR(PatternIR):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_range_pattern(self)
 
+    def __str__(self) -> str:
+        op = '..=' if self.inclusive else '..'
+        return f"{self.start}{op}{self.end}"
+
 
 class MatchArmIR(IRNode):
     """Match arm: pattern + body"""
@@ -1018,6 +1076,9 @@ class MatchArmIR(IRNode):
         super().__init__(location or SourceLocation('', 0, 0))
         self.pattern = pattern
         self.body = body
+
+    def __str__(self) -> str:
+        return f"{self.pattern} => {self.body}"
 
 
 class MatchExpressionIR(ExpressionIR):
@@ -1034,7 +1095,8 @@ class MatchExpressionIR(ExpressionIR):
         return visitor.visit_match_expression(self)
 
     def __str__(self) -> str:
-        return f"match {self.scrutinee} {{ {len(self.arms)} arms }}"
+        arms = ', '.join(str(a) for a in self.arms)
+        return f"match {self.scrutinee} {{ {arms} }}"
 
 
 # Where Clause IR
@@ -1120,22 +1182,17 @@ class BindingIR(IRNode):
         return visitor.visit_binding(self)
 
     def __str__(self) -> str:
+        if isinstance(self.expr, FunctionValueIR):
+            params = ', '.join(str(p) for p in self.expr.parameters)
+            ret = f" -> {self.expr.return_type}" if self.expr.return_type else ""
+            return f"fn {self.name}({params}){ret} {self.expr.body}"
         type_str = f": {self.type_info}" if self.type_info else ""
         name = self.name
         if isinstance(self.expr, EinsteinIR):
             cc = self.expr.clauses or []
             if cc and cc[0].indices:
-                idx_parts = []
-                for idx in cc[0].indices:
-                    if isinstance(idx, IndexRestIR):
-                        idx_parts.append(f"..{idx.name}" if idx.name else "..")
-                    elif isinstance(idx, (IndexVarIR, IdentifierIR)):
-                        idx_parts.append(idx.name or "?")
-                    elif isinstance(idx, LiteralIR):
-                        idx_parts.append(str(idx.value))
-                    else:
-                        idx_parts.append("?")
-                name = f"{self.name}[{', '.join(idx_parts)}]"
+                idx = ', '.join(str(i) for i in cc[0].indices)
+                name = f"{self.name}[{idx}]"
         return f"let {name}{type_str} = {self.expr};"
 
 
@@ -1462,9 +1519,14 @@ class EinsteinClauseIR(IRNode):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_einstein_clause(self)
 
+    def _where_suffix(self) -> str:
+        if self.where_clause and self.where_clause.constraints:
+            return " where " + ', '.join(str(c) for c in self.where_clause.constraints)
+        return ""
+
     def __str__(self) -> str:
         idx = ', '.join(str(i) for i in self.indices) if self.indices else ''
-        return f"[{idx}] = {self.value}"
+        return f"[{idx}] = {self.value}" + self._where_suffix()
 
 
 class EinsteinIR(ExpressionIR):
@@ -1487,7 +1549,7 @@ class EinsteinIR(ExpressionIR):
     def __str__(self) -> str:
         cc = self.clauses or []
         if len(cc) == 1:
-            return str(cc[0].value)
+            return str(cc[0].value) + cc[0]._where_suffix()
         return "{ " + "; ".join(str(c) for c in cc) + " }"
 
 
