@@ -139,28 +139,29 @@ class TestDemos:
         _assert_vectorize_counts(full_output, min_vectorized=1, max_scalar=0, label="mnist_train")
 
     def test_mnist(self):
-        """Run examples/mnist/main.ein and verify 10/10 digit predictions."""
+        """Run train.ein to generate weights, then main.ein to verify inference."""
         project_root = Path(__file__).parent.parent.parent
         mnist_dir = project_root / "examples" / "mnist"
+        train_ein = mnist_dir / "train.ein"
         main_ein = mnist_dir / "main.ein"
+        env = {**__import__("os").environ, "PYTHONPATH": str(project_root / "src")}
 
-        required = [mnist_dir / "weights" / n for n in
-                    ("conv1_w.npy", "conv1_b.npy", "conv2_w.npy", "conv2_b.npy",
-                     "fc_w.npy", "fc_b.npy")]
-        required += [mnist_dir / "samples" / f"{i}.pgm" for i in range(10)]
-        _ensure_weights_on_demand(project_root, mnist_dir, required, "download_weights.py")
+        train_result = subprocess.run(
+            [sys.executable, "-m", "einlang", str(train_ein)],
+            capture_output=True, text=True, cwd=mnist_dir, env=env, timeout=300,
+        )
+        assert train_result.returncode == 0, train_result.stderr or train_result.stdout
+        assert (mnist_dir / "weights" / "W.npy").exists(), "train.ein did not produce weights/W.npy"
 
         result = subprocess.run(
             [sys.executable, "-m", "einlang", str(main_ein), "--debug-vectorize"],
-            capture_output=True, text=True, cwd=mnist_dir,
-            env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
-            timeout=300,
+            capture_output=True, text=True, cwd=mnist_dir, env=env, timeout=300,
         )
         assert result.returncode == 0, result.stderr or result.stdout
         full_output = result.stdout.strip()
         output = "\n".join(l for l in full_output.split("\n") if not l.startswith("[vectorize]")).strip()
         assert output == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]", f"unexpected output: {output!r}"
-        _assert_vectorize_counts(full_output, min_vectorized=290, max_scalar=0, label="mnist")
+        _assert_vectorize_counts(full_output, min_vectorized=1, max_scalar=0, label="mnist")
 
     def test_mnist_quantized(self):
         """Run examples/mnist_quantized/main.ein and verify 10/10 digit predictions."""

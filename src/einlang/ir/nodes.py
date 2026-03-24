@@ -682,7 +682,21 @@ class ReductionExpressionIR(ExpressionIR):
 
 
 class SelectAtArgmaxIR(ExpressionIR):
-    """Autodiff: differential of max/min reduction. Represents d(ext_i body) = d_body at argmax/argmin(primal_body)."""
+    """Pullback of a max/min Einstein reduction (not a forward ``argmax`` reduction op).
+
+    Forward ``max[j](primal_body)`` returns values; its (sub)gradient with respect to
+    inputs is ``diff_body`` (the differential of ``primal_body``) evaluated only at
+    the index where ``primal_body`` was largest (smallest if ``use_argmin``). Surface
+    print-at form: ``d_body at argmax[j](primal_body)``.
+
+    This is not the same as introducing ``ReductionOp.ARGMAX``: a forward ``argmax``
+    returns integer indices and has different AD. Here we only route an existing
+    cotangent along the winning index.
+
+    Semantically equivalent to factoring into ``idx = argmax_j(primal_body)`` plus
+    gather/scatter of ``diff_body`` with ``idx``; the fused IR keeps tie-breaking,
+    vectorized execution, and one specialized path (see ``LoweredSelectAtArgmaxIR``).
+    """
     __slots__ = ('primal_body', 'diff_body', 'loop_vars', 'loop_var_ranges', 'use_argmin')
 
     def __init__(

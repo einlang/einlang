@@ -6,7 +6,7 @@ into plain IR (d_* bindings and references). No diff block; derivatives are in-p
 All tests expect compile and run success; derivative tests assert correct values.
 
 Coverage: pipeline registration, no-@ programs, @expr expansion, quotient @num/@den,
-user functions, custom @fn rules, Einstein matmul/conv/reduction/affine paths,
+user functions, custom @fn rules, Einstein matmul/conv1d/conv2d/reduction/affine paths,
 gradient-step example, numpy two-arg pow and log10/log2 (not in print(@…) goldens),
 piecewise clamp/saturate/clamp_min/clamp_max, deg/rad helpers.
 
@@ -380,6 +380,32 @@ let d_out_dw = @out / @w;
         except ImportError:
             pass
 
+    def test_einstein_conv_2d_where_clause(self):
+        """2D valid conv: out[oh,ow] = sum[kh,kw](x[oh+kh,ow+kw]*w[kh,kw]); @out/@w is (2,2,2,2)."""
+        source = """
+let x = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]];
+let w = [[0.5, 0.5], [0.5, 0.5]];
+let out[oh in 0..2, ow in 0..2] = sum[kh in 0..2, kw in 0..2](x[oh + kh, ow + kw] * w[kh, kw]);
+let d_out_dw = @out / @w;
+"""
+        _, out = _compile_run(source)
+        d_out_dw = out.get("d_out_dw")
+        assert d_out_dw is not None, "expected d_out_dw"
+        try:
+            import numpy as np
+            arr = np.asarray(d_out_dw)
+            assert arr.shape == (2, 2, 2, 2), "d_out_dw shape (2,2,2,2), got %s" % (arr.shape,)
+            x_ref = np.arange(1, 10, dtype=np.float64).reshape(3, 3)
+            ref = np.zeros((2, 2, 2, 2), dtype=np.float64)
+            for oh in range(2):
+                for ow in range(2):
+                    for kh in range(2):
+                        for kw in range(2):
+                            ref[oh, ow, kh, kw] = x_ref[oh + kh, ow + kw]
+            _assert_allclose(arr, ref, msg="d_out_dw vs ∂out/∂w conv2d")
+        except ImportError:
+            pass
+
     def test_einstein_3x3_matmul_derivative(self):
         """Larger matmul: 3x3 @ 3x3, @C/@A shape (3,3,3,3)."""
         source = """
@@ -516,6 +542,29 @@ let dy_dx = @y / @x;
             assert arr.shape == (1, 3), "dy_dx shape (1,3) same as x (Julia pullback), got %s" % (arr.shape,)
             ref = np.array([[6.0, 3.0, 2.0]], dtype=np.float64)
             _assert_allclose(dy_dx, ref, msg="dy_dx prod reduction", atol=1e-4)
+        except ImportError:
+            pass
+
+    def test_max_pool_quotient_shape_and_argmax_scatter(self):
+        """`@y/@x` for max_pool should keep x-shape and scatter 1.0 to argmax in each pooled window."""
+        source = """
+use std::ml;
+let x = [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]]];
+let y = std::ml::max_pool(x, [2, 2], [2, 2], [0, 0]);
+let dy_dx = @y / @x;
+"""
+        _, out = _compile_run(source)
+        dy_dx = out.get("dy_dx")
+        assert dy_dx is not None
+        try:
+            arr = np.asarray(dy_dx)
+            assert arr.shape == (1, 1, 2, 3), (
+                "dy_dx shape should match x (1,1,2,3), got %s" % (arr.shape,)
+            )
+            ref = np.zeros((1, 1, 2, 3), dtype=np.float64)
+            # Pool window is x[..., 0:2, 0:2] = [[1,2],[4,5]], argmax at value 5 -> [1,1].
+            ref[0, 0, 1, 1] = 1.0
+            _assert_allclose(arr, ref, msg="dy_dx max_pool argmax scatter")
         except ImportError:
             pass
 
@@ -963,6 +1012,12 @@ let w = [0.5, 0.3];
 let out[i, c] = sum[k](x[c, i + k] * w[k]) where i + k < 4;
 let d_out_dw = @out / @w;
 """),
+    ("conv2d", """
+let x = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]];
+let w = [[0.5, 0.5], [0.5, 0.5]];
+let out[oh in 0..2, ow in 0..2] = sum[kh in 0..2, kw in 0..2](x[oh + kh, ow + kw] * w[kh, kw]);
+let d_out_dw = @out / @w;
+"""),
     ("reduction_sum", """
 let M = [[1.0, 2.0], [3.0, 4.0]];
 let r[i] = sum[j](M[i, j]);
@@ -1091,6 +1146,7 @@ _OP_DOC_EXPECTATIONS = [
     ("matmul", {"dC_dA", "dC_dB"}, "einstein"),
     ("affine", {"dy_dx", "dy_dW", "dy_db"}, "einstein"),
     ("conv1d", {"d_out_dw"}, "einstein"),
+    ("conv2d", {"d_out_dw"}, "einstein"),
     ("reduction_sum", {"dr_dM"}, "einstein"),
     ("reduction_max", {"dy_dx"}, "select_at_argmax"),
     ("reduction_min", {"dy_dx"}, "select_at_argmax"),
@@ -1108,6 +1164,7 @@ _OP_DOC_EXPECTED_SHAPES = {
     "elementwise_binary": [("dz_da", ()), ("dz_db", ())],
     "matmul": [("dC_dA", (2, 2, 2, 2)), ("dC_dB", (2, 2, 2, 2))],
     "affine": [("dy_dx", (2, 2)), ("dy_dW", (2, 2)), ("dy_db", (2, 2))],
+    "conv2d": [("d_out_dw", (2, 2, 2, 2))],
     "reduction_sum": [("dr_dM", (2, 2))],
     "reduction_max": [("dy_dx", (1, 3))],
     "reduction_min": [("dy_dx", (1, 3))],

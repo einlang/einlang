@@ -4,7 +4,7 @@ Visitor Helper Utilities
 Common visitor patterns for expression analysis without isinstance/hasattr.
 """
 
-from typing import Set, Optional, List, Any
+from typing import Set, Optional, List, Any, FrozenSet
 from ..ir.nodes import (
     ExpressionIR, IdentifierIR, IndexVarIR, BinaryOpIR, LiteralIR,
     RectangularAccessIR, FunctionCallIR, IRVisitor,
@@ -29,6 +29,8 @@ from ..ir.nodes import (
     is_function_binding,
     is_einstein_binding,
     ProgramIR,
+    SelectAtArgmaxIR,
+    LoweredSelectAtArgmaxIR,
 )
 from ..shared.defid import DefId
 
@@ -67,10 +69,10 @@ class _DefIdFinder(IRVisitor[Optional[DefId]]):
         return self._first(node.operand)
 
     def visit_rectangular_access(self, node: RectangularAccessIR) -> Optional[DefId]:
-        result = self._first(node.array)
-        if result is not None:
-            return result
-        return self._first(*(node.indices or []))
+        idx_first = self._first(*(node.indices or []))
+        if idx_first is not None:
+            return idx_first
+        return self._first(node.array)
 
     def visit_jagged_access(self, node: JaggedAccessIR) -> Optional[DefId]:
         return self._first(node.base, *(node.index_chain or []))
@@ -177,12 +179,156 @@ class _DefIdFinder(IRVisitor[Optional[DefId]]):
             return self._first(node.expr)
         return None
 
+    def visit_select_at_argmax(self, node: SelectAtArgmaxIR) -> Optional[DefId]:
+        if node.primal_body is not None:
+            r = node.primal_body.accept(self)
+            if r is not None:
+                return r
+        if node.diff_body is not None:
+            return node.diff_body.accept(self)
+        return None
+
+    def visit_lowered_select_at_argmax(self, node: LoweredSelectAtArgmaxIR) -> Optional[DefId]:
+        if node.primal_body is not None:
+            r = node.primal_body.accept(self)
+            if r is not None:
+                return r
+        if node.diff_body is not None:
+            return node.diff_body.accept(self)
+        return None
+
 
 def defid_of_var_in_expr(expr: Optional[ExpressionIR], name: str) -> Optional[DefId]:
     """Return defid of first IdentifierIR or IndexVarIR with given name in expr tree. Uses IR visitor (no isinstance/hasattr)."""
     if expr is None:
         return None
     return expr.accept(_DefIdFinder(name))
+
+
+class _AllDefIdsFinder(IRVisitor[FrozenSet[DefId]]):
+    """Collect ALL defids of IdentifierIR/IndexVarIR nodes with given name in an expr tree."""
+
+    def __init__(self, target_name: str) -> None:
+        self._name = target_name
+        self._empty: FrozenSet[DefId] = frozenset()
+
+    def _union(self, *nodes: Any) -> FrozenSet[DefId]:
+        result: Set[DefId] = set()
+        for node in nodes:
+            if node is not None:
+                result |= node.accept(self)
+        return frozenset(result)
+
+    def visit_identifier(self, node: IdentifierIR) -> FrozenSet[DefId]:
+        if node.name == self._name and node.defid is not None:
+            return frozenset({node.defid})
+        return self._empty
+
+    def visit_index_var(self, node: IndexVarIR) -> FrozenSet[DefId]:
+        if node.name == self._name and node.defid is not None:
+            return frozenset({node.defid})
+        return self._empty
+
+    def visit_literal(self, node: LiteralIR) -> FrozenSet[DefId]:
+        return self._empty
+
+    def visit_binary_op(self, node: BinaryOpIR) -> FrozenSet[DefId]:
+        return self._union(node.left, node.right)
+
+    def visit_unary_op(self, node: UnaryOpIR) -> FrozenSet[DefId]:
+        return self._union(node.operand)
+
+    def visit_rectangular_access(self, node: RectangularAccessIR) -> FrozenSet[DefId]:
+        return self._union(node.array, *(node.indices or []))
+
+    def visit_jagged_access(self, node: JaggedAccessIR) -> FrozenSet[DefId]:
+        return self._union(node.base, *(node.index_chain or []))
+
+    def visit_function_call(self, node: FunctionCallIR) -> FrozenSet[DefId]:
+        return self._union(node.callee_expr, *(node.arguments or []))
+
+    def visit_block_expression(self, node: BlockExpressionIR) -> FrozenSet[DefId]:
+        return self._union(*(node.statements or []), node.final_expr)
+
+    def visit_if_expression(self, node: IfExpressionIR) -> FrozenSet[DefId]:
+        return self._union(node.condition, node.then_expr, node.else_expr)
+
+    def visit_lambda(self, node: LambdaIR) -> FrozenSet[DefId]:
+        return self._union(node.body)
+
+    def visit_range(self, node: RangeIR) -> FrozenSet[DefId]:
+        return self._union(node.start, node.end)
+
+    def visit_array_comprehension(self, node: ArrayComprehensionIR) -> FrozenSet[DefId]:
+        return self._union(node.body)
+
+    def visit_array_literal(self, node: ArrayLiteralIR) -> FrozenSet[DefId]:
+        return self._union(*(node.elements or []))
+
+    def visit_tuple_expression(self, node: TupleExpressionIR) -> FrozenSet[DefId]:
+        return self._union(*(node.elements or []))
+
+    def visit_tuple_access(self, node: TupleAccessIR) -> FrozenSet[DefId]:
+        return self._union(node.tuple_expr)
+
+    def visit_cast_expression(self, node: CastExpressionIR) -> FrozenSet[DefId]:
+        return self._union(node.expr)
+
+    def visit_member_access(self, node: MemberAccessIR) -> FrozenSet[DefId]:
+        return self._union(node.object)
+
+    def visit_try_expression(self, node: TryExpressionIR) -> FrozenSet[DefId]:
+        return self._union(node.operand)
+
+    def visit_match_expression(self, node: MatchExpressionIR) -> FrozenSet[DefId]:
+        arms_nodes = [arm.body for arm in (node.arms or []) if arm.body is not None]
+        return self._union(node.scrutinee, *arms_nodes)
+
+    def visit_reduction_expression(self, node: ReductionExpressionIR) -> FrozenSet[DefId]:
+        return self._union(node.body)
+
+    def visit_where_expression(self, node: WhereExpressionIR) -> FrozenSet[DefId]:
+        return self._union(node.expr)
+
+    def visit_pipeline_expression(self, node: PipelineExpressionIR) -> FrozenSet[DefId]:
+        return self._union(node.left, node.right)
+
+    def visit_builtin_call(self, node: BuiltinCallIR) -> FrozenSet[DefId]:
+        return self._union(*(node.args or []))
+
+    def visit_select_at_argmax(self, node: SelectAtArgmaxIR) -> FrozenSet[DefId]:
+        return self._union(node.primal_body, node.diff_body)
+
+    def visit_lowered_select_at_argmax(self, node: LoweredSelectAtArgmaxIR) -> FrozenSet[DefId]:
+        return self._union(node.primal_body, node.diff_body)
+
+    def visit_program(self, node: Any) -> FrozenSet[DefId]: return self._empty
+    def visit_index_rest(self, node: Any) -> FrozenSet[DefId]: return self._empty
+    def visit_module(self, node: Any) -> FrozenSet[DefId]: return self._empty
+    def visit_interpolated_string(self, node: Any) -> FrozenSet[DefId]: return self._empty
+    def visit_literal_pattern(self, node: Any) -> FrozenSet[DefId]: return self._empty
+    def visit_identifier_pattern(self, node: Any) -> FrozenSet[DefId]: return self._empty
+    def visit_wildcard_pattern(self, node: Any) -> FrozenSet[DefId]: return self._empty
+    def visit_tuple_pattern(self, node: Any) -> FrozenSet[DefId]: return self._empty
+    def visit_array_pattern(self, node: Any) -> FrozenSet[DefId]: return self._empty
+    def visit_rest_pattern(self, node: Any) -> FrozenSet[DefId]: return self._empty
+    def visit_guard_pattern(self, node: Any) -> FrozenSet[DefId]: return self._empty
+    def visit_binding(self, node: Any) -> FrozenSet[DefId]:
+        if node.expr is not None and not (is_function_binding(node) or is_einstein_binding(node)):
+            return self._union(node.expr)
+        return self._empty
+
+
+def all_defids_of_var_in_expr(expr: Optional[ExpressionIR], name: str) -> FrozenSet[DefId]:
+    """Return ALL defids of IdentifierIR or IndexVarIR with given name in expr tree.
+
+    Unlike ``defid_of_var_in_expr`` (first match only), this collects every occurrence,
+    which is needed when primal_body and diff_body of a SelectAtArgmaxIR assign
+    *different* defids to the same outer loop variable.
+    """
+    if expr is None:
+        return frozenset()
+    return expr.accept(_AllDefIdsFinder(name))
 
 
 class VariableExtractor(IRVisitor[Set[str]]):

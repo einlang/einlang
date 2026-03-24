@@ -836,6 +836,14 @@ class _DefidsByNameCollector(IRVisitor[Dict[str, List[Any]]]):
             _merge_defids_by_name(out, node.body.accept(self))
         return out
 
+    def visit_lowered_select_at_argmax(self, node: Any) -> Dict[str, List[Any]]:
+        out = self._empty()
+        if node.primal_body is not None:
+            _merge_defids_by_name(out, node.primal_body.accept(self))
+        if node.diff_body is not None:
+            _merge_defids_by_name(out, node.diff_body.accept(self))
+        return out
+
     def visit_or_pattern(self, node: Any) -> Dict[str, List[Any]]:
         out = self._empty()
         for alt in (node.alternatives or []):
@@ -2717,6 +2725,7 @@ def _eval_clause_body_with_broadcast_loops(
     clause_loop_defids = [defid for (defid, _, _) in loop_info]
     if _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids):
         return None
+    body_defids_by_name = _collect_defids_by_name(clause.body)
     try:
         with backend.env.scope():
             for dim, (defid, rng, name) in enumerate(loop_info):
@@ -2726,6 +2735,9 @@ def _eval_clause_body_with_broadcast_loops(
                 shape[dim] = sz
                 arr = np.arange(start, end, dtype=np.intp).reshape(shape)
                 backend.env.set_value(defid, arr, name=name)
+                for other_defid in body_defids_by_name.get(name, []):
+                    if other_defid != defid:
+                        backend.env.set_value(other_defid, arr, name=name)
             parallel_shape_tuple = tuple(output_shape)
             try:
                 setattr(backend, "_vectorize_parallel_shape", parallel_shape_tuple)
@@ -4590,8 +4602,27 @@ class EinsteinExecutionMixin:
                     if _guards and not check_lowered_guards(_guards, full_context, lambda e: _to_bool(e.accept(self))):
                         continue
                     try:
-                        # Pass parallel indices into reduction so guard/body can see them (e.g. derivative @C/@A)
-                        setattr(self, "_reduction_initial_context", dict(full_context))
+                        # Pass parallel indices into reduction so guard/body can see them.
+                        # For SelectAtArgmaxIR bodies, primal_body and diff_body may use
+                        # *different* defids for the same outer-loop variable name, so
+                        # alias every defid found (via _collect_defids_by_name) not just first.
+                        _ri_ctx = dict(full_context)
+                        if _loops and _body is not None:
+                            _outer_val = full_context
+                            _body_defids_by_name = _collect_defids_by_name(_body)
+                            for _lp in _loops:
+                                _vv = _lp.variable
+                                if (
+                                    _vv is not None
+                                    and _vv.defid is not None
+                                    and _vv.name
+                                    and _vv.defid in _outer_val
+                                ):
+                                    _val = _outer_val[_vv.defid]
+                                    for _body_did in _body_defids_by_name.get(_vv.name, []):
+                                        if _body_did != _vv.defid:
+                                            _ri_ctx[_body_did] = _val
+                        setattr(self, "_reduction_initial_context", _ri_ctx)
                         try:
                             value = _body.accept(self)
                         finally:

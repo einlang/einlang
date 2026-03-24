@@ -2009,7 +2009,20 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
                 dc.append(EinsteinClauseIR(indices=clause.indices, value=d_val, location=clause.location,
                           where_clause=clause.where_clause, variable_ranges=dict(clause.variable_ranges or {})))
             continue
-        wrt_pos = [i for i, (a, _) in enumerate(factors) if isinstance(a, IdentifierIR) and a.defid == wrt]
+        wrt_pos: List[int] = []
+        for i, (a, _) in enumerate(factors):
+            if not isinstance(a, IdentifierIR) or a.defid is None:
+                continue
+            if a.defid == wrt:
+                wrt_pos.append(i)
+                continue
+            # Quotient Jacobians through function calls can differentiate callee bodies with
+            # ``wrt`` = caller DefId while factors reference callee parameter DefIds.
+            # Treat direct parameter aliasing (param -> caller identifier) as the same leaf.
+            if ps is not None:
+                sub = ps.get(a.defid)
+                if isinstance(sub, IdentifierIR) and sub.defid == wrt:
+                    wrt_pos.append(i)
         if not wrt_pos:
             if val.operation == ReductionOp.SUM:
                 d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
@@ -2039,7 +2052,29 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
                                    type_info=_ti(val), shape_info=_si(val),
                                    use_argmin=(val.operation == ReductionOp.MIN))
             nvr = dict(clause.variable_ranges or {}); nvr.update(new_vr)
-            dc.append(EinsteinClauseIR(indices=dvars, value=sel, location=clause.location,
+            out_val: ExpressionIR = sel
+            if not allow_reuse:
+                # When primal clause indices cannot be reused as cotangent axes (e.g. pooled output
+                # indices vs input indices in max_pool), accumulate over those primal output axes so
+                # the quotient result keeps wrt-shape (Julia-style pullback).
+                sum_loops: List[IndexVarIR] = [ix for ix in ci if isinstance(ix, IndexVarIR)]
+                if sum_loops:
+                    sum_ranges: Dict[DefId, RangeIR] = {}
+                    cvr = dict(clause.variable_ranges or {})
+                    for lv in sum_loops:
+                        did = getattr(lv, "defid", None)
+                        if did is not None and did in cvr:
+                            sum_ranges[did] = cvr[did]
+                    out_val = ReductionExpressionIR(
+                        ReductionOp.SUM,
+                        sum_loops,
+                        sel,
+                        loc,
+                        loop_var_ranges=sum_ranges if sum_ranges else None,
+                        type_info=_ti(val),
+                        shape_info=None,
+                    )
+            dc.append(EinsteinClauseIR(indices=dvars, value=out_val, location=clause.location,
                       where_clause=clause.where_clause, variable_ranges=nvr))
             continue
 
@@ -2325,6 +2360,8 @@ def _callee_args_support_combined_forward(
 
     Literal (or other non-identifier) actuals are inlined in ``primal_map``; they need no
     ``dre`` entry.  Per-parameter ``JacobianVisitor`` sweeps would duplicate tangent lets.
+    Array literals (e.g. ``[2, 2]`` for ``std::ml::max_pool`` kernel/strides/pads) are
+    constant like scalars: zero tangent and must not force the multi-parameter Jacobian sum.
     """
     for p in ps:
         if p.defid is None:
@@ -2333,6 +2370,8 @@ def _callee_args_support_combined_forward(
         if isinstance(arg, IdentifierIR) and arg.defid is not None:
             continue
         if isinstance(arg, LiteralIR):
+            continue
+        if isinstance(arg, ArrayLiteralIR):
             continue
         return False
     return True
@@ -2364,6 +2403,8 @@ def _diff_callee_block_combined_forward(
             raise ValueError("Autodiff: missing tangent for callee parameter")
         arg = rm[p.defid]
         if isinstance(arg, LiteralIR):
+            continue
+        if isinstance(arg, ArrayLiteralIR):
             continue
         if not isinstance(arg, IdentifierIR) or arg.defid is None:
             raise ValueError("Autodiff: combined callee forward requires identifier or literal arguments")

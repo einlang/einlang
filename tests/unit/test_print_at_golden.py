@@ -1,7 +1,8 @@
 """Exact stdout goldens for ``print(@…)``.
 
-``std::ml`` here is only reductions, layers, matmul, softmax/loss-style calls;
-activation ``print(@…)`` goldens live in ``test_print_at_ml_smoke`` (disjoint ``std::ml`` symbols).
+``std::ml`` here is reductions, layers, matmul, softmax/loss-style calls, ``max_pool``;
+MNIST-shaped conv is covered as Einstein sum-of-products (``mnist_conv2d``, same math as ``std::ml::conv`` 2D body).
+Activation ``print(@…)`` goldens live in ``test_print_at_ml_smoke`` (disjoint ``std::ml`` symbols).
 """
 
 from __future__ import annotations
@@ -529,6 +530,28 @@ let y = std::ml::linear(x, W, b);
 print(@y);
 """,
         "let @y = {\n    let _@linear_call: [f32; ?, ?] = {\n        let _@output[batch.0 in 0..x.shape[0], j in 0..bias.shape[0]] = sum[k](x[batch.0, k] * @W[j, k] + W[j, k] * @x[batch.0, k]) + @b[j];\n        _@output\n    };\n    _@linear_call\n};",
+    ),
+    (
+        "mnist_conv2d",
+        """
+let x = [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]]];
+let w = [[[[1.0, 0.0], [0.0, 1.0]]]];
+let b = [0.0];
+let y[b in 0..1, co in 0..1, i in 0..2, j in 0..2] =
+    sum[c in 0..1, m in 0..2, n in 0..2](x[b, c, i + m, j + n] * w[co, c, m, n]) + b[co];
+print(@y);
+""",
+        "let @y[b, co, i, j] = sum[c, m, n](x[b, c, i + m, j + n] * @w[co, c, m, n] + w[co, c, m, n] * @x[b, c, i + m, j + n]) + @b[co];",
+    ),
+    (
+        "max_pool",
+        """
+use std::ml;
+let x = [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]]];
+let y = std::ml::max_pool(x, [2, 2], [2, 2], [0, 0]);
+print(@y);
+""",
+        "let @y = {\n    let _@max_pool_call: [f32; ?, ?, ?, ?] = {\n        let rank = len([2, 2]);\n        if rank == 1 { {\n            let _@output[batch.0 in 0..X.shape[0], batch.1 in 0..X.shape[1], c in 0..X.shape[2], i in (pad + stride - 1) / stride..(X.shape[3] - (kernel_w - 1) + pad + stride - 1) / stride, _ad_0 in 0..?.shape[0], _ad_1 in 0..?.shape[1], _ad_2 in 0..?.shape[2], _ad_3 in 0..?.shape[3]] = if i * [2, 2][0] - [0, 0][0] + m == _ad_3 in 0..?.shape[3] if c == _ad_2 in 0..?.shape[2] if batch.1 == _ad_1 in 0..?.shape[1] if batch.0 == _ad_0 in 0..?.shape[0] 1.0 else 0.0 else 0.0 else 0.0 else 0.0 at argmax[m](x[batch.0, batch.1, c, i * [2, 2][0] - [0, 0][0] + m]);\n            _@output\n        } } else if rank == 2 { {\n            let _@output[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in (pad_h + stride_h - 1) / stride_h..(X.shape[2] - (kernel_h - 1) + pad_h + stride_h - 1) / stride_h, j in (pad_w + stride_w - 1) / stride_w..(X.shape[3] - (kernel_w - 1) + pad_w + stride_w - 1) / stride_w, _ad_0 in 0..?.shape[0], _ad_1 in 0..?.shape[1], _ad_2 in 0..?.shape[2], _ad_3 in 0..?.shape[3]] = if j * [2, 2][1] - [0, 0][1] + n == _ad_3 in 0..?.shape[3] if i * [2, 2][0] - [0, 0][0] + m == _ad_2 in 0..?.shape[2] if c == _ad_1 in 0..?.shape[1] if batch.0 == _ad_0 in 0..?.shape[0] 1.0 else 0.0 else 0.0 else 0.0 else 0.0 at argmax[m, n](x[batch.0, c, i * [2, 2][0] - [0, 0][0] + m, j * [2, 2][1] - [0, 0][1] + n]);\n            _@output\n        } } else if rank == 3 { {\n            let _@output[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in (pad_d + stride_d - 1) / stride_d..(X.shape[2] - (kernel_d - 1) + pad_d + stride_d - 1) / stride_d, j in (pad_h + stride_h - 1) / stride_h..(X.shape[3] - (kernel_h - 1) + pad_h + stride_h - 1) / stride_h, k in (pad_w + stride_w - 1) / stride_w..(X.shape[4] - (kernel_w - 1) + pad_w + stride_w - 1) / stride_w, _ad_0 in 0..?.shape[0], _ad_1 in 0..?.shape[1], _ad_2 in 0..?.shape[2], _ad_3 in 0..?.shape[3], _ad_4 in 0..?.shape[4]] = if k * [2, 2][2] - [0, 0][2] + p == _ad_4 in 0..?.shape[4] if j * [2, 2][1] - [0, 0][1] + n == _ad_3 in 0..?.shape[3] if i * [2, 2][0] - [0, 0][0] + m == _ad_2 in 0..?.shape[2] if c == _ad_1 in 0..?.shape[1] if batch.0 == _ad_0 in 0..?.shape[0] 1.0 else 0.0 else 0.0 else 0.0 else 0.0 else 0.0 at argmax[m, n, p](x[batch.0, c, i * [2, 2][0] - [0, 0][0] + m, j * [2, 2][1] - [0, 0][1] + n, k * [2, 2][2] - [0, 0][2] + p]);\n            _@output\n        } } else { @x }\n    };\n    _@max_pool_call\n};",
     ),
     (
         "mse_loss",

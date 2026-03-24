@@ -1,6 +1,6 @@
-"""Training data loader for the MNIST training demo.
+"""Training data loader for the MNIST demo.
 
-Called from train.ein via python::data_loader::{load_images, load_labels}.
+Called from train.ein and main.ein via python::data_loader::{load_images, load_labels}.
 Returns flattened, inverted images [10, 784] and one-hot labels [10, 10].
 """
 
@@ -30,4 +30,5 @@ def load_labels() -> np.ndarray:
 
 
 def init_weights() -> np.ndarray:
+    os.makedirs(os.path.join(_DIR, "weights"), exist_ok=True)
     return np.zeros((784, 10), dtype=np.float32)
