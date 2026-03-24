@@ -2,6 +2,8 @@
 
 **Purpose:** A single narrative overview of Einlang’s automatic differentiation: what makes it distinctive, how it fits the compiler, and where to read the formal specs. For algorithms and IR details, start with [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md); for op rules see [AUTODIFF_OPS.md](AUTODIFF_OPS.md) and [AUTODIFF_EINSTEIN_OPS.md](AUTODIFF_EINSTEIN_OPS.md).
 
+**Autodiff scope:** This is full compiler-owned AD: Einstein-aware tensor math, quotient derivatives as syntax, readable symbolic debug output, and runtime execution on the same backend as primals.
+
 ---
 
 ## Compiler pass, not a bolt-on library

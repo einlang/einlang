@@ -4,6 +4,8 @@
 
 **Tensor code is either readable or safe—usually neither.** Einlang is both: write math the way it looks on the page—Einstein notation, sums, indices—and get shape errors at compile time instead of at 3am. **Math-intuitive:** the code reads like the equation. **Built-in autodiff:** write `@loss / @w` (and `@expr` differentials); the compiler derives gradients and derivative tensors—no hand-written backprop or separate AD library.
 
+**Autodiff at a glance:** Einlang’s AD is compiler-native and Einstein-aware, so derivatives are written as syntax and compiled into executable IR without gradient boilerplate.
+
 ```rust
 let A = [[1, 2], [3, 4]];
 let B = [[5, 6], [7, 8]];

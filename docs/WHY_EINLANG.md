@@ -2,6 +2,8 @@
 
 **Tensor code is either readable or safe—usually neither.** Einlang is both. This page brags a bit: what makes Einlang worth your time and how it stands out.
 
+**Autodiff note:** We do not bolt on AD with helper APIs; Einlang compiles derivative syntax directly into executable IR for tensor programs.
+
 ---
 
 ## The pitch
