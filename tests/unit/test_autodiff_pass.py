@@ -870,6 +870,45 @@ let d_logits_dW = @logits / @W;
                 np.array([1.0, 1.0, 1.0], dtype=np.float64),
             ),
             (
+                "conv2d_ein_local",
+                (
+                    "let input = [[1.0,2.0,3.0],[4.0,5.0,6.0],[7.0,8.0,9.0]]; "
+                    "let x = [[0.5,0.5],[0.5,0.5]]; "
+                    "let y[oh in 0..2, ow in 0..2] = sum[kh in 0..2, kw in 0..2](input[oh + kh, ow + kw] * x[kh, kw]); "
+                    "let dy_dx = @y / @x;"
+                ),
+                np.array(
+                    [
+                        [[[1.0, 2.0], [4.0, 5.0]], [[2.0, 3.0], [5.0, 6.0]]],
+                        [[[4.0, 5.0], [7.0, 8.0]], [[5.0, 6.0], [8.0, 9.0]]],
+                    ],
+                    dtype=np.float64,
+                ),
+            ),
+            (
+                "relu",
+                "let x = [-1.0, 0.0, 2.0]; let y = std::ml::relu(x); let dy_dx = @y / @x;",
+                np.array([0.0, 0.0, 2.0], dtype=np.float64),
+            ),
+            (
+                "max_pool",
+                (
+                    "let x = [[[[1.0, 2.0], [3.0, 4.0]]]]; "
+                    "let y = std::ml::max_pool(x, [2,2], [2,2], [0,0]); "
+                    "let dy_dx = @y / @x;"
+                ),
+                np.array([[[[0.0, 0.0], [0.0, 1.0]]]], dtype=np.float64),
+            ),
+            (
+                "flatten_index",
+                (
+                    "let x = [[[[10.0, 20.0], [30.0, 40.0]]]]; "
+                    "let y[k in 0..4] = x[0,0,k / 2, k % 2]; "
+                    "let dy_dx = @y / @x;"
+                ),
+                np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
+            ),
+            (
                 "ein_logits",
                 (
                     "let x = [1.0, 2.0]; "
