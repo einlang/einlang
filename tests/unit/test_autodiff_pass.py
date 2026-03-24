@@ -6,7 +6,7 @@ into plain IR (d_* bindings and references). No diff block; derivatives are in-p
 All tests expect compile and run success; derivative tests assert correct values.
 
 Coverage: pipeline registration, no-@ programs, @expr expansion, quotient @num/@den,
-user functions, custom @fn rules, Einstein matmul/conv/reduction/affine paths,
+user functions, custom @fn rules, Einstein matmul/conv1d/conv2d/reduction/affine paths,
 gradient-step example, numpy two-arg pow and log10/log2 (not in print(@…) goldens),
 piecewise clamp/saturate/clamp_min/clamp_max, deg/rad helpers.
 
@@ -380,6 +380,32 @@ let d_out_dw = @out / @w;
         except ImportError:
             pass
 
+    def test_einstein_conv_2d_where_clause(self):
+        """2D valid conv: out[oh,ow] = sum[kh,kw](x[oh+kh,ow+kw]*w[kh,kw]); @out/@w is (2,2,2,2)."""
+        source = """
+let x = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]];
+let w = [[0.5, 0.5], [0.5, 0.5]];
+let out[oh in 0..2, ow in 0..2] = sum[kh in 0..2, kw in 0..2](x[oh + kh, ow + kw] * w[kh, kw]);
+let d_out_dw = @out / @w;
+"""
+        _, out = _compile_run(source)
+        d_out_dw = out.get("d_out_dw")
+        assert d_out_dw is not None, "expected d_out_dw"
+        try:
+            import numpy as np
+            arr = np.asarray(d_out_dw)
+            assert arr.shape == (2, 2, 2, 2), "d_out_dw shape (2,2,2,2), got %s" % (arr.shape,)
+            x_ref = np.arange(1, 10, dtype=np.float64).reshape(3, 3)
+            ref = np.zeros((2, 2, 2, 2), dtype=np.float64)
+            for oh in range(2):
+                for ow in range(2):
+                    for kh in range(2):
+                        for kw in range(2):
+                            ref[oh, ow, kh, kw] = x_ref[oh + kh, ow + kw]
+            _assert_allclose(arr, ref, msg="d_out_dw vs ∂out/∂w conv2d")
+        except ImportError:
+            pass
+
     def test_einstein_3x3_matmul_derivative(self):
         """Larger matmul: 3x3 @ 3x3, @C/@A shape (3,3,3,3)."""
         source = """
@@ -516,6 +542,29 @@ let dy_dx = @y / @x;
             assert arr.shape == (1, 3), "dy_dx shape (1,3) same as x (Julia pullback), got %s" % (arr.shape,)
             ref = np.array([[6.0, 3.0, 2.0]], dtype=np.float64)
             _assert_allclose(dy_dx, ref, msg="dy_dx prod reduction", atol=1e-4)
+        except ImportError:
+            pass
+
+    def test_max_pool_quotient_shape_and_argmax_scatter(self):
+        """`@y/@x` for max_pool should keep x-shape and scatter 1.0 to argmax in each pooled window."""
+        source = """
+use std::ml;
+let x = [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]]];
+let y = std::ml::max_pool(x, [2, 2], [2, 2], [0, 0]);
+let dy_dx = @y / @x;
+"""
+        _, out = _compile_run(source)
+        dy_dx = out.get("dy_dx")
+        assert dy_dx is not None
+        try:
+            arr = np.asarray(dy_dx)
+            assert arr.shape == (1, 1, 2, 3), (
+                "dy_dx shape should match x (1,1,2,3), got %s" % (arr.shape,)
+            )
+            ref = np.zeros((1, 1, 2, 3), dtype=np.float64)
+            # Pool window is x[..., 0:2, 0:2] = [[1,2],[4,5]], argmax at value 5 -> [1,1].
+            ref[0, 0, 1, 1] = 1.0
+            _assert_allclose(arr, ref, msg="dy_dx max_pool argmax scatter")
         except ImportError:
             pass
 
@@ -697,6 +746,184 @@ let loss_next = r0_next * r0_next + r1_next * r1_next;
         x1_next = _scalar_float(out, "x1_next")
         assert loss_next < loss_val, "loss should decrease after one step"
         assert abs(x0_next - 0.8) < 1e-5 and abs(x1_next - 0.8) < 1e-5, "one step with alpha=0.2 from (0,0) gives (0.8, 0.8)"
+
+    def test_mnist_train_autodiff_ops_small(self):
+        """Exercise mnist_train autodiff ops on a tiny deterministic setup: sum, *, -, **2, %, indexing alias quotient, and logits/W quotient."""
+        source = """
+let X = [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]];
+let Y = [[0.5, -1.0], [1.5, 2.0], [-0.5, 0.25]];
+let lr = 0.1;
+
+let W_init = [[0.2, -0.3], [0.4, 0.1]];
+let logits_v[j in 0..2] = sum[i in 0..2](X[0, i] * W_init[i, j]);
+let d_logits_dW = @logits_v / @W_init;
+
+let W[0, i in 0..2, j in 0..2] = W_init[i, j];
+let W[step in 1..5, i in 0..2, j in 0..2] = {
+    let n = (step - 1) % 3;
+    let logit_j = sum[a in 0..2](X[n, a] * W[step - 1, a, j]);
+    let loss_b = (logit_j - Y[n, j]) ** 2.0;
+    let w_ij = W[step - 1, i, j];
+    let g = @loss_b / @w_ij;
+    w_ij - lr * g
+};
+let W1[i in 0..2, j in 0..2] = W[1, i, j];
+let W2[i in 0..2, j in 0..2] = W[2, i, j];
+let W3[i in 0..2, j in 0..2] = W[3, i, j];
+let W4[i in 0..2, j in 0..2] = W[4, i, j];
+"""
+        _, out = _compile_run(source)
+        d_logits_dW = np.asarray(out.get("d_logits_dW"))
+        W1 = np.asarray(out.get("W1"))
+        W2 = np.asarray(out.get("W2"))
+        W3 = np.asarray(out.get("W3"))
+        W4 = np.asarray(out.get("W4"))
+        assert d_logits_dW.shape == (2, 2), "expected d_logits_dW shape (2,2), got %s" % (d_logits_dW.shape,)
+        assert W1.shape == (2, 2), "expected W1 shape (2,2), got %s" % (W1.shape,)
+        assert W2.shape == (2, 2), "expected W2 shape (2,2), got %s" % (W2.shape,)
+        assert W3.shape == (2, 2), "expected W3 shape (2,2), got %s" % (W3.shape,)
+        assert W4.shape == (2, 2), "expected W4 shape (2,2), got %s" % (W4.shape,)
+        _assert_allclose(d_logits_dW, np.array([[1.0, 1.0], [2.0, 2.0]]), msg="mnist logits quotient")
+        # Validate recurrence with modulo index cycling n = (step-1) % 3.
+        X_ref = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=np.float64)
+        Y_ref = np.array([[0.5, -1.0], [1.5, 2.0], [-0.5, 0.25]], dtype=np.float64)
+        lr = 0.1
+        W_init_ref = np.array([[0.2, -0.3], [0.4, 0.1]], dtype=np.float64)
+        W_ref = [W_init_ref]
+        for step in range(1, 5):
+            n = (step - 1) % 3
+            prev = W_ref[-1]
+            cur = np.zeros_like(prev)
+            for i in range(2):
+                for j in range(2):
+                    logit_j = np.sum(X_ref[n, :] * prev[:, j])
+                    g = 2.0 * (logit_j - Y_ref[n, j]) * X_ref[n, i]
+                    cur[i, j] = prev[i, j] - lr * g
+            W_ref.append(cur)
+        _assert_allclose(W1, W_ref[1], msg="mnist recurrence step1")
+        _assert_allclose(W2, W_ref[2], msg="mnist recurrence step2")
+        _assert_allclose(W3, W_ref[3], msg="mnist recurrence step3")
+        _assert_allclose(W4, W_ref[4], msg="mnist recurrence step4 modulo-cycle")
+        assert np.isfinite(W1).all() and np.isfinite(W2).all() and np.isfinite(W3).all() and np.isfinite(W4).all()
+
+    def test_mnist_main_differentiable_ops_small(self):
+        """Cover mnist/main.ein differentiable ops on tiny tensors: logits Einstein sum and quotients wrt X and W."""
+        source = """
+let X = [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]];
+let W = [[0.2, -0.3], [0.4, 0.1]];
+
+let logits[n in 0..3, j in 0..2] = sum[i in 0..2](X[n, i] * W[i, j]);
+let d_logits_dX = @logits / @X;
+let d_logits_dW = @logits / @W;
+"""
+        _, out = _compile_run(source)
+        logits = np.asarray(out.get("logits"))
+        d_logits_dX = np.asarray(out.get("d_logits_dX"))
+        d_logits_dW = np.asarray(out.get("d_logits_dW"))
+
+        assert logits.shape == (3, 2), "expected logits shape (3,2), got %s" % (logits.shape,)
+        assert d_logits_dX.shape == (3, 2, 3, 2), "expected d_logits_dX shape (3,2,3,2), got %s" % (d_logits_dX.shape,)
+        assert d_logits_dW.shape == (3, 2, 2, 2), "expected d_logits_dW shape (3,2,2,2), got %s" % (d_logits_dW.shape,)
+
+        # Full Jacobians:
+        # d_logits_dX[n,j,np,ip] = W[ip,j] if n==np else 0
+        # d_logits_dW[n,j,ip,jp] = X[n,ip] if j==jp else 0
+        X_ref = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+        W_ref = np.array([[0.2, -0.3], [0.4, 0.1]])
+        ref_dX = np.zeros((3, 2, 3, 2), dtype=np.float64)
+        for n in range(3):
+            for j in range(2):
+                for np_ in range(3):
+                    for ip in range(2):
+                        ref_dX[n, j, np_, ip] = W_ref[ip, j] if n == np_ else 0.0
+        ref_dW = np.zeros((3, 2, 2, 2), dtype=np.float64)
+        for n in range(3):
+            for j in range(2):
+                for ip in range(2):
+                    for jp in range(2):
+                        ref_dW[n, j, ip, jp] = X_ref[n, ip] if j == jp else 0.0
+        _assert_allclose(d_logits_dX, ref_dX, msg="mnist main logits/X full Jacobian")
+        _assert_allclose(d_logits_dW, ref_dW, msg="mnist main logits/W full Jacobian")
+        assert np.isfinite(d_logits_dX).all() and np.isfinite(d_logits_dW).all()
+
+    def test_mnist_ops_each_have_y_over_x_quotient(self):
+        """Explicit @y/@x checks per MNIST op pattern (sum, *, -, **, %, indexing alias, Einstein logits)."""
+        cases = [
+            (
+                "mul",
+                "let x = 3.0; let y = x * 4.0; let dy_dx = @y / @x;",
+                4.0,
+            ),
+            (
+                "sub",
+                "let x = 3.0; let y = x - 5.0; let dy_dx = @y / @x;",
+                1.0,
+            ),
+            (
+                "pow2",
+                "let x = 3.0; let y = x ** 2.0; let dy_dx = @y / @x;",
+                6.0,
+            ),
+            (
+                "sum_reduce",
+                "let x = [1.0, 2.0, 3.0]; let y = sum[i in 0..3](x[i]); let dy_dx = @y / @x;",
+                np.array([1.0, 1.0, 1.0], dtype=np.float64),
+            ),
+            (
+                "ein_logits",
+                (
+                    "let x = [1.0, 2.0]; "
+                    "let W = [[0.2, -0.3], [0.4, 0.1]]; "
+                    "let y[j in 0..2] = sum[i in 0..2](x[i] * W[i, j]); "
+                    "let dy_dx = @y / @x;"
+                ),
+                np.array([[0.2, 0.4], [-0.3, 0.1]], dtype=np.float64),
+            ),
+            (
+                "index_alias",
+                "let W = [[0.2, -0.3], [0.4, 0.1]]; let x = W[1, 0]; let y = x * 3.0; let dy_dx = @y / @x;",
+                3.0,
+            ),
+            (
+                "loss_alias_chain",
+                (
+                    "let X = [[1.0, 2.0]]; "
+                    "let Y = [[0.5, -1.0]]; "
+                    "let W = [[0.2, -0.3], [0.4, 0.1]]; "
+                    "let j = 1; "
+                    "let i = 0; "
+                    "let logit = sum[a in 0..2](X[0, a] * W[a, j]); "
+                    "let y = (logit - Y[0, j]) ** 2.0; "
+                    "let x = W[i, j]; "
+                    "let dy_dx = @y / @x;"
+                ),
+                1.8,
+            ),
+            (
+                "mod_index_control",
+                (
+                    "let coeff = [2.0, 4.0, 6.0]; "
+                    "let step = 4; "
+                    "let n = (step - 1) % 3; "
+                    "let x = 3.0; "
+                    "let y = x * coeff[n]; "
+                    "let dy_dx = @y / @x;"
+                ),
+                2.0,
+            ),
+        ]
+
+        for name, source, expected in cases:
+            _, out = _compile_run(source)
+            actual = out.get("dy_dx")
+            assert actual is not None, "case %s: missing dy_dx output" % name
+            if isinstance(expected, np.ndarray):
+                arr = np.asarray(actual)
+                assert arr.shape == expected.shape, "case %s: shape %s != %s" % (name, arr.shape, expected.shape)
+                _assert_allclose(arr, expected, msg="case %s: dy_dx" % name)
+            else:
+                got = float(actual) if hasattr(actual, "item") else float(actual)
+                assert abs(got - float(expected)) < 1e-5, "case %s: dy_dx got %s expected %s" % (name, got, expected)
 
     def test_user_fn_custom_diff_rule(self):
         """Custom @fn f(x) { 2*@x } gives db_da = 2 for b = f(a) = 2*a."""
@@ -963,6 +1190,12 @@ let w = [0.5, 0.3];
 let out[i, c] = sum[k](x[c, i + k] * w[k]) where i + k < 4;
 let d_out_dw = @out / @w;
 """),
+    ("conv2d", """
+let x = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]];
+let w = [[0.5, 0.5], [0.5, 0.5]];
+let out[oh in 0..2, ow in 0..2] = sum[kh in 0..2, kw in 0..2](x[oh + kh, ow + kw] * w[kh, kw]);
+let d_out_dw = @out / @w;
+"""),
     ("reduction_sum", """
 let M = [[1.0, 2.0], [3.0, 4.0]];
 let r[i] = sum[j](M[i, j]);
@@ -1091,6 +1324,7 @@ _OP_DOC_EXPECTATIONS = [
     ("matmul", {"dC_dA", "dC_dB"}, "einstein"),
     ("affine", {"dy_dx", "dy_dW", "dy_db"}, "einstein"),
     ("conv1d", {"d_out_dw"}, "einstein"),
+    ("conv2d", {"d_out_dw"}, "einstein"),
     ("reduction_sum", {"dr_dM"}, "einstein"),
     ("reduction_max", {"dy_dx"}, "select_at_argmax"),
     ("reduction_min", {"dy_dx"}, "select_at_argmax"),
@@ -1108,6 +1342,7 @@ _OP_DOC_EXPECTED_SHAPES = {
     "elementwise_binary": [("dz_da", ()), ("dz_db", ())],
     "matmul": [("dC_dA", (2, 2, 2, 2)), ("dC_dB", (2, 2, 2, 2))],
     "affine": [("dy_dx", (2, 2)), ("dy_dW", (2, 2)), ("dy_db", (2, 2))],
+    "conv2d": [("d_out_dw", (2, 2, 2, 2))],
     "reduction_sum": [("dr_dM", (2, 2))],
     "reduction_max": [("dy_dx", (1, 3))],
     "reduction_min": [("dy_dx", (1, 3))],

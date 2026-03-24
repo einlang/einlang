@@ -4,6 +4,7 @@
 // Same plus compile ir_dump/final_ir.sexpr: add --profile-all
 
 use std::array::argmax;
+use std::io::save_npy;
 
 fn load_images() -> [f32; *] { python::data_loader::load_images() }
 fn load_labels() -> [f32; *] { python::data_loader::load_labels() }
@@ -28,7 +29,10 @@ let W[step in 1..16, i in 0..784, j in 0..10] = {
     w_ij - lr * g
 };
 
-let final_logits[n in 0..10, j in 0..10] = sum[i in 0..784](X[n, i] * W[15, i, j]);
+let final_W[i in 0..784, j in 0..10] = W[15, i, j];
+save_npy("weights/W.npy", final_W);
+
+let final_logits[n in 0..10, j in 0..10] = sum[i in 0..784](X[n, i] * final_W[i, j]);
 let predictions = [argmax(final_logits[n]) | n in 0..10];
 
 print(predictions);

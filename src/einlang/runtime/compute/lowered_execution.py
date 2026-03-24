@@ -282,10 +282,7 @@ def execute_select_at_argmax_vectorized(
             return True, full_result
         else:
             idx_flat = int(np.argmin(primal_result) if use_argmin else np.argmax(primal_result))
-            full_result = np.zeros(red_shape_tuple, dtype=diff_result.dtype)
-            red_multi = np.unravel_index(idx_flat, red_shape_tuple)
-            full_result[red_multi] = np.array(diff_result.flat[idx_flat], dtype=diff_result.dtype)
-            return True, full_result
+            return True, float(diff_result.flat[idx_flat])
     except Exception:
         pass
     return False, None

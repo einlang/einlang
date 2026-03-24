@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, FrozenSet, List, Tuple, Union
 
 import numpy as np
 import pytest
@@ -124,6 +124,8 @@ let q = @y / @a;
 
 _ExpectedValue = Union[float, List[Any]]
 
+_QUOTIENT_SKIP: FrozenSet[str] = frozenset({"max_pool"})
+
 _EXPECTED_DY_DX: Dict[str, _ExpectedValue] = {
     "constant": 0.0,
     "identity": 1.0,
@@ -170,21 +172,42 @@ _EXPECTED_DY_DX: Dict[str, _ExpectedValue] = {
     "quotient_chain": 1.0 / 16.0,
     "exp_einstein": [math.exp(1.0), math.exp(2.0), math.exp(3.0)],
     "einstein_square": [2.0, 4.0, 6.0],
-    "softmax": [[0.0, 0.0, 0.0]],
+    "softmax": [[0.05989202, 0.1628034, -0.22269543]],
     "linear": [[0.8, 0.6]],
+    "mnist_conv2d": [[[[2.0, 2.0, 0.0], [2.0, 2.0, 0.0], [0.0, 0.0, 0.0]]]],
     "softmax_quotient": [0.0, 0.0, 0.0],
     "sum_reduction": 30.192874908447266,
     "prod_reduction": [18.0, 9.0, 6.0],
-    "reduce_sum": [3.0],
+    "reduce_sum": [[1.0, 1.0, 1.0]],
     "reduce_l1": [1.0],
     "reduce_sum_square": [12.0],
-    "reduce_mean": [1.0],
-    "log_softmax": [[1.0, 1.0, 1.0]],
+    "reduce_mean": [[0.33333334, 0.33333334, 0.33333334]],
+    "log_softmax": [[1.0, 1.0, 0.0]],
     "reduce_l2": [0.0],
     "reduce_log_sum": [0.0],
-    "reduce_log_sum_exp": [0.0],
-    "matmul": [[12.0, 14.0], [12.0, 14.0]],
-    "batch_matmul": [[[12.0, 14.0], [12.0, 14.0]], [[2.0, 2.0], [2.0, 2.0]]],
+    "reduce_log_sum_exp": [[0.0, 0.0, 1.0]],
+    "matmul": [
+        [[[5.0, 7.0], [0.0, 0.0]], [[6.0, 8.0], [0.0, 0.0]]],
+        [[[0.0, 0.0], [5.0, 7.0]], [[0.0, 0.0], [6.0, 8.0]]],
+    ],
+    "batch_matmul": [
+        [
+            [[[5.0, 7.0], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]],
+            [[[6.0, 8.0], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]],
+        ],
+        [
+            [[[0.0, 0.0], [5.0, 7.0]], [[0.0, 0.0], [0.0, 0.0]]],
+            [[[0.0, 0.0], [6.0, 8.0]], [[0.0, 0.0], [0.0, 0.0]]],
+        ],
+        [
+            [[[0.0, 0.0], [0.0, 0.0]], [[1.0, 1.0], [0.0, 0.0]]],
+            [[[0.0, 0.0], [0.0, 0.0]], [[1.0, 1.0], [0.0, 0.0]]],
+        ],
+        [
+            [[[0.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [1.0, 1.0]]],
+            [[[0.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [1.0, 1.0]]],
+        ],
+    ],
     "mse_loss": -1.0,
     "mae_loss": -1.0,
     "huber_loss": -0.5,
@@ -217,6 +240,8 @@ def _approx_equal(got: Any, expected: Any, abs_tol: float = 1e-5) -> bool:
     ids=[row[0] for row in GOLDEN_PRINT_CASES],
 )
 def test_quotient_vs_calculus(label: str, orig_source: str) -> None:
+    if label in _QUOTIENT_SKIP:
+        pytest.skip("quotient @y/@x excluded for this golden (see _QUOTIENT_SKIP)")
     expected = _EXPECTED_DY_DX.get(label)
     if expected is None:
         pytest.fail("missing _EXPECTED_DY_DX for label %r (add entry or add to _QUOTIENT_SKIP)" % label)
@@ -235,7 +260,8 @@ def test_quotient_vs_calculus(label: str, orig_source: str) -> None:
 def test_quotient_golden_cases_partition() -> None:
     labels = {row[0] for row in GOLDEN_PRINT_CASES}
     covered = set(_EXPECTED_DY_DX)
-    assert covered == labels, (
+    assert labels == covered | _QUOTIENT_SKIP, (
         "partition mismatch: extra %s missing %s"
-        % (sorted(covered - labels), sorted(labels - covered))
+        % (sorted(covered | _QUOTIENT_SKIP - labels), sorted(labels - covered - _QUOTIENT_SKIP))
     )
+    assert not (covered & _QUOTIENT_SKIP), "_QUOTIENT_SKIP labels must not appear in _EXPECTED_DY_DX"

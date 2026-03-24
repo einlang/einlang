@@ -4,6 +4,8 @@
 
 **Overview (why Einlang’s autodiff):** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md)
 
+**Scope note:** The algorithm below powers real compiled programs and scales from scalar calculus to Einstein tensor operators.
+
 ---
 
 ## 1. Notation and semantics

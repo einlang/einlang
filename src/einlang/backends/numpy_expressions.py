@@ -28,6 +28,33 @@ from .numpy_helpers import (
 )
 
 
+def _first_parallel_index_defid(
+    idx_expr: ExpressionIR, reduction_body_defids: Any
+) -> Any:
+    if idx_expr is None:
+        return None
+    if isinstance(idx_expr, IdentifierIR):
+        d = idx_expr.defid
+        if d is not None and d not in reduction_body_defids:
+            return d
+        return None
+    if isinstance(idx_expr, IndexVarIR):
+        d = idx_expr.defid
+        if d is not None and d not in reduction_body_defids:
+            return d
+        return None
+    if isinstance(idx_expr, BinaryOpIR):
+        left = _first_parallel_index_defid(idx_expr.left, reduction_body_defids)
+        if left is not None:
+            return left
+        return _first_parallel_index_defid(idx_expr.right, reduction_body_defids)
+    if isinstance(idx_expr, UnaryOpIR):
+        return _first_parallel_index_defid(idx_expr.operand, reduction_body_defids)
+    if isinstance(idx_expr, CastExpressionIR):
+        return _first_parallel_index_defid(idx_expr.expr, reduction_body_defids)
+    return None
+
+
 def _is_scalar_like(x: Any) -> bool:
     if x is None:
         return True
@@ -1548,76 +1575,99 @@ class ExpressionVisitorMixin:
         return self.evaluate_lowered_reduction(expr, parallel_shape=None)
 
     def visit_lowered_select_at_argmax(self, expr: LoweredSelectAtArgmaxIR) -> Any:
-        from ..passes.visitor_helpers import defid_of_var_in_expr
+        from ..passes.visitor_helpers import all_defids_of_var_in_expr
         from ..runtime.compute.lowered_execution import execute_select_at_argmax_vectorized
         from ..ir.nodes import RectangularAccessIR
         reduction_loops = list((expr.reduction_ranges or {}).values())
         if not reduction_loops:
             raise RuntimeError("SelectAtArgmax has no reduction loops")
         n_red = len(reduction_loops)
-        _loop_to_body_defid = {}
-        _reduction_defid_names = {}
+
+        # Build loop_var_defid -> ALL body defids (covering both primal and diff bodies)
+        # and a union set of all reduction body defids.
+        # primal_body and diff_body may use different defids for the same variable name
+        # (e.g. batch.0 in primal vs diff), so we must alias every one.
+        _loop_to_all_body_defids: Dict[Any, List[Any]] = {}  # loop_var_defid -> [body_defid, ...]
+        _reduction_defid_names: Dict[Any, str] = {}
         for _lp in expr.loops or []:
             _v = _lp.variable
-            if _v is not None:
+            if _v is not None and _v.defid is not None and _v.name:
                 _vname = _v.name
-                _bd = defid_of_var_in_expr(expr.primal_body, _vname) if _vname else None
-                if _bd is not None:
-                    _loop_to_body_defid[_v.defid] = _bd
+                _all_bds = all_defids_of_var_in_expr(expr.primal_body, _vname) | \
+                           all_defids_of_var_in_expr(expr.diff_body, _vname)
+                _bds = [d for d in _all_bds if d != _v.defid]
+                if _bds:
+                    _loop_to_all_body_defids[_v.defid] = _bds
+                for _bd in _all_bds:
                     _reduction_defid_names[_bd] = _vname
-                elif _v.defid:
-                    _reduction_defid_names[_v.defid] = _vname
-        reduction_body_defids = set()
+                _reduction_defid_names[_v.defid] = _vname
+
+        # Collect union of ALL reduction-loop body defids (for parallel-index detection)
+        reduction_body_defids: Set[Any] = set()
         for _lp in expr.loops or []:
             if _lp.variable is not None and _lp.variable.defid is not None:
-                reduction_body_defids.add(
-                    _loop_to_body_defid.get(_lp.variable.defid) or _lp.variable.defid
-                )
+                reduction_body_defids.add(_lp.variable.defid)
+                for _bd in _loop_to_all_body_defids.get(_lp.variable.defid) or []:
+                    reduction_body_defids.add(_bd)
+
         parallel_shape = None
         parallel_defids_list: List[Any] = []
+        initial_context: List[Tuple[Any, Any]] = []
+        _ri0 = getattr(self, "_reduction_initial_context", None) or {}
         if isinstance(expr.primal_body, RectangularAccessIR) and expr.primal_body.array is not None:
             try:
                 arr = expr.primal_body.array.accept(self)
-                if isinstance(arr, np.ndarray) and arr.ndim >= n_red:
+                if not _ri0 and isinstance(arr, np.ndarray) and arr.ndim >= n_red:
                     parallel_shape = tuple(arr.shape[:-n_red])
-                for idx in (expr.primal_body.indices or []):
-                    d = getattr(idx, "defid", None)
-                    if d is not None and d not in reduction_body_defids:
-                        parallel_defids_list.append(d)
+                if not _ri0:
+                    for idx in (expr.primal_body.indices or []):
+                        d = _first_parallel_index_defid(idx, reduction_body_defids)
+                        if d is not None:
+                            parallel_defids_list.append(d)
             except Exception:
                 pass
-        initial_context: List[Tuple[Any, Any]] = []
         if parallel_shape and len(parallel_defids_list) == len(parallel_shape):
             initial_context = [
                 (defid, np.arange(parallel_shape[i], dtype=np.intp))
                 for i, defid in enumerate(parallel_defids_list)
             ]
 
-        def _remap_ctx_to_body_defids(ctx):
-            out = {}
+        def _expand_ctx_to_all_body_defids(ctx: Dict) -> Dict:
+            """Given a ctx keyed by loop_var_defids, expand to also include all body-defid aliases."""
+            out: Dict[Any, Any] = {}
             for loop_defid, val in (ctx or {}).items():
                 if loop_defid is None:
                     continue
-                body_defid = _loop_to_body_defid.get(loop_defid)
-                if body_defid is not None:
+                out[loop_defid] = val
+                for body_defid in _loop_to_all_body_defids.get(loop_defid) or []:
                     out[body_defid] = val
-                else:
-                    out[loop_defid] = val
             return out
 
-        def primal_body_ev(ctx):
-            _ctx = _remap_ctx_to_body_defids(ctx)
-            for defid, val in _ctx.items():
-                if defid is not None:
+        def _apply_ctx_then_eval(ctx: Dict, body_expr: Any) -> Any:
+            ri = getattr(self, "_reduction_initial_context", None) or {}
+            # Expand reduction-loop ctx to all body defid aliases
+            _ctx = _expand_ctx_to_all_body_defids(ctx)
+            # ri already contains outer-loop aliases (both primal and diff body defids,
+            # built by _collect_defids_by_name in _execute_lowered_einstein_clause)
+            merged = {**ri, **_ctx}
+            saved: Dict[Any, Any] = {}
+            try:
+                for defid in merged:
+                    if defid is not None:
+                        saved[defid] = self.env.get_value(defid)
+                for defid, val in merged.items():
+                    if defid is not None:
+                        self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
+                return body_expr.accept(self)
+            finally:
+                for defid, val in saved.items():
                     self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
-            return expr.primal_body.accept(self)
+
+        def primal_body_ev(ctx):
+            return _apply_ctx_then_eval(ctx, expr.primal_body)
 
         def diff_body_ev(ctx):
-            _ctx = _remap_ctx_to_body_defids(ctx)
-            for defid, val in _ctx.items():
-                if defid is not None:
-                    self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
-            return expr.diff_body.accept(self)
+            return _apply_ctx_then_eval(ctx, expr.diff_body)
 
         def ev(e):
             return e.accept(self)

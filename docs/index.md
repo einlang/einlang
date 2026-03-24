@@ -3,6 +3,8 @@
 
 **Tensor code is either readable or safe—usually neither.** Einlang is both: write math the way it looks on the page (Einstein notation, sums, indices)—**math-intuitive**—and get shape errors at compile time.
 
+**Autodiff at a glance:** Einlang ships compiler-native autodiff (`@expr`, `@y / @x`) with Einstein-aware tensor rules and no external AD framework required.
+
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply — shapes checked by the compiler
 ```

@@ -73,6 +73,8 @@ GOLDEN_CALCULUS: Dict[str, str] = {
     "reduce_log_sum_exp": "log Σ exp(x) (log-sum-exp); ∂/∂x_i = softmax_i.",
     "cosine_similarity": "dot(a,b)/(‖a‖‖b‖); gradients are projections orthogonal to a and b in numerator layout.",
     "matmul": "C[i,j] = Σ_k A[i,k] B[k,j] ⇒ @C[i,j] = Σ_k (A[i,k] @B[k,j] + B[k,j] @A[i,k]).",
+    "max_pool": "y[b,c,oh,ow] = max over window of x; JVP routes ∂ only through entries that attain the max (subgradient of max). print(@…) expands std::ml::max_pool callee (rank-dispatch in primal).",
+    "mnist_conv2d": "MNIST-shaped 2D conv as Einstein: y[b,co,i,j]=Σ_{c,m,n} x[b,c,i+m,j+n] w[co,c,m,n]+b[co]; @y is sum-of-products rule (∂/∂w: x factor, ∂/∂x: w factor, ∂/∂b: 1) — same calculus as std::ml::conv2d inner sum.",
     "batch_matmul": "Same as matmul per batch slice b: @C[b,i,j] = Σ_k (A[b,i,k] @B[b,k,j] + B[b,k,j] @A[b,i,k]).",
     "relu": "y = max(0,x) ⇒ dy = dx if x>0 else 0.",
     "sigmoid": "σ(x) = 1/(1+e^(−x)) ⇒ σ' = σ(1−σ).",
