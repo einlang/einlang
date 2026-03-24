@@ -4,36 +4,65 @@
 // Same plus compile ir_dump/final_ir.sexpr: add --profile-all
 
 use std::array::argmax;
-use std::io::save_npy;
+use std::io::{load_npy, save_npy};
+use std::ml::{conv, max_pool, relu};
 
-fn load_images() -> [f32; *] { python::data_loader::load_images() }
+fn load_pgm(path: str) -> [f32; *] { python::pgm_io::load(path) }
 fn load_labels() -> [f32; *] { python::data_loader::load_labels() }
-fn load_weights() -> [f32; *] { python::data_loader::init_weights() }
 
-let X = load_images() as [f32; 10, 784];
 let Y = load_labels() as [f32; 10, 10];
-let lr = 0.01;
+let images = [load_pgm("samples/{i}.pgm") as [f32; 1, 1, 28, 28] | i in 0..10];
 
-let W_init = load_weights() as [f32; 784, 10];
-let logits_v[j in 0..10] = sum[i in 0..784](X[0, i] * W_init[i, j]);
-let d_logits_dW = @logits_v / @W_init;
-let loss = sum[j in 0..10]((logits_v[j] - Y[0, j]) ** 2.0);
+let conv1_w = load_npy("weights/conv1_w.npy") as [f32; 8, 1, 5, 5];
+let conv1_b = load_npy("weights/conv1_b.npy") as [f32; 8];
+let conv2_w = load_npy("weights/conv2_w.npy") as [f32; 16, 8, 5, 5];
+let conv2_b = load_npy("weights/conv2_b.npy") as [f32; 16];
+let fc_w_init = load_npy("weights/fc_w.npy") as [f32; 256, 10];
+let fc_b_init = load_npy("weights/fc_b.npy") as [f32; 10];
 
-let W[0, i in 0..784, j in 0..10] = 0.0;
-let W[step in 1..16, i in 0..784, j in 0..10] = {
+fn embed(raw) {
+    let input[n, c, h, w] = 1.0 - raw[n, c, h, w];
+    let c1 = conv(input, conv1_w, conv1_b, [1, 1], [2, 2, 2, 2], [1, 1], 1);
+    let p1 = max_pool(relu(c1), [2, 2], [2, 2], [0, 0]);
+    let c2 = conv(p1, conv2_w, conv2_b, [1, 1], [2, 2, 2, 2], [1, 1], 1);
+    let p2 = max_pool(relu(c2), [3, 3], [3, 3], [0, 0]);
+    let flat[k in 0..256] = p2[0, k / 16, (k / 4) % 4, k % 4];
+    flat
+}
+
+let F[n in 0..10, k in 0..256] = embed(images[n])[k];
+let lr = 0.0001;
+
+// Train weights and bias together by appending bias as an extra feature row.
+let FE[n in 0..10, a in 0..256] = F[n, a];
+let FE[n in 0..10, a in 256..257] = 1.0;
+let FC[0, a in 0..256, j in 0..10] = fc_w_init[a, j];
+let FC[0, a in 256..257, j in 0..10] = fc_b_init[j];
+let FC[step in 1..21, a in 0..257, j in 0..10] = {
     let n = (step - 1) % 10;
-    let logit_j = sum[a in 0..784](X[n, a] * W[step - 1, a, j]);
-    let loss_b = (logit_j - Y[n, j]) ** 2.0;
-    let w_ij = W[step - 1, i, j];
-    let g = @loss_b / @w_ij;
-    w_ij - lr * g
+    let logit_j = sum[p in 0..257](FE[n, p] * FC[step - 1, p, j]);
+    let loss_j = (logit_j - Y[n, j]) ** 2.0;
+    let p_aj = FC[step - 1, a, j];
+    let g = @loss_j / @p_aj;
+    p_aj - lr * g
 };
 
-let final_W[i in 0..784, j in 0..10] = W[15, i, j];
-save_npy("weights/W.npy", final_W);
+let fc_w_final[k in 0..256, j in 0..10] = FC[20, k, j];
+let fc_b_final[j in 0..10] = FC[20, 256, j];
+save_npy("weights/fc_w.npy", fc_w_final);
+save_npy("weights/fc_b.npy", fc_b_final);
+// Compatibility artifact for older scripts/tests that expect weights/W.npy from train.ein.
+save_npy("weights/W.npy", fc_w_final);
 
-let final_logits[n in 0..10, j in 0..10] = sum[i in 0..784](X[n, i] * final_W[i, j]);
-let predictions = [argmax(final_logits[n]) | n in 0..10];
+fn infer(raw, fc_w, fc_b) {
+    let flat = embed(raw);
+    let logits[j in 0..10] = sum[k in 0..256](flat[k] * fc_w[k, j]) + fc_b[j];
+    argmax(logits)
+}
+
+let W_saved = load_npy("weights/fc_w.npy") as [f32; 256, 10];
+let B_saved = load_npy("weights/fc_b.npy") as [f32; 10];
+let predictions = [infer(image, W_saved, B_saved) | image in images];
 
 print(predictions);
-assert(predictions == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "mnist_train: predictions");
+assert(predictions == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "MNIST predictions do not match expected labels");

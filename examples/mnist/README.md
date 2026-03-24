@@ -3,29 +3,32 @@
 
 > **Previous**: [`demos/`](https://github.com/einlang/einlang/tree/main/examples/demos) · **Next**: [`mnist_quantized/`](https://github.com/einlang/einlang/tree/main/examples/mnist_quantized)
 
-Your first real neural network in Einlang — a linear model that classifies 28x28 handwritten digits, trained from scratch with autodiff.
+An ONNX-style CNN in Einlang for classifying 28x28 handwritten digits.
 
 ## Architecture
 
 ```
-Input (10x784) × W (784×10) → logits (10×10) → argmax → predicted digit
+Input (1x1x28x28)
+→ Conv(8, 5x5) + ReLU + MaxPool(2x2)
+→ Conv(16, 5x5) + ReLU + MaxPool(3x3)
+→ Flatten(256) → Linear(10) → argmax
 ```
 
 Achieves 10/10 on the bundled PGM samples.
 
 ## What's new here
 
-- **Autodiff (`@`)** — `@loss / @w` computes gradients automatically; no hand-written backprop.
-- **Recurrence** — multi-clause Einstein with temporal dependency (`W[step-1]`) implements gradient descent over 15 training steps.
-- **`save_npy` / `load_npy`** — `train.ein` saves the trained weight matrix to `weights/W.npy`; `main.ein` loads it for inference.
+- **Autodiff (`@`)** — `@loss / @w` computes gradients for the classifier head in `train.ein`.
+- **CNN ops** — `conv`, `relu`, `max_pool`, and flattening in pure Einlang.
+- **`save_npy` / `load_npy`** — `train.ein` updates and saves classifier weights; `main.ein` loads CNN weights for inference.
 - **Python interop** — `python::data_loader::load_images()` calls Python functions from Einlang to load PGM images and labels.
 
 ## Files
 
 | File | Description |
 |------|-------------|
-| `train.ein` | Train linear model with autodiff, save weights to `weights/W.npy` |
-| `main.ein` | Load trained weights, run inference |
+| `train.ein` | Run CNN forward path, fine-tune classifier head with autodiff, save weights |
+| `main.ein` | Load CNN weights and run inference |
 | `data_loader.py` | Training data loader (called via `python::data_loader::*`) |
 | `pgm_io.py` | PGM image loader (used by quantized example) |
 | `samples/*.pgm` | 28x28 grayscale images of digits 0-9 |
@@ -33,7 +36,7 @@ Achieves 10/10 on the bundled PGM samples.
 
 ## Usage
 
-Train (generates `weights/W.npy`):
+Train / fine-tune classifier head:
 
 ```bash
 python3 -m einlang examples/mnist/train.ein
@@ -47,8 +50,10 @@ python3 -m einlang examples/mnist/main.ein
 
 ## How it works
 
-**`train.ein`** — Trains a single-layer linear model from scratch using autodiff (`@`) and recurrence (multi-clause Einstein with temporal dependency). Gradient descent runs for 15 steps over the 10 sample digits, achieving 10/10 accuracy. The final weight matrix is saved to `weights/W.npy`.
+**`train.ein`** — Uses the same CNN backbone as `main.ein`, computes 256-d embeddings for the 10 samples, then fine-tunes the final classifier head with autodiff (`@`) via recurrence. Updated classifier weights are saved under `weights/`.
 
-**`main.ein`** — Loads the trained weight matrix from `weights/W.npy`, computes logits for all 10 sample images, and asserts the predictions match expected labels.
+**TODO (roadmap):** The current trainer packs classifier weights and bias into one recurrent tensor so both can be updated together. This is a temporary pattern until natural multi-value recurrence (coupled `W[step]` and `B[step]` updates) is first-class in the language/compiler. See [docs/ROADMAP.md](../../docs/ROADMAP.md).
+
+**`main.ein`** — Loads CNN weights from `weights/`, computes logits for all 10 sample images, and asserts predictions match expected labels.
 
 Once you're comfortable with this, [mnist_quantized/](https://github.com/einlang/einlang/tree/main/examples/mnist_quantized) takes the exact same network and shows how to run it with int8 weights.

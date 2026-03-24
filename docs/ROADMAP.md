@@ -35,6 +35,31 @@ This item is **not** a commitment to a particular syntax keyword; the roadmap go
 
 ---
 
+## Natural multi-value recurrence (coupled state updates)
+
+**Motivation:** Some training loops naturally update multiple recurrent states together from the same previous-step snapshot, e.g. `W[step]` and `B[step]` in a linear/CNN head. Today, users may pack these into a single tensor as a workaround (e.g. appending bias as an extra row), which works but is not the most readable source shape.
+
+**Target shape (conceptual):**
+
+```text
+let W[0, ...] = ...;
+let B[0, ...] = ...;
+let W[step in 1..T, ...] = f(W[step - 1, ...], B[step - 1, ...], ...);
+let B[step in 1..T, ...] = g(W[step - 1, ...], B[step - 1, ...], ...);
+```
+
+**Requirements / open work:**
+
+- **Language semantics:** define grouped/mutually-coupled recurrence so multiple arrays can be updated per step from the same prior-step values without introducing circular same-step dependencies.
+- **Lowering/IR:** represent recurrence groups explicitly (or equivalent) so ordering is deterministic and backend execution uses one coherent previous-step snapshot.
+- **Autodiff correctness:** ensure quotient/differential rules remain correct through coupled recurrence updates.
+- **Vectorization parity:** avoid regressions in vectorization behavior compared with single-array recurrence.
+- **Examples cleanup:** remove packing workaround in `examples/mnist/train.ein` once this lands.
+
+**Current status:** supported via workaround (parameter packing) in MNIST training; first-class natural multi-value recurrence is planned.
+
+---
+
 ## See also
 
 - [README.md](../README.md) — “Docs and roadmap” summary  
