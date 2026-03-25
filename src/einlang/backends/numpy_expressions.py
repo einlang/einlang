@@ -942,6 +942,21 @@ class ExpressionVisitorMixin:
             if size > 1_000_000:
                 raise RuntimeError(f"Loop range too large: size={size}")
             return val
+        if isinstance(val, (list, tuple)):
+            # Rectangular literals are serialized as LiteralIR tuples/lists, but the
+            # NumPy backend expects ndarray semantics for multi-index access and
+            # elementwise arithmetic inside Einstein clauses.
+            try:
+                arr = np.asarray(val)
+                if arr.dtype.kind == "f":
+                    return arr.astype(np.float32, copy=False)
+                if arr.dtype.kind in ("i", "u"):
+                    return arr.astype(np.int32, copy=False)
+                if arr.dtype.kind == "b":
+                    return arr.astype(bool, copy=False)
+                return arr
+            except Exception:
+                return val
         return val
 
     def visit_identifier(self, expr) -> Any:
@@ -1070,9 +1085,11 @@ class ExpressionVisitorMixin:
         try:
             if isinstance(array, np.ndarray):
                 return array[tuple(indices)]
-            if isinstance(array, (list, tuple, str)):
+            if isinstance(array, str):
                 idx = indices[0] if indices else 0
                 return array[int(idx)]
+            if isinstance(array, (list, tuple)):
+                return np.asarray(array)[tuple(indices)] if indices else np.asarray(array)
             # Forward AD: seeded derivative may be scalar 1 (broadcast over indices)
             if np.isscalar(array) or (isinstance(array, np.ndarray) and array.ndim == 0):
                 return array
@@ -1744,4 +1761,3 @@ class ExpressionVisitorMixin:
             return fn(*args)
         except Exception as e:
             self._raise_here(e, expr)
-
