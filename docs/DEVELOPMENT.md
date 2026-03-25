@@ -14,7 +14,7 @@ For contributors who want to work on the compiler or add features. If you're jus
 git clone https://github.com/einlang/einlang.git
 cd einlang
 pip install -e ".[dev]"
-python3 -m pytest tests/ --tb=short -q
+python3 -m pytest -n auto tests/ --tb=short -q
 ```
 
 Requires Python 3.7+.

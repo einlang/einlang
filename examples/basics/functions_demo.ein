@@ -55,4 +55,12 @@ print("dot_product([1,2,3], [4,5,6]) =", dot_result);
 print("Array:", numbers);
 print("  Mean:", numbers_mean);
 print("  Variance:", numbers_var);
+
+// Built-in autodiff sensitivity: differentiate a user-defined function with no finite differences
+let sensitivity_input = 3.0;
+let sensitivity_output = square(sensitivity_input);
+let d_square_dx = @sensitivity_output / @sensitivity_input;
+assert(d_square_dx == 6.0, "d(square(x))/dx at x=3 should be 6");
+print("Autodiff: d(square(x))/dx at x=3 =", d_square_dx);
+
 print("✅ All function calls verified!");

@@ -84,7 +84,7 @@ ML_ACTIVATION_PRINT_AT_GOLDEN_CASES: List[Tuple[str, str, str]] = [
     (
         'hardswish',
         '\n\nuse std::ml;\nlet x = 1.0;\nlet y = std::ml::hardswish(x);\nprint(@y);\n',
-        'let @y = {\n    let _@hardswish_x: f32 = (x * if x + 3.0 <= 0.0 { 0.0 } else if x + 3.0 >= 6.0 { 0.0 } else { @x } + relu6(x + 3.0) * @x) / 6.0;\n    _@hardswish_x\n};',
+        'let @y = (x * { { @x } } + relu6(x + 3.0) * @x) / 6.0;',
     ),
     (
         'thresholded_relu',

@@ -10,7 +10,7 @@ Examples are grouped **by domain** below. For a step-by-step path (basics → de
 
 ### Scientific simulation (ODEs & PDEs)
 
-Time-stepping and spatial stencils; no weights. Each `.ein` has a **Julia equivalent** in comments. See [Julia demos → Einlang](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md).
+Time-stepping and spatial stencils; no weights. Each `.ein` has a **Julia equivalent** in comments. When a workflow needs sensitivities, the same language can use autodiff instead of finite-difference gradient estimates. See [Julia demos → Einlang](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md).
 
 | Directory | What it does | Run |
 |-----------|--------------|-----|
@@ -37,7 +37,7 @@ Recurrences (base case + step); Markov chains, chaos.
 
 | Directory | What it does | Run |
 |-----------|--------------|-----|
-| **Autodiff** (root) | **Compiler-derived AD** — `@expr`, `@a / @b`, quotients, and training-style updates without hand-written pullbacks. Same stack as MNIST/ViT-style models. Narrative: [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md). | `python3 examples/run_autodiff_examples.py` or `autodiff_small.ein`, `autodiff_matmul.ein`, `gradient_descent_autodiff.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein` |
+| **Autodiff** (root) | **Compiler-derived AD** — `@expr`, `@a / @b`, quotients, and training-style updates without hand-written pullbacks. Same stack as MNIST/ViT-style models, and the usual replacement for finite-difference gradients in supported scientific and optimization examples. Narrative: [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md). | `python3 examples/run_autodiff_examples.py` or `autodiff_small.ein`, `autodiff_matmul.ein`, `gradient_descent_autodiff.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein` |
 | [`value_iteration/`](https://github.com/einlang/einlang/tree/main/examples/value_iteration) | Value iteration (Bellman); **policy iteration** (Howard: evaluate + improve) | `python3 -m einlang examples/value_iteration/main.ein` · `policy_iteration.ein` |
 | [`job_search/`](https://github.com/einlang/einlang/tree/main/examples/job_search) | McCall job search (QuantEcon): value function iteration, reservation wage | `python3 -m einlang examples/job_search/mccall.ein` |
 | [`optimization/`](https://github.com/einlang/einlang/tree/main/examples/optimization) | Suite: gradient descent, power iteration, projected gradient, Rosenbrock (Optim.jl/SciML) | `python3 -m einlang examples/optimization/optimization_suite.ein` |
@@ -51,7 +51,7 @@ Recurrences (base case + step); Markov chains, chaos.
 
 ### Parameter estimation & scenario workflows
 
-Multi-step patterns: fit model to data then use it, or run one model over many parameter sets (sensitivity/scenario analysis). See [Learning from Julia: real applications](https://github.com/einlang/einlang/blob/main/docs/LEARNING_FROM_JULIA.md).
+Multi-step patterns: fit model to data then use it, or run one model over many parameter sets (sensitivity/scenario analysis). These are the places where autodiff usually replaces finite-difference tuning loops. See [Learning from Julia: real applications](https://github.com/einlang/einlang/blob/main/docs/LEARNING_FROM_JULIA.md).
 
 | Directory | What it does | Run |
 |-----------|--------------|-----|

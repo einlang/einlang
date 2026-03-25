@@ -1,0 +1,9 @@
+*.npy
+!.gitkeep
+!W.npy
+!conv1_w.npy
+!conv1_b.npy
+!conv2_w.npy
+!conv2_b.npy
+!fc_w.npy
+!fc_b.npy

@@ -1,0 +1,37 @@
+// Exponential decay calibration with autodiff: refine both k and u0 from observations.
+//
+// Pattern: fit u(t) = u0 * exp(-k*t) by minimizing SSE with gradients from autodiff,
+// then inspect the one-step update. This is the same calibration workflow as decay_calibration.ein,
+// but keeps the parameter refinement compact and fully derivative-based.
+
+use std::math::exp;
+
+let dt = 0.1;
+let n_obs = 12;
+
+// Synthetic observations: u(t) = u0_true * exp(-k_true*t)
+let k_true = 0.08;
+let u0_true = 2.0;
+let data[t in 0..n_obs] = u0_true * exp(-k_true * (t as f64) * dt);
+let time[t in 0..n_obs] = (t as f64) * dt;
+
+// Start from a rough guess and take one autodiff gradient step on SSE.
+let k = 0.05;
+let u0 = 1.6;
+let fitted[t in 0..n_obs] = u0 * exp(-k * time[t]);
+let residuals[t in 0..n_obs] = data[t] - fitted[t];
+let sse = sum[t in 0..n_obs](residuals[t] * residuals[t]);
+let d_sse_dk = @sse / @k;
+let d_sse_du0 = @sse / @u0;
+let k_next = k - 0.01 * d_sse_dk;
+let u0_next = u0 - 0.01 * d_sse_du0;
+
+// Compare the original and updated fit error.
+let fitted_next[t in 0..n_obs] = u0_next * exp(-k_next * time[t]);
+let residuals_next[t in 0..n_obs] = data[t] - fitted_next[t];
+let sse_next = sum[t in 0..n_obs](residuals_next[t] * residuals_next[t]);
+
+print(sse);
+print(sse_next);
+print(k_next);
+print(u0_next);

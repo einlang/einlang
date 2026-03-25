@@ -41,6 +41,8 @@ ir_dumps/
 # Generated / large files (obtain via example setup scripts)
 *.html
 examples/*/weights/
+!examples/mnist/weights/
+!examples/mnist/weights/**
 !examples/deit_tiny/weights/
 !examples/deit_tiny/weights/**
 examples/*/samples/

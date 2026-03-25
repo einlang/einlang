@@ -17,4 +17,12 @@ let deposit = 100.0;
 let b[0] = initial;
 let b[t in 1..61] = b[t - 1] * (1.0 + r) + deposit;
 
+// Small autodiff sensitivity check: how one month's balance moves with r and deposit.
+// This does not change the core savings trajectory above.
+let month1_balance = initial * (1.0 + r) + deposit;
+let d_month1_balance_d_r = @month1_balance / @r;
+let d_month1_balance_d_deposit = @month1_balance / @deposit;
+
 print(b);
+print("Autodiff sensitivities for month 1 balance: d(balance)/dr, d(balance)/d(deposit)");
+print([d_month1_balance_d_r, d_month1_balance_d_deposit]);

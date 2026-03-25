@@ -13,7 +13,7 @@ Einlang is a language for tensor math that’s **math-intuitive**: it looks like
 let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply — compiler checks A, B, C shapes
 ```
 
-You get **where-clauses** (index algebra, guards), **recurrences** (RNNs, dynamic programming), and **automatic differentiation that lives in the compiler** — write `@loss / @weights` and related forms; gradients and Jacobian pieces are derived and executed for you (see [AUTODIFF_HIGHLIGHTS](AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](AUTODIFF_DESIGN.md)). A **stdlib** of 300+ functions. Real models — CNN, quantized CNN, ViT, Whisper — are written in the same language. **[Why Einlang?](WHY_EINLANG.md)** has the full feature highlights and comparison.
+You get **where-clauses** (index algebra, guards), **recurrences** (RNNs, dynamic programming), and **automatic differentiation that lives in the compiler** — write `@loss / @weights` and related forms; gradients and Jacobian pieces are derived and executed for you, which is often the cleaner replacement for finite-difference sensitivity code when the operation is supported (see [AUTODIFF_HIGHLIGHTS](AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](AUTODIFF_DESIGN.md)). A **stdlib** of 300+ functions. Real models — CNN, quantized CNN, ViT, Whisper — are written in the same language, and the scientific examples use the same autodiff machinery for calibration and sensitivity workflows. **[Why Einlang?](WHY_EINLANG.md)** has the full feature highlights and comparison.
 
 ---
 
@@ -66,7 +66,7 @@ One call and you’re a user. See [Install & run](https://github.com/einlang/ein
 |--------------|--------|
 | **Learn the language** | [Language Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) — syntax, types, Einstein notation, where-clauses, recurrences |
 | **Look up functions** | [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) — math, arrays, ML ops |
-| **Try autodiff** | [Autodiff highlights](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [Autodiff design](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · run `python3 -m einlang examples/autodiff_small.ein` or [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) for derivatives/gradients |
+| **Try autodiff** | [Autodiff highlights](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [Autodiff design](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · run `python3 -m einlang examples/autodiff_small.ein` or [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) for derivatives/gradients; for supported ops this is the preferred alternative to finite-difference estimates |
 | **Run examples by feature or step** | [README — Examples](https://github.com/einlang/einlang/blob/main/README.md#examples) · [Examples guide](https://github.com/einlang/einlang/blob/main/examples/README.md) |
 | **See the full doc map** | [Docs index](https://github.com/einlang/einlang/blob/main/docs/README.md) |
 | **Contribute** | [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md) — doc fixes and small bugs are a great start |

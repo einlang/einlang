@@ -19,7 +19,11 @@ fn conv1d(X, W, B, stride, pad_begin, pad_end, dilation, group) {
         else { 0.0 };
 
     let conv_sum[..batch, co, i] = sum[cl in 0..cpg, m in 0..kernel_w](
-        Xp[..batch, (co / fpg) * cpg + cl, i * stride + m * dilation] * W[co, cl, m]
+        if i * stride + m * dilation >= 0 && i * stride + m * dilation < w_p {
+            Xp[..batch, (co / fpg) * cpg + cl, i * stride + m * dilation] * W[co, cl, m]
+        } else {
+            0.0
+        }
     );
     let output[..batch, co, i] = conv_sum[..batch, co, i] + B[co];
     output
@@ -46,8 +50,15 @@ fn conv2d(X, W, B, stride_h, stride_w, pad_h0, pad_h1, pad_w0, pad_w1, dilation_
     let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in (pad_w0 + w_in)..w_p] = 0.0;
 
     let conv_sum[..batch, co, i, j] = sum[cl in 0..cpg, m in 0..kernel_h, n in 0..kernel_w](
-        Xp[..batch, (co / fpg) * cpg + cl, i * stride_h + m * dilation_h, j * stride_w + n * dilation_w]
-        * W[co, cl, m, n]
+        if i * stride_h + m * dilation_h >= 0 &&
+           i * stride_h + m * dilation_h < h_p &&
+           j * stride_w + n * dilation_w >= 0 &&
+           j * stride_w + n * dilation_w < w_p {
+            Xp[..batch, (co / fpg) * cpg + cl, i * stride_h + m * dilation_h, j * stride_w + n * dilation_w]
+            * W[co, cl, m, n]
+        } else {
+            0.0
+        }
     );
     let output[..batch, co, i, j] = conv_sum[..batch, co, i, j] + B[co];
     output
@@ -85,8 +96,17 @@ fn conv3d(X, W, B, stride_d, stride_h, stride_w, pad_d0, pad_d1, pad_h0, pad_h1,
         n in 0..kernel_h,
         p in 0..kernel_w
     ](
-        Xp[..batch, (co / fpg) * cpg + cl, i * stride_d + m * dilation_d, j * stride_h + n * dilation_h, k * stride_w + p * dilation_w]
-        * W[co, cl, m, n, p]
+        if i * stride_d + m * dilation_d >= 0 &&
+           i * stride_d + m * dilation_d < d_p &&
+           j * stride_h + n * dilation_h >= 0 &&
+           j * stride_h + n * dilation_h < h_p &&
+           k * stride_w + p * dilation_w >= 0 &&
+           k * stride_w + p * dilation_w < w_p {
+            Xp[..batch, (co / fpg) * cpg + cl, i * stride_d + m * dilation_d, j * stride_h + n * dilation_h, k * stride_w + p * dilation_w]
+            * W[co, cl, m, n, p]
+        } else {
+            0.0
+        }
     );
     let output[..batch, co, i, j, k] = conv_sum[..batch, co, i, j, k] + B[co];
     output
@@ -113,8 +133,15 @@ fn qconv2d(X_q, x_scale, W_q, w_scale, B, stride_h, stride_w, pad_h0, pad_h1, pa
     let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in (pad_w0 + w_in)..w_p] = 0.0;
 
     let acc[..batch, co, i, j] = sum[cl in 0..cpg, m in 0..kernel_h, n in 0..kernel_w](
-        (Xp[..batch, (co / fpg) * cpg + cl, i * stride_h + m * dilation_h, j * stride_w + n * dilation_w] as i32)
-        * (W_q[co, cl, m, n] as i32)
+        if i * stride_h + m * dilation_h >= 0 &&
+           i * stride_h + m * dilation_h < h_p &&
+           j * stride_w + n * dilation_w >= 0 &&
+           j * stride_w + n * dilation_w < w_p {
+            (Xp[..batch, (co / fpg) * cpg + cl, i * stride_h + m * dilation_h, j * stride_w + n * dilation_w] as i32)
+            * (W_q[co, cl, m, n] as i32)
+        } else {
+            0
+        }
     );
     let output[..batch, co, i, j] = (acc[..batch, co, i, j] as f32) * scale + B[co];
     output
@@ -391,5 +418,4 @@ pub fn depthwise_conv(X, W, B, strides, pads, dilations) {
     
     depthwise_conv2d_impl(X, W, B, strides[0], strides[1], pads[0], pads[1], dilations[0], dilations[1])
 }
-
 

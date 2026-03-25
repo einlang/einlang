@@ -7,7 +7,9 @@ use std::io::load_npy;
 use std::ml::{conv, max_pool, relu};
 
 fn load_pgm(path: str) -> [f32; *] { python::pgm_io::load(path) }
+fn ensure_weights() -> f32 { python::data_loader::ensure_weights() }
 
+let _w_ready = ensure_weights();
 let conv1_w = load_npy("weights/conv1_w.npy") as [f32; 8, 1, 5, 5];
 let conv1_b = load_npy("weights/conv1_b.npy") as [f32; 8];
 let conv2_w = load_npy("weights/conv2_w.npy") as [f32; 16, 8, 5, 5];

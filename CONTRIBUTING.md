@@ -16,7 +16,7 @@ git clone https://github.com/einlang/einlang.git
 cd einlang
 pip install -e ".[test]"
 python3 -m einlang examples/hello.ein
-python3 -m pytest tests/ --tb=short -q
+python3 -m pytest -n auto tests/ --tb=short -q
 ```
 
 If those pass, you're set. See [DEVELOPMENT](https://github.com/einlang/einlang/blob/main/docs/DEVELOPMENT.md) for project layout, adding language features, and the error system.
@@ -32,7 +32,7 @@ If those pass, you're set. See [DEVELOPMENT](https://github.com/einlang/einlang/
 
 ```bash
 pip install -e ".[test]"
-python3 -m pytest tests/ --tb=short -q
+python3 -m pytest -n auto tests/ --tb=short -q
 ```
 
 For a single test file: `python3 -m pytest tests/unit/test_errors.py -v`
