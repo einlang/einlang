@@ -145,8 +145,12 @@ class TestPrintAtMlSmoke:
         [(row[0], row[1], row[2]) for row in ML_ACTIVATION_PRINT_AT_GOLDEN_CASES],
         ids=[row[0] for row in ML_ACTIVATION_PRINT_AT_GOLDEN_CASES],
     )
-    def test_ml_activation_golden_stdout(self, op_name: str, source: str, expected: str) -> None:
-        c_ok, e_ok, out, err = compile_exec_capture_print_at(source)
+    def test_ml_activation_golden_stdout(
+        self, op_name: str, source: str, expected: str, session_compiler, session_runtime
+    ) -> None:
+        c_ok, e_ok, out, err = compile_exec_capture_print_at(
+            source, compiler=session_compiler, runtime=session_runtime
+        )
         assert c_ok, "%s: compile failed: %s" % (op_name, err)
         assert e_ok, "%s: exec failed: %s" % (op_name, err)
         assert out == expected, "%s: got %r, expected %r" % (op_name, out, expected)

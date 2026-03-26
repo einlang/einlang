@@ -810,8 +810,8 @@ class MonomorphizationService:
                     arg_types_list.append(t)
                 all_known = bool(arg_types_list and all(t is not None and t is not UNKNOWN for t in arg_types_list))
                 if not all_known and len(arg_types_list) == 2 and fd and self._is_generic_function(fd):
-                    from ..shared.types import RectangularType, PrimitiveType, F32
-                    if arg_types_list[1] is not None and arg_types_list[1] is not UNKNOWN and isinstance(arg_types_list[1], PrimitiveType) and arg_types_list[1].name == "f32":
+                    from ..shared.types import RectangularType, F32
+                    if arg_types_list[1] == F32:
                         fill = RectangularType(element_type=F32, shape=None)
                         arg_types_list = [fill, arg_types_list[1]]
                         all_known = True

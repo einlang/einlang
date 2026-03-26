@@ -19,7 +19,7 @@ from ..ir.nodes import (
     BindingIR, BlockExpressionIR, IfExpressionIR,
     is_function_binding, is_einstein_binding, is_constant_binding
 )
-from ..shared.types import Type, FunctionType, UNKNOWN
+from ..shared.types import Type, FunctionType, PrimitiveType, I32, I64, F32, F64, UNKNOWN
 from ..shared.source_location import SourceLocation
 
 logger = logging.getLogger("einlang.passes.pipeline_validation")
@@ -208,9 +208,9 @@ class PipelineTypeValidator(IRVisitor[None]):
         
         # Widening rules (i32 -> i64, f32 -> f64)
         if isinstance(source_type, PrimitiveType) and isinstance(target_type, PrimitiveType):
-            if source_type.name == "i32" and target_type.name == "i64":
+            if source_type == I32 and target_type == I64:
                 return True
-            if source_type.name == "f32" and target_type.name == "f64":
+            if source_type == F32 and target_type == F64:
                 return True
         
         # Other combinations not compatible
@@ -386,5 +386,4 @@ class PipelineTypeValidator(IRVisitor[None]):
     
     def visit_guard_pattern(self, node) -> None:
         pass
-
 

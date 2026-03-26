@@ -29,6 +29,15 @@ from einlang.ir.nodes import IRNode, ProgramIR
 from einlang.passes.autodiff import AutodiffPass, DIFF_PREFIX, USER_DIFF_PREFIX
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_COMPILER = None
+_RUNTIME = None
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _shared_autodiff_test_context(module_compiler, module_runtime):
+    global _COMPILER, _RUNTIME
+    _COMPILER = module_compiler
+    _RUNTIME = module_runtime
 
 
 def _ir_unique_node_count(program) -> int:
@@ -90,15 +99,14 @@ def _scalar_float(outputs, key):
 
 
 def _compile_run(source, expect_success=True, root_path=None):
-    compiler = CompilerDriver()
     if root_path is None:
         root_path = _REPO_ROOT
-    result = compiler.compile(source.strip(), source_file="<test>", root_path=root_path)
+    assert _COMPILER is not None
+    assert _RUNTIME is not None
+    result = _COMPILER.compile(source.strip(), source_file="<test>", root_path=root_path)
     if expect_success:
         assert result.success, result.get_errors() or "compile failed"
-    from einlang.runtime.runtime import EinlangRuntime
-    runtime = EinlangRuntime(backend="numpy")
-    exec_result = runtime.execute(result)
+    exec_result = _RUNTIME.execute(result)
     if expect_success:
         assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
     return result, exec_result.outputs or {}

@@ -13,12 +13,14 @@ from tests.print_at_fixtures import compile_exec_capture_print_at
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def test_decay_calibration_autodiff_prints_and_refines_fit():
+def test_decay_calibration_autodiff_prints_and_refines_fit(session_compiler, session_runtime):
     """Run the new autodiff decay calibration example and pin its printed refinement values."""
     source = (PROJECT_ROOT / "examples" / "applications" / "decay_calibration_autodiff.ein").read_text(
         encoding="utf-8"
     )
-    c_ok, e_ok, out, err = compile_exec_capture_print_at(source)
+    c_ok, e_ok, out, err = compile_exec_capture_print_at(
+        source, compiler=session_compiler, runtime=session_runtime
+    )
     assert c_ok, err
     assert e_ok, err
 

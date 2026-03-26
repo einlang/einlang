@@ -112,3 +112,73 @@ def test_pre_autodiff_pruning_removes_dead_constant_binding_from_block() -> None
 
     assert isinstance(binding.expr, LiteralIR)
     assert binding.expr.value == 7
+
+
+def test_pre_autodiff_pruning_does_not_fold_general_arithmetic_binding() -> None:
+    loc = _loc()
+    expr = BinaryOpIR(
+        BinaryOp.ADD,
+        LiteralIR(1, loc),
+        LiteralIR(2, loc),
+        loc,
+    )
+    binding = BindingIR(name="x", expr=expr, location=loc)
+    program = ProgramIR(statements=[binding], location=loc)
+
+    tcx = TyCtxt()
+    PreAutodiffPruningPass().run(program, tcx)
+
+    assert isinstance(binding.expr, BinaryOpIR)
+    assert binding.expr.operator == BinaryOp.ADD
+
+
+def test_pre_autodiff_pruning_does_not_prune_non_metadata_local_constant_branch() -> None:
+    loc = _loc()
+    x_binding = BindingIR(
+        name="x",
+        expr=LiteralIR(1, loc),
+        location=loc,
+    )
+    branch = IfExpressionIR(
+        condition=BinaryOpIR(
+            BinaryOp.EQ,
+            IdentifierIR("x", loc),
+            LiteralIR(1, loc),
+            loc,
+        ),
+        then_expr=LiteralIR(11, loc),
+        else_expr=LiteralIR(22, loc),
+        location=loc,
+    )
+    block = BlockExpressionIR(statements=[x_binding], final_expr=branch, location=loc)
+    binding = BindingIR(name="z", expr=block, location=loc)
+    program = ProgramIR(statements=[binding], location=loc)
+
+    tcx = TyCtxt()
+    PreAutodiffPruningPass().run(program, tcx)
+
+    assert isinstance(block.final_expr, IfExpressionIR)
+
+
+def test_pre_autodiff_pruning_preserves_if_branch_block_wrappers() -> None:
+    loc = _loc()
+    expr = IfExpressionIR(
+        condition=BinaryOpIR(
+            BinaryOp.GT,
+            IdentifierIR("x", loc),
+            LiteralIR(0, loc),
+            loc,
+        ),
+        then_expr=BlockExpressionIR(statements=[], final_expr=IdentifierIR("dx", loc), location=loc),
+        else_expr=BlockExpressionIR(statements=[], final_expr=LiteralIR(0, loc), location=loc),
+        location=loc,
+    )
+    binding = BindingIR(name="y", expr=expr, location=loc)
+    program = ProgramIR(statements=[binding], location=loc)
+
+    tcx = TyCtxt()
+    PreAutodiffPruningPass().run(program, tcx)
+
+    assert isinstance(binding.expr, IfExpressionIR)
+    assert isinstance(binding.expr.then_expr, BlockExpressionIR)
+    assert isinstance(binding.expr.else_expr, BlockExpressionIR)

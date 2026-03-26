@@ -12,6 +12,7 @@ Important:
 
 from __future__ import annotations
 
+from functools import lru_cache
 import logging
 from typing import Any
 
@@ -29,13 +30,15 @@ from ..ir.nodes import (
     IfExpressionIR,
     IRNode,
     LiteralIR,
+    MemberAccessIR,
     ModuleIR,
     ProgramIR,
+    RectangularAccessIR,
     TupleExpressionIR,
     WhereClauseIR,
 )
 from ..passes.base import BasePass, TyCtxt
-from ..shared.types import BinaryOp
+from ..shared.types import BinaryOp, RectangularType
 
 logger = logging.getLogger("einlang.passes.pre_autodiff_pruning")
 
@@ -67,10 +70,18 @@ class PostAutodiffPruningPass(PreAutodiffPruningPass):
 class _IfBranchPruner:
     def __init__(self) -> None:
         self.pruned_if_count = 0
+        self._contains_differential_cache: dict[int, bool] = {}
 
     @staticmethod
     def _is_container_constant(value: Any) -> bool:
         return isinstance(value, (list, tuple, dict, set, range))
+
+    @staticmethod
+    def _looks_like_metadata_name(name: str | None) -> bool:
+        if not name:
+            return False
+        lowered = name.lower()
+        return lowered in {"rank", "ndim", "dims"} or "rank" in lowered or "shape" in lowered
 
     def rewrite_program(self, program: ProgramIR) -> None:
         for stmt in program.statements or []:
@@ -127,21 +138,35 @@ class _IfBranchPruner:
             return self._rewrite_block(expr, env)
         if isinstance(expr, DifferentialIR):
             return expr
-        self._rewrite_slots(expr, env)
-        const_value = self._eval_constant(expr, env)
-        if const_value is not None:
-            return LiteralIR(const_value, expr.location, type_info=expr.type_info, shape_info=expr.shape_info)
         if isinstance(expr, IfExpressionIR):
-            cond = expr.condition
-            if isinstance(cond, LiteralIR) and isinstance(cond.value, (bool, int)):
+            expr.condition = self._rewrite_expr(expr.condition, env)
+            if expr.then_expr is not None:
+                if isinstance(expr.then_expr, BlockExpressionIR):
+                    expr.then_expr = self._rewrite_block(expr.then_expr, env, preserve_wrapper=True)
+                else:
+                    expr.then_expr = self._rewrite_expr(expr.then_expr, env)
+            if expr.else_expr is not None:
+                if isinstance(expr.else_expr, BlockExpressionIR):
+                    expr.else_expr = self._rewrite_block(expr.else_expr, env, preserve_wrapper=True)
+                else:
+                    expr.else_expr = self._rewrite_expr(expr.else_expr, env)
+            cond_value = self._eval_if_condition(expr.condition, env)
+            if isinstance(cond_value, (bool, int)):
                 self.pruned_if_count += 1
-                if bool(cond.value):
+                if bool(cond_value):
                     return expr.then_expr
                 if expr.else_expr is not None:
                     return expr.else_expr
+            return expr
+        self._rewrite_slots(expr, env)
         return expr
 
-    def _rewrite_block(self, expr: BlockExpressionIR, env: dict[Any, Any]) -> ExpressionIR:
+    def _rewrite_block(
+        self,
+        expr: BlockExpressionIR,
+        env: dict[Any, Any],
+        preserve_wrapper: bool = False,
+    ) -> ExpressionIR:
         preserve_diff_block = self._contains_differential(expr)
         local_env = {} if preserve_diff_block else dict(env)
         new_statements = []
@@ -149,8 +174,12 @@ class _IfBranchPruner:
             if isinstance(stmt, BindingIR):
                 if stmt.expr is not None:
                     stmt.expr = self._rewrite_expr(stmt.expr, local_env)
-                    const_value = self._eval_constant(stmt.expr, local_env)
-                    if const_value is not None and not preserve_diff_block:
+                    const_value = self._eval_metadata_constant(stmt.expr, local_env)
+                    if (
+                        const_value is not None
+                        and not preserve_diff_block
+                        and self._should_remember_binding(stmt, stmt.expr, local_env)
+                    ):
                         self._remember_binding_const(stmt, const_value, local_env)
                 new_statements.append(stmt)
             else:
@@ -159,27 +188,42 @@ class _IfBranchPruner:
         expr.statements = tuple(self._prune_dead_constant_bindings(new_statements, expr.final_expr))
         if expr.final_expr is not None:
             expr.final_expr = self._rewrite_expr(expr.final_expr, local_env)
+        if preserve_wrapper:
+            return expr
         return self._simplify_block(expr)
 
     def _contains_differential(self, node: Any) -> bool:
         if node is None:
             return False
-        if isinstance(node, DifferentialIR):
-            return True
         if isinstance(node, (str, int, float, bool)):
             return False
+        cache_key = id(node)
+        cached = self._contains_differential_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        if isinstance(node, DifferentialIR):
+            self._contains_differential_cache[cache_key] = True
+            return True
         if isinstance(node, (list, tuple)):
-            return any(self._contains_differential(item) for item in node)
+            result = any(self._contains_differential(item) for item in node)
+            self._contains_differential_cache[cache_key] = result
+            return result
         if isinstance(node, dict):
-            return any(self._contains_differential(item) for item in node.values())
+            result = any(self._contains_differential(item) for item in node.values())
+            self._contains_differential_cache[cache_key] = result
+            return result
         if isinstance(node, BindingIR):
-            return self._contains_differential(node.expr)
+            result = self._contains_differential(node.expr)
+            self._contains_differential_cache[cache_key] = result
+            return result
         if isinstance(node, IRNode):
             for slot in _iter_slots(type(node)):
                 if slot in {"location", "type_info", "shape_info", "name", "member", "defid"}:
                     continue
                 if self._contains_differential(getattr(node, slot, None)):
+                    self._contains_differential_cache[cache_key] = True
                     return True
+        self._contains_differential_cache[cache_key] = False
         return False
 
     def _rewrite_slots(self, node: Any, env: dict[Any, Any] | None = None) -> None:
@@ -227,9 +271,59 @@ class _IfBranchPruner:
         if binding.name:
             env[binding.name] = value
 
-    def _eval_constant(self, expr: ExpressionIR, env: dict[Any, Any]) -> Any | None:
-        if isinstance(expr, LiteralIR):
+    def _shape_tuple(self, expr: ExpressionIR) -> tuple[Any, ...] | None:
+        shape_info = getattr(expr, "shape_info", None)
+        if isinstance(shape_info, tuple):
+            return shape_info
+        if isinstance(shape_info, list):
+            return tuple(shape_info)
+        type_info = getattr(expr, "type_info", None)
+        if isinstance(type_info, RectangularType) and type_info.shape is not None:
+            return tuple(type_info.shape)
+        return None
+
+    def _is_metadata_derived_expr(self, expr: ExpressionIR, env: dict[Any, Any]) -> bool:
+        if isinstance(expr, IdentifierIR):
+            return (
+                (expr.defid is not None and expr.defid in env)
+                or (bool(expr.name) and expr.name in env)
+            )
+        if isinstance(expr, BuiltinCallIR):
+            return expr.builtin_name in {"len", "shape"} or any(
+                self._is_metadata_derived_expr(arg, env) for arg in (expr.args or [])
+            )
+        if isinstance(expr, MemberAccessIR):
+            return expr.member == "shape" or self._is_metadata_derived_expr(expr.object, env)
+        if isinstance(expr, RectangularAccessIR):
+            return self._is_metadata_derived_expr(expr.array, env) or any(
+                self._is_metadata_derived_expr(idx, env) for idx in (expr.indices or [])
+            )
+        if isinstance(expr, BinaryOpIR):
+            return self._is_metadata_derived_expr(expr.left, env) or self._is_metadata_derived_expr(expr.right, env)
+        if isinstance(expr, ArrayLiteralIR):
+            return any(self._is_metadata_derived_expr(e, env) for e in (expr.elements or []))
+        if isinstance(expr, TupleExpressionIR):
+            return any(self._is_metadata_derived_expr(e, env) for e in (expr.elements or []))
+        return False
+
+    def _should_remember_binding(
+        self,
+        binding: BindingIR,
+        expr: ExpressionIR,
+        env: dict[Any, Any],
+    ) -> bool:
+        if self._looks_like_metadata_name(binding.name):
+            return True
+        return self._is_metadata_derived_expr(expr, env)
+
+    def _eval_if_condition(self, expr: ExpressionIR, env: dict[Any, Any]) -> Any | None:
+        if isinstance(expr, LiteralIR) and isinstance(expr.value, (bool, int)):
             return expr.value
+        return self._eval_metadata_constant(expr, env)
+
+    def _eval_metadata_constant(self, expr: ExpressionIR, env: dict[Any, Any]) -> Any | None:
+        if isinstance(expr, LiteralIR):
+            return expr.value if isinstance(expr.value, (bool, int, float, str)) else None
         if isinstance(expr, IdentifierIR):
             if expr.defid is not None and expr.defid in env:
                 return env[expr.defid]
@@ -237,23 +331,31 @@ class _IfBranchPruner:
                 return env[expr.name]
             return None
         if isinstance(expr, ArrayLiteralIR):
-            vals = [self._eval_constant(e, env) for e in (expr.elements or [])]
+            vals = [self._eval_metadata_constant(e, env) for e in (expr.elements or [])]
             if any(v is None for v in vals):
                 return None
             return vals
         if isinstance(expr, TupleExpressionIR):
-            vals = [self._eval_constant(e, env) for e in (expr.elements or [])]
+            vals = [self._eval_metadata_constant(e, env) for e in (expr.elements or [])]
             if any(v is None for v in vals):
                 return None
             return tuple(vals)
+        if isinstance(expr, MemberAccessIR) and expr.member == "shape":
+            return self._shape_tuple(expr.object)
+        if isinstance(expr, RectangularAccessIR) and len(expr.indices or []) == 1:
+            base = self._eval_metadata_constant(expr.array, env)
+            idx = self._eval_metadata_constant(expr.indices[0], env)
+            if isinstance(base, (list, tuple)) and isinstance(idx, int) and 0 <= idx < len(base):
+                return base[idx]
+            return None
         if isinstance(expr, BuiltinCallIR) and expr.builtin_name == "len" and len(expr.args or []) == 1:
-            arg_val = self._eval_constant(expr.args[0], env)
+            arg_val = self._eval_metadata_constant(expr.args[0], env)
             if isinstance(arg_val, (list, tuple, str)):
                 return len(arg_val)
             return None
         if isinstance(expr, BinaryOpIR):
-            lhs = self._eval_constant(expr.left, env)
-            rhs = self._eval_constant(expr.right, env)
+            lhs = self._eval_metadata_constant(expr.left, env)
+            rhs = self._eval_metadata_constant(expr.right, env)
             if lhs is None or rhs is None:
                 return None
             if self._is_container_constant(lhs) or self._is_container_constant(rhs):
@@ -304,7 +406,11 @@ class _IfBranchPruner:
             used = (
                 stmt.defid is not None and stmt.defid in live_defids
             ) or (stmt.defid is None and bool(stmt.name) and stmt.name in live_names)
-            if not used and self._eval_constant(stmt.expr, {}) is not None:
+            if (
+                not used
+                and self._eval_metadata_constant(stmt.expr, {}) is not None
+                and self._looks_like_metadata_name(stmt.name)
+            ):
                 continue
             kept_rev.append(stmt)
             s_defids, s_names = self._collect_live_refs(stmt.expr)
@@ -369,7 +475,11 @@ class _IfBranchPruner:
             and expr.final_expr is not None
         ):
             stmt = expr.statements[0]
-            if stmt.expr is not None and self._eval_constant(stmt.expr, {}) is not None:
+            if (
+                stmt.expr is not None
+                and self._eval_metadata_constant(stmt.expr, {}) is not None
+                and self._looks_like_metadata_name(stmt.name)
+            ):
                 live_defids, live_names = self._collect_live_refs(expr.final_expr)
                 used = (
                     stmt.defid is not None and stmt.defid in live_defids
@@ -379,7 +489,8 @@ class _IfBranchPruner:
         return expr
 
 
-def _iter_slots(cls: type) -> list[str]:
+@lru_cache(maxsize=None)
+def _iter_slots(cls: type) -> tuple[str, ...]:
     out: list[str] = []
     for c in cls.__mro__:
         slots = getattr(c, "__slots__", ())
@@ -395,4 +506,4 @@ def _iter_slots(cls: type) -> list[str]:
             continue
         seen.add(name)
         ordered.append(name)
-    return ordered
+    return tuple(ordered)
