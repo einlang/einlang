@@ -14,6 +14,8 @@ pub fn ln(x) {
     log(x)
 }
 
+@fn ln(x) { (1.0 / x) * @x }
+
 pub fn log10(x) {
     // Base-10 logarithm
     log(x) / ln10()

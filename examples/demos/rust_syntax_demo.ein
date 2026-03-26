@@ -18,18 +18,15 @@ let complex_calc = math_utils::add(
     math_utils::multiply(2.0, 3.0),
     math_utils::square(4.0)
 );
+assert(sum == 15.0, "module function calls should work");
+assert(product == 12.0, "second module function call should work");
+assert(greeting == "Hello from string_utils!", "module alias import should work");
+assert(result1 == 15.0, "direct module function call should work");
+assert(result2 == 81.0, "square helper should work");
+assert(complex_calc == 22.0, "nested module calls should work");
 
-// Print results
-print("Sum:", sum);
-print("Product:", product);
-print("Greeting:", greeting);
-print("Result from reference 1:", result1);
-print("Result from reference 2:", result2);
-print("Complex calculation:", complex_calc);
-
-// Simple calculation using available module functions
 let power_calc = math_utils::square(5.0);
-print("5^2 =", power_calc);
+assert(power_calc == 25.0, "square helper should remain available");
 
 // Demonstrate the clear distinction between module and object access
 // NOTE: Object property access (dot notation) not yet implemented
@@ -37,6 +34,4 @@ print("5^2 =", power_calc);
 // let array_length = my_array.length;         # Object property (dot notation)
 
 let simple_calc = math_utils::add(1.0, 1.0);    // Module function call (:: notation)
-
-// print("Array length:", array_length);
-print("Simple calculation:", simple_calc);
+assert(simple_calc == 2.0, "simple module call should remain available");

@@ -5,32 +5,18 @@ use std::math::sqrt;
 use std::math::sum;
 use std::ml::shape_ops::shape;
 
-print("=== MATRIX OPERATIONS DEMO ===");
-print();
-
 // Define test matrices (use float literals for math operations)
 let A = [[1.0, 2.0], [3.0, 4.0]];
 let B = [[5.0, 6.0], [7.0, 8.0]];
 let scalar = 2.0;
 
-print("Input matrices:");
-print("A =", A);
-print("B =", B);
-print();
-
 // Basic matrix operations
 let matrix_sum = A + B;
 let element_wise_product = A * B;
 let scalar_product = A * scalar;
-
-print("Basic operations:");
-print("A + B =", matrix_sum);
-print("A * B (element-wise) =", element_wise_product);
-print("A * 2 =", scalar_product);
-
-print();
-
-print("=== MATRIX ANALYSIS ===");
+assert(matrix_sum == [[6.0, 8.0], [10.0, 12.0]], "matrix addition should work");
+assert(element_wise_product == [[5.0, 12.0], [21.0, 32.0]], "element-wise multiplication should work");
+assert(scalar_product == [[2.0, 4.0], [6.0, 8.0]], "scalar multiplication should work");
 
 // Matrix properties
 let shape_A = shape(A);
@@ -39,25 +25,19 @@ let trace_A = A[0,0] + A[1,1];
 let trace_B = B[0,0] + B[1,1];
 let determinant_A = A[0,0] * A[1,1] - A[0,1] * A[1,0];
 let determinant_B = B[0,0] * B[1,1] - B[0,1] * B[1,0];
-
-print("Matrix properties:");
-print("shape(A) =", shape_A, "(", elements_count, "elements)");
-print("tr(A) =", trace_A, ", tr(B) =", trace_B);
-print("det(A) =", determinant_A, ", det(B) =", determinant_B);
-
-print();
+assert(shape_A == [2, 2], "shape should report matrix dimensions");
+assert(elements_count == 4, "element count should match the matrix size");
+assert(trace_A == 5.0 && trace_B == 13.0, "trace should sum the diagonal");
+assert(determinant_A == -2.0 && determinant_B == -2.0, "determinants should match expected values");
 
 // Matrix norms
 // Mathematical notation: ||A||_F = √(Σᵢⱼ Aᵢⱼ²)
 let frobenius_A = sqrt(sum[i, j](A[i,j] * A[i,j]));
 let frobenius_B = sqrt(sum[i, j](B[i,j] * B[i,j]));
 let frobenius_sum = sqrt(sum[i, j](matrix_sum[i,j] * matrix_sum[i,j]));
-
-print("Frobenius norms:");
-print("||A||_F =", frobenius_A);
-print("||B||_F =", frobenius_B);
-print("||A+B||_F =", frobenius_sum);
-print();
+assert(frobenius_A > 5.47 && frobenius_A < 5.48, "Frobenius norm of A should be stable");
+assert(frobenius_B > 13.18 && frobenius_B < 13.20, "Frobenius norm of B should be stable");
+assert(frobenius_sum > 18.54 && frobenius_sum < 18.56, "Frobenius norm of A+B should be stable");
 
 // Statistical measures
 // Mathematical notation: μ = (1/N) Σᵢⱼ Aᵢⱼ, σ² = (1/N) Σᵢⱼ (Aᵢⱼ - μ)²
@@ -68,35 +48,19 @@ let mean_A = sum_A / count_f32;
 let mean_B = sum_B / count_f32;
 // Variance computation: σ² = (1/N) Σᵢⱼ (Aᵢⱼ - μ)²
 let variance_A = sum[i, j]((A[i,j] - mean_A) * (A[i,j] - mean_A)) / count_f32;
-
-print("Statistical measures:");
-print("sum(A) =", sum_A, ", mean(A) =", mean_A);
-print("sum(B) =", sum_B, ", mean(B) =", mean_B);
-print("var(A) =", variance_A, ", std(A) =", sqrt(variance_A));
-
-print();
-
-print("=== ELEMENT-WISE FUNCTIONS ===");
+assert(sum_A == 10.0 && sum_B == 26.0, "sum reductions should work");
+assert(mean_A == 2.5 && mean_B == 6.5, "means should be correct");
+assert(variance_A == 1.25, "variance should match the expected value");
 
 // Matrix power and comparisons
 let matrix_squared[i,j] = A[i,j] * A[i,j];
 let comparison_result[i,j] = A[i,j] > B[i,j];
-print("Element-wise operations:");
-print("A² (element-wise) =", matrix_squared);
-print("A > B (1=true, 0=false) =", comparison_result);
-print();
+assert(matrix_squared == [[1.0, 4.0], [9.0, 16.0]], "element-wise square should work");
+assert(comparison_result == [[false, false], [false, false]], "comparison should be element-wise");
 
 // Mathematical functions
 let sigmoid_A[i,j] = 1.0 / (1.0 + A[i,j]);
-print("Mathematical functions:");
-print("sigmoid(A) ≈", sigmoid_A);
-print();
-
-// =============================================================================
-// MATRIX MULTIPLICATION (from matrix_multiply.ein)
-// =============================================================================
-
-print("=== MATRIX MULTIPLICATION ===");
+assert(sigmoid_A[0, 0] == 0.5, "simple element-wise functions should execute");
 
 // Define matrix multiplication function
 fn matmul(a, b) {
@@ -106,53 +70,41 @@ fn matmul(a, b) {
 
 // Matrix multiplication using Einstein notation
 let result[i,j] = sum[k](A[i,k] * B[k,j]);
-print("A @ B (matrix multiplication):", result);
+assert(result == [[19.0, 22.0], [43.0, 50.0]], "matrix multiplication should work");
 
 // Vector operations
 let vec_a = [1, 2, 3] as [f32];
 let vec_b = [4, 5, 6] as [f32];
 let dot_product = sum[i](vec_a[i] * vec_b[i]);
-
-print("Vector A:", vec_a);
-print("Vector B:", vec_b);
-print("A · B (dot product):", dot_product);
+assert(dot_product == 32.0, "dot product should work");
 
 // Matrix-vector multiplication
 let matrix_2x3 = [[1, 2, 3], [4, 5, 6]] as [f32];  
 let vector_3x1 = [1, 2, 3] as [f32];
 let matrix_vector_result[i] = sum[j](matrix_2x3[i,j] * vector_3x1[j]);
-
-print("Matrix 2x3:", matrix_2x3);
-print("Vector 3x1:", vector_3x1);
-print("Matrix × Vector result:", matrix_vector_result);
+assert(matrix_vector_result == [14.0, 32.0], "matrix-vector multiply should work");
 
 // 3x3 matrix operations  
 let matrix_3x3_a = [[1, 2, 3], [4, 5, 6], [7, 8, 9]] as [f32];
 let matrix_3x3_b = [[9, 8, 7], [6, 5, 4], [3, 2, 1]] as [f32];
 let result_3x3[i,j] = sum[k](matrix_3x3_a[i,k] * matrix_3x3_b[k,j]);
-
-print("3x3 Matrix A:", matrix_3x3_a);
-print("3x3 Matrix B:", matrix_3x3_b);
-print("3x3 multiplication:", result_3x3);
+assert(result_3x3[0, 0] == 30.0, "3x3 multiplication should produce the expected top-left entry");
+assert(result_3x3[2, 2] == 90.0, "3x3 multiplication should produce the expected bottom-right entry");
 
 // Advanced matrix operations
 let identity_trace = matrix_3x3_a[0,0] + matrix_3x3_a[1,1] + matrix_3x3_a[2,2];
 let matrix_sum_elements = sum[i](sum[j](matrix_3x3_a[i,j]));
-
-print("Trace of 3x3 matrix A:", identity_trace);
-print("Sum of all elements in 3x3 A:", matrix_sum_elements);
+assert(identity_trace == 15.0, "trace should work on larger matrices");
+assert(matrix_sum_elements == 45.0, "nested reductions should sum all elements");
 
 // Built-in autodiff: derivative of trace w.r.t. one element (no hand-written gradient code)
 let a_00 = matrix_3x3_a[0, 0];
 let trace_3x3 = a_00 + matrix_3x3_a[1, 1] + matrix_3x3_a[2, 2];
 let d_trace_d_a00 = @trace_3x3 / @a_00;
-print("Autodiff: d(trace(A))/d(A[0,0]) =", d_trace_d_a00);
+assert(d_trace_d_a00 == 1.0, "autodiff of the trace should be exact");
 
 // Enhanced statistical operations
 let matrix_mean_3x3 = matrix_sum_elements / 9.0;
 let matrix_variance_3x3 = sum[i](sum[j]((matrix_3x3_a[i,j] - matrix_mean_3x3) * (matrix_3x3_a[i,j] - matrix_mean_3x3))) / 9.0;
-
-print("Mean of 3x3 matrix elements:", matrix_mean_3x3);
-print("Variance of 3x3 matrix elements:", matrix_variance_3x3);
-
-print("=== MATRIX OPERATIONS COMPLETE ===");
+assert(matrix_mean_3x3 == 5.0, "mean should work on larger matrices");
+assert(matrix_variance_3x3 > 6.66 && matrix_variance_3x3 < 6.67, "nested and multi-axis reductions should agree");

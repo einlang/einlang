@@ -1,7 +1,7 @@
 // stdlib_v2/math/basic.ein - Basic mathematical functions
 
 pub fn abs(x) {
-    // Absolute value. Explicit cast so comparison is valid for int or float x.
+    // Absolute value.
     if (x as f32) >= 0.0 { x } else { -x }
 }
 
@@ -22,13 +22,13 @@ pub fn max(a, b) {
 }
 
 pub fn sign(x) {
-    // Sign function: -1 for negative, 0 for zero, 1 for positive. Explicit cast for comparison.
-    if (x as f32) > 0.0 {
+    // Sign function: -1 for negative, 0 for zero, 1 for positive.
+    if x > 0 {
         1.0
-    } else if (x as f32) < 0.0 {
+    } else if x < 0 {
         -1.0
     } else {
-        0.0
+        0
     }
 }
 
@@ -44,27 +44,32 @@ pub fn floor(x) {
     // Floor function
     python::numpy::floor(x)
 }
+@fn floor(x) { 0.0 * @x }
 
 pub fn ceil(x) {
     // Ceiling function
     python::numpy::ceil(x)
 }
+@fn ceil(x) { 0.0 * @x }
 
 pub fn round(x) {
     // Round to nearest integer (ties to even)
     python::numpy::round(x)
 }
+@fn round(x) { 0.0 * @x }
 
 pub fn trunc(x) {
     // Truncate to integer
     python::numpy::trunc(x)
 }
+@fn trunc(x) { 0.0 * @x }
 
 pub fn fmod(x, y) {
     // Floating point remainder
     // Uses trunc instead of floor (different from mod)
     python::numpy::fmod(x, y)
 }
+@fn fmod(x, y) { @x - trunc(x / y) * @y }
 
 pub fn mod(x, y) {
     // Modulo operation: x mod y

@@ -50,6 +50,7 @@ Public API (imported by other modules)
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Dict, List, NoReturn, Optional, Set, Tuple, Union, cast
 
 from .base import BasePass, TyCtxt
@@ -178,6 +179,19 @@ def _ti(n: Any) -> Any:
 
 def _si(n: Any) -> Any:
     return getattr(n, "shape_info", None)
+
+
+def _cast_target_has_zero_tangent(target_type: Any) -> bool:
+    """Casts to discrete/metadata targets are treated as zero tangent."""
+    return isinstance(target_type, PrimitiveType) and target_type.name in {
+        "i8",
+        "i32",
+        "i64",
+        "bool",
+        "str",
+        "range",
+        "unit",
+    }
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Structural equality (for simplification)
@@ -377,14 +391,33 @@ def _unwrap_trivial_einstein_rhs(expr: ExpressionIR) -> ExpressionIR:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _log_call(arg: ExpressionIR, bindings: Dict[DefId, Any], resolver: Any, loc: SourceLocation) -> ExpressionIR:
+    out_ti = _ti(arg) or F32
+    out_si = _si(arg)
     for did, b in bindings.items():
         if not isinstance(b, BindingIR) or not isinstance(b.expr, FunctionValueIR):
             continue
         nm = b.name or ""
-        if nm == "log" or nm.endswith("::log"):
-            callee = IdentifierIR(nm, loc, did, type_info=b.type_info)
-            return FunctionCallIR(callee_expr=callee, location=loc, arguments=[arg], type_info=F32)
-    return FunctionCallIR(callee_expr=IdentifierIR("log", loc, None), location=loc, arguments=[arg], type_info=F32)
+        if nm == "log" or nm.endswith("::log") or nm.startswith("log_") or "::log_" in nm:
+            callee = IdentifierIR(
+                nm,
+                loc,
+                did,
+                type_info=_ti(b) or (_ti(b.expr) if b.expr is not None else None) or UNKNOWN,
+            )
+            return FunctionCallIR(
+                callee_expr=callee,
+                location=loc,
+                arguments=[arg],
+                type_info=out_ti,
+                shape_info=out_si,
+            )
+    return FunctionCallIR(
+        callee_expr=IdentifierIR("log", loc, None, type_info=UNKNOWN),
+        location=loc,
+        arguments=[arg],
+        type_info=out_ti,
+        shape_info=out_si,
+    )
 
 
 def _pow_chain(node: BinaryOpIR, dL: ExpressionIR, dR: ExpressionIR,
@@ -722,14 +755,50 @@ class _SubstVisitor(_Rewriter):
         super().__init__(loc)
         self._m = m
 
+    def _clone_subst_expr(self, expr: ExpressionIR) -> ExpressionIR:
+        """Cheap clone for common leaf substitutions; fall back to deepcopy for structured IR."""
+        if isinstance(expr, LiteralIR):
+            return LiteralIR(
+                expr.value,
+                expr.location or self._loc,
+                type_info=_ti(expr),
+                shape_info=_si(expr),
+            )
+        if isinstance(expr, IdentifierIR):
+            return IdentifierIR(
+                expr.name,
+                expr.location or self._loc,
+                expr.defid,
+                type_info=_ti(expr),
+                shape_info=_si(expr),
+            )
+        if isinstance(expr, IndexVarIR):
+            return IndexVarIR(
+                expr.name,
+                expr.location or self._loc,
+                expr.defid,
+                range_ir=expr.range_ir,
+                type_info=_ti(expr),
+                shape_info=_si(expr),
+            )
+        if isinstance(expr, IndexRestIR):
+            return IndexRestIR(
+                expr.name,
+                expr.location or self._loc,
+                expr.defid,
+                type_info=_ti(expr),
+                shape_info=_si(expr),
+            )
+        return copy.deepcopy(expr)
+
     def visit_identifier(self, n: IdentifierIR) -> ExpressionIR:
         if n.defid is not None and n.defid in self._m:
-            return self._m[n.defid]
+            return self._clone_subst_expr(self._m[n.defid])
         return n
 
     def visit_index_var(self, n: IndexVarIR) -> ExpressionIR:
         if n.defid is not None and n.defid in self._m:
-            return self._m[n.defid]
+            return self._clone_subst_expr(self._m[n.defid])
         return n
 
 
@@ -746,7 +815,7 @@ class _SubstDiffsVisitor(_SubstVisitor):
     def visit_differential(self, n: DifferentialIR) -> ExpressionIR:
         op = n.operand
         if isinstance(op, IdentifierIR) and op.defid is not None and op.defid in self._dm:
-            return self._dm[op.defid]
+            return self._clone_subst_expr(self._dm[op.defid])
         return DifferentialIR(
             op.accept(self),
             n.location or self._loc,
@@ -988,6 +1057,93 @@ def _einstein_clause_values_rect_read_tensor(ein: EinsteinIR, tensor_did: DefId)
     return False
 
 
+class _DependencyQueryCache:
+    """Memoized dependency queries scoped to one binding map."""
+
+    def __init__(self, bindings: Dict[DefId, BindingIR]) -> None:
+        self._B = bindings
+        self._expr_defids: Dict[int, frozenset[DefId]] = {}
+        self._binding_expr_defids: Dict[DefId, frozenset[DefId]] = {}
+        self._rhs_closure_by_expr: Dict[int, frozenset[DefId]] = {}
+        self._reachable_by_src: Dict[DefId, frozenset[DefId]] = {}
+
+    @property
+    def bindings(self) -> Dict[DefId, BindingIR]:
+        return self._B
+
+    def collect_defids(self, expr: Optional[ExpressionIR]) -> frozenset[DefId]:
+        if expr is None:
+            return frozenset()
+        key = id(expr)
+        cached = self._expr_defids.get(key)
+        if cached is not None:
+            return cached
+        collector = _DefIdCollector()
+        expr.accept(collector)
+        out = frozenset(collector.defids)
+        self._expr_defids[key] = out
+        return out
+
+    def binding_expr_defids(self, did: DefId) -> frozenset[DefId]:
+        cached = self._binding_expr_defids.get(did)
+        if cached is not None:
+            return cached
+        binding = self._B.get(did)
+        out = self.collect_defids(binding.expr) if binding is not None else frozenset()
+        self._binding_expr_defids[did] = out
+        return out
+
+    def jacobian_rhs_closure(self, expr: Optional[ExpressionIR]) -> frozenset[DefId]:
+        if expr is None:
+            return frozenset()
+        key = id(expr)
+        cached = self._rhs_closure_by_expr.get(key)
+        if cached is not None:
+            return cached
+        work = list(self.collect_defids(expr))
+        closure: Set[DefId] = set()
+        while work:
+            did = work.pop()
+            if did in closure:
+                continue
+            closure.add(did)
+            binding = self._B.get(did)
+            if binding is None or binding.expr is None or _is_diff_name(binding.name or ""):
+                continue
+            for dep in self.binding_expr_defids(did):
+                if dep not in closure:
+                    work.append(dep)
+        out = frozenset(closure)
+        self._rhs_closure_by_expr[key] = out
+        return out
+
+    def reachable_from(self, src: DefId) -> frozenset[DefId]:
+        cached = self._reachable_by_src.get(src)
+        if cached is not None:
+            return cached
+        seen: Set[DefId] = set()
+        queue = [src]
+        while queue:
+            cur = queue.pop()
+            if cur in seen:
+                continue
+            seen.add(cur)
+            for dep in self.binding_expr_defids(cur):
+                if dep not in seen:
+                    queue.append(dep)
+        out = frozenset(seen)
+        self._reachable_by_src[src] = out
+        return out
+
+    def fork(self, bindings: Dict[DefId, BindingIR]) -> "_DependencyQueryCache":
+        """Reuse expression-local defid walks for a derived binding map."""
+        if bindings is self._B:
+            return self
+        child = _DependencyQueryCache(bindings)
+        child._expr_defids = self._expr_defids
+        return child
+
+
 def _collect_defids(expr: Optional[ExpressionIR]) -> Set[DefId]:
     if expr is None: return set()
     c = _DefIdCollector(); expr.accept(c); return c.defids
@@ -1001,11 +1157,16 @@ def _function_call_ir_label(n: FunctionCallIR) -> str:
     return name
 
 
-def _autodiff_primal_data_defids(expr: Optional[ExpressionIR], B: Dict[DefId, Any]) -> Set[DefId]:
+def _autodiff_primal_data_defids(
+    expr: Optional[ExpressionIR],
+    B: Dict[DefId, Any],
+    dep_cache: Optional[_DependencyQueryCache] = None,
+) -> Set[DefId]:
     if expr is None:
         return set()
     out: Set[DefId] = set()
-    for d in _collect_defids(expr):
+    defs = dep_cache.collect_defids(expr) if dep_cache is not None else _collect_defids(expr)
+    for d in defs:
         if d is None:
             continue
         bb = B.get(d)
@@ -1036,7 +1197,12 @@ def _binding_is_rect_slice_of_tensor(wrt: DefId, tensor_did: DefId, B: Dict[DefI
     return _rectangular_read_root_defid(wb.expr) == tensor_did
 
 
-def _jacobian_rhs_depends_on_wrt(expr: Optional[ExpressionIR], wrt: DefId, B: Dict[DefId, BindingIR]) -> bool:
+def _jacobian_rhs_depends_on_wrt(
+    expr: Optional[ExpressionIR],
+    wrt: DefId,
+    B: Dict[DefId, BindingIR],
+    dep_cache: Optional[_DependencyQueryCache] = None,
+) -> bool:
     """True if ``expr`` references ``wrt`` transitively through non-diff ``let`` bindings (surface DefIds + binding RHS closure).
 
     Also true when ``wrt`` is a slice alias ``let w_ij = T[…]`` and ``expr`` depends on the same storage tensor ``T``
@@ -1044,19 +1210,22 @@ def _jacobian_rhs_depends_on_wrt(expr: Optional[ExpressionIR], wrt: DefId, B: Di
     """
     if expr is None:
         return False
-    work = [d for d in _collect_defids(expr) if d is not None]
-    closure: Set[DefId] = set()
-    while work:
-        d = work.pop()
-        if d in closure:
-            continue
-        closure.add(d)
-        b = B.get(d)
-        if b is None or b.expr is None or _is_diff_name(b.name or ""):
-            continue
-        for e in _collect_defids(b.expr):
-            if e is not None and e not in closure:
-                work.append(e)
+    if dep_cache is not None:
+        closure = dep_cache.jacobian_rhs_closure(expr)
+    else:
+        work = [d for d in _collect_defids(expr) if d is not None]
+        closure: Set[DefId] = set()
+        while work:
+            d = work.pop()
+            if d in closure:
+                continue
+            closure.add(d)
+            b = B.get(d)
+            if b is None or b.expr is None or _is_diff_name(b.name or ""):
+                continue
+            for e in _collect_defids(b.expr):
+                if e is not None and e not in closure:
+                    work.append(e)
     if wrt in closure:
         return True
     wb = B.get(wrt)
@@ -1280,12 +1449,66 @@ def _tensor_rank_from_literal_array(expr: Optional[ExpressionIR]) -> int:
     return 1
 
 
+def _tensor_rank_from_einstein_expr(expr: Optional[ExpressionIR]) -> int:
+    if expr is None or not isinstance(expr, EinsteinIR):
+        return 0
+    if expr.shape is not None and len(expr.shape) > 0:
+        return len(expr.shape)
+    clauses = expr.clauses or []
+    if clauses and isinstance(clauses[0], EinsteinClauseIR):
+        return len(clauses[0].indices or [])
+    return 0
+
+
+def _tensor_rank_from_expr(expr: Optional[ExpressionIR], bindings: Dict[DefId, BindingIR]) -> int:
+    if expr is None:
+        return 0
+    si = getattr(expr, "shape_info", None)
+    if isinstance(si, tuple) and len(si) > 0:
+        return len(si)
+    if isinstance(expr, IdentifierIR) and expr.defid is not None:
+        return _tensor_rank_from_binding(bindings.get(expr.defid))
+    if isinstance(expr, EinsteinIR):
+        return _tensor_rank_from_einstein_expr(expr)
+    if isinstance(expr, ArrayLiteralIR):
+        return _tensor_rank_from_literal_array(expr)
+    if isinstance(expr, RectangularAccessIR):
+        base = _tensor_rank_from_expr(expr.array, bindings)
+        return max(0, base - len(expr.indices or []))
+    ti = getattr(expr, "type_info", None)
+    if isinstance(ti, RectangularType):
+        if getattr(ti, "is_dynamic_rank", False):
+            return 1
+        if ti.shape is not None:
+            return len(ti.shape)
+        return 1
+    return 0
+
+
 def _tensor_rank_from_binding(b: Optional[BindingIR]) -> int:
     if b is None:
         return 0
     si = getattr(b, "shape_info", None)
     if isinstance(si, tuple) and len(si) > 0:
         return len(si)
+    rk_ein = _tensor_rank_from_einstein_expr(getattr(b, "expr", None))
+    if rk_ein > 0:
+        return rk_ein
+    rk_lit = _tensor_rank_from_literal_array(getattr(b, "expr", None))
+    if rk_lit > 0:
+        return rk_lit
+    ex = getattr(b, "expr", None)
+    ex_si = getattr(ex, "shape_info", None)
+    if isinstance(ex_si, tuple) and len(ex_si) > 0:
+        return len(ex_si)
+    ex_ti = getattr(ex, "type_info", None)
+    if isinstance(ex_ti, RectangularType):
+        if getattr(ex_ti, "is_dynamic_rank", False):
+            pass
+        elif ex_ti.shape is not None:
+            return len(ex_ti.shape)
+        else:
+            return 1
     ti = getattr(b, "type_info", None)
     if isinstance(ti, RectangularType):
         if getattr(ti, "is_dynamic_rank", False):
@@ -1294,9 +1517,6 @@ def _tensor_rank_from_binding(b: Optional[BindingIR]) -> int:
             return len(ti.shape)
         else:
             return 1
-    rk_lit = _tensor_rank_from_literal_array(getattr(b, "expr", None))
-    if rk_lit > 0:
-        return rk_lit
     return 0
 
 
@@ -1368,6 +1588,90 @@ def _jacobian_rect_read_wrt_slice_binding(
         return IfExpressionIR(eq, rest, loc, else_expr=_z(loc), type_info=F32)
 
     return chain(0)
+
+
+def _jacobian_tensor_id_wrt_slice_binding(
+    tensor_id: IdentifierIR,
+    wrt: DefId,
+    loc: SourceLocation,
+    B: Dict[DefId, BindingIR],
+    resolver: Any,
+) -> Optional[ExpressionIR]:
+    """∂(T)/∂w for ``let w = T[s...]`` as a one-hot Einstein tensor over T's shape."""
+    wb = B.get(wrt)
+    if wb is None or wb.expr is None:
+        return None
+    ex = wb.expr
+    if isinstance(ex, CastExpressionIR) and ex.expr is not None:
+        ex = ex.expr
+    if not isinstance(ex, RectangularAccessIR):
+        return None
+    root = _rectangular_read_root_defid(ex)
+    if root is None or root != tensor_id.defid:
+        return None
+    if resolver is None:
+        return None
+
+    slice_idxs: List[ExpressionIR] = []
+    cur: Optional[ExpressionIR] = ex
+    while isinstance(cur, RectangularAccessIR):
+        slice_idxs = list(cur.indices or []) + slice_idxs
+        cur = cur.array
+    if not slice_idxs:
+        return None
+
+    dyn_idxs: List[IndexVarIR] = []
+    var_ranges: Dict[DefId, RangeIR] = {}
+    shape_ref = MemberAccessIR(
+        object=tensor_id,
+        member="shape",
+        location=loc,
+        type_info=UNKNOWN,
+    )
+    for p in range(len(slice_idxs)):
+        did = resolver.allocate_for_local()
+        dim = LiteralIR(p, loc, type_info=PrimitiveType("i32"))
+        bound = RectangularAccessIR(array=shape_ref, indices=[dim], location=loc, type_info=UNKNOWN)
+        rng = RangeIR(
+            start=LiteralIR(0, loc, type_info=PrimitiveType("i32")),
+            end=bound,
+            location=loc,
+            type_info=UNKNOWN,
+        )
+        iv = IndexVarIR("_jslice_%d" % p, loc, did, range_ir=rng)
+        dyn_idxs.append(iv)
+        var_ranges[did] = rng
+
+    body: ExpressionIR = _fl(1, loc)
+    for d, s in zip(dyn_idxs, slice_idxs):
+        eq = BinaryOpIR(BinaryOp.EQ, d, s, loc, type_info=BOOL)
+        body = IfExpressionIR(eq, body, loc, else_expr=_z(loc), type_info=F32)
+
+    return EinsteinIR(
+        clauses=[
+            EinsteinClauseIR(
+                indices=dyn_idxs,
+                value=body,
+                location=loc,
+                variable_ranges=var_ranges,
+            )
+        ],
+        shape=None,
+        element_type=None,
+        location=loc,
+        type_info=_ti(tensor_id),
+        shape_info=_si(tensor_id),
+    )
+
+
+def _flatten_rect_access(expr: RectangularAccessIR) -> Tuple[ExpressionIR, List[ExpressionIR]]:
+    """Flatten nested rectangular indexing into (root, full_index_list)."""
+    idxs: List[ExpressionIR] = list(expr.indices or [])
+    root: ExpressionIR = expr.array
+    while isinstance(root, RectangularAccessIR):
+        idxs = list(root.indices or []) + idxs
+        root = root.array
+    return root, idxs
 
 
 def _kronecker_delta_indices(
@@ -1672,10 +1976,18 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                  stmt_partial: Optional[Dict[DefId, ExpressionIR]] = None,
                  wrt_tangent: Optional[ExpressionIR] = None,
                  primal_subst: Optional[Dict[DefId, ExpressionIR]] = None,
-                 shared_cotangent_axes: Optional[List[IndexVarIR]] = None) -> None:
+                 shared_cotangent_axes: Optional[List[IndexVarIR]] = None,
+                 legacy_directional: bool = False,
+                 dependency_cache: Optional[_DependencyQueryCache] = None) -> None:
         self._wrt = wrt; self._loc = loc; self._B = bindings
         self._R = resolver; self._sp = stmt_partial; self._wt = wrt_tangent
         self._ps = primal_subst
+        self._legacy_directional = legacy_directional
+        self._dep_cache = (
+            dependency_cache
+            if dependency_cache is not None and dependency_cache.bindings is bindings
+            else _DependencyQueryCache(bindings)
+        )
         self._wrt_axes: Optional[List[IndexVarIR]] = None
         wb = bindings.get(wrt)
         if wb is not None and _tensor_rank_from_binding(wb) > 0:
@@ -1745,7 +2057,9 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                     else None
                 )
                 tensor_alias = slice_root is not None and slice_root == n.defid
-                if not tensor_alias and not _jacobian_rhs_depends_on_wrt(b.expr, self._wrt, self._B):
+                if not tensor_alias and not _jacobian_rhs_depends_on_wrt(
+                    b.expr, self._wrt, self._B, self._dep_cache
+                ):
                     return _z(self._loc)
                 if _binding_is_rect_slice_of_tensor(self._wrt, n.defid, self._B):
                     return IdentifierIR(
@@ -1794,6 +2108,8 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
             return BinaryOpIR(BinaryOp.DIV, num, den, loc)
         if op == BinaryOp.POW: return _pow_chain(n, dL, dR, self._B, self._R, loc)
         if op == BinaryOp.MOD: return dL
+        if op in (BinaryOp.EQ, BinaryOp.NE, BinaryOp.LT, BinaryOp.LE, BinaryOp.GT, BinaryOp.GE, BinaryOp.AND, BinaryOp.OR):
+            return _z(loc)
         raise ValueError(f"Autodiff: unsupported binary op: {op}")
 
     def visit_unary_op(self, n: UnaryOpIR) -> ExpressionIR:
@@ -1827,6 +2143,13 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
     # -- indexing / cast / control flow --------------------------------------
     def visit_rectangular_access(self, n: RectangularAccessIR) -> ExpressionIR:
         loc = n.location or self._loc
+        root_expr, full_indices = _flatten_rect_access(n)
+        if isinstance(root_expr, IdentifierIR) and root_expr.defid is not None and self._wrt_axes is None:
+            full_sl = _jacobian_rect_read_wrt_slice_binding(
+                full_indices, self._wrt, loc, self._B, array_root=root_expr.defid
+            )
+            if full_sl is not None:
+                return full_sl
         indices = list(n.indices or [])
         da = n.array.accept(self)
         if _is_zero(da):
@@ -1881,6 +2204,8 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                     indices = ext
         return RectangularAccessIR(da, indices, loc, type_info=_ti(n), shape_info=_si(n))
     def visit_cast_expression(self, n: CastExpressionIR) -> ExpressionIR:
+        if _cast_target_has_zero_tangent(n.target_type):
+            return _z(self._loc)
         return n.expr.accept(self)
     def visit_if_expression(self, n: IfExpressionIR) -> ExpressionIR:
         cv = _eval_const_expr(n.condition, self._B, subst=self._ps)
@@ -1928,6 +2253,8 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
             wrt_tangent=self._wt,
             primal_subst=self._ps,
             shared_cotangent_axes=self._wrt_axes,
+            legacy_directional=self._legacy_directional,
+            dependency_cache=self._dep_cache,
         )
         for s in stmts:
             pv = _simplify(s.expr.accept(child), loc)
@@ -1950,7 +2277,33 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                 f"Autodiff: JacobianVisitor call {lab!r} resolves to non-function binding {bname!r}"
             )
         fv = b.expr; ps = fv.parameters or []; body = fv.body
-        rm = {p.defid: args[j] for j, p in enumerate(ps) if p.defid is not None and j < len(args)}
+        rm = {
+            p.defid: _callee_arg_with_binding_metadata(args[j], self._B)
+            for j, p in enumerate(ps)
+            if p.defid is not None and j < len(args)
+        }
+
+        if self._wrt_axes is None and ps:
+            tangent_by_param: Dict[DefId, ExpressionIR] = {}
+            any_nonzero = False
+            for i, p in enumerate(ps):
+                if p.defid is None or i >= len(args):
+                    continue
+                da = args[i].accept(self)
+                tangent_by_param[p.defid] = da
+                if not _is_zero(da):
+                    any_nonzero = True
+            if not any_nonzero:
+                return _z(loc)
+            if self._R is not None:
+                try:
+                    return _callee_forward_jvp(
+                        fv, args, tangent_by_param, loc, self._B, self._R
+                    )
+                except Exception:
+                    # Fall back to Jacobian chain path below for edge cases where the
+                    # replayed forward sweep cannot be built.
+                    pass
 
         rule_body = getattr(fv, "custom_diff_body", None)
         if rule_body is not None and len(ps) == len(args):
@@ -1997,8 +2350,29 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
         terms = []
         for i, p in enumerate(ps):
             if p.defid is None or i >= len(args): continue
-            iv = JacobianVisitor(p.defid, loc, self._B, self._R)
+            iv = JacobianVisitor(p.defid, loc, self._B, self._R, dependency_cache=self._dep_cache)
             av = args[i].accept(self)
+            if (
+                isinstance(args[i], IdentifierIR)
+                and isinstance(av, IdentifierIR)
+                and args[i].defid is not None
+                and _binding_is_rect_slice_of_tensor(self._wrt, args[i].defid, self._B)
+            ):
+                one_hot = _jacobian_tensor_id_wrt_slice_binding(
+                    IdentifierIR(
+                        args[i].name or "?",
+                        args[i].location or loc,
+                        args[i].defid,
+                        type_info=_ti(args[i]),
+                        shape_info=_si(args[i]),
+                    ),
+                    self._wrt,
+                    loc,
+                    self._B,
+                    self._R,
+                )
+                if one_hot is not None:
+                    av = one_hot
             _reject_bare_wrt_tensor_jacobian(av, self._wrt, self._wrt_axes, "call arg partial")
             terms.append(BinaryOpIR(BinaryOp.MUL, _sub(body.accept(iv), rm, loc), av, loc))
         return _sum_terms(terms, loc)
@@ -2007,7 +2381,8 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
     def visit_einstein(self, n: EinsteinIR) -> ExpressionIR:
         return _diff_einstein_wrt(n, self._wrt, self._loc, self._B, self._R, self._wt,
                                   sp=self._sp, ps=self._ps,
-                                  cotangent_axes=self._wrt_axes)
+                                  cotangent_axes=self._wrt_axes,
+                                  legacy_directional=self._legacy_directional)
     def visit_select_at_argmax(self, n: SelectAtArgmaxIR) -> ExpressionIR: return n
 
     def visit_lowered_einstein(self, n: Any) -> ExpressionIR:
@@ -2024,14 +2399,30 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
         _unsupported_autodiff_ir("JacobianVisitor", n)
     def visit_array_comprehension(self, n: Any) -> ExpressionIR:
         _unsupported_autodiff_ir("JacobianVisitor", n)
-    def visit_tuple_expression(self, n: Any) -> ExpressionIR:
-        _unsupported_autodiff_ir("JacobianVisitor", n)
-    def visit_tuple_access(self, n: Any) -> ExpressionIR:
-        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_tuple_expression(self, n: TupleExpressionIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        return TupleExpressionIR(
+            [elem.accept(self) for elem in (n.elements or [])],
+            loc,
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
+    def visit_tuple_access(self, n: TupleAccessIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        dt = n.tuple_expr.accept(self)
+        if _is_zero(dt):
+            return _z(loc)
+        return TupleAccessIR(dt, n.index, loc, type_info=_ti(n), shape_info=_si(n))
     def visit_interpolated_string(self, n: Any) -> ExpressionIR:
         _unsupported_autodiff_ir("JacobianVisitor", n)
-    def visit_member_access(self, n: Any) -> ExpressionIR:
-        _unsupported_autodiff_ir("JacobianVisitor", n)
+    def visit_member_access(self, n: MemberAccessIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        if n.member == "shape":
+            return _z(loc)
+        dobj = n.object.accept(self)
+        if _is_zero(dobj):
+            return _z(loc)
+        return MemberAccessIR(dobj, n.member, loc, type_info=_ti(n), shape_info=_si(n))
     def visit_function_value(self, n: Any) -> ExpressionIR:
         _unsupported_autodiff_ir("JacobianVisitor", n)
     def visit_try_expression(self, n: Any) -> ExpressionIR:
@@ -2147,19 +2538,20 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
                        wt: Optional[ExpressionIR] = None,
                        sp: Optional[Dict[DefId, ExpressionIR]] = None,
                        ps: Optional[Dict[DefId, ExpressionIR]] = None,
-                       cotangent_axes: Optional[List[IndexVarIR]] = None) -> ExpressionIR:
+                       cotangent_axes: Optional[List[IndexVarIR]] = None,
+                       legacy_directional: bool = False) -> ExpressionIR:
+    dep_cache = _DependencyQueryCache(B)
     dc: List[EinsteinClauseIR] = []
-    # Keep historical behavior for direct Einstein quotients, but propagate tensor cotangent
-    # axes while differentiating replayed callee bodies (ps != None). This fixes chain-rule
-    # cases where wrt appears through callee locals (e.g. conv padding buffers).
+    # Legacy directional mode is only for direct tensor-over-tensor quotients.
+    # For scalar-loss backprop chains, keep cotangent axes through Einstein nodes.
     shared_axes: Optional[List[IndexVarIR]] = (
-        cotangent_axes if (ps is not None and cotangent_axes is not None) else []
+        [] if legacy_directional else (list(cotangent_axes) if cotangent_axes is not None else [])
     )
     for clause in expr.clauses or []:
         val = clause.value
         if not isinstance(val, ReductionExpressionIR):
             jv = JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
-                                 shared_cotangent_axes=shared_axes)
+                                 shared_cotangent_axes=shared_axes, dependency_cache=dep_cache)
             d_val = _simplify(val.accept(jv), loc)
             mi, merged_v, nvr = _merge_primal_clause_with_cotangent_einstein(clause, d_val)
             mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, merged_v, shared_axes)
@@ -2171,7 +2563,7 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
         if not factors:
             if val.operation == ReductionOp.SUM:
                 d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
-                                                     shared_cotangent_axes=shared_axes))
+                                                     shared_cotangent_axes=shared_axes, dependency_cache=dep_cache))
                 sum_val = ReductionExpressionIR(ReductionOp.SUM, list(val.loop_vars or []), d_inner, loc,
                           where_clause=val.where_clause, loop_var_ranges=_merged_lr(val, clause),
                           type_info=_ti(val), shape_info=_si(val))
@@ -2185,7 +2577,7 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
                     variable_ranges=nvr))
             else:
                 d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
-                                                   shared_cotangent_axes=shared_axes))
+                                                   shared_cotangent_axes=shared_axes, dependency_cache=dep_cache))
                 mi = list(clause.indices or [])
                 nvr = dict(clause.variable_ranges or {})
                 mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, d_val, shared_axes)
@@ -2210,7 +2602,7 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
         if not wrt_pos:
             if val.operation == ReductionOp.SUM:
                 d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
-                                                     shared_cotangent_axes=shared_axes))
+                                                     shared_cotangent_axes=shared_axes, dependency_cache=dep_cache))
                 sum_val = ReductionExpressionIR(ReductionOp.SUM, list(val.loop_vars or []), d_inner, loc,
                           where_clause=val.where_clause, loop_var_ranges=_merged_lr(val, clause),
                           type_info=_ti(val), shape_info=_si(val))
@@ -2283,7 +2675,7 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
 
         if val.operation != ReductionOp.SUM:
             d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
-                                               shared_cotangent_axes=shared_axes))
+                                               shared_cotangent_axes=shared_axes, dependency_cache=dep_cache))
             mi = list(clause.indices or [])
             nvr = dict(clause.variable_ranges or {})
             mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, d_val, shared_axes)
@@ -2355,9 +2747,11 @@ def _callee_block_build_primal(
         if not isinstance(s, BindingIR) or s.defid is None or s.expr is None:
             continue
         subst_expr = _sub(s.expr, primal_map, loc)
+        bti = _ti(s) or _ti(subst_expr)
+        bsi = _si(s) or _si(subst_expr)
         pd = R.allocate_for_local()
         pn = s.name or "_p"
-        pr = IdentifierIR(pn, s.location or loc, pd, type_info=_ti(s))
+        pr = IdentifierIR(pn, s.location or loc, pd, type_info=bti, shape_info=bsi)
         primal_map[s.defid] = pr
         primal_stmts.append(
             BindingIR(
@@ -2365,7 +2759,7 @@ def _callee_block_build_primal(
                 expr=subst_expr,
                 location=s.location or loc,
                 defid=pd,
-                type_info=_ti(s),
+                type_info=bti,
             )
         )
     return primal_stmts, primal_map
@@ -2384,9 +2778,11 @@ def _callee_replay_block(
         if not isinstance(s, BindingIR) or s.defid is None or s.expr is None:
             continue
         sub_e = _sub(s.expr, pm, loc)
+        bti = _ti(s) or _ti(sub_e)
+        bsi = _si(s) or _si(sub_e)
         pd = R.allocate_for_local()
         pn = s.name or "_p"
-        pr = IdentifierIR(pn, s.location or bl, pd, type_info=_ti(s), shape_info=_si(s))
+        pr = IdentifierIR(pn, s.location or bl, pd, type_info=bti, shape_info=bsi)
         pm[s.defid] = pr
         stmts_out.append(
             BindingIR(
@@ -2394,7 +2790,7 @@ def _callee_replay_block(
                 expr=sub_e,
                 location=s.location or bl,
                 defid=pd,
-                type_info=_ti(s),
+                type_info=bti,
             )
         )
     fe = block.final_expr
@@ -2497,25 +2893,35 @@ def _diff_callee_block_tangent(
     """∂/∂wrt for callee body given an already-built ``primal_map`` (no primal statements)."""
     if block.final_expr is None:
         raise ValueError("Autodiff: callee block has no final expression")
+    dep_cache = _DependencyQueryCache(B)
     sp: Dict[DefId, ExpressionIR] = {}
     # Quotient Jacobians use wrt = a call-site DefId (denominator of @y/@x); parameters are
     # keys of ``param_subst``.  Forward-mode uses wrt = callee parameter DefId ∈ param_subst.
     # primal_subst must only apply to the quotient case (see tests using std::ml).
     ps_map = primal_map if wrt not in param_subst else None
     vis = JacobianVisitor(
-        wrt, loc, B, R, stmt_partial=sp, wrt_tangent=wt, primal_subst=ps_map
+        wrt,
+        loc,
+        B,
+        R,
+        stmt_partial=sp,
+        wrt_tangent=wt,
+        primal_subst=ps_map,
+        dependency_cache=dep_cache,
     )
     diff_stmts: List[BindingIR] = []
     for s in block.statements or []:
         if not isinstance(s, BindingIR) or s.defid is None or s.expr is None:
             continue
         pv = _simplify(_sub(s.expr.accept(vis), primal_map, loc), loc)
+        bti = _ti(s) or _ti(pv)
+        bsi = _si(s) or _si(pv)
         if _is_zero(pv):
             sp[s.defid] = _z(loc)
         else:
             dd = R.allocate_for_local()
             dn = DIFF_PREFIX + (s.name or "")
-            dr = IdentifierIR(dn, s.location or loc, dd, type_info=_ti(s))
+            dr = IdentifierIR(dn, s.location or loc, dd, type_info=bti, shape_info=bsi)
             axis_ids = {
                 iv.defid
                 for iv in (vis._wrt_axes or [])
@@ -2533,7 +2939,7 @@ def _diff_callee_block_tangent(
                     expr=pv,
                     location=s.location or loc,
                     defid=dd,
-                    type_info=_ti(s),
+                    type_info=bti,
                 )
             )
     bl = block.location or loc
@@ -2550,7 +2956,14 @@ def _diff_callee_block_tangent(
                 w_fe = tr
     sp_fe = _stmt_partial_for_replayed_callee_final(sp, primal_map, block)
     vis_fe = JacobianVisitor(
-        w_fe, loc, B, R, stmt_partial=sp_fe, wrt_tangent=wt, primal_subst=ps_map
+        w_fe,
+        loc,
+        B,
+        R,
+        stmt_partial=sp_fe,
+        wrt_tangent=wt,
+        primal_subst=ps_map,
+        dependency_cache=dep_cache,
     )
     fp = _simplify(_sub(fe_rep.accept(vis_fe), pm_fp, loc), loc)
     return diff_stmts, fp
@@ -2620,6 +3033,8 @@ def _diff_callee_block_combined_forward(
             continue
         e_sub = _sub(s.expr, primal_map, loc)
         pv = _simplify(e_sub.accept(DiffVisitor(dre, loc, B, R)), loc)
+        bti = _ti(s) or _ti(pv)
+        bsi = _si(s) or _si(pv)
         prim = primal_map.get(s.defid)
         if not isinstance(prim, IdentifierIR) or prim.defid is None:
             raise ValueError("Autodiff: primal_map missing identifier for callee local")
@@ -2629,7 +3044,7 @@ def _diff_callee_block_combined_forward(
             continue
         dd = R.allocate_for_local()
         dn = DIFF_PREFIX + (s.name or "")
-        dr = IdentifierIR(dn, s.location or bl, dd, type_info=_ti(s))
+        dr = IdentifierIR(dn, s.location or bl, dd, type_info=bti, shape_info=bsi)
         dre[pd] = dr
         dre[dd] = dr
         diff_stmts.append(
@@ -2638,7 +3053,7 @@ def _diff_callee_block_combined_forward(
                 expr=pv,
                 location=s.location or bl,
                 defid=dd,
-                type_info=_ti(s),
+                type_info=bti,
             )
         )
     pm_fe = dict(primal_map)
@@ -2707,10 +3122,49 @@ def _sum_terms(terms: List[ExpressionIR], loc: SourceLocation) -> ExpressionIR:
     return out
 
 
-def _callee_primal_subst_map(fv: FunctionValueIR, args: List[ExpressionIR]) -> Dict[DefId, ExpressionIR]:
+def _callee_arg_with_binding_metadata(
+    arg: ExpressionIR,
+    bindings: Dict[DefId, BindingIR],
+) -> ExpressionIR:
+    if isinstance(arg, LiteralIR):
+        cloned = LiteralIR(
+            arg.value,
+            arg.location,
+            type_info=_ti(arg),
+            shape_info=_si(arg),
+        )
+    elif isinstance(arg, IdentifierIR):
+        cloned = IdentifierIR(
+            arg.name,
+            arg.location,
+            arg.defid,
+            type_info=_ti(arg),
+            shape_info=_si(arg),
+        )
+    else:
+        cloned = copy.deepcopy(arg)
+    if isinstance(cloned, IdentifierIR) and cloned.defid is not None:
+        b = bindings.get(cloned.defid)
+        if b is not None:
+            if cloned.type_info is None:
+                cloned.type_info = _ti(b) or (_ti(b.expr) if b.expr is not None else None)
+            if cloned.shape_info is None:
+                cloned.shape_info = _si(b) or (_si(b.expr) if b.expr is not None else None)
+    return cloned
+
+
+def _callee_primal_subst_map(
+    fv: FunctionValueIR,
+    args: List[ExpressionIR],
+    bindings: Dict[DefId, BindingIR],
+) -> Dict[DefId, ExpressionIR]:
     """Map each parameter defid to the corresponding call-site argument expression."""
     ps = fv.parameters or []
-    return {p.defid: args[j] for j, p in enumerate(ps) if p.defid is not None and j < len(args)}
+    return {
+        p.defid: _callee_arg_with_binding_metadata(args[j], bindings)
+        for j, p in enumerate(ps)
+        if p.defid is not None and j < len(args)
+    }
 
 
 def _callee_primal_let_binding_count(fv: FunctionValueIR) -> int:
@@ -2760,7 +3214,7 @@ def _callee_forward_jvp(
     ps = fv.parameters or []
     rule_body = getattr(fv, "custom_diff_body", None)
     if rule_body is not None and len(ps) == len(args):
-        rm = _callee_primal_subst_map(fv, args)
+        rm = _callee_primal_subst_map(fv, args, B)
         return _sub_callee(
             _sub_wd(rule_body, rm, tangent_by_param, loc),
             fv,
@@ -2774,7 +3228,8 @@ def _callee_forward_jvp(
         raise ValueError("Autodiff: user function has no body")
     if len(ps) != len(args):
         raise ValueError("Autodiff: arity mismatch")
-    rm = _callee_primal_subst_map(fv, args)
+    rm = _callee_primal_subst_map(fv, args, B)
+    dep_cache = _DependencyQueryCache(B)
     if isinstance(body, BlockExpressionIR) and R is not None:
         primal_stmts, primal_map = _callee_block_build_primal(body, rm, loc, R)
         if _callee_args_support_combined_forward(rm, ps):
@@ -2818,7 +3273,7 @@ def _callee_forward_jvp(
         da = tangent_by_param.get(p.defid)
         if da is None:
             raise ValueError("Autodiff: missing tangent for callee parameter")
-        iv = JacobianVisitor(p.defid, loc, B, R, wrt_tangent=da)
+        iv = JacobianVisitor(p.defid, loc, B, R, wrt_tangent=da, dependency_cache=dep_cache)
         terms.append(_sub(body.accept(iv), rm, loc))
     if not terms:
         raise ValueError("Autodiff: callee forward JVP produced no tangent terms")
@@ -2918,6 +3373,8 @@ class DiffVisitor(IRVisitor[ExpressionIR]):
             return BinaryOpIR(BinaryOp.DIV, num, den, loc)
         if op == BinaryOp.POW: return _pow_chain(n, dL, dR, self._B, self._R, loc)
         if op == BinaryOp.MOD: return dL
+        if op in (BinaryOp.EQ, BinaryOp.NE, BinaryOp.LT, BinaryOp.LE, BinaryOp.GT, BinaryOp.GE, BinaryOp.AND, BinaryOp.OR):
+            return _z(loc)
         raise ValueError(f"Autodiff: unsupported binary op: {op}")
 
     def visit_unary_op(self, n: UnaryOpIR) -> ExpressionIR:
@@ -3074,6 +3531,8 @@ class DiffVisitor(IRVisitor[ExpressionIR]):
                               else_expr=de, type_info=_ti(n), shape_info=_si(n))
 
     def visit_cast_expression(self, n: CastExpressionIR) -> ExpressionIR:
+        if _cast_target_has_zero_tangent(n.target_type):
+            return _z(self._loc)
         return n.expr.accept(self)
 
     def visit_einstein(self, n: EinsteinIR) -> ExpressionIR:
@@ -3104,14 +3563,30 @@ class DiffVisitor(IRVisitor[ExpressionIR]):
     def visit_array_comprehension(self, n: Any) -> ExpressionIR:
         _unsupported_autodiff_ir("DiffVisitor", n)
     def visit_array_literal(self, n: ArrayLiteralIR) -> ExpressionIR: return _z(self._loc)
-    def visit_tuple_expression(self, n: Any) -> ExpressionIR:
-        _unsupported_autodiff_ir("DiffVisitor", n)
-    def visit_tuple_access(self, n: Any) -> ExpressionIR:
-        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_tuple_expression(self, n: TupleExpressionIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        return TupleExpressionIR(
+            [elem.accept(self) for elem in (n.elements or [])],
+            loc,
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
+    def visit_tuple_access(self, n: TupleAccessIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        dt = n.tuple_expr.accept(self)
+        if _is_zero(dt):
+            return _z(loc)
+        return TupleAccessIR(dt, n.index, loc, type_info=_ti(n), shape_info=_si(n))
     def visit_interpolated_string(self, n: Any) -> ExpressionIR:
         _unsupported_autodiff_ir("DiffVisitor", n)
-    def visit_member_access(self, n: Any) -> ExpressionIR:
-        _unsupported_autodiff_ir("DiffVisitor", n)
+    def visit_member_access(self, n: MemberAccessIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        if n.member == "shape":
+            return _z(loc)
+        dobj = n.object.accept(self)
+        if _is_zero(dobj):
+            return _z(loc)
+        return MemberAccessIR(dobj, n.member, loc, type_info=_ti(n), shape_info=_si(n))
     def visit_function_value(self, n: Any) -> ExpressionIR:
         _unsupported_autodiff_ir("DiffVisitor", n)
     def visit_try_expression(self, n: Any) -> ExpressionIR:
@@ -3254,15 +3729,22 @@ def _str_ir(expr: ExpressionIR) -> str:
 
 
 def _live_primal_defids_for_print_display(
-    stmts: List[Any], final_expr: Optional[ExpressionIR]
+    stmts: List[Any],
+    final_expr: Optional[ExpressionIR],
+    dep_cache: Optional[_DependencyQueryCache] = None,
 ) -> Set[DefId]:
     """Primal (non-``_@``) binding DefIds referenced from tangent lines or the block final."""
+    def _deps(expr: Optional[ExpressionIR]) -> Set[DefId]:
+        if dep_cache is not None:
+            return set(dep_cache.collect_defids(expr))
+        return _collect_defids(expr)
+
     need: Set[DefId] = set()
     if final_expr is not None:
-        need |= _collect_defids(final_expr)
+        need |= _deps(final_expr)
     for s in stmts:
         if isinstance(s, BindingIR) and s.expr is not None and _is_diff_name(s.name or ""):
-            need |= _collect_defids(s.expr)
+            need |= _deps(s.expr)
     primal_by_did: Dict[DefId, BindingIR] = {}
     for s in stmts:
         if isinstance(s, BindingIR) and s.defid is not None and not _is_diff_name(s.name or ""):
@@ -3272,7 +3754,7 @@ def _live_primal_defids_for_print_display(
         for pd in list(need):
             pb = primal_by_did.get(pd)
             if pb is not None and pb.expr is not None:
-                need |= _collect_defids(pb.expr)
+                need |= _deps(pb.expr)
         if len(need) == prev:
             break
     return set(primal_by_did.keys()) & need
@@ -3280,6 +3762,14 @@ def _live_primal_defids_for_print_display(
 
 class _TrimDeadPrimalPrintRewriter(_Rewriter):
     """Drop callee primal replay lines unused by ``_@*`` / final (``print(@y)`` display only)."""
+
+    def __init__(
+        self,
+        loc: SourceLocation,
+        dep_cache: Optional[_DependencyQueryCache] = None,
+    ) -> None:
+        super().__init__(loc)
+        self._dep_cache = dep_cache
 
     def visit_block_expression(self, n: BlockExpressionIR) -> ExpressionIR:
         loc = n.location or self._loc
@@ -3302,7 +3792,7 @@ class _TrimDeadPrimalPrintRewriter(_Rewriter):
             else:
                 ns.append(s)
         nf = n.final_expr.accept(self)
-        live = _live_primal_defids_for_print_display(ns, nf)
+        live = _live_primal_defids_for_print_display(ns, nf, self._dep_cache)
         out: List[Any] = []
         for s in ns:
             if isinstance(s, BindingIR):
@@ -3314,9 +3804,13 @@ class _TrimDeadPrimalPrintRewriter(_Rewriter):
         return BlockExpressionIR(out, loc, nf, type_info=_ti(n), shape_info=_si(n))
 
 
-def _str_ir_print_differential_rhs(expr: ExpressionIR, loc: SourceLocation) -> str:
+def _str_ir_print_differential_rhs(
+    expr: ExpressionIR,
+    loc: SourceLocation,
+    dep_cache: Optional[_DependencyQueryCache] = None,
+) -> str:
     """``_str_ir`` for ``print(@…)`` after eliding dead callee primals (does not change executed IR)."""
-    trimmed = expr.accept(_TrimDeadPrimalPrintRewriter(loc))
+    trimmed = expr.accept(_TrimDeadPrimalPrintRewriter(loc, dep_cache))
     return str(trimmed)
 
 
@@ -3348,6 +3842,17 @@ def _collect_targets_expr(expr: Any) -> Tuple[List[Tuple[DefId, str]], List[Tupl
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _is_reachable(src: DefId, tgt: DefId, B: Dict[DefId, BindingIR]) -> bool:
+    return _is_reachable_with_cache(src, tgt, B, None)
+
+
+def _is_reachable_with_cache(
+    src: DefId,
+    tgt: DefId,
+    B: Dict[DefId, BindingIR],
+    dep_cache: Optional[_DependencyQueryCache],
+) -> bool:
+    if dep_cache is not None:
+        return tgt in dep_cache.reachable_from(src)
     vis: Set[DefId] = set(); q = [src]
     while q:
         cur = q.pop()
@@ -3612,11 +4117,16 @@ def _primal_to_diff_map(bindings: List) -> Dict[DefId, BindingIR]:
 
 _primal_to_following_diff_binding_map = _primal_to_diff_map
 
-def _trans_deps(expr: Optional[ExpressionIR], B: Dict[DefId, BindingIR]) -> Set[DefId]:
+def _trans_deps(
+    expr: Optional[ExpressionIR],
+    B: Dict[DefId, BindingIR],
+    dep_cache: Optional[_DependencyQueryCache] = None,
+) -> Set[DefId]:
     out: Set[DefId] = set()
     vis: Set[DefId] = set()
     pending: List[DefId] = []
-    for d in _collect_defids(expr):
+    roots = dep_cache.collect_defids(expr) if dep_cache is not None else _collect_defids(expr)
+    for d in roots:
         pending.append(d)
     while pending:
         did = pending.pop()
@@ -3627,7 +4137,8 @@ def _trans_deps(expr: Optional[ExpressionIR], B: Dict[DefId, BindingIR]) -> Set[
         b = B.get(did)
         if b is None or b.expr is None or isinstance(b.expr, FunctionValueIR):
             continue
-        for d2 in _collect_defids(b.expr):
+        deps = dep_cache.collect_defids(b.expr) if dep_cache is not None else _collect_defids(b.expr)
+        for d2 in deps:
             if d2 not in vis:
                 pending.append(d2)
     return out
@@ -3646,6 +4157,7 @@ class _ExpansionVisitor(_Rewriter):
         loc: SourceLocation,
         R: Any = None,
         P: Optional[ProgramIR] = None,
+        dependency_cache: Optional[_DependencyQueryCache] = None,
     ) -> None:
         super().__init__(loc)
         self._D = D
@@ -3653,6 +4165,11 @@ class _ExpansionVisitor(_Rewriter):
         self._SE = SE
         self._R = R
         self._P = P
+        self._dep_cache = (
+            dependency_cache
+            if dependency_cache is not None and dependency_cache.bindings is SB
+            else _DependencyQueryCache(SB)
+        )
 
     def visit_differential(self, n: DifferentialIR) -> ExpressionIR:
         op = n.operand
@@ -3673,15 +4190,15 @@ class _ExpansionVisitor(_Rewriter):
                 ne = self._SE.get(nop.defid) if isinstance(nop, IdentifierIR) and nop.defid is not None else nop
                 if ne is None:
                     raise ValueError("Autodiff: numerator has no defining expr")
-                cdn = dd in _collect_defids(ne)
+                cdn = dd in self._dep_cache.collect_defids(ne)
                 rch = False
                 if isinstance(nop, IdentifierIR) and nop.defid is not None:
-                    rch = _is_reachable(nop.defid, dd, self._SB)
+                    rch = _is_reachable_with_cache(nop.defid, dd, self._SB, self._dep_cache)
                     if not rch:
                         den_b = self._SB.get(dd)
                         t_root = _rectangular_read_root_defid(den_b.expr) if den_b is not None and den_b.expr is not None else None
                         if t_root is not None:
-                            rch = _is_reachable(nop.defid, t_root, self._SB)
+                            rch = _is_reachable_with_cache(nop.defid, t_root, self._SB, self._dep_cache)
                 if not cdn and not rch:
                     return _z(ql)
                 den_binding = self._SB.get(dd)
@@ -3698,7 +4215,21 @@ class _ExpansionVisitor(_Rewriter):
                     if ti or si:
                         _propagate_ti(out, ti, si)
                     return out
-                jv = JacobianVisitor(dd, ql, self._SB, self._R)
+                legacy_directional = den_is_tensor and (
+                    _tensor_rank_from_expr(ne, self._SB) > 0
+                    or (
+                        isinstance(ne, ReductionExpressionIR)
+                        and ne.operation == ReductionOp.SUM
+                    )
+                )
+                jv = JacobianVisitor(
+                    dd,
+                    ql,
+                    self._SB,
+                    self._R,
+                    legacy_directional=legacy_directional,
+                    dependency_cache=self._dep_cache,
+                )
                 der = _simplify(ne.accept(jv), ql)
                 den_ti = None
                 if dd in self._SB:
@@ -3716,12 +4247,37 @@ class _ExpansionVisitor(_Rewriter):
                             der.shape_info = None
                     _propagate_ti(der, ti, None)
                 return der
-            dids = _collect_defids(dop)
+            dids = self._dep_cache.collect_defids(dop)
             if len(dids) != 1:
                 raise ValueError("Autodiff: @num/@(expr) denominator depends on != 1 variable")
             wd = next(iter(dids))
-            dn = nop.accept(JacobianVisitor(wd, self._loc, self._SB, self._R))
-            dd_ = dop.accept(JacobianVisitor(wd, self._loc, self._SB, self._R))
+            legacy_directional = (
+                _tensor_rank_from_expr(nop, self._SB) > 0
+                or (
+                    isinstance(nop, ReductionExpressionIR)
+                    and nop.operation == ReductionOp.SUM
+                )
+            )
+            dn = nop.accept(
+                JacobianVisitor(
+                    wd,
+                    self._loc,
+                    self._SB,
+                    self._R,
+                    legacy_directional=legacy_directional,
+                    dependency_cache=self._dep_cache,
+                )
+            )
+            dd_ = dop.accept(
+                JacobianVisitor(
+                    wd,
+                    self._loc,
+                    self._SB,
+                    self._R,
+                    legacy_directional=legacy_directional,
+                    dependency_cache=self._dep_cache,
+                )
+            )
             der = BinaryOpIR(BinaryOp.DIV, dn, dd_, self._loc)
             ti = _ti(n)
             if ti is not None:
@@ -3782,22 +4338,48 @@ class _ExpansionVisitor(_Rewriter):
         _ensure_block_d(blk, self._SB, self._SE, self._D, self._loc, self._R)
         nsb = dict(self._SB)
         nse = dict(self._SE)
+        child_dep_cache = self._dep_cache.fork(nsb)
         ns: List[Any] = []
         for s in blk.statements or []:
             if isinstance(s, BindingIR):
-                v = _ExpansionVisitor(self._D, nsb, nse, self._loc, self._R, self._P)
+                v = _ExpansionVisitor(
+                    self._D,
+                    nsb,
+                    nse,
+                    self._loc,
+                    self._R,
+                    self._P,
+                    dependency_cache=child_dep_cache,
+                )
                 ex = s.expr.accept(v) if s.expr is not None else None
                 nb = BindingIR(name=s.name, expr=ex, location=s.location, defid=s.defid, type_info=_ti(s))
                 if nb.defid is not None:
                     nsb[nb.defid] = nb
                     nse[nb.defid] = ex
+                    child_dep_cache = child_dep_cache.fork(nsb)
                 ns.append(nb)
             elif isinstance(s, ExpressionIR):
-                v = _ExpansionVisitor(self._D, nsb, nse, self._loc, self._R, self._P)
+                v = _ExpansionVisitor(
+                    self._D,
+                    nsb,
+                    nse,
+                    self._loc,
+                    self._R,
+                    self._P,
+                    dependency_cache=child_dep_cache,
+                )
                 ns.append(s.accept(v))
             else:
                 ns.append(s)
-        vfin = _ExpansionVisitor(self._D, nsb, nse, self._loc, self._R, self._P)
+        vfin = _ExpansionVisitor(
+            self._D,
+            nsb,
+            nse,
+            self._loc,
+            self._R,
+            self._P,
+            dependency_cache=child_dep_cache,
+        )
         nf = blk.final_expr.accept(vfin) if blk.final_expr is not None else None
         return BlockExpressionIR(ns, blk.location, nf, type_info=_ti(n), shape_info=_si(n))
 
@@ -3827,7 +4409,7 @@ class _ExpansionVisitor(_Rewriter):
                         P = self._P
                         if P is not None:
                             dm = _primal_to_diff_map(P.bindings or [])
-                            needed = _trans_deps(ye, self._SB)
+                            needed = _trans_deps(ye, self._SB, self._dep_cache)
                             porder: Dict[DefId, int] = {}
                             for idx, bb in enumerate(P.bindings or []):
                                 if (isinstance(bb, BindingIR) and bb.defid is not None
@@ -3838,7 +4420,7 @@ class _ExpansionVisitor(_Rewriter):
                                 pb = self._SB.get(did)
                                 if pb is None or pb.expr is None or isinstance(pb.expr, FunctionValueIR):
                                     continue
-                                if not _collect_defids(pb.expr):
+                                if not self._dep_cache.collect_defids(pb.expr):
                                     continue
                                 db = dm.get(did)
                                 if db is None or db.expr is None:
@@ -4030,16 +4612,22 @@ _expand_derivative_in_expr = _expand
 
 
 def _expand_program(program: ProgramIR, D: Dict[DefId, IdentifierIR], loc: SourceLocation,
-                    R: Any = None, init_B: Optional[Dict[DefId, Any]] = None) -> None:
+                    R: Any = None, init_B: Optional[Dict[DefId, Any]] = None,
+                    target_binding_defids: Optional[Set[DefId]] = None,
+                    target_statement_ids: Optional[Set[int]] = None) -> None:
     sb: Dict[DefId, Any] = dict(init_B) if init_B else {}
     se: Dict[DefId, ExpressionIR] = {d: b.expr for d, b in sb.items() if getattr(b, "expr", None) is not None}
+    expand_binding_defids = target_binding_defids
+    expand_statement_ids = target_statement_ids
     for b in program.bindings or []:
         if not isinstance(b, BindingIR) or b.expr is None: continue
-        b.expr = _expand(b.expr, D, sb, se, b.expr.location or loc, R, program)
+        if expand_binding_defids is None or b.defid in expand_binding_defids:
+            b.expr = _expand(b.expr, D, sb, se, b.expr.location or loc, R, program)
         if b.defid is not None: sb[b.defid] = b; se[b.defid] = b.expr
     stmts = program.statements or []
     for i, s in enumerate(stmts):
-        if not isinstance(s, BindingIR) and isinstance(s, ExpressionIR):
+        if (not isinstance(s, BindingIR) and isinstance(s, ExpressionIR)
+                and (expand_statement_ids is None or id(s) in expand_statement_ids)):
             stmts[i] = _expand(s, D, sb, se, getattr(s, "location", None) or loc, R, program)
 
 _expand_derivative_nodes_in_program = _expand_program
@@ -4061,13 +4649,14 @@ def _ensure_block_d(block: BlockExpressionIR, SB: Dict[DefId, Any], SE: Dict[Def
     bbd: Dict[DefId, BindingIR] = dict(SB)
     for b in bb:
         if b.defid is not None: bbd[b.defid] = b
+    dep_cache = _DependencyQueryCache(bbd)
     b2d: Dict[DefId, Set[DefId]] = {}
     for b in bb:
         if b.defid is not None and b.expr is not None:
             if is_function_binding(b):
                 b2d[b.defid] = set()
             else:
-                b2d[b.defid] = _autodiff_primal_data_defids(b.expr, bbd)
+                b2d[b.defid] = _autodiff_primal_data_defids(b.expr, bbd, dep_cache)
 
     reach: Set[DefId] = set(td); wk = list(reach)
     while wk:
@@ -4183,7 +4772,27 @@ class AutodiffPass(BasePass):
             return program
 
         # 1. Collect targets
-        diff_targets, q_pairs = _collect_targets(program)
+        diff_targets: List[Tuple[DefId, str]] = []
+        q_pairs: List[Tuple[DefId, DefId]] = []
+        target_binding_defids: Set[DefId] = set()
+        target_statement_ids: Set[int] = set()
+        for b in bindings:
+            if b.expr is None:
+                continue
+            bt, bq = _collect_targets_expr(b.expr)
+            if bt or bq:
+                if b.defid is not None:
+                    target_binding_defids.add(b.defid)
+                diff_targets.extend(bt)
+                q_pairs.extend(bq)
+        for s in program.statements or []:
+            if isinstance(s, BindingIR) or not isinstance(s, ExpressionIR):
+                continue
+            st, sq = _collect_targets_expr(s)
+            if st or sq:
+                target_statement_ids.add(id(s))
+                diff_targets.extend(st)
+                q_pairs.extend(sq)
 
         # 2. Binding map
         B: Dict[DefId, BindingIR] = {}
@@ -4201,13 +4810,20 @@ class AutodiffPass(BasePass):
         # break runtime (seeds / tangents keyed by inner DefIds) even for unrelated calls like
         # let u = euler_decay(...) before any @-quotient.  Call-site autodiff still sees the body
         # via DiffVisitor / JacobianVisitor on FunctionCallIR.
+        dep_cache = _DependencyQueryCache(B)
         b2d: Dict[DefId, Set[DefId]] = {}
-        for b in bindings:
-            if b.defid is not None:
-                if is_function_binding(b):
-                    b2d[b.defid] = set()
-                else:
-                    b2d[b.defid] = _autodiff_primal_data_defids(b.expr, B)
+
+        def _binding_deps(did: DefId) -> Set[DefId]:
+            cached = b2d.get(did)
+            if cached is not None:
+                return cached
+            b = B.get(did)
+            if b is None or is_function_binding(b):
+                out: Set[DefId] = set()
+            else:
+                out = _autodiff_primal_data_defids(b.expr, B, dep_cache)
+            b2d[did] = out
+            return out
 
         # 4. Reachable set
         td: Set[DefId] = set()
@@ -4222,7 +4838,7 @@ class AutodiffPass(BasePass):
             reach.add(did)
             b = B.get(did)
             if b is None: continue
-            for dep in b2d.get(b.defid) or []:
+            for dep in _binding_deps(did):
                 if dep not in reach: wk.append(dep)
 
         # 5. Topo sort
@@ -4231,7 +4847,7 @@ class AutodiffPass(BasePass):
             if did in seen or did not in reach: return
             seen.add(did); b = B.get(did)
             if b is None: return
-            for dep in b2d.get(b.defid) or []: _vis(dep)
+            for dep in _binding_deps(did): _vis(dep)
             fwd.append(b)
         for did in td_top: _vis(did)
 
@@ -4304,7 +4920,15 @@ class AutodiffPass(BasePass):
         program.statements = nb + non_b
 
         # 10. Expand
-        _expand_program(program, D, _LOC0, R, init_B=B)
+        _expand_program(
+            program,
+            D,
+            _LOC0,
+            R,
+            init_B=B,
+            target_binding_defids=target_binding_defids,
+            target_statement_ids=target_statement_ids,
+        )
 
         # 11. Analysis
         dbl = [d2b[b.defid] for b in fwd if b.defid in d2b]

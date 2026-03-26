@@ -1,7 +1,7 @@
 
 # Einlang for Julia programmers
 
-You write **Julia** for numerical simulation (DifferentialEquations.jl, QuantEcon.jl, SciML) or for tensor-heavy ML. This page maps that mindset to Einlang: same “write the math” feel, **compile-time shape checking**, and no stringly-typed einsum. We focus on the **numerical** side — discrete time-stepping, recurrences, stencils — not the symbolic layer (ModelingToolkit, Symbolics.jl).
+You write **Julia** for numerical simulation (DifferentialEquations.jl, QuantEcon.jl, SciML) or for tensor-heavy ML. This page maps that mindset to Einlang: same “write the math” feel, **compile-time shape checking**, no stringly-typed einsum, and expression-level autodiff instead of wrapping a loss in a separate gradient API. We focus on the **numerical** side — discrete time-stepping, recurrences, stencils — not the symbolic layer (ModelingToolkit, Symbolics.jl).
 
 **Try first:** `python3 -m einlang examples/ode/ode_suite.ein` — same idea as [DiffEqDocs ODE example](https://docs.sciml.ai/DiffEqDocs/stable/getting_started/#ode_example): define the equation, step in time. Then see [Julia demos → Einlang](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md) for the full mapping.
 

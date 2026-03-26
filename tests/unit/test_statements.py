@@ -212,6 +212,47 @@ class TestStatements:
         for source in cases:
             self._test_and_execute(source, compiler, runtime)
 
+    def test_tuple_valued_rectangular_declaration(self, compiler, runtime):
+        """Tuple-valued Einstein/rectangular outputs should execute via NumPy backend."""
+        source = """
+        let pairs[i in 0..2] = (i, i + 1);
+        assert(pairs[0].0 == 0);
+        assert(pairs[0].1 == 1);
+        assert(pairs[1].0 == 1);
+        assert(pairs[1].1 == 2);
+        """
+        self._test_and_execute(source, compiler, runtime)
+
+    def test_tuple_valued_recurrence(self, compiler, runtime):
+        """Tuple-valued recurrence should preserve tuple cells across timesteps."""
+        source = """
+        let state[0] = (1, 2);
+        let state[t in 1..4] = {
+            let prev = state[t - 1];
+            (prev.0 + 1, prev.1 + 2)
+        };
+        assert(state[3].0 == 4);
+        assert(state[3].1 == 8);
+        """
+        self._test_and_execute(source, compiler, runtime)
+
+    def test_tuple_of_arrays_recurrence(self, compiler, runtime):
+        """Tuple recurrence should also work when tuple elements are tensor values."""
+        source = """
+        let state[0] = ([1.0, 2.0], [3.0, 4.0]);
+        let state[t in 1..3] = {
+            let prev = state[t - 1];
+            let left[i in 0..2] = prev.0[i] + 1.0;
+            let right[i in 0..2] = prev.1[i] + 2.0;
+            (left, right)
+        };
+        assert(state[2].0[0] == 3.0);
+        assert(state[2].0[1] == 4.0);
+        assert(state[2].1[0] == 7.0);
+        assert(state[2].1[1] == 8.0);
+        """
+        self._test_and_execute(source, compiler, runtime)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

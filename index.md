@@ -86,7 +86,7 @@ let u[t in 1..150, 0] = {
 
 ### Automatic differentiation
 
-Derivatives and gradients from the compiler — no hand-written gradient code. Use `@expr` for differentials and `@a / @b` for numeric derivatives:
+Expression-first autodiff from the compiler: differentiate the values already in your program, not a separate function object. Use `@expr` for differentials and `@a / @b` for numeric derivatives:
 
 ```rust
 let x = 1.0;

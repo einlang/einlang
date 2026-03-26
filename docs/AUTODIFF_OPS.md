@@ -55,7 +55,7 @@ C = A*B, with A (m x k), B (k x n), C (m x n).
 - partial C / partial A: the linear map that, given a (m x n) matrix, returns (that matrix) * B^T  (result shape m x k).
 - partial C / partial B: the linear map that, given a (m x n) matrix, returns A^T * (that matrix)  (result shape k x n).
 
-So for a given (m x n) matrix G: derivative of (scalar function of C) w.r.t. A has contribution shape (m x k) given by G * B^T; w.r.t. B by A^T * G.
+So for a given (m x n) matrix G: derivative of a scalar expression built from C w.r.t. A has contribution shape (m x k) given by G * B^T; w.r.t. B by A^T * G.
 
 Batched: same formula per batch element.
 

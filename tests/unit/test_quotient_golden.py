@@ -31,12 +31,19 @@ def _short_err(obj: object, limit: int = 600) -> str:
     return s
 
 
-def _compile_exec_outputs(source: str) -> Tuple[bool, bool, Dict[str, Any], str]:
-    compiler = CompilerDriver()
+@pytest.fixture(scope="module")
+def quotient_context(module_compiler, module_runtime) -> Tuple[CompilerDriver, EinlangRuntime]:
+    return module_compiler, module_runtime
+
+
+def _compile_exec_outputs(
+    source: str,
+    compiler: CompilerDriver,
+    runtime: EinlangRuntime,
+) -> Tuple[bool, bool, Dict[str, Any], str]:
     result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
     if not result.success:
         return False, False, {}, _short_err(result.get_errors())
-    runtime = EinlangRuntime(backend="numpy")
     exec_result = runtime.execute(result)
     if not exec_result.success:
         err = exec_result.error or exec_result.errors or "exec failed"
@@ -218,13 +225,18 @@ def _approx_equal(got: Any, expected: Any, abs_tol: float = 1e-5) -> bool:
     [(row[0], row[1]) for row in GOLDEN_PRINT_CASES],
     ids=[row[0] for row in GOLDEN_PRINT_CASES],
 )
-def test_quotient_vs_calculus(label: str, orig_source: str) -> None:
+def test_quotient_vs_calculus(
+    label: str,
+    orig_source: str,
+    quotient_context: Tuple[CompilerDriver, EinlangRuntime],
+) -> None:
+    compiler, runtime = quotient_context
     expected = _EXPECTED_DY_DX.get(label)
     if expected is None:
         pytest.fail("missing _EXPECTED_DY_DX for label %r" % label)
 
     qsrc = _build_quotient_source(label, orig_source)
-    c_ok, e_ok, outputs, err = _compile_exec_outputs(qsrc)
+    c_ok, e_ok, outputs, err = _compile_exec_outputs(qsrc, compiler, runtime)
     assert c_ok, "%s: compile failed: %s" % (label, err)
     assert e_ok, "%s: exec failed: %s" % (label, err)
     got = outputs.get("q")

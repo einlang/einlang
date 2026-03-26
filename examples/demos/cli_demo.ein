@@ -1,55 +1,28 @@
 // CLI Demo - Simple working Einlang example
-// Demonstrates basic language features that actually work
+// Demonstrates basic language features without extra console output.
 
-print("=== EINLANG CLI DEMO ===");
-print();
-
-// Basic arithmetic
 let x = 10;
 let y = 20;
 let sum = x + y;
 let product = x * y;
+assert(sum == 30, "basic arithmetic should work");
+assert(product == 200, "basic multiplication should work");
 
-print("Basic arithmetic:");
-print("x =", x);
-print("y =", y);
-print("x + y =", sum);
-print("x * y =", product);
-print();
-
-// Simple array operations
 let numbers = [1, 2, 3, 4, 5];
-print("Array:", numbers);
-print("First element:", numbers[0]);
-print("Last element:", numbers[4]);
-print();
+assert(numbers[0] == 1, "first array element should be preserved");
+assert(numbers[4] == 5, "last array element should be preserved");
 
-// Array comprehensions
 let squares = [i * i | i in 1..6];
-let evens = [x | x in numbers, x % 2 == 0];
+let evens = [n | n in numbers, n % 2 == 0];
+assert(squares == [1, 4, 9, 16, 25], "array comprehension should build squares");
+assert(evens == [2, 4], "filtering should keep only even values");
 
-print("Array comprehensions:");
-print("Squares [1²..5²]:", squares);
-print("Even numbers:", evens);
-print();
-
-// Conditional expressions
 let max_value = if x > y { x } else { y };
 let classification = if sum > 25 { "large" } else { "small" };
+assert(max_value == 20, "conditional max should choose the larger value");
+assert(classification == "large", "conditional expression should classify the sum");
 
-print("Conditionals:");
-print("max(x, y) =", max_value);
-print("sum classification:", classification);
-print();
-
-// Simple reductions
 let total = sum[i](numbers[i]);
 let maximum = max[i](numbers[i]);
-
-print("Reductions:");
-print("sum of numbers =", total);
-print("max of numbers =", maximum);
-print();
-
-print("=== CLI DEMO COMPLETE ===");
-print("✓ The Einlang CLI is working correctly!");
+assert(total == 15, "reduction should sum the array");
+assert(maximum == 5, "reduction should find the maximum");

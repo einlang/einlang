@@ -28,14 +28,5 @@ assert(last == 5, "Last element should be 5");
 assert(product == 84.0, "42 * 2 should be 84");
 assert(is_positive == true, "42 should be positive");
 assert(doubled_first == 2, "1 * 2 should be 2");
-
-print("=== Variables and Collections Sample ===");
-print("x =", x);
-print("y =", y);
-print("name =", name);
-print("numbers =", numbers);
-print("first =", first, ", last =", last);
-print("sum_xy =", sum_xy);
-print("product =", product);
-print("doubled_first =", doubled_first);
-print("✅ All basic operations verified!");
+assert(total_elements == 5, "Array should contain five elements");
+assert(sum_xy == 73.4, "sum_xy should reflect the simple arithmetic expression");

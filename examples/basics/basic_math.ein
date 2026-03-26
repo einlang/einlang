@@ -16,20 +16,12 @@ assert(product == 60.0, "15 * 4 should equal 60");
 assert(quotient == 3.75, "15 / 4 should equal 3.75");
 assert(remainder == 3, "15 % 4 should equal 3");
 
-print("=== Basic Math Sample ===");
-print("a =", a, ", b =", b);
-print("Sum:", sum);
-print("Difference:", difference);
-print("Product:", product);
-print("Quotient:", quotient);
-print("Remainder:", remainder);
-
 // Built-in autodiff: derivatives with no hand-written gradient code
 let d_product_da = @product / @a;
 let d_product_db = @product / @b;
 let d_quotient_da = @quotient / @a;
 let d_quotient_db = @quotient / @b;
-print("Autodiff: d(product)/da =", d_product_da, ", d(product)/db =", d_product_db);
-print("Autodiff: d(quotient)/da =", d_quotient_da, ", d(quotient)/db =", d_quotient_db);
-
-print("✅ All math operations verified!");
+assert(d_product_da == 4.0, "d(a*b)/da should equal b");
+assert(d_product_db == 15.0, "d(a*b)/db should equal a");
+assert(d_quotient_da == 0.25, "d(a/b)/da should equal 1/b");
+assert(d_quotient_db == -0.9375, "d(a/b)/db should equal -a/b^2");

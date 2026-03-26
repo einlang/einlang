@@ -299,12 +299,11 @@ pub fn max_roi_pool(X, rois, pooled_shape, spatial_scale) {
     // For now, handle single ROI case
     // TODO: Implement proper multi-ROI support
     if num_rois == 1 {
-        let roi = rois[0];
-        let batch_idx = (roi[0] as f32) as i32;
-        let x1 = ((roi[1] as f32) * (spatial_scale as f32)) as i32;
-        let y1 = ((roi[2] as f32) * (spatial_scale as f32)) as i32;
-        let x2 = ((roi[3] as f32) * (spatial_scale as f32)) as i32;
-        let y2 = ((roi[4] as f32) * (spatial_scale as f32)) as i32;
+        let batch_idx = (rois[0, 0] as f32) as i32;
+        let x1 = ((rois[0, 1] as f32) * (spatial_scale as f32)) as i32;
+        let y1 = ((rois[0, 2] as f32) * (spatial_scale as f32)) as i32;
+        let x2 = ((rois[0, 3] as f32) * (spatial_scale as f32)) as i32;
+        let y2 = ((rois[0, 4] as f32) * (spatial_scale as f32)) as i32;
         
         let roi_h = y2 - y1;
         let roi_w = x2 - x1;
@@ -320,12 +319,11 @@ pub fn max_roi_pool(X, rois, pooled_shape, spatial_scale) {
     } else {
         // Multiple ROIs: placeholder - return first ROI result repeated
         // TODO: Implement proper multi-ROI processing
-        let roi = rois[0];
-        let batch_idx = (roi[0] as f32) as i32;
-        let x1 = ((roi[1] as f32) * (spatial_scale as f32)) as i32;
-        let y1 = ((roi[2] as f32) * (spatial_scale as f32)) as i32;
-        let x2 = ((roi[3] as f32) * (spatial_scale as f32)) as i32;
-        let y2 = ((roi[4] as f32) * (spatial_scale as f32)) as i32;
+        let batch_idx = (rois[0, 0] as f32) as i32;
+        let x1 = ((rois[0, 1] as f32) * (spatial_scale as f32)) as i32;
+        let y1 = ((rois[0, 2] as f32) * (spatial_scale as f32)) as i32;
+        let x2 = ((rois[0, 3] as f32) * (spatial_scale as f32)) as i32;
+        let y2 = ((rois[0, 4] as f32) * (spatial_scale as f32)) as i32;
         
         let roi_h = y2 - y1;
         let roi_w = x2 - x1;
@@ -340,5 +338,4 @@ pub fn max_roi_pool(X, rois, pooled_shape, spatial_scale) {
         output
     }
 }
-
 

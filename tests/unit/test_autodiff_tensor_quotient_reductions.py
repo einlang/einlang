@@ -15,7 +15,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import tests.unit.test_autodiff_pass as autodiff_pass_helpers
 from tests.unit.test_autodiff_pass import _REPO_ROOT, _assert_allclose, _compile_run
+
+
+@pytest.fixture(autouse=True)
+def _shared_autodiff_tensor_context(module_compiler, module_runtime) -> None:
+    autodiff_pass_helpers._COMPILER = module_compiler
+    autodiff_pass_helpers._RUNTIME = module_runtime
 
 
 def _assert_quotient_not_scalar_rank0(arr: np.ndarray, binding: str, primal_desc: str) -> None:

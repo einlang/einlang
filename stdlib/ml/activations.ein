@@ -6,7 +6,7 @@ pub fn relu(x) {
     // ReLU(x) = max(0, x)
     // Works on scalars and tensors (auto-broadcast)
     // Element-wise: treat as scalar, auto-broadcast handles it
-    if x > 0.0 { x } else { 0.0 }
+    if x > 0 { x } else { 0 }
 }
 
 
@@ -124,8 +124,8 @@ pub fn relu6(x) {
     // ReLU6: ReLU capped at 6 (used in MobileNets)
     // ReLU6(x) = min(max(0, x), 6)
     // Works on scalars and tensors (operators work directly on both)
-    if x <= 0.0 {
-        0.0
+    if x <= 0 {
+        0
     } else if x >= 6.0 {
         6.0
     } else {
@@ -137,14 +137,14 @@ pub fn relu6(x) {
 pub fn prelu(x, alpha) {
     // Parametric ReLU: x if x > 0 else alpha * x
     // Works on scalars and tensors (operators work directly on both)
-    if x > 0.0 { x } else { alpha * x }
+    if x > 0 { x } else { alpha * x }
 }
 
 
 pub fn elu_alpha(x, alpha) {
     // ELU with custom alpha: x if x > 0 else alpha * (exp(x) - 1)
     // Works on scalars and tensors (operators work directly on both)
-    if x > 0.0 { x } else { alpha * (exp(x) - 1.0) }
+    if x > 0 { x } else { alpha * (exp(x) - 1.0) }
 }
 
 
@@ -152,7 +152,7 @@ pub fn celu(x, alpha) {
     // CELU (Continuously Differentiable ELU)
     // celu(x) = max(0, x) + min(0, alpha * (exp(x/alpha) - 1))
     // Works on scalars and tensors (operators work directly on both)
-    if x > 0.0 {
+    if x > 0 {
         x
     } else {
         alpha * (exp(x / alpha) - 1.0)
@@ -189,7 +189,7 @@ pub fn softshrink(x, lambda) {
     } else if x < -lambda {
         x + lambda
     } else {
-        0.0
+        0
     }
 }
 
@@ -197,8 +197,8 @@ pub fn softshrink(x, lambda) {
 pub fn hardshrink(x, lambda) {
     // Hardshrink: x if |x| > lambda else 0
     // Works on scalars and tensors (operators work directly on both)
-    let abs_x = if x < 0.0 { -x } else { x };
-    if abs_x > lambda { x } else { 0.0 }
+    let abs_x = if x < 0 { -x } else { x };
+    if abs_x > lambda { x } else { 0 }
 }
 
 
@@ -213,7 +213,9 @@ pub fn threshold(x, threshold_val, value) {
 pub fn hardswish(x) {
     // Hard Swish: x * relu6(x + 3) / 6
     // Used in MobileNetV3
-    x * relu6(x + 3.0) / 6.0
+    let shifted = x + 3.0;
+    let clamped = if shifted <= 0 { 0.0 } else if shifted >= 6.0 { 6.0 } else { shifted };
+    x * clamped / 6.0
 }
 
 
@@ -221,7 +223,7 @@ pub fn thresholded_relu(x, alpha) {
     // Thresholded ReLU: x if x > alpha else 0
     // Used in some neural architectures with custom thresholds
     // Element-wise: treat as scalar, auto-broadcast handles it
-    if x > alpha { x } else { 0.0 }
+    if x > alpha { x } else { 0 }
 }
 
 
@@ -230,7 +232,7 @@ pub fn hardsigmoid(x) {
     // Piecewise linear approximation of sigmoid
     // Works on scalars and tensors (operators work directly on both)
     let shifted = x + 3.0;
-    let clamped = if shifted < 0.0 { 0.0 } else if shifted > 6.0 { 6.0 } else { shifted };
+    let clamped = if shifted < 0 { 0.0 } else if shifted > 6.0 { 6.0 } else { shifted };
     clamped / 6.0
 }
 
@@ -242,6 +244,3 @@ pub fn mish(x) {
     let sp = softplus(x);
     x * tanh(sp)
 }
-
-
-

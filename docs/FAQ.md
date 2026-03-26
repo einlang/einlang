@@ -32,7 +32,7 @@ Full install and CLI options: [Install & run](https://github.com/einlang/einlang
 
 ## How do I get derivatives or gradients?
 
-Einlang has **built-in automatic differentiation**. Use `@expr` for the differential of an expression and `@a / @b` for the derivative (e.g. `let dz_dx = @z / @x;`). The compiler derives gradients via the chain rule — no hand-written gradient code. See [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [reference: Automatic differentiation](https://github.com/einlang/einlang/blob/main/docs/reference.md#automatic-differentiation), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), and run `python3 -m einlang examples/autodiff_small.ein` or `examples/autodiff_matmul.ein`.
+Einlang has **built-in automatic differentiation**. Differentiate expressions in place: use `@expr` for the differential of an expression and `@a / @b` for the derivative (e.g. `let dz_dx = @z / @x;`, `let dloss_dw = @loss / @w;`, `let dC_dA = @C / @A;`). The compiler derives gradients via the chain rule — no hand-written gradient code and no separate `grad(f)` wrapper. See [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [reference: Automatic differentiation](https://github.com/einlang/einlang/blob/main/docs/reference.md#automatic-differentiation), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), and run `python3 -m einlang examples/autodiff_small.ein` or `examples/autodiff_matmul.ein`.
 
 ---
 
