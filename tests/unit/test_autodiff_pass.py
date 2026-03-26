@@ -576,6 +576,21 @@ let dy_dx = @y / @x;
         except ImportError:
             pass
 
+    def test_max_pool_quotient_tie_uses_first_argmax(self):
+        """On ties, max_pool quotient follows the first argmax position."""
+        source = """
+use std::ml;
+let x = [[[[4.0, 4.0], [1.0, 0.0]]]];
+let y = std::ml::max_pool(x, [2, 2], [2, 2], [0, 0]);
+let dy_dx = @y / @x;
+"""
+        _, out = _compile_run(source)
+        dy_dx = out.get("dy_dx")
+        assert dy_dx is not None
+        arr = np.asarray(dy_dx)
+        ref = np.array([[[[1.0, 0.0], [0.0, 0.0]]]], dtype=np.float64)
+        _assert_allclose(arr, ref, msg="dy_dx max_pool tie first argmax")
+
     def test_einstein_attention_matmul_chain_no_softmax(self):
         """Single-head attention matmul chain (no softmax): scores = Q@K^T, out = scores@V; @out/@Q.
         MHA uses this plus softmax; the matmul part is differentiable. Cotangent ∂out/∂Q has the same shape as Q (Julia-style)."""

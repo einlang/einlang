@@ -1091,11 +1091,21 @@ class ExpressionVisitorMixin:
                 idx = indices[0] if indices else 0
                 return array[int(idx)]
             if isinstance(array, (list, tuple)):
-                return np.asarray(array)[tuple(indices)] if indices else np.asarray(array)
+                if not indices:
+                    # Preserve ragged lists as Python sequences; only coerce when NumPy can represent them.
+                    try:
+                        return np.asarray(array)
+                    except ValueError:
+                        return array
+                current = array
+                for raw_idx in indices:
+                    idx = int(raw_idx) if isinstance(raw_idx, (np.integer, int, float)) else raw_idx
+                    current = current[idx]
+                return current
             # Forward AD: seeded derivative may be scalar 1 (broadcast over indices)
             if np.isscalar(array) or (isinstance(array, np.ndarray) and array.ndim == 0):
                 return array
-        except (IndexError, KeyError) as e:
+        except (IndexError, KeyError, TypeError) as e:
             self._raise_here(e, expr)
         raise RuntimeError(f"rectangular_access: expected ndarray, list, or str, got {type(array).__name__}")
 
