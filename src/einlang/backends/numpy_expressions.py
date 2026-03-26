@@ -942,7 +942,9 @@ class ExpressionVisitorMixin:
             if size > 1_000_000:
                 raise RuntimeError(f"Loop range too large: size={size}")
             return val
-        if isinstance(val, (list, tuple)):
+        if isinstance(val, tuple):
+            return tuple(val)
+        if isinstance(val, list):
             # Rectangular literals are serialized as LiteralIR tuples/lists, but the
             # NumPy backend expects ndarray semantics for multi-index access and
             # elementwise arithmetic inside Einstein clauses.

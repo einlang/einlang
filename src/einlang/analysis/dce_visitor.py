@@ -83,6 +83,8 @@ class DCEVisitor(ScopedIRVisitor[Any]):
             lv = self._try_eval(node.left)
             rv = self._try_eval(node.right)
             if lv is not None and rv is not None:
+                if isinstance(lv, (list, tuple, dict, set, range)) or isinstance(rv, (list, tuple, dict, set, range)):
+                    return None
                 op = node.operator
                 try:
                     if op == BinaryOp.ADD: return lv + rv

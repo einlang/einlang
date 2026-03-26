@@ -1000,9 +1000,19 @@ class IRDeserializer:
         _, opts = _plist(tail[skip:])
         return self._parse_shape_info_raw(opts.get(":shape_info"))
 
+    def _coerce_literal_value_by_type(self, value: Any, ty: Any) -> Any:
+        from ..shared.types import TupleType
+
+        if isinstance(ty, TupleType) and isinstance(value, list):
+            coerced = []
+            for i, item in enumerate(value):
+                item_ty = ty.element_types[i] if i < len(ty.element_types) else None
+                coerced.append(self._coerce_literal_value_by_type(item, item_ty))
+            return tuple(coerced)
+        return value
+
     def _deserialize_literal(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LiteralIR
-        from ..shared.types import PrimitiveType
         _, opts = _plist(tail[2:]) if len(tail) > 2 else ([], {})
         loc = self._loc_from_opts(opts)
         val = tail[0]
@@ -1016,6 +1026,7 @@ class IRDeserializer:
         if isinstance(type_sym, list):
             type_sym = _sym_val(type_sym[1]) if len(type_sym) > 1 else "i32"
         ty = self._deserialize_type(opts.get(":inferred_type"))
+        val = self._coerce_literal_value_by_type(val, ty)
         shape_info = self._opts_shape_info(tail, 2)
         return LiteralIR(value=val, location=loc, type_info=ty, shape_info=shape_info)
 

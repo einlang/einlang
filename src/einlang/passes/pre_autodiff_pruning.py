@@ -22,6 +22,7 @@ from ..ir.nodes import (
     BuiltinCallIR,
     BindingIR,
     DiffRuleIR,
+    DifferentialIR,
     EinsteinClauseIR,
     ExpressionIR,
     IdentifierIR,
@@ -66,6 +67,10 @@ class PostAutodiffPruningPass(PreAutodiffPruningPass):
 class _IfBranchPruner:
     def __init__(self) -> None:
         self.pruned_if_count = 0
+
+    @staticmethod
+    def _is_container_constant(value: Any) -> bool:
+        return isinstance(value, (list, tuple, dict, set, range))
 
     def rewrite_program(self, program: ProgramIR) -> None:
         for stmt in program.statements or []:
@@ -120,6 +125,8 @@ class _IfBranchPruner:
         env = env or {}
         if isinstance(expr, BlockExpressionIR):
             return self._rewrite_block(expr, env)
+        if isinstance(expr, DifferentialIR):
+            return expr
         self._rewrite_slots(expr, env)
         const_value = self._eval_constant(expr, env)
         if const_value is not None:
@@ -135,14 +142,15 @@ class _IfBranchPruner:
         return expr
 
     def _rewrite_block(self, expr: BlockExpressionIR, env: dict[Any, Any]) -> ExpressionIR:
-        local_env = dict(env)
+        preserve_diff_block = self._contains_differential(expr)
+        local_env = {} if preserve_diff_block else dict(env)
         new_statements = []
         for stmt in expr.statements or []:
             if isinstance(stmt, BindingIR):
                 if stmt.expr is not None:
                     stmt.expr = self._rewrite_expr(stmt.expr, local_env)
                     const_value = self._eval_constant(stmt.expr, local_env)
-                    if const_value is not None:
+                    if const_value is not None and not preserve_diff_block:
                         self._remember_binding_const(stmt, const_value, local_env)
                 new_statements.append(stmt)
             else:
@@ -152,6 +160,27 @@ class _IfBranchPruner:
         if expr.final_expr is not None:
             expr.final_expr = self._rewrite_expr(expr.final_expr, local_env)
         return self._simplify_block(expr)
+
+    def _contains_differential(self, node: Any) -> bool:
+        if node is None:
+            return False
+        if isinstance(node, DifferentialIR):
+            return True
+        if isinstance(node, (str, int, float, bool)):
+            return False
+        if isinstance(node, (list, tuple)):
+            return any(self._contains_differential(item) for item in node)
+        if isinstance(node, dict):
+            return any(self._contains_differential(item) for item in node.values())
+        if isinstance(node, BindingIR):
+            return self._contains_differential(node.expr)
+        if isinstance(node, IRNode):
+            for slot in _iter_slots(type(node)):
+                if slot in {"location", "type_info", "shape_info", "name", "member", "defid"}:
+                    continue
+                if self._contains_differential(getattr(node, slot, None)):
+                    return True
+        return False
 
     def _rewrite_slots(self, node: Any, env: dict[Any, Any] | None = None) -> None:
         env = env or {}
@@ -226,6 +255,8 @@ class _IfBranchPruner:
             lhs = self._eval_constant(expr.left, env)
             rhs = self._eval_constant(expr.right, env)
             if lhs is None or rhs is None:
+                return None
+            if self._is_container_constant(lhs) or self._is_container_constant(rhs):
                 return None
             try:
                 if expr.operator == BinaryOp.EQ:

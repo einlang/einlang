@@ -3706,7 +3706,9 @@ class _ExpansionVisitor(_Rewriter):
                     den_ti = _ti(den_b)
                     if den_ti is None and den_b is not None:
                         den_ti = _ti(getattr(den_b, "expr", None))
-                ti = den_ti if den_ti is not None else _ti(n)
+                ti = _ti(der)
+                if ti is None:
+                    ti = den_ti if den_ti is not None else _ti(n)
                 if ti is not None:
                     if isinstance(der, ExpressionIR):
                         der.type_info = ti
@@ -4099,8 +4101,8 @@ def _ensure_block_d(block: BlockExpressionIR, SB: Dict[DefId, Any], SE: Dict[Def
     for b in fwd:
         if b.defid is None or b.defid in D: continue
         bl = b.location or _LOC0
-        if upq and b.defid in lvs: drhs: ExpressionIR = _z(bl)
-        elif b.defid in sv and sv[b.defid] == 1: drhs = _fl(1, bl)
+        if b.defid in sv and sv[b.defid] == 1: drhs = _fl(1, bl)
+        elif upq and b.defid in lvs: drhs = _z(bl)
         else:
             for dep in b2d.get(b.defid) or []:
                 if dep not in dre: dre[dep] = _z(bl)
