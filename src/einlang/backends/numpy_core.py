@@ -474,20 +474,12 @@ class CoreExecutionMixin:
                             for leaf in differential_leaves:
                                 d_defid = d_map.get(leaf)
                                 if d_defid is not None:
-                                    # Seed leaf differentials with shape-correct arrays when possible so
-                                    # autodiff-expanded reductions stay vectorizable. Fall back to scalar
-                                    # seeds for scalar leaves.
-                                    primal_val = self.env.get_value(leaf)
+                                    # Quotient goldens use scalar cotangent seeding (directional derivative
+                                    # with unit seed on denominator leaf); keep this path scalar to avoid
+                                    # materializing full Jacobians in deferred quotient execution.
                                     on = (leaf == den_defid)
-                                    if isinstance(primal_val, np.ndarray):
-                                        seed = (
-                                            np.ones_like(primal_val, dtype=np.float32)
-                                            if on
-                                            else np.zeros_like(primal_val, dtype=np.float32)
-                                        )
-                                    else:
-                                        # Use float so downstream division is true_divide, not integer division.
-                                        seed = 1.0 if on else 0.0
+                                    # Use float so downstream division is true_divide, not integer division.
+                                    seed = 1.0 if on else 0.0
                                     self.env.set_value(d_defid, seed, name=None)
                             for stmt in (diff_ir if isinstance(diff_ir, list) else [diff_ir]):
                                 if isinstance(stmt, BindingIR) and stmt.defid in leaf_d_defids:
@@ -530,11 +522,7 @@ class CoreExecutionMixin:
                         for leaf in differential_leaves:
                             d_defid = d_map.get(leaf)
                             if d_defid is not None:
-                                primal_val = self.env.get_value(leaf)
-                                if isinstance(primal_val, np.ndarray):
-                                    seed = np.ones_like(primal_val, dtype=np.float32)
-                                else:
-                                    seed = 1.0
+                                seed = 1.0
                                 self.env.set_value(d_defid, seed, name=None)
                         for stmt in (diff_ir if isinstance(diff_ir, list) else [diff_ir]):
                             stmt.accept(self)

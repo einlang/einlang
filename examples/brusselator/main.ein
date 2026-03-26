@@ -44,11 +44,12 @@ let state[t in 1..12, 1, i in 1..20, j in 1..20] = {
   V_ + dt * (A * U - U * U * V_ + alpha * lap_V)
 };
 
-// Autodiff: sensitivity of one U-update w.r.t. dt (no hand-written gradient)
+// Autodiff sensitivity check: one U-update w.r.t. dt (no hand-written gradient)
 let dt_sens = 0.2;
 let U_s = 1.0;
 let V_s = 0.5;
 let lap_U_s = 0.0;
 let U_next = U_s + dt_sens * (B + U_s * U_s * V_s - (A + 1.0) * U_s + alpha * lap_U_s);
 let dU_next_d_dt = @U_next / @dt_sens;
+assert(dU_next_d_dt == (B + U_s * U_s * V_s - (A + 1.0) * U_s + alpha * lap_U_s), "dU_next/ddt should equal the update term");
 print(dU_next_d_dt);

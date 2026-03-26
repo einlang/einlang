@@ -175,9 +175,10 @@ class CompilerDriver:
         5. RangeAnalysisPass
         6. UnifiedShapeAnalysisPass
         7. TypeAnalysisPass
-        8. CastValidationPass
-        9. PipelineTypeValidationPass
-        10. ExhaustivenessPass
+        8. PreAutodiffPruningPass
+        9. CastValidationPass
+        10. PipelineTypeValidationPass
+        11. ExhaustivenessPass
         
         Alignment:
         - NameResolutionPass runs on AST before lowering (manual call)
@@ -204,9 +205,17 @@ class CompilerDriver:
         # This allows type inference to use shape information
         self.pass_manager.register_pass(TypeInferencePass)
 
-        # 5a. Autodiff (high-level EinsteinIR only; before lowering)
+        # 5a. Pre-autodiff pruning (shape/rank branch pruning only)
+        from ..passes.pre_autodiff_pruning import PreAutodiffPruningPass
+        self.pass_manager.register_pass(PreAutodiffPruningPass)
+
+        # 5b. Autodiff (high-level EinsteinIR only; before lowering)
         from ..passes.autodiff import AutodiffPass
         self.pass_manager.register_pass(AutodiffPass)
+
+        # 5c. Post-autodiff pruning (shape/rank branch pruning only)
+        from ..passes.pre_autodiff_pruning import PostAutodiffPruningPass
+        self.pass_manager.register_pass(PostAutodiffPruningPass)
 
         # 6. Einstein lowering (lower Einstein declarations to loops)
         from ..passes.einstein_lowering import EinsteinLoweringPass
@@ -448,4 +457,3 @@ class CompilerDriver:
             return CompilationResult(
                 success=False, ir=ir, tcx=tcx, entry_source_file=source_file
             )
-

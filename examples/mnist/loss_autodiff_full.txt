@@ -1,0 +1,158 @@
+let @Y = 0.0;
+let @images = 0.0;
+let @fc_w_init = 0.0;
+let @fc_b_init = 0.0;
+let @F[n, k] = {
+    let input[n in 0..raw.shape[0], c in 0..raw.shape[1], h in 0..raw.shape[2], w in 0..raw.shape[3]]: [f32; 10, 256] = 1.0 - images[n][n, c, h, w];
+    let c1: [f32; 10, 256] = conv(input, conv1_w, conv1_b, [1, 1], [2, 2, 2, 2], [1, 1], 1);
+    let p1: [f32; 10, 256] = max_pool(relu(c1), [2, 2], [2, 2], [0, 0]);
+    let c2: [f32; 10, 256] = conv(p1, conv2_w, conv2_b, [1, 1], [2, 2, 2, 2], [1, 1], 1);
+    let p2: [f32; 10, 256] = max_pool(relu(c2), [3, 3], [3, 3], [0, 0]);
+    let flat[k in 0..256]: [f32; 10, 256] = p2[0, k / 16, k / 4 % 4, k % 4];
+    let _@input[n in 0..raw.shape[0], c in 0..raw.shape[1], h in 0..raw.shape[2], w in 0..raw.shape[3]]: [f32; 10, 256] = 0.0 - @images[n][n, c, h, w];
+    let _@c1: [f32; 10, 256] = {
+        let rank: [f32; 10, 256] = len([1, 1]);
+        if rank == 1 { {
+            let c_in: [f32; 10, 256] = len(input[0]) as i32;
+            let w_in: [f32; 10, 256] = len(input[0][0]) as i32;
+            let kernel_w: [f32; 10, 256] = len(conv1_w[0][0]);
+            let c_out: [f32; 10, 256] = len(conv1_w) as i32;
+            let w_p: [f32; 10, 256] = w_in + [2, 2, 2, 2][0] + [2, 2, 2, 2][1];
+            let cpg: [f32; 10, 256] = c_in / 1;
+            let fpg: [f32; 10, 256] = c_out / 1;
+            let Xp[batch.0 in 0..X.shape[0], batch.1 in 0..X.shape[1], c in 0..X.shape[2], i in 0..w_p]: [f32; 10, 256] = if i >= [2, 2, 2, 2][0] && i < w_in + [2, 2, 2, 2][0] { input[batch.0, batch.1, c, i - [2, 2, 2, 2][0]] } else { 0.0 };
+            let conv_sum[batch.0 in 0..Xp.shape[0], batch.1 in 0..Xp.shape[1], co in 0..W.shape[0], i in 0..(Xp.shape[3] - (kernel_w - 1) * dilation + stride - 1) / stride]: [f32; 10, 256] = sum[cl, m](if i * [1, 1][0] + m * [1, 1][0] >= 0 && i * [1, 1][0] + m * [1, 1][0] < w_p { Xp[batch.0, batch.1, co / fpg * cpg + cl, i * [1, 1][0] + m * [1, 1][0]] * conv1_w[co, cl, m] } else { 0.0 });
+            let output[batch.0 in 0..conv_sum.shape[0], batch.1 in 0..conv_sum.shape[1], co in 0..B.shape[0], i in 0..conv_sum.shape[3]]: [f32; 10, 256] = conv_sum[batch.0, batch.1, co, i] + conv1_b[co];
+            let _@Xp[batch.0 in 0..X.shape[0], batch.1 in 0..X.shape[1], c in 0..X.shape[2], i in 0..w_p]: [f32; 10, 256] = if i >= [2, 2, 2, 2][0] && i < w_in + [2, 2, 2, 2][0] { 0.0 } else { 0.0 };
+            let _@conv_sum[batch.0 in 0..Xp.shape[0], batch.1 in 0..Xp.shape[1], co in 0..W.shape[0], i in 0..(Xp.shape[3] - (kernel_w - 1) * dilation + stride - 1) / stride]: [f32; 10, 256] = sum[cl, m](if i * [1, 1][0] + m * [1, 1][0] >= 0 && i * [1, 1][0] + m * [1, 1][0] < w_p { conv1_w[co, cl, m] * _@Xp[batch.0, batch.1, co / fpg * cpg + cl, i * [1, 1][0] + m * [1, 1][0]] } else { 0.0 });
+            let _@output[batch.0 in 0..conv_sum.shape[0], batch.1 in 0..conv_sum.shape[1], co in 0..B.shape[0], i in 0..conv_sum.shape[3]]: [f32; 10, 256] = _@conv_sum[batch.0, batch.1, co, i];
+            _@output
+        } } else if rank == 2 { {
+            let c_in: [f32; 10, 256] = len(input[0]) as i32;
+            let h_in: [f32; 10, 256] = len(input[0][0]) as i32;
+            let w_in: [f32; 10, 256] = len(input[0][0][0]) as i32;
+            let kernel_h: [f32; 10, 256] = len(conv1_w[0][0]);
+            let kernel_w: [f32; 10, 256] = len(conv1_w[0][0][0]);
+            let c_out: [f32; 10, 256] = len(conv1_w) as i32;
+            let h_p: [f32; 10, 256] = h_in + [2, 2, 2, 2][0] + [2, 2, 2, 2][2];
+            let w_p: [f32; 10, 256] = w_in + [2, 2, 2, 2][1] + [2, 2, 2, 2][3];
+            let cpg: [f32; 10, 256] = c_in / 1;
+            let fpg: [f32; 10, 256] = c_out / 1;
+            let Xp[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in pad_w0..pad_w0 + w_in]: [f32; 10, 256] = { [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in pad_w0..pad_w0 + w_in] = input[batch.0, c, i - [2, 2, 2, 2][0], j - [2, 2, 2, 2][1]]; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in 0..pad_h0, j in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0 + h_in..h_p, j in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in 0..pad_w0] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in pad_w0 + w_in..w_p] = 0.0 };
+            let conv_sum[batch.0 in 0..Xp.shape[0], co in 0..W.shape[0], i in 0..(Xp.shape[2] - (kernel_h - 1) * dilation_h + stride_h - 1) / stride_h, j in 0..(Xp.shape[3] - (kernel_w - 1) * dilation_w + stride_w - 1) / stride_w]: [f32; 10, 256] = sum[cl, m, n](if i * [1, 1][0] + m * [1, 1][0] >= 0 && i * [1, 1][0] + m * [1, 1][0] < h_p && j * [1, 1][1] + n * [1, 1][1] >= 0 && j * [1, 1][1] + n * [1, 1][1] < w_p { Xp[batch.0, co / fpg * cpg + cl, i * [1, 1][0] + m * [1, 1][0], j * [1, 1][1] + n * [1, 1][1]] * conv1_w[co, cl, m, n] } else { 0.0 });
+            let output[batch.0 in 0..conv_sum.shape[0], co in 0..B.shape[0], i in 0..conv_sum.shape[2], j in 0..conv_sum.shape[3]]: [f32; 10, 256] = conv_sum[batch.0, co, i, j] + conv1_b[co];
+            let _@Xp[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in pad_w0..pad_w0 + w_in]: [f32; 10, 256] = { [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in pad_w0..pad_w0 + w_in] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in 0..pad_h0, j in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0 + h_in..h_p, j in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in 0..pad_w0] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in pad_w0 + w_in..w_p] = 0.0 };
+            let _@conv_sum[batch.0 in 0..Xp.shape[0], co in 0..W.shape[0], i in 0..(Xp.shape[2] - (kernel_h - 1) * dilation_h + stride_h - 1) / stride_h, j in 0..(Xp.shape[3] - (kernel_w - 1) * dilation_w + stride_w - 1) / stride_w]: [f32; 10, 256] = sum[cl, m, n](if i * [1, 1][0] + m * [1, 1][0] >= 0 && i * [1, 1][0] + m * [1, 1][0] < h_p && j * [1, 1][1] + n * [1, 1][1] >= 0 && j * [1, 1][1] + n * [1, 1][1] < w_p { conv1_w[co, cl, m, n] * _@Xp[batch.0, co / fpg * cpg + cl, i * [1, 1][0] + m * [1, 1][0], j * [1, 1][1] + n * [1, 1][1]] } else { 0.0 });
+            let _@output[batch.0 in 0..conv_sum.shape[0], co in 0..B.shape[0], i in 0..conv_sum.shape[2], j in 0..conv_sum.shape[3]]: [f32; 10, 256] = _@conv_sum[batch.0, co, i, j];
+            _@output
+        } } else if rank == 3 { {
+            let c_in: [f32; 10, 256] = len(input[0]) as i32;
+            let d_in: [f32; 10, 256] = len(input[0][0]) as i32;
+            let h_in: [f32; 10, 256] = len(input[0][0][0]) as i32;
+            let w_in: [f32; 10, 256] = len(input[0][0][0][0]) as i32;
+            let kernel_d: [f32; 10, 256] = len(conv1_w[0][0]);
+            let kernel_h: [f32; 10, 256] = len(conv1_w[0][0][0]);
+            let kernel_w: [f32; 10, 256] = len(conv1_w[0][0][0][0]);
+            let c_out: [f32; 10, 256] = len(conv1_w) as i32;
+            let d_p: [f32; 10, 256] = d_in + [2, 2, 2, 2][0] + [2, 2, 2, 2][3];
+            let h_p: [f32; 10, 256] = h_in + [2, 2, 2, 2][1] + [2, 2, 2, 2][4];
+            let w_p: [f32; 10, 256] = w_in + [2, 2, 2, 2][2] + [2, 2, 2, 2][5];
+            let cpg: [f32; 10, 256] = c_in / 1;
+            let fpg: [f32; 10, 256] = c_out / 1;
+            let Xp[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in pad_w0..pad_w0 + w_in]: [f32; 10, 256] = { [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in pad_w0..pad_w0 + w_in] = input[batch.0, c, i - [2, 2, 2, 2][0], j - [2, 2, 2, 2][1], k - [2, 2, 2, 2][2]]; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in 0..pad_d0, j in 0..h_p, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0 + d_in..d_p, j in 0..h_p, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in 0..pad_h0, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0 + h_in..h_p, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in 0..pad_w0] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in pad_w0 + w_in..w_p] = 0.0 };
+            let conv_sum[batch.0 in 0..Xp.shape[0], co in 0..W.shape[0], i in 0..(Xp.shape[2] - (kernel_d - 1) * dilation_d + stride_d - 1) / stride_d, j in 0..(Xp.shape[3] - (kernel_h - 1) * dilation_h + stride_h - 1) / stride_h, k in 0..(Xp.shape[4] - (kernel_w - 1) * dilation_w + stride_w - 1) / stride_w]: [f32; 10, 256] = sum[cl, m, n, p](if i * [1, 1][0] + m * [1, 1][0] >= 0 && i * [1, 1][0] + m * [1, 1][0] < d_p && j * [1, 1][1] + n * [1, 1][1] >= 0 && j * [1, 1][1] + n * [1, 1][1] < h_p && k * [1, 1][2] + p * [1, 1][2] >= 0 && k * [1, 1][2] + p * [1, 1][2] < w_p { Xp[batch.0, co / fpg * cpg + cl, i * [1, 1][0] + m * [1, 1][0], j * [1, 1][1] + n * [1, 1][1], k * [1, 1][2] + p * [1, 1][2]] * conv1_w[co, cl, m, n, p] } else { 0.0 });
+            let output[batch.0 in 0..conv_sum.shape[0], co in 0..B.shape[0], i in 0..conv_sum.shape[2], j in 0..conv_sum.shape[3], k in 0..conv_sum.shape[4]]: [f32; 10, 256] = conv_sum[batch.0, co, i, j, k] + conv1_b[co];
+            let _@Xp[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in pad_w0..pad_w0 + w_in]: [f32; 10, 256] = { [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in pad_w0..pad_w0 + w_in] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in 0..pad_d0, j in 0..h_p, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0 + d_in..d_p, j in 0..h_p, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in 0..pad_h0, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0 + h_in..h_p, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in 0..pad_w0] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in pad_w0 + w_in..w_p] = 0.0 };
+            let _@conv_sum[batch.0 in 0..Xp.shape[0], co in 0..W.shape[0], i in 0..(Xp.shape[2] - (kernel_d - 1) * dilation_d + stride_d - 1) / stride_d, j in 0..(Xp.shape[3] - (kernel_h - 1) * dilation_h + stride_h - 1) / stride_h, k in 0..(Xp.shape[4] - (kernel_w - 1) * dilation_w + stride_w - 1) / stride_w]: [f32; 10, 256] = sum[cl, m, n, p](if i * [1, 1][0] + m * [1, 1][0] >= 0 && i * [1, 1][0] + m * [1, 1][0] < d_p && j * [1, 1][1] + n * [1, 1][1] >= 0 && j * [1, 1][1] + n * [1, 1][1] < h_p && k * [1, 1][2] + p * [1, 1][2] >= 0 && k * [1, 1][2] + p * [1, 1][2] < w_p { conv1_w[co, cl, m, n, p] * _@Xp[batch.0, co / fpg * cpg + cl, i * [1, 1][0] + m * [1, 1][0], j * [1, 1][1] + n * [1, 1][1], k * [1, 1][2] + p * [1, 1][2]] } else { 0.0 });
+            let _@output[batch.0 in 0..conv_sum.shape[0], co in 0..B.shape[0], i in 0..conv_sum.shape[2], j in 0..conv_sum.shape[3], k in 0..conv_sum.shape[4]]: [f32; 10, 256] = _@conv_sum[batch.0, co, i, j, k];
+            _@output
+        } } else { 0.0 }
+    };
+    let _@p1: [f32; 10, 256] = {
+        let rank: [f32; 10, 256] = len([2, 2]);
+        if rank == 1 { {
+            let output[batch.0 in 0..X.shape[0], batch.1 in 0..X.shape[1], c in 0..X.shape[2], i in (pad + stride - 1) / stride..(X.shape[3] - (kernel_w - 1) + pad + stride - 1) / stride]: [f32; 10, 256] = max[m](relu(c1)[batch.0, batch.1, c, i * [2, 2][0] - [0, 0][0] + m]);
+            0.0
+        } } else if rank == 2 { {
+            let output[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in (pad_h + stride_h - 1) / stride_h..(X.shape[2] - (kernel_h - 1) + pad_h + stride_h - 1) / stride_h, j in (pad_w + stride_w - 1) / stride_w..(X.shape[3] - (kernel_w - 1) + pad_w + stride_w - 1) / stride_w]: [f32; 10, 256] = max[m, n](relu(c1)[batch.0, c, i * [2, 2][0] - [0, 0][0] + m, j * [2, 2][1] - [0, 0][1] + n]);
+            0.0
+        } } else if rank == 3 { {
+            let output[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in (pad_d + stride_d - 1) / stride_d..(X.shape[2] - (kernel_d - 1) + pad_d + stride_d - 1) / stride_d, j in (pad_h + stride_h - 1) / stride_h..(X.shape[3] - (kernel_h - 1) + pad_h + stride_h - 1) / stride_h, k in (pad_w + stride_w - 1) / stride_w..(X.shape[4] - (kernel_w - 1) + pad_w + stride_w - 1) / stride_w]: [f32; 10, 256] = max[m, n, p](relu(c1)[batch.0, c, i * [2, 2][0] - [0, 0][0] + m, j * [2, 2][1] - [0, 0][1] + n, k * [2, 2][2] - [0, 0][2] + p]);
+            0.0
+        } } else if c1 > 0.0 { 0.0 } else { 0.0 }
+    };
+    let _@c2: [f32; 10, 256] = {
+        let rank: [f32; 10, 256] = len([1, 1]);
+        if rank == 1 { {
+            let c_in: [f32; 10, 256] = len(p1[0]) as i32;
+            let w_in: [f32; 10, 256] = len(p1[0][0]) as i32;
+            let kernel_w: [f32; 10, 256] = len(conv2_w[0][0]);
+            let c_out: [f32; 10, 256] = len(conv2_w) as i32;
+            let w_p: [f32; 10, 256] = w_in + [2, 2, 2, 2][0] + [2, 2, 2, 2][1];
+            let cpg: [f32; 10, 256] = c_in / 1;
+            let fpg: [f32; 10, 256] = c_out / 1;
+            let Xp[batch.0 in 0..X.shape[0], batch.1 in 0..X.shape[1], c in 0..X.shape[2], i in 0..w_p]: [f32; 10, 256] = if i >= [2, 2, 2, 2][0] && i < w_in + [2, 2, 2, 2][0] { p1[batch.0, batch.1, c, i - [2, 2, 2, 2][0]] } else { 0.0 };
+            let conv_sum[batch.0 in 0..Xp.shape[0], batch.1 in 0..Xp.shape[1], co in 0..W.shape[0], i in 0..(Xp.shape[3] - (kernel_w - 1) * dilation + stride - 1) / stride]: [f32; 10, 256] = sum[cl, m](if i * [1, 1][0] + m * [1, 1][0] >= 0 && i * [1, 1][0] + m * [1, 1][0] < w_p { Xp[batch.0, batch.1, co / fpg * cpg + cl, i * [1, 1][0] + m * [1, 1][0]] * conv2_w[co, cl, m] } else { 0.0 });
+            let output[batch.0 in 0..conv_sum.shape[0], batch.1 in 0..conv_sum.shape[1], co in 0..B.shape[0], i in 0..conv_sum.shape[3]]: [f32; 10, 256] = conv_sum[batch.0, batch.1, co, i] + conv2_b[co];
+            let _@Xp[batch.0 in 0..X.shape[0], batch.1 in 0..X.shape[1], c in 0..X.shape[2], i in 0..w_p]: [f32; 10, 256] = if i >= [2, 2, 2, 2][0] && i < w_in + [2, 2, 2, 2][0] { 0.0 } else { 0.0 };
+            let _@conv_sum[batch.0 in 0..Xp.shape[0], batch.1 in 0..Xp.shape[1], co in 0..W.shape[0], i in 0..(Xp.shape[3] - (kernel_w - 1) * dilation + stride - 1) / stride]: [f32; 10, 256] = sum[cl, m](if i * [1, 1][0] + m * [1, 1][0] >= 0 && i * [1, 1][0] + m * [1, 1][0] < w_p { conv2_w[co, cl, m] * _@Xp[batch.0, batch.1, co / fpg * cpg + cl, i * [1, 1][0] + m * [1, 1][0]] } else { 0.0 });
+            let _@output[batch.0 in 0..conv_sum.shape[0], batch.1 in 0..conv_sum.shape[1], co in 0..B.shape[0], i in 0..conv_sum.shape[3]]: [f32; 10, 256] = _@conv_sum[batch.0, batch.1, co, i];
+            _@output
+        } } else if rank == 2 { {
+            let c_in: [f32; 10, 256] = len(p1[0]) as i32;
+            let h_in: [f32; 10, 256] = len(p1[0][0]) as i32;
+            let w_in: [f32; 10, 256] = len(p1[0][0][0]) as i32;
+            let kernel_h: [f32; 10, 256] = len(conv2_w[0][0]);
+            let kernel_w: [f32; 10, 256] = len(conv2_w[0][0][0]);
+            let c_out: [f32; 10, 256] = len(conv2_w) as i32;
+            let h_p: [f32; 10, 256] = h_in + [2, 2, 2, 2][0] + [2, 2, 2, 2][2];
+            let w_p: [f32; 10, 256] = w_in + [2, 2, 2, 2][1] + [2, 2, 2, 2][3];
+            let cpg: [f32; 10, 256] = c_in / 1;
+            let fpg: [f32; 10, 256] = c_out / 1;
+            let Xp[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in pad_w0..pad_w0 + w_in]: [f32; 10, 256] = { [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in pad_w0..pad_w0 + w_in] = p1[batch.0, c, i - [2, 2, 2, 2][0], j - [2, 2, 2, 2][1]]; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in 0..pad_h0, j in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0 + h_in..h_p, j in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in 0..pad_w0] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in pad_w0 + w_in..w_p] = 0.0 };
+            let conv_sum[batch.0 in 0..Xp.shape[0], co in 0..W.shape[0], i in 0..(Xp.shape[2] - (kernel_h - 1) * dilation_h + stride_h - 1) / stride_h, j in 0..(Xp.shape[3] - (kernel_w - 1) * dilation_w + stride_w - 1) / stride_w]: [f32; 10, 256] = sum[cl, m, n](if i * [1, 1][0] + m * [1, 1][0] >= 0 && i * [1, 1][0] + m * [1, 1][0] < h_p && j * [1, 1][1] + n * [1, 1][1] >= 0 && j * [1, 1][1] + n * [1, 1][1] < w_p { Xp[batch.0, co / fpg * cpg + cl, i * [1, 1][0] + m * [1, 1][0], j * [1, 1][1] + n * [1, 1][1]] * conv2_w[co, cl, m, n] } else { 0.0 });
+            let output[batch.0 in 0..conv_sum.shape[0], co in 0..B.shape[0], i in 0..conv_sum.shape[2], j in 0..conv_sum.shape[3]]: [f32; 10, 256] = conv_sum[batch.0, co, i, j] + conv2_b[co];
+            let _@Xp[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in pad_w0..pad_w0 + w_in]: [f32; 10, 256] = { [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in pad_w0..pad_w0 + w_in] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in 0..pad_h0, j in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0 + h_in..h_p, j in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in 0..pad_w0] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_h0..pad_h0 + h_in, j in pad_w0 + w_in..w_p] = 0.0 };
+            let _@conv_sum[batch.0 in 0..Xp.shape[0], co in 0..W.shape[0], i in 0..(Xp.shape[2] - (kernel_h - 1) * dilation_h + stride_h - 1) / stride_h, j in 0..(Xp.shape[3] - (kernel_w - 1) * dilation_w + stride_w - 1) / stride_w]: [f32; 10, 256] = sum[cl, m, n](if i * [1, 1][0] + m * [1, 1][0] >= 0 && i * [1, 1][0] + m * [1, 1][0] < h_p && j * [1, 1][1] + n * [1, 1][1] >= 0 && j * [1, 1][1] + n * [1, 1][1] < w_p { conv2_w[co, cl, m, n] * _@Xp[batch.0, co / fpg * cpg + cl, i * [1, 1][0] + m * [1, 1][0], j * [1, 1][1] + n * [1, 1][1]] } else { 0.0 });
+            let _@output[batch.0 in 0..conv_sum.shape[0], co in 0..B.shape[0], i in 0..conv_sum.shape[2], j in 0..conv_sum.shape[3]]: [f32; 10, 256] = _@conv_sum[batch.0, co, i, j];
+            _@output
+        } } else if rank == 3 { {
+            let c_in: [f32; 10, 256] = len(p1[0]) as i32;
+            let d_in: [f32; 10, 256] = len(p1[0][0]) as i32;
+            let h_in: [f32; 10, 256] = len(p1[0][0][0]) as i32;
+            let w_in: [f32; 10, 256] = len(p1[0][0][0][0]) as i32;
+            let kernel_d: [f32; 10, 256] = len(conv2_w[0][0]);
+            let kernel_h: [f32; 10, 256] = len(conv2_w[0][0][0]);
+            let kernel_w: [f32; 10, 256] = len(conv2_w[0][0][0][0]);
+            let c_out: [f32; 10, 256] = len(conv2_w) as i32;
+            let d_p: [f32; 10, 256] = d_in + [2, 2, 2, 2][0] + [2, 2, 2, 2][3];
+            let h_p: [f32; 10, 256] = h_in + [2, 2, 2, 2][1] + [2, 2, 2, 2][4];
+            let w_p: [f32; 10, 256] = w_in + [2, 2, 2, 2][2] + [2, 2, 2, 2][5];
+            let cpg: [f32; 10, 256] = c_in / 1;
+            let fpg: [f32; 10, 256] = c_out / 1;
+            let Xp[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in pad_w0..pad_w0 + w_in]: [f32; 10, 256] = { [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in pad_w0..pad_w0 + w_in] = p1[batch.0, c, i - [2, 2, 2, 2][0], j - [2, 2, 2, 2][1], k - [2, 2, 2, 2][2]]; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in 0..pad_d0, j in 0..h_p, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0 + d_in..d_p, j in 0..h_p, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in 0..pad_h0, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0 + h_in..h_p, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in 0..pad_w0] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in pad_w0 + w_in..w_p] = 0.0 };
+            let conv_sum[batch.0 in 0..Xp.shape[0], co in 0..W.shape[0], i in 0..(Xp.shape[2] - (kernel_d - 1) * dilation_d + stride_d - 1) / stride_d, j in 0..(Xp.shape[3] - (kernel_h - 1) * dilation_h + stride_h - 1) / stride_h, k in 0..(Xp.shape[4] - (kernel_w - 1) * dilation_w + stride_w - 1) / stride_w]: [f32; 10, 256] = sum[cl, m, n, p](if i * [1, 1][0] + m * [1, 1][0] >= 0 && i * [1, 1][0] + m * [1, 1][0] < d_p && j * [1, 1][1] + n * [1, 1][1] >= 0 && j * [1, 1][1] + n * [1, 1][1] < h_p && k * [1, 1][2] + p * [1, 1][2] >= 0 && k * [1, 1][2] + p * [1, 1][2] < w_p { Xp[batch.0, co / fpg * cpg + cl, i * [1, 1][0] + m * [1, 1][0], j * [1, 1][1] + n * [1, 1][1], k * [1, 1][2] + p * [1, 1][2]] * conv2_w[co, cl, m, n, p] } else { 0.0 });
+            let output[batch.0 in 0..conv_sum.shape[0], co in 0..B.shape[0], i in 0..conv_sum.shape[2], j in 0..conv_sum.shape[3], k in 0..conv_sum.shape[4]]: [f32; 10, 256] = conv_sum[batch.0, co, i, j, k] + conv2_b[co];
+            let _@Xp[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in pad_w0..pad_w0 + w_in]: [f32; 10, 256] = { [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in pad_w0..pad_w0 + w_in] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in 0..pad_d0, j in 0..h_p, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0 + d_in..d_p, j in 0..h_p, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in 0..pad_h0, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0 + h_in..h_p, k in 0..w_p] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in 0..pad_w0] = 0.0; [batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in pad_d0..pad_d0 + d_in, j in pad_h0..pad_h0 + h_in, k in pad_w0 + w_in..w_p] = 0.0 };
+            let _@conv_sum[batch.0 in 0..Xp.shape[0], co in 0..W.shape[0], i in 0..(Xp.shape[2] - (kernel_d - 1) * dilation_d + stride_d - 1) / stride_d, j in 0..(Xp.shape[3] - (kernel_h - 1) * dilation_h + stride_h - 1) / stride_h, k in 0..(Xp.shape[4] - (kernel_w - 1) * dilation_w + stride_w - 1) / stride_w]: [f32; 10, 256] = sum[cl, m, n, p](if i * [1, 1][0] + m * [1, 1][0] >= 0 && i * [1, 1][0] + m * [1, 1][0] < d_p && j * [1, 1][1] + n * [1, 1][1] >= 0 && j * [1, 1][1] + n * [1, 1][1] < h_p && k * [1, 1][2] + p * [1, 1][2] >= 0 && k * [1, 1][2] + p * [1, 1][2] < w_p { conv2_w[co, cl, m, n, p] * _@Xp[batch.0, co / fpg * cpg + cl, i * [1, 1][0] + m * [1, 1][0], j * [1, 1][1] + n * [1, 1][1], k * [1, 1][2] + p * [1, 1][2]] } else { 0.0 });
+            let _@output[batch.0 in 0..conv_sum.shape[0], co in 0..B.shape[0], i in 0..conv_sum.shape[2], j in 0..conv_sum.shape[3], k in 0..conv_sum.shape[4]]: [f32; 10, 256] = _@conv_sum[batch.0, co, i, j, k];
+            _@output
+        } } else { 0.0 }
+    };
+    let _@p2: [f32; 10, 256] = {
+        let rank: [f32; 10, 256] = len([3, 3]);
+        if rank == 1 { {
+            let output[batch.0 in 0..X.shape[0], batch.1 in 0..X.shape[1], c in 0..X.shape[2], i in (pad + stride - 1) / stride..(X.shape[3] - (kernel_w - 1) + pad + stride - 1) / stride]: [f32; 10, 256] = max[m](relu(c2)[batch.0, batch.1, c, i * [3, 3][0] - [0, 0][0] + m]);
+            0.0
+        } } else if rank == 2 { {
+            let output[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in (pad_h + stride_h - 1) / stride_h..(X.shape[2] - (kernel_h - 1) + pad_h + stride_h - 1) / stride_h, j in (pad_w + stride_w - 1) / stride_w..(X.shape[3] - (kernel_w - 1) + pad_w + stride_w - 1) / stride_w]: [f32; 10, 256] = max[m, n](relu(c2)[batch.0, c, i * [3, 3][0] - [0, 0][0] + m, j * [3, 3][1] - [0, 0][1] + n]);
+            0.0
+        } } else if rank == 3 { {
+            let output[batch.0 in 0..X.shape[0], c in 0..X.shape[1], i in (pad_d + stride_d - 1) / stride_d..(X.shape[2] - (kernel_d - 1) + pad_d + stride_d - 1) / stride_d, j in (pad_h + stride_h - 1) / stride_h..(X.shape[3] - (kernel_h - 1) + pad_h + stride_h - 1) / stride_h, k in (pad_w + stride_w - 1) / stride_w..(X.shape[4] - (kernel_w - 1) + pad_w + stride_w - 1) / stride_w]: [f32; 10, 256] = max[m, n, p](relu(c2)[batch.0, c, i * [3, 3][0] - [0, 0][0] + m, j * [3, 3][1] - [0, 0][1] + n, k * [3, 3][2] - [0, 0][2] + p]);
+            0.0
+        } } else if c2 > 0.0 { 0.0 } else { 0.0 }
+    };
+    let _@flat[k in 0..256]: [f32; 10, 256] = _@p2[0, k / 16, k / 4 % 4, k % 4];
+    _@flat
+}[k];
+let @loss = sum[j](2.0 * (sum[k](F[0, k] * fc_w_init[k, j]) + fc_b_init[j] - Y[0, j]) * (sum[k](F[0, k] * @fc_w_init[k, j] + fc_w_init[k, j] * @F[0, k]) + @fc_b_init[j] - @Y[0, j]));

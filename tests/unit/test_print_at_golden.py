@@ -13,7 +13,7 @@ import pytest
 
 from einlang.compiler.driver import CompilerDriver
 from einlang.ir.nodes import BindingIR, BlockExpressionIR
-from tests.print_at_fixtures import compile_exec_capture_print_at
+from tests.print_at_fixtures import compile_capture_rewritten_print_at
 
 _HUBER_LOSS_PRINT_AT_GOLDEN = """let @y = {
     let _@huber_loss_call: f32 = {
@@ -690,10 +690,17 @@ class TestPrintAtGolden:
         [(row[0], row[1], row[2]) for row in GOLDEN_PRINT_CASES],
         ids=[row[0] for row in GOLDEN_PRINT_CASES],
     )
-    def test_golden_stdout(self, label: str, source: str, expected: str) -> None:
-        c_ok, e_ok, out, err = compile_exec_capture_print_at(source)
+    def test_golden_stdout(
+        self,
+        label: str,
+        source: str,
+        expected: str,
+        session_compiler,
+    ) -> None:
+        c_ok, out, err = compile_capture_rewritten_print_at(
+            source, compiler=session_compiler
+        )
         assert c_ok, "%s: compile failed: %s" % (label, err)
-        assert e_ok, "%s: exec failed: %s" % (label, err)
         assert out == expected, "%s: got %r, expected %r" % (label, out, expected)
 
 

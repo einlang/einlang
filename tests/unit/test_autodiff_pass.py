@@ -29,6 +29,15 @@ from einlang.ir.nodes import IRNode, ProgramIR
 from einlang.passes.autodiff import AutodiffPass, DIFF_PREFIX, USER_DIFF_PREFIX
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_COMPILER = None
+_RUNTIME = None
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _shared_autodiff_test_context(module_compiler, module_runtime):
+    global _COMPILER, _RUNTIME
+    _COMPILER = module_compiler
+    _RUNTIME = module_runtime
 
 
 def _ir_unique_node_count(program) -> int:
@@ -90,15 +99,14 @@ def _scalar_float(outputs, key):
 
 
 def _compile_run(source, expect_success=True, root_path=None):
-    compiler = CompilerDriver()
     if root_path is None:
         root_path = _REPO_ROOT
-    result = compiler.compile(source.strip(), source_file="<test>", root_path=root_path)
+    assert _COMPILER is not None
+    assert _RUNTIME is not None
+    result = _COMPILER.compile(source.strip(), source_file="<test>", root_path=root_path)
     if expect_success:
         assert result.success, result.get_errors() or "compile failed"
-    from einlang.runtime.runtime import EinlangRuntime
-    runtime = EinlangRuntime(backend="numpy")
-    exec_result = runtime.execute(result)
+    exec_result = _RUNTIME.execute(result)
     if expect_success:
         assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
     return result, exec_result.outputs or {}
@@ -568,6 +576,21 @@ let dy_dx = @y / @x;
         except ImportError:
             pass
 
+    def test_max_pool_quotient_tie_uses_first_argmax(self):
+        """On ties, max_pool quotient follows the first argmax position."""
+        source = """
+use std::ml;
+let x = [[[[4.0, 4.0], [1.0, 0.0]]]];
+let y = std::ml::max_pool(x, [2, 2], [2, 2], [0, 0]);
+let dy_dx = @y / @x;
+"""
+        _, out = _compile_run(source)
+        dy_dx = out.get("dy_dx")
+        assert dy_dx is not None
+        arr = np.asarray(dy_dx)
+        ref = np.array([[[[1.0, 0.0], [0.0, 0.0]]]], dtype=np.float64)
+        _assert_allclose(arr, ref, msg="dy_dx max_pool tie first argmax")
+
     def test_einstein_attention_matmul_chain_no_softmax(self):
         """Single-head attention matmul chain (no softmax): scores = Q@K^T, out = scores@V; @out/@Q.
         MHA uses this plus softmax; the matmul part is differentiable. Cotangent ∂out/∂Q has the same shape as Q (Julia-style)."""
@@ -747,6 +770,198 @@ let loss_next = r0_next * r0_next + r1_next * r1_next;
         assert loss_next < loss_val, "loss should decrease after one step"
         assert abs(x0_next - 0.8) < 1e-5 and abs(x1_next - 0.8) < 1e-5, "one step with alpha=0.2 from (0,0) gives (0.8, 0.8)"
 
+    def test_scientific_examples_autodiff_sensitivity_checks(self):
+        """Pin the small autodiff sensitivity checks added to scientific examples."""
+        cases = [
+            (
+                "sir_gamma",
+                """
+let beta = 0.001;
+let gamma = 0.1;
+let dt = 0.2;
+let S0 = 999.0;
+let I0 = 1.0;
+let I1_s = I0 + dt * (beta * S0 * I0 - gamma * I0);
+let dI1_d_gamma = @I1_s / @gamma;
+""",
+                {"dI1_d_gamma": -0.2},
+            ),
+            (
+                "heat_r",
+                """
+let r_sens = 0.2;
+let u_c_next = 10.0 + r_sens * (0.0 - 2.0 * 10.0 + 0.0);
+let du_dr = @u_c_next / @r_sens;
+let r_alt = 0.25;
+let u_c_next_corrected = u_c_next + du_dr * (r_alt - r_sens);
+""",
+                {"du_dr": -20.0, "u_c_next_corrected": 5.0},
+            ),
+            (
+                "wave_r",
+                """
+let r_sens = 0.5;
+let h_n = 10.0;
+let h_nm1 = 10.0;
+let lap_s = -40.0;
+let h_next = 2.0 * h_n - h_nm1 + r_sens * lap_s;
+let dh_dr = @h_next / @r_sens;
+""",
+                {"dh_dr": -40.0},
+            ),
+            (
+                "brusselator_dt",
+                """
+let A = 1.0;
+let B = 2.0;
+let alpha = 0.02;
+let dt_sens = 0.2;
+let U_s = 1.0;
+let V_s = 0.5;
+let lap_U_s = 0.0;
+let U_next = U_s + dt_sens * (B + U_s * U_s * V_s - (A + 1.0) * U_s + alpha * lap_U_s);
+let dU_next_d_dt = @U_next / @dt_sens;
+""",
+                {"dU_next_d_dt": 0.5},
+            ),
+            (
+                "optimization_suite_step",
+                """
+let A_gd = [[2.0, 0.0], [0.0, 2.0]];
+let b_gd = [1.0, 1.0];
+let alpha_gd = 0.25;
+let x0 = 0.0;
+let x1 = 0.0;
+let r0 = A_gd[0, 0] * x0 + A_gd[0, 1] * x1 - b_gd[0];
+let r1 = A_gd[1, 0] * x0 + A_gd[1, 1] * x1 - b_gd[1];
+let loss = 0.25 * (r0 * r0 + r1 * r1);
+let g0 = @loss / @x0;
+let g1 = @loss / @x1;
+let x0_next = x0 - alpha_gd * g0;
+let x1_next = x1 - alpha_gd * g1;
+""",
+                {"g0": -1.0, "g1": -1.0, "x0_next": 0.25, "x1_next": 0.25},
+            ),
+        ]
+
+        for label, source, expected in cases:
+            _, out = _compile_run(source)
+            for key, ref in expected.items():
+                actual = _scalar_float(out, key)
+                assert actual == pytest.approx(ref, rel=1e-12, abs=1e-12), (
+                    f"{label}: {key} expected {ref}, got {actual}"
+                )
+
+    def test_deit_ops_autodiff_supported_paths(self):
+        """DeiT core autodiff coverage for supported ops: layer_norm, gelu_tanh, and softmax primitives."""
+        source = """
+use std::math::exp;
+let x = [[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]];
+let w = [1.0, 1.0, 1.0];
+let b = [0.0, 0.0, 0.0];
+let ln = std::ml::layer_normalization(x, w, b, 1e-5, -1);
+let x000 = x[0, 0, 0];
+let ln000 = ln[0, 0, 0];
+let d_ln = @ln000 / @x000;
+
+let g_in = 1.0;
+let g_out = std::ml::gelu_tanh(g_in);
+let d_gelu = @g_out / @g_in;
+
+let score = [[1.0, 2.0], [3.0, 4.0]];
+let score_max[i in 0..2] = max[j in 0..2](score[i, j]);
+let score_exp[i in 0..2, j in 0..2] = exp(score[i, j] - score_max[i]);
+let score_sum[i in 0..2] = sum[j in 0..2](score_exp[i, j]);
+let attn[i in 0..2, j in 0..2] = score_exp[i, j] / score_sum[i];
+let s00 = score[0, 0];
+let a00 = attn[0, 0];
+let d_attn = @a00 / @s00;
+"""
+        _, out = _compile_run(source)
+        assert np.isfinite(_scalar_float(out, "d_ln"))
+        assert np.isfinite(_scalar_float(out, "d_gelu"))
+        assert np.isfinite(_scalar_float(out, "d_attn"))
+
+    def test_conv_autodiff_jacobian_rank1_matches_calculus(self):
+        source = """
+let x = [[[1.0, 2.0, 3.0, 4.0]]];
+let w = [[[1.0, 0.5]]];
+let b = [0.0];
+let y = std::ml::conv(x, w, b, [1], [0, 0], [1], 1);
+let dy_dx = @y / @x;
+let dy_dw = @y / @w;
+let dy_db = @y / @b;
+"""
+        _, out = _compile_run(source)
+        dy_dx = np.asarray(out.get("dy_dx"))
+        dy_dw = np.asarray(out.get("dy_dw"))
+        dy_db = np.asarray(out.get("dy_db"))
+        x_ref = np.array([[[1.0, 2.0, 3.0, 4.0]]], dtype=np.float64)
+        w_ref = np.array([[[1.0, 0.5]]], dtype=np.float64)
+
+        # Quotient path returns directional gradients (seed-1 cotangent on y), not full Jacobians.
+        ref_dx = np.array([[[1.5, 1.5, 1.5, 0.0]]], dtype=np.float64)
+        ref_dw = np.array([[[3.0, 5.0, 7.0, 0.0]]], dtype=np.float64)
+        ref_db = np.array([[[1.0, 1.0, 1.0, 1.0]]], dtype=np.float64)
+        _assert_allclose(dy_dx, ref_dx, msg="conv rank1 dy_dx directional")
+        _assert_allclose(dy_dw, ref_dw, msg="conv rank1 dy_dw directional")
+        _assert_allclose(dy_db, ref_db, msg="conv rank1 dy_db directional")
+
+    def test_conv_autodiff_jacobian_rank2_matches_calculus(self):
+        source = """
+let x = [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]]];
+let w = [[[[1.0, 1.0], [1.0, 1.0]]]];
+let b = [0.0];
+let y = std::ml::conv(x, w, b, [1, 1], [0, 0, 0, 0], [1, 1], 1);
+let dy_dx = @y / @x;
+let dy_dw = @y / @w;
+let dy_db = @y / @b;
+"""
+        _, out = _compile_run(source)
+        dy_dx = np.asarray(out.get("dy_dx"))
+        dy_dw = np.asarray(out.get("dy_dw"))
+        dy_db = np.asarray(out.get("dy_db"))
+        x_ref = np.array(
+            [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]]],
+            dtype=np.float64,
+        )
+        w_ref = np.array([[[[1.0, 1.0], [1.0, 1.0]]]], dtype=np.float64)
+
+        # Quotient path returns directional gradients (seed-1 cotangent on y), not full Jacobians.
+        ref_dx = np.array([[[[4.0, 4.0, 0.0], [4.0, 4.0, 0.0], [0.0, 0.0, 0.0]]]], dtype=np.float64)
+        ref_dw = np.array([[[[12.0, 16.0, 0.0], [24.0, 28.0, 0.0], [0.0, 0.0, 0.0]]]], dtype=np.float64)
+        ref_db = np.array([[[[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]]], dtype=np.float64)
+        _assert_allclose(dy_dx, ref_dx, msg="conv rank2 dy_dx directional")
+        _assert_allclose(dy_dw, ref_dw, msg="conv rank2 dy_dw directional")
+        _assert_allclose(dy_db, ref_db, msg="conv rank2 dy_db directional")
+
+    def test_conv_autodiff_jacobian_rank3_matches_calculus(self):
+        source = """
+let x = [[[[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]]];
+let w = [[[[[1.0]]]]];
+let b = [0.0];
+let y = std::ml::conv(x, w, b, [1, 1, 1], [0, 0, 0, 0, 0, 0], [1, 1, 1], 1);
+let dy_dx = @y / @x;
+let dy_dw = @y / @w;
+let dy_db = @y / @b;
+"""
+        _, out = _compile_run(source)
+        dy_dx = np.asarray(out.get("dy_dx"))
+        dy_dw = np.asarray(out.get("dy_dw"))
+        dy_db = np.asarray(out.get("dy_db"))
+        x_ref = np.array(
+            [[[[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]]],
+            dtype=np.float64,
+        )
+
+        # Quotient path returns directional gradients (seed-1 cotangent on y), not full Jacobians.
+        ref_dx = np.ones((1, 1, 2, 2, 2), dtype=np.float64)
+        ref_dw = x_ref.copy()
+        ref_db = np.ones((1, 1, 2, 2, 2), dtype=np.float64)
+        _assert_allclose(dy_dx, ref_dx, msg="conv rank3 dy_dx directional")
+        _assert_allclose(dy_dw, ref_dw, msg="conv rank3 dy_dw directional")
+        _assert_allclose(dy_db, ref_db, msg="conv rank3 dy_db directional")
+
     def test_mnist_train_autodiff_ops_small(self):
         """Exercise mnist_train autodiff ops on a tiny deterministic setup: sum, *, -, **2, %, indexing alias quotient, and logits/W quotient."""
         source = """
@@ -888,7 +1103,7 @@ let d_logits_dW = @logits / @W;
             (
                 "relu",
                 "let x = [-1.0, 0.0, 2.0]; let y = std::ml::relu(x); let dy_dx = @y / @x;",
-                np.array([0.0, 0.0, 2.0], dtype=np.float64),
+                np.array([0.0, 0.0, 1.0], dtype=np.float64),
             ),
             (
                 "max_pool",

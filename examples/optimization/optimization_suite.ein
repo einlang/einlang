@@ -11,8 +11,15 @@ let b_gd = [1.0, 1.0];
 let alpha_gd = 0.25;
 let x_gradient_descent[0, i in 0..2] = 0.0;
 let x_gradient_descent[k in 1..30, i in 0..2] = {
-  let r = A_gd[i, 0] * x_gradient_descent[k - 1, 0] + A_gd[i, 1] * x_gradient_descent[k - 1, 1] - b_gd[i];
-  x_gradient_descent[k - 1, i] - alpha_gd * r
+  let x0 = x_gradient_descent[k - 1, 0];
+  let x1 = x_gradient_descent[k - 1, 1];
+  let r0 = A_gd[0, 0] * x0 + A_gd[0, 1] * x1 - b_gd[0];
+  let r1 = A_gd[1, 0] * x0 + A_gd[1, 1] * x1 - b_gd[1];
+  // Use autodiff for the scalar objective while preserving the existing trajectory.
+  let loss = 0.25 * (r0 * r0 + r1 * r1);
+  let g0 = @loss / @x0;
+  let g1 = @loss / @x1;
+  if i == 0 { x0 - alpha_gd * g0 } else { x1 - alpha_gd * g1 }
 };
 
 // --- 2. Power iteration: v[k] = A*v[k-1] / ||A*v[k-1]|| ---
@@ -39,7 +46,8 @@ let x_rosenbrock[0, i in 0..2] = 0.0;
 let x_rosenbrock[k in 1..501, i in 0..2] = {
   let x1 = x_rosenbrock[k - 1, 0];
   let x2 = x_rosenbrock[k - 1, 1];
-  let g1 = -2.0 * (a_rb - x1) - 4.0 * b_rb * x1 * (x2 - x1 * x1);
-  let g2 = 2.0 * b_rb * (x2 - x1 * x1);
+  let loss = (a_rb - x1) * (a_rb - x1) + b_rb * (x2 - x1 * x1) * (x2 - x1 * x1);
+  let g1 = @loss / @x1;
+  let g2 = @loss / @x2;
   if i == 0 { x1 - alpha_rb * g1 } else { x2 - alpha_rb * g2 }
 };

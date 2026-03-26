@@ -121,13 +121,13 @@ class PrimitiveType(Type):
         return self.name
 
     def __eq__(self, other):
-        """Compare primitive types by name"""
+        """Compare primitive types by name."""
         if not isinstance(other, PrimitiveType):
             return False
         return self.name == other.name
     
     def __hash__(self):
-        """Hash primitive types by name"""
+        """Hash primitive types by name."""
         return hash(('PrimitiveType', self.name))
 
 
@@ -462,4 +462,3 @@ class PipelineClauseType(Enum):
     """Pipeline clause types - for else/catch clauses"""
     ELSE = "else"
     CATCH = "catch"
-

@@ -1,6 +1,6 @@
 # Roadmap
 
-High-level direction: **NumPy backend (now)** → MLIR via Python (next) → native/GPU. This page tracks **language and ergonomics** items that are not yet first-class.
+High-level direction: **NumPy backend (now)** → MLIR via Python (next) → native/GPU. This page tracks **language and ergonomics** items that are not yet first-class, especially the ones that matter for scientific and training workflows built around autodiff.
 
 ---
 
@@ -29,9 +29,10 @@ let W[step in 1..6] = {
 - **Typing and storage:** `W[step]` must denote a **rank-3** tensor (or equivalent) so each step holds a full matrix; surface syntax and shape inference must agree.
 - **Initialization:** retain an explicit `W[0, i, j] = …` (or equivalent) and any reads of `W[5, …]` after training.
 - **Autodiff:** nested Einstein inside blocks already lowers; verify **quotient and recurrence** rules for this pattern end-to-end (training correctness).
+- **Scientific debugging:** this would make stepwise diagnostics and autodiff-based sensitivity checks easier to use than ad hoc finite-difference probes inside a vectorized loop.
 - **Diagnostics:** with the outer step isolated, `print(...)` (or a small helper) inside the outer block becomes a natural **per-epoch / per-step** hook without fighting vectorized `i`/`j`.
 
-This item is **not** a commitment to a particular syntax keyword; the roadmap goal is **ergonomics + debuggability** for recurrent training loops.
+This item is **not** a commitment to a particular syntax keyword; the roadmap goal is **ergonomics + debuggability** for recurrent training loops and other scientific update patterns where autodiff is the preferred replacement for finite-difference gradients.
 
 ---
 
@@ -54,7 +55,7 @@ let B[step in 1..T, ...] = g(W[step - 1, ...], B[step - 1, ...], ...);
 - **Lowering/IR:** represent recurrence groups explicitly (or equivalent) so ordering is deterministic and backend execution uses one coherent previous-step snapshot.
 - **Autodiff correctness:** ensure quotient/differential rules remain correct through coupled recurrence updates.
 - **Vectorization parity:** avoid regressions in vectorization behavior compared with single-array recurrence.
-- **Examples cleanup:** remove packing workaround in `examples/mnist/train.ein` once this lands.
+- **Examples cleanup:** if MNIST training returns, avoid the old packed-weight workaround from the removed `examples/mnist/train.ein`.
 
 **Current status:** supported via workaround (parameter packing) in MNIST training; first-class natural multi-value recurrence is planned.
 

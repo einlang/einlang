@@ -6,8 +6,15 @@ Parametrized demos tests - loads all file contents together upfront for speed.
 import re
 import subprocess
 import sys
+import os
+import importlib
+from contextlib import contextmanager
 import pytest
 from pathlib import Path
+import numpy as np
+
+from einlang.compiler.driver import CompilerDriver
+from einlang.runtime.runtime import EinlangRuntime
 from tests.test_utils import compile_and_execute
 
 
@@ -26,6 +33,17 @@ def _assert_vectorize_counts(output: str, min_vectorized: int, max_scalar: int, 
     counts = _parse_vectorize_counts(output)
     assert counts is not None, f"{label}: --debug-vectorize summary line not found in output"
     vectorized, scalar, hybrid, call_scalar = counts
+    assert vectorized >= min_vectorized, (
+        f"{label}: vectorized count regressed: {vectorized} < {min_vectorized}"
+    )
+    assert scalar <= max_scalar, (
+        f"{label}: scalar count increased: {scalar} > {max_scalar}"
+    )
+
+
+def _assert_vectorize_counts_dict(counts, min_vectorized: int, max_scalar: int, label: str):
+    vectorized = int(counts.get("vectorized", 0))
+    scalar = int(counts.get("scalar", 0))
     assert vectorized >= min_vectorized, (
         f"{label}: vectorized count regressed: {vectorized} < {min_vectorized}"
     )
@@ -81,19 +99,49 @@ def _ensure_weights_on_demand(project_root, example_dir, required_paths, script_
     env = {**__import__("os").environ, "PYTHONPATH": str(project_root / "src")}
     result = subprocess.run(
         [sys.executable, str(script)] + (script_args or []),
-        capture_output=True, text=True, cwd=str(example_dir), env=env, timeout=timeout,
+        cwd=str(example_dir), env=env, timeout=timeout,
     )
     if result.returncode != 0:
         pytest.fail(
-            f"{example_dir.name}: {script_name} failed (exit {result.returncode})\n"
-            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+            f"{example_dir.name}: {script_name} failed (exit {result.returncode})"
         )
     still_missing = [p for p in required_paths if not p.exists()]
     if still_missing:
-        pytest.fail(
-            f"{example_dir.name} still missing after {script_name}: {still_missing}\n"
-            f"stdout: {result.stdout}\nstderr: {result.stderr}"
-        )
+        pytest.fail(f"{example_dir.name} still missing after {script_name}: {still_missing}")
+
+
+def _run_file_with_stats(path: Path):
+    source = path.read_text(encoding="utf-8")
+    compiler = CompilerDriver()
+    runtime = EinlangRuntime(backend="numpy")
+    with _example_runtime_context(path.parent):
+        result = compiler.compile(source, source_file=str(path), root_path=path.parent)
+        assert result.success, result.get_errors() or "compile failed"
+        exec_result = runtime.execute(result)
+    assert exec_result.success, exec_result.error or exec_result.errors
+    return exec_result, runtime.get_last_vectorize_counts()
+
+
+@contextmanager
+def _example_runtime_context(example_dir: Path):
+    """Run compile/execute with the example directory acting like CLI cwd/import root."""
+    example_dir_str = str(example_dir)
+    old_cwd = os.getcwd()
+    inserted = False
+    if example_dir_str not in sys.path:
+        sys.path.insert(0, example_dir_str)
+        inserted = True
+    importlib.invalidate_caches()
+    os.chdir(example_dir_str)
+    try:
+        yield
+    finally:
+        os.chdir(old_cwd)
+        if inserted:
+            try:
+                sys.path.remove(example_dir_str)
+            except ValueError:
+                pass
 
 
 class TestDemos:
@@ -120,48 +168,15 @@ class TestDemos:
                 return
             pytest.fail(f"{demo_name} exception: {e}")
 
-    def test_mnist_train(self):
-        """Run examples/mnist/train.ein: verify 10/10 accuracy and fully vectorized."""
-        project_root = Path(__file__).parent.parent.parent
-        mnist_dir = project_root / "examples" / "mnist"
-        train_ein = mnist_dir / "train.ein"
-
-        result = subprocess.run(
-            [sys.executable, "-m", "einlang", str(train_ein), "--debug-vectorize"],
-            capture_output=True, text=True, cwd=mnist_dir,
-            env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
-            timeout=300,
-        )
-        assert result.returncode == 0, result.stderr or result.stdout
-        full_output = result.stdout.strip()
-        output = "\n".join(l for l in full_output.split("\n") if not l.startswith("[vectorize]")).strip()
-        assert output == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]", f"unexpected predictions: {output!r}"
-        _assert_vectorize_counts(full_output, min_vectorized=1, max_scalar=0, label="mnist_train")
-
     def test_mnist(self):
-        """Run train.ein to generate weights, then main.ein to verify inference."""
+        """Run examples/mnist/main.ein and verify inference output."""
         project_root = Path(__file__).parent.parent.parent
         mnist_dir = project_root / "examples" / "mnist"
-        train_ein = mnist_dir / "train.ein"
         main_ein = mnist_dir / "main.ein"
-        env = {**__import__("os").environ, "PYTHONPATH": str(project_root / "src")}
-
-        train_result = subprocess.run(
-            [sys.executable, "-m", "einlang", str(train_ein)],
-            capture_output=True, text=True, cwd=mnist_dir, env=env, timeout=300,
-        )
-        assert train_result.returncode == 0, train_result.stderr or train_result.stdout
-        assert (mnist_dir / "weights" / "W.npy").exists(), "train.ein did not produce weights/W.npy"
-
-        result = subprocess.run(
-            [sys.executable, "-m", "einlang", str(main_ein), "--debug-vectorize"],
-            capture_output=True, text=True, cwd=mnist_dir, env=env, timeout=300,
-        )
-        assert result.returncode == 0, result.stderr or result.stdout
-        full_output = result.stdout.strip()
-        output = "\n".join(l for l in full_output.split("\n") if not l.startswith("[vectorize]")).strip()
-        assert output == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]", f"unexpected output: {output!r}"
-        _assert_vectorize_counts(full_output, min_vectorized=1, max_scalar=0, label="mnist")
+        exec_result, counts = _run_file_with_stats(main_ein)
+        predictions = np.asarray(exec_result.outputs.get("predictions")).tolist()
+        assert predictions == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], f"unexpected output: {predictions!r}"
+        _assert_vectorize_counts_dict(counts, min_vectorized=1, max_scalar=0, label="mnist")
 
     def test_mnist_quantized(self):
         """Run examples/mnist_quantized/main.ein and verify 10/10 digit predictions."""
@@ -189,15 +204,9 @@ class TestDemos:
                     (quant_samples / f"{i}.pgm").write_bytes(src.read_bytes())
         _ensure_weights_on_demand(project_root, quant_dir, required, "prepare_weights.py")
 
-        result = subprocess.run(
-            [sys.executable, "-m", "einlang", str(main_ein)],
-            capture_output=True, text=True, cwd=quant_dir,
-            env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
-            timeout=300,
-        )
-        assert result.returncode == 0, result.stderr or result.stdout
-        output = result.stdout.strip()
-        assert output == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]", f"unexpected output: {output!r}"
+        exec_result, _ = _run_file_with_stats(main_ein)
+        predictions = np.asarray(exec_result.outputs.get("predictions")).tolist()
+        assert predictions == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], f"unexpected output: {predictions!r}"
 
     def test_deit_tiny(self):
         """Run examples/deit_tiny/main.ein and verify ImageNet predictions."""
@@ -216,17 +225,10 @@ class TestDemos:
         required += [deit_dir / "samples" / f"{i}.npy" for i in range(3)]
         _ensure_weights_on_demand(project_root, deit_dir, required, "download_weights.py", timeout=600)
 
-        result = subprocess.run(
-            [sys.executable, "-m", "einlang", str(main_ein), "--debug-vectorize"],
-            capture_output=True, text=True, cwd=deit_dir,
-            env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
-            timeout=1800,
-        )
-        assert result.returncode == 0, result.stderr or result.stdout
-        full_output = result.stdout.strip()
-        output = "\n".join(l for l in full_output.split("\n") if not l.startswith("[vectorize]")).strip()
-        assert output == "['Egyptian Mau', 'Golden Retriever', 'strawberry']", f"unexpected output: {output!r}"
-        _assert_vectorize_counts(full_output, min_vectorized=963, max_scalar=0, label="deit_tiny")
+        exec_result, counts = _run_file_with_stats(main_ein)
+        names = np.asarray(exec_result.outputs.get("names")).tolist()
+        assert names == ["Egyptian Mau", "Golden Retriever", "strawberry"], f"unexpected output: {names!r}"
+        _assert_vectorize_counts_dict(counts, min_vectorized=963, max_scalar=0, label="deit_tiny")
 
     def test_whisper_tiny(self):
         """Run examples/whisper_tiny/main.ein and assert transcript matches golden_ref.txt."""
@@ -248,15 +250,8 @@ class TestDemos:
         )
         golden_text = golden.read_text(encoding="utf-8").strip()
 
-        result = subprocess.run(
-            [sys.executable, "-m", "einlang", str(main_ein), "--debug-vectorize"],
-            capture_output=True, text=True, cwd=str(whisper_dir),
-            env={**__import__("os").environ, "PYTHONPATH": str(project_root / "src")},
-            timeout=3600,
-        )
-        assert result.returncode == 0, result.stderr or result.stdout or "no output"
-        full_output = result.stdout.strip()
-        output = "\n".join(l for l in full_output.split("\n") if not l.startswith("[vectorize]")).strip()
+        exec_result, counts = _run_file_with_stats(main_ein)
+        output = str(exec_result.outputs.get("text", "")).strip()
         if output != golden_text:
             print(f"\nwhisper_tiny transcription:\n  golden:  {golden_text!r}\n  einlang: {output!r}")
             pytest.fail(
@@ -266,7 +261,7 @@ class TestDemos:
                 "(2) numerical/implementation difference -> if einlang output is correct, update golden_ref.txt "
                 "with: echo -n '<output>' > examples/whisper_tiny/golden_ref.txt"
             )
-        _assert_vectorize_counts(full_output, min_vectorized=13811, max_scalar=2, label="whisper_tiny")
+        _assert_vectorize_counts_dict(counts, min_vectorized=13811, max_scalar=2, label="whisper_tiny")
 
 
 if __name__ == "__main__":

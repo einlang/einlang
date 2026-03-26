@@ -30,3 +30,9 @@ let state[0, 2] = R0;
 let state[t in 1..100, 0] = { let S = state[t - 1, 0]; let I = state[t - 1, 1]; S - dt * beta * S * I };
 let state[t in 1..100, 1] = { let S = state[t - 1, 0]; let I = state[t - 1, 1]; I + dt * (beta * S * I - gamma * I) };
 let state[t in 1..100, 2] = { let I = state[t - 1, 1]; let R = state[t - 1, 2]; R + dt * gamma * I };
+
+// Autodiff: sensitivity of one infected-step w.r.t. gamma (no hand-written gradient)
+let S1_s = S0 - dt * beta * S0 * I0;
+let I1_s = I0 + dt * (beta * S0 * I0 - gamma * I0);
+let dI1_d_gamma = @I1_s / @gamma;
+print(dI1_d_gamma);

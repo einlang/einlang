@@ -993,8 +993,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             # Recursive call (e.g. factorial(n-1) inside factorial): infer return type from arg
             # Single-param numeric functions often return same type (factorial, gcd, etc.)
             if len(arg_types) == 1 and arg_types[0] != UNKNOWN:
-                from ..shared.types import PrimitiveType
-                if isinstance(arg_types[0], PrimitiveType) and arg_types[0].name in ('i32', 'i64', 'f32', 'f64'):
+                if arg_types[0] in {I32, I64, F32, F64}:
                     inferred_type = arg_types[0]
                     expr.type_info = inferred_type
                     return inferred_type
@@ -1209,18 +1208,18 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         if actual == UNKNOWN or expected == UNKNOWN:
             return True
         
-        # Exact match using Type.__eq__ (for PrimitiveType, compares .name)
+        # Exact match uses structured type equality.
         if actual == expected:
             return True
         
         # Widening rules for primitive types
         if isinstance(actual, PrimitiveType) and isinstance(expected, PrimitiveType):
             # f32 can widen to f64
-            if actual.name == "f32" and expected.name == "f64":
+            if actual == F32 and expected == F64:
                 return True
             
             # i32 can widen to i64 (future support)
-            if actual.name == "i32" and expected.name == "i64":
+            if actual == I32 and expected == I64:
                 return True
         
         # RectangularType: same element type and compatible rank (specialize by rank, not shape)
@@ -2087,4 +2086,3 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         for func in self._collect_module_functions(node):
             func.accept(self)
         return UNKNOWN
-

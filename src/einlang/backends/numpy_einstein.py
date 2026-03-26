@@ -15,9 +15,41 @@ from ..ir.nodes import (
 )
 from ..shared.defid import DefId, RUNTIME_CRATE
 from ..shared.optional_attr import opt_defid
-from ..shared.types import BinaryOp
+from ..shared.types import (
+    BF16,
+    BOOL,
+    F16,
+    F32,
+    F64,
+    F8E4M3,
+    I8,
+    I32,
+    I64,
+    BinaryOp,
+    PrimitiveType,
+    RectangularType,
+    Type,
+    TypeKind,
+)
 from ..utils.config import DEFAULT_EINSTEIN_LOOP_MAX
 from .numpy_helpers import _reject_non_lowered
+
+_TYPE_NAME_TO_NUMPY_DTYPE = {
+    I8: np.int8,
+    I32: np.int32,
+    I64: np.int64,
+    F16: np.float16,
+    F32: np.float32,
+    F64: np.float64,
+    BOOL: np.bool_,
+}
+try:
+    import ml_dtypes as _ml_dtypes
+except ImportError:
+    _ml_dtypes = None
+else:
+    _TYPE_NAME_TO_NUMPY_DTYPE[BF16] = _ml_dtypes.bfloat16
+    _TYPE_NAME_TO_NUMPY_DTYPE[F8E4M3] = _ml_dtypes.float8_e4m3fn
 
 
 def _einlang_vectorize_debug_detail_enabled() -> bool:
@@ -3320,25 +3352,11 @@ class EinsteinExecutionMixin:
         return output
 
     def _primitive_type_to_numpy_dtype(self, type_obj: Any) -> Optional[Any]:
-        from ..shared.types import PrimitiveType
         if not isinstance(type_obj, PrimitiveType):
             return None
-        type_name = type_obj.name.lower()
-        dtype_map = {
-            "i8": np.int8, "i32": np.int32, "i64": np.int64,
-            "f16": np.float16, "f32": np.float32, "f64": np.float64,
-            "bool": np.bool_, "int": np.int32, "float": np.float32,
-        }
-        try:
-            import ml_dtypes
-            dtype_map["bf16"] = ml_dtypes.bfloat16
-            dtype_map["f8e4m3"] = ml_dtypes.float8_e4m3fn
-        except ImportError:
-            pass
-        return dtype_map.get(type_name)
+        return _TYPE_NAME_TO_NUMPY_DTYPE.get(type_obj)
 
     def _type_info_to_numpy_dtype(self, type_info: Any) -> Optional[Any]:
-        from ..shared.types import PrimitiveType, RectangularType, Type, TypeKind
         if type_info is None:
             return None
         if isinstance(type_info, Type) and hasattr(type_info, "kind") and type_info.kind == TypeKind.UNKNOWN:

@@ -942,6 +942,23 @@ class ExpressionVisitorMixin:
             if size > 1_000_000:
                 raise RuntimeError(f"Loop range too large: size={size}")
             return val
+        if isinstance(val, tuple):
+            return tuple(val)
+        if isinstance(val, list):
+            # Rectangular literals are serialized as LiteralIR tuples/lists, but the
+            # NumPy backend expects ndarray semantics for multi-index access and
+            # elementwise arithmetic inside Einstein clauses.
+            try:
+                arr = np.asarray(val)
+                if arr.dtype.kind == "f":
+                    return arr.astype(np.float32, copy=False)
+                if arr.dtype.kind in ("i", "u"):
+                    return arr.astype(np.int32, copy=False)
+                if arr.dtype.kind == "b":
+                    return arr.astype(bool, copy=False)
+                return arr
+            except Exception:
+                return val
         return val
 
     def visit_identifier(self, expr) -> Any:
@@ -1070,13 +1087,25 @@ class ExpressionVisitorMixin:
         try:
             if isinstance(array, np.ndarray):
                 return array[tuple(indices)]
-            if isinstance(array, (list, tuple, str)):
+            if isinstance(array, str):
                 idx = indices[0] if indices else 0
                 return array[int(idx)]
+            if isinstance(array, (list, tuple)):
+                if not indices:
+                    # Preserve ragged lists as Python sequences; only coerce when NumPy can represent them.
+                    try:
+                        return np.asarray(array)
+                    except ValueError:
+                        return array
+                current = array
+                for raw_idx in indices:
+                    idx = int(raw_idx) if isinstance(raw_idx, (np.integer, int, float)) else raw_idx
+                    current = current[idx]
+                return current
             # Forward AD: seeded derivative may be scalar 1 (broadcast over indices)
             if np.isscalar(array) or (isinstance(array, np.ndarray) and array.ndim == 0):
                 return array
-        except (IndexError, KeyError) as e:
+        except (IndexError, KeyError, TypeError) as e:
             self._raise_here(e, expr)
         raise RuntimeError(f"rectangular_access: expected ndarray, list, or str, got {type(array).__name__}")
 
@@ -1744,4 +1773,3 @@ class ExpressionVisitorMixin:
             return fn(*args)
         except Exception as e:
             self._raise_here(e, expr)
-
