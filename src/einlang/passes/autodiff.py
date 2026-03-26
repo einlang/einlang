@@ -450,31 +450,59 @@ class _Rewriter(IRVisitor[ExpressionIR]):
     def __init__(self, loc: SourceLocation) -> None:
         self._loc = loc
 
+    @staticmethod
+    def _same_items(old_items: Optional[List[Any]], new_items: List[Any]) -> bool:
+        seq = list(old_items or [])
+        return len(seq) == len(new_items) and all(a is b for a, b in zip(seq, new_items))
+
+    @staticmethod
+    def _same_mapping(old_map: Optional[Dict[Any, Any]], new_map: Optional[Dict[Any, Any]]) -> bool:
+        if old_map is new_map:
+            return True
+        if not old_map and not new_map:
+            return True
+        if old_map is None or new_map is None or len(old_map) != len(new_map):
+            return False
+        return all(k in old_map and old_map[k] is v for k, v in new_map.items())
+
     def _rw_wc(self, wc: Any) -> Any:
         if wc is None:
             return None
         cc = getattr(wc, "constraints", None)
         if not cc:
             return wc
-        return WhereClauseIR(constraints=[c.accept(self) for c in cc], location=self._loc)
+        nc = [c.accept(self) for c in cc]
+        if self._same_items(cc, nc):
+            return wc
+        return WhereClauseIR(constraints=nc, location=self._loc)
 
     def _rw_lr(self, lr: Optional[Dict]) -> Optional[Dict]:
         if not lr:
             return lr
         out: Dict = {}
+        changed = False
         for k, v in lr.items():
             if isinstance(v, RangeIR):
-                out[k] = RangeIR(
-                    start=v.start.accept(self),
-                    end=v.end.accept(self),
-                    location=v.location or self._loc,
-                    type_info=v.type_info,
-                )
+                ns = v.start.accept(self)
+                ne = v.end.accept(self)
+                if ns is v.start and ne is v.end:
+                    out[k] = v
+                else:
+                    changed = True
+                    out[k] = RangeIR(
+                        start=ns,
+                        end=ne,
+                        location=v.location or self._loc,
+                        type_info=v.type_info,
+                    )
             elif isinstance(v, ExpressionIR):
-                out[k] = v.accept(self)
+                nv = v.accept(self)
+                if nv is not v:
+                    changed = True
+                out[k] = nv
             else:
                 out[k] = v
-        return out
+        return out if changed else lr
 
     def visit_literal(self, n: LiteralIR) -> ExpressionIR:
         return n
@@ -490,38 +518,52 @@ class _Rewriter(IRVisitor[ExpressionIR]):
 
     def visit_binary_op(self, n: BinaryOpIR) -> ExpressionIR:
         loc = n.location or self._loc
+        nl = n.left.accept(self)
+        nr = n.right.accept(self)
+        if nl is n.left and nr is n.right:
+            return n
         return BinaryOpIR(
             n.operator,
-            n.left.accept(self),
-            n.right.accept(self),
+            nl,
+            nr,
             loc,
             type_info=_ti(n),
             shape_info=_si(n),
         )
 
     def visit_unary_op(self, n: UnaryOpIR) -> ExpressionIR:
+        no = n.operand.accept(self)
+        if no is n.operand:
+            return n
         return UnaryOpIR(
             n.operator,
-            n.operand.accept(self),
+            no,
             n.location or self._loc,
             type_info=_ti(n),
             shape_info=_si(n),
         )
 
     def visit_function_call(self, n: FunctionCallIR) -> ExpressionIR:
+        na = [a.accept(self) for a in (n.arguments or [])]
+        if self._same_items(n.arguments, na):
+            return n
         return FunctionCallIR(
             callee_expr=n.callee_expr,
             location=n.location or self._loc,
-            arguments=[a.accept(self) for a in (n.arguments or [])],
+            arguments=na,
             module_path=getattr(n, "module_path", None),
             type_info=_ti(n),
             shape_info=_si(n),
         )
 
     def visit_rectangular_access(self, n: RectangularAccessIR) -> ExpressionIR:
+        na = n.array.accept(self)
+        ni = [i.accept(self) for i in (n.indices or [])]
+        if na is n.array and self._same_items(n.indices, ni):
+            return n
         return RectangularAccessIR(
-            n.array.accept(self),
-            [i.accept(self) for i in (n.indices or [])],
+            na,
+            ni,
             n.location or self._loc,
             type_info=_ti(n),
             shape_info=_si(n),
@@ -533,12 +575,18 @@ class _Rewriter(IRVisitor[ExpressionIR]):
     def visit_block_expression(self, n: BlockExpressionIR) -> ExpressionIR:
         loc = n.location or self._loc
         ns: List[Any] = []
+        changed = False
         for s in n.statements or []:
             if isinstance(s, BindingIR) and s.expr is not None:
+                nexpr = s.expr.accept(self)
+                if nexpr is s.expr:
+                    ns.append(s)
+                    continue
+                changed = True
                 ns.append(
                     BindingIR(
                         name=s.name,
-                        expr=s.expr.accept(self),
+                        expr=nexpr,
                         location=s.location,
                         defid=s.defid,
                         type_info=_ti(s),
@@ -547,15 +595,24 @@ class _Rewriter(IRVisitor[ExpressionIR]):
             else:
                 ns.append(s)
         nf = n.final_expr.accept(self) if n.final_expr is not None else None
+        if nf is not n.final_expr:
+            changed = True
+        if not changed:
+            return n
         return BlockExpressionIR(ns, loc, nf, type_info=_ti(n), shape_info=_si(n))
 
     def visit_if_expression(self, n: IfExpressionIR) -> ExpressionIR:
         loc = n.location or self._loc
+        nc = n.condition.accept(self)
+        nt = n.then_expr.accept(self)
+        ne = n.else_expr.accept(self) if n.else_expr is not None else None
+        if nc is n.condition and nt is n.then_expr and ne is n.else_expr:
+            return n
         return IfExpressionIR(
-            condition=n.condition.accept(self),
-            then_expr=n.then_expr.accept(self),
+            condition=nc,
+            then_expr=nt,
             location=loc,
-            else_expr=n.else_expr.accept(self) if n.else_expr is not None else None,
+            else_expr=ne,
             type_info=_ti(n),
             shape_info=_si(n),
         )
@@ -564,8 +621,11 @@ class _Rewriter(IRVisitor[ExpressionIR]):
         return n
 
     def visit_differential(self, n: DifferentialIR) -> ExpressionIR:
+        no = n.operand.accept(self)
+        if no is n.operand:
+            return n
         return DifferentialIR(
-            n.operand.accept(self),
+            no,
             n.location or self._loc,
             type_info=_ti(n),
             shape_info=_si(n),
@@ -593,8 +653,11 @@ class _Rewriter(IRVisitor[ExpressionIR]):
         return n
 
     def visit_cast_expression(self, n: CastExpressionIR) -> ExpressionIR:
+        ne = n.expr.accept(self)
+        if ne is n.expr:
+            return n
         return CastExpressionIR(
-            n.expr.accept(self),
+            ne,
             n.target_type,
             n.location or self._loc,
             type_info=_ti(n),
@@ -602,8 +665,11 @@ class _Rewriter(IRVisitor[ExpressionIR]):
         )
 
     def visit_member_access(self, n: MemberAccessIR) -> ExpressionIR:
+        no = n.object.accept(self)
+        if no is n.object:
+            return n
         return MemberAccessIR(
-            n.object.accept(self),
+            no,
             n.member,
             n.location or self._loc,
             type_info=_ti(n),
@@ -617,21 +683,29 @@ class _Rewriter(IRVisitor[ExpressionIR]):
         return n
 
     def visit_reduction_expression(self, n: ReductionExpressionIR) -> ExpressionIR:
+        nb = n.body.accept(self)
+        nwc = self._rw_wc(n.where_clause)
+        nlr = self._rw_lr(n.loop_var_ranges)
+        if nb is n.body and nwc is n.where_clause and nlr is n.loop_var_ranges:
+            return n
         return ReductionExpressionIR(
             n.operation,
             n.loop_vars,
-            n.body.accept(self),
+            nb,
             n.location or self._loc,
-            where_clause=self._rw_wc(n.where_clause),
-            loop_var_ranges=self._rw_lr(n.loop_var_ranges),
+            where_clause=nwc,
+            loop_var_ranges=nlr,
             type_info=_ti(n),
             shape_info=_si(n),
         )
 
     def visit_builtin_call(self, n: BuiltinCallIR) -> ExpressionIR:
+        na = [a.accept(self) for a in (n.args or [])]
+        if self._same_items(n.args, na):
+            return n
         return BuiltinCallIR(
             n.builtin_name,
-            [a.accept(self) for a in (n.args or [])],
+            na,
             n.location or self._loc,
             defid=getattr(n, "defid", None),
             type_info=_ti(n),
@@ -682,20 +756,37 @@ class _Rewriter(IRVisitor[ExpressionIR]):
 
     def visit_einstein(self, n: EinsteinIR) -> ExpressionIR:
         nc: List[EinsteinClauseIR] = []
+        changed = False
         for c in n.clauses or []:
             cv = c.value.accept(self) if c.value is not None else None
             if cv is not None:
                 cv = _unwrap_trivial_einstein_rhs(cv)
-            nc.append(
-                EinsteinClauseIR(
-                    indices=[i.accept(self) for i in (c.indices or [])],
-                    value=cv,
-                    location=c.location,
-                    where_clause=self._rw_wc(c.where_clause),
-                    variable_ranges=dict(self._rw_lr(c.variable_ranges) or {}),
+            ni = [i.accept(self) for i in (c.indices or [])]
+            nwc = self._rw_wc(c.where_clause)
+            nvr = self._rw_lr(c.variable_ranges)
+            if (
+                cv is c.value
+                and self._same_items(c.indices, ni)
+                and nwc is c.where_clause
+                and nvr is c.variable_ranges
+            ):
+                nc.append(c)
+            else:
+                changed = True
+                nc.append(
+                    EinsteinClauseIR(
+                        indices=ni,
+                        value=cv,
+                        location=c.location,
+                        where_clause=nwc,
+                        variable_ranges=dict(nvr or {}),
+                    )
                 )
-            )
         new_shape = tuple(s.accept(self) for s in n.shape) if n.shape else n.shape
+        if n.shape:
+            changed = changed or any(ns is not os for os, ns in zip(n.shape, new_shape))
+        if not changed:
+            return n
         return EinsteinIR(
             clauses=nc,
             shape=new_shape,
@@ -720,11 +811,14 @@ class _Rewriter(IRVisitor[ExpressionIR]):
         loc = n.location or self._loc
         pb = n.primal_body.accept(self) if n.primal_body is not None else None
         db = n.diff_body.accept(self) if n.diff_body is not None else None
+        nlr = self._rw_lr(n.loop_var_ranges)
+        if pb is n.primal_body and db is n.diff_body and nlr is n.loop_var_ranges:
+            return n
         return SelectAtArgmaxIR(
             pb,
             db,
             n.loop_vars,
-            loop_var_ranges=self._rw_lr(n.loop_var_ranges),
+            loop_var_ranges=nlr,
             location=loc,
             type_info=_ti(n),
             shape_info=_si(n),
@@ -1909,6 +2003,66 @@ def _eval_const_expr(
     return None
 
 
+def _prune_const_ifs_replayed(
+    expr: Optional[ExpressionIR],
+    bindings: Dict[DefId, BindingIR],
+) -> Optional[ExpressionIR]:
+    """Prune replayed callee `if` branches when their condition becomes compile-time constant."""
+    if expr is None:
+        return None
+    if isinstance(expr, IfExpressionIR):
+        cond = _prune_const_ifs_replayed(expr.condition, bindings)
+        then_expr = _prune_const_ifs_replayed(expr.then_expr, bindings)
+        else_expr = _prune_const_ifs_replayed(expr.else_expr, bindings) if expr.else_expr is not None else None
+        cond_value = _eval_const_expr(cond, bindings)
+        if isinstance(cond_value, (bool, int)):
+            return then_expr if bool(cond_value) else else_expr
+        if cond is expr.condition and then_expr is expr.then_expr and else_expr is expr.else_expr:
+            return expr
+        return IfExpressionIR(
+            cond if cond is not None else expr.condition,
+            then_expr if then_expr is not None else expr.then_expr,
+            expr.location,
+            else_expr=else_expr,
+            type_info=_ti(expr),
+            shape_info=_si(expr),
+        )
+    if isinstance(expr, BlockExpressionIR):
+        changed = False
+        ns: List[Any] = []
+        for s in expr.statements or []:
+            if isinstance(s, BindingIR) and s.expr is not None:
+                ne = _prune_const_ifs_replayed(s.expr, bindings)
+                if ne is s.expr:
+                    ns.append(s)
+                else:
+                    changed = True
+                    ns.append(
+                        BindingIR(
+                            name=s.name,
+                            expr=ne,
+                            location=s.location,
+                            defid=s.defid,
+                            type_info=_ti(s),
+                        )
+                    )
+            else:
+                ns.append(s)
+        nf = _prune_const_ifs_replayed(expr.final_expr, bindings) if expr.final_expr is not None else None
+        if nf is not expr.final_expr:
+            changed = True
+        if not changed:
+            return expr
+        return BlockExpressionIR(
+            ns,
+            expr.location,
+            nf,
+            type_info=_ti(expr),
+            shape_info=_si(expr),
+        )
+    return expr
+
+
 def _clause_index_defids(indices: Optional[List]) -> Set[DefId]:
     out: Set[DefId] = set()
     for ix in indices or []:
@@ -2995,6 +3149,7 @@ def _callee_args_support_combined_forward(
 
 def _diff_callee_block_combined_forward(
     block: BlockExpressionIR,
+    primal_stmts: List[BindingIR],
     primal_map: Dict[DefId, ExpressionIR],
     rm: Dict[DefId, ExpressionIR],
     tangent_by_param: Dict[DefId, ExpressionIR],
@@ -3028,10 +3183,23 @@ def _diff_callee_block_combined_forward(
 
     diff_stmts: List[BindingIR] = []
     bl = block.location or loc
+    replayed_by_defid: Dict[DefId, BindingIR] = {}
+    for s, replayed_stmt in zip(
+        (
+            stmt
+            for stmt in (block.statements or [])
+            if isinstance(stmt, BindingIR) and stmt.defid is not None and stmt.expr is not None
+        ),
+        primal_stmts,
+    ):
+        replayed_by_defid[s.defid] = replayed_stmt
     for s in block.statements or []:
         if not isinstance(s, BindingIR) or s.defid is None or s.expr is None:
             continue
-        e_sub = _sub(s.expr, primal_map, loc)
+        replayed = replayed_by_defid.get(s.defid)
+        if replayed is None or replayed.expr is None:
+            raise ValueError("Autodiff: missing replayed primal binding for callee local")
+        e_sub = replayed.expr
         pv = _simplify(e_sub.accept(DiffVisitor(dre, loc, B, R)), loc)
         bti = _ti(s) or _ti(pv)
         bsi = _si(s) or _si(pv)
@@ -3058,6 +3226,12 @@ def _diff_callee_block_combined_forward(
         )
     pm_fe = dict(primal_map)
     fe_rep = _callee_replay_expression(block.final_expr, pm_fe, bl, R)
+    replayed_local_bindings = {
+        stmt.defid: stmt
+        for stmt in primal_stmts
+        if stmt.defid is not None
+    }
+    fe_rep = _prune_const_ifs_replayed(fe_rep, replayed_local_bindings)
     # Final expr may still reference callee parameter DefIds while tangents were keyed by
     # call-site argument DefIds only; alias parameter -> same tangent for this pass only
     # (do not inject into the per-statement loop — multi-let bodies reuse DefId slots).
@@ -3234,7 +3408,7 @@ def _callee_forward_jvp(
         primal_stmts, primal_map = _callee_block_build_primal(body, rm, loc, R)
         if _callee_args_support_combined_forward(rm, ps):
             all_diff, acc = _diff_callee_block_combined_forward(
-                body, primal_map, rm, tangent_by_param, loc, B, R, ps
+                body, primal_stmts, primal_map, rm, tangent_by_param, loc, B, R, ps
             )
         else:
             all_diff = []

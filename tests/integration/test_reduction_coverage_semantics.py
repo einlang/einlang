@@ -9,6 +9,8 @@ import pytest
 import numpy as np
 from tests.test_utils import compile_and_execute
 
+_F32_REDUCTION_TOL = 1e-6
+
 
 class TestReductionCoverageSemantics:
     """Verify reductions with value filtering never create coverage holes"""
@@ -101,5 +103,5 @@ class TestReductionCoverageSemantics:
         variance_nested = float(exec_result.outputs["variance_nested"])
         variance_multi = float(exec_result.outputs["variance_multi"])
 
-        assert abs(variance_nested - variance_multi) < 1e-9
-        assert abs(variance_nested - (60.0 / 9.0)) < 1e-9
+        assert abs(variance_nested - variance_multi) < _F32_REDUCTION_TOL
+        assert abs(variance_nested - (60.0 / 9.0)) < _F32_REDUCTION_TOL
