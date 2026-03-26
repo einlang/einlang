@@ -2003,6 +2003,13 @@ def _eval_const_expr(
     return None
 
 
+def _collapse_empty_block_wrappers(expr: Optional[ExpressionIR]) -> Optional[ExpressionIR]:
+    cur = expr
+    while isinstance(cur, BlockExpressionIR) and not (cur.statements or []) and cur.final_expr is not None:
+        cur = cur.final_expr
+    return cur
+
+
 def _prune_const_ifs_replayed(
     expr: Optional[ExpressionIR],
     bindings: Dict[DefId, BindingIR],
@@ -2016,17 +2023,17 @@ def _prune_const_ifs_replayed(
         else_expr = _prune_const_ifs_replayed(expr.else_expr, bindings) if expr.else_expr is not None else None
         cond_value = _eval_const_expr(cond, bindings)
         if isinstance(cond_value, (bool, int)):
-            return then_expr if bool(cond_value) else else_expr
+            return _collapse_empty_block_wrappers(then_expr if bool(cond_value) else else_expr)
         if cond is expr.condition and then_expr is expr.then_expr and else_expr is expr.else_expr:
-            return expr
-        return IfExpressionIR(
+            return _collapse_empty_block_wrappers(expr)
+        return _collapse_empty_block_wrappers(IfExpressionIR(
             cond if cond is not None else expr.condition,
             then_expr if then_expr is not None else expr.then_expr,
             expr.location,
             else_expr=else_expr,
             type_info=_ti(expr),
             shape_info=_si(expr),
-        )
+        ))
     if isinstance(expr, BlockExpressionIR):
         changed = False
         ns: List[Any] = []
@@ -2052,15 +2059,15 @@ def _prune_const_ifs_replayed(
         if nf is not expr.final_expr:
             changed = True
         if not changed:
-            return expr
-        return BlockExpressionIR(
+            return _collapse_empty_block_wrappers(expr)
+        return _collapse_empty_block_wrappers(BlockExpressionIR(
             ns,
             expr.location,
             nf,
             type_info=_ti(expr),
             shape_info=_si(expr),
-        )
-    return expr
+        ))
+    return _collapse_empty_block_wrappers(expr)
 
 
 def _clause_index_defids(indices: Optional[List]) -> Set[DefId]:
@@ -3975,7 +3982,9 @@ class _TrimDeadPrimalPrintRewriter(_Rewriter):
                     out.append(s)
             else:
                 out.append(s)
-        return BlockExpressionIR(out, loc, nf, type_info=_ti(n), shape_info=_si(n))
+        return _collapse_empty_block_wrappers(
+            BlockExpressionIR(out, loc, nf, type_info=_ti(n), shape_info=_si(n))
+        )
 
 
 def _str_ir_print_differential_rhs(
@@ -3984,7 +3993,7 @@ def _str_ir_print_differential_rhs(
     dep_cache: Optional[_DependencyQueryCache] = None,
 ) -> str:
     """``_str_ir`` for ``print(@…)`` after eliding dead callee primals (does not change executed IR)."""
-    trimmed = expr.accept(_TrimDeadPrimalPrintRewriter(loc, dep_cache))
+    trimmed = _collapse_empty_block_wrappers(expr.accept(_TrimDeadPrimalPrintRewriter(loc, dep_cache)))
     return str(trimmed)
 
 

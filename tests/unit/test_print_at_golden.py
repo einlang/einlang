@@ -550,7 +550,7 @@ let x = [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]]];
 let y = std::ml::max_pool(x, [2, 2], [2, 2], [0, 0]);
 print(@y);
 """,
-        'let @y = {\n    let _@max_pool_call: [f32; ?, ?, ?, ?] = { { { {\n        let _@output[_ad_0 in 0..?.shape[0], _ad_1 in 0..?.shape[1], _ad_2 in 0..?.shape[2], _ad_3 in 0..?.shape[3]]: [f32; ?, ?, ?, ?] = sum[batch.0, c, i, j](if j * [2, 2][1] - [0, 0][1] + n == _ad_3 in 0..?.shape[3] if i * [2, 2][0] - [0, 0][0] + m == _ad_2 in 0..?.shape[2] if c == _ad_1 in 0..?.shape[1] if batch.0 == _ad_0 in 0..?.shape[0] 1.0 else 0.0 else 0.0 else 0.0 else 0.0 at argmax[m, n](x[batch.0, c, i * [2, 2][0] - [0, 0][0] + m, j * [2, 2][1] - [0, 0][1] + n]));\n        _@output\n    } } } };\n    _@max_pool_call\n};',
+        'let @y = {\n    let _@max_pool_call: [f32; ?, ?, ?, ?] = {\n        let _@output[_ad_0 in 0..?.shape[0], _ad_1 in 0..?.shape[1], _ad_2 in 0..?.shape[2], _ad_3 in 0..?.shape[3]]: [f32; ?, ?, ?, ?] = sum[batch.0, c, i, j](if j * [2, 2][1] - [0, 0][1] + n == _ad_3 in 0..?.shape[3] if i * [2, 2][0] - [0, 0][0] + m == _ad_2 in 0..?.shape[2] if c == _ad_1 in 0..?.shape[1] if batch.0 == _ad_0 in 0..?.shape[0] 1.0 else 0.0 else 0.0 else 0.0 else 0.0 at argmax[m, n](x[batch.0, c, i * [2, 2][0] - [0, 0][0] + m, j * [2, 2][1] - [0, 0][1] + n]));\n        _@output\n    };\n    _@max_pool_call\n};',
     ),
     (
         "mse_loss",
