@@ -31,7 +31,7 @@ def _short_err(obj: object, limit: int = 600) -> str:
     return s
 
 
-def _compile_exec_capture_outputs(source: str) -> Tuple[bool, bool, Dict[str, Any], str]:
+def _compile_exec_outputs(source: str) -> Tuple[bool, bool, Dict[str, Any], str]:
     compiler = CompilerDriver()
     result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
     if not result.success:
@@ -227,7 +227,7 @@ def test_quotient_vs_calculus(label: str, orig_source: str) -> None:
         pytest.fail("missing _EXPECTED_DY_DX for label %r (add entry or add to _QUOTIENT_SKIP)" % label)
 
     qsrc = _build_quotient_source(label, orig_source)
-    c_ok, e_ok, outputs, err = _compile_exec_capture_outputs(qsrc)
+    c_ok, e_ok, outputs, err = _compile_exec_outputs(qsrc)
     assert c_ok, "%s: compile failed: %s" % (label, err)
     assert e_ok, "%s: exec failed: %s" % (label, err)
     got = outputs.get("q")

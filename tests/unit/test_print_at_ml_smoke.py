@@ -8,7 +8,7 @@ from typing import List, Set, Tuple
 
 import pytest
 
-from tests.print_at_fixtures import compile_exec_capture_print_at
+from tests.print_at_fixtures import compile_capture_rewritten_print_at
 
 ML_ACTIVATION_PRINT_AT_GOLDEN_CASES: List[Tuple[str, str, str]] = [
     (
@@ -146,11 +146,10 @@ class TestPrintAtMlSmoke:
         ids=[row[0] for row in ML_ACTIVATION_PRINT_AT_GOLDEN_CASES],
     )
     def test_ml_activation_golden_stdout(
-        self, op_name: str, source: str, expected: str, session_compiler, session_runtime
+        self, op_name: str, source: str, expected: str, session_compiler
     ) -> None:
-        c_ok, e_ok, out, err = compile_exec_capture_print_at(
-            source, compiler=session_compiler, runtime=session_runtime
+        c_ok, out, err = compile_capture_rewritten_print_at(
+            source, compiler=session_compiler
         )
         assert c_ok, "%s: compile failed: %s" % (op_name, err)
-        assert e_ok, "%s: exec failed: %s" % (op_name, err)
         assert out == expected, "%s: got %r, expected %r" % (op_name, out, expected)

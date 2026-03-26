@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from tests.print_at_fixtures import compile_exec_capture_print_at
+from tests.test_utils import compile_and_execute
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -18,16 +18,23 @@ def test_decay_calibration_autodiff_prints_and_refines_fit(session_compiler, ses
     source = (PROJECT_ROOT / "examples" / "applications" / "decay_calibration_autodiff.ein").read_text(
         encoding="utf-8"
     )
-    c_ok, e_ok, out, err = compile_exec_capture_print_at(
-        source, compiler=session_compiler, runtime=session_runtime
+    result = compile_and_execute(
+        source,
+        session_compiler,
+        session_runtime,
+        source_file=str(PROJECT_ROOT / "examples" / "applications" / "decay_calibration_autodiff.ein"),
     )
-    assert c_ok, err
-    assert e_ok, err
+    assert result.success, result.error or result.errors
 
-    lines = out.splitlines()
-    assert len(lines) == 4, f"expected 4 printed values, got {len(lines)}: {lines!r}"
-
-    actual = np.array([float(x) for x in lines], dtype=np.float64)
+    actual = np.array(
+        [
+            float(result.outputs["sse"]),
+            float(result.outputs["sse_next"]),
+            float(result.outputs["k_next"]),
+            float(result.outputs["u0_next"]),
+        ],
+        dtype=np.float64,
+    )
 
     dt = 0.1
     n_obs = 12

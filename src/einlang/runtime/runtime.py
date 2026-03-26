@@ -119,6 +119,12 @@ class EinlangRuntime:
             self.backend: Backend = NumPyBackend()
         else:
             raise ValueError(f"Unknown backend: {backend}")
+        self._last_vectorize_counts: Dict[str, int] = {
+            "vectorized": 0,
+            "scalar": 0,
+            "hybrid": 0,
+            "call_scalar": 0,
+        }
     
     def execute(
         self, 
@@ -158,12 +164,22 @@ class EinlangRuntime:
             main_defid=main_defid,
             entry_source_file=entry_source_file,
         )
+        self._last_vectorize_counts = {
+            "vectorized": int(getattr(backend, "_einstein_vectorized", 0) or 0),
+            "scalar": int(getattr(backend, "_einstein_scalar", 0) or 0),
+            "hybrid": int(getattr(backend, "_einstein_hybrid", 0) or 0),
+            "call_scalar": int(getattr(backend, "_einstein_call_scalar", 0) or 0),
+        }
         outputs_named = {}
         for defid, value in (result.outputs or {}).items():
             assert_defid(defid, allow_none=False)
             name = _get_name_from_defid(ir, defid)
             outputs_named[name if name is not None else str(defid)] = value
         return ExecutionResult(value=result.value, outputs=outputs_named, error=result.error)
+
+    def get_last_vectorize_counts(self) -> Dict[str, int]:
+        """Return Einstein vectorization counters from the most recent execute() call."""
+        return dict(self._last_vectorize_counts)
     
     def execute_expression(
         self, 
@@ -176,4 +192,3 @@ class EinlangRuntime:
         Rust Pattern: Backend handles expression execution
         """
         return self.backend.execute_expression(expr, env)
-

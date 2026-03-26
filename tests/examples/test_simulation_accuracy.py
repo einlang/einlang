@@ -2,9 +2,9 @@
 Accuracy checks for simulation demos: ODE, wave, heat, Brusselator, value_iteration,
 job_search, recurrence, optimization, finance, time_series.
 
-Single set of tests: one test per example (test_accuracy_<path_suffix>), each runs
-the example and compares output to a reference (analytical or NumPy). No mocking.
-Examples are not grouped into one parametrized test.
+Single set of tests: one unified test per source file (or inline source), each runs
+the example once and compares every registered output against its reference
+(analytical or NumPy). No mocking.
 
 Canonical registry: SIMULATION_EXAMPLE_PATHS and ALL_ACCURACY_EXAMPLES; every path
 in the former must appear in the latter with a reference and tolerances (rtol/atol).
@@ -170,8 +170,13 @@ def _path_to_test_name(path_or_inline) -> str:
 
 
 def _accuracy_test_impl(compiler, runtime, path, output_key, ref_fn, rtol, atol, first_n):
-    """Run one example and compare output to reference. Single shared implementation."""
+    """Run one example output check against its reference."""
     result, _ = _run_ein_file(compiler, runtime, path)
+    _assert_accuracy_case(result, path, output_key, ref_fn, rtol, atol, first_n)
+
+
+def _assert_accuracy_case(result, path, output_key, ref_fn, rtol, atol, first_n):
+    """Compare one output from a compiled/executed example against its reference."""
     assert result.success, result.errors or result.error
     out = result.value if result.value is not None else result.outputs.get(output_key)
     label = _path_label(path)
@@ -186,7 +191,7 @@ def _accuracy_test_impl(compiler, runtime, path, output_key, ref_fn, rtol, atol,
         ref_compare = reference[:first_n]
         np.testing.assert_allclose(
             arr_compare, ref_compare, rtol=rtol, atol=atol,
-            err_msg=f"{label} first {first_n} vs reference",
+            err_msg=f"{label}::{output_key} first {first_n} vs reference",
         )
         assert np.isfinite(arr).all(), f"{label} must be finite"
     else:
@@ -194,29 +199,38 @@ def _accuracy_test_impl(compiler, runtime, path, output_key, ref_fn, rtol, atol,
             reference = reference.astype(np.float64)
         np.testing.assert_allclose(
             arr, reference, rtol=rtol, atol=atol,
-            err_msg=f"{label} vs reference",
+            err_msg=f"{label}::{output_key} vs reference",
         )
 
 
-def _make_accuracy_test(path, output_key, ref_fn, rtol, atol, first_n):
-    """Return a test function (compiler, runtime) for one accuracy example."""
+def _group_accuracy_examples_by_source():
+    grouped = {}
+    order = []
+    for case in ALL_ACCURACY_EXAMPLES:
+        path = case[0]
+        if path not in grouped:
+            grouped[path] = []
+            order.append(path)
+        grouped[path].append(case[1:])
+    return [(path, grouped[path]) for path in order]
+
+
+def _make_accuracy_group_test(path, cases):
+    """Return one test that runs a source once and validates all registered outputs."""
     def test(compiler, runtime):
-        _accuracy_test_impl(compiler, runtime, path, output_key, ref_fn, rtol, atol, first_n)
+        result, _ = _run_ein_file(compiler, runtime, path)
+        for output_key, ref_fn, rtol, atol, first_n in cases:
+            _assert_accuracy_case(result, path, output_key, ref_fn, rtol, atol, first_n)
     return test
 
 
-# One test per example (no single parametrized group). Same path with different output_key gets unique name.
+# One unified test per source path / inline source.
 _module = sys.modules[__name__]
-_seen_bases = set()
-for path, output_key, ref_fn, rtol, atol, first_n in ALL_ACCURACY_EXAMPLES:
-    base = "test_accuracy_" + _path_to_test_name(path)
-    key_suffix = output_key.replace("[", "_").replace("]", "_")
-    name = (base + "_" + key_suffix) if base in _seen_bases else base
-    _seen_bases.add(base)
+for path, cases in _group_accuracy_examples_by_source():
     setattr(
         _module,
-        name,
-        _make_accuracy_test(path, output_key, ref_fn, rtol, atol, first_n),
+        "test_accuracy_" + _path_to_test_name(path),
+        _make_accuracy_group_test(path, cases),
     )
 
 
