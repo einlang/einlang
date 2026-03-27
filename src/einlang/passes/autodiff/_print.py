@@ -32,7 +32,8 @@ def _idx_str(idx: Any) -> str:
 
 
 def _str_ir(expr: ExpressionIR) -> str:
-    return str(expr)
+    cleaned = expr.accept(_CleanPrintBlocksRewriter(getattr(expr, "location", None) or SourceLocation("", 0, 0)))
+    return str(_collapse_empty_block_wrappers(cleaned) or cleaned)
 
 
 def _live_primal_defids_for_print_display(
@@ -121,17 +122,20 @@ class _CleanPrintBlocksRewriter(_Rewriter):
 
     def visit_block_expression(self, n: BlockExpressionIR) -> ExpressionIR:
         rewritten = cast(BlockExpressionIR, super().visit_block_expression(n))
+        collapsed_final = (
+            _collapse_empty_block_wrappers(rewritten.final_expr)
+            if rewritten.final_expr is not None
+            else None
+        )
+        if collapsed_final is not rewritten.final_expr:
+            rewritten = BlockExpressionIR(
+                list(rewritten.statements or []),
+                rewritten.location or self._loc,
+                collapsed_final,
+                type_info=getattr(rewritten, "type_info", None),
+                shape_info=getattr(rewritten, "shape_info", None),
+            )
         if self._preserve_outer_block:
-            if rewritten.final_expr is not None:
-                collapsed_final = _collapse_empty_block_wrappers(rewritten.final_expr)
-                if collapsed_final is not rewritten.final_expr:
-                    return BlockExpressionIR(
-                        list(rewritten.statements or []),
-                        rewritten.location or self._loc,
-                        collapsed_final,
-                        type_info=getattr(rewritten, "type_info", None),
-                        shape_info=getattr(rewritten, "shape_info", None),
-                    )
             return rewritten
         return _collapse_empty_block_wrappers(rewritten) or rewritten
 

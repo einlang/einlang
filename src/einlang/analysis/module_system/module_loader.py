@@ -507,4 +507,3 @@ class ModuleLoader:
     def is_module_loaded(self, module_path: Tuple[str, ...]) -> bool:
         """Check if a module is already loaded"""
         return module_path in self.loaded_modules
-
