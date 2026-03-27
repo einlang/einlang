@@ -114,6 +114,73 @@ def _apply_optional_bias(
     return result
 
 
+def _sliding_window_axis_view(
+    array: np.ndarray,
+    axis: int,
+    window_size: int,
+    stride: int = 1,
+) -> Optional[np.ndarray]:
+    """Return a generic strided sliding-window view along a single axis.
+
+    The window axis is appended at the end, matching NumPy's
+    ``sliding_window_view`` behavior. This is the backend building block for
+    lowering Einstein local-window patterns into vectorized NumPy kernels.
+    """
+    if (
+        not isinstance(array, np.ndarray)
+        or window_size <= 0
+        or stride <= 0
+        or array.ndim == 0
+    ):
+        return None
+    ndim = array.ndim
+    axis = axis % ndim
+    if window_size > array.shape[axis]:
+        return None
+    try:
+        windows = np.lib.stride_tricks.sliding_window_view(
+            array,
+            window_shape=window_size,
+            axis=axis,
+        )
+    except Exception:
+        return None
+    if stride != 1:
+        index = [slice(None)] * windows.ndim
+        index[axis] = slice(None, None, stride)
+        windows = windows[tuple(index)]
+    return windows
+
+
+def _windowed_einsum_reduction(
+    input_arr: np.ndarray,
+    weight_arr: np.ndarray,
+    *,
+    window_axis: int,
+    window_size: int,
+    stride: int,
+    equation: str,
+) -> Optional[np.ndarray]:
+    """Evaluate an Einstein-style local-window reduction via sliding windows.
+
+    This is intentionally conv-agnostic: callers provide the source tensor,
+    the reduction tensor, the windowed axis metadata, and the einsum equation
+    that lowers the original Einstein sum-of-products into NumPy.
+    """
+    windows = _sliding_window_axis_view(
+        input_arr,
+        axis=window_axis,
+        window_size=window_size,
+        stride=stride,
+    )
+    if windows is None:
+        return None
+    try:
+        return np.einsum(equation, windows, weight_arr, optimize=True)
+    except Exception:
+        return None
+
+
 def _safe_oob_ndarray_access(array: np.ndarray, indices: List[Any]) -> Any:
     """Advanced ndarray indexing with zero-fill for out-of-bounds positions.
 
@@ -514,6 +581,14 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         return None
     if not isinstance(left_val, np.ndarray) or not isinstance(right_val, np.ndarray):
         return None
+    left_val, kept_left = _slice_array_at_scalar_indices(
+        left_val, indices_left, reduction_defids, backend
+    )
+    right_val, kept_right = _slice_array_at_scalar_indices(
+        right_val, indices_right, reduction_defids, backend
+    )
+    axes_left = _remap_axes_after_scalar_slicing(axes_left, kept_left)
+    axes_right = _remap_axes_after_scalar_slicing(axes_right, kept_right)
     if axes_left is None:
         axes_left = _infer_reduction_axes_from_shape(left_val.shape, reduction_sizes)
     if axes_right is None:
@@ -573,9 +648,13 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     return result
 
 
-def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
-    """Strict 1D conv fast path: sum[ci,k](input[ci, stride*t+k] * weight[co,ci,k]) + bias, stride 1 or 2.
-    Uses im2col unfold + np.einsum. Returns None if pattern does not match."""
+def _try_windowed_sumprod_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
+    """Fast path for Einstein sum-of-products over sliding windows.
+
+    Today this recognizes the strict 1D conv pattern, but the execution model is
+    generic: build a sliding-window tensor view, then lower the Einstein body to
+    a NumPy einsum over that view and the reduction tensor.
+    """
     from ..shared.types import ReductionOp
     op = expr.operation
     if op != ReductionOp.SUM:
@@ -687,12 +766,16 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
     if L_out < 1:
         return None
     try:
-        unfolded = np.empty((C_in, L_out, K), dtype=input_arr.dtype)
-        for t in range(L_out):
-            start = t * stride
-            unfolded[:, t, :] = input_arr[:, start : start + K]
-        # BLAS-friendly: einsum "ctk,ock->ot" is batched matmul on last two dims
-        result = np.einsum("ctk,ock->ot", unfolded, weight_arr, optimize=True)
+        result = _windowed_einsum_reduction(
+            input_arr,
+            weight_arr,
+            window_axis=1,
+            window_size=K,
+            stride=stride,
+            equation="ctk,ock->ot",
+        )
+        if result is None or result.shape != (Co, L_out):
+            return None
     except Exception:
         return None
     if bias is not None:
@@ -701,8 +784,6 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
         except Exception:
             pass
     return result
-
-
 def _index_to_reduction_position(idx: Any, reduction_defids: List[Any]) -> Optional[int]:
     """If index is a simple reduction variable, return its position in reduction_defids; else None."""
     if idx is None or not isinstance(idx, (IdentifierIR, IndexVarIR)):
@@ -756,6 +837,22 @@ def _slice_array_at_scalar_indices(
         return arr[tuple(key)], kept
     except Exception:
         return arr, list(range(arr.ndim))
+
+
+def _remap_axes_after_scalar_slicing(
+    axes: Optional[Tuple[int, ...]],
+    kept_positions: List[int],
+) -> Optional[Tuple[int, ...]]:
+    """Remap original array axes after scalar-index slicing removes dimensions."""
+    if axes is None:
+        return None
+    axis_map = {old_axis: new_axis for new_axis, old_axis in enumerate(kept_positions)}
+    remapped: List[int] = []
+    for axis in axes:
+        if axis not in axis_map:
+            return None
+        remapped.append(axis_map[axis])
+    return tuple(remapped)
 
 
 def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:

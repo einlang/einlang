@@ -9,9 +9,9 @@ from .numpy_expressions_support import (
     _invoke_runtime_builtin,
     _normalize_literal_sequence,
     _safe_oob_ndarray_access,
-    _try_conv_im2col_einsum,
     _try_einsum_reduction,
     _try_matmul_reduction,
+    _try_windowed_sumprod_einsum,
 )
 from .numpy_helpers import _PatternMatcher
 
@@ -463,11 +463,11 @@ class ExpressionVisitorMixin:
             parallel_shape = self._vectorization_parallel_shape()
         # Recurrence clauses may use partial vectorization but must not use fast_matmul / fast_conv.
         if parallel_shape is not None and not self._in_recurrence_vectorization_clause():
-            conv_result = _try_conv_im2col_einsum(expr, self)
-            if conv_result is not None and isinstance(conv_result, np.ndarray):
-                if conv_result.shape == tuple(parallel_shape):
-                    setattr(self, "_last_reduction_fast_path", "conv")
-                    return conv_result
+            windowed_result = _try_windowed_sumprod_einsum(expr, self)
+            if windowed_result is not None and isinstance(windowed_result, np.ndarray):
+                if windowed_result.shape == tuple(parallel_shape):
+                    setattr(self, "_last_reduction_fast_path", "windowed-einsum")
+                    return windowed_result
             matmul_result = _try_matmul_reduction(expr, self)
             if matmul_result is not None and isinstance(matmul_result, np.ndarray):
                 if matmul_result.shape == tuple(parallel_shape):
