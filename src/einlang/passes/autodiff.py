@@ -2010,6 +2010,17 @@ def _collapse_empty_block_wrappers(expr: Optional[ExpressionIR]) -> Optional[Exp
     return cur
 
 
+def _collapse_nested_empty_blocks(expr: Optional[ExpressionIR]) -> Optional[ExpressionIR]:
+    cur = expr
+    while (
+        isinstance(cur, BlockExpressionIR)
+        and not (cur.statements or [])
+        and isinstance(cur.final_expr, BlockExpressionIR)
+    ):
+        cur = cur.final_expr
+    return cur
+
+
 def _prune_const_ifs_replayed(
     expr: Optional[ExpressionIR],
     bindings: Dict[DefId, BindingIR],
@@ -2023,17 +2034,17 @@ def _prune_const_ifs_replayed(
         else_expr = _prune_const_ifs_replayed(expr.else_expr, bindings) if expr.else_expr is not None else None
         cond_value = _eval_const_expr(cond, bindings)
         if isinstance(cond_value, (bool, int)):
-            return _collapse_empty_block_wrappers(then_expr if bool(cond_value) else else_expr)
+            return _collapse_nested_empty_blocks(then_expr if bool(cond_value) else else_expr)
         if cond is expr.condition and then_expr is expr.then_expr and else_expr is expr.else_expr:
-            return _collapse_empty_block_wrappers(expr)
-        return _collapse_empty_block_wrappers(IfExpressionIR(
+            return expr
+        return IfExpressionIR(
             cond if cond is not None else expr.condition,
             then_expr if then_expr is not None else expr.then_expr,
             expr.location,
             else_expr=else_expr,
             type_info=_ti(expr),
             shape_info=_si(expr),
-        ))
+        )
     if isinstance(expr, BlockExpressionIR):
         changed = False
         ns: List[Any] = []
@@ -2059,15 +2070,15 @@ def _prune_const_ifs_replayed(
         if nf is not expr.final_expr:
             changed = True
         if not changed:
-            return _collapse_empty_block_wrappers(expr)
-        return _collapse_empty_block_wrappers(BlockExpressionIR(
+            return expr
+        return BlockExpressionIR(
             ns,
             expr.location,
             nf,
             type_info=_ti(expr),
             shape_info=_si(expr),
-        ))
-    return _collapse_empty_block_wrappers(expr)
+        )
+    return expr
 
 
 def _clause_index_defids(indices: Optional[List]) -> Set[DefId]:
@@ -3706,9 +3717,14 @@ class DiffVisitor(IRVisitor[ExpressionIR]):
         return RectangularAccessIR(da, indices, loc, type_info=_ti(n), shape_info=_si(n))
 
     def visit_if_expression(self, n: IfExpressionIR) -> ExpressionIR:
+        loc = n.location or self._loc
         dt = n.then_expr.accept(self)
+        if isinstance(n.then_expr, BlockExpressionIR) and not isinstance(dt, BlockExpressionIR):
+            dt = BlockExpressionIR([], n.then_expr.location or loc, dt, type_info=_ti(n.then_expr), shape_info=_si(n.then_expr))
         de = n.else_expr.accept(self) if n.else_expr is not None else _z(self._loc)
-        return IfExpressionIR(condition=n.condition, then_expr=dt, location=n.location or self._loc,
+        if isinstance(n.else_expr, BlockExpressionIR) and not isinstance(de, BlockExpressionIR):
+            de = BlockExpressionIR([], n.else_expr.location or loc, de, type_info=_ti(n.else_expr), shape_info=_si(n.else_expr))
+        return IfExpressionIR(condition=n.condition, then_expr=dt, location=loc,
                               else_expr=de, type_info=_ti(n), shape_info=_si(n))
 
     def visit_cast_expression(self, n: CastExpressionIR) -> ExpressionIR:
@@ -3982,8 +3998,55 @@ class _TrimDeadPrimalPrintRewriter(_Rewriter):
                     out.append(s)
             else:
                 out.append(s)
-        return _collapse_empty_block_wrappers(
-            BlockExpressionIR(out, loc, nf, type_info=_ti(n), shape_info=_si(n))
+        return BlockExpressionIR(out, loc, nf, type_info=_ti(n), shape_info=_si(n))
+
+
+class _CleanPrintBlocksRewriter(_Rewriter):
+    """Collapse empty block wrappers for display, except around if-branches."""
+
+    def __init__(self, loc: SourceLocation, preserve_outer_block: bool = False) -> None:
+        super().__init__(loc)
+        self._preserve_outer_block = preserve_outer_block
+
+    def _child(self, preserve_outer_block: bool = False) -> "_CleanPrintBlocksRewriter":
+        return _CleanPrintBlocksRewriter(self._loc, preserve_outer_block=preserve_outer_block)
+
+    def visit_block_expression(self, n: BlockExpressionIR) -> ExpressionIR:
+        rewritten = cast(BlockExpressionIR, super().visit_block_expression(n))
+        if self._preserve_outer_block:
+            if rewritten.final_expr is not None:
+                collapsed_final = _collapse_empty_block_wrappers(rewritten.final_expr)
+                if collapsed_final is not rewritten.final_expr:
+                    return BlockExpressionIR(
+                        list(rewritten.statements or []),
+                        rewritten.location or self._loc,
+                        collapsed_final,
+                        type_info=_ti(rewritten),
+                        shape_info=_si(rewritten),
+                    )
+            return rewritten
+        return _collapse_empty_block_wrappers(rewritten) or rewritten
+
+    def visit_if_expression(self, n: IfExpressionIR) -> ExpressionIR:
+        loc = n.location or self._loc
+        nc = n.condition.accept(self._child())
+        nt = n.then_expr.accept(self._child(preserve_outer_block=isinstance(n.then_expr, BlockExpressionIR)))
+        ne = (
+            n.else_expr.accept(
+                self._child(preserve_outer_block=isinstance(n.else_expr, BlockExpressionIR))
+            )
+            if n.else_expr is not None
+            else None
+        )
+        if nc is n.condition and nt is n.then_expr and ne is n.else_expr:
+            return n
+        return IfExpressionIR(
+            condition=nc,
+            then_expr=nt,
+            location=loc,
+            else_expr=ne,
+            type_info=_ti(n),
+            shape_info=_si(n),
         )
 
 
@@ -3993,8 +4056,9 @@ def _str_ir_print_differential_rhs(
     dep_cache: Optional[_DependencyQueryCache] = None,
 ) -> str:
     """``_str_ir`` for ``print(@…)`` after eliding dead callee primals (does not change executed IR)."""
-    trimmed = _collapse_empty_block_wrappers(expr.accept(_TrimDeadPrimalPrintRewriter(loc, dep_cache)))
-    return str(trimmed)
+    trimmed = expr.accept(_TrimDeadPrimalPrintRewriter(loc, dep_cache))
+    cleaned = trimmed.accept(_CleanPrintBlocksRewriter(loc))
+    return str(_collapse_empty_block_wrappers(cleaned) or cleaned)
 
 
 _expr_to_diff_source = _str_ir

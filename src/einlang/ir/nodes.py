@@ -323,8 +323,6 @@ class BlockExpressionIR(ExpressionIR):
         if not parts:
             return "{}"
         if len(parts) == 1 and not self.statements:
-            if isinstance(self.final_expr, IfExpressionIR):
-                return str(self.final_expr)
             return f"{{ {parts[0]} }}"
         inner = "\n".join("    " + line for p in parts for line in p.splitlines())
         return "{\n" + inner + "\n}"
@@ -1852,6 +1850,5 @@ class IRVisitor(ABC, Generic[T]):
     def visit_program(self, node: 'ProgramIR') -> T:
         """Visit program"""
         raise NotImplementedError
-
 
 
