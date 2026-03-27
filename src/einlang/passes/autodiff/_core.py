@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import copy
+from functools import lru_cache
 from typing import Any, Dict, List, NoReturn, Optional, Tuple, Union, cast
 
 from ...ir.nodes import (
@@ -56,6 +56,84 @@ from ...shared.types import (
 DIFF_PREFIX = "_@"
 USER_DIFF_PREFIX = "@"
 _LOC0 = SourceLocation("", 0, 0)
+_SHARED_CLONE_SLOTS = frozenset(
+    {
+        "location",
+        "type_info",
+        "shape_info",
+        "defid",
+        "name",
+        "member",
+        "builtin_name",
+        "operator",
+        "module_path",
+        "return_type",
+        "_is_partially_specialized",
+        "_generic_defid",
+        "use_argmin",
+        "inclusive",
+    }
+)
+
+
+@lru_cache(maxsize=None)
+def _slot_names(cls: type) -> Tuple[str, ...]:
+    out: List[str] = []
+    for c in cls.__mro__:
+        slots = getattr(c, "__slots__", ())
+        if isinstance(slots, str):
+            out.append(slots)
+        else:
+            out.extend(slots)
+    seen = set()
+    ordered: List[str] = []
+    for name in out:
+        if name in seen:
+            continue
+        seen.add(name)
+        ordered.append(name)
+    return tuple(ordered)
+
+
+def _clone_ir_value(value: Any, memo: Dict[int, Any]) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    oid = id(value)
+    cached = memo.get(oid)
+    if cached is not None:
+        return cached
+    if isinstance(value, tuple):
+        cloned = tuple(_clone_ir_value(v, memo) for v in value)
+        memo[oid] = cloned
+        return cloned
+    if isinstance(value, list):
+        cloned = [_clone_ir_value(v, memo) for v in value]
+        memo[oid] = cloned
+        return cloned
+    if isinstance(value, dict):
+        cloned = {
+            _clone_ir_value(k, memo): _clone_ir_value(v, memo)
+            for k, v in value.items()
+        }
+        memo[oid] = cloned
+        return cloned
+    if isinstance(value, IRVisitor):
+        return value
+    if hasattr(value, "__class__") and any(hasattr(c, "__slots__") for c in value.__class__.__mro__):
+        cloned = value.__class__.__new__(value.__class__)
+        memo[oid] = cloned
+        for slot in _slot_names(value.__class__):
+            current = getattr(value, slot, None)
+            if slot in _SHARED_CLONE_SLOTS:
+                setattr(cloned, slot, current)
+            else:
+                setattr(cloned, slot, _clone_ir_value(current, memo))
+        return cloned
+    return value
+
+
+def _clone_ir_expr(expr: ExpressionIR) -> ExpressionIR:
+    return cast(ExpressionIR, _clone_ir_value(expr, {}))
 
 
 def _is_diff_name(name: str) -> bool:
@@ -769,7 +847,7 @@ class _SubstVisitor(_Rewriter):
             )
         if isinstance(expr, IndexRestIR):
             return IndexRestIR(expr.name, expr.location or self._loc, expr.defid, type_info=_ti(expr), shape_info=_si(expr))
-        return copy.deepcopy(expr)
+        return _clone_ir_expr(expr)
 
     def visit_identifier(self, n: IdentifierIR) -> ExpressionIR:
         if n.defid is not None and n.defid in self._m:

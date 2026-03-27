@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import copy
 from typing import Any, Dict, List, Optional, Tuple
 
-from ._core import DIFF_PREFIX, _fl, _is_zero, _si, _simplify, _sub, _sub_wd, _ti, _z
+from ._core import DIFF_PREFIX, _clone_ir_expr, _fl, _is_zero, _si, _simplify, _sub, _sub_wd, _ti, _z
 from ._expr import _expr_uses_index_defids, _prune_const_ifs_replayed
 from ._graph import _DependencyQueryCache
 from ..visitor_helpers import all_defids_of_var_in_expr
@@ -381,7 +380,7 @@ def _callee_arg_with_binding_metadata(arg: ExpressionIR, bindings: Dict[DefId, B
     elif isinstance(arg, IdentifierIR):
         cloned = IdentifierIR(arg.name, arg.location, arg.defid, type_info=_ti(arg), shape_info=_si(arg))
     else:
-        cloned = copy.deepcopy(arg)
+        cloned = _clone_ir_expr(arg)
     if isinstance(cloned, IdentifierIR) and cloned.defid is not None:
         b = bindings.get(cloned.defid)
         if b is not None:
