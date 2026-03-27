@@ -1,65 +1,94 @@
-
 # Einlang documentation
 
-This page is an index to the main documentation. Canonical references are [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md), [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md), and [Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run).
+Start with [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md), [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md), [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md), and [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md).
 
 ---
 
-## New to Einlang? / Need help?
+## Main docs
 
 | You want to… | Go here |
 |--------------|--------|
-| **Get going in one page** | [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) |
-| **Why Einlang? (features & comparison)** | [Why Einlang](https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md) — notation, static checking, recurrences, and autodiff |
-| **Learn by doing** | [Try it](https://github.com/einlang/einlang/blob/main/README.md#try-it) → [Learning path](https://github.com/einlang/einlang/blob/main/examples/README.md) |
-| **Learn by background** | [Syntax comparison](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md) (Python/Julia/Rust) · [Einlang for Julia programmers](https://github.com/einlang/einlang/blob/main/docs/EINLANG_FOR_JULIA_PROGRAMMERS.md) |
-| **Common questions** | [FAQ](https://github.com/einlang/einlang/blob/main/docs/FAQ.md) |
-| **Ask or contribute** | [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md) · [GitHub issues](https://github.com/einlang/einlang/issues) |
+| **Get running quickly** | [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) |
+| **Install or use from Python** | [README — Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) |
+| **Learn by examples** | [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md) |
+| **Understand the language** | [reference.md](https://github.com/einlang/einlang/blob/main/docs/reference.md) |
+| **Look up functions** | [stdlib.md](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) |
+| **Understand autodiff** | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) |
+| **Find the right doc by background** | [SYNTAX_COMPARISON](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md) · [EINLANG_FOR_JULIA_PROGRAMMERS](https://github.com/einlang/einlang/blob/main/docs/EINLANG_FOR_JULIA_PROGRAMMERS.md) |
+| **Get brief answers** | [FAQ](https://github.com/einlang/einlang/blob/main/docs/FAQ.md) |
 
 ---
 
-## By audience
-
-| You are… | Start here | Then |
-|----------|------------|------|
-| **Starter** | [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) | [Try it](https://github.com/einlang/einlang/blob/main/README.md#try-it) → [Learning path](https://github.com/einlang/einlang/blob/main/examples/README.md) |
-| **Student** | [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) | [Learning path](https://github.com/einlang/einlang/blob/main/examples/README.md) → [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) |
-| **User (any)** | [Try it](https://github.com/einlang/einlang/blob/main/README.md#try-it) · [Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) | [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [Stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) |
-| **ML practitioner** | [Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) · [Examples: MNIST, ViT, Whisper](https://github.com/einlang/einlang/blob/main/README.md#examples) | [Stdlib: ML](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) · [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) |
-| **Researcher** | Same as ML | [Paper & citation](https://github.com/einlang/einlang/blob/main/docs/PAPER.md) |
-| **Engineer** | [Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) · [Python API](https://github.com/einlang/einlang/blob/main/README.md#install--run) | [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [Examples](https://github.com/einlang/einlang/blob/main/examples/README.md) |
-| **Math-focused** | [Math intuition](https://github.com/einlang/einlang/blob/main/docs/MATH.md) — equations and indices mapped to code examples | [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [Stdlib: math](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) |
-| **Autodiff / gradients** | Automatic differentiation forms such as `@a / @b`, `@expr`, `@loss / @w`, and `@C / @A`, with design and implementation notes. [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [Pipeline](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_PIPELINE.md) · [Ops](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_OPS.md) · [PRINT_DIFFERENTIAL](https://github.com/einlang/einlang/blob/main/docs/PRINT_DIFFERENTIAL.md) | [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) · [reference.md](https://github.com/einlang/einlang/blob/main/docs/reference.md) |
-| **Feature / language study** | [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) (TOC) | [Design](https://github.com/einlang/einlang/blob/main/docs/DESIGN.md) |
-| **Python user** | [Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) — `run(source=...)` | [Syntax comparison](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md) · [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) |
-| **Julia user** | [Einlang for Julia programmers](https://github.com/einlang/einlang/blob/main/docs/EINLANG_FOR_JULIA_PROGRAMMERS.md) | [Julia demos → Einlang](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md) · [Syntax comparison](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md) · [Examples](https://github.com/einlang/einlang/blob/main/examples/README.md) |
-| **Rust user** | [Syntax comparison](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md) · [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) | [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) · [Examples](https://github.com/einlang/einlang/blob/main/examples/README.md) |
-| **Contributor** | [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md) | [DEVELOPMENT](https://github.com/einlang/einlang/blob/main/docs/DEVELOPMENT.md) |
-| **Paper / citation** | [Paper & citation](https://github.com/einlang/einlang/blob/main/docs/PAPER.md) | — |
-
----
-
-## Canonical docs
+## Core docs
 
 | Doc | What it is |
 |-----|------------|
-| [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) | Full language: syntax, types, Einstein notation, where-clauses, recurrences |
-| [stdlib.md](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) | All built-in modules and functions |
-| [Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) | Install, CLI, Python API (only place they're defined) |
-| [Examples README](https://github.com/einlang/einlang/blob/main/examples/README.md) | Learning path and how to run examples |
-| [GETTING_STARTED](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) | One-page story: what is Einlang → try → first example → use from Python → next, with autodiff as part of the normal workflow |
+| [GETTING_STARTED](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) | Short introduction, first commands, first example, and next steps |
+| [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) | Full language reference: syntax, types, Einstein notation, where-clauses, recurrences, autodiff |
+| [stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) | Built-in modules and functions |
 | [WHY_EINLANG](https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md) | Motivation and high-level comparison |
-| [SYNTAX_COMPARISON](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md) | Python/NumPy, Julia, Rust → Einlang snippet mapping (links to reference) |
-| [EINLANG_FOR_JULIA_PROGRAMMERS](https://github.com/einlang/einlang/blob/main/docs/EINLANG_FOR_JULIA_PROGRAMMERS.md) | Einlang for Julia programmers: indexing, ODEs/PDEs, recurrence, where to start |
-| [JULIA_DEMOS](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md) | Julia demos and case studies with links; maps each to Einlang examples (simulation/ML overlap) |
-| [MATH](https://github.com/einlang/einlang/blob/main/docs/MATH.md) | Math notation → Einlang (sums, index relations, guards, recurrences; links to reference) |
-| [Autodiff highlights](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) | **Why Einlang’s autodiff** — compiler pass, math-first `@` / quotients, Einstein, `@fn`, doc map |
-| [Autodiff design](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) | **Automatic differentiation is a language feature**: expression-native `@expr`, `@a / @b`, tensor quotients, and `print(@y)`; full compiler pipeline from source to NumPy execution, used in place of finite-difference probing where supported |
-| [ROADMAP](https://github.com/einlang/einlang/blob/main/docs/ROADMAP.md) | Planned ergonomics and language directions (e.g. nested step + inner `W_step[i,j]` for per-step diagnostics) |
-| [UNSUPPORTED](https://github.com/einlang/einlang/blob/main/docs/UNSUPPORTED.md) | Syntax and features not supported by design, with rationale and alternatives |
-| [RECURRENCE_ORDER_DESIGN](RECURRENCE_ORDER_DESIGN.md) | Recurrence iteration order (multiple recurrence dims); design options |
-| [DEVELOPMENT](https://github.com/einlang/einlang/blob/main/docs/DEVELOPMENT.md) | For contributors: project layout, adding features |
-| [FAQ](https://github.com/einlang/einlang/blob/main/docs/FAQ.md) | Common questions: run, learn, by background, where to ask |
-| [DOCUMENTATION_DESIGN](https://github.com/einlang/einlang/blob/main/docs/DOCUMENTATION_DESIGN.md) | How this doc set is designed (for maintainers) |
-| [LEARNING_FROM_JULIA](https://github.com/einlang/einlang/blob/main/docs/LEARNING_FROM_JULIA.md) | Lessons from Julia’s docs for showcase and retention (for maintainers) |
-| [RELEASE_READINESS](https://github.com/einlang/einlang/blob/main/docs/RELEASE_READINESS.md) | Pre-release checklist (try-it, docs, examples, discoverability) |
+| [MATH](https://github.com/einlang/einlang/blob/main/docs/MATH.md) | Math notation mapped to Einlang code |
+| [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) | Short overview of autodiff in the language |
+| [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) | Main autodiff design and implementation doc |
+| [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md) | Learning path and examples by domain |
+
+---
+
+## Background guides
+
+| If you are coming from… | Start here |
+|-------------------------|-----------|
+| **Python / NumPy** | [SYNTAX_COMPARISON](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md) · [README — Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) |
+| **Julia** | [EINLANG_FOR_JULIA_PROGRAMMERS](https://github.com/einlang/einlang/blob/main/docs/EINLANG_FOR_JULIA_PROGRAMMERS.md) · [JULIA_DEMOS](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md) |
+| **Rust** | [SYNTAX_COMPARISON](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md) |
+
+---
+
+## Quick answers
+
+| Question | Answer |
+|----------|--------|
+| **How do I run Einlang?** | `python3 -m einlang -c "let x = 1+1; print(x);"` or `python3 -m einlang examples/hello.ein` |
+| **How do I use it from Python?** | `from einlang import run` — see [README — Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) |
+| **Where are the examples?** | [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md) |
+| **How do I get derivatives?** | Use `@expr`, `@a / @b`, `@loss / @w`, or `@C / @A`; see [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) |
+| **How do I report a bug?** | Open an [issue](https://github.com/einlang/einlang/issues) or see [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md) |
+
+---
+
+## Design summary
+
+Short version:
+
+- keep tensor structure explicit in the source
+- catch shape and index errors before execution
+- keep differentiation in the language
+- use one language for model code, optimization, and numerical programs
+
+For the user-facing motivation page, see [WHY_EINLANG](https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md).
+
+---
+
+## Contributor docs
+
+These are useful if you are changing the compiler or maintaining the docs. They are not the best starting point for learning Einlang.
+
+| Doc | What it is |
+|-----|------------|
+| [DEVELOPMENT](https://github.com/einlang/einlang/blob/main/docs/DEVELOPMENT.md) | Project layout, setup, and how to add features |
+| [DOCUMENTATION_DESIGN](https://github.com/einlang/einlang/blob/main/docs/DOCUMENTATION_DESIGN.md) | How the doc set is organized |
+| [RELEASE_READINESS](https://github.com/einlang/einlang/blob/main/docs/RELEASE_READINESS.md) | Pre-release checklist |
+| [LEARNING_FROM_JULIA](https://github.com/einlang/einlang/blob/main/docs/LEARNING_FROM_JULIA.md) | Maintainer notes on docs/showcase strategy |
+| [PAPER](https://github.com/einlang/einlang/blob/main/docs/PAPER.md) | Citation text and repository citation |
+
+---
+
+## Deep technical notes
+
+These docs are useful when you are working on a specific compiler or backend area.
+
+| Area | Docs |
+|------|------|
+| **Autodiff internals** | [AUTODIFF_PIPELINE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_PIPELINE.md) · [AUTODIFF_IMPLEMENTATION](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_IMPLEMENTATION.md) · [AUTODIFF_ALGORITHM](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_ALGORITHM.md) · [AUTODIFF_OPS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_OPS.md) |
+| **Einstein / lowering details** | [AUTODIFF_EINSTEIN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_EINSTEIN.md) · [AUTODIFF_EINSTEIN_OPS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_EINSTEIN_OPS.md) · [VECTORIZATION_DESIGN](https://github.com/einlang/einlang/blob/main/docs/VECTORIZATION_DESIGN.md) · [RECURRENCE_ORDER_DESIGN](https://github.com/einlang/einlang/blob/main/docs/RECURRENCE_ORDER_DESIGN.md) |
+| **Targeted investigations** | `RUNTIME_TO_COMPILER_FINDINGS.md`, `STUDY_SKIP_IR_ANALYSIS.md`, `TEST_PRINT_AT_STUDY_SKIP_*.md`, `TRT_MNIST_EXAMPLE.md` |

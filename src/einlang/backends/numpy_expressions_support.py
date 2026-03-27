@@ -65,6 +65,55 @@ def _is_scalar_like(x: Any) -> bool:
     return False
 
 
+def _is_scalar_or_0d_array(x: Any) -> bool:
+    return np.isscalar(x) or (isinstance(x, np.ndarray) and getattr(x, "ndim", -1) == 0)
+
+
+def _normalize_literal_sequence(value: Any) -> Any:
+    """Convert Python list literals to backend-friendly ndarrays when possible."""
+    if not isinstance(value, list):
+        return value
+    try:
+        arr = np.asarray(value)
+    except Exception:
+        return value
+    if arr.dtype.kind == "f":
+        return arr.astype(np.float32, copy=False)
+    if arr.dtype.kind in ("i", "u"):
+        return arr.astype(np.int32, copy=False)
+    if arr.dtype.kind == "b":
+        return arr.astype(bool, copy=False)
+    return arr
+
+
+def _invoke_runtime_builtin(fn: Any, args: List[Any]) -> Any:
+    """Invoke a runtime builtin with the same argument rules across call sites."""
+    if fn == builtin_assert:
+        if len(args) == 0:
+            raise RuntimeError("assert() called with no arguments")
+        return builtin_assert(args[0], args[1] if len(args) > 1 else "Assertion failed")
+    return fn(*args)
+
+
+def _apply_optional_bias(
+    result: Any,
+    bias: Any,
+    backend: Any,
+    *,
+    last_dim_row: bool = False,
+) -> Any:
+    if bias is None:
+        return result
+    bias_val = bias.accept(backend)
+    if isinstance(bias_val, np.ndarray) and isinstance(result, np.ndarray):
+        if last_dim_row and bias_val.size == result.shape[-1]:
+            return result + np.reshape(bias_val, (1, -1))
+        return result + np.broadcast_to(bias_val, result.shape)
+    if _is_scalar_or_0d_array(bias_val):
+        return result + bias_val
+    return result
+
+
 def _safe_oob_ndarray_access(array: np.ndarray, indices: List[Any]) -> Any:
     """Advanced ndarray indexing with zero-fill for out-of-bounds positions.
 
@@ -499,7 +548,7 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
                 for idx in batch_indices:
                     try:
                         v = idx.accept(backend)
-                        if np.isscalar(v) or (isinstance(v, np.ndarray) and getattr(v, "ndim", -1) == 0):
+                        if _is_scalar_or_0d_array(v):
                             key.append(int(v))
                         else:
                             key.append(slice(None))
@@ -516,11 +565,7 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         return None
     if bias is not None:
         try:
-            bias_val = bias.accept(backend)
-            if isinstance(bias_val, np.ndarray) and isinstance(result, np.ndarray):
-                result = result + np.broadcast_to(bias_val, result.shape)
-            elif np.isscalar(bias_val) or (isinstance(bias_val, np.ndarray) and bias_val.ndim == 0):
-                result = result + bias_val
+            result = _apply_optional_bias(result, bias, backend)
         except Exception:
             return None
     if scale is not None:
@@ -652,11 +697,7 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
         return None
     if bias is not None:
         try:
-            bias_val = bias.accept(backend)
-            if isinstance(bias_val, np.ndarray) and bias_val.size == result.shape[-1]:
-                result = result + np.reshape(bias_val, (1, -1))
-            elif np.isscalar(bias_val) or (isinstance(bias_val, np.ndarray) and bias_val.ndim == 0):
-                result = result + bias_val
+            result = _apply_optional_bias(result, bias, backend, last_dim_row=True)
         except Exception:
             pass
     return result
@@ -704,7 +745,7 @@ def _slice_array_at_scalar_indices(
         else:
             try:
                 v = idx.accept(backend)
-                if np.isscalar(v) or (isinstance(v, np.ndarray) and getattr(v, "ndim", -1) == 0):
+                if _is_scalar_or_0d_array(v):
                     key.append(int(v))
                 else:
                     key.append(slice(None))
@@ -854,11 +895,7 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         return None
     if bias is not None:
         try:
-            bias_val = bias.accept(backend)
-            if isinstance(bias_val, np.ndarray) and isinstance(result, np.ndarray):
-                result = result + np.broadcast_to(bias_val, result.shape)
-            elif np.isscalar(bias_val) or (isinstance(bias_val, np.ndarray) and bias_val.ndim == 0):
-                result = result + bias_val
+            result = _apply_optional_bias(result, bias, backend)
         except Exception:
             return None
     return result
@@ -944,4 +981,3 @@ _UNARY_OP_MAP = {
     UnaryOp.NOT: _unary_not,
     UnaryOp.BOOL_NOT: _unary_not,
 }
-

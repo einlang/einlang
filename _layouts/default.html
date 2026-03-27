@@ -30,10 +30,10 @@
           </span>
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="#showcase">Models</a>
-          <a href="#examples">Code</a>
+          <a href="#showcase">Workloads</a>
+          <a href="#examples">Examples</a>
           <a href="#capabilities">Language</a>
-          <a href="#research">Beyond ML</a>
+          <a href="#research">Compiler</a>
           <a href="#start" class="nav-cta">Run It</a>
         </nav>
       </div>
@@ -98,11 +98,21 @@
           <div class="showcase-grid">
             {% for item in home.showcase.items %}
               <article class="feature-card">
-                <h3>{{ item.title }}</h3>
+                <h3>
+                  {% if item.url %}
+                    <a class="card-title-link" href="{{ item.url }}">{{ item.title }}</a>
+                  {% else %}
+                    {{ item.title }}
+                  {% endif %}
+                </h3>
                 <p>{{ item.text }}</p>
                 <div class="chip-row">
                   {% for chip in item.chips %}
-                    <span class="chip">{{ chip }}</span>
+                    {% if chip.url %}
+                      <a class="chip chip-link" href="{{ chip.url }}">{{ chip.label }}</a>
+                    {% else %}
+                      <span class="chip">{{ chip }}</span>
+                    {% endif %}
                   {% endfor %}
                 </div>
               </article>
@@ -121,7 +131,13 @@
             {% for item in home.examples.items %}
               <article class="snippet-card">
                 <div>
-                  <h3>{{ item.title }}</h3>
+                  <h3>
+                    {% if item.url %}
+                      <a class="card-title-link" href="{{ item.url }}">{{ item.title }}</a>
+                    {% else %}
+                      {{ item.title }}
+                    {% endif %}
+                  </h3>
                   <p>{{ item.text }}</p>
                 </div>
                 <div class="code-panel compact">
@@ -146,7 +162,13 @@
           <div class="abstract-grid">
             {% for item in home.abstract.points %}
               <article class="abstract-card">
-                <h3>{{ item.title }}</h3>
+                <h3>
+                  {% if item.url %}
+                    <a class="card-title-link" href="{{ item.url }}">{{ item.title }}</a>
+                  {% else %}
+                    {{ item.title }}
+                  {% endif %}
+                </h3>
                 <p>{{ item.text }}</p>
               </article>
             {% endfor %}
@@ -163,11 +185,21 @@
           <div class="feature-grid">
             {% for item in home.capabilities.items %}
               <article class="feature-card">
-                <h3>{{ item.title }}</h3>
+                <h3>
+                  {% if item.url %}
+                    <a class="card-title-link" href="{{ item.url }}">{{ item.title }}</a>
+                  {% else %}
+                    {{ item.title }}
+                  {% endif %}
+                </h3>
                 <p>{{ item.text }}</p>
                 <div class="chip-row">
                   {% for chip in item.chips %}
-                    <span class="chip">{{ chip }}</span>
+                    {% if chip.url %}
+                      <a class="chip chip-link" href="{{ chip.url }}">{{ chip.label }}</a>
+                    {% else %}
+                      <span class="chip">{{ chip }}</span>
+                    {% endif %}
                   {% endfor %}
                 </div>
               </article>
@@ -205,7 +237,13 @@
                 <h3>{{ column.title }}</h3>
                 <ul>
                   {% for bullet in column.bullets %}
-                    <li>{{ bullet }}</li>
+                    <li>
+                      {% if bullet.url %}
+                        <a class="inline-link" href="{{ bullet.url }}">{{ bullet.label }}</a>
+                      {% else %}
+                        {{ bullet }}
+                      {% endif %}
+                    </li>
                   {% endfor %}
                 </ul>
               </article>
@@ -250,7 +288,13 @@
           <div class="model-grid">
             {% for item in home.models.items %}
               <article class="story-card">
-                <h3>{{ item.title }}</h3>
+                <h3>
+                  {% if item.url %}
+                    <a class="card-title-link" href="{{ item.url }}">{{ item.title }}</a>
+                  {% else %}
+                    {{ item.title }}
+                  {% endif %}
+                </h3>
                 <p>{{ item.text }}</p>
               </article>
             {% endfor %}

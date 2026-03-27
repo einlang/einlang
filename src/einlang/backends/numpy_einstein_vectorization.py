@@ -15,6 +15,94 @@ from .numpy_einstein_recurrence_analysis import (
     _split_scalar_mul,
 )
 
+
+def _literal_int_value(idx: Any) -> Optional[int]:
+    if not isinstance(idx, LiteralIR):
+        return None
+    try:
+        return int(idx.value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_scalar_index(value: Any) -> Any:
+    return int(value) if hasattr(value, "__int__") else value
+
+
+def _extract_vectorization_loop_info(
+    loops: List[Any],
+    evaluator: Any,
+    *,
+    allow_dynamic_ranges: bool = False,
+    loop_ranges_override: Optional[List[Tuple[int, int]]] = None,
+) -> Optional[List[Tuple[Any, Optional[Tuple[int, int]], str]]]:
+    loop_info: List[Tuple[Any, Optional[Tuple[int, int]], str]] = []
+    for dim, loop in enumerate(loops):
+        defid = loop.variable.defid
+        if defid is None:
+            return None
+        if loop_ranges_override is not None and dim < len(loop_ranges_override):
+            range_value: Optional[Tuple[int, int]] = loop_ranges_override[dim]
+        else:
+            try:
+                range_value = _extract_loop_range(loop, evaluator)
+            except RuntimeError:
+                if not allow_dynamic_ranges:
+                    return None
+                range_value = None
+        loop_info.append((defid, range_value, loop.variable.name))
+    return loop_info
+
+
+def _resolve_loop_range_at_dim(
+    loop_info: List[Tuple[Any, Optional[Tuple[int, int]], str]],
+    loops: List[Any],
+    dim: int,
+    backend: Any,
+) -> Optional[Tuple[int, int]]:
+    range_value = loop_info[dim][1]
+    if range_value is not None:
+        return range_value
+    try:
+        return _extract_loop_range(loops[dim], lambda e: e.accept(backend))
+    except RuntimeError:
+        return None
+
+
+def _bind_vectorized_backend_state(
+    backend: Any,
+    parallel_shape: Tuple[int, ...],
+    clause_loop_defids: List[Any],
+    *,
+    safe_oob: bool = False,
+) -> Dict[str, Any]:
+    return {
+        "parallel_shape": parallel_shape,
+        "parallel_defids_order": tuple(clause_loop_defids),
+        "safe_oob": safe_oob,
+    }
+
+
+def _restore_vectorized_backend_state(backend: Any, saved: Dict[str, Any]) -> None:
+    return None
+
+
+def _squeeze_vectorized_result(
+    result: np.ndarray,
+    ndim: int,
+    squeeze_dims: List[int],
+) -> Optional[np.ndarray]:
+    try:
+        if result.ndim == ndim:
+            return np.squeeze(result, axis=tuple(squeeze_dims))
+        if result.ndim == ndim - len(squeeze_dims):
+            return result
+        axes = [dim for dim in squeeze_dims if dim < result.ndim]
+        return np.squeeze(result, axis=tuple(axes)) if axes else result
+    except ValueError:
+        return None
+
+
 def _split_binding_factor(expr: Any, binding_defid: Any) -> Optional[Any]:
     if isinstance(expr, IdentifierIR) and expr.defid == binding_defid:
         return LiteralIR(1.0)
@@ -150,20 +238,13 @@ def _eval_clause_body_with_broadcast_loops(
     clause_ndim = len(loops)
     n_red = _count_reduction_dims_in_expr(clause.body)
     ndim = clause_ndim + n_red
-    loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
-    for dim, lp in enumerate(loops):
-        defid = lp.variable.defid
-        if defid is None:
-            return None
-        if loop_ranges_override is not None and dim < len(loop_ranges_override):
-            r = loop_ranges_override[dim]
-        else:
-            try:
-                r = _extract_loop_range(lp, evaluator)
-            except RuntimeError:
-                return None
-        name = lp.variable.name
-        loop_info.append((defid, r, name))
+    loop_info = _extract_vectorization_loop_info(
+        loops,
+        evaluator,
+        loop_ranges_override=loop_ranges_override,
+    )
+    if loop_info is None:
+        return None
     clause_loop_defids = [defid for (defid, _, _) in loop_info]
     if _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids):
         return None
@@ -181,19 +262,14 @@ def _eval_clause_body_with_broadcast_loops(
                     if other_defid != defid:
                         backend.env.set_value(other_defid, arr, name=name)
             parallel_shape_tuple = tuple(output_shape)
-            try:
-                setattr(backend, "_vectorize_parallel_shape", parallel_shape_tuple)
-                setattr(backend, "_vectorize_parallel_defids_order", clause_loop_defids)
-                setattr(backend, "_vectorize_safe_oob", True)
-                try:
-                    return clause.body.accept(backend)
-                finally:
-                    if hasattr(backend, "_vectorize_safe_oob"):
-                        delattr(backend, "_vectorize_safe_oob")
-                    if hasattr(backend, "_vectorize_parallel_defids_order"):
-                        delattr(backend, "_vectorize_parallel_defids_order")
-            finally:
-                setattr(backend, "_vectorize_parallel_shape", None)
+            saved_state = _bind_vectorized_backend_state(
+                backend,
+                parallel_shape_tuple,
+                clause_loop_defids,
+                safe_oob=True,
+            )
+            with backend._vectorization_scope(**saved_state):
+                return clause.body.accept(backend)
     except Exception:
         return None
 
@@ -404,17 +480,13 @@ def _try_hybrid_vectorize_clause(
     )
     if not (0 < len(recurrence_dims) < ndim):
         return None
-    loop_info: List[Tuple[Any, Optional[Tuple[int, int]], str]] = []
-    for dim, lp in enumerate(loops):
-        defid = lp.variable.defid
-        if defid is None:
-            return None
-        try:
-            r = _extract_loop_range(lp, expr_evaluator)
-        except RuntimeError:
-            r = None  # range depends on another loop var (e.g. j in k..n); extract inside loop
-        name = lp.variable.name
-        loop_info.append((defid, r, name))
+    loop_info = _extract_vectorization_loop_info(
+        loops,
+        expr_evaluator,
+        allow_dynamic_ranges=True,
+    )
+    if loop_info is None:
+        return None
     recurrence_loops = [loops[d] for d in recurrence_dims]
     _MAX = int(DEFAULT_EINSTEIN_LOOP_MAX)
     n_iter = [0]
@@ -461,25 +533,20 @@ def _try_hybrid_vectorize_clause(
                 loop_pos = 0
                 for out_d, idx in enumerate(clause_indices):
                     if isinstance(idx, LiteralIR):
-                        try:
-                            slice_list_out.append(int(idx.value))
-                        except (TypeError, ValueError):
+                        literal_value = _literal_int_value(idx)
+                        if literal_value is None:
                             return None
+                        slice_list_out.append(literal_value)
                     elif loop_pos < len(loops):
                         k = loop_pos
                         loop_pos += 1
                         if k in recurrence_dims:
                             v = rec_context[loop_info[k][0]]
-                            slice_list_out.append(int(v) if hasattr(v, "__int__") else v)
+                            slice_list_out.append(_coerce_scalar_index(v))
                         else:
-                            r = loop_info[k][1]
+                            r = _resolve_loop_range_at_dim(loop_info, loops, k, backend)
                             if r is None:
-                                try:
-                                    r = _extract_loop_range(
-                                        loops[k], lambda e: e.accept(backend)
-                                    )
-                                except RuntimeError:
-                                    return None
+                                return None
                             start, end = r
                             slice_list_out.append(slice(int(start), int(end)))
                     else:
@@ -487,11 +554,9 @@ def _try_hybrid_vectorize_clause(
                 if len(slice_list_out) != output_ndim:
                     return None
                 to_write = result
-                if to_write.ndim == ndim:
-                    to_write = np.squeeze(to_write, axis=tuple(recurrence_dims))
-                elif to_write.ndim != ndim - len(recurrence_dims):
-                    axes = [d for d in recurrence_dims if d < to_write.ndim]
-                    to_write = np.squeeze(to_write, axis=tuple(axes)) if axes else to_write
+                to_write = _squeeze_vectorized_result(to_write, ndim, recurrence_dims)
+                if to_write is None:
+                    return None
                 output[tuple(slice_list_out)] = to_write.astype(output.dtype)
             else:
                 slice_list: List[Any] = []
@@ -499,29 +564,13 @@ def _try_hybrid_vectorize_clause(
                     if dim in recurrence_dims:
                         slice_list.append(rec_context[loop_info[dim][0]])
                     else:
-                        r = loop_info[dim][1]
+                        r = _resolve_loop_range_at_dim(loop_info, loops, dim, backend)
                         if r is None:
-                            try:
-                                r = _extract_loop_range(
-                                    loops[dim], lambda e: e.accept(backend)
-                                )
-                            except RuntimeError:
-                                return None
-                            start, end = r
-                            slice_list.append(slice(int(start), int(end)))
-                        else:
-                            start, end = r
-                            slice_list.append(slice(int(start), int(end)))
-                try:
-                    n_rec = len(recurrence_dims)
-                    if result.ndim == ndim:
-                        squeezed = np.squeeze(result, axis=tuple(recurrence_dims))
-                    elif result.ndim == ndim - n_rec:
-                        squeezed = result
-                    else:
-                        axes = [d for d in recurrence_dims if d < result.ndim]
-                        squeezed = np.squeeze(result, axis=tuple(axes)) if axes else result
-                except ValueError:
+                            return None
+                        start, end = r
+                        slice_list.append(slice(int(start), int(end)))
+                squeezed = _squeeze_vectorized_result(result, ndim, recurrence_dims)
+                if squeezed is None:
                     return None
                 output[tuple(slice_list)] = squeezed.astype(output.dtype)
         return output
@@ -550,17 +599,9 @@ def _try_call_scalar_vectorize_clause(
     if not (0 < len(scalar_set) < ndim):
         return None
     vector_dims = [d for d in range(ndim) if d not in scalar_set]
-    loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
-    for dim, lp in enumerate(loops):
-        defid = lp.variable.defid
-        if defid is None:
-            return None
-        try:
-            r = _extract_loop_range(lp, expr_evaluator)
-        except RuntimeError:
-            return None
-        name = lp.variable.name
-        loop_info.append((defid, r, name))
+    loop_info = _extract_vectorization_loop_info(loops, expr_evaluator)
+    if loop_info is None:
+        return None
     scalar_loops = [loops[d] for d in scalar_loop_indices]
     _MAX = int(DEFAULT_EINSTEIN_LOOP_MAX)
     n_iter = [0]
@@ -590,9 +631,8 @@ def _try_call_scalar_vectorize_clause(
                 else:
                     start, end = loop_info[dim][1]
                     slice_list.append(slice(int(start), int(end)))
-            try:
-                squeezed = np.squeeze(result, axis=tuple(scalar_loop_indices))
-            except ValueError:
+            squeezed = _squeeze_vectorized_result(result, ndim, scalar_loop_indices)
+            if squeezed is None:
                 return None
             output[tuple(slice_list)] = squeezed.astype(output.dtype)
         return output

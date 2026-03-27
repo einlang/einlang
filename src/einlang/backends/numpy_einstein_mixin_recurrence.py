@@ -10,6 +10,83 @@ from .numpy_einstein_recurrence_analysis import (
 from .numpy_einstein_vectorization import _try_fast_2d_wave_step
 
 class EinsteinExecutionRecurrenceMixin:
+    def _outer_recurrence_defid_for_dim(
+        self,
+        outer_rec_defids: List[Tuple[int, Any]],
+        dim: int,
+    ) -> Optional[Any]:
+        for outer_dim, outer_defid in outer_rec_defids:
+            if outer_dim == dim:
+                return outer_defid
+        return None
+
+    def _set_loop_value_or_range(
+        self,
+        defid: Any,
+        bounds: Tuple[int, int],
+        name: str,
+        *,
+        scalar_value: Optional[Any] = None,
+        reshape_rank: Optional[int] = None,
+        reshape_dim: Optional[int] = None,
+    ) -> None:
+        if scalar_value is not None:
+            self.env.set_value(defid, scalar_value, name=name)
+            return
+        start, end = bounds
+        arr = np.arange(start, end, dtype=np.intp)
+        if reshape_rank is not None and reshape_dim is not None:
+            shape = [1] * reshape_rank
+            shape[reshape_dim] = end - start
+            arr = arr.reshape(shape)
+        self.env.set_value(defid, arr, name=name)
+
+    def _bind_outer_recurrence_context(
+        self,
+        outer_rec_defids: List[Tuple[int, Any]],
+        rec_context: Dict[Any, Any],
+    ) -> None:
+        for _dim, outer_defid in outer_rec_defids:
+            if outer_defid in rec_context:
+                self.env.set_value(outer_defid, rec_context[outer_defid])
+
+    def _apply_lowered_bindings(
+        self,
+        bindings: List[Any],
+        loops: List[Any],
+        expr_eval: Any,
+        execute_lowered_bindings: Any,
+    ) -> None:
+        if not bindings:
+            return
+        loop_context = {}
+        for loop in loops:
+            defid = loop.variable.defid
+            if defid is not None:
+                loop_context[defid] = self.env.get_value(defid)
+        full_context = execute_lowered_bindings(bindings, loop_context, expr_eval)
+        for defid, val in full_context.items():
+            if defid is not None:
+                self.env.set_value(defid, val)
+
+    def _literal_index_value(self, idx: Any) -> Optional[int]:
+        if isinstance(idx, LiteralIR):
+            try:
+                return int(idx.value)
+            except (TypeError, ValueError):
+                return None
+        if getattr(idx, "value", None) is not None:
+            try:
+                return int(getattr(idx, "value"))
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def _coerce_scalar_index(self, value: Any) -> Any:
+        if isinstance(value, (np.integer, np.floating, int, float)):
+            return int(value)
+        return value
+
     def _execute_lowered_einstein_clause_one_recurrence_step(
         self,
         item: Any,
@@ -67,24 +144,14 @@ class EinsteinExecutionRecurrenceMixin:
         if len(outer_dims_set) == ndim and not inner_recurrence_dims:
             with self.env.scope():
                 self.env.set_value(variable_defid, output)
-                for _d, odef in outer_rec_defids:
-                    if odef in rec_context:
-                        self.env.set_value(odef, rec_context[odef])
+                self._bind_outer_recurrence_context(outer_rec_defids, rec_context)
                 for dim in range(ndim):
-                    defid, (_start, _end), name = loop_info[dim]
-                    od = next((o for d, o in outer_rec_defids if d == dim), None)
-                    if od is not None and od in rec_context:
-                        self.env.set_value(defid, rec_context[od], name=name)
-                    else:
-                        self.env.set_value(defid, np.arange(_start, _end, dtype=np.intp), name=name)
+                    defid, bounds, name = loop_info[dim]
+                    outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, dim)
+                    scalar_value = rec_context.get(outer_defid) if outer_defid in rec_context else None
+                    self._set_loop_value_or_range(defid, bounds, name, scalar_value=scalar_value)
                 bindings = item.bindings or []
-                if bindings:
-                    from ..runtime.compute.lowered_execution import execute_lowered_bindings
-                    loop_context = {lp.variable.defid: self.env.get_value(lp.variable.defid) for lp in loops if lp.variable.defid is not None}
-                    full_context = execute_lowered_bindings(bindings, loop_context, expr_eval)
-                    for d, val in full_context.items():
-                        if d is not None:
-                            self.env.set_value(d, val)
+                self._apply_lowered_bindings(bindings, loops, expr_eval, execute_lowered_bindings)
                 if guards:
                     from ..runtime.compute.lowered_execution import check_lowered_guards
                     step_ctx = {loop_info[dim][0]: rec_context.get(odef) for dim, (_, odef) in enumerate(outer_rec_defids) if odef in rec_context}
@@ -92,22 +159,18 @@ class EinsteinExecutionRecurrenceMixin:
                         if variable_key is not None:
                             self.env.set_value(variable_key, output)
                         return output
-                _saved_rec = getattr(self, "_einstein_recurrence_clause", False)
-                _saved_vec = getattr(self, "_vectorize_parallel_shape", None)
-                try:
-                    self._einstein_recurrence_clause = True  # so reduction in body uses env (current L), not fast path
-                    self._vectorize_parallel_shape = None    # force scalar reduction path to use env
+                with self._vectorization_scope(
+                    recurrence_clause=True,
+                    parallel_shape=None,
+                ):
+                    # Use scalar reduction path so recurrence reads the current env, not a vectorized fast path.
                     res = item.body.accept(self)
-                finally:
-                    self._einstein_recurrence_clause = _saved_rec
-                    self._vectorize_parallel_shape = _saved_vec
             if res is not None:
                 slice_list: List[Any] = []
                 for dim in range(ndim):
-                    od = next((o for d, o in outer_rec_defids if d == dim), None)
-                    if od is not None and od in rec_context:
-                        v = rec_context[od]
-                        slice_list.append(int(v) if isinstance(v, (np.integer, np.floating, int, float)) else v)
+                    outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, dim)
+                    if outer_defid is not None and outer_defid in rec_context:
+                        slice_list.append(self._coerce_scalar_index(rec_context[outer_defid]))
                     else:
                         slice_list.append(slice(loop_info[dim][1][0], loop_info[dim][1][1]))
                 if len(slice_list) == output.ndim:
@@ -125,28 +188,24 @@ class EinsteinExecutionRecurrenceMixin:
         if inner_recurrence_dims:
             from ..runtime.compute.lowered_execution import execute_lowered_loops
             inner_loops = [loops[d] for d in inner_recurrence_dims]
-            _saved = getattr(self, "_einstein_recurrence_clause", False)
-            try:
-                self._einstein_recurrence_clause = True
+            with self._vectorization_scope(recurrence_clause=True):
                 for inner_ctx in execute_lowered_loops(inner_loops, {}, expr_eval):
                     with self.env.scope():
                         self.env.set_value(variable_defid, output)
-                        for _d, odef in outer_rec_defids:
-                            if odef in rec_context:
-                                self.env.set_value(odef, rec_context[odef])
+                        self._bind_outer_recurrence_context(outer_rec_defids, rec_context)
                         for dim in range(ndim):
                             defid, (start, end), name = loop_info[dim]
                             if dim in outer_dims_set:
-                                od = next((o for d, o in outer_rec_defids if d == dim), None)
-                                if od is not None and od in rec_context:
-                                    self.env.set_value(defid, rec_context[od], name=name)
-                                else:
-                                    self.env.set_value(defid, np.arange(start, end, dtype=np.intp), name=name)
+                                outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, dim)
+                                scalar_value = rec_context.get(outer_defid) if outer_defid in rec_context else None
+                                self._set_loop_value_or_range(defid, (start, end), name, scalar_value=scalar_value)
                             elif dim in inner_recurrence_dims:
-                                if defid in inner_ctx:
-                                    self.env.set_value(defid, inner_ctx[defid], name=name)
-                                else:
-                                    self.env.set_value(defid, np.arange(start, end, dtype=np.intp), name=name)
+                                self._set_loop_value_or_range(
+                                    defid,
+                                    (start, end),
+                                    name,
+                                    scalar_value=inner_ctx.get(defid),
+                                )
                         vector_dims_list = [
                             d
                             for d in range(ndim)
@@ -155,39 +214,23 @@ class EinsteinExecutionRecurrenceMixin:
                         vec_rank = len(vector_dims_list)
                         for vec_idx, vdim in enumerate(vector_dims_list):
                             vdefid, (vstart, vend), vname = loop_info[vdim]
-                            vsz = vend - vstart
-                            vshape = [1] * vec_rank
-                            vshape[vec_idx] = vsz
-                            arr = np.arange(vstart, vend, dtype=np.intp).reshape(vshape)
-                            self.env.set_value(vdefid, arr, name=vname)
-                        bindings = item.bindings or []
-                        if bindings:
-                            loop_context = {}
-                            for lp in loops:
-                                d = lp.variable.defid
-                                if d is not None:
-                                    loop_context[d] = self.env.get_value(d)
-                            full_context = execute_lowered_bindings(bindings, loop_context, expr_eval)
-                            for d, val in full_context.items():
-                                if d is not None:
-                                    self.env.set_value(d, val)
-                        _vec_par_shape = getattr(self, "_vectorize_parallel_shape", None)
-                        _vec_par_defids = getattr(self, "_vectorize_parallel_defids_order", None)
-                        try:
-                            par_shape_inner = tuple(
-                                int(loop_info[d][1][1] - loop_info[d][1][0]) for d in vector_dims_list
+                            self._set_loop_value_or_range(
+                                vdefid,
+                                (vstart, vend),
+                                vname,
+                                reshape_rank=vec_rank,
+                                reshape_dim=vec_idx,
                             )
-                            self._vectorize_parallel_shape = par_shape_inner
-                            self._vectorize_parallel_defids_order = [
-                                loop_info[d][0] for d in vector_dims_list
-                            ]
+                        bindings = item.bindings or []
+                        self._apply_lowered_bindings(bindings, loops, expr_eval, execute_lowered_bindings)
+                        par_shape_inner = tuple(
+                            int(loop_info[d][1][1] - loop_info[d][1][0]) for d in vector_dims_list
+                        )
+                        with self._vectorization_scope(
+                            parallel_shape=par_shape_inner,
+                            parallel_defids_order=tuple(loop_info[d][0] for d in vector_dims_list),
+                        ):
                             res = item.body.accept(self)
-                        finally:
-                            self._vectorize_parallel_shape = _vec_par_shape
-                            if _vec_par_defids is not None:
-                                self._vectorize_parallel_defids_order = _vec_par_defids
-                            elif hasattr(self, "_vectorize_parallel_defids_order"):
-                                delattr(self, "_vectorize_parallel_defids_order")
                     if res is None:
                         continue
                         res = np.asarray(res, dtype=output.dtype)
@@ -206,12 +249,12 @@ class EinsteinExecutionRecurrenceMixin:
                         if loop_pos >= len(loop_info):
                             break
                         if loop_pos in outer_dims_set:
-                            od = next((o for d, o in outer_rec_defids if d == loop_pos), None)
-                            v = rec_context[od] if od is not None and od in rec_context else inner_ctx.get(loop_info[loop_pos][0], 0)
-                            slice_list.append(int(v) if isinstance(v, (np.integer, np.floating)) else v)
+                            outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, loop_pos)
+                            value = rec_context[outer_defid] if outer_defid is not None and outer_defid in rec_context else inner_ctx.get(loop_info[loop_pos][0], 0)
+                            slice_list.append(self._coerce_scalar_index(value))
                         elif loop_pos in inner_recurrence_dims:
                             v = inner_ctx.get(loop_info[loop_pos][0], 0)
-                            slice_list.append(int(v) if isinstance(v, (np.integer, np.floating)) else v)
+                            slice_list.append(self._coerce_scalar_index(v))
                         else:
                             _, (start, end), _ = loop_info[loop_pos]
                             slice_list.append(slice(int(start), int(end)))
@@ -225,8 +268,6 @@ class EinsteinExecutionRecurrenceMixin:
                             output[tuple(slice_list)] = res
                 self.env.set_value(variable_key, output)
                 return output
-            finally:
-                self._einstein_recurrence_clause = _saved
         fast_wave = _try_fast_2d_wave_step(
             item, output, variable_defid, rec_context, outer_rec_defids, loop_info, expr_eval,
         )
@@ -246,40 +287,27 @@ class EinsteinExecutionRecurrenceMixin:
             and not _einlang_recurrence_block_vectorized_binding_enabled()
         ):
             from ..runtime.compute.lowered_execution import execute_lowered_loops
-            _saved_rec = getattr(self, "_einstein_recurrence_clause", False)
-            try:
-                self._einstein_recurrence_clause = True
+            with self._vectorization_scope(recurrence_clause=True):
                 self._recurrence_block_strategy_log("scalar-loop", item, variable_decl, rec_context)
                 for inner_ctx in execute_lowered_loops(non_rec_loops, {}, expr_eval):
                     with self.env.scope():
                         self.env.set_value(variable_defid, output)
-                        for _d, odef in outer_rec_defids:
-                            if odef in rec_context:
-                                self.env.set_value(odef, rec_context[odef])
+                        self._bind_outer_recurrence_context(outer_rec_defids, rec_context)
                         for dim in range(ndim):
                             defid, (start, end), name = loop_info[dim]
                             if dim in recurrence_dims:
-                                od = next((o for d, o in outer_rec_defids if d == dim), None)
-                                if od is not None and od in rec_context:
-                                    self.env.set_value(defid, rec_context[od], name=name)
-                                else:
-                                    self.env.set_value(defid, np.arange(start, end, dtype=np.intp), name=name)
+                                outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, dim)
+                                scalar_value = rec_context.get(outer_defid) if outer_defid in rec_context else None
+                                self._set_loop_value_or_range(defid, (start, end), name, scalar_value=scalar_value)
                             else:
-                                if defid in inner_ctx:
-                                    self.env.set_value(defid, inner_ctx[defid], name=name)
-                                else:
-                                    self.env.set_value(defid, np.arange(start, end, dtype=np.intp), name=name)
+                                self._set_loop_value_or_range(
+                                    defid,
+                                    (start, end),
+                                    name,
+                                    scalar_value=inner_ctx.get(defid),
+                                )
                         bindings = item.bindings or []
-                        if bindings:
-                            loop_context = {}
-                            for lp in loops:
-                                d = lp.variable.defid
-                                if d is not None:
-                                    loop_context[d] = self.env.get_value(d)
-                            full_context = execute_lowered_bindings(bindings, loop_context, expr_eval)
-                            for d, val in full_context.items():
-                                if d is not None:
-                                    self.env.set_value(d, val)
+                        self._apply_lowered_bindings(bindings, loops, expr_eval, execute_lowered_bindings)
                         res = item.body.accept(self)
                     if object_output:
                         scalar = res
@@ -297,13 +325,13 @@ class EinsteinExecutionRecurrenceMixin:
                             except (TypeError, ValueError):
                                 break
                         elif pos in recurrence_dims:
-                            od = next((o for d, o in outer_rec_defids if d == pos), None)
-                            if od is not None and od in rec_context:
-                                slice_list_scalar.append(rec_context[od])
+                            outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, pos)
+                            if outer_defid is not None and outer_defid in rec_context:
+                                slice_list_scalar.append(self._coerce_scalar_index(rec_context[outer_defid]))
                             else:
-                                slice_list_scalar.append(inner_ctx.get(loop_info[pos][0], 0))
+                                slice_list_scalar.append(self._coerce_scalar_index(inner_ctx.get(loop_info[pos][0], 0)))
                         else:
-                            slice_list_scalar.append(inner_ctx.get(loop_info[pos][0], 0))
+                            slice_list_scalar.append(self._coerce_scalar_index(inner_ctx.get(loop_info[pos][0], 0)))
                     if len(slice_list_scalar) == output.ndim:
                         if object_output:
                             output[tuple(slice_list_scalar)] = scalar
@@ -311,13 +339,8 @@ class EinsteinExecutionRecurrenceMixin:
                             output[tuple(slice_list_scalar)] = np.asarray(scalar, dtype=output.dtype)
                 self.env.set_value(variable_key, output)
                 return output
-            finally:
-                self._einstein_recurrence_clause = _saved_rec
-        _saved_recurrence_flag = getattr(self, "_einstein_recurrence_clause", False)
-        _saved_vectorize_shape = getattr(self, "_vectorize_parallel_shape", None)
-        _saved_vec_defids = getattr(self, "_vectorize_parallel_defids_order", None)
-        try:
-            self._einstein_recurrence_clause = True  # keep matmul/einsum fast paths off in evaluate_lowered_reduction
+        with self._vectorization_scope(recurrence_clause=True):
+            # Keep matmul/einsum fast paths off in evaluate_lowered_reduction.
             # One timestep per call: only outer recurrence dims bound from rec_context are scalar; other
             # clause loops use the broadcast grid (not full output.shape, which includes all steps).
             scalar_clause_dims = set()
@@ -331,53 +354,45 @@ class EinsteinExecutionRecurrenceMixin:
                 for d in range(ndim)
                 if d not in scalar_clause_dims
             )
-            self._vectorize_parallel_shape = par_shape
-            self._vectorize_parallel_defids_order = [
-                loop_info[d][0] for d in range(ndim) if d not in scalar_clause_dims
-            ]
-            with self.env.scope():
-                self.env.set_value(variable_defid, output)
-                # Block bodies log when IR is still BlockExpressionIR; braced `{ expr }` often lowers to
-                # a plain expression, so also log when this clause has non-recurrence loop dims (i,j,…):
-                # same broadcast-index path runs here (see _recurrence_block_strategy_log gates).
-                if isinstance(item.body, BlockExpressionIR) or (
-                    _einlang_recurrence_block_vectorized_binding_enabled() and non_rec_loops
-                ):
-                    self._recurrence_block_strategy_log("broadcast-binding", item, variable_decl, rec_context)
-                # Bind outer recurrence loop vars so body sees current timestep (body may reference outer defid).
-                for _d, outer_defid in outer_rec_defids:
-                    if outer_defid in rec_context:
-                        self.env.set_value(outer_defid, rec_context[outer_defid])
-                for dim in range(ndim):
-                    defid, (start, end), name = loop_info[dim]
-                    if dim in recurrence_dims:
-                        outer_defid = next((od for d, od in outer_rec_defids if d == dim), None)
-                        if outer_defid is not None and outer_defid in rec_context:
-                            self.env.set_value(defid, rec_context[outer_defid], name=name)
+            with self._vectorization_scope(
+                parallel_shape=par_shape,
+                parallel_defids_order=tuple(loop_info[d][0] for d in range(ndim) if d not in scalar_clause_dims),
+            ):
+                with self.env.scope():
+                    self.env.set_value(variable_defid, output)
+                    # Block bodies log when IR is still BlockExpressionIR; braced `{ expr }` often lowers to
+                    # a plain expression, so also log when this clause has non-recurrence loop dims (i,j,…):
+                    # same broadcast-index path runs here (see _recurrence_block_strategy_log gates).
+                    if isinstance(item.body, BlockExpressionIR) or (
+                        _einlang_recurrence_block_vectorized_binding_enabled() and non_rec_loops
+                    ):
+                        self._recurrence_block_strategy_log("broadcast-binding", item, variable_decl, rec_context)
+                    # Bind outer recurrence loop vars so body sees current timestep (body may reference outer defid).
+                    self._bind_outer_recurrence_context(outer_rec_defids, rec_context)
+                    for dim in range(ndim):
+                        defid, (start, end), name = loop_info[dim]
+                        if dim in recurrence_dims:
+                            outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, dim)
+                            scalar_value = rec_context.get(outer_defid) if outer_defid in rec_context else None
+                            self._set_loop_value_or_range(
+                                defid,
+                                (start, end),
+                                name,
+                                scalar_value=scalar_value,
+                                reshape_rank=None if scalar_value is not None else ndim,
+                                reshape_dim=None if scalar_value is not None else dim,
+                            )
                         else:
-                            sz = end - start
-                            shape = [1] * ndim
-                            shape[dim] = sz
-                            arr = np.arange(start, end, dtype=np.intp).reshape(shape)
-                            self.env.set_value(defid, arr, name=name)
-                    else:
-                        sz = end - start
-                        shape = [1] * ndim
-                        shape[dim] = sz
-                        arr = np.arange(start, end, dtype=np.intp).reshape(shape)
-                        self.env.set_value(defid, arr, name=name)
-                bindings = item.bindings or []
-                if bindings:
-                    loop_context = {}
-                    for lp in loops:
-                        d = lp.variable.defid
-                        if d is not None:
-                            loop_context[d] = self.env.get_value(d)
-                    full_context = execute_lowered_bindings(bindings, loop_context, expr_eval)
-                    for d, val in full_context.items():
-                        if d is not None:
-                            self.env.set_value(d, val)
-                result = item.body.accept(self)
+                            self._set_loop_value_or_range(
+                                defid,
+                                (start, end),
+                                name,
+                                reshape_rank=ndim,
+                                reshape_dim=dim,
+                            )
+                    bindings = item.bindings or []
+                    self._apply_lowered_bindings(bindings, loops, expr_eval, execute_lowered_bindings)
+                    result = item.body.accept(self)
             if object_output:
                 if result is None:
                     return None
@@ -394,25 +409,15 @@ class EinsteinExecutionRecurrenceMixin:
             loop_pos = 0
             for idx in clause_indices:
                 # Literal or constant (e.g. 10, 0 in u[t, i, 10, 0]) so we don't consume a loop.
-                literal_val = None
-                if isinstance(idx, LiteralIR):
-                    try:
-                        literal_val = int(idx.value)
-                    except (TypeError, ValueError):
-                        pass
-                elif getattr(idx, "value", None) is not None:
-                    try:
-                        literal_val = int(getattr(idx, "value", None))
-                    except (TypeError, ValueError):
-                        pass
+                literal_val = self._literal_index_value(idx)
                 if literal_val is not None:
                     slice_list.append(literal_val)
                     continue
                 if loop_pos < len(loops):
                     if loop_pos in recurrence_dims:
-                        outer_defid = next((od for d, od in outer_rec_defids if d == loop_pos), None)
+                        outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, loop_pos)
                         if outer_defid is not None and outer_defid in rec_context:
-                            slice_list.append(rec_context[outer_defid])
+                            slice_list.append(self._coerce_scalar_index(rec_context[outer_defid]))
                         else:
                             start, end = loop_info[loop_pos][1]
                             slice_list.append(slice(int(start), int(end)))
@@ -440,13 +445,6 @@ class EinsteinExecutionRecurrenceMixin:
                     return None
                 output[tuple(slice_list)] = squeezed.astype(output.dtype)
             return output
-        finally:
-            self._einstein_recurrence_clause = _saved_recurrence_flag
-            self._vectorize_parallel_shape = _saved_vectorize_shape
-            if _saved_vec_defids is not None:
-                self._vectorize_parallel_defids_order = _saved_vec_defids
-            elif hasattr(self, "_vectorize_parallel_defids_order"):
-                delattr(self, "_vectorize_parallel_defids_order")
 
     def _shape_from_all_items(self, items: List) -> Optional[List[int]]:
         """Compute output shape from the max absolute end across ALL items (not just the first).

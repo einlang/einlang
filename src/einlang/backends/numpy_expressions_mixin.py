@@ -6,6 +6,8 @@ from .numpy_expressions_support import (
     _UNARY_OP_MAP,
     _extract_binding,
     _first_parallel_index_defid,
+    _invoke_runtime_builtin,
+    _normalize_literal_sequence,
     _safe_oob_ndarray_access,
     _try_conv_im2col_einsum,
     _try_einsum_reduction,
@@ -56,17 +58,7 @@ class ExpressionVisitorMixin:
             # Rectangular literals are serialized as LiteralIR tuples/lists, but the
             # NumPy backend expects ndarray semantics for multi-index access and
             # elementwise arithmetic inside Einstein clauses.
-            try:
-                arr = np.asarray(val)
-                if arr.dtype.kind == "f":
-                    return arr.astype(np.float32, copy=False)
-                if arr.dtype.kind in ("i", "u"):
-                    return arr.astype(np.int32, copy=False)
-                if arr.dtype.kind == "b":
-                    return arr.astype(bool, copy=False)
-                return arr
-            except Exception:
-                return val
+            return _normalize_literal_sequence(val)
         return val
 
     def visit_identifier(self, expr) -> Any:
@@ -178,11 +170,7 @@ class ExpressionVisitorMixin:
         if hasattr(callee, "body") and hasattr(callee, "parameters"):
             return self._call_function(callee, args)
         if callee == builtin_assert:
-            if len(args) == 0:
-                raise RuntimeError("assert() called with no arguments")
-            if len(args) == 1:
-                return builtin_assert(args[0])
-            return builtin_assert(args[0], args[1])
+            return _invoke_runtime_builtin(callee, args)
         return callee(*args)
 
     def visit_rectangular_access(self, expr: RectangularAccessIR) -> Any:
@@ -194,7 +182,7 @@ class ExpressionVisitorMixin:
         indices = [idx.accept(self) for idx in (expr.indices or []) if idx is not None]
         try:
             if isinstance(array, np.ndarray):
-                if getattr(self, "_vectorize_safe_oob", False):
+                if self._vectorization_safe_oob_enabled():
                     return _safe_oob_ndarray_access(array, indices)
                 return array[tuple(indices)]
             if isinstance(array, str):
@@ -468,13 +456,13 @@ class ExpressionVisitorMixin:
         self, expr: LoweredReductionIR, parallel_shape: Optional[Tuple[int, ...]] = None
     ) -> Any:
         """Evaluate a lowered reduction, optionally with vectorized path when parallel_shape is set.
-        When parallel_shape is None, uses backend._vectorize_parallel_shape if set (e.g. by vectorized clause).
+        When parallel_shape is None, uses the backend vectorization state when present (e.g. in a vectorized clause).
         Fast paths (matmul, conv via einsum) only when parallel_shape is set; stricter conditions avoid LSTM."""
         import os
         if parallel_shape is None:
-            parallel_shape = getattr(self, "_vectorize_parallel_shape", None)
+            parallel_shape = self._vectorization_parallel_shape()
         # Recurrence clauses may use partial vectorization but must not use fast_matmul / fast_conv.
-        if parallel_shape is not None and not getattr(self, "_einstein_recurrence_clause", False):
+        if parallel_shape is not None and not self._in_recurrence_vectorization_clause():
             conv_result = _try_conv_im2col_einsum(expr, self)
             if conv_result is not None and isinstance(conv_result, np.ndarray):
                 if conv_result.shape == tuple(parallel_shape):
@@ -578,7 +566,7 @@ class ExpressionVisitorMixin:
             except Exception:
                 pass
         if (not initial_ctx) and parallel_shape:
-            order_defids = getattr(self, "_vectorize_parallel_defids_order", None)
+            order_defids = self._vectorization_parallel_defids_order()
             if order_defids is not None and len(order_defids) == len(parallel_shape):
                 n_red_ix = len(expr.reduction_ranges or {})
                 if n_red_ix >= 1:
@@ -775,7 +763,7 @@ class ExpressionVisitorMixin:
         parallel_defids_list: List[Any] = []
         initial_context: List[Tuple[Any, Any]] = []
         _ri0 = getattr(self, "_reduction_initial_context", None) or {}
-        clause_parallel_shape = getattr(self, "_vectorize_parallel_shape", None)
+        clause_parallel_shape = self._vectorization_parallel_shape()
         if clause_parallel_shape is not None and not outer_index_defids:
             try:
                 parallel_shape = tuple(int(dim) for dim in clause_parallel_shape)
@@ -970,10 +958,6 @@ class ExpressionVisitorMixin:
         args_list = (expr.args or [])
         args = [arg.accept(self) for arg in args_list]
         try:
-            if fn == builtin_assert:
-                if len(args) == 0:
-                    raise RuntimeError("assert() called with no arguments")
-                return builtin_assert(args[0], args[1] if len(args) > 1 else "Assertion failed")
-            return fn(*args)
+            return _invoke_runtime_builtin(fn, args)
         except Exception as e:
             self._raise_here(e, expr)

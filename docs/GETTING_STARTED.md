@@ -13,7 +13,7 @@ Einlang is a language for tensor programs written with explicit indices, reducti
 let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply — compiler checks A, B, C shapes
 ```
 
-The language includes **where-clauses** for index relations and guards, **recurrences** for sequential definitions, and **automatic differentiation** through forms such as `@loss / @weights`, `@state / @param`, and `@C / @A`. The standard library covers mathematical and ML-oriented operations, and the examples span numerical methods as well as model code. **[Why Einlang?](WHY_EINLANG.md)** gives a broader overview.
+The language includes **where-clauses** for index relations and guards, **recurrences** for sequential definitions, and **automatic differentiation** through forms such as `@loss / @weights`, `@state / @param`, and `@C / @A`. The standard library covers mathematical and machine-learning operations, and the examples span numerical methods as well as model code. **[Why Einlang?](WHY_EINLANG.md)** gives a broader overview.
 
 ---
 
@@ -40,7 +40,7 @@ Run the matrix multiply from the code block above:
 python3 -m einlang examples/hello.ein
 ```
 
-That’s real Einlang: indices `i`, `j`, `k`, shape checking, and output. From here you can [run more examples by feature](https://github.com/einlang/einlang/blob/main/README.md#examples) or follow the [learning path](https://github.com/einlang/einlang/blob/main/examples/README.md) from basics to MNIST to ViT and Whisper.
+That is real Einlang: indices `i`, `j`, `k`, shape checking, and output. From here you can [run more examples by feature](https://github.com/einlang/einlang/blob/main/README.md#examples) or follow the [learning path](https://github.com/einlang/einlang/blob/main/examples/README.md) from basics to MNIST, ViT, and Whisper.
 
 ---
 
@@ -73,4 +73,4 @@ See [Install & run](https://github.com/einlang/einlang/blob/main/README.md#insta
 
 **After your first example:** pick a domain ([ode](https://github.com/einlang/einlang/tree/main/examples/ode), [optimization](https://github.com/einlang/einlang/tree/main/examples/optimization), [finance](https://github.com/einlang/einlang/tree/main/examples/finance), [job_search](https://github.com/einlang/einlang/tree/main/examples/job_search), [time_series](https://github.com/einlang/einlang/tree/main/examples/time_series), [ML](https://github.com/einlang/einlang/blob/main/README.md#examples)) and run one; then use [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) for depth.
 
-You’re set. The rest is depth: reference, stdlib, and examples showcase everything Einlang can do.
+You are set. The rest is depth: the reference, the standard library, and the examples.

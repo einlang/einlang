@@ -52,7 +52,7 @@
 
 - [ ] **pyproject.toml** lists all runtime deps (numpy, lark, sexpdata, typing_extensions). Optional `[test]` for pytest.
 - [ ] **Editable install works:** `pip install -e .` then `python3 -m einlang --help` (or run hello.ein). If your build requires a modern setuptools, note “setuptools>=61” or “pip>=21” in README if needed.
-- [ ] **CI runs on 3.9 and 3.12** (or your supported range) so the badge reflects reality.
+- [ ] **CI runs on 3.7 and 3.14** (or your supported range) so the badge reflects reality.
 
 ---
 

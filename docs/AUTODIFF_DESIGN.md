@@ -6,7 +6,7 @@
 
 **Narrative overview (why Einlang’s autodiff):** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md)
 
-**Implementation note:** The design here is not aspirational docsware; it directly describes a production compiler path from `@` syntax to executable derivative IR.
+**Implementation note:** This document is not aspirational. It describes the current compiler path from `@` syntax to executable derivative IR.
 
 ---
 
