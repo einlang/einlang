@@ -8,8 +8,11 @@ from .numpy_einstein_analysis import (
 from .numpy_einstein_call_index_analysis import _collect_defids_by_name
 from .numpy_einstein_recurrence_analysis import (
     _extract_loop_range,
+    _flatten_additive_terms,
     _loop_dims_from_clause_indices,
+    _match_rect_access_offsets,
     _recurrence_dims_for_hybrid_or_full,
+    _split_scalar_mul,
 )
 
 def _split_binding_factor(expr: Any, binding_defid: Any) -> Optional[Any]:
