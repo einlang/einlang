@@ -4688,7 +4688,10 @@ class _ExpansionVisitor(_Rewriter):
                     if ti or si:
                         _propagate_ti(out, ti, si)
                     return out
-                legacy_directional = den_is_tensor and num_rank > 0 and num_rank >= den_rank
+                # Keep lower-rank tensor projections (e.g. flatten/index/select over a tensor)
+                # on the directional path so the quotient contracts the numerator axes and
+                # returns a gradient laid out like the denominator tensor.
+                legacy_directional = den_is_tensor and num_rank > 0 and num_rank < den_rank
                 jv = JacobianVisitor(
                     dd,
                     ql,
@@ -4739,7 +4742,7 @@ class _ExpansionVisitor(_Rewriter):
                 den_b is not None
                 and _tensor_rank_from_binding(den_b) > 0
                 and num_rank > 0
-                and num_rank >= _tensor_rank_from_binding(den_b)
+                and num_rank < _tensor_rank_from_binding(den_b)
             )
             dn = nop.accept(
                 JacobianVisitor(

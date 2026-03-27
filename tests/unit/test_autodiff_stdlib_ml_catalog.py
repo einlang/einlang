@@ -408,11 +408,11 @@ _SPECIAL_CASES: dict[str, tuple[str, bool]] = {
     ),
     "resize": (
         'use std::ml; let X = [[[[1.0, 2.0], [3.0, 4.0]]]]; let y = std::ml::resize(X, [2.0, 2.0], "nearest"); let dy_dX = @y / @X;',
-        False,
+        True,
     ),
     "upsample": (
         'use std::ml; let X = [[[[1.0, 2.0], [3.0, 4.0]]]]; let y = std::ml::upsample(X, [2.0, 2.0], "nearest"); let dy_dX = @y / @X;',
-        False,
+        True,
     ),
     "topk": (
         "use std::ml; let X = [[1.0, 3.0, 2.0], [4.0, 6.0, 5.0]]; let pair = std::ml::topk(X, 2, 1); let dvals_dX = @pair.0 / @X;",

@@ -23,7 +23,7 @@ Full multiline expected: `python3 scripts/test_print_at.py --print-audit`
 | scalar_mul | y = c x ⇒ dy = c dx. | let @y = 2.0 * @x; |
 | compound | y = (x+1)*(x+2); product + chain rules. | let @y = 2.0 * x * @x + @x; |
 | call_plus_fn | y = x + f(x); with f(t)=t+1 inlined, f'=1 ⇒ @y = 2 @x (generic rule would be @y = @x + @f). | let @y = 2.0 * @x; |
-| multistatement_callee_g | g(t)=2(t+1); y=g(x) ⇒ chain rule through internal lets. | let @y = {     let _@a = @x;     let _@b = 2.0 * _@a;     _@b }; |
+| multistatement_callee_g | g(t)=2(t+1); y=g(x) ⇒ chain rule through internal lets. | let @y = {     let _@a: f32 = @x;     let _@b: f32 = 2.0 * _@a;     _@b }; |
 | log_scalar | y = ln x ⇒ dy = dx / x. | let @y = 1.0 / x * @x; |
 | sin_scalar | y = sin x ⇒ dy = cos x dx. | let @y = cos(x) * @x; |
 | cos_scalar | y = cos x ⇒ dy = −sin x dx. | let @y = -sin(x) * @x; |
