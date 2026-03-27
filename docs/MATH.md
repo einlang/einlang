@@ -124,7 +124,7 @@ These are implemented in the autodiff pass for `BinaryOpIR` and `UnaryOpIR` (onl
 | **relu** | max(0, x) | 1 if x > 0, 0 if x < 0 (subgradient at 0) |
 | **sigmoid** | 1/(1+e^(−x)) | y(1−y) = σ(x)(1−σ(x)) |
 | **tanh** | tanh(x) | 1 − y² |
-| **softplus** | ln(1+e^x) | sigmoid(x) |
+| **softplus** | ln(1+e^x) | sigmoid(x); in the stabilized large-x branch the primal is linear, so the branch derivative is 1, matching sigmoid(x) -> 1 |
 | **leaky_relu** | x if x>0 else αx | 1 if x>0 else α |
 | **elu** | x if x>0 else α(e^x−1) | 1 if x>0 else α e^x |
 | **gelu** | x·Φ(x) (approx) | (common approx has smooth derivative) |

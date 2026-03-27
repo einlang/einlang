@@ -332,7 +332,7 @@ let x = 0.5;
 let y = std::math::sinh(x);
 print(@y);
 """,
-        "let @y = {\n    let _@sinh_x: f32 = {\n        let ax: f32 = abs(x);\n        let _@ax: f32 = { sign(x) * @x };\n        if ax < 20.0 { 0.5 * ({ exp(x) * @x } - { exp(-x) * -@x }) } else {\n            let s: f32 = if x >= 0 { 1.0 } else { -1.0 };\n            let _@s: f32 = if x >= 0 { 0.0 } else { 0.0 };\n            s * 0.5 * { exp(ax) * _@ax } + exp(ax) * 0.5 * _@s\n        }\n    };\n    _@sinh_x\n};",
+        "let @y = {\n    let _@sinh_x: f32 = {\n        let ax: f32 = abs(x);\n        let _@ax: f32 = sign(x) * @x;\n        if ax < 20.0 { 0.5 * ({ exp(x) * @x } - { exp(-x) * -@x }) } else {\n            let s: f32 = if x >= 0 { 1.0 } else { -1.0 };\n            let _@s: f32 = if x >= 0 { 0.0 } else { 0.0 };\n            s * 0.5 * { exp(ax) * _@ax } + exp(ax) * 0.5 * _@s\n        }\n    };\n    _@sinh_x\n};",
     ),
     (
         "cosh_scalar",
@@ -341,7 +341,7 @@ let x = 0.5;
 let y = std::math::cosh(x);
 print(@y);
 """,
-        "let @y = {\n    let _@cosh_x: f32 = {\n        let ax: f32 = abs(x);\n        let _@ax: f32 = { sign(x) * @x };\n        if ax < 20.0 { 0.5 * ({ exp(x) * @x } + { exp(-x) * -@x }) } else { 0.5 * { exp(ax) * _@ax } }\n    };\n    _@cosh_x\n};",
+        "let @y = {\n    let _@cosh_x: f32 = {\n        let ax: f32 = abs(x);\n        let _@ax: f32 = sign(x) * @x;\n        if ax < 20.0 { 0.5 * ({ exp(x) * @x } + { exp(-x) * -@x }) } else { 0.5 * { exp(ax) * _@ax } }\n    };\n    _@cosh_x\n};",
     ),
     (
         "asinh_scalar",
@@ -368,7 +368,7 @@ let x = 0.5;
 let y = std::math::atanh(x);
 print(@y);
 """,
-        "let @y = 0.5 * { 1.0 / ((1.0 + x) / (1.0 - x)) * ((1.0 - x) * @x - (1.0 + x) * (0.0 - @x)) / (1.0 - x) ** 2.0 };",
+        "let @y = 0.5 * 1.0 / ((1.0 + x) / (1.0 - x)) * ((1.0 - x) * @x - (1.0 + x) * (0.0 - @x)) / (1.0 - x) ** 2.0;",
     ),
     (
         "erf_scalar",
@@ -496,7 +496,7 @@ let x = [[1.0, -2.0, 3.0]];
 let y = std::ml::reduce_l1(x);
 print(@y);
 """,
-        "let @y = {\n    let _@reduce_l1_x: [f32; *] = {\n        let _@result[batch.0 in 0..x.shape[0]]: [f32; ?] = sum[j]({ sign(x[batch.0, j]) * @x[batch.0, j] });\n        _@result\n    };\n    _@reduce_l1_x\n};",
+        "let @y = {\n    let _@reduce_l1_x: [f32; *] = {\n        let _@result[batch.0 in 0..x.shape[0]]: [f32; ?] = sum[j](sign(x[batch.0, j]) * @x[batch.0, j]);\n        _@result\n    };\n    _@reduce_l1_x\n};",
     ),
     (
         "reduce_sum_square",
@@ -572,7 +572,7 @@ let target = [[1.5, 2.5, 3.5]];
 let y = std::ml::mae_loss(pred, target);
 print(@y);
 """,
-        "let @y = {\n    let _@mae_loss_call: f32 = {\n        let nb: f32 = len(pred) as f32;\n        let nf: f32 = len(pred[0]) as f32;\n        let _@row_l1[batch.0 in 0..targets.shape[0]]: [f32; ?] = sum[j]({ sign(pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j]) });\n        let _@loss = sum[batch.0](_@row_l1[batch.0]) / (nb * nf);\n        _@loss\n    };\n    _@mae_loss_call\n};",
+        "let @y = {\n    let _@mae_loss_call: f32 = {\n        let nb: f32 = len(pred) as f32;\n        let nf: f32 = len(pred[0]) as f32;\n        let _@row_l1[batch.0 in 0..targets.shape[0]]: [f32; ?] = sum[j](sign(pred[batch.0, j] - target[batch.0, j]) * (@pred[batch.0, j] - @target[batch.0, j]));\n        let _@loss = sum[batch.0](_@row_l1[batch.0]) / (nb * nf);\n        _@loss\n    };\n    _@mae_loss_call\n};",
     ),
     (
         "huber_loss",
@@ -594,7 +594,7 @@ let target = [[1.0, 0.0, 1.0]];
 let y = std::ml::binary_cross_entropy(pred, target);
 print(@y);
 """,
-        "let @y = {\n    let _@binary_cross_entropy_call: f32 = {\n        let eps: f32 = 1e-07;\n        let clipped_pred[batch.0 in 0..predictions.shape[0], j in 0..predictions.shape[1]]: [f32; ?, ?] = if pred[batch.0, j] < eps { eps } else if pred[batch.0, j] > 1.0 - eps { 1.0 - eps } else { pred[batch.0, j] };\n        let nb: f32 = len(pred) as f32;\n        let nf: f32 = len(pred[0]) as f32;\n        let _@clipped_pred[batch.0 in 0..predictions.shape[0], j in 0..predictions.shape[1]]: [f32; ?, ?] = if pred[batch.0, j] < eps { 0.0 } else if pred[batch.0, j] > 1.0 - eps { 0.0 } else { @pred[batch.0, j] };\n        let _@row_bce[batch.0 in 0..clipped_pred.shape[0]]: [f32; ?] = -sum[j](target[batch.0, j] * { 1.0 / clipped_pred[batch.0, j] * _@clipped_pred[batch.0, j] } + ln(clipped_pred[batch.0, j]) * @target[batch.0, j] + (1.0 - target[batch.0, j]) * { 1.0 / (1.0 - clipped_pred[batch.0, j]) * (0.0 - _@clipped_pred[batch.0, j]) } + ln(1.0 - clipped_pred[batch.0, j]) * (0.0 - @target[batch.0, j]));\n        let _@loss = sum[batch.0](_@row_bce[batch.0]) / (nb * nf);\n        _@loss\n    };\n    _@binary_cross_entropy_call\n};",
+        "let @y = {\n    let _@binary_cross_entropy_call: f32 = {\n        let eps: f32 = 1e-07;\n        let clipped_pred[batch.0 in 0..predictions.shape[0], j in 0..predictions.shape[1]]: [f32; ?, ?] = if pred[batch.0, j] < eps { eps } else if pred[batch.0, j] > 1.0 - eps { 1.0 - eps } else { pred[batch.0, j] };\n        let nb: f32 = len(pred) as f32;\n        let nf: f32 = len(pred[0]) as f32;\n        let _@clipped_pred[batch.0 in 0..predictions.shape[0], j in 0..predictions.shape[1]]: [f32; ?, ?] = if pred[batch.0, j] < eps { 0.0 } else if pred[batch.0, j] > 1.0 - eps { 0.0 } else { @pred[batch.0, j] };\n        let _@row_bce[batch.0 in 0..clipped_pred.shape[0]]: [f32; ?] = -sum[j](target[batch.0, j] * 1.0 / clipped_pred[batch.0, j] * _@clipped_pred[batch.0, j] + ln(clipped_pred[batch.0, j]) * @target[batch.0, j] + (1.0 - target[batch.0, j]) * 1.0 / (1.0 - clipped_pred[batch.0, j]) * (0.0 - _@clipped_pred[batch.0, j]) + ln(1.0 - clipped_pred[batch.0, j]) * (0.0 - @target[batch.0, j]));\n        let _@loss = sum[batch.0](_@row_bce[batch.0]) / (nb * nf);\n        _@loss\n    };\n    _@binary_cross_entropy_call\n};",
     ),
     (
         "softmax",
@@ -614,7 +614,7 @@ let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::log_softmax(x);
 print(@y);
 """,
-        "let @y = {\n    let max_val[batch.0 in 0..x.shape[0]]: [f32; ?] = max[j](x[batch.0, j]);\n    let shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]]: [f32; ?, ?] = x[batch.0, j] - max_val[batch.0];\n    let exp_vals[batch.0 in 0..shifted.shape[0], j in 0..shifted.shape[1]]: [f32; ?, ?] = exp(shifted[batch.0, j]);\n    let sum_exp[batch.0 in 0..exp_vals.shape[0]]: [f32; ?] = sum[k](exp_vals[batch.0, k]);\n    let _@max_val[batch.0 in 0..x.shape[0]]: [f32; ?] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]]: [f32; ?, ?] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@exp_vals[batch.0 in 0..shifted.shape[0], j in 0..shifted.shape[1]]: [f32; ?, ?] = exp(shifted[batch.0, j]) * _@shifted[batch.0, j];\n    let _@sum_exp[batch.0 in 0..exp_vals.shape[0]]: [f32; ?] = sum[k](_@exp_vals[batch.0, k]);\n    let _@log_sum[batch.0 in 0..max_val.shape[0]]: [f32; ?] = { 1.0 / sum_exp[batch.0] * _@sum_exp[batch.0] } + _@max_val[batch.0];\n    let _@output[batch.0 in 0..log_sum.shape[0], j in 0..x.shape[1]]: [f32; ?, ?] = @x[batch.0, j] - _@log_sum[batch.0];\n    _@output\n};",
+        "let @y = {\n    let max_val[batch.0 in 0..x.shape[0]]: [f32; ?] = max[j](x[batch.0, j]);\n    let shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]]: [f32; ?, ?] = x[batch.0, j] - max_val[batch.0];\n    let exp_vals[batch.0 in 0..shifted.shape[0], j in 0..shifted.shape[1]]: [f32; ?, ?] = exp(shifted[batch.0, j]);\n    let sum_exp[batch.0 in 0..exp_vals.shape[0]]: [f32; ?] = sum[k](exp_vals[batch.0, k]);\n    let _@max_val[batch.0 in 0..x.shape[0]]: [f32; ?] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]]: [f32; ?, ?] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@exp_vals[batch.0 in 0..shifted.shape[0], j in 0..shifted.shape[1]]: [f32; ?, ?] = exp(shifted[batch.0, j]) * _@shifted[batch.0, j];\n    let _@sum_exp[batch.0 in 0..exp_vals.shape[0]]: [f32; ?] = sum[k](_@exp_vals[batch.0, k]);\n    let _@log_sum[batch.0 in 0..max_val.shape[0]]: [f32; ?] = 1.0 / sum_exp[batch.0] * _@sum_exp[batch.0] + _@max_val[batch.0];\n    let _@output[batch.0 in 0..log_sum.shape[0], j in 0..x.shape[1]]: [f32; ?, ?] = @x[batch.0, j] - _@log_sum[batch.0];\n    _@output\n};",
     ),
     (
         "reduce_l2",
@@ -644,7 +644,7 @@ let x = [[1.0, 2.0, 3.0]];
 let y = std::ml::reduce_log_sum_exp(x);
 print(@y);
 """,
-        "let @y = {\n    let max_val[batch.0 in 0..x.shape[0]]: [f32; ?] = max[j](x[batch.0, j]);\n    let shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]]: [f32; ?, ?] = x[batch.0, j] - max_val[batch.0];\n    let sum_exp[batch.0 in 0..shifted.shape[0]]: [f32; ?] = sum[j](exp(shifted[batch.0, j]));\n    let _@max_val[batch.0 in 0..x.shape[0]]: [f32; ?] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]]: [f32; ?, ?] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@sum_exp[batch.0 in 0..shifted.shape[0]]: [f32; ?] = sum[j]({ exp(shifted[batch.0, j]) * _@shifted[batch.0, j] });\n    let _@result[batch.0 in 0..sum_exp.shape[0]]: [f32; ?] = _@max_val[batch.0] + { 1.0 / sum_exp[batch.0] * _@sum_exp[batch.0] };\n    _@result\n};",
+        "let @y = {\n    let max_val[batch.0 in 0..x.shape[0]]: [f32; ?] = max[j](x[batch.0, j]);\n    let shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]]: [f32; ?, ?] = x[batch.0, j] - max_val[batch.0];\n    let sum_exp[batch.0 in 0..shifted.shape[0]]: [f32; ?] = sum[j](exp(shifted[batch.0, j]));\n    let _@max_val[batch.0 in 0..x.shape[0]]: [f32; ?] = @x[batch.0, j] at argmax[j](x[batch.0, j]);\n    let _@shifted[batch.0 in 0..max_val.shape[0], j in 0..x.shape[1]]: [f32; ?, ?] = @x[batch.0, j] - _@max_val[batch.0];\n    let _@sum_exp[batch.0 in 0..shifted.shape[0]]: [f32; ?] = sum[j](exp(shifted[batch.0, j]) * _@shifted[batch.0, j]);\n    let _@result[batch.0 in 0..sum_exp.shape[0]]: [f32; ?] = _@max_val[batch.0] + 1.0 / sum_exp[batch.0] * _@sum_exp[batch.0];\n    _@result\n};",
     ),
     (
         "cosine_similarity",

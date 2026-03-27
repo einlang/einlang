@@ -18,7 +18,7 @@ ML_ACTIVATION_PRINT_AT_GOLDEN_CASES: List[Tuple[str, str, str]] = [
     (
         'sigmoid',
         '\n\nuse std::ml;\nlet x = 0.5;\nlet y = std::ml::sigmoid(x);\nprint(@y);\n',
-        'let @y = (0.0 - { exp(-x) * -@x }) / (1.0 + exp(-x)) ** 2.0;',
+        'let @y = (0.0 - exp(-x) * -@x) / (1.0 + exp(-x)) ** 2.0;',
     ),
     (
         'leaky_relu',
@@ -33,12 +33,12 @@ ML_ACTIVATION_PRINT_AT_GOLDEN_CASES: List[Tuple[str, str, str]] = [
     (
         'swish',
         '\n\nuse std::ml;\nlet x = 1.0;\nlet y = std::ml::swish(x);\nprint(@y);\n',
-        'let @y = x * (0.0 - { exp(-x) * -@x }) / (1.0 + exp(-x)) ** 2.0 + sigmoid(x) * @x;',
+        'let @y = x * (0.0 - exp(-x) * -@x) / (1.0 + exp(-x)) ** 2.0 + sigmoid(x) * @x;',
     ),
     (
         'softsign',
         '\n\nuse std::ml;\nlet x = 1.0;\nlet y = std::ml::softsign(x);\nprint(@y);\n',
-        'let @y = ((1.0 + abs(x)) * @x - x * { sign(x) * @x }) / (1.0 + abs(x)) ** 2.0;',
+        'let @y = ((1.0 + abs(x)) * @x - x * sign(x) * @x) / (1.0 + abs(x)) ** 2.0;',
     ),
     (
         'hardtanh',

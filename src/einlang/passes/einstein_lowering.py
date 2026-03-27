@@ -1075,25 +1075,35 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                     "Ensure index variables have defids from name resolution."
                 )
         
-        # Sync clause variable_ranges onto reduction.loop_var_ranges so _extract_reduction_ranges and
-        # lower_reduction_expression see them (mono pipeline sets clause.variable_ranges; reduction may not have loop_var_ranges).
-        if isinstance(node.value, ReductionExpressionIR) and node.variable_ranges:
+        # Sync clause variable_ranges onto nested reductions so _extract_reduction_ranges and
+        # lower_reduction_expression see them. Autodiff-generated clause values can wrap the
+        # reduction in unary/block structure (for example BCE's outer negation) and can inline
+        # multiple copies of the same reduction inside a single clause value.
+        red_values = (
+            [node.value]
+            if isinstance(node.value, ReductionExpressionIR)
+            else self._find_reductions_in_value(node.value)
+        )
+        if red_values and node.variable_ranges:
             vr = node.variable_ranges
-            for v in (node.value.loop_vars or []):
-                did = v.defid
-                if not did:
+            for red_value in red_values:
+                if not isinstance(red_value, ReductionExpressionIR):
                     continue
-                if node.value.loop_var_ranges and did in node.value.loop_var_ranges:
-                    continue
-                r = vr.get(did)
-                if r is None and hasattr(did, 'krate') and hasattr(did, 'index'):
-                    r = vr.get((did.krate, did.index))
-                if r is None and hasattr(did, '__getitem__') and len(did) >= 2:
-                    r = vr.get((did[0], did[1]))
-                if r is not None:
-                    if not node.value.loop_var_ranges:
-                        node.value.loop_var_ranges = {}
-                    node.value.loop_var_ranges[did] = r
+                for v in (red_value.loop_vars or []):
+                    did = v.defid
+                    if not did:
+                        continue
+                    if red_value.loop_var_ranges and did in red_value.loop_var_ranges:
+                        continue
+                    r = vr.get(did)
+                    if r is None and hasattr(did, 'krate') and hasattr(did, 'index'):
+                        r = vr.get((did.krate, did.index))
+                    if r is None and hasattr(did, '__getitem__') and len(did) >= 2:
+                        r = vr.get((did[0], did[1]))
+                    if r is not None:
+                        if not red_value.loop_var_ranges:
+                            red_value.loop_var_ranges = {}
+                        red_value.loop_var_ranges[did] = r
         # Extract reduction_ranges from value BEFORE lowering: once value is replaced with LoweredReductionIR,
         # _extract_reduction_ranges would find no ReductionExpressionIR and return {}. Loop variables (e.g. j)
         # would then never be bound at runtime.
@@ -1663,6 +1673,53 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         if expr is None or not hasattr(expr, "accept"):
             return None
         return expr.accept(_FindReductionInExprVisitor())
+
+    def _find_reductions_in_value(self, expr: Optional[ExpressionIR]) -> List[ReductionExpressionIR]:
+        """Find all ReductionExpressionIR nodes inside an expression tree."""
+        out: List[ReductionExpressionIR] = []
+        seen: Set[int] = set()
+
+        def _walk(node: Optional[ExpressionIR]) -> None:
+            if node is None:
+                return
+            nid = id(node)
+            if nid in seen:
+                return
+            seen.add(nid)
+            if isinstance(node, ReductionExpressionIR):
+                out.append(node)
+            if isinstance(node, BinaryOpIR):
+                _walk(node.left)
+                _walk(node.right)
+            elif isinstance(node, UnaryOpIR):
+                _walk(node.operand)
+            elif isinstance(node, RectangularAccessIR):
+                _walk(node.array)
+                for idx in (node.indices or []):
+                    _walk(idx)
+            elif isinstance(node, FunctionCallIR):
+                _walk(node.callee_expr)
+                for arg in (node.arguments or []):
+                    _walk(arg)
+            elif isinstance(node, BlockExpressionIR):
+                for stmt in (node.statements or []):
+                    if isinstance(stmt, BindingIR):
+                        _walk(stmt.expr)
+                    elif isinstance(stmt, ExpressionIR):
+                        _walk(stmt)
+                _walk(node.final_expr)
+            elif isinstance(node, IfExpressionIR):
+                _walk(node.condition)
+                _walk(node.then_expr)
+                _walk(node.else_expr)
+            elif isinstance(node, EinsteinIR):
+                for clause in (node.clauses or []):
+                    _walk(clause.value)
+            elif isinstance(node, CastExpressionIR):
+                _walk(node.expr)
+
+        _walk(expr)
+        return out
     
     def _find_array_accesses(self, expr: ExpressionIR) -> List[RectangularAccessIR]:
         """Find all array accesses in an expression tree."""
@@ -2353,4 +2410,3 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             new_expr = node.expr.accept(self)
             object.__setattr__(node, 'expr', new_expr)
         return node
-

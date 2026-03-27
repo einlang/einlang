@@ -344,9 +344,24 @@ class IfExpressionIR(ExpressionIR):
         return visitor.visit_if_expression(self)
 
     def __str__(self) -> str:
+        def _unwrap_else_if(expr: Optional[ExpressionIR]) -> Optional[ExpressionIR]:
+            cur = expr
+            while (
+                isinstance(cur, BlockExpressionIR)
+                and not (cur.statements or [])
+                and cur.final_expr is not None
+            ):
+                if isinstance(cur.final_expr, IfExpressionIR):
+                    return cur.final_expr
+                if not isinstance(cur.final_expr, BlockExpressionIR):
+                    break
+                cur = cur.final_expr
+            return expr
+
         s = f"if {self.condition} {self.then_expr}"
         if self.else_expr is not None:
-            s += f" else {self.else_expr}"
+            else_expr = _unwrap_else_if(self.else_expr)
+            s += f" else {else_expr}"
         return s
 
 
@@ -1850,5 +1865,3 @@ class IRVisitor(ABC, Generic[T]):
     def visit_program(self, node: 'ProgramIR') -> T:
         """Visit program"""
         raise NotImplementedError
-
-

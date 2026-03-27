@@ -269,6 +269,8 @@ def _simplify(expr: ExpressionIR, loc: SourceLocation) -> ExpressionIR:
         L = _simplify(expr.left, loc)
         R = _simplify(expr.right, loc)
         op = expr.operator
+        ti = _ti(expr)
+        si = _si(expr)
         lz, rz = _is_zero(L), _is_zero(R)
         l1 = isinstance(L, LiteralIR) and L.value == 1
         r1 = isinstance(R, LiteralIR) and R.value == 1
@@ -282,7 +284,8 @@ def _simplify(expr: ExpressionIR, loc: SourceLocation) -> ExpressionIR:
             if isinstance(R, ReductionExpressionIR) and R.operation == ReductionOp.SUM and _is_zero(R.body):
                 return L
             if ll and rl: return _fl(L.value + R.value, loc)
-            if _seq(L, R): return BinaryOpIR(BinaryOp.MUL, _fl(2, loc), L, loc)
+            if _seq(L, R):
+                return BinaryOpIR(BinaryOp.MUL, _fl(2, loc), L, loc, type_info=ti, shape_info=si)
         elif op == BinaryOp.SUB:
             if rz: return L
             if ll and rl: return _fl(L.value - R.value, loc)
@@ -298,19 +301,25 @@ def _simplify(expr: ExpressionIR, loc: SourceLocation) -> ExpressionIR:
                 base = R.left
                 if isinstance(L, BinaryOpIR) and L.operator == BinaryOp.MUL:
                     if _seq(L.left, base):
-                        return BinaryOpIR(BinaryOp.DIV, L.right, base, loc)
+                        return BinaryOpIR(BinaryOp.DIV, L.right, base, loc, type_info=ti, shape_info=si)
                     if _seq(L.right, base):
-                        return BinaryOpIR(BinaryOp.DIV, L.left, base, loc)
+                        return BinaryOpIR(BinaryOp.DIV, L.left, base, loc, type_info=ti, shape_info=si)
         elif op == BinaryOp.POW:
             if r1: return L
 
-        return BinaryOpIR(op, L, R, loc)
+        return BinaryOpIR(op, L, R, loc, type_info=ti, shape_info=si)
 
     if isinstance(expr, UnaryOpIR):
         inner = _simplify(expr.operand, loc)
         if expr.operator == UnaryOp.NEG and isinstance(inner, UnaryOpIR) and inner.operator == UnaryOp.NEG:
             return inner.operand
-        return UnaryOpIR(expr.operator, inner, expr.location or loc)
+        return UnaryOpIR(
+            expr.operator,
+            inner,
+            expr.location or loc,
+            type_info=_ti(expr),
+            shape_info=_si(expr),
+        )
 
     if isinstance(expr, EinsteinIR):
         nc = []
@@ -423,21 +432,60 @@ def _log_call(arg: ExpressionIR, bindings: Dict[DefId, Any], resolver: Any, loc:
 def _pow_chain(node: BinaryOpIR, dL: ExpressionIR, dR: ExpressionIR,
                bindings: Dict[DefId, Any], resolver: Any, loc: SourceLocation) -> ExpressionIR:
     a, b = node.left, node.right
+    ti = _ti(node) or F32
+    si = _si(node)
     if isinstance(b, LiteralIR):
         n = b.value
-        return BinaryOpIR(BinaryOp.MUL,
-                   BinaryOpIR(BinaryOp.MUL, _fl(n, loc),
-                              BinaryOpIR(BinaryOp.POW, a, _fl(n - 1, loc), loc), loc),
-                   dL, loc)
+        return BinaryOpIR(
+            BinaryOp.MUL,
+            BinaryOpIR(
+                BinaryOp.MUL,
+                _fl(n, loc),
+                BinaryOpIR(BinaryOp.POW, a, _fl(n - 1, loc), loc, type_info=ti, shape_info=si),
+                loc,
+                type_info=ti,
+                shape_info=si,
+            ),
+            dL,
+            loc,
+            type_info=ti,
+            shape_info=si,
+        )
     if isinstance(a, LiteralIR):
         c = a.value
-        return BinaryOpIR(BinaryOp.MUL,
-                   BinaryOpIR(BinaryOp.MUL, node, _log_call(_fl(c, loc), bindings, resolver, loc), loc),
-                   dR, loc)
+        return BinaryOpIR(
+            BinaryOp.MUL,
+            BinaryOpIR(
+                BinaryOp.MUL,
+                node,
+                _log_call(_fl(c, loc), bindings, resolver, loc),
+                loc,
+                type_info=ti,
+                shape_info=si,
+            ),
+            dR,
+            loc,
+            type_info=ti,
+            shape_info=si,
+        )
     log_a = _log_call(a, bindings, resolver, loc)
-    t1 = BinaryOpIR(BinaryOp.MUL, BinaryOpIR(BinaryOp.DIV, b, a, loc), dL, loc)
-    t2 = BinaryOpIR(BinaryOp.MUL, log_a, dR, loc)
-    return BinaryOpIR(BinaryOp.MUL, node, BinaryOpIR(BinaryOp.ADD, t1, t2, loc), loc)
+    t1 = BinaryOpIR(
+        BinaryOp.MUL,
+        BinaryOpIR(BinaryOp.DIV, b, a, loc, type_info=ti, shape_info=si),
+        dL,
+        loc,
+        type_info=ti,
+        shape_info=si,
+    )
+    t2 = BinaryOpIR(BinaryOp.MUL, log_a, dR, loc, type_info=ti, shape_info=si)
+    return BinaryOpIR(
+        BinaryOp.MUL,
+        node,
+        BinaryOpIR(BinaryOp.ADD, t1, t2, loc, type_info=ti, shape_info=si),
+        loc,
+        type_info=ti,
+        shape_info=si,
+    )
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Substitution
@@ -2149,6 +2197,7 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                  wrt_tangent: Optional[ExpressionIR] = None,
                  primal_subst: Optional[Dict[DefId, ExpressionIR]] = None,
                  shared_cotangent_axes: Optional[List[IndexVarIR]] = None,
+                 full_cotangent_axes: Optional[List[IndexVarIR]] = None,
                  legacy_directional: bool = False,
                  dependency_cache: Optional[_DependencyQueryCache] = None) -> None:
         self._wrt = wrt; self._loc = loc; self._B = bindings
@@ -2161,12 +2210,18 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
             else _DependencyQueryCache(bindings)
         )
         self._wrt_axes: Optional[List[IndexVarIR]] = None
+        self._full_wrt_axes: Optional[List[IndexVarIR]] = None
         wb = bindings.get(wrt)
         if wb is not None and _tensor_rank_from_binding(wb) > 0:
             self._wrt_axes = (
                 list(shared_cotangent_axes)
                 if shared_cotangent_axes is not None
                 else _alloc_wrt_gradient_axes(wb, wrt, resolver, loc)
+            )
+            self._full_wrt_axes = (
+                list(full_cotangent_axes)
+                if full_cotangent_axes is not None
+                else list(self._wrt_axes)
             )
 
     def _wrap_if_cotangent_indices(self, inner: ExpressionIR, n: ReductionExpressionIR) -> ExpressionIR:
@@ -2261,23 +2316,36 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
         _reject_bare_wrt_tensor_jacobian(dL, self._wrt, self._wrt_axes, "binary left")
         _reject_bare_wrt_tensor_jacobian(dR, self._wrt, self._wrt_axes, "binary right")
         op = n.operator
+        ti = _ti(n) or F32
+        si = _si(n)
         if op == BinaryOp.ADD:
             if _is_zero(dR) or _is_sum_reduction_of_zero(dR):
                 return dL
             if _is_zero(dL) or _is_sum_reduction_of_zero(dL):
                 return dR
-            return BinaryOpIR(BinaryOp.ADD, dL, dR, loc)
-        if op == BinaryOp.SUB: return BinaryOpIR(BinaryOp.SUB, dL, dR, loc)
+            return BinaryOpIR(BinaryOp.ADD, dL, dR, loc, type_info=ti, shape_info=si)
+        if op == BinaryOp.SUB:
+            return BinaryOpIR(BinaryOp.SUB, dL, dR, loc, type_info=ti, shape_info=si)
         if op == BinaryOp.MUL:
-            return BinaryOpIR(BinaryOp.ADD,
-                              BinaryOpIR(BinaryOp.MUL, L, dR, loc),
-                              BinaryOpIR(BinaryOp.MUL, R, dL, loc), loc)
+            return BinaryOpIR(
+                BinaryOp.ADD,
+                BinaryOpIR(BinaryOp.MUL, L, dR, loc, type_info=ti, shape_info=si),
+                BinaryOpIR(BinaryOp.MUL, R, dL, loc, type_info=ti, shape_info=si),
+                loc,
+                type_info=ti,
+                shape_info=si,
+            )
         if op == BinaryOp.DIV:
-            num = BinaryOpIR(BinaryOp.SUB,
-                             BinaryOpIR(BinaryOp.MUL, R, dL, loc),
-                             BinaryOpIR(BinaryOp.MUL, L, dR, loc), loc)
-            den = BinaryOpIR(BinaryOp.POW, R, _fl(2, loc), loc)
-            return BinaryOpIR(BinaryOp.DIV, num, den, loc)
+            num = BinaryOpIR(
+                BinaryOp.SUB,
+                BinaryOpIR(BinaryOp.MUL, R, dL, loc, type_info=ti, shape_info=si),
+                BinaryOpIR(BinaryOp.MUL, L, dR, loc, type_info=ti, shape_info=si),
+                loc,
+                type_info=ti,
+                shape_info=si,
+            )
+            den = BinaryOpIR(BinaryOp.POW, R, _fl(2, loc), loc, type_info=ti, shape_info=si)
+            return BinaryOpIR(BinaryOp.DIV, num, den, loc, type_info=ti, shape_info=si)
         if op == BinaryOp.POW: return _pow_chain(n, dL, dR, self._B, self._R, loc)
         if op == BinaryOp.MOD: return dL
         if op in (BinaryOp.EQ, BinaryOp.NE, BinaryOp.LT, BinaryOp.LE, BinaryOp.GT, BinaryOp.GE, BinaryOp.AND, BinaryOp.OR):
@@ -2287,7 +2355,14 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
     def visit_unary_op(self, n: UnaryOpIR) -> ExpressionIR:
         d = n.operand.accept(self)
         _reject_bare_wrt_tensor_jacobian(d, self._wrt, self._wrt_axes, "unary")
-        if n.operator == UnaryOp.NEG: return UnaryOpIR(UnaryOp.NEG, d, n.location or self._loc)
+        if n.operator == UnaryOp.NEG:
+            return UnaryOpIR(
+                UnaryOp.NEG,
+                d,
+                n.location or self._loc,
+                type_info=_ti(n) or F32,
+                shape_info=_si(n),
+            )
         if n.operator == UnaryOp.POS: return d
         raise ValueError(f"Autodiff: unsupported unary op: {n.operator}")
 
@@ -2347,33 +2422,41 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
             dai = list(da.indices or [])
             if _rc_index_lists_equivalent(indices, dai):
                 return da
-        if self._wrt_axes and isinstance(da, EinsteinIR):
+        if isinstance(da, EinsteinIR):
+            used_axis_ids: Set[DefId] = set()
+            full_axes = self._full_wrt_axes or self._wrt_axes or []
+            current_axes = self._wrt_axes or full_axes
             axis_ids = {
-                iv.defid for iv in self._wrt_axes if getattr(iv, "defid", None) is not None
+                iv.defid for iv in full_axes if getattr(iv, "defid", None) is not None
             }
             if axis_ids:
-                ein_has_axes = False
                 for c in da.clauses or []:
                     for ix in c.indices or []:
                         did = getattr(ix, "defid", None)
                         if did is not None and did in axis_ids:
-                            ein_has_axes = True
-                            break
-                    if ein_has_axes:
-                        break
-                if ein_has_axes:
-                    have = {
-                        getattr(ix, "defid", None)
-                        for ix in indices
-                        if getattr(ix, "defid", None) is not None
-                    }
-                    ext = list(indices)
-                    for iv in self._wrt_axes:
-                        did = getattr(iv, "defid", None)
-                        if did is not None and did not in have:
-                            ext.append(iv)
-                            have.add(did)
-                    indices = ext
+                            used_axis_ids.add(did)
+            if used_axis_ids:
+                have = {
+                    getattr(ix, "defid", None)
+                    for ix in indices
+                    if getattr(ix, "defid", None) is not None
+                }
+                ext = list(indices)
+                for p, full_iv in enumerate(full_axes):
+                    full_did = getattr(full_iv, "defid", None)
+                    if full_did is None or full_did not in used_axis_ids:
+                        continue
+                    current_iv = current_axes[p] if p < len(current_axes) else full_iv
+                    current_did = getattr(current_iv, "defid", None)
+                    if current_did is None:
+                        continue
+                    if current_did != full_did:
+                        ext.append(current_iv)
+                        continue
+                    if current_did not in have and current_did in used_axis_ids:
+                        ext.append(current_iv)
+                        have.add(current_did)
+                indices = ext
         return RectangularAccessIR(da, indices, loc, type_info=_ti(n), shape_info=_si(n))
     def visit_cast_expression(self, n: CastExpressionIR) -> ExpressionIR:
         if _cast_target_has_zero_tangent(n.target_type):
@@ -2425,6 +2508,7 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
             wrt_tangent=self._wt,
             primal_subst=self._ps,
             shared_cotangent_axes=self._wrt_axes,
+            full_cotangent_axes=self._full_wrt_axes,
             legacy_directional=self._legacy_directional,
             dependency_cache=self._dep_cache,
         )
@@ -2507,7 +2591,16 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                 )
                 av = args[i].accept(self)
                 _reject_bare_wrt_tensor_jacobian(av, self._wrt, self._wrt_axes, "custom_diff chain")
-                terms.append(BinaryOpIR(BinaryOp.MUL, coef, av, loc))
+                terms.append(
+                    BinaryOpIR(
+                        BinaryOp.MUL,
+                        coef,
+                        av,
+                        loc,
+                        type_info=_ti(coef) or _ti(av) or _ti(n) or F32,
+                        shape_info=_si(coef) or _si(av) or _si(n),
+                    )
+                )
             return _sum_terms(terms, loc)
         if body is None:
             raise ValueError("Autodiff: JacobianVisitor cannot differentiate function with no body")
@@ -2546,14 +2639,24 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                 if one_hot is not None:
                     av = one_hot
             _reject_bare_wrt_tensor_jacobian(av, self._wrt, self._wrt_axes, "call arg partial")
-            terms.append(BinaryOpIR(BinaryOp.MUL, _sub(body.accept(iv), rm, loc), av, loc))
+            coef = _sub(body.accept(iv), rm, loc)
+            terms.append(
+                BinaryOpIR(
+                    BinaryOp.MUL,
+                    coef,
+                    av,
+                    loc,
+                    type_info=_ti(coef) or _ti(av) or _ti(n) or F32,
+                    shape_info=_si(coef) or _si(av) or _si(n),
+                )
+            )
         return _sum_terms(terms, loc)
 
     # -- einstein (index expansion for jacobians) ----------------------------
     def visit_einstein(self, n: EinsteinIR) -> ExpressionIR:
         return _diff_einstein_wrt(n, self._wrt, self._loc, self._B, self._R, self._wt,
                                   sp=self._sp, ps=self._ps,
-                                  cotangent_axes=self._wrt_axes,
+                                  cotangent_axes=self._full_wrt_axes or self._wrt_axes,
                                   legacy_directional=self._legacy_directional)
     def visit_select_at_argmax(self, n: SelectAtArgmaxIR) -> ExpressionIR: return n
 
@@ -2673,7 +2776,8 @@ def _flatten_product(expr: ExpressionIR) -> Optional[List[Tuple[ExpressionIR, Li
     return None
 
 def _build_deriv_idx(clause_indices: List, wrt_indices: List, wrt_id: IdentifierIR,
-                     resolver: Any, loc: SourceLocation, allow_reuse: bool
+                     resolver: Any, loc: SourceLocation, allow_reuse: bool,
+                     shared_axes: Optional[List[IndexVarIR]] = None
                      ) -> Tuple[List, Set[DefId], Dict]:
     ci_by_did: Dict[DefId, Any] = {}
     for c in clause_indices:
@@ -2684,6 +2788,18 @@ def _build_deriv_idx(clause_indices: List, wrt_indices: List, wrt_id: Identifier
         ip = wrt_indices[p]; did_p = getattr(ip, "defid", None)
         if allow_reuse and did_p is not None and did_p in ci_by_did:
             dvars.append(ci_by_did[did_p])
+        elif (
+            allow_reuse
+            and shared_axes is not None
+            and p < len(shared_axes)
+            and isinstance(shared_axes[p], IndexVarIR)
+        ):
+            iv = shared_axes[p]
+            dvars.append(iv)
+            if iv.defid is not None:
+                new_dids.add(iv.defid)
+            if iv.defid is not None and iv.range_ir is not None:
+                new_vr[iv.defid] = iv.range_ir
         else:
             nd = resolver.allocate_for_local()
             sh = MemberAccessIR(object=wrt_id, member="shape", location=loc, type_info=UNKNOWN)
@@ -2719,15 +2835,32 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
     shared_axes: Optional[List[IndexVarIR]] = (
         [] if legacy_directional else (list(cotangent_axes) if cotangent_axes is not None else [])
     )
+    expr_rank = _tensor_rank_from_expr(expr, B)
+    align_shared_output_axes = (
+        bool(shared_axes)
+        and expr_rank > 0
+        and expr_rank < len(shared_axes)
+    )
     for clause in expr.clauses or []:
+        clause_shared_axes: Optional[List[IndexVarIR]] = shared_axes
+        if align_shared_output_axes and shared_axes:
+            mixed_axes = list(shared_axes)
+            for p, ix in enumerate(clause.indices or []):
+                if p >= len(mixed_axes):
+                    break
+                if isinstance(ix, IndexVarIR):
+                    mixed_axes[p] = ix
+            clause_shared_axes = mixed_axes
         val = clause.value
         if not isinstance(val, ReductionExpressionIR):
             jv = JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
-                                 shared_cotangent_axes=shared_axes, dependency_cache=dep_cache)
+                                 shared_cotangent_axes=clause_shared_axes,
+                                 full_cotangent_axes=shared_axes,
+                                 dependency_cache=dep_cache)
             d_val = _simplify(val.accept(jv), loc)
             mi, merged_v, nvr = _merge_primal_clause_with_cotangent_einstein(clause, d_val)
-            mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, merged_v, shared_axes)
-            mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, shared_axes)
+            mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, merged_v, clause_shared_axes)
+            mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, clause_shared_axes)
             dc.append(EinsteinClauseIR(indices=mi, value=merged_v, location=clause.location,
                       where_clause=clause.where_clause, variable_ranges=nvr))
             continue
@@ -2735,25 +2868,29 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
         if not factors:
             if val.operation == ReductionOp.SUM:
                 d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
-                                                     shared_cotangent_axes=shared_axes, dependency_cache=dep_cache))
+                                                     shared_cotangent_axes=clause_shared_axes,
+                                                     full_cotangent_axes=shared_axes,
+                                                     dependency_cache=dep_cache))
                 sum_val = ReductionExpressionIR(ReductionOp.SUM, list(val.loop_vars or []), d_inner, loc,
                           where_clause=val.where_clause, loop_var_ranges=_merged_lr(val, clause),
                           type_info=_ti(val), shape_info=_si(val))
                 mi = list(clause.indices or [])
                 nvr = dict(clause.variable_ranges or {})
-                mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, sum_val, shared_axes)
-                mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, shared_axes)
+                mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, sum_val, clause_shared_axes)
+                mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, clause_shared_axes)
                 dc.append(EinsteinClauseIR(indices=mi,
                     value=sum_val,
                     location=clause.location, where_clause=clause.where_clause,
                     variable_ranges=nvr))
             else:
                 d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
-                                                   shared_cotangent_axes=shared_axes, dependency_cache=dep_cache))
+                                                   shared_cotangent_axes=clause_shared_axes,
+                                                   full_cotangent_axes=shared_axes,
+                                                   dependency_cache=dep_cache))
                 mi = list(clause.indices or [])
                 nvr = dict(clause.variable_ranges or {})
-                mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, d_val, shared_axes)
-                mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, shared_axes)
+                mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, d_val, clause_shared_axes)
+                mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, clause_shared_axes)
                 dc.append(EinsteinClauseIR(indices=mi, value=d_val, location=clause.location,
                           where_clause=clause.where_clause, variable_ranges=nvr))
             continue
@@ -2774,14 +2911,16 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
         if not wrt_pos:
             if val.operation == ReductionOp.SUM:
                 d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
-                                                     shared_cotangent_axes=shared_axes, dependency_cache=dep_cache))
+                                                     shared_cotangent_axes=clause_shared_axes,
+                                                     full_cotangent_axes=shared_axes,
+                                                     dependency_cache=dep_cache))
                 sum_val = ReductionExpressionIR(ReductionOp.SUM, list(val.loop_vars or []), d_inner, loc,
                           where_clause=val.where_clause, loop_var_ranges=_merged_lr(val, clause),
                           type_info=_ti(val), shape_info=_si(val))
                 mi = list(clause.indices or [])
                 nvr = dict(clause.variable_ranges or {})
-                mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, sum_val, shared_axes)
-                mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, shared_axes)
+                mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, sum_val, clause_shared_axes)
+                mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, clause_shared_axes)
                 dc.append(EinsteinClauseIR(indices=mi,
                     value=sum_val,
                     location=clause.location, where_clause=clause.where_clause,
@@ -2792,7 +2931,15 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
         wb = B.get(wrt); wid = IdentifierIR((wb.name if wb else "") or "?", loc, wrt, type_info=UNKNOWN)
         ci = list(clause.indices or [])
         allow_reuse = len(ci) < len(first_wi)
-        dvars, new_dids, new_vr = _build_deriv_idx(ci, first_wi, wid, R, loc, allow_reuse)
+        dvars, new_dids, new_vr = _build_deriv_idx(
+            ci,
+            first_wi,
+            wid,
+            R,
+            loc,
+            allow_reuse,
+            shared_axes=clause_shared_axes,
+        )
         lvs = list(val.loop_vars or []); mlr = _merged_lr(val, clause)
 
         if val.operation in (ReductionOp.MAX, ReductionOp.MIN):
@@ -2847,11 +2994,13 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
 
         if val.operation != ReductionOp.SUM:
             d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps,
-                                               shared_cotangent_axes=shared_axes, dependency_cache=dep_cache))
+                                               shared_cotangent_axes=clause_shared_axes,
+                                               full_cotangent_axes=shared_axes,
+                                               dependency_cache=dep_cache))
             mi = list(clause.indices or [])
             nvr = dict(clause.variable_ranges or {})
-            mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, d_val, shared_axes)
-            mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, shared_axes)
+            mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, d_val, clause_shared_axes)
+            mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, clause_shared_axes)
             dc.append(EinsteinClauseIR(indices=mi, value=d_val, location=clause.location,
                           where_clause=clause.where_clause, variable_ranges=nvr))
             continue
@@ -2861,7 +3010,7 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
         for pos in wrt_pos:
             _, wi = factors[pos]
             others = [factors[i] for i in range(len(factors)) if i != pos]
-            deltas = [BinaryOpIR(BinaryOp.EQ, wi[p], dvars[p], loc)
+            deltas = [BinaryOpIR(BinaryOp.EQ, wi[p], dvars[p], loc, type_info=BOOL)
                       for p in range(len(wi)) if getattr(dvars[p], "defid", None) in new_dids]
             wh = WhereClauseIR(constraints=orig_rc + deltas, location=loc) if (orig_rc or deltas) else None
             if not others:
@@ -2878,11 +3027,26 @@ def _diff_einstein_wrt(expr: EinsteinIR, wrt: DefId, loc: SourceLocation,
                     return RectangularAccessIR(ref, list(idxs), loc)
                 body = _mkref(*others[0])
                 for ae, il in others[1:]:
-                    body = BinaryOpIR(BinaryOp.MUL, body, _mkref(ae, il), loc)
+                    body = BinaryOpIR(
+                        BinaryOp.MUL,
+                        body,
+                        _mkref(ae, il),
+                        loc,
+                        type_info=_ti(val) or F32,
+                        shape_info=_si(val),
+                    )
             rterms.append(ReductionExpressionIR(val.operation, lvs, body, loc,
                           where_clause=wh, loop_var_ranges=mlr, type_info=_ti(val), shape_info=_si(val)))
         cv: ExpressionIR = rterms[0]
-        for r in rterms[1:]: cv = BinaryOpIR(BinaryOp.ADD, cv, r, loc)
+        for r in rterms[1:]:
+            cv = BinaryOpIR(
+                BinaryOp.ADD,
+                cv,
+                r,
+                loc,
+                type_info=_ti(val) or F32,
+                shape_info=_si(val),
+            )
         ni = dvars if allow_reuse else (ci + dvars)
         nvr = dict(clause.variable_ranges or {}); nvr.update(new_vr)
         dc.append(EinsteinClauseIR(indices=ni, value=cv, location=clause.location,
@@ -3135,6 +3299,8 @@ def _diff_callee_block_tangent(
         stmt_partial=sp_fe,
         wrt_tangent=wt,
         primal_subst=ps_map,
+        shared_cotangent_axes=vis._wrt_axes,
+        full_cotangent_axes=vis._full_wrt_axes,
         dependency_cache=dep_cache,
     )
     fp = _simplify(_sub(fe_rep.accept(vis_fe), pm_fp, loc), loc)
@@ -3310,7 +3476,15 @@ def _sub_callee(
 def _sum_terms(terms: List[ExpressionIR], loc: SourceLocation) -> ExpressionIR:
     if not terms: return _z(loc)
     out = terms[0]
-    for t in terms[1:]: out = BinaryOpIR(BinaryOp.ADD, out, t, loc)
+    for t in terms[1:]:
+        out = BinaryOpIR(
+            BinaryOp.ADD,
+            out,
+            t,
+            loc,
+            type_info=_ti(out) or _ti(t) or F32,
+            shape_info=_si(out) or _si(t),
+        )
     return out
 
 
@@ -3444,7 +3618,14 @@ def _callee_forward_jvp(
                 raise ValueError("Autodiff: callee forward JVP produced no tangent terms")
             acc = fps[0]
             for fe in fps[1:]:
-                acc = BinaryOpIR(BinaryOp.ADD, acc, fe, loc)
+                acc = BinaryOpIR(
+                    BinaryOp.ADD,
+                    acc,
+                    fe,
+                    loc,
+                    type_info=_ti(acc) or _ti(fe) or F32,
+                    shape_info=_si(acc) or _si(fe),
+                )
         out: ExpressionIR
         if primal_stmts or all_diff:
             out = BlockExpressionIR(
@@ -3493,8 +3674,9 @@ def _lift_block_binop(op: BinaryOp, L: ExpressionIR, R: ExpressionIR, loc: Sourc
         sl = list(L.statements or []); l = L.final_expr
     if isinstance(R, BlockExpressionIR) and R.final_expr is not None:
         sr = list(R.statements or []); r = R.final_expr
-    if not sl and not sr: return BinaryOpIR(op, L, R, loc)
     ti = _ti(L) or _ti(R); si = _si(L) or _si(R)
+    if not sl and not sr:
+        return BinaryOpIR(op, L, R, loc, type_info=ti or F32, shape_info=si)
     return BlockExpressionIR(sl + sr, loc, BinaryOpIR(op, l, r, loc, type_info=ti, shape_info=si),
                              type_info=ti, shape_info=si)
 
@@ -3510,8 +3692,16 @@ def _flatten_add_terms(terms: List[ExpressionIR], loc: SourceLocation) -> Expres
         else:
             fs.append(t)
     acc = fs[0]
-    for f in fs[1:]: acc = BinaryOpIR(BinaryOp.ADD, acc, f, loc)
-    return BlockExpressionIR(ms, loc, acc) if ms else acc
+    for f in fs[1:]:
+        acc = BinaryOpIR(
+            BinaryOp.ADD,
+            acc,
+            f,
+            loc,
+            type_info=_ti(acc) or _ti(f) or F32,
+            shape_info=_si(acc) or _si(f),
+        )
+    return BlockExpressionIR(ms, loc, acc, type_info=_ti(acc), shape_info=_si(acc)) if ms else acc
 
 # ═══════════════════════════════════════════════════════════════════════════
 # DiffVisitor  — forward-mode d(expr)
@@ -3549,20 +3739,40 @@ class DiffVisitor(IRVisitor[ExpressionIR]):
         L = n.left; R = n.right; loc = n.location or self._loc
         dL = L.accept(self); dR = R.accept(self)
         op = n.operator
+        ti = _ti(n) or F32
+        si = _si(n)
         if op == BinaryOp.ADD:
-            return _lift_block_binop(BinaryOp.ADD, dL, dR, loc) if self._pretty else BinaryOpIR(BinaryOp.ADD, dL, dR, loc)
+            return (
+                _lift_block_binop(BinaryOp.ADD, dL, dR, loc)
+                if self._pretty
+                else BinaryOpIR(BinaryOp.ADD, dL, dR, loc, type_info=ti, shape_info=si)
+            )
         if op == BinaryOp.SUB:
-            return _lift_block_binop(BinaryOp.SUB, dL, dR, loc) if self._pretty else BinaryOpIR(BinaryOp.SUB, dL, dR, loc)
+            return (
+                _lift_block_binop(BinaryOp.SUB, dL, dR, loc)
+                if self._pretty
+                else BinaryOpIR(BinaryOp.SUB, dL, dR, loc, type_info=ti, shape_info=si)
+            )
         if op == BinaryOp.MUL:
-            return BinaryOpIR(BinaryOp.ADD,
-                              BinaryOpIR(BinaryOp.MUL, L, dR, loc),
-                              BinaryOpIR(BinaryOp.MUL, R, dL, loc), loc)
+            return BinaryOpIR(
+                BinaryOp.ADD,
+                BinaryOpIR(BinaryOp.MUL, L, dR, loc, type_info=ti, shape_info=si),
+                BinaryOpIR(BinaryOp.MUL, R, dL, loc, type_info=ti, shape_info=si),
+                loc,
+                type_info=ti,
+                shape_info=si,
+            )
         if op == BinaryOp.DIV:
-            num = BinaryOpIR(BinaryOp.SUB,
-                             BinaryOpIR(BinaryOp.MUL, R, dL, loc),
-                             BinaryOpIR(BinaryOp.MUL, L, dR, loc), loc)
-            den = BinaryOpIR(BinaryOp.POW, R, _fl(2, loc), loc)
-            return BinaryOpIR(BinaryOp.DIV, num, den, loc)
+            num = BinaryOpIR(
+                BinaryOp.SUB,
+                BinaryOpIR(BinaryOp.MUL, R, dL, loc, type_info=ti, shape_info=si),
+                BinaryOpIR(BinaryOp.MUL, L, dR, loc, type_info=ti, shape_info=si),
+                loc,
+                type_info=ti,
+                shape_info=si,
+            )
+            den = BinaryOpIR(BinaryOp.POW, R, _fl(2, loc), loc, type_info=ti, shape_info=si)
+            return BinaryOpIR(BinaryOp.DIV, num, den, loc, type_info=ti, shape_info=si)
         if op == BinaryOp.POW: return _pow_chain(n, dL, dR, self._B, self._R, loc)
         if op == BinaryOp.MOD: return dL
         if op in (BinaryOp.EQ, BinaryOp.NE, BinaryOp.LT, BinaryOp.LE, BinaryOp.GT, BinaryOp.GE, BinaryOp.AND, BinaryOp.OR):
@@ -3571,7 +3781,14 @@ class DiffVisitor(IRVisitor[ExpressionIR]):
 
     def visit_unary_op(self, n: UnaryOpIR) -> ExpressionIR:
         d = n.operand.accept(self)
-        if n.operator == UnaryOp.NEG: return UnaryOpIR(UnaryOp.NEG, d, n.location or self._loc)
+        if n.operator == UnaryOp.NEG:
+            return UnaryOpIR(
+                UnaryOp.NEG,
+                d,
+                n.location or self._loc,
+                type_info=_ti(n) or F32,
+                shape_info=_si(n),
+            )
         if n.operator == UnaryOp.POS: return d
         raise ValueError(f"Autodiff: unsupported unary op: {n.operator}")
 
@@ -4450,10 +4667,19 @@ class _ExpansionVisitor(_Rewriter):
                     return _z(ql)
                 den_binding = self._SB.get(dd)
                 den_is_tensor = den_binding is not None and _tensor_rank_from_binding(den_binding) > 0
-                if isinstance(ne, FunctionCallIR) and den_is_tensor:
-                    # Keep @num/@den as d_num / d_den for tensor-denominator call quotients.
-                    # Runtime executes these with cotangent seeding and avoids exploding
-                    # symbolic Jacobians in expanded call bodies.
+                num_rank = _tensor_rank_from_expr(ne, self._SB)
+                den_rank = _tensor_rank_from_binding(den_binding)
+                if (
+                    isinstance(ne, FunctionCallIR)
+                    and den_is_tensor
+                    and num_rank > 0
+                    and num_rank >= den_rank
+                ):
+                    # Keep same-rank tensor call quotients on the legacy directional path.
+                    # This preserves existing runtime handling for vector->vector and tensor->tensor
+                    # stdlib calls such as softmax/log_softmax, while lower-rank numerators
+                    # (losses, reductions, cosine similarity) take the cotangent-layout path and
+                    # return gradients shaped like the tensor denominator.
                     nL = n.left.accept(self)
                     nR = n.right.accept(self)
                     out = BinaryOpIR(BinaryOp.DIV, nL, nR, ql, type_info=_ti(n), shape_info=_si(n))
@@ -4462,13 +4688,7 @@ class _ExpansionVisitor(_Rewriter):
                     if ti or si:
                         _propagate_ti(out, ti, si)
                     return out
-                legacy_directional = den_is_tensor and (
-                    _tensor_rank_from_expr(ne, self._SB) > 0
-                    or (
-                        isinstance(ne, ReductionExpressionIR)
-                        and ne.operation == ReductionOp.SUM
-                    )
-                )
+                legacy_directional = den_is_tensor and num_rank > 0 and num_rank >= den_rank
                 jv = JacobianVisitor(
                     dd,
                     ql,
@@ -4492,18 +4712,34 @@ class _ExpansionVisitor(_Rewriter):
                         der.type_info = ti
                         if hasattr(der, "shape_info"):
                             der.shape_info = None
-                    _propagate_ti(der, ti, None)
+                    if isinstance(der, BlockExpressionIR):
+                        # The quotient result as a whole should carry the denominator's type,
+                        # but recursively stamping that tensor type onto every inner temporary
+                        # corrupts scalar/vector locals inside symbolic call-body quotients
+                        # (for example cosine similarity intermediates such as dot products
+                        # and norms). Generated inner bindings already carry their own types.
+                        for stmt in der.statements or []:
+                            if not isinstance(stmt, BindingIR) or stmt.expr is None:
+                                continue
+                            local_ti = stmt.type_info or _ti(stmt.expr)
+                            local_si = _si(stmt) or _si(stmt.expr)
+                            if local_ti is not None:
+                                _propagate_ti(stmt.expr, local_ti, local_si)
+                        if der.final_expr is not None:
+                            _propagate_ti(der.final_expr, ti, None)
+                    else:
+                        _propagate_ti(der, ti, None)
                 return der
             dids = self._dep_cache.collect_defids(dop)
             if len(dids) != 1:
                 raise ValueError("Autodiff: @num/@(expr) denominator depends on != 1 variable")
             wd = next(iter(dids))
+            num_rank = _tensor_rank_from_expr(nop, self._SB)
             legacy_directional = (
-                _tensor_rank_from_expr(nop, self._SB) > 0
-                or (
-                    isinstance(nop, ReductionExpressionIR)
-                    and nop.operation == ReductionOp.SUM
-                )
+                den_b is not None
+                and _tensor_rank_from_binding(den_b) > 0
+                and num_rank > 0
+                and num_rank >= _tensor_rank_from_binding(den_b)
             )
             dn = nop.accept(
                 JacobianVisitor(
