@@ -1,0 +1,133 @@
+meta:
+  description: "Einlang is a math-first programming language for tensor notation, recurrences, autodiff, and shape-checked numerical code."
+  brand_tagline: "Math-first language for arrays and autodiff"
+
+hero:
+  eyebrow: "Tensor notation without the ceremony"
+  title: "Write the math. Keep the guarantees."
+  lead_intro: "Einlang is a math-intuitive programming language for numerical code."
+  lead_body: "You write indices, sums, recurrences, and autodiff in the open, while the compiler checks shapes, infers ranges, and keeps the equation close to the implementation."
+  actions:
+    - label: "Read the guide"
+      url: "https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md"
+      variant: "primary"
+    - label: "Browse the repo"
+      url: "https://github.com/einlang/einlang"
+      variant: "secondary"
+  metrics:
+    - title: "Shape-checked"
+      text: "If it type-checks, tensor dimensions line up before runtime."
+    - title: "Range-inferred"
+      text: "Indices and reductions come from array structure instead of bookkeeping."
+    - title: "Expression-first autodiff"
+      text: "Differentiate values already inside the program, not a separate graph object."
+  panel:
+    label: "matrix multiply + autodiff"
+    code: |
+      let C[i, j] = sum[k](A[i, k] * B[k, j]);
+
+      let x = 1.0;
+      let y = 2.0;
+      let z = x * y;
+
+      let dz_dx = @z / @x;
+      let dz_dy = @z / @y;
+    proof_cards:
+      - title: "Feels like the whiteboard"
+        text: "No hidden loops, no encoded index tricks, no stringly math notation."
+      - title: "Built for real examples"
+        text: "MNIST, Whisper-tiny, ODEs, PDEs, convolutions, RNNs, and numerical methods live in the repo."
+
+capabilities:
+  label: "Capabilities"
+  title: "One language for equations, arrays, recurrence, and gradients."
+  intro: "The goal is not just shorter code. The goal is to let the source stay legible while the compiler handles the mechanical parts that usually make numerical programs drift away from the original math."
+  items:
+    - title: "Math-intuitive syntax"
+      text: "Write the notation you would use in a paper or on a board. Einstein-style declarations, reductions, recurrences, and where-clauses all live in the same model."
+      chips:
+        - "Einstein notation"
+        - "Where clauses"
+        - "Rest indices"
+    - title: "Compiler guarantees"
+      text: "Wrong shape, impossible range, or invalid index relationship gets caught by the compiler. The page reads like math, but it still behaves like a real programming language with real analysis."
+      chips:
+        - "Shape analysis"
+        - "Range analysis"
+        - "IR validation"
+    - title: "Numerical scope"
+      text: "The same notation stretches from linear algebra to simulation and ML-flavored workloads without switching mental models or introducing a second DSL."
+      chips:
+        - "ODEs and PDEs"
+        - "Convolutions"
+        - "Autodiff"
+
+examples:
+  label: "Examples"
+  title: "Code samples that stay close to the original idea."
+  intro: "Each snippet is short for a reason: the appeal of Einlang is that familiar numerical patterns remain readable even after they become executable."
+  items:
+    - title: "Matrix multiply"
+      text: "The canonical example stays exactly as compact as you want it to be."
+      code: |
+        let C[i, j] = sum[k](A[i, k] * B[k, j]);
+    - title: "Recurrence"
+      text: "Declare base cases and the step. The compiler takes care of evaluation order."
+      code: |
+        let fib[0] = 0;
+        let fib[1] = 1;
+        let fib[n in 2..25] = fib[n - 1] + fib[n - 2];
+    - title: "Convolution"
+      text: "Index algebra stays visible, with ranges inferred to keep accesses in bounds."
+      code: |
+        let convolved[i] = sum[k](signal[i + k] * kernel[k]);
+    - title: "Autodiff"
+      text: "Differentiate values already inside the program instead of packaging everything as a separate function object."
+      code: |
+        let x = 1.0;
+        let y = 2.0;
+        let z = x * y;
+        let dz_dx = @z / @x;
+
+proof:
+  label: "Proof"
+  title: "More than a toy syntax experiment."
+  intro: "The repo already shows the language applied across multiple numerical domains, which makes the landing page feel much stronger than a pure manifesto."
+  left:
+    title: "What the repository already demonstrates"
+    bullets:
+      - label: "Numerics"
+        text: "ODE suites, PDE-style examples, optimization, and recurrence-heavy programs."
+      - label: "Machine learning patterns"
+        text: "Convolutions, attention, RNNs, normalization, and autodiff examples."
+      - label: "Model-scale demos"
+        text: "MNIST, quantized MNIST, DeiT-tiny, and Whisper-tiny related examples."
+      - label: "Compiler depth"
+        text: "Passes for type inference, shape analysis, range analysis, lowering, validation, and execution."
+  right:
+    title: "Why this matters"
+    text: "A language page gets more convincing when it shows that the same notation survives beyond a single matrix multiply demo. Einlang already has that material, so the homepage should surface it confidently."
+    chips:
+      - "MNIST"
+      - "Whisper-tiny"
+      - "Lorenz"
+      - "Attention ops"
+
+cta:
+  label: "Get Started"
+  title: "Install it, read the docs, and look at the examples side by side."
+  intro: "The fastest way to judge whether the language clicks is to read a few examples and compare how much numerical intent survives from the idea to the code."
+  command: |
+    pip install -e .
+    python3 -m einlang -c "let C[i,j] = sum[k](A[i,k]*B[k,j]);"
+  actions:
+    - label: "Getting started"
+      url: "https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md"
+      variant: "primary"
+    - label: "Explore examples"
+      url: "https://github.com/einlang/einlang/tree/main/examples"
+      variant: "secondary"
+    - label: "Language reference"
+      url: "https://github.com/einlang/einlang/blob/main/docs/reference.md"
+      variant: "secondary"
+  note: "Prefer the GitHub Pages site as a sharp front door, then let the repo and docs carry the depth."

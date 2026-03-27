@@ -60,7 +60,7 @@ tests/
 
 ## GitHub Pages
 
-The site (https://einlang.github.io/einlang/) is rendered from a single source: **Settings → Pages → Source**: "Deploy from a branch", branch `main`, folder **/** (root). Jekyll builds the index from `index.md` using `_layouts/default.html`; `_config.yml` sets title and baseurl only.
+The site (https://einlang.github.io/einlang/) is rendered from **Settings -> Pages -> Source**: "Deploy from a branch", branch `main`, folder **/** (root). Jekyll builds the homepage from `index.html`, `_layouts/default.html`, `_data/home.yml`, and `assets/site.css`; `_config.yml` sets the title and `baseurl`.
 
 ## Error System
 
