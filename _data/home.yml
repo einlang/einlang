@@ -1,133 +1,283 @@
 meta:
-  description: "Einlang is a math-first programming language for tensor notation, recurrences, autodiff, and shape-checked numerical code."
-  brand_tagline: "Math-first language for arrays and autodiff"
+  description: "Einlang is a scientific programming language for tensor notation, recurrences, autodiff, and shape-checked numerical code."
+  brand_tagline: "A research language for mathematical computing"
 
 hero:
-  eyebrow: "Tensor notation without the ceremony"
-  title: "Write the math. Keep the guarantees."
-  lead_intro: "Einlang is a math-intuitive programming language for numerical code."
-  lead_body: "You write indices, sums, recurrences, and autodiff in the open, while the compiler checks shapes, infers ranges, and keeps the equation close to the implementation."
+  eyebrow: "Scientific programming language"
+  title: "Executable mathematics for tensors, recurrence, and autodiff."
+  lead_intro: "Einlang is a compiler project for writing numerical programs in notation that stays close to the underlying math."
+  lead_body: "Instead of translating equations into loop-heavy bookkeeping, you write indices, reductions, recurrence relations, and derivatives directly while the compiler checks shapes, infers ranges, and validates the program before execution."
   actions:
-    - label: "Read the guide"
+    - label: "Read getting started"
       url: "https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md"
       variant: "primary"
-    - label: "Browse the repo"
+    - label: "Read the paper notes"
+      url: "https://github.com/einlang/einlang/blob/main/docs/PAPER.md"
+      variant: "secondary"
+    - label: "Open repository"
       url: "https://github.com/einlang/einlang"
       variant: "secondary"
-  metrics:
-    - title: "Shape-checked"
-      text: "If it type-checks, tensor dimensions line up before runtime."
-    - title: "Range-inferred"
-      text: "Indices and reductions come from array structure instead of bookkeeping."
-    - title: "Expression-first autodiff"
-      text: "Differentiate values already inside the program, not a separate graph object."
+  stats:
+    - value: "100+"
+      label: "compiler and language tests for examples, stdlib, and integration behavior"
+    - value: "ML + numerics"
+      label: "same language model used across convolution, attention, ODEs, PDEs, and optimization"
+    - value: "Compiler-native"
+      label: "autodiff, shape analysis, and lowering live inside the compiler pipeline"
+  ribbons:
+    - "Einstein notation"
+    - "Where clauses"
+    - "Recurrence relations"
+    - "Shape inference"
+    - "Range analysis"
+    - "Expression-first autodiff"
+    - "MNIST to Whisper"
+    - "NumPy backend today"
   panel:
-    label: "matrix multiply + autodiff"
+    label: "core notation"
     code: |
       let C[i, j] = sum[k](A[i, k] * B[k, j]);
 
-      let x = 1.0;
-      let y = 2.0;
-      let z = x * y;
+      let fib[0] = 0;
+      let fib[1] = 1;
+      let fib[n in 2..25] = fib[n - 1] + fib[n - 2];
 
-      let dz_dx = @z / @x;
-      let dz_dy = @z / @y;
-    proof_cards:
-      - title: "Feels like the whiteboard"
-        text: "No hidden loops, no encoded index tricks, no stringly math notation."
-      - title: "Built for real examples"
-        text: "MNIST, Whisper-tiny, ODEs, PDEs, convolutions, RNNs, and numerical methods live in the repo."
+      let y = sum[i](x[i] * x[i]);
+      let dy_dx = @y / @x;
+
+abstract:
+  label: "Abstract"
+  title: "The homepage should explain Einlang like a scientific project."
+  intro: "Einlang is not trying to look like enterprise infrastructure. Its strength is that the repository already reads like an active compiler and numerical-computing experiment."
+  points:
+    - title: "Equation-first source"
+      text: "The surface syntax keeps tensor indices, reductions, recurrences, and derivative expressions visible instead of lowering them into incidental control flow."
+    - title: "Static analysis where it matters"
+      text: "Shape checks, range reasoning, constraint validation, and IR validation make mathematical programs safer before runtime."
+    - title: "One notation across domains"
+      text: "The same core language spans linear algebra, differentiable programs, simulation, and model-like workloads without switching to a separate DSL."
 
 capabilities:
-  label: "Capabilities"
-  title: "One language for equations, arrays, recurrence, and gradients."
-  intro: "The goal is not just shorter code. The goal is to let the source stay legible while the compiler handles the mechanical parts that usually make numerical programs drift away from the original math."
+  label: "Compiler Scope"
+  title: "What the compiler is actually doing."
+  intro: "This page should make the analysis pipeline visible because that is a large part of the project's credibility."
   items:
-    - title: "Math-intuitive syntax"
-      text: "Write the notation you would use in a paper or on a board. Einstein-style declarations, reductions, recurrences, and where-clauses all live in the same model."
+    - title: "Front-end for mathematical syntax"
+      text: "Einstein notation, reductions, recurrence definitions, where-constraints, and array expressions are part of the language, not comments around Python."
       chips:
         - "Einstein notation"
-        - "Where clauses"
-        - "Rest indices"
-    - title: "Compiler guarantees"
-      text: "Wrong shape, impossible range, or invalid index relationship gets caught by the compiler. The page reads like math, but it still behaves like a real programming language with real analysis."
+        - "Recurrence"
+        - "Constraint syntax"
+    - title: "Static program analysis"
+      text: "Type inference, shape analysis, range analysis, and validation passes operate before execution so tensor code can fail early and locally."
       chips:
+        - "Type inference"
         - "Shape analysis"
         - "Range analysis"
-        - "IR validation"
-    - title: "Numerical scope"
-      text: "The same notation stretches from linear algebra to simulation and ML-flavored workloads without switching mental models or introducing a second DSL."
+    - title: "Built-in differentiation"
+      text: "Autodiff is expressed against values in the program with `@expr` and derivative notation, rather than bolted on through a separate graph API."
       chips:
-        - "ODEs and PDEs"
-        - "Convolutions"
-        - "Autodiff"
+        - "Expression-first"
+        - "Tensor-aware rules"
+        - "Compiler integrated"
+    - title: "Executable numerical workloads"
+      text: "The repository already contains examples from ML, optimization, recurrence-heavy programs, and dynamical systems."
+      chips:
+        - "MNIST"
+        - "Whisper-tiny"
+        - "ODE and PDE examples"
+
+showcase:
+  label: "Project Showcase"
+  title: "All the good stuff, surfaced on one page."
+  intro: "Einlang already has a wide spread of examples and compiler capabilities. The homepage should make that breadth obvious in a single scan."
+  items:
+    - title: "Scientific simulation"
+      text: "ODE suites, 1D heat and advection, 2D acoustic wave, and Brusselator reaction-diffusion examples."
+      chips:
+        - "ode/"
+        - "pde_1d/"
+        - "wave_2d/"
+        - "brusselator/"
+    - title: "Discrete dynamics and recurrence"
+      text: "Fibonacci, logistic systems, random walk, and Markov-style programs expressed as declarative recurrences."
+      chips:
+        - "recurrence/"
+        - "Base cases"
+        - "Dependency ordering"
+    - title: "Optimization and economics"
+      text: "Gradient descent, projected gradient, power iteration, value iteration, job search, and reusable numerics examples."
+      chips:
+        - "optimization/"
+        - "value_iteration/"
+        - "job_search/"
+        - "numerics/"
+    - title: "Applied workflows"
+      text: "Calibration, forecasting, Kalman filtering, time series, and finance examples show the language in end-to-end numerical tasks."
+      chips:
+        - "applications/"
+        - "time_series/"
+        - "finance/"
+    - title: "Machine learning models"
+      text: "Convolutional networks, quantized inference, ViT-style vision models, and Whisper-tiny artifacts live in the same language."
+      chips:
+        - "mnist/"
+        - "mnist_quantized/"
+        - "deit_tiny/"
+        - "whisper_tiny/"
+    - title: "Autodiff in the compiler"
+      text: "Differentiate scalar and tensor expressions in place with the same syntax used by the primal program."
+      chips:
+        - "@expr"
+        - "@loss / @w"
+        - "@C / @A"
+
+research:
+  label: "Research Angle"
+  title: "Why this reads like a scientific language project."
+  intro: "The strongest signal is not just syntax. It is the combination of analysis, tests, examples, and paper-style framing already present in the repository."
+  items:
+    - value: "300+"
+      label: "standard-library functions documented for mathematical computing"
+    - value: "Simulation accuracy"
+      label: "examples are checked against analytical or NumPy/Julia-style references"
+    - value: "Real models"
+      label: "CNN, quantized CNN, DeiT-tiny, and Whisper-style workloads"
+    - value: "Roadmap"
+      label: "NumPy backend now, with MLIR and native/GPU path documented"
 
 examples:
-  label: "Examples"
-  title: "Code samples that stay close to the original idea."
-  intro: "Each snippet is short for a reason: the appeal of Einlang is that familiar numerical patterns remain readable even after they become executable."
+  label: "Code Studies"
+  title: "Representative fragments from the language."
+  intro: "Each example is shown as a compact research-style specimen: short enough to scan, concrete enough to show why the notation matters."
   items:
     - title: "Matrix multiply"
-      text: "The canonical example stays exactly as compact as you want it to be."
+      text: "Indices and the reduction dimension remain explicit, which is the whole point of the language."
       code: |
         let C[i, j] = sum[k](A[i, k] * B[k, j]);
-    - title: "Recurrence"
-      text: "Declare base cases and the step. The compiler takes care of evaluation order."
+      note: "Linear algebra without loop scaffolding."
+    - title: "Recurrence relation"
+      text: "Base cases and evolution rule live together, while evaluation order is handled by the compiler."
       code: |
         let fib[0] = 0;
         let fib[1] = 1;
         let fib[n in 2..25] = fib[n - 1] + fib[n - 2];
-    - title: "Convolution"
-      text: "Index algebra stays visible, with ranges inferred to keep accesses in bounds."
+      note: "Readable recurrence, no manual scheduling."
+    - title: "Convolution pattern"
+      text: "Offset index algebra stays legible and bounds can be reasoned about from the program structure."
       code: |
         let convolved[i] = sum[k](signal[i + k] * kernel[k]);
-    - title: "Autodiff"
-      text: "Differentiate values already inside the program instead of packaging everything as a separate function object."
+      note: "Signal-processing notation, directly executable."
+    - title: "Autodiff inside the language"
+      text: "Differentiate expressions already defined in the program, without wrapping the problem in another API."
       code: |
-        let x = 1.0;
-        let y = 2.0;
-        let z = x * y;
-        let dz_dx = @z / @x;
+        let y = sum[i](x[i] * x[i]);
+        let dy_dx = @y / @x;
+      note: "Derivatives remain close to the primal expression."
+    - title: "Where-clause stencil"
+      text: "Index algebra can live next to the update rule, which is useful for convolutions, stencils, and masked computations."
+      code: |
+        let out[oh, ow] = sum[kh, kw](
+          input[ih, iw] * kernel[kh, kw]
+        ) where ih = oh + kh, iw = ow + kw;
+      note: "Index constraints are part of the program."
+    - title: "Gradient descent step"
+      text: "Optimization code stays inside the same language instead of crossing into a separate differentiation framework."
+      code: |
+        let loss = sum[i]((pred[i] - target[i])^2);
+        let grad_w = @loss / @w;
+        let w_next = w - lr * grad_w;
+      note: "Primal and gradient expressions stay together."
 
-proof:
-  label: "Proof"
-  title: "More than a toy syntax experiment."
-  intro: "The repo already shows the language applied across multiple numerical domains, which makes the landing page feel much stronger than a pure manifesto."
-  left:
-    title: "What the repository already demonstrates"
-    bullets:
-      - label: "Numerics"
-        text: "ODE suites, PDE-style examples, optimization, and recurrence-heavy programs."
-      - label: "Machine learning patterns"
-        text: "Convolutions, attention, RNNs, normalization, and autodiff examples."
-      - label: "Model-scale demos"
-        text: "MNIST, quantized MNIST, DeiT-tiny, and Whisper-tiny related examples."
-      - label: "Compiler depth"
-        text: "Passes for type inference, shape analysis, range analysis, lowering, validation, and execution."
-  right:
-    title: "Why this matters"
-    text: "A language page gets more convincing when it shows that the same notation survives beyond a single matrix multiply demo. Einlang already has that material, so the homepage should surface it confidently."
+evidence:
+  label: "Repository Evidence"
+  title: "Why the project already feels substantial."
+  intro: "A scientific language page is strongest when it points to experiments, reference material, and compiler depth already present in the repository."
+  columns:
+    - title: "Numerical domains"
+      bullets:
+        - "ODE suites and recurrence-heavy models"
+        - "PDE-style wave and Brusselator examples"
+        - "Optimization and calibration programs"
+        - "Applied finance and time-series examples"
+    - title: "Machine learning material"
+      bullets:
+        - "Convolutions, attention, normalization, and RNN tests"
+        - "Autodiff examples for scalar and tensor programs"
+        - "MNIST, quantized MNIST, DeiT-tiny, and Whisper-tiny artifacts"
+        - "Extensive stdlib test coverage for ML-oriented operators"
+  aside:
+    title: "Compiler artifacts"
+    text: "The implementation includes parsing, typed AST passes, Einstein lowering, shape and range analysis, IR validation, NumPy-oriented execution, and a large test suite. That breadth should be visible on the front page."
     chips:
-      - "MNIST"
-      - "Whisper-tiny"
-      - "Lorenz"
-      - "Attention ops"
+      - "Parser + grammar"
+      - "AST and IR passes"
+      - "Lowering + validation"
+      - "Runtime + backend"
+
+compiler:
+  label: "Compiler Architecture"
+  title: "Visible compiler depth, not just syntax sugar."
+  intro: "The repo already shows enough implementation depth that the homepage can confidently point at the pipeline itself."
+  stages:
+    - title: "Front-end"
+      text: "Grammar, parser, AST nodes, and source-aware error reporting."
+    - title: "Analysis passes"
+      text: "Name resolution, type inference, shape analysis, range analysis, and exhaustiveness-related checks."
+    - title: "Einstein and autodiff lowering"
+      text: "Tensor notation and derivative syntax are transformed through dedicated compiler passes."
+    - title: "IR and execution"
+      text: "Validation, serialization, NumPy-oriented backend codegen, and runtime execution support."
+
+models:
+  label: "Model Scale"
+  title: "Small fragments and larger systems in the same language."
+  intro: "The project is more convincing because it does not stop at toy formulas."
+  items:
+    - title: "MNIST"
+      text: "CNN inference and training-oriented material in Einlang."
+    - title: "Quantized MNIST"
+      text: "Int8-oriented variant showing lower-precision model structure."
+    - title: "DeiT-tiny"
+      text: "Vision transformer style example with real model artifacts."
+    - title: "Whisper-tiny"
+      text: "Encoder-decoder speech workload with tokenizer and weight support."
+
+links:
+  label: "Reading Map"
+  title: "Best next documents."
+  intro: "The fastest way to evaluate Einlang is to read one orientation doc, one design doc, and one set of concrete examples."
+  items:
+    - label: "Getting Started"
+      text: "Quick orientation and first commands."
+      url: "https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md"
+    - label: "Why Einlang"
+      text: "High-level motivation and language positioning."
+      url: "https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md"
+    - label: "Paper Notes"
+      text: "Research-flavored framing for the project."
+      url: "https://github.com/einlang/einlang/blob/main/docs/PAPER.md"
+    - label: "Examples"
+      text: "Browse numerics, ML, and language samples."
+      url: "https://github.com/einlang/einlang/tree/main/examples"
+    - label: "Reference"
+      text: "Language and standard-library details."
+      url: "https://github.com/einlang/einlang/blob/main/docs/reference.md"
 
 cta:
-  label: "Get Started"
-  title: "Install it, read the docs, and look at the examples side by side."
-  intro: "The fastest way to judge whether the language clicks is to read a few examples and compare how much numerical intent survives from the idea to the code."
+  label: "Quick Start"
+  title: "Clone the repo, install the package, and run a minimal program."
+  intro: "This keeps the homepage grounded in the actual workflow instead of abstract claims."
   command: |
+    git clone https://github.com/einlang/einlang.git
+    cd einlang
     pip install -e .
-    python3 -m einlang -c "let C[i,j] = sum[k](A[i,k]*B[k,j]);"
+    python3 -m einlang examples/hello.ein
   actions:
-    - label: "Getting started"
-      url: "https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md"
-      variant: "primary"
-    - label: "Explore examples"
+    - label: "Open examples"
       url: "https://github.com/einlang/einlang/tree/main/examples"
+      variant: "primary"
+    - label: "Read docs index"
+      url: "https://github.com/einlang/einlang/blob/main/docs/README.md"
       variant: "secondary"
-    - label: "Language reference"
-      url: "https://github.com/einlang/einlang/blob/main/docs/reference.md"
-      variant: "secondary"
-  note: "Prefer the GitHub Pages site as a sharp front door, then let the repo and docs carry the depth."
+  note: "Use the GitHub Pages site as a front door to the compiler, then let the repository provide the evidence."

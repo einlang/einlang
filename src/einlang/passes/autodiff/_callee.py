@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from ._core import DIFF_PREFIX, _fl, _is_zero, _si, _simplify, _sub, _sub_wd, _ti, _z
 from ._expr import _expr_uses_index_defids, _prune_const_ifs_replayed
 from ._graph import _DependencyQueryCache
+from ..visitor_helpers import all_defids_of_var_in_expr
 from ...ir.nodes import (
     ArrayLiteralIR,
     BindingIR,
@@ -24,6 +25,45 @@ from ...ir.nodes import (
 from ...shared.defid import DefId
 from ...shared.source_location import SourceLocation
 from ...shared.types import F32, BinaryOp
+
+
+def _normalize_callee_args_for_forward(
+    fv: FunctionValueIR,
+    args: List[ExpressionIR],
+    bindings: Dict[DefId, BindingIR],
+    loc: SourceLocation,
+    R: Any,
+) -> Tuple[List[BindingIR], List[ExpressionIR], Dict[DefId, BindingIR]]:
+    ps = fv.parameters or []
+    if len(ps) != len(args):
+        return [], list(args), dict(bindings)
+    prelude: List[BindingIR] = []
+    normalized: List[ExpressionIR] = []
+    ext_bindings: Dict[DefId, BindingIR] = dict(bindings)
+    for idx, (p, arg) in enumerate(zip(ps, args)):
+        if isinstance(arg, IdentifierIR) and arg.defid is not None:
+            normalized.append(arg)
+            continue
+        if isinstance(arg, (LiteralIR, ArrayLiteralIR)):
+            normalized.append(arg)
+            continue
+        ad = R.allocate_for_local()
+        if getattr(p, "name", None):
+            an = p.name
+            # Preserve the historical `_arg_x` spelling used by the scalar
+            # helper-call goldens while leaving ordinary callee-local names
+            # like `stride_h` and `X` readable in larger lowered blocks.
+            if len(ps) == 1 or all_defids_of_var_in_expr(arg, p.name):
+                an = f"_arg_{p.name}"
+        else:
+            an = f"_arg_{idx}"
+        bti = _ti(arg)
+        bsi = _si(arg)
+        binding = BindingIR(name=an, expr=arg, location=arg.location or loc, defid=ad, type_info=bti)
+        ext_bindings[ad] = binding
+        prelude.append(binding)
+        normalized.append(IdentifierIR(an, arg.location or loc, ad, type_info=bti, shape_info=bsi))
+    return prelude, normalized, ext_bindings
 
 
 def _callee_block_build_primal(
@@ -236,6 +276,10 @@ def _diff_callee_block_combined_forward(
         if da is None:
             raise ValueError("Autodiff: missing tangent for callee parameter")
         arg = rm[p.defid]
+        if _is_zero(da):
+            if isinstance(arg, IdentifierIR) and arg.defid is not None:
+                dre[arg.defid] = _z(loc)
+            continue
         if isinstance(arg, (LiteralIR, ArrayLiteralIR)):
             continue
         if not isinstance(arg, IdentifierIR) or arg.defid is None:
@@ -276,11 +320,11 @@ def _diff_callee_block_combined_forward(
     for p in ps:
         if p.defid is None:
             continue
+        da0 = tangent_by_param.get(p.defid)
+        if da0 is None or _is_zero(da0):
+            continue
         arg = rm[p.defid]
         if not isinstance(arg, IdentifierIR) or arg.defid is None or p.defid == arg.defid:
-            continue
-        da0 = tangent_by_param.get(p.defid)
-        if da0 is None:
             continue
         dre_final[p.defid] = dre_final.get(arg.defid, da0)
     fp = _simplify(fe_rep.accept(DiffVisitor(dre_final, loc, B, R, pretty=False, keep_primal_lets=True)), loc)
@@ -408,20 +452,34 @@ def _callee_forward_jvp(
     from ._jacobian import JacobianVisitor
     ps = fv.parameters or []
     rule_body = getattr(fv, "custom_diff_body", None)
+    arg_prelude, normalized_args, normalized_bindings = _normalize_callee_args_for_forward(
+        fv, args, B, loc, R
+    )
     if rule_body is not None and len(ps) == len(args):
-        rm = _callee_primal_subst_map(fv, args, B)
-        return _sub_callee(_sub_wd(rule_body, rm, tangent_by_param, loc), fv, rm, loc, fold_body_bindings=False)
+        rm = _callee_primal_subst_map(fv, normalized_args, normalized_bindings)
+        out = _sub_callee(
+            _sub_wd(rule_body, rm, tangent_by_param, loc),
+            fv,
+            rm,
+            loc,
+            fold_body_bindings=False,
+        )
+        if arg_prelude:
+            return BlockExpressionIR(arg_prelude, loc, out, type_info=_ti(out), shape_info=_si(out))
+        return out
     body = fv.body
     if body is None:
         raise ValueError("Autodiff: user function has no body")
     if len(ps) != len(args):
         raise ValueError("Autodiff: arity mismatch")
-    rm = _callee_primal_subst_map(fv, args, B)
-    dep_cache = _DependencyQueryCache(B)
+    rm = _callee_primal_subst_map(fv, normalized_args, normalized_bindings)
+    dep_cache = _DependencyQueryCache(normalized_bindings)
     if isinstance(body, BlockExpressionIR) and R is not None:
         primal_stmts, primal_map = _callee_block_build_primal(body, rm, loc, R)
         if _callee_args_support_combined_forward(rm, ps):
-            all_diff, acc = _diff_callee_block_combined_forward(body, primal_stmts, primal_map, rm, tangent_by_param, loc, B, R, ps)
+            all_diff, acc = _diff_callee_block_combined_forward(
+                body, primal_stmts, primal_map, rm, tangent_by_param, loc, normalized_bindings, R, ps
+            )
         else:
             all_diff = []
             fps: List[ExpressionIR] = []
@@ -431,15 +489,24 @@ def _callee_forward_jvp(
                 da = tangent_by_param.get(p.defid)
                 if da is None:
                     raise ValueError("Autodiff: missing tangent for callee parameter")
-                ds, fp = _diff_callee_block_tangent(body, p.defid, loc, B, R, primal_map, rm, wt=da)
+                if _is_zero(da):
+                    continue
+                ds, fp = _diff_callee_block_tangent(
+                    body, p.defid, loc, normalized_bindings, R, primal_map, rm, wt=da
+                )
                 all_diff.extend(ds)
                 fps.append(fp)
             if not fps:
-                raise ValueError("Autodiff: callee forward JVP produced no tangent terms")
+                return _z(loc)
             acc = fps[0]
             for fe in fps[1:]:
                 acc = BinaryOpIR(BinaryOp.ADD, acc, fe, loc, type_info=_ti(acc) or _ti(fe) or F32, shape_info=_si(acc) or _si(fe))
-        out: ExpressionIR = BlockExpressionIR(primal_stmts + all_diff, body.location or loc, acc, type_info=_ti(body), shape_info=_si(body)) if (primal_stmts or all_diff) else acc
+        stmts = arg_prelude + primal_stmts + all_diff
+        out: ExpressionIR = (
+            BlockExpressionIR(stmts, body.location or loc, acc, type_info=_ti(body), shape_info=_si(body))
+            if stmts
+            else acc
+        )
         return _sub_callee(out, fv, rm, loc)
     terms: List[ExpressionIR] = []
     for p in ps:
@@ -448,8 +515,13 @@ def _callee_forward_jvp(
         da = tangent_by_param.get(p.defid)
         if da is None:
             raise ValueError("Autodiff: missing tangent for callee parameter")
-        iv = JacobianVisitor(p.defid, loc, B, R, wrt_tangent=da, dependency_cache=dep_cache)
+        if _is_zero(da):
+            continue
+        iv = JacobianVisitor(p.defid, loc, normalized_bindings, R, wrt_tangent=da, dependency_cache=dep_cache)
         terms.append(_sub(body.accept(iv), rm, loc))
     if not terms:
-        raise ValueError("Autodiff: callee forward JVP produced no tangent terms")
-    return _sub_callee(_flatten_add_terms(terms, loc), fv, rm, loc)
+        return _z(loc)
+    out = _sub_callee(_flatten_add_terms(terms, loc), fv, rm, loc)
+    if arg_prelude:
+        return BlockExpressionIR(arg_prelude, loc, out, type_info=_ti(out), shape_info=_si(out))
+    return out

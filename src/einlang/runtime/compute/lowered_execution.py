@@ -193,8 +193,10 @@ def execute_select_at_argmax_vectorized(
     use_argmin: bool = False,
 ) -> Tuple[bool, Any]:
     """
-    Vectorized select-at-argmax: evaluate primal and diff bodies, then scatter: result has shape
-    (parallel_shape + reduction_dims) with value at argmax, 0 elsewhere. Julia-aligned: gradient of max has shape of x.
+    Vectorized select-at-argmax: evaluate primal and diff bodies over the reduction
+    window, then return the diff value at the winning reduction index for each
+    parallel position. Result shape is ``parallel_shape`` when parallel dims are
+    present, otherwise a scalar.
     initial_context: optional list of (defid, array) in parallel-dim order; each array has shape
     (parallel_shape[i],) to set parallel (batch) indices when body uses them.
     """
@@ -272,14 +274,7 @@ def execute_select_at_argmax_vectorized(
                 np.expand_dims(idx_flat, axis=-1),
                 axis=-1,
             ).squeeze(axis=-1)
-            full_result = np.zeros(
-                full_shape,
-                dtype=diff_flat.dtype,
-            )
-            par_ind = np.indices(parallel_shape) if parallel_shape else ()
-            red_multi = np.unravel_index(idx_flat, red_shape_tuple)
-            full_result[(*par_ind, *red_multi)] = out
-            return True, full_result
+            return True, out
         else:
             idx_flat = int(np.argmin(primal_result) if use_argmin else np.argmax(primal_result))
             return True, float(diff_result.flat[idx_flat])
@@ -499,4 +494,3 @@ def execute_reduction_with_loops(
         raise ValueError(f"{reduction_op}() arg is an empty sequence")
     
     return accumulator
-

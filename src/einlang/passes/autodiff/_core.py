@@ -316,6 +316,8 @@ def _simplify(expr: ExpressionIR, loc: SourceLocation) -> ExpressionIR:
 
     if isinstance(expr, RectangularAccessIR):
         aa = _simplify(expr.array, loc)
+        if _is_zero(aa):
+            return _z(loc)
         nidx = [_simplify(i, loc) for i in (expr.indices or [])]
         return RectangularAccessIR(aa, nidx, expr.location or loc, type_info=_ti(expr), shape_info=_si(expr))
 

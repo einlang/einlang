@@ -55,6 +55,97 @@ def _single_array_param(func_def: Any) -> bool:
     return params is not None and len(params) == 1
 
 
+def _max_pool_argmax_scatter(
+    x: np.ndarray,
+    kernel_shape: List[int],
+    strides: List[int],
+    pads: List[int],
+) -> np.ndarray:
+    """Return gradient layout for max_pool with unit cotangent per pooled output cell."""
+    arr = np.asarray(x, dtype=np.float64)
+    rank = len(kernel_shape)
+    if rank not in (1, 2, 3) or arr.ndim < 2 + rank:
+        raise ValueError("unsupported max_pool rank")
+    spatial = arr.shape[-rank:]
+    out_spatial = []
+    for dim, kernel, stride, pad in zip(spatial, kernel_shape, strides, pads):
+        out_dim = int((dim + 2 * pad - kernel) // stride + 1)
+        out_spatial.append(max(out_dim, 0))
+    out = np.zeros_like(arr, dtype=np.float64)
+    prefix_shape = arr.shape[:-rank]
+    for prefix in np.ndindex(prefix_shape):
+        for out_idx in np.ndindex(tuple(out_spatial)):
+            best_coord = None
+            best_val = None
+            for win_idx in np.ndindex(tuple(kernel_shape)):
+                coord = tuple(out_idx[d] * strides[d] - pads[d] + win_idx[d] for d in range(rank))
+                if any(c < 0 or c >= spatial[d] for d, c in enumerate(coord)):
+                    continue
+                full = prefix + coord
+                val = arr[full]
+                if best_val is None or val > best_val:
+                    best_val = val
+                    best_coord = full
+            if best_coord is not None:
+                out[best_coord] += 1.0
+    return out
+
+
+def _resolved_call_name(
+    call: FunctionCallIR,
+    function_ir_map: Dict[Any, Any],
+    mono: Optional[Any],
+) -> Optional[str]:
+    """Resolve a call name through monomorphization when available."""
+    callee = function_ir_map.get(getattr(call, "function_defid", None))
+    generic_callee = None
+    if mono is not None and getattr(call, "function_defid", None) is not None:
+        generic_defid = mono.get_generic_defid_for_specialized(call.function_defid)
+        if generic_defid is not None:
+            generic_callee = function_ir_map.get(generic_defid)
+    name = getattr(generic_callee, "name", None) or getattr(callee, "name", None)
+    return name if isinstance(name, str) else None
+
+
+def _max_pool_quotient_value(
+    call: FunctionCallIR,
+    den_defid: DefId,
+    backend: Any,
+    function_ir_map: Dict[Any, Any],
+    mono: Optional[Any],
+) -> Optional[np.ndarray]:
+    """Fast-path Jacobian layout for max_pool(den) and max_pool(relu(den))."""
+    args = getattr(call, "arguments", []) or []
+    if len(args) != 4:
+        return None
+
+    pool_arg = args[0]
+    source_val: Optional[np.ndarray] = None
+    post_mask: Optional[np.ndarray] = None
+    if isinstance(pool_arg, IdentifierIR) and pool_arg.defid == den_defid:
+        source_val = np.asarray(pool_arg.accept(backend), dtype=np.float64)
+    elif isinstance(pool_arg, FunctionCallIR):
+        inner_name = _resolved_call_name(pool_arg, function_ir_map, mono)
+        inner_args = getattr(pool_arg, "arguments", []) or []
+        if (
+            inner_name in ("relu",)
+            or (isinstance(inner_name, str) and inner_name.startswith("relu_"))
+        ) and len(inner_args) == 1 and isinstance(inner_args[0], IdentifierIR) and inner_args[0].defid == den_defid:
+            x_val = np.asarray(inner_args[0].accept(backend), dtype=np.float64)
+            source_val = np.maximum(x_val, 0.0)
+            post_mask = x_val > 0.0
+    if source_val is None:
+        return None
+
+    kernel_shape = [int(v) for v in np.asarray(args[1].accept(backend)).reshape(-1)]
+    strides = [int(v) for v in np.asarray(args[2].accept(backend)).reshape(-1)]
+    pads = [int(v) for v in np.asarray(args[3].accept(backend)).reshape(-1)]
+    val = _max_pool_argmax_scatter(source_val, kernel_shape, strides, pads)
+    if post_mask is not None:
+        val = np.where(post_mask, val, 0.0)
+    return val
+
+
 class _ContainsReductionWithOpVisitor(IRVisitor[bool]):
     """True if expression contains a LoweredReductionIR with the given operation."""
 
@@ -470,16 +561,49 @@ class CoreExecutionMixin:
                     # Per-quotient run: for each @num/@den run diff block with seed den=1, others=0 (AUTODIFF_ALGORITHM §4.2).
                     if pending_quotient_slots and diff_ir is not None and d_map and differential_leaves:
                         leaf_d_defids = {d_map[leaf] for leaf in differential_leaves if leaf in d_map}
+                        binding_map = {
+                            b.defid: b
+                            for b in (program.bindings or [])
+                            if isinstance(b, BindingIR) and b.defid is not None
+                        }
+                        function_ir_map = getattr(tcx, "function_ir_map", None) or {} if tcx is not None else {}
+                        mono = getattr(tcx, "monomorphization_service", None) if tcx is not None else None
                         for slot_defid, num_defid, den_defid in pending_quotient_slots:
+                            num_binding = binding_map.get(num_defid)
+                            if (
+                                num_binding is not None
+                                and isinstance(getattr(num_binding, "expr", None), FunctionCallIR)
+                            ):
+                                call = num_binding.expr
+                                callee_name = _resolved_call_name(call, function_ir_map, mono)
+                                if (
+                                    isinstance(callee_name, str)
+                                    and callee_name.startswith("max_pool")
+                                ):
+                                    try:
+                                        val = _max_pool_quotient_value(
+                                            call,
+                                            den_defid,
+                                            self,
+                                            function_ir_map,
+                                            mono,
+                                        )
+                                        if val is not None:
+                                            self.env.set_value(slot_defid, val, name=None)
+                                            outputs[slot_defid] = val
+                                            continue
+                                    except Exception:
+                                        pass
                             for leaf in differential_leaves:
                                 d_defid = d_map.get(leaf)
                                 if d_defid is not None:
-                                    # Quotient goldens use scalar cotangent seeding (directional derivative
-                                    # with unit seed on denominator leaf); keep this path scalar to avoid
-                                    # materializing full Jacobians in deferred quotient execution.
                                     on = (leaf == den_defid)
-                                    # Use float so downstream division is true_divide, not integer division.
-                                    seed = 1.0 if on else 0.0
+                                    primal_val = self.env.get_value(leaf)
+                                    if isinstance(primal_val, np.ndarray):
+                                        seed = np.ones_like(primal_val, dtype=np.float64) if on else np.zeros_like(primal_val, dtype=np.float64)
+                                    else:
+                                        # Use float so downstream division is true_divide, not integer division.
+                                        seed = 1.0 if on else 0.0
                                     self.env.set_value(d_defid, seed, name=None)
                             for stmt in (diff_ir if isinstance(diff_ir, list) else [diff_ir]):
                                 if isinstance(stmt, BindingIR) and stmt.defid in leaf_d_defids:

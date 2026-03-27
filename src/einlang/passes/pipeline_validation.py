@@ -21,6 +21,7 @@ from ..ir.nodes import (
 )
 from ..shared.types import Type, FunctionType, PrimitiveType, I32, I64, F32, F64, UNKNOWN
 from ..shared.source_location import SourceLocation
+from ..shared.defid import DefId
 
 logger = logging.getLogger("einlang.passes.pipeline_validation")
 
@@ -47,18 +48,9 @@ class PipelineTypeValidationPass(BasePass):
         
         
         visitor = PipelineTypeValidator(tcx)
-        
-        # Visit all functions
-        for func in ir.functions:
-            func.body.accept(visitor)
-        
-        # Visit all constants
-        for const in ir.constants:
-            const.value.accept(visitor)
-        
-        # Visit top-level statements
+
         for stmt in ir.statements:
-            if hasattr(stmt, 'accept'):
+            if stmt is not None and not is_function_binding(stmt) and hasattr(stmt, 'accept'):
                 stmt.accept(visitor)
         
         logger.debug("Pipeline type validation complete")
@@ -73,18 +65,14 @@ class PipelineTypeValidator(IRVisitor[None]):
     
     def __init__(self, tcx: TyCtxt):
         self.tcx = tcx
+        self._validated_function_defids = set()
+        self._active_function_defids = set()
     
     def visit_program(self, node: ProgramIR) -> None:
         """Visit program and validate all pipeline expressions"""
-        # Visit all statements
         for stmt in node.statements:
-            stmt.accept(self)
-        # Visit all functions
-        for func in node.functions:
-            func.accept(self)
-        # Visit all constants
-        for const in node.constants:
-            const.accept(self)
+            if stmt is not None and not is_function_binding(stmt):
+                stmt.accept(self)
     
     def visit_pipeline_expression(self, node: PipelineExpressionIR) -> None:
         """Validate pipeline expression"""
@@ -220,8 +208,7 @@ class PipelineTypeValidator(IRVisitor[None]):
     def visit_binding(self, node: BindingIR) -> None:
         """Visit bindings"""
         if is_function_binding(node):
-            if node.body:
-                node.body.accept(self)
+            return
         elif is_einstein_binding(node):
             for clause in (node.clauses or []):
                 clause.accept(self)
@@ -263,8 +250,11 @@ class PipelineTypeValidator(IRVisitor[None]):
             node.operand.accept(self)
     
     def visit_function_call(self, node) -> None:
+        if getattr(node, "callee_expr", None):
+            node.callee_expr.accept(self)
         for arg in node.arguments:
             arg.accept(self)
+        self._validate_called_function(getattr(node, "function_defid", None))
     
     def visit_rectangular_access(self, node) -> None:
         if node.array:
@@ -364,6 +354,28 @@ class PipelineTypeValidator(IRVisitor[None]):
     
     def visit_module(self, node) -> None:
         pass
+
+    def _validate_called_function(self, defid: Optional[DefId]) -> None:
+        if defid is None or defid in self._validated_function_defids or defid in self._active_function_defids:
+            return
+        mono = getattr(self.tcx, "monomorphization_service", None)
+        if mono is not None and mono.get_generic_defid_for_specialized(defid) is not None:
+            return
+        func_map = getattr(self.tcx, "function_ir_map", None) or {}
+        binding = func_map.get(defid)
+        if binding is None or not is_function_binding(binding):
+            return
+        from ..analysis.analysis_guard import is_generic_function
+
+        if is_generic_function(binding):
+            return
+        self._active_function_defids.add(defid)
+        try:
+            if binding.body is not None:
+                binding.body.accept(self)
+            self._validated_function_defids.add(defid)
+        finally:
+            self._active_function_defids.discard(defid)
     
     # Pattern visitors (no-op)
     def visit_literal_pattern(self, node) -> None:
@@ -386,4 +398,3 @@ class PipelineTypeValidator(IRVisitor[None]):
     
     def visit_guard_pattern(self, node) -> None:
         pass
-

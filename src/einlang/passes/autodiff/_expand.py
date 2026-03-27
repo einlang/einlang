@@ -519,6 +519,10 @@ class _ExpansionVisitor(_Rewriter):
                         P = self._P
                         if P is not None:
                             dm = _primal_to_diff_map(P.bindings or [])
+                            diff_binding_defids: Set[DefId] = {
+                                b.defid for b in dm.values()
+                                if isinstance(b, BindingIR) and b.defid is not None
+                            }
                             needed = _trans_deps(ye, self._SB, self._dep_cache)
                             porder: Dict[DefId, int] = {}
                             for idx, bb in enumerate(P.bindings or []):
@@ -529,10 +533,12 @@ class _ExpansionVisitor(_Rewriter):
                                 pb = self._SB.get(did)
                                 if pb is None or pb.expr is None or isinstance(pb.expr, FunctionValueIR):
                                     continue
-                                if not self._dep_cache.collect_defids(pb.expr):
-                                    continue
                                 db = dm.get(did)
                                 if db is None or db.expr is None:
+                                    continue
+                                se = _simplify(db.expr, n.location or self._loc)
+                                se_deps = self._dep_cache.collect_defids(se)
+                                if not (se_deps & diff_binding_defids):
                                     continue
                                 nm = (pb.name if pb and getattr(pb, "name", None) else None) or "?"
                                 pb_idx = ""
@@ -541,7 +547,6 @@ class _ExpansionVisitor(_Rewriter):
                                     if pb_cc and pb_cc[0].indices:
                                         pb_idx = ", ".join(_idx_str(i) for i in pb_cc[0].indices)
                                 pre_lhs = "@" + nm + ("[" + pb_idx + "]" if pb_idx else "")
-                                se = _simplify(db.expr, n.location or self._loc)
                                 pre.append("let " + pre_lhs + " = " + _str_ir(se) + ";")
                         rhs = _str_ir_print_differential_rhs(dr, n.location or self._loc)
                         lhs = "@" + (yn or "?")

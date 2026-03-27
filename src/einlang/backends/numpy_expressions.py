@@ -65,6 +65,51 @@ def _is_scalar_like(x: Any) -> bool:
     return False
 
 
+def _safe_oob_ndarray_access(array: np.ndarray, indices: List[Any]) -> Any:
+    """Advanced ndarray indexing with zero-fill for out-of-bounds positions.
+
+    This is used only during speculative vectorized clause evaluation, where an
+    array-valued `if` may eagerly evaluate a branch that is semantically masked
+    away. It preserves the in-bounds values and substitutes zero for masked-out
+    OOB positions so the clause can still vectorize.
+    """
+    if not indices:
+        return array
+    if len(indices) > array.ndim:
+        raise IndexError(
+            f"too many indices for array: expected at most {array.ndim}, got {len(indices)}"
+        )
+    if not any(isinstance(idx, np.ndarray) for idx in indices):
+        return array[tuple(indices)]
+
+    normalized: List[np.ndarray] = []
+    for idx in indices:
+        idx_arr = np.asarray(idx)
+        if idx_arr.dtype.kind not in ("i", "u", "b"):
+            raise TypeError(
+                "safe vectorized rectangular access requires integer-like ndarray indices"
+            )
+        normalized.append(idx_arr.astype(np.intp, copy=False))
+    broadcast = np.broadcast_arrays(*normalized)
+
+    valid = np.ones(broadcast[0].shape, dtype=bool)
+    clipped: List[np.ndarray] = []
+    for axis, idx_arr in enumerate(broadcast):
+        axis_size = array.shape[axis]
+        if axis_size <= 0:
+            raise IndexError(f"indexing axis {axis} with size {axis_size} is not supported")
+        in_bounds = (idx_arr >= 0) & (idx_arr < axis_size)
+        valid &= in_bounds
+        clipped.append(np.clip(idx_arr, 0, axis_size - 1))
+
+    gathered = array[tuple(clipped)]
+    if gathered.shape != valid.shape:
+        extra_ndim = gathered.ndim - valid.ndim
+        valid = valid.reshape(valid.shape + (1,) * max(extra_ndim, 0))
+    zero = np.zeros((), dtype=gathered.dtype)
+    return np.where(valid, gathered, zero)
+
+
 class _ExprContainsDefidVisitor(IRVisitor[bool]):
     """Returns True iff the expression tree contains IdentifierIR or IndexVarIR with defid == target_defid."""
 
@@ -298,7 +343,6 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         return None
     if expr.guards or expr.bindings:
         return None
-    from ..passes.visitor_helpers import defid_of_var_in_expr
     reduction_ranges = expr.reduction_ranges or {}
     loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
     if not loops:
@@ -312,8 +356,7 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         loop_defid = loop_var.defid
         if loop_defid is None:
             return None
-        body_defid = defid_of_var_in_expr(expr.body, (loop_var.name or "") or "") or loop_defid
-        reduction_defids.append(body_defid)
+        reduction_defids.append(loop_defid)
         try:
             iterable = loop.iterable.accept(backend)
             if iterable is None:
@@ -494,7 +537,6 @@ def _try_conv_im2col_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[
         return None
     if expr.guards or expr.bindings:
         return None
-    from ..passes.visitor_helpers import defid_of_var_in_expr
     reduction_ranges = expr.reduction_ranges or {}
     loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
     if len(loops) != 2:
@@ -685,7 +727,6 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         return None
     if expr.guards or expr.bindings:
         return None
-    from ..passes.visitor_helpers import defid_of_var_in_expr
     reduction_ranges = expr.reduction_ranges or {}
     loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
     if not loops:
@@ -699,8 +740,7 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         loop_defid = loop_var.defid
         if loop_defid is None:
             return None
-        body_defid = defid_of_var_in_expr(expr.body, (loop_var.name or "") or "") or loop_defid
-        reduction_defids.append(body_defid)
+        reduction_defids.append(loop_defid)
         try:
             iterable = loop.iterable.accept(backend)
             if iterable is None:
@@ -1086,6 +1126,8 @@ class ExpressionVisitorMixin:
         indices = [idx.accept(self) for idx in (expr.indices or []) if idx is not None]
         try:
             if isinstance(array, np.ndarray):
+                if getattr(self, "_vectorize_safe_oob", False):
+                    return _safe_oob_ndarray_access(array, indices)
                 return array[tuple(indices)]
             if isinstance(array, str):
                 idx = indices[0] if indices else 0
@@ -1384,7 +1426,7 @@ class ExpressionVisitorMixin:
             execute_reduction_with_loops,
             execute_select_at_argmax_vectorized,
         )
-        from ..passes.visitor_helpers import defid_of_var_in_expr, ArrayAccessCollector
+        from ..passes.visitor_helpers import ArrayAccessCollector
         loc = expr.location
         line = int(getattr(loc, "line", 0) or 0)
         profile_reductions = bool(os.environ.get("EINLANG_PROFILE_REDUCTIONS", ""))
@@ -1399,32 +1441,17 @@ class ExpressionVisitorMixin:
                     seen.add(key)
                     print(f"[reduction] {path} L{line}", flush=True)
         def ev(e): return e.accept(self)
-        _loop_to_body_defid = {}
         _reduction_defid_names = {}
         for _lp in (expr.loops or []) or []:
             _v = _lp.variable
-            if _v is not None:
-                _vname = _v.name
-                _bd = defid_of_var_in_expr(expr.body, _vname) if _vname else None
-                if _bd is not None:
-                    _loop_to_body_defid[_v.defid] = _bd
-                    _reduction_defid_names[_bd] = _vname
-                elif _v.defid:
-                    _reduction_defid_names[_v.defid] = _vname
-        def _remap_ctx_to_body_defids(ctx):
-            out = {}
-            for loop_defid, val in (ctx or {}).items():
-                if loop_defid is None:
-                    continue
-                body_defid = _loop_to_body_defid.get(loop_defid)
-                if body_defid is not None:
-                    out[body_defid] = val
-                else:
-                    out[loop_defid] = val
-            return out
+            if _v is not None and _v.defid is not None:
+                _reduction_defid_names[_v.defid] = _v.name
 
         def body_ev(ctx):
-            _ctx = _remap_ctx_to_body_defids(ctx)
+            _ctx = {
+                defid: val for defid, val in (ctx or {}).items()
+                if defid is not None
+            }
             saved: Dict[Any, Any] = {}
             for defid in _ctx:
                 if defid is not None:
@@ -1440,7 +1467,10 @@ class ExpressionVisitorMixin:
         def guard_ev(ctx):
             if not expr.guards:
                 return True
-            _ctx = _remap_ctx_to_body_defids(ctx)
+            _ctx = {
+                defid: val for defid, val in (ctx or {}).items()
+                if defid is not None
+            }
             for defid, val in _ctx.items():
                 if defid is not None:
                     self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
@@ -1456,7 +1486,11 @@ class ExpressionVisitorMixin:
         vector_parallel_ctx: Dict[Any, Any] = {}
         if (not initial_ctx) and parallel_shape is None:
             try:
-                reduction_body_defids = set(_loop_to_body_defid.values()) | set(_loop_to_body_defid.keys())
+                reduction_body_defids = {
+                    loop.variable.defid
+                    for loop in (expr.loops or [])
+                    if loop.variable is not None and loop.variable.defid is not None
+                }
                 seen_parallel_defids = set()
                 collector = ArrayAccessCollector()
                 scan_exprs = [expr.body]
@@ -1495,7 +1529,11 @@ class ExpressionVisitorMixin:
                         vector_parallel_ctx[did] = arr
             else:
                 try:
-                    reduction_body_defids = set(_loop_to_body_defid.values()) | set(_loop_to_body_defid.keys())
+                    reduction_body_defids = {
+                        loop.variable.defid
+                        for loop in (expr.loops or [])
+                        if loop.variable is not None and loop.variable.defid is not None
+                    }
                     if isinstance(expr.body, RectangularAccessIR):
                         par_defids: List[Any] = []
                         for idx in (expr.body.indices or []):
@@ -1572,7 +1610,10 @@ class ExpressionVisitorMixin:
                     mask = np.ones(full_shape, dtype=bool)
                     for g in (expr.guards or []):
                         with self.env.scope():
-                            _ctx_g = _remap_ctx_to_body_defids(ctx)
+                            _ctx_g = {
+                                defid: val for defid, val in ctx.items()
+                                if defid is not None
+                            }
                             for defid, val in _ctx_g.items():
                                 if defid is not None:
                                     self.env.set_value(
@@ -1628,6 +1669,7 @@ class ExpressionVisitorMixin:
         from ..passes.visitor_helpers import all_defids_of_var_in_expr
         from ..runtime.compute.lowered_execution import execute_select_at_argmax_vectorized
         from ..ir.nodes import RectangularAccessIR
+        from ..passes.autodiff._graph import _collect_defids
         reduction_loops = list((expr.reduction_ranges or {}).values())
         if not reduction_loops:
             raise RuntimeError("SelectAtArgmax has no reduction loops")
@@ -1660,16 +1702,23 @@ class ExpressionVisitorMixin:
                 for _bd in _loop_to_all_body_defids.get(_lp.variable.defid) or []:
                     reduction_body_defids.add(_bd)
 
+        outer_index_defids = tuple(getattr(self, "_select_outer_index_defids", ()) or ())
         parallel_shape = None
         parallel_defids_list: List[Any] = []
         initial_context: List[Tuple[Any, Any]] = []
         _ri0 = getattr(self, "_reduction_initial_context", None) or {}
-        if isinstance(expr.primal_body, RectangularAccessIR) and expr.primal_body.array is not None:
+        clause_parallel_shape = getattr(self, "_vectorize_parallel_shape", None)
+        if clause_parallel_shape is not None and not outer_index_defids:
+            try:
+                parallel_shape = tuple(int(dim) for dim in clause_parallel_shape)
+            except (TypeError, ValueError):
+                parallel_shape = None
+        if not outer_index_defids and isinstance(expr.primal_body, RectangularAccessIR) and expr.primal_body.array is not None:
             try:
                 arr = expr.primal_body.array.accept(self)
-                if not _ri0 and isinstance(arr, np.ndarray) and arr.ndim >= n_red:
+                if parallel_shape is None and not _ri0 and isinstance(arr, np.ndarray) and arr.ndim >= n_red:
                     parallel_shape = tuple(arr.shape[:-n_red])
-                if not _ri0:
+                if parallel_shape is None and not _ri0:
                     for idx in (expr.primal_body.indices or []):
                         d = _first_parallel_index_defid(idx, reduction_body_defids)
                         if d is not None:
@@ -1721,6 +1770,72 @@ class ExpressionVisitorMixin:
 
         def ev(e):
             return e.accept(self)
+
+        # Quotient gradients for max/min often lower to SelectAtArgmax whose diff body is a
+        # read from the denominator tangent buffer (e.g. @x[...]). When this select executes
+        # inside an outer Einstein loop, the current outer loop indices identify the derivative
+        # slot we are filling. In the scalar/no-parallel execution path we must preserve that
+        # slot match instead of treating the selected tangent read as an unconditional scalar.
+        ri0 = getattr(self, "_reduction_initial_context", None) or {}
+        if (
+            not parallel_shape
+            and ri0
+            and isinstance(expr.primal_body, RectangularAccessIR)
+            and isinstance(expr.diff_body, RectangularAccessIR)
+            and len(expr.primal_body.indices or []) == len(expr.diff_body.indices or [])
+        ):
+            try:
+                arrs: List[np.ndarray] = []
+                defids: List[Any] = []
+                for loop in reduction_loops:
+                    var_defid = loop.variable.defid
+                    iterable = ev(loop.iterable)
+                    if isinstance(iterable, range):
+                        step = iterable.step if iterable.step is not None else 1
+                        arr = np.arange(iterable.start, iterable.stop, step, dtype=np.intp)
+                    else:
+                        arr = np.array(list(iterable), dtype=np.intp)
+                    if arr.size == 0:
+                        raise ValueError("empty reduction loop")
+                    arrs.append(arr)
+                    defids.append(var_defid)
+                red_shape_tuple = tuple(int(arr.size) for arr in arrs)
+                ctx: Dict[Any, Any] = {}
+                for i, (defid, arr) in enumerate(zip(defids, arrs)):
+                    red_shape = [1] * len(arrs)
+                    red_shape[i] = arr.size
+                    ctx[defid] = arr.reshape(tuple(red_shape))
+                primal_result = primal_body_ev(ctx)
+                if isinstance(primal_result, np.ndarray):
+                    idx_flat = int(np.argmin(primal_result) if getattr(expr, "use_argmin", False) else np.argmax(primal_result))
+                else:
+                    idx_flat = 0
+                red_multi = np.unravel_index(idx_flat, red_shape_tuple)
+                chosen_ctx = {did: int(arrs[i][red_multi[i]]) for i, did in enumerate(defids)}
+
+                current_scalar_ctx = {}
+                for did, val in ri0.items():
+                    arr = np.asarray(val)
+                    if arr.ndim == 0 or arr.size == 1:
+                        current_scalar_ctx[did] = int(arr.reshape(-1)[0])
+                reduction_defids = set(defids)
+                chosen_full_ctx = {**current_scalar_ctx, **chosen_ctx}
+                matches_current_slot = True
+                for pos, idx_expr in enumerate(expr.diff_body.indices or []):
+                    if pos >= len(outer_index_defids):
+                        continue
+                    expected_did = outer_index_defids[pos]
+                    if expected_did is None or expected_did not in current_scalar_ctx or expected_did in reduction_defids:
+                        continue
+                    expected = current_scalar_ctx[expected_did]
+                    actual = int(np.asarray(_apply_ctx_then_eval(chosen_full_ctx, idx_expr)).reshape(-1)[0])
+                    if actual != expected:
+                        matches_current_slot = False
+                        break
+                if not matches_current_slot:
+                    return 0.0
+            except Exception:
+                pass
 
         ok, result = execute_select_at_argmax_vectorized(
             primal_body_ev,
