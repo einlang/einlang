@@ -2775,6 +2775,50 @@ def _flatten_product(expr: ExpressionIR) -> Optional[List[Tuple[ExpressionIR, Li
         if l is not None and r is not None: return l + r
     return None
 
+
+def _is_direct_einstein_tensor_jacobian(
+    expr: Optional[ExpressionIR],
+    wrt: DefId,
+    bindings: Dict[DefId, BindingIR],
+    dep_cache: Optional[_DependencyQueryCache] = None,
+) -> bool:
+    """True for a direct Einstein sum-of-products w.r.t. ``wrt``.
+
+    This preserves full-Jacobian layout for plain matmul/einsum-style quotients like
+    ``@C/@A`` where the denominator tensor appears directly in the clause product.
+    More composed expressions (affine ``sum(...) + b[j]``, chained Einstein bindings such
+    as attention ``out(scores(Q,K), V)``, etc.) stay on the pullback path and return a
+    value shaped like the denominator tensor.
+    """
+    if not isinstance(expr, EinsteinIR):
+        return False
+    cache = dep_cache if dep_cache is not None else _DependencyQueryCache(bindings)
+    saw_wrt = False
+    for clause in expr.clauses or []:
+        val = clause.value
+        if not isinstance(val, ReductionExpressionIR):
+            return False
+        factors = _flatten_product(val.body)
+        if not factors:
+            return False
+        clause_has_wrt = False
+        for factor, _ in factors:
+            if not isinstance(factor, IdentifierIR) or factor.defid is None:
+                return False
+            fd = factor.defid
+            if fd == wrt:
+                clause_has_wrt = True
+                saw_wrt = True
+                continue
+            b = bindings.get(fd)
+            if b is not None and b.expr is not None and _jacobian_rhs_depends_on_wrt(
+                b.expr, wrt, bindings, cache
+            ):
+                return False
+        if not clause_has_wrt:
+            return False
+    return saw_wrt
+
 def _build_deriv_idx(clause_indices: List, wrt_indices: List, wrt_id: IdentifierIR,
                      resolver: Any, loc: SourceLocation, allow_reuse: bool,
                      shared_axes: Optional[List[IndexVarIR]] = None
@@ -4688,10 +4732,17 @@ class _ExpansionVisitor(_Rewriter):
                     if ti or si:
                         _propagate_ti(out, ti, si)
                     return out
-                # Keep lower-rank tensor projections (e.g. flatten/index/select over a tensor)
-                # on the directional path so the quotient contracts the numerator axes and
-                # returns a gradient laid out like the denominator tensor.
-                legacy_directional = den_is_tensor and num_rank > 0 and num_rank < den_rank
+                # Default array quotients to pullback layout (same shape as the denominator),
+                # but preserve full Jacobians for direct Einstein sum-of-products such as
+                # plain matmul/einsum where the denominator tensor appears directly in the
+                # clause product.
+                prefer_full_jacobian = (
+                    den_is_tensor
+                    and num_rank > 0
+                    and num_rank >= den_rank
+                    and _is_direct_einstein_tensor_jacobian(ne, dd, self._SB, self._dep_cache)
+                )
+                legacy_directional = den_is_tensor and num_rank > 0 and not prefer_full_jacobian
                 jv = JacobianVisitor(
                     dd,
                     ql,
@@ -4738,11 +4789,18 @@ class _ExpansionVisitor(_Rewriter):
                 raise ValueError("Autodiff: @num/@(expr) denominator depends on != 1 variable")
             wd = next(iter(dids))
             num_rank = _tensor_rank_from_expr(nop, self._SB)
+            prefer_full_jacobian = (
+                den_b is not None
+                and _tensor_rank_from_binding(den_b) > 0
+                and num_rank > 0
+                and num_rank >= _tensor_rank_from_binding(den_b)
+                and _is_direct_einstein_tensor_jacobian(nop, wd, self._SB, self._dep_cache)
+            )
             legacy_directional = (
                 den_b is not None
                 and _tensor_rank_from_binding(den_b) > 0
                 and num_rank > 0
-                and num_rank < _tensor_rank_from_binding(den_b)
+                and not prefer_full_jacobian
             )
             dn = nop.accept(
                 JacobianVisitor(
