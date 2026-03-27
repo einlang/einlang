@@ -1,6 +1,6 @@
 # Math intuition
 
-**Einlang is built for math intuitiveness:** you write the same notation you use in equations and on the whiteboard. Indices, sums, index relations, and derivatives map directly to code—no string subscripts, no mental translation. If you think in equations and indices, Einlang matches. This page shows how common math notation maps to code. Full semantics: [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md).
+**Einlang is designed to match mathematical notation:** you write the same notation you use in equations and on the whiteboard. Indices, sums, index relations, and derivatives map directly to code, with no string subscripts and less mental translation. This page shows how common math notation maps to code. Full semantics: [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md).
 
 ---
 

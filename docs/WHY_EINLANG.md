@@ -1,6 +1,6 @@
 # Why Einlang?
 
-**Tensor code is either readable or safe—usually neither.** Einlang is both. This page brags a bit: what makes Einlang worth your time and how it stands out.
+**Tensor code is often either readable or safe, but not both.** Einlang aims for both. This page covers the main differences from adjacent tools.
 
 **Autodiff note:** We do not bolt on AD with helper APIs; Einlang compiles derivative syntax on expressions directly into executable IR for tensor programs, so supported sensitivities come from the compiler instead of function wrappers or finite-difference probes.
 
@@ -16,15 +16,15 @@
 
 ---
 
-## Features that pull their weight
+## Core features
 
 | Feature | What you get |
 |--------|----------------|
 | **Einstein notation as syntax** | `let C[i, j] = sum[k](A[i, k] * B[k, j]);` — indices and shapes checked at compile time. Wrong dimensions → compile error, not a runtime crash. |
 | **Where clauses** | Index algebra (`ih = oh + kh`), guards (`where data[i] > 0`), and bindings live next to the computation. Convolutions, stencils, and masks read like the math. |
 | **Recurrences as declarations** | Base cases + recursive rule; range in the bracket; compiler handles evaluation order. RNNs, dynamic programming, and time stepping without manual loop wiring. |
-| **Built-in autodiff** | `@z / @x` is the derivative, `@z` is the differential, and tensor expressions like `@C / @A` are first-class. One primitive family, quotient form for partials, `print(@y)` for debug. **No tapes, no dual numbers, no `grad(f)(x)` API** — the compiler emits IR you could not reasonably write by hand for large models, then executes it on the same NumPy backend as the primal. For supported ops, this replaces finite-difference gradient checks with compiler-derived derivatives. |
-| **Same shapes for gradients** | Gradient w.r.t. a variable has the same shape as that variable. No surprise reshapes or “grad has wrong size” at runtime. |
+| **Built-in autodiff** | `@z / @x` is the derivative, `@z` is the differential, and tensor expressions like `@C / @A` are first-class. One primitive family, quotient form for partials, and `print(@y)` for debugging. **No tapes, no dual numbers, no `grad(f)(x)` API**: the compiler emits derivative IR and runs it on the same NumPy backend as the primal. For supported ops, this replaces finite-difference gradient checks with compiler-derived derivatives. |
+| **Same shapes for gradients** | A gradient with respect to a variable has the same shape as that variable. No surprise reshapes or "grad has wrong size" errors at runtime. |
 | **300+ stdlib functions** | `use std::math::{sin, sqrt, exp};` — same language, same shape checking. No ad-hoc FFI for basic math. |
 | **Real models in one language** | MNIST CNN, quantized (int8) CNN, ViT, Whisper — same syntax, same checks. Simulation examples are [accuracy-tested against Julia](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md). |
 
