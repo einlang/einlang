@@ -13,6 +13,7 @@ piecewise clamp/saturate/clamp_min/clamp_max, deg/rad helpers.
 Scalar and std::math-style derivative rules (arithmetic, trig, activations, etc.) are
 asserted via exact stdout in tests/unit/test_print_at_golden.py and
 tests/unit/test_print_at_ml_smoke.py instead of duplicating numeric quotient tests here.
+Tensor sum quotient coverage lives in tests/unit/test_autodiff_tensor_quotient_reductions.py.
 
 Note: IR expansion catalog (_IR_DUMP_OPS) uses qualified stdlib (e.g. std::math::exp) with repo root_path.
 Other tests may use local fn + @fn or python::numpy::* where no defid is required.
@@ -31,6 +32,23 @@ from einlang.passes.autodiff import AutodiffPass, DIFF_PREFIX, USER_DIFF_PREFIX
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _COMPILER = None
 _RUNTIME = None
+
+
+def _ensure_shared_autodiff_test_context():
+    """Bootstrap shared compiler/runtime for helpers imported from other test modules.
+
+    Some tests import ``_compile_run`` without collecting this module's own tests, so the
+    autouse fixture below never runs under ``pytest --lf -n auto``. Lazily initialize here
+    to keep the helper usable in that mode while still reusing the fixture when available.
+    """
+    global _COMPILER, _RUNTIME
+    if _COMPILER is None:
+        _COMPILER = CompilerDriver()
+    if _RUNTIME is None:
+        from einlang.runtime.runtime import EinlangRuntime
+
+        _RUNTIME = EinlangRuntime(backend="numpy")
+    return _COMPILER, _RUNTIME
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -101,15 +119,24 @@ def _scalar_float(outputs, key):
 def _compile_run(source, expect_success=True, root_path=None):
     if root_path is None:
         root_path = _REPO_ROOT
-    assert _COMPILER is not None
-    assert _RUNTIME is not None
-    result = _COMPILER.compile(source.strip(), source_file="<test>", root_path=root_path)
+    compiler, runtime = _ensure_shared_autodiff_test_context()
+    result = compiler.compile(source.strip(), source_file="<test>", root_path=root_path)
     if expect_success:
         assert result.success, result.get_errors() or "compile failed"
-    exec_result = _RUNTIME.execute(result)
+    exec_result = runtime.execute(result)
     if expect_success:
         assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
     return result, exec_result.outputs or {}
+
+
+def _compile_only(source, expect_success=True, root_path=None):
+    if root_path is None:
+        root_path = _REPO_ROOT
+    compiler, _ = _ensure_shared_autodiff_test_context()
+    result = compiler.compile(source.strip(), source_file="<test>", root_path=root_path)
+    if expect_success:
+        assert result.success, result.get_errors() or "compile failed"
+    return result
 
 
 class TestAutodiffPass:
@@ -117,16 +144,14 @@ class TestAutodiffPass:
 
     def test_autodiff_pass_registered(self):
         """AutodiffPass is in the compiler pipeline after RecurrenceOrder and before validation."""
-        compiler = CompilerDriver()
+        compiler, _ = _ensure_shared_autodiff_test_context()
         pass_names = [p.__name__ for p in compiler.pass_manager.passes]
         assert "AutodiffPass" in pass_names
 
     def test_no_differential_ir_skips_diff_block(self):
         """Program without @ has no diff block and empty differential targets."""
-        compiler = CompilerDriver()
         source = "let w = 1.0; let loss = w * 2.0;"
-        result = compiler.compile(source, source_file="<test>")
-        assert result.success, result.get_errors() or "compile failed"
+        result = _compile_only(source)
         assert result.tcx is not None
         analysis = result.tcx.get_analysis(AutodiffPass)
         assert analysis["diff_block"] is None
@@ -135,14 +160,12 @@ class TestAutodiffPass:
 
     def test_differential_ir_expanded_into_plain_ir(self):
         """Program with @w expands derivative nodes into plain IR (d_* bindings in diff block)."""
-        compiler = CompilerDriver()
         source = """
 let w = 1.0;
 let loss = w * 2.0;
 let dw = @w;
 """
-        result = compiler.compile(source.strip(), source_file="<test>")
-        assert result.success, result.get_errors() or "compile failed"
+        result = _compile_only(source)
         analysis = result.tcx.get_analysis(AutodiffPass)
         diff_block = analysis["diff_block"]
         assert diff_block is not None and len(diff_block) >= 1
@@ -157,25 +180,17 @@ let dw = @w;
 
     def test_quotient_binary_expr(self):
         """@b/@a for b = a*a: compile and run; assert db_da == 2*a == 6 at a=3."""
-        compiler = CompilerDriver()
         source = """
 let a = 3.0;
 let b = a * a;
 let db_da = @b / @a;
 """
-        result = compiler.compile(source.strip(), source_file="<test>")
-        assert result.success, result.get_errors() or "compile failed"
-        from einlang.runtime.runtime import EinlangRuntime
-        runtime = EinlangRuntime(backend="numpy")
-        exec_result = runtime.execute(result)
-        assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
-        outputs = getattr(exec_result, "outputs", {}) or {}
+        _, outputs = _compile_run(source)
         actual = _scalar_float(outputs, "db_da")
         assert actual == 6.0, "expected db/da = 2*a = 6 at a=3, got %s" % actual
 
     def test_user_expr_autodiff_compiles_and_runs(self):
         """Differentiate through user fn sq(x)=x*x: @b/@a expands to 2*a; assert db_da == 6 at a=3."""
-        compiler = CompilerDriver()
         source = """
 fn sq(x) {
     x * x
@@ -184,19 +199,12 @@ let a = 3.0;
 let b = sq(a);
 let db_da = @b / @a;
 """
-        result = compiler.compile(source.strip(), source_file="<test>")
-        assert result.success, result.get_errors() or "compile failed"
-        from einlang.runtime.runtime import EinlangRuntime
-        runtime = EinlangRuntime(backend="numpy")
-        exec_result = runtime.execute(result)
-        assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
-        outputs = getattr(exec_result, "outputs", {}) or {}
+        _, outputs = _compile_run(source)
         actual = _scalar_float(outputs, "db_da")
         assert actual == 6.0, "expected db/da = 2*a = 6 at a=3 for sq(a)=a^2, got %s" % actual
 
     def test_autodiff_in_block_scope(self):
         """Autodiff works in a scope (block), not only top-level: @y/@x inside block with let x, let y."""
-        compiler = CompilerDriver()
         source = """
 let result = {
     let x = 3.0;
@@ -204,19 +212,12 @@ let result = {
     @y / @x
 };
 """
-        result = compiler.compile(source.strip(), source_file="<test>")
-        assert result.success, result.get_errors() or "compile failed"
-        from einlang.runtime.runtime import EinlangRuntime
-        runtime = EinlangRuntime(backend="numpy")
-        exec_result = runtime.execute(result)
-        assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
-        outputs = getattr(exec_result, "outputs", {}) or {}
+        _, outputs = _compile_run(source)
         actual = _scalar_float(outputs, "result")
         assert actual == 6.0, "expected d(x^2)/dx = 2*x = 6 at x=3 in block scope, got %s" % actual
 
     def test_quotient_tensor_slice_alias_in_einstein_clause(self):
         """@loss/@w when w = W[i,j] and loss uses sum[a](… W[a,j] …): ∂loss/∂w is nonzero (slice aliases storage)."""
-        compiler = CompilerDriver()
         source = """
 let W = [[0.0]];
 let x = [2.0];
@@ -228,14 +229,7 @@ let G[i in 0..1] = {
     @loss_b / @w_ij
 };
 """
-        result = compiler.compile(source.strip(), source_file="<test>")
-        assert result.success, result.get_errors() or "compile failed"
-        from einlang.runtime.runtime import EinlangRuntime
-
-        runtime = EinlangRuntime(backend="numpy")
-        exec_result = runtime.execute(result)
-        assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
-        outputs = getattr(exec_result, "outputs", {}) or {}
+        _, outputs = _compile_run(source)
         g0 = outputs.get("G")
         assert g0 is not None, "expected G output, got %s" % list(outputs.keys())
         import numpy as np
@@ -246,20 +240,13 @@ let G[i in 0..1] = {
 
     def test_einstein_quotient_compiles_and_runs(self):
         """@C/@A when C is Einstein sum: autodiff expands to ∂C/∂A Einstein; compile and run; assert dC_dA shape."""
-        compiler = CompilerDriver()
         source = """
 let A = [[1.0, 2.0], [3.0, 4.0]];
 let B = [[5.0, 6.0], [7.0, 8.0]];
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
 let dC_dA = @C / @A;
 """
-        result = compiler.compile(source.strip(), source_file="<test>")
-        assert result.success, result.get_errors() or "compile failed"
-        from einlang.runtime.runtime import EinlangRuntime
-        runtime = EinlangRuntime(backend="numpy")
-        exec_result = runtime.execute(result)
-        assert exec_result.success, getattr(exec_result, "error", None) or exec_result.errors
-        outputs = getattr(exec_result, "outputs", {}) or {}
+        _, outputs = _compile_run(source)
         dC_dA = outputs.get("dC_dA")
         assert dC_dA is not None, "expected output dC_dA, got %s" % list(outputs.keys())
         try:
@@ -345,25 +332,6 @@ let dC_dB = @C / @B;
         except ImportError:
             pass
 
-    def test_einstein_row_sum_derivative(self):
-        """r[i] = sum[j](M[i,j]); @r/@M cotangent same shape as M (Julia Zygote / ChainRules style), ones."""
-        source = """
-let M = [[1.0, 2.0], [3.0, 4.0]];
-let r[i] = sum[j](M[i, j]);
-let dr_dM = @r / @M;
-"""
-        _, out = _compile_run(source)
-        dr_dM = out.get("dr_dM")
-        assert dr_dM is not None, "expected dr_dM"
-        try:
-            import numpy as np
-            arr = np.asarray(dr_dM)
-            assert arr.shape == (2, 2), "dr_dM shape (2,2), got %s" % (arr.shape,)
-            ref = np.ones((2, 2), dtype=np.float64)
-            _assert_allclose(arr, ref, msg="dr_dM row-sum pullback")
-        except ImportError:
-            pass
-
     def test_einstein_conv_1d_where_clause(self):
         """1D conv with where: out[oh] = sum[kh](in[ih]*w[kh]) where ih = oh + kh; @out/@w."""
         source = """
@@ -440,25 +408,6 @@ let dC_dA = @C / @A;
         except ImportError:
             pass
 
-    def test_einstein_column_sum_derivative(self):
-        """c[j] = sum[i](M[i,j]); @c/@M cotangent same shape as M (Julia-style), ones."""
-        source = """
-let M = [[1.0, 2.0], [3.0, 4.0]];
-let c[j] = sum[i](M[i, j]);
-let dc_dM = @c / @M;
-"""
-        _, out = _compile_run(source)
-        dc_dM = out.get("dc_dM")
-        assert dc_dM is not None
-        try:
-            import numpy as np
-            arr = np.asarray(dc_dM)
-            assert arr.shape == (2, 2), "dc_dM shape (2,2), got %s" % (arr.shape,)
-            ref = np.ones((2, 2), dtype=np.float64)
-            _assert_allclose(arr, ref, msg="dc_dM column-sum pullback")
-        except ImportError:
-            pass
-
     def test_softmax_autodiff(self):
         """Differentiate through sum and max reductions (generic reduction + chain rule).
         Exercises d(sum_i body)/d wrt = sum_i d(body)/d wrt and d(max_i body)/d wrt = d(body)/d wrt at argmax.
@@ -478,24 +427,6 @@ let d_sums_d_x = @sums / @x;
             ref_d_sums = np.ones((1, 3), dtype=np.float64)
             _assert_allclose(out.get("d_max_d_x"), ref_d_max, msg="d_max_d_x")
             _assert_allclose(out.get("d_sums_d_x"), ref_d_sums, msg="d_sums_d_x")
-        except ImportError:
-            pass
-
-    def test_reduction_autodiff_sum(self):
-        """∂(sum_j body)/∂wrt = sum_j ∂(body)/∂wrt. Derivative of sum over index is 1 at each element."""
-        source = """
-let x = [[1.0, 2.0, 3.0]];
-let y[b] = sum[j](x[b, j]);
-let dy_dx = @y / @x;
-"""
-        _, out = _compile_run(source)
-        dy_dx = out.get("dy_dx")
-        assert dy_dx is not None
-        try:
-            ref = np.ones((1, 3), dtype=np.float64)
-            arr = np.asarray(dy_dx)
-            assert arr.shape == (1, 3), "dy_dx shape (1,3), got %s" % (arr.shape,)
-            _assert_allclose(arr, ref, msg="dy_dx sum reduction")
         except ImportError:
             pass
 
@@ -552,6 +483,20 @@ let dy_dx = @y / @x;
             _assert_allclose(dy_dx, ref, msg="dy_dx prod reduction", atol=1e-4)
         except ImportError:
             pass
+
+    def test_ln_alias_chain_rule_on_subexpression(self):
+        """ln should preserve the custom log derivative through a subexpression like (1 - x)."""
+        source = """
+use std::math::ln;
+let x = 0.3;
+let y = ln(1.0 - x);
+let q = @y / @x;
+"""
+        _, out = _compile_run(source)
+        actual = _scalar_float(out, "q")
+        assert actual == pytest.approx(-1.0 / 0.7, rel=1e-12, abs=1e-12), (
+            "expected d ln(1-x) / dx = -1/(1-x) at x=0.3"
+        )
 
     def test_max_pool_quotient_shape_and_argmax_scatter(self):
         """`@y/@x` for max_pool should keep x-shape and scatter 1.0 to argmax in each pooled window."""
@@ -727,21 +672,6 @@ let dC_dB = @C / @B;
             ref_dB = np.einsum("bij,bir->brj", np.ones_like(B_ref), A_ref)
             _assert_allclose(dC_dA, ref_dA, msg="dC_dA 3D grad shape vs doc")
             _assert_allclose(dC_dB, ref_dB, msg="dC_dB 3D grad shape vs doc")
-
-    def test_einstein_batched_reduction_sum_3d_vs_doc(self):
-        """3D batched sum: y[b,i]=sum[j](x[b,i,j]); compare dy_dx to doc ∂y_{bi}/∂x_{bpq}=1 (grad shape of x, ones)."""
-        source = """
-let x = [[[1.0, 2.0], [3.0, 4.0]], [[0.5, 0.5], [0.1, 0.2]]];
-let y[b, i] = sum[j](x[b, i, j]);
-let dy_dx = @y / @x;
-"""
-        _, out = _compile_run(source)
-        dy_dx = np.asarray(out.get("dy_dx"))
-        assert dy_dx is not None
-        x_ref = np.array([[[1.0, 2.0], [3.0, 4.0]], [[0.5, 0.5], [0.1, 0.2]]])
-        assert dy_dx.shape == (2, 2, 2), "dy_dx shape (2,2,2), got %s vs x %s" % (dy_dx.shape, x_ref.shape)
-        ref = np.ones((2, 2, 2), dtype=np.float64)
-        _assert_allclose(dy_dx, ref, msg="dy_dx 3D batched sum pullback")
 
     def test_gradient_descent_autodiff_example(self):
         """One gradient step on ||A*x - b||^2 using @loss/@x0, @loss/@x1; loss decreases, x_next -> (0.5, 0.5)."""
@@ -1061,59 +991,9 @@ let d_logits_dW = @logits / @W;
         _assert_allclose(d_logits_dW, ref_dW, msg="mnist main logits/W full Jacobian")
         assert np.isfinite(d_logits_dX).all() and np.isfinite(d_logits_dW).all()
 
-    def test_mnist_ops_each_have_y_over_x_quotient(self):
-        """Explicit @y/@x checks per MNIST op pattern (sum, *, -, **, %, indexing alias, Einstein logits)."""
+    def test_mnist_specific_ops_each_have_y_over_x_quotient(self):
+        """Explicit @y/@x checks for the MNIST-specific patterns not already covered by the generic suites."""
         cases = [
-            (
-                "mul",
-                "let x = 3.0; let y = x * 4.0; let dy_dx = @y / @x;",
-                4.0,
-            ),
-            (
-                "sub",
-                "let x = 3.0; let y = x - 5.0; let dy_dx = @y / @x;",
-                1.0,
-            ),
-            (
-                "pow2",
-                "let x = 3.0; let y = x ** 2.0; let dy_dx = @y / @x;",
-                6.0,
-            ),
-            (
-                "sum_reduce",
-                "let x = [1.0, 2.0, 3.0]; let y = sum[i in 0..3](x[i]); let dy_dx = @y / @x;",
-                np.array([1.0, 1.0, 1.0], dtype=np.float64),
-            ),
-            (
-                "conv2d_ein_local",
-                (
-                    "let input = [[1.0,2.0,3.0],[4.0,5.0,6.0],[7.0,8.0,9.0]]; "
-                    "let x = [[0.5,0.5],[0.5,0.5]]; "
-                    "let y[oh in 0..2, ow in 0..2] = sum[kh in 0..2, kw in 0..2](input[oh + kh, ow + kw] * x[kh, kw]); "
-                    "let dy_dx = @y / @x;"
-                ),
-                np.array(
-                    [
-                        [[[1.0, 2.0], [4.0, 5.0]], [[2.0, 3.0], [5.0, 6.0]]],
-                        [[[4.0, 5.0], [7.0, 8.0]], [[5.0, 6.0], [8.0, 9.0]]],
-                    ],
-                    dtype=np.float64,
-                ),
-            ),
-            (
-                "relu",
-                "let x = [-1.0, 0.0, 2.0]; let y = std::ml::relu(x); let dy_dx = @y / @x;",
-                np.array([0.0, 0.0, 1.0], dtype=np.float64),
-            ),
-            (
-                "max_pool",
-                (
-                    "let x = [[[[1.0, 2.0], [3.0, 4.0]]]]; "
-                    "let y = std::ml::max_pool(x, [2,2], [2,2], [0,0]); "
-                    "let dy_dx = @y / @x;"
-                ),
-                np.array([[[[0.0, 0.0], [0.0, 1.0]]]], dtype=np.float64),
-            ),
             (
                 "flatten_index",
                 (
@@ -1122,16 +1002,6 @@ let d_logits_dW = @logits / @W;
                     "let dy_dx = @y / @x;"
                 ),
                 np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float64),
-            ),
-            (
-                "ein_logits",
-                (
-                    "let x = [1.0, 2.0]; "
-                    "let W = [[0.2, -0.3], [0.4, 0.1]]; "
-                    "let y[j in 0..2] = sum[i in 0..2](x[i] * W[i, j]); "
-                    "let dy_dx = @y / @x;"
-                ),
-                np.array([[0.2, 0.4], [-0.3, 0.1]], dtype=np.float64),
             ),
             (
                 "index_alias",
@@ -1401,9 +1271,7 @@ let b = [0.1, 0.2];
 let y[i, j] = sum[k](x[i, k] * W[j, k]) + b[j];
 let dy_dx = @y / @x;
 """
-    compiler = CompilerDriver()
-    result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
-    assert result.success, result.get_errors() or "compile failed"
+    result = _compile_only(source)
     ad = [b for b in (result.ir.bindings or []) if _is_autodiff_generated_binding(b)]
     assert len(ad) >= 3, "expected multiple autodiff-generated bindings (d*_* names)"
     assert _ir_unique_node_count(result.ir) > 200, "autodiff should expand to a non-trivial IR graph"
@@ -1449,11 +1317,6 @@ let x = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]];
 let w = [[0.5, 0.5], [0.5, 0.5]];
 let out[oh in 0..2, ow in 0..2] = sum[kh in 0..2, kw in 0..2](x[oh + kh, ow + kw] * w[kh, kw]);
 let d_out_dw = @out / @w;
-"""),
-    ("reduction_sum", """
-let M = [[1.0, 2.0], [3.0, 4.0]];
-let r[i] = sum[j](M[i, j]);
-let dr_dM = @r / @M;
 """),
     ("reduction_max", """
 let x = [[1.0, 3.0, 2.0]];
@@ -1519,20 +1382,28 @@ def _is_autodiff_generated_binding(binding):
         return False
 
 
+def test_autodiff_ir_dump_ops_are_unique():
+    op_names = [op_name for op_name, _ in _IR_DUMP_OPS]
+    assert len(op_names) == len(set(op_names)), "_IR_DUMP_OPS should not repeat op names"
+
+    normalized_sources = [" ".join(source.split()) for _, source in _IR_DUMP_OPS]
+    assert len(normalized_sources) == len(set(normalized_sources)), (
+        "_IR_DUMP_OPS should not repeat equivalent source programs"
+    )
+
+
 def test_autodiff_ir_dump_all_ops():
     """Each catalog op compiles after autodiff; full-program IR is non-trivial. See docs/AUTODIFF_EINSTEIN_OPS.md."""
-    compiler = CompilerDriver()
     for op_name, source in _IR_DUMP_OPS:
-        result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
+        result = _compile_only(source)
         assert result.success, "op %s: %s" % (op_name, result.get_errors())
         assert _ir_unique_node_count(result.ir) > 15, "op %s: expected non-trivial IR" % op_name
 
 
 def test_autodiff_ir_dump_generated_only():
     """Autodiff-generated bindings (d_* / quotient names) form a non-empty IR subtree per catalog op."""
-    compiler = CompilerDriver()
     for op_name, source in _IR_DUMP_OPS:
-        result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
+        result = _compile_only(source)
         assert result.success, "op %s: %s" % (op_name, result.get_errors())
         program = result.ir
         derivative_bindings = [b for b in (program.bindings or []) if _is_autodiff_generated_binding(b)]
@@ -1579,7 +1450,6 @@ _OP_DOC_EXPECTATIONS = [
     ("affine", {"dy_dx", "dy_dW", "dy_db"}, "einstein"),
     ("conv1d", {"d_out_dw"}, "einstein"),
     ("conv2d", {"d_out_dw"}, "einstein"),
-    ("reduction_sum", {"dr_dM"}, "einstein"),
     ("reduction_max", {"dy_dx"}, "select_at_argmax"),
     ("reduction_min", {"dy_dx"}, "select_at_argmax"),
     ("reduction_prod", {"dy_dx"}, "einstein"),
@@ -1597,7 +1467,6 @@ _OP_DOC_EXPECTED_SHAPES = {
     "matmul": [("dC_dA", (2, 2, 2, 2)), ("dC_dB", (2, 2, 2, 2))],
     "affine": [("dy_dx", (2, 2)), ("dy_dW", (2, 2)), ("dy_db", (2, 2))],
     "conv2d": [("d_out_dw", (2, 2, 2, 2))],
-    "reduction_sum": [("dr_dM", (2, 2))],
     "reduction_max": [("dy_dx", (1, 3))],
     "reduction_min": [("dy_dx", (1, 3))],
     "reduction_prod": [("dy_dx", (1, 3))],
@@ -1614,10 +1483,9 @@ _OP_DOC_EXPECTED_SHAPES_SKIP_RUNTIME = frozenset({"conv1d"})
 def test_autodiff_dumped_ir_matches_doc():
     """Compare autodiff-generated IR (after compile) to doc: expected binding names and expr structure per AUTODIFF_EINSTEIN_OPS.md."""
     from einlang.ir.nodes import EinsteinIR, LoweredEinsteinIR, SelectAtArgmaxIR, LoweredSelectAtArgmaxIR, BindingIR
-    compiler = CompilerDriver()
     for op_name, expected_names, structure in _OP_DOC_EXPECTATIONS:
         source = next(s for n, s in _IR_DUMP_OPS if n == op_name)
-        result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
+        result = _compile_only(source)
         assert result.success, "op %s: %s" % (op_name, result.get_errors())
         program = result.ir
         binding_by_defid = {b.defid: b for b in (program.bindings or []) if getattr(b, "defid", None) is not None}

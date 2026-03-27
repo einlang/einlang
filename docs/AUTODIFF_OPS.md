@@ -55,7 +55,7 @@ C = A*B, with A (m x k), B (k x n), C (m x n).
 - partial C / partial A: the linear map that, given a (m x n) matrix, returns (that matrix) * B^T  (result shape m x k).
 - partial C / partial B: the linear map that, given a (m x n) matrix, returns A^T * (that matrix)  (result shape k x n).
 
-So for a given (m x n) matrix G: derivative of (scalar function of C) w.r.t. A has contribution shape (m x k) given by G * B^T; w.r.t. B by A^T * G.
+So for a given (m x n) matrix G: derivative of a scalar expression built from C w.r.t. A has contribution shape (m x k) given by G * B^T; w.r.t. B by A^T * G.
 
 Batched: same formula per batch element.
 
@@ -87,11 +87,11 @@ y = conv(x, w, b) (standard stride/padding/dilation).
 
 **sum over subset:** e.g. y[i] = sum_j x[i,j].  partial y[i] / partial x[i,j] = 1 (broadcast along j).
 
-**max:** y = max_i x_i.  partial y / partial x_i = 1 where i = argmax(x), else 0 (subgradient; one-hot or normalized if multiple argmax). Gradient shape is **squeezed** (output shape = parallel_shape), aligned with Julia ChainRules; see AUTODIFF_DESIGN.md §8.1.
+**max:** y = max_i x_i.  partial y / partial x_i = 1 where i = argmax(x), else 0 (subgradient; one-hot or normalized if multiple argmax). For a reduced tensor such as y[row] = max_col x[row,col], an upstream cotangent g[row] is scattered back to x[row,col] at the selected col positions. PyTorch value APIs such as `torch.max(x, dim=1)` remove the reduced dimension unless `keepdim=True`; Julia `maximum(x; dims=2)` retains that axis with length 1. Einlang quotient results describe the derivative with respect to x, so `@y/@x` has x's shape rather than the reduced-value shape.
 
-**min:** Same idea with argmin. Implemented as select-at-argmin (d_body at argmin(primal)). Same squeezed gradient shape as max.
+**min:** Same idea with argmin. Implemented as select-at-argmin (d_body at argmin(primal)). The quotient/pullback shape convention is the same as for max.
 
-**prod:** y = prod_i x_i.  partial y / partial x_i = prod_{j != i} x_j = (prod x)/x_i. Implemented as (prod body) * sum_i (d_body_i / body_i); valid when body_i != 0. Gradient has **shape of x** (like sum; unlike max/min which are squeezed). Julia ChainRules: same formula; special handling when body has zeros (one zero → gradient only at that index; multiple zeros → zero); see AUTODIFF_DESIGN.md §8.1.
+**prod:** y = prod_i x_i.  partial y / partial x_i = prod_{j != i} x_j = (prod x)/x_i. Implemented as (prod body) * sum_i (d_body_i / body_i); valid when body_i != 0. Gradient has **shape of x**. Julia ChainRules uses the same formula, with the usual zero-handling cases (one zero -> gradient only at that index; multiple zeros -> zero); see AUTODIFF_DESIGN.md §8.1.
 
 ---
 

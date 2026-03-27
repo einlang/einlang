@@ -31,12 +31,19 @@ def _short_err(obj: object, limit: int = 600) -> str:
     return s
 
 
-def _compile_exec_outputs(source: str) -> Tuple[bool, bool, Dict[str, Any], str]:
-    compiler = CompilerDriver()
+@pytest.fixture(scope="module")
+def quotient_context(module_compiler, module_runtime) -> Tuple[CompilerDriver, EinlangRuntime]:
+    return module_compiler, module_runtime
+
+
+def _compile_exec_outputs(
+    source: str,
+    compiler: CompilerDriver,
+    runtime: EinlangRuntime,
+) -> Tuple[bool, bool, Dict[str, Any], str]:
     result = compiler.compile(source.strip(), source_file="<test>", root_path=_REPO_ROOT)
     if not result.success:
         return False, False, {}, _short_err(result.get_errors())
-    runtime = EinlangRuntime(backend="numpy")
     exec_result = runtime.execute(result)
     if not exec_result.success:
         err = exec_result.error or exec_result.errors or "exec failed"
@@ -175,23 +182,23 @@ _EXPECTED_DY_DX: Dict[str, _ExpectedValue] = {
     "max_pool": [[[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]],
     "mnist_conv2d": [[[[2.0, 2.0, 0.0], [2.0, 2.0, 0.0], [0.0, 0.0, 0.0]]]],
     "softmax_quotient": [0.0, 0.0, 0.0],
-    "sum_reduction": 30.192874908447266,
+    "sum_reduction": [math.exp(1.0), math.exp(2.0), math.exp(3.0)],
     "prod_reduction": [18.0, 9.0, 6.0],
-    "reduce_sum": [3.0],
-    "reduce_l1": [1.0],
-    "reduce_sum_square": [12.0],
-    "reduce_mean": [1.0],
+    "reduce_sum": [[1.0, 1.0, 1.0]],
+    "reduce_l1": [[1.0, -1.0, 1.0]],
+    "reduce_sum_square": [[2.0, 4.0, 6.0]],
+    "reduce_mean": [[1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]],
     "log_softmax": [[0.0, 0.0, 0.0]],
-    "reduce_l2": [1.4],
-    "reduce_log_sum": [0.5],
-    "reduce_log_sum_exp": [1.0],
+    "reduce_l2": [[0.6, 0.8]],
+    "reduce_log_sum": [[1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0]],
+    "reduce_log_sum_exp": [[0.09003057, 0.24472845, 0.66524096]],
     "matmul": [[12.0, 14.0], [12.0, 14.0]],
     "batch_matmul": [[[12.0, 14.0], [12.0, 14.0]], [[2.0, 2.0], [2.0, 2.0]]],
-    "mse_loss": -1.0,
-    "mae_loss": -1.0,
-    "huber_loss": -0.5,
-    "binary_cross_entropy": -0.31084656715393066,
-    "cosine_similarity": 0.039159368723630905,
+    "mse_loss": [[-1.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0]],
+    "mae_loss": [[-1.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0]],
+    "huber_loss": [[-1.0 / 6.0, -1.0 / 6.0, -1.0 / 6.0]],
+    "binary_cross_entropy": [[-0.41666667, 0.47619048, -0.37037037]],
+    "cosine_similarity": [[0.05221242, 0.01305311, -0.02610619]],
 }
 
 
@@ -218,13 +225,18 @@ def _approx_equal(got: Any, expected: Any, abs_tol: float = 1e-5) -> bool:
     [(row[0], row[1]) for row in GOLDEN_PRINT_CASES],
     ids=[row[0] for row in GOLDEN_PRINT_CASES],
 )
-def test_quotient_vs_calculus(label: str, orig_source: str) -> None:
+def test_quotient_vs_calculus(
+    label: str,
+    orig_source: str,
+    quotient_context: Tuple[CompilerDriver, EinlangRuntime],
+) -> None:
+    compiler, runtime = quotient_context
     expected = _EXPECTED_DY_DX.get(label)
     if expected is None:
         pytest.fail("missing _EXPECTED_DY_DX for label %r" % label)
 
     qsrc = _build_quotient_source(label, orig_source)
-    c_ok, e_ok, outputs, err = _compile_exec_outputs(qsrc)
+    c_ok, e_ok, outputs, err = _compile_exec_outputs(qsrc, compiler, runtime)
     assert c_ok, "%s: compile failed: %s" % (label, err)
     assert e_ok, "%s: exec failed: %s" % (label, err)
     got = outputs.get("q")

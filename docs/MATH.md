@@ -67,10 +67,10 @@ Base cases and recursive case in one place; the compiler handles evaluation orde
 | In math                       | In Einlang                                                  | Reference                                                                                                                                                                               |
 | ----------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ∂z/∂x, gradient of z w.r.t. x | `let dz_dx = @z / @x;`                                      | [Automatic differentiation](reference.md#automatic-differentiation)                                                                                                                     |
-| Chain rule (compiler-derived) | Write `z = f(x)`; use `@z / @x` — no hand-written gradients | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein) |
+| Chain rule (compiler-derived) | Write the expression, then differentiate it in place with `@z / @x` or `@loss / @w` — no hand-written gradients | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein) |
 
 
-The compiler supports **built-in automatic differentiation**: derivatives and gradients from `@expr` and `@a / @b`.
+The compiler supports **built-in automatic differentiation**: derivatives and gradients from `@expr` and `@a / @b`, directly on expressions instead of through a separate function-wrapper API.
 
 ---
 
@@ -124,7 +124,7 @@ These are implemented in the autodiff pass for `BinaryOpIR` and `UnaryOpIR` (onl
 | **relu** | max(0, x) | 1 if x > 0, 0 if x < 0 (subgradient at 0) |
 | **sigmoid** | 1/(1+e^(−x)) | y(1−y) = σ(x)(1−σ(x)) |
 | **tanh** | tanh(x) | 1 − y² |
-| **softplus** | ln(1+e^x) | sigmoid(x) |
+| **softplus** | ln(1+e^x) | sigmoid(x); in the stabilized large-x branch the primal is linear, so the branch derivative is 1, matching sigmoid(x) -> 1 |
 | **leaky_relu** | x if x>0 else αx | 1 if x>0 else α |
 | **elu** | x if x>0 else α(e^x−1) | 1 if x>0 else α e^x |
 | **gelu** | x·Φ(x) (approx) | (common approx has smooth derivative) |
@@ -134,7 +134,7 @@ These are implemented in the autodiff pass for `BinaryOpIR` and `UnaryOpIR` (onl
 
 **Note:** `sign` has derivative 0 almost everywhere; for gradient-based training use a smooth surrogate (e.g. tanh) or a straight-through estimator if you keep sign in the forward pass.
 
-In Einlang, **stdlib functions** (e.g. `std::math::sqrt`, `std::ml::relu`) are differentiated by differentiating their **body** when they are linked as user functions. Ops that delegate to NumPy (e.g. `python::numpy::*`) use **custom diff rules** so that autodiff still gets the correct derivatives. **Users can also provide custom diff rules** for their own functions (e.g. via `@fn` or a `custom_diff_body`-style mechanism) so that gradient flow is defined explicitly instead of by differentiating the function body.
+In Einlang, **stdlib functions** (e.g. `std::math::sqrt`, `std::ml::relu`) participate in expression-level autodiff by differentiating their **body** when they are linked as user functions. Ops that delegate to NumPy (e.g. `python::numpy::*`) use **custom diff rules** so that autodiff still gets the correct derivatives. **Users can also provide custom diff rules** for their own functions (e.g. via `@fn` or a `custom_diff_body`-style mechanism) so that gradient flow is defined explicitly while keeping the main mental model expression-first.
 
 ---
 
@@ -144,4 +144,3 @@ In Einlang, **stdlib functions** (e.g. `std::math::sqrt`, `std::ml::relu`) are d
 - **Math and other functions:** [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) — `std::math`, `std::ml`
 - **Autodiff:** [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein)
 - **Run an example:** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) · [Examples by domain](https://github.com/einlang/einlang/blob/main/examples/README.md) · [README#examples](https://github.com/einlang/einlang/blob/main/README.md#examples)
-

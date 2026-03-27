@@ -9,7 +9,7 @@ use std::math::{exp, log, abs};
 pub fn tanh(x) {
     // tanh(x) = (exp(2x)-1)/(exp(2x)+1) for x<0, (1-exp(-2x))/(1+exp(-2x)) for x>=0
     // Avoids computing exp(x) and exp(-x) simultaneously for large |x| (no inf/inf).
-    if (x as f32) >= 0.0 {
+    if x >= 0 {
         let t = exp(-2.0 * x);
         (1.0 - t) / (1.0 + t)
     } else {
@@ -23,7 +23,7 @@ pub fn sinh(x) {
     if ax < 20.0 {
         (exp(x) - exp(-x)) * 0.5
     } else {
-        let s = if (x as f32) >= 0.0 { 1.0 } else { -1.0 };
+        let s = if x >= 0 { 1.0 } else { -1.0 };
         s * 0.5 * exp(ax)
     }
 }

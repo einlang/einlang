@@ -1384,7 +1384,7 @@ class ExpressionVisitorMixin:
             execute_reduction_with_loops,
             execute_select_at_argmax_vectorized,
         )
-        from ..passes.visitor_helpers import defid_of_var_in_expr
+        from ..passes.visitor_helpers import defid_of_var_in_expr, ArrayAccessCollector
         loc = expr.location
         line = int(getattr(loc, "line", 0) or 0)
         profile_reductions = bool(os.environ.get("EINLANG_PROFILE_REDUCTIONS", ""))
@@ -1452,8 +1452,29 @@ class ExpressionVisitorMixin:
         # already in the env with correct ndim (clause_ndim + n_red). Do NOT rebuild initial_ctx in
         # that case — rebuilding would create arrays with wrong dimensionality (parallel-only ndim)
         # that clobber the correct env values when body_ev sets them.
-        initial_ctx = getattr(self, "_reduction_initial_context", None) or {}
+        initial_ctx = dict(getattr(self, "_reduction_initial_context", None) or {})
         vector_parallel_ctx: Dict[Any, Any] = {}
+        if (not initial_ctx) and parallel_shape is None:
+            try:
+                reduction_body_defids = set(_loop_to_body_defid.values()) | set(_loop_to_body_defid.keys())
+                seen_parallel_defids = set()
+                collector = ArrayAccessCollector()
+                scan_exprs = [expr.body]
+                scan_exprs.extend(g.condition for g in (expr.guards or []))
+                for scan_expr in scan_exprs:
+                    if scan_expr is None or not hasattr(scan_expr, "accept"):
+                        continue
+                    for access in (scan_expr.accept(collector) or []):
+                        for idx in (access.indices or []):
+                            did = _first_parallel_index_defid(idx, reduction_body_defids)
+                            if did is None or did in seen_parallel_defids:
+                                continue
+                            cur = self.env.get_value(did)
+                            if isinstance(cur, np.ndarray) and cur.ndim >= 1:
+                                initial_ctx[did] = cur
+                                seen_parallel_defids.add(did)
+            except Exception:
+                pass
         if (not initial_ctx) and parallel_shape:
             order_defids = getattr(self, "_vectorize_parallel_defids_order", None)
             if order_defids is not None and len(order_defids) == len(parallel_shape):

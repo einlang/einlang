@@ -1,0 +1,115 @@
+// One-step MNIST-style CNN training demo (all layers).
+// Runs one gradient step updating conv1/conv2/fc weights and biases.
+// Run (cwd = examples/mnist): PYTHONPATH=../../src python3 -m einlang train_one_step.ein
+
+use std::ml::{max_pool, relu};
+
+// Tiny deterministic input shaped like MNIST batch/channel format.
+let x[xn in 0..1, xc in 0..1, xh in 0..8, xw in 0..8] = ((xh * 8 + xw + 1) as f32) / 64.0;
+let y[yy in 0..10] = if yy == 3 { 1.0 } else { 0.0 };
+
+// Initialize all parameters (non-zero keeps ReLU/max-pool paths active).
+let conv1_w0[c1wo in 0..2, c1wi in 0..1, c1wk_h in 0..3, c1wk_w in 0..3] =
+    0.02 * (1.0 + (c1wo + c1wk_h + c1wk_w) as f32);
+let conv1_b0[c1bo in 0..2] = 0.05;
+let conv2_w0[c2wo in 0..2, c2wi in 0..2, c2wk_h in 0..3, c2wk_w in 0..3] =
+    0.015 * (1.0 + (c2wo + c2wi + c2wk_h + c2wk_w) as f32);
+let conv2_b0[c2bo in 0..2] = 0.03;
+let fc_w0[fwi in 0..8, fwj in 0..10] = 0.01 * (1.0 + (fwi + fwj) as f32);
+let fc_b0[fbj in 0..10] = 0.0;
+
+// Forward pass (all layers).
+let c1_0[c1n in 0..1, c1o in 0..2, c1h in 0..8, c1w in 0..8] =
+    sum[c1i in 0..1, c1kh in 0..3, c1kw in 0..3](
+        if c1h + c1kh - 1 >= 0 && c1h + c1kh - 1 < 8 && c1w + c1kw - 1 >= 0 && c1w + c1kw - 1 < 8 {
+            x[c1n, c1i, c1h + c1kh - 1, c1w + c1kw - 1] * conv1_w0[c1o, c1i, c1kh, c1kw]
+        } else {
+            0.0
+        }
+    ) + conv1_b0[c1o];
+let p1_0 = max_pool(relu(c1_0), [2, 2], [2, 2], [0, 0]);
+
+let c2_0[c2n in 0..1, c2o in 0..2, c2h in 0..4, c2w in 0..4] =
+    sum[c2i in 0..2, c2kh in 0..3, c2kw in 0..3](
+        if c2h + c2kh - 1 >= 0 && c2h + c2kh - 1 < 4 && c2w + c2kw - 1 >= 0 && c2w + c2kw - 1 < 4 {
+            p1_0[c2n, c2i, c2h + c2kh - 1, c2w + c2kw - 1] * conv2_w0[c2o, c2i, c2kh, c2kw]
+        } else {
+            0.0
+        }
+    ) + conv2_b0[c2o];
+let p2_0 = max_pool(relu(c2_0), [2, 2], [2, 2], [0, 0]);
+
+let flat0[f0k in 0..8] = p2_0[0, f0k / 4, (f0k / 2) % 2, f0k % 2];
+let logits0[l0j in 0..10] = sum[l0k in 0..8](flat0[l0k] * fc_w0[l0k, l0j]) + fc_b0[l0j];
+let loss0[ls0 in 0..1] = sum[ls0j in 0..10]((logits0[ls0j] - y[ls0j]) ** 2.0);
+let loss0_scalar = loss0[0];
+
+// Gradients for all trainable tensors.
+let d_loss_d_conv1_w[g1o in 0..2, g1i in 0..1, g1kh in 0..3, g1kw in 0..3] = {
+    let w_elt = conv1_w0[g1o, g1i, g1kh, g1kw];
+    @loss0_scalar / @w_elt
+};
+let d_loss_d_conv1_b[g1bo in 0..2] = {
+    let b_elt = conv1_b0[g1bo];
+    @loss0_scalar / @b_elt
+};
+let d_loss_d_conv2_w[g2o in 0..2, g2i in 0..2, g2kh in 0..3, g2kw in 0..3] = {
+    let w_elt = conv2_w0[g2o, g2i, g2kh, g2kw];
+    @loss0_scalar / @w_elt
+};
+let d_loss_d_conv2_b[g2bo in 0..2] = {
+    let b_elt = conv2_b0[g2bo];
+    @loss0_scalar / @b_elt
+};
+let d_loss_d_fc_w[gfi in 0..8, gfj in 0..10] = {
+    let w_elt = fc_w0[gfi, gfj];
+    @loss0_scalar / @w_elt
+};
+let d_loss_d_fc_b[gfb in 0..10] = {
+    let b_elt = fc_b0[gfb];
+    let logit_elt = logits0[gfb];
+    let dlogit_db = @logit_elt / @b_elt;
+    2.0 * (logit_elt - y[gfb]) * dlogit_db
+};
+
+let lr = 1e-3;
+
+// One SGD update on all layers.
+let conv1_w1[u1o in 0..2, u1i in 0..1, u1kh in 0..3, u1kw in 0..3] =
+    conv1_w0[u1o, u1i, u1kh, u1kw] - lr * d_loss_d_conv1_w[u1o, u1i, u1kh, u1kw];
+let conv1_b1[u1bo in 0..2] = conv1_b0[u1bo] - lr * d_loss_d_conv1_b[u1bo];
+let conv2_w1[u2o in 0..2, u2i in 0..2, u2kh in 0..3, u2kw in 0..3] =
+    conv2_w0[u2o, u2i, u2kh, u2kw] - lr * d_loss_d_conv2_w[u2o, u2i, u2kh, u2kw];
+let conv2_b1[u2bo in 0..2] = conv2_b0[u2bo] - lr * d_loss_d_conv2_b[u2bo];
+let fc_w1[ufi in 0..8, ufj in 0..10] = fc_w0[ufi, ufj] - lr * d_loss_d_fc_w[ufi, ufj];
+let fc_b1[ufb in 0..10] = fc_b0[ufb] - lr * d_loss_d_fc_b[ufb];
+
+// Forward again with updated parameters.
+let c1_1[c1n1 in 0..1, c1o1 in 0..2, c1h1 in 0..8, c1w1 in 0..8] =
+    sum[c1i1 in 0..1, c1kh1 in 0..3, c1kw1 in 0..3](
+        if c1h1 + c1kh1 - 1 >= 0 && c1h1 + c1kh1 - 1 < 8 && c1w1 + c1kw1 - 1 >= 0 && c1w1 + c1kw1 - 1 < 8 {
+            x[c1n1, c1i1, c1h1 + c1kh1 - 1, c1w1 + c1kw1 - 1] * conv1_w1[c1o1, c1i1, c1kh1, c1kw1]
+        } else {
+            0.0
+        }
+    ) + conv1_b1[c1o1];
+let p1_1 = max_pool(relu(c1_1), [2, 2], [2, 2], [0, 0]);
+
+let c2_1[c2n1 in 0..1, c2o1 in 0..2, c2h1 in 0..4, c2w1 in 0..4] =
+    sum[c2i1 in 0..2, c2kh1 in 0..3, c2kw1 in 0..3](
+        if c2h1 + c2kh1 - 1 >= 0 && c2h1 + c2kh1 - 1 < 4 && c2w1 + c2kw1 - 1 >= 0 && c2w1 + c2kw1 - 1 < 4 {
+            p1_1[c2n1, c2i1, c2h1 + c2kh1 - 1, c2w1 + c2kw1 - 1] * conv2_w1[c2o1, c2i1, c2kh1, c2kw1]
+        } else {
+            0.0
+        }
+    ) + conv2_b1[c2o1];
+let p2_1 = max_pool(relu(c2_1), [2, 2], [2, 2], [0, 0]);
+
+let flat1[f1k in 0..8] = p2_1[0, f1k / 4, (f1k / 2) % 2, f1k % 2];
+let logits1[l1j in 0..10] = sum[l1k in 0..8](flat1[l1k] * fc_w1[l1k, l1j]) + fc_b1[l1j];
+let loss1[ls1 in 0..1] = sum[ls1j in 0..10]((logits1[ls1j] - y[ls1j]) ** 2.0);
+let loss1_scalar = loss1[0];
+
+print(loss0_scalar);
+print(loss1_scalar);
+assert(loss1_scalar < loss0_scalar, "one-step training failed: loss did not decrease");

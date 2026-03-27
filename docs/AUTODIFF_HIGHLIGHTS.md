@@ -1,18 +1,18 @@
-# Autodiff highlights — why Einlang’s AD is a language feature
+# Autodiff highlights — why Einlang’s AD is an expression-native language feature
 
 **Purpose:** A single narrative overview of Einlang’s automatic differentiation: what makes it distinctive, how it fits the compiler, and where to read the formal specs. For algorithms and IR details, start with [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md); for op rules see [AUTODIFF_OPS.md](AUTODIFF_OPS.md) and [AUTODIFF_EINSTEIN_OPS.md](AUTODIFF_EINSTEIN_OPS.md).
 
-**Autodiff scope:** This is full compiler-owned AD: Einstein-aware tensor math, quotient derivatives as syntax, readable symbolic debug output, and runtime execution on the same backend as primals.
+**Autodiff scope:** This is full compiler-owned, expression-first AD: Einstein-aware tensor math, quotient derivatives as syntax, readable symbolic debug output, and runtime execution on the same backend as primals.
 
 ---
 
 ## Compiler pass, not a bolt-on library
 
-Einlang does not require a tape, tracing context, or a separate AD package. You write `@y` for the **differential** (tangent in the same space as `y`) and `@y / @x` for a **derivative** (the linear coefficient relating `d(y)` to `d(x)`). The autodiff pass in `src/einlang/passes/autodiff.py` rewrites that into ordinary IR: internal `_@name` tangent bindings run through the same dataflow as primals, and the NumPy backend executes forward values and tangents like any other Einlang program. The design in [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md) maps one-to-one to that implementation.
+Einlang does not require a tape, tracing context, or a separate AD package. You write `@y` for the **differential** (tangent in the same space as `y`) and `@y / @x` for a **derivative** (the linear coefficient relating `d(y)` to `d(x)`) directly on program expressions and bindings. The autodiff pass in `src/einlang/passes/autodiff.py` rewrites that into ordinary IR: internal `_@name` tangent bindings run through the same dataflow as primals, and the NumPy backend executes forward values and tangents like any other Einlang program. The design in [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md) maps one-to-one to that implementation.
 
 ## Math-first semantics
 
-**`@y` is a differential, not a “gradient object.”** The model is \(d(y) = f'(x)\,d(x)\); the derivative is the **coefficient** of \(d(x)\) inside \(d(y)\). For `@y / @x`, the compiler seeds \(d(x)=1\) and other leaf tangents to \(0\) and extracts that coefficient via `JacobianVisitor`, separate from forward propagation with `DiffVisitor`. That keeps symbolic tangents and numeric partials explicit instead of overloading one notion.
+**`@y` is a differential, not a “gradient object.”** The model is \(d(y) = f'(x)\,d(x)\); the derivative is the **coefficient** of \(d(x)\) inside \(d(y)\). In practice that means Einlang differentiates the expression you already wrote, not a separately packaged `f`. For `@y / @x`, the compiler seeds \(d(x)=1\) and other leaf tangents to \(0\) and extracts that coefficient via `JacobianVisitor`, separate from forward propagation with `DiffVisitor`. That keeps symbolic tangents and numeric partials explicit instead of overloading one notion.
 
 ## Four-phase pipeline
 
@@ -25,7 +25,7 @@ Only bindings that matter for your `@` targets are touched; the pass has explici
 
 ## What `DiffVisitor` actually covers
 
-Forward-mode chain rule across atoms, binary ops (product, quotient, power rules), unary ops, rectangular indexing (tangents follow the same index pattern), casts, `if` (condition not differentiated), reductions (**SUM** linearity, **MAX/MIN** via argmax-style selection, **PROD** via the standard factor-wise rule), **Einstein clauses** (product rule inside sums; forward differentials stay in the **same index space** as the primal), **block bodies** with simplification and **zero-inlining** (when \(d(\text{binding})=0\), no useless `_@binding` is emitted), and **function calls** either by **inlining and differentiating the callee body** with \(d(\text{param}_i)=d(\text{arg}_i)\) or via **custom `@fn` rules**.
+Forward-mode chain rule across atoms, binary ops (product, quotient, power rules), unary ops, rectangular indexing (tangents follow the same index pattern), casts, `if` (condition not differentiated), reductions (**SUM** linearity, **MAX/MIN** via argmax-style selection, **PROD** via the standard factor-wise rule), **Einstein clauses** (product rule inside sums; forward differentials stay in the **same index space** as the primal), **block bodies** with simplification and **zero-inlining** (when \(d(\text{binding})=0\), no useless `_@binding` is emitted), and **function calls as just another expression form** either by **inlining and differentiating the callee body** with \(d(\text{param}_i)=d(\text{arg}_i)\) or via **custom `@fn` rules**.
 
 The [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md) `reduce_mean`-style walkthrough shows how quotient cancellation and zero tangents on non-differentiable paths simplify to the expected tangent expression.
 
@@ -55,4 +55,4 @@ Autodiff is **float-only** (`f32` / `f64` and tensors thereof): differentiating 
 | [AUTODIFF_EINSTEIN_OPS_IR_COMPARISON.md](AUTODIFF_EINSTEIN_OPS_IR_COMPARISON.md) | Dumped IR vs doc formulas |
 | [PRINT_DIFFERENTIAL.md](PRINT_DIFFERENTIAL.md) | `print(@y)` stringification |
 
-**Bottom line:** Einlang’s autodiff is a **documented, multi-visitor compiler pass**: forward tangents, a dedicated Jacobian path for quotients, Einstein-aware rules, optional `@fn` rules, simplification and zero-inlining, and a float-only contract. It is not a thin wrapper around an external `grad` API — the project owns the path from `@` syntax through tangent bindings to NumPy execution.
+**Bottom line:** Einlang’s autodiff is a **documented, multi-visitor compiler pass**: forward tangents, a dedicated Jacobian path for quotients, Einstein-aware rules, optional `@fn` rules, simplification and zero-inlining, and a float-only contract. It is not a thin wrapper around an external `grad` API — the project owns the path from expression-level `@` syntax through tangent bindings to NumPy execution.

@@ -72,7 +72,7 @@ So (∂y/∂x)_{ij} is diagonal in the flattened sense: only ∂y_i/∂x_i is no
 - ∂L/∂A_{ik} = Σ_j g_{ij} B_{kj}  →  **dA = g B^T**  (in code: `dA[i,k] = sum[j](g[i,j]*B[k,j])`),
 - ∂L/∂B_{kj} = Σ_i g_{ij} A_{ik}  →  **dB = A^T g**  (in code: `dB[k,j] = sum[i](A[i,k]*g[i,j])`).
 
-**∂y/∂x (output gradient w.r.t. input):** For y = C, x = A or B, the derivative *tensor* ∂C/∂A has shape (m,n,m,k): (∂C/∂A)_{ijrs} = δ_{ir} B_{sj}. So (∂C/∂A)·G (contracting over C’s indices) gives Σ_j C_{ij} G_{ij} contribution to A: that is G B^T in matrix form.
+**∂y/∂x (output gradient w.r.t. input):** For y = C, x = A or B, the derivative *tensor* ∂C/∂A has shape (m,n,m,k): (∂C/∂A)_{ijrs} = δ_{ir} B_{sj}. Contracting this with an upstream tensor G gives (G B^T)_{rs} = Σ_j G_{rj} B_{sj}.
 
 ---
 
@@ -172,7 +172,10 @@ So (∂y/∂x)_{ij} is diagonal in the flattened sense: only ∂y_i/∂x_i is no
 - Out: o_{id} = Σ_j a_{ij} V_{jd}.
 
 **Derivatives (∂y/∂x for y = scores, attn, or output):**
-- **∂s/∂Q,** **∂s/∂K:** Same as matmul: ∂s_{ij}/∂Q_{ik} = (1/√d) δ_{ii} K_{jk} ⇒ d_Q = (1/√d) (d_s) K^T; ∂s/∂K analogously.
+- **∂s/∂Q,** **∂s/∂K:** Same as matmul:
+  ∂s_{ij}/∂Q_{rq} = (1/√d) δ_{ir} K_{jq},
+  ∂s_{ij}/∂K_{rq} = (1/√d) δ_{jr} Q_{iq}.
+  Therefore d_Q = (1/√d) (d_s) K and d_K = (1/√d) (d_s)^T Q.
 - **∂a/∂s:** Softmax Jacobian per row i: ∂a_{ij}/∂s_{iq} = a_{ij}(δ_{jq} − a_{iq}).
 - **∂o/∂a, ∂o/∂V:** o_{id} = Σ_j a_{ij} V_{jd} ⇒ ∂o/∂a and ∂o/∂V as matmul-like; d_V = a^T d_o, d_a = d_o V^T.
 - **∂o/∂Q, ∂o/∂K, ∂o/∂V:** Chain rule through s → a → o; combine the above. Standard MHA backward: d_Q, d_K, d_V from d_o and primal Q, K, V, a.

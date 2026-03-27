@@ -26,14 +26,8 @@ assert(total == 103.0, "Sum should be 103");
 // Note: average comparison skipped due to floating-point precision (10.3 not exactly representable)
 assert(maximum == 22.0, "Maximum should be 22");
 assert(minimum == 1.0, "Minimum should be 1");
-
-print("=== Data Processing Sample ===");
-print("Original data:", data);
-print("Statistics:");
-print("  Total:", total);
-print("  Average:", average);
-print("  Range:", minimum, "to", maximum);
-print("Large numbers (>10):", large_numbers);
-print("Even-indexed elements:", even_indexed);
-print("Processed data:", processed);
-print("✅ All data processing verified!");
+assert(large_numbers == [12.0, 18.0, 22.0, 15.0, 11.0], "Large-number filter should keep values above 10");
+assert(even_indexed == [12.0, 18.0, 9.0, 7.0, 1.0], "Even-indexed slice should match source data");
+assert(squared_data[3] == 9.0, "Squared data should preserve element-wise transforms");
+assert(processed[0] == 24.0, "Values above average should be doubled");
+assert(processed[1] == 15.0, "Values below average should receive the offset");

@@ -28,6 +28,7 @@ from ..shared.types import (
     BinaryOp,
     PrimitiveType,
     RectangularType,
+    TupleType,
     Type,
     TypeKind,
 )
@@ -71,6 +72,28 @@ def _einlang_recurrence_block_vectorized_binding_enabled() -> bool:
 def _einlang_debug_recurrence_block_enabled() -> bool:
     v = os.environ.get("EINLANG_DEBUG_RECURRENCE_BLOCK", "").strip().lower()
     return v in ("1", "true", "yes", "on")
+
+
+def _allocate_numpy_output(output_shape: List[int], dtype: Any) -> np.ndarray:
+    """Allocate backend output storage.
+
+    Tuple-valued Einstein/recurrence outputs use ``dtype=object`` so each cell can
+    hold an arbitrary Python tuple (possibly containing ndarrays).
+    """
+    if dtype is object:
+        output = np.empty(output_shape, dtype=object)
+        output.fill(None)
+        return output
+    return np.zeros(output_shape, dtype=dtype)
+
+
+def _evaluate_shape_dim(shape_dim: Any, backend: Any) -> Any:
+    """Shape entries may already be materialized ints or still be IR nodes."""
+    if isinstance(shape_dim, (int, np.integer)):
+        return int(shape_dim)
+    if hasattr(shape_dim, "accept"):
+        return shape_dim.accept(backend)
+    return shape_dim
 
 
 def _lowered_clause_loop_axis_names(lowered: Any) -> str:
@@ -3363,6 +3386,8 @@ class EinsteinExecutionMixin:
             return None
         if isinstance(type_info, PrimitiveType):
             return self._primitive_type_to_numpy_dtype(type_info)
+        if isinstance(type_info, TupleType):
+            return object
         if isinstance(type_info, RectangularType):
             return self._type_info_to_numpy_dtype(type_info.element_type)
         return None
@@ -3412,7 +3437,7 @@ class EinsteinExecutionMixin:
             output_shape = []
             for shape_dim in tensor_shape:
                 try:
-                    dim_value = shape_dim.accept(self)
+                    dim_value = _evaluate_shape_dim(shape_dim, self)
                 except RuntimeError:
                     # Symbolic shape may reference vars not in env during pullback (e.g. len(x[0])); infer from clauses.
                     output_shape = None
@@ -3458,14 +3483,14 @@ class EinsteinExecutionMixin:
             current = existing.shape
             if len(needed) == len(current) and any(n > c for n, c in zip(needed, current)):
                 new_shape = tuple(max(n, c) for n, c in zip(needed, current))
-                output = np.zeros(new_shape, dtype=existing.dtype)
+                output = _allocate_numpy_output(list(new_shape), existing.dtype)
                 slices = tuple(slice(0, s) for s in current)
                 output[slices] = existing
                 self.env.set_value(variable_key, output)
             else:
                 output = existing
         else:
-            output = np.zeros(output_shape, dtype=dtype)
+            output = _allocate_numpy_output(output_shape, dtype)
             if variable_key is not None:
                 self.env.set_value(variable_key, output)
 
@@ -3670,6 +3695,7 @@ class EinsteinExecutionMixin:
         recurrence_loops_outer: loops we iterate over (same order as rec_context keys); use their variable defids
         so every clause gets the current timestep even if its own loop var has a different defid."""
         from ..runtime.compute.lowered_execution import execute_lowered_bindings
+        object_output = isinstance(output, np.ndarray) and output.dtype == object
         loops = item.loops or []
         if not loops:
             return None
@@ -3742,7 +3768,6 @@ class EinsteinExecutionMixin:
                     self._einstein_recurrence_clause = _saved_rec
                     self._vectorize_parallel_shape = _saved_vec
             if res is not None:
-                res = np.asarray(res, dtype=output.dtype)
                 slice_list: List[Any] = []
                 for dim in range(ndim):
                     od = next((o for d, o in outer_rec_defids if d == dim), None)
@@ -3751,9 +3776,14 @@ class EinsteinExecutionMixin:
                         slice_list.append(int(v) if isinstance(v, (np.integer, np.floating, int, float)) else v)
                     else:
                         slice_list.append(slice(loop_info[dim][1][0], loop_info[dim][1][1]))
-                if len(slice_list) == output.ndim and res.size == 1:
-                    val = res.flat[0]
-                    output[tuple(slice_list)] = val
+                if len(slice_list) == output.ndim:
+                    if object_output:
+                        output[tuple(slice_list)] = res
+                    else:
+                        res = np.asarray(res, dtype=output.dtype)
+                        if res.size != 1:
+                            return None
+                        output[tuple(slice_list)] = res.flat[0]
                     if variable_key is not None:
                         self.env.set_value(variable_key, output)
                     return output
@@ -3853,7 +3883,9 @@ class EinsteinExecutionMixin:
                             slice_list.append(slice(int(start), int(end)))
                         loop_pos += 1
                     if len(slice_list) == output.ndim:
-                        if res.size == 1:
+                        if object_output:
+                            output[tuple(slice_list)] = res
+                        elif res.size == 1:
                             output[tuple(slice_list)] = res.flat[0]
                         else:
                             output[tuple(slice_list)] = res
@@ -3908,9 +3940,12 @@ class EinsteinExecutionMixin:
                                 if d is not None:
                                     self.env.set_value(d, val)
                         res = item.body.accept(self)
-                    if not isinstance(res, np.ndarray):
+                    if object_output:
+                        scalar = res
+                    elif not isinstance(res, np.ndarray):
                         continue
-                    scalar = res.flat[0] if res.size == 1 else res
+                    else:
+                        scalar = res.flat[0] if res.size == 1 else res
                     slice_list_scalar: List[Any] = []
                     for pos, idx in enumerate(clause_indices):
                         if pos >= len(loops):
@@ -3929,7 +3964,10 @@ class EinsteinExecutionMixin:
                         else:
                             slice_list_scalar.append(inner_ctx.get(loop_info[pos][0], 0))
                     if len(slice_list_scalar) == output.ndim:
-                        output[tuple(slice_list_scalar)] = np.asarray(scalar, dtype=output.dtype)
+                        if object_output:
+                            output[tuple(slice_list_scalar)] = scalar
+                        else:
+                            output[tuple(slice_list_scalar)] = np.asarray(scalar, dtype=output.dtype)
                 self.env.set_value(variable_key, output)
                 return output
             finally:
@@ -3999,10 +4037,14 @@ class EinsteinExecutionMixin:
                         if d is not None:
                             self.env.set_value(d, val)
                 result = item.body.accept(self)
-            result = np.asarray(result) if result is not None else None
-            if result is not None and not isinstance(result, np.ndarray):
+            if object_output:
+                if result is None:
+                    return None
+            else:
+                result = np.asarray(result) if result is not None else None
+            if not object_output and result is not None and not isinstance(result, np.ndarray):
                 result = np.asarray(result)
-            if result is None or not isinstance(result, np.ndarray):
+            if result is None or (not object_output and not isinstance(result, np.ndarray)):
                 return None
             # Build output slice from clause indices (same length as output.ndim; literals and recurrence bound).
             if not clause_indices or len(clause_indices) != output.ndim:
@@ -4041,18 +4083,21 @@ class EinsteinExecutionMixin:
                     return None
             if loop_pos != len(loops):
                 return None
-            try:
-                n_outer = len(recurrence_loops_outer)
-                if result.ndim == ndim:
-                    squeezed = np.squeeze(result, axis=tuple(range(n_outer)))
-                elif result.ndim == ndim - n_outer:
-                    squeezed = result
-                else:
-                    axes = [d for d in range(n_outer) if d < result.ndim]
-                    squeezed = np.squeeze(result, axis=tuple(axes)) if axes else result
-            except ValueError:
-                return None
-            output[tuple(slice_list)] = squeezed.astype(output.dtype)
+            if object_output:
+                output[tuple(slice_list)] = result
+            else:
+                try:
+                    n_outer = len(recurrence_loops_outer)
+                    if result.ndim == ndim:
+                        squeezed = np.squeeze(result, axis=tuple(range(n_outer)))
+                    elif result.ndim == ndim - n_outer:
+                        squeezed = result
+                    else:
+                        axes = [d for d in range(n_outer) if d < result.ndim]
+                        squeezed = np.squeeze(result, axis=tuple(axes)) if axes else result
+                except ValueError:
+                    return None
+                output[tuple(slice_list)] = squeezed.astype(output.dtype)
             return output
         finally:
             self._einstein_recurrence_clause = _saved_recurrence_flag
@@ -4191,7 +4236,7 @@ class EinsteinExecutionMixin:
             if shape:
                 output_shape = []
                 for shape_dim in shape:
-                    dim_value = shape_dim.accept(self)
+                    dim_value = _evaluate_shape_dim(shape_dim, self)
                     if isinstance(dim_value, (int, np.integer)):
                         output_shape.append(int(dim_value))
                     elif isinstance(dim_value, np.ndarray) and dim_value.ndim == 0:
@@ -4231,12 +4276,13 @@ class EinsteinExecutionMixin:
             if output_shape is None:
                 output_shape = [int(idx.value) + 1 if isinstance(idx, LiteralIR) else 1 for idx in clause_indices] if clause_indices else [1]
             dtype = self._dtype_for_clause_result(lowered.body, element_type)
-            output = np.zeros(output_shape, dtype=dtype)
+            output = _allocate_numpy_output(output_shape, dtype)
 
         def expr_evaluator(expr: Any) -> Any:
             return expr.accept(self)
 
         has_literal_idx = any(isinstance(idx, LiteralIR) for idx in clause_indices)
+        object_output = isinstance(output, np.ndarray) and output.dtype == object
         body_node = lowered.body
         loop_defids = [lp.variable.defid for lp in (lowered.loops or [])]
         has_call_using_loop = _body_contains_call_using_loop_var(body_node, [d for d in loop_defids if d is not None])
@@ -4246,6 +4292,7 @@ class EinsteinExecutionMixin:
             lowered.loops
             and not has_literal_idx
             and has_call_using_loop
+            and not object_output
         ):
             scalar_defids = _loop_defids_in_call_args(body_node, loop_defids)
             scalar_loop_indices_call = [
@@ -4288,7 +4335,7 @@ class EinsteinExecutionMixin:
                     lowered, list(output.shape), output, variable_defid, expr_evaluator, backend=self,
                     clause_indices=clause_indices,
                 )
-                if hybrid_out is not None:
+                if hybrid_out is not None and not object_output:
                     if variable_defid:
                         self._clause_set_output(variable_defid, output)
                     self._einstein_hybrid = getattr(self, "_einstein_hybrid", 0) + 1
@@ -4301,7 +4348,7 @@ class EinsteinExecutionMixin:
                 # must run scalar loop so prior indices of u are visible (e.g. numerics::euler_decay).
                 recurrence_needs_scalar = True
         # Try full vectorize over loop dims (literal idx -> fixed slice; other dims -> vectorize).
-        if lowered.loops:
+        if lowered.loops and not object_output:
             # Slice-vectorize: body "if p < t then ... else 0" -> vectorize over [0..t), fill rest (e.g. emb in decode).
             if not recurrence_needs_scalar and not lowered.guards and not lowered.bindings:
                 slice_vec = _try_slice_vectorize_if_clause(lowered, output, expr_evaluator, backend=self)
@@ -4682,11 +4729,11 @@ class EinsteinExecutionMixin:
                             value.ndim >= 2
                             and value.shape[0] == output.shape[0]
                         ):
-                            output = np.zeros(value.shape, dtype=output.dtype)
+                            output = _allocate_numpy_output(list(value.shape), output.dtype)
                             if variable_defid is not None:
                                 self.env.set_value(variable_defid, output)
                         elif value.ndim == 1 and tuple(output.shape) == (1,):
-                            output = np.zeros((1, int(value.size)), dtype=output.dtype)
+                            output = _allocate_numpy_output([1, int(value.size)], output.dtype)
                             if variable_defid is not None:
                                 self.env.set_value(variable_defid, output)
                     if len(idx_tuple) != output.ndim:

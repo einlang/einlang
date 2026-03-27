@@ -570,10 +570,11 @@ See [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.
 
 ## Automatic differentiation
 
-The compiler supports **built-in automatic differentiation**: you get derivatives and gradients of program values without writing any gradient code by hand. Use `@expr` for differentials and `@a / @b` for numeric derivatives; the compiler applies the chain rule for you. For a narrative overview of how this fits the compiler (pass-based AD, `@fn`, Einstein, guardrails), see [AUTODIFF_HIGHLIGHTS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md).
+The compiler supports **built-in automatic differentiation**: you get derivatives and gradients of program values without writing any gradient code by hand. The model is expression-first: use `@expr` for differentials and `@a / @b` for numeric derivatives directly where the math appears; the compiler applies the chain rule for you. For a narrative overview of how this fits the compiler (pass-based AD, `@fn`, Einstein, guardrails), see [AUTODIFF_HIGHLIGHTS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md).
 
 - **`@expr`** — the **differential** of an expression (e.g. `@z`, `@x`). Differentials are symbolic; they have no numeric value until used in a quotient.
 - **`@a / @b`** — the **derivative** (numeric quotient): derivative of the quantity `@a` refers to with respect to the quantity `@b` refers to. This expression has a numeric value and can be printed or used in further computation.
+- **Mental model** — differentiate expressions in place: `@loss / @w`, `@state / @dt`, and `@C / @A` are ordinary Einlang expressions, not calls to a separate `grad(f)` API.
 
 **Matmul, conv, einsum:** Derivatives of Einstein expressions are supported: e.g. `let C[i,j] = sum[k](A[i,k]*B[k,j]); let dC_dA = @C / @A;` (matmul), or convolution written as `sum[kh,kw](in[ih,iw]*w[kh,kw]) where ih = oh+kh, iw = ow+kw`. Any sum-of-products declaration can be differentiated w.r.t. any input array. See [AUTODIFF_OPS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_OPS.md) and [AUTODIFF_EINSTEIN.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_EINSTEIN.md).
 
@@ -589,7 +590,7 @@ print(dz_dx);
 print(dz_dy);
 ```
 
-The compiler derives gradients via the chain rule. Supported operations and rules are documented in [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Overview: [AUTODIFF_HIGHLIGHTS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md). Design and pipeline: [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) (`autodiff_small.ein`, `autodiff_matmul.ein`, `autodiff_chain.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein`).
+The compiler derives gradients via the chain rule. Supported operations and rules are documented in [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Overview: [AUTODIFF_HIGHLIGHTS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md). Design and pipeline: [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) (`autodiff_small.ein`, `autodiff_matmul.ein`, `autodiff_chain.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein`) for scalar, tensor, and training-style expression derivatives.
 
 ---
 

@@ -127,7 +127,7 @@ This page lists **syntax and features that Einlang intentionally does not suppor
 
 ## 12. ~~No automatic differentiation~~ — Autodiff is supported
 
-**Supported:** The compiler supports automatic differentiation. Use `@expr` to refer to the differential of an expression and `@a / @b` to compute the derivative (numeric quotient). The compiler derives gradients via the chain rule; no hand-written gradient code required for supported ops.
+**Supported:** The compiler supports automatic differentiation. Use `@expr` to refer to the differential of an expression and `@a / @b` to compute the derivative (numeric quotient) directly on the values you care about. The compiler derives gradients via the chain rule; no hand-written gradient code or separate `grad(f)` wrapper is required for supported ops.
 
 **Docs and examples:** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Examples: [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein). Language reference: [Automatic differentiation](reference.md#automatic-differentiation).
 

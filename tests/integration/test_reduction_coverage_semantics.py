@@ -9,6 +9,8 @@ import pytest
 import numpy as np
 from tests.test_utils import compile_and_execute
 
+_F32_REDUCTION_TOL = 1e-6
+
 
 class TestReductionCoverageSemantics:
     """Verify reductions with value filtering never create coverage holes"""
@@ -87,3 +89,19 @@ class TestReductionCoverageSemantics:
         # per_elem is regular array (length 5) - full coverage
         assert exec_result.outputs['per_elem'].shape == (5,)
 
+    def test_nested_and_multi_axis_reductions_match(self, compiler, runtime):
+        """Nested reductions should agree with equivalent multi-axis reductions."""
+        code = """
+        let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]] as [f32];
+        let mean = sum[i, j](matrix[i, j]) / 9.0;
+        let variance_nested = sum[i](sum[j]((matrix[i, j] - mean) * (matrix[i, j] - mean))) / 9.0;
+        let variance_multi = sum[i, j]((matrix[i, j] - mean) * (matrix[i, j] - mean)) / 9.0;
+        """
+        exec_result = compile_and_execute(code, compiler, runtime)
+        assert exec_result.success, f"Execution failed: {exec_result.errors}"
+
+        variance_nested = float(exec_result.outputs["variance_nested"])
+        variance_multi = float(exec_result.outputs["variance_multi"])
+
+        assert abs(variance_nested - variance_multi) < _F32_REDUCTION_TOL
+        assert abs(variance_nested - (60.0 / 9.0)) < _F32_REDUCTION_TOL

@@ -2,9 +2,9 @@
 
 [![Tests](https://github.com/einlang/einlang/actions/workflows/tests.yml/badge.svg)](https://github.com/einlang/einlang/actions/workflows/tests.yml)
 
-**Tensor code is either readable or safe—usually neither.** Einlang is both: write math the way it looks on the page—Einstein notation, sums, indices—and get shape errors at compile time instead of at 3am. **Math-intuitive:** the code reads like the equation. **Built-in autodiff:** write `@loss / @w` (and `@expr` differentials); the compiler derives gradients and derivative tensors—no hand-written backprop or separate AD library.
+**Tensor code is either readable or safe—usually neither.** Einlang is both: write math the way it looks on the page—Einstein notation, sums, indices—and get shape errors at compile time instead of at 3am. **Math-intuitive:** the code reads like the equation. **Built-in autodiff:** differentiate expressions exactly where they appear with `@loss / @w`, `@C / @A`, and `@expr`; the compiler derives gradients and derivative tensors without hand-written backprop or a separate AD library.
 
-**Autodiff at a glance:** Einlang’s AD is compiler-native and Einstein-aware, so derivatives are written as syntax and compiled into executable IR without gradient boilerplate.
+**Autodiff at a glance:** Einlang’s AD is compiler-native, Einstein-aware, and expression-first: you differentiate the program you wrote, not a wrapped function object.
 
 ```rust
 let A = [[1, 2], [3, 4]];
@@ -85,7 +85,7 @@ Einlang gives you readable tensor math with compile-time shape checking. In prac
 | **Where clauses** | Index algebra (`where ih = oh + kh`) and guards (`where data[i] > 0`) next to the math |
 | **Recurrences** | `let fib[0]=0; let fib[1]=1; let fib[n in 2..20]=fib[n-1]+fib[n-2]` — range in bracket; compiler handles order |
 | **Reductions** | `sum[i](x[i])`, `max[j](M[i,j])`, `sum[i,j](A[i,j]*A[i,j])` with inferred ranges |
-| **Autodiff** | **Built-in automatic differentiation** — get derivatives and gradients from `@expr` and `@a / @b`; the compiler derives them via the chain rule (no hand-written gradient code). [Autodiff highlights](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [Autodiff design](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
+| **Autodiff** | **Built-in automatic differentiation** — differentiate expressions in place with `@expr`, `@a / @b`, `@loss / @w`, or `@C / @A`; the compiler derives the chain rule and emits executable IR (no hand-written gradient code, no `grad(f)` wrapper API). [Autodiff highlights](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [Autodiff design](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
 | **Stdlib** | `use std::math::{sin, sqrt};` · 300+ functions · [Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [Stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) |
 | **Real models** | [MNIST CNN](https://github.com/einlang/einlang/blob/main/examples/mnist/main.ein), [quantized (int8)](https://github.com/einlang/einlang/blob/main/examples/mnist_quantized/main.ein), [ViT](https://github.com/einlang/einlang/tree/main/examples/deit_tiny), [Whisper](https://github.com/einlang/einlang/blob/main/examples/whisper_tiny) — same language, same checks |
 
@@ -112,7 +112,7 @@ Einlang gives you readable tensor math with compile-time shape checking. In prac
 - **Recurrences as declarations** — Base cases + recursive rule; index range in the bracket (not in `where`); compiler handles evaluation order (RNNs, dynamic programming).  
   `let fib[0]=0; let fib[1]=1; let fib[n in 2..N]=fib[n-1]+fib[n-2];`
 - **No stringly-typed einsum** — No `einsum('ik,kj->ij', A, B)`. The compiler sees every index and checks shapes and ranks.
-- **Built-in autodiff** — Derivatives and gradients from `@z / @x`; the compiler applies the chain rule so you never write gradient code by hand.
+- **Built-in autodiff** — Expression-first derivatives and gradients from `@z / @x`, `@loss / @w`, and `@C / @A`; the compiler applies the chain rule where the math lives, so you never write gradient code by hand.
 
 **If it type-checks, the shapes are correct.** That’s the deal: you write the math, the compiler checks the shapes.
 
@@ -140,7 +140,7 @@ Grouped **by domain**; full list: [examples/README](https://github.com/einlang/e
 | **Economics / optimization** | Bellman value iteration; gradient descent, power iteration, projected gradient | [value_iteration/](https://github.com/einlang/einlang/tree/main/examples/value_iteration), [optimization/](https://github.com/einlang/einlang/tree/main/examples/optimization) |
 | **Computer vision** | MNIST CNN, quantized CNN, ViT (ImageNet) | [mnist/](https://github.com/einlang/einlang/tree/main/examples/mnist), [mnist_quantized/](https://github.com/einlang/einlang/tree/main/examples/mnist_quantized), [deit_tiny/](https://github.com/einlang/einlang/tree/main/examples/deit_tiny) |
 | **Speech & sequence** | Speech-to-text (Whisper) | [whisper_tiny/](https://github.com/einlang/einlang/tree/main/examples/whisper_tiny) |
-| **Autodiff** | Built-in automatic differentiation: `@a / @b` gives derivatives; compiler derives gradients (no hand-written gradient code) | [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
+| **Autodiff** | Built-in automatic differentiation: differentiate expressions directly with `@a / @b` and `@expr`; compiler derives gradients and derivative tensors without a separate `grad(f)` API | [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
 | **Language & basics** | Variables, matrices, Einstein notation, units | [basics/](https://github.com/einlang/einlang/tree/main/examples/basics), [demos/](https://github.com/einlang/einlang/tree/main/examples/demos), [units/](https://github.com/einlang/einlang/tree/main/examples/units) |
 
 **Quick run:** `python3 -m einlang examples/hello.ein` · `examples/ode/ode_suite.ein` · `examples/optimization/optimization_suite.ein` · `examples/finance/savings.ein` · `examples/job_search/mccall.ein` · `examples/time_series/exponential_smoothing.ein`
