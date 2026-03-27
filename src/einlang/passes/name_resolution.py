@@ -708,6 +708,7 @@ class NameResolverVisitor(ASTVisitor[None]):
         # Only stateless, time-consuming operations should be cached across compilations
         # This cache is for avoiding re-parsing the same module multiple times within a single compilation
         self._parsed_modules: Dict[Tuple[str, ...], ASTProgram] = {}
+        self._fully_registered_modules: Set[Tuple[str, ...]] = set()
         
         # New module system components (initialized in NameResolutionPass.run)
         self.path_resolver = None
@@ -2454,6 +2455,10 @@ class NameResolverVisitor(ASTVisitor[None]):
             try:
                 # Use ModuleLoader to load module (handles submodules, pub use, etc.)
                 module_info = self.module_loader.load_module(module_path)
+                if module_path in self._fully_registered_modules:
+                    if function_name:
+                        return self.resolver.get_defid(module_path, function_name, DefType.FUNCTION)
+                    return None
                 ast = module_info.program
                 _group_einstein_declarations_on_ast(ast)
                 self._parsed_modules[module_path] = ast
@@ -2559,6 +2564,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                 
                 finally:
                     self.current_module_path = saved_module_path
+                self._fully_registered_modules.add(module_path)
                 
                 if function_name:
                     return self.resolver.get_defid(module_path, function_name, DefType.FUNCTION)
@@ -2591,6 +2597,10 @@ class NameResolverVisitor(ASTVisitor[None]):
                     return None
             
             ast = self._parsed_modules[module_path]
+            if module_path in self._fully_registered_modules:
+                if function_name:
+                    return self.resolver.get_defid(module_path, function_name, DefType.FUNCTION)
+                return None
             
             # Recursive dependency loading: Process use statements first
             # This ensures dependencies are loaded before we try to resolve function calls
@@ -2681,6 +2691,7 @@ class NameResolverVisitor(ASTVisitor[None]):
                     for stmt in ast.statements:
                         if isinstance(stmt, _DiffRuleDef):
                             stmt.accept(self)
+            self._fully_registered_modules.add(module_path)
             
             # Return DefId for requested function (if specified)
             if function_name:
@@ -2889,5 +2900,3 @@ class NameResolverVisitor(ASTVisitor[None]):
                     )
                 except Exception as e:
                     logger.warning(f"Failed to load dependency {resolved_path}: {e}")
-
-

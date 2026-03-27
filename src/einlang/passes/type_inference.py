@@ -1488,7 +1488,6 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             param.param_type if param.param_type else UNKNOWN
             for param in expr.parameters
         )
-
         return FunctionType(param_types, return_type if return_type is not None else UNKNOWN)
 
 
