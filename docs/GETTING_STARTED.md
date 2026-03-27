@@ -7,13 +7,13 @@ One page: what Einlang is, try it, run your first real example, use it from Pyth
 
 ## What is Einlang?
 
-Einlang is a language for tensor math that’s **math-intuitive**: it looks like the notation you’d write on a whiteboard or in a paper — **Einstein notation**, sums, indices, where-clauses — and checks shapes at **compile time**. No stringly-typed `einsum`, no shape bugs at 3am. If it type-checks, the shapes are correct.
+Einlang is a language for tensor programs written with explicit indices, reductions, where-clauses, and recurrences. The compiler checks shapes and index structure before execution.
 
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply — compiler checks A, B, C shapes
 ```
 
-You get **where-clauses** (index algebra, guards), **recurrences** (RNNs, dynamic programming), and **automatic differentiation that lives in the compiler** — write `@loss / @weights`, `@state / @param`, or `@C / @A` directly on the expressions you care about; gradients and Jacobian pieces are derived and executed for you, which is often the cleaner replacement for finite-difference sensitivity code when the operation is supported (see [AUTODIFF_HIGHLIGHTS](AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](AUTODIFF_DESIGN.md)). A **stdlib** of 300+ functions. Real models — CNN, quantized CNN, ViT, Whisper — are written in the same language, and the scientific examples use the same autodiff machinery for calibration and sensitivity workflows. **[Why Einlang?](WHY_EINLANG.md)** has the full feature highlights and comparison.
+The language includes **where-clauses** for index relations and guards, **recurrences** for sequential definitions, and **automatic differentiation** through forms such as `@loss / @weights`, `@state / @param`, and `@C / @A`. The standard library covers mathematical and ML-oriented operations, and the examples span numerical methods as well as model code. **[Why Einlang?](WHY_EINLANG.md)** gives a broader overview.
 
 ---
 
@@ -28,7 +28,7 @@ pip install -e .
 python3 -m einlang -c "let x = 1+1; print(x);"
 ```
 
-You should see `2`. No account, no config.
+You should see `2`.
 
 ---
 
@@ -56,7 +56,7 @@ out = run(file="examples/hello.ein")
 # out.outputs["C"]  → numpy array; out.error if something failed
 ```
 
-One call and you’re a user. See [Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) in the main README for `-c`, stdin, and the compiler API.
+See [Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) in the main README for `-c`, stdin, and the compiler API.
 
 ---
 

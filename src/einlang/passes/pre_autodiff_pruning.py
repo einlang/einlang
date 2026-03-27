@@ -71,6 +71,7 @@ class _IfBranchPruner:
     def __init__(self) -> None:
         self.pruned_if_count = 0
         self._contains_differential_cache: dict[int, bool] = {}
+        self._contains_if_cache: dict[int, bool] = {}
 
     @staticmethod
     def _is_container_constant(value: Any) -> bool:
@@ -134,6 +135,8 @@ class _IfBranchPruner:
 
     def _rewrite_expr(self, expr: ExpressionIR, env: dict[Any, Any] | None = None) -> ExpressionIR:
         env = env or {}
+        if not isinstance(expr, BlockExpressionIR) and not self._contains_if(expr):
+            return expr
         if isinstance(expr, BlockExpressionIR):
             return self._rewrite_block(expr, env)
         if isinstance(expr, DifferentialIR):
@@ -262,6 +265,40 @@ class _IfBranchPruner:
                     self._contains_differential_cache[cache_key] = True
                     return True
         self._contains_differential_cache[cache_key] = False
+        return False
+
+    def _contains_if(self, node: Any) -> bool:
+        if node is None:
+            return False
+        if isinstance(node, (str, int, float, bool)):
+            return False
+        cache_key = id(node)
+        cached = self._contains_if_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        if isinstance(node, IfExpressionIR):
+            self._contains_if_cache[cache_key] = True
+            return True
+        if isinstance(node, (list, tuple)):
+            result = any(self._contains_if(item) for item in node)
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, dict):
+            result = any(self._contains_if(item) for item in node.values())
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, BindingIR):
+            result = self._contains_if(node.expr)
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, IRNode):
+            for slot in _iter_slots(type(node)):
+                if slot in {"location", "type_info", "shape_info", "name", "member", "defid"}:
+                    continue
+                if self._contains_if(getattr(node, slot, None)):
+                    self._contains_if_cache[cache_key] = True
+                    return True
+        self._contains_if_cache[cache_key] = False
         return False
 
     def _rewrite_slots(self, node: Any, env: dict[Any, Any] | None = None) -> None:
