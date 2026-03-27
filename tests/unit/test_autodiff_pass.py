@@ -273,33 +273,6 @@ let dC_dA = @C / @A;
     # Tensor / Einstein autodiff: matmul, conv, einsum-style
     # -------------------------------------------------------------------------
 
-    def test_einstein_matmul_dC_dB(self):
-        """@C/@B for C[i,j]=sum[k](A[i,k]*B[k,j]): ∂C/∂B has shape (2,2,2,2); ref[i,j,s,t]=A[i,s] if t==j else 0."""
-        source = """
-let A = [[1.0, 2.0], [3.0, 4.0]];
-let B = [[5.0, 6.0], [7.0, 8.0]];
-let C[i, j] = sum[k](A[i, k] * B[k, j]);
-let dC_dB = @C / @B;
-"""
-        _, out = _compile_run(source)
-        dC_dB = out.get("dC_dB")
-        assert dC_dB is not None, "expected dC_dB, got %s" % list(out.keys())
-        try:
-            import numpy as np
-            arr = np.asarray(dC_dB)
-            assert arr.ndim == 4 and arr.shape == (2, 2, 2, 2), "dC_dB shape (2,2,2,2), got %s" % (arr.shape,)
-            A_ref = np.array([[1.0, 2.0], [3.0, 4.0]])
-            B_ref = np.array([[5.0, 6.0], [7.0, 8.0]])
-            ref = np.zeros((2, 2, 2, 2), dtype=np.float64)
-            for i in range(2):
-                for j in range(2):
-                    for s in range(2):
-                        for t in range(2):
-                            ref[i, j, s, t] = A_ref[i, s] if t == j else 0.0
-            _assert_allclose(arr, ref, msg="dC_dB vs ∂C/∂B")
-        except ImportError:
-            pass
-
     def test_einstein_matmul_both_dC_dA_and_dC_dB(self):
         """Same program: @C/@A and @C/@B; both derivative tensors correct."""
         source = """
@@ -430,59 +403,29 @@ let d_sums_d_x = @sums / @x;
         except ImportError:
             pass
 
-    def test_reduction_autodiff_max(self):
-        """∂(max_j body)/∂wrt = ∂(body)/∂wrt at argmax. Derivative is 1 at argmax position (per batch)."""
-        source = """
-let x = [[1.0, 3.0, 2.0]];
-let y[b] = max[j](x[b, j]);
-let dy_dx = @y / @x;
-"""
-        _, out = _compile_run(source)
-        dy_dx = out.get("dy_dx")
-        assert dy_dx is not None
-        try:
-            arr = np.asarray(dy_dx)
-            assert arr.shape == (1, 3), "dy_dx shape (1,3) same as x (Julia pullback), got %s" % (arr.shape,)
-            ref = np.array([[0.0, 1.0, 0.0]], dtype=np.float64)
-            _assert_allclose(dy_dx, ref, msg="dy_dx max reduction")
-        except ImportError:
-            pass
-
     def test_reduction_autodiff_min(self):
         """∂(min_j body)/∂wrt = ∂(body)/∂wrt at argmin. Derivative is 1 at argmin position (per batch)."""
         source = """
 let x = [[1.0, 3.0, 2.0]];
-let y[b] = min[j](x[b, j]);
-let dy_dx = @y / @x;
+let y_min[b] = min[j](x[b, j]);
+let dy_min_dx = @y_min / @x;
 """
         _, out = _compile_run(source)
-        dy_dx = out.get("dy_dx")
-        assert dy_dx is not None
-        try:
-            arr = np.asarray(dy_dx)
-            assert arr.shape == (1, 3), "dy_dx shape (1,3) same as x (Julia pullback), got %s" % (arr.shape,)
-            ref = np.array([[1.0, 0.0, 0.0]], dtype=np.float64)
-            _assert_allclose(dy_dx, ref, msg="dy_dx min reduction")
-        except ImportError:
-            pass
+        dy_min_dx = np.asarray(out.get("dy_min_dx"))
+        assert dy_min_dx.shape == (1, 3), "dy_min_dx shape (1,3), got %s" % (dy_min_dx.shape,)
+        _assert_allclose(dy_min_dx, np.array([[1.0, 0.0, 0.0]], dtype=np.float64), msg="dy_min_dx min reduction")
 
     def test_reduction_autodiff_prod(self):
         """∂(prod_j body)/∂wrt = (prod body) * sum_j (d_body/body). For body=x[b,j]: d(prod)/dx[b,j] = prod_{j'!=j} x[b,j']."""
         source = """
 let x = [[1.0, 2.0, 3.0]];
-let y[b] = prod[j](x[b, j]);
-let dy_dx = @y / @x;
+let y_prod[b] = prod[j](x[b, j]);
+let dy_prod_dx = @y_prod / @x;
 """
         _, out = _compile_run(source)
-        dy_dx = out.get("dy_dx")
-        assert dy_dx is not None
-        try:
-            arr = np.asarray(dy_dx)
-            assert arr.shape == (1, 3), "dy_dx shape (1,3) same as x (Julia pullback), got %s" % (arr.shape,)
-            ref = np.array([[6.0, 3.0, 2.0]], dtype=np.float64)
-            _assert_allclose(dy_dx, ref, msg="dy_dx prod reduction", atol=1e-4)
-        except ImportError:
-            pass
+        dy_prod_dx = np.asarray(out.get("dy_prod_dx"))
+        assert dy_prod_dx.shape == (1, 3), "dy_prod_dx shape (1,3), got %s" % (dy_prod_dx.shape,)
+        _assert_allclose(dy_prod_dx, np.array([[6.0, 3.0, 2.0]], dtype=np.float64), msg="dy_prod_dx prod reduction", atol=1e-4)
 
     def test_ln_alias_chain_rule_on_subexpression(self):
         """ln should preserve the custom log derivative through a subexpression like (1 - x)."""
@@ -1139,25 +1082,33 @@ let dem1 = @expm1(x0) / @x0;
         source_inside = """
 fn clamp(x, lo, hi) { if x < lo { lo } else { if x > hi { hi } else { x } } }
 @fn clamp(x, lo, hi) { (if x > lo { if x < hi { 1.0 } else { 0.0 } } else { 0.0 }) * @x }
-let lo = 0.0;
-let hi = 5.0;
-let x = 2.0;
-let y = clamp(x, lo, hi);
-let d = @y / @x;
+fn saturate(x) { clamp(x, 0.0, 1.0) }
+@fn saturate(x) { (if x > 0.0 { if x < 1.0 { 1.0 } else { 0.0 } } else { 0.0 }) * @x }
+fn clamp_min(x, m) { if x < m { m } else { x } }
+@fn clamp_min(x, m) { (if x > m { 1.0 } else { 0.0 }) * @x }
+fn clamp_max(x, m) { if x > m { m } else { x } }
+@fn clamp_max(x, m) { (if x < m { 1.0 } else { 0.0 }) * @x }
+fn deg_to_rad(d) { d * 3.14159265359 / 180.0 }
+@fn deg_to_rad(d) { (3.14159265359 / 180.0) * @d }
+fn rad_to_deg(r) { r * 180.0 / 3.14159265359 }
+@fn rad_to_deg(r) { (180.0 / 3.14159265359) * @r }
+let clamp_lo = 0.0;
+let clamp_hi = 5.0;
+let clamp_inside_x = 2.0;
+let d_clamp_inside = @clamp(clamp_inside_x, clamp_lo, clamp_hi) / @clamp_inside_x;
 """
         _, out_inside = _compile_run(source_inside)
-        assert abs(_scalar_float(out_inside, "d") - 1.0) < 1e-6
+        assert abs(_scalar_float(out_inside, "d_clamp_inside") - 1.0) < 1e-6
         source_above = """
 fn clamp(x, lo, hi) { if x < lo { lo } else { if x > hi { hi } else { x } } }
 @fn clamp(x, lo, hi) { (if x > lo { if x < hi { 1.0 } else { 0.0 } } else { 0.0 }) * @x }
-let lo = 0.0;
-let hi = 5.0;
-let x = 10.0;
-let y = clamp(x, lo, hi);
-let d = @y / @x;
+let clamp_lo = 0.0;
+let clamp_hi = 5.0;
+let clamp_above_x = 10.0;
+let d_clamp_above = @clamp(clamp_above_x, clamp_lo, clamp_hi) / @clamp_above_x;
 """
         _, out_above = _compile_run(source_above)
-        assert abs(_scalar_float(out_above, "d") - 0.0) < 1e-6
+        assert abs(_scalar_float(out_above, "d_clamp_above") - 0.0) < 1e-6
 
     def test_quotient_math_saturate(self):
         """saturate(x)=clamp(x,0,1). d/dx = 1 if 0<x<1 else 0. At x=0.5 => d=1; at x=1.5 => d=0."""
@@ -1166,69 +1117,63 @@ fn clamp(x, lo, hi) { if x < lo { lo } else { if x > hi { hi } else { x } } }
 @fn clamp(x, lo, hi) { (if x > lo { if x < hi { 1.0 } else { 0.0 } } else { 0.0 }) * @x }
 fn saturate(x) { clamp(x, 0.0, 1.0) }
 @fn saturate(x) { (if x > 0.0 { if x < 1.0 { 1.0 } else { 0.0 } } else { 0.0 }) * @x }
-let x = 0.5;
-let y = saturate(x);
-let d = @y / @x;
+let saturate_inside_x = 0.5;
+let d_saturate_inside = @saturate(saturate_inside_x) / @saturate_inside_x;
 """
         _, out_inside = _compile_run(source_inside)
-        assert abs(_scalar_float(out_inside, "d") - 1.0) < 1e-6
+        assert abs(_scalar_float(out_inside, "d_saturate_inside") - 1.0) < 1e-6
         source_above = """
 fn clamp(x, lo, hi) { if x < lo { lo } else { if x > hi { hi } else { x } } }
 @fn clamp(x, lo, hi) { (if x > lo { if x < hi { 1.0 } else { 0.0 } } else { 0.0 }) * @x }
 fn saturate(x) { clamp(x, 0.0, 1.0) }
 @fn saturate(x) { (if x > 0.0 { if x < 1.0 { 1.0 } else { 0.0 } } else { 0.0 }) * @x }
-let x = 1.5;
-let y = saturate(x);
-let d = @y / @x;
+let saturate_above_x = 1.5;
+let d_saturate_above = @saturate(saturate_above_x) / @saturate_above_x;
 """
         _, out_above = _compile_run(source_above)
-        assert abs(_scalar_float(out_above, "d") - 0.0) < 1e-6
+        assert abs(_scalar_float(out_above, "d_saturate_above") - 0.0) < 1e-6
 
     def test_quotient_math_clamp_min(self):
         """clamp_min(x,m)=max(x,m). d/dx = 1 if x > m else 0."""
         source_above = """
 fn clamp_min(x, m) { if x < m { m } else { x } }
 @fn clamp_min(x, m) { (if x > m { 1.0 } else { 0.0 }) * @x }
-let x = 3.0;
-let m = 1.0;
-let y = clamp_min(x, m);
-let d = @y / @x;
+let clamp_min_above_x = 3.0;
+let clamp_min_m = 1.0;
+let d_clamp_min_above = @clamp_min(clamp_min_above_x, clamp_min_m) / @clamp_min_above_x;
 """
         _, out_above = _compile_run(source_above)
-        assert abs(_scalar_float(out_above, "d") - 1.0) < 1e-6
+        assert abs(_scalar_float(out_above, "d_clamp_min_above") - 1.0) < 1e-6
         source_below = """
 fn clamp_min(x, m) { if x < m { m } else { x } }
 @fn clamp_min(x, m) { (if x > m { 1.0 } else { 0.0 }) * @x }
-let x = 0.5;
-let m = 1.0;
-let y = clamp_min(x, m);
-let d = @y / @x;
+let clamp_min_below_x = 0.5;
+let clamp_min_m = 1.0;
+let d_clamp_min_below = @clamp_min(clamp_min_below_x, clamp_min_m) / @clamp_min_below_x;
 """
         _, out_below = _compile_run(source_below)
-        assert abs(_scalar_float(out_below, "d") - 0.0) < 1e-6
+        assert abs(_scalar_float(out_below, "d_clamp_min_below") - 0.0) < 1e-6
 
     def test_quotient_math_clamp_max(self):
         """clamp_max(x,m)=min(x,m). d/dx = 1 if x < m else 0."""
         source_below = """
 fn clamp_max(x, m) { if x > m { m } else { x } }
 @fn clamp_max(x, m) { (if x < m { 1.0 } else { 0.0 }) * @x }
-let x = 1.0;
-let m = 5.0;
-let y = clamp_max(x, m);
-let d = @y / @x;
+let clamp_max_below_x = 1.0;
+let clamp_max_m = 5.0;
+let d_clamp_max_below = @clamp_max(clamp_max_below_x, clamp_max_m) / @clamp_max_below_x;
 """
         _, out_below = _compile_run(source_below)
-        assert abs(_scalar_float(out_below, "d") - 1.0) < 1e-6
+        assert abs(_scalar_float(out_below, "d_clamp_max_below") - 1.0) < 1e-6
         source_above = """
 fn clamp_max(x, m) { if x > m { m } else { x } }
 @fn clamp_max(x, m) { (if x < m { 1.0 } else { 0.0 }) * @x }
-let x = 10.0;
-let m = 5.0;
-let y = clamp_max(x, m);
-let d = @y / @x;
+let clamp_max_above_x = 10.0;
+let clamp_max_m = 5.0;
+let d_clamp_max_above = @clamp_max(clamp_max_above_x, clamp_max_m) / @clamp_max_above_x;
 """
         _, out_above = _compile_run(source_above)
-        assert abs(_scalar_float(out_above, "d") - 0.0) < 1e-6
+        assert abs(_scalar_float(out_above, "d_clamp_max_above") - 0.0) < 1e-6
 
     def test_quotient_math_deg_to_rad(self):
         """deg_to_rad(d)=d*pi/180 => d/d(d)=pi/180. Local fn + @fn; at d=180 value=pi, @y/@d = pi/180."""

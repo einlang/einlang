@@ -5,17 +5,10 @@ Automatically generates test cases for all .ein files in the examples/basics/ di
 """
 
 import pytest
-from pathlib import Path
-from tests.test_utils import compile_and_execute
+from tests.test_utils import compile_and_execute, load_example_sources
 
 
-def get_all_basics_files():
-    """Get all basics tutorial files for parameterized testing"""
-    project_root = Path(__file__).parent.parent.parent
-    basics_dir = project_root / "examples" / "basics"
-    if basics_dir.exists():
-        return sorted(basics_dir.glob("*.ein"))
-    return []
+_BASICS_SOURCES = load_example_sources("examples/basics")
 
 
 class TestBasics:
@@ -28,17 +21,14 @@ class TestBasics:
     """
     
     
-    @pytest.mark.parametrize("basics_file", get_all_basics_files(), ids=lambda f: f.stem)
-    def test_execution(self, compiler, runtime, basics_file):
+    @pytest.mark.parametrize("basics_source", _BASICS_SOURCES, ids=lambda source: source.name)
+    def test_execution(self, compiler, runtime, basics_source):
         """Test that each basics tutorial executes successfully without extra console noise."""
-        assert basics_file.exists(), f"{basics_file.name} should exist"
+        assert basics_source.path.exists(), f"{basics_source.path.name} should exist"
 
-        with open(basics_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        result = compile_and_execute(content, compiler, runtime)
-        assert result is not None, f"Execution should return a result for {basics_file.name}"
-        assert result.success is not None, f"Result should have success attribute for {basics_file.name}"
+        result = compile_and_execute(basics_source.content, compiler, runtime)
+        assert result is not None, f"Execution should return a result for {basics_source.path.name}"
+        assert result.success is not None, f"Result should have success attribute for {basics_source.path.name}"
         assert result.success, (
             f"Basics tutorial execution failed with system (IR mode): "
             f"{result.get_errors() if hasattr(result, 'get_errors') else result.errors}"

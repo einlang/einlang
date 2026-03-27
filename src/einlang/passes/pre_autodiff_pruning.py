@@ -170,6 +170,7 @@ class _IfBranchPruner:
         preserve_diff_block = self._contains_differential(expr)
         local_env = {} if preserve_diff_block else dict(env)
         new_statements = []
+        has_prunable_metadata_binding = False
         for stmt in expr.statements or []:
             if isinstance(stmt, BindingIR):
                 if stmt.expr is not None:
@@ -181,13 +182,18 @@ class _IfBranchPruner:
                         and self._should_remember_binding(stmt, stmt.expr, local_env)
                     ):
                         self._remember_binding_const(stmt, const_value, local_env)
+                    if self._is_prunable_metadata_binding(stmt):
+                        has_prunable_metadata_binding = True
                 new_statements.append(stmt)
             else:
                 rewritten = self._rewrite_node_with_env(stmt, local_env)
                 new_statements.append(rewritten)
-        expr.statements = tuple(self._prune_dead_constant_bindings(new_statements, expr.final_expr))
         if expr.final_expr is not None:
             expr.final_expr = self._rewrite_expr(expr.final_expr, local_env)
+        if has_prunable_metadata_binding:
+            expr.statements = tuple(self._prune_dead_constant_bindings(new_statements, expr.final_expr))
+        else:
+            expr.statements = tuple(new_statements)
         if preserve_wrapper:
             return expr
         return self._simplify_block(expr)
@@ -214,6 +220,38 @@ class _IfBranchPruner:
             return result
         if isinstance(node, BindingIR):
             result = self._contains_differential(node.expr)
+            self._contains_differential_cache[cache_key] = result
+            return result
+        if isinstance(node, BinaryOpIR):
+            result = self._contains_differential(node.left) or self._contains_differential(node.right)
+            self._contains_differential_cache[cache_key] = result
+            return result
+        if isinstance(node, BuiltinCallIR):
+            result = any(self._contains_differential(arg) for arg in (node.args or ()))
+            self._contains_differential_cache[cache_key] = result
+            return result
+        if isinstance(node, RectangularAccessIR):
+            result = self._contains_differential(node.array) or any(
+                self._contains_differential(idx) for idx in (node.indices or ())
+            )
+            self._contains_differential_cache[cache_key] = result
+            return result
+        if isinstance(node, MemberAccessIR):
+            result = self._contains_differential(node.object)
+            self._contains_differential_cache[cache_key] = result
+            return result
+        if isinstance(node, IfExpressionIR):
+            result = (
+                self._contains_differential(node.condition)
+                or self._contains_differential(node.then_expr)
+                or self._contains_differential(node.else_expr)
+            )
+            self._contains_differential_cache[cache_key] = result
+            return result
+        if isinstance(node, BlockExpressionIR):
+            result = any(self._contains_differential(stmt) for stmt in (node.statements or ())) or self._contains_differential(
+                node.final_expr
+            )
             self._contains_differential_cache[cache_key] = result
             return result
         if isinstance(node, IRNode):
@@ -406,11 +444,7 @@ class _IfBranchPruner:
             used = (
                 stmt.defid is not None and stmt.defid in live_defids
             ) or (stmt.defid is None and bool(stmt.name) and stmt.name in live_names)
-            if (
-                not used
-                and self._eval_metadata_constant(stmt.expr, {}) is not None
-                and self._looks_like_metadata_name(stmt.name)
-            ):
+            if not used and self._is_prunable_metadata_binding(stmt):
                 continue
             kept_rev.append(stmt)
             s_defids, s_names = self._collect_live_refs(stmt.expr)
@@ -439,6 +473,40 @@ class _IfBranchPruner:
                 elif cur.name:
                     names.add(cur.name)
                 return
+            if isinstance(cur, BinaryOpIR):
+                walk(cur.left)
+                walk(cur.right)
+                return
+            if isinstance(cur, BuiltinCallIR):
+                for arg in cur.args or ():
+                    walk(arg)
+                return
+            if isinstance(cur, RectangularAccessIR):
+                walk(cur.array)
+                for item in cur.indices or ():
+                    walk(item)
+                return
+            if isinstance(cur, MemberAccessIR):
+                walk(cur.object)
+                return
+            if isinstance(cur, IfExpressionIR):
+                walk(cur.condition)
+                walk(cur.then_expr)
+                walk(cur.else_expr)
+                return
+            if isinstance(cur, BlockExpressionIR):
+                for item in cur.statements or ():
+                    walk(item)
+                walk(cur.final_expr)
+                return
+            if isinstance(cur, ArrayLiteralIR):
+                for item in cur.elements or ():
+                    walk(item)
+                return
+            if isinstance(cur, TupleExpressionIR):
+                for item in cur.elements or ():
+                    walk(item)
+                return
             if isinstance(cur, BindingIR):
                 if cur.expr is not None:
                     walk(cur.expr)
@@ -461,6 +529,13 @@ class _IfBranchPruner:
         walk(node)
         return defids, names
 
+    def _is_prunable_metadata_binding(self, stmt: BindingIR) -> bool:
+        return (
+            stmt.expr is not None
+            and self._looks_like_metadata_name(stmt.name)
+            and self._eval_metadata_constant(stmt.expr, {}) is not None
+        )
+
     def _simplify_block(self, expr: BlockExpressionIR) -> ExpressionIR:
         if expr.final_expr is None:
             return expr
@@ -475,11 +550,7 @@ class _IfBranchPruner:
             and expr.final_expr is not None
         ):
             stmt = expr.statements[0]
-            if (
-                stmt.expr is not None
-                and self._eval_metadata_constant(stmt.expr, {}) is not None
-                and self._looks_like_metadata_name(stmt.name)
-            ):
+            if self._is_prunable_metadata_binding(stmt):
                 live_defids, live_names = self._collect_live_refs(expr.final_expr)
                 used = (
                     stmt.defid is not None and stmt.defid in live_defids

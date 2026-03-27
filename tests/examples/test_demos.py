@@ -15,7 +15,7 @@ import numpy as np
 
 from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
-from tests.test_utils import compile_and_execute
+from tests.test_utils import compile_and_execute, load_example_sources, project_root as repo_root
 
 
 def _parse_vectorize_counts(output: str):
@@ -52,36 +52,17 @@ def _assert_vectorize_counts_dict(counts, min_vectorized: int, max_scalar: int, 
     )
 
 
-# Load all file contents once at module import time
-_DEMOS_CACHE = {}
-_DEMOS_PATHS = {}
-
-def _load_all_demos():
-    """Load all demos file contents into cache once"""
-    if _DEMOS_CACHE:
-        return
-
-    project_root = Path(__file__).parent.parent.parent
-    demos_dir = project_root / "examples" / "demos"
-    # Skip demos that use unsupported syntax or require external files at runtime
-    unsupported = ['enum ', 'type ', 'while ', 'tensor[', '-> tensor', 'scan[+](', 'data = [',
-                   'python::']
-
-    if demos_dir.exists():
-        for f in sorted(demos_dir.glob("*.ein")):
-            with open(f, 'r', encoding='utf-8') as fp:
-                content = fp.read()
-            if not any(kw in content for kw in unsupported):
-                _DEMOS_CACHE[f.stem] = content
-                _DEMOS_PATHS[f.stem] = str(f)
-
-# Trigger load at import
-_load_all_demos()
-
-
-def get_demos_params():
-    """Get parametrized test cases with content already loaded"""
-    return [pytest.param(name, id=name) for name in _DEMOS_CACHE.keys()]
+_UNSUPPORTED_DEMO_MARKERS = (
+    "enum ",
+    "type ",
+    "while ",
+    "tensor[",
+    "-> tensor",
+    "scan[+](",
+    "data = [",
+    "python::",
+)
+_DEMO_SOURCES = load_example_sources("examples/demos", skip_markers=_UNSUPPORTED_DEMO_MARKERS)
 
 
 def _ensure_weights_on_demand(project_root, example_dir, required_paths, script_name,
@@ -147,11 +128,11 @@ def _example_runtime_context(example_dir: Path):
 class TestDemos:
     """Tests for demos tutorial files - content pre-loaded for speed"""
 
-    @pytest.mark.parametrize("demo_name", get_demos_params())
-    def test_execution(self, compiler, runtime, demo_name):
+    @pytest.mark.parametrize("demo_source", _DEMO_SOURCES, ids=lambda source: source.name)
+    def test_execution(self, compiler, runtime, demo_source):
         """Test demo execution"""
-        content = _DEMOS_CACHE[demo_name]
-        source_file = _DEMOS_PATHS[demo_name]
+        content = demo_source.content
+        source_file = str(demo_source.path)
 
         expected_fail = "EXPECTED TO FAIL" in content
 
@@ -162,16 +143,16 @@ class TestDemos:
                 if expected_fail:
                     return
                 errors = result.errors if result else ['No result']
-                pytest.fail(f"{demo_name} failed: {errors}")
+                pytest.fail(f"{demo_source.name} failed: {errors}")
         except Exception as e:
             if expected_fail:
                 return
-            pytest.fail(f"{demo_name} exception: {e}")
+            pytest.fail(f"{demo_source.name} exception: {e}")
 
     def test_mnist(self):
         """Run examples/mnist/main.ein and verify inference output."""
-        project_root = Path(__file__).parent.parent.parent
-        mnist_dir = project_root / "examples" / "mnist"
+        root = repo_root()
+        mnist_dir = root / "examples" / "mnist"
         main_ein = mnist_dir / "main.ein"
         exec_result, counts = _run_file_with_stats(main_ein)
         predictions = np.asarray(exec_result.outputs.get("predictions")).tolist()
@@ -180,9 +161,9 @@ class TestDemos:
 
     def test_mnist_quantized(self):
         """Run examples/mnist_quantized/main.ein and verify 10/10 digit predictions."""
-        project_root = Path(__file__).parent.parent.parent
-        quant_dir = project_root / "examples" / "mnist_quantized"
-        mnist_dir = project_root / "examples" / "mnist"
+        root = repo_root()
+        quant_dir = root / "examples" / "mnist_quantized"
+        mnist_dir = root / "examples" / "mnist"
         main_ein = quant_dir / "main.ein"
 
         weight_names = [
@@ -202,7 +183,7 @@ class TestDemos:
                 src = mnist_dir / "samples" / f"{i}.pgm"
                 if src.exists():
                     (quant_samples / f"{i}.pgm").write_bytes(src.read_bytes())
-        _ensure_weights_on_demand(project_root, quant_dir, required, "prepare_weights.py")
+        _ensure_weights_on_demand(root, quant_dir, required, "prepare_weights.py")
 
         exec_result, _ = _run_file_with_stats(main_ein)
         predictions = np.asarray(exec_result.outputs.get("predictions")).tolist()
@@ -210,8 +191,8 @@ class TestDemos:
 
     def test_deit_tiny(self):
         """Run examples/deit_tiny/main.ein and verify ImageNet predictions."""
-        project_root = Path(__file__).parent.parent.parent
-        deit_dir = project_root / "examples" / "deit_tiny"
+        root = repo_root()
+        deit_dir = root / "examples" / "deit_tiny"
         main_ein = deit_dir / "main.ein"
 
         weight_names = [
@@ -223,7 +204,7 @@ class TestDemos:
         ]
         required = [deit_dir / "weights" / n for n in weight_names]
         required += [deit_dir / "samples" / f"{i}.npy" for i in range(3)]
-        _ensure_weights_on_demand(project_root, deit_dir, required, "download_weights.py", timeout=600)
+        _ensure_weights_on_demand(root, deit_dir, required, "download_weights.py", timeout=600)
 
         exec_result, counts = _run_file_with_stats(main_ein)
         names = np.asarray(exec_result.outputs.get("names")).tolist()
@@ -232,8 +213,8 @@ class TestDemos:
 
     def test_whisper_tiny(self):
         """Run examples/whisper_tiny/main.ein and assert transcript matches golden_ref.txt."""
-        project_root = Path(__file__).parent.parent.parent
-        whisper_dir = project_root / "examples" / "whisper_tiny"
+        root = repo_root()
+        whisper_dir = root / "examples" / "whisper_tiny"
         golden = whisper_dir / "golden_ref.txt"
         if not golden.is_file():
             pytest.fail("whisper_tiny: required golden_ref.txt missing")
@@ -245,7 +226,7 @@ class TestDemos:
             whisper_dir / "samples" / "jfk.npy",
         ]
         _ensure_weights_on_demand(
-            project_root, whisper_dir, required,
+            root, whisper_dir, required,
             "download_weights.py", script_args=["--skip-verify"], timeout=300,
         )
         golden_text = golden.read_text(encoding="utf-8").strip()

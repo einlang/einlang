@@ -10,7 +10,8 @@ import os
 import numpy as np
 import sys
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from functools import lru_cache
+from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
 
 _ROUND_TRIP_ENABLED = os.environ.get("EINLANG_ROUND_TRIP", "1") != "0"
@@ -31,6 +32,42 @@ class ExecutionResult:
 
     def get_errors(self) -> list:
         return self.errors
+
+
+@dataclass(frozen=True)
+class ExampleSource:
+    """Loaded example source file used by parametrized example tests."""
+
+    name: str
+    path: Path
+    content: str
+
+
+def project_root() -> Path:
+    """Return the repository root used by tests."""
+
+    return Path(__file__).parent.parent
+
+
+@lru_cache(maxsize=None)
+def load_example_sources(
+    relative_dir: str,
+    glob_pattern: str = "*.ein",
+    skip_markers: Tuple[str, ...] = (),
+) -> Tuple[ExampleSource, ...]:
+    """Load and cache example sources from a repo-relative directory."""
+
+    example_dir = project_root() / relative_dir
+    if not example_dir.exists():
+        return ()
+
+    loaded = []
+    for path in sorted(example_dir.glob(glob_pattern)):
+        content = path.read_text(encoding="utf-8")
+        if skip_markers and any(marker in content for marker in skip_markers):
+            continue
+        loaded.append(ExampleSource(name=path.stem, path=path, content=content))
+    return tuple(loaded)
 
 
 def _ir_data_equal(a: Any, b: Any, visited: Optional[set] = None) -> bool:

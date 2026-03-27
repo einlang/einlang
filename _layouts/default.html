@@ -1,153 +1,187 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  {% assign home = site.data.home %}
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% if page.title %}{{ page.title }} — {% endif %}{{ site.title }}</title>
-  <style>
-    :root {
-      --bg: #f8f9fa;
-      --surface: #ffffff;
-      --text: #1a1a1d;
-      --muted: #5c5c66;
-      --accent: #0d9488;
-      --accent-hover: #0f766e;
-      --glow: rgba(13, 148, 136, 0.12);
-    }
-    * { box-sizing: border-box; }
-    html { font-size: 18px; scroll-behavior: smooth; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      margin: 0;
-      min-height: 100vh;
-      line-height: 1.65;
-      -webkit-font-smoothing: antialiased;
-    }
-    .wrap {
-      max-width: 36rem;
-      margin: 0 auto;
-      padding: 3.5rem 1.5rem 5rem;
-    }
-    header {
-      margin-bottom: 3.5rem;
-    }
-    header a {
-      font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
-      font-weight: 500;
-      font-size: 0.9rem;
-      letter-spacing: 0.04em;
-      color: var(--muted);
-      text-decoration: none;
-      text-transform: uppercase;
-    }
-    header a:hover { color: var(--accent); }
-    main h1 {
-      font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
-      font-size: clamp(2rem, 6vw, 2.75rem);
-      font-weight: 600;
-      letter-spacing: -0.03em;
-      margin: 0 0 0.75rem;
-      color: var(--text);
-      line-height: 1.2;
-    }
-    main p {
-      margin: 0 0 1.25rem;
-      color: var(--muted);
-    }
-    main p:first-of-type {
-      font-size: 1.15rem;
-      color: var(--text);
-      margin-bottom: 1.5rem;
-      line-height: 1.5;
-    }
-    main em {
-      color: var(--muted);
-      font-style: normal;
-      font-size: 0.95rem;
-      display: block;
-      margin: -0.5rem 0 1.5rem;
-      padding-left: 0.25rem;
-      border-left: 2px solid var(--accent);
-    }
-    .cta {
-      display: inline-block;
-      margin-top: 0.5rem;
-      padding: 0.65rem 1.25rem;
-      font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
-      font-size: 0.9rem;
-      font-weight: 500;
-      color: #fff;
-      background: var(--accent);
-      border-radius: 6px;
-      text-decoration: none;
-      transition: background 0.2s, color 0.2s;
-    }
-    .cta:hover {
-      background: var(--accent-hover);
-      color: #fff;
-    }
-    main pre {
-      font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
-      font-size: 0.9rem;
-      line-height: 1.55;
-      background: var(--surface);
-      border: 1px solid rgba(13, 148, 136, 0.2);
-      border-radius: 10px;
-      padding: 1.25rem 1.5rem;
-      margin: 1.75rem 0;
-      color: var(--text);
-      overflow-x: auto;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-    }
-    main pre code { background: none; padding: 0; }
-    main p:nth-of-type(4) {
-      font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
-      font-size: 0.8rem;
-      color: var(--muted);
-    }
-    main p:nth-of-type(4) strong { color: var(--accent); }
-    main p:last-of-type { margin-top: 2.5rem; }
-    main p:last-of-type a {
-      display: inline-block;
-      margin-right: 0.75rem;
-      margin-bottom: 0.5rem;
-      padding: 0.75rem 1.4rem;
-      font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
-      font-size: 0.9rem;
-      font-weight: 500;
-      color: #fff;
-      background: var(--accent);
-      border-radius: 8px;
-      text-decoration: none;
-      transition: transform 0.15s, box-shadow 0.2s, background 0.2s;
-    }
-    main p:last-of-type a:hover {
-      background: var(--accent-hover);
-      color: #fff;
-      transform: translateY(-1px);
-      box-shadow: 0 4px 20px var(--glow);
-    }
-    main p:last-of-type a:last-of-type {
-      background: transparent;
-      color: var(--accent);
-      border: 1.5px solid var(--accent);
-    }
-    main p:last-of-type a:last-of-type:hover {
-      background: rgba(13, 148, 136, 0.08);
-      box-shadow: 0 0 0 1px var(--accent);
-    }
-  </style>
+  <title>{% if page.title %}{{ page.title }} - {% endif %}{{ site.title }}</title>
+  <meta
+    name="description"
+    content="{{ home.meta.description }}"
+  >
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+    rel="stylesheet"
+  >
+  <link rel="stylesheet" href="{{ '/assets/site.css' | relative_url }}">
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <a href="{{ site.baseurl }}/">{{ site.title }}</a>
-    </header>
-    <main>
+  <header class="site-header">
+    <div class="page-shell">
+      <div class="site-header-inner">
+        <a class="brand" href="{{ '/' | relative_url }}">
+          <span class="brand-mark">E</span>
+          <span class="brand-copy">
+            <span class="brand-name">{{ site.title }}</span>
+            <span class="brand-tagline">{{ home.meta.brand_tagline }}</span>
+          </span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="#capabilities">Capabilities</a>
+          <a href="#examples">Examples</a>
+          <a href="#proof">Proof</a>
+          <a href="#start" class="nav-cta">Get Started</a>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-main">
+    <div class="page-shell">
+      <div class="landing-page">
+        <section class="hero">
+          <div class="hero-copy">
+            <div>
+              <span class="eyebrow">{{ home.hero.eyebrow }}</span>
+              <h1>{{ home.hero.title }}</h1>
+            </div>
+
+            <p class="hero-lede">
+              <strong>{{ home.hero.lead_intro }}</strong>
+              {{ home.hero.lead_body }}
+            </p>
+
+            <div class="hero-actions">
+              {% for action in home.hero.actions %}
+                <a class="{% if action.variant == 'primary' %}button{% else %}button-secondary{% endif %}" href="{{ action.url }}">{{ action.label }}</a>
+              {% endfor %}
+            </div>
+
+            <div class="hero-highlights">
+              {% for metric in home.hero.metrics %}
+                <div class="metric">
+                  <strong>{{ metric.title }}</strong>
+                  <span>{{ metric.text }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="hero-panel">
+            <div class="terminal">
+              <div class="terminal-bar">
+                <span class="terminal-dot"></span>
+                <span class="terminal-dot"></span>
+                <span class="terminal-dot"></span>
+                <span class="terminal-label">{{ home.hero.panel.label }}</span>
+              </div>
+              <pre><code>{{ home.hero.panel.code | escape }}</code></pre>
+            </div>
+
+            <div class="proof-strip">
+              {% for card in home.hero.panel.proof_cards %}
+                <div class="proof-card">
+                  <strong>{{ card.title }}</strong>
+                  <span>{{ card.text }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </section>
+
+        <section class="section-card" id="capabilities">
+          <div class="section-header">
+            <span class="mini-label">{{ home.capabilities.label }}</span>
+            <h2>{{ home.capabilities.title }}</h2>
+            <p>{{ home.capabilities.intro }}</p>
+          </div>
+
+          <div class="feature-grid">
+            {% for item in home.capabilities.items %}
+              <article class="feature-card">
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.text }}</p>
+                <div class="chip-row">
+                  {% for chip in item.chips %}
+                    <span class="chip">{{ chip }}</span>
+                  {% endfor %}
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="section-card" id="examples">
+          <div class="section-header">
+            <span class="mini-label">{{ home.examples.label }}</span>
+            <h2>{{ home.examples.title }}</h2>
+            <p>{{ home.examples.intro }}</p>
+          </div>
+
+          <div class="sample-grid">
+            {% for item in home.examples.items %}
+              <article class="snippet-card">
+                <div>
+                  <h3>{{ item.title }}</h3>
+                  <p>{{ item.text }}</p>
+                </div>
+                <pre><code>{{ item.code | escape }}</code></pre>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="section-card" id="proof">
+          <div class="section-header">
+            <span class="mini-label">{{ home.proof.label }}</span>
+            <h2>{{ home.proof.title }}</h2>
+            <p>{{ home.proof.intro }}</p>
+          </div>
+
+          <div class="story-grid">
+            <article class="story-card">
+              <h3>{{ home.proof.left.title }}</h3>
+              <ul>
+                {% for bullet in home.proof.left.bullets %}
+                  <li><strong>{{ bullet.label }}:</strong> {{ bullet.text }}</li>
+                {% endfor %}
+              </ul>
+            </article>
+
+            <article class="story-card">
+              <h3>{{ home.proof.right.title }}</h3>
+              <p>{{ home.proof.right.text }}</p>
+              <div class="chip-row">
+                {% for chip in home.proof.right.chips %}
+                  <span class="chip">{{ chip }}</span>
+                {% endfor %}
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="footer-card" id="start">
+          <span class="mini-label">{{ home.cta.label }}</span>
+          <h2>{{ home.cta.title }}</h2>
+          <p>{{ home.cta.intro }}</p>
+
+          <div class="install-command">
+            <pre><code>{{ home.cta.command | escape }}</code></pre>
+          </div>
+
+          <div class="link-row">
+            {% for action in home.cta.actions %}
+              <a class="{% if action.variant == 'primary' %}button{% else %}button-secondary{% endif %}" href="{{ action.url }}">{{ action.label }}</a>
+            {% endfor %}
+          </div>
+
+          <p class="footer-meta">{{ home.cta.note }}</p>
+        </section>
+      </div>
       {{ content }}
-    </main>
-  </div>
+    </div>
+  </main>
 </body>
 </html>

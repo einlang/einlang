@@ -14,151 +14,92 @@ import numpy as np
 from tests.test_utils import compile_and_execute
 
 
+def _assert_successful_outputs(result, expected_arrays=None, expected_scalars=None):
+    assert result.success, f"Execution failed: {result.errors}"
+    for name, value in (expected_arrays or {}).items():
+        assert name in result.outputs
+        np.testing.assert_array_equal(result.outputs[name], value)
+    for name, value in (expected_scalars or {}).items():
+        assert name in result.outputs
+        assert result.outputs[name] == value
+
+
 class TestSimpleEinstein:
     """Test simple Einstein notation through IR path"""
-    
-    def test_simple_elementwise(self, compiler, runtime):
-        """Test let A[i] = B[i] * 2"""
+
+    def test_elementwise_1d_patterns(self, compiler, runtime):
+        """Cover the common 1D Einstein elementwise cases in one execution."""
         source = """
-        let B = [1, 2, 3, 4, 5];
-        let A[i] = B[i] * 2;
-        """
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Execution failed: {result.errors}"
-        assert 'A' in result.outputs
-        expected = np.array([2, 4, 6, 8, 10])
-        np.testing.assert_array_equal(result.outputs['A'], expected)
-    
-    def test_elementwise_addition(self, compiler, runtime):
-        """Test let C[i] = A[i] + B[i]"""
-        source = """
-        let A = [1, 2, 3];
-        let B = [4, 5, 6];
-        let C[i] = A[i] + B[i];
-        """
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Execution failed: {result.errors}"
-        assert 'C' in result.outputs
-        expected = np.array([5, 7, 9])
-        np.testing.assert_array_equal(result.outputs['C'], expected)
-    
-    def test_scalar_multiplication(self, compiler, runtime):
-        """Test A[i] = B[i] * scalar"""
-        source = """
-        let B = [10, 20, 30];
+        let base = [1, 2, 3, 4, 5];
+        let left = [1, 2, 3];
+        let right = [4, 5, 6];
+        let scaled_input = [10, 20, 30];
         let x = 3;
-        let A[i] = B[i] * x;
+        let doubled[i] = base[i] * 2;
+        let summed[i] = left[i] + right[i];
+        let scaled[i] = scaled_input[i] * x;
         """
         result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Execution failed: {result.errors}"
-        assert 'A' in result.outputs
-        expected = np.array([30, 60, 90])
-        np.testing.assert_array_equal(result.outputs['A'], expected)
+        _assert_successful_outputs(
+            result,
+            expected_arrays={
+                "doubled": np.array([2, 4, 6, 8, 10]),
+                "summed": np.array([5, 7, 9]),
+                "scaled": np.array([30, 60, 90]),
+            },
+        )
 
 
 class TestMultiDimensionalEinstein:
     """Test multi-dimensional Einstein notation"""
-    
-    def test_2d_elementwise(self, compiler, runtime):
-        """Test let C[i,j] = A[i,j] + B[i,j]"""
+
+    def test_multi_dimensional_and_broadcast_patterns(self, compiler, runtime):
+        """Cover 2D elementwise, scaling, and broadcast patterns in one execution."""
         source = """
         let A = [[1, 2], [3, 4]];
         let B = [[5, 6], [7, 8]];
-        let C[i,j] = A[i,j] + B[i,j];
+        let matrix_sum[i,j] = A[i,j] + B[i,j];
+        let scale_src = [[1, 2, 3], [4, 5, 6]];
+        let scaled_2d[i,j] = scale_src[i,j] * 2;
+        let row = [1, 2, 3];
+        let col = [10, 20];
+        let broadcast[i,j] = row[i] + col[j];
         """
-        
         result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Execution failed: {result.errors}"
-        assert 'C' in result.outputs
-        expected = np.array([[6, 8], [10, 12]])
-        np.testing.assert_array_equal(result.outputs['C'], expected)
-    
-    def test_2d_scaling(self, compiler, runtime):
-        """Test let B[i,j] = A[i,j] * 2"""
-        source = """
-        let A = [[1, 2, 3], [4, 5, 6]];
-        let B[i,j] = A[i,j] * 2;
-        """
-        
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Execution failed: {result.errors}"
-        assert 'B' in result.outputs
-        expected = np.array([[2, 4, 6], [8, 10, 12]])
-        np.testing.assert_array_equal(result.outputs['B'], expected)
-
-
-class TestBroadcasting:
-    """Test broadcasting patterns"""
-    
-    def test_row_column_broadcast(self, compiler, runtime):
-        """Test let C[i,j] = A[i] + B[j]"""
-        source = """
-        let A = [1, 2, 3];
-        let B = [10, 20];
-        let C[i,j] = A[i] + B[j];
-        """
-        
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Execution failed: {result.errors}"
-        assert 'C' in result.outputs
-        # C[0,0] = A[0] + B[0] = 1 + 10 = 11
-        # C[0,1] = A[0] + B[1] = 1 + 20 = 21
-        # C[1,0] = A[1] + B[0] = 2 + 10 = 12
-        # etc.
-        expected = np.array([[11, 21], [12, 22], [13, 23]])
-        np.testing.assert_array_equal(result.outputs['C'], expected)
+        _assert_successful_outputs(
+            result,
+            expected_arrays={
+                "matrix_sum": np.array([[6, 8], [10, 12]]),
+                "scaled_2d": np.array([[2, 4, 6], [8, 10, 12]]),
+                "broadcast": np.array([[11, 21], [12, 22], [13, 23]]),
+            },
+        )
 
 
 class TestReductions:
     """Test reduction operations"""
-    
-    def test_sum_reduction(self, compiler, runtime):
-        """Test sum[i](A[i])"""
+
+    def test_scalar_reductions(self, compiler, runtime):
+        """Cover the common scalar reduction operators in one execution."""
         source = """
-        let A = [1, 2, 3, 4, 5];
-        let total = sum[i](A[i]);
+        let sum_values = [1, 2, 3, 4, 5];
+        let prod_values = [2, 3, 4];
+        let extrema = [5, 2, 9, 1, 7];
+        let total = sum[i](sum_values[i]);
+        let product = prod[i](prod_values[i]);
+        let maximum = max[i](extrema[i]);
+        let minimum = min[i](extrema[i]);
         """
-        
         result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Execution failed: {result.errors}"
-        assert 'total' in result.outputs
-        assert result.outputs['total'] == 15
-    
-    def test_product_reduction(self, compiler, runtime):
-        """Test prod[i](A[i])"""
-        source = """
-        let A = [2, 3, 4];
-        let product = prod[i](A[i]);
-        """
-        
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Execution failed: {result.errors}"
-        assert 'product' in result.outputs
-        assert result.outputs['product'] == 24
-    
-    def test_max_reduction(self, compiler, runtime):
-        """Test max[i](A[i])"""
-        source = """
-        let A = [5, 2, 9, 1, 7];
-        let maximum = max[i](A[i]);
-        """
-        
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Execution failed: {result.errors}"
-        assert 'maximum' in result.outputs
-        assert result.outputs['maximum'] == 9
-    
-    def test_min_reduction(self, compiler, runtime):
-        """Test min[i](A[i])"""
-        source = """
-        let A = [5, 2, 9, 1, 7];
-        let minimum = min[i](A[i]);
-        """
-        
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Execution failed: {result.errors}"
-        assert 'minimum' in result.outputs
-        assert result.outputs['minimum'] == 1
+        _assert_successful_outputs(
+            result,
+            expected_scalars={
+                "total": 15,
+                "product": 24,
+                "maximum": 9,
+                "minimum": 1,
+            },
+        )
 
 
 class TestMatrixMultiplication:
@@ -275,4 +216,3 @@ class TestMatmulExecution:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
-
