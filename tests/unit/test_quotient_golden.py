@@ -180,6 +180,7 @@ _EXPECTED_DY_DX: Dict[str, _ExpectedValue] = {
     "softmax": [[0.0, 0.0, 0.0]],
     "linear": [[0.8, 0.6]],
     "max_pool": [[[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]],
+    "max_pool_relu_arg": [[[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]],
     "mnist_conv2d": [[[[2.0, 2.0, 0.0], [2.0, 2.0, 0.0], [0.0, 0.0, 0.0]]]],
     "softmax_quotient": [0.0, 0.0, 0.0],
     "sum_reduction": [math.exp(1.0), math.exp(2.0), math.exp(3.0)],

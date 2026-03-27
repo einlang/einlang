@@ -8,6 +8,7 @@ import subprocess
 import sys
 import os
 import importlib
+import time
 from contextlib import contextmanager
 import pytest
 from pathlib import Path
@@ -65,30 +66,56 @@ _UNSUPPORTED_DEMO_MARKERS = (
 _DEMO_SOURCES = load_example_sources("examples/demos", skip_markers=_UNSUPPORTED_DEMO_MARKERS)
 
 
+@contextmanager
+def _asset_prepare_lock(example_dir: Path, timeout: int):
+    """Serialize on-demand example asset generation across xdist workers."""
+    lock_dir = example_dir / ".pytest-asset-lock"
+    deadline = time.time() + timeout
+    while True:
+        try:
+            lock_dir.mkdir()
+            break
+        except FileExistsError:
+            if time.time() >= deadline:
+                pytest.fail(f"{example_dir.name}: timed out waiting for asset lock {lock_dir.name}")
+            time.sleep(0.2)
+    try:
+        yield
+    finally:
+        try:
+            lock_dir.rmdir()
+        except OSError:
+            pass
+
+
 def _ensure_weights_on_demand(project_root, example_dir, required_paths, script_name,
                              script_args=None, timeout=300):
     """If any required path is missing, run script_name in example_dir; fail if still missing."""
     missing = [p for p in required_paths if not p.exists()]
     if not missing:
         return
-    script = example_dir / script_name
-    if not script.is_file():
-        pytest.fail(
-            f"{example_dir.name}: required {script_name} missing (required files: "
-            f"{[p.name for p in required_paths[:3]]}{'...' if len(required_paths) > 3 else ''})"
+    with _asset_prepare_lock(example_dir, timeout=timeout):
+        missing = [p for p in required_paths if not p.exists()]
+        if not missing:
+            return
+        script = example_dir / script_name
+        if not script.is_file():
+            pytest.fail(
+                f"{example_dir.name}: required {script_name} missing (required files: "
+                f"{[p.name for p in required_paths[:3]]}{'...' if len(required_paths) > 3 else ''})"
+            )
+        env = {**__import__("os").environ, "PYTHONPATH": str(project_root / "src")}
+        result = subprocess.run(
+            [sys.executable, str(script)] + (script_args or []),
+            cwd=str(example_dir), env=env, timeout=timeout,
         )
-    env = {**__import__("os").environ, "PYTHONPATH": str(project_root / "src")}
-    result = subprocess.run(
-        [sys.executable, str(script)] + (script_args or []),
-        cwd=str(example_dir), env=env, timeout=timeout,
-    )
-    if result.returncode != 0:
-        pytest.fail(
-            f"{example_dir.name}: {script_name} failed (exit {result.returncode})"
-        )
-    still_missing = [p for p in required_paths if not p.exists()]
-    if still_missing:
-        pytest.fail(f"{example_dir.name} still missing after {script_name}: {still_missing}")
+        if result.returncode != 0:
+            pytest.fail(
+                f"{example_dir.name}: {script_name} failed (exit {result.returncode})"
+            )
+        still_missing = [p for p in required_paths if not p.exists()]
+        if still_missing:
+            pytest.fail(f"{example_dir.name} still missing after {script_name}: {still_missing}")
 
 
 def _run_file_with_stats(path: Path):

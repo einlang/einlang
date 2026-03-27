@@ -27,7 +27,7 @@ Following: LLVM IR Verifier, Java Bytecode Verifier
 """
 
 import logging
-from typing import Optional, Any
+from typing import Optional, Any, Set
 from ..passes.base import BasePass, TyCtxt
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BindingIR,
@@ -43,6 +43,7 @@ from ..ir.nodes import (
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
     MatchArmIR, IndexRestIR,
 )
+from ..shared.defid import DefId
 
 logger = logging.getLogger("einlang.passes.ir_validation")
 
@@ -55,6 +56,8 @@ class IRValidationVisitor(IRVisitor[None]):
     def __init__(self, tcx: TyCtxt):
         self.tcx = tcx
         self.nodes_validated = 0
+        self._validated_function_defids: Set[DefId] = set()
+        self._active_function_defids: Set[DefId] = set()
     
     def _report_error(self, message: str, location):
         """Report validation error"""
@@ -102,6 +105,7 @@ class IRValidationVisitor(IRVisitor[None]):
             node.callee_expr.accept(self)
         for arg in node.arguments:
             arg.accept(self)
+        self._validate_called_function(node.function_defid)
     
     def visit_builtin_call(self, node: BuiltinCallIR) -> None:
         self.nodes_validated += 1
@@ -335,22 +339,14 @@ class IRValidationVisitor(IRVisitor[None]):
             node.value.accept(self)
     
     def visit_program(self, node: ProgramIR) -> None:
-        # Validate all functions
-        for func in node.functions:
-            func.accept(self)
-        
-        # Validate all constants
-        for const in node.constants:
-            const.accept(self)
-        
-        # Validate top-level statements - use visitor pattern
         for stmt in node.statements:
-                stmt.accept(self)
+            if stmt is None:
+                continue
+            if is_function_binding(stmt):
+                continue
+            stmt.accept(self)
     
     def visit_module(self, node) -> None:
-        # Validate module functions and constants
-        for func in node.functions:
-            func.accept(self)
         for const in node.constants:
             const.accept(self)
         for submodule in node.submodules:
@@ -484,6 +480,25 @@ class IRValidationVisitor(IRVisitor[None]):
                 node.location
             )
 
+    def _validate_called_function(self, defid: Optional[DefId]) -> None:
+        if defid is None:
+            return
+        if defid in self._validated_function_defids or defid in self._active_function_defids:
+            return
+        mono = getattr(self.tcx, "monomorphization_service", None)
+        if mono is not None and mono.get_generic_defid_for_specialized(defid) is not None:
+            return
+        func_map = getattr(self.tcx, "function_ir_map", None) or {}
+        binding = func_map.get(defid)
+        if binding is None or not is_function_binding(binding):
+            return
+        self._active_function_defids.add(defid)
+        try:
+            binding.accept(self)
+            self._validated_function_defids.add(defid)
+        finally:
+            self._active_function_defids.discard(defid)
+
 class IRValidationPass(BasePass):
     """
     Validates IR is structurally well-formed and ready for execution.
@@ -531,4 +546,3 @@ class IRValidationPass(BasePass):
             logger.debug(f"IR validation passed: {visitor.nodes_validated} nodes validated")
         
         return ir  # Return IR unchanged (validation is read-only)
-

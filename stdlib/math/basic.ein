@@ -2,7 +2,7 @@
 
 pub fn abs(x) {
     // Absolute value.
-    if (x as f32) >= 0.0 { x } else { -x }
+    if x >= 0 { x } else { -x }
 }
 
 pub fn sqrt(x) {

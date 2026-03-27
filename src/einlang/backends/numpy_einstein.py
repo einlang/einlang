@@ -2748,6 +2748,187 @@ def _extract_loop_range(loop, evaluator) -> Tuple[int, int]:
     raise RuntimeError("loop iterable is not a range or literal range; cannot extract (start, end)")
 
 
+def _literal_numeric_value(expr: Any) -> Optional[float]:
+    if not isinstance(expr, LiteralIR):
+        return None
+    try:
+        return float(expr.value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _index_expr_offset(expr: Any, loop_defid: Any) -> Optional[int]:
+    if _index_expr_is_loop_var(expr, loop_defid):
+        return 0
+    if not isinstance(expr, BinaryOpIR):
+        return None
+    if expr.operator == BinaryOp.ADD:
+        if _index_expr_is_loop_var(expr.left, loop_defid):
+            val = _literal_numeric_value(expr.right)
+            return int(val) if val is not None and float(val).is_integer() else None
+        if _index_expr_is_loop_var(expr.right, loop_defid):
+            val = _literal_numeric_value(expr.left)
+            return int(val) if val is not None and float(val).is_integer() else None
+        return None
+    if expr.operator == BinaryOp.SUB and _index_expr_is_loop_var(expr.left, loop_defid):
+        val = _literal_numeric_value(expr.right)
+        return -int(val) if val is not None and float(val).is_integer() else None
+    return None
+
+
+def _flatten_additive_terms(expr: Any, sign: float = 1.0) -> List[Tuple[float, Any]]:
+    if isinstance(expr, BinaryOpIR) and expr.operator == BinaryOp.ADD:
+        return _flatten_additive_terms(expr.left, sign) + _flatten_additive_terms(expr.right, sign)
+    if isinstance(expr, BinaryOpIR) and expr.operator == BinaryOp.SUB:
+        return _flatten_additive_terms(expr.left, sign) + _flatten_additive_terms(expr.right, -sign)
+    return [(sign, expr)]
+
+
+def _split_scalar_mul(expr: Any) -> Tuple[float, Any]:
+    if isinstance(expr, BinaryOpIR) and expr.operator == BinaryOp.MUL:
+        left_num = _literal_numeric_value(expr.left)
+        if left_num is not None:
+            return left_num, expr.right
+        right_num = _literal_numeric_value(expr.right)
+        if right_num is not None:
+            return right_num, expr.left
+    return 1.0, expr
+
+
+def _match_rect_access_offsets(expr: Any, array_defid: Any, loop_defids: List[Any], offsets: Tuple[int, ...]) -> bool:
+    if not isinstance(expr, RectangularAccessIR):
+        return False
+    if not isinstance(expr.array, IdentifierIR) or expr.array.defid != array_defid:
+        return False
+    indices = list(expr.indices or [])
+    if len(indices) != len(loop_defids) or len(indices) != len(offsets):
+        return False
+    for idx_expr, loop_defid, expected_offset in zip(indices, loop_defids, offsets):
+        if _index_expr_offset(idx_expr, loop_defid) != expected_offset:
+            return False
+    return True
+
+
+def _split_binding_factor(expr: Any, binding_defid: Any) -> Optional[Any]:
+    if isinstance(expr, IdentifierIR) and expr.defid == binding_defid:
+        return LiteralIR(1.0)
+    if isinstance(expr, BinaryOpIR) and expr.operator == BinaryOp.MUL:
+        if isinstance(expr.left, IdentifierIR) and expr.left.defid == binding_defid:
+            return expr.right
+        if isinstance(expr.right, IdentifierIR) and expr.right.defid == binding_defid:
+            return expr.left
+    return None
+
+
+def _try_fast_2d_wave_step(
+    item: Any,
+    output: np.ndarray,
+    variable_defid: Any,
+    rec_context: Dict[Any, Any],
+    outer_rec_defids: List[Tuple[int, Any]],
+    loop_info: List[Tuple[Any, Tuple[int, int], str]],
+    expr_eval: Any,
+) -> Optional[np.ndarray]:
+    """Fast path for 2D leapfrog-style stencils: scalar in recurrence dim, sliced NumPy over space."""
+    if not isinstance(item.body, BlockExpressionIR):
+        return None
+    body = item.body
+    if len(loop_info) != 3 or len(outer_rec_defids) != 1 or outer_rec_defids[0][0] != 0:
+        return None
+    if len(body.statements or []) != 1 or body.final_expr is None:
+        return None
+    lap_binding = body.statements[0]
+    lap_defid = getattr(lap_binding, "defid", None)
+    lap_expr = getattr(lap_binding, "expr", None)
+    if lap_defid is None or lap_expr is None:
+        return None
+    loop_defids = [info[0] for info in loop_info]
+    lap_terms: Dict[Tuple[int, int, int], float] = {}
+    for sign, term in _flatten_additive_terms(lap_expr):
+        mul_coeff, base = _split_scalar_mul(term)
+        coeff = sign * mul_coeff
+        matched = False
+        for offsets in (
+            (-1, -1, 0),
+            (-1, 1, 0),
+            (-1, 0, -1),
+            (-1, 0, 1),
+            (-1, 0, 0),
+        ):
+            if _match_rect_access_offsets(base, variable_defid, loop_defids, offsets):
+                lap_terms[offsets] = lap_terms.get(offsets, 0.0) + coeff
+                matched = True
+                break
+        if not matched:
+            return None
+    expected_lap = {
+        (-1, -1, 0): 1.0,
+        (-1, 1, 0): 1.0,
+        (-1, 0, -1): 1.0,
+        (-1, 0, 1): 1.0,
+        (-1, 0, 0): -4.0,
+    }
+    if lap_terms != expected_lap:
+        return None
+
+    center_coeffs: Dict[Tuple[int, int, int], float] = {}
+    lap_factor_expr = None
+    for sign, term in _flatten_additive_terms(body.final_expr):
+        mul_coeff, base = _split_scalar_mul(term)
+        coeff = sign * mul_coeff
+        if _match_rect_access_offsets(base, variable_defid, loop_defids, (-1, 0, 0)):
+            center_coeffs[(-1, 0, 0)] = center_coeffs.get((-1, 0, 0), 0.0) + coeff
+            continue
+        if _match_rect_access_offsets(base, variable_defid, loop_defids, (-2, 0, 0)):
+            center_coeffs[(-2, 0, 0)] = center_coeffs.get((-2, 0, 0), 0.0) + coeff
+            continue
+        factor_expr = _split_binding_factor(base, lap_defid)
+        if factor_expr is not None:
+            if lap_factor_expr is not None or coeff != 1.0:
+                return None
+            lap_factor_expr = factor_expr
+            continue
+        return None
+    if center_coeffs != {(-1, 0, 0): 2.0, (-2, 0, 0): -1.0} or lap_factor_expr is None:
+        return None
+
+    t_outer_defid = outer_rec_defids[0][1]
+    if t_outer_defid not in rec_context:
+        return None
+    t = int(rec_context[t_outer_defid])
+    _, (i_start, i_end), _ = loop_info[1]
+    _, (j_start, j_end), _ = loop_info[2]
+    if t < 2:
+        return None
+    if i_start <= 0 or j_start <= 0:
+        return None
+    if i_end >= output.shape[1] or j_end >= output.shape[2]:
+        return None
+    r_val = expr_eval(lap_factor_expr)
+    if isinstance(r_val, np.ndarray):
+        if r_val.ndim != 0 and r_val.size != 1:
+            return None
+        r_val = float(np.asarray(r_val).reshape(-1)[0])
+    elif not isinstance(r_val, (int, float, np.integer, np.floating)):
+        return None
+    prev = output[t - 1]
+    prev2 = output[t - 2]
+    center = prev[i_start:i_end, j_start:j_end]
+    lap = (
+        prev[i_start - 1:i_end - 1, j_start:j_end]
+        + prev[i_start + 1:i_end + 1, j_start:j_end]
+        + prev[i_start:i_end, j_start - 1:j_end - 1]
+        + prev[i_start:i_end, j_start + 1:j_end + 1]
+        - 4.0 * center
+    )
+    output[t, i_start:i_end, j_start:j_end] = (
+        2.0 * center
+        - prev2[i_start:i_end, j_start:j_end]
+        + float(r_val) * lap
+    ).astype(output.dtype, copy=False)
+    return output
+
+
 def _eval_clause_body_with_broadcast_loops(
     clause: Any,
     output_shape: List[int],
@@ -2797,9 +2978,12 @@ def _eval_clause_body_with_broadcast_loops(
             try:
                 setattr(backend, "_vectorize_parallel_shape", parallel_shape_tuple)
                 setattr(backend, "_vectorize_parallel_defids_order", clause_loop_defids)
+                setattr(backend, "_vectorize_safe_oob", True)
                 try:
                     return clause.body.accept(backend)
                 finally:
+                    if hasattr(backend, "_vectorize_safe_oob"):
+                        delattr(backend, "_vectorize_safe_oob")
                     if hasattr(backend, "_vectorize_parallel_defids_order"):
                         delattr(backend, "_vectorize_parallel_defids_order")
             finally:
@@ -3703,6 +3887,8 @@ class EinsteinExecutionMixin:
         clause_indices = item.indices or []
         recurrence_dims = item.recurrence_dims_override
         if not recurrence_dims and variable_defid:
+            recurrence_dims = _recurrence_dims_for_hybrid_or_full(item, variable_defid, clause_indices)
+        if not recurrence_dims and variable_defid:
             recurrence_dims = _recurrence_dims(item, variable_defid, clause_indices)
         recurrence_dims = recurrence_dims or []
         ndim = len(loops)
@@ -3893,6 +4079,13 @@ class EinsteinExecutionMixin:
                 return output
             finally:
                 self._einstein_recurrence_clause = _saved
+        fast_wave = _try_fast_2d_wave_step(
+            item, output, variable_defid, rec_context, outer_rec_defids, loop_info, expr_eval,
+        )
+        if fast_wave is not None:
+            if variable_key is not None:
+                self.env.set_value(variable_key, output)
+            return output
         # When body is a block (e.g. RNN recurrence with let + if), use scalar iteration over non-recurrence dims
         # so that reductions in the body see the same env as the clause's loop vars (avoids vectorization bugs).
         # Only when clause indices match loop count (no literal indices like LSTM state[t, slot, b, h]) so slice building is correct.
@@ -4688,11 +4881,14 @@ class EinsteinExecutionMixin:
                                         if _body_did != _vv.defid:
                                             _ri_ctx[_body_did] = _val
                         setattr(self, "_reduction_initial_context", _ri_ctx)
+                        setattr(self, "_select_outer_index_defids", _loop_defids_tuple)
                         try:
                             value = _body.accept(self)
                         finally:
                             if hasattr(self, "_reduction_initial_context"):
                                 delattr(self, "_reduction_initial_context")
+                            if hasattr(self, "_select_outer_index_defids"):
+                                delattr(self, "_select_outer_index_defids")
                     except IndexError:
                         continue
                     if _cell_index_spec is not None:

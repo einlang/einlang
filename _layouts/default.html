@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="{{ '/assets/site.css' | relative_url }}">
 </head>
 <body>
+  <div class="page-noise" aria-hidden="true"></div>
   <header class="site-header">
     <div class="page-shell">
       <div class="site-header-inner">
@@ -29,10 +30,11 @@
           </span>
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="#capabilities">Capabilities</a>
+          <a href="#abstract">Abstract</a>
+          <a href="#capabilities">Compiler</a>
           <a href="#examples">Examples</a>
-          <a href="#proof">Proof</a>
-          <a href="#start" class="nav-cta">Get Started</a>
+          <a href="#evidence">Evidence</a>
+          <a href="#start" class="nav-cta">Run It</a>
         </nav>
       </div>
     </div>
@@ -59,35 +61,47 @@
               {% endfor %}
             </div>
 
-            <div class="hero-highlights">
-              {% for metric in home.hero.metrics %}
+            <div class="hero-highlights" aria-label="Project summary">
+              {% for stat in home.hero.stats %}
                 <div class="metric">
-                  <strong>{{ metric.title }}</strong>
-                  <span>{{ metric.text }}</span>
+                  <strong>{{ stat.value }}</strong>
+                  <span>{{ stat.label }}</span>
                 </div>
+              {% endfor %}
+            </div>
+
+            <div class="ribbon-row" aria-label="Core project themes">
+              {% for item in home.hero.ribbons %}
+                <span class="ribbon">{{ item }}</span>
               {% endfor %}
             </div>
           </div>
 
           <div class="hero-panel">
-            <div class="terminal">
-              <div class="terminal-bar">
-                <span class="terminal-dot"></span>
-                <span class="terminal-dot"></span>
-                <span class="terminal-dot"></span>
-                <span class="terminal-label">{{ home.hero.panel.label }}</span>
+            <div class="code-panel">
+              <div class="code-panel-bar">
+                <span class="code-accent">rust</span>
+                <span class="code-panel-label">{{ home.hero.panel.label }}</span>
               </div>
               <pre><code>{{ home.hero.panel.code | escape }}</code></pre>
             </div>
+          </div>
+        </section>
 
-            <div class="proof-strip">
-              {% for card in home.hero.panel.proof_cards %}
-                <div class="proof-card">
-                  <strong>{{ card.title }}</strong>
-                  <span>{{ card.text }}</span>
-                </div>
-              {% endfor %}
-            </div>
+        <section class="section-card" id="abstract">
+          <div class="section-header">
+            <span class="mini-label">{{ home.abstract.label }}</span>
+            <h2>{{ home.abstract.title }}</h2>
+            <p>{{ home.abstract.intro }}</p>
+          </div>
+
+          <div class="abstract-grid">
+            {% for item in home.abstract.points %}
+              <article class="abstract-card">
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.text }}</p>
+              </article>
+            {% endfor %}
           </div>
         </section>
 
@@ -113,6 +127,45 @@
           </div>
         </section>
 
+        <section class="section-card" id="showcase">
+          <div class="section-header">
+            <span class="mini-label">{{ home.showcase.label }}</span>
+            <h2>{{ home.showcase.title }}</h2>
+            <p>{{ home.showcase.intro }}</p>
+          </div>
+
+          <div class="showcase-grid">
+            {% for item in home.showcase.items %}
+              <article class="feature-card">
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.text }}</p>
+                <div class="chip-row">
+                  {% for chip in item.chips %}
+                    <span class="chip">{{ chip }}</span>
+                  {% endfor %}
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="section-card" id="research">
+          <div class="section-header">
+            <span class="mini-label">{{ home.research.label }}</span>
+            <h2>{{ home.research.title }}</h2>
+            <p>{{ home.research.intro }}</p>
+          </div>
+
+          <div class="hero-highlights">
+            {% for item in home.research.items %}
+              <div class="metric">
+                <strong>{{ item.value }}</strong>
+                <span>{{ item.label }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+
         <section class="section-card" id="examples">
           <div class="section-header">
             <span class="mini-label">{{ home.examples.label }}</span>
@@ -127,38 +180,97 @@
                   <h3>{{ item.title }}</h3>
                   <p>{{ item.text }}</p>
                 </div>
-                <pre><code>{{ item.code | escape }}</code></pre>
+                <div class="code-panel compact">
+                  <div class="code-panel-bar">
+                    <span class="code-accent">rust</span>
+                    <span class="code-panel-label">{{ item.note }}</span>
+                  </div>
+                  <pre><code>{{ item.code | escape }}</code></pre>
+                </div>
               </article>
             {% endfor %}
           </div>
         </section>
 
-        <section class="section-card" id="proof">
+        <section class="section-card" id="evidence">
           <div class="section-header">
-            <span class="mini-label">{{ home.proof.label }}</span>
-            <h2>{{ home.proof.title }}</h2>
-            <p>{{ home.proof.intro }}</p>
+            <span class="mini-label">{{ home.evidence.label }}</span>
+            <h2>{{ home.evidence.title }}</h2>
+            <p>{{ home.evidence.intro }}</p>
           </div>
 
-          <div class="story-grid">
-            <article class="story-card">
-              <h3>{{ home.proof.left.title }}</h3>
-              <ul>
-                {% for bullet in home.proof.left.bullets %}
-                  <li><strong>{{ bullet.label }}:</strong> {{ bullet.text }}</li>
-                {% endfor %}
-              </ul>
-            </article>
+          <div class="evidence-grid">
+            {% for column in home.evidence.columns %}
+              <article class="story-card">
+                <h3>{{ column.title }}</h3>
+                <ul>
+                  {% for bullet in column.bullets %}
+                    <li>{{ bullet }}</li>
+                  {% endfor %}
+                </ul>
+              </article>
+            {% endfor %}
 
             <article class="story-card">
-              <h3>{{ home.proof.right.title }}</h3>
-              <p>{{ home.proof.right.text }}</p>
+              <h3>{{ home.evidence.aside.title }}</h3>
+              <p>{{ home.evidence.aside.text }}</p>
               <div class="chip-row">
-                {% for chip in home.proof.right.chips %}
+                {% for chip in home.evidence.aside.chips %}
                   <span class="chip">{{ chip }}</span>
                 {% endfor %}
               </div>
             </article>
+          </div>
+        </section>
+
+        <section class="section-card" id="compiler-architecture">
+          <div class="section-header">
+            <span class="mini-label">{{ home.compiler.label }}</span>
+            <h2>{{ home.compiler.title }}</h2>
+            <p>{{ home.compiler.intro }}</p>
+          </div>
+
+          <div class="pipeline-grid">
+            {% for stage in home.compiler.stages %}
+              <article class="abstract-card">
+                <h3>{{ stage.title }}</h3>
+                <p>{{ stage.text }}</p>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="section-card" id="models">
+          <div class="section-header">
+            <span class="mini-label">{{ home.models.label }}</span>
+            <h2>{{ home.models.title }}</h2>
+            <p>{{ home.models.intro }}</p>
+          </div>
+
+          <div class="model-grid">
+            {% for item in home.models.items %}
+              <article class="story-card">
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.text }}</p>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="section-card" id="reading">
+          <div class="section-header">
+            <span class="mini-label">{{ home.links.label }}</span>
+            <h2>{{ home.links.title }}</h2>
+            <p>{{ home.links.intro }}</p>
+          </div>
+
+          <div class="link-grid">
+            {% for item in home.links.items %}
+              <a class="link-card" href="{{ item.url }}">
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.text }}</span>
+              </a>
+            {% endfor %}
           </div>
         </section>
 
@@ -167,7 +279,11 @@
           <h2>{{ home.cta.title }}</h2>
           <p>{{ home.cta.intro }}</p>
 
-          <div class="install-command">
+          <div class="code-panel install-command">
+            <div class="code-panel-bar">
+              <span class="code-accent">bash</span>
+              <span class="code-panel-label">minimal workflow</span>
+            </div>
             <pre><code>{{ home.cta.command | escape }}</code></pre>
           </div>
 

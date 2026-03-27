@@ -305,6 +305,8 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         self._current_function: Optional[BindingIR] = None
         self._current_binding: Optional[BindingIR] = None
         self._expected_type: Optional[Type] = None
+        self._inferred_function_defids: Set[DefId] = set()
+        self._active_function_defids: Set[DefId] = set()
 
     def visit_program(self, node: ProgramIR) -> Type:
         """Visit program and infer types in all statements and functions"""
@@ -340,11 +342,20 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             self.tcx.function_ir_map = func_map
 
         # Single pass: visit every statement once, in declaration order.
-        # functions and constants are subsets of statements (properties that
-        # filter bindings), so one loop covers all of them without duplication.
+        from ..analysis.analysis_guard import is_generic_function
+
+        # Keep generic templates lazy, but still eagerly type concrete/specialized
+        # function bodies so nested specialized calls can settle return types
+        # before later passes such as autodiff inspect them.
         for stmt in node.statements:
-            if stmt is not None:
+            if stmt is None:
+                continue
+            if is_function_binding(stmt):
+                if is_generic_function(stmt):
+                    continue
                 stmt.accept(self)
+                continue
+            stmt.accept(self)
         
         # Do not add/clear pending here; run() loop adds them and re-visits specialized bodies
         # so inner calls (e.g. row_values inside topk_2d) get inferred with concrete types.
@@ -380,6 +391,25 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         if func is None:
             return None
         return self._signature_from_function_ir(func)
+
+    def _infer_function_on_demand(self, defid: Optional[DefId]) -> None:
+        if defid is None or defid in self._inferred_function_defids or defid in self._active_function_defids:
+            return
+        func_ir = getattr(self.tcx, 'function_ir_map', None)
+        if func_ir is None:
+            return
+        func = func_ir.get(defid)
+        if func is None or not is_function_binding(func):
+            return
+        generic_defid = self.mono_service.get_generic_defid_for_specialized(defid)
+        if generic_defid is not None and getattr(func, "return_type", None) not in (None, UNKNOWN):
+            return
+        self._active_function_defids.add(defid)
+        try:
+            func.accept(self)
+            self._inferred_function_defids.add(defid)
+        finally:
+            self._active_function_defids.discard(defid)
     
     I32_MIN = -(2**31)
     I32_MAX = 2**31 - 1
@@ -1088,6 +1118,9 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         
         # Look up user-defined function signature by DefId (name resolution sets expr.function_defid)
         signature = self._get_function(expr.function_defid) if expr.function_defid else None
+        if signature is not None and expr.function_defid is not None:
+            self._infer_function_on_demand(expr.function_defid)
+            signature = self._get_function(expr.function_defid) if expr.function_defid else signature
         if signature is not None and expr.function_defid is not None and all(t is not None and t != UNKNOWN for t in arg_types):
             generic_defid = self.mono_service.get_generic_defid_for_specialized(expr.function_defid)
             if generic_defid is None:

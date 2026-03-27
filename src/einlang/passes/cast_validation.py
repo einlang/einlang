@@ -61,13 +61,10 @@ class CastValidationPass(BasePass):
         
         # Validate casts in all expressions
         visitor = CastValidationVisitor(validator)
-        
-        # Process all functions
-        for func in ir.functions:
-            func.body.accept(visitor)
-        
-        # Process all statements
+
         for stmt in ir.statements:
+            if is_function_binding(stmt):
+                continue
             stmt.accept(visitor)
         
         return ir
@@ -143,6 +140,8 @@ class CastValidationVisitor(DefaultRecursingVisitor):
 
     def __init__(self, validator: CastValidator) -> None:
         self.validator = validator
+        self._validated_function_defids = set()
+        self._active_function_defids = set()
 
     def visit_cast_expression(self, expr: CastExpressionIR) -> None:
         is_valid = self.validator.validate_cast(expr)
@@ -157,4 +156,31 @@ class CastValidationVisitor(DefaultRecursingVisitor):
             )
         expr.expr.accept(self)
 
+    def visit_function_call(self, expr) -> None:
+        if expr.callee_expr is not None:
+            expr.callee_expr.accept(self)
+        for arg in expr.arguments or []:
+            arg.accept(self)
+        self._validate_called_function(getattr(expr, "function_defid", None))
 
+    def _validate_called_function(self, defid: Optional[DefId]) -> None:
+        if defid is None or defid in self._validated_function_defids or defid in self._active_function_defids:
+            return
+        mono = getattr(self.validator.tcx, "monomorphization_service", None)
+        if mono is not None and mono.get_generic_defid_for_specialized(defid) is not None:
+            return
+        func_map = getattr(self.validator.tcx, "function_ir_map", None) or {}
+        binding = func_map.get(defid)
+        if binding is None or not is_function_binding(binding):
+            return
+        from ..analysis.analysis_guard import is_generic_function
+
+        if is_generic_function(binding):
+            return
+        self._active_function_defids.add(defid)
+        try:
+            if binding.body is not None:
+                binding.body.accept(self)
+            self._validated_function_defids.add(defid)
+        finally:
+            self._active_function_defids.discard(defid)
