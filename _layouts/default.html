@@ -30,10 +30,10 @@
           </span>
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="#abstract">Abstract</a>
-          <a href="#capabilities">Compiler</a>
-          <a href="#examples">Examples</a>
-          <a href="#evidence">Evidence</a>
+          <a href="#showcase">Models</a>
+          <a href="#examples">Code</a>
+          <a href="#capabilities">Language</a>
+          <a href="#research">Beyond ML</a>
           <a href="#start" class="nav-cta">Run It</a>
         </nav>
       </div>
@@ -88,6 +88,54 @@
           </div>
         </section>
 
+        <section class="section-card" id="showcase">
+          <div class="section-header">
+            <span class="mini-label">{{ home.showcase.label }}</span>
+            <h2>{{ home.showcase.title }}</h2>
+            <p>{{ home.showcase.intro }}</p>
+          </div>
+
+          <div class="showcase-grid">
+            {% for item in home.showcase.items %}
+              <article class="feature-card">
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.text }}</p>
+                <div class="chip-row">
+                  {% for chip in item.chips %}
+                    <span class="chip">{{ chip }}</span>
+                  {% endfor %}
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="section-card" id="examples">
+          <div class="section-header">
+            <span class="mini-label">{{ home.examples.label }}</span>
+            <h2>{{ home.examples.title }}</h2>
+            <p>{{ home.examples.intro }}</p>
+          </div>
+
+          <div class="sample-grid">
+            {% for item in home.examples.items %}
+              <article class="snippet-card">
+                <div>
+                  <h3>{{ item.title }}</h3>
+                  <p>{{ item.text }}</p>
+                </div>
+                <div class="code-panel compact">
+                  <div class="code-panel-bar">
+                    <span class="code-accent">rust</span>
+                    <span class="code-panel-label">{{ item.note }}</span>
+                  </div>
+                  <pre><code>{{ item.code | escape }}</code></pre>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+
         <section class="section-card" id="abstract">
           <div class="section-header">
             <span class="mini-label">{{ home.abstract.label }}</span>
@@ -127,28 +175,6 @@
           </div>
         </section>
 
-        <section class="section-card" id="showcase">
-          <div class="section-header">
-            <span class="mini-label">{{ home.showcase.label }}</span>
-            <h2>{{ home.showcase.title }}</h2>
-            <p>{{ home.showcase.intro }}</p>
-          </div>
-
-          <div class="showcase-grid">
-            {% for item in home.showcase.items %}
-              <article class="feature-card">
-                <h3>{{ item.title }}</h3>
-                <p>{{ item.text }}</p>
-                <div class="chip-row">
-                  {% for chip in item.chips %}
-                    <span class="chip">{{ chip }}</span>
-                  {% endfor %}
-                </div>
-              </article>
-            {% endfor %}
-          </div>
-        </section>
-
         <section class="section-card" id="research">
           <div class="section-header">
             <span class="mini-label">{{ home.research.label }}</span>
@@ -162,32 +188,6 @@
                 <strong>{{ item.value }}</strong>
                 <span>{{ item.label }}</span>
               </div>
-            {% endfor %}
-          </div>
-        </section>
-
-        <section class="section-card" id="examples">
-          <div class="section-header">
-            <span class="mini-label">{{ home.examples.label }}</span>
-            <h2>{{ home.examples.title }}</h2>
-            <p>{{ home.examples.intro }}</p>
-          </div>
-
-          <div class="sample-grid">
-            {% for item in home.examples.items %}
-              <article class="snippet-card">
-                <div>
-                  <h3>{{ item.title }}</h3>
-                  <p>{{ item.text }}</p>
-                </div>
-                <div class="code-panel compact">
-                  <div class="code-panel-bar">
-                    <span class="code-accent">rust</span>
-                    <span class="code-panel-label">{{ item.note }}</span>
-                  </div>
-                  <pre><code>{{ item.code | escape }}</code></pre>
-                </div>
-              </article>
             {% endfor %}
           </div>
         </section>

@@ -2,9 +2,9 @@
 
 [![Tests](https://github.com/einlang/einlang/actions/workflows/tests.yml/badge.svg)](https://github.com/einlang/einlang/actions/workflows/tests.yml)
 
-**Tensor code is either readable or safe—usually neither.** Einlang is both: write math the way it looks on the page—Einstein notation, sums, indices—and get shape errors at compile time instead of at 3am. **Math-intuitive:** the code reads like the equation. **Built-in autodiff:** differentiate expressions exactly where they appear with `@loss / @w`, `@C / @A`, and `@expr`; the compiler derives gradients and derivative tensors without hand-written backprop or a separate AD library.
+Einlang is a language and compiler for tensor programs written with explicit indices, reductions, recurrences, and derivatives. It keeps code close to the underlying mathematics while checking shapes and index structure before execution.
 
-**Autodiff at a glance:** Einlang’s AD is compiler-native, Einstein-aware, and expression-first: you differentiate the program you wrote, not a wrapped function object.
+Automatic differentiation is part of the language: expressions such as `@loss / @w`, `@C / @A`, and `@expr` compile directly into derivative computations.
 
 ```rust
 let A = [[1, 2], [3, 4]];
@@ -12,13 +12,13 @@ let B = [[5, 6], [7, 8]];
 let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply — shapes checked by the compiler
 ```
 
-**New here?** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) tells the full story in one page. Or try it below.
+For a short introduction, start with [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md). Or try it below.
 
 ---
 
 ## Try it
 
-Run the commands below (no account required). You'll see `2` in a few seconds.
+Run the commands below. You should see `2`.
 
 ```bash
 git clone https://github.com/einlang/einlang.git
@@ -33,12 +33,12 @@ python3 -m einlang -c "let x = 1+1; print(x);"
 
 ## What's next?
 
-One step is enough — no account or long read required.
+Common next steps:
 
 | You want to… | Do this |
 |--------------|--------|
 | **Run another example** | `python3 -m einlang examples/basics/basic_math.ein` or [examples/demos/matrix_operations.ein](https://github.com/einlang/einlang/blob/main/examples/demos/matrix_operations.ein) |
-| **Use it in your code** | [Install & run](#install--run) — `run(source="...")` or `run(file="path.ein")`; one call and you're a user. |
+| **Use it in your code** | [Install & run](#install--run) — `run(source="...")` or `run(file="path.ein")` |
 | **Learn the language** | [Language Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) |
 | **See what's possible** | [What you get](#what-you-get) · [Examples](#examples) |
 | **Stay in the loop** | [★ Star the repo](https://github.com/einlang/einlang) · Watch → Releases |
@@ -102,7 +102,7 @@ Einlang gives you readable tensor math with compile-time shape checking. In prac
 
 ## Why it's different
 
-**[→ Why Einlang?](docs/WHY_EINLANG.md)** — Feature highlights and comparison: math-on-the-page syntax, one language for simulation + ML, gradients without gradient code.
+**[→ Why Einlang?](docs/WHY_EINLANG.md)** — Feature highlights and comparison: mathematical syntax, static checking, recurrences, and built-in differentiation.
 
 - **Math-intuitive** — Write what you’d write on a whiteboard or in a paper: Σ_k, indices, where-clauses, ∂z/∂x as `@z / @x`. No string subscripts, no mental translation from equation to code.
 - **Einstein notation as syntax** — Indices like `i, k, j` are part of the language. The compiler infers ranges from array shapes. Wrong dimensions → compile error, not a runtime crash.  
@@ -120,7 +120,7 @@ Einlang gives you readable tensor math with compile-time shape checking. In prac
 
 ## Why not NumPy / einsum?
 
-With NumPy you get manual shapes and loops, or `einsum` with string indices — no static checking, no first-class recurrences or index algebra. Einlang is **math-intuitive**: the same notation you use in equations (indices, sums, where-clauses, derivatives) is the syntax. Compile-time shape and index checking come with it.
+With NumPy you get manual shapes and loops, or `einsum` with string indices. Einlang keeps indices, sums, where-clauses, and derivatives in the surface syntax, with compile-time shape and index checks.
 
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
@@ -151,8 +151,8 @@ Every simulation example has a Julia equivalent in the `.ein` file and is [accur
 
 ## Docs and roadmap
 
-**[Doc index](https://github.com/einlang/einlang/blob/main/docs/README.md)** — by audience (starter, student, ML, engineer, Python/Julia/Rust, contributor, paper).  
-**[Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md)** — one-page story to first example and Python API.  
+**[Doc index](https://github.com/einlang/einlang/blob/main/docs/README.md)** — overview of guides, reference material, and background-specific entry points.  
+**[Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md)** — short introduction and first example.  
 Canonical: [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) · Install & run above. Design: [docs/DOCUMENTATION_DESIGN.md](https://github.com/einlang/einlang/blob/main/docs/DOCUMENTATION_DESIGN.md).
 
 **Roadmap:** NumPy backend (now) → MLIR via Python (next) → native/GPU. Einstein notation, where-clauses, recurrences, 300+ stdlib functions, and type and shape inference are in place. **Detailed roadmap:** [docs/ROADMAP.md](https://github.com/einlang/einlang/blob/main/docs/ROADMAP.md) (e.g. nested step + `W_step[i,j]` for per-step `print` and clearer training loops).
