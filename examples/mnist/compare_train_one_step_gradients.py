@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Entry-by-entry gradient comparison: Einlang autodiff vs NumPy."""
+"""Entry-by-entry leaf-gradient comparison: Einlang autodiff vs NumPy.
+
+The direct tensor quotient form ``@loss / @tensor`` currently trips a runtime
+index-variable bug on this example, so this script computes the same tensor
+gradient entry-by-entry via ``@loss / @tensor_elt``.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +26,40 @@ def _run_einlang_gradients(repo_root: Path) -> Dict[str, np.ndarray]:
 
     mnist_dir = repo_root / "examples" / "mnist"
     source_file = mnist_dir / "train_one_step.ein"
-    source = source_file.read_text(encoding="utf-8")
+    source = source_file.read_text(encoding="utf-8") + """
+let d_loss_d_x_eltwise[xn in 0..1, xc in 0..1, xh in 0..8, xw in 0..8] = {
+    let x_elt = x[xn, xc, xh, xw];
+    @loss0_scalar / @x_elt
+};
+let d_loss_d_y_eltwise[yy in 0..10] = {
+    let y_elt = y[yy];
+    @loss0_scalar / @y_elt
+};
+let d_loss_d_conv1_w_eltwise[g1o in 0..2, g1i in 0..1, g1kh in 0..3, g1kw in 0..3] = {
+    let w_elt = conv1_w0[g1o, g1i, g1kh, g1kw];
+    @loss0_scalar / @w_elt
+};
+let d_loss_d_conv1_b_eltwise[g1bo in 0..2] = {
+    let b_elt = conv1_b0[g1bo];
+    @loss0_scalar / @b_elt
+};
+let d_loss_d_conv2_w_eltwise[g2o in 0..2, g2i in 0..2, g2kh in 0..3, g2kw in 0..3] = {
+    let w_elt = conv2_w0[g2o, g2i, g2kh, g2kw];
+    @loss0_scalar / @w_elt
+};
+let d_loss_d_conv2_b_eltwise[g2bo in 0..2] = {
+    let b_elt = conv2_b0[g2bo];
+    @loss0_scalar / @b_elt
+};
+let d_loss_d_fc_w_eltwise[gfi in 0..8, gfj in 0..10] = {
+    let w_elt = fc_w0[gfi, gfj];
+    @loss0_scalar / @w_elt
+};
+let d_loss_d_fc_b_eltwise[gfb in 0..10] = {
+    let b_elt = fc_b0[gfb];
+    @loss0_scalar / @b_elt
+};
+"""
 
     compiler = CompilerDriver()
     runtime = EinlangRuntime()
@@ -33,15 +71,16 @@ def _run_einlang_gradients(repo_root: Path) -> Dict[str, np.ndarray]:
         raise RuntimeError(str(exec_result.error))
 
     out = exec_result.outputs or {}
-    keys = [
-        "d_loss_d_conv1_w",
-        "d_loss_d_conv1_b",
-        "d_loss_d_conv2_w",
-        "d_loss_d_conv2_b",
-        "d_loss_d_fc_w",
-        "d_loss_d_fc_b",
-    ]
-    return {k: np.asarray(out[k], dtype=np.float64) for k in keys}
+    return {
+        "d_loss_d_x": np.asarray(out["d_loss_d_x_eltwise"], dtype=np.float64),
+        "d_loss_d_y": np.asarray(out["d_loss_d_y_eltwise"], dtype=np.float64),
+        "d_loss_d_conv1_w": np.asarray(out["d_loss_d_conv1_w_eltwise"], dtype=np.float64),
+        "d_loss_d_conv1_b": np.asarray(out["d_loss_d_conv1_b_eltwise"], dtype=np.float64),
+        "d_loss_d_conv2_w": np.asarray(out["d_loss_d_conv2_w_eltwise"], dtype=np.float64),
+        "d_loss_d_conv2_b": np.asarray(out["d_loss_d_conv2_b_eltwise"], dtype=np.float64),
+        "d_loss_d_fc_w": np.asarray(out["d_loss_d_fc_w_eltwise"], dtype=np.float64),
+        "d_loss_d_fc_b": np.asarray(out["d_loss_d_fc_b_eltwise"], dtype=np.float64),
+    }
 
 
 def _conv2d_nchw(x: np.ndarray, w: np.ndarray, b: np.ndarray, pad: int = 1, stride: int = 1) -> np.ndarray:
@@ -176,9 +215,12 @@ def _run_numpy_gradients() -> Dict[str, np.ndarray]:
 
     dr1 = _maxpool2x2_backward(dp1, p1_arg, r1.shape)
     dc1 = (dr1 * (c1 > 0).astype(DT)).astype(DT)
-    _, d_conv1_w, d_conv1_b = _conv2d_backward(dc1, x, conv1_w, pad=1, stride=1)
+    d_x, d_conv1_w, d_conv1_b = _conv2d_backward(dc1, x, conv1_w, pad=1, stride=1)
+    d_y = (-dlogits).astype(DT)
 
     return {
+        "d_loss_d_x": np.asarray(d_x, dtype=np.float64),
+        "d_loss_d_y": np.asarray(d_y, dtype=np.float64),
         "d_loss_d_conv1_w": np.asarray(d_conv1_w, dtype=np.float64),
         "d_loss_d_conv1_b": np.asarray(d_conv1_b, dtype=np.float64),
         "d_loss_d_conv2_w": np.asarray(d_conv2_w, dtype=np.float64),
@@ -206,6 +248,8 @@ def main() -> int:
     ad = _run_einlang_gradients(repo_root)
     npg = _run_numpy_gradients()
     for key in [
+        "d_loss_d_x",
+        "d_loss_d_y",
         "d_loss_d_conv1_w",
         "d_loss_d_conv1_b",
         "d_loss_d_conv2_w",

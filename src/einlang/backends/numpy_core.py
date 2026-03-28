@@ -496,8 +496,13 @@ class CoreExecutionMixin:
         if stack is None:
             self._variable_decl_stack = []
             stack = self._variable_decl_stack
+        nested_under_vectorized_binding = bool(stack) and self._vectorization_parallel_shape() is not None
         stack.append(node)
         try:
+            if nested_under_vectorized_binding:
+                slot_eval = self._evaluate_lowered_per_outer_slot(expr)
+                if slot_eval is not None:
+                    return slot_eval
             return expr.accept(self)
         finally:
             stack.pop()

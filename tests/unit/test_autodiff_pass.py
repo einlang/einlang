@@ -479,6 +479,20 @@ let dy_dx = @y / @x;
         ref = np.array([[[[1.0, 0.0], [0.0, 0.0]]]], dtype=np.float64)
         _assert_allclose(arr, ref, msg="dy_dx max_pool tie first argmax")
 
+    def test_nested_local_einstein_keeps_outer_index_scalar_per_slot(self):
+        """Nested local Einstein bindings inside an outer vectorized clause must see the current outer index, not the whole outer index vector."""
+        source = """
+let coeff = [10.0, 20.0, 30.0, 40.0];
+let out[gfb in 0..4] = {
+    let inner[l0j in 0..4] = if l0j == gfb { 1.0 } else { 0.0 };
+    sum[ls0j in 0..4](coeff[ls0j] * inner[ls0j])
+};
+"""
+        _, out = _compile_run(source)
+        arr = np.asarray(out.get("out"), dtype=np.float64)
+        ref = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float64)
+        _assert_allclose(arr, ref, msg="nested local Einstein respects outer scalar index")
+
     def test_einstein_attention_matmul_chain_no_softmax(self):
         """Single-head attention matmul chain (no softmax): scores = Q@K^T, out = scores@V; @out/@Q.
         MHA uses this plus softmax; the matmul part is differentiable. Cotangent ∂out/∂Q has the same shape as Q (Julia-style)."""
