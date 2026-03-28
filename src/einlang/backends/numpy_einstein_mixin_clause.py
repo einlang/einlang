@@ -25,6 +25,16 @@ from .numpy_einstein_vectorization import (
     _try_slice_vectorize_if_clause,
     _try_vectorize_clause,
 )
+from ..ir.nodes import BindingIR, BlockExpressionIR, LoweredEinsteinIR, LoweredRecurrenceIR
+
+
+def _block_has_direct_nested_lowered_binding(node: Any) -> bool:
+    if not isinstance(node, BlockExpressionIR):
+        return False
+    for stmt in node.statements or []:
+        if isinstance(stmt, BindingIR) and isinstance(stmt.expr, (LoweredEinsteinIR, LoweredRecurrenceIR)):
+            return True
+    return False
 
 class EinsteinExecutionClauseMixin:
     def _clause_loop_slices(
@@ -217,12 +227,14 @@ class EinsteinExecutionClauseMixin:
             body_node = lowered.body
             loop_defids = [lp.variable.defid for lp in (lowered.loops or [])]
             has_call_using_loop = _body_contains_call_using_loop_var(body_node, [d for d in loop_defids if d is not None])
+            force_scalar_clause = _block_has_direct_nested_lowered_binding(body_node)
             # When body has a call that uses loop vars in its args (e.g. topk_2d_row_values(X, i, ...)), those vars must be scalar.
             # Try call-scalar first so we don't use wrong full-vectorize result (array-valued row index).
             if (
                 lowered.loops
                 and not has_literal_idx
                 and has_call_using_loop
+                and not force_scalar_clause
                 and not object_output
             ):
                 scalar_defids = _loop_defids_in_call_args(body_node, loop_defids)
@@ -279,7 +291,7 @@ class EinsteinExecutionClauseMixin:
                     # must run scalar loop so prior indices of u are visible (e.g. numerics::euler_decay).
                     recurrence_needs_scalar = True
             # Try full vectorize over loop dims (literal idx -> fixed slice; other dims -> vectorize).
-            if lowered.loops and not object_output:
+            if lowered.loops and not object_output and not force_scalar_clause:
                 # Slice-vectorize: body "if p < t then ... else 0" -> vectorize over [0..t), fill rest (e.g. emb in decode).
                 if not recurrence_needs_scalar and not lowered.guards and not lowered.bindings:
                     slice_vec = _try_slice_vectorize_if_clause(lowered, output, expr_evaluator, backend=self)
@@ -476,6 +488,7 @@ class EinsteinExecutionClauseMixin:
                 lowered.loops
                 and not has_literal_idx
                 and has_call_using_loop
+                and not force_scalar_clause
             ):
                 scalar_defids = _loop_defids_in_call_args(body_node, loop_defids)
                 scalar_loop_indices = [
@@ -508,6 +521,7 @@ class EinsteinExecutionClauseMixin:
             # Element-wise call (e.g. gelu(fc1[s,k])): must run once with full array, not scalar loop.
             if (
                 lowered.loops
+                and not force_scalar_clause
                 and _body_is_elementwise_call(body_node, loop_defids)
             ):
                 elem_result = _eval_clause_body_with_broadcast_loops(
@@ -701,9 +715,35 @@ class EinsteinExecutionClauseMixin:
                                 elif tail and value.shape == output.shape:
                                     ri = int(np.asarray(idx_tuple[0]).item())
                                     value = value[ri]
-                            output[idx_tuple[0]] = value
+                            try:
+                                output[idx_tuple[0]] = value
+                            except Exception as exc:
+                                raise RuntimeError(
+                                    "scalar clause assignment failed: "
+                                    f"idx_tuple={idx_tuple!r} "
+                                    f"output_shape={getattr(output, 'shape', None)!r} "
+                                    f"value_type={type(value).__name__} "
+                                    f"value_shape={getattr(value, 'shape', None)!r} "
+                                    f"clause_indices={clause_indices!r}"
+                                ) from exc
                         else:
-                            output[idx_tuple] = value
+                            if (
+                                isinstance(value, np.ndarray)
+                                and len(idx_tuple) == output.ndim
+                                and value.shape == output.shape
+                            ):
+                                value = value[idx_tuple]
+                            try:
+                                output[idx_tuple] = value
+                            except Exception as exc:
+                                raise RuntimeError(
+                                    "nd clause assignment failed: "
+                                    f"idx_tuple={idx_tuple!r} "
+                                    f"output_shape={getattr(output, 'shape', None)!r} "
+                                    f"value_type={type(value).__name__} "
+                                    f"value_shape={getattr(value, 'shape', None)!r} "
+                                    f"clause_indices={clause_indices!r}"
+                                ) from exc
 
                 if variable_defid:
                     self._clause_set_output(variable_defid, output)

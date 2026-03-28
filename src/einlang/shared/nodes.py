@@ -27,6 +27,32 @@ if TYPE_CHECKING:
 
 T = TypeVar('T')
 
+
+def _source_join(items: List[Any], sep: str = ", ") -> str:
+    return sep.join(str(item) for item in items)
+
+
+def _source_block(statements: List[Any], final_expr: Optional[Any]) -> str:
+    parts = [str(stmt) for stmt in statements]
+    if final_expr is not None:
+        parts.append(str(final_expr))
+    if not parts:
+        return "{ }"
+    return "{ " + " ".join(parts) + " }"
+
+
+def _visibility_prefix(is_public: bool) -> str:
+    return "pub " if is_public else ""
+
+
+def _generic_params_suffix(generic_params: List[str]) -> str:
+    return f"<{_source_join(generic_params)}>" if generic_params else ""
+
+
+def _where_suffix(where_clause: "WhereClause") -> str:
+    text = str(where_clause)
+    return f" {text}" if text else ""
+
 # Compile-time constants for constraint types
 BINDING_CONSTRAINT: Final = "binding"
 ITERATION_DOMAIN_CONSTRAINT: Final = "iteration_domain"
@@ -210,6 +236,10 @@ class Range(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_range(self)
 
+    def __str__(self) -> str:
+        op = "..=" if self.inclusive else ".."
+        return f"{self.start}{op}{self.end}"
+
 class Statement(ASTNode):
     """
     Base class for statements
@@ -249,6 +279,9 @@ class ExpressionStatement(Statement):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_expression_statement(self)
 
+    def __str__(self) -> str:
+        return f"{self.expr};"
+
 @dataclass
 class Program(ASTNode):
     """Program root node"""
@@ -260,6 +293,9 @@ class Program(ASTNode):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_program(self)
+
+    def __str__(self) -> str:
+        return "\n".join(str(stmt) for stmt in self.statements)
 
 @dataclass
 class FunctionDefinition(Statement):
@@ -291,6 +327,11 @@ class FunctionDefinition(Statement):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_function_definition(self)
 
+    def __str__(self) -> str:
+        params = _source_join(self.parameters)
+        ret = f" -> {self.return_type}" if self.return_type else ""
+        return f"{_visibility_prefix(self.is_public)}fn {self.name}({params}){ret} {self.body}"
+
 
 @dataclass
 class DiffRuleDef(Statement):
@@ -310,12 +351,20 @@ class DiffRuleDef(Statement):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_diff_rule_def(self)
 
+    def __str__(self) -> str:
+        return f"@fn {self.name}({_source_join(self.parameters)}) {self.body}"
+
 
 @dataclass
 class Parameter:
     """Function parameter"""
     name: str
     type_annotation: Optional['Type'] = None  # Type: set by parser if explicit, by specialization if inferred
+
+    def __str__(self) -> str:
+        if self.type_annotation is None:
+            return self.name
+        return f"{self.name}: {self.type_annotation}"
 
 @dataclass
 class VariableDeclaration(Statement):
@@ -344,6 +393,10 @@ class VariableDeclaration(Statement):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_variable_declaration(self)
 
+    def __str__(self) -> str:
+        type_part = f": {self.type_annotation}" if self.type_annotation else ""
+        return f"let {self.pattern}{type_part} = {self.value};"
+
 @dataclass
 class Literal(Expression):
     """Literal value (number, string, boolean)"""
@@ -371,6 +424,15 @@ class InterpolatedString(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_interpolated_string(self)
 
+    def __str__(self) -> str:
+        rendered = []
+        for part in self.parts:
+            if isinstance(part, Literal) and isinstance(part.value, str):
+                rendered.append(part.value)
+            else:
+                rendered.append(str(part))
+        return '"' + "".join(rendered) + '"'
+
 @dataclass
 class InterpolationPart(Expression):
     """Part of an interpolated string containing an expression and optional format spec"""
@@ -387,6 +449,11 @@ class InterpolationPart(Expression):
         # InterpolationPart is transparent - just visit the inner expression
         # Format spec is handled at runtime (in backend)
         return self.expr.accept(visitor)
+
+    def __str__(self) -> str:
+        if self.format_spec:
+            return f"{{{self.expr}:{self.format_spec}}}"
+        return f"{{{self.expr}}}"
 
 @dataclass
 class Identifier(Expression):
@@ -419,6 +486,11 @@ class IndexVar(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_index_var(self)
 
+    def __str__(self) -> str:
+        if self.range_expr is not None:
+            return f"{self.name} in {self.range_expr}"
+        return self.name
+
 
 class IndexRest(Expression):
     """
@@ -433,6 +505,9 @@ class IndexRest(Expression):
 
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_index_rest(self)
+
+    def __str__(self) -> str:
+        return f"..{self.name}"
 
 
 @dataclass
@@ -472,6 +547,9 @@ class FunctionCall(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_function_call(self)
 
+    def __str__(self) -> str:
+        return f"{self.function_expr}({_source_join(self.arguments)})"
+
 @dataclass
 class MethodCall(Expression):
     """Method call (obj.method()) - method can be any expression for computed method calls"""
@@ -488,6 +566,9 @@ class MethodCall(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_method_call(self)
 
+    def __str__(self) -> str:
+        return f"{self.object}.{self.method_expr}({_source_join(self.arguments)})"
+
 @dataclass
 class MemberAccess(Expression):
     """Member access (obj.property or tuple.0)"""
@@ -501,6 +582,9 @@ class MemberAccess(Expression):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_member_access(self)
+
+    def __str__(self) -> str:
+        return f"{self.object}.{self.property}"
 
 @dataclass
 class ModuleAccess(Expression):
@@ -519,6 +603,9 @@ class ModuleAccess(Expression):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_module_access(self)
+
+    def __str__(self) -> str:
+        return f"{self.object}::{self.property}"
 
 @dataclass
 class BinaryExpression(Expression):
@@ -553,6 +640,10 @@ class UnaryExpression(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_unary_expression(self)
 
+    def __str__(self) -> str:
+        op = self.operator.value
+        return f"{op}{self.operand}"
+
 
 class CastExpression(Expression):
     """Type cast expression (x as T)"""
@@ -567,6 +658,9 @@ class CastExpression(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_cast_expression(self)
 
+    def __str__(self) -> str:
+        return f"{self.expr} as {self.target_type}"
+
 @dataclass
 class ArrayLiteral(Expression):
     """Array literal [1, 2, 3]"""
@@ -578,6 +672,9 @@ class ArrayLiteral(Expression):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_array_literal(self)
+
+    def __str__(self) -> str:
+        return f"[{_source_join(self.elements)}]"
 
 
 @dataclass
@@ -603,6 +700,13 @@ class UseStatement(Statement):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_use_statement(self)
 
+    def __str__(self) -> str:
+        path = "::".join(self.path)
+        if self.is_wildcard:
+            path = f"{path}::*"
+        alias = f" as {self.alias}" if self.alias else ""
+        return f"{_visibility_prefix(self.is_public)}use {path}{alias};"
+
 @dataclass
 class ModuleDeclaration(Statement):
     """Module declaration statement (mod name; or pub mod name;)"""
@@ -616,6 +720,9 @@ class ModuleDeclaration(Statement):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_module_declaration(self)
+
+    def __str__(self) -> str:
+        return f"{_visibility_prefix(self.is_public)}mod {self.name};"
 
 @dataclass
 class InlineModule(Statement):
@@ -632,6 +739,10 @@ class InlineModule(Statement):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_inline_module(self)
+
+    def __str__(self) -> str:
+        body = " ".join(str(stmt) for stmt in self.body)
+        return f"{_visibility_prefix(self.is_public)}mod {self.name} {{ {body} }}"
 
 # Import proper Type from type system (no stub needed)
 from .types import Type
@@ -677,6 +788,11 @@ class EinsteinClause:
         if self.where_clause:
             for c in self.where_clause.constraints:
                 c.accept(visitor)
+
+    def __str__(self) -> str:
+        lhs = f"[{_source_join(self.indices)}]" if self.indices else ""
+        else_part = f" else {self.else_expr}" if self.else_expr is not None else ""
+        return f"{lhs} = {self.value}{_where_suffix(self.where_clause)}{else_part}"
 
 
 class EinsteinDeclaration(Statement):
@@ -780,6 +896,16 @@ class EinsteinDeclaration(Statement):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_einstein_declaration(self)
 
+    def __str__(self) -> str:
+        rendered = []
+        for clause in self.clauses:
+            lhs = f"{self.array_name}[{_source_join(clause.indices)}]" if clause.indices else self.array_name
+            else_part = f" else {clause.else_expr}" if clause.else_expr is not None else ""
+            rendered.append(
+                f"let {lhs} = {clause.value}{_where_suffix(clause.where_clause)}{else_part};"
+            )
+        return "\n".join(rendered)
+
 
 @dataclass
 class EnumVariant:
@@ -787,6 +913,11 @@ class EnumVariant:
     name: str
     fields: List[Union[str, 'Type']]  # Field names or types (for tuple-style variants)
     location: Optional[SourceLocation] = None
+
+    def __str__(self) -> str:
+        if not self.fields:
+            return self.name
+        return f"{self.name}({_source_join(self.fields)})"
 
 
 @dataclass
@@ -808,6 +939,11 @@ class EnumDefinition(Statement):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_enum_definition(self)
 
+    def __str__(self) -> str:
+        generics = _generic_params_suffix(self.generic_params)
+        variants = _source_join(self.variants)
+        return f"{_visibility_prefix(self.is_public)}enum {self.name}{generics} {{ {variants} }}"
+
 
 @dataclass
 class StructField:
@@ -815,6 +951,9 @@ class StructField:
     name: str
     field_type: 'Type'
     location: Optional[SourceLocation] = None
+
+    def __str__(self) -> str:
+        return f"{self.name}: {self.field_type}"
 
 
 @dataclass
@@ -838,6 +977,15 @@ class StructDefinition(Statement):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_struct_definition(self)
 
+    def __str__(self) -> str:
+        generics = _generic_params_suffix(self.generic_params)
+        if self.is_tuple_struct:
+            fields = _source_join(
+                [field.field_type if isinstance(field, StructField) else field for field in self.fields]
+            )
+            return f"{_visibility_prefix(self.is_public)}struct {self.name}{generics}({fields});"
+        return f"{_visibility_prefix(self.is_public)}struct {self.name}{generics} {{ {_source_join(self.fields)} }}"
+
 @dataclass 
 class RectangularAccess(Expression):
     """Rectangular array element access with tensor-style indices [i,j,k]"""
@@ -851,6 +999,9 @@ class RectangularAccess(Expression):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_rectangular_access(self)
+
+    def __str__(self) -> str:
+        return f"{self.base_expr}[{_source_join(self.indices)}]"
 
 @dataclass 
 class JaggedAccess(Expression):
@@ -866,10 +1017,16 @@ class JaggedAccess(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_jagged_access(self)
 
+    def __str__(self) -> str:
+        return f"{self.base_expr}{''.join(f'[{index}]' for index in self.index_chain)}"
+
 @dataclass
 class OverClause:
     """Over clause for reductions"""
     range_groups: List['RangeGroup']
+
+    def __str__(self) -> str:
+        return f"[{_source_join(self.range_groups)}]"
 
 @dataclass
 class RangeGroup:
@@ -877,6 +1034,14 @@ class RangeGroup:
     range_expr: Optional[Range]
     variables: List[str]
     is_rest_pattern: bool = False
+
+    def __str__(self) -> str:
+        vars_text = _source_join(
+            [f"..{name}" if self.is_rest_pattern else name for name in self.variables]
+        )
+        if self.range_expr is None:
+            return vars_text
+        return f"{vars_text} in {self.range_expr}"
 
 @dataclass(frozen=True)
 class WhereClause:
@@ -938,6 +1103,11 @@ class WhereClause:
             return "WhereClause(empty)"
         return f"WhereClause({len(self.constraints)} constraints)"
 
+    def __str__(self) -> str:
+        if self.is_empty():
+            return ""
+        return "where " + _source_join(list(self.constraints))
+
 # Constraints are now just Expression objects (no wrapper needed).
 # Where clauses and array comprehensions use List[Expression] directly.
 #
@@ -965,6 +1135,9 @@ class WhereExpression(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_where_expression(self)
 
+    def __str__(self) -> str:
+        return f"{self.expr} {self.where_clause}".rstrip()
+
 @dataclass
 class TupleExpression(Expression):
     """Tuple expression"""
@@ -976,6 +1149,11 @@ class TupleExpression(Expression):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_tuple_expression(self)
+
+    def __str__(self) -> str:
+        if len(self.elements) == 1:
+            return f"({self.elements[0]},)"
+        return f"({_source_join(self.elements)})"
 
 @dataclass
 class ArrayComprehension(Expression):
@@ -1007,6 +1185,9 @@ class ArrayComprehension(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_array_comprehension(self)
 
+    def __str__(self) -> str:
+        return f"[{self.expr} | {_source_join(self.constraints)}]"
+
 @dataclass
 class ReductionExpression(Expression):
     """Reduction operation with Einstein notation"""
@@ -1036,6 +1217,9 @@ class ReductionExpression(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_reduction_expression(self)
 
+    def __str__(self) -> str:
+        return f"{self.function_name}{self.over_clause}({self.body}){_where_suffix(self.where_clause)}"
+
 @dataclass 
 class IfExpression(Expression):
     """If expression that returns a value
@@ -1056,6 +1240,10 @@ class IfExpression(Expression):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_if_expression(self)
+
+    def __str__(self) -> str:
+        else_part = f" else {self.else_block}" if self.else_block is not None else ""
+        return f"if {self.condition} {self.then_block}{else_part}"
 
 @dataclass
 class PipelineExpression(Expression):
@@ -1080,6 +1268,14 @@ class PipelineExpression(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_pipeline_expression(self)
 
+    def __str__(self) -> str:
+        text = f"{self.left} {self.operator.value} {self.right}"
+        if self.else_clause is not None:
+            text += f" else {self.else_clause}"
+        if self.catch_clause is not None:
+            text += f" catch {self.catch_clause}"
+        return text
+
 @dataclass
 class BlockExpression(Expression):
     """Block expression that can be used as a value: { statements; final_expr }"""
@@ -1093,6 +1289,9 @@ class BlockExpression(Expression):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_block_expression(self)
+
+    def __str__(self) -> str:
+        return _source_block(self.statements, self.final_expr)
 
 @dataclass
 class LambdaExpression(Expression):
@@ -1110,6 +1309,9 @@ class LambdaExpression(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_lambda_expression(self)
 
+    def __str__(self) -> str:
+        return f"|{_source_join(self.parameters)}| {self.body}"
+
 @dataclass
 class TryExpression(Expression):
     """Try expression: try operation"""
@@ -1122,11 +1324,19 @@ class TryExpression(Expression):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_try_expression(self)
 
+    def __str__(self) -> str:
+        return f"try {self.operand}"
+
 @dataclass
 class AnnotatedVariable:
     """Variable with optional type annotation: x or x: i32"""
     name: str
     type_annotation: Optional['Type'] = None
+
+    def __str__(self) -> str:
+        if self.type_annotation is None:
+            return self.name
+        return f"{self.name}: {self.type_annotation}"
 
 @dataclass
 class TupleDestructurePattern(ASTNode):
@@ -1136,6 +1346,9 @@ class TupleDestructurePattern(ASTNode):
     def __init__(self, variables: List[AnnotatedVariable], location: SourceLocation = None):
         super().__init__(NodeType.TUPLE_DESTRUCTURE_PATTERN, location)
         self.variables = variables
+
+    def __str__(self) -> str:
+        return f"({_source_join(self.variables)})"
     
 
 # =====================================================================
@@ -1158,6 +1371,9 @@ class LiteralPattern(Pattern):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_literal_pattern(self)
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 @dataclass
 class IdentifierPattern(Pattern):
     """Identifier pattern: binds value to variable (x, name)"""
@@ -1170,6 +1386,9 @@ class IdentifierPattern(Pattern):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_identifier_pattern(self)
 
+    def __str__(self) -> str:
+        return self.name
+
 @dataclass
 class WildcardPattern(Pattern):
     """Wildcard pattern: matches anything (_)"""
@@ -1179,6 +1398,9 @@ class WildcardPattern(Pattern):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_wildcard_pattern(self)
+
+    def __str__(self) -> str:
+        return "_"
 
 @dataclass
 class TuplePattern(Pattern):
@@ -1192,6 +1414,9 @@ class TuplePattern(Pattern):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_tuple_pattern(self)
 
+    def __str__(self) -> str:
+        return f"({_source_join(self.patterns)})"
+
 @dataclass
 class RestPattern(Pattern):
     """Rest pattern: ..pattern (binds remaining elements to pattern)"""
@@ -1203,6 +1428,9 @@ class RestPattern(Pattern):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_rest_pattern(self)
+
+    def __str__(self) -> str:
+        return f"..{self.pattern}"
 
 @dataclass
 class ArrayPattern(Pattern):
@@ -1221,6 +1449,9 @@ class ArrayPattern(Pattern):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_array_pattern(self)
 
+    def __str__(self) -> str:
+        return f"[{_source_join(self.patterns)}]"
+
 @dataclass
 class GuardPattern(Pattern):
     """Guard pattern: pattern with where clause (x where x > 0)"""
@@ -1234,6 +1465,9 @@ class GuardPattern(Pattern):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_guard_pattern(self)
+
+    def __str__(self) -> str:
+        return f"{self.pattern} where {self.guard}"
 
 
 @dataclass
@@ -1252,6 +1486,11 @@ class ConstructorPattern(Pattern):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_constructor_pattern(self)
 
+    def __str__(self) -> str:
+        if self.is_struct_literal:
+            return f"{self.constructor_name} {{ {_source_join(self.patterns)} }}"
+        return f"{self.constructor_name}({_source_join(self.patterns)})"
+
 @dataclass
 class OrPattern(Pattern):
     """Or pattern: matches if any alternative matches (pat1 | pat2 | ...)"""
@@ -1263,6 +1502,9 @@ class OrPattern(Pattern):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_or_pattern(self)
+
+    def __str__(self) -> str:
+        return " | ".join(str(alt) for alt in self.alternatives)
 
 @dataclass
 class BindingPattern(Pattern):
@@ -1277,6 +1519,9 @@ class BindingPattern(Pattern):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_binding_pattern(self)
+
+    def __str__(self) -> str:
+        return f"{self.name} @ {self.pattern}"
 
 @dataclass
 class RangePattern(Pattern):
@@ -1294,6 +1539,10 @@ class RangePattern(Pattern):
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_range_pattern(self)
 
+    def __str__(self) -> str:
+        op = "..=" if self.inclusive else ".."
+        return f"{self.start}{op}{self.end}"
+
 @dataclass
 class MatchArm(ASTNode):
     """Match arm: pattern => expression"""
@@ -1304,6 +1553,9 @@ class MatchArm(ASTNode):
         super().__init__(NodeType.MATCH_EXPR, location)  # Reuse MATCH_EXPR for now
         self.pattern = pattern
         self.body = body
+
+    def __str__(self) -> str:
+        return f"{self.pattern} => {self.body}"
 
 @dataclass
 class MatchExpression(Expression):
@@ -1318,3 +1570,6 @@ class MatchExpression(Expression):
     
     def accept(self, visitor: 'ASTVisitor[T]') -> 'T':
         return visitor.visit_match_expression(self)
+
+    def __str__(self) -> str:
+        return f"match {self.scrutinee} {{ {_source_join(self.arms)} }}"

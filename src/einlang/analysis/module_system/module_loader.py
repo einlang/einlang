@@ -276,6 +276,7 @@ class ModuleLoader:
         # Cache and return
         self.loaded_modules[module_path] = module_info
         return module_info
+
     
     def _parse_module_declarations(self, source: str) -> List[ModuleDeclaration]:
         """Parse 'mod name;' and 'pub mod name;' declarations from source"""

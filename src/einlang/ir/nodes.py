@@ -17,6 +17,10 @@ def _t(x: Optional[list]) -> tuple:
     return tuple(x) if x is not None else ()
 
 
+def _ir_join(items: Any, sep: str = ", ") -> str:
+    return sep.join(str(item) for item in items)
+
+
 
 class IRNode:
     """
@@ -833,6 +837,10 @@ class DiffRuleIR(IRNode):
             return visitor.visit_diff_rule(self)
         return None  # type: ignore[return-value]
 
+    def __str__(self) -> str:
+        target = str(self.callee_defid) if self.callee_defid is not None else "?"
+        return f"@fn {target} {{ {self.body} }}"
+
 
 class ProgramIR(IRNode):
     """
@@ -873,6 +881,10 @@ class ProgramIR(IRNode):
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_program(self)
 
+    def __str__(self) -> str:
+        parts = [str(module) for module in self.modules] + [str(stmt) for stmt in self.statements]
+        return "\n".join(part for part in parts if part)
+
 
 def clear_autodiff_only_fields(program: 'ProgramIR') -> None:
     """Remove autodiff-only IR: custom_diff_body, DiffRuleIR statements, DifferentialType annotations (lazy import)."""
@@ -898,6 +910,11 @@ class ModuleIR(IRNode):
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_module(self)
+
+    def __str__(self) -> str:
+        body = [str(item) for item in self.constants] + [str(item) for item in self.functions] + [str(item) for item in self.submodules]
+        name = "::".join(self.path)
+        return f"mod {name} {{ {' '.join(body)} }}"
 
 
 # Pattern IR Nodes (for Match expressions)
@@ -1140,6 +1157,11 @@ class WhereClauseIR(IRNode):
         self.constraints = _t(constraints)
         self.ranges = ranges if ranges is not None else {}
 
+    def __str__(self) -> str:
+        if not self.constraints:
+            return ""
+        return "where " + _ir_join(self.constraints)
+
 
 # Lowered iteration structures (aligned with LoopStructure + shared iteration shape)
 # LoweredIteration has body, loops, bindings, guards, reduction_ranges, shape, element_type
@@ -1359,6 +1381,11 @@ class LoweredEinsteinIR(IRNode):
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_lowered_einstein(self)
+
+    def __str__(self) -> str:
+        if not self.items:
+            return "{ }"
+        return "{ " + "; ".join(str(item) for item in self.items) + " }"
 
 
 class LoweredRecurrenceIR(ExpressionIR):

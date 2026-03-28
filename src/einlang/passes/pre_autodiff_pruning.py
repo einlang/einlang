@@ -72,6 +72,7 @@ class _IfBranchPruner:
         self.pruned_if_count = 0
         self._contains_differential_cache: dict[int, bool] = {}
         self._contains_if_cache: dict[int, bool] = {}
+        self._prunable_metadata_binding_cache: dict[int, bool] = {}
 
     @staticmethod
     def _is_container_constant(value: Any) -> bool:
@@ -214,11 +215,19 @@ class _IfBranchPruner:
             self._contains_differential_cache[cache_key] = True
             return True
         if isinstance(node, (list, tuple)):
-            result = any(self._contains_differential(item) for item in node)
+            result = False
+            for item in node:
+                if self._contains_differential(item):
+                    result = True
+                    break
             self._contains_differential_cache[cache_key] = result
             return result
         if isinstance(node, dict):
-            result = any(self._contains_differential(item) for item in node.values())
+            result = False
+            for item in node.values():
+                if self._contains_differential(item):
+                    result = True
+                    break
             self._contains_differential_cache[cache_key] = result
             return result
         if isinstance(node, BindingIR):
@@ -230,17 +239,40 @@ class _IfBranchPruner:
             self._contains_differential_cache[cache_key] = result
             return result
         if isinstance(node, BuiltinCallIR):
-            result = any(self._contains_differential(arg) for arg in (node.args or ()))
+            result = False
+            for arg in node.args or ():
+                if self._contains_differential(arg):
+                    result = True
+                    break
             self._contains_differential_cache[cache_key] = result
             return result
         if isinstance(node, RectangularAccessIR):
-            result = self._contains_differential(node.array) or any(
-                self._contains_differential(idx) for idx in (node.indices or ())
-            )
+            result = self._contains_differential(node.array)
+            if not result:
+                for idx in node.indices or ():
+                    if self._contains_differential(idx):
+                        result = True
+                        break
             self._contains_differential_cache[cache_key] = result
             return result
         if isinstance(node, MemberAccessIR):
             result = self._contains_differential(node.object)
+            self._contains_differential_cache[cache_key] = result
+            return result
+        if isinstance(node, ArrayLiteralIR):
+            result = False
+            for item in node.elements or ():
+                if self._contains_differential(item):
+                    result = True
+                    break
+            self._contains_differential_cache[cache_key] = result
+            return result
+        if isinstance(node, TupleExpressionIR):
+            result = False
+            for item in node.elements or ():
+                if self._contains_differential(item):
+                    result = True
+                    break
             self._contains_differential_cache[cache_key] = result
             return result
         if isinstance(node, IfExpressionIR):
@@ -252,9 +284,63 @@ class _IfBranchPruner:
             self._contains_differential_cache[cache_key] = result
             return result
         if isinstance(node, BlockExpressionIR):
-            result = any(self._contains_differential(stmt) for stmt in (node.statements or ())) or self._contains_differential(
-                node.final_expr
+            result = False
+            for stmt in node.statements or ():
+                if self._contains_differential(stmt):
+                    result = True
+                    break
+            if not result:
+                result = self._contains_differential(node.final_expr)
+            self._contains_differential_cache[cache_key] = result
+            return result
+        if isinstance(node, WhereClauseIR):
+            result = False
+            for item in node.constraints or ():
+                if self._contains_differential(item):
+                    result = True
+                    break
+            if not result:
+                for item in getattr(node, "ranges", ()) or ():
+                    if self._contains_differential(item):
+                        result = True
+                        break
+            self._contains_differential_cache[cache_key] = result
+            return result
+        if isinstance(node, EinsteinClauseIR):
+            result = self._contains_differential(node.value) or self._contains_differential(
+                node.where_clause
             )
+            self._contains_differential_cache[cache_key] = result
+            return result
+        if isinstance(node, ModuleIR):
+            result = False
+            for fn in node.functions or ():
+                if self._contains_differential(fn):
+                    result = True
+                    break
+            if not result:
+                for const in node.constants or ():
+                    if self._contains_differential(const):
+                        result = True
+                        break
+            if not result:
+                for sub in node.submodules or ():
+                    if self._contains_differential(sub):
+                        result = True
+                        break
+            self._contains_differential_cache[cache_key] = result
+            return result
+        if isinstance(node, ProgramIR):
+            result = False
+            for stmt in node.statements or ():
+                if self._contains_differential(stmt):
+                    result = True
+                    break
+            if not result:
+                for mod in node.modules or ():
+                    if self._contains_differential(mod):
+                        result = True
+                        break
             self._contains_differential_cache[cache_key] = result
             return result
         if isinstance(node, IRNode):
@@ -280,15 +366,122 @@ class _IfBranchPruner:
             self._contains_if_cache[cache_key] = True
             return True
         if isinstance(node, (list, tuple)):
-            result = any(self._contains_if(item) for item in node)
+            result = False
+            for item in node:
+                if self._contains_if(item):
+                    result = True
+                    break
             self._contains_if_cache[cache_key] = result
             return result
         if isinstance(node, dict):
-            result = any(self._contains_if(item) for item in node.values())
+            result = False
+            for item in node.values():
+                if self._contains_if(item):
+                    result = True
+                    break
             self._contains_if_cache[cache_key] = result
             return result
         if isinstance(node, BindingIR):
             result = self._contains_if(node.expr)
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, BinaryOpIR):
+            result = self._contains_if(node.left) or self._contains_if(node.right)
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, BuiltinCallIR):
+            result = False
+            for arg in node.args or ():
+                if self._contains_if(arg):
+                    result = True
+                    break
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, RectangularAccessIR):
+            result = self._contains_if(node.array)
+            if not result:
+                for idx in node.indices or ():
+                    if self._contains_if(idx):
+                        result = True
+                        break
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, MemberAccessIR):
+            result = self._contains_if(node.object)
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, ArrayLiteralIR):
+            result = False
+            for item in node.elements or ():
+                if self._contains_if(item):
+                    result = True
+                    break
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, TupleExpressionIR):
+            result = False
+            for item in node.elements or ():
+                if self._contains_if(item):
+                    result = True
+                    break
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, BlockExpressionIR):
+            result = False
+            for stmt in node.statements or ():
+                if self._contains_if(stmt):
+                    result = True
+                    break
+            if not result:
+                result = self._contains_if(node.final_expr)
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, WhereClauseIR):
+            result = False
+            for item in node.constraints or ():
+                if self._contains_if(item):
+                    result = True
+                    break
+            if not result:
+                for item in getattr(node, "ranges", ()) or ():
+                    if self._contains_if(item):
+                        result = True
+                        break
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, EinsteinClauseIR):
+            result = self._contains_if(node.value) or self._contains_if(node.where_clause)
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, ModuleIR):
+            result = False
+            for fn in node.functions or ():
+                if self._contains_if(fn):
+                    result = True
+                    break
+            if not result:
+                for const in node.constants or ():
+                    if self._contains_if(const):
+                        result = True
+                        break
+            if not result:
+                for sub in node.submodules or ():
+                    if self._contains_if(sub):
+                        result = True
+                        break
+            self._contains_if_cache[cache_key] = result
+            return result
+        if isinstance(node, ProgramIR):
+            result = False
+            for stmt in node.statements or ():
+                if self._contains_if(stmt):
+                    result = True
+                    break
+            if not result:
+                for mod in node.modules or ():
+                    if self._contains_if(mod):
+                        result = True
+                        break
             self._contains_if_cache[cache_key] = result
             return result
         if isinstance(node, IRNode):
@@ -567,11 +760,17 @@ class _IfBranchPruner:
         return defids, names
 
     def _is_prunable_metadata_binding(self, stmt: BindingIR) -> bool:
-        return (
+        cache_key = id(stmt)
+        cached = self._prunable_metadata_binding_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        result = (
             stmt.expr is not None
             and self._looks_like_metadata_name(stmt.name)
             and self._eval_metadata_constant(stmt.expr, {}) is not None
         )
+        self._prunable_metadata_binding_cache[cache_key] = result
+        return result
 
     def _simplify_block(self, expr: BlockExpressionIR) -> ExpressionIR:
         if expr.final_expr is None:

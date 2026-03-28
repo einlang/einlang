@@ -101,9 +101,54 @@ class EinsteinExecutionSetupMixin:
             stack = self._variable_decl_stack
         stack.append(decl)
         try:
+            slot_eval = self._evaluate_lowered_per_outer_slot(lowered)
+            if slot_eval is not None:
+                return slot_eval
             return lowered.accept(self)
         finally:
             stack.pop()
+
+    def _evaluate_lowered_per_outer_slot(self, lowered: Any) -> Any:
+        parallel_shape = self._vectorization_parallel_shape()
+        if not parallel_shape:
+            return None
+        outer_shape = tuple(int(dim) for dim in parallel_shape)
+        outer_names = getattr(self.env, "_defid_names", {})
+        scalarizable: List[Tuple[Any, np.ndarray]] = []
+        seen: Set[Any] = set()
+        for scope in reversed(getattr(self.env, "_scope_stack", []) or []):
+            for did, cur in scope.items():
+                if did is None or did in seen:
+                    continue
+                if not isinstance(cur, np.ndarray):
+                    continue
+                if cur.ndim == 0 or not np.issubdtype(cur.dtype, np.integer):
+                    continue
+                try:
+                    arr = np.broadcast_to(cur, outer_shape)
+                except ValueError:
+                    continue
+                scalarizable.append((did, arr))
+                seen.add(did)
+        if not scalarizable:
+            return None
+        result = None
+        for outer_idx in np.ndindex(outer_shape):
+            with self.env.scope():
+                for did, arr in scalarizable:
+                    scalar = np.asarray(arr[outer_idx]).reshape(-1)[0].item()
+                    self.env.set_value(did, scalar, name=outer_names.get(did))
+                with self._vectorization_scope(
+                    parallel_shape=None,
+                    parallel_defids_order=None,
+                ):
+                    cell = lowered.accept(self)
+            cell_arr = np.asarray(cell)
+            if result is None:
+                result_shape = tuple(cell_arr.shape) + outer_shape
+                result = np.empty(result_shape, dtype=cell_arr.dtype)
+            result[(Ellipsis,) + outer_idx] = cell_arr
+        return result
 
     def visit_lowered_einstein_clause(self, node: LoweredEinsteinClauseIR) -> Any:
         stack = getattr(self, "_variable_decl_stack", None)
