@@ -80,7 +80,7 @@ from ...ir.nodes import (
 )
 from ...shared.defid import DefId
 from ...shared.source_location import SourceLocation
-from ...shared.types import BOOL, F32, UNKNOWN, BinaryOp, PrimitiveType, ReductionOp, UnaryOp
+from ...shared.types import BOOL, F32, I32, UNKNOWN, BinaryOp, PrimitiveType, ReductionOp, UnaryOp
 
 
 class JacobianVisitor(IRVisitor[ExpressionIR]):
@@ -148,6 +148,99 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
             type_info=_ti(n),
             shape_info=None,
         )
+
+    def _bound_tensor_call_output_element_jacobian(
+        self,
+        binding: BindingIR,
+        output_indices: List[ExpressionIR],
+        loc: SourceLocation,
+    ) -> Optional[ExpressionIR]:
+        from ._callee import _callee_arg_with_binding_metadata
+
+        if not self._wrt_axes or self._R is None:
+            return None
+        call = binding.expr
+        if not isinstance(call, FunctionCallIR) or call.function_defid is None:
+            return None
+        callee_binding = self._B.get(call.function_defid)
+        if callee_binding is None or not isinstance(callee_binding.expr, FunctionValueIR):
+            return None
+        fv = callee_binding.expr
+        params = fv.parameters or []
+        rm = {
+            p.defid: _callee_arg_with_binding_metadata(call.arguments[j], self._B)
+            for j, p in enumerate(params)
+            if p.defid is not None and j < len(call.arguments or [])
+        }
+        body = fv.body
+        if body is None:
+            return None
+        scalar_final = RectangularAccessIR(body, list(output_indices), loc)
+        if isinstance(body, BlockExpressionIR):
+            if body.final_expr is None:
+                return None
+            scalar_block = BlockExpressionIR(
+                list(body.statements or []),
+                body.location or loc,
+                RectangularAccessIR(body.final_expr, list(output_indices), loc),
+                type_info=_ti(body),
+                shape_info=None,
+            )
+            return _sub(
+                scalar_block.accept(
+                    JacobianVisitor(
+                        self._wrt,
+                        loc,
+                        self._B,
+                        self._R,
+                        wrt_tangent=self._wt,
+                        primal_subst=rm,
+                        shared_cotangent_axes=self._wrt_axes,
+                        full_cotangent_axes=self._full_wrt_axes,
+                        dependency_cache=self._dep_cache,
+                    )
+                ),
+                rm,
+                loc,
+            )
+        return _sub(
+            scalar_final.accept(
+                JacobianVisitor(
+                    self._wrt,
+                    loc,
+                    self._B,
+                    self._R,
+                    wrt_tangent=self._wt,
+                    primal_subst=rm,
+                    shared_cotangent_axes=self._wrt_axes,
+                    full_cotangent_axes=self._full_wrt_axes,
+                    dependency_cache=self._dep_cache,
+                )
+            ),
+            rm,
+            loc,
+        )
+
+    @staticmethod
+    def _unwrap_block_final_binding(expr: ExpressionIR) -> ExpressionIR:
+        cur = expr
+        while isinstance(cur, BlockExpressionIR) and cur.final_expr is not None:
+            final_expr = cur.final_expr
+            if not isinstance(final_expr, IdentifierIR) or final_expr.defid is None:
+                break
+            repl = None
+            for stmt in reversed(cur.statements or []):
+                if (
+                    isinstance(stmt, BindingIR)
+                    and stmt.defid == final_expr.defid
+                    and stmt.expr is not None
+                ):
+                    repl = stmt.expr
+                    break
+            if repl is None:
+                break
+            cur = repl
+        return cur
 
     def visit_identifier(self, n: IdentifierIR) -> ExpressionIR:
         if n.defid == self._wrt:
@@ -255,6 +348,39 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
 
     def visit_reduction_expression(self, n: ReductionExpressionIR) -> ExpressionIR:
         loc = n.location or self._loc
+        if (
+            n.operation == ReductionOp.SUM
+            and self._wrt_axes
+            and isinstance(n.body, RectangularAccessIR)
+        ):
+            if isinstance(n.body.array, IdentifierIR) and n.body.array.defid == self._wrt:
+                inner = ReductionExpressionIR(
+                    ReductionOp.SUM,
+                    n.loop_vars,
+                    _kronecker_delta_indices(list(n.body.indices or []), self._wrt_axes, loc),
+                    loc,
+                    where_clause=n.where_clause,
+                    loop_var_ranges=n.loop_var_ranges,
+                    type_info=_ti(n),
+                    shape_info=_si(n),
+                )
+                return self._wrap_if_cotangent_indices(inner, n)
+            if isinstance(n.body.array, IdentifierIR):
+                binding = self._B.get(n.body.array.defid) if n.body.array.defid is not None else None
+                if binding is not None and isinstance(getattr(binding, "expr", None), FunctionCallIR):
+                    elem_jac = self._bound_tensor_call_output_element_jacobian(binding, list(n.body.indices or []), loc)
+                    if elem_jac is not None:
+                        inner = ReductionExpressionIR(
+                            ReductionOp.SUM,
+                            n.loop_vars,
+                            elem_jac,
+                            loc,
+                            where_clause=n.where_clause,
+                            loop_var_ranges=n.loop_var_ranges,
+                            type_info=_ti(n),
+                            shape_info=_si(n),
+                        )
+                        return self._wrap_if_cotangent_indices(inner, n)
         d_body = n.body.accept(self)
         op = n.operation
         if op == ReductionOp.SUM:
@@ -273,7 +399,14 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
         raise ValueError(f"Autodiff: unsupported reduction: {op}")
 
     def visit_rectangular_access(self, n: RectangularAccessIR) -> ExpressionIR:
+        from ._expr import _expr_uses_index_defids
         loc = n.location or self._loc
+        if isinstance(n.array, IdentifierIR) and self._wrt_axes:
+            binding = self._B.get(n.array.defid) if n.array.defid is not None else None
+            if isinstance(getattr(binding, "expr", None), FunctionCallIR):
+                elem_jac = self._bound_tensor_call_output_element_jacobian(binding, list(n.indices or []), loc)
+                if elem_jac is not None:
+                    return elem_jac
         root_expr, full_indices = _flatten_rect_access(n)
         if isinstance(root_expr, IdentifierIR) and root_expr.defid is not None and self._wrt_axes is None:
             full_sl = _jacobian_rect_read_wrt_slice_binding(full_indices, self._wrt, loc, self._B, array_root=root_expr.defid)
@@ -281,6 +414,7 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                 return full_sl
         indices = list(n.indices or [])
         da = n.array.accept(self)
+        da = self._unwrap_block_final_binding(da)
         if _is_zero(da):
             return _z(loc)
         if isinstance(da, IdentifierIR) and da.defid is not None and self._wrt_axes is None:
@@ -321,6 +455,28 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                         ext.append(current_iv)
                         continue
                     if current_did not in have and current_did in used_axis_ids:
+                        ext.append(current_iv)
+                        have.add(current_did)
+                indices = ext
+        elif self._wrt_axes:
+            full_axes = self._full_wrt_axes or self._wrt_axes or []
+            axis_ids = {iv.defid for iv in full_axes if getattr(iv, "defid", None) is not None}
+            if axis_ids and _expr_uses_index_defids(da, axis_ids):
+                have = {getattr(ix, "defid", None) for ix in indices if getattr(ix, "defid", None) is not None}
+                ext = list(indices)
+                current_axes = self._wrt_axes or full_axes
+                for p, full_iv in enumerate(full_axes):
+                    full_did = getattr(full_iv, "defid", None)
+                    if full_did is None or full_did not in axis_ids:
+                        continue
+                    current_iv = current_axes[p] if p < len(current_axes) else full_iv
+                    current_did = getattr(current_iv, "defid", None)
+                    if current_did is None:
+                        continue
+                    if current_did != full_did:
+                        ext.append(current_iv)
+                        continue
+                    if current_did not in have:
                         ext.append(current_iv)
                         have.add(current_did)
                 indices = ext
@@ -395,7 +551,7 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
         ps = fv.parameters or []
         body = fv.body
         rm = {p.defid: _callee_arg_with_binding_metadata(args[j], self._B) for j, p in enumerate(ps) if p.defid is not None and j < len(args)}
-        if self._wrt_axes is None and ps:
+        if ps:
             tangent_by_param: Dict[DefId, ExpressionIR] = {}
             any_nonzero = False
             for i, p in enumerate(ps):
@@ -407,7 +563,8 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                     any_nonzero = True
             if not any_nonzero:
                 return _z(loc)
-            if self._R is not None:
+            allow_call_jvp = self._R is not None and self._wrt_axes is None
+            if allow_call_jvp:
                 try:
                     return _callee_forward_jvp(fv, args, tangent_by_param, loc, self._B, self._R)
                 except Exception:
@@ -425,18 +582,38 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                 ud = {ps[j].defid: (_fl(1, loc) if j == i else _z(loc)) for j in range(len(ps)) if ps[j].defid is not None}
                 coef = _simplify(_sub_callee(_sub_wd(rule_body, rm, ud, loc), fv, rm, loc, fold_body_bindings=False), loc)
                 av = args[i].accept(self)
-                _reject_bare_wrt_tensor_jacobian(av, self._wrt, self._wrt_axes, "custom_diff chain")
-                terms.append(BinaryOpIR(BinaryOp.MUL, coef, av, loc, type_info=_ti(coef) or _ti(av) or _ti(n) or F32, shape_info=_si(coef) or _si(av) or _si(n)))
+                if _is_bare_wrt_tensor_deriv(av, self._wrt, self._wrt_axes):
+                    terms.append(coef)
+                else:
+                    _reject_bare_wrt_tensor_jacobian(av, self._wrt, self._wrt_axes, "custom_diff chain")
+                    terms.append(BinaryOpIR(BinaryOp.MUL, coef, av, loc, type_info=_ti(coef) or _ti(av) or _ti(n) or F32, shape_info=_si(coef) or _si(av) or _si(n)))
             return _sum_terms(terms, loc)
         if body is None:
             raise ValueError("Autodiff: JacobianVisitor cannot differentiate function with no body")
-        if isinstance(body, BlockExpressionIR) and self._R is not None:
+        if isinstance(body, BlockExpressionIR) and self._R is not None and self._wrt_axes is None:
             return _sub_callee(_diff_callee_block(body, self._wrt, loc, self._B, self._R, rm, self._wt), fv, rm, loc)
         terms = []
         for i, p in enumerate(ps):
             if p.defid is None or i >= len(args):
                 continue
-            iv = JacobianVisitor(p.defid, loc, self._B, self._R, dependency_cache=self._dep_cache)
+            iv_bindings = self._B
+            if p.defid not in iv_bindings:
+                iv_bindings = dict(self._B)
+                arg_expr = rm.get(p.defid) if p.defid in rm else args[i]
+                iv_bindings[p.defid] = BindingIR(
+                    name=getattr(p, "name", None),
+                    expr=arg_expr,
+                    location=loc,
+                    defid=p.defid,
+                    type_info=getattr(p, "param_type", None) or _ti(arg_expr),
+                )
+            iv = JacobianVisitor(
+                p.defid,
+                loc,
+                iv_bindings,
+                self._R,
+                dependency_cache=_DependencyQueryCache(iv_bindings),
+            )
             av = args[i].accept(self)
             if isinstance(args[i], IdentifierIR) and isinstance(av, IdentifierIR) and args[i].defid is not None and _binding_is_rect_slice_of_tensor(self._wrt, args[i].defid, self._B):
                 one_hot = _jacobian_tensor_id_wrt_slice_binding(
@@ -448,9 +625,12 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
                 )
                 if one_hot is not None:
                     av = one_hot
-            _reject_bare_wrt_tensor_jacobian(av, self._wrt, self._wrt_axes, "call arg partial")
             coef = _sub(body.accept(iv), rm, loc)
-            terms.append(BinaryOpIR(BinaryOp.MUL, coef, av, loc, type_info=_ti(coef) or _ti(av) or _ti(n) or F32, shape_info=_si(coef) or _si(av) or _si(n)))
+            if _is_bare_wrt_tensor_deriv(av, self._wrt, self._wrt_axes):
+                terms.append(coef)
+            else:
+                _reject_bare_wrt_tensor_jacobian(av, self._wrt, self._wrt_axes, "call arg partial")
+                terms.append(BinaryOpIR(BinaryOp.MUL, coef, av, loc, type_info=_ti(coef) or _ti(av) or _ti(n) or F32, shape_info=_si(coef) or _si(av) or _si(n)))
         return _sum_terms(terms, loc)
 
     def visit_einstein(self, n: EinsteinIR) -> ExpressionIR:

@@ -1393,27 +1393,59 @@ class LoweredRecurrenceIR(ExpressionIR):
     Recurrence loop isolated out of the Einstein clause.
     initial: run once (non-recurrence clauses). recurrence_loop: the timestep loop (e.g. t).
     body: recurrence clauses only; executed once per timestep with loop var in env.
+    preserve_steps: circular-buffer size when bounded downstream usage allows one.
     """
-    __slots__ = ('initial', 'recurrence_loop', 'body')
+    __slots__ = (
+        'initial',
+        'recurrence_loop',
+        'body',
+        'recurrence_loop_dim',
+        'recurrence_output_dim',
+        'history_lookback_steps',
+        'downstream_tail_steps',
+        'preserve_steps',
+        'requires_full_output',
+    )
 
     def __init__(
         self,
         initial: LoweredEinsteinIR,
         recurrence_loop: 'LoopStructure',
         body: LoweredEinsteinIR,
+        recurrence_loop_dim: Optional[int] = None,
+        recurrence_output_dim: Optional[int] = None,
+        history_lookback_steps: Optional[int] = None,
+        downstream_tail_steps: Optional[int] = None,
+        preserve_steps: Optional[int] = None,
+        requires_full_output: bool = False,
         location: Optional[SourceLocation] = None,
     ):
         super().__init__(location or SourceLocation('', 0, 0))
         self.initial = initial
         self.recurrence_loop = recurrence_loop
         self.body = body
+        self.recurrence_loop_dim = recurrence_loop_dim
+        self.recurrence_output_dim = recurrence_output_dim
+        self.history_lookback_steps = history_lookback_steps
+        self.downstream_tail_steps = downstream_tail_steps
+        self.preserve_steps = preserve_steps
+        self.requires_full_output = bool(requires_full_output)
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_lowered_recurrence(self)
 
     def __str__(self) -> str:
         loop_var = self.recurrence_loop.variable.name if self.recurrence_loop else '?'
-        return f"recurrence[{loop_var}]({self.body})"
+        preserve = (
+            "full"
+            if self.requires_full_output
+            else (
+                str(self.preserve_steps)
+                if self.preserve_steps is not None
+                else "?"
+            )
+        )
+        return f"recurrence[{loop_var}; preserve={preserve}]({self.body})"
 
 
 class LoweredReductionIR(ExpressionIR):

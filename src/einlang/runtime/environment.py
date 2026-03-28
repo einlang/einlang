@@ -56,6 +56,18 @@ class ExecutionEnvironment:
         finally:
             self.exit_scope()
 
+    @contextmanager
+    def reusable_scope(self, scope_dict: Optional[Dict[DefId, Any]] = None) -> Iterator[Dict[DefId, Any]]:
+        """Push a caller-owned scope dict so hot paths can reuse the same frame object."""
+        reusable = scope_dict if scope_dict is not None else {}
+        reusable.clear()
+        self._scope_stack.append(reusable)
+        try:
+            yield reusable
+        finally:
+            reusable.clear()
+            self._scope_stack.pop()
+
     def set_value(self, defid: DefId, value: Any, name: str = None) -> None:
         """Store value for DefId in current (top) scope. Optional name for debug."""
         if defid is None:

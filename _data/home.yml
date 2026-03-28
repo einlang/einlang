@@ -1,336 +1,233 @@
 meta:
-  description: "Einlang is a language and compiler for indexed tensor programs with built-in differentiation and shape checking."
-  brand_tagline: "Tensor language and compiler"
+  description: "einlang is a language for readable tensor programs with explicit indices, shape checking, recurrences, and in-language autodiff."
+  brand_tagline: ""
+
+navigation:
+  - label: "Repository"
+    url: "https://github.com/einlang/einlang"
+    icon: "repo"
+    emphasis: true
+  - label: "Documentation"
+    url: "https://github.com/einlang/einlang/blob/main/docs/README.md"
+    icon: "doc"
+  - label: "Syntax"
+    url: "#language"
+    icon: "code"
+  - label: "Showcase"
+    url: "#workloads"
+    icon: "spark"
+  - label: "Start"
+    url: "#start"
+    icon: "arrow"
 
 hero:
-  eyebrow: "Language and compiler for tensor programs"
-  title: "Indexed tensor code with built-in differentiation."
-  lead_intro: "Einlang keeps tensor structure explicit in the source."
-  lead_body: "Write indices, reductions, recurrences, and derivative expressions directly in one language. The same notation works for linear algebra, model code, optimization routines, and numerical programs."
+  deck_label: "Einlang"
+  eyebrow: "Explicit indices, in-language autodiff, and tensor code you can still read."
+  title: "Tensor math that stays legible."
+  summary: "Most tensor stacks hide the important structure behind helper calls, layer wrappers, and gradient machinery. Einlang puts indices, reductions, recurrences, and derivatives directly in the source so the program still reads like the idea."
   actions:
-    - label: "↗ Getting started"
-      url: "https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md"
-      variant: "primary"
-    - label: "⌘ Examples"
-      url: "https://github.com/einlang/einlang/tree/main/examples"
-      variant: "secondary"
-    - label: "◎ Repository"
+    - label: "Open repository"
       url: "https://github.com/einlang/einlang"
+      variant: "primary"
+      icon: "repo"
+    - label: "See the syntax"
+      url: "#language"
       variant: "secondary"
-  stats:
-    - value: "Autodiff"
-      label: "`@expr`, `@loss / @w`, and `@C / @A` are part of the language"
-    - value: "Static checks"
-      label: "shape, index, and validation passes run before execution"
-    - value: "NumPy today"
-      label: "current execution path runs through the NumPy backend"
-  ribbons:
-    - "Einstein notation"
-    - "Matmul and reductions"
-    - "Convolutions"
-    - "Attention"
+      icon: "code"
+    - label: "View examples"
+      url: "#workloads"
+      variant: "secondary"
+      icon: "spark"
+  signal_strip:
+    - "Indices"
+    - "Reductions"
     - "Autodiff"
     - "Recurrences"
-    - "Shape inference"
-    - "NumPy backend"
-    - "Optimization and simulation"
-  panel:
-    label: "example"
+  spotlight:
+    label: "One expression"
     code: |
       let logits[b, c] = sum[i](x[b, i] * W[c, i]) + bias[c];
       let probs[b, c] = exp(logits[b, c]) / sum[k](exp(logits[b, k]));
-
       let loss = -sum[b, c](target[b, c] * log(probs[b, c]));
       let dloss_dW = @loss / @W;
+  status:
+    title: "Why it feels different"
+    items:
+      - "The computational shape stays in view."
+      - "Gradients live in the same notation."
+      - "Examples scale without changing style."
 
-showcase:
-  label: "Workloads"
-  title: "Repository examples."
-  intro: "These are direct entry points into the code."
-  items:
-    - title: "Linear layers and activations"
-      url: "https://github.com/einlang/einlang/tree/main/examples/demos"
-      text: "Small examples for reductions, activations, reshaping, and layer-style tensor expressions."
-      chips:
-        - label: "matmul"
-          url: "https://github.com/einlang/einlang/blob/main/examples/hello.ein"
-        - label: "softmax"
-          url: "https://github.com/einlang/einlang/blob/main/docs/stdlib.md"
-        - label: "demos/"
-          url: "https://github.com/einlang/einlang/tree/main/examples/demos"
-    - title: "Convolutional models"
-      url: "https://github.com/einlang/einlang/tree/main/examples/mnist"
-      text: "Convolution, pooling, losses, and training-oriented examples in full programs."
-      chips:
-        - label: "mnist/"
-          url: "https://github.com/einlang/einlang/tree/main/examples/mnist"
-        - label: "mnist_quantized/"
-          url: "https://github.com/einlang/einlang/tree/main/examples/mnist_quantized"
-        - label: "conv + pooling"
-          url: "https://github.com/einlang/einlang/tree/main/examples/mnist"
-    - title: "Attention-style programs"
-      url: "https://github.com/einlang/einlang/tree/main/examples/deit_tiny"
-      text: "Attention, projection, and reduction-heavy workloads through DeiT and Whisper artifacts."
-      chips:
-        - label: "deit_tiny/"
-          url: "https://github.com/einlang/einlang/tree/main/examples/deit_tiny"
-        - label: "whisper_tiny/"
-          url: "https://github.com/einlang/einlang/tree/main/examples/whisper_tiny"
-        - label: "attention"
-          url: "https://github.com/einlang/einlang/blob/main/docs/stdlib.md"
-    - title: "Autodiff in the same language"
-      url: "https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md"
-      text: "Derivative expressions live in the same source language as the primal program."
-      chips:
-        - label: "@expr"
-          url: "https://github.com/einlang/einlang/blob/main/docs/reference.md#automatic-differentiation"
-        - label: "@loss / @w"
-          url: "https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md"
-        - label: "@C / @A"
-          url: "https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein"
-    - title: "Optimization and recurrence"
-      url: "https://github.com/einlang/einlang/tree/main/examples/optimization"
-      text: "Optimization routines and recurrence-heavy programs use the same syntax as tensor code."
-      chips:
-        - label: "optimization/"
-          url: "https://github.com/einlang/einlang/tree/main/examples/optimization"
-        - label: "value_iteration/"
-          url: "https://github.com/einlang/einlang/tree/main/examples/value_iteration"
-        - label: "recurrence/"
-          url: "https://github.com/einlang/einlang/tree/main/examples/recurrence"
-    - title: "Numerical programs"
-      url: "https://github.com/einlang/einlang/tree/main/examples/ode"
-      text: "ODE, PDE, and wave examples show the same language outside ML workloads."
-      chips:
-        - label: "ode/"
-          url: "https://github.com/einlang/einlang/tree/main/examples/ode"
-        - label: "pde_1d/"
-          url: "https://github.com/einlang/einlang/tree/main/examples/pde_1d"
-        - label: "wave_2d/"
-          url: "https://github.com/einlang/einlang/tree/main/examples/wave_2d"
+slides:
+  - id: "premise"
+    theme: "warm"
+    step: "01"
+    label: "Why"
+    title: "Tensor code should still be readable."
+    intro: "Too often, tensor programs vanish into helper calls and framework ceremony. Einlang keeps the important relationships on the page, so the source still reads like the idea behind it."
+    points:
+      - title: "You can see the axes"
+        text: "Indices and reductions are written directly instead of being implied by library calls."
+      - title: "You can see the derivative"
+        text: "Gradient expressions appear beside the original definitions, not in a separate system."
+      - title: "You can stay in one notation"
+        text: "The same style carries from simple algebra to recurrences, optimization, and larger models."
+    callout:
+      label: "The payoff"
+      text: "Programs become easier to inspect, easier to explain, and easier to trust."
 
-examples:
-  label: "Examples"
-  title: "Short examples."
-  intro: "A few small fragments are often enough to show the surface language."
-  items:
-    - title: "Linear layer"
-      url: "https://github.com/einlang/einlang/blob/main/examples/hello.ein"
-      text: "The reduction dimension stays in the source instead of being hidden behind framework calls."
-      code: |
-        let logits[b, c] = sum[i](x[b, i] * W[c, i]) + bias[c];
-      note: "linear layer"
-    - title: "Softmax-style normalization"
-      url: "https://github.com/einlang/einlang/blob/main/docs/stdlib.md"
-      text: "Probabilities can be written directly as tensor expressions over explicit axes."
-      code: |
-        let probs[b, c] = exp(logits[b, c]) / sum[k](exp(logits[b, k]));
-      note: "normalization"
-    - title: "Gradient in place"
-      url: "https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein"
-      text: "Differentiation uses the same names and values already present in the program."
-      code: |
-        let loss = -sum[b, c](target[b, c] * log(probs[b, c]));
-        let dloss_dW = @loss / @W;
-      note: "derivative expression"
-    - title: "Convolution-style indexing"
-      url: "https://github.com/einlang/einlang/tree/main/examples/mnist"
-      text: "Offset relations remain visible, which matters for model code and numerical kernels alike."
-      code: |
-        let out[oh, ow] = sum[kh, kw](
-          input[ih, iw] * kernel[kh, kw]
-        ) where ih = oh + kh, iw = ow + kw;
-      note: "index relation"
-    - title: "Recurrence"
-      url: "https://github.com/einlang/einlang/tree/main/examples/recurrence"
-      text: "Sequential definitions live in the same language instead of moving into framework control flow."
-      code: |
-        let state[0] = init;
-        let state[t in 1..T] = f(state[t - 1], input[t]);
-      note: "recurrence"
-    - title: "Beyond ML"
-      url: "https://github.com/einlang/einlang/tree/main/examples/ode"
-      text: "The same notation also works for optimization, estimation, and simulation."
-      code: |
-        let fib[0] = 0;
-        let fib[1] = 1;
-        let fib[n in 2..25] = fib[n - 1] + fib[n - 2];
-      note: "dynamic program"
+  - id: "language"
+    theme: "ink"
+    step: "02"
+    label: "Syntax"
+    title: "Syntax features, side by side."
+    intro: "This section is about syntax, not slogans. Each example shows one language feature in a more typical style and in Einlang, so you can see what the syntax keeps on the page."
+    comparisons:
+      - title: "Einstein notation"
+        takeaway: "Indices and reductions are written directly instead of being hidden in a string or helper call."
+        left_label: "NumPy / JAX"
+        left_chip: "numpy"
+        left_code: |
+          y = np.einsum("bi,ci->bc", x, W) + bias
+        right_label: "Einlang"
+        right_chip: "ein"
+        right_code: |
+          let y[b, c] = sum[i](x[b, i] * W[c, i]) + bias[c];
+      - title: "Where clauses"
+        takeaway: "Index relations stay attached to the expression instead of being managed as loop bookkeeping."
+        left_label: "Python loops"
+        left_chip: "python"
+        left_code: |
+          for oh in range(H_out):
+              for ow in range(W_out):
+                  out[oh, ow] = sum(
+                      inp[oh + kh, ow + kw] * kernel[kh, kw]
+                      for kh in range(KH)
+                      for kw in range(KW)
+                  )
+        right_label: "Einlang"
+        right_chip: "ein"
+        right_code: |
+          let out[oh, ow] = sum[kh, kw](
+            input[ih, iw] * kernel[kh, kw]
+          ) where ih = oh + kh, iw = ow + kw;
+      - title: "Autodiff syntax"
+        takeaway: "The derivative is part of the program text, not a separate API wrapped around it."
+        left_label: "JAX / framework style"
+        left_chip: "jax"
+        left_code: |
+          def loss_fn(W):
+              logits = x @ W.T + bias
+              probs = jax.nn.softmax(logits)
+              return -(target * jnp.log(probs)).sum()
 
-abstract:
-  label: "Properties"
-  title: "What stays explicit."
-  intro: "Tensor structure stays visible in the source instead of moving into helper APIs."
-  points:
-    - title: "Indices stay in the program"
-      url: "https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md"
-      text: "Indices, reduction axes, and dependencies remain explicit instead of being hidden behind framework calls."
-    - title: "Derivatives stay next to the primal"
-      url: "https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md"
-      text: "Differentiation is written where it is used, which makes training and sensitivity code easier to inspect."
-    - title: "The same syntax covers more than model code"
-      url: "https://github.com/einlang/einlang/tree/main/examples"
-      text: "The repository includes model code, optimization routines, recurrences, and numerical examples."
+          dloss_dW = jax.grad(loss_fn)(W)
+        right_label: "Einlang"
+        right_chip: "ein"
+        right_code: |
+          let logits[b, c] = sum[i](x[b, i] * W[c, i]) + bias[c];
+          let probs[b, c] = exp(logits[b, c]) / sum[k](exp(logits[b, k]));
+          let loss = -sum[b, c](target[b, c] * log(probs[b, c]));
+          let dloss_dW = @loss / @W;
+      - title: "Fibonacci recurrence"
+        takeaway: "The recurrence uses the same tested form as the repo examples: base cases first, then the recursive rule."
+        left_label: "Python loop"
+        left_chip: "python"
+        left_code: |
+          fib = np.zeros(11, dtype=int)
+          fib[0] = 1
+          fib[1] = 1
+          for n in range(2, 11):
+              fib[n] = fib[n - 1] + fib[n - 2]
+        right_label: "Einlang"
+        right_chip: "ein"
+        right_code: |
+          let fib[0] = 1;
+          let fib[1] = 1;
+          let fib[n in 2..11] = fib[n-1] + fib[n-2];
+      - title: "Comprehensions and ranges"
+        takeaway: "Generated arrays stay as expressions, and ranges are part of the syntax."
+        left_label: "Python"
+        left_chip: "python"
+        left_code: |
+          squares = [i * i for i in range(1, 10)]
+        right_label: "Einlang"
+        right_chip: "ein"
+        right_code: |
+          let squares = [i * i | i in 1..10];
+      - title: "Block expressions"
+        takeaway: "Multiple statements can still produce a value, so setup code stays inside the expression that uses it."
+        left_label: "Python"
+        left_chip: "python"
+        left_code: |
+          tmp = x + y
+          if tmp > 0:
+              result = tmp * scale
+          else:
+              result = 0
+        right_label: "Einlang"
+        right_chip: "ein"
+        right_code: |
+          let result = {
+            let tmp = x + y;
+            if tmp > 0 { tmp * scale } else { 0 }
+          };
 
-capabilities:
-  label: "Language"
-  title: "Core language features."
-  intro: "These are the main language-level pieces to inspect first."
-  items:
-    - title: "Explicit indices and reductions"
-      url: "https://github.com/einlang/einlang/blob/main/docs/reference.md#einstein-notation"
-      text: "Tensor structure is written directly in the source, with reductions over named indices."
-      chips:
-        - label: "Einstein notation"
-          url: "https://github.com/einlang/einlang/blob/main/docs/reference.md#einstein-notation"
-        - label: "reductions"
-          url: "https://github.com/einlang/einlang/blob/main/docs/reference.md#einstein-notation"
-        - label: "shape-checked"
-          url: "https://github.com/einlang/einlang/blob/main/docs/reference.md"
-    - title: "Where-clauses and index relations"
-      url: "https://github.com/einlang/einlang/blob/main/docs/reference.md#where-clauses"
-      text: "Offset relations, guards, and bindings live next to the computation."
-      chips:
-        - label: "where"
-          url: "https://github.com/einlang/einlang/blob/main/docs/reference.md#where-clauses"
-        - label: "guards"
-          url: "https://github.com/einlang/einlang/blob/main/docs/reference.md#where-clauses"
-        - label: "index algebra"
-          url: "https://github.com/einlang/einlang/blob/main/docs/MATH.md"
-    - title: "Recurrences and sequential programs"
-      url: "https://github.com/einlang/einlang/blob/main/docs/reference.md#recurrence-relations"
-      text: "State updates and dynamic programs use the same declaration style as tensor code."
-      chips:
-        - label: "recurrence"
-          url: "https://github.com/einlang/einlang/blob/main/docs/reference.md#recurrence-relations"
-        - label: "dependency order"
-          url: "https://github.com/einlang/einlang/blob/main/docs/RECURRENCE_ORDER_DESIGN.md"
-        - label: "sequence logic"
-          url: "https://github.com/einlang/einlang/tree/main/examples/recurrence"
-    - title: "Built-in differentiation"
-      url: "https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md"
-      text: "Autodiff is part of the language rather than a separate graph-building API."
-      chips:
-        - label: "@expr"
-          url: "https://github.com/einlang/einlang/blob/main/docs/reference.md#automatic-differentiation"
-        - label: "@loss / @w"
-          url: "https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md"
-        - label: "compiler integrated"
-          url: "https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md"
+  - id: "workloads"
+    theme: "paper"
+    step: "03"
+    label: "Showcase"
+    title: "The same language, from first read to full workload."
+    intro: "Einlang is most convincing when the same syntax appears in both small fragments and larger programs. These are good places to start."
+    cards:
+      - title: "A first read"
+        text: "Start with the smallest examples to get the feel of the notation."
+        links:
+          - label: "examples/hello.ein"
+            url: "https://github.com/einlang/einlang/blob/main/examples/hello.ein"
+          - label: "examples/demos"
+            url: "https://github.com/einlang/einlang/tree/main/examples/demos"
+      - title: "Vision-style models"
+        text: "Convolutional examples keep local structure legible instead of hiding it in layers of framework code."
+        links:
+          - label: "examples/mnist"
+            url: "https://github.com/einlang/einlang/tree/main/examples/mnist"
+          - label: "examples/mnist_quantized"
+            url: "https://github.com/einlang/einlang/tree/main/examples/mnist_quantized"
+      - title: "Attention-heavy programs"
+        text: "DeiT and Whisper artifacts show how the notation holds up under denser workloads."
+        links:
+          - label: "examples/deit_tiny"
+            url: "https://github.com/einlang/einlang/tree/main/examples/deit_tiny"
+          - label: "examples/whisper_tiny"
+            url: "https://github.com/einlang/einlang/tree/main/examples/whisper_tiny"
+      - title: "Beyond standard ML"
+        text: "Optimization, recurrence, and numerical examples show the same language in a wider setting."
+        links:
+          - label: "examples/optimization"
+            url: "https://github.com/einlang/einlang/tree/main/examples/optimization"
+          - label: "examples/ode"
+            url: "https://github.com/einlang/einlang/tree/main/examples/ode"
 
-research:
-  label: "Checks"
-  title: "Compiler pipeline."
-  intro: "The surface language sits on top of analysis and lowering passes rather than a thin syntax layer."
-  items:
-    - value: "Parsing"
-      label: "grammar, parser, AST nodes, and diagnostics"
-    - value: "Analysis"
-      label: "type inference, shape analysis, range analysis, and validation"
-    - value: "Lowering"
-      label: "Einstein notation, reductions, and autodiff passes"
-    - value: "Execution"
-      label: "NumPy backend for the current runtime path"
-
-evidence:
-  label: "Inspect"
-  title: "Where to inspect the project."
-  intro: "Places to inspect first."
-  columns:
-    - title: "Examples"
-      bullets:
-        - label: "MNIST and quantized MNIST"
-          url: "https://github.com/einlang/einlang/tree/main/examples/mnist"
-        - label: "DeiT-tiny and Whisper-tiny artifacts"
-          url: "https://github.com/einlang/einlang/tree/main/examples/deit_tiny"
-        - label: "Optimization, recurrence, and value iteration"
-          url: "https://github.com/einlang/einlang/tree/main/examples/optimization"
-        - label: "ODE, PDE, and wave examples"
-          url: "https://github.com/einlang/einlang/tree/main/examples/ode"
-    - title: "Docs and implementation"
-      bullets:
-        - label: "Language reference and stdlib docs"
-          url: "https://github.com/einlang/einlang/blob/main/docs/README.md"
-        - label: "Autodiff design and operation coverage"
-          url: "https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md"
-        - label: "Compiler passes for shape, range, and lowering"
-          url: "https://github.com/einlang/einlang/tree/main/src/einlang/passes"
-        - label: "Backend execution on NumPy today"
-          url: "https://github.com/einlang/einlang/tree/main/src/einlang/backends"
-  aside:
-    title: "Repository"
-    text: "The project includes examples, reference docs, autodiff design notes, and backend implementation details."
-    chips:
-      - "examples"
-      - "reference"
-      - "passes"
-      - "backend"
-
-compiler:
-  label: "Implementation"
-  title: "Implementation."
-  intro: "Compiler and runtime path."
-  stages:
-    - title: "Front-end"
-      text: "Parsing and source-aware diagnostics."
-    - title: "Analysis passes"
-      text: "Type, shape, range, and validation passes."
-    - title: "Lowering"
-      text: "Einstein notation, reductions, and autodiff lowering."
-    - title: "Execution"
-      text: "Execution through the NumPy backend."
-
-models:
-  label: "Run First"
-  title: "Starting points."
-  intro: "Start with these."
-  items:
-    - title: "MNIST"
-      url: "https://github.com/einlang/einlang/tree/main/examples/mnist"
-      text: "Compact convolutional example."
-    - title: "Quantized MNIST"
-      url: "https://github.com/einlang/einlang/tree/main/examples/mnist_quantized"
-      text: "Lower-precision convolutional variant."
-    - title: "DeiT-tiny"
-      url: "https://github.com/einlang/einlang/tree/main/examples/deit_tiny"
-      text: "Transformer-style example."
-    - title: "Whisper-tiny"
-      url: "https://github.com/einlang/einlang/tree/main/examples/whisper_tiny"
-      text: "Speech model artifact."
-
-links:
-  label: "Docs"
-  title: "Next docs."
-  intro: "Follow-up documents."
-  items:
-    - label: "Getting Started"
-      text: "Short introduction and first commands."
-      url: "https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md"
-    - label: "Examples"
-      text: "Browse examples by domain and feature."
-      url: "https://github.com/einlang/einlang/tree/main/examples"
-    - label: "Autodiff Docs"
-      text: "Autodiff overview and implementation notes."
-      url: "https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md"
-    - label: "Reference"
-      text: "Language reference."
-      url: "https://github.com/einlang/einlang/blob/main/docs/reference.md"
-    - label: "Why Einlang"
-      text: "Motivation and comparison."
-      url: "https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md"
-
-cta:
-  label: "Run It"
-  title: "Install and run."
-  intro: "Install and run."
-  command: |
-    python3 -m pip install "git+https://github.com/einlang/einlang.git"
-    python3 -m einlang examples/mnist/main.ein
-  actions:
-    - label: "⌘ Open examples"
-      url: "https://github.com/einlang/einlang/tree/main/examples"
-      variant: "primary"
-    - label: "↗ Read docs index"
-      url: "https://github.com/einlang/einlang/blob/main/docs/README.md"
-      variant: "secondary"
-  note: "For a smaller first run, start with examples/hello.ein."
+  - id: "start"
+    theme: "accent"
+    step: "04"
+    label: "Start"
+    title: "Run one file, then keep going."
+    intro: "A small example is enough to begin. From there, the examples and the reference docs open up the rest of the language."
+    command_label: "Quick start"
+    command: |
+      python3 -m pip install "git+https://github.com/einlang/einlang.git"
+      python3 -m einlang examples/hello.ein
+    actions:
+      - label: "Documentation"
+        url: "https://github.com/einlang/einlang/blob/main/docs/README.md"
+        variant: "secondary"
+        icon: "doc"
+      - label: "Reference"
+        url: "https://github.com/einlang/einlang/blob/main/docs/reference.md"
+        variant: "secondary"
+        icon: "doc"
+      - label: "Autodiff"
+        url: "https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md"
+        variant: "primary"
+        icon: "spark"

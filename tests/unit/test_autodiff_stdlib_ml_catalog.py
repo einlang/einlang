@@ -239,6 +239,10 @@ def _shared_print_at_sources() -> dict[str, str]:
 _SHARED_PRINT_AT_SOURCES = _shared_print_at_sources()
 _SHARED_PRINT_AT_OPS = frozenset(_SHARED_PRINT_AT_SOURCES)
 
+_UNARY_GROUP_SIZE = 16
+_BINARY_GROUP_SIZE = 12
+_REDUCTION_GROUP_SIZE = 8
+
 
 _UNARY_SUCCESS = frozenset(
     {
@@ -682,6 +686,40 @@ def _cataloged_ops() -> set[str]:
     )
 
 
+def _ops_in_std_ml_order(candidates: set[str]) -> list[str]:
+    return [op for op in _STD_ML_EXPORTS if op in candidates]
+
+
+def _chunked(items: list[str], size: int) -> list[tuple[str, ...]]:
+    return [tuple(items[i : i + size]) for i in range(0, len(items), size)]
+
+
+def _build_grouped_generic_source(registry: str, ops: tuple[str, ...]) -> str:
+    lines = ["use std::ml;"]
+    if registry == "unary":
+        lines.append("let x = [0.25, 0.75];")
+        input_name = "x"
+        call_template = "std::ml::{op}(x)"
+    elif registry == "binary":
+        lines.append("let a = [0.25, 0.75];")
+        lines.append("let b = [1.5, 2.5];")
+        input_name = "a"
+        call_template = "std::ml::{op}(a, b)"
+    elif registry == "reduction":
+        lines.append("let x = [[0.25, 0.75], [1.5, 2.5]];")
+        input_name = "x"
+        call_template = "std::ml::{op}(x)"
+    else:
+        raise AssertionError("unknown registry %s" % registry)
+
+    for op_name in ops:
+        result_name = "y_%s" % op_name
+        diff_name = "dy_%s" % op_name
+        lines.append("let %s = %s;" % (result_name, call_template.format(op=op_name)))
+        lines.append("let %s = @%s;" % (diff_name, result_name))
+    return "\n".join(lines)
+
+
 def _case_for(op_name: str) -> tuple[str, bool]:
     if op_name in _SHARED_PRINT_AT_SOURCES:
         return _SHARED_PRINT_AT_SOURCES[op_name], True
@@ -703,6 +741,21 @@ def _case_for(op_name: str) -> tuple[str, bool]:
             True,
         )
     raise AssertionError("missing autodiff case for std::ml::%s" % op_name)
+
+
+_GROUPED_GENERIC_CASES = (
+    [("unary", ops) for ops in _chunked(_ops_in_std_ml_order(set(_UNARY_SUCCESS)), _UNARY_GROUP_SIZE)]
+    + [("binary", ops) for ops in _chunked(_ops_in_std_ml_order(set(_BINARY_SUCCESS)), _BINARY_GROUP_SIZE)]
+    + [("reduction", ops) for ops in _chunked(_ops_in_std_ml_order(set(_REDUCTION_SUCCESS)), _REDUCTION_GROUP_SIZE)]
+)
+
+_ISOLATED_COMPILE_OPS = [
+    op_name
+    for op_name in _STD_ML_EXPORTS
+    if op_name not in _UNARY_SUCCESS
+    and op_name not in _BINARY_SUCCESS
+    and op_name not in _REDUCTION_SUCCESS
+]
 
 
 def test_std_ml_autodiff_case_registries_are_disjoint() -> None:
@@ -739,8 +792,28 @@ def ml_autodiff_compiler(module_compiler) -> CompilerDriver:
     return module_compiler
 
 
-@pytest.mark.parametrize("op_name", _STD_ML_EXPORTS, ids=_STD_ML_EXPORTS)
-def test_std_ml_exports_have_autodiff_compile_coverage(
+@pytest.mark.parametrize(
+    "registry_name,ops",
+    _GROUPED_GENERIC_CASES,
+    ids=lambda case: case if isinstance(case, str) else None,
+)
+def test_std_ml_generic_groups_have_autodiff_compile_coverage(
+    registry_name: str, ops: tuple[str, ...], ml_autodiff_compiler: CompilerDriver
+) -> None:
+    source = _build_grouped_generic_source(registry_name, ops)
+    result = ml_autodiff_compiler.compile(
+        source,
+        source_file="<autodiff-std-ml:%s:%s>" % (registry_name, ",".join(ops)),
+        root_path=_REPO_ROOT,
+    )
+    assert result.success, (
+        "std::ml %s batch failed for %s: %s"
+        % (registry_name, list(ops), result.get_errors())
+    )
+
+
+@pytest.mark.parametrize("op_name", _ISOLATED_COMPILE_OPS, ids=_ISOLATED_COMPILE_OPS)
+def test_std_ml_isolated_exports_have_autodiff_compile_coverage(
     op_name: str, ml_autodiff_compiler: CompilerDriver
 ) -> None:
     source, expect_success = _case_for(op_name)

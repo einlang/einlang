@@ -805,7 +805,7 @@ def _reduction_var_bounded_by_loop_var(
     """True if read_index_expr is a reduction variable whose range end is loop_var or loop_var-1."""
     if reduction_ranges is None or not read_index_expr or loop_defid is None:
         return False
-    read_defid = read_index_expr.defid
+    read_defid = getattr(read_index_expr, "defid", None)
     if read_defid is None:
         return False
     loop_struct = reduction_ranges.get(read_defid) if isinstance(reduction_ranges, dict) else None
