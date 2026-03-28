@@ -131,6 +131,43 @@ This page lists **syntax and features that Einlang intentionally does not suppor
 
 **Docs and examples:** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Examples: [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein). Language reference: [Automatic differentiation](reference.md#automatic-differentiation).
 
+**Known limitation: MNIST-style one-step training is not numerically correct yet.**
+
+The current autodiff/runtime stack still has a remaining bug for the composed training pattern used by
+[`examples/mnist/train_one_step.ein`](https://github.com/einlang/einlang/blob/main/examples/mnist/train_one_step.ein):
+
+- scalar loss built from `max_pool(relu(conv(...)))`
+- quotient gradients for intermediate activations and conv weights
+- recurrence-style parameter updates such as `W[step]` depending on `W[step - 1]`
+
+**Observed behavior:**
+
+- The demo itself still decreases loss, but only partially:
+  `python3 examples/mnist/compare_train_one_step_numpy.py`
+  currently prints:
+  `einlang loss0=1.9759273529 loss1=1.9508731365`
+  `numpy   loss0=1.9759274721 loss1=1.8365604877`
+  so the post-step loss differs by about `0.1143`.
+- Entrywise gradient comparison still shows the deeper CNN gradients are wrong:
+  `python3 examples/mnist/compare_train_one_step_gradients.py`
+  reports that `d_loss_d_conv1_w`, `d_loss_d_conv1_b`, `d_loss_d_conv2_w`, and `d_loss_d_conv2_b`
+  are zero on the Einlang side while the NumPy reference is nonzero.
+- A reduced repro also shows the issue one stage earlier:
+  for `loss = sum(max_pool(relu(c0)))`, `@loss / @p0` is correct but `@loss / @c0` collapses incorrectly,
+  so the failure is in the `max_pool(relu(...)) -> conv` gradient chain rather than in the scalar loss seed.
+- The focused recurrence regression test no longer crashes on missing loop vars, but it still does not match the
+  NumPy reference update values:
+  `python3 -m pytest tests/unit/test_autodiff_pass.py -k "mnist_train_autodiff_ops_small"`
+  still fails numerically.
+
+**Working hypothesis:**
+
+- There is still a bug in autodiff for tensor-valued function-call chains under scalar loss, especially
+  through `max_pool(relu(x))`, where the correct pooled cotangent is computed but not carried back into the
+  user-written convolution quotient path.
+- There is also still a semantic/runtime mismatch for block-bodied recurrence updates used by training-style
+  parameter recurrences, even after the earlier missing-`step` crash was removed.
+
 **You can still** use explicit gradients (e.g. [numerics::optim](https://github.com/einlang/einlang/blob/main/docs/stdlib.md), [optimization_suite.ein](https://github.com/einlang/einlang/blob/main/examples/optimization/optimization_suite.ein)) when you prefer or when autodiff does not yet cover an op.
 
 ---

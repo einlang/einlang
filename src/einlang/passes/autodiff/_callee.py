@@ -222,6 +222,21 @@ def _diff_callee_block_tangent(
             if tr is not None:
                 w_fe = tr
     sp_fe = _stmt_partial_for_replayed_callee_final(sp, primal_map, block)
+    replayed_local_bindings = {}
+    for s in block.statements or []:
+        if not isinstance(s, BindingIR) or s.defid is None or s.expr is None:
+            continue
+        prim = primal_map.get(s.defid)
+        if not isinstance(prim, IdentifierIR) or prim.defid is None:
+            continue
+        replayed_local_bindings[prim.defid] = BindingIR(
+            name=prim.name or s.name,
+            expr=_sub(s.expr, primal_map, loc),
+            location=s.location or loc,
+            defid=prim.defid,
+            type_info=_ti(s) or _ti(s.expr),
+        )
+    fe_rep = _prune_const_ifs_replayed(fe_rep, replayed_local_bindings)
     vis_fe = JacobianVisitor(
         w_fe,
         loc,

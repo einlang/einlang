@@ -24,24 +24,21 @@ def test_topk_1d(compiler, runtime):
     let arr1_2d = [[64.0, 34.0, 25.0, 12.0, 22.0, 11.0, 90.0, 88.0, 45.0, 50.0]];
     let (vals1, idxs1) = std::ml::topk(arr1_2d, 3, 1);
 
-    // Test 1D TopK via 2D - same test (always returns largest)
-    let (vals2, idxs2) = std::ml::topk(arr1_2d, 3, 1);
-
     // Test with axis=-1 (last axis, same as axis=1 for 2D)
-    let (vals3, idxs3) = std::ml::topk(arr1_2d, 3, -1);
+    let (vals2, idxs2) = std::ml::topk(arr1_2d, 3, -1);
 
     // Test with axis=0 (first axis)
-    let (vals4, idxs4) = std::ml::topk(arr1_2d, 1, 0);
+    let (vals3, idxs3) = std::ml::topk(arr1_2d, 1, 0);
 
     // Test edge case: k = 1
-    let (vals5, idxs5) = std::ml::topk(arr1_2d, 1, 1);
+    let (vals4, idxs4) = std::ml::topk(arr1_2d, 1, 1);
 
     // Test edge case: k = len(arr) (but topk only supports 2D, so we'll test with k = N)
-    let (vals6, idxs6) = std::ml::topk(arr1_2d, 10, 1);
+    let (vals5, idxs5) = std::ml::topk(arr1_2d, 10, 1);
 
     // Test with different array
     let arr2_2d = [[1.0, 5.0, 3.0, 2.0, 4.0]];
-    let (vals7, idxs7) = std::ml::topk(arr2_2d, 2, 1);
+    let (vals6, idxs6) = std::ml::topk(arr2_2d, 2, 1);
     """
 
     result = compile_and_execute(source, compiler, runtime)
@@ -66,61 +63,53 @@ def test_topk_1d(compiler, runtime):
     for i, idx in enumerate(idxs1):
         assert abs(vals1[i] - arr1[idx]) < 1e-6, f"Value mismatch at index {i}: {vals1[i]} != {arr1[idx]}"
 
-    # Test 2: same test (should be same values, sorted descending)
+    # Test 2: axis=-1 (same as axis=1 for 2D)
     vals2 = np.array(result.outputs['vals2'])
     idxs2 = np.array(result.outputs['idxs2'], dtype=np.int32)
     assert vals2.shape == (1, 3), f"Expected shape (1, 3), got {vals2.shape}"
     vals2 = vals2[0]  # Extract the single row
-    # Values should match exactly (both sorted descending)
+    # Should be same as test 1 (axis=-1 is same as axis=1 for 2D, sorted descending)
     np.testing.assert_allclose(vals2, vals1, rtol=1e-6)
 
-    # Test 3: axis=-1 (same as axis=1 for 2D)
+    # Test 3: axis=0 (top 1 along first axis - for each column, find top 1 row)
     vals3 = np.array(result.outputs['vals3'])
     idxs3 = np.array(result.outputs['idxs3'], dtype=np.int32)
-    assert vals3.shape == (1, 3), f"Expected shape (1, 3), got {vals3.shape}"
+    assert vals3.shape == (1, 10), f"Expected shape (1, 10), got {vals3.shape}"  # [k, N] = [1, 10]
     vals3 = vals3[0]  # Extract the single row
-    # Should be same as test 1 (axis=-1 is same as axis=1 for 2D, sorted descending)
-    np.testing.assert_allclose(vals3, vals1, rtol=1e-6)
-
-    # Test 4: axis=0 (top 1 along first axis - for each column, find top 1 row)
-    vals4 = np.array(result.outputs['vals4'])
-    idxs4 = np.array(result.outputs['idxs4'], dtype=np.int32)
-    assert vals4.shape == (1, 10), f"Expected shape (1, 10), got {vals4.shape}"  # [k, N] = [1, 10]
-    vals4 = vals4[0]  # Extract the single row
     # For axis=0 with input [1, 10], we find top 1 row for each of 10 columns
     # Since there's only 1 row, we get all values from that row
-    np.testing.assert_allclose(vals4, arr1, rtol=1e-6)
+    np.testing.assert_allclose(vals3, arr1, rtol=1e-6)
 
-    # Test 5: k = 1 (top 1 largest)
+    # Test 4: k = 1 (top 1 largest)
+    vals4 = np.array(result.outputs['vals4'])
+    idxs4 = np.array(result.outputs['idxs4'], dtype=np.int32)
+    assert vals4.shape == (1, 1), f"Expected shape (1, 1), got {vals4.shape}"
+    vals4 = vals4[0, 0]  # Extract the single value
+    idxs4 = idxs4[0, 0]  # Extract the single index
+    assert vals4 == np.max(arr1), f"Expected max value {np.max(arr1)}, got {vals4}"
+    assert arr1[idxs4] == np.max(arr1), "Index should point to max value"
+
+    # Test 5: k = len(arr) (all values)
     vals5 = np.array(result.outputs['vals5'])
     idxs5 = np.array(result.outputs['idxs5'], dtype=np.int32)
-    assert vals5.shape == (1, 1), f"Expected shape (1, 1), got {vals5.shape}"
-    vals5 = vals5[0, 0]  # Extract the single value
-    idxs5 = idxs5[0, 0]  # Extract the single index
-    assert vals5 == np.max(arr1), f"Expected max value {np.max(arr1)}, got {vals5}"
-    assert arr1[idxs5] == np.max(arr1), "Index should point to max value"
-
-    # Test 6: k = len(arr) (all values)
-    vals6 = np.array(result.outputs['vals6'])
-    idxs6 = np.array(result.outputs['idxs6'], dtype=np.int32)
-    assert vals6.shape == (1, 10), f"Expected shape (1, 10), got {vals6.shape}"
-    vals6 = vals6[0]  # Extract the single row
+    assert vals5.shape == (1, 10), f"Expected shape (1, 10), got {vals5.shape}"
+    vals5 = vals5[0]  # Extract the single row
     # Should contain all values (sorted descending)
     expected_all_sorted = np.sort(arr1)[::-1]  # Sort descending
-    np.testing.assert_allclose(vals6, expected_all_sorted, rtol=1e-6)
+    np.testing.assert_allclose(vals5, expected_all_sorted, rtol=1e-6)
 
-    # Test 7: different array (top 2 largest)
+    # Test 6: different array (top 2 largest)
     arr2 = np.array([1.0, 5.0, 3.0, 2.0, 4.0], dtype=np.float32)
-    vals7 = np.array(result.outputs['vals7'])
-    idxs7 = np.array(result.outputs['idxs7'], dtype=np.int32)
-    assert vals7.shape == (1, 2), f"Expected shape (1, 2), got {vals7.shape}"
-    vals7 = vals7[0]  # Extract the single row
-    idxs7 = idxs7[0]  # Extract the single row
+    vals6 = np.array(result.outputs['vals6'])
+    idxs6 = np.array(result.outputs['idxs6'], dtype=np.int32)
+    assert vals6.shape == (1, 2), f"Expected shape (1, 2), got {vals6.shape}"
+    vals6 = vals6[0]  # Extract the single row
+    idxs6 = idxs6[0]  # Extract the single row
     expected_top2 = np.array([5.0, 4.0])  # Top 2 largest, sorted descending
-    np.testing.assert_allclose(vals7, expected_top2, rtol=1e-6)
+    np.testing.assert_allclose(vals6, expected_top2, rtol=1e-6)
     # Verify values match array at indices
-    for i, idx in enumerate(idxs7):
-        assert abs(vals7[i] - arr2[idx]) < 1e-6, f"Value mismatch at index {i}: {vals7[i]} != {arr2[idx]}"
+    for i, idx in enumerate(idxs6):
+        assert abs(vals6[i] - arr2[idx]) < 1e-6, f"Value mismatch at index {i}: {vals6[i]} != {arr2[idx]}"
 
 
 def test_topk_2d_axis1_basic(compiler, runtime):

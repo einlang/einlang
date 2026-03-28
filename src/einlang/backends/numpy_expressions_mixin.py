@@ -181,6 +181,8 @@ class ExpressionVisitorMixin:
             array = expr.array.accept(self)
         indices = [idx.accept(self) for idx in (expr.indices or []) if idx is not None]
         try:
+            if getattr(array, "is_circular_recurrence_buffer", False):
+                return array[tuple(indices)]
             if isinstance(array, np.ndarray):
                 if self._vectorization_safe_oob_enabled():
                     return _safe_oob_ndarray_access(array, indices)
@@ -903,7 +905,35 @@ class ExpressionVisitorMixin:
             use_argmin=getattr(expr, "use_argmin", False),
         )
         if not ok or result is None:
-            raise RuntimeError("SelectAtArgmax vectorized execution failed")
+            from ..runtime.compute.lowered_execution import execute_lowered_loops
+            best_primal = None
+            best_diff = None
+            scalar_init: Dict[Any, Any] = {}
+            ri_scalar = getattr(self, "_reduction_initial_context", None) or {}
+            for did, val in ri_scalar.items():
+                arr = np.asarray(val)
+                if arr.ndim == 0 or arr.size == 1:
+                    scalar_init[did] = int(arr.reshape(-1)[0]) if np.issubdtype(arr.dtype, np.integer) else arr.reshape(-1)[0].item()
+            for loop_ctx in execute_lowered_loops(reduction_loops, scalar_init, ev):
+                full_ctx = dict(loop_ctx)
+                primal_val = primal_body_ev(full_ctx)
+                primal_arr = np.asarray(primal_val)
+                if primal_arr.size != 1:
+                    raise RuntimeError("SelectAtArgmax scalar fallback expected scalar primal body")
+                primal_scalar = primal_arr.reshape(-1)[0].item()
+                choose = False
+                if best_primal is None:
+                    choose = True
+                elif getattr(expr, "use_argmin", False):
+                    choose = primal_scalar < best_primal
+                else:
+                    choose = primal_scalar > best_primal
+                if choose:
+                    best_primal = primal_scalar
+                    best_diff = diff_body_ev(full_ctx)
+            if best_diff is None:
+                raise RuntimeError("SelectAtArgmax vectorized execution failed")
+            result = best_diff
         return result
 
     def visit_where_expression(self, expr: WhereExpressionIR) -> Any:

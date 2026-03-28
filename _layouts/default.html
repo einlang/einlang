@@ -5,289 +5,266 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% if page.title %}{{ page.title }} - {% endif %}{{ site.title }}</title>
-  <meta
-    name="description"
-    content="{{ home.meta.description }}"
-  >
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
-    rel="stylesheet"
-  >
+  <meta name="description" content="{{ home.meta.description }}">
   <link rel="stylesheet" href="{{ '/assets/site.css' | relative_url }}">
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+  <script>
+    window.addEventListener("DOMContentLoaded", function () {
+      if (!window.hljs) return;
+      document.querySelectorAll("pre code").forEach(function (block) {
+        block.classList.add("language-rust");
+        window.hljs.highlightElement(block);
+      });
+    });
+  </script>
 </head>
 <body>
-  <div class="page-noise" aria-hidden="true"></div>
+  <div class="page-orbit page-orbit-one" aria-hidden="true"></div>
+  <div class="page-orbit page-orbit-two" aria-hidden="true"></div>
+  <div class="page-grid" aria-hidden="true"></div>
 
   <header class="site-header">
-    <div class="page-shell">
-      <div class="site-header-inner">
-        <a class="brand" href="{{ '/' | relative_url }}">
-          <span class="brand-mark">E</span>
-          <span class="brand-copy">
-            <span class="brand-name">{{ site.title }}</span>
-            <span class="brand-tagline">{{ home.meta.brand_tagline }}</span>
-          </span>
-        </a>
+    <div class="site-header-inner">
+      <a class="brand" href="{{ '/' | relative_url }}">
+        <span class="brand-copy">
+          <span class="brand-name">{{ site.title }}</span>
+        </span>
+      </a>
 
-        <nav class="site-nav" aria-label="Primary">
-          <a href="#language">Language</a>
-          <a href="#examples">Examples</a>
-          <a href="#explore">Explore</a>
-          <a href="#start" class="nav-cta">Run It</a>
-        </nav>
-      </div>
+      <nav class="site-nav" aria-label="Primary">
+        {% for item in home.navigation %}
+          <a href="{{ item.url }}" class="{% if item.emphasis %}nav-strong{% endif %}">
+            <span>{{ item.label }}</span>
+          </a>
+        {% endfor %}
+      </nav>
     </div>
   </header>
 
   <main class="page-main">
-    <div class="page-shell">
-      <div class="landing-page">
-        <section class="hero">
-          <div class="hero-copy">
-            <span class="eyebrow">{{ home.hero.eyebrow }}</span>
-
-            <div class="hero-heading">
-              <h1>{{ home.hero.title }}</h1>
-              <p class="hero-lede">
-                <strong>{{ home.hero.lead_intro }}</strong>
-                {{ home.hero.lead_body }}
-              </p>
-            </div>
-
-            <div class="hero-actions">
-              {% for action in home.hero.actions %}
-                <a class="{% if action.variant == 'primary' %}button{% else %}button-secondary{% endif %}" href="{{ action.url }}">{{ action.label }}</a>
-              {% endfor %}
-            </div>
-
-            <div class="hero-highlights" aria-label="Project summary">
-              {% for stat in home.hero.stats %}
-                <article class="metric">
-                  <strong>{{ stat.value }}</strong>
-                  <span>{{ stat.label }}</span>
-                </article>
-              {% endfor %}
-            </div>
-
-            <div class="ribbon-row" aria-label="Core project themes">
-              {% for item in home.hero.ribbons limit: 6 %}
-                <span class="ribbon">{{ item }}</span>
-              {% endfor %}
-            </div>
+    <div class="deck-column">
+      <section class="slide slide-hero" id="top">
+        <div class="slide-frame hero-frame">
+          <div class="hero-brand" aria-label="{{ site.title }}">
+            <span class="hero-brand-copy">
+              <span class="hero-brand-name">{{ site.title }}</span>
+            </span>
           </div>
 
-          <aside class="hero-aside" aria-label="Example and pipeline summary">
-            <div class="code-panel">
-              <div class="code-panel-bar">
-                <span class="code-accent">ein</span>
-                <span class="code-panel-label">{{ home.hero.panel.label }}</span>
+          <p class="hero-eyebrow">{{ home.hero.eyebrow }}</p>
+          <h1>{{ home.hero.title }}</h1>
+          <p class="hero-summary">{{ home.hero.summary }}</p>
+
+          <div class="action-row">
+            {% for action in home.hero.actions %}
+              <a class="{% if action.variant == 'primary' %}button{% else %}button-secondary{% endif %}" href="{{ action.url }}">
+                <span>{{ action.label }}</span>
+              </a>
+            {% endfor %}
+          </div>
+
+          <div class="signal-strip" aria-label="Project signals">
+            {% for item in home.hero.signal_strip %}
+              <span>{{ item }}</span>
+            {% endfor %}
+          </div>
+
+          <div class="panel-stack">
+            <article class="status-card">
+              <p class="panel-label">{{ home.hero.status.title }}</p>
+              <ul class="status-list">
+                {% for item in home.hero.status.items %}
+                  <li>{{ item }}</li>
+                {% endfor %}
+              </ul>
+            </article>
+
+            <article class="code-block">
+              <div class="code-header">
+                <span class="window-controls" aria-hidden="true">
+                  <span class="window-dot window-dot-close"></span>
+                  <span class="window-dot window-dot-minimize"></span>
+                  <span class="window-dot window-dot-zoom"></span>
+                </span>
+                <span class="code-title">{{ home.hero.spotlight.label }}</span>
+                <span class="code-chip">ein</span>
               </div>
-              <pre><code>{{ home.hero.panel.code | escape }}</code></pre>
+              <pre><code class="language-rust">{{ home.hero.spotlight.code | escape }}</code></pre>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      {% for slide in home.slides %}
+        <section class="slide slide-{{ slide.theme }}" id="{{ slide.id }}">
+          <div class="slide-frame">
+            <div class="slide-topline">
+              <span class="slide-step">{{ slide.step }}</span>
+              <span class="slide-label">{{ slide.label }}</span>
             </div>
 
-            <div class="aside-panel">
-              <span class="mini-label">{{ home.research.label }}</span>
-              <div class="stack-list">
-                {% for item in home.research.items %}
-                  <div class="stack-item">
-                    <strong>{{ item.value }}</strong>
-                    <span>{{ item.label }}</span>
-                  </div>
+            <h2>{{ slide.title }}</h2>
+            <p class="slide-intro">{{ slide.intro }}</p>
+
+            {% if slide.points %}
+              <div class="stack-block">
+                {% for item in slide.points %}
+                  <article class="info-card">
+                    <p class="card-title">{{ item.title }}</p>
+                    <p>{{ item.text }}</p>
+                  </article>
                 {% endfor %}
               </div>
-            </div>
-          </aside>
-        </section>
+            {% endif %}
 
-        <section class="section-card" id="language">
-          <div class="section-top">
-            <div class="section-header">
-              <span class="mini-label">{{ home.capabilities.label }}</span>
-              <h2>What you can read directly in the source.</h2>
-              <p>{{ home.abstract.intro }}</p>
-            </div>
-
-            <div class="summary-panel">
-              {% for item in home.abstract.points %}
-                <div class="summary-item">
-                  <strong>{{ item.title }}</strong>
-                  <span>{{ item.text }}</span>
-                </div>
-              {% endfor %}
-            </div>
-          </div>
-
-          <div class="feature-grid">
-            {% for item in home.capabilities.items %}
-              <article class="feature-card">
-                <h3>
-                  {% if item.url %}
-                    <a class="card-title-link" href="{{ item.url }}">{{ item.title }}</a>
-                  {% else %}
-                    {{ item.title }}
-                  {% endif %}
-                </h3>
-                <p>{{ item.text }}</p>
-                <div class="chip-row">
-                  {% for chip in item.chips %}
-                    {% if chip.url %}
-                      <a class="chip chip-link" href="{{ chip.url }}">{{ chip.label }}</a>
-                    {% else %}
-                      <span class="chip">{{ chip }}</span>
-                    {% endif %}
-                  {% endfor %}
-                </div>
+            {% if slide.callout %}
+              <article class="callout-card">
+                <p class="panel-label">{{ slide.callout.label }}</p>
+                <p>{{ slide.callout.text }}</p>
               </article>
-            {% endfor %}
-          </div>
-        </section>
+            {% endif %}
 
-        <section class="section-card" id="examples">
-          <div class="section-top">
-            <div class="section-header">
-              <span class="mini-label">{{ home.examples.label }}</span>
-              <h2>Small examples, then real workloads.</h2>
-              <p>{{ home.examples.intro }}</p>
-            </div>
+            {% if slide.snippets %}
+              <div class="stack-block stack-block-snippets">
+                {% for item in slide.snippets %}
+                  <article class="snippet-card">
+                    <div class="snippet-meta">
+                      <p class="card-title">{{ item.label }}</p>
+                      <span>{{ item.note }}</span>
+                    </div>
+                    <div class="code-block code-block-inline">
+                      <div class="code-header">
+                        <span class="window-controls" aria-hidden="true">
+                          <span class="window-dot window-dot-close"></span>
+                          <span class="window-dot window-dot-minimize"></span>
+                          <span class="window-dot window-dot-zoom"></span>
+                        </span>
+                        <span class="code-title">{{ item.note }}</span>
+                        <span class="code-chip">ein</span>
+                      </div>
+                      <pre><code class="language-rust">{{ item.code | escape }}</code></pre>
+                    </div>
+                  </article>
+                {% endfor %}
+              </div>
+            {% endif %}
 
-            <div class="summary-panel summary-panel-compact">
-              {% for item in home.models.items %}
-                <div class="summary-item">
-                  <strong>
-                    {% if item.url %}
-                      <a class="card-title-link" href="{{ item.url }}">{{ item.title }}</a>
-                    {% else %}
-                      {{ item.title }}
-                    {% endif %}
-                  </strong>
-                  <span>{{ item.text }}</span>
-                </div>
-              {% endfor %}
-            </div>
-          </div>
+            {% if slide.comparisons %}
+              <div class="comparison-stack">
+                {% for item in slide.comparisons %}
+                  <article class="comparison-card">
+                    <div class="comparison-head">
+                      <p class="card-title">{{ item.title }}</p>
+                      <p class="comparison-takeaway">{{ item.takeaway }}</p>
+                    </div>
+                    <div class="comparison-grid">
+                      <section class="comparison-pane">
+                        <p class="panel-label">{{ item.left_label }}</p>
+                        <div class="code-block code-block-inline">
+                          <div class="code-header">
+                            <span class="window-controls" aria-hidden="true">
+                              <span class="window-dot window-dot-close"></span>
+                              <span class="window-dot window-dot-minimize"></span>
+                              <span class="window-dot window-dot-zoom"></span>
+                            </span>
+                            <span class="code-title">{{ item.left_label }}</span>
+                            <span class="code-chip">{{ item.left_chip | default: "ref" }}</span>
+                          </div>
+                          <pre><code class="language-rust">{{ item.left_code | escape }}</code></pre>
+                        </div>
+                      </section>
 
-          <div class="sample-grid">
-            {% for item in home.examples.items limit: 4 %}
-              <article class="snippet-card">
-                <div>
-                  <h3>
-                    {% if item.url %}
-                      <a class="card-title-link" href="{{ item.url }}">{{ item.title }}</a>
-                    {% else %}
-                      {{ item.title }}
-                    {% endif %}
-                  </h3>
-                  <p>{{ item.text }}</p>
-                </div>
+                      <section class="comparison-pane comparison-pane-strong">
+                        <p class="panel-label">{{ item.right_label }}</p>
+                        <div class="code-block code-block-inline">
+                          <div class="code-header">
+                            <span class="window-controls" aria-hidden="true">
+                              <span class="window-dot window-dot-close"></span>
+                              <span class="window-dot window-dot-minimize"></span>
+                              <span class="window-dot window-dot-zoom"></span>
+                            </span>
+                            <span class="code-title">{{ item.right_label }}</span>
+                            <span class="code-chip">{{ item.right_chip | default: "ein" }}</span>
+                          </div>
+                          <pre><code class="language-rust">{{ item.right_code | escape }}</code></pre>
+                        </div>
+                      </section>
+                    </div>
+                  </article>
+                {% endfor %}
+              </div>
+            {% endif %}
 
-                <div class="code-panel compact">
-                  <div class="code-panel-bar">
-                    <span class="code-accent">ein</span>
-                    <span class="code-panel-label">{{ item.note }}</span>
-                  </div>
-                  <pre><code>{{ item.code | escape }}</code></pre>
-                </div>
-              </article>
-            {% endfor %}
-          </div>
-        </section>
+            {% if slide.timeline %}
+              <div class="timeline">
+                {% for item in slide.timeline %}
+                  <article class="timeline-step">
+                    <span>{{ item.stage }}</span>
+                    <p>{{ item.text }}</p>
+                  </article>
+                {% endfor %}
+              </div>
+            {% endif %}
 
-        <section class="section-card" id="explore">
-          <div class="section-header">
-            <span class="mini-label">Explore</span>
-            <h2>Start in one place, then branch out.</h2>
-            <p>Use the repo by task: workloads on the left, docs and implementation on the right.</p>
-          </div>
-
-          <div class="explore-layout">
-            <div class="showcase-grid">
-              {% for item in home.showcase.items limit: 4 %}
-                <article class="feature-card">
-                  <h3>
-                    {% if item.url %}
-                      <a class="card-title-link" href="{{ item.url }}">{{ item.title }}</a>
-                    {% else %}
-                      {{ item.title }}
-                    {% endif %}
-                  </h3>
-                  <p>{{ item.text }}</p>
-                  <div class="chip-row">
-                    {% for chip in item.chips %}
-                      {% if chip.url %}
-                        <a class="chip chip-link" href="{{ chip.url }}">{{ chip.label }}</a>
-                      {% else %}
-                        <span class="chip">{{ chip }}</span>
-                      {% endif %}
-                    {% endfor %}
-                  </div>
-                </article>
-              {% endfor %}
-            </div>
-
-            <div class="aside-stack">
-              {% for column in home.evidence.columns limit: 1 offset: 1 %}
-                <article class="story-card">
-                  <h3>{{ column.title }}</h3>
-                  <ul>
-                    {% for bullet in column.bullets %}
-                      <li>
-                        <a class="inline-link" href="{{ bullet.url }}">{{ bullet.label }}</a>
-                      </li>
-                    {% endfor %}
-                  </ul>
-                </article>
-              {% endfor %}
-
-              <article class="story-card">
-                <h3>{{ home.links.title }}</h3>
+            {% if slide.aside %}
+              <article class="callout-card">
+                <p class="panel-label">{{ slide.aside.label }}</p>
                 <div class="link-list">
-                  {% for item in home.links.items %}
-                    <a class="link-card" href="{{ item.url }}">
-                      <strong>{{ item.label }}</strong>
-                      <span>{{ item.text }}</span>
+                  {% for item in slide.aside.links %}
+                    <a class="inline-link-card" href="{{ item.url }}">
+                      <span>{{ item.label }}</span>
                     </a>
                   {% endfor %}
                 </div>
               </article>
-            </div>
-          </div>
-        </section>
+            {% endif %}
 
-        <section class="footer-card" id="start">
-          <div class="section-top">
-            <div class="section-header">
-              <span class="mini-label">{{ home.cta.label }}</span>
-              <h2>{{ home.cta.title }}</h2>
-              <p>{{ home.cta.note }}</p>
-            </div>
+            {% if slide.cards %}
+              <div class="stack-block">
+                {% for item in slide.cards %}
+                  <article class="info-card">
+                    <p class="card-title">{{ item.title }}</p>
+                    <p>{{ item.text }}</p>
+                    <div class="link-list">
+                      {% for link in item.links %}
+                        <a class="inline-link-card" href="{{ link.url }}">
+                          <span>{{ link.label }}</span>
+                        </a>
+                      {% endfor %}
+                    </div>
+                  </article>
+                {% endfor %}
+              </div>
+            {% endif %}
 
-            <div class="summary-panel summary-panel-compact">
-              {% for stage in home.compiler.stages %}
-                <div class="summary-item">
-                  <strong>{{ stage.title }}</strong>
-                  <span>{{ stage.text }}</span>
+            {% if slide.command %}
+              <article class="code-block">
+                <div class="code-header">
+                  <span class="window-controls" aria-hidden="true">
+                    <span class="window-dot window-dot-close"></span>
+                    <span class="window-dot window-dot-minimize"></span>
+                    <span class="window-dot window-dot-zoom"></span>
+                  </span>
+                  <span class="code-title">{{ slide.command_label }}</span>
+                  <span class="code-chip">bash</span>
                 </div>
-              {% endfor %}
-            </div>
-          </div>
+                <pre><code class="language-rust">{{ slide.command | escape }}</code></pre>
+              </article>
+            {% endif %}
 
-          <div class="code-panel install-command">
-            <div class="code-panel-bar">
-              <span class="code-accent">bash</span>
-              <span class="code-panel-label">minimal workflow</span>
-            </div>
-            <pre><code>{{ home.cta.command | escape }}</code></pre>
-          </div>
-
-          <div class="link-row">
-            {% for action in home.cta.actions %}
-              <a class="{% if action.variant == 'primary' %}button{% else %}button-secondary{% endif %}" href="{{ action.url }}">{{ action.label }}</a>
-            {% endfor %}
+            {% if slide.actions %}
+              <div class="action-row">
+                {% for action in slide.actions %}
+                  <a class="{% if action.variant == 'primary' %}button{% else %}button-secondary{% endif %}" href="{{ action.url }}">
+                    <span>{{ action.label }}</span>
+                  </a>
+                {% endfor %}
+              </div>
+            {% endif %}
           </div>
         </section>
-      </div>
+      {% endfor %}
+
       {{ content }}
     </div>
   </main>

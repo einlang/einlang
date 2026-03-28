@@ -527,6 +527,18 @@ class IRSerializer:
                 self._sym(":initial"), initial,
                 self._sym(":recurrence_loop"), recurrence_loop,
                 self._sym(":body"), body]
+        if getattr(node, "recurrence_loop_dim", None) is not None:
+            core.extend([self._sym(":recurrence_loop_dim"), int(node.recurrence_loop_dim)])
+        if getattr(node, "recurrence_output_dim", None) is not None:
+            core.extend([self._sym(":recurrence_output_dim"), int(node.recurrence_output_dim)])
+        if getattr(node, "history_lookback_steps", None) is not None:
+            core.extend([self._sym(":history_lookback_steps"), int(node.history_lookback_steps)])
+        if getattr(node, "downstream_tail_steps", None) is not None:
+            core.extend([self._sym(":downstream_tail_steps"), int(node.downstream_tail_steps)])
+        if getattr(node, "preserve_steps", None) is not None:
+            core.extend([self._sym(":preserve_steps"), int(node.preserve_steps)])
+        if getattr(node, "requires_full_output", False):
+            core.extend([self._sym(":requires_full_output"), self._sym("true")])
         if self.include_location and node.location:
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
@@ -1680,7 +1692,19 @@ class IRDeserializer:
         body = self.deserialize(opts.get(":body"))
         if initial is None or recurrence_loop is None or body is None:
             raise ValueError("LoweredRecurrenceIR missing initial, recurrence_loop, or body")
-        return LoweredRecurrenceIR(initial=initial, recurrence_loop=recurrence_loop, body=body, location=loc)
+        requires_full_output = opts.get(":requires_full_output") is not None
+        return LoweredRecurrenceIR(
+            initial=initial,
+            recurrence_loop=recurrence_loop,
+            body=body,
+            recurrence_loop_dim=opts.get(":recurrence_loop_dim"),
+            recurrence_output_dim=opts.get(":recurrence_output_dim"),
+            history_lookback_steps=opts.get(":history_lookback_steps"),
+            downstream_tail_steps=opts.get(":downstream_tail_steps"),
+            preserve_steps=opts.get(":preserve_steps"),
+            requires_full_output=requires_full_output,
+            location=loc,
+        )
 
     def _deserialize_interpolated_string(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import InterpolatedStringIR

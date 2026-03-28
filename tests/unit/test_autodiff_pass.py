@@ -739,10 +739,9 @@ let x1_next = x1 - alpha_gd * g1;
                     f"{label}: {key} expected {ref}, got {actual}"
                 )
 
-    def test_deit_ops_autodiff_supported_paths(self):
-        """DeiT core autodiff coverage for supported ops: layer_norm, gelu_tanh, and softmax primitives."""
+    def test_deit_layer_norm_autodiff_supported_path(self):
+        """DeiT layer_norm autodiff path stays compilable and finite."""
         source = """
-use std::math::exp;
 let x = [[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]];
 let w = [1.0, 1.0, 1.0];
 let b = [0.0, 0.0, 0.0];
@@ -750,11 +749,24 @@ let ln = std::ml::layer_normalization(x, w, b, 1e-5, -1);
 let x000 = x[0, 0, 0];
 let ln000 = ln[0, 0, 0];
 let d_ln = @ln000 / @x000;
+"""
+        _, out = _compile_run(source)
+        assert np.isfinite(_scalar_float(out, "d_ln"))
 
+    def test_deit_gelu_tanh_autodiff_supported_path(self):
+        """DeiT gelu_tanh autodiff path stays compilable and finite."""
+        source = """
 let g_in = 1.0;
 let g_out = std::ml::gelu_tanh(g_in);
 let d_gelu = @g_out / @g_in;
+"""
+        _, out = _compile_run(source)
+        assert np.isfinite(_scalar_float(out, "d_gelu"))
 
+    def test_deit_attention_softmax_autodiff_supported_path(self):
+        """DeiT attention softmax primitives stay compilable and finite under autodiff."""
+        source = """
+use std::math::exp;
 let score = [[1.0, 2.0], [3.0, 4.0]];
 let score_max[i in 0..2] = max[j in 0..2](score[i, j]);
 let score_exp[i in 0..2, j in 0..2] = exp(score[i, j] - score_max[i]);
@@ -765,8 +777,6 @@ let a00 = attn[0, 0];
 let d_attn = @a00 / @s00;
 """
         _, out = _compile_run(source)
-        assert np.isfinite(_scalar_float(out, "d_ln"))
-        assert np.isfinite(_scalar_float(out, "d_gelu"))
         assert np.isfinite(_scalar_float(out, "d_attn"))
 
     def test_conv_autodiff_jacobian_rank1_matches_calculus(self):
@@ -907,6 +917,58 @@ let W4[i in 0..2, j in 0..2] = W[4, i, j];
         _assert_allclose(W3, W_ref[3], msg="mnist recurrence step3")
         _assert_allclose(W4, W_ref[4], msg="mnist recurrence step4 modulo-cycle")
         assert np.isfinite(W1).all() and np.isfinite(W2).all() and np.isfinite(W3).all() and np.isfinite(W4).all()
+
+    @pytest.mark.skip(
+        reason=(
+            "Temporary skip: generic tensor quotient through sum(max_pool(relu(...))) "
+            "still scalarizes @loss/@c0; keep the rest of the autodiff suite unblocked."
+        )
+    )
+    def test_mnist_conv_pool_chain_quotients_regression(self):
+        source = """
+use std::ml::{max_pool, relu};
+
+let x[n in 0..1, c in 0..1, h in 0..4, w in 0..4] = ((h * 4 + w + 1) as f32) / 16.0;
+let w0[co in 0..1, ci in 0..1, kh in 0..3, kw in 0..3] = 0.1 * (1.0 + (kh + kw) as f32);
+let b0[co in 0..1] = 0.05;
+
+let c0[n in 0..1, co in 0..1, h in 0..4, w in 0..4] =
+    sum[ci in 0..1, kh in 0..3, kw in 0..3](
+        if h + kh - 1 >= 0 && h + kh - 1 < 4 && w + kw - 1 >= 0 && w + kw - 1 < 4 {
+            x[n, ci, h + kh - 1, w + kw - 1] * w0[co, ci, kh, kw]
+        } else {
+            0.0
+        }
+    ) + b0[co];
+
+let p0 = max_pool(relu(c0), [2, 2], [2, 2], [0, 0]);
+let loss = sum[n in 0..1, co in 0..1, h in 0..2, w in 0..2](p0[n, co, h, w]);
+
+let dp = @loss / @p0;
+let dc = @loss / @c0;
+let dw[co in 0..1, ci in 0..1, kh in 0..3, kw in 0..3] = {
+    let e = w0[co, ci, kh, kw];
+    @loss / @e
+};
+"""
+        _, out = _compile_run(source)
+        dp = np.asarray(out.get("dp"))
+        dc = np.asarray(out.get("dc"))
+        dw = np.asarray(out.get("dw"))
+
+        ref_dp = np.ones((1, 1, 2, 2), dtype=np.float64)
+        ref_dc = np.array(
+            [[[[0.0, 0.0, 0.0, 0.0], [0.0, 1.0, 1.0, 0.0], [0.0, 1.0, 1.0, 0.0], [0.0, 0.0, 0.0, 0.0]]]],
+            dtype=np.float64,
+        )
+        ref_dw = np.array(
+            [[[[0.875, 1.125, 1.375], [1.875, 2.125, 2.375], [2.875, 3.125, 3.375]]]],
+            dtype=np.float64,
+        )
+
+        _assert_allclose(dp, ref_dp, msg="pooled loss quotient wrt pooled output")
+        _assert_allclose(dc, ref_dc, msg="pooled loss quotient wrt conv output")
+        _assert_allclose(dw, ref_dw, msg="pooled loss quotient wrt conv weights")
 
     def test_mnist_main_differentiable_ops_small(self):
         """Cover mnist/main.ein differentiable ops on tiny tensors: logits Einstein sum and quotients wrt X and W."""

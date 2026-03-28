@@ -1,5 +1,9 @@
 """NumPy backend Einstein execution mixin."""
 
+from typing import Callable
+
+from ..ir.nodes import BlockExpressionIR
+
 from .numpy_einstein_vectorization import *
 from .numpy_einstein_analysis import (
     _TYPE_NAME_TO_NUMPY_DTYPE,
@@ -18,7 +22,351 @@ from .numpy_einstein_recurrence_analysis import (
     _slice_list_from_clause_indices,
 )
 
+
+class _CircularRecurrenceBuffer:
+    """Logical full tensor backed by a ring buffer on one recurrence dimension."""
+
+    is_circular_recurrence_buffer = True
+
+    def __init__(
+        self,
+        full_shape: List[int],
+        dtype: Any,
+        recurrence_dim: int,
+        preserve_steps: int,
+        materializer: Optional[Callable[[], np.ndarray]] = None,
+    ) -> None:
+        self._full_shape = tuple(int(v) for v in full_shape)
+        self._recurrence_dim = int(recurrence_dim)
+        self._preserve_steps = int(preserve_steps)
+        self._materializer = materializer
+        self._materialized: Optional[np.ndarray] = None
+        buffer_shape = list(self._full_shape)
+        buffer_shape[self._recurrence_dim] = self._preserve_steps
+        self._buffer = _allocate_numpy_output(buffer_shape, dtype)
+        self.shape = self._full_shape
+        self.ndim = len(self._full_shape)
+        self.dtype = self._buffer.dtype
+
+    def is_materialized(self) -> bool:
+        return self._materialized is not None
+
+    def materialize(self) -> np.ndarray:
+        if self._materialized is None:
+            if self._materializer is None:
+                raise RuntimeError("circular recurrence buffer cannot materialize without a callback")
+            self._materialized = np.asarray(self._materializer())
+        return self._materialized
+
+    def _expand_key(self, key: Any) -> tuple:
+        if not isinstance(key, tuple):
+            key = (key,)
+        items = list(key)
+        if Ellipsis in items:
+            ell_idx = items.index(Ellipsis)
+            missing = self.ndim - (len(items) - 1)
+            items = items[:ell_idx] + [slice(None)] * missing + items[ell_idx + 1 :]
+        if len(items) < self.ndim:
+            items.extend([slice(None)] * (self.ndim - len(items)))
+        return tuple(items[: self.ndim])
+
+    def _translate_recurrence_index(self, idx: Any) -> Any:
+        if isinstance(idx, (np.integer, int)):
+            value = int(idx)
+            if value < 0 or value >= self._full_shape[self._recurrence_dim]:
+                raise IndexError("recurrence index out of ring-buffer bounds")
+            return value % self._preserve_steps
+        if isinstance(idx, slice):
+            start, stop, step = idx.indices(self._full_shape[self._recurrence_dim])
+            arr = np.arange(start, stop, step, dtype=np.intp)
+            if arr.size > self._preserve_steps:
+                raise RuntimeError("slice exceeds preserved recurrence window")
+            if arr.size == 0:
+                return slice(0, 0, 1)
+            mapped = arr % self._preserve_steps
+            if arr.size > 1 and np.all(np.diff(mapped) == 1):
+                return slice(int(mapped[0]), int(mapped[-1]) + 1, 1)
+            return mapped
+        if isinstance(idx, np.ndarray):
+            arr = np.asarray(idx, dtype=np.intp)
+            if np.any(arr < 0) or np.any(arr >= self._full_shape[self._recurrence_dim]):
+                raise IndexError("recurrence index array out of ring-buffer bounds")
+            if arr.size > self._preserve_steps:
+                raise RuntimeError("index array exceeds preserved recurrence window")
+            return arr % self._preserve_steps
+        if isinstance(idx, list):
+            return self._translate_recurrence_index(np.asarray(idx, dtype=np.intp))
+        raise RuntimeError(f"unsupported recurrence index type: {type(idx).__name__}")
+
+    def _translated_key(self, key: Any) -> tuple:
+        expanded = list(self._expand_key(key))
+        expanded[self._recurrence_dim] = self._translate_recurrence_index(expanded[self._recurrence_dim])
+        return tuple(expanded)
+
+    def __getitem__(self, key: Any) -> Any:
+        if self._materialized is not None:
+            return self._materialized[key]
+        try:
+            return self._buffer[self._translated_key(key)]
+        except Exception:
+            return self.materialize()[key]
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        if self._materialized is not None:
+            self._materialized[key] = value
+            return
+        try:
+            self._buffer[self._translated_key(key)] = value
+        except Exception:
+            self.materialize()[key] = value
+
+    def __array__(self, dtype: Optional[Any] = None) -> np.ndarray:
+        arr = self.materialize()
+        if dtype is None:
+            return arr
+        return np.asarray(arr, dtype=dtype)
+
+
 class EinsteinExecutionSetupMixin:
+    def _snapshot_visible_env(self) -> Dict[Any, Any]:
+        snapshot: Dict[Any, Any] = {}
+        for scope in getattr(self.env, "_scope_stack", []) or []:
+            snapshot.update(scope)
+        return snapshot
+
+    def _materialize_recurrence_with_snapshot(
+        self,
+        node: LoweredRecurrenceIR,
+        variable_decl: Any,
+        snapshot: Dict[Any, Any],
+    ) -> np.ndarray:
+        with self.env.scope():
+            for defid, value in snapshot.items():
+                if defid is not None:
+                    self.env.set_value(defid, value)
+            return np.asarray(self._execute_lowered_recurrence_full(node, variable_decl))
+
+    def _resolve_lowered_output_shape(self, lowered_einstein: LoweredEinsteinIR) -> Optional[List[int]]:
+        output_shape = None
+        tensor_shape = lowered_einstein.shape
+        if tensor_shape:
+            output_shape = []
+            for shape_dim in tensor_shape:
+                try:
+                    dim_value = _evaluate_shape_dim(shape_dim, self)
+                except RuntimeError:
+                    output_shape = None
+                    break
+                if isinstance(dim_value, (int, np.integer)):
+                    output_shape.append(int(dim_value))
+                elif isinstance(dim_value, np.ndarray) and dim_value.ndim == 0:
+                    try:
+                        output_shape.append(int(dim_value))
+                    except (TypeError, ValueError):
+                        output_shape = None
+                        break
+                else:
+                    output_shape = None
+                    break
+        if not output_shape and lowered_einstein.items:
+            output_shape = self._shape_from_all_items(lowered_einstein.items)
+        elif output_shape and lowered_einstein.items:
+            items_shape = self._shape_from_all_items(lowered_einstein.items)
+            if items_shape and len(items_shape) == len(output_shape):
+                output_shape = [max(a, b) for a, b in zip(output_shape, items_shape)]
+        return output_shape
+
+    def _execute_lowered_recurrence_full(self, node: LoweredRecurrenceIR, variable_decl: Any) -> Any:
+        """Existing full-history recurrence execution path."""
+        output = self._execute_lowered_einstein(node.initial, variable_decl)
+        binding = getattr(variable_decl, "_binding", None) or variable_decl
+        variable_key = binding.defid or getattr(variable_decl, "defid", None)
+        variable_defid = variable_key
+        tensor_shape = list(output.shape) if output is not None else None
+        tensor_element_type = node.initial.element_type or None
+
+        def expr_eval(e: Any) -> Any:
+            return e.accept(self)
+
+        recurrence_loops_for_outer = [node.recurrence_loop]
+        outer_loop_defid = node.recurrence_loop.variable.defid
+        recurrence_iterable = expr_eval(node.recurrence_loop.iterable)
+        _MAX = int(DEFAULT_EINSTEIN_LOOP_MAX)
+        n_iter = [0]
+        if outer_loop_defid is None or recurrence_iterable is None:
+            first_ctx_iter = iter(())
+        else:
+            def _iter_outer_contexts() -> Any:
+                rec_context = {}
+                for value in recurrence_iterable:
+                    rec_context[outer_loop_defid] = value
+                    yield rec_context
+            first_ctx_iter = _iter_outer_contexts()
+        first_ctx = next(first_ctx_iter, None)
+        step_items: List[Any] = []
+        if first_ctx is not None:
+            for item in node.body.items:
+                step_ok = self._execute_lowered_einstein_clause_one_recurrence_step(
+                    item, variable_decl, output, variable_key, variable_defid,
+                    first_ctx, recurrence_loops_for_outer, expr_eval, tensor_shape, tensor_element_type,
+                )
+                if step_ok is not None and variable_key is not None:
+                    self.env.set_value(variable_key, output)
+                    step_items.append(item)
+                else:
+                    self.env.set_value(variable_key, output)
+                    full_result = self._execute_lowered_einstein_clause(
+                        item, variable_decl,
+                        shape=tensor_shape, element_type=tensor_element_type,
+                        pre_allocated_output=None,
+                    )
+                    if full_result is not None and variable_key is not None:
+                        clause_indices = item.indices or []
+                        if clause_indices and len(clause_indices) == output.ndim:
+                            slices_list = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
+                            if len(slices_list) == output.ndim:
+                                if full_result.shape == output.shape:
+                                    output[tuple(slices_list)] = full_result[tuple(slices_list)].astype(output.dtype)
+                                else:
+                                    output[tuple(slices_list)] = full_result.astype(output.dtype)
+                                self.env.set_value(variable_key, output)
+        else:
+            step_items = list(node.body.items)
+        for rec_context in first_ctx_iter:
+            n_iter[0] += 1
+            if n_iter[0] > _MAX:
+                raise RuntimeError(
+                    f"Einstein recurrence loop iterations exceeded limit ({_MAX}). "
+                    "Reduce clause range or increase config.DEFAULT_EINSTEIN_LOOP_MAX."
+                )
+            for item in step_items:
+                result = self._execute_lowered_einstein_clause_one_recurrence_step(
+                    item, variable_decl, output, variable_key, variable_defid,
+                    rec_context, recurrence_loops_for_outer, expr_eval, tensor_shape, tensor_element_type,
+                )
+                if result is not None and variable_key is not None:
+                    self.env.set_value(variable_key, output)
+        return output
+
+    def _maybe_execute_lowered_recurrence_circular(self, node: LoweredRecurrenceIR, variable_decl: Any) -> Optional[Any]:
+        preserve_steps = getattr(node, "preserve_steps", None)
+        recurrence_output_dim = getattr(node, "recurrence_output_dim", None)
+        if (
+            getattr(node, "requires_full_output", False)
+            or preserve_steps is None
+            or recurrence_output_dim is None
+            or preserve_steps <= 0
+        ):
+            return None
+        body_items = list(node.body.items or [])
+        if len(body_items) != 1:
+            return None
+        item0 = body_items[0]
+        if len(item0.loops or []) != 1 or item0.bindings or item0.guards:
+            return None
+        # Block-bodied recurrence steps can contain nested reductions that still rely on
+        # outer timestep bindings staying scalar in the ambient env. The circular-buffer
+        # optimized path currently routes those through the broadcast-binding executor,
+        # which is not yet robust for these block+reduction combinations.
+        if any(isinstance(getattr(item, "body", None), BlockExpressionIR) for item in body_items):
+            return None
+        shape = self._resolve_lowered_output_shape(node.initial or node.body)
+        if not shape or recurrence_output_dim >= len(shape):
+            return None
+        full_extent = int(shape[recurrence_output_dim])
+        if preserve_steps >= full_extent:
+            return None
+        tensor_element_type = node.initial.element_type or node.body.element_type
+        dtype = self._type_info_to_numpy_dtype(tensor_element_type) or np.int32
+        binding = getattr(variable_decl, "_binding", None) or variable_decl
+        variable_key = binding.defid or getattr(variable_decl, "defid", None)
+        variable_defid = variable_key
+        env_snapshot = self._snapshot_visible_env()
+
+        ring = _CircularRecurrenceBuffer(
+            shape,
+            dtype,
+            recurrence_output_dim,
+            preserve_steps,
+            materializer=lambda: self._materialize_recurrence_with_snapshot(
+                node,
+                variable_decl,
+                env_snapshot,
+            ),
+        )
+        if variable_key is not None:
+            self.env.set_value(variable_key, ring)
+
+        def expr_eval(e: Any) -> Any:
+            return e.accept(self)
+
+        recurrence_loops_for_outer = [node.recurrence_loop]
+        outer_loop_defid = node.recurrence_loop.variable.defid
+        recurrence_iterable = expr_eval(node.recurrence_loop.iterable)
+        _MAX = int(DEFAULT_EINSTEIN_LOOP_MAX)
+        n_iter = [0]
+
+        for item in node.initial.items or []:
+            result = self._execute_lowered_einstein_clause(
+                item,
+                variable_decl,
+                shape=shape,
+                element_type=tensor_element_type,
+                pre_allocated_output=ring,
+            )
+            if ring.is_materialized():
+                return ring.materialize()
+            if result is not None and variable_key is not None:
+                self.env.set_value(variable_key, ring)
+
+        if outer_loop_defid is None or recurrence_iterable is None:
+            first_ctx_iter = iter(())
+        else:
+            def _iter_outer_contexts() -> Any:
+                rec_context = {}
+                for value in recurrence_iterable:
+                    rec_context[outer_loop_defid] = value
+                    yield rec_context
+            first_ctx_iter = _iter_outer_contexts()
+
+        first_ctx = next(first_ctx_iter, None)
+        step_items: List[Any] = []
+        if first_ctx is not None:
+            for item in node.body.items:
+                step_ok = self._execute_lowered_einstein_clause_one_recurrence_step(
+                    item, variable_decl, ring, variable_key, variable_defid,
+                    first_ctx, recurrence_loops_for_outer, expr_eval, shape, tensor_element_type,
+                )
+                if ring.is_materialized():
+                    return ring.materialize()
+                if step_ok is None:
+                    return ring.materialize()
+                if variable_key is not None:
+                    self.env.set_value(variable_key, ring)
+                step_items.append(item)
+        else:
+            step_items = list(node.body.items)
+
+        for rec_context in first_ctx_iter:
+            n_iter[0] += 1
+            if n_iter[0] > _MAX:
+                raise RuntimeError(
+                    f"Einstein recurrence loop iterations exceeded limit ({_MAX}). "
+                    "Reduce clause range or increase config.DEFAULT_EINSTEIN_LOOP_MAX."
+                )
+            for item in step_items:
+                result = self._execute_lowered_einstein_clause_one_recurrence_step(
+                    item, variable_decl, ring, variable_key, variable_defid,
+                    rec_context, recurrence_loops_for_outer, expr_eval, shape, tensor_element_type,
+                )
+                if ring.is_materialized():
+                    return ring.materialize()
+                if result is None:
+                    return ring.materialize()
+                if variable_key is not None:
+                    self.env.set_value(variable_key, ring)
+        return ring
+
     def _vectorize_debug_log(
         self,
         path: str,
@@ -166,66 +514,10 @@ class EinsteinExecutionSetupMixin:
         variable_decl = stack[-1] if stack else None
         if variable_decl is None:
             raise RuntimeError("LoweredRecurrenceIR executed without variable_decl on stack")
-        from ..runtime.compute.lowered_execution import execute_lowered_loops
-        output = self._execute_lowered_einstein(node.initial, variable_decl)
-        binding = getattr(variable_decl, "_binding", None) or variable_decl
-        variable_key = binding.defid or getattr(variable_decl, "defid", None)
-        variable_defid = variable_key
-        tensor_shape = list(output.shape) if output is not None else None
-        tensor_element_type = node.initial.element_type or None
-
-        def expr_eval(e: Any) -> Any:
-            return e.accept(self)
-
-        recurrence_loops_for_outer = [node.recurrence_loop]
-        _MAX = int(DEFAULT_EINSTEIN_LOOP_MAX)
-        n_iter = [0]
-        first_ctx_iter = execute_lowered_loops(recurrence_loops_for_outer, {}, expr_eval)
-        first_ctx = next(first_ctx_iter, None)
-        step_items: List[Any] = []
-        if first_ctx is not None:
-            for item in node.body.items:
-                step_ok = self._execute_lowered_einstein_clause_one_recurrence_step(
-                    item, variable_decl, output, variable_key, variable_defid,
-                    first_ctx, recurrence_loops_for_outer, expr_eval, tensor_shape, tensor_element_type,
-                )
-                if step_ok is not None and variable_key is not None:
-                    self.env.set_value(variable_key, output)
-                    step_items.append(item)
-                else:
-                    self.env.set_value(variable_key, output)
-                    full_result = self._execute_lowered_einstein_clause(
-                        item, variable_decl,
-                        shape=tensor_shape, element_type=tensor_element_type,
-                        pre_allocated_output=None,
-                    )
-                    if full_result is not None and variable_key is not None:
-                        clause_indices = item.indices or []
-                        if clause_indices and len(clause_indices) == output.ndim:
-                            slices_list = _slice_list_from_clause_indices(clause_indices, item, expr_eval) or []
-                            if len(slices_list) == output.ndim:
-                                if full_result.shape == output.shape:
-                                    output[tuple(slices_list)] = full_result[tuple(slices_list)].astype(output.dtype)
-                                else:
-                                    output[tuple(slices_list)] = full_result.astype(output.dtype)
-                                self.env.set_value(variable_key, output)
-        else:
-            step_items = list(node.body.items)
-        for rec_context in first_ctx_iter:
-            n_iter[0] += 1
-            if n_iter[0] > _MAX:
-                raise RuntimeError(
-                    f"Einstein recurrence loop iterations exceeded limit ({_MAX}). "
-                    "Reduce clause range or increase config.DEFAULT_EINSTEIN_LOOP_MAX."
-                )
-            for item in step_items:
-                result = self._execute_lowered_einstein_clause_one_recurrence_step(
-                    item, variable_decl, output, variable_key, variable_defid,
-                    rec_context, recurrence_loops_for_outer, expr_eval, tensor_shape, tensor_element_type,
-                )
-                if result is not None and variable_key is not None:
-                    self.env.set_value(variable_key, output)
-        return output
+        circular = self._maybe_execute_lowered_recurrence_circular(node, variable_decl)
+        if circular is not None:
+            return circular
+        return self._execute_lowered_recurrence_full(node, variable_decl)
 
     def _primitive_type_to_numpy_dtype(self, type_obj: Any) -> Optional[Any]:
         if not isinstance(type_obj, PrimitiveType):
