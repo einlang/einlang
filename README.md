@@ -4,22 +4,68 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.7-3.14](https://img.shields.io/badge/Python-3.7--3.14-3776AB?logo=python&logoColor=white)](https://github.com/einlang/einlang/blob/main/README.md#install--run)
 
-Einlang is a language and compiler for tensor programs with explicit indices, reductions, recurrences, and derivative expressions.
+Einlang is a language and compiler for tensor programs with explicit indices, reductions, recurrences, derivative expressions, and custom autodiff rules.
 
 Main pieces:
 
 - Einstein-style tensor code as language syntax
+- named rest-pattern indices such as `..batch` so tensor code can stay rank-generic
 - built-in automatic differentiation with forms such as `@expr`, `@loss / @w`, and `@C / @A`
+- custom autodiff rules with `@fn`, used throughout the stdlib for foreign primals such as `exp`, `sin`, and `atan2`
 - compile-time checking of shape and index structure
 - a NumPy backend for execution today
+- stdlib convolution, pooling, normalization, and loss code written in Einlang itself
 - a repository of examples spanning model code, optimization, recurrence, and numerical programs
 
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply
 let dC_dA = @C / @A;                       // derivative tensor
+
+fn exp(x) { python::numpy::exp(x) }
+@fn exp(x) { exp(x) * @x }                 // custom autodiff rule
+
+let pooled[..batch, c, i, j] = max[m, n](  // rank-generic pooling
+    X[..batch, c, i * 2 + m, j * 2 + n]
+);
 ```
 
 Start with [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md). For the full doc map, open [docs/README](https://github.com/einlang/einlang/blob/main/docs/README.md).
+
+---
+
+## Syntax at a glance
+
+Small examples are the fastest way to see the language shape.
+
+```rust
+let C[i, j] = sum[k](A[i, k] * B[k, j]);   // Einstein matmul
+```
+
+```rust
+let upper[i, j] = matrix[i, j] where i <= j;   // guard / where-clause
+```
+
+```rust
+let pooled[..batch, c, i, j] = max[m, n](      // rank-generic leading dims
+    X[..batch, c, i * 2 + m, j * 2 + n]
+);
+```
+
+```rust
+let loss = sum[i]((pred[i] - target[i]) ** 2.0);
+let dloss_dpred = @loss / @pred;               // built-in autodiff
+
+fn exp(x) { python::numpy::exp(x) }
+@fn exp(x) { exp(x) * @x }                     // custom autodiff rule
+```
+
+```rust
+let fib[0] = 0;                                // recurrence
+let fib[1] = 1;
+let fib[n in 2..25] = fib[n - 1] + fib[n - 2];
+```
+
+For a longer walkthrough, see [Syntax by example](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_BY_EXAMPLE.md).
 
 ---
 
@@ -76,7 +122,7 @@ The repository has four main parts:
 | Area | What to inspect |
 |------|-----------------|
 | **Language** | [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md), [stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md), [MATH](https://github.com/einlang/einlang/blob/main/docs/MATH.md) |
-| **Autodiff** | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [examples/autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
+| **Autodiff** | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [examples/autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein), [`stdlib/math/exp.ein`](https://github.com/einlang/einlang/blob/main/stdlib/math/exp.ein) |
 | **Examples** | [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md), [mnist](https://github.com/einlang/einlang/tree/main/examples/mnist), [optimization](https://github.com/einlang/einlang/tree/main/examples/optimization), [ode](https://github.com/einlang/einlang/tree/main/examples/ode), [recurrence](https://github.com/einlang/einlang/tree/main/examples/recurrence) |
 | **Implementation** | [src/einlang/passes](https://github.com/einlang/einlang/tree/main/src/einlang/passes), [src/einlang/backends](https://github.com/einlang/einlang/tree/main/src/einlang/backends), [DEVELOPMENT](https://github.com/einlang/einlang/blob/main/docs/DEVELOPMENT.md) |
 
@@ -85,7 +131,9 @@ The repository has four main parts:
 ## Project shape
 
 - a readable tensor language, not a Python wrapper around `einsum`
+- named rest-pattern Einstein syntax so code such as pooling and normalization stays generic over leading dimensions
 - autodiff in the language and compiler, not a separate gradient API
+- explicit `@fn` rules when a function's primal is foreign or intentionally opaque
 - a NumPy execution path now, with future backend work documented separately
 - examples that cover both ML-shaped programs and non-ML numerical workloads
 - documentation that points directly to reference material and concrete artifacts
@@ -123,6 +171,7 @@ Examples span:
 Use these as the main entry points:
 
 - [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md)
+- [Syntax by example](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_BY_EXAMPLE.md)
 - [Docs index](https://github.com/einlang/einlang/blob/main/docs/README.md)
 - [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md)
 - [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md)

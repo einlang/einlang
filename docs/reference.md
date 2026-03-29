@@ -338,6 +338,25 @@ let doubled[i, j] = matrix[i, j] * 2.0;
 let sum_AB[i, j] = A[i, j] + B[i, j];
 ```
 
+### Named rest patterns
+
+Einlang also supports **named rest patterns** such as `..batch` inside Einstein-style declarations and indexed accesses. A rest pattern stands for zero or more dimensions, and reusing the same name means “the same pack of dimensions.”
+
+```rust
+let row_sum[..batch] = sum[j](X[..batch, j]);
+let centered[..batch, j] = X[..batch, j] - row_sum[..batch];
+```
+
+This is especially useful in rank-generic tensor code:
+
+```rust
+let pooled[..batch, c, i, j] = max[m, n](
+    X[..batch, c, i * stride_h - pad_h + m, j * stride_w - pad_w + n]
+);
+```
+
+The stdlib uses this style heavily for normalization, loss functions, convolution, and pooling. During lowering, a fixed-rank input may expand `..batch` into concrete indices such as `batch.0`, `batch.1`, and so on, but the source stays compact.
+
 ### Reductions
 
 A reduction iterates over its index variables and combines values. Available operations: `sum`, `max`, `min`, `prod`.
@@ -408,6 +427,19 @@ let conv[b, oc, oh, ow] = sum[ic, kh, kw](
 ```
 
 Here `ih` and `iw` are not free variables — they are computed from `oh + kh` and `ow + kw`. The compiler ensures the resulting indices stay within `input`'s bounds.
+
+The same idea is how stdlib convolution and pooling are written:
+
+```rust
+let conv[..batch, oc, oh, ow] = sum[ic, kh, kw](
+    input[..batch, ic, ih, iw] * weight[oc, ic, kh, kw]
+) where ih = oh * stride_h - pad_h + kh,
+        iw = ow * stride_w - pad_w + kw;
+
+let pooled[..batch, c, oh, ow] = max[kh, kw](
+    input[..batch, c, oh * stride_h - pad_h + kh, ow * stride_w - pad_w + kw]
+);
+```
 
 ### Boolean guards
 
@@ -589,6 +621,27 @@ let dz_dy = @z / @y;   // 1.0
 print(dz_dx);
 print(dz_dy);
 ```
+
+### Custom autodiff rules with `@fn`
+
+When a function's primal is foreign, opaque, or just easier to specify directly, define the primal with `fn` and attach an explicit derivative rule with `@fn`.
+
+```rust
+fn exp(x) { python::numpy::exp(x) }
+@fn exp(x) { exp(x) * @x }
+```
+
+Inside the `@fn` body, `@param` means “the differential of that parameter.” Rules can mention multiple arguments:
+
+```rust
+fn atan2(y, x) { python::numpy::arctan2(y, x) }
+@fn atan2(y, x) {
+    (x / (x * x + y * y)) * @y +
+    (-y / (x * x + y * y)) * @x
+}
+```
+
+This syntax is a key part of the language, not a side API. The stdlib uses it for functions such as `exp`, `sin`, `cos`, `log`, and `atan2`.
 
 The compiler derives gradients via the chain rule. Supported operations and rules are documented in [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Overview: [AUTODIFF_HIGHLIGHTS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md). Design and pipeline: [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) (`autodiff_small.ein`, `autodiff_matmul.ein`, `autodiff_chain.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein`) for scalar, tensor, and training-style expression derivatives.
 
