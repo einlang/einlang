@@ -62,8 +62,8 @@ class _CircularRecurrenceBuffer:
         if not isinstance(key, tuple):
             key = (key,)
         items = list(key)
-        if Ellipsis in items:
-            ell_idx = items.index(Ellipsis)
+        ell_idx = next((i for i, item in enumerate(items) if item is Ellipsis), None)
+        if ell_idx is not None:
             missing = self.ndim - (len(items) - 1)
             items = items[:ell_idx] + [slice(None)] * missing + items[ell_idx + 1 :]
         if len(items) < self.ndim:
@@ -259,10 +259,9 @@ class EinsteinExecutionSetupMixin:
         ):
             return None
         body_items = list(node.body.items or [])
-        if len(body_items) != 1:
+        if not body_items:
             return None
-        item0 = body_items[0]
-        if len(item0.loops or []) != 1 or item0.bindings or item0.guards:
+        if any(item.bindings or item.guards for item in body_items):
             return None
         # Block-bodied recurrence steps can contain nested reductions that still rely on
         # outer timestep bindings staying scalar in the ambient env. The circular-buffer
