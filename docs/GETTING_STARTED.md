@@ -7,13 +7,27 @@ One page: what Einlang is, try it, run your first real example, use it from Pyth
 
 ## What is Einlang?
 
-Einlang is a language for tensor programs written with explicit indices, reductions, where-clauses, and recurrences. The compiler checks shapes and index structure before execution.
+Einlang is a language for tensor programs written with explicit indices, reductions, where-clauses, recurrences, named rest patterns, and derivative syntax. The compiler checks shapes and index structure before execution.
 
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply — compiler checks A, B, C shapes
 ```
 
 The language includes **where-clauses** for index relations and guards, **recurrences** for sequential definitions, and **automatic differentiation** through forms such as `@loss / @weights`, `@state / @param`, and `@C / @A`. The standard library covers mathematical and machine-learning operations, and the examples span numerical methods as well as model code. **[Why Einlang?](WHY_EINLANG.md)** gives a broader overview.
+
+Two features worth noticing early because they show up in real library code:
+
+- **Named rest patterns** such as `..batch` let Einstein-style code stay generic over leading dimensions.
+- **Custom autodiff rules** use `@fn`, which is how Einlang pairs foreign primals with explicit derivatives.
+
+```rust
+fn exp(x) { python::numpy::exp(x) }
+@fn exp(x) { exp(x) * @x }
+
+let pooled[..batch, c, i, j] = max[m, n](
+    X[..batch, c, i * 2 + m, j * 2 + n]
+);
+```
 
 ---
 
@@ -64,9 +78,9 @@ See [Install & run](https://github.com/einlang/einlang/blob/main/README.md#insta
 
 | You want to… | Go here |
 |--------------|--------|
-| **Learn the language** | [Language Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) — syntax, types, Einstein notation, where-clauses, recurrences |
-| **Look up functions** | [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) — math, arrays, ML ops |
-| **Try autodiff** | [Autodiff highlights](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [Autodiff design](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · run `python3 -m einlang examples/autodiff_small.ein` or [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) to see expression-level derivatives and tensor quotients in place; for supported ops this is the preferred alternative to finite-difference estimates |
+| **Learn the language** | [Language Reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) — syntax, types, Einstein notation, named rest patterns, where-clauses, recurrences |
+| **Look up functions** | [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) — math, arrays, ML ops, and readable conv/pool implementations in Einlang |
+| **Try autodiff** | [Autodiff highlights](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [Autodiff design](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · run `python3 -m einlang examples/autodiff_small.ein` or [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) to see expression-level derivatives, tensor quotients, and `@fn` custom rules in place; for supported ops this is the preferred alternative to finite-difference estimates |
 | **Run examples by feature or step** | [README — Examples](https://github.com/einlang/einlang/blob/main/README.md#examples) · [Examples guide](https://github.com/einlang/einlang/blob/main/examples/README.md) |
 | **See the full doc map** | [Docs index](https://github.com/einlang/einlang/blob/main/docs/README.md) |
 | **Contribute** | [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md) — doc fixes and small bugs are a great start |
