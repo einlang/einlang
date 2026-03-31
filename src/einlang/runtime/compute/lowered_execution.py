@@ -17,25 +17,6 @@ import numpy as np
 from ...shared.defid import DefId
 from ...shared.types import ReductionOp
 
-# region agent log
-def _agent_dbg_lowered(hypothesis_id: str, location: str, message: str, data: Optional[Dict[str, Any]] = None) -> None:
-    import json
-    import time
-    try:
-        payload = {
-            "sessionId": "fc3e74",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data or {},
-            "timestamp": int(time.time() * 1000),
-        }
-        with open("/Users/user/Documents/einlang/.cursor/debug-fc3e74.log", "a", encoding="utf-8") as _af:
-            _af.write(json.dumps(payload, default=str) + "\n")
-    except Exception:
-        pass
-# endregion agent log
-
 
 def _try_vectorized_reduction(
     reduction_op: ReductionOp,
@@ -443,19 +424,6 @@ def execute_reduction_with_loops(
             )
         )
     )
-    # region agent log
-    _agent_dbg_lowered(
-        "H4",
-        "lowered_execution.py:execute_reduction_with_loops",
-        "vectorized_gate",
-        {
-            "can_try_vectorized": can_try_vectorized,
-            "guard_is_none": guard_evaluator is None,
-            "parallel_shape": list(parallel_shape) if parallel_shape is not None else None,
-            "n_red_loops": len(reduction_loops),
-        },
-    )
-    # endregion agent log
     if can_try_vectorized:
         ok, vec_result = _try_vectorized_reduction(
             reduction_op,
@@ -465,18 +433,6 @@ def execute_reduction_with_loops(
             parallel_shape=parallel_shape,
             initial_context=merged_for_vector,
         )
-        # region agent log
-        _agent_dbg_lowered(
-            "H4",
-            "lowered_execution.py:execute_reduction_with_loops",
-            "vectorized_try_result",
-            {
-                "ok": ok,
-                "result_type": type(vec_result).__name__ if vec_result is not None else None,
-                "result_shape": list(vec_result.shape) if ok and isinstance(vec_result, np.ndarray) else None,
-            },
-        )
-        # endregion agent log
         if ok and vec_result is not None:
             if profile_callback is not None:
                 profile_callback("vectorized")

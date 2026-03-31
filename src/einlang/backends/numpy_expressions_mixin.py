@@ -36,11 +36,6 @@ from .numpy_expressions_support import (
 )
 from .numpy_helpers import _PatternMatcher
 
-def _agent_dbg(hypothesis_id, location, message, data=None) -> None:
-    payload = dict(data or {})
-    payload["hypothesis"] = hypothesis_id
-    emit_debug_log("runtime.autodiff_probe", location, message, payload)
-
 
 def _contains_nested_lowered_reduction(node: Any) -> bool:
     if node is None:
@@ -549,18 +544,6 @@ class ExpressionVisitorMixin:
     def visit_if_expression(self, expr) -> Any:
         cond = expr.condition.accept(self)
         if isinstance(cond, np.ndarray):
-            # region agent log
-            _agent_dbg(
-                "H2,H3",
-                "numpy_expressions_mixin.py:visit_if_expression",
-                "if_branch",
-                {
-                    "branch": "np_where",
-                    "cond_type": type(cond).__name__,
-                    "cond_ndim": int(cond.ndim),
-                },
-            )
-            # endregion agent log
             then_val = expr.then_expr.accept(self)
             if expr.else_expr:
                 else_val = expr.else_expr.accept(self)
@@ -571,41 +554,9 @@ class ExpressionVisitorMixin:
                     else_val = 0
             return np.where(cond, then_val, else_val)
         if self._to_bool(cond):
-            # region agent log
-            _agent_dbg(
-                "H2,H3",
-                "numpy_expressions_mixin.py:visit_if_expression",
-                "if_branch",
-                {
-                    "branch": "scalar_then",
-                    "cond_type": type(cond).__name__,
-                    "cond_ndim": int(getattr(cond, "ndim", -1)) if isinstance(cond, np.ndarray) else None,
-                },
-            )
-            # endregion agent log
             return expr.then_expr.accept(self)
         if expr.else_expr:
-            # region agent log
-            _agent_dbg(
-                "H2,H3",
-                "numpy_expressions_mixin.py:visit_if_expression",
-                "if_branch",
-                {
-                    "branch": "scalar_else",
-                    "cond_type": type(cond).__name__,
-                    "cond_ndim": int(getattr(cond, "ndim", -1)) if isinstance(cond, np.ndarray) else None,
-                },
-            )
-            # endregion agent log
             return expr.else_expr.accept(self)
-        # region agent log
-        _agent_dbg(
-            "H2,H3",
-            "numpy_expressions_mixin.py:visit_if_expression",
-            "if_branch",
-            {"branch": "no_else_none", "cond_type": type(cond).__name__, "cond_ndim": None},
-        )
-        # endregion agent log
         return None
 
     def visit_lambda(self, expr) -> Any:
@@ -858,21 +809,6 @@ class ExpressionVisitorMixin:
         )
         if parallel_shape is None:
             parallel_shape = self._vectorization_parallel_shape()
-        # region agent log
-        _agent_dbg(
-            "H1,H5",
-            "numpy_expressions_mixin.py:evaluate_lowered_reduction",
-            "entry",
-            {
-                "n_loops": len(expr.loops or []),
-                "parallel_shape": list(parallel_shape) if parallel_shape is not None else None,
-                "force_scalar_reduction": force_scalar_reduction,
-                "has_if": _contains_if_expression(expr.body),
-                "has_nested_red": _contains_nested_lowered_reduction(expr.body),
-                "body_kind": type(expr.body).__name__,
-            },
-        )
-        # endregion agent log
         _loop_alias_map, _reduction_defid_names = self._reduction_loop_defid_alias_maps(expr)
         # Only block windowed/matmul/einsum and speculative vectorization when the same loop
         # variable name is tied to multiple *distinct* body defids (e.g. autodiff primal+diff).
@@ -900,23 +836,7 @@ class ExpressionVisitorMixin:
             if einsum_result is not None and isinstance(einsum_result, np.ndarray):
                 if einsum_result.shape == tuple(parallel_shape):
                     setattr(self, "_last_reduction_fast_path", "einsum")
-                    # region agent log
-                    _agent_dbg(
-                        "H1,H5",
-                        "numpy_expressions_mixin.py:evaluate_lowered_reduction",
-                        "fast_path_return",
-                        {"path": "einsum", "shape": list(einsum_result.shape)},
-                    )
-                    # endregion agent log
                     return einsum_result
-            # region agent log
-            _agent_dbg(
-                "H1,H5",
-                "numpy_expressions_mixin.py:evaluate_lowered_reduction",
-                "fast_path_miss",
-                {"windowed": windowed_result is not None, "matmul": matmul_result is not None, "einsum": einsum_result is not None},
-            )
-            # endregion agent log
         from ..runtime.compute.lowered_execution import (
             execute_reduction_with_loops,
             execute_select_at_argmax_vectorized,
