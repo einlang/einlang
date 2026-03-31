@@ -48,7 +48,7 @@ def main() -> int:
     from einlang.compiler.driver import CompilerDriver
     from einlang.ir.nodes import BindingIR, ProgramIR
     from einlang.ir.serialization import serialize_ir
-    from einlang.passes.autodiff import _is_diff_name
+    from einlang.passes.autodiff._core import _is_diff_name
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("file", nargs="?", help=".ein file (omit with -c)")

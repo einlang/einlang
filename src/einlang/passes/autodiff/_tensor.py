@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from ._core import _fl, _is_zero, _si, _ti, _z
 from ._expr import _expr_uses_index_defids
@@ -9,10 +9,14 @@ from ...ir.nodes import (
     ArrayLiteralIR,
     BindingIR,
     BinaryOpIR,
+    BlockExpressionIR,
+    BuiltinCallIR,
     CastExpressionIR,
     EinsteinClauseIR,
     EinsteinIR,
     ExpressionIR,
+    FunctionCallIR,
+    FunctionValueIR,
     IdentifierIR,
     IfExpressionIR,
     IndexVarIR,
@@ -20,6 +24,8 @@ from ...ir.nodes import (
     MemberAccessIR,
     RangeIR,
     RectangularAccessIR,
+    ReductionExpressionIR,
+    UnaryOpIR,
 )
 from ...shared.defid import DefId
 from ...shared.source_location import SourceLocation
@@ -40,6 +46,9 @@ def _tensor_rank_from_literal_array(expr: Optional[ExpressionIR]) -> int:
 def _tensor_rank_from_einstein_expr(expr: Optional[ExpressionIR]) -> int:
     if expr is None or not isinstance(expr, EinsteinIR):
         return 0
+    si = getattr(expr, "shape_info", None)
+    if isinstance(si, (list, tuple)) and len(si) > 0:
+        return len(si)
     if expr.shape is not None and len(expr.shape) > 0:
         return len(expr.shape)
     clauses = expr.clauses or []
@@ -51,56 +60,116 @@ def _tensor_rank_from_einstein_expr(expr: Optional[ExpressionIR]) -> int:
 def _tensor_rank_from_expr(expr: Optional[ExpressionIR], bindings: Dict[DefId, BindingIR]) -> int:
     if expr is None:
         return 0
+    ti = getattr(expr, "type_info", None)
     si = getattr(expr, "shape_info", None)
-    if isinstance(si, tuple) and len(si) > 0:
-        return len(si)
+    if isinstance(ti, RectangularType):
+        if isinstance(si, tuple) and len(si) > 0:
+            return len(si)
+        if ti.shape is not None:
+            return len(ti.shape)
+        if getattr(ti, "is_dynamic_rank", False):
+            return 1
+    if isinstance(expr, RectangularAccessIR):
+        base = _tensor_rank_from_expr(expr.array, bindings)
+        if base > 0:
+            return max(0, base - len(expr.indices or []))
+    if isinstance(expr, BlockExpressionIR):
+        local_bindings = dict(bindings)
+        for stmt in expr.statements or []:
+            if isinstance(stmt, BindingIR) and stmt.defid is not None:
+                local_bindings[stmt.defid] = stmt
+        return _tensor_rank_from_expr(expr.final_expr, local_bindings)
     if isinstance(expr, IdentifierIR) and expr.defid is not None:
-        return _tensor_rank_from_binding(bindings.get(expr.defid))
+        return _tensor_rank_from_binding(bindings.get(expr.defid), bindings)
     if isinstance(expr, EinsteinIR):
         return _tensor_rank_from_einstein_expr(expr)
     if isinstance(expr, ArrayLiteralIR):
         return _tensor_rank_from_literal_array(expr)
-    if isinstance(expr, RectangularAccessIR):
-        base = _tensor_rank_from_expr(expr.array, bindings)
-        return max(0, base - len(expr.indices or []))
-    ti = getattr(expr, "type_info", None)
+    if isinstance(expr, ReductionExpressionIR):
+        body_rank = _tensor_rank_from_expr(expr.body, bindings)
+        red_rank = len(expr.loop_vars or [])
+        return max(0, body_rank - red_rank)
+    if isinstance(expr, FunctionCallIR):
+        callee_defid = getattr(expr, "function_defid", None)
+        callee_binding = bindings.get(callee_defid) if callee_defid is not None else None
+        callee_expr = getattr(callee_binding, "expr", None)
+        if isinstance(callee_expr, FunctionValueIR) and callee_expr.body is not None:
+            local_bindings = dict(bindings)
+            for param, arg in zip(callee_expr.parameters or [], expr.arguments or []):
+                if getattr(param, "defid", None) is None:
+                    continue
+                local_bindings[param.defid] = BindingIR(
+                    name=getattr(param, "name", None),
+                    expr=arg,
+                    location=getattr(arg, "location", None),
+                    defid=param.defid,
+                    type_info=getattr(param, "param_type", None) or _ti(arg),
+                )
+            return _tensor_rank_from_expr(callee_expr.body, local_bindings)
+    try:
+        if isinstance(expr, BinaryOpIR):
+            return max(_tensor_rank_from_expr(expr.left, bindings), _tensor_rank_from_expr(expr.right, bindings))
+        if isinstance(expr, UnaryOpIR):
+            return _tensor_rank_from_expr(expr.operand, bindings)
+        if isinstance(expr, CastExpressionIR):
+            return _tensor_rank_from_expr(expr.expr, bindings)
+        if isinstance(expr, IfExpressionIR):
+            return max(
+                _tensor_rank_from_expr(expr.then_expr, bindings),
+                _tensor_rank_from_expr(expr.else_expr, bindings),
+            )
+        if isinstance(expr, BuiltinCallIR):
+            return 0
+    except RecursionError:
+        pass
     if isinstance(ti, RectangularType):
-        if getattr(ti, "is_dynamic_rank", False):
-            return 1
-        if ti.shape is not None:
-            return len(ti.shape)
         return 1
     return 0
 
 
-def _tensor_rank_from_binding(b: Optional[BindingIR]) -> int:
+def _tensor_rank_from_binding(
+    b: Optional[BindingIR],
+    bindings: Optional[Dict[DefId, BindingIR]] = None,
+) -> int:
     if b is None:
         return 0
-    si = getattr(b, "shape_info", None)
-    if isinstance(si, tuple) and len(si) > 0:
-        return len(si)
-    rk_ein = _tensor_rank_from_einstein_expr(getattr(b, "expr", None))
+    expr = getattr(b, "expr", None)
+    if bindings is not None and expr is not None:
+        if isinstance(expr, RectangularAccessIR):
+            return _tensor_rank_from_expr(expr, bindings)
+        if isinstance(expr, IdentifierIR) and expr.defid is not None and expr.defid != getattr(b, "defid", None):
+            return _tensor_rank_from_binding(bindings.get(expr.defid), bindings)
+        expr_rank = _tensor_rank_from_expr(expr, bindings)
+        if expr_rank > 0:
+            return expr_rank
+    rk_ein = _tensor_rank_from_einstein_expr(expr)
     if rk_ein > 0:
         return rk_ein
-    rk_lit = _tensor_rank_from_literal_array(getattr(b, "expr", None))
+    rk_lit = _tensor_rank_from_literal_array(expr)
     if rk_lit > 0:
         return rk_lit
-    ex = getattr(b, "expr", None)
-    ex_si = getattr(ex, "shape_info", None)
-    if isinstance(ex_si, tuple) and len(ex_si) > 0:
-        return len(ex_si)
-    ex_ti = getattr(ex, "type_info", None)
-    if isinstance(ex_ti, RectangularType):
-        if getattr(ex_ti, "is_dynamic_rank", False):
-            pass
-        elif ex_ti.shape is not None:
-            return len(ex_ti.shape)
-        else:
-            return 1
+    si = getattr(b, "shape_info", None)
     ti = getattr(b, "type_info", None)
     if isinstance(ti, RectangularType):
+        if isinstance(si, tuple) and len(si) > 0:
+            return len(si)
+        if ti.shape is not None:
+            return len(ti.shape)
         if getattr(ti, "is_dynamic_rank", False):
-            pass
+            return 1
+    ex = expr
+    ex_si = getattr(ex, "shape_info", None)
+    ex_ti = getattr(ex, "type_info", None)
+    if isinstance(ex_ti, RectangularType):
+        if isinstance(ex_si, tuple) and len(ex_si) > 0:
+            return len(ex_si)
+        if ex_ti.shape is not None:
+            return len(ex_ti.shape)
+        if getattr(ex_ti, "is_dynamic_rank", False):
+            return 1
+    if isinstance(ti, RectangularType):
+        if getattr(ti, "is_dynamic_rank", False):
+            return 1
         elif ti.shape is not None:
             return len(ti.shape)
         else:
@@ -109,10 +178,14 @@ def _tensor_rank_from_binding(b: Optional[BindingIR]) -> int:
 
 
 def _alloc_wrt_gradient_axes(
-    wb: BindingIR, wrt: DefId, resolver: Any, loc: SourceLocation
+    wb: BindingIR,
+    wrt: DefId,
+    resolver: Any,
+    loc: SourceLocation,
+    bindings: Optional[Dict[DefId, BindingIR]] = None,
 ) -> List[IndexVarIR]:
     wid = IdentifierIR(wb.name or "_wrt", wb.location or loc, wrt, type_info=_ti(wb) or UNKNOWN, shape_info=_si(wb))
-    rank = _tensor_rank_from_binding(wb)
+    rank = _tensor_rank_from_binding(wb, bindings)
     if rank <= 0:
         return []
     out: List[IndexVarIR] = []
@@ -122,8 +195,32 @@ def _alloc_wrt_gradient_axes(
         dim = LiteralIR(p, loc, type_info=PrimitiveType("i32"))
         sd = RectangularAccessIR(array=sh, indices=[dim], location=loc, type_info=UNKNOWN)
         rng = RangeIR(start=LiteralIR(0, loc, type_info=PrimitiveType("i32")), end=sd, location=loc, type_info=UNKNOWN)
-        out.append(IndexVarIR("_jcot_%d" % p, loc, nd, range_ir=rng))
+        out.append(IndexVarIR(resolver.allocate_internal_iv_name(), loc, nd, range_ir=rng))
     return out
+
+
+def _fold_slice_index_to_literal_if_constant(
+    idx: ExpressionIR,
+    B: Dict[DefId, BindingIR],
+    loc: SourceLocation,
+) -> ExpressionIR:
+    """If *idx* is (or binds to) an int/float literal, return LiteralIR so it cannot be conflated with reduction IndexVarIR."""
+    if isinstance(idx, LiteralIR):
+        return idx
+    if isinstance(idx, CastExpressionIR) and idx.expr is not None:
+        inner = _fold_slice_index_to_literal_if_constant(idx.expr, B, loc)
+        if isinstance(inner, LiteralIR):
+            return LiteralIR(inner.value, idx.location or loc, type_info=getattr(idx, "type_info", None) or inner.type_info)
+        return idx
+    if isinstance(idx, IdentifierIR) and idx.defid is not None:
+        wb = B.get(idx.defid)
+        if wb is not None and wb.expr is not None:
+            ve: Optional[ExpressionIR] = wb.expr
+            while isinstance(ve, CastExpressionIR) and ve.expr is not None:
+                ve = ve.expr
+            if isinstance(ve, LiteralIR):
+                return LiteralIR(ve.value, idx.location or loc, type_info=idx.type_info)
+    return idx
 
 
 def _jacobian_rect_read_wrt_slice_binding(
@@ -158,7 +255,8 @@ def _jacobian_rect_read_wrt_slice_binding(
     def chain(k: int) -> ExpressionIR:
         if k >= len(read):
             return _fl(1, loc)
-        eq = BinaryOpIR(BinaryOp.EQ, read[k], slice_idxs[k], loc, type_info=BOOL)
+        slice_k = _fold_slice_index_to_literal_if_constant(slice_idxs[k], B, loc)
+        eq = BinaryOpIR(BinaryOp.EQ, read[k], slice_k, loc, type_info=BOOL)
         rest = chain(k + 1)
         return IfExpressionIR(eq, rest, loc, else_expr=_z(loc), type_info=F32)
 
@@ -200,7 +298,7 @@ def _jacobian_tensor_id_wrt_slice_binding(
         dim = LiteralIR(p, loc, type_info=PrimitiveType("i32"))
         bound = RectangularAccessIR(array=shape_ref, indices=[dim], location=loc, type_info=UNKNOWN)
         rng = RangeIR(start=LiteralIR(0, loc, type_info=PrimitiveType("i32")), end=bound, location=loc, type_info=UNKNOWN)
-        iv = IndexVarIR("_jslice_%d" % p, loc, did, range_ir=rng)
+        iv = IndexVarIR(resolver.allocate_internal_iv_name(), loc, did, range_ir=rng)
         dyn_idxs.append(iv)
         var_ranges[did] = rng
     body: ExpressionIR = _fl(1, loc)
@@ -264,13 +362,18 @@ def _unwrap_jacobian_add_zero(expr: ExpressionIR) -> ExpressionIR:
 
 
 def _merge_primal_clause_with_cotangent_einstein(
-    clause: EinsteinClauseIR, d_val: ExpressionIR
+    clause: EinsteinClauseIR,
+    d_val: ExpressionIR,
+    cotangent_axis_defids: FrozenSet[DefId],
 ) -> Tuple[List, ExpressionIR, Dict]:
     dv = _unwrap_jacobian_add_zero(d_val)
     if isinstance(dv, EinsteinIR) and len(dv.clauses or []) == 1:
         ic = dv.clauses[0]
         ix = list(ic.indices or [])
-        if ix and all(getattr(iv, "name", "").startswith("_jcot_") for iv in ix):
+        idx_defids = frozenset(
+            d for d in (getattr(iv, "defid", None) for iv in ix) if d is not None
+        )
+        if ix and cotangent_axis_defids and idx_defids == cotangent_axis_defids:
             merged_idx = list(clause.indices or []) + ix
             nvr = dict(clause.variable_ranges or {})
             nvr.update(ic.variable_ranges or {})

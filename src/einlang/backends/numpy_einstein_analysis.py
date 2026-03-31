@@ -874,7 +874,16 @@ class _DefidsByNameCollector(IRVisitor[Dict[str, List[Any]]]):
         return node.body.accept(self)
 
     def visit_lowered_einstein_clause(self, node: Any) -> Dict[str, List[Any]]:
-        return node.body.accept(self)
+        out = node.body.accept(self)
+        for lp in node.loops or []:
+            if lp.variable is not None:
+                _merge_defids_by_name(out, lp.variable.accept(self))
+            if lp.iterable is not None:
+                _merge_defids_by_name(out, lp.iterable.accept(self))
+        for idx in node.indices or []:
+            if idx is not None and hasattr(idx, "accept"):
+                _merge_defids_by_name(out, idx.accept(self))
+        return out
 
     def visit_lowered_einstein(self, node: Any) -> Dict[str, List[Any]]:
         out = self._empty()
@@ -927,5 +936,4 @@ class _DefidsByNameCollector(IRVisitor[Dict[str, List[Any]]]):
 
     def visit_einstein_clause(self, node: Any) -> Dict[str, List[Any]]:
         return self._empty()
-
 

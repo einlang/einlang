@@ -66,7 +66,19 @@ def main() -> int:
     parser.add_argument(
         "--debug-all",
         action="store_true",
-        help="All runtime debug logs: same env as --profile-verbose plus EINLANG_DEBUG_RECURRENCE_BLOCK=1 (no IR file dumps; use --profile-all for EINLANG_DUMP_FINAL_IR)",
+        help="All runtime debug logs plus structured NDJSON debug topics (same env as --profile-verbose plus EINLANG_DEBUG_RECURRENCE_BLOCK=1; no IR file dumps; use --profile-all for EINLANG_DUMP_FINAL_IR)",
+    )
+    parser.add_argument(
+        "--debug-autodiff",
+        action="store_true",
+        help="Write structured autodiff / quotient debug logs (sets EINLANG_DEBUG_AUTODIFF=1)",
+    )
+    parser.add_argument(
+        "--debug-log-file",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Write structured debug NDJSON logs to FILE (sets EINLANG_DEBUG_LOG_FILE)",
     )
     parser.add_argument("--cprofile", action="store_true", help="Run execution under cProfile and print stats")
     parser.add_argument("--cprofile-out", type=Path, default=None, metavar="FILE", help="Write cProfile stats to FILE (for snakeviz, etc.)")
@@ -106,8 +118,13 @@ def main() -> int:
         os.environ["EINLANG_PROFILE_REDUCTIONS"] = "1"
         os.environ["EINLANG_DEBUG_VECTORIZE"] = "verbose"
         os.environ["EINLANG_DEBUG_RECURRENCE_BLOCK"] = "1"
+        os.environ["EINLANG_DEBUG_MODE"] = "1"
         if args.profile_lines == 0:
             os.environ["EINLANG_PROFILE_LINES"] = "20"
+    if args.debug_autodiff:
+        os.environ["EINLANG_DEBUG_AUTODIFF"] = "1"
+    if args.debug_log_file is not None:
+        os.environ["EINLANG_DEBUG_LOG_FILE"] = str(args.debug_log_file.resolve())
     if args.vectorize_recurrence_block and not (os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip()):
         os.environ["EINLANG_DEBUG_VECTORIZE"] = "verbose"
 
@@ -120,6 +137,7 @@ def main() -> int:
         or args.profile_verbose
         or args.profile_all
         or args.debug_all
+        or args.debug_autodiff
         or args.debug_vectorize
         or args.debug_vectorize_detail
         or args.vectorize_recurrence_block

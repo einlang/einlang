@@ -234,25 +234,27 @@ def _prune_const_ifs_replayed(
     if isinstance(expr, BlockExpressionIR):
         changed = False
         ns: List[Any] = []
+        local_bindings = dict(bindings)
         for s in expr.statements or []:
             if isinstance(s, BindingIR) and s.expr is not None:
-                ne = _prune_const_ifs_replayed(s.expr, bindings)
+                ne = _prune_const_ifs_replayed(s.expr, local_bindings)
                 if ne is s.expr:
-                    ns.append(s)
+                    nb = s
                 else:
                     changed = True
-                    ns.append(
-                        BindingIR(
-                            name=s.name,
-                            expr=ne,
-                            location=s.location,
-                            defid=s.defid,
-                            type_info=s.type_info,
-                        )
+                    nb = BindingIR(
+                        name=s.name,
+                        expr=ne,
+                        location=s.location,
+                        defid=s.defid,
+                        type_info=s.type_info,
                     )
+                ns.append(nb)
+                if nb.defid is not None:
+                    local_bindings[nb.defid] = nb
             else:
                 ns.append(s)
-        nf = _prune_const_ifs_replayed(expr.final_expr, bindings) if expr.final_expr is not None else None
+        nf = _prune_const_ifs_replayed(expr.final_expr, local_bindings) if expr.final_expr is not None else None
         if nf is not expr.final_expr:
             changed = True
         if not changed:

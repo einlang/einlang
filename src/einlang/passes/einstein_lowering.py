@@ -1166,12 +1166,12 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             if shape is None and node.indices:
                 shape = self._shape_from_literal_indices(node.indices, node.location)
 
-        # If this clause declares more indices than the binding's pre-analysis shape (common for autodiff
-        # quotients like `dC_dA = @C / @A` where AutodiffPass runs after shape analysis), prefer the
-        # shape implied by the clause indices' ranges.
+        # For a single lowered clause, the LHS index ranges are the most local source of truth for
+        # allocation shape. This is especially important after autodiff replay, where stale shape_info
+        # can disagree with the replayed clause ranges even though the clause itself is correct.
         if node.indices:
             lhs_shape = self._shape_from_clause_indices(node, node.location)
-            if lhs_shape is not None and (shape is None or len(lhs_shape) != len(shape)):
+            if lhs_shape is not None:
                 shape = lhs_shape
         
         # Element type comes only from type pass (decl.expr.element_type or type_info)
@@ -1244,7 +1244,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                         iterable = range_ir
             if iterable:
                 body_defid = defid_of_var_in_expr(node.body, var_name) if node.body else None
-                defid = body_defid or var_ident.defid
+                defid = var_ident.defid or body_defid
                 if defid is None:
                     raise ValueError(
                         f"Reduction loop variable '{var_name}' has no defid; runtime cannot bind it. "
@@ -1321,7 +1321,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                         iterable = range_ir
             if iterable:
                 body_defid = defid_of_var_in_expr(body_for_defid, var_name) if body_for_defid else None
-                defid = body_defid or var_ident.defid
+                defid = var_ident.defid or body_defid
                 if defid is None:
                     raise ValueError(
                         f"SelectAtArgmax loop variable '{var_name}' has no defid; runtime cannot bind it."
@@ -2001,7 +2001,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 return int(expr.value)
             except (TypeError, ValueError):
                 return None
-        if expr.end is not None:
+        if hasattr(expr, "end") and expr.end is not None:
             return self._extent_from_shape_expr(expr.end)
         return None
 
@@ -2212,7 +2212,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             if var is None:
                 continue
             body_defid = defid_of_var_in_expr(node.body, var.name)
-            if body_defid is not None and body_defid != var.defid:
+            if var.defid is None and body_defid is not None:
                 loc = var.location or SourceLocation('', 0, 0)
                 ti = var.type_info
                 if isinstance(var, IndexVarIR):
@@ -2238,7 +2238,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             if var is None:
                 continue
             body_defid = defid_of_var_in_expr(node.primal_body, var.name)
-            if body_defid is not None and body_defid != var.defid:
+            if var.defid is None and body_defid is not None:
                 loc = var.location or SourceLocation('', 0, 0)
                 ti = var.type_info
                 if isinstance(var, IndexVarIR):

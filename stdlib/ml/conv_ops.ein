@@ -13,9 +13,9 @@ fn conv1d(X, W, B, stride, pad_begin, pad_end, dilation, group) {
     let cpg      = c_in / group;
     let fpg      = c_out / group;
 
-    let Xp[..batch, c, i in 0..w_p] =
-        if (i >= pad_begin) && (i < (w_in + pad_begin))
-        { X[..batch, c, i - pad_begin] }
+    let Xp[..batch, c, ip in 0..w_p] =
+        if (ip >= pad_begin) && (ip < (w_in + pad_begin))
+        { X[..batch, c, ip - pad_begin] }
         else { 0.0 };
 
     let conv_sum[..batch, co, i] = sum[cl in 0..cpg, m in 0..kernel_w](
@@ -42,12 +42,12 @@ fn conv2d(X, W, B, stride_h, stride_w, pad_h0, pad_h1, pad_w0, pad_w1, dilation_
     let cpg      = c_in / group;
     let fpg      = c_out / group;
 
-    let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in pad_w0..(pad_w0 + w_in)] =
-        X[..batch, c, i - pad_h0, j - pad_w0];
-    let Xp[..batch, c, i in 0..pad_h0, j in 0..w_p] = 0.0;
-    let Xp[..batch, c, i in (pad_h0 + h_in)..h_p, j in 0..w_p] = 0.0;
-    let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in 0..pad_w0] = 0.0;
-    let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in (pad_w0 + w_in)..w_p] = 0.0;
+    let Xp[..batch, c, py in pad_h0..(pad_h0 + h_in), px in pad_w0..(pad_w0 + w_in)] =
+        X[..batch, c, py - pad_h0, px - pad_w0];
+    let Xp[..batch, c, py in 0..pad_h0, px in 0..w_p] = 0.0;
+    let Xp[..batch, c, py in (pad_h0 + h_in)..h_p, px in 0..w_p] = 0.0;
+    let Xp[..batch, c, py in pad_h0..(pad_h0 + h_in), px in 0..pad_w0] = 0.0;
+    let Xp[..batch, c, py in pad_h0..(pad_h0 + h_in), px in (pad_w0 + w_in)..w_p] = 0.0;
 
     let conv_sum[..batch, co, i, j] = sum[cl in 0..cpg, m in 0..kernel_h, n in 0..kernel_w](
         if i * stride_h + m * dilation_h >= 0 &&
@@ -81,14 +81,14 @@ fn conv3d(X, W, B, stride_d, stride_h, stride_w, pad_d0, pad_d1, pad_h0, pad_h1,
     let cpg      = c_in / group;
     let fpg      = c_out / group;
 
-    let Xp[..batch, c, i in pad_d0..(pad_d0 + d_in), j in pad_h0..(pad_h0 + h_in), k in pad_w0..(pad_w0 + w_in)] =
-        X[..batch, c, i - pad_d0, j - pad_h0, k - pad_w0];
-    let Xp[..batch, c, i in 0..pad_d0, j in 0..h_p, k in 0..w_p] = 0.0;
-    let Xp[..batch, c, i in (pad_d0 + d_in)..d_p, j in 0..h_p, k in 0..w_p] = 0.0;
-    let Xp[..batch, c, i in pad_d0..(pad_d0 + d_in), j in 0..pad_h0, k in 0..w_p] = 0.0;
-    let Xp[..batch, c, i in pad_d0..(pad_d0 + d_in), j in (pad_h0 + h_in)..h_p, k in 0..w_p] = 0.0;
-    let Xp[..batch, c, i in pad_d0..(pad_d0 + d_in), j in pad_h0..(pad_h0 + h_in), k in 0..pad_w0] = 0.0;
-    let Xp[..batch, c, i in pad_d0..(pad_d0 + d_in), j in pad_h0..(pad_h0 + h_in), k in (pad_w0 + w_in)..w_p] = 0.0;
+    let Xp[..batch, c, pd in pad_d0..(pad_d0 + d_in), ph in pad_h0..(pad_h0 + h_in), pw in pad_w0..(pad_w0 + w_in)] =
+        X[..batch, c, pd - pad_d0, ph - pad_h0, pw - pad_w0];
+    let Xp[..batch, c, pd in 0..pad_d0, ph in 0..h_p, pw in 0..w_p] = 0.0;
+    let Xp[..batch, c, pd in (pad_d0 + d_in)..d_p, ph in 0..h_p, pw in 0..w_p] = 0.0;
+    let Xp[..batch, c, pd in pad_d0..(pad_d0 + d_in), ph in 0..pad_h0, pw in 0..w_p] = 0.0;
+    let Xp[..batch, c, pd in pad_d0..(pad_d0 + d_in), ph in (pad_h0 + h_in)..h_p, pw in 0..w_p] = 0.0;
+    let Xp[..batch, c, pd in pad_d0..(pad_d0 + d_in), ph in pad_h0..(pad_h0 + h_in), pw in 0..pad_w0] = 0.0;
+    let Xp[..batch, c, pd in pad_d0..(pad_d0 + d_in), ph in pad_h0..(pad_h0 + h_in), pw in (pad_w0 + w_in)..w_p] = 0.0;
 
     let conv_sum[..batch, co, i, j, k] = sum[
         cl in 0..cpg,
@@ -125,12 +125,12 @@ fn qconv2d(X_q, x_scale, W_q, w_scale, B, stride_h, stride_w, pad_h0, pad_h1, pa
     let fpg      = c_out / group;
     let scale    = (x_scale as f32) * (w_scale as f32);
 
-    let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in pad_w0..(pad_w0 + w_in)] =
-        X_q[..batch, c, i - pad_h0, j - pad_w0];
-    let Xp[..batch, c, i in 0..pad_h0, j in 0..w_p] = 0.0;
-    let Xp[..batch, c, i in (pad_h0 + h_in)..h_p, j in 0..w_p] = 0.0;
-    let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in 0..pad_w0] = 0.0;
-    let Xp[..batch, c, i in pad_h0..(pad_h0 + h_in), j in (pad_w0 + w_in)..w_p] = 0.0;
+    let Xp[..batch, c, py in pad_h0..(pad_h0 + h_in), px in pad_w0..(pad_w0 + w_in)] =
+        X_q[..batch, c, py - pad_h0, px - pad_w0];
+    let Xp[..batch, c, py in 0..pad_h0, px in 0..w_p] = 0.0;
+    let Xp[..batch, c, py in (pad_h0 + h_in)..h_p, px in 0..w_p] = 0.0;
+    let Xp[..batch, c, py in pad_h0..(pad_h0 + h_in), px in 0..pad_w0] = 0.0;
+    let Xp[..batch, c, py in pad_h0..(pad_h0 + h_in), px in (pad_w0 + w_in)..w_p] = 0.0;
 
     let acc[..batch, co, i, j] = sum[cl in 0..cpg, m in 0..kernel_h, n in 0..kernel_w](
         if i * stride_h + m * dilation_h >= 0 &&

@@ -421,7 +421,7 @@ def _jacobian_rhs_depends_on_wrt(
 
 
 class _TargetCollector(_DefIdCollector):
-    """Single walk: differential targets + quotient pairs."""
+    """Single walk: standalone differential targets + quotient pairs."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -461,6 +461,7 @@ class _TargetCollector(_DefIdCollector):
             num, den = self._diff_defid(n.left), self._diff_defid(n.right)
             if num is not None and den is not None:
                 self.quotient_pairs.append((num, den))
+            return
         n.left.accept(self)
         n.right.accept(self)
 

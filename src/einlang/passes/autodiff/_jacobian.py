@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from ._core import (
     _AD_ZERO_TANGENT_BUILTINS,
@@ -21,6 +21,11 @@ from ._core import (
     _z,
 )
 from ._expr import _eval_const_expr
+from ._einstein_tensor_vjp import (
+    _flatten_product,
+    _merged_lr,
+    einstein_structured_reduction_vjp,
+)
 from ._graph import (
     _DependencyQueryCache,
     _binding_is_rect_slice_of_tensor,
@@ -76,7 +81,6 @@ from ...ir.nodes import (
     TupleAccessIR,
     TupleExpressionIR,
     UnaryOpIR,
-    WhereClauseIR,
 )
 from ...shared.defid import DefId
 from ...shared.source_location import SourceLocation
@@ -114,11 +118,11 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
         self._wrt_axes: Optional[List[IndexVarIR]] = None
         self._full_wrt_axes: Optional[List[IndexVarIR]] = None
         wb = bindings.get(wrt)
-        if wb is not None and _tensor_rank_from_binding(wb) > 0:
+        if wb is not None and _tensor_rank_from_binding(wb, bindings) > 0:
             self._wrt_axes = (
                 list(shared_cotangent_axes)
                 if shared_cotangent_axes is not None
-                else _alloc_wrt_gradient_axes(wb, wrt, resolver, loc)
+                else _alloc_wrt_gradient_axes(wb, wrt, resolver, loc, bindings)
             )
             self._full_wrt_axes = (
                 list(full_cotangent_axes)
@@ -781,20 +785,6 @@ class JacobianVisitor(IRVisitor[ExpressionIR]):
         _unsupported_autodiff_ir("JacobianVisitor", n)
 
 
-def _flatten_product(expr: ExpressionIR) -> Optional[List[Tuple[ExpressionIR, List]]]:
-    if isinstance(expr, RectangularAccessIR):
-        arr = expr.array
-        if isinstance(arr, IdentifierIR) and arr.defid is not None:
-            return [(arr, list(expr.indices or []))]
-        return None
-    if isinstance(expr, BinaryOpIR) and expr.operator == BinaryOp.MUL:
-        l = _flatten_product(expr.left)
-        r = _flatten_product(expr.right)
-        if l is not None and r is not None:
-            return l + r
-    return None
-
-
 def _is_direct_einstein_tensor_jacobian(
     expr: Optional[ExpressionIR],
     wrt: DefId,
@@ -829,59 +819,6 @@ def _is_direct_einstein_tensor_jacobian(
     return saw_wrt
 
 
-def _build_deriv_idx(
-    clause_indices: List,
-    wrt_indices: List,
-    wrt_id: IdentifierIR,
-    resolver: Any,
-    loc: SourceLocation,
-    allow_reuse: bool,
-    shared_axes: Optional[List[IndexVarIR]] = None,
-) -> Tuple[List, Set[DefId], Dict]:
-    ci_by_did: Dict[DefId, Any] = {}
-    for c in clause_indices:
-        did = getattr(c, "defid", None)
-        if did is not None:
-            ci_by_did[did] = c
-    dvars: List = []
-    new_dids: Set[DefId] = set()
-    new_vr: Dict = {}
-    for p in range(len(wrt_indices)):
-        ip = wrt_indices[p]
-        did_p = getattr(ip, "defid", None)
-        if allow_reuse and did_p is not None and did_p in ci_by_did:
-            dvars.append(ci_by_did[did_p])
-        elif allow_reuse and shared_axes is not None and p < len(shared_axes) and isinstance(shared_axes[p], IndexVarIR):
-            iv = shared_axes[p]
-            dvars.append(iv)
-            if iv.defid is not None:
-                new_dids.add(iv.defid)
-            if iv.defid is not None and iv.range_ir is not None:
-                new_vr[iv.defid] = iv.range_ir
-        else:
-            nd = resolver.allocate_for_local()
-            sh = MemberAccessIR(object=wrt_id, member="shape", location=loc, type_info=UNKNOWN)
-            dim = LiteralIR(p, loc, type_info=PrimitiveType("i32"))
-            sd = RectangularAccessIR(array=sh, indices=[dim], location=loc, type_info=UNKNOWN)
-            rng = RangeIR(start=LiteralIR(0, loc, type_info=PrimitiveType("i32")), end=sd, location=loc, type_info=UNKNOWN)
-            iv = IndexVarIR("_ad_%d" % p, loc, nd, range_ir=rng)
-            dvars.append(iv)
-            new_dids.add(nd)
-            if iv.defid is not None and iv.range_ir is not None:
-                new_vr[iv.defid] = iv.range_ir
-    return dvars, new_dids, new_vr
-
-
-def _merged_lr(val: ReductionExpressionIR, clause: EinsteinClauseIR) -> Dict:
-    out: Dict = dict(val.loop_var_ranges or {})
-    vr = clause.variable_ranges or {}
-    for lv in val.loop_vars or []:
-        did = getattr(lv, "defid", None)
-        if did is not None and did not in out and did in vr:
-            out[did] = vr[did]
-    return out
-
-
 def _diff_einstein_wrt(
     expr: EinsteinIR,
     wrt: DefId,
@@ -913,125 +850,46 @@ def _diff_einstein_wrt(
         if not isinstance(val, ReductionExpressionIR):
             jv = JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps, shared_cotangent_axes=clause_shared_axes, full_cotangent_axes=shared_axes, dependency_cache=dep_cache)
             d_val = _simplify(val.accept(jv), loc)
-            mi, merged_v, nvr = _merge_primal_clause_with_cotangent_einstein(clause, d_val)
+            cot_ids: FrozenSet[DefId] = frozenset(
+                iv.defid for iv in (jv._wrt_axes or []) if getattr(iv, "defid", None) is not None
+            )
+            mi, merged_v, nvr = _merge_primal_clause_with_cotangent_einstein(clause, d_val, cot_ids)
             mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, merged_v, clause_shared_axes)
             mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, clause_shared_axes)
             dc.append(EinsteinClauseIR(indices=mi, value=merged_v, location=clause.location, where_clause=clause.where_clause, variable_ranges=nvr))
             continue
+        structured = einstein_structured_reduction_vjp(
+            clause, val, wrt, loc, B, R, ps, clause_shared_axes
+        )
+        if structured is not None:
+            dc.append(structured)
+            continue
         inner = val.body
-        factors = _flatten_product(inner) if inner else None
-        if not factors:
-            if val.operation == ReductionOp.SUM:
-                d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps, shared_cotangent_axes=clause_shared_axes, full_cotangent_axes=shared_axes, dependency_cache=dep_cache))
-                sum_val = ReductionExpressionIR(ReductionOp.SUM, list(val.loop_vars or []), d_inner, loc, where_clause=val.where_clause, loop_var_ranges=_merged_lr(val, clause), type_info=_ti(val), shape_info=_si(val))
-                mi = list(clause.indices or [])
-                nvr = dict(clause.variable_ranges or {})
-                mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, sum_val, clause_shared_axes)
-                mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, clause_shared_axes)
-                dc.append(EinsteinClauseIR(indices=mi, value=sum_val, location=clause.location, where_clause=clause.where_clause, variable_ranges=nvr))
-            else:
-                d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps, shared_cotangent_axes=clause_shared_axes, full_cotangent_axes=shared_axes, dependency_cache=dep_cache))
-                mi = list(clause.indices or [])
-                nvr = dict(clause.variable_ranges or {})
-                mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, d_val, clause_shared_axes)
-                mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, clause_shared_axes)
-                dc.append(EinsteinClauseIR(indices=mi, value=d_val, location=clause.location, where_clause=clause.where_clause, variable_ranges=nvr))
-            continue
-        wrt_pos: List[int] = []
-        for i, (a, _) in enumerate(factors):
-            if not isinstance(a, IdentifierIR) or a.defid is None:
-                continue
-            if a.defid == wrt:
-                wrt_pos.append(i)
-                continue
-            if ps is not None:
-                sub = ps.get(a.defid)
-                if isinstance(sub, IdentifierIR) and sub.defid == wrt:
-                    wrt_pos.append(i)
-        if not wrt_pos:
-            if val.operation == ReductionOp.SUM:
-                d_inner = inner.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps, shared_cotangent_axes=clause_shared_axes, full_cotangent_axes=shared_axes, dependency_cache=dep_cache))
-                sum_val = ReductionExpressionIR(ReductionOp.SUM, list(val.loop_vars or []), d_inner, loc, where_clause=val.where_clause, loop_var_ranges=_merged_lr(val, clause), type_info=_ti(val), shape_info=_si(val))
-                mi = list(clause.indices or [])
-                nvr = dict(clause.variable_ranges or {})
-                mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, sum_val, clause_shared_axes)
-                mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, clause_shared_axes)
-                dc.append(EinsteinClauseIR(indices=mi, value=sum_val, location=clause.location, where_clause=clause.where_clause, variable_ranges=nvr))
-            continue
-        first_wi = factors[wrt_pos[0]][1]
-        wb = B.get(wrt)
-        wid = IdentifierIR((wb.name if wb else "") or "?", loc, wrt, type_info=UNKNOWN)
-        ci = list(clause.indices or [])
-        allow_reuse = len(ci) < len(first_wi)
-        dvars, new_dids, new_vr = _build_deriv_idx(ci, first_wi, wid, R, loc, allow_reuse, shared_axes=clause_shared_axes)
-        lvs = list(val.loop_vars or [])
-        mlr = _merged_lr(val, clause)
-        if val.operation in (ReductionOp.MAX, ReductionOp.MIN):
-            db: ExpressionIR = _fl(1, loc)
-            for p in range(len(first_wi)):
-                if getattr(dvars[p], "defid", None) in new_dids:
-                    eq = BinaryOpIR(BinaryOp.EQ, first_wi[p], dvars[p], loc, type_info=BOOL)
-                    db = IfExpressionIR(eq, db, loc, else_expr=_z(loc), type_info=_ti(val) or F32)
-            sel = SelectAtArgmaxIR(val.body, db, lvs, loop_var_ranges=mlr, location=loc, type_info=_ti(val), shape_info=_si(val), use_argmin=(val.operation == ReductionOp.MIN))
+        jv = JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps, shared_cotangent_axes=clause_shared_axes, full_cotangent_axes=shared_axes, dependency_cache=dep_cache)
+        if val.operation == ReductionOp.SUM and inner is not None:
+            d_inner = inner.accept(jv)
+            sum_val = ReductionExpressionIR(
+                ReductionOp.SUM,
+                list(val.loop_vars or []),
+                d_inner,
+                loc,
+                where_clause=val.where_clause,
+                loop_var_ranges=_merged_lr(val, clause),
+                type_info=_ti(val),
+                shape_info=_si(val),
+            )
+            mi = list(clause.indices or [])
             nvr = dict(clause.variable_ranges or {})
-            nvr.update(new_vr)
-            out_val: ExpressionIR = sel
-            if not allow_reuse:
-                sum_loops: List[IndexVarIR] = [ix for ix in ci if isinstance(ix, IndexVarIR)]
-                if sum_loops:
-                    sum_ranges: Dict[DefId, RangeIR] = {}
-                    cvr = dict(clause.variable_ranges or {})
-                    for lv in sum_loops:
-                        did = getattr(lv, "defid", None)
-                        if did is not None and did in cvr:
-                            sum_ranges[did] = cvr[did]
-                    out_val = ReductionExpressionIR(ReductionOp.SUM, sum_loops, sel, loc, loop_var_ranges=sum_ranges if sum_ranges else None, type_info=_ti(val), shape_info=None)
-            dc.append(EinsteinClauseIR(indices=dvars, value=out_val, location=clause.location, where_clause=clause.where_clause, variable_ranges=nvr))
-            continue
-        if val.operation == ReductionOp.PROD and allow_reuse:
-            exc = [BinaryOpIR(BinaryOp.NE, first_wi[p], dvars[p], loc, type_info=BOOL) for p in range(len(first_wi)) if getattr(dvars[p], "defid", None) in new_dids]
-            ow = getattr(val, "where_clause", None)
-            oc = list(getattr(ow, "constraints", None) or []) if ow else []
-            pw = WhereClauseIR(constraints=oc + exc, location=loc) if (oc or exc) else None
-            pr = ReductionExpressionIR(ReductionOp.PROD, lvs, val.body, loc, where_clause=pw, loop_var_ranges=mlr, type_info=_ti(val), shape_info=_si(val))
-            nvr = dict(clause.variable_ranges or {})
-            nvr.update(new_vr)
-            dc.append(EinsteinClauseIR(indices=dvars, value=pr, location=clause.location, where_clause=clause.where_clause, variable_ranges=nvr))
-            continue
-        if val.operation != ReductionOp.SUM:
-            d_val = val.accept(JacobianVisitor(wrt, loc, B, R, wrt_tangent=wt, stmt_partial=sp, primal_subst=ps, shared_cotangent_axes=clause_shared_axes, full_cotangent_axes=shared_axes, dependency_cache=dep_cache))
+            mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, sum_val, clause_shared_axes)
+            mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, clause_shared_axes)
+            dc.append(EinsteinClauseIR(indices=mi, value=sum_val, location=clause.location, where_clause=clause.where_clause, variable_ranges=nvr))
+        else:
+            d_val = val.accept(jv)
             mi = list(clause.indices or [])
             nvr = dict(clause.variable_ranges or {})
             mi, nvr = _ensure_cotangent_axes_on_clause_indices(mi, nvr, d_val, clause_shared_axes)
             mi, nvr = _append_cotangent_axes_to_clause_indices(mi, nvr, clause_shared_axes)
             dc.append(EinsteinClauseIR(indices=mi, value=d_val, location=clause.location, where_clause=clause.where_clause, variable_ranges=nvr))
-            continue
-        orig_rc: List[ExpressionIR] = list(getattr(val.where_clause, "constraints", None) or []) if val.where_clause else []
-        rterms: List[ExpressionIR] = []
-        for pos in wrt_pos:
-            _, wi = factors[pos]
-            others = [factors[i] for i in range(len(factors)) if i != pos]
-            deltas = [BinaryOpIR(BinaryOp.EQ, wi[p], dvars[p], loc, type_info=BOOL) for p in range(len(wi)) if getattr(dvars[p], "defid", None) in new_dids]
-            wh = WhereClauseIR(constraints=orig_rc + deltas, location=loc) if (orig_rc or deltas) else None
-            if not others:
-                body: ExpressionIR = _fl(1, loc)
-            else:
-                def _mkref(a: ExpressionIR, idxs: List) -> ExpressionIR:
-                    bf = B.get(a.defid) if isinstance(a, IdentifierIR) else None
-                    nm = a.name or (bf.name if bf else "") or ""
-                    ref = IdentifierIR(nm, loc, a.defid, type_info=_ti(a), shape_info=_si(a)) if isinstance(a, IdentifierIR) else a
-                    return RectangularAccessIR(ref, list(idxs), loc)
-                body = _mkref(*others[0])
-                for ae, il in others[1:]:
-                    body = BinaryOpIR(BinaryOp.MUL, body, _mkref(ae, il), loc, type_info=_ti(val) or F32, shape_info=_si(val))
-            rterms.append(ReductionExpressionIR(val.operation, lvs, body, loc, where_clause=wh, loop_var_ranges=mlr, type_info=_ti(val), shape_info=_si(val)))
-        cv: ExpressionIR = rterms[0]
-        for r in rterms[1:]:
-            cv = BinaryOpIR(BinaryOp.ADD, cv, r, loc, type_info=_ti(val) or F32, shape_info=_si(val))
-        ni = dvars if allow_reuse else (ci + dvars)
-        nvr = dict(clause.variable_ranges or {})
-        nvr.update(new_vr)
-        dc.append(EinsteinClauseIR(indices=ni, value=cv, location=clause.location, where_clause=clause.where_clause, variable_ranges=nvr))
     if not dc:
         return _z(loc)
     dc = [

@@ -178,23 +178,26 @@ _EXPECTED_DY_DX: Dict[str, _ExpectedValue] = {
     "exp_einstein": [math.exp(1.0), math.exp(2.0), math.exp(3.0)],
     "einstein_square": [2.0, 4.0, 6.0],
     "softmax": [[0.0, 0.0, 0.0]],
-    "linear": [[0.8, 0.6]],
+    "linear": [[0.7, 0.7]],
     "max_pool": [[[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]],
     "max_pool_relu_arg": [[[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]],
-    "mnist_conv2d": [[[[2.0, 2.0, 0.0], [2.0, 2.0, 0.0], [0.0, 0.0, 0.0]]]],
-    "softmax_quotient": [0.0, 0.0, 0.0],
+    "mnist_conv2d": [[[[1.0, 1.0, 0.0], [1.0, 2.0, 1.0], [0.0, 1.0, 1.0]]]],
+    "softmax_quotient": [0.08192507, 0.24472846, 0.66524094],
     "sum_reduction": [math.exp(1.0), math.exp(2.0), math.exp(3.0)],
-    "prod_reduction": [18.0, 9.0, 6.0],
+    "prod_reduction": [6.0, 3.0, 2.0],
     "reduce_sum": [[1.0, 1.0, 1.0]],
     "reduce_l1": [[1.0, -1.0, 1.0]],
     "reduce_sum_square": [[2.0, 4.0, 6.0]],
     "reduce_mean": [[1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]],
-    "log_softmax": [[0.0, 0.0, 0.0]],
+    "log_softmax": [[0.72990826, 0.26581466, -0.9957229]],
     "reduce_l2": [[0.6, 0.8]],
     "reduce_log_sum": [[1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0]],
     "reduce_log_sum_exp": [[0.09003057, 0.24472845, 0.66524096]],
-    "matmul": [[12.0, 14.0], [12.0, 14.0]],
-    "batch_matmul": [[[12.0, 14.0], [12.0, 14.0]], [[2.0, 2.0], [2.0, 2.0]]],
+    "matmul": [[11.0, 15.0], [11.0, 15.0]],
+    "batch_matmul": [
+        [[11.0, 15.0], [11.0, 15.0]],
+        [[2.0, 2.0], [2.0, 2.0]],
+    ],
     "mse_loss": [[-1.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0]],
     "mae_loss": [[-1.0 / 3.0, -1.0 / 3.0, -1.0 / 3.0]],
     "huber_loss": [[-1.0 / 6.0, -1.0 / 6.0, -1.0 / 6.0]],
@@ -235,7 +238,6 @@ def test_quotient_vs_calculus(
     expected = _EXPECTED_DY_DX.get(label)
     if expected is None:
         pytest.fail("missing _EXPECTED_DY_DX for label %r" % label)
-
     qsrc = _build_quotient_source(label, orig_source)
     c_ok, e_ok, outputs, err = _compile_exec_outputs(qsrc, compiler, runtime)
     assert c_ok, "%s: compile failed: %s" % (label, err)

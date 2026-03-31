@@ -25,16 +25,101 @@ from .numpy_einstein_vectorization import (
     _try_slice_vectorize_if_clause,
     _try_vectorize_clause,
 )
-from ..ir.nodes import BindingIR, BlockExpressionIR, LoweredEinsteinIR, LoweredRecurrenceIR
+from ..ir.nodes import (
+    BindingIR,
+    BinaryOpIR,
+    BlockExpressionIR,
+    IfExpressionIR,
+    LoweredEinsteinIR,
+    LoweredRecurrenceIR,
+    LoweredReductionIR,
+    LoweredSelectAtArgmaxIR,
+    RectangularAccessIR,
+    UnaryOpIR,
+)
+
+
+def _expr_contains_nested_lowered_ir(node: Any) -> bool:
+    if node is None:
+        return False
+    if isinstance(node, (LoweredEinsteinIR, LoweredRecurrenceIR, LoweredReductionIR, LoweredSelectAtArgmaxIR)):
+        return True
+    if isinstance(node, BindingIR):
+        return _expr_contains_nested_lowered_ir(node.expr)
+    if isinstance(node, BlockExpressionIR):
+        return any(_expr_contains_nested_lowered_ir(stmt) for stmt in (node.statements or [])) or _expr_contains_nested_lowered_ir(node.final_expr)
+    if isinstance(node, BinaryOpIR):
+        return _expr_contains_nested_lowered_ir(node.left) or _expr_contains_nested_lowered_ir(node.right)
+    if isinstance(node, UnaryOpIR):
+        return _expr_contains_nested_lowered_ir(node.operand)
+    if isinstance(node, IfExpressionIR):
+        return (
+            _expr_contains_nested_lowered_ir(node.condition)
+            or _expr_contains_nested_lowered_ir(node.then_expr)
+            or _expr_contains_nested_lowered_ir(node.else_expr)
+        )
+    if isinstance(node, RectangularAccessIR):
+        return _expr_contains_nested_lowered_ir(node.array) or any(_expr_contains_nested_lowered_ir(idx) for idx in (node.indices or []))
+    return False
 
 
 def _block_has_direct_nested_lowered_binding(node: Any) -> bool:
-    if not isinstance(node, BlockExpressionIR):
+    return isinstance(node, BlockExpressionIR) and _expr_contains_nested_lowered_ir(node)
+
+
+def _expr_contains_lowered_select_at_argmax(node: Any) -> bool:
+    if node is None:
         return False
-    for stmt in node.statements or []:
-        if isinstance(stmt, BindingIR) and isinstance(stmt.expr, (LoweredEinsteinIR, LoweredRecurrenceIR)):
-            return True
+    if isinstance(node, LoweredSelectAtArgmaxIR):
+        return True
+    if isinstance(node, BindingIR):
+        return _expr_contains_lowered_select_at_argmax(node.expr)
+    if isinstance(node, BlockExpressionIR):
+        return any(_expr_contains_lowered_select_at_argmax(stmt) for stmt in (node.statements or [])) or _expr_contains_lowered_select_at_argmax(node.final_expr)
+    if isinstance(node, BinaryOpIR):
+        return _expr_contains_lowered_select_at_argmax(node.left) or _expr_contains_lowered_select_at_argmax(node.right)
+    if isinstance(node, UnaryOpIR):
+        return _expr_contains_lowered_select_at_argmax(node.operand)
+    if isinstance(node, IfExpressionIR):
+        return (
+            _expr_contains_lowered_select_at_argmax(node.condition)
+            or _expr_contains_lowered_select_at_argmax(node.then_expr)
+            or _expr_contains_lowered_select_at_argmax(node.else_expr)
+        )
+    if isinstance(node, RectangularAccessIR):
+        return _expr_contains_lowered_select_at_argmax(node.array) or any(
+            _expr_contains_lowered_select_at_argmax(idx) for idx in (node.indices or [])
+        )
     return False
+
+
+def _expr_contains_lowered_reduction(node: Any) -> bool:
+    if node is None:
+        return False
+    if isinstance(node, LoweredReductionIR):
+        return True
+    if isinstance(node, BindingIR):
+        return _expr_contains_lowered_reduction(node.expr)
+    if isinstance(node, BlockExpressionIR):
+        return any(_expr_contains_lowered_reduction(stmt) for stmt in (node.statements or [])) or _expr_contains_lowered_reduction(
+            node.final_expr
+        )
+    if isinstance(node, BinaryOpIR):
+        return _expr_contains_lowered_reduction(node.left) or _expr_contains_lowered_reduction(node.right)
+    if isinstance(node, UnaryOpIR):
+        return _expr_contains_lowered_reduction(node.operand)
+    if isinstance(node, IfExpressionIR):
+        return (
+            _expr_contains_lowered_reduction(node.condition)
+            or _expr_contains_lowered_reduction(node.then_expr)
+            or _expr_contains_lowered_reduction(node.else_expr)
+        )
+    if isinstance(node, RectangularAccessIR):
+        return _expr_contains_lowered_reduction(node.array) or any(
+            _expr_contains_lowered_reduction(idx) for idx in (node.indices or [])
+        )
+    return False
+
 
 class EinsteinExecutionClauseMixin:
     def _clause_loop_slices(
@@ -56,6 +141,7 @@ class EinsteinExecutionClauseMixin:
     ) -> bool:
         return (
             len(slices_list) == loop_count
+            and len(slices_list) == output.ndim
             and all(
                 isinstance(s, slice) and s.start == 0 and s.stop == output.shape[i]
                 for i, s in enumerate(slices_list)
@@ -225,6 +311,15 @@ class EinsteinExecutionClauseMixin:
             has_literal_idx = any(isinstance(idx, LiteralIR) for idx in clause_indices)
             object_output = isinstance(output, np.ndarray) and output.dtype == object
             body_node = lowered.body
+            _body = lowered.body
+            _bindings = lowered.bindings or []
+            _guards = lowered.guards or []
+            _loops = lowered.loops
+            _loop_defid_to_name = {}
+            for lp in _loops:
+                v = lp.variable
+                if v and v.defid:
+                    _loop_defid_to_name[v.defid] = v.name
             loop_defids = [lp.variable.defid for lp in (lowered.loops or [])]
             has_call_using_loop = _body_contains_call_using_loop_var(body_node, [d for d in loop_defids if d is not None])
             force_scalar_clause = _block_has_direct_nested_lowered_binding(body_node)
@@ -415,9 +510,12 @@ class EinsteinExecutionClauseMixin:
                                             return output
                                         vec_result = None
                                     else:
+                                        partial_value = vec_result
+                                        if getattr(vec_result, "ndim", 0) >= len(slices_list_partial):
+                                            partial_value = vec_result[tuple(slices_list_partial)]
                                         self._assign_ndarray_to_output(
                                             output,
-                                            vec_result[tuple(slices_list_partial)],
+                                            partial_value,
                                             slices_list=slices_list_partial,
                                         )
                                 else:
@@ -545,15 +643,52 @@ class EinsteinExecutionClauseMixin:
                         _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path=_path)
                         return output
 
-            _loop_defid_to_name = {}
-            _loops = lowered.loops
-            for lp in _loops:
-                v = lp.variable
-                if v and v.defid:
-                    _loop_defid_to_name[v.defid] = v.name
-            _body = lowered.body
-            _bindings = lowered.bindings or []
-            _guards = lowered.guards or []
+            if force_scalar_clause and lowered.loops and isinstance(body_node, BlockExpressionIR):
+                try:
+                    manual_scalar = True
+                    with self.env.scope():
+                        if variable_defid is not None:
+                            self.env.set_value(variable_defid, output)
+                        for loop_context in execute_lowered_loops(_loops, {}, expr_evaluator):
+                            full_context = execute_lowered_bindings(_bindings, loop_context, expr_evaluator) if _bindings else loop_context
+                            for defid, val in full_context.items():
+                                if defid is not None:
+                                    self.env.set_value(defid, val, name=_loop_defid_to_name.get(defid))
+                            if _guards and not check_lowered_guards(_guards, full_context, lambda e: self._to_bool(e.accept(self))):
+                                continue
+                            value = _body.accept(self)
+                            if isinstance(value, np.ndarray):
+                                if value.ndim == 0 or value.size == 1:
+                                    value = value.reshape(-1)[0].item()
+                                else:
+                                    manual_scalar = False
+                                    break
+                            elif isinstance(value, np.generic):
+                                value = value.item()
+                            idx_tuple = cell_index(full_context)
+                            if idx_tuple is None:
+                                idx_tuple = tuple(full_context.get(d) for d in _loop_defids_tuple)
+                            if idx_tuple is None:
+                                continue
+                            if len(idx_tuple) == 1:
+                                output[idx_tuple[0]] = value
+                            else:
+                                output[idx_tuple] = value
+                    if manual_scalar:
+                        if variable_defid:
+                            self._clause_set_output(variable_defid, output)
+                        self._einstein_scalar = getattr(self, "_einstein_scalar", 0) + 1
+                        self._vectorize_debug_log(
+                            "scalar-block",
+                            lowered,
+                            variable_decl,
+                            axes="scalar=block_manual",
+                        )
+                        _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="scalar")
+                        return output
+                except Exception:
+                    pass
+
             # Precompute cell_index spec: list of (is_literal, value_or_defid) so we avoid getattr per iteration.
             _cell_index_spec: List[Any] = []
             _loop_pos = 0
@@ -620,34 +755,39 @@ class EinsteinExecutionClauseMixin:
                         if _guards and not check_lowered_guards(_guards, full_context, lambda e: _to_bool(e.accept(self))):
                             continue
                         try:
-                            # Pass parallel indices into reduction so guard/body can see them.
-                            # For SelectAtArgmaxIR bodies, primal_body and diff_body may use
-                            # *different* defids for the same outer-loop variable name, so
-                            # alias every defid found (via _collect_defids_by_name) not just first.
-                            _ri_ctx = dict(full_context)
-                            if _loops and _body is not None:
-                                _outer_val = full_context
-                                _body_defids_by_name = _collect_defids_by_name(_body)
-                                for _lp in _loops:
-                                    _vv = _lp.variable
-                                    if (
-                                        _vv is not None
-                                        and _vv.defid is not None
-                                        and _vv.name
-                                        and _vv.defid in _outer_val
-                                    ):
-                                        _val = _outer_val[_vv.defid]
-                                        for _body_did in _body_defids_by_name.get(_vv.name, []):
-                                            if _body_did != _vv.defid:
-                                                _ri_ctx[_body_did] = _val
-                            setattr(self, "_reduction_initial_context", _ri_ctx)
-                            setattr(self, "_select_outer_index_defids", _loop_defids_tuple)
+                            needs_outer_reduction_ctx = _expr_contains_lowered_select_at_argmax(_body) or _expr_contains_lowered_reduction(
+                                _body
+                            )
+                            if needs_outer_reduction_ctx:
+                                # Pass parallel indices into reduction so guard/body can see them.
+                                # For SelectAtArgmaxIR bodies, primal_body and diff_body may use
+                                # *different* defids for the same outer-loop variable name, so
+                                # alias every defid found (via _collect_defids_by_name) not just first.
+                                _ri_ctx = dict(getattr(self, "_reduction_initial_context", None) or {})
+                                _ri_ctx.update(full_context)
+                                if _loops and _body is not None:
+                                    _outer_val = full_context
+                                    _body_defids_by_name = _collect_defids_by_name(_body)
+                                    for _lp in _loops:
+                                        _vv = _lp.variable
+                                        if (
+                                            _vv is not None
+                                            and _vv.defid is not None
+                                            and _vv.name
+                                            and _vv.defid in _outer_val
+                                        ):
+                                            _val = _outer_val[_vv.defid]
+                                            for _body_did in _body_defids_by_name.get(_vv.name, []):
+                                                if _body_did != _vv.defid:
+                                                    _ri_ctx[_body_did] = _val
+                                setattr(self, "_reduction_initial_context", _ri_ctx)
+                                setattr(self, "_select_outer_index_defids", _loop_defids_tuple)
                             try:
                                 value = _body.accept(self)
                             finally:
-                                if hasattr(self, "_reduction_initial_context"):
+                                if needs_outer_reduction_ctx and hasattr(self, "_reduction_initial_context"):
                                     delattr(self, "_reduction_initial_context")
-                                if hasattr(self, "_select_outer_index_defids"):
+                                if needs_outer_reduction_ctx and hasattr(self, "_select_outer_index_defids"):
                                     delattr(self, "_select_outer_index_defids")
                         except IndexError:
                             continue
@@ -706,14 +846,17 @@ class EinsteinExecutionClauseMixin:
                             # Row slice output[i] expects shape output.shape[1:]; reduction bodies may
                             # return (1, n1, n2, ...) (leading batch of 1) and trigger NumPy
                             # "setting an array element with a sequence" without reshape.
-                            if isinstance(value, np.ndarray) and output.ndim > 1:
-                                tail = output.shape[1:]
-                                if tail and value.shape == (1,) + tail:
-                                    value = value.reshape(tail)
-                                elif tail and value.shape == tail:
-                                    pass
-                                elif tail and value.shape == output.shape:
-                                    ri = int(np.asarray(idx_tuple[0]).item())
+                            if isinstance(value, np.ndarray):
+                                ri = int(np.asarray(idx_tuple[0]).item())
+                                if output.ndim > 1:
+                                    tail = output.shape[1:]
+                                    if tail and value.shape == (1,) + tail:
+                                        value = value.reshape(tail)
+                                    elif tail and value.shape == tail:
+                                        pass
+                                    elif tail and value.shape == output.shape:
+                                        value = value[ri]
+                                elif value.shape == output.shape:
                                     value = value[ri]
                             try:
                                 output[idx_tuple[0]] = value

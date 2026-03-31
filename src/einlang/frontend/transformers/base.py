@@ -99,12 +99,12 @@ class EinlangTransformer(Transformer):
         except Exception:
             raise
     
-    def __init__(self) -> None:
+    def __init__(self, source_file: str) -> None:
         super().__init__()
         # Initialize specialized parsers
+        self._source_file = source_file
         self.function_parser: FunctionDefinitionParser = FunctionDefinitionParser(self._extract_location)
         self.parameter_parser: ParameterParser = ParameterParser(self._extract_location)
-        self.current_file: str = ""  # Must be set by parser before use
     
     def _extract_location(self, meta: LarkMeta) -> SourceLocation:
         """Extract location from Lark meta object"""
@@ -114,16 +114,14 @@ class EinlangTransformer(Transformer):
         else:
             location_info = extract_location_info(meta)
         
-        # Fast fail: current_file must be set by parser
-        if not self.current_file:
+        if not self._source_file:
             raise RuntimeError(
-                "Parser bug: current_file not set. "
-                "Parser must call parse_file() or set current_file before parsing."
+                "Parser bug: source_file not set for transformer."
             )
         
         if location_info['has_location']:
             return SourceLocation(
-                file=self.current_file,
+                file=self._source_file,
                 line=location_info['line'],
                 column=location_info['column'], 
                 start=location_info['start_pos'],
@@ -132,7 +130,7 @@ class EinlangTransformer(Transformer):
                 end_column=location_info.get('end_column', 0),
             )
         return SourceLocation(
-            file=self.current_file,
+            file=self._source_file,
             line=0,
             column=0,
             start=0,
@@ -1853,4 +1851,3 @@ class EinlangTransformer(Transformer):
     # NO TERMINAL METHODS NEEDED
     # =========================================================================
     # Lark automatically handles NAME, INTEGER, ESCAPED_STRING tokens
-
