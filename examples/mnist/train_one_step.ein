@@ -45,32 +45,12 @@ let loss0[ls0 in 0..1] = sum[ls0j in 0..10]((logits0[ls0j] - y[ls0j]) ** 2.0);
 let loss0_scalar = loss0[0];
 
 // Gradients for all trainable tensors.
-let d_loss_d_conv1_w[g1o in 0..2, g1i in 0..1, g1kh in 0..3, g1kw in 0..3] = {
-    let w_elt = conv1_w0[g1o, g1i, g1kh, g1kw];
-    @loss0_scalar / @w_elt
-};
-let d_loss_d_conv1_b[g1bo in 0..2] = {
-    let b_elt = conv1_b0[g1bo];
-    @loss0_scalar / @b_elt
-};
-let d_loss_d_conv2_w[g2o in 0..2, g2i in 0..2, g2kh in 0..3, g2kw in 0..3] = {
-    let w_elt = conv2_w0[g2o, g2i, g2kh, g2kw];
-    @loss0_scalar / @w_elt
-};
-let d_loss_d_conv2_b[g2bo in 0..2] = {
-    let b_elt = conv2_b0[g2bo];
-    @loss0_scalar / @b_elt
-};
-let d_loss_d_fc_w[gfi in 0..8, gfj in 0..10] = {
-    let w_elt = fc_w0[gfi, gfj];
-    @loss0_scalar / @w_elt
-};
-let d_loss_d_fc_b[gfb in 0..10] = {
-    let b_elt = fc_b0[gfb];
-    let logit_elt = logits0[gfb];
-    let dlogit_db = @logit_elt / @b_elt;
-    2.0 * (logit_elt - y[gfb]) * dlogit_db
-};
+let d_loss_d_conv1_w = @loss0_scalar / @conv1_w0;
+let d_loss_d_conv1_b = @loss0_scalar / @conv1_b0;
+let d_loss_d_conv2_w = @loss0_scalar / @conv2_w0;
+let d_loss_d_conv2_b = @loss0_scalar / @conv2_b0;
+let d_loss_d_fc_w = @loss0_scalar / @fc_w0;
+let d_loss_d_fc_b = @loss0_scalar / @fc_b0;
 
 let lr = 1e-3;
 

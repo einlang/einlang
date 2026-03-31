@@ -1,5 +1,25 @@
 """NumPy backend expression visitor mixin."""
 
+from ..ir.nodes import (
+    BinaryOpIR,
+    BindingIR,
+    BlockExpressionIR,
+    BuiltinCallIR,
+    CastExpressionIR,
+    FunctionCallIR,
+    IfExpressionIR,
+    IRNode,
+    LiteralIR,
+    LoweredReductionIR,
+    LoweredSelectAtArgmaxIR,
+    MemberAccessIR,
+    RectangularAccessIR,
+    UnaryOpIR,
+    is_function_binding,
+)
+from ..shared.debug_trace import emit_debug_log
+from ..shared.types import ReductionOp
+
 from .numpy_expressions_support import *
 from .numpy_expressions_support import (
     _BINARY_OP_MAP,
@@ -8,12 +28,147 @@ from .numpy_expressions_support import (
     _first_parallel_index_defid,
     _invoke_runtime_builtin,
     _normalize_literal_sequence,
+    _reject_non_lowered,
     _safe_oob_ndarray_access,
     _try_einsum_reduction,
     _try_matmul_reduction,
     _try_windowed_sumprod_einsum,
 )
 from .numpy_helpers import _PatternMatcher
+
+def _agent_dbg(hypothesis_id, location, message, data=None) -> None:
+    payload = dict(data or {})
+    payload["hypothesis"] = hypothesis_id
+    emit_debug_log("runtime.autodiff_probe", location, message, payload)
+
+
+def _contains_nested_lowered_reduction(node: Any) -> bool:
+    if node is None:
+        return False
+    if isinstance(node, LoweredReductionIR):
+        return True
+    if isinstance(node, LoweredSelectAtArgmaxIR):
+        return True
+    if isinstance(node, BinaryOpIR):
+        return _contains_nested_lowered_reduction(node.left) or _contains_nested_lowered_reduction(node.right)
+    if isinstance(node, UnaryOpIR):
+        return _contains_nested_lowered_reduction(node.operand)
+    if isinstance(node, RectangularAccessIR):
+        return _contains_nested_lowered_reduction(node.array) or any(
+            _contains_nested_lowered_reduction(idx) for idx in (node.indices or [])
+        )
+    if isinstance(node, FunctionCallIR):
+        return _contains_nested_lowered_reduction(node.callee_expr) or any(
+            _contains_nested_lowered_reduction(arg) for arg in (node.arguments or [])
+        )
+    if isinstance(node, BlockExpressionIR):
+        return any(_contains_nested_lowered_reduction(stmt) for stmt in (node.statements or [])) or _contains_nested_lowered_reduction(
+            node.final_expr
+        )
+    if isinstance(node, IfExpressionIR):
+        return (
+            _contains_nested_lowered_reduction(node.condition)
+            or _contains_nested_lowered_reduction(node.then_expr)
+            or _contains_nested_lowered_reduction(node.else_expr)
+        )
+    if isinstance(node, BindingIR):
+        return _contains_nested_lowered_reduction(node.expr)
+    if isinstance(node, CastExpressionIR):
+        return _contains_nested_lowered_reduction(node.expr)
+    if isinstance(node, MemberAccessIR):
+        return _contains_nested_lowered_reduction(node.object)
+    if isinstance(node, BuiltinCallIR):
+        return any(_contains_nested_lowered_reduction(arg) for arg in (node.args or []))
+    return False
+
+
+def _contains_if_expression(node: Any) -> bool:
+    if node is None:
+        return False
+    if isinstance(node, IfExpressionIR):
+        return True
+    if isinstance(node, BinaryOpIR):
+        return _contains_if_expression(node.left) or _contains_if_expression(node.right)
+    if isinstance(node, UnaryOpIR):
+        return _contains_if_expression(node.operand)
+    if isinstance(node, RectangularAccessIR):
+        return _contains_if_expression(node.array) or any(
+            _contains_if_expression(idx) for idx in (node.indices or [])
+        )
+    if isinstance(node, FunctionCallIR):
+        return _contains_if_expression(node.callee_expr) or any(
+            _contains_if_expression(arg) for arg in (node.arguments or [])
+        )
+    if isinstance(node, BlockExpressionIR):
+        return any(_contains_if_expression(stmt) for stmt in (node.statements or [])) or _contains_if_expression(
+            node.final_expr
+        )
+    if isinstance(node, BindingIR):
+        return _contains_if_expression(node.expr)
+    if isinstance(node, CastExpressionIR):
+        return _contains_if_expression(node.expr)
+    if isinstance(node, MemberAccessIR):
+        return _contains_if_expression(node.object)
+    if isinstance(node, BuiltinCallIR):
+        return any(_contains_if_expression(arg) for arg in (node.args or []))
+    if isinstance(node, LoweredReductionIR):
+        return _contains_if_expression(node.body)
+    if isinstance(node, LoweredSelectAtArgmaxIR):
+        return (
+            _contains_if_expression(node.primal_body)
+            or _contains_if_expression(node.diff_body)
+        )
+    return False
+
+
+def _contains_lowered_einstein(node: Any) -> bool:
+    if node is None:
+        return False
+    if isinstance(node, LoweredEinsteinIR):
+        return True
+    if isinstance(node, BinaryOpIR):
+        return _contains_lowered_einstein(node.left) or _contains_lowered_einstein(node.right)
+    if isinstance(node, UnaryOpIR):
+        return _contains_lowered_einstein(node.operand)
+    if isinstance(node, RectangularAccessIR):
+        return _contains_lowered_einstein(node.array) or any(
+            _contains_lowered_einstein(idx) for idx in (node.indices or [])
+        )
+    if isinstance(node, FunctionCallIR):
+        return _contains_lowered_einstein(node.callee_expr) or any(
+            _contains_lowered_einstein(arg) for arg in (node.arguments or [])
+        )
+    if isinstance(node, BlockExpressionIR):
+        return any(_contains_lowered_einstein(stmt) for stmt in (node.statements or [])) or _contains_lowered_einstein(
+            node.final_expr
+        )
+    if isinstance(node, IfExpressionIR):
+        return (
+            _contains_lowered_einstein(node.condition)
+            or _contains_lowered_einstein(node.then_expr)
+            or _contains_lowered_einstein(node.else_expr)
+        )
+    if isinstance(node, BindingIR):
+        return _contains_lowered_einstein(node.expr)
+    if isinstance(node, CastExpressionIR):
+        return _contains_lowered_einstein(node.expr)
+    if isinstance(node, MemberAccessIR):
+        return _contains_lowered_einstein(node.object)
+    if isinstance(node, BuiltinCallIR):
+        return any(_contains_lowered_einstein(arg) for arg in (node.args or []))
+    if isinstance(node, LoweredReductionIR):
+        return _contains_lowered_einstein(node.body)
+    if isinstance(node, LoweredSelectAtArgmaxIR):
+        return (
+            _contains_lowered_einstein(node.primal_body)
+            or _contains_lowered_einstein(node.diff_body)
+        )
+    return False
+
+
+def _is_zero_literal_like(node: Any) -> bool:
+    return isinstance(node, LiteralIR) and getattr(node, "value", None) == 0
+
 
 class ExpressionVisitorMixin:
     """Expression visit_*; function/builtin lookup via env only."""
@@ -45,6 +200,85 @@ class ExpressionVisitorMixin:
             return bool(value.all())
         return bool(value)
 
+    def _lowered_expr_is_zero(self, expr: Any) -> bool:
+        if expr is None:
+            return False
+        if _is_zero_literal_like(expr):
+            return True
+        if isinstance(expr, CastExpressionIR):
+            return self._lowered_expr_is_zero(expr.expr)
+        if isinstance(expr, BlockExpressionIR) and expr.final_expr is not None:
+            return self._lowered_expr_is_zero(expr.final_expr)
+        if isinstance(expr, BinaryOpIR):
+            if expr.operator == BinaryOp.ADD:
+                return self._lowered_expr_is_zero(expr.left) and self._lowered_expr_is_zero(expr.right)
+            if expr.operator == BinaryOp.SUB:
+                return self._lowered_expr_is_zero(expr.left) and self._lowered_expr_is_zero(expr.right)
+        if isinstance(expr, LoweredReductionIR):
+            return expr.operation == ReductionOp.SUM and self._lowered_expr_is_zero(expr.body)
+        if isinstance(expr, LoweredEinsteinIR):
+            items = list(expr.items or [])
+            return bool(items) and all(self._lowered_expr_is_zero(item.body) for item in items)
+        return False
+
+    def _zero_value_for_lowered_expr(self, expr: Any) -> Any:
+        if expr is None:
+            return None
+        if isinstance(expr, LiteralIR):
+            return expr.value
+        if isinstance(expr, CastExpressionIR):
+            return self._zero_value_for_lowered_expr(expr.expr)
+        if isinstance(expr, BlockExpressionIR) and expr.final_expr is not None:
+            return self._zero_value_for_lowered_expr(expr.final_expr)
+        if isinstance(expr, LoweredReductionIR):
+            return self._zero_value_for_lowered_expr(expr.body)
+        if isinstance(expr, LoweredEinsteinIR):
+            shape_fn = getattr(self, "_resolve_lowered_output_shape", None)
+            dtype_fn = getattr(self, "_type_info_to_numpy_dtype", None)
+            output_shape = shape_fn(expr) if callable(shape_fn) else None
+            if not output_shape:
+                return None
+            dtype = dtype_fn(expr.element_type) if callable(dtype_fn) else None
+            if dtype is None:
+                dtype = np.float32
+            return np.zeros(tuple(int(v) for v in output_shape), dtype=dtype)
+        return None
+
+    def _binding_cache_depids(self, binding: BindingIR) -> Tuple[Any, ...]:
+        cache = getattr(self, "_binding_cache_depids_by_defid", None)
+        if cache is None:
+            cache = {}
+            self._binding_cache_depids_by_defid = cache
+        if binding.defid in cache:
+            return cache[binding.defid]
+        from ..passes.autodiff._graph import _collect_defids
+
+        depids = tuple(
+            sorted(
+                (d for d in _collect_defids(binding.expr) if d is not None),
+                key=lambda d: (d.krate, d.index),
+            )
+        )
+        cache[binding.defid] = depids
+        return depids
+
+    @staticmethod
+    def _cache_value_fingerprint(value: Any) -> Any:
+        if value is None or isinstance(value, (int, float, bool, str, bytes)):
+            return value
+        if isinstance(value, np.ndarray):
+            ptr = None
+            try:
+                ptr = value.__array_interface__.get("data", (None,))[0]
+            except Exception:
+                pass
+            return ("ndarray", id(value), ptr, tuple(value.shape), str(value.dtype))
+        if isinstance(value, tuple):
+            return ("tuple", tuple(ExpressionVisitorMixin._cache_value_fingerprint(v) for v in value))
+        if isinstance(value, list):
+            return ("list", tuple(ExpressionVisitorMixin._cache_value_fingerprint(v) for v in value))
+        return (type(value).__name__, id(value))
+
     def visit_literal(self, expr: LiteralIR) -> Any:
         val = expr.value
         if isinstance(val, range):
@@ -68,6 +302,9 @@ class ExpressionVisitorMixin:
             raise RuntimeError(f"Variable not found (defid=None). Name: {expr.name or '?'}")
         value = self.env.get_value(defid)
         if value is None:
+            last_values = getattr(self.env, "_last_values", {}) or {}
+            if defid in last_values:
+                return last_values[defid]
             raise RuntimeError(f"Variable not found (defid={defid}). Name: {expr.name or '?'}")
         return value
 
@@ -175,11 +412,33 @@ class ExpressionVisitorMixin:
 
     def visit_rectangular_access(self, expr: RectangularAccessIR) -> Any:
         # Autodiff pullback may place LoweredEinsteinIR here; evaluate with synthetic variable_decl stack.
-        if isinstance(expr.array, LoweredEinsteinIR):
-            array = self._evaluate_lowered_einstein_subexpr(expr.array)
+        lowered_array = isinstance(expr.array, LoweredEinsteinIR)
+        indices = [idx.accept(self) for idx in (expr.indices or []) if idx is not None]
+        if lowered_array:
+            lowered_rank = 0
+            shape = getattr(expr.array, "shape", None)
+            items = getattr(expr.array, "items", None) or []
+            if isinstance(shape, (list, tuple)) and len(shape) > 0:
+                lowered_rank = len(shape)
+            elif items:
+                first_indices = getattr(items[0], "indices", None) or []
+                lowered_rank = len(first_indices)
+            scalar_index_bindings = {}
+            for idx_node, idx_value in zip((expr.indices or []), indices):
+                did = getattr(idx_node, "defid", None)
+                if did is None:
+                    continue
+                try:
+                    scalar_index_bindings[did] = int(np.asarray(idx_value).reshape(-1)[0].item())
+                except Exception:
+                    scalar_index_bindings[did] = idx_value
+            array = self._evaluate_lowered_einstein_subexpr(
+                expr.array,
+                allow_outer_slot_eval=len(indices) > lowered_rank,
+                scalar_index_bindings=scalar_index_bindings,
+            )
         else:
             array = expr.array.accept(self)
-        indices = [idx.accept(self) for idx in (expr.indices or []) if idx is not None]
         try:
             if getattr(array, "is_circular_recurrence_buffer", False):
                 return array[tuple(indices)]
@@ -206,7 +465,10 @@ class ExpressionVisitorMixin:
             if np.isscalar(array) or (isinstance(array, np.ndarray) and array.ndim == 0):
                 return array
         except (IndexError, KeyError, TypeError) as e:
-            self._raise_here(e, expr)
+            detail = RuntimeError(
+                f"{e} | array_type={type(array).__name__} array_shape={getattr(array, 'shape', None)} indices={indices} array_name={getattr(expr.array, 'name', None)}"
+            )
+            self._raise_here(detail, expr)
         raise RuntimeError(f"rectangular_access: expected ndarray, list, or str, got {type(array).__name__}")
 
     def visit_jagged_access(self, expr: JaggedAccessIR) -> Any:
@@ -217,27 +479,133 @@ class ExpressionVisitorMixin:
 
     def visit_block_expression(self, expr: BlockExpressionIR) -> Any:
         with self.env.scope():
-            for stmt in (expr.statements or []) or []:
-                result_value = stmt.accept(self)
-                binding = getattr(stmt, "_binding", None)
-                variable_defid = binding.defid if binding else None
-                if variable_defid is not None:
-                    var_name = binding.name or stmt.name
-                    self.env.set_value(variable_defid, result_value, name=var_name)
-            if expr.final_expr:
-                return expr.final_expr.accept(self)
+            # Keep binding-result caching local to this block invocation. Reusing it
+            # across function calls lets stale local bindings leak when dependency
+            # tracking misses a scalar parameter, which corrupts repeated stdlib calls.
+            previous_binding_cache = getattr(self, "_binding_eval_cache", None)
+            self._binding_eval_cache = {}
+            try:
+                binding_cache = self._binding_eval_cache
+                for stmt in (expr.statements or []) or []:
+                    binding = getattr(stmt, "_binding", None)
+                    if binding is None and isinstance(stmt, BindingIR):
+                        binding = stmt
+                    result_value = None
+                    used_cache = False
+                    cacheable_name = (binding.name or stmt.name) if binding is not None else None
+                    use_binding_cache = cacheable_name in {
+                        "Xp",
+                        "conv_sum",
+                        "output",
+                        "_@Xp",
+                        "_@conv_sum",
+                        "_@output",
+                    }
+                    if use_binding_cache and binding is not None and binding.defid is not None and binding.expr is not None:
+                        depids = self._binding_cache_depids(binding)
+                        dep_key = tuple(
+                            (depid, self._cache_value_fingerprint(self.env.get_value(depid)))
+                            for depid in depids
+                        )
+                        cache_key = (binding.defid, dep_key)
+                        cached = binding_cache.get(cache_key)
+                        if cached is not None:
+                            result_value = cached
+                            used_cache = True
+                        else:
+                            result_value = stmt.accept(self)
+                            binding_cache[cache_key] = result_value
+                    else:
+                        result_value = stmt.accept(self)
+                    variable_defid = binding.defid if binding else None
+                    if variable_defid is not None:
+                        var_name = binding.name or stmt.name
+                        if result_value is None and binding.expr is not None and not is_function_binding(binding):
+                            result_value = stmt.accept(self)
+                        if result_value is None and is_function_binding(binding):
+                            result_value = self.env.get_value(variable_defid)
+                        if var_name in {"Xp", "conv_sum", "output", "_@Xp", "_@conv_sum", "_@output"}:
+                            emit_debug_log(
+                                "runtime.autodiff_probe",
+                                "numpy_expressions_mixin.py:visit_block_expression",
+                                "local_binding_value",
+                                {
+                                    "binding_name": var_name,
+                                    "used_cache": used_cache,
+                                    "shape": list(np.asarray(result_value).shape) if result_value is not None else None,
+                                    "value": np.asarray(result_value).tolist() if result_value is not None else None,
+                                },
+                            )
+                        self.env.set_value(variable_defid, result_value, name=var_name)
+                if expr.final_expr:
+                    return expr.final_expr.accept(self)
+            finally:
+                if previous_binding_cache is None:
+                    delattr(self, "_binding_eval_cache")
+                else:
+                    self._binding_eval_cache = previous_binding_cache
         return None
 
     def visit_if_expression(self, expr) -> Any:
         cond = expr.condition.accept(self)
-        if isinstance(cond, np.ndarray) and cond.ndim > 0:
+        if isinstance(cond, np.ndarray):
+            # region agent log
+            _agent_dbg(
+                "H2,H3",
+                "numpy_expressions_mixin.py:visit_if_expression",
+                "if_branch",
+                {
+                    "branch": "np_where",
+                    "cond_type": type(cond).__name__,
+                    "cond_ndim": int(cond.ndim),
+                },
+            )
+            # endregion agent log
             then_val = expr.then_expr.accept(self)
-            else_val = expr.else_expr.accept(self) if expr.else_expr else None
+            if expr.else_expr:
+                else_val = expr.else_expr.accept(self)
+            else:
+                if isinstance(then_val, np.ndarray):
+                    else_val = np.zeros_like(then_val)
+                else:
+                    else_val = 0
             return np.where(cond, then_val, else_val)
         if self._to_bool(cond):
+            # region agent log
+            _agent_dbg(
+                "H2,H3",
+                "numpy_expressions_mixin.py:visit_if_expression",
+                "if_branch",
+                {
+                    "branch": "scalar_then",
+                    "cond_type": type(cond).__name__,
+                    "cond_ndim": int(getattr(cond, "ndim", -1)) if isinstance(cond, np.ndarray) else None,
+                },
+            )
+            # endregion agent log
             return expr.then_expr.accept(self)
         if expr.else_expr:
+            # region agent log
+            _agent_dbg(
+                "H2,H3",
+                "numpy_expressions_mixin.py:visit_if_expression",
+                "if_branch",
+                {
+                    "branch": "scalar_else",
+                    "cond_type": type(cond).__name__,
+                    "cond_ndim": int(getattr(cond, "ndim", -1)) if isinstance(cond, np.ndarray) else None,
+                },
+            )
+            # endregion agent log
             return expr.else_expr.accept(self)
+        # region agent log
+        _agent_dbg(
+            "H2,H3",
+            "numpy_expressions_mixin.py:visit_if_expression",
+            "if_branch",
+            {"branch": "no_else_none", "cond_type": type(cond).__name__, "cond_ndim": None},
+        )
+        # endregion agent log
         return None
 
     def visit_lambda(self, expr) -> Any:
@@ -454,6 +822,26 @@ class ExpressionVisitorMixin:
     def visit_reduction_expression(self, expr: ReductionExpressionIR) -> Any:
         _reject_non_lowered(type(expr).__name__)
 
+    def _reduction_loop_defid_alias_maps(
+        self, expr: LoweredReductionIR
+    ) -> Tuple[Dict[Any, List[Any]], Dict[Any, str]]:
+        from ..passes.visitor_helpers import all_index_var_defids_of_name_in_expr
+
+        loop_to_body_defids: Dict[Any, List[Any]] = {}
+        reduction_defid_names: Dict[Any, str] = {}
+        for _lp in expr.loops or []:
+            _v = _lp.variable
+            if _v is not None and _v.defid is not None and _v.name:
+                _vname = _v.name
+                _all_bds = set(all_index_var_defids_of_name_in_expr(expr.body, _vname))
+                _bds = [d for d in _all_bds if d != _v.defid]
+                if _bds:
+                    loop_to_body_defids[_v.defid] = _bds
+                for _bd in _all_bds:
+                    reduction_defid_names[_bd] = _vname
+                reduction_defid_names[_v.defid] = _vname
+        return loop_to_body_defids, reduction_defid_names
+
     def evaluate_lowered_reduction(
         self, expr: LoweredReductionIR, parallel_shape: Optional[Tuple[int, ...]] = None
     ) -> Any:
@@ -461,10 +849,43 @@ class ExpressionVisitorMixin:
         When parallel_shape is None, uses the backend vectorization state when present (e.g. in a vectorized clause).
         Fast paths (matmul, conv via einsum) only when parallel_shape is set; stricter conditions avoid LSTM."""
         import os
+        if expr.operation == ReductionOp.SUM and self._lowered_expr_is_zero(expr.body):
+            zero_value = self._zero_value_for_lowered_expr(expr.body)
+            if zero_value is not None:
+                return zero_value
+        force_scalar_reduction = _contains_nested_lowered_reduction(expr.body) or _contains_if_expression(
+            expr.body
+        )
         if parallel_shape is None:
             parallel_shape = self._vectorization_parallel_shape()
+        # region agent log
+        _agent_dbg(
+            "H1,H5",
+            "numpy_expressions_mixin.py:evaluate_lowered_reduction",
+            "entry",
+            {
+                "n_loops": len(expr.loops or []),
+                "parallel_shape": list(parallel_shape) if parallel_shape is not None else None,
+                "force_scalar_reduction": force_scalar_reduction,
+                "has_if": _contains_if_expression(expr.body),
+                "has_nested_red": _contains_nested_lowered_reduction(expr.body),
+                "body_kind": type(expr.body).__name__,
+            },
+        )
+        # endregion agent log
+        _loop_alias_map, _reduction_defid_names = self._reduction_loop_defid_alias_maps(expr)
+        # Only block windowed/matmul/einsum and speculative vectorization when the same loop
+        # variable name is tied to multiple *distinct* body defids (e.g. autodiff primal+diff).
+        # A single alternate defid vs. the loop header still needs ctx expansion below but is
+        # safe for the same structural fast paths as a unified defid.
+        has_defid_aliases = any(len(alist) > 1 for alist in _loop_alias_map.values())
         # Recurrence clauses may use partial vectorization but must not use fast_matmul / fast_conv.
-        if parallel_shape is not None and not self._in_recurrence_vectorization_clause():
+        if (
+            parallel_shape is not None
+            and not force_scalar_reduction
+            and not self._in_recurrence_vectorization_clause()
+            and not has_defid_aliases
+        ):
             windowed_result = _try_windowed_sumprod_einsum(expr, self)
             if windowed_result is not None and isinstance(windowed_result, np.ndarray):
                 if windowed_result.shape == tuple(parallel_shape):
@@ -479,7 +900,23 @@ class ExpressionVisitorMixin:
             if einsum_result is not None and isinstance(einsum_result, np.ndarray):
                 if einsum_result.shape == tuple(parallel_shape):
                     setattr(self, "_last_reduction_fast_path", "einsum")
+                    # region agent log
+                    _agent_dbg(
+                        "H1,H5",
+                        "numpy_expressions_mixin.py:evaluate_lowered_reduction",
+                        "fast_path_return",
+                        {"path": "einsum", "shape": list(einsum_result.shape)},
+                    )
+                    # endregion agent log
                     return einsum_result
+            # region agent log
+            _agent_dbg(
+                "H1,H5",
+                "numpy_expressions_mixin.py:evaluate_lowered_reduction",
+                "fast_path_miss",
+                {"windowed": windowed_result is not None, "matmul": matmul_result is not None, "einsum": einsum_result is not None},
+            )
+            # endregion agent log
         from ..runtime.compute.lowered_execution import (
             execute_reduction_with_loops,
             execute_select_at_argmax_vectorized,
@@ -499,36 +936,132 @@ class ExpressionVisitorMixin:
                     seen.add(key)
                     print(f"[reduction] {path} L{line}", flush=True)
         def ev(e): return e.accept(self)
-        _reduction_defid_names = {}
-        for _lp in (expr.loops or []) or []:
-            _v = _lp.variable
-            if _v is not None and _v.defid is not None:
-                _reduction_defid_names[_v.defid] = _v.name
+
+        _loop_to_all_body_defids = _loop_alias_map
+        _reduction_body_defids_with_aliases = set()
+        for loop in (expr.loops or []):
+            if loop.variable is not None and loop.variable.defid is not None:
+                d = loop.variable.defid
+                _reduction_body_defids_with_aliases.add(d)
+                for bd in _loop_to_all_body_defids.get(d) or []:
+                    _reduction_body_defids_with_aliases.add(bd)
+
+        def _expand_reduction_ctx(ctx: Dict[Any, Any]) -> Dict[Any, Any]:
+            out: Dict[Any, Any] = {}
+            for loop_defid, val in (ctx or {}).items():
+                if loop_defid is None:
+                    continue
+                out[loop_defid] = val
+                for body_defid in _loop_to_all_body_defids.get(loop_defid) or []:
+                    if body_defid in out:
+                        continue
+                    if self.env.get_value(body_defid) is not None:
+                        continue
+                    out[body_defid] = val
+            return out
+
+        from .numpy_einstein_call_index_analysis import _collect_defids_by_name
+
+        body_defids_by_name = _collect_defids_by_name(expr.body)
+        has_cross_scope_name_shadow = any(
+            any(d in _reduction_body_defids_with_aliases for d in dids)
+            and any(d not in _reduction_body_defids_with_aliases for d in dids)
+            for dids in body_defids_by_name.values()
+        )
+        guard_defids_by_name: Dict[str, List[Any]] = {}
+        for g in (expr.guards or []):
+            for name, dids in _collect_defids_by_name(g.condition).items():
+                bucket = guard_defids_by_name.setdefault(name, [])
+                for did in dids:
+                    if did not in bucket:
+                        bucket.append(did)
+
+        def _apply_name_aliases(ctx_map: Dict[Any, Any], target_defids_by_name: Dict[str, List[Any]]) -> Dict[Any, Any]:
+            merged = dict(ctx_map)
+            env_names = getattr(self.env, "_defid_names", {}) or {}
+            name_to_value: Dict[str, Any] = {}
+            for defid, val in merged.items():
+                if defid is None:
+                    continue
+                if defid in _reduction_body_defids_with_aliases:
+                    continue
+                nm = _reduction_defid_names.get(defid) or env_names.get(defid)
+                if nm and nm not in name_to_value:
+                    name_to_value[nm] = val
+            for nm, dids in target_defids_by_name.items():
+                if nm not in name_to_value:
+                    continue
+                val = name_to_value[nm]
+                for did in dids:
+                    if did is not None and did not in merged:
+                        merged[did] = val
+            return merged
 
         def body_ev(ctx):
-            _ctx = {
-                defid: val for defid, val in (ctx or {}).items()
-                if defid is not None
-            }
+            _ctx = _apply_name_aliases(
+                _expand_reduction_ctx(
+                    {
+                        defid: val
+                        for defid, val in (ctx or {}).items()
+                        if defid is not None
+                    }
+                ),
+                body_defids_by_name,
+            )
             saved: Dict[Any, Any] = {}
             for defid in _ctx:
                 if defid is not None:
                     saved[defid] = self.env.get_value(defid)
+            had_outer_ctx = hasattr(self, "_reduction_initial_context")
+            prev_outer_ctx = getattr(self, "_reduction_initial_context", None)
+            had_select_outer = hasattr(self, "_select_outer_index_defids")
+            prev_select_outer = getattr(self, "_select_outer_index_defids", None)
+            needs_outer_reduction_ctx = _contains_nested_lowered_reduction(expr.body) or isinstance(
+                expr.body, LoweredSelectAtArgmaxIR
+            )
+            if needs_outer_reduction_ctx:
+                outer_ctx = dict(prev_outer_ctx or {})
+                outer_ctx.update(_ctx)
+                setattr(self, "_reduction_initial_context", outer_ctx)
+                setattr(
+                    self,
+                    "_select_outer_index_defids",
+                    tuple(
+                        loop.variable.defid
+                        for loop in (expr.loops or [])
+                        if loop.variable is not None and loop.variable.defid is not None
+                    ),
+                )
             try:
                 for defid, val in _ctx.items():
                     if defid is not None:
                         self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
                 return expr.body.accept(self)
             finally:
+                if needs_outer_reduction_ctx:
+                    if had_outer_ctx:
+                        setattr(self, "_reduction_initial_context", prev_outer_ctx)
+                    elif hasattr(self, "_reduction_initial_context"):
+                        delattr(self, "_reduction_initial_context")
+                    if had_select_outer:
+                        setattr(self, "_select_outer_index_defids", prev_select_outer)
+                    elif hasattr(self, "_select_outer_index_defids"):
+                        delattr(self, "_select_outer_index_defids")
                 for defid, val in saved.items():
                     self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
         def guard_ev(ctx):
             if not expr.guards:
                 return True
-            _ctx = {
-                defid: val for defid, val in (ctx or {}).items()
-                if defid is not None
-            }
+            _ctx = _apply_name_aliases(
+                _expand_reduction_ctx(
+                    {
+                        defid: val
+                        for defid, val in (ctx or {}).items()
+                        if defid is not None
+                    }
+                ),
+                guard_defids_by_name,
+            )
             for defid, val in _ctx.items():
                 if defid is not None:
                     self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
@@ -541,14 +1074,27 @@ class ExpressionVisitorMixin:
         # that case — rebuilding would create arrays with wrong dimensionality (parallel-only ndim)
         # that clobber the correct env values when body_ev sets them.
         initial_ctx = dict(getattr(self, "_reduction_initial_context", None) or {})
+        from ..passes.autodiff._graph import _collect_defids
+
+        referenced_defids = set(_collect_defids(expr.body))
+        for loop in (expr.loops or []):
+            referenced_defids.update(_collect_defids(loop.iterable))
+        for g in (expr.guards or []):
+            referenced_defids.update(_collect_defids(g.condition))
+        for did in referenced_defids:
+            if did is None or did in _reduction_body_defids_with_aliases or did in initial_ctx:
+                continue
+            cur = self.env.get_value(did)
+            if isinstance(cur, np.ndarray) and cur.ndim > 0:
+                continue
+            if isinstance(cur, (list, tuple)) and not np.isscalar(cur):
+                continue
+            if cur is not None:
+                initial_ctx[did] = cur
         vector_parallel_ctx: Dict[Any, Any] = {}
         if (not initial_ctx) and parallel_shape is None:
             try:
-                reduction_body_defids = {
-                    loop.variable.defid
-                    for loop in (expr.loops or [])
-                    if loop.variable is not None and loop.variable.defid is not None
-                }
+                reduction_body_defids = set(_reduction_body_defids_with_aliases)
                 seen_parallel_defids = set()
                 collector = ArrayAccessCollector()
                 scan_exprs = [expr.body]
@@ -570,8 +1116,8 @@ class ExpressionVisitorMixin:
         if (not initial_ctx) and parallel_shape:
             order_defids = self._vectorization_parallel_defids_order()
             if order_defids is not None and len(order_defids) == len(parallel_shape):
-                n_red_ix = len(expr.reduction_ranges or {})
-                if n_red_ix >= 1:
+                n_loops = len(expr.loops or [])
+                if n_loops >= 1:
                     for idx, did in enumerate(order_defids):
                         if did is None:
                             continue
@@ -581,17 +1127,13 @@ class ExpressionVisitorMixin:
                         sz = int(parallel_shape[idx])
                         flat = np.asarray(cur, dtype=np.intp).reshape(-1)
                         start = int(flat[0]) if flat.size else 0
-                        shape_pv = [1] * (len(parallel_shape) + n_red_ix)
+                        shape_pv = [1] * (len(parallel_shape) + n_loops)
                         shape_pv[idx] = sz
                         arr = np.arange(start, start + sz, dtype=np.intp).reshape(shape_pv)
                         vector_parallel_ctx[did] = arr
             else:
                 try:
-                    reduction_body_defids = {
-                        loop.variable.defid
-                        for loop in (expr.loops or [])
-                        if loop.variable is not None and loop.variable.defid is not None
-                    }
+                    reduction_body_defids = set(_reduction_body_defids_with_aliases)
                     if isinstance(expr.body, RectangularAccessIR):
                         par_defids: List[Any] = []
                         for idx in (expr.body.indices or []):
@@ -608,16 +1150,12 @@ class ExpressionVisitorMixin:
                 except Exception:
                     pass
 
-        # Guarded vectorized reduction: evaluate guards elementwise as arrays and keep the reduction
-        # on a vectorized path (instead of scalar loops). This is safe when guards/body are pure
-        # NumPy expressions. Works both with parallel dims (parallel_shape) and standalone guarded
-        # reductions (treat parallel_shape as ()).
-        if expr.guards:
-            from ..shared.types import ReductionOp
+        _use_vectorized_guarded_lowered_reduction = not has_defid_aliases and not has_cross_scope_name_shadow
+        if _use_vectorized_guarded_lowered_reduction and expr.guards:
             op = expr.operation
             if op in (ReductionOp.SUM, ReductionOp.PROD, ReductionOp.MIN, ReductionOp.MAX):
                 try:
-                    reduction_loops = list((expr.reduction_ranges or {}).values())
+                    reduction_loops = list(expr.loops or [])
                     n_red = len(reduction_loops)
                     par_shape = tuple(parallel_shape) if parallel_shape is not None else ()
                     # Build broadcasted index arrays for reduction loops (same strategy as vectorized reduction).
@@ -668,10 +1206,13 @@ class ExpressionVisitorMixin:
                     mask = np.ones(full_shape, dtype=bool)
                     for g in (expr.guards or []):
                         with self.env.scope():
-                            _ctx_g = {
-                                defid: val for defid, val in ctx.items()
-                                if defid is not None
-                            }
+                            _ctx_g = _expand_reduction_ctx(
+                                {
+                                    defid: val
+                                    for defid, val in ctx.items()
+                                    if defid is not None
+                                }
+                            )
                             for defid, val in _ctx_g.items():
                                 if defid is not None:
                                     self.env.set_value(
@@ -718,17 +1259,24 @@ class ExpressionVisitorMixin:
             profile_callback=reduction_profile if profile_reductions else None,
             parallel_shape=parallel_shape,
             vector_parallel_context=vector_parallel_ctx,
+            reduction_loops_ordered=list(expr.loops or []),
+            allow_speculative_vectorized_reduction=(
+                not has_defid_aliases
+                and not _contains_lowered_einstein(expr.body)
+                and not has_cross_scope_name_shadow
+            ),
         )
 
     def visit_lowered_reduction(self, expr: LoweredReductionIR) -> Any:
         return self.evaluate_lowered_reduction(expr, parallel_shape=None)
 
     def visit_lowered_select_at_argmax(self, expr: LoweredSelectAtArgmaxIR) -> Any:
-        from ..passes.visitor_helpers import all_defids_of_var_in_expr
+        from ..passes.visitor_helpers import all_index_var_defids_of_name_in_expr
         from ..runtime.compute.lowered_execution import execute_select_at_argmax_vectorized
         from ..ir.nodes import RectangularAccessIR
         from ..passes.autodiff._graph import _collect_defids
-        reduction_loops = list((expr.reduction_ranges or {}).values())
+        from .numpy_einstein_call_index_analysis import _collect_defids_by_name
+        reduction_loops = list(expr.loops or [])
         if not reduction_loops:
             raise RuntimeError("SelectAtArgmax has no reduction loops")
         n_red = len(reduction_loops)
@@ -743,8 +1291,8 @@ class ExpressionVisitorMixin:
             _v = _lp.variable
             if _v is not None and _v.defid is not None and _v.name:
                 _vname = _v.name
-                _all_bds = all_defids_of_var_in_expr(expr.primal_body, _vname) | \
-                           all_defids_of_var_in_expr(expr.diff_body, _vname)
+                _all_bds = all_index_var_defids_of_name_in_expr(expr.primal_body, _vname) | \
+                           all_index_var_defids_of_name_in_expr(expr.diff_body, _vname)
                 _bds = [d for d in _all_bds if d != _v.defid]
                 if _bds:
                     _loop_to_all_body_defids[_v.defid] = _bds
@@ -807,6 +1355,22 @@ class ExpressionVisitorMixin:
             # ri already contains outer-loop aliases (both primal and diff body defids,
             # built by _collect_defids_by_name in _execute_lowered_einstein_clause)
             merged = {**ri, **_ctx}
+            body_defids_by_name = _collect_defids_by_name(body_expr)
+            env_names = getattr(self.env, "_defid_names", {}) or {}
+            name_to_value: Dict[str, Any] = {}
+            for defid, val in merged.items():
+                if defid is None:
+                    continue
+                nm = _reduction_defid_names.get(defid) or env_names.get(defid)
+                if nm and nm not in name_to_value:
+                    name_to_value[nm] = val
+            for nm, dids in body_defids_by_name.items():
+                if nm not in name_to_value:
+                    continue
+                val = name_to_value[nm]
+                for did in dids:
+                    if did is not None and did not in merged:
+                        merged[did] = val
             saved: Dict[Any, Any] = {}
             try:
                 for defid in merged:
@@ -829,12 +1393,41 @@ class ExpressionVisitorMixin:
         def ev(e):
             return e.accept(self)
 
+        ri0 = getattr(self, "_reduction_initial_context", None) or {}
+        force_scalar_select = False
+        if ri0:
+            try:
+                force_scalar_select = any(
+                    (np.asarray(val).ndim == 0 or np.asarray(val).size == 1)
+                    for val in ri0.values()
+                )
+            except Exception:
+                force_scalar_select = False
+        if not force_scalar_select:
+            try:
+                sample_ctx: Dict[Any, Any] = {}
+                for loop in reduction_loops:
+                    iterable = ev(loop.iterable)
+                    if isinstance(iterable, range):
+                        sample_val = iterable.start
+                    else:
+                        seq = list(iterable)
+                        if not seq:
+                            raise ValueError("empty reduction loop")
+                        sample_val = seq[0]
+                    sample_ctx[loop.variable.defid] = sample_val
+                sample_diff = diff_body_ev(sample_ctx)
+                sample_arr = np.asarray(sample_diff)
+                if sample_arr.ndim > 0 and sample_arr.size > 1:
+                    force_scalar_select = True
+            except Exception:
+                pass
+
         # Quotient gradients for max/min often lower to SelectAtArgmax whose diff body is a
         # read from the denominator tangent buffer (e.g. @x[...]). When this select executes
         # inside an outer Einstein loop, the current outer loop indices identify the derivative
         # slot we are filling. In the scalar/no-parallel execution path we must preserve that
         # slot match instead of treating the selected tangent read as an unconditional scalar.
-        ri0 = getattr(self, "_reduction_initial_context", None) or {}
         if (
             not parallel_shape
             and ri0
@@ -895,15 +1488,18 @@ class ExpressionVisitorMixin:
             except Exception:
                 pass
 
-        ok, result = execute_select_at_argmax_vectorized(
-            primal_body_ev,
-            diff_body_ev,
-            reduction_loops,
-            ev,
-            parallel_shape=parallel_shape,
-            initial_context=initial_context if initial_context else None,
-            use_argmin=getattr(expr, "use_argmin", False),
-        )
+        ok = False
+        result = None
+        if not force_scalar_select:
+            ok, result = execute_select_at_argmax_vectorized(
+                primal_body_ev,
+                diff_body_ev,
+                reduction_loops,
+                ev,
+                parallel_shape=parallel_shape,
+                initial_context=initial_context if initial_context else None,
+                use_argmin=getattr(expr, "use_argmin", False),
+            )
         if not ok or result is None:
             from ..runtime.compute.lowered_execution import execute_lowered_loops
             best_primal = None
@@ -911,9 +1507,20 @@ class ExpressionVisitorMixin:
             scalar_init: Dict[Any, Any] = {}
             ri_scalar = getattr(self, "_reduction_initial_context", None) or {}
             for did, val in ri_scalar.items():
-                arr = np.asarray(val)
+                if isinstance(val, IRNode):
+                    continue
+                try:
+                    arr = np.asarray(val)
+                except Exception:
+                    continue
                 if arr.ndim == 0 or arr.size == 1:
-                    scalar_init[did] = int(arr.reshape(-1)[0]) if np.issubdtype(arr.dtype, np.integer) else arr.reshape(-1)[0].item()
+                    flat0 = arr.reshape(-1)[0]
+                    if isinstance(flat0, IRNode):
+                        continue
+                    try:
+                        scalar_init[did] = int(flat0) if np.issubdtype(arr.dtype, np.integer) else flat0.item()
+                    except Exception:
+                        continue
             for loop_ctx in execute_lowered_loops(reduction_loops, scalar_init, ev):
                 full_ctx = dict(loop_ctx)
                 primal_val = primal_body_ev(full_ctx)

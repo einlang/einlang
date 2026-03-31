@@ -14,9 +14,27 @@ import os
 from typing import Dict, List, Callable, Any, Iterator, Optional, Tuple, Sequence
 
 import numpy as np
-
 from ...shared.defid import DefId
 from ...shared.types import ReductionOp
+
+# region agent log
+def _agent_dbg_lowered(hypothesis_id: str, location: str, message: str, data: Optional[Dict[str, Any]] = None) -> None:
+    import json
+    import time
+    try:
+        payload = {
+            "sessionId": "fc3e74",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data or {},
+            "timestamp": int(time.time() * 1000),
+        }
+        with open("/Users/user/Documents/einlang/.cursor/debug-fc3e74.log", "a", encoding="utf-8") as _af:
+            _af.write(json.dumps(payload, default=str) + "\n")
+    except Exception:
+        pass
+# endregion agent log
 
 
 def _try_vectorized_reduction(
@@ -110,27 +128,9 @@ def _try_vectorized_reduction(
         result = body_evaluator(ctx)
 
         if not isinstance(result, np.ndarray):
-            # Scalar body: constant w.r.t. reduction indices. We can still do a fast path by
-            # applying the reduction analytically over the reduction extent.
-            #
-            # This shows up frequently in autodiff-expanded programs (e.g. seeded differentials),
-            # and avoiding the scalar loop is both correct and faster.
-            try:
-                red_count = int(np.prod(expected_shape)) if expected_shape else 1
-                if reduction_op == ReductionOp.SUM:
-                    reduced_scalar = result * red_count
-                elif reduction_op == ReductionOp.PROD:
-                    reduced_scalar = result ** red_count
-                elif reduction_op in (ReductionOp.MAX, ReductionOp.MIN):
-                    reduced_scalar = result
-                else:
-                    reduced_scalar = None
-                if reduced_scalar is not None:
-                    if parallel_shape:
-                        return True, np.broadcast_to(np.asarray(reduced_scalar), parallel_shape)
-                    return True, reduced_scalar
-            except Exception:
-                pass
+            # Nested autodiff-expanded reductions can look scalar under a spot evaluation
+            # even when the true body varies with the reduction indices. Fall back to the
+            # scalar loop in that case instead of analytically multiplying by extent.
             return False, None
 
         if parallel_shape:
@@ -219,6 +219,7 @@ def execute_select_at_argmax_vectorized(
             return False, None
         n = len(arrs)
         red_shape_tuple = tuple(int(arr.size) for arr in arrs)
+        spot_diff_is_tensor = False
         if parallel_shape is None:
             spot_ctx: Dict[Any, Any] = {}
             for defid, arr in (initial_context or []):
@@ -226,6 +227,8 @@ def execute_select_at_argmax_vectorized(
             for defid, arr in zip(defids, arrs):
                 spot_ctx[defid] = int(arr.flat[0])
             spot_val = primal_body_ev(spot_ctx)
+            spot_diff = diff_body_ev(spot_ctx)
+            spot_diff_is_tensor = isinstance(spot_diff, np.ndarray) and spot_diff.size > 1
             if isinstance(spot_val, np.ndarray):
                 parallel_shape = tuple(spot_val.shape)
             else:
@@ -263,20 +266,33 @@ def execute_select_at_argmax_vectorized(
                 np.asarray(diff_result, dtype=primal_result.dtype),
                 primal_result.shape,
             )
-        if primal_result.shape != diff_result.shape:
+        primal_shape = tuple(primal_result.shape)
+        diff_shape = tuple(diff_result.shape)
+        if diff_shape == primal_shape:
+            if spot_diff_is_tensor:
+                return False, None
+            tail_shape: Tuple[int, ...] = ()
+        elif diff_shape[: len(primal_shape)] == primal_shape:
+            tail_shape = diff_shape[len(primal_shape) :]
+        else:
             return False, None
         if parallel_shape:
             primal_flat = primal_result.reshape(parallel_shape + (-1,))
-            diff_flat = diff_result.reshape(parallel_shape + (-1,))
+            diff_flat = diff_result.reshape(parallel_shape + (-1,) + tail_shape)
             idx_flat = np.argmin(primal_flat, axis=-1) if use_argmin else np.argmax(primal_flat, axis=-1)
+            gather_idx = np.expand_dims(idx_flat, axis=-1)
+            for _ in tail_shape:
+                gather_idx = np.expand_dims(gather_idx, axis=-1)
             out = np.take_along_axis(
                 diff_flat,
-                np.expand_dims(idx_flat, axis=-1),
-                axis=-1,
-            ).squeeze(axis=-1)
+                gather_idx,
+                axis=len(parallel_shape),
+            ).squeeze(axis=len(parallel_shape))
             return True, out
         else:
             idx_flat = int(np.argmin(primal_result) if use_argmin else np.argmax(primal_result))
+            if tail_shape:
+                return True, diff_result.reshape((-1,) + tail_shape)[idx_flat]
             return True, float(diff_result.flat[idx_flat])
     except Exception:
         pass
@@ -366,7 +382,7 @@ def execute_full_lowered_iteration(
 
 def execute_reduction_with_loops(
     reduction_op: ReductionOp,
-    reduction_ranges: Dict[Any, Any],  # Dict[DefId, LoopStructure]; use .values() for loops
+    reduction_ranges: Dict[Any, Any],  # Dict[DefId, LoopStructure] for compatibility / lookups
     body_evaluator: Callable[[Dict[DefId, Any]], Any],
     expr_evaluator: Callable[[Any], Any],
     guard_evaluator: Optional[Callable[[Dict[DefId, Any]], bool]] = None,
@@ -374,13 +390,17 @@ def execute_reduction_with_loops(
     profile_callback: Optional[Callable[[str], None]] = None,
     parallel_shape: Optional[Tuple[int, ...]] = None,
     vector_parallel_context: Optional[Dict[Any, Any]] = None,
+    reduction_loops_ordered: Optional[Sequence[Any]] = None,
+    *,
+    allow_speculative_vectorized_reduction: bool = True,
 ) -> Any:
     """
     Execute reduction operation using nested loops with accumulators.
 
     Args:
         reduction_op: Operation name ('sum', 'prod', 'min', 'max', 'all', 'any')
-        reduction_ranges: Dictionary mapping reduction variable DefId to LoopStructure (use .values() for loop list)
+        reduction_ranges: Reduction variable ranges keyed by DefId (may collapse duplicate defids).
+        reduction_loops_ordered: When set, nested loop order for execution (must match lowered .loops).
         body_evaluator: Function that evaluates body given index bindings
         expr_evaluator: Function to evaluate sub-expressions
         guard_evaluator: Optional function that evaluates guard conditions
@@ -403,11 +423,40 @@ def execute_reduction_with_loops(
     merged_for_vector = dict(initial_context)
     merged_for_vector.update(vector_parallel_context)
 
-    # Convert reduction_ranges to list of loops
-    reduction_loops = list(reduction_ranges.values())
+    if reduction_loops_ordered is not None:
+        reduction_loops = list(reduction_loops_ordered)
+    else:
+        reduction_loops = list(reduction_ranges.values())
 
-    # Vectorized path does not support guards; when guard_evaluator is set use scalar loop path only.
-    if guard_evaluator is None:
+    # Standalone speculative vectorization is only safe when the reduction has no
+    # surrounding loop context. With outer loop bindings in initial_context, spot
+    # evaluation can incorrectly collapse a nested reduction body to a scalar and
+    # over-count by the reduction extent.
+    can_try_vectorized = (
+        allow_speculative_vectorized_reduction
+        and guard_evaluator is None
+        and (
+            parallel_shape is not None
+            or (
+                not initial_context
+                and not vector_parallel_context
+            )
+        )
+    )
+    # region agent log
+    _agent_dbg_lowered(
+        "H4",
+        "lowered_execution.py:execute_reduction_with_loops",
+        "vectorized_gate",
+        {
+            "can_try_vectorized": can_try_vectorized,
+            "guard_is_none": guard_evaluator is None,
+            "parallel_shape": list(parallel_shape) if parallel_shape is not None else None,
+            "n_red_loops": len(reduction_loops),
+        },
+    )
+    # endregion agent log
+    if can_try_vectorized:
         ok, vec_result = _try_vectorized_reduction(
             reduction_op,
             reduction_loops,
@@ -416,6 +465,18 @@ def execute_reduction_with_loops(
             parallel_shape=parallel_shape,
             initial_context=merged_for_vector,
         )
+        # region agent log
+        _agent_dbg_lowered(
+            "H4",
+            "lowered_execution.py:execute_reduction_with_loops",
+            "vectorized_try_result",
+            {
+                "ok": ok,
+                "result_type": type(vec_result).__name__ if vec_result is not None else None,
+                "result_shape": list(vec_result.shape) if ok and isinstance(vec_result, np.ndarray) else None,
+            },
+        )
+        # endregion agent log
         if ok and vec_result is not None:
             if profile_callback is not None:
                 profile_callback("vectorized")
@@ -439,7 +500,6 @@ def execute_reduction_with_loops(
     elif reduction_op == ReductionOp.MAX:
         accumulator = None
         def combine(acc, val):
-            import numpy as np
             if acc is None:
                 return val
             # : use np.maximum for numpy arrays/scalars (handles f32 correctly)
@@ -449,13 +509,11 @@ def execute_reduction_with_loops(
     elif reduction_op == ReductionOp.ALL:
         accumulator = True
         def combine(acc, val):
-            import numpy as np
             v = bool(np.all(val)) if isinstance(val, np.ndarray) else bool(val)
             return acc and v
     elif reduction_op == ReductionOp.ANY:
         accumulator = False
         def combine(acc, val):
-            import numpy as np
             v = bool(np.any(val)) if isinstance(val, np.ndarray) else bool(val)
             return acc or v
     else:
@@ -480,7 +538,6 @@ def execute_reduction_with_loops(
             continue
         
         if reduction_op in (ReductionOp.ALL, ReductionOp.ANY):
-            import numpy as np
             if isinstance(value, np.ndarray):
                 value = bool(value.item()) if value.size == 1 else (bool(np.all(value)) if reduction_op == ReductionOp.ALL else bool(np.any(value)))
             else:

@@ -422,7 +422,13 @@ class EinsteinExecutionSetupMixin:
                 step_s = "?"
         print(f"[recurrence-block] {strategy} L{line} {name} step={step_s}", flush=True)
 
-    def _evaluate_lowered_einstein_subexpr(self, lowered: LoweredEinsteinIR) -> Any:
+    def _evaluate_lowered_einstein_subexpr(
+        self,
+        lowered: LoweredEinsteinIR,
+        *,
+        allow_outer_slot_eval: bool = True,
+        scalar_index_bindings: Optional[Dict[Any, Any]] = None,
+    ) -> Any:
         """Run a nested LoweredEinsteinIR (e.g. under RectangularAccessIR from autodiff) with a synthetic decl.
 
         Prefer the inferred output DefId for recurrence (``u[t-1]`` reads) so execution
@@ -449,12 +455,86 @@ class EinsteinExecutionSetupMixin:
             stack = self._variable_decl_stack
         stack.append(decl)
         try:
-            slot_eval = self._evaluate_lowered_per_outer_slot(lowered)
-            if slot_eval is not None:
-                return slot_eval
-            return lowered.accept(self)
+            from .numpy_einstein_call_index_analysis import _collect_defids_by_name
+
+            captured_ctx = {}
+            for dids in _collect_defids_by_name(lowered).values():
+                for did in dids:
+                    if did is None:
+                        continue
+                    cur = self.env.get_value(did)
+                    if cur is not None:
+                        captured_ctx[did] = cur
+            with self.env.scope():
+                env_names = getattr(self.env, "_defid_names", {}) or {}
+                for did, val in captured_ctx.items():
+                    self.env.set_value(did, val, name=env_names.get(did))
+                for did, val in (scalar_index_bindings or {}).items():
+                    self.env.set_value(did, val, name=env_names.get(did))
+                if allow_outer_slot_eval:
+                    slot_eval = self._evaluate_lowered_per_outer_slot(lowered)
+                    if slot_eval is not None:
+                        return slot_eval
+                return lowered.accept(self)
         finally:
             stack.pop()
+
+    def _evaluate_lowered_einstein_at_indices(self, lowered: LoweredEinsteinIR, indices: List[Any]) -> Any:
+        """Evaluate a scalar cell of a nested LoweredEinsteinIR without materializing the full tensor."""
+        try:
+            target = tuple(int(np.asarray(idx).reshape(-1)[0]) for idx in indices)
+        except Exception:
+            return None
+        from ..runtime.compute.lowered_execution import execute_lowered_bindings, check_lowered_guards
+
+        def expr_eval(e: Any) -> Any:
+            return e.accept(self)
+
+        result = None
+        for item in lowered.items or []:
+            clause_indices = list(item.indices or [])
+            if len(clause_indices) != len(target):
+                continue
+            loop_context = {}
+            matches = True
+            for idx_expr, wanted in zip(clause_indices, target):
+                if isinstance(idx_expr, LiteralIR):
+                    try:
+                        if int(idx_expr.value) != wanted:
+                            matches = False
+                            break
+                    except (TypeError, ValueError):
+                        matches = False
+                        break
+                    continue
+                did = getattr(idx_expr, "defid", None)
+                if did is None:
+                    matches = False
+                    break
+                loop_context[did] = wanted
+            if not matches:
+                continue
+            with self.env.scope():
+                for did, val in loop_context.items():
+                    self.env.set_value(did, val)
+                full_context = execute_lowered_bindings(item.bindings or [], loop_context, expr_eval) if item.bindings else loop_context
+                for did, val in full_context.items():
+                    if did is not None:
+                        self.env.set_value(did, val)
+                if item.guards and not check_lowered_guards(item.guards, full_context, lambda e: self._to_bool(e.accept(self))):
+                    continue
+                value = item.body.accept(self)
+            if value is None:
+                continue
+            if result is None:
+                result = value
+            else:
+                result = result + value
+        if result is not None:
+            if isinstance(result, np.ndarray) and result.ndim == 0:
+                return result.reshape(-1)[0].item()
+            return result
+        return 0.0
 
     def _evaluate_lowered_per_outer_slot(self, lowered: Any) -> Any:
         parallel_shape = self._vectorization_parallel_shape()
@@ -577,6 +657,12 @@ class EinsteinExecutionSetupMixin:
         variable_key = (binding.defid if binding else None) or getattr(variable_decl, "defid", None)
         tensor_shape = lowered_einstein.shape
         tensor_element_type = lowered_einstein.element_type
+        if hasattr(self, "_lowered_expr_is_zero") and self._lowered_expr_is_zero(lowered_einstein):
+            zero_value = self._zero_value_for_lowered_expr(lowered_einstein)
+            if zero_value is not None:
+                if variable_key is not None:
+                    self.env.set_value(variable_key, zero_value)
+                return zero_value
         output_shape = None
         if tensor_shape:
             output_shape = []

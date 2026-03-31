@@ -857,7 +857,28 @@ class _SubstVisitor(_Rewriter):
     def visit_index_var(self, n: IndexVarIR) -> ExpressionIR:
         if n.defid is not None and n.defid in self._m:
             return self._clone_subst_expr(self._m[n.defid])
-        return n
+        nr = n.range_ir
+        if nr is not None:
+            ns = nr.start.accept(self)
+            ne = nr.end.accept(self)
+            if ns is not nr.start or ne is not nr.end:
+                nr = RangeIR(
+                    ns,
+                    ne,
+                    nr.location or self._loc,
+                    type_info=_ti(nr),
+                    shape_info=_si(nr),
+                )
+        if nr is n.range_ir:
+            return n
+        return IndexVarIR(
+            n.name,
+            n.location or self._loc,
+            n.defid,
+            range_ir=nr,
+            type_info=_ti(n),
+            shape_info=_si(n),
+        )
 
 
 class _SubstDiffsVisitor(_SubstVisitor):

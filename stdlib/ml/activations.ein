@@ -9,7 +9,6 @@ pub fn relu(x) {
     if x > 0 { x } else { 0 }
 }
 
-
 pub fn sigmoid(x) {
     // σ(x) = 1 / (1 + exp(-x))
     // Works on scalars and tensors (auto-broadcast)
@@ -21,13 +20,15 @@ pub fn softmax(x) {
     // softmax(x_i) = exp(x_i - max(x)) / Σ_j exp(x_j - max(x))
     // Generic: works with arbitrary batch dimensions (operators work directly on tensors)
     // Input shape: [..batch, features], Output shape: [..batch, features]
-    // Using rest patterns in reduction outputs to support arbitrary batch dimensions
-    let max_val[..batch] = max[j](x[..batch, j]);
-    let shifted[..batch, j] = x[..batch, j] - max_val[..batch];
-    let exp_vals[..batch, j] = exp(shifted[..batch, j]);
-    let sums[..batch] = sum[k](exp_vals[..batch, k]);
-    let output[..batch, j] = exp_vals[..batch, j] / sums[..batch];
-    output
+    // Keep the expression structurally direct so the generic autodiff pass can
+    // build the pullback without depending on large intermediate tensor blocks.
+    if len(x.shape) == 1 {
+        let output[j] = exp(x[j] - max[q](x[q])) / sum[k](exp(x[k] - max[q](x[q])));
+        output
+    } else {
+        let output[..batch, j] = exp(x[..batch, j] - max[q](x[..batch, q])) / sum[k](exp(x[..batch, k] - max[q](x[..batch, q])));
+        output
+    }
 }
 
 pub fn log_softmax(x) {
@@ -35,13 +36,13 @@ pub fn log_softmax(x) {
     // log_softmax(x_i) = x_i - log(Σ_j exp(x_j))
     // Generic: works with arbitrary batch dimensions
     // Input shape: [..batch, features], Output shape: [..batch, features]
-    let max_val[..batch] = max[j](x[..batch, j]);
-    let shifted[..batch, j] = x[..batch, j] - max_val[..batch];
-    let exp_vals[..batch, j] = exp(shifted[..batch, j]);
-    let sum_exp[..batch] = sum[k](exp_vals[..batch, k]);
-    let log_sum[..batch] = ln(sum_exp[..batch]) + max_val[..batch];
-    let output[..batch, j] = x[..batch, j] - log_sum[..batch];
-    output
+    if len(x.shape) == 1 {
+        let output[j] = x[j] - (max[q](x[q]) + ln(sum[k](exp(x[k] - max[q](x[q])))));
+        output
+    } else {
+        let output[..batch, j] = x[..batch, j] - (max[q](x[..batch, q]) + ln(sum[k](exp(x[..batch, k] - max[q](x[..batch, q])))));
+        output
+    }
 }
 
 pub fn leaky_relu(x, alpha) {

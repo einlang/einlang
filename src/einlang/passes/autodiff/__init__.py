@@ -26,15 +26,25 @@ from ..shape_analysis import UnifiedShapeAnalysisPass
 from ..type_inference import TypeInferencePass
 from ._cleanup import clear_custom_diff_body_everywhere
 from ._core import DIFF_PREFIX, USER_DIFF_PREFIX, _LOC0, _fl, _si, _ti, _z
-from ._expand import _bindings_in, _expand_program, _fwd_expr, _inline_drhs, _propagate_ti
+from ._expand import (
+    _binding_shape_info,
+    _binding_type_info,
+    _bindings_in,
+    _expand_program,
+    _fold_shape_accesses_program,
+    _fwd_expr,
+    _inline_drhs,
+    _propagate_ti,
+)
 from ._graph import (
     _DependencyQueryCache,
     _autodiff_primal_data_defids,
     _collect_targets,
     _collect_targets_expr,
 )
-from ...ir.nodes import BindingIR, ExpressionIR, FunctionValueIR, ProgramIR, is_function_binding
+from ...ir.nodes import BindingIR, BinaryOpIR, DifferentialIR, ExpressionIR, FunctionValueIR, IRNode, IdentifierIR, IndexRestIR, IndexVarIR, ProgramIR, RectangularAccessIR, is_function_binding
 from ...shared.defid import DefId
+from ...shared.types import BinaryOp, RectangularType
 
 
 @dataclass
@@ -42,6 +52,7 @@ class _AutodiffTargets:
     """What the pass must differentiate in this program."""
 
     diff_targets: List[Tuple[DefId, str]] = field(default_factory=list)
+    standalone_diff_target_defids: Set[DefId] = field(default_factory=set)
     quotient_pairs: List[Tuple[DefId, DefId]] = field(default_factory=list)
     target_binding_defids: Set[DefId] = field(default_factory=set)
     target_statement_ids: Set[int] = field(default_factory=set)
@@ -87,7 +98,7 @@ class _AutodiffSeedPlan:
 
 
 class AutodiffPass(BasePass):
-    """Expand ``@expr`` and ``@y/@x`` into plain IR via forward-mode autodiff."""
+    """Expand ``@expr`` and ``@y/@x`` into plain IR."""
 
     requires = [TypeInferencePass, UnifiedShapeAnalysisPass]
 
@@ -114,21 +125,23 @@ class AutodiffPass(BasePass):
 
         targets = self._collect_requested_targets(program, bindings)
         binding_ctx = self._build_binding_context(bindings, tcx)
-        reachability = self._compute_reachability(bindings, targets, binding_ctx)
 
         resolver = getattr(tcx, "resolver", None)
         if resolver is None:
             self._record_empty_analysis(tcx, targets.diff_targets)
             return program
 
-        seed_plan = self._build_seed_plan(
-            bindings,
-            targets,
-            reachability,
-            binding_ctx,
-            resolver,
-        )
-        self._splice_diff_bindings(program, bindings, seed_plan.diff_bindings)
+        seed_plan = _AutodiffSeedPlan(diff_refs={}, diff_bindings={}, differential_leaves=set())
+        if targets.diff_targets:
+            reachability = self._compute_reachability(bindings, targets, binding_ctx)
+            seed_plan = self._build_seed_plan(
+                bindings,
+                targets,
+                reachability,
+                binding_ctx,
+                resolver,
+            )
+            self._splice_diff_bindings(program, bindings, seed_plan.diff_bindings)
 
         _expand_program(
             program,
@@ -139,6 +152,22 @@ class AutodiffPass(BasePass):
             target_binding_defids=targets.target_binding_defids,
             target_statement_ids=targets.target_statement_ids,
         )
+        self._splice_diff_bindings(program, bindings, seed_plan.diff_bindings)
+        autodiff_defids = {b.defid for b in seed_plan.diff_bindings.values() if b.defid is not None}
+        preserve_primal_targets = set(targets.standalone_diff_target_defids)
+        autodiff_defid_to_primal = {
+            b.defid: primal_did
+            for primal_did, b in seed_plan.diff_bindings.items()
+            if b.defid is not None
+        }
+        self._prune_unreferenced_autodiff_bindings(
+            program,
+            autodiff_defids,
+            autodiff_defid_to_primal=autodiff_defid_to_primal,
+            preserve_primal_targets=preserve_primal_targets,
+        )
+        if autodiff_defids:
+            _fold_shape_accesses_program(program, _LOC0, init_B=binding_ctx.bindings)
 
         self._record_analysis(
             tcx,
@@ -172,6 +201,7 @@ class AutodiffPass(BasePass):
             if b.expr is None:
                 continue
             bt, bq = _collect_targets_expr(b.expr)
+            targets.standalone_diff_target_defids.update(_collect_standalone_diff_targets_expr(b.expr))
             if bt or bq:
                 if b.defid is not None:
                     targets.target_binding_defids.add(b.defid)
@@ -181,6 +211,7 @@ class AutodiffPass(BasePass):
             if isinstance(s, BindingIR) or not isinstance(s, ExpressionIR):
                 continue
             st, sq = _collect_targets_expr(s)
+            targets.standalone_diff_target_defids.update(_collect_standalone_diff_targets_expr(s))
             if st or sq:
                 targets.target_statement_ids.add(id(s))
                 targets.diff_targets.extend(st)
@@ -259,7 +290,7 @@ class AutodiffPass(BasePass):
         for b in bindings:
             if b.expr is not None and not isinstance(b.expr, FunctionValueIR):
                 gti = _ti(b) or _ti(b.expr)
-                gsi = _si(b) or _si(b.expr)
+                gsi = (_si(b) or _si(b.expr)) if isinstance(gti, RectangularType) else None
                 if gti is not None:
                     break
         return gti, gsi
@@ -285,8 +316,12 @@ class AutodiffPass(BasePass):
                 continue
             dn = USER_DIFF_PREFIX + (b.name or "")
             dd = resolver.allocate_for_local()
-            ti0 = _ti(b) or (_ti(b.expr) if b.expr else None) or gti
-            si0 = _si(b) or (_si(b.expr) if b.expr else None) or gsi
+            ti0 = _binding_type_info(b, binding_ctx.bindings)
+            si0 = _binding_shape_info(b, binding_ctx.bindings)
+            if not isinstance(b.expr, RectangularAccessIR):
+                ti0 = ti0 or gti
+                if isinstance(ti0, RectangularType):
+                    si0 = si0 or gsi
             from ...ir.nodes import IdentifierIR
 
             D[b.defid] = IdentifierIR(dn, b.location or _LOC0, dd, type_info=ti0, shape_info=si0)
@@ -321,8 +356,14 @@ class AutodiffPass(BasePass):
             if b.defid is None or b.defid not in reachability.reachable:
                 continue
             rhs = drhs_map.get(b.defid) or _z(b.location or _LOC0)
-            ti = _ti(b) or (_ti(b.expr) if b.expr else None) or gti
-            si = _si(b) or (_si(b.expr) if b.expr else None) or gsi
+            ti = _binding_type_info(b, binding_ctx.bindings)
+            si = _binding_shape_info(b, binding_ctx.bindings)
+            if not isinstance(b.expr, RectangularAccessIR):
+                ti = ti or gti
+                if isinstance(ti, RectangularType):
+                    si = si or gsi
+                else:
+                    si = None
             _propagate_ti(rhs, ti, si)
             ref = D[b.defid]
             d2b[b.defid] = BindingIR(name=ref.name, expr=rhs, location=b.location, defid=ref.defid, type_info=ti)
@@ -348,6 +389,55 @@ class AutodiffPass(BasePass):
         non_b = [s for s in (program.statements or []) if not isinstance(s, BindingIR)]
         program.statements = nb + non_b
 
+    def _prune_unreferenced_autodiff_bindings(
+        self,
+        program: ProgramIR,
+        autodiff_binding_defids: Set[DefId],
+        *,
+        autodiff_defid_to_primal: Dict[DefId, DefId] = None,
+        preserve_primal_targets: Set[DefId] = None,
+    ) -> None:
+        autodiff_defid_to_primal = autodiff_defid_to_primal or {}
+        preserve_primal_targets = preserve_primal_targets or set()
+        bindings = [b for b in (program.bindings or []) if isinstance(b, BindingIR)]
+        binding_map: Dict[DefId, BindingIR] = {b.defid: b for b in bindings if b.defid is not None}
+        live: Set[DefId] = set()
+        work: List[ExpressionIR] = []
+
+        for stmt in program.statements or []:
+            if isinstance(stmt, BindingIR):
+                if stmt.defid in autodiff_binding_defids:
+                    continue
+                if stmt.defid is not None:
+                    live.add(stmt.defid)
+                if stmt.expr is not None:
+                    work.append(stmt.expr)
+            elif isinstance(stmt, ExpressionIR):
+                work.append(stmt)
+
+        while work:
+            expr = work.pop()
+            for did in _collect_all_defids_ir(expr):
+                if did in live:
+                    continue
+                live.add(did)
+                binding = binding_map.get(did)
+                if binding is not None and binding.expr is not None:
+                    work.append(binding.expr)
+
+        new_statements: List[object] = []
+        for stmt in program.statements or []:
+            if isinstance(stmt, BindingIR) and stmt.defid in autodiff_binding_defids:
+                primal_did = autodiff_defid_to_primal.get(stmt.defid)
+                if primal_did in preserve_primal_targets:
+                    new_statements.append(stmt)
+                    continue
+                if stmt.defid is None or stmt.defid not in live:
+                    continue
+            new_statements.append(stmt)
+        program.statements = new_statements
+        program.bindings = [s for s in new_statements if isinstance(s, BindingIR)]
+
     def _record_analysis(
         self,
         tcx: TyCtxt,
@@ -367,6 +457,75 @@ class AutodiffPass(BasePass):
                 "differential_leaves": differential_leaves,
             },
         )
+
+
+def _collect_all_defids_ir(node: object) -> Set[DefId]:
+    out: Set[DefId] = set()
+    seen: Set[int] = set()
+    stack: List[object] = [node]
+    while stack:
+        cur = stack.pop()
+        if cur is None:
+            continue
+        oid = id(cur)
+        if oid in seen:
+            continue
+        seen.add(oid)
+        if isinstance(cur, (IdentifierIR, IndexVarIR, IndexRestIR)):
+            did = getattr(cur, "defid", None)
+            if did is not None:
+                out.add(did)
+        if isinstance(cur, dict):
+            stack.extend(cur.keys())
+            stack.extend(cur.values())
+            continue
+        if isinstance(cur, (list, tuple)):
+            stack.extend(cur)
+            continue
+        if isinstance(cur, IRNode):
+            for cls in type(cur).__mro__:
+                for slot in getattr(cls, "__slots__", ()):
+                    stack.append(getattr(cur, slot, None))
+    return out
+
+
+def _collect_standalone_diff_targets_expr(expr: ExpressionIR) -> Set[DefId]:
+    out: Set[DefId] = set()
+    seen: Set[int] = set()
+    stack: List[object] = [expr]
+    while stack:
+        cur = stack.pop()
+        if cur is None:
+            continue
+        oid = id(cur)
+        if oid in seen:
+            continue
+        seen.add(oid)
+        if (
+            isinstance(cur, BinaryOpIR)
+            and cur.operator == BinaryOp.DIV
+            and isinstance(cur.left, DifferentialIR)
+            and isinstance(cur.right, DifferentialIR)
+        ):
+            continue
+        if isinstance(cur, DifferentialIR):
+            op = cur.operand
+            if isinstance(op, IdentifierIR) and op.defid is not None:
+                out.add(op.defid)
+            stack.append(op)
+            continue
+        if isinstance(cur, dict):
+            stack.extend(cur.keys())
+            stack.extend(cur.values())
+            continue
+        if isinstance(cur, (list, tuple)):
+            stack.extend(cur)
+            continue
+        if isinstance(cur, IRNode):
+            for cls in type(cur).__mro__:
+                for slot in getattr(cls, "__slots__", ()):
+                    stack.append(getattr(cur, slot, None))
+    return out
 
 
 _collect_autodiff_targets = _collect_targets

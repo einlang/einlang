@@ -1,6 +1,6 @@
 """NumPy backend expression visitors. All lookup via env (no global table)."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 import time
 import warnings
 
@@ -152,6 +152,81 @@ def _sliding_window_axis_view(
     return windows
 
 
+def _sliding_window_nd_view(
+    array: np.ndarray,
+    axes: Tuple[int, ...],
+    window_shape: Tuple[int, ...],
+    strides: Tuple[int, ...],
+) -> Optional[np.ndarray]:
+    """Sliding-window view over multiple axes; subsample output with per-axis strides.
+
+    Same role as ``_sliding_window_axis_view`` but for 2D/3D spatial conv (valid, dilation 1).
+    """
+    if (
+        not isinstance(array, np.ndarray)
+        or len(axes) != len(window_shape)
+        or len(axes) != len(strides)
+        or array.ndim == 0
+    ):
+        return None
+    ndim = array.ndim
+    axes_norm = tuple(a % ndim for a in axes)
+    if len(set(axes_norm)) != len(axes_norm):
+        return None
+    for ax, ws, st in zip(axes_norm, window_shape, strides):
+        if ws <= 0 or st <= 0 or array.shape[ax] < ws:
+            return None
+    try:
+        windows = np.lib.stride_tricks.sliding_window_view(
+            array, window_shape=window_shape, axis=axes_norm
+        )
+    except Exception:
+        return None
+    index = [slice(None)] * windows.ndim
+    for ax, st in zip(axes_norm, strides):
+        if st != 1:
+            index[ax] = slice(None, None, st)
+    try:
+        return windows[tuple(index)]
+    except Exception:
+        return None
+
+
+def _conv_spatial_stride_from_index(
+    spatial_idx: Any,
+    kernel_red_defid: Any,
+    *,
+    _add: BinaryOp,
+    _mul: BinaryOp,
+) -> Optional[int]:
+    """Stride along output for ``out * stride + kernel`` or ``out + kernel`` (same rules as 1D fast path)."""
+    if isinstance(spatial_idx, BinaryOpIR) and spatial_idx.operator == _add:
+        left, right = spatial_idx.left, spatial_idx.right
+        if _expr_contains_defid(left, kernel_red_defid) and _expr_contains_defid(right, kernel_red_defid):
+            return None
+        if _expr_contains_defid(right, kernel_red_defid):
+            left, right = right, left
+        if not _expr_contains_defid(left, kernel_red_defid):
+            return None
+        if isinstance(right, (IdentifierIR, IndexVarIR)):
+            return 1
+        if isinstance(right, BinaryOpIR) and right.operator == _mul:
+            rL, rR = right.left, right.right
+            if isinstance(rR, LiteralIR):
+                stride = int(rR.value)
+            elif isinstance(rL, LiteralIR):
+                stride = int(rL.value)
+            else:
+                return None
+            if stride not in (1, 2):
+                return None
+            return stride
+        return None
+    if isinstance(spatial_idx, (IdentifierIR, IndexVarIR)) and spatial_idx.defid == kernel_red_defid:
+        return 1
+    return None
+
+
 def _windowed_einsum_reduction(
     input_arr: np.ndarray,
     weight_arr: np.ndarray,
@@ -195,8 +270,6 @@ def _safe_oob_ndarray_access(array: np.ndarray, indices: List[Any]) -> Any:
         raise IndexError(
             f"too many indices for array: expected at most {array.ndim}, got {len(indices)}"
         )
-    if not any(isinstance(idx, np.ndarray) for idx in indices):
-        return array[tuple(indices)]
 
     normalized: List[np.ndarray] = []
     for idx in indices:
@@ -459,8 +532,7 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         return None
     if expr.guards or expr.bindings:
         return None
-    reduction_ranges = expr.reduction_ranges or {}
-    loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
+    loops = list(expr.loops or [])
     if not loops:
         return None
     reduction_defids: List[Any] = []
@@ -648,12 +720,152 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
     return result
 
 
+def _try_windowed_sumprod_einsum_spatial_nd(
+    expr: LoweredReductionIR,
+    backend: Any,
+    loops: List[Any],
+    mul_left: RectangularAccessIR,
+    mul_right: RectangularAccessIR,
+    bias: Optional[Any],
+    *,
+    _add: BinaryOp,
+    _mul: BinaryOp,
+) -> Optional[Any]:
+    """2D/3D valid conv: sum over input channel and kernel axes; dilation 1; strides 1 or 2."""
+    n_red = len(loops)
+    if n_red not in (3, 4):
+        return None
+    n_spatial = n_red - 1
+    red_vars = [loops[i].variable for i in range(n_red)]
+    if any(v is None or v.defid is None for v in red_vars):
+        return None
+    reduction_defids = [v.defid for v in red_vars]
+    try:
+        n_ci = int(len(loops[0].iterable.accept(backend)))
+        kern_sizes = [int(len(loops[i].iterable.accept(backend))) for i in range(1, n_red)]
+    except Exception:
+        return None
+    il, ir = mul_left.indices or [], mul_right.indices or []
+    if len(il) != n_red and len(il) != n_red + 1:
+        il, ir = ir, il
+        mul_left, mul_right = mul_right, mul_left
+    if len(il) != n_red and len(il) != n_red + 1:
+        return None
+    if len(ir) != n_red + 1:
+        il, ir = ir, il
+        mul_left, mul_right = mul_right, mul_left
+    if len(ir) != n_red + 1:
+        return None
+    for rd in reduction_defids:
+        if rd is not None and _expr_contains_defid(ir[0], rd):
+            return None
+    n_batch = len(il) - n_red
+    if n_batch not in (0, 1):
+        return None
+    if n_batch == 1:
+        for rd in reduction_defids:
+            if rd is not None and _expr_contains_defid(il[0], rd):
+                return None
+    ch_idx = il[n_batch]
+    if not _expr_contains_defid(ch_idx, reduction_defids[0]):
+        return None
+    for k in range(1, n_red + 1):
+        if not _expr_contains_defid(ir[k], reduction_defids[k - 1]):
+            return None
+    strides: List[int] = []
+    for s in range(n_spatial):
+        sp_idx = il[n_batch + 1 + s]
+        st = _conv_spatial_stride_from_index(
+            sp_idx, reduction_defids[s + 1], _add=_add, _mul=_mul
+        )
+        if st is None:
+            return None
+        strides.append(st)
+    try:
+        input_arr = mul_left.array
+        weight_arr = mul_right.array
+        if input_arr is not None:
+            input_arr = input_arr.accept(backend)
+        if weight_arr is not None:
+            weight_arr = weight_arr.accept(backend)
+    except Exception:
+        return None
+    if not isinstance(input_arr, np.ndarray) or not isinstance(weight_arr, np.ndarray):
+        return None
+    if input_arr.ndim != n_batch + n_red or weight_arr.ndim != n_red + 1:
+        return None
+    c_in_axis = n_batch
+    co, c_w = weight_arr.shape[0], weight_arr.shape[1]
+    if c_w != n_ci or tuple(weight_arr.shape[2:]) != tuple(kern_sizes):
+        return None
+    if input_arr.shape[c_in_axis] != n_ci:
+        return None
+    axes = tuple(range(n_batch + 1, n_batch + 1 + n_spatial))
+    window_shape = tuple(kern_sizes)
+    strides_t = tuple(strides)
+    for ax, ws, insz, st in zip(axes, window_shape, [input_arr.shape[a] for a in axes], strides_t):
+        if insz < ws:
+            return None
+        out_d = (insz - ws) // st + 1
+        if out_d < 1:
+            return None
+    out_spatial = tuple(
+        (input_arr.shape[axes[d]] - window_shape[d]) // strides_t[d] + 1
+        for d in range(n_spatial)
+    )
+    out_axis_letters = ("i", "j", "k")
+    kernel_axis_letters = ("m", "n", "p")
+    if n_spatial > len(out_axis_letters) or n_spatial > len(kernel_axis_letters):
+        return None
+    win_sub_parts: List[str] = []
+    w_sub_parts: List[str] = ["o", "c"]
+    out_sub_parts: List[str] = []
+    if n_batch:
+        win_sub_parts.append("b")
+    win_sub_parts.append("c")
+    for d in range(n_spatial):
+        win_sub_parts.append(out_axis_letters[d])
+    for d in range(n_spatial):
+        kc = kernel_axis_letters[d]
+        win_sub_parts.append(kc)
+        w_sub_parts.append(kc)
+    if n_batch:
+        out_sub_parts.append("b")
+    out_sub_parts.append("o")
+    for d in range(n_spatial):
+        out_sub_parts.append(out_axis_letters[d])
+    win_sub = "".join(win_sub_parts)
+    w_sub = "".join(w_sub_parts)
+    out_sub = "".join(out_sub_parts)
+    eq = f"{win_sub},{w_sub}->{out_sub}"
+    try:
+        windows = _sliding_window_nd_view(
+            input_arr, axes=axes, window_shape=window_shape, strides=strides_t
+        )
+        if windows is None:
+            return None
+        result = np.einsum(eq, windows, weight_arr, optimize=True)
+    except Exception:
+        return None
+    if n_batch:
+        exp_shape = (input_arr.shape[0], co) + out_spatial
+    else:
+        exp_shape = (co,) + out_spatial
+    if result.shape != exp_shape:
+        return None
+    if bias is not None:
+        try:
+            result = _apply_optional_bias(result, bias, backend, last_dim_row=False)
+        except Exception:
+            pass
+    return result
+
+
 def _try_windowed_sumprod_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
     """Fast path for Einstein sum-of-products over sliding windows.
 
-    Today this recognizes the strict 1D conv pattern, but the execution model is
-    generic: build a sliding-window tensor view, then lower the Einstein body to
-    a NumPy einsum over that view and the reduction tensor.
+    Recognizes 1D (two reduction loops) and 2D/3D conv (three/four loops): channel plus
+    spatial kernel axes, valid convolution, dilation 1, strides 1 or 2 per spatial dim.
     """
     from ..shared.types import ReductionOp
     op = expr.operation
@@ -661,21 +873,20 @@ def _try_windowed_sumprod_einsum(expr: LoweredReductionIR, backend: Any) -> Opti
         return None
     if expr.guards or expr.bindings:
         return None
-    reduction_ranges = expr.reduction_ranges or {}
-    loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
-    if len(loops) != 2:
+    loops = list(expr.loops or [])
+    n_red = len(loops)
+    if n_red not in (2, 3, 4):
         return None
     red0_var = loops[0].variable
-    red1_var = loops[1].variable
-    if red0_var is None or red1_var is None:
+    if red0_var is None or red0_var.defid is None:
         return None
     red0_defid = red0_var.defid
-    red1_defid = red1_var.defid
-    if red0_defid is None or red1_defid is None:
+    if n_red >= 2 and (loops[1].variable is None or loops[1].variable.defid is None):
         return None
+    red1_defid = loops[1].variable.defid if n_red >= 2 else None
     try:
         n_ci = int(len(loops[0].iterable.accept(backend)))
-        n_k = int(len(loops[1].iterable.accept(backend)))
+        n_k = int(len(loops[1].iterable.accept(backend))) if n_red == 2 else 0
     except Exception:
         return None
     body = expr.body
@@ -703,6 +914,10 @@ def _try_windowed_sumprod_einsum(expr: LoweredReductionIR, backend: Any) -> Opti
         mul_right = body.right
     if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):
         return None
+    if n_red in (3, 4):
+        return _try_windowed_sumprod_einsum_spatial_nd(
+            expr, backend, loops, mul_left, mul_right, bias, _add=_add, _mul=_mul
+        )
     il, ir = mul_left.indices or [], mul_right.indices or []
     if len(il) != 2 or len(ir) != 3:
         il, ir = ir, il
@@ -711,39 +926,9 @@ def _try_windowed_sumprod_einsum(expr: LoweredReductionIR, backend: Any) -> Opti
         return None
     if not (_expr_contains_defid(il[0], red0_defid) and _expr_contains_defid(ir[1], red0_defid) and _expr_contains_defid(ir[2], red1_defid)):
         return None
-    second_idx = il[1]
-    stride = 1
-    if isinstance(second_idx, BinaryOpIR):
-        add_op = second_idx.operator
-        if add_op == _add:
-            left, right = second_idx.left, second_idx.right
-            if _expr_contains_defid(left, red1_defid) and _expr_contains_defid(right, red1_defid):
-                return None
-            if _expr_contains_defid(right, red1_defid):
-                left, right = right, left
-            if not _expr_contains_defid(left, red1_defid):
-                return None
-            # Stride from the t part (right): t*stride -> stride 1 or 2; plain t -> stride 1
-            if isinstance(right, (IdentifierIR, IndexVarIR)):
-                stride = 1
-            elif isinstance(right, BinaryOpIR) and right.operator == _mul:
-                try:
-                    rL, rR = right.left, right.right
-                    if isinstance(rR, LiteralIR):
-                        stride = int(rR.value)
-                    elif isinstance(rL, LiteralIR):
-                        stride = int(rL.value)
-                    else:
-                        return None
-                    if stride not in (1, 2):
-                        return None
-                except (TypeError, ValueError):
-                    return None
-            else:
-                return None
-    else:
-        if not (isinstance(second_idx, (IdentifierIR, IndexVarIR)) and second_idx.defid == red1_defid):
-            return None
+    stride = _conv_spatial_stride_from_index(cast(Any, il[1]), cast(Any, red1_defid), _add=_add, _mul=_mul)
+    if stride is None:
+        return None
     # Use full arrays (no parallel/reduction indexing) so we get 2D input and 3D weight for im2col + BLAS.
     try:
         input_arr = mul_left.array
@@ -865,8 +1050,7 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
         return None
     if expr.guards or expr.bindings:
         return None
-    reduction_ranges = expr.reduction_ranges or {}
-    loops = list(reduction_ranges.values()) if isinstance(reduction_ranges, dict) else []
+    loops = list(expr.loops or [])
     if not loops:
         return None
     reduction_defids: List[Any] = []

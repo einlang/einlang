@@ -331,6 +331,20 @@ def all_defids_of_var_in_expr(expr: Optional[ExpressionIR], name: str) -> Frozen
     return expr.accept(_AllDefIdsFinder(name))
 
 
+class _AllIndexVarDefIdsFinder(_AllDefIdsFinder):
+    """Like _AllDefIdsFinder but only IndexVarIR — avoids conflating outer IdentifierIR with same name."""
+
+    def visit_identifier(self, node: IdentifierIR) -> FrozenSet[DefId]:
+        return self._empty
+
+
+def all_index_var_defids_of_name_in_expr(expr: Optional[ExpressionIR], name: str) -> FrozenSet[DefId]:
+    """Defids of IndexVarIR with *name* in *expr* (excludes IdentifierIR with the same name)."""
+    if expr is None:
+        return frozenset()
+    return expr.accept(_AllIndexVarDefIdsFinder(name))
+
+
 class VariableExtractor(IRVisitor[Set[str]]):
     """Extract variable names from expression - visitor pattern"""
     

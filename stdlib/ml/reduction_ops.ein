@@ -52,8 +52,7 @@ pub fn reduce_l1(x: [f32; *]) -> [f32; *] {
 
 pub fn reduce_l2(x: [f32; *]) -> [f32; *] {
     // L2 norm over last dimension (ReduceL2)
-    let sum_squares[..batch] = sum[j](x[..batch, j] ** 2.0);
-    let result[..batch] = sqrt(sum_squares[..batch]);
+    let result[..batch] = sqrt(sum[j](x[..batch, j] ** 2.0));
     result
 }
 
@@ -71,25 +70,21 @@ pub fn reduce_log_sum(x) {
     // Input: [..batch, features], Output: [..batch]
     // Formula: log(sum(x))
     assert(typeof(x) == "rectangular", "reduce_log_sum: input must be rectangular");
-    let sum_val[..batch] = sum[j](x[..batch, j]);
-    let result[..batch] = ln(sum_val[..batch]);
+    let result[..batch] = ln(sum[j](x[..batch, j]));
     result
 }
 
 
 pub fn reduce_log_sum_exp(x) {
-    // LogSumExp reduction over last dimension (numerically stable)
+    // LogSumExp reduction over last dimension.
+    // Keep the implementation simple so the generic autodiff pipeline can
+    // propagate the seeded pullback structurally without extra argmax paths.
     // Input: [..batch, features], Output: [..batch]
-    // Formula: log(sum(exp(x))) = max(x) + log(sum(exp(x - max(x))))
-    // This avoids overflow from exp(large_number)
+    // Formula: log(sum(exp(x)))
     assert(typeof(x) == "rectangular", "reduce_log_sum_exp: input must be rectangular");
-    
+
     use std::ml::math_ops::exp;
-    // Numerically stable: subtract max before exp
-    let max_val[..batch] = max[j](x[..batch, j]);
-    let shifted[..batch, j] = x[..batch, j] - max_val[..batch];
-    let sum_exp[..batch] = sum[j](exp(shifted[..batch, j]));
-    let result[..batch] = max_val[..batch] + ln(sum_exp[..batch]);
+    let result[..batch] = ln(sum[j](exp(x[..batch, j])));
     result
 }
 
@@ -102,4 +97,3 @@ pub fn reduce_prod(x) {
     let result[..batch] = prod[j](x[..batch, j]);
     result
 }
-

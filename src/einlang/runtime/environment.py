@@ -31,10 +31,12 @@ class ExecutionEnvironment:
     """
     _scope_stack: List[Dict[DefId, Any]]
     _defid_names: Dict[DefId, str]
+    _last_values: Dict[DefId, Any]
 
     def __init__(self):
         self._scope_stack = [{}]  # Initial scope (global/top-level)
         self._defid_names = {}    # DefId → human-readable name (debug only)
+        self._last_values = {}    # Most recent value seen for a DefId (escaped local fallback)
 
     def enter_scope(self) -> None:
         """Push a new scope (e.g. on function entry or block)."""
@@ -75,6 +77,7 @@ class ExecutionEnvironment:
         if not self._scope_stack:
             raise RuntimeError("Cannot set value: no active scope")
         self._scope_stack[-1][defid] = value
+        self._last_values[defid] = value
         if name is not None:
             self._defid_names[defid] = name
 

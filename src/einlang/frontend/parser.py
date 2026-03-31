@@ -24,7 +24,7 @@ logger = logging.getLogger("einlang.frontend.parser")
 
 # Process-level Lark singleton — Lark.open() deserializes LALR tables from disk
 # which costs ~120ms per call.  All Parser instances share the same compiled
-# grammar; only the transformer carries per-parse mutable state (current_file).
+# grammar; each parse gets a fresh transformer carrying the current source file.
 _shared_lark: Optional[Lark] = None
 
 
@@ -65,7 +65,6 @@ class Parser:
         Rust Pattern: rustc_parse initialization
         """
         self.parser = _get_shared_lark(cache_file)
-        self.transformer = EinlangTransformer()
     
     def parse(self, source: str, source_file: str = "main.ein") -> ASTProgram:
         """
@@ -76,12 +75,11 @@ class Parser:
         Returns: AST (Program node)
         """
         try:
-            # Update transformer filename for source location tracking
-            self.transformer.current_file = source_file
+            transformer = EinlangTransformer(source_file)
             
             # Parse and transform
             tree = self.parser.parse(source)
-            ast = self.transformer.transform(tree)
+            ast = transformer.transform(tree)
             
             return ast
         
@@ -116,4 +114,3 @@ class ParseError(Exception):
         self.source_file = source_file
         self.location = location
         super().__init__(f"{message} in {source_file}")
-

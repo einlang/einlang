@@ -235,14 +235,13 @@ pub fn huber_loss(predictions, targets, delta) {
     use std::math::abs;
     let nb = len(predictions) as f32;
     let nf = len(predictions[0]) as f32;
-    let diff[..batch, j] = predictions[..batch, j] - targets[..batch, j];
-    let abs_diff[..batch, j] = abs(diff[..batch, j]);
-    let huber_elem[..batch, j] = if abs_diff[..batch, j] <= delta {
-        0.5 * diff[..batch, j] * diff[..batch, j]
-    } else {
-        delta * (abs_diff[..batch, j] - 0.5 * delta)
-    };
-    let row_huber[..batch] = sum[j](huber_elem[..batch, j]);
+    let row_huber[..batch] = sum[j](
+        if abs(predictions[..batch, j] - targets[..batch, j]) <= delta {
+            0.5 * (predictions[..batch, j] - targets[..batch, j]) * (predictions[..batch, j] - targets[..batch, j])
+        } else {
+            delta * (abs(predictions[..batch, j] - targets[..batch, j]) - 0.5 * delta)
+        }
+    );
     let loss = sum[..batch](row_huber[..batch]) / (nb * nf);
     loss
 }
@@ -255,19 +254,28 @@ pub fn binary_cross_entropy(predictions, targets) {
     assert(typeof(targets) == "rectangular", "binary_cross_entropy: targets must be rectangular array");
     
     let eps = 1e-7;  // Small constant for numerical stability
-    let clipped_pred[..batch, j] = if predictions[..batch, j] < eps {
-        eps
-    } else if predictions[..batch, j] > 1.0 - eps {
-        1.0 - eps
-    } else {
-        predictions[..batch, j]
-    };
-    
     let nb = len(predictions) as f32;
-    let nf = len(predictions[0]) as f32;
-    let row_bce[..batch] = -sum[j](
-        targets[..batch, j] * ln(clipped_pred[..batch, j]) + 
-        (1.0 - targets[..batch, j]) * ln(1.0 - clipped_pred[..batch, j])
+    let nf_i = len(predictions[0]);
+    let nf = nf_i as f32;
+    let row_bce[..batch] = -sum[j in 0..nf_i](
+        targets[..batch, j] * ln(
+            if predictions[..batch, j] < eps {
+                eps
+            } else if predictions[..batch, j] > 1.0 - eps {
+                1.0 - eps
+            } else {
+                predictions[..batch, j]
+            }
+        ) +
+        (1.0 - targets[..batch, j]) * ln(
+            1.0 - if predictions[..batch, j] < eps {
+                eps
+            } else if predictions[..batch, j] > 1.0 - eps {
+                1.0 - eps
+            } else {
+                predictions[..batch, j]
+            }
+        )
     );
     let loss = sum[..batch](row_bce[..batch]) / (nb * nf);
     loss
@@ -306,12 +314,8 @@ pub fn cosine_similarity(a, b) {
     assert(typeof(a) == "rectangular", "cosine_similarity: first argument must be rectangular array");
     assert(typeof(b) == "rectangular", "cosine_similarity: second argument must be rectangular array");
     
-    let dot_product[..batch] = sum[j](a[..batch, j] * b[..batch, j]);
-    let norm_a_sq[..batch] = sum[j](a[..batch, j] * a[..batch, j]);
-    let norm_b_sq[..batch] = sum[j](b[..batch, j] * b[..batch, j]);
-    let norm_a[..batch] = sqrt(norm_a_sq[..batch]);
-    let norm_b[..batch] = sqrt(norm_b_sq[..batch]);
-    let similarity[..batch] = dot_product[..batch] / (norm_a[..batch] * norm_b[..batch]);
+    let similarity[..batch] =
+        sum[j](a[..batch, j] * b[..batch, j]) /
+        (sqrt(sum[j](a[..batch, j] * a[..batch, j])) * sqrt(sum[j](b[..batch, j] * b[..batch, j])));
     similarity
 }
-

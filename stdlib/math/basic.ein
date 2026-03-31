@@ -10,7 +10,7 @@ pub fn sqrt(x) {
     // Use power operator for tensor support
     x ** 0.5
 }
-@fn sqrt(x) { (0.5 * (x ** (-0.5))) * @x }
+@fn sqrt(x) { (if x > 0.0 { 0.5 * (x ** (-0.5)) } else { 0.0 }) * @x }
 
 pub fn min(a, b) {
     // Minimum of two values

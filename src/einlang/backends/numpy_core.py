@@ -18,6 +18,7 @@ from ..ir.nodes import (
     is_einstein_binding, is_function_binding,
 )
 from ..shared.defid import DefId, Resolver, FIXED_BUILTIN_ORDER, _BUILTIN_CRATE
+from ..shared.debug_trace import emit_debug_log
 from ..shared.types import BinaryOp
 from ..shared.types import ReductionOp
 from ..runtime.environment import ExecutionEnvironment, FunctionValue
@@ -55,6 +56,16 @@ def _leaf_seed_value(primal_val: Any, enabled: bool) -> Any:
         factory = np.ones_like if enabled else np.zeros_like
         return factory(primal_val, dtype=np.float64)
     return 1.0 if enabled else 0.0
+
+
+def _debug_value_payload(value: Any) -> Dict[str, Any]:
+    if value is None:
+        return {"shape": None, "value": None}
+    try:
+        arr = np.asarray(value)
+        return {"shape": list(arr.shape), "value": arr.tolist()}
+    except Exception:
+        return {"shape": None, "value": repr(value)}
 
 
 def _call_arguments(call: FunctionCallIR) -> List[Any]:
@@ -546,6 +557,22 @@ class CoreExecutionMixin:
         ):
             left = node.expr.left
             right = node.expr.right
+            left_diff = _differential_operand_defid(left) if isinstance(left, DifferentialIR) else None
+            right_diff = _differential_operand_defid(right) if isinstance(right, DifferentialIR) else None
+            if (
+                left_diff is not None
+                and right_diff is not None
+            ):
+                emit_debug_log(
+                    "runtime.quotient",
+                    "numpy_core.py:_maybe_pending_gradient_binding",
+                    "quotient_pending_diff_ir",
+                    {
+                        "binding_name": getattr(node, "name", None),
+                        "expr_type": type(node.expr).__name__,
+                    },
+                )
+                return (_QUOTIENT_PENDING, node.defid, left_diff, right_diff)
             if (
                 isinstance(left, IdentifierIR)
                 and isinstance(right, IdentifierIR)
@@ -554,7 +581,28 @@ class CoreExecutionMixin:
                 and left.defid in rev
                 and right.defid in rev
             ):
+                emit_debug_log(
+                    "runtime.quotient",
+                    "numpy_core.py:_maybe_pending_gradient_binding",
+                    "quotient_pending_identifier_refs",
+                    {
+                        "binding_name": getattr(node, "name", None),
+                        "left_name": getattr(left, "name", None),
+                        "right_name": getattr(right, "name", None),
+                    },
+                )
                 return (_QUOTIENT_PENDING, node.defid, rev[left.defid], rev[right.defid])
+        if getattr(self, "_in_top_level_forward", False) and isinstance(node.expr, BinaryOpIR) and node.expr.operator == BinaryOp.DIV:
+            emit_debug_log(
+                "runtime.quotient",
+                "numpy_core.py:_maybe_pending_gradient_binding",
+                "div_binding_not_matched_as_quotient",
+                {
+                    "binding_name": getattr(node, "name", None),
+                    "left_type": type(node.expr.left).__name__,
+                    "right_type": type(node.expr.right).__name__,
+                },
+            )
         return None
 
     def execute(
@@ -652,6 +700,15 @@ class CoreExecutionMixin:
                         variable_defid, binding = self._binding_output_defid(stmt)
                         if variable_defid is not None:
                             var_name = stmt.name if isinstance(stmt, BindingIR) else (binding.name if binding else None)
+                            emit_debug_log(
+                                "runtime.quotient",
+                                "numpy_core.py:execute",
+                                "store_top_level_output",
+                                {
+                                    "binding_name": var_name,
+                                    **_debug_value_payload(result_value),
+                                },
+                            )
                             self._store_output_value(outputs, variable_defid, result_value, name=var_name)
                         if profile_statements:
                             elapsed = time.perf_counter() - self._stmt_t0
@@ -687,23 +744,6 @@ class CoreExecutionMixin:
                             ):
                                 call = num_binding.expr
                                 callee_name = _resolved_call_name(call, function_ir_map, mono)
-                                if (
-                                    isinstance(callee_name, str)
-                                    and callee_name.startswith("max_pool")
-                                ):
-                                    try:
-                                        val = _max_pool_quotient_value(
-                                            call,
-                                            den_defid,
-                                            self,
-                                            function_ir_map,
-                                            mono,
-                                        )
-                                        if val is not None:
-                                            self._store_output_value(outputs, slot_defid, val, name=None)
-                                            continue
-                                    except Exception:
-                                        pass
                                 if isinstance(callee_name, str) and callee_name in ("softmax", "log_softmax"):
                                     try:
                                         val = _normalized_prob_quotient_value(
@@ -727,6 +767,17 @@ class CoreExecutionMixin:
                             d_num_defid = d_map.get(num_defid)
                             if d_num_defid is not None:
                                 val = self.env.get_value(d_num_defid)
+                                emit_debug_log(
+                                    "runtime.quotient",
+                                    "numpy_core.py:execute",
+                                    "store_quotient_slot_from_diff_buffer",
+                                    {
+                                        "slot_defid": str(slot_defid),
+                                        "num_defid": str(num_defid),
+                                        "den_defid": str(den_defid),
+                                        **_debug_value_payload(val),
+                                    },
+                                )
                                 self._store_output_value(outputs, slot_defid, val, name=None)
                     # Single run for differential slots and/or when no per-quotient (e.g. no quotient pairs).
                     run_diff = (pending_differential_slots or pending_quotient_slots) and diff_ir is not None

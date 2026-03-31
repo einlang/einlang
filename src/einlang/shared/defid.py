@@ -127,6 +127,7 @@ class Resolver:
         self._tcx = tcx
         self._builtin_next_index = 0
         self._local_next_index = 0
+        self._internal_iv_name_next = 0
 
     @property
     def _def_registry(self) -> Dict[DefId, Tuple[DefType, Any]]:
@@ -190,6 +191,12 @@ class Resolver:
         self._local_next_index = idx + 1
         assert self._local_next_index > idx
         return defid
+
+    def allocate_internal_iv_name(self) -> str:
+        """Monotonic compiler-generated IndexVarIR name per compilation (``$`` is invalid in user CNAME)."""
+        n = self._internal_iv_name_next
+        self._internal_iv_name_next = n + 1
+        return "$%d" % n
 
     def query(self, defid: DefId) -> Optional[Tuple[DefType, Any]]:
         """Look up definition by DefId from tcx-scoped registry."""
