@@ -3,13 +3,6 @@
 
 The **standard library** is a set of modules and functions (300+) implemented in Einlang (`.ein` in `stdlib/`). It is **not** the same as **language built-ins**: built-ins (e.g. `print`, `assert`, `len`, `shape`, `sum`, `max`, `min`) are primitives available without import; stdlib you bring in with `use std::math::{...};` etc. See [Reference: Built-in vs stdlib](reference.md#built-in-vs-stdlib).
 
-The stdlib is also part of the language showcase: many functions are worth reading directly because they demonstrate named rest patterns, Einstein notation, and custom autodiff rules in ordinary Einlang source. For example:
-
-```rust
-fn exp(x) { python::numpy::exp(x) }
-@fn exp(x) { exp(x) * @x }
-```
-
 **Syntax and types:** [Language Reference](reference.md). **New here?** [Getting started](GETTING_STARTED.md) or [try an example](https://github.com/einlang/einlang/blob/main/README.md#try-it). **Doc index:** [README](README.md).
 
 ---
@@ -201,20 +194,8 @@ let mm = gemm(A, B, C, 1.0, 0.0, 0, 0);
 ```rust
 use std::ml::conv_ops::{conv, conv_transpose, depthwise_conv};
 
-let out = conv(X, W, B, [1, 1], [0, 0, 0, 0], [1, 1], 1);
+let out = conv(X, W, B, [1, 1], [0, 0, 0, 0], [1, 1]);
 ```
-
-The key point is that convolution is written as normal Einlang, not hidden behind a primitive. The 2D core in `stdlib/ml/conv_ops.ein` is a sum-of-products over kernel indices with rank-generic batch dimensions:
-
-```rust
-let conv_sum[..batch, co, i, j] = sum[cl in 0..cpg, m in 0..kernel_h, n in 0..kernel_w](
-    Xp[..batch, (co / fpg) * cpg + cl, i * stride_h + m * dilation_h, j * stride_w + n * dilation_w]
-    * W[co, cl, m, n]
-);
-let output[..batch, co, i, j] = conv_sum[..batch, co, i, j] + B[co];
-```
-
-The surrounding code pads `X` into `Xp`, checks bounds, and dispatches across ranks 1D/2D/3D, but the mathematical core stays readable.
 
 ### Normalization (`std::ml::norm_ops`)
 
@@ -233,19 +214,9 @@ let ln = layer_normalization(X, scale, B, 1e-5, -1);
 use std::ml::pool_ops::{max_pool, average_pool, global_average_pool,
                          global_max_pool, lp_pool, max_roi_pool};
 
-let pooled = max_pool(X, [2, 2], [2, 2], [0, 0]);
+let pooled = max_pool(X, [2, 2], [2, 2], [0, 0, 0, 0]);
 let gap = global_average_pool(X);
 ```
-
-Pooling follows the same pattern. The 2D max-pool core is a `max` reduction over the window:
-
-```rust
-let output[..batch, c, i, j] = max[m in 0..kernel_h, n in 0..kernel_w](
-    X[..batch, c, i * stride_h - pad_h + m, j * stride_w - pad_w + n]
-);
-```
-
-`average_pool` swaps `max` for `sum` and divides by the window area; global pool ops reduce over the spatial dimensions and then rebuild singleton axes.
 
 ### Loss Functions (`std::ml::ml_ex`)
 

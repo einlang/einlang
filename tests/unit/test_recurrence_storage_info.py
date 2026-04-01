@@ -83,22 +83,3 @@ def test_recurrence_storage_falls_back_to_full_output_for_non_literal_tail_acces
     assert rec.downstream_tail_steps is None
     assert rec.preserve_steps is None
     assert rec.requires_full_output is True
-
-
-def test_recurrence_storage_tracks_tail_window_for_rank2_multi_clause_recurrence():
-    rec = _compile_recurrence_binding(
-        """
-        let state[0, 0] = 1.0;
-        let state[0, 1] = 2.0;
-        let state[t in 1..6, 0] = state[t - 1, 0] + state[t - 1, 1];
-        let state[t in 1..6, 1] = state[t - 1, 1] + 1.0;
-        let last = state[4, 0] + state[5, 1];
-        last;
-        """,
-        "state",
-    )
-    assert rec.recurrence_output_dim == 0
-    assert rec.history_lookback_steps == 1
-    assert rec.downstream_tail_steps == 2
-    assert rec.preserve_steps == 2
-    assert rec.requires_full_output is False

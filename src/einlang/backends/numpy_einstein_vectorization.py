@@ -32,6 +32,7 @@ def _coerce_scalar_index(value: Any) -> Any:
 def _extract_vectorization_loop_info(
     loops: List[Any],
     evaluator: Any,
+    backend: Any = None,
     *,
     allow_dynamic_ranges: bool = False,
     loop_ranges_override: Optional[List[Tuple[int, int]]] = None,
@@ -45,7 +46,11 @@ def _extract_vectorization_loop_info(
             range_value: Optional[Tuple[int, int]] = loop_ranges_override[dim]
         else:
             try:
-                range_value = _extract_loop_range(loop, evaluator)
+                cached_loop_range = getattr(backend, "_cached_loop_range", None) if backend is not None else None
+                if callable(cached_loop_range):
+                    range_value = cached_loop_range(loop, evaluator)
+                else:
+                    range_value = _extract_loop_range(loop, evaluator)
             except RuntimeError:
                 if not allow_dynamic_ranges:
                     return None
@@ -64,6 +69,9 @@ def _resolve_loop_range_at_dim(
     if range_value is not None:
         return range_value
     try:
+        cached_loop_range = getattr(backend, "_cached_loop_range", None)
+        if callable(cached_loop_range):
+            return cached_loop_range(loops[dim], lambda e: e.accept(backend))
         return _extract_loop_range(loops[dim], lambda e: e.accept(backend))
     except RuntimeError:
         return None
@@ -236,19 +244,33 @@ def _eval_clause_body_with_broadcast_loops(
     if not loops or clause.guards or clause.bindings:
         return None
     clause_ndim = len(loops)
-    n_red = _count_reduction_dims_in_expr(clause.body)
+    count_reduction_dims = getattr(backend, "_cached_count_reduction_dims", None)
+    if callable(count_reduction_dims):
+        n_red = count_reduction_dims(clause.body)
+    else:
+        n_red = _count_reduction_dims_in_expr(clause.body)
     ndim = clause_ndim + n_red
     loop_info = _extract_vectorization_loop_info(
         loops,
         evaluator,
+        backend,
         loop_ranges_override=loop_ranges_override,
     )
     if loop_info is None:
         return None
     clause_loop_defids = [defid for (defid, _, _) in loop_info]
-    if _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids):
+    reduction_uses_clause_var_in_bounds = getattr(backend, "_cached_reduction_uses_clause_var_in_bounds", None)
+    if callable(reduction_uses_clause_var_in_bounds):
+        uses_clause_var_in_bounds = reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids)
+    else:
+        uses_clause_var_in_bounds = _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids)
+    if uses_clause_var_in_bounds:
         return None
-    body_defids_by_name = _collect_defids_by_name(clause.body)
+    body_name_cache = getattr(backend, "_cached_defids_by_name", None)
+    if callable(body_name_cache):
+        body_defids_by_name = body_name_cache(clause.body)
+    else:
+        body_defids_by_name = _collect_defids_by_name(clause.body)
     try:
         with backend.env.scope():
             for dim, (defid, rng, name) in enumerate(loop_info):
@@ -270,7 +292,21 @@ def _eval_clause_body_with_broadcast_loops(
             )
             with backend._vectorization_scope(**saved_state):
                 return clause.body.accept(backend)
-    except Exception:
+    except Exception as exc:
+        if backend is not None and getattr(backend, "_vectorize_debug_enabled", None) and backend._vectorize_debug_enabled():
+            loc = getattr(clause, "location", None)
+            line = int(getattr(loc, "line", 0) or 0)
+            seen = getattr(backend, "_vectorize_eval_failed_seen", None)
+            if seen is None:
+                seen = set()
+                backend._vectorize_eval_failed_seen = seen
+            key = (line, type(exc).__name__, str(exc))
+            if key not in seen:
+                seen.add(key)
+                print(
+                    f"[vectorize] eval-failed L{line or '?'} {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
         return None
 
 
@@ -400,7 +436,11 @@ def _try_vectorize_clause(
         return None
 
     clause_ndim = len(loops)
-    n_red = _count_reduction_dims_in_expr(clause.body)
+    count_reduction_dims = getattr(backend, "_cached_count_reduction_dims", None)
+    if callable(count_reduction_dims):
+        n_red = count_reduction_dims(clause.body)
+    else:
+        n_red = _count_reduction_dims_in_expr(clause.body)
     ndim = clause_ndim + n_red
 
     loop_info: List[Tuple[Any, Tuple[int, int], str]] = []
@@ -416,7 +456,12 @@ def _try_vectorize_clause(
         loop_info.append((defid, r, name))
 
     clause_loop_defids = [defid for (defid, _, _) in loop_info]
-    if _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids):
+    reduction_uses_clause_var_in_bounds = getattr(backend, "_cached_reduction_uses_clause_var_in_bounds", None)
+    if callable(reduction_uses_clause_var_in_bounds):
+        uses_clause_var_in_bounds = reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids)
+    else:
+        uses_clause_var_in_bounds = _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids)
+    if uses_clause_var_in_bounds:
         return None
 
     try:
@@ -483,6 +528,7 @@ def _try_hybrid_vectorize_clause(
     loop_info = _extract_vectorization_loop_info(
         loops,
         expr_evaluator,
+        backend,
         allow_dynamic_ranges=True,
     )
     if loop_info is None:
@@ -515,9 +561,13 @@ def _try_hybrid_vectorize_clause(
                         start, end = range_val if range_val is not None else (None, None)
                         if range_val is None:
                             try:
-                                start, end = _extract_loop_range(
-                                    loops[dim], lambda e: e.accept(backend)
-                                )
+                                cached_loop_range = getattr(backend, "_cached_loop_range", None)
+                                if callable(cached_loop_range):
+                                    start, end = cached_loop_range(loops[dim], lambda e: e.accept(backend))
+                                else:
+                                    start, end = _extract_loop_range(
+                                        loops[dim], lambda e: e.accept(backend)
+                                    )
                             except RuntimeError:
                                 return None
                         sz = end - start
@@ -599,7 +649,7 @@ def _try_call_scalar_vectorize_clause(
     if not (0 < len(scalar_set) < ndim):
         return None
     vector_dims = [d for d in range(ndim) if d not in scalar_set]
-    loop_info = _extract_vectorization_loop_info(loops, expr_evaluator)
+    loop_info = _extract_vectorization_loop_info(loops, expr_evaluator, backend)
     if loop_info is None:
         return None
     scalar_loops = [loops[d] for d in scalar_loop_indices]

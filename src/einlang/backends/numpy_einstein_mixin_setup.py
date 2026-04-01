@@ -62,8 +62,8 @@ class _CircularRecurrenceBuffer:
         if not isinstance(key, tuple):
             key = (key,)
         items = list(key)
-        ell_idx = next((i for i, item in enumerate(items) if item is Ellipsis), None)
-        if ell_idx is not None:
+        if Ellipsis in items:
+            ell_idx = items.index(Ellipsis)
             missing = self.ndim - (len(items) - 1)
             items = items[:ell_idx] + [slice(None)] * missing + items[ell_idx + 1 :]
         if len(items) < self.ndim:
@@ -259,9 +259,10 @@ class EinsteinExecutionSetupMixin:
         ):
             return None
         body_items = list(node.body.items or [])
-        if not body_items:
+        if len(body_items) != 1:
             return None
-        if any(item.bindings or item.guards for item in body_items):
+        item0 = body_items[0]
+        if len(item0.loops or []) != 1 or item0.bindings or item0.guards:
             return None
         # Block-bodied recurrence steps can contain nested reductions that still rely on
         # outer timestep bindings staying scalar in the ambient env. The circular-buffer
@@ -456,14 +457,44 @@ class EinsteinExecutionSetupMixin:
         try:
             from .numpy_einstein_call_index_analysis import _collect_defids_by_name
 
+            body_name_cache = getattr(self, "_cached_defids_by_name", None)
+            if callable(body_name_cache):
+                defids_by_name = body_name_cache(lowered)
+            else:
+                defids_by_name = _collect_defids_by_name(lowered)
+
             captured_ctx = {}
-            for dids in _collect_defids_by_name(lowered).values():
+            for dids in defids_by_name.values():
                 for did in dids:
                     if did is None:
                         continue
                     cur = self.env.get_value(did)
                     if cur is not None:
                         captured_ctx[did] = cur
+            cache = None
+            cache_key = None
+            if allow_outer_slot_eval and self._vectorization_parallel_shape() is not None:
+                cache = getattr(self, "_nested_lowered_eval_cache", None)
+            if cache is not None:
+                def _sort_key(item: Tuple[Any, Any]) -> Tuple[int, int]:
+                    did = item[0]
+                    return (getattr(did, "krate", 0), getattr(did, "index", 0))
+
+                captured_fingerprint = tuple(
+                    (did, self._cache_value_fingerprint(val))
+                    for did, val in sorted(captured_ctx.items(), key=_sort_key)
+                )
+                scalar_fingerprint = tuple(
+                    (did, self._cache_value_fingerprint(val))
+                    for did, val in sorted((scalar_index_bindings or {}).items(), key=_sort_key)
+                )
+                cache_key = (
+                    id(lowered),
+                    captured_fingerprint,
+                    scalar_fingerprint,
+                )
+                if cache_key in cache:
+                    return cache[cache_key]
             with self.env.scope():
                 env_names = getattr(self.env, "_defid_names", {}) or {}
                 for did, val in captured_ctx.items():
@@ -473,8 +504,13 @@ class EinsteinExecutionSetupMixin:
                 if allow_outer_slot_eval:
                     slot_eval = self._evaluate_lowered_per_outer_slot(lowered)
                     if slot_eval is not None:
+                        if cache is not None and cache_key is not None:
+                            cache[cache_key] = slot_eval
                         return slot_eval
-                return lowered.accept(self)
+                value = lowered.accept(self)
+                if cache is not None and cache_key is not None:
+                    cache[cache_key] = value
+                return value
         finally:
             stack.pop()
 

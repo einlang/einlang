@@ -888,6 +888,15 @@ def _extract_loop_range(loop, evaluator) -> Tuple[int, int]:
         except (TypeError, ValueError) as e:
             raise RuntimeError("loop range start/stop must be int; got dependent or non-int") from e
     if isinstance(it, RangeIR):
+        if isinstance(it.end, LiteralIR):
+            try:
+                end_lit = int(it.end.value)
+                if it.start is None:
+                    return (0, end_lit)
+                if isinstance(it.start, LiteralIR):
+                    return (int(it.start.value), end_lit)
+            except (TypeError, ValueError):
+                pass
         end_ev = evaluator(it.end)
         if not isinstance(end_ev, (int, np.integer)):
             raise RuntimeError("loop range end must be int; got dependent or non-int")

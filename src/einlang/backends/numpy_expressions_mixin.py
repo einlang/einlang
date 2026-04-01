@@ -10,6 +10,7 @@ from ..ir.nodes import (
     IfExpressionIR,
     IRNode,
     LiteralIR,
+    LoweredEinsteinIR,
     LoweredReductionIR,
     LoweredSelectAtArgmaxIR,
     MemberAccessIR,
@@ -17,6 +18,7 @@ from ..ir.nodes import (
     UnaryOpIR,
     is_function_binding,
 )
+from ..ir.predicate_visitor import RecursivePredicateVisitor
 from ..shared.debug_trace import emit_debug_log
 from ..shared.types import ReductionOp
 
@@ -35,130 +37,36 @@ from .numpy_expressions_support import (
     _try_windowed_sumprod_einsum,
 )
 from .numpy_helpers import _PatternMatcher
+from .numpy_einstein_analysis import (
+    _count_reduction_dims_in_expr,
+    _reduction_uses_clause_var_in_bounds,
+)
+
+
+class _ContainsNodeTypeVisitor(RecursivePredicateVisitor):
+    def __init__(self, *node_types: type) -> None:
+        self._node_types = node_types
+
+    def matches(self, node: Any) -> bool:
+        return isinstance(node, self._node_types)
+
+
+def _contains_ir_node_type(node: Any, *node_types: type) -> bool:
+    if node is None:
+        return False
+    return _ContainsNodeTypeVisitor(*node_types).visit(node)
 
 
 def _contains_nested_lowered_reduction(node: Any) -> bool:
-    if node is None:
-        return False
-    if isinstance(node, LoweredReductionIR):
-        return True
-    if isinstance(node, LoweredSelectAtArgmaxIR):
-        return True
-    if isinstance(node, BinaryOpIR):
-        return _contains_nested_lowered_reduction(node.left) or _contains_nested_lowered_reduction(node.right)
-    if isinstance(node, UnaryOpIR):
-        return _contains_nested_lowered_reduction(node.operand)
-    if isinstance(node, RectangularAccessIR):
-        return _contains_nested_lowered_reduction(node.array) or any(
-            _contains_nested_lowered_reduction(idx) for idx in (node.indices or [])
-        )
-    if isinstance(node, FunctionCallIR):
-        return _contains_nested_lowered_reduction(node.callee_expr) or any(
-            _contains_nested_lowered_reduction(arg) for arg in (node.arguments or [])
-        )
-    if isinstance(node, BlockExpressionIR):
-        return any(_contains_nested_lowered_reduction(stmt) for stmt in (node.statements or [])) or _contains_nested_lowered_reduction(
-            node.final_expr
-        )
-    if isinstance(node, IfExpressionIR):
-        return (
-            _contains_nested_lowered_reduction(node.condition)
-            or _contains_nested_lowered_reduction(node.then_expr)
-            or _contains_nested_lowered_reduction(node.else_expr)
-        )
-    if isinstance(node, BindingIR):
-        return _contains_nested_lowered_reduction(node.expr)
-    if isinstance(node, CastExpressionIR):
-        return _contains_nested_lowered_reduction(node.expr)
-    if isinstance(node, MemberAccessIR):
-        return _contains_nested_lowered_reduction(node.object)
-    if isinstance(node, BuiltinCallIR):
-        return any(_contains_nested_lowered_reduction(arg) for arg in (node.args or []))
-    return False
+    return _contains_ir_node_type(node, LoweredReductionIR, LoweredSelectAtArgmaxIR)
 
 
 def _contains_if_expression(node: Any) -> bool:
-    if node is None:
-        return False
-    if isinstance(node, IfExpressionIR):
-        return True
-    if isinstance(node, BinaryOpIR):
-        return _contains_if_expression(node.left) or _contains_if_expression(node.right)
-    if isinstance(node, UnaryOpIR):
-        return _contains_if_expression(node.operand)
-    if isinstance(node, RectangularAccessIR):
-        return _contains_if_expression(node.array) or any(
-            _contains_if_expression(idx) for idx in (node.indices or [])
-        )
-    if isinstance(node, FunctionCallIR):
-        return _contains_if_expression(node.callee_expr) or any(
-            _contains_if_expression(arg) for arg in (node.arguments or [])
-        )
-    if isinstance(node, BlockExpressionIR):
-        return any(_contains_if_expression(stmt) for stmt in (node.statements or [])) or _contains_if_expression(
-            node.final_expr
-        )
-    if isinstance(node, BindingIR):
-        return _contains_if_expression(node.expr)
-    if isinstance(node, CastExpressionIR):
-        return _contains_if_expression(node.expr)
-    if isinstance(node, MemberAccessIR):
-        return _contains_if_expression(node.object)
-    if isinstance(node, BuiltinCallIR):
-        return any(_contains_if_expression(arg) for arg in (node.args or []))
-    if isinstance(node, LoweredReductionIR):
-        return _contains_if_expression(node.body)
-    if isinstance(node, LoweredSelectAtArgmaxIR):
-        return (
-            _contains_if_expression(node.primal_body)
-            or _contains_if_expression(node.diff_body)
-        )
-    return False
+    return _contains_ir_node_type(node, IfExpressionIR)
 
 
 def _contains_lowered_einstein(node: Any) -> bool:
-    if node is None:
-        return False
-    if isinstance(node, LoweredEinsteinIR):
-        return True
-    if isinstance(node, BinaryOpIR):
-        return _contains_lowered_einstein(node.left) or _contains_lowered_einstein(node.right)
-    if isinstance(node, UnaryOpIR):
-        return _contains_lowered_einstein(node.operand)
-    if isinstance(node, RectangularAccessIR):
-        return _contains_lowered_einstein(node.array) or any(
-            _contains_lowered_einstein(idx) for idx in (node.indices or [])
-        )
-    if isinstance(node, FunctionCallIR):
-        return _contains_lowered_einstein(node.callee_expr) or any(
-            _contains_lowered_einstein(arg) for arg in (node.arguments or [])
-        )
-    if isinstance(node, BlockExpressionIR):
-        return any(_contains_lowered_einstein(stmt) for stmt in (node.statements or [])) or _contains_lowered_einstein(
-            node.final_expr
-        )
-    if isinstance(node, IfExpressionIR):
-        return (
-            _contains_lowered_einstein(node.condition)
-            or _contains_lowered_einstein(node.then_expr)
-            or _contains_lowered_einstein(node.else_expr)
-        )
-    if isinstance(node, BindingIR):
-        return _contains_lowered_einstein(node.expr)
-    if isinstance(node, CastExpressionIR):
-        return _contains_lowered_einstein(node.expr)
-    if isinstance(node, MemberAccessIR):
-        return _contains_lowered_einstein(node.object)
-    if isinstance(node, BuiltinCallIR):
-        return any(_contains_lowered_einstein(arg) for arg in (node.args or []))
-    if isinstance(node, LoweredReductionIR):
-        return _contains_lowered_einstein(node.body)
-    if isinstance(node, LoweredSelectAtArgmaxIR):
-        return (
-            _contains_lowered_einstein(node.primal_body)
-            or _contains_lowered_einstein(node.diff_body)
-        )
-    return False
+    return _contains_ir_node_type(node, LoweredEinsteinIR)
 
 
 def _is_zero_literal_like(node: Any) -> bool:
@@ -167,6 +75,118 @@ def _is_zero_literal_like(node: Any) -> bool:
 
 class ExpressionVisitorMixin:
     """Expression visit_*; function/builtin lookup via env only."""
+
+    def _analysis_cache_bucket(self, name: str) -> Dict[Any, Any]:
+        cache = getattr(self, "_analysis_cache", None)
+        if cache is None:
+            cache = {}
+            self._analysis_cache = cache
+        bucket = cache.get(name)
+        if bucket is None:
+            bucket = {}
+            cache[name] = bucket
+        return bucket
+
+    def _cached_contains_ir_types(self, node: Any, *node_types: type) -> bool:
+        if node is None:
+            return False
+        bucket = self._analysis_cache_bucket("contains_ir_types")
+        key = (id(node), tuple(t.__name__ for t in node_types))
+        hit = bucket.get(key)
+        if hit is None:
+            hit = _contains_ir_node_type(node, *node_types)
+            bucket[key] = hit
+        return hit
+
+    def _cached_defids_by_name(self, node: Any) -> Dict[str, List[Any]]:
+        if node is None:
+            return {}
+        bucket = self._analysis_cache_bucket("defids_by_name")
+        key = id(node)
+        hit = bucket.get(key)
+        if hit is None:
+            from .numpy_einstein_call_index_analysis import _collect_defids_by_name
+
+            hit = _collect_defids_by_name(node)
+            bucket[key] = hit
+        return hit
+
+    def _cached_count_reduction_dims(self, node: Any) -> int:
+        if node is None:
+            return 0
+        bucket = self._analysis_cache_bucket("count_reduction_dims")
+        key = id(node)
+        hit = bucket.get(key)
+        if hit is None:
+            hit = _count_reduction_dims_in_expr(node)
+            bucket[key] = hit
+        return hit
+
+    def _cached_reduction_uses_clause_var_in_bounds(self, node: Any, clause_loop_defids: List[Any]) -> bool:
+        if node is None:
+            return False
+        bucket = self._analysis_cache_bucket("reduction_uses_clause_var_in_bounds")
+        key = (id(node), tuple(clause_loop_defids))
+        hit = bucket.get(key)
+        if hit is None:
+            hit = _reduction_uses_clause_var_in_bounds(node, clause_loop_defids)
+            bucket[key] = hit
+        return hit
+
+    def _cached_loop_range(self, loop: Any, evaluator: Any) -> Tuple[int, int]:
+        dep_bucket = self._analysis_cache_bucket("loop_range_depids")
+        loop_key = id(loop)
+        depids = dep_bucket.get(loop_key)
+        if depids is None:
+            from ..passes.autodiff._graph import _collect_defids
+
+            iterable = getattr(loop, "iterable", None)
+            depids = tuple(
+                sorted(
+                    (did for did in _collect_defids(iterable) if did is not None),
+                    key=lambda d: (d.krate, d.index),
+                )
+            )
+            dep_bucket[loop_key] = depids
+        bucket = self._analysis_cache_bucket("loop_range")
+        fingerprint = tuple(
+            (did, self._cache_value_fingerprint(self.env.get_value(did)))
+            for did in depids
+        )
+        key = (loop_key, fingerprint)
+        hit = bucket.get(key)
+        if hit is None:
+            from .numpy_einstein_recurrence_analysis import _extract_loop_range
+
+            hit = _extract_loop_range(loop, evaluator)
+            bucket[key] = hit
+        return hit
+
+    def _cached_body_contains_call_using_loop_var(self, expr: Any, loop_defids: List[Any]) -> bool:
+        if expr is None:
+            return False
+        bucket = self._analysis_cache_bucket("body_contains_call_using_loop_var")
+        key = (id(expr), tuple(loop_defids))
+        hit = bucket.get(key)
+        if hit is None:
+            from .numpy_einstein_call_index_analysis import _body_contains_call_using_loop_var
+
+            hit = _body_contains_call_using_loop_var(expr, loop_defids)
+            bucket[key] = hit
+        return hit
+
+    def _cached_body_is_elementwise_call(self, expr: Any, loop_defids: List[Any]) -> bool:
+        if expr is None:
+            return False
+        bucket = self._analysis_cache_bucket("body_is_elementwise_call")
+        key = (id(expr), tuple(loop_defids))
+        hit = bucket.get(key)
+        if hit is None:
+            from .numpy_einstein_call_index_analysis import _body_is_elementwise_call
+
+            hit = _body_is_elementwise_call(expr, loop_defids)
+            bucket[key] = hit
+        return hit
 
     def _raise_here(self, exc: Exception, expr) -> None:
         """Re-raise *exc* as an EinlangSourceError pinned to *expr*.location (or exc.clause_location if set)."""
@@ -194,6 +214,87 @@ class ExpressionVisitorMixin:
         if isinstance(value, np.ndarray):
             return bool(value.all())
         return bool(value)
+
+    def _block_needs_per_outer_slot(self, expr: BlockExpressionIR) -> bool:
+        parallel_defids = {
+            did for did in (self._vectorization_parallel_defids_order() or ()) if did is not None
+        }
+        if not parallel_defids:
+            return False
+        for stmt in (expr.statements or []) or []:
+            binding = getattr(stmt, "_binding", None)
+            if binding is None and isinstance(stmt, BindingIR):
+                binding = stmt
+            binding_expr = getattr(binding, "expr", None) if binding is not None else None
+            if binding_expr is None:
+                continue
+            if not self._cached_contains_ir_types(
+                binding_expr,
+                LoweredEinsteinIR,
+                LoweredReductionIR,
+                LoweredSelectAtArgmaxIR,
+            ):
+                continue
+            if any(_BodyReferencesDefidVisitor(d).references(binding_expr) for d in parallel_defids):
+                return True
+        final_expr = getattr(expr, "final_expr", None)
+        if final_expr is not None and self._cached_contains_ir_types(
+            final_expr,
+            LoweredEinsteinIR,
+            LoweredReductionIR,
+            LoweredSelectAtArgmaxIR,
+        ):
+            if any(_BodyReferencesDefidVisitor(d).references(final_expr) for d in parallel_defids):
+                return True
+        return False
+
+    def _evaluate_block_per_outer_slot(self, expr: BlockExpressionIR) -> Any:
+        parallel_shape = self._vectorization_parallel_shape()
+        if not parallel_shape:
+            return None
+        outer_shape = tuple(int(dim) for dim in parallel_shape)
+        outer_names = getattr(self.env, "_defid_names", {}) or {}
+        parallel_defids = [
+            did for did in (self._vectorization_parallel_defids_order() or ()) if did is not None
+        ]
+        if not parallel_defids:
+            return None
+        scalarizable: List[Tuple[Any, np.ndarray]] = []
+        for did in parallel_defids:
+            cur = self.env.get_value(did)
+            if not isinstance(cur, np.ndarray):
+                continue
+            if cur.ndim == 0 or not np.issubdtype(cur.dtype, np.integer):
+                continue
+            arr = np.asarray(cur)
+            try:
+                arr = np.broadcast_to(arr, outer_shape)
+            except ValueError:
+                if arr.size != int(np.prod(outer_shape)):
+                    continue
+                try:
+                    arr = np.reshape(arr, outer_shape)
+                except ValueError:
+                    continue
+            scalarizable.append((did, np.asarray(arr, dtype=np.intp).reshape(-1)))
+        if not scalarizable:
+            return None
+        result = None
+        for linear_idx, outer_idx in enumerate(np.ndindex(outer_shape)):
+            with self.env.scope():
+                for did, flat_values in scalarizable:
+                    self.env.set_value(did, int(flat_values[linear_idx]), name=outer_names.get(did))
+                with self._vectorization_scope(
+                    parallel_shape=None,
+                    parallel_defids_order=None,
+                ):
+                    cell = self.visit_block_expression(expr)
+            cell_arr = np.asarray(cell)
+            if result is None:
+                result_shape = tuple(cell_arr.shape) + outer_shape
+                result = np.empty(result_shape, dtype=cell_arr.dtype)
+            result[(Ellipsis,) + outer_idx] = cell_arr
+        return result
 
     def _lowered_expr_is_zero(self, expr: Any) -> bool:
         if expr is None:
@@ -424,7 +525,11 @@ class ExpressionVisitorMixin:
                 if did is None:
                     continue
                 try:
-                    scalar_index_bindings[did] = int(np.asarray(idx_value).reshape(-1)[0].item())
+                    idx_array = np.asarray(idx_value)
+                    if idx_array.ndim == 0:
+                        scalar_index_bindings[did] = int(idx_array.item())
+                    else:
+                        scalar_index_bindings[did] = idx_value
                 except Exception:
                     scalar_index_bindings[did] = idx_value
             array = self._evaluate_lowered_einstein_subexpr(
@@ -473,12 +578,23 @@ class ExpressionVisitorMixin:
         return array
 
     def visit_block_expression(self, expr: BlockExpressionIR) -> Any:
+        if (
+            expr.statements
+            and self._vectorization_parallel_shape() is not None
+            and not self._in_recurrence_vectorization_clause()
+            and self._block_needs_per_outer_slot(expr)
+        ):
+            per_slot = self._evaluate_block_per_outer_slot(expr)
+            if per_slot is not None:
+                return per_slot
         with self.env.scope():
             # Keep binding-result caching local to this block invocation. Reusing it
             # across function calls lets stale local bindings leak when dependency
             # tracking misses a scalar parameter, which corrupts repeated stdlib calls.
             previous_binding_cache = getattr(self, "_binding_eval_cache", None)
             self._binding_eval_cache = {}
+            previous_nested_lowered_cache = getattr(self, "_nested_lowered_eval_cache", None)
+            self._nested_lowered_eval_cache = {}
             try:
                 binding_cache = self._binding_eval_cache
                 for stmt in (expr.statements or []) or []:
@@ -488,14 +604,18 @@ class ExpressionVisitorMixin:
                     result_value = None
                     used_cache = False
                     cacheable_name = (binding.name or stmt.name) if binding is not None else None
-                    use_binding_cache = cacheable_name in {
-                        "Xp",
-                        "conv_sum",
-                        "output",
-                        "_@Xp",
-                        "_@conv_sum",
-                        "_@output",
-                    }
+                    binding_expr = binding.expr if binding is not None else None
+                    use_binding_cache = bool(
+                        binding is not None
+                        and binding.defid is not None
+                        and binding_expr is not None
+                        and _contains_ir_node_type(
+                            binding_expr,
+                            LoweredEinsteinIR,
+                            LoweredReductionIR,
+                            LoweredSelectAtArgmaxIR,
+                        )
+                    )
                     if use_binding_cache and binding is not None and binding.defid is not None and binding.expr is not None:
                         depids = self._binding_cache_depids(binding)
                         dep_key = tuple(
@@ -539,19 +659,44 @@ class ExpressionVisitorMixin:
                     delattr(self, "_binding_eval_cache")
                 else:
                     self._binding_eval_cache = previous_binding_cache
+                if previous_nested_lowered_cache is None:
+                    delattr(self, "_nested_lowered_eval_cache")
+                else:
+                    self._nested_lowered_eval_cache = previous_nested_lowered_cache
         return None
 
     def visit_if_expression(self, expr) -> Any:
         cond = expr.condition.accept(self)
         if isinstance(cond, np.ndarray):
-            then_val = expr.then_expr.accept(self)
-            if expr.else_expr:
-                else_val = expr.else_expr.accept(self)
-            else:
-                if isinstance(then_val, np.ndarray):
-                    else_val = np.zeros_like(then_val)
+            if self._vectorization_safe_oob_enabled():
+                then_val = expr.then_expr.accept(self)
+                if expr.else_expr:
+                    else_val = expr.else_expr.accept(self)
                 else:
-                    else_val = 0
+                    if isinstance(then_val, np.ndarray):
+                        else_val = np.zeros_like(then_val)
+                    else:
+                        else_val = 0
+            else:
+                then_val = expr.then_expr.accept(self)
+                if expr.else_expr:
+                    else_val = expr.else_expr.accept(self)
+                else:
+                    if isinstance(then_val, np.ndarray):
+                        else_val = np.zeros_like(then_val)
+                    else:
+                        else_val = 0
+            target_ndim = cond.ndim
+            if isinstance(then_val, np.ndarray):
+                target_ndim = max(target_ndim, then_val.ndim)
+            if isinstance(else_val, np.ndarray):
+                target_ndim = max(target_ndim, else_val.ndim)
+            if cond.ndim < target_ndim:
+                cond = cond.reshape(cond.shape + (1,) * (target_ndim - cond.ndim))
+            if isinstance(then_val, np.ndarray) and then_val.ndim < target_ndim:
+                then_val = then_val.reshape(then_val.shape + (1,) * (target_ndim - then_val.ndim))
+            if isinstance(else_val, np.ndarray) and else_val.ndim < target_ndim:
+                else_val = else_val.reshape(else_val.shape + (1,) * (target_ndim - else_val.ndim))
             return np.where(cond, then_val, else_val)
         if self._to_bool(cond):
             return expr.then_expr.accept(self)
@@ -804,9 +949,11 @@ class ExpressionVisitorMixin:
             zero_value = self._zero_value_for_lowered_expr(expr.body)
             if zero_value is not None:
                 return zero_value
-        force_scalar_reduction = _contains_nested_lowered_reduction(expr.body) or _contains_if_expression(
-            expr.body
-        )
+        force_scalar_reduction = self._cached_contains_ir_types(
+            expr.body,
+            LoweredReductionIR,
+            LoweredSelectAtArgmaxIR,
+        ) or self._cached_contains_ir_types(expr.body, IfExpressionIR)
         if parallel_shape is None:
             parallel_shape = self._vectorization_parallel_shape()
         _loop_alias_map, _reduction_defid_names = self._reduction_loop_defid_alias_maps(expr)
@@ -1182,8 +1329,8 @@ class ExpressionVisitorMixin:
             reduction_loops_ordered=list(expr.loops or []),
             allow_speculative_vectorized_reduction=(
                 not has_defid_aliases
-                and not _contains_lowered_einstein(expr.body)
                 and not has_cross_scope_name_shadow
+                and not self._cached_contains_ir_types(expr.body, LoweredEinsteinIR)
             ),
         )
 
@@ -1200,6 +1347,30 @@ class ExpressionVisitorMixin:
         if not reduction_loops:
             raise RuntimeError("SelectAtArgmax has no reduction loops")
         n_red = len(reduction_loops)
+        dep_bucket = self._analysis_cache_bucket("select_at_argmax_depids")
+        cache_bucket = self._analysis_cache_bucket("select_at_argmax_result")
+        expr_key = id(expr)
+        depids = dep_bucket.get(expr_key)
+        if depids is None:
+            depids = tuple(
+                sorted(
+                    (
+                        did
+                        for did in (
+                            set(_collect_defids(expr.primal_body))
+                            | set(_collect_defids(expr.diff_body))
+                            | {
+                                d
+                                for loop in reduction_loops
+                                for d in _collect_defids(loop.iterable)
+                            }
+                        )
+                        if did is not None
+                    ),
+                    key=lambda d: (d.krate, d.index),
+                )
+            )
+            dep_bucket[expr_key] = depids
 
         # Build loop_var_defid -> ALL body defids (covering both primal and diff bodies)
         # and a union set of all reduction body defids.
@@ -1233,12 +1404,42 @@ class ExpressionVisitorMixin:
         parallel_defids_list: List[Any] = []
         initial_context: List[Tuple[Any, Any]] = []
         _ri0 = getattr(self, "_reduction_initial_context", None) or {}
+        loop_defid_set = {
+            loop.variable.defid for loop in reduction_loops
+            if loop.variable is not None and loop.variable.defid is not None
+        }
+        dep_fingerprint = tuple(
+            (did, self._cache_value_fingerprint(self.env.get_value(did)))
+            for did in depids
+            if did not in loop_defid_set
+        )
+        ri_fingerprint = tuple(
+            sorted(
+                (
+                    (did, self._cache_value_fingerprint(val))
+                    for did, val in _ri0.items()
+                    if did is not None
+                ),
+                key=lambda item: (item[0].krate, item[0].index),
+            )
+        )
         clause_parallel_shape = self._vectorization_parallel_shape()
         if clause_parallel_shape is not None and not outer_index_defids:
             try:
                 parallel_shape = tuple(int(dim) for dim in clause_parallel_shape)
             except (TypeError, ValueError):
                 parallel_shape = None
+        cache_key = (
+            expr_key,
+            tuple(parallel_shape or ()),
+            tuple(outer_index_defids),
+            bool(getattr(expr, "use_argmin", False)),
+            dep_fingerprint,
+            ri_fingerprint,
+        )
+        cached_result = cache_bucket.get(cache_key)
+        if cached_result is not None:
+            return cached_result
         if not outer_index_defids and isinstance(expr.primal_body, RectangularAccessIR) and expr.primal_body.array is not None:
             try:
                 arr = expr.primal_body.array.accept(self)
@@ -1461,6 +1662,7 @@ class ExpressionVisitorMixin:
             if best_diff is None:
                 raise RuntimeError("SelectAtArgmax vectorized execution failed")
             result = best_diff
+        cache_bucket[cache_key] = result
         return result
 
     def visit_where_expression(self, expr: WhereExpressionIR) -> Any:

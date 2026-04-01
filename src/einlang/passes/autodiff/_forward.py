@@ -437,31 +437,146 @@ def _peel_inlineable_tangent_blocks(expr: ExpressionIR) -> ExpressionIR:
     return cur
 
 
-def _pretty_callee_tangent_inlineable(e: ExpressionIR) -> bool:
-    if isinstance(e, BlockExpressionIR):
-        stmts = [s for s in (e.statements or []) if isinstance(s, BindingIR)]
-        if stmts or e.final_expr is None:
-            return False
-        return _pretty_callee_tangent_inlineable(e.final_expr)
-    if isinstance(e, (LiteralIR, IdentifierIR, IndexVarIR, IndexRestIR)):
+class _PrettyCalleeTangentInlineableVisitor(IRVisitor[bool]):
+    def _all(self, *nodes: Optional[ExpressionIR]) -> bool:
+        for node in nodes:
+            if node is not None and not node.accept(self):
+                return False
         return True
-    if isinstance(e, UnaryOpIR):
-        return _pretty_callee_tangent_inlineable(e.operand)
-    if isinstance(e, BinaryOpIR):
-        return _pretty_callee_tangent_inlineable(e.left) and _pretty_callee_tangent_inlineable(e.right)
-    if isinstance(e, CastExpressionIR):
-        return _pretty_callee_tangent_inlineable(e.expr)
-    if isinstance(e, FunctionCallIR):
-        if e.callee_expr is not None and not _pretty_callee_tangent_inlineable(e.callee_expr):
+
+    def _all_iter(self, nodes) -> bool:
+        for node in nodes or []:
+            if node is not None and not node.accept(self):
+                return False
+        return True
+
+    def visit_block_expression(self, n: BlockExpressionIR) -> bool:
+        if any(isinstance(stmt, BindingIR) for stmt in (n.statements or [])):
             return False
-        return all(_pretty_callee_tangent_inlineable(a) for a in (e.arguments or []))
-    if isinstance(e, BuiltinCallIR):
-        return all(_pretty_callee_tangent_inlineable(a) for a in (e.args or []))
-    if isinstance(e, RectangularAccessIR):
-        if not _pretty_callee_tangent_inlineable(e.array):
+        if n.final_expr is None:
             return False
-        return all(_pretty_callee_tangent_inlineable(i) for i in (e.indices or []))
-    return False
+        return n.final_expr.accept(self)
+
+    def visit_literal(self, n: LiteralIR) -> bool:
+        return True
+
+    def visit_identifier(self, n: IdentifierIR) -> bool:
+        return True
+
+    def visit_index_var(self, n: Any) -> bool:
+        return True
+
+    def visit_index_rest(self, n: Any) -> bool:
+        return True
+
+    def visit_unary_op(self, n: UnaryOpIR) -> bool:
+        return self._all(n.operand)
+
+    def visit_binary_op(self, n: BinaryOpIR) -> bool:
+        return self._all(n.left, n.right)
+
+    def visit_cast_expression(self, n: CastExpressionIR) -> bool:
+        return self._all(n.expr)
+
+    def visit_function_call(self, n: FunctionCallIR) -> bool:
+        return self._all(n.callee_expr) and self._all_iter(n.arguments)
+
+    def visit_builtin_call(self, n: BuiltinCallIR) -> bool:
+        return self._all_iter(n.args)
+
+    def visit_rectangular_access(self, n: RectangularAccessIR) -> bool:
+        return self._all(n.array) and self._all_iter(n.indices)
+
+    def visit_if_expression(self, n: IfExpressionIR) -> bool:
+        return False
+
+    def visit_differential(self, n: DifferentialIR) -> bool:
+        return False
+
+    def visit_reduction_expression(self, n: ReductionExpressionIR) -> bool:
+        return False
+
+    def visit_select_at_argmax(self, n: SelectAtArgmaxIR) -> bool:
+        return False
+
+    def visit_einstein(self, n: EinsteinIR) -> bool:
+        return False
+
+    def visit_lowered_einstein(self, n: Any) -> bool:
+        return False
+
+    def visit_jagged_access(self, n: Any) -> bool:
+        return False
+
+    def visit_lambda(self, n: Any) -> bool:
+        return False
+
+    def visit_range(self, n: Any) -> bool:
+        return False
+
+    def visit_array_comprehension(self, n: Any) -> bool:
+        return False
+
+    def visit_array_literal(self, n: ArrayLiteralIR) -> bool:
+        return False
+
+    def visit_tuple_expression(self, n: TupleExpressionIR) -> bool:
+        return False
+
+    def visit_tuple_access(self, n: TupleAccessIR) -> bool:
+        return False
+
+    def visit_interpolated_string(self, n: Any) -> bool:
+        return False
+
+    def visit_member_access(self, n: MemberAccessIR) -> bool:
+        return False
+
+    def visit_try_expression(self, n: Any) -> bool:
+        return False
+
+    def visit_match_expression(self, n: Any) -> bool:
+        return False
+
+    def visit_where_expression(self, n: Any) -> bool:
+        return False
+
+    def visit_pipeline_expression(self, n: Any) -> bool:
+        return False
+
+    def visit_module(self, n: Any) -> bool:
+        return False
+
+    def visit_program(self, n: Any) -> bool:
+        return False
+
+    def visit_binding(self, n: BindingIR) -> bool:
+        return False
+
+    def visit_literal_pattern(self, n: Any) -> bool:
+        return False
+
+    def visit_identifier_pattern(self, n: Any) -> bool:
+        return False
+
+    def visit_wildcard_pattern(self, n: Any) -> bool:
+        return False
+
+    def visit_tuple_pattern(self, n: Any) -> bool:
+        return False
+
+    def visit_array_pattern(self, n: Any) -> bool:
+        return False
+
+    def visit_rest_pattern(self, n: Any) -> bool:
+        return False
+
+    def visit_guard_pattern(self, n: Any) -> bool:
+        return False
+
+
+def _pretty_callee_tangent_inlineable(e: ExpressionIR) -> bool:
+    return e.accept(_PrettyCalleeTangentInlineableVisitor())
 
 
 def _wrap_tangent_binding(

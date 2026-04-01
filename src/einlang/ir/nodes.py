@@ -821,6 +821,11 @@ class ParameterIR(IRNode):
             return f"{self.name}: {self.param_type}"
         return self.name
 
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        if hasattr(visitor, "visit_parameter"):
+            return visitor.visit_parameter(self)  # type: ignore[return-value]
+        return None  # type: ignore[return-value]
+
 
 class DiffRuleIR(IRNode):
     """Custom autodiff rule for a user function: @fn f(params) { body }. Keyed by callee_defid; body uses @param -> DifferentialIR."""
@@ -1671,6 +1676,10 @@ class IRVisitor(ABC, Generic[T]):
 
     def visit_index_rest(self, node: "IndexRestIR") -> T:
         """Visit rest index slot (e.g. ..batch in Einstein indices). Default: no-op."""
+        return None  # type: ignore[return-value]
+
+    def visit_parameter(self, node: "ParameterIR") -> T:
+        """Visit function parameter. Default: no-op."""
         return None  # type: ignore[return-value]
 
     @abstractmethod

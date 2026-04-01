@@ -637,11 +637,6 @@ h2 {
   justify-self: stretch;
 }
 
-.code-block-featured {
-  width: min(100%, 48rem);
-  justify-self: start;
-}
-
 .code-header {
   display: grid;
   grid-template-columns: auto 1fr auto;
