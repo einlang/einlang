@@ -1595,6 +1595,95 @@ class IRDeserializer:
         ty = self._deserialize_type(opts.get(":inferred_type"))
         return LoweredReductionIR(body=body, operation=operation, loops=loops, bindings=bindings, guards=guards, location=loc, type_info=ty)
 
+    def _deserialize_select_at_argmax(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import SelectAtArgmaxIR, IndexVarIR
+        from ..shared.source_location import SourceLocation
+
+        primal = self.deserialize(tail[0]) if len(tail) > 0 else None
+        diff = self.deserialize(tail[1]) if len(tail) > 1 else None
+        loop_vars_sexpr = tail[2] if len(tail) > 2 and isinstance(tail[2], list) else []
+        loop_vars = []
+        for v in loop_vars_sexpr:
+            if isinstance(v, list) and v:
+                loop_vars.append(self.deserialize(v))
+            elif isinstance(v, str):
+                loop_vars.append(IndexVarIR(name=v, location=SourceLocation("", 0, 0), defid=None))
+            else:
+                loop_vars.append(self.deserialize(v) if v is not None else None)
+        _, opts = _plist(tail[3:])
+        loc = self._loc_from_opts(opts) or (
+            getattr(primal, "location", None) or SourceLocation("", 0, 0)
+        )
+        lvr_sexpr = opts.get(":loop_var_ranges") or []
+        loop_var_ranges = {}
+        if isinstance(lvr_sexpr, list):
+            for pair in lvr_sexpr:
+                if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                    d = _parse_defid(pair[0])
+                    r = self.deserialize(pair[1]) if pair[1] is not None else None
+                    if d is not None:
+                        loop_var_ranges[d] = r
+        use_argmin = opts.get(":use_argmin") is not None
+        ty = self._deserialize_type(opts.get(":inferred_type"))
+        shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
+        return SelectAtArgmaxIR(
+            primal_body=primal,
+            diff_body=diff,
+            loop_vars=loop_vars,
+            loop_var_ranges=loop_var_ranges,
+            location=loc,
+            type_info=ty,
+            shape_info=shape_info,
+            use_argmin=use_argmin,
+        )
+
+    def _deserialize_lowered_select_at_argmax(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import LoweredSelectAtArgmaxIR, GuardCondition, BindingIR
+        from ..shared.source_location import SourceLocation
+
+        primal = self.deserialize(tail[0]) if len(tail) > 0 else None
+        diff = self.deserialize(tail[1]) if len(tail) > 1 else None
+        _, opts = _plist(tail[2:])
+        loc = self._loc_from_opts(opts) or (
+            getattr(primal, "location", None) or SourceLocation("", 0, 0)
+        )
+        loops_sexpr = opts.get(":loops")
+        loops = []
+        if isinstance(loops_sexpr, list):
+            for s in loops_sexpr:
+                if isinstance(s, list) and _sym_val(s[0]) == "loop":
+                    loop = self._deserialize_loop_structure(s)
+                    if loop is not None:
+                        loops.append(loop)
+        bindings_sexpr = opts.get(":bindings")
+        bindings = []
+        if isinstance(bindings_sexpr, list):
+            for s in bindings_sexpr:
+                b = self.deserialize(s)
+                if isinstance(b, BindingIR):
+                    bindings.append(b)
+        guards_sexpr = opts.get(":guards")
+        guards = []
+        if isinstance(guards_sexpr, list):
+            for g in guards_sexpr:
+                cond = self.deserialize(g)
+                if cond is not None:
+                    guards.append(GuardCondition(condition=cond))
+        use_argmin = opts.get(":use_argmin") is not None
+        ty = self._deserialize_type(opts.get(":inferred_type"))
+        shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
+        return LoweredSelectAtArgmaxIR(
+            primal_body=primal,
+            diff_body=diff,
+            loops=loops,
+            bindings=bindings,
+            guards=guards,
+            location=loc,
+            type_info=ty,
+            shape_info=shape_info,
+            use_argmin=use_argmin,
+        )
+
     def _deserialize_lowered_comprehension(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LoweredComprehensionIR, GuardCondition, BindingIR
         _, opts = _plist(tail)

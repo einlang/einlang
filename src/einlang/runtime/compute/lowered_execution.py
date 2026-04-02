@@ -244,7 +244,7 @@ def execute_select_at_argmax_vectorized(
             return False, None
         if not isinstance(diff_result, np.ndarray):
             diff_result = np.broadcast_to(
-                np.asarray(diff_result, dtype=primal_result.dtype),
+                np.asarray(diff_result),
                 primal_result.shape,
             )
         primal_shape = tuple(primal_result.shape)
@@ -274,7 +274,8 @@ def execute_select_at_argmax_vectorized(
             idx_flat = int(np.argmin(primal_result) if use_argmin else np.argmax(primal_result))
             if tail_shape:
                 return True, diff_result.reshape((-1,) + tail_shape)[idx_flat]
-            return True, float(diff_result.flat[idx_flat])
+            scalar = diff_result.reshape(-1)[idx_flat]
+            return True, scalar.item() if hasattr(scalar, "item") else scalar
     except Exception:
         pass
     return False, None

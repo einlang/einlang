@@ -12,19 +12,17 @@ from ..backends.base import Backend
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, FunctionDefIR, ConstantDefIR, BindingIR,
     LiteralIR, FunctionCallIR, IRVisitor,
-    BlockExpressionIR, RectangularAccessIR, LoweredReductionIR, LoweredComprehensionIR,
-    IfExpressionIR, BinaryOpIR, UnaryOpIR,
+    BlockExpressionIR, RectangularAccessIR,
+    BinaryOpIR,
     DifferentialIR, IdentifierIR,
     is_einstein_binding, is_function_binding,
 )
 from ..shared.defid import DefId, Resolver, FIXED_BUILTIN_ORDER, _BUILTIN_CRATE
 from ..shared.debug_trace import emit_debug_log
 from ..shared.types import BinaryOp
-from ..shared.types import ReductionOp
 from ..runtime.environment import ExecutionEnvironment, FunctionValue
 from ..runtime.runtime import ExecutionResult
 from .numpy_helpers import (
-    _DefaultVisitor,
     NumPyVectorizationState,
     _reject_non_lowered,
     builtin_assert, builtin_print, builtin_len, builtin_typeof, builtin_array_append,
@@ -84,12 +82,6 @@ def _register_fixed_builtins(env: ExecutionEnvironment) -> None:
     for i, fn in enumerate(fns):
         if i < len(FIXED_BUILTIN_ORDER):
             env.set_value(DefId(krate=_BUILTIN_CRATE, index=i), fn)
-
-
-def _single_array_param(func_def: Any) -> bool:
-    """True if function has exactly one parameter (typical for array-in, scalar/array-out)."""
-    params = func_def.parameters
-    return params is not None and len(params) == 1
 
 
 def _max_pool_argmax_scatter(
@@ -206,143 +198,6 @@ def _normalized_prob_quotient_value(
     except Exception:
         return None
     return np.zeros_like(x_val, dtype=np.float64)
-
-
-class _ContainsReductionWithOpVisitor(_DefaultVisitor[bool]):
-    """True if expression contains a LoweredReductionIR with the given operation."""
-
-    def __init__(self, operation: ReductionOp) -> None:
-        self._op = operation
-
-    def _default_result(self) -> bool:
-        return False
-
-    def visit_lowered_reduction(self, node: LoweredReductionIR) -> bool:
-        return node.operation == self._op
-
-    def visit_binary_op(self, node: BinaryOpIR) -> bool:
-        return (node.left and node.left.accept(self)) or (node.right and node.right.accept(self))
-
-    def visit_unary_op(self, node: UnaryOpIR) -> bool:
-        return node.operand is not None and node.operand.accept(self)
-
-    def visit_block_expression(self, node: BlockExpressionIR) -> bool:
-        for stmt in (node.statements or []):
-            if stmt.accept(self):
-                return True
-        return (node.final_expr is not None and node.final_expr.accept(self))
-
-    def visit_if_expression(self, node: IfExpressionIR) -> bool:
-        return (
-            (node.condition and node.condition.accept(self))
-            or (node.then_expr and node.then_expr.accept(self))
-            or (node.else_expr and node.else_expr.accept(self))
-        )
-
-    def visit_binding(self, node: BindingIR) -> bool:
-        expr = node.expr
-        return expr is not None and expr.accept(self)
-
-
-def _body_has_reduction(body: Any, operation: str) -> bool:
-    """True if body (block or binding list) contains a LoweredReductionIR with the given operation."""
-    statements = body.statements or []
-    visitor = _ContainsReductionWithOpVisitor(ReductionOp.parse(operation))
-    for stmt in statements:
-        if not isinstance(stmt, BindingIR):
-            continue
-        expr = stmt.expr
-        if expr is None:
-            continue
-        try:
-            if expr.accept(visitor):
-                return True
-        except NotImplementedError:
-            pass
-    return False
-
-
-def _check_block_is_index_of_extremum(body: BlockExpressionIR) -> Optional[str]:
-    """If this block implements index-of-max or index-of-min, return 'argmax' or 'argmin'; else None."""
-    if body.final_expr is None:
-        return None
-    statements = body.statements or []
-    final_expr = body.final_expr
-    has_max = _body_has_reduction(body, "max")
-    has_min = _body_has_reduction(body, "min")
-    has_comprehension = any(
-        isinstance(s.expr, LoweredComprehensionIR)
-        for s in statements if isinstance(s, BindingIR)
-    )
-    first_elem_ok = False
-    if isinstance(final_expr, RectangularAccessIR):
-        indices = final_expr.indices or []
-        if len(indices) == 1:
-            idx = indices[0]
-            if isinstance(idx, LiteralIR):
-                try:
-                    if int(idx.value) == 0:
-                        first_elem_ok = True
-                except (TypeError, ValueError):
-                    pass
-    final_is_min_red = isinstance(final_expr, LoweredReductionIR) and final_expr.operation == ReductionOp.MIN
-    final_is_max_red = isinstance(final_expr, LoweredReductionIR) and final_expr.operation == ReductionOp.MAX
-    if (has_max and not has_min) and (first_elem_ok and has_comprehension or final_is_min_red):
-        return "argmax"
-    if (has_min and not has_max) and (first_elem_ok and has_comprehension or final_is_max_red):
-        return "argmin"
-    return None
-
-
-def _detect_index_of_extremum(func_def: Any) -> Optional[str]:
-    """
-    General pattern: function returns index (or indices) of the maximum or minimum of its
-    single array argument. Matches multiple implementations and shapes:
-    - Block: comprehension + first element, or sentinel + min/max reduction.
-    - If/else body (e.g. 1D vs 2D): check both branches so either path can be optimized.
-    Returns "argmax", "argmin", or None.
-    """
-    if not _single_array_param(func_def):
-        return None
-    body = func_def.body
-    if body is None:
-        return None
-    candidates = []
-    if isinstance(body, BlockExpressionIR):
-        candidates.append(body)
-    elif isinstance(body, IfExpressionIR):
-        if body.then_expr is not None:
-            candidates.append(body.then_expr)
-        if body.else_expr is not None:
-            candidates.append(body.else_expr)
-    for block in candidates:
-        if isinstance(block, BlockExpressionIR):
-            out = _check_block_is_index_of_extremum(block)
-            if out is not None:
-                return out
-    return None
-
-
-def _numpy_optimized_dispatch(func_def: Any, args: List[Any]) -> Optional[Any]:
-    """
-    If func_def matches a known pattern that NumPy can implement in one pass,
-    return the result; otherwise return None (caller runs the body).
-    Extensible: add more (detector, handler) pairs for sum, mean, etc.
-    """
-    if len(args) != 1 or not isinstance(args[0], np.ndarray):
-        return None
-    a = np.asarray(args[0])
-    # Index-of-extremum pattern (argmax/argmin in any form)
-    key = _detect_index_of_extremum(func_def)
-    if key == "argmax":
-        if a.ndim == 1:
-            return int(np.argmax(a))
-        return np.argmax(a, axis=-1)
-    if key == "argmin":
-        if a.ndim == 1:
-            return int(np.argmin(a))
-        return np.argmin(a, axis=-1)
-    return None
 
 
 class CoreExecutionMixin:
@@ -856,10 +711,6 @@ class CoreExecutionMixin:
         actual = len(args)
         if actual != expected:
             raise RuntimeError(f"Function '{name}' expects {expected} argument(s), got {actual}")
-        # General NumPy fast path: dispatch by body pattern (index-of-extremum, etc.)
-        result = _numpy_optimized_dispatch(func_def, args)
-        if result is not None:
-            return result
         with self.env.scope():
             for param, arg_value in zip(params, args):
                 if param.defid is None:

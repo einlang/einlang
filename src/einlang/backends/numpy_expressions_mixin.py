@@ -1445,10 +1445,10 @@ class ExpressionVisitorMixin:
                 arr = expr.primal_body.array.accept(self)
                 if parallel_shape is None and not _ri0 and isinstance(arr, np.ndarray) and arr.ndim >= n_red:
                     parallel_shape = tuple(arr.shape[:-n_red])
-                if parallel_shape is None and not _ri0:
+                if not _ri0:
                     for idx in (expr.primal_body.indices or []):
                         d = _first_parallel_index_defid(idx, reduction_body_defids)
-                        if d is not None:
+                        if d is not None and d not in parallel_defids_list:
                             parallel_defids_list.append(d)
             except Exception:
                 pass

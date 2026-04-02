@@ -205,15 +205,21 @@ class CompilerDriver:
         # This allows type inference to use shape information
         self.pass_manager.register_pass(TypeInferencePass)
 
-        # 5a. Pre-autodiff pruning (shape/rank branch pruning only)
+        # 5a. Canonicalize generic extremum-selection patterns to SelectAtArgmaxIR
+        from ..passes.extremum_selection_canonicalization import (
+            ExtremumSelectionCanonicalizationPass,
+        )
+        self.pass_manager.register_pass(ExtremumSelectionCanonicalizationPass)
+
+        # 5b. Pre-autodiff pruning (shape/rank branch pruning only)
         from ..passes.pre_autodiff_pruning import PreAutodiffPruningPass
         self.pass_manager.register_pass(PreAutodiffPruningPass)
 
-        # 5b. Autodiff (high-level EinsteinIR only; before lowering)
+        # 5c. Autodiff (high-level EinsteinIR only; before lowering)
         from ..passes.autodiff import AutodiffPass
         self.pass_manager.register_pass(AutodiffPass)
 
-        # 5c. Post-autodiff pruning (shape/rank branch pruning only)
+        # 5d. Post-autodiff pruning (shape/rank branch pruning only)
         from ..passes.pre_autodiff_pruning import PostAutodiffPruningPass
         self.pass_manager.register_pass(PostAutodiffPruningPass)
 
