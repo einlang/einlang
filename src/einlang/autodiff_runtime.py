@@ -35,6 +35,7 @@ from .ir.nodes import (
     IndexRestIR,
     IndexVarIR,
     LiteralIR,
+    MemberAccessIR,
     LoweredEinsteinIR,
     LoweredRecurrenceIR,
     RangeIR,
@@ -368,6 +369,14 @@ def ensure_tensor(value: ArrayLike) -> Tensor:
     return Tensor.leaf(value)
 
 
+def where_tensors(condition: ArrayLike, then_value: ArrayLike, else_value: ArrayLike) -> Tensor:
+    cond_arr = np.asarray(condition)
+    then_t = ensure_tensor(then_value)
+    else_t = ensure_tensor(else_value)
+    value = np.where(cond_arr, _as_array(then_t.value), _as_array(else_t.value))
+    return Tensor(value, parents=(then_t, else_t), op="where", meta={"condition": cond_arr})
+
+
 def stack_tensors(values: Sequence[Tensor], axis: int = 0) -> Tensor:
     items = [ensure_tensor(v) for v in values]
     if not items:
@@ -435,6 +444,9 @@ def primal_expr(node: Tensor, _cache: Optional[Dict[int, str]] = None) -> str:
         text = f"{primal_expr(node.parents[0], cache)}[{node.meta['index']!r}]"
     elif node.op == "stack":
         text = f"stack([{', '.join(primal_expr(parent, cache) for parent in node.parents)}], axis={node.meta.get('axis', 0)})"
+    elif node.op == "where":
+        cond = node.meta.get("condition")
+        text = f"where({np.asarray(cond).tolist()}, {primal_expr(node.parents[0], cache)}, {primal_expr(node.parents[1], cache)})"
     elif node.op == "custom_diff_call":
         text = node.meta.get("call_text", node.name or "<custom_diff_call>")
     elif node.op == "conv":
@@ -548,6 +560,15 @@ def symbolic_tangent_expr(
         else:
             parts = [ref if not tangent.is_zero else "0.0" for ref, tangent in zip(tangent_refs, tangents)]
             result = _sym(f"stack([{', '.join(parts)}], axis={node.meta.get('axis', 0)})")
+    elif node.op == "where":
+        if tangents[0].is_zero and tangents[1].is_zero:
+            result = _SYM_ZERO
+        else:
+            result = _sym(
+                f"where({np.asarray(node.meta.get('condition')).tolist()}, "
+                f"{tangent_refs[0] if not tangents[0].is_zero else '0.0'}, "
+                f"{tangent_refs[1] if not tangents[1].is_zero else '0.0'})"
+            )
     elif node.op == "custom_diff_call":
         result = node.meta["symbolic_fn"](parents, tangents, primal_cache)
     elif node.op == "conv":
@@ -1187,6 +1208,20 @@ def _vjp_stack(_inputs: Tuple[np.ndarray, ...], cotangent: np.ndarray, meta: Dic
     return tuple(np.asarray(moved[i], dtype=np.float64) for i in range(moved.shape[0]))
 
 
+def _jvp_where(_inputs: Tuple[np.ndarray, ...], tangents: Tuple[np.ndarray, ...], meta: Dict[str, Any], _out: np.ndarray) -> np.ndarray:
+    cond = np.asarray(meta["condition"])
+    return np.where(cond, _as_array(tangents[0]), _as_array(tangents[1]))
+
+
+def _vjp_where(inputs: Tuple[np.ndarray, ...], cotangent: np.ndarray, meta: Dict[str, Any], _out: np.ndarray) -> Tuple[np.ndarray, ...]:
+    cond = np.asarray(meta["condition"])
+    then_shape = tuple(np.asarray(inputs[0]).shape)
+    else_shape = tuple(np.asarray(inputs[1]).shape)
+    then_ct = _sum_to_shape(np.where(cond, cotangent, 0.0), then_shape)
+    else_ct = _sum_to_shape(np.where(cond, 0.0, cotangent), else_shape)
+    return then_ct, else_ct
+
+
 def _jvp_conv(inputs: Tuple[np.ndarray, ...], tangents: Tuple[np.ndarray, ...], meta: Dict[str, Any], _out: np.ndarray) -> np.ndarray:
     x, w, b = inputs
     dx, dw, db = tangents
@@ -1233,6 +1268,7 @@ _RULES: Dict[str, PrimitiveRule] = {
     "reshape": PrimitiveRule(_jvp_reshape, _vjp_reshape),
     "getitem": PrimitiveRule(_jvp_getitem, _vjp_getitem),
     "stack": PrimitiveRule(_jvp_stack, _vjp_stack),
+    "where": PrimitiveRule(_jvp_where, _vjp_where),
     "conv": PrimitiveRule(_jvp_conv, _vjp_conv),
     "max_pool": PrimitiveRule(_jvp_max_pool, _vjp_max_pool),
     "avg_pool": PrimitiveRule(_jvp_avg_pool, _vjp_avg_pool),
@@ -1567,6 +1603,12 @@ class _IRTranslator:
             raise IRAutodiffError("Custom diff rule uses unsupported differential operand")
         if isinstance(expr, LiteralIR):
             return Tensor.leaf(expr.value)
+        if isinstance(expr, ArrayLiteralIR):
+            return Tensor.leaf(self.eval_primal(expr, primal_locals))
+        if isinstance(expr, BuiltinCallIR):
+            return Tensor.leaf(self.eval_primal(expr, primal_locals))
+        if isinstance(expr, MemberAccessIR):
+            return Tensor.leaf(self.eval_primal(expr, primal_locals))
         if isinstance(expr, IdentifierIR):
             if expr.defid is None:
                 raise IRAutodiffError(f"Unresolved identifier in custom diff body: {expr.name or '?'}")
@@ -1626,6 +1668,8 @@ class _IRTranslator:
                     child_primal[stmt.defid] = self._translate_custom_diff_expr(stmt.expr, child_primal, child_tangent)
                     if stmt.name:
                         child_primal[stmt.defid].named(stmt.name)
+                elif isinstance(stmt, ExpressionIR):
+                    self.eval_primal(stmt, child_primal)
             if expr.final_expr is None:
                 raise IRAutodiffError("Custom diff block has no final expression")
             return self._translate_custom_diff_expr(expr.final_expr, child_primal, child_tangent)
@@ -1641,7 +1685,7 @@ class _IRTranslator:
         if isinstance(expr, EinsteinIR):
             return self._translate_einstein(expr, primal_locals)
         if isinstance(expr, FunctionCallIR):
-            return self._translate_function_call(expr, primal_locals)
+            return Tensor.leaf(self.eval_primal(expr, primal_locals))
         raise IRAutodiffError(f"Unsupported IR node in custom diff body: {type(expr).__name__}")
 
     def _lookup_self_tensor_store(self, defid: Optional[DefId]) -> Optional[Dict[Tuple[int, ...], Tensor]]:
@@ -1656,6 +1700,12 @@ class _IRTranslator:
     def translate_expr(self, expr: ExpressionIR, locals_map: Dict[DefId, Tensor]) -> Tensor:
         if isinstance(expr, LiteralIR):
             return Tensor.leaf(expr.value)
+        if isinstance(expr, ArrayLiteralIR):
+            return Tensor.leaf(self.eval_primal(expr, locals_map))
+        if isinstance(expr, BuiltinCallIR):
+            return Tensor.leaf(self.eval_primal(expr, locals_map))
+        if isinstance(expr, MemberAccessIR):
+            return Tensor.leaf(self.eval_primal(expr, locals_map))
         if isinstance(expr, IdentifierIR):
             if expr.defid is None:
                 raise IRAutodiffError(f"Unresolved identifier in autodiff graph: {expr.name or '?'}")
@@ -1727,16 +1777,23 @@ class _IRTranslator:
                     child[stmt.defid] = self._translate_binding_expr(stmt, child)
                     if stmt.name:
                         child[stmt.defid].named(stmt.name)
+                elif isinstance(stmt, ExpressionIR):
+                    self.eval_primal(stmt, child)
             if expr.final_expr is None:
                 raise IRAutodiffError("Block expression in autodiff graph has no final expression")
             return self.translate_expr(expr.final_expr, child)
         if isinstance(expr, IfExpressionIR):
             cond = self.eval_primal(expr.condition, locals_map)
-            if bool(np.asarray(cond).all()):
-                return self.translate_expr(expr.then_expr, locals_map)
             if expr.else_expr is None:
                 raise IRAutodiffError("If expression in autodiff graph missing else branch")
-            return self.translate_expr(expr.else_expr, locals_map)
+            cond_arr = np.asarray(cond)
+            if cond_arr.ndim == 0:
+                if bool(cond_arr):
+                    return self.translate_expr(expr.then_expr, locals_map)
+                return self.translate_expr(expr.else_expr, locals_map)
+            then_t = self.translate_expr(expr.then_expr, locals_map)
+            else_t = self.translate_expr(expr.else_expr, locals_map)
+            return where_tensors(cond_arr, then_t, else_t)
         if isinstance(expr, ReductionExpressionIR):
             return self._translate_reduction(expr, locals_map)
         if isinstance(expr, EinsteinIR):
@@ -2024,8 +2081,6 @@ class _IRTranslator:
         if not (isinstance(callee_binding, BindingIR) and isinstance(callee_binding.expr, FunctionValueIR)):
             return None
         body = callee_binding.expr.body
-        if self._looks_like_elementwise_relu(body, callee_binding.expr):
-            return relu(self.translate_expr(args[0], locals_map))
         if not isinstance(body, BlockExpressionIR):
             return None
         helper_names = self._structural_call_names(body.final_expr)
@@ -2064,39 +2119,6 @@ class _IRTranslator:
             return avg_pool(self.translate_expr(args[0], locals_map), kernel_shape=kernel, strides=stride, pads=pads)
 
         return None
-
-    def _looks_like_elementwise_relu(self, body: Any, fv: FunctionValueIR) -> bool:
-        def _unwrap(expr: Any) -> Any:
-            cur = expr
-            while isinstance(cur, BlockExpressionIR) and not (cur.statements or ()) and cur.final_expr is not None:
-                cur = cur.final_expr
-            return cur
-
-        body = _unwrap(body)
-        if not isinstance(body, IfExpressionIR):
-            return False
-        params = list(fv.parameters or [])
-        if len(params) != 1 or params[0].defid is None:
-            return False
-        param_defid = params[0].defid
-        cond = body.condition
-        if not isinstance(cond, BinaryOpIR) or cond.operator != BinaryOp.GT:
-            return False
-        if not (
-            isinstance(cond.left, IdentifierIR)
-            and cond.left.defid == param_defid
-            and isinstance(cond.right, LiteralIR)
-            and float(cond.right.value) == 0.0
-        ):
-            return False
-        then_expr = _unwrap(body.then_expr)
-        else_expr = _unwrap(body.else_expr)
-        return (
-            isinstance(then_expr, IdentifierIR)
-            and then_expr.defid == param_defid
-            and isinstance(else_expr, LiteralIR)
-            and float(else_expr.value) == 0.0
-        )
 
     def _structural_call_names(self, expr: Optional[ExpressionIR]) -> Set[str]:
         out: Set[str] = set()

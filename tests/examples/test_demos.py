@@ -258,8 +258,33 @@ class TestDemos:
         )
         golden_text = golden.read_text(encoding="utf-8").strip()
 
-        exec_result, counts = _run_file_with_stats(main_ein)
-        output = str(exec_result.outputs.get("text", "")).strip()
+        env = {
+            **os.environ,
+            "PYTHONPATH": str(root / "src"),
+            "OPENBLAS_NUM_THREADS": "1",
+            "OMP_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
+            "VECLIB_MAXIMUM_THREADS": "1",
+            "NUMEXPR_NUM_THREADS": "1",
+        }
+        proc = subprocess.run(
+            [sys.executable, "-m", "einlang", "main.ein", "--debug-vectorize"],
+            cwd=str(whisper_dir),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+        if proc.returncode != 0:
+            pytest.fail(f"whisper_tiny subprocess failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+        combined = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+        lines = [
+            line.strip()
+            for line in (proc.stdout or "").splitlines()
+            if line.strip() and not line.startswith("[vectorize]") and not line.startswith("[profile]")
+        ]
+        output = lines[0] if lines else ""
         if output != golden_text:
             print(f"\nwhisper_tiny transcription:\n  golden:  {golden_text!r}\n  einlang: {output!r}")
             pytest.fail(
@@ -269,7 +294,7 @@ class TestDemos:
                 "(2) numerical/implementation difference -> if einlang output is correct, update golden_ref.txt "
                 "with: echo -n '<output>' > examples/whisper_tiny/golden_ref.txt"
             )
-        _assert_vectorize_counts_dict(counts, min_vectorized=5724, max_scalar=5, label="whisper_tiny")
+        _assert_vectorize_counts(combined, min_vectorized=5724, max_scalar=5, label="whisper_tiny")
 
 
 if __name__ == "__main__":
