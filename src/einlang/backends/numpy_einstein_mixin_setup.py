@@ -17,8 +17,6 @@ from .numpy_einstein_analysis import (
 from .numpy_einstein_recurrence_analysis import (
     _extract_loop_range,
     _infer_lowered_einstein_output_defid,
-    _recurrence_dims,
-    _recurrence_dims_for_hybrid,
     _slice_list_from_clause_indices,
 )
 
@@ -699,7 +697,7 @@ class EinsteinExecutionSetupMixin:
                     self.env.set_value(variable_key, zero_value)
                 return zero_value
         output_shape = None
-        if tensor_shape:
+        if tensor_shape is not None:
             output_shape = []
             for shape_dim in tensor_shape:
                 try:
@@ -719,9 +717,9 @@ class EinsteinExecutionSetupMixin:
                 else:
                     output_shape = None
                     break
-        if not output_shape and lowered_einstein.items:
+        if output_shape is None and lowered_einstein.items:
             output_shape = self._shape_from_all_items(lowered_einstein.items)
-        elif output_shape and lowered_einstein.items:
+        elif output_shape is not None and lowered_einstein.items:
             # Compiler shape may underestimate for multi-segment declarations
             # (e.g. _compute_shape_union picks a symbolic expr that evaluates to
             # the first clause's end, not the union).  Widen only when loop ranks match
@@ -730,12 +728,12 @@ class EinsteinExecutionSetupMixin:
             items_shape = self._shape_from_all_items(lowered_einstein.items)
             if items_shape and len(items_shape) == len(output_shape):
                 output_shape = [max(a, b) for a, b in zip(output_shape, items_shape)]
-        if not output_shape and lowered_einstein.items:
+        if output_shape is None and lowered_einstein.items:
             raise RuntimeError(
                 "Einstein declaration has no shape from compiler. "
                 "Compiler must set shape (union of clause ranges) on LoweredEinsteinIR."
             )
-        if not output_shape:
+        if output_shape is None:
             output_shape = [1]
         dtype = self._type_info_to_numpy_dtype(tensor_element_type)
         if dtype is None:
@@ -781,9 +779,10 @@ class EinsteinExecutionSetupMixin:
                 loops_it = (it.loops or [])
                 rec_dims = it.recurrence_dims_override
                 if rec_dims is None:
-                    rec_dims = _recurrence_dims_for_hybrid(it, variable_defid, clause_indices)
-                if not rec_dims:
-                    rec_dims = _recurrence_dims(it, variable_defid, clause_indices)
+                    raise RuntimeError(
+                        "Lowered Einstein clause missing compiler-owned recurrence_dims_override. "
+                        "RecurrenceOrderPass must annotate recurrence metadata before execution."
+                    )
                 body_refs = _BodyReferencesDefidVisitor(variable_defid).references(it.body)
                 # Recurrence = has recurrence dim(s). Allow pure recurrence (only t) so t is extracted as outer loop.
                 # When len(rec_dims) < len(loops_it) we vectorize over the rest; when equal we run one scalar/point per t.

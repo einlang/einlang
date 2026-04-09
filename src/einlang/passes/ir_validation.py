@@ -518,7 +518,7 @@ class IRValidationPass(BasePass):
     
     Errors from this pass indicate COMPILER BUGS, not user errors.
     """
-    requires = []  # Runs after all analysis passes, no dependencies
+    requires = ["ExhaustivenessPass"]  # Runs after all validation passes
     
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         """

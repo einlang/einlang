@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from ..ir.nodes import (
@@ -40,6 +41,7 @@ from ..ir.nodes import (
     is_function_binding,
 )
 from ..passes.base import BasePass, TyCtxt
+from ..passes.type_inference import TypeInferencePass
 from ..shared.defid import DefId
 from ..shared.types import BinaryOp, ReductionOp
 
@@ -82,7 +84,7 @@ class _ScopeEnv:
 class ExtremumSelectionCanonicalizationPass(BasePass):
     """Rewrite generic extremum-selection patterns to SelectAtArgmaxIR."""
 
-    requires: List[type[BasePass]] = []
+    requires: List[type[BasePass]] = [TypeInferencePass]
 
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         rewriter = _ExtremumSelectionRewriter()
@@ -141,13 +143,15 @@ class _ExtremumSelectionRewriter:
         for stmt in statements:
             new_stmt, helper_defids = self._rewrite_statement(stmt, env)
             rewritten.append(new_stmt)
-            removable_helper_defids |= helper_defids
+            if helper_defids:
+                removable_helper_defids.update(helper_defids)
             if isinstance(new_stmt, BindingIR):
                 env.add(new_stmt)
         new_tail = tail_expr
         if new_tail is not None:
             new_tail, tail_helpers = self._rewrite_expr(new_tail, env)
-            removable_helper_defids |= tail_helpers
+            if tail_helpers:
+                removable_helper_defids.update(tail_helpers)
         if removable_helper_defids:
             rewritten = self._prune_dead_helper_bindings(rewritten, new_tail, removable_helper_defids)
         return rewritten, new_tail
@@ -185,11 +189,16 @@ class _ExtremumSelectionRewriter:
 
         helper_defids: Set[DefId] = set()
         for slot in _iter_slots(expr):
+            if slot in _IGNORED_TRAVERSAL_SLOTS:
+                continue
             value = getattr(expr, slot, None)
+            if not _should_rewrite_value(value):
+                continue
             new_value, nested_helpers = self._rewrite_value(value, env)
             if new_value is not value:
                 setattr(expr, slot, new_value)
-            helper_defids |= nested_helpers
+            if nested_helpers:
+                helper_defids.update(nested_helpers)
 
         match = self._try_rewrite_expr(expr, env)
         if match is not None:
@@ -198,7 +207,9 @@ class _ExtremumSelectionRewriter:
                 self.direct_match_count += 1
             elif match.kind == "weighted":
                 self.weighted_match_count += 1
-            return match.expr, helper_defids | match.helper_defids
+            if match.helper_defids:
+                helper_defids.update(match.helper_defids)
+            return match.expr, helper_defids
         return expr, helper_defids
 
     def _rewrite_value(self, value: Any, env: _ScopeEnv) -> Tuple[Any, Set[DefId]]:
@@ -211,9 +222,13 @@ class _ExtremumSelectionRewriter:
             helper_defids: Set[DefId] = set()
             changed = False
             for item in value:
+                if not _should_rewrite_value(item):
+                    items.append(item)
+                    continue
                 new_item, nested = self._rewrite_value(item, env)
                 items.append(new_item)
-                helper_defids |= nested
+                if nested:
+                    helper_defids.update(nested)
                 changed = changed or (new_item is not item)
             return (items if changed else value), helper_defids
         if isinstance(value, tuple):
@@ -221,9 +236,13 @@ class _ExtremumSelectionRewriter:
             helper_defids: Set[DefId] = set()
             changed = False
             for item in value:
+                if not _should_rewrite_value(item):
+                    items.append(item)
+                    continue
                 new_item, nested = self._rewrite_value(item, env)
                 items.append(new_item)
-                helper_defids |= nested
+                if nested:
+                    helper_defids.update(nested)
                 changed = changed or (new_item is not item)
             return (tuple(items) if changed else value), helper_defids
         if isinstance(value, dict):
@@ -231,21 +250,34 @@ class _ExtremumSelectionRewriter:
             helper_defids: Set[DefId] = set()
             rewritten_dict: Dict[Any, Any] = {}
             for key, item in value.items():
-                new_key, key_helpers = self._rewrite_value(key, env)
-                new_item, item_helpers = self._rewrite_value(item, env)
-                helper_defids |= key_helpers
-                helper_defids |= item_helpers
+                new_key = key
+                key_helpers: Set[DefId] = set()
+                if _should_rewrite_value(key):
+                    new_key, key_helpers = self._rewrite_value(key, env)
+                new_item = item
+                item_helpers: Set[DefId] = set()
+                if _should_rewrite_value(item):
+                    new_item, item_helpers = self._rewrite_value(item, env)
+                if key_helpers:
+                    helper_defids.update(key_helpers)
+                if item_helpers:
+                    helper_defids.update(item_helpers)
                 rewritten_dict[new_key] = new_item
                 changed = changed or (new_key is not key) or (new_item is not item)
             return (rewritten_dict if changed else value), helper_defids
         if isinstance(value, IRNode):
             helper_defids: Set[DefId] = set()
             for slot in _iter_slots(value):
+                if slot in _IGNORED_TRAVERSAL_SLOTS:
+                    continue
                 child = getattr(value, slot, None)
+                if not _should_rewrite_value(child):
+                    continue
                 new_child, nested = self._rewrite_value(child, env)
                 if new_child is not child:
                     setattr(value, slot, new_child)
-                helper_defids |= nested
+                if nested:
+                    helper_defids.update(nested)
             return value, helper_defids
         return value, set()
 
@@ -294,11 +326,11 @@ class _ExtremumSelectionRewriter:
 
         comp_loop = comp.loop_vars[0]
         reduction_loop = reduction_expr.loop_vars[0]
-        substituted_primal = _clone_with_symbol_subst(
+        if not _exprs_equivalent(
             primal_expr,
-            {comp_loop.name: reduction_loop},
-        )
-        if _expr_signature(substituted_primal) != _expr_signature(reduction_expr.body):
+            reduction_expr.body,
+            left_subst={comp_loop.name: reduction_loop},
+        ):
             return None
 
         diff_body = _clone_with_symbol_subst(
@@ -359,6 +391,7 @@ class _ExtremumSelectionRewriter:
         extremum_binding: Optional[BindingIR] = None
         extremum_access: Optional[ExpressionIR] = None
         weighted_primal: Optional[ExpressionIR] = None
+        extremum_extracted: Optional[Tuple[List[ExpressionIR], ReductionExpressionIR]] = None
         for lhs, rhs in (eq, (eq[1], eq[0])):
             candidate_binding = env.lookup_identifier(_access_root_expr(rhs))
             if candidate_binding is None:
@@ -369,24 +402,24 @@ class _ExtremumSelectionRewriter:
             extremum_binding = candidate_binding
             extremum_access = rhs
             weighted_primal = lhs
+            extremum_extracted = extracted
             break
-        if extremum_binding is None or extremum_access is None or weighted_primal is None:
+        if (
+            extremum_binding is None
+            or extremum_access is None
+            or weighted_primal is None
+            or extremum_extracted is None
+        ):
             return None
 
-        extracted = _extract_extremum_reduction(extremum_binding.expr)
-        if extracted is None:
-            return None
-        _, extremum_reduction = extracted
+        extremum_outer_indices, extremum_reduction = extremum_extracted
         if extremum_reduction.operation not in (ReductionOp.MAX, ReductionOp.MIN):
             return None
-
-        current_primal = _clone_with_symbol_subst(weighted_primal, symbol_subst)
 
         extremum_subst = dict(symbol_subst)
         extremum_access_indices = []
         if isinstance(extremum_access, RectangularAccessIR):
             extremum_access_indices = list(extremum_access.indices or [])
-        extremum_outer_indices, _ = extracted
         if len(extremum_outer_indices) != len(extremum_access_indices):
             return None
         for clause_idx, access_idx in zip(extremum_outer_indices, extremum_access_indices):
@@ -402,10 +435,15 @@ class _ExtremumSelectionRewriter:
                 return None
             extremum_subst[src_name] = dst_var
 
-        canonical_primal = _clone_with_symbol_subst(extremum_reduction.body, extremum_subst)
-        if _expr_signature(current_primal) != _expr_signature(canonical_primal):
+        if not _exprs_equivalent(
+            weighted_primal,
+            extremum_reduction.body,
+            left_subst=symbol_subst,
+            right_subst=extremum_subst,
+        ):
             return None
 
+        current_primal = _clone_with_symbol_subst(weighted_primal, symbol_subst)
         diff_body = _clone_with_symbol_subst(_unwrap_trivial_block(weighted_if.then_expr), symbol_subst)
         helper_defids = {
             did
@@ -455,12 +493,26 @@ class _ExtremumSelectionRewriter:
 
 
 def _iter_slots(node: IRNode) -> Iterable[str]:
+    return _iter_slots_for_type(type(node))
+
+
+@lru_cache(maxsize=None)
+def _iter_slots_for_type(cls: type) -> Tuple[str, ...]:
+    out: List[str] = []
+    for base in cls.__mro__:
+        slots = getattr(base, "__slots__", ())
+        if isinstance(slots, str):
+            out.append(slots)
+        else:
+            out.extend(slots)
     seen: Set[str] = set()
-    for cls in type(node).__mro__:
-        for slot in getattr(cls, "__slots__", ()):
-            if slot not in seen:
-                seen.add(slot)
-                yield slot
+    ordered: List[str] = []
+    for slot in out:
+        if slot in seen:
+            continue
+        seen.add(slot)
+        ordered.append(slot)
+    return tuple(ordered)
 
 
 def _split_equality(expr: ExpressionIR) -> Optional[Tuple[ExpressionIR, ExpressionIR]]:
@@ -516,7 +568,7 @@ def _clone_with_symbol_subst(node: Any, subst: Dict[str, ExpressionIR]) -> Any:
     if node is None:
         return None
     if isinstance(node, (str, int, float, bool, range)):
-        return copy.deepcopy(node)
+        return node
     if isinstance(node, (IdentifierIR, IndexVarIR, IndexRestIR)):
         replacement = subst.get(node.name)
         if replacement is not None:
@@ -534,38 +586,121 @@ def _clone_with_symbol_subst(node: Any, subst: Dict[str, ExpressionIR]) -> Any:
     if isinstance(node, IRNode):
         clone = copy.copy(node)
         for slot in _iter_slots(node):
-            setattr(clone, slot, _clone_with_symbol_subst(getattr(node, slot, None), subst))
+            if slot in _IGNORED_TRAVERSAL_SLOTS:
+                continue
+            value = getattr(node, slot, None)
+            if not _should_clone_value(value):
+                continue
+            setattr(clone, slot, _clone_with_symbol_subst(value, subst))
         return clone
     return copy.deepcopy(node)
 
 
-def _expr_signature(expr: Any) -> Any:
-    if expr is None:
-        return None
-    if isinstance(expr, (str, int, float, bool)):
-        return expr
-    if isinstance(expr, (IdentifierIR, IndexVarIR, IndexRestIR)):
-        return ("sym", expr.name)
-    if isinstance(expr, LiteralIR):
-        return ("lit", expr.value)
-    if isinstance(expr, list):
-        return tuple(_expr_signature(item) for item in expr)
-    if isinstance(expr, tuple):
-        return tuple(_expr_signature(item) for item in expr)
-    if isinstance(expr, dict):
-        items = sorted(
-            ((_expr_signature(key), _expr_signature(value)) for key, value in expr.items()),
-            key=repr,
+def _exprs_equivalent(
+    left: Any,
+    right: Any,
+    *,
+    left_subst: Optional[Dict[str, ExpressionIR]] = None,
+    right_subst: Optional[Dict[str, ExpressionIR]] = None,
+) -> bool:
+    left = _resolve_symbol_subst(left, left_subst)
+    right = _resolve_symbol_subst(right, right_subst)
+    if left is right:
+        return True
+    if left is None or right is None:
+        return left is right
+    if isinstance(left, (str, int, float, bool, range)):
+        return left == right
+    if isinstance(left, (IdentifierIR, IndexVarIR, IndexRestIR)):
+        return isinstance(right, (IdentifierIR, IndexVarIR, IndexRestIR)) and left.name == right.name
+    if isinstance(left, LiteralIR):
+        return isinstance(right, LiteralIR) and left.value == right.value
+    if isinstance(left, list):
+        if not isinstance(right, list) or len(left) != len(right):
+            return False
+        return all(
+            _exprs_equivalent(
+                left_item,
+                right_item,
+                left_subst=left_subst,
+                right_subst=right_subst,
+            )
+            for left_item, right_item in zip(left, right)
         )
-        return ("dict", tuple(items))
-    if isinstance(expr, IRNode):
-        parts: List[Any] = [type(expr).__name__]
-        for slot in _iter_slots(expr):
-            if slot in {"location", "type_info", "shape_info", "defid"}:
+    if isinstance(left, tuple):
+        if not isinstance(right, tuple) or len(left) != len(right):
+            return False
+        return all(
+            _exprs_equivalent(
+                left_item,
+                right_item,
+                left_subst=left_subst,
+                right_subst=right_subst,
+            )
+            for left_item, right_item in zip(left, right)
+        )
+    if isinstance(left, dict):
+        if not isinstance(right, dict) or len(left) != len(right):
+            return False
+        unmatched = list(right.items())
+        for left_key, left_value in left.items():
+            match_idx = None
+            for idx, (right_key, right_value) in enumerate(unmatched):
+                if not _exprs_equivalent(
+                    left_key,
+                    right_key,
+                    left_subst=left_subst,
+                    right_subst=right_subst,
+                ):
+                    continue
+                if not _exprs_equivalent(
+                    left_value,
+                    right_value,
+                    left_subst=left_subst,
+                    right_subst=right_subst,
+                ):
+                    continue
+                match_idx = idx
+                break
+            if match_idx is None:
+                return False
+            unmatched.pop(match_idx)
+        return not unmatched
+    if isinstance(left, IRNode):
+        if not isinstance(right, IRNode) or type(left) is not type(right):
+            return False
+        for slot in _iter_slots(left):
+            if slot in _IGNORED_COMPARISON_SLOTS:
                 continue
-            parts.append((slot, _expr_signature(getattr(expr, slot, None))))
-        return tuple(parts)
-    return repr(expr)
+            if not _exprs_equivalent(
+                getattr(left, slot, None),
+                getattr(right, slot, None),
+                left_subst=left_subst,
+                right_subst=right_subst,
+            ):
+                return False
+        return True
+    return left == right
+
+
+def _resolve_symbol_subst(
+    expr: Any,
+    subst: Optional[Dict[str, ExpressionIR]],
+) -> Any:
+    if subst is None or not isinstance(expr, (IdentifierIR, IndexVarIR, IndexRestIR)):
+        return expr
+    seen: Set[str] = set()
+    cur = expr
+    while isinstance(cur, (IdentifierIR, IndexVarIR, IndexRestIR)):
+        name = cur.name
+        if name in seen:
+            break
+        replacement = subst.get(name)
+        if replacement is None:
+            break
+        seen.add(name)
+        cur = replacement
+    return cur
 
 
 def _collect_all_defids_ir(node: object) -> Set[DefId]:
@@ -585,13 +720,38 @@ def _collect_all_defids_ir(node: object) -> Set[DefId]:
             if did is not None:
                 out.add(did)
         if isinstance(cur, dict):
-            stack.extend(cur.keys())
-            stack.extend(cur.values())
+            for key, value in cur.items():
+                if _should_collect_defids_from(key):
+                    stack.append(key)
+                if _should_collect_defids_from(value):
+                    stack.append(value)
             continue
         if isinstance(cur, (list, tuple)):
-            stack.extend(cur)
+            for item in cur:
+                if _should_collect_defids_from(item):
+                    stack.append(item)
             continue
         if isinstance(cur, IRNode):
             for slot in _iter_slots(cur):
-                stack.append(getattr(cur, slot, None))
+                if slot in _IGNORED_TRAVERSAL_SLOTS:
+                    continue
+                child = getattr(cur, slot, None)
+                if _should_collect_defids_from(child):
+                    stack.append(child)
     return out
+
+
+_IGNORED_TRAVERSAL_SLOTS = frozenset({"location", "type_info", "shape_info", "defid"})
+_IGNORED_COMPARISON_SLOTS = _IGNORED_TRAVERSAL_SLOTS
+
+
+def _should_rewrite_value(value: Any) -> bool:
+    return isinstance(value, (IRNode, list, tuple, dict))
+
+
+def _should_clone_value(value: Any) -> bool:
+    return isinstance(value, (IRNode, list, tuple, dict))
+
+
+def _should_collect_defids_from(value: Any) -> bool:
+    return isinstance(value, (IRNode, list, tuple, dict))

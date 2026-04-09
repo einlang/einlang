@@ -4,7 +4,7 @@ Visitor Helper Utilities
 Common visitor patterns for expression analysis without isinstance/hasattr.
 """
 
-from typing import Set, Optional, List, Any, FrozenSet
+from typing import Set, Optional, List, Any, FrozenSet, Tuple
 from ..ir.nodes import (
     ExpressionIR, IdentifierIR, IndexVarIR, BinaryOpIR, LiteralIR,
     RectangularAccessIR, FunctionCallIR, IRVisitor,
@@ -33,6 +33,20 @@ from ..ir.nodes import (
     LoweredSelectAtArgmaxIR,
 )
 from ..shared.defid import DefId
+from ..shared.types import BinaryOp
+
+
+def extract_assignment_binding(constraint: Any) -> Optional[Tuple[DefId, Any]]:
+    """Return `(defid, rhs)` when a constraint is an assignment-like binding."""
+    if (
+        isinstance(constraint, BinaryOpIR)
+        and constraint.operator == BinaryOp.ASSIGN
+        and isinstance(constraint.left, IdentifierIR)
+    ):
+        did = constraint.left.defid
+        if did is not None:
+            return (did, constraint.right)
+    return None
 
 
 class _DefIdFinder(IRVisitor[Optional[DefId]]):
@@ -1048,4 +1062,3 @@ class DefaultRecursingVisitor(IRVisitor[None]):
         if rl is not None:
             self._recurse(rl.iterable)
         self._recurse(node.body)
-

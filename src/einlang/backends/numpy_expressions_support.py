@@ -22,7 +22,7 @@ from ..ir.nodes import (
 )
 from ..runtime.environment import FunctionValue
 from .numpy_helpers import (
-    _reject_non_lowered, _PatternMatcher, _extract_binding,
+    _reject_non_lowered, _PatternMatcher,
     builtin_assert, builtin_print, builtin_len, builtin_shape, builtin_typeof,
     builtin_sum, builtin_max, builtin_min, builtin_array_append,
 )
@@ -281,6 +281,27 @@ def _safe_oob_ndarray_access(array: np.ndarray, indices: List[Any]) -> Any:
         normalized.append(idx_arr.astype(np.intp, copy=False))
     broadcast = np.broadcast_arrays(*normalized)
 
+    # The common vectorized case is already in bounds; avoid building masks/clipped
+    # arrays when we can safely dispatch to NumPy's normal advanced indexing.
+    all_in_bounds = True
+    for axis, idx_arr in enumerate(broadcast):
+        axis_size = array.shape[axis]
+        if axis_size <= 0:
+            raise IndexError(f"indexing axis {axis} with size {axis_size} is not supported")
+        if idx_arr.size == 0:
+            continue
+        try:
+            idx_min = int(idx_arr.min())
+            idx_max = int(idx_arr.max())
+        except ValueError:
+            idx_min = 0
+            idx_max = -1
+        if idx_min < 0 or idx_max >= axis_size:
+            all_in_bounds = False
+            break
+    if all_in_bounds:
+        return array[tuple(broadcast)]
+
     valid = np.ones(broadcast[0].shape, dtype=bool)
     clipped: List[np.ndarray] = []
     for axis, idx_arr in enumerate(broadcast):
@@ -289,7 +310,7 @@ def _safe_oob_ndarray_access(array: np.ndarray, indices: List[Any]) -> Any:
             raise IndexError(f"indexing axis {axis} with size {axis_size} is not supported")
         in_bounds = (idx_arr >= 0) & (idx_arr < axis_size)
         valid &= in_bounds
-        clipped.append(np.clip(idx_arr, 0, axis_size - 1))
+        clipped.append(idx_arr.clip(0, axis_size - 1))
 
     gathered = array[tuple(clipped)]
     if gathered.shape != valid.shape:
@@ -525,7 +546,7 @@ def _infer_reduction_axes_from_shape(
     return tuple(axes)
 
 
-def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
+def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any, plan: Any) -> Optional[Any]:
     from ..shared.types import ReductionOp
     op = expr.operation
     if op != ReductionOp.SUM:
@@ -552,64 +573,10 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
             reduction_sizes.append(int(len(iterable)))
         except Exception:
             return None
-    body = expr.body
-    if body is None:
-        return None
-    mul_left: Optional[Any] = None
-    mul_right: Optional[Any] = None
-    bias: Optional[Any] = None
-    scale: Optional[float] = None
-    _add = BinaryOp.ADD
-    _mul = BinaryOp.MUL
-    _div = BinaryOp.DIV
-    body_op = getattr(body, "operator", None)
-    if isinstance(body, BinaryOpIR) and body_op == _add:
-        add_left = body.left
-        add_right = body.right
-        if isinstance(add_left, BinaryOpIR) and add_left.operator == _mul:
-            mul_left = add_left.left
-            mul_right = add_left.right
-            bias = add_right
-        elif isinstance(add_right, BinaryOpIR) and add_right.operator == _mul:
-            mul_left = add_right.left
-            mul_right = add_right.right
-            bias = add_left
-    elif isinstance(body, BinaryOpIR) and body_op == _mul:
-        bl = body.left
-        br = body.right
-        if isinstance(bl, RectangularAccessIR) and isinstance(br, RectangularAccessIR):
-            mul_left, mul_right = bl, br
-        elif isinstance(bl, BinaryOpIR) and bl.operator == _mul:
-            al, ar = bl.left, bl.right
-            if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(br, LiteralIR):
-                mul_left, mul_right = al, ar
-                try:
-                    scale = float(br.value)
-                except (TypeError, ValueError):
-                    scale = None
-        elif isinstance(br, BinaryOpIR) and br.operator == _mul:
-            al, ar = br.left, br.right
-            if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR) and isinstance(bl, LiteralIR):
-                mul_left, mul_right = al, ar
-                try:
-                    scale = float(bl.value)
-                except (TypeError, ValueError):
-                    scale = None
-    elif isinstance(body, BinaryOpIR) and body_op == _div:
-        div_left = body.left
-        div_right = body.right
-        if isinstance(div_left, BinaryOpIR) and div_left.operator == _mul:
-            al = div_left.left
-            ar = div_left.right
-            if isinstance(al, RectangularAccessIR) and isinstance(ar, RectangularAccessIR):
-                mul_left, mul_right = al, ar
-                try:
-                    if isinstance(div_right, LiteralIR):
-                        v = float(div_right.value)
-                        if v != 0.0:
-                            scale = 1.0 / v
-                except (TypeError, ValueError):
-                    pass
+    mul_left = getattr(plan, "left", None)
+    mul_right = getattr(plan, "right", None)
+    bias = getattr(plan, "bias", None)
+    scale = getattr(plan, "scale", None)
     if mul_left is None or mul_right is None:
         return None
     if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):
@@ -861,7 +828,7 @@ def _try_windowed_sumprod_einsum_spatial_nd(
     return result
 
 
-def _try_windowed_sumprod_einsum(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
+def _try_windowed_sumprod_einsum(expr: LoweredReductionIR, backend: Any, plan: Any) -> Optional[Any]:
     """Fast path for Einstein sum-of-products over sliding windows.
 
     Recognizes 1D (two reduction loops) and 2D/3D conv (three/four loops): channel plus
@@ -889,29 +856,11 @@ def _try_windowed_sumprod_einsum(expr: LoweredReductionIR, backend: Any) -> Opti
         n_k = int(len(loops[1].iterable.accept(backend))) if n_red == 2 else 0
     except Exception:
         return None
-    body = expr.body
-    if body is None:
-        return None
     _add = BinaryOp.ADD
     _mul = BinaryOp.MUL
-    mul_left: Optional[RectangularAccessIR] = None
-    mul_right: Optional[RectangularAccessIR] = None
-    bias: Optional[Any] = None
-    body_op = getattr(body, "operator", None)
-    if isinstance(body, BinaryOpIR) and body_op == _add:
-        add_left = body.left
-        add_right = body.right
-        if isinstance(add_left, BinaryOpIR) and add_left.operator == _mul:
-            mul_left = add_left.left
-            mul_right = add_left.right
-            bias = add_right
-        elif isinstance(add_right, BinaryOpIR) and add_right.operator == _mul:
-            mul_left = add_right.left
-            mul_right = add_right.right
-            bias = add_left
-    elif isinstance(body, BinaryOpIR) and body_op == _mul:
-        mul_left = body.left
-        mul_right = body.right
+    mul_left = getattr(plan, "left", None)
+    mul_right = getattr(plan, "right", None)
+    bias = getattr(plan, "bias", None)
     if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):
         return None
     if n_red in (3, 4):
@@ -1040,7 +989,7 @@ def _remap_axes_after_scalar_slicing(
     return tuple(remapped)
 
 
-def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[Any]:
+def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any, plan: Any) -> Optional[Any]:
     """Generic sum-of-product fast path: sum over (left * right [+ bias]) lowered to np.einsum.
     Supports any number of reduction dims; indices must be simple (IdentifierIR/IndexVarIR) on reduction dims.
     NumPy einsum uses BLAS where applicable (e.g. matrix multiply)."""
@@ -1070,29 +1019,9 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any) -> Optional[An
             reduction_sizes.append(int(len(iterable)))
         except Exception:
             return None
-    body = expr.body
-    if body is None:
-        return None
-    _add = BinaryOp.ADD
-    _mul = BinaryOp.MUL
-    mul_left: Optional[RectangularAccessIR] = None
-    mul_right: Optional[RectangularAccessIR] = None
-    bias: Optional[Any] = None
-    body_op = getattr(body, "operator", None)
-    if isinstance(body, BinaryOpIR) and body_op == _add:
-        add_left = body.left
-        add_right = body.right
-        if isinstance(add_left, BinaryOpIR) and add_left.operator == _mul:
-            mul_left = add_left.left
-            mul_right = add_left.right
-            bias = add_right
-        elif isinstance(add_right, BinaryOpIR) and add_right.operator == _mul:
-            mul_left = add_right.left
-            mul_right = add_right.right
-            bias = add_left
-    elif isinstance(body, BinaryOpIR) and body_op == _mul:
-        mul_left = body.left
-        mul_right = body.right
+    mul_left = getattr(plan, "left", None)
+    mul_right = getattr(plan, "right", None)
+    bias = getattr(plan, "bias", None)
     if mul_left is None or mul_right is None:
         return None
     if not isinstance(mul_left, RectangularAccessIR) or not isinstance(mul_right, RectangularAccessIR):

@@ -271,6 +271,10 @@ def _eval_clause_body_with_broadcast_loops(
         body_defids_by_name = body_name_cache(clause.body)
     else:
         body_defids_by_name = _collect_defids_by_name(clause.body)
+    contains_ir_types = getattr(backend, "_cached_contains_ir_types", None)
+    safe_oob = bool(
+        callable(contains_ir_types) and clause.body is not None and contains_ir_types(clause.body, IfExpressionIR)
+    )
     try:
         with backend.env.scope():
             for dim, (defid, rng, name) in enumerate(loop_info):
@@ -288,7 +292,7 @@ def _eval_clause_body_with_broadcast_loops(
                 backend,
                 parallel_shape_tuple,
                 clause_loop_defids,
-                safe_oob=True,
+                safe_oob=safe_oob,
             )
             with backend._vectorization_scope(**saved_state):
                 return clause.body.accept(backend)

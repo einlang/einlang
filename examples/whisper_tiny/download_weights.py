@@ -493,7 +493,7 @@ def _cross_attention(x, enc, L, sd):
 
 def _conv1d(x, w, b, stride=1, pad=0):
     if pad > 0:
-        x = np.pad(x, ((0, 0), (0, 0), (pad, pad)))
+        x = np.pad(x, ((0, 0), (0, 0), (pad, pad)), mode="constant")
     N, Ci, Li = x.shape
     Co, Cig, K = w.shape
     Lo = (Li - K) // stride + 1
@@ -521,7 +521,7 @@ def _gelu(x):
 def _decode_tokens(token_ids, tokenizer_path):
     if not os.path.exists(tokenizer_path):
         return f"<no tokenizer: {token_ids}>"
-    with open(tokenizer_path) as f:
+    with open(tokenizer_path, encoding="utf-8") as f:
         tok_data = json.load(f)
 
     id2tok = {}

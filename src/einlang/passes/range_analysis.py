@@ -9,7 +9,8 @@ import logging
 from contextlib import contextmanager
 from typing import Dict, List, Optional, Set, Tuple, Any
 from ..passes.base import BasePass, TyCtxt
-from ..passes.shape_analysis import UnifiedShapeAnalysisPass
+from ..passes.constraint_classifier import ConstraintClassifierPass
+from ..passes.rest_pattern_preprocessing import RestPatternPreprocessingPass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BinaryOpIR, IdentifierIR, IndexVarIR, IndexRestIR,
     ReductionExpressionIR, SelectAtArgmaxIR, WhereClauseIR, RangeIR, IRVisitor, LiteralIR,
@@ -51,7 +52,7 @@ class RangeAnalysisPass(BasePass):
     
     Runs BEFORE shape analysis (shape analysis needs ranges for offset calculation)
     """
-    requires = []  # No dependency on shape analysis (shape depends on range, not the other way)
+    requires = [RestPatternPreprocessingPass, ConstraintClassifierPass]
     
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         """Analyze ranges in IR"""
@@ -1113,4 +1114,3 @@ class VariableInvolvementChecker(IRVisitor[bool]):
     
     def visit_module(self, node) -> bool:
         return False
-

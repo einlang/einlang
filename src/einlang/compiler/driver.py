@@ -187,50 +187,67 @@ class CompilerDriver:
         """
         # 0. AST to IR lowering
         self.pass_manager.register_pass(ASTToIRLoweringPass)
-        # Note: Einstein grouping runs on AST as part of NameResolutionPass
+        # Note: Einstein grouping runs on IR via EinsteinDeclarationGroupingPass (registered below)
+
+        # 1. Einstein declaration grouping (analysis)
+        from ..passes.einstein_grouping import EinsteinDeclarationGroupingPass
+        self.pass_manager.register_pass(EinsteinDeclarationGroupingPass)
+
+        # 2. Constraint classification (analysis)
+        from ..passes.constraint_classifier import ConstraintClassifierPass
+        self.pass_manager.register_pass(ConstraintClassifierPass)
         
-        # 2. Rest pattern preprocessing (expands ..batch to batch.0 early)
+        # 3. Rest pattern preprocessing (expands ..batch to batch.0 early)
         from ..passes.rest_pattern_preprocessing import RestPatternPreprocessingPass
         self.pass_manager.register_pass(RestPatternPreprocessingPass)
         
-        # 3. Range analysis (infers ranges for loop variables)
+        # 4. Range analysis (infers ranges for loop variables)
         # CRITICAL: Must come before shape analysis (shape needs ranges for offsets)
         self.pass_manager.register_pass(RangeAnalysisPass)
         
-        # 4. Shape analysis (uses ranges to compute output dimensions)
+        # 5. Shape analysis (uses ranges to compute output dimensions)
         from ..passes.shape_analysis import UnifiedShapeAnalysisPass
         self.pass_manager.register_pass(UnifiedShapeAnalysisPass)
         
-        # 5. Type inference (Type analysis runs after shape)
+        # 6. Type inference (Type analysis runs after shape)
         # This allows type inference to use shape information
         self.pass_manager.register_pass(TypeInferencePass)
 
-        # 5a. Canonicalize generic extremum-selection patterns to SelectAtArgmaxIR
+        # 7. Canonicalize generic extremum-selection patterns to SelectAtArgmaxIR
         from ..passes.extremum_selection_canonicalization import (
             ExtremumSelectionCanonicalizationPass,
         )
         self.pass_manager.register_pass(ExtremumSelectionCanonicalizationPass)
 
-        # 5b. Pre-autodiff pruning (shape/rank branch pruning only)
+        # 8. Pre-autodiff pruning (shape/rank branch pruning only)
         from ..passes.pre_autodiff_pruning import PreAutodiffPruningPass
         self.pass_manager.register_pass(PreAutodiffPruningPass)
 
-        # 5c. Autodiff (high-level EinsteinIR only; before lowering)
+        # 9. Autodiff (high-level EinsteinIR only; before lowering)
         from ..passes.autodiff import AutodiffPass
         self.pass_manager.register_pass(AutodiffPass)
 
-        # 5d. Post-autodiff pruning (shape/rank branch pruning only)
+        # 10. Post-autodiff pruning (shape/rank branch pruning only)
         from ..passes.pre_autodiff_pruning import PostAutodiffPruningPass
         self.pass_manager.register_pass(PostAutodiffPruningPass)
 
-        # 6. Einstein lowering (lower Einstein declarations to loops)
+        # 11. Autodiff leak check (fail if @ artifacts survive)
+        from ..passes.autodiff_leak_check import AutodiffLeakCheckPass
+        self.pass_manager.register_pass(AutodiffLeakCheckPass)
+
+        # 12. Einstein lowering (lower Einstein declarations to loops)
         from ..passes.einstein_lowering import EinsteinLoweringPass
         self.pass_manager.register_pass(EinsteinLoweringPass)
 
+        # 13. Recurrence ordering and lowering
         from ..passes.recurrence_order import RecurrenceOrderPass
         self.pass_manager.register_pass(RecurrenceOrderPass)
 
-        # 7. Validation passes
+        # 14. Compiler-owned lowered execution metadata for backend hot paths
+        from ..passes.lowered_execution_facts import LoweredExecutionFactsPass
+        self.pass_manager.register_pass(LoweredExecutionFactsPass)
+
+        # 15. Validation passes
         from ..passes.cast_validation import CastValidationPass
         self.pass_manager.register_pass(CastValidationPass)
         
@@ -240,7 +257,7 @@ class CompilerDriver:
         from ..passes.exhaustiveness import ExhaustivenessPass
         self.pass_manager.register_pass(ExhaustivenessPass)
         
-        # 8. IR validation (validation)
+        # 16. IR validation (validation)
         from ..passes.ir_validation import IRValidationPass
         self.pass_manager.register_pass(IRValidationPass)
         
@@ -283,7 +300,6 @@ class CompilerDriver:
         tcx.source_files[source_file] = source
         # In-memory module sources (avoid I/O on critical path when possible)
         tcx.source_overlay = source_overlay if source_overlay is not None else {}
-
         ir: Optional[ProgramIR] = None
         try:
             # Phase 1: Parsing (source → AST)
@@ -344,7 +360,7 @@ class CompilerDriver:
             # Run remaining passes on IR
             # Filter out ASTToIRLoweringPass from pass manager (already run)
             remaining_passes = [
-                p for p in self.pass_manager.passes 
+                p for p in self.pass_manager.ordered_passes()
                 if p != ASTToIRLoweringPass
             ]
             

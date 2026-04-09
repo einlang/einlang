@@ -10,6 +10,7 @@ import json
 import os
 from ..passes.base import BasePass, TyCtxt
 from ..passes.range_analysis import RangeAnalysisPass
+from ..passes.shape_analysis import UnifiedShapeAnalysisPass
 from ..ir.scoped_visitor import ScopedIRVisitor
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BindingIR, FunctionValueIR,
@@ -97,7 +98,7 @@ class TypeInferencePass(BasePass):
     
     Reference: `rustc_typeck::check::typeck` for type checking
     """
-    requires = [RangeAnalysisPass]  # Depends on range analysis (needs type info from previous passes)
+    requires = [RangeAnalysisPass, UnifiedShapeAnalysisPass]
     
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         """

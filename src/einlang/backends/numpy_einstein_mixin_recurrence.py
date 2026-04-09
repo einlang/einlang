@@ -4,8 +4,6 @@ from .numpy_einstein_vectorization import *
 from .numpy_einstein_analysis import _einlang_recurrence_block_vectorized_binding_enabled
 from .numpy_einstein_recurrence_analysis import (
     _extract_loop_range,
-    _recurrence_dims,
-    _recurrence_dims_for_hybrid_or_full,
 )
 from .numpy_einstein_vectorization import _try_fast_2d_wave_step
 
@@ -111,10 +109,11 @@ class EinsteinExecutionRecurrenceMixin:
         guards = item.guards or []
         clause_indices = item.indices or []
         recurrence_dims = item.recurrence_dims_override
-        if not recurrence_dims and variable_defid:
-            recurrence_dims = _recurrence_dims_for_hybrid_or_full(item, variable_defid, clause_indices)
-        if not recurrence_dims and variable_defid:
-            recurrence_dims = _recurrence_dims(item, variable_defid, clause_indices)
+        if recurrence_dims is None:
+            raise RuntimeError(
+                "Lowered Einstein recurrence clause missing compiler-owned recurrence_dims_override. "
+                "RecurrenceOrderPass must annotate recurrence metadata before execution."
+            )
         recurrence_dims = recurrence_dims or []
         ndim = len(loops)
         # Allow clause to run when we have at least as many loops as outer (so we can bind current step).

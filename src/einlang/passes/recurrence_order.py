@@ -10,6 +10,7 @@ optimization can switch to a circular buffer when only bounded history and bound
 required.
 """
 
+from functools import lru_cache
 from typing import Any, Iterator, List, Optional, Sequence, Tuple
 
 from ..passes.base import BasePass, TyCtxt
@@ -26,14 +27,17 @@ from ..ir.nodes import (
     MatchExpressionIR,
     LoweredEinsteinClauseIR,
     LoweredEinsteinIR,
+    LoweredReductionIR,
     LoweredRecurrenceIR,
     ProgramIR,
     RectangularAccessIR,
+    ModuleIR,
 )
 from ..shared.types import BinaryOp
 
-# Reuse backend helpers for recurrence analysis (no circular import: backend does not import this pass)
-from ..backends.numpy_einstein import (
+# Shared structural recurrence helpers live with compiler passes so the compiler
+# does not depend on backend modules.
+from ..shared.recurrence_analysis import (
     _BodyReferencesDefidVisitor,
     _collect_lhs_read_index_lists,
     _index_expr_is_loop_var,
@@ -135,33 +139,28 @@ def _annotate_recurrence_override(
     lowered: LoweredEinsteinIR,
     variable_defid: Any,
 ) -> None:
-    """Set recurrence_dims_override on clauses that have same-t dependency so backend runs them in timestep-major."""
+    """Set recurrence_dims_override on every clause so backend need not recompute recurrence analysis."""
     items = lowered.items or []
     if variable_defid is None:
         return
     for it in items:
-        if it.recurrence_dims_override is not None:
-            continue
         rec_order = _infer_recurrence_order_override(it, variable_defid)
         if rec_order:
             object.__setattr__(it, "recurrence_dims_override", rec_order)
+        else:
+            object.__setattr__(it, "recurrence_dims_override", _recurrence_dims(it, variable_defid, it.indices))
     if len(items) < 2:
         return
     recurrence_dims: Optional[List[int]] = None
     for it in items:
-        rec = it.recurrence_dims_override
-        if not rec:
-            rec = _recurrence_dims(it, variable_defid, it.indices)
+        rec = it.recurrence_dims_override or []
         if rec:
             recurrence_dims = rec
             break
     if not recurrence_dims:
         return
     for it in items:
-        if it.recurrence_dims_override is not None:
-            continue
-        rec = _recurrence_dims(it, variable_defid, it.indices)
-        if rec:
+        if it.recurrence_dims_override:
             continue
         if not _BodyReferencesDefidVisitor(variable_defid).references(it.body):
             continue
@@ -184,11 +183,7 @@ def _partition_recurrence(
     for it in items:
         clause_indices = it.indices or []
         loops_it = it.loops or []
-        rec_dims = it.recurrence_dims_override
-        if rec_dims is None:
-            rec_dims = _recurrence_dims_for_hybrid(it, variable_defid, clause_indices)
-        if not rec_dims:
-            rec_dims = _recurrence_dims(it, variable_defid, clause_indices)
+        rec_dims = it.recurrence_dims_override or []
         body_refs = _BodyReferencesDefidVisitor(variable_defid).references(it.body)
         has_rec = bool(
             rec_dims
@@ -208,34 +203,42 @@ def _iter_ir_children(node: Any) -> Iterator[IRNode]:
     """Yield IR-node children from a slot-based IR object."""
     if node is None:
         return
-    slots: List[str] = []
-    for cls in type(node).__mro__:
-        cls_slots = getattr(cls, "__slots__", ())
-        if isinstance(cls_slots, str):
-            slots.append(cls_slots)
-        else:
-            slots.extend(cls_slots)
-    seen = set()
-    for slot in slots:
-        if slot in seen:
-            continue
-        seen.add(slot)
+    for slot in _iter_slots(type(node)):
         value = getattr(node, slot, None)
         if value is None:
             continue
-        if hasattr(value, "accept"):
+        if isinstance(value, IRNode):
             yield value
         elif isinstance(value, (list, tuple)):
             for item in value:
-                if item is not None and hasattr(item, "accept"):
+                if isinstance(item, IRNode):
                     yield item
         elif isinstance(value, dict):
             for item in value.keys():
-                if item is not None and hasattr(item, "accept"):
+                if isinstance(item, IRNode):
                     yield item
             for item in value.values():
-                if item is not None and hasattr(item, "accept"):
+                if isinstance(item, IRNode):
                     yield item
+
+
+@lru_cache(maxsize=None)
+def _iter_slots(cls: type) -> Tuple[str, ...]:
+    out: List[str] = []
+    for base in cls.__mro__:
+        slots = getattr(base, "__slots__", ())
+        if isinstance(slots, str):
+            out.append(slots)
+        else:
+            out.extend(slots)
+    seen = set()
+    ordered: List[str] = []
+    for slot in out:
+        if slot in seen:
+            continue
+        seen.add(slot)
+        ordered.append(slot)
+    return tuple(ordered)
 
 
 def _int_literal_value(expr: Any) -> Optional[int]:
@@ -509,12 +512,21 @@ def _isolate_recurrence(
 
 class RecurrenceOrderPass(BasePass):
     """Pass that sets recurrence_dims_override on clauses with same-timestep dependency."""
+    requires = ["EinsteinLoweringPass"]
 
-    def _process_expr(self, expr: Any, *, allow_isolate: bool) -> None:
+    def _process_expr(
+        self,
+        expr: Any,
+        *,
+        allow_isolate: bool,
+        variable_defid: Any = None,
+    ) -> None:
         if expr is None:
             return
+        if isinstance(expr, LoweredEinsteinIR) and variable_defid is not None:
+            _annotate_recurrence_override(expr, variable_defid)
         if isinstance(expr, FunctionValueIR):
-            self._process_expr(expr.body, allow_isolate=False)
+            self._process_expr(expr.body, allow_isolate=False, variable_defid=variable_defid)
             return
         if isinstance(expr, BlockExpressionIR):
             extra_tail = [expr.final_expr] if expr.final_expr is not None else []
@@ -522,25 +534,30 @@ class RecurrenceOrderPass(BasePass):
                 list(expr.statements or []),
                 extra_tail,
                 allow_isolate=allow_isolate,
+                variable_defid=variable_defid,
             )
             if expr.final_expr is not None:
-                self._process_expr(expr.final_expr, allow_isolate=allow_isolate)
+                self._process_expr(
+                    expr.final_expr,
+                    allow_isolate=allow_isolate,
+                    variable_defid=variable_defid,
+                )
             return
         if isinstance(expr, IfExpressionIR):
-            self._process_expr(expr.condition, allow_isolate=allow_isolate)
-            self._process_expr(expr.then_expr, allow_isolate=allow_isolate)
-            self._process_expr(expr.else_expr, allow_isolate=allow_isolate)
+            self._process_expr(expr.condition, allow_isolate=allow_isolate, variable_defid=variable_defid)
+            self._process_expr(expr.then_expr, allow_isolate=allow_isolate, variable_defid=variable_defid)
+            self._process_expr(expr.else_expr, allow_isolate=allow_isolate, variable_defid=variable_defid)
             return
         if isinstance(expr, MatchExpressionIR):
-            self._process_expr(expr.scrutinee, allow_isolate=allow_isolate)
+            self._process_expr(expr.scrutinee, allow_isolate=allow_isolate, variable_defid=variable_defid)
             for arm in expr.arms or []:
-                self._process_expr(arm.body, allow_isolate=allow_isolate)
+                self._process_expr(arm.body, allow_isolate=allow_isolate, variable_defid=variable_defid)
             return
         if isinstance(expr, LambdaIR):
-            self._process_expr(expr.body, allow_isolate=False)
+            self._process_expr(expr.body, allow_isolate=False, variable_defid=variable_defid)
             return
         for child in _iter_ir_children(expr):
-            self._process_expr(child, allow_isolate=allow_isolate)
+            self._process_expr(child, allow_isolate=allow_isolate, variable_defid=variable_defid)
 
     def _process_statement_sequence(
         self,
@@ -548,24 +565,60 @@ class RecurrenceOrderPass(BasePass):
         extra_tail: Sequence[Any] = (),
         *,
         allow_isolate: bool,
+        variable_defid: Any = None,
     ) -> None:
         seq = list(statements or [])
         tail = list(extra_tail or [])
         for i, stmt in enumerate(seq):
             if isinstance(stmt, BindingIR):
                 value = stmt.expr
+                owner_defid = stmt.defid if stmt.defid is not None else variable_defid
                 if value is not None and isinstance(value, LoweredEinsteinIR):
-                    variable_defid = stmt.defid
-                    if variable_defid is not None:
-                        _annotate_recurrence_override(value, variable_defid)
+                    if owner_defid is not None:
+                        _annotate_recurrence_override(value, owner_defid)
                         if allow_isolate:
                             later = seq[i + 1 :] + tail
-                            _isolate_recurrence(stmt, value, variable_defid, later)
+                            _isolate_recurrence(stmt, value, owner_defid, later)
                             value = stmt.expr
-                self._process_expr(value, allow_isolate=allow_isolate)
+                self._process_expr(value, allow_isolate=allow_isolate, variable_defid=owner_defid)
             else:
-                self._process_expr(stmt, allow_isolate=allow_isolate)
+                self._process_expr(stmt, allow_isolate=allow_isolate, variable_defid=variable_defid)
+
+    def _process_module(self, module: ModuleIR) -> None:
+        self._process_statement_sequence(
+            list(module.constants or []) + list(module.functions or []),
+            allow_isolate=True,
+        )
+        for submodule in module.submodules or []:
+            self._process_module(submodule)
 
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         self._process_statement_sequence(list(ir.statements or []), allow_isolate=True)
+        for module in ir.modules or []:
+            self._process_module(module)
+
+        seen_ids = {id(stmt) for stmt in (ir.statements or [])}
+        function_ir_map = getattr(tcx, "function_ir_map", None) or {}
+        for binding in function_ir_map.values():
+            if not isinstance(binding, BindingIR):
+                continue
+            if id(binding) in seen_ids:
+                continue
+            self._process_statement_sequence([binding], allow_isolate=True)
+            seen_ids.add(id(binding))
+        # Also analyze autodiff diff blocks so lowered reductions get execution facts.
+        try:
+            from ..passes.autodiff import AutodiffPass
+
+            ad = tcx.get_analysis(AutodiffPass)
+            diff_block = ad.get("diff_block") or []
+            for stmt in diff_block:
+                if stmt is None:
+                    continue
+                if id(stmt) in seen_ids:
+                    continue
+                self._process_statement_sequence([stmt], allow_isolate=True)
+                seen_ids.add(id(stmt))
+        except RuntimeError:
+            pass
         return ir

@@ -9,6 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import List, Dict, Set, Optional, Any
 from ..passes.base import BasePass, TyCtxt
+from ..passes.ast_to_ir import ASTToIRLoweringPass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BinaryOpIR, WhereExpressionIR,
     ReductionExpressionIR, WhereClauseIR, IRVisitor, IdentifierIR, IndexVarIR,
@@ -35,7 +36,7 @@ class ConstraintClassifierPass(BasePass):
     Classifies constraints in where clauses and comprehensions into types
     for proper handling.
     """
-    requires = []  # No dependencies
+    requires = [ASTToIRLoweringPass]  # Depends on AST→IR lowering
     
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         """Classify constraints in IR"""
@@ -397,6 +398,9 @@ class ConstraintTypeClassifier(IRVisitor[ConstraintType]):
     def visit_module(self, node) -> ConstraintType:
         return ConstraintType.UNKNOWN
 
+    def visit_program(self, node) -> ConstraintType:
+        return ConstraintType.UNKNOWN
+
 class IndexVarChecker(IRVisitor[bool]):
     """Visitor to check if expression involves index variables"""
     
@@ -510,6 +514,9 @@ class IndexVarChecker(IRVisitor[bool]):
             return None
 
     def visit_module(self, node) -> bool:
+        return False
+
+    def visit_program(self, node) -> bool:
         return False
 
 class BindingExtractor(IRVisitor):
@@ -630,3 +637,5 @@ class BindingExtractor(IRVisitor):
     def visit_module(self, node) -> Optional[tuple[str, Set[str]]]:
         return None
 
+    def visit_program(self, node) -> Optional[tuple[str, Set[str]]]:
+        return None

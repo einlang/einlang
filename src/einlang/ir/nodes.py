@@ -139,10 +139,7 @@ class IndexVarIR(ExpressionIR):
         return visitor.visit_index_var(self)
 
     def __str__(self) -> str:
-        n = self.name or '?'
-        if self.range_ir is not None:
-            return f"{n} in {self.range_ir}"
-        return n
+        return self.name or '?'
 
 
 class IndexRestIR(ExpressionIR):
@@ -748,13 +745,17 @@ class SelectAtArgmaxIR(ExpressionIR):
 
 class WhereExpressionIR(ExpressionIR):
     """Where expression: expr where constraint"""
-    __slots__ = ('expr', 'constraints')
+    __slots__ = ('expr', 'constraints', 'binding_constraints', 'guard_constraints')
     
     def __init__(self, expr: ExpressionIR, constraints: List[ExpressionIR], location: SourceLocation,
-                 type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
+                 type_info: Optional[Any] = None, shape_info: Optional[Any] = None,
+                 binding_constraints: Optional[List['BindingIR']] = None,
+                 guard_constraints: Optional[List[ExpressionIR]] = None):
         super().__init__(location, type_info, shape_info)
         self.expr = expr
         self.constraints = _t(constraints)
+        self.binding_constraints = _t(binding_constraints) if binding_constraints is not None else None
+        self.guard_constraints = _t(guard_constraints) if guard_constraints is not None else None
     
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_where_expression(self)
@@ -1247,7 +1248,22 @@ class BindingIR(IRNode):
         if isinstance(self.expr, EinsteinIR):
             cc = self.expr.clauses or []
             if cc and cc[0].indices:
-                idx = ', '.join(str(i) for i in cc[0].indices)
+                clause = cc[0]
+                def _fmt_idx(idx: Any) -> str:
+                    if isinstance(idx, IndexVarIR):
+                        if idx.range_ir is not None:
+                            return f"{idx.name} in {idx.range_ir}"
+                        did = getattr(idx, "defid", None)
+                        if did is not None and did in (clause.variable_ranges or {}):
+                            return f"{idx.name} in {clause.variable_ranges[did]}"
+                        return idx.name or "?"
+                    did = getattr(idx, "defid", None)
+                    if did is not None and did in (clause.variable_ranges or {}):
+                        name = getattr(idx, "name", None) or str(idx)
+                        return f"{name} in {clause.variable_ranges[did]}"
+                    return str(idx)
+
+                idx = ', '.join(_fmt_idx(i) for i in clause.indices)
                 name = f"{self.name}[{idx}]"
         return f"let {name}{type_str} = {self.expr};"
 
@@ -1458,7 +1474,15 @@ class LoweredReductionIR(ExpressionIR):
     Lowered reduction (LoweredIteration shape). Replaces ReductionExpressionIR.
     body, operation, loops, bindings, guards; reduction_ranges derived from loops.
     """
-    __slots__ = ('body', 'operation', 'loops', 'bindings', 'guards')
+    __slots__ = (
+        'body',
+        'operation',
+        'loops',
+        'bindings',
+        'guards',
+        'execution_facts_id',
+        'kernel_plan_id',
+    )
     
     def __init__(
         self,
@@ -1470,6 +1494,8 @@ class LoweredReductionIR(ExpressionIR):
         location: Optional[SourceLocation] = None,
         type_info: Optional[Any] = None,
         shape_info: Optional[Any] = None,
+        execution_facts_id: Optional[int] = None,
+        kernel_plan_id: Optional[int] = None,
     ):
         loc = location or body.location
         if loc is None:
@@ -1480,6 +1506,8 @@ class LoweredReductionIR(ExpressionIR):
         self.loops = _t(loops)
         self.bindings = _t(bindings)
         self.guards = _t(guards)
+        self.execution_facts_id = execution_facts_id
+        self.kernel_plan_id = kernel_plan_id
     
     @property
     def reduction_ranges(self) -> Dict[DefId, LoopStructure]:
@@ -1618,7 +1646,21 @@ class EinsteinClauseIR(IRNode):
         return ""
 
     def __str__(self) -> str:
-        idx = ', '.join(str(i) for i in self.indices) if self.indices else ''
+        def _fmt_idx(idx: Any) -> str:
+            if isinstance(idx, IndexVarIR):
+                if idx.range_ir is not None:
+                    return f"{idx.name} in {idx.range_ir}"
+                did = getattr(idx, "defid", None)
+                if did is not None and did in (self.variable_ranges or {}):
+                    return f"{idx.name} in {self.variable_ranges[did]}"
+                return idx.name or "?"
+            did = getattr(idx, "defid", None)
+            if did is not None and did in (self.variable_ranges or {}):
+                name = getattr(idx, "name", None) or str(idx)
+                return f"{name} in {self.variable_ranges[did]}"
+            return str(idx)
+
+        idx = ', '.join(_fmt_idx(i) for i in self.indices) if self.indices else ''
         return f"[{idx}] = {self.value}" + self._where_suffix()
 
 

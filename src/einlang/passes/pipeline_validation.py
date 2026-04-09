@@ -13,7 +13,6 @@ import logging
 from typing import Optional
 
 from ..passes.base import BasePass, TyCtxt
-from ..passes.type_inference import TypeInferencePass
 from ..ir.nodes import (
     ProgramIR, PipelineExpressionIR, IRVisitor, IRNode,
     BindingIR, BlockExpressionIR, IfExpressionIR,
@@ -36,7 +35,7 @@ class PipelineTypeValidationPass(BasePass):
     - Option pipeline (?>): Function accepts Option type, returns Option type
     - Result pipeline (!>): Function accepts Result type, returns Result type
     """
-    requires = [TypeInferencePass]  # Depends on type inference (needs type information)
+    requires = ["CastValidationPass"]  # Runs after casts and type inference
     
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         """

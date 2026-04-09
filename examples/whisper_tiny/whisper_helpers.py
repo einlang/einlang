@@ -35,7 +35,7 @@ def _load_tokenizer():
     if _ID2TOK is not None:
         return
     tok_path = os.path.join(_SCRIPT_DIR, "tokenizer.json")
-    with open(tok_path) as f:
+    with open(tok_path, encoding="utf-8") as f:
         data = json.load(f)
     _ID2TOK = {}
     for k, v in data.get("model", {}).get("vocab", {}).items():

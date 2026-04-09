@@ -6,7 +6,7 @@ Reference: PASS_SYSTEM_DESIGN.md
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Type, TypeVar, Generic, Any, Optional, Dict, Tuple
+from typing import List, Type, TypeVar, Generic, Any, Optional, Dict, Tuple, Set, Union
 from ..ir.nodes import ProgramIR
 
 
@@ -70,6 +70,9 @@ class TyCtxt:
         self._analysis_results[pass_class] = results
 
 
+PassRequirement = Union[Type['BasePass'], str]
+
+
 class BasePass(ABC):
     """
     Base class for all passes (all operate on IR).
@@ -84,7 +87,7 @@ class BasePass(ABC):
     
     Reference: `rustc_mir::transform::MirPass` for pass interface
     """
-    requires: List[Type['BasePass']] = []  # Dependencies (empty by default)
+    requires: List[PassRequirement] = []  # Dependencies (empty by default)
     
     @abstractmethod
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
@@ -114,12 +117,14 @@ class PassManager:
     
     def __init__(self):
         self.passes: List[Type[BasePass]] = []
-        self._dependency_graph: dict[Type[BasePass], set[Type[BasePass]]] = {}
     
     def register_pass(self, pass_class: Type[BasePass]) -> None:
         """Register a pass"""
         self.passes.append(pass_class)
-        self._dependency_graph[pass_class] = set(pass_class.requires)
+    
+    def ordered_passes(self) -> List[Type[BasePass]]:
+        """Return passes in dependency order."""
+        return self._topological_sort()
     
     def run_all(self, ir: ProgramIR, tcx: TyCtxt, dump_ir: bool = False) -> ProgramIR:
         """
@@ -161,7 +166,30 @@ class PassManager:
     
     def _topological_sort(self) -> List[Type[BasePass]]:
         """Topological sort of passes by dependencies"""
-        in_degree = {p: len(self._dependency_graph[p]) for p in self.passes}
+        name_map = {p.__name__: p for p in self.passes}
+        dependency_graph: Dict[Type[BasePass], Set[Type[BasePass]]] = {}
+        for pass_class in self.passes:
+            deps: Set[Type[BasePass]] = set()
+            missing: List[str] = []
+            for req in getattr(pass_class, "requires", []) or []:
+                if isinstance(req, str):
+                    dep = name_map.get(req)
+                    if dep is None:
+                        missing.append(req)
+                        continue
+                    deps.add(dep)
+                else:
+                    deps.add(req)
+            for dep in deps:
+                if dep not in name_map.values():
+                    missing.append(getattr(dep, "__name__", str(dep)))
+            if missing:
+                missing_list = ", ".join(sorted(set(missing)))
+                raise RuntimeError(
+                    f"Pass `{pass_class.__name__}` requires missing pass(es): {missing_list}"
+                )
+            dependency_graph[pass_class] = deps
+        in_degree = {p: len(dependency_graph[p]) for p in self.passes}
         queue = [p for p, degree in in_degree.items() if degree == 0]
         result = []
         
@@ -170,7 +198,7 @@ class PassManager:
             result.append(pass_class)
             
             for other_pass in self.passes:
-                if pass_class in self._dependency_graph[other_pass]:
+                if pass_class in dependency_graph[other_pass]:
                     in_degree[other_pass] -= 1
                     if in_degree[other_pass] == 0:
                         queue.append(other_pass)
@@ -179,4 +207,3 @@ class PassManager:
             raise RuntimeError("Circular dependency detected in passes")
         
         return result
-
