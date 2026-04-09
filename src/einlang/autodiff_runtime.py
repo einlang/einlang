@@ -332,9 +332,6 @@ class Tensor:
     def cos(self) -> "Tensor":
         return Tensor(np.cos(self.value), parents=(self,), op="cos")
 
-    def relu(self) -> "Tensor":
-        return Tensor(np.maximum(self.value, 0.0), parents=(self,), op="relu")
-
     def sum(
         self,
         axis: Optional[Sequence[int] | int] = None,
@@ -431,7 +428,7 @@ def primal_expr(node: Tensor, _cache: Optional[Dict[int, str]] = None) -> str:
         text = f"({left} {symbol} {right})"
     elif node.op == "neg":
         text = f"(-{primal_expr(node.parents[0], cache)})"
-    elif node.op in ("exp", "log", "sin", "cos", "relu"):
+    elif node.op in ("exp", "log", "sin", "cos"):
         text = f"{node.op}({primal_expr(node.parents[0], cache)})"
     elif node.op == "sum":
         text = (
@@ -449,22 +446,6 @@ def primal_expr(node: Tensor, _cache: Optional[Dict[int, str]] = None) -> str:
         text = f"where({np.asarray(cond).tolist()}, {primal_expr(node.parents[0], cache)}, {primal_expr(node.parents[1], cache)})"
     elif node.op == "custom_diff_call":
         text = node.meta.get("call_text", node.name or "<custom_diff_call>")
-    elif node.op == "conv":
-        x, w, b = node.parents
-        text = (
-            f"conv({primal_expr(x, cache)}, {primal_expr(w, cache)}, {primal_expr(b, cache)}, "
-            f"{_format_meta(node.meta, ('stride', 'pad_begin', 'pad_end', 'dilation', 'group'))})"
-        )
-    elif node.op == "max_pool":
-        text = (
-            f"max_pool({primal_expr(node.parents[0], cache)}, "
-            f"{_format_meta(node.meta, ('kernel_shape', 'strides', 'pads'))})"
-        )
-    elif node.op == "avg_pool":
-        text = (
-            f"avg_pool({primal_expr(node.parents[0], cache)}, "
-            f"{_format_meta(node.meta, ('kernel_shape', 'strides', 'pads'))})"
-        )
     else:
         text = node.name if node.name is not None else f"<{node.op}>"
     cache[oid] = text
@@ -544,8 +525,6 @@ def symbolic_tangent_expr(
         result = _SYM_ZERO if tangents[0].is_zero else _sym(f"cos({parent_primal[0]}) * ({tangent_refs[0]})")
     elif node.op == "cos":
         result = _SYM_ZERO if tangents[0].is_zero else _sym(f"-sin({parent_primal[0]}) * ({tangent_refs[0]})")
-    elif node.op == "relu":
-        result = _SYM_ZERO if tangents[0].is_zero else _sym(f"if {parent_primal[0]} > 0.0 {{ {tangent_refs[0]} }} else {{ 0.0 }}")
     elif node.op == "sum":
         result = _SYM_ZERO if tangents[0].is_zero else _sym(
             f"sum({tangent_refs[0]}, axis={node.meta.get('axis')}, keepdims={node.meta.get('keepdims', False)})"
@@ -571,31 +550,6 @@ def symbolic_tangent_expr(
             )
     elif node.op == "custom_diff_call":
         result = node.meta["symbolic_fn"](parents, tangents, primal_cache)
-    elif node.op == "conv":
-        dx, dw, db = tangents
-        terms = []
-        if not dx.is_zero:
-            terms.append(
-                "conv("
-                f"{tangent_refs[0]}, {parent_primal[1]}, 0.0, "
-                f"{_format_meta(node.meta, ('stride', 'pad_begin', 'pad_end', 'dilation', 'group'))})"
-            )
-        if not dw.is_zero or not db.is_zero:
-            terms.append(
-                "conv("
-                f"{parent_primal[0]}, {tangent_refs[1] if not dw.is_zero else '0.0'}, {tangent_refs[2] if not db.is_zero else '0.0'}, "
-                f"{_format_meta(node.meta, ('stride', 'pad_begin', 'pad_end', 'dilation', 'group'))})"
-            )
-        result = _SYM_ZERO if not terms else _sym(" + ".join(terms))
-    elif node.op == "max_pool":
-        result = _SYM_ZERO if tangents[0].is_zero else _sym(
-            f"select_at_argmax({parent_primal[0]}, {tangent_refs[0]}, "
-            f"{_format_meta(node.meta, ('kernel_shape', 'strides', 'pads'))})"
-        )
-    elif node.op == "avg_pool":
-        result = _SYM_ZERO if tangents[0].is_zero else _sym(
-            f"avg_pool({tangent_refs[0]}, {_format_meta(node.meta, ('kernel_shape', 'strides', 'pads'))})"
-        )
     else:
         result = _sym(f"@{node.name or node.op}")
 
@@ -649,423 +603,6 @@ def _toposort(root: Tensor) -> list[Tensor]:
 
     dfs(root)
     return order
-
-
-def _pad_spatial(
-    x: np.ndarray,
-    pad_begin: Sequence[int],
-    pad_end: Sequence[int],
-) -> np.ndarray:
-    rank = len(pad_begin)
-    if len(pad_end) != rank:
-        raise ValueError("pad_begin and pad_end must have the same rank")
-    return np.pad(
-        _as_array(x),
-        [(0, 0), (0, 0)] + [(int(pad_begin[d]), int(pad_end[d])) for d in range(rank)],
-        mode="constant",
-        constant_values=0.0,
-    )
-
-
-def _conv_output_spatial_shape(
-    padded_spatial: Sequence[int],
-    kernel: Sequence[int],
-    stride: Sequence[int],
-    dilation: Sequence[int],
-) -> Tuple[int, ...]:
-    out = []
-    for d in range(len(padded_spatial)):
-        val = (int(padded_spatial[d]) - int(dilation[d]) * (int(kernel[d]) - 1) - 1) // int(stride[d]) + 1
-        out.append(int(val))
-    return tuple(out)
-
-
-def _tensor_vjp(
-    dy: np.ndarray,
-    u: np.ndarray,
-    v: np.ndarray,
-    out_index: np.ndarray,
-    u_index: np.ndarray,
-    v_index: np.ndarray,
-    *,
-    accumulate_dv: bool = True,
-) -> Tuple[np.ndarray, np.ndarray]:
-    dyf = _as_array(dy).reshape(-1)
-    uf = _as_array(u).reshape(-1)
-    vf = _as_array(v).reshape(-1)
-    oi = np.asarray(out_index, dtype=np.int64).reshape(-1)
-    ui = np.asarray(u_index, dtype=np.int64).reshape(-1)
-    vi = np.asarray(v_index, dtype=np.int64).reshape(-1)
-    if not (oi.size == ui.size == vi.size):
-        raise ValueError("index arrays must have matching lengths")
-    du = np.zeros_like(uf)
-    dv = np.zeros_like(vf)
-    if oi.size:
-        np.add.at(du, ui, dyf[oi] * vf[vi])
-        if accumulate_dv:
-            np.add.at(dv, vi, dyf[oi] * uf[ui])
-    return du.reshape(u.shape), dv.reshape(v.shape)
-
-
-def conv_forward(
-    x: np.ndarray,
-    w: np.ndarray,
-    b: np.ndarray,
-    stride: Sequence[int],
-    pad_begin: Sequence[int],
-    pad_end: Sequence[int],
-    dilation: Sequence[int],
-    group: int = 1,
-) -> np.ndarray:
-    x = _as_array(x)
-    w = _as_array(w)
-    b = _as_array(b)
-    rank = x.ndim - 2
-    if w.ndim != 2 + rank:
-        raise ValueError("weight rank must match input spatial rank")
-    n, c_in = x.shape[0], x.shape[1]
-    c_out, cpg = w.shape[0], w.shape[1]
-    if c_in % group != 0 or c_out % group != 0:
-        raise ValueError("group must divide input and output channels")
-    if cpg != c_in // group:
-        raise ValueError("weight second dimension must be C_in / group")
-    fpg = c_out // group
-    kernel = list(w.shape[2:])
-    x_p = _pad_spatial(x, pad_begin, pad_end)
-    padded_spatial = [int(x_p.shape[2 + d]) for d in range(rank)]
-    out_sp = _conv_output_spatial_shape(padded_spatial, kernel, stride, dilation)
-    y = np.zeros((n, c_out) + out_sp, dtype=np.float64)
-
-    for b_ in range(n):
-        for co in range(c_out):
-            g = co // fpg
-            base_cl = g * cpg
-            bias = float(b[co])
-            for rest_out in itertools.product(*[range(o) for o in out_sp]):
-                acc = bias
-                for cl_off in range(cpg):
-                    cl = base_cl + cl_off
-                    for k_rest in itertools.product(*[range(kernel[d]) for d in range(rank)]):
-                        pos = []
-                        ok = True
-                        for d in range(rank):
-                            p = int(rest_out[d]) * int(stride[d]) + int(k_rest[d]) * int(dilation[d])
-                            if not (0 <= p < padded_spatial[d]):
-                                ok = False
-                                break
-                            pos.append(p)
-                        if ok:
-                            acc += x_p[(b_, cl) + tuple(pos)] * w[(co, cl_off) + tuple(k_rest)]
-                y[(b_, co) + rest_out] = acc
-    return y
-
-
-def conv_vjp(
-    x: np.ndarray,
-    w: np.ndarray,
-    dy: np.ndarray,
-    stride: Sequence[int],
-    pad_begin: Sequence[int],
-    pad_end: Sequence[int],
-    dilation: Sequence[int],
-    group: int = 1,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    x = _as_array(x)
-    w = _as_array(w)
-    dy = _as_array(dy)
-    rank = x.ndim - 2
-    n, c_in = x.shape[0], x.shape[1]
-    c_out, cpg = w.shape[0], w.shape[1]
-    if c_in % group != 0 or c_out % group != 0 or cpg != c_in // group:
-        raise ValueError("invalid grouped convolution shapes")
-    fpg = c_out // group
-    kernel = list(w.shape[2:])
-    x_p = _pad_spatial(x, pad_begin, pad_end)
-    padded_spatial = [int(x_p.shape[2 + d]) for d in range(rank)]
-    out_sp = _conv_output_spatial_shape(padded_spatial, kernel, stride, dilation)
-    if dy.shape != (n, c_out) + out_sp:
-        raise ValueError("dy shape mismatch for conv_vjp")
-
-    o_list: list[int] = []
-    iu_list: list[int] = []
-    iv_list: list[int] = []
-    db = np.zeros(c_out, dtype=np.float64)
-
-    for b_ in range(n):
-        for co in range(c_out):
-            g = co // fpg
-            base_cl = g * cpg
-            for rest_out in itertools.product(*[range(o) for o in out_sp]):
-                db[co] += float(dy[(b_, co) + rest_out])
-                o_flat = int(np.ravel_multi_index((b_, co) + rest_out, dy.shape))
-                for cl_off in range(cpg):
-                    cl = base_cl + cl_off
-                    for k_rest in itertools.product(*[range(kernel[d]) for d in range(rank)]):
-                        pos = []
-                        ok = True
-                        for d in range(rank):
-                            p = int(rest_out[d]) * int(stride[d]) + int(k_rest[d]) * int(dilation[d])
-                            if not (0 <= p < padded_spatial[d]):
-                                ok = False
-                                break
-                            pos.append(p)
-                        if ok:
-                            o_list.append(o_flat)
-                            iu_list.append(int(np.ravel_multi_index((b_, cl) + tuple(pos), x_p.shape)))
-                            iv_list.append(int(np.ravel_multi_index((co, cl_off) + tuple(k_rest), w.shape)))
-
-    dx_p, dw = _tensor_vjp(
-        dy,
-        x_p,
-        w,
-        np.asarray(o_list, dtype=np.int64),
-        np.asarray(iu_list, dtype=np.int64),
-        np.asarray(iv_list, dtype=np.int64),
-    )
-    slices = [slice(None), slice(None)]
-    for d in range(rank):
-        pb = int(pad_begin[d])
-        lim = int(x.shape[2 + d])
-        slices.append(slice(pb, pb + lim))
-    dx = np.array(dx_p[tuple(slices)], dtype=np.float64, copy=True)
-    return dx, dw, db
-
-
-def _pool_output_spatial_shape(
-    in_spatial: Sequence[int],
-    kernel_shape: Sequence[int],
-    strides: Sequence[int],
-    pads: Sequence[int],
-) -> Tuple[int, ...]:
-    out = []
-    for d in range(len(in_spatial)):
-        kd = int(kernel_shape[d])
-        sd = int(strides[d])
-        pd = int(pads[d])
-        i = 0
-        while True:
-            hit = False
-            for m in range(kd):
-                t = i * sd - pd + m
-                if 0 <= t < int(in_spatial[d]):
-                    hit = True
-                    break
-            if not hit:
-                break
-            i += 1
-        out.append(i)
-    return tuple(out)
-
-
-def _pool_window_value_max(
-    x: np.ndarray,
-    b_: int,
-    ch: int,
-    rest_out: Tuple[int, ...],
-    in_sp: Sequence[int],
-    ks: Sequence[int],
-    st: Sequence[int],
-    pd: Sequence[int],
-) -> Tuple[float, Optional[Tuple[int, ...]]]:
-    rank = len(ks)
-    best = -np.inf
-    winner: Optional[Tuple[int, ...]] = None
-    for k_rest in itertools.product(*[range(int(ks[d])) for d in range(rank)]):
-        pos = []
-        ok = True
-        for d in range(rank):
-            t = int(rest_out[d]) * int(st[d]) - int(pd[d]) + int(k_rest[d])
-            if not (0 <= t < int(in_sp[d])):
-                ok = False
-                break
-            pos.append(t)
-        if ok:
-            value = float(x[(b_, ch) + tuple(pos)])
-        else:
-            value = -np.inf
-        if value > best:
-            best = value
-            winner = tuple(pos) if ok else None
-    return float(best), winner
-
-
-def max_pool_forward(
-    x: np.ndarray,
-    kernel_shape: Sequence[int],
-    strides: Sequence[int],
-    pads: Sequence[int],
-) -> np.ndarray:
-    x = _as_array(x)
-    rank = x.ndim - 2
-    n, c = x.shape[0], x.shape[1]
-    in_sp = [int(x.shape[2 + d]) for d in range(rank)]
-    ks = [int(kernel_shape[d]) for d in range(rank)]
-    st = [int(strides[d]) for d in range(rank)]
-    pd = [int(pads[d]) for d in range(rank)]
-    out_sp = _pool_output_spatial_shape(in_sp, ks, st, pd)
-    y = np.empty((n, c) + out_sp, dtype=np.float64)
-    for b_ in range(n):
-        for ch in range(c):
-            for rest_out in itertools.product(*[range(o) for o in out_sp]):
-                value, _ = _pool_window_value_max(x, b_, ch, rest_out, in_sp, ks, st, pd)
-                y[(b_, ch) + rest_out] = value
-    return y
-
-
-def max_pool_jvp(
-    x: np.ndarray,
-    dx: np.ndarray,
-    kernel_shape: Sequence[int],
-    strides: Sequence[int],
-    pads: Sequence[int],
-) -> np.ndarray:
-    x = _as_array(x)
-    dx = _as_array(dx)
-    rank = x.ndim - 2
-    n, c = x.shape[0], x.shape[1]
-    in_sp = [int(x.shape[2 + d]) for d in range(rank)]
-    ks = [int(kernel_shape[d]) for d in range(rank)]
-    st = [int(strides[d]) for d in range(rank)]
-    pd = [int(pads[d]) for d in range(rank)]
-    out_sp = _pool_output_spatial_shape(in_sp, ks, st, pd)
-    dy = np.zeros((n, c) + out_sp, dtype=np.float64)
-    for b_ in range(n):
-        for ch in range(c):
-            for rest_out in itertools.product(*[range(o) for o in out_sp]):
-                _, winner = _pool_window_value_max(x, b_, ch, rest_out, in_sp, ks, st, pd)
-                if winner is not None:
-                    dy[(b_, ch) + rest_out] = dx[(b_, ch) + winner]
-    return dy
-
-
-def max_pool_vjp(
-    x: np.ndarray,
-    dy: np.ndarray,
-    kernel_shape: Sequence[int],
-    strides: Sequence[int],
-    pads: Sequence[int],
-) -> np.ndarray:
-    x = _as_array(x)
-    dy = _as_array(dy)
-    rank = x.ndim - 2
-    n, c = x.shape[0], x.shape[1]
-    in_sp = [int(x.shape[2 + d]) for d in range(rank)]
-    ks = [int(kernel_shape[d]) for d in range(rank)]
-    st = [int(strides[d]) for d in range(rank)]
-    pd = [int(pads[d]) for d in range(rank)]
-    out_sp = _pool_output_spatial_shape(in_sp, ks, st, pd)
-    if dy.shape != (n, c) + out_sp:
-        raise ValueError("dy shape mismatch for max_pool_vjp")
-
-    o_list: list[int] = []
-    iu_list: list[int] = []
-    for b_ in range(n):
-        for ch in range(c):
-            for rest_out in itertools.product(*[range(o) for o in out_sp]):
-                _, winner = _pool_window_value_max(x, b_, ch, rest_out, in_sp, ks, st, pd)
-                if winner is None:
-                    continue
-                o_list.append(int(np.ravel_multi_index((b_, ch) + rest_out, dy.shape)))
-                iu_list.append(int(np.ravel_multi_index((b_, ch) + winner, x.shape)))
-
-    vi0 = np.zeros(len(o_list), dtype=np.int64)
-    du, _ = _tensor_vjp(
-        dy,
-        x,
-        np.array([1.0], dtype=np.float64),
-        np.asarray(o_list, dtype=np.int64),
-        np.asarray(iu_list, dtype=np.int64),
-        vi0,
-        accumulate_dv=False,
-    )
-    return du
-
-
-def average_pool_forward(
-    x: np.ndarray,
-    kernel_shape: Sequence[int],
-    strides: Sequence[int],
-    pads: Sequence[int],
-) -> np.ndarray:
-    x = _as_array(x)
-    rank = x.ndim - 2
-    n, c = x.shape[0], x.shape[1]
-    in_sp = [int(x.shape[2 + d]) for d in range(rank)]
-    ks = [int(kernel_shape[d]) for d in range(rank)]
-    st = [int(strides[d]) for d in range(rank)]
-    pd = [int(pads[d]) for d in range(rank)]
-    out_sp = _pool_output_spatial_shape(in_sp, ks, st, pd)
-    vol = float(np.prod(ks))
-    y = np.zeros((n, c) + out_sp, dtype=np.float64)
-    for b_ in range(n):
-        for ch in range(c):
-            for rest_out in itertools.product(*[range(o) for o in out_sp]):
-                acc = 0.0
-                for k_rest in itertools.product(*[range(ks[d]) for d in range(rank)]):
-                    pos = []
-                    ok = True
-                    for d in range(rank):
-                        t = int(rest_out[d]) * int(st[d]) - int(pd[d]) + int(k_rest[d])
-                        if not (0 <= t < int(in_sp[d])):
-                            ok = False
-                            break
-                        pos.append(t)
-                    if ok:
-                        acc += float(x[(b_, ch) + tuple(pos)])
-                y[(b_, ch) + rest_out] = acc / vol
-    return y
-
-
-def average_pool_vjp(
-    x: np.ndarray,
-    dy: np.ndarray,
-    kernel_shape: Sequence[int],
-    strides: Sequence[int],
-    pads: Sequence[int],
-) -> np.ndarray:
-    x = _as_array(x)
-    dy = _as_array(dy)
-    rank = x.ndim - 2
-    n, c = x.shape[0], x.shape[1]
-    in_sp = [int(x.shape[2 + d]) for d in range(rank)]
-    ks = [int(kernel_shape[d]) for d in range(rank)]
-    st = [int(strides[d]) for d in range(rank)]
-    pd = [int(pads[d]) for d in range(rank)]
-    out_sp = _pool_output_spatial_shape(in_sp, ks, st, pd)
-    if dy.shape != (n, c) + out_sp:
-        raise ValueError("dy shape mismatch for average_pool_vjp")
-
-    vol = float(np.prod(ks))
-    o_list: list[int] = []
-    iu_list: list[int] = []
-    for b_ in range(n):
-        for ch in range(c):
-            for rest_out in itertools.product(*[range(o) for o in out_sp]):
-                o_flat = int(np.ravel_multi_index((b_, ch) + rest_out, dy.shape))
-                for k_rest in itertools.product(*[range(ks[d]) for d in range(rank)]):
-                    pos = []
-                    ok = True
-                    for d in range(rank):
-                        t = int(rest_out[d]) * int(st[d]) - int(pd[d]) + int(k_rest[d])
-                        if not (0 <= t < int(in_sp[d])):
-                            ok = False
-                            break
-                        pos.append(t)
-                    if ok:
-                        o_list.append(o_flat)
-                        iu_list.append(int(np.ravel_multi_index((b_, ch) + tuple(pos), x.shape)))
-
-    vi0 = np.zeros(len(o_list), dtype=np.int64)
-    du, _ = _tensor_vjp(
-        dy,
-        x,
-        np.array([1.0 / vol], dtype=np.float64),
-        np.asarray(o_list, dtype=np.int64),
-        np.asarray(iu_list, dtype=np.int64),
-        vi0,
-        accumulate_dv=False,
-    )
-    return du
 
 
 def _jvp_add(inputs: Tuple[np.ndarray, ...], tangents: Tuple[np.ndarray, ...], _meta: Dict[str, Any], _out: np.ndarray) -> np.ndarray:
@@ -1160,14 +697,6 @@ def _vjp_cos(inputs: Tuple[np.ndarray, ...], cotangent: np.ndarray, _meta: Dict[
     return (-cotangent * np.sin(inputs[0]),)
 
 
-def _jvp_relu(inputs: Tuple[np.ndarray, ...], tangents: Tuple[np.ndarray, ...], _meta: Dict[str, Any], _out: np.ndarray) -> np.ndarray:
-    return (inputs[0] > 0.0).astype(np.float64) * tangents[0]
-
-
-def _vjp_relu(inputs: Tuple[np.ndarray, ...], cotangent: np.ndarray, _meta: Dict[str, Any], _out: np.ndarray) -> Tuple[np.ndarray, ...]:
-    return ((inputs[0] > 0.0).astype(np.float64) * cotangent,)
-
-
 def _jvp_sum(_inputs: Tuple[np.ndarray, ...], tangents: Tuple[np.ndarray, ...], meta: Dict[str, Any], _out: np.ndarray) -> np.ndarray:
     axis = meta.get("axis")
     keepdims = bool(meta.get("keepdims", False))
@@ -1222,36 +751,6 @@ def _vjp_where(inputs: Tuple[np.ndarray, ...], cotangent: np.ndarray, meta: Dict
     return then_ct, else_ct
 
 
-def _jvp_conv(inputs: Tuple[np.ndarray, ...], tangents: Tuple[np.ndarray, ...], meta: Dict[str, Any], _out: np.ndarray) -> np.ndarray:
-    x, w, b = inputs
-    dx, dw, db = tangents
-    zero_b = np.zeros_like(b, dtype=np.float64)
-    return conv_forward(dx, w, zero_b, meta["stride"], meta["pad_begin"], meta["pad_end"], meta["dilation"], meta["group"]) + conv_forward(
-        x, dw, db, meta["stride"], meta["pad_begin"], meta["pad_end"], meta["dilation"], meta["group"]
-    )
-
-
-def _vjp_conv(inputs: Tuple[np.ndarray, ...], cotangent: np.ndarray, meta: Dict[str, Any], _out: np.ndarray) -> Tuple[np.ndarray, ...]:
-    x, w, _b = inputs
-    return conv_vjp(x, w, cotangent, meta["stride"], meta["pad_begin"], meta["pad_end"], meta["dilation"], meta["group"])
-
-
-def _jvp_max_pool(inputs: Tuple[np.ndarray, ...], tangents: Tuple[np.ndarray, ...], meta: Dict[str, Any], _out: np.ndarray) -> np.ndarray:
-    return max_pool_jvp(inputs[0], tangents[0], meta["kernel_shape"], meta["strides"], meta["pads"])
-
-
-def _vjp_max_pool(inputs: Tuple[np.ndarray, ...], cotangent: np.ndarray, meta: Dict[str, Any], _out: np.ndarray) -> Tuple[np.ndarray, ...]:
-    return (max_pool_vjp(inputs[0], cotangent, meta["kernel_shape"], meta["strides"], meta["pads"]),)
-
-
-def _jvp_avg_pool(_inputs: Tuple[np.ndarray, ...], tangents: Tuple[np.ndarray, ...], meta: Dict[str, Any], _out: np.ndarray) -> np.ndarray:
-    return average_pool_forward(tangents[0], meta["kernel_shape"], meta["strides"], meta["pads"])
-
-
-def _vjp_avg_pool(inputs: Tuple[np.ndarray, ...], cotangent: np.ndarray, meta: Dict[str, Any], _out: np.ndarray) -> Tuple[np.ndarray, ...]:
-    return (average_pool_vjp(inputs[0], cotangent, meta["kernel_shape"], meta["strides"], meta["pads"]),)
-
-
 _RULES: Dict[str, PrimitiveRule] = {
     "add": PrimitiveRule(_jvp_add, _vjp_add),
     "sub": PrimitiveRule(_jvp_sub, _vjp_sub),
@@ -1263,15 +762,11 @@ _RULES: Dict[str, PrimitiveRule] = {
     "log": PrimitiveRule(_jvp_log, _vjp_log),
     "sin": PrimitiveRule(_jvp_sin, _vjp_sin),
     "cos": PrimitiveRule(_jvp_cos, _vjp_cos),
-    "relu": PrimitiveRule(_jvp_relu, _vjp_relu),
     "sum": PrimitiveRule(_jvp_sum, _vjp_sum),
     "reshape": PrimitiveRule(_jvp_reshape, _vjp_reshape),
     "getitem": PrimitiveRule(_jvp_getitem, _vjp_getitem),
     "stack": PrimitiveRule(_jvp_stack, _vjp_stack),
     "where": PrimitiveRule(_jvp_where, _vjp_where),
-    "conv": PrimitiveRule(_jvp_conv, _vjp_conv),
-    "max_pool": PrimitiveRule(_jvp_max_pool, _vjp_max_pool),
-    "avg_pool": PrimitiveRule(_jvp_avg_pool, _vjp_avg_pool),
 }
 
 
@@ -1445,74 +940,6 @@ class LazyJacobianTensor:
 
 def jacobian(output: Tensor, wrt: Tensor) -> LazyJacobianTensor:
     return LazyJacobianTensor(output, wrt)
-
-
-def conv(
-    x: ArrayLike,
-    w: ArrayLike,
-    b: ArrayLike,
-    *,
-    stride: Sequence[int],
-    pad_begin: Sequence[int],
-    pad_end: Sequence[int],
-    dilation: Sequence[int],
-    group: int = 1,
-) -> Tensor:
-    x_t = ensure_tensor(x)
-    w_t = ensure_tensor(w)
-    b_t = ensure_tensor(b)
-    meta = {
-        "stride": tuple(int(v) for v in stride),
-        "pad_begin": tuple(int(v) for v in pad_begin),
-        "pad_end": tuple(int(v) for v in pad_end),
-        "dilation": tuple(int(v) for v in dilation),
-        "group": int(group),
-    }
-    value = conv_forward(x_t.value, w_t.value, b_t.value, meta["stride"], meta["pad_begin"], meta["pad_end"], meta["dilation"], meta["group"])
-    return Tensor(value, parents=(x_t, w_t, b_t), op="conv", meta=meta)
-
-
-def max_pool(
-    x: ArrayLike,
-    *,
-    kernel_shape: Sequence[int],
-    strides: Sequence[int],
-    pads: Sequence[int],
-) -> Tensor:
-    x_t = ensure_tensor(x)
-    meta = {
-        "kernel_shape": tuple(int(v) for v in kernel_shape),
-        "strides": tuple(int(v) for v in strides),
-        "pads": tuple(int(v) for v in pads),
-    }
-    value = max_pool_forward(x_t.value, meta["kernel_shape"], meta["strides"], meta["pads"])
-    return Tensor(value, parents=(x_t,), op="max_pool", meta=meta)
-
-
-def avg_pool(
-    x: ArrayLike,
-    *,
-    kernel_shape: Sequence[int],
-    strides: Sequence[int],
-    pads: Sequence[int],
-) -> Tensor:
-    x_t = ensure_tensor(x)
-    meta = {
-        "kernel_shape": tuple(int(v) for v in kernel_shape),
-        "strides": tuple(int(v) for v in strides),
-        "pads": tuple(int(v) for v in pads),
-    }
-    value = average_pool_forward(x_t.value, meta["kernel_shape"], meta["strides"], meta["pads"])
-    return Tensor(value, parents=(x_t,), op="avg_pool", meta=meta)
-
-
-def softmax(x: Tensor, axis: int = -1) -> Tensor:
-    ex = x.exp()
-    return ex / ex.sum(axis=axis, keepdims=True)
-
-
-def relu(x: ArrayLike) -> Tensor:
-    return ensure_tensor(x).relu()
 
 
 class IRAutodiffError(RuntimeError):
@@ -1983,9 +1410,6 @@ class _IRTranslator:
         custom = self._try_translate_custom_diff_call(callee_binding, expr, args, locals_map)
         if custom is not None:
             return custom
-        intrinsic = self._try_translate_structural_call(callee_binding, args, locals_map)
-        if intrinsic is not None:
-            return intrinsic
         if isinstance(callee_binding, BindingIR) and isinstance(callee_binding.expr, FunctionValueIR):
             fv = callee_binding.expr
             child_locals = dict(locals_map)
@@ -2072,99 +1496,6 @@ class _IRTranslator:
             symbolic_fn=symbolic_fn,
         )
 
-    def _try_translate_structural_call(
-        self,
-        callee_binding: Any,
-        args: List[ExpressionIR],
-        locals_map: Dict[DefId, Tensor],
-    ) -> Optional[Tensor]:
-        if not (isinstance(callee_binding, BindingIR) and isinstance(callee_binding.expr, FunctionValueIR)):
-            return None
-        body = callee_binding.expr.body
-        if not isinstance(body, BlockExpressionIR):
-            return None
-        helper_names = self._structural_call_names(body.final_expr)
-
-        if {"conv1d", "conv2d", "conv3d"} & helper_names and len(args) == 7:
-            stride = tuple(int(v) for v in np.asarray(self.eval_primal(args[3], locals_map)).reshape(-1))
-            pads = tuple(int(v) for v in np.asarray(self.eval_primal(args[4], locals_map)).reshape(-1))
-            dilation = tuple(int(v) for v in np.asarray(self.eval_primal(args[5], locals_map)).reshape(-1))
-            group = int(np.asarray(self.eval_primal(args[6], locals_map)).reshape(-1)[0])
-            rank = len(stride)
-            if len(pads) != 2 * rank:
-                raise IRAutodiffError(f"conv pads length must be 2 * rank, got pads={pads} stride={stride}")
-            pad_begin = tuple(int(pads[d]) for d in range(rank))
-            pad_end = tuple(int(pads[rank + d]) for d in range(rank))
-            return conv(
-                self.translate_expr(args[0], locals_map),
-                self.translate_expr(args[1], locals_map),
-                self.translate_expr(args[2], locals_map),
-                stride=stride,
-                pad_begin=pad_begin,
-                pad_end=pad_end,
-                dilation=dilation,
-                group=group,
-            )
-
-        if {"max_pool1d", "max_pool2d", "max_pool3d"} & helper_names and len(args) == 4:
-            kernel = tuple(int(v) for v in np.asarray(self.eval_primal(args[1], locals_map)).reshape(-1))
-            stride = tuple(int(v) for v in np.asarray(self.eval_primal(args[2], locals_map)).reshape(-1))
-            pads = tuple(int(v) for v in np.asarray(self.eval_primal(args[3], locals_map)).reshape(-1))
-            return max_pool(self.translate_expr(args[0], locals_map), kernel_shape=kernel, strides=stride, pads=pads)
-
-        if {"average_pool1d", "average_pool2d", "average_pool3d"} & helper_names and len(args) == 4:
-            kernel = tuple(int(v) for v in np.asarray(self.eval_primal(args[1], locals_map)).reshape(-1))
-            stride = tuple(int(v) for v in np.asarray(self.eval_primal(args[2], locals_map)).reshape(-1))
-            pads = tuple(int(v) for v in np.asarray(self.eval_primal(args[3], locals_map)).reshape(-1))
-            return avg_pool(self.translate_expr(args[0], locals_map), kernel_shape=kernel, strides=stride, pads=pads)
-
-        return None
-
-    def _structural_call_names(self, expr: Optional[ExpressionIR]) -> Set[str]:
-        out: Set[str] = set()
-
-        def walk(node: Any) -> None:
-            if node is None:
-                return
-            if isinstance(node, FunctionCallIR):
-                if node.function_name:
-                    out.add(node.function_name)
-                for arg in node.arguments or ():
-                    walk(arg)
-                walk(node.callee_expr)
-                return
-            if isinstance(node, IfExpressionIR):
-                walk(node.condition)
-                walk(node.then_expr)
-                walk(node.else_expr)
-                return
-            if isinstance(node, BlockExpressionIR):
-                for stmt in node.statements or ():
-                    walk(stmt)
-                walk(node.final_expr)
-                return
-            if isinstance(node, BindingIR):
-                walk(node.expr)
-                return
-            if isinstance(node, IRNode):
-                for cls in type(node).__mro__:
-                    for slot in getattr(cls, "__slots__", ()):
-                        if slot == "location":
-                            continue
-                        walk(getattr(node, slot, None))
-                return
-            if isinstance(node, (list, tuple)):
-                for item in node:
-                    walk(item)
-                return
-            if isinstance(node, dict):
-                for k, v in node.items():
-                    walk(k)
-                    walk(v)
-
-        walk(expr)
-        return out
-
     def eval_primal(self, expr: ExpressionIR, locals_map: Dict[DefId, Tensor]) -> Any:
         if isinstance(expr, LiteralIR):
             return expr.value
@@ -2186,6 +1517,59 @@ class _IRTranslator:
             return locals_map[expr.defid].value
         if isinstance(expr, ArrayLiteralIR):
             return np.asarray([self.eval_primal(elem, locals_map) for elem in (expr.elements or [])], dtype=np.float64)
+        if isinstance(expr, BuiltinCallIR):
+            args = [self.eval_primal(arg, locals_map) for arg in (expr.args or [])]
+            name = expr.builtin_name
+            if name == "len":
+                target = args[0]
+                if isinstance(target, np.ndarray):
+                    return int(target.shape[0]) if target.ndim > 0 else int(target.size)
+                return len(target)
+            if name == "shape":
+                target = args[0]
+                if isinstance(target, np.ndarray):
+                    return np.asarray(target.shape, dtype=np.int32)
+                return np.asarray(np.shape(target), dtype=np.int32)
+            if name == "typeof":
+                target = args[0]
+                if isinstance(target, np.ndarray):
+                    return "rectangular"
+                if isinstance(target, str):
+                    return "str"
+                if isinstance(target, bool):
+                    return "bool"
+                if isinstance(target, (int, np.integer)):
+                    return "i32"
+                if isinstance(target, (float, np.floating)):
+                    return "f32"
+                return type(target).__name__
+            if name == "sum":
+                return np.sum(np.asarray(args[0]))
+            if name == "max":
+                if len(args) == 1:
+                    return np.max(np.asarray(args[0]))
+                return np.maximum(np.asarray(args[0]), np.asarray(args[1]))
+            if name == "min":
+                if len(args) == 1:
+                    return np.min(np.asarray(args[0]))
+                return np.minimum(np.asarray(args[0]), np.asarray(args[1]))
+            if name == "assert":
+                cond = bool(np.asarray(args[0]).all())
+                if not cond:
+                    raise IRAutodiffError(str(args[1]) if len(args) > 1 else "assertion failed")
+                return None
+            raise IRAutodiffError(f"Unsupported builtin in phase-1 autodiff primal eval: {name}")
+        if isinstance(expr, MemberAccessIR):
+            obj = self.eval_primal(expr.object, locals_map)
+            if expr.member == "shape":
+                if isinstance(obj, np.ndarray):
+                    return np.asarray(obj.shape, dtype=np.int32)
+                return np.asarray(np.shape(obj), dtype=np.int32)
+            if expr.member == "size":
+                if isinstance(obj, np.ndarray):
+                    return int(obj.size)
+                return int(np.size(obj))
+            raise IRAutodiffError(f"Unsupported member access in phase-1 autodiff primal eval: {expr.member}")
         if isinstance(expr, RectangularAccessIR):
             base = np.asarray(self.eval_primal(expr.array, locals_map))
             indices = tuple(int(np.asarray(self.eval_primal(idx, locals_map)).reshape(-1)[0]) for idx in (expr.indices or []))
@@ -2223,6 +1607,12 @@ class _IRTranslator:
                 return np.asarray(left) == np.asarray(right)
             if expr.operator == BinaryOp.NE:
                 return np.asarray(left) != np.asarray(right)
+            if expr.operator == BinaryOp.AND:
+                return np.asarray(left).astype(bool) & np.asarray(right).astype(bool)
+            if expr.operator == BinaryOp.OR:
+                return np.asarray(left).astype(bool) | np.asarray(right).astype(bool)
+            if expr.operator == BinaryOp.MOD:
+                return np.asarray(left) % np.asarray(right)
         if isinstance(expr, BlockExpressionIR):
             child = dict(locals_map)
             for stmt in expr.statements or []:
@@ -2328,48 +1718,3 @@ def _assert_allclose(actual: ArrayLike, expected: ArrayLike, *, atol: float = 1e
     e = _as_array(expected)
     if not np.allclose(a, e, atol=atol, rtol=rtol):
         raise AssertionError(f"not close\nactual={a}\nexpected={e}")
-
-
-def _demo() -> None:
-    x = Tensor.leaf(np.array([0.2, -0.4, 0.7]), name="x")
-    y = softmax(x)
-    J = jacobian(y, x)
-
-    y_val = _as_array(y.value)
-    ref = np.diag(y_val) - np.outer(y_val, y_val)
-
-    _assert_allclose(J.materialize_via_jvp(), ref)
-    _assert_allclose(J.materialize_via_vjp(), ref)
-    _assert_allclose(np.asarray(J), ref)
-    _assert_allclose(J.column((1,)), ref[:, 1])
-    _assert_allclose(J.row((2,)), ref[2, :])
-    _assert_allclose(J[2, 1], ref[2, 1])
-
-    W = Tensor.leaf(np.array([[1.0, 2.0], [3.0, 4.0]]), name="W")
-    e = W[1, 0] * W[1, 0]
-    d_e_d_W = jacobian(e, W)
-    ref_alias = np.zeros_like(W.value)
-    ref_alias[1, 0] = 6.0
-    _assert_allclose(np.asarray(d_e_d_W), ref_alias)
-
-    s = Tensor.leaf(np.array(3.0), name="s")
-    loss = s * s + 2.0 * s + 1.0
-    _assert_allclose(jvp(loss, {s: np.array(1.0)}), np.array(8.0))
-    _assert_allclose(vjp(loss, np.array(1.0), s), np.array(8.0))
-
-    x2 = Tensor.leaf(np.array([[[[1.0, -2.0, 0.5], [0.3, 1.2, -0.7], [2.0, -1.0, 0.8]]]], dtype=np.float64), name="x")
-    w2 = Tensor.leaf(np.array([[[[0.4, -0.1], [0.2, 0.3]]]], dtype=np.float64), name="w")
-    b2 = Tensor.leaf(np.array([0.15], dtype=np.float64), name="b")
-    c = conv(x2, w2, b2, stride=(1, 1), pad_begin=(0, 0), pad_end=(0, 0), dilation=(1, 1), group=1).named("c")
-    r = relu(c).named("r")
-    p = max_pool(r, kernel_shape=(2, 2), strides=(1, 1), pads=(0, 0)).named("p")
-    symbolic = symbolic_tangent_program(p)
-    assert "let @c =" in symbolic
-    assert "select_at_argmax" in symbolic
-    assert "conv(@x" in symbolic or "conv(@x," in symbolic
-
-    print("ok: NumPy JVP/VJP/lazy-Jacobian prototype passes self-checks")
-
-
-if __name__ == "__main__":
-    _demo()
