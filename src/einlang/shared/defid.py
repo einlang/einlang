@@ -75,7 +75,6 @@ class DefId:
 _LOCAL_CRATE = 0
 BUILTIN_CRATE = 1
 _BUILTIN_CRATE = BUILTIN_CRATE
-RUNTIME_CRATE = -1
 
 FIXED_BUILTIN_ORDER = (
     "assert", "print", "len", "typeof", "array_append", "shape", "sum", "max", "min",
@@ -219,4 +218,3 @@ class Resolver:
         """Lookup module alias from tcx-scoped alias table."""
         return self._tcx.alias_table.get(alias_name)
     
-

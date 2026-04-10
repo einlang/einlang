@@ -1790,7 +1790,7 @@ class ExpressionVisitorMixin:
             return raw
 
         defid = _coerce_defid(expr.defid)
-        from ..autodiff import autodiff_builtin_kind
+        from ..shared.autodiff_intrinsics import autodiff_builtin_kind
 
         autodiff_kind = autodiff_builtin_kind(defid)
         if autodiff_kind is not None:
@@ -1814,9 +1814,10 @@ class ExpressionVisitorMixin:
 
     def _evaluate_autodiff_builtin(self, expr: BuiltinCallIR, kind: Any) -> Any:
         from ..passes.autodiff import AutodiffPass
+        from ..passes.autodiff.compiler import compile_autodiff_graph
         from ..shared.defid import DefId
-        from ..autodiff import (
-            AutodiffBuiltinKind,
+        from ..shared.autodiff_intrinsics import AutodiffBuiltinKind
+        from .numpy_autodiff import (
             jacobian_value_for_defids,
             symbolic_jacobian_relation,
             symbolic_tangent_for_defid,
@@ -1836,6 +1837,7 @@ class ExpressionVisitorMixin:
             binding_map.update(local_overlay)
             analysis = dict(analysis)
             analysis["graph_binding_by_defid"] = binding_map
+        compiled_graph = compile_autodiff_graph(analysis)
 
         def _identifier_defid(arg: Any) -> DefId:
             if not isinstance(arg, IdentifierIR) or arg.defid is None:
@@ -1844,21 +1846,21 @@ class ExpressionVisitorMixin:
 
         value_lookup = self.env.get_value
         if kind is AutodiffBuiltinKind.TANGENT:
-            return tangent_value_for_defid(_identifier_defid(expr.args[0]), analysis, value_lookup)
+            return tangent_value_for_defid(_identifier_defid(expr.args[0]), compiled_graph, value_lookup)
         if kind is AutodiffBuiltinKind.JACOBIAN:
             return jacobian_value_for_defids(
                 _identifier_defid(expr.args[0]),
                 _identifier_defid(expr.args[1]),
-                analysis,
+                compiled_graph,
                 value_lookup,
             )
         if kind is AutodiffBuiltinKind.SYMBOLIC_TANGENT:
-            return symbolic_tangent_for_defid(_identifier_defid(expr.args[0]), analysis, value_lookup)
+            return symbolic_tangent_for_defid(_identifier_defid(expr.args[0]), compiled_graph, value_lookup)
         if kind is AutodiffBuiltinKind.SYMBOLIC_JACOBIAN:
             return symbolic_jacobian_relation(
                 _identifier_defid(expr.args[0]),
                 _identifier_defid(expr.args[1]),
-                analysis,
+                compiled_graph,
                 value_lookup,
             )
         raise RuntimeError(f"Unknown internal autodiff builtin: {expr.builtin_name}")

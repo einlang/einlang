@@ -3,6 +3,7 @@
 from typing import Callable
 
 from ..ir.nodes import BlockExpressionIR
+from ..shared.defid import DefId
 
 from .numpy_einstein_vectorization import *
 from .numpy_einstein_analysis import (
@@ -435,9 +436,10 @@ class EinsteinExecutionSetupMixin:
         """
         out_defid = _infer_lowered_einstein_output_defid(lowered)
         if out_defid is None:
-            seq = getattr(self, "_nested_einstein_synth_seq", 0) + 1
-            self._nested_einstein_synth_seq = seq
-            out_defid = DefId(RUNTIME_CRATE, seq)
+            raise RuntimeError(
+                "Nested LoweredEinsteinIR is missing a compile-time output DefId. "
+                "Compiler lowering must annotate the storage target instead of synthesizing it at runtime."
+            )
 
         class _SyntheticEinsteinDecl:
             __slots__ = ("defid", "name")

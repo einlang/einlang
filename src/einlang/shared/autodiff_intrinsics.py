@@ -1,4 +1,4 @@
-"""Structural runtime intrinsics for autodiff lowering and execution."""
+"""Structural runtime intrinsics shared by autodiff compiler and runtime."""
 
 from __future__ import annotations
 
@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Optional
 
-from ..shared.defid import DefId, RUNTIME_CRATE
+from .defid import BUILTIN_CRATE, DefId
+
+
+_AUTODIFF_INTERNAL_BUILTIN_BASE = 10000
 
 
 class AutodiffBuiltinKind(Enum):
@@ -26,22 +29,22 @@ class AutodiffBuiltinSpec:
 _AUTODIFF_BUILTIN_SPECS = (
     AutodiffBuiltinSpec(
         AutodiffBuiltinKind.TANGENT,
-        DefId(RUNTIME_CRATE, 0),
+        DefId(BUILTIN_CRATE, _AUTODIFF_INTERNAL_BUILTIN_BASE + 0),
         "__autodiff_tangent",
     ),
     AutodiffBuiltinSpec(
         AutodiffBuiltinKind.JACOBIAN,
-        DefId(RUNTIME_CRATE, 1),
+        DefId(BUILTIN_CRATE, _AUTODIFF_INTERNAL_BUILTIN_BASE + 1),
         "__autodiff_jacobian",
     ),
     AutodiffBuiltinSpec(
         AutodiffBuiltinKind.SYMBOLIC_TANGENT,
-        DefId(RUNTIME_CRATE, 2),
+        DefId(BUILTIN_CRATE, _AUTODIFF_INTERNAL_BUILTIN_BASE + 2),
         "__autodiff_symbolic_tangent",
     ),
     AutodiffBuiltinSpec(
         AutodiffBuiltinKind.SYMBOLIC_JACOBIAN,
-        DefId(RUNTIME_CRATE, 3),
+        DefId(BUILTIN_CRATE, _AUTODIFF_INTERNAL_BUILTIN_BASE + 3),
         "__autodiff_symbolic_jacobian",
     ),
 )

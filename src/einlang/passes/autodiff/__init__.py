@@ -19,7 +19,7 @@ from ..extremum_selection_canonicalization import ExtremumSelectionCanonicalizat
 from ..pre_autodiff_pruning import PreAutodiffPruningPass
 from ..shape_analysis import UnifiedShapeAnalysisPass
 from ..type_inference import TypeInferencePass
-from ...autodiff import (
+from ...shared.autodiff_intrinsics import (
     AutodiffBuiltinKind,
     autodiff_builtin_defid,
     autodiff_builtin_name,

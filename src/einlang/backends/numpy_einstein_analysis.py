@@ -15,7 +15,6 @@ from ..ir.nodes import (
     is_function_binding, is_einstein_binding,
     IRVisitor, BindingIR,
 )
-from ..shared.defid import DefId, RUNTIME_CRATE
 from ..shared.optional_attr import opt_defid
 from ..shared.types import (
     BF16,
