@@ -12,6 +12,7 @@ This module is the executable core behind the new autodiff design:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum, auto
 import itertools
 from typing import Any, Callable, Dict, Optional, Sequence, Set, Tuple
 
@@ -44,12 +45,21 @@ from .ir.nodes import (
     UnaryOpIR,
     is_function_binding,
 )
-from .shared.defid import DefId
+from .shared.defid import DefId, fixed_builtin_defid
 from .shared.types import BinaryOp, ReductionOp, UnaryOp
 
 
 ArrayLike = Any
 Index = Any
+
+
+_LEN_BUILTIN_DEFID = fixed_builtin_defid("len")
+_SHAPE_BUILTIN_DEFID = fixed_builtin_defid("shape")
+_TYPEOF_BUILTIN_DEFID = fixed_builtin_defid("typeof")
+_SUM_BUILTIN_DEFID = fixed_builtin_defid("sum")
+_MAX_BUILTIN_DEFID = fixed_builtin_defid("max")
+_MIN_BUILTIN_DEFID = fixed_builtin_defid("min")
+_ASSERT_BUILTIN_DEFID = fixed_builtin_defid("assert")
 
 
 def _as_array(value: ArrayLike) -> np.ndarray:
@@ -68,6 +78,98 @@ def _identity_seed(value: Any) -> Any:
     if isinstance(value, np.ndarray):
         return np.ones_like(np.asarray(value, dtype=np.float64))
     return 1.0
+
+
+def _builtin_call_defid(expr: BuiltinCallIR) -> Optional[DefId]:
+    raw = getattr(expr, "defid", None)
+    if isinstance(raw, DefId):
+        return raw
+    return fixed_builtin_defid(expr.builtin_name)
+
+
+def _eval_builtin_len(args: Sequence[Any]) -> Any:
+    target = args[0]
+    if isinstance(target, np.ndarray):
+        return int(target.shape[0]) if target.ndim > 0 else int(target.size)
+    return len(target)
+
+
+def _eval_builtin_shape(args: Sequence[Any]) -> Any:
+    target = args[0]
+    if isinstance(target, np.ndarray):
+        return np.asarray(target.shape, dtype=np.int32)
+    return np.asarray(np.shape(target), dtype=np.int32)
+
+
+def _eval_builtin_typeof(args: Sequence[Any]) -> Any:
+    target = args[0]
+    if isinstance(target, np.ndarray):
+        return "rectangular"
+    if isinstance(target, str):
+        return "str"
+    if isinstance(target, bool):
+        return "bool"
+    if isinstance(target, (int, np.integer)):
+        return "i32"
+    if isinstance(target, (float, np.floating)):
+        return "f32"
+    return type(target).__name__
+
+
+def _eval_builtin_sum(args: Sequence[Any]) -> Any:
+    return np.sum(np.asarray(args[0]))
+
+
+def _eval_builtin_max(args: Sequence[Any]) -> Any:
+    if len(args) == 1:
+        return np.max(np.asarray(args[0]))
+    return np.maximum(np.asarray(args[0]), np.asarray(args[1]))
+
+
+def _eval_builtin_min(args: Sequence[Any]) -> Any:
+    if len(args) == 1:
+        return np.min(np.asarray(args[0]))
+    return np.minimum(np.asarray(args[0]), np.asarray(args[1]))
+
+
+def _eval_builtin_assert(args: Sequence[Any]) -> Any:
+    cond = bool(np.asarray(args[0]).all())
+    if not cond:
+        raise IRAutodiffError(str(args[1]) if len(args) > 1 else "assertion failed")
+    return None
+
+
+_PRIMAL_BUILTIN_EVALUATORS: Dict[Optional[DefId], Callable[[Sequence[Any]], Any]] = {
+    _LEN_BUILTIN_DEFID: _eval_builtin_len,
+    _SHAPE_BUILTIN_DEFID: _eval_builtin_shape,
+    _TYPEOF_BUILTIN_DEFID: _eval_builtin_typeof,
+    _SUM_BUILTIN_DEFID: _eval_builtin_sum,
+    _MAX_BUILTIN_DEFID: _eval_builtin_max,
+    _MIN_BUILTIN_DEFID: _eval_builtin_min,
+    _ASSERT_BUILTIN_DEFID: _eval_builtin_assert,
+}
+
+
+def _eval_member_shape(obj: Any) -> Any:
+    if isinstance(obj, np.ndarray):
+        return np.asarray(obj.shape, dtype=np.int32)
+    return np.asarray(np.shape(obj), dtype=np.int32)
+
+
+def _eval_member_size(obj: Any) -> Any:
+    if isinstance(obj, np.ndarray):
+        return int(obj.size)
+    return int(np.size(obj))
+
+
+_PRIMAL_MEMBER_ACCESSORS: Dict[Any, Callable[[Any], Any]] = {
+    "shape": _eval_member_shape,
+    "size": _eval_member_size,
+}
+
+_PYTHON_PRIMAL_MODULES: Dict[Tuple[str, ...], Any] = {
+    ("python", "numpy"): np,
+}
 
 
 def _sum_to_shape(value: ArrayLike, shape: Tuple[int, ...]) -> np.ndarray:
@@ -199,6 +301,30 @@ class SymbolicExpr:
     is_zero: bool = False
 
 
+class TensorOp(Enum):
+    ADD = auto()
+    SUB = auto()
+    MUL = auto()
+    DIV = auto()
+    POW = auto()
+    NEG = auto()
+    EXP = auto()
+    LOG = auto()
+    SIN = auto()
+    COS = auto()
+    SUM = auto()
+    RESHAPE = auto()
+    GETITEM = auto()
+    STACK = auto()
+    WHERE = auto()
+    CUSTOM_DIFF_CALL = auto()
+
+
+class LinearizationMode(Enum):
+    JVP = auto()
+    VJP = auto()
+
+
 _SYM_ZERO = SymbolicExpr("0.0", is_zero=True)
 
 
@@ -252,15 +378,17 @@ class Tensor:
         value: ArrayLike,
         *,
         parents: Sequence["Tensor"] = (),
-        op: Optional[str] = None,
+        op: Optional[TensorOp] = None,
         meta: Optional[Dict[str, Any]] = None,
         name: Optional[str] = None,
+        ir_node: Optional[ExpressionIR] = None,
     ) -> None:
         self.value = _as_array(value)
         self.parents = tuple(parents)
         self.op = op
         self.meta = dict(meta or {})
         self.name = name
+        self.ir_node = ir_node
 
     @property
     def shape(self) -> Tuple[int, ...]:
@@ -275,62 +403,62 @@ class Tensor:
         return int(self.value.size)
 
     def __repr__(self) -> str:
-        label = self.name if self.name is not None else (self.op or "leaf")
+        label = self.name if self.name is not None else (_TENSOR_OP_LABELS.get(self.op, "leaf"))
         return f"Tensor(name={label!r}, shape={self.shape}, value={self.value!r})"
 
     @staticmethod
     def leaf(value: ArrayLike, name: Optional[str] = None) -> "Tensor":
         return Tensor(value, name=name)
 
-    def _binary(self, op: str, other: ArrayLike) -> "Tensor":
+    def _binary(self, op: TensorOp, other: ArrayLike, *, ir_node: Optional[ExpressionIR] = None) -> "Tensor":
         rhs = ensure_tensor(other)
         value = _BINARY_IMPL[op](self.value, rhs.value)
-        return Tensor(value, parents=(self, rhs), op=op)
+        return Tensor(value, parents=(self, rhs), op=op, ir_node=ir_node)
 
     def __add__(self, other: ArrayLike) -> "Tensor":
-        return self._binary("add", other)
+        return self._binary(TensorOp.ADD, other)
 
     def __radd__(self, other: ArrayLike) -> "Tensor":
-        return ensure_tensor(other)._binary("add", self)
+        return ensure_tensor(other)._binary(TensorOp.ADD, self)
 
     def __sub__(self, other: ArrayLike) -> "Tensor":
-        return self._binary("sub", other)
+        return self._binary(TensorOp.SUB, other)
 
     def __rsub__(self, other: ArrayLike) -> "Tensor":
-        return ensure_tensor(other)._binary("sub", self)
+        return ensure_tensor(other)._binary(TensorOp.SUB, self)
 
     def __mul__(self, other: ArrayLike) -> "Tensor":
-        return self._binary("mul", other)
+        return self._binary(TensorOp.MUL, other)
 
     def __rmul__(self, other: ArrayLike) -> "Tensor":
-        return ensure_tensor(other)._binary("mul", self)
+        return ensure_tensor(other)._binary(TensorOp.MUL, self)
 
     def __truediv__(self, other: ArrayLike) -> "Tensor":
-        return self._binary("div", other)
+        return self._binary(TensorOp.DIV, other)
 
     def __rtruediv__(self, other: ArrayLike) -> "Tensor":
-        return ensure_tensor(other)._binary("div", self)
+        return ensure_tensor(other)._binary(TensorOp.DIV, self)
 
     def __pow__(self, other: ArrayLike) -> "Tensor":
-        return self._binary("pow", other)
+        return self._binary(TensorOp.POW, other)
 
     def __rpow__(self, other: ArrayLike) -> "Tensor":
-        return ensure_tensor(other)._binary("pow", self)
+        return ensure_tensor(other)._binary(TensorOp.POW, self)
 
     def __neg__(self) -> "Tensor":
-        return Tensor(-self.value, parents=(self,), op="neg")
+        return neg_tensor(self)
 
     def exp(self) -> "Tensor":
-        return Tensor(np.exp(self.value), parents=(self,), op="exp")
+        return exp_tensor(self)
 
     def log(self) -> "Tensor":
-        return Tensor(np.log(self.value), parents=(self,), op="log")
+        return log_tensor(self)
 
     def sin(self) -> "Tensor":
-        return Tensor(np.sin(self.value), parents=(self,), op="sin")
+        return sin_tensor(self)
 
     def cos(self) -> "Tensor":
-        return Tensor(np.cos(self.value), parents=(self,), op="cos")
+        return cos_tensor(self)
 
     def sum(
         self,
@@ -341,7 +469,7 @@ class Tensor:
         return Tensor(
             self.value.sum(axis=axis, keepdims=keepdims),
             parents=(self,),
-            op="sum",
+            op=TensorOp.SUM,
             meta=meta,
         )
 
@@ -350,10 +478,10 @@ class Tensor:
             target = tuple(int(x) for x in shape[0])
         else:
             target = tuple(int(x) for x in shape)
-        return Tensor(self.value.reshape(target), parents=(self,), op="reshape", meta={"shape": target})
+        return reshape_tensor(self, target)
 
     def __getitem__(self, index: Index) -> "Tensor":
-        return Tensor(self.value[index], parents=(self,), op="getitem", meta={"index": index})
+        return getitem_tensor(self, index)
 
     def named(self, name: str) -> "Tensor":
         self.name = name
@@ -366,20 +494,65 @@ def ensure_tensor(value: ArrayLike) -> Tensor:
     return Tensor.leaf(value)
 
 
-def where_tensors(condition: ArrayLike, then_value: ArrayLike, else_value: ArrayLike) -> Tensor:
+def binary_tensor(op: TensorOp, left: ArrayLike, right: ArrayLike, *, ir_node: Optional[ExpressionIR] = None) -> Tensor:
+    return ensure_tensor(left)._binary(op, right, ir_node=ir_node)
+
+
+def neg_tensor(value: ArrayLike, *, ir_node: Optional[ExpressionIR] = None) -> Tensor:
+    tensor = ensure_tensor(value)
+    return Tensor(-tensor.value, parents=(tensor,), op=TensorOp.NEG, ir_node=ir_node)
+
+
+def exp_tensor(value: ArrayLike, *, ir_node: Optional[ExpressionIR] = None) -> Tensor:
+    tensor = ensure_tensor(value)
+    return Tensor(np.exp(tensor.value), parents=(tensor,), op=TensorOp.EXP, ir_node=ir_node)
+
+
+def log_tensor(value: ArrayLike, *, ir_node: Optional[ExpressionIR] = None) -> Tensor:
+    tensor = ensure_tensor(value)
+    return Tensor(np.log(tensor.value), parents=(tensor,), op=TensorOp.LOG, ir_node=ir_node)
+
+
+def sin_tensor(value: ArrayLike, *, ir_node: Optional[ExpressionIR] = None) -> Tensor:
+    tensor = ensure_tensor(value)
+    return Tensor(np.sin(tensor.value), parents=(tensor,), op=TensorOp.SIN, ir_node=ir_node)
+
+
+def cos_tensor(value: ArrayLike, *, ir_node: Optional[ExpressionIR] = None) -> Tensor:
+    tensor = ensure_tensor(value)
+    return Tensor(np.cos(tensor.value), parents=(tensor,), op=TensorOp.COS, ir_node=ir_node)
+
+
+def reshape_tensor(value: ArrayLike, shape: Tuple[int, ...], *, ir_node: Optional[ExpressionIR] = None) -> Tensor:
+    tensor = ensure_tensor(value)
+    return Tensor(tensor.value.reshape(shape), parents=(tensor,), op=TensorOp.RESHAPE, meta={"shape": shape}, ir_node=ir_node)
+
+
+def getitem_tensor(value: ArrayLike, index: Index, *, ir_node: Optional[ExpressionIR] = None) -> Tensor:
+    tensor = ensure_tensor(value)
+    return Tensor(tensor.value[index], parents=(tensor,), op=TensorOp.GETITEM, meta={"index": index}, ir_node=ir_node)
+
+
+def where_tensors(
+    condition: ArrayLike,
+    then_value: ArrayLike,
+    else_value: ArrayLike,
+    *,
+    ir_node: Optional[ExpressionIR] = None,
+) -> Tensor:
     cond_arr = np.asarray(condition)
     then_t = ensure_tensor(then_value)
     else_t = ensure_tensor(else_value)
     value = np.where(cond_arr, _as_array(then_t.value), _as_array(else_t.value))
-    return Tensor(value, parents=(then_t, else_t), op="where", meta={"condition": cond_arr})
+    return Tensor(value, parents=(then_t, else_t), op=TensorOp.WHERE, meta={"condition": cond_arr}, ir_node=ir_node)
 
 
-def stack_tensors(values: Sequence[Tensor], axis: int = 0) -> Tensor:
+def stack_tensors(values: Sequence[Tensor], axis: int = 0, *, ir_node: Optional[ExpressionIR] = None) -> Tensor:
     items = [ensure_tensor(v) for v in values]
     if not items:
         raise ValueError("stack_tensors requires at least one tensor")
     value = np.stack([_as_array(item.value) for item in items], axis=axis)
-    return Tensor(value, parents=tuple(items), op="stack", meta={"axis": int(axis)})
+    return Tensor(value, parents=tuple(items), op=TensorOp.STACK, meta={"axis": int(axis)}, ir_node=ir_node)
 
 
 def custom_diff_call(
@@ -390,18 +563,65 @@ def custom_diff_call(
     jvp_fn: Callable[[Tuple[np.ndarray, ...], Tuple[np.ndarray, ...]], np.ndarray],
     vjp_fn: Callable[[Tuple[np.ndarray, ...], np.ndarray], Tuple[np.ndarray, ...]],
     symbolic_fn: Callable[[Sequence[Tensor], Sequence[SymbolicExpr], Dict[int, str]], SymbolicExpr],
+    ir_node: Optional[ExpressionIR] = None,
 ) -> Tensor:
     return Tensor(
         value,
         parents=tuple(parents),
-        op="custom_diff_call",
+        op=TensorOp.CUSTOM_DIFF_CALL,
         meta={
             "call_text": call_text,
             "jvp_fn": jvp_fn,
             "vjp_fn": vjp_fn,
             "symbolic_fn": symbolic_fn,
         },
+        ir_node=ir_node,
     )
+
+
+_TENSOR_OP_LABELS: Dict[Optional[TensorOp], str] = {
+    None: "leaf",
+    TensorOp.ADD: "add",
+    TensorOp.SUB: "sub",
+    TensorOp.MUL: "mul",
+    TensorOp.DIV: "div",
+    TensorOp.POW: "pow",
+    TensorOp.NEG: "neg",
+    TensorOp.EXP: "exp",
+    TensorOp.LOG: "log",
+    TensorOp.SIN: "sin",
+    TensorOp.COS: "cos",
+    TensorOp.SUM: "sum",
+    TensorOp.RESHAPE: "reshape",
+    TensorOp.GETITEM: "getitem",
+    TensorOp.STACK: "stack",
+    TensorOp.WHERE: "where",
+    TensorOp.CUSTOM_DIFF_CALL: "custom_diff_call",
+}
+_BINARY_TENSOR_OPS = frozenset(
+    {
+        TensorOp.ADD,
+        TensorOp.SUB,
+        TensorOp.MUL,
+        TensorOp.DIV,
+        TensorOp.POW,
+    }
+)
+_UNARY_ELEMENTWISE_TENSOR_OPS = frozenset(
+    {
+        TensorOp.EXP,
+        TensorOp.LOG,
+        TensorOp.SIN,
+        TensorOp.COS,
+    }
+)
+_PRIMAL_BINARY_SYMBOLS: Dict[TensorOp, str] = {
+    TensorOp.ADD: "+",
+    TensorOp.SUB: "-",
+    TensorOp.MUL: "*",
+    TensorOp.DIV: "/",
+    TensorOp.POW: "**",
+}
 
 
 def _format_meta(meta: Dict[str, Any], keys: Sequence[str]) -> str:
@@ -421,33 +641,33 @@ def primal_expr(node: Tensor, _cache: Optional[Dict[int, str]] = None) -> str:
         text = node.name
     elif node.op is None:
         text = np.array2string(node.value, separator=", ")
-    elif node.op in ("add", "sub", "mul", "div", "pow"):
+    elif node.op in _BINARY_TENSOR_OPS:
         left = primal_expr(node.parents[0], cache)
         right = primal_expr(node.parents[1], cache)
-        symbol = {"add": "+", "sub": "-", "mul": "*", "div": "/", "pow": "**"}[node.op]
+        symbol = _PRIMAL_BINARY_SYMBOLS[node.op]
         text = f"({left} {symbol} {right})"
-    elif node.op == "neg":
+    elif node.op is TensorOp.NEG:
         text = f"(-{primal_expr(node.parents[0], cache)})"
-    elif node.op in ("exp", "log", "sin", "cos"):
-        text = f"{node.op}({primal_expr(node.parents[0], cache)})"
-    elif node.op == "sum":
+    elif node.op in _UNARY_ELEMENTWISE_TENSOR_OPS:
+        text = f"{_TENSOR_OP_LABELS[node.op]}({primal_expr(node.parents[0], cache)})"
+    elif node.op is TensorOp.SUM:
         text = (
             f"sum({primal_expr(node.parents[0], cache)}, "
             f"axis={node.meta.get('axis')}, keepdims={node.meta.get('keepdims', False)})"
         )
-    elif node.op == "reshape":
+    elif node.op is TensorOp.RESHAPE:
         text = f"reshape({primal_expr(node.parents[0], cache)}, {node.meta['shape']})"
-    elif node.op == "getitem":
+    elif node.op is TensorOp.GETITEM:
         text = f"{primal_expr(node.parents[0], cache)}[{node.meta['index']!r}]"
-    elif node.op == "stack":
+    elif node.op is TensorOp.STACK:
         text = f"stack([{', '.join(primal_expr(parent, cache) for parent in node.parents)}], axis={node.meta.get('axis', 0)})"
-    elif node.op == "where":
+    elif node.op is TensorOp.WHERE:
         cond = node.meta.get("condition")
         text = f"where({np.asarray(cond).tolist()}, {primal_expr(node.parents[0], cache)}, {primal_expr(node.parents[1], cache)})"
-    elif node.op == "custom_diff_call":
+    elif node.op is TensorOp.CUSTOM_DIFF_CALL:
         text = node.meta.get("call_text", node.name or "<custom_diff_call>")
     else:
-        text = node.name if node.name is not None else f"<{node.op}>"
+        text = node.name if node.name is not None else f"<{_TENSOR_OP_LABELS.get(node.op, 'op')}>"
     cache[oid] = text
     return text
 
@@ -490,16 +710,16 @@ def symbolic_tangent_expr(
     ]
     tangent_refs = [_sym_tangent_ref(parent, tangent) for parent, tangent in zip(parents, tangents)]
 
-    if node.op == "add":
+    if node.op is TensorOp.ADD:
         result = _sym_add(tangents[0], tangents[1])
-    elif node.op == "sub":
+    elif node.op is TensorOp.SUB:
         result = _sym_sub(tangents[0], tangents[1])
-    elif node.op == "mul":
+    elif node.op is TensorOp.MUL:
         result = _sym_add(
             _SYM_ZERO if tangents[0].is_zero else _sym(f"({tangent_refs[0]}) * ({parent_primal[1]})"),
             _SYM_ZERO if tangents[1].is_zero else _sym(f"({tangent_refs[1]}) * ({parent_primal[0]})"),
         )
-    elif node.op == "div":
+    elif node.op is TensorOp.DIV:
         if tangents[0].is_zero and tangents[1].is_zero:
             result = _SYM_ZERO
         else:
@@ -507,7 +727,7 @@ def symbolic_tangent_expr(
                 f"(({parent_primal[1]}) * ({tangent_refs[0]}) - ({parent_primal[0]}) * ({tangent_refs[1]})) / "
                 f"(({parent_primal[1]}) ** 2.0)"
             )
-    elif node.op == "pow":
+    elif node.op is TensorOp.POW:
         if tangents[0].is_zero and tangents[1].is_zero:
             result = _SYM_ZERO
         else:
@@ -515,31 +735,31 @@ def symbolic_tangent_expr(
                 f"({primal_expr(node, primal_cache)}) * "
                 f"(({tangent_refs[1]}) * log({parent_primal[0]}) + ({parent_primal[1]}) * ({tangent_refs[0]}) / ({parent_primal[0]}))"
             )
-    elif node.op == "neg":
+    elif node.op is TensorOp.NEG:
         result = _SYM_ZERO if tangents[0].is_zero else _sym(f"-({tangent_refs[0]})")
-    elif node.op == "exp":
+    elif node.op is TensorOp.EXP:
         result = _SYM_ZERO if tangents[0].is_zero else _sym(f"exp({parent_primal[0]}) * ({tangent_refs[0]})")
-    elif node.op == "log":
+    elif node.op is TensorOp.LOG:
         result = _SYM_ZERO if tangents[0].is_zero else _sym(f"({tangent_refs[0]}) / ({parent_primal[0]})")
-    elif node.op == "sin":
+    elif node.op is TensorOp.SIN:
         result = _SYM_ZERO if tangents[0].is_zero else _sym(f"cos({parent_primal[0]}) * ({tangent_refs[0]})")
-    elif node.op == "cos":
+    elif node.op is TensorOp.COS:
         result = _SYM_ZERO if tangents[0].is_zero else _sym(f"-sin({parent_primal[0]}) * ({tangent_refs[0]})")
-    elif node.op == "sum":
+    elif node.op is TensorOp.SUM:
         result = _SYM_ZERO if tangents[0].is_zero else _sym(
             f"sum({tangent_refs[0]}, axis={node.meta.get('axis')}, keepdims={node.meta.get('keepdims', False)})"
         )
-    elif node.op == "reshape":
+    elif node.op is TensorOp.RESHAPE:
         result = _SYM_ZERO if tangents[0].is_zero else _sym(f"reshape({tangent_refs[0]}, {node.meta['shape']})")
-    elif node.op == "getitem":
+    elif node.op is TensorOp.GETITEM:
         result = _SYM_ZERO if tangents[0].is_zero else _sym(f"({tangent_refs[0]})[{node.meta['index']!r}]")
-    elif node.op == "stack":
+    elif node.op is TensorOp.STACK:
         if all(t.is_zero for t in tangents):
             result = _SYM_ZERO
         else:
             parts = [ref if not tangent.is_zero else "0.0" for ref, tangent in zip(tangent_refs, tangents)]
             result = _sym(f"stack([{', '.join(parts)}], axis={node.meta.get('axis', 0)})")
-    elif node.op == "where":
+    elif node.op is TensorOp.WHERE:
         if tangents[0].is_zero and tangents[1].is_zero:
             result = _SYM_ZERO
         else:
@@ -548,10 +768,10 @@ def symbolic_tangent_expr(
                 f"{tangent_refs[0] if not tangents[0].is_zero else '0.0'}, "
                 f"{tangent_refs[1] if not tangents[1].is_zero else '0.0'})"
             )
-    elif node.op == "custom_diff_call":
+    elif node.op is TensorOp.CUSTOM_DIFF_CALL:
         result = node.meta["symbolic_fn"](parents, tangents, primal_cache)
     else:
-        result = _sym(f"@{node.name or node.op}")
+        result = _sym(f"@{node.name or _TENSOR_OP_LABELS.get(node.op, 'op')}")
 
     cache[oid] = result
     return result
@@ -751,31 +971,31 @@ def _vjp_where(inputs: Tuple[np.ndarray, ...], cotangent: np.ndarray, meta: Dict
     return then_ct, else_ct
 
 
-_RULES: Dict[str, PrimitiveRule] = {
-    "add": PrimitiveRule(_jvp_add, _vjp_add),
-    "sub": PrimitiveRule(_jvp_sub, _vjp_sub),
-    "mul": PrimitiveRule(_jvp_mul, _vjp_mul),
-    "div": PrimitiveRule(_jvp_div, _vjp_div),
-    "pow": PrimitiveRule(_jvp_pow, _vjp_pow),
-    "neg": PrimitiveRule(_jvp_neg, _vjp_neg),
-    "exp": PrimitiveRule(_jvp_exp, _vjp_exp),
-    "log": PrimitiveRule(_jvp_log, _vjp_log),
-    "sin": PrimitiveRule(_jvp_sin, _vjp_sin),
-    "cos": PrimitiveRule(_jvp_cos, _vjp_cos),
-    "sum": PrimitiveRule(_jvp_sum, _vjp_sum),
-    "reshape": PrimitiveRule(_jvp_reshape, _vjp_reshape),
-    "getitem": PrimitiveRule(_jvp_getitem, _vjp_getitem),
-    "stack": PrimitiveRule(_jvp_stack, _vjp_stack),
-    "where": PrimitiveRule(_jvp_where, _vjp_where),
+_RULES: Dict[TensorOp, PrimitiveRule] = {
+    TensorOp.ADD: PrimitiveRule(_jvp_add, _vjp_add),
+    TensorOp.SUB: PrimitiveRule(_jvp_sub, _vjp_sub),
+    TensorOp.MUL: PrimitiveRule(_jvp_mul, _vjp_mul),
+    TensorOp.DIV: PrimitiveRule(_jvp_div, _vjp_div),
+    TensorOp.POW: PrimitiveRule(_jvp_pow, _vjp_pow),
+    TensorOp.NEG: PrimitiveRule(_jvp_neg, _vjp_neg),
+    TensorOp.EXP: PrimitiveRule(_jvp_exp, _vjp_exp),
+    TensorOp.LOG: PrimitiveRule(_jvp_log, _vjp_log),
+    TensorOp.SIN: PrimitiveRule(_jvp_sin, _vjp_sin),
+    TensorOp.COS: PrimitiveRule(_jvp_cos, _vjp_cos),
+    TensorOp.SUM: PrimitiveRule(_jvp_sum, _vjp_sum),
+    TensorOp.RESHAPE: PrimitiveRule(_jvp_reshape, _vjp_reshape),
+    TensorOp.GETITEM: PrimitiveRule(_jvp_getitem, _vjp_getitem),
+    TensorOp.STACK: PrimitiveRule(_jvp_stack, _vjp_stack),
+    TensorOp.WHERE: PrimitiveRule(_jvp_where, _vjp_where),
 }
 
 
-_BINARY_IMPL: Dict[str, Callable[[np.ndarray, np.ndarray], np.ndarray]] = {
-    "add": np.add,
-    "sub": np.subtract,
-    "mul": np.multiply,
-    "div": np.divide,
-    "pow": np.power,
+_BINARY_IMPL: Dict[TensorOp, Callable[[np.ndarray, np.ndarray], np.ndarray]] = {
+    TensorOp.ADD: np.add,
+    TensorOp.SUB: np.subtract,
+    TensorOp.MUL: np.multiply,
+    TensorOp.DIV: np.divide,
+    TensorOp.POW: np.power,
 }
 
 
@@ -790,7 +1010,7 @@ def jvp(root: Tensor, tangents: Dict[Tensor, ArrayLike]) -> np.ndarray:
         if node.op is None:
             tangent_map[node] = _as_array(tangents.get(node, _zeros_like(node.value)))
             continue
-        if node.op == "custom_diff_call":
+        if node.op is TensorOp.CUSTOM_DIFF_CALL:
             in_values = tuple(parent.value for parent in node.parents)
             in_tangents = tuple(tangent_map[parent] for parent in node.parents)
             tangent_map[node] = _sum_to_shape(node.meta["jvp_fn"](in_values, in_tangents), node.shape)
@@ -812,7 +1032,7 @@ def vjp(root: Tensor, cotangent: ArrayLike, wrt: Optional[Tensor] = None) -> Any
         current = cotangent_map.get(node)
         if current is None or node.op is None:
             continue
-        if node.op == "custom_diff_call":
+        if node.op is TensorOp.CUSTOM_DIFF_CALL:
             inputs = tuple(parent.value for parent in node.parents)
             parent_cotangents = node.meta["vjp_fn"](inputs, current)
             for parent, parent_cotangent in zip(node.parents, parent_cotangents):
@@ -863,8 +1083,8 @@ class LazyJacobianTensor:
     def ndim(self) -> int:
         return len(self.shape)
 
-    def mode(self) -> str:
-        return "jvp" if self.wrt.size <= self.output.size else "vjp"
+    def mode(self) -> LinearizationMode:
+        return LinearizationMode.JVP if self.wrt.size <= self.output.size else LinearizationMode.VJP
 
     def materialize_via_jvp(self) -> np.ndarray:
         y_size = self.output.size
@@ -890,7 +1110,7 @@ class LazyJacobianTensor:
         if self._materialized is None:
             self._materialized = (
                 self.materialize_via_jvp()
-                if self.mode() == "jvp"
+                if self.mode() is LinearizationMode.JVP
                 else self.materialize_via_vjp()
             )
         return self._materialized
@@ -904,7 +1124,7 @@ class LazyJacobianTensor:
         return jvp(self.output, {self.wrt: tangent})
 
     def entry(self, output_index: Tuple[int, ...], wrt_index: Tuple[int, ...]) -> float:
-        if self.mode() == "jvp":
+        if self.mode() is LinearizationMode.JVP:
             return float(np.asarray(self.column(wrt_index))[output_index])
         return float(np.asarray(self.row(output_index))[wrt_index])
 
@@ -1064,27 +1284,27 @@ class _IRTranslator:
             left = self._translate_custom_diff_expr(expr.left, primal_locals, tangent_locals)
             right = self._translate_custom_diff_expr(expr.right, primal_locals, tangent_locals)
             if expr.operator == BinaryOp.ADD:
-                return left + right
+                return binary_tensor(TensorOp.ADD, left, right, ir_node=expr)
             if expr.operator == BinaryOp.SUB:
-                return left - right
+                return binary_tensor(TensorOp.SUB, left, right, ir_node=expr)
             if expr.operator == BinaryOp.MUL:
-                return left * right
+                return binary_tensor(TensorOp.MUL, left, right, ir_node=expr)
             if expr.operator == BinaryOp.DIV:
-                return left / right
+                return binary_tensor(TensorOp.DIV, left, right, ir_node=expr)
             if expr.operator == BinaryOp.POW:
-                return left ** right
+                return binary_tensor(TensorOp.POW, left, right, ir_node=expr)
             raise IRAutodiffError(f"Unsupported binary op in custom diff body: {expr.operator}")
         if isinstance(expr, UnaryOpIR):
             operand = self._translate_custom_diff_expr(expr.operand, primal_locals, tangent_locals)
             if expr.operator == UnaryOp.NEG:
-                return -operand
+                return neg_tensor(operand, ir_node=expr)
             if expr.operator == UnaryOp.POS:
                 return operand
             raise IRAutodiffError(f"Unsupported unary op in custom diff body: {expr.operator}")
         if isinstance(expr, RectangularAccessIR):
             array = self._translate_custom_diff_expr(expr.array, primal_locals, tangent_locals)
             indices = tuple(int(np.asarray(self.eval_primal(idx, primal_locals)).reshape(-1)[0]) for idx in (expr.indices or []))
-            return array[indices]
+            return getitem_tensor(array, indices, ir_node=expr)
         if isinstance(expr, CastExpressionIR):
             return self._translate_custom_diff_expr(expr.expr, primal_locals, tangent_locals)
         if isinstance(expr, BlockExpressionIR):
@@ -1165,20 +1385,20 @@ class _IRTranslator:
             left = self.translate_expr(expr.left, locals_map)
             right = self.translate_expr(expr.right, locals_map)
             if expr.operator == BinaryOp.ADD:
-                return left + right
+                return binary_tensor(TensorOp.ADD, left, right, ir_node=expr)
             if expr.operator == BinaryOp.SUB:
-                return left - right
+                return binary_tensor(TensorOp.SUB, left, right, ir_node=expr)
             if expr.operator == BinaryOp.MUL:
-                return left * right
+                return binary_tensor(TensorOp.MUL, left, right, ir_node=expr)
             if expr.operator == BinaryOp.DIV:
-                return left / right
+                return binary_tensor(TensorOp.DIV, left, right, ir_node=expr)
             if expr.operator == BinaryOp.POW:
-                return left ** right
+                return binary_tensor(TensorOp.POW, left, right, ir_node=expr)
             raise IRAutodiffError(f"Unsupported binary op in phase-1 autodiff: {expr.operator}")
         if isinstance(expr, UnaryOpIR):
             operand = self.translate_expr(expr.operand, locals_map)
             if expr.operator == UnaryOp.NEG:
-                return -operand
+                return neg_tensor(operand, ir_node=expr)
             if expr.operator == UnaryOp.POS:
                 return operand
             raise IRAutodiffError(f"Unsupported unary op in phase-1 autodiff: {expr.operator}")
@@ -1194,7 +1414,7 @@ class _IRTranslator:
                         )
                     return store[indices]
             array = self.translate_expr(expr.array, locals_map)
-            return array[indices]
+            return getitem_tensor(array, indices, ir_node=expr)
         if isinstance(expr, CastExpressionIR):
             return self.translate_expr(expr.expr, locals_map)
         if isinstance(expr, BlockExpressionIR):
@@ -1220,7 +1440,7 @@ class _IRTranslator:
                 return self.translate_expr(expr.else_expr, locals_map)
             then_t = self.translate_expr(expr.then_expr, locals_map)
             else_t = self.translate_expr(expr.else_expr, locals_map)
-            return where_tensors(cond_arr, then_t, else_t)
+            return where_tensors(cond_arr, then_t, else_t, ir_node=expr)
         if isinstance(expr, ReductionExpressionIR):
             return self._translate_reduction(expr, locals_map)
         if isinstance(expr, EinsteinIR):
@@ -1494,6 +1714,7 @@ class _IRTranslator:
             jvp_fn=jvp_fn,
             vjp_fn=vjp_fn,
             symbolic_fn=symbolic_fn,
+            ir_node=expr,
         )
 
     def eval_primal(self, expr: ExpressionIR, locals_map: Dict[DefId, Tensor]) -> Any:
@@ -1519,56 +1740,16 @@ class _IRTranslator:
             return np.asarray([self.eval_primal(elem, locals_map) for elem in (expr.elements or [])], dtype=np.float64)
         if isinstance(expr, BuiltinCallIR):
             args = [self.eval_primal(arg, locals_map) for arg in (expr.args or [])]
-            name = expr.builtin_name
-            if name == "len":
-                target = args[0]
-                if isinstance(target, np.ndarray):
-                    return int(target.shape[0]) if target.ndim > 0 else int(target.size)
-                return len(target)
-            if name == "shape":
-                target = args[0]
-                if isinstance(target, np.ndarray):
-                    return np.asarray(target.shape, dtype=np.int32)
-                return np.asarray(np.shape(target), dtype=np.int32)
-            if name == "typeof":
-                target = args[0]
-                if isinstance(target, np.ndarray):
-                    return "rectangular"
-                if isinstance(target, str):
-                    return "str"
-                if isinstance(target, bool):
-                    return "bool"
-                if isinstance(target, (int, np.integer)):
-                    return "i32"
-                if isinstance(target, (float, np.floating)):
-                    return "f32"
-                return type(target).__name__
-            if name == "sum":
-                return np.sum(np.asarray(args[0]))
-            if name == "max":
-                if len(args) == 1:
-                    return np.max(np.asarray(args[0]))
-                return np.maximum(np.asarray(args[0]), np.asarray(args[1]))
-            if name == "min":
-                if len(args) == 1:
-                    return np.min(np.asarray(args[0]))
-                return np.minimum(np.asarray(args[0]), np.asarray(args[1]))
-            if name == "assert":
-                cond = bool(np.asarray(args[0]).all())
-                if not cond:
-                    raise IRAutodiffError(str(args[1]) if len(args) > 1 else "assertion failed")
-                return None
-            raise IRAutodiffError(f"Unsupported builtin in phase-1 autodiff primal eval: {name}")
+            builtin_defid = _builtin_call_defid(expr)
+            evaluator = _PRIMAL_BUILTIN_EVALUATORS.get(builtin_defid)
+            if evaluator is None:
+                raise IRAutodiffError(f"Unsupported builtin in phase-1 autodiff primal eval: {expr.builtin_name}")
+            return evaluator(args)
         if isinstance(expr, MemberAccessIR):
             obj = self.eval_primal(expr.object, locals_map)
-            if expr.member == "shape":
-                if isinstance(obj, np.ndarray):
-                    return np.asarray(obj.shape, dtype=np.int32)
-                return np.asarray(np.shape(obj), dtype=np.int32)
-            if expr.member == "size":
-                if isinstance(obj, np.ndarray):
-                    return int(obj.size)
-                return int(np.size(obj))
+            evaluator = _PRIMAL_MEMBER_ACCESSORS.get(expr.member)
+            if evaluator is not None:
+                return evaluator(obj)
             raise IRAutodiffError(f"Unsupported member access in phase-1 autodiff primal eval: {expr.member}")
         if isinstance(expr, RectangularAccessIR):
             base = np.asarray(self.eval_primal(expr.array, locals_map))
@@ -1642,11 +1823,12 @@ class _IRTranslator:
         if isinstance(expr, FunctionCallIR):
             args = [self.eval_primal(arg, locals_map) for arg in (expr.arguments or [])]
             module_path = tuple(getattr(expr, "module_path", ()) or ())
-            if module_path[:2] == ("python", "numpy"):
+            module = _PYTHON_PRIMAL_MODULES.get(module_path[:2])
+            if module is not None:
                 fn_name = expr.function_name or ""
-                fn = getattr(np, fn_name, None)
+                fn = getattr(module, fn_name, None)
                 if fn is None:
-                    raise IRAutodiffError(f"Unsupported python numpy primal call: {fn_name}")
+                    raise IRAutodiffError(f"Unsupported python primal call: {fn_name}")
                 return fn(*args)
             callee_binding = self._functions.get(expr.function_defid) or self._bindings.get(expr.function_defid)
             if isinstance(callee_binding, BindingIR) and isinstance(callee_binding.expr, FunctionValueIR):

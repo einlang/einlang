@@ -19,6 +19,11 @@ from ..extremum_selection_canonicalization import ExtremumSelectionCanonicalizat
 from ..pre_autodiff_pruning import PreAutodiffPruningPass
 from ..shape_analysis import UnifiedShapeAnalysisPass
 from ..type_inference import TypeInferencePass
+from ...autodiff import (
+    AutodiffBuiltinKind,
+    autodiff_builtin_defid,
+    autodiff_builtin_name,
+)
 from ...ir.nodes import (
     BindingIR,
     BinaryOpIR,
@@ -35,7 +40,7 @@ from ...ir.nodes import (
     ProgramIR,
     is_function_binding,
 )
-from ...shared.defid import DefId
+from ...shared.defid import DefId, fixed_builtin_defid
 from ...shared.source_location import SourceLocation
 from ...shared.types import BinaryOp, STR, Type, strip_differential_types_deep
 
@@ -43,6 +48,7 @@ from ...shared.types import BinaryOp, STR, Type, strip_differential_types_deep
 DIFF_PREFIX = "_@"
 USER_DIFF_PREFIX = "@"
 _LOC0 = SourceLocation("", 0, 0)
+_PRINT_BUILTIN_DEFID = fixed_builtin_defid("print")
 
 
 def _ti(node: Any) -> Any:
@@ -51,6 +57,13 @@ def _ti(node: Any) -> Any:
 
 def _si(node: Any) -> Any:
     return getattr(node, "shape_info", None)
+
+
+def _builtin_defid(node: BuiltinCallIR) -> Optional[DefId]:
+    did = getattr(node, "defid", None)
+    if isinstance(did, DefId):
+        return did
+    return fixed_builtin_defid(node.builtin_name)
 
 
 @dataclass
@@ -523,7 +536,7 @@ class AutodiffPass(BasePass):
             obj.left = self._rewrite_runtime_node(obj.left)
             obj.right = self._rewrite_runtime_node(obj.right)
             return obj
-        if isinstance(obj, BuiltinCallIR) and obj.builtin_name == "print" and len(obj.args or []) == 1:
+        if isinstance(obj, BuiltinCallIR) and _builtin_defid(obj) == _PRINT_BUILTIN_DEFID and len(obj.args or []) == 1:
             arg0 = obj.args[0]
             if isinstance(arg0, DifferentialIR):
                 obj.args = (self._make_runtime_symbolic_tangent_call(arg0),)
@@ -552,10 +565,12 @@ class AutodiffPass(BasePass):
         operand = expr.operand
         if not isinstance(operand, IdentifierIR) or operand.defid is None:
             raise RuntimeError("Phase-1 autodiff only supports identifier differentials")
+        kind = AutodiffBuiltinKind.TANGENT
         return BuiltinCallIR(
-            "__autodiff_tangent",
+            autodiff_builtin_name(kind),
             [IdentifierIR(operand.name, operand.location, operand.defid, type_info=_ti(operand), shape_info=_si(operand))],
             expr.location or operand.location,
+            defid=autodiff_builtin_defid(kind),
             type_info=_ti(expr),
             shape_info=_si(expr),
         )
@@ -565,13 +580,15 @@ class AutodiffPass(BasePass):
         num_defid, den_defid = pair
         num_expr = expr.left.operand if isinstance(expr.left, DifferentialIR) else expr.left
         den_expr = expr.right.operand if isinstance(expr.right, DifferentialIR) else expr.right
+        kind = AutodiffBuiltinKind.JACOBIAN
         return BuiltinCallIR(
-            "__autodiff_jacobian",
+            autodiff_builtin_name(kind),
             [
                 IdentifierIR(getattr(num_expr, "name", None) or "?", getattr(num_expr, "location", expr.location), num_defid, type_info=_ti(num_expr), shape_info=_si(num_expr)),
                 IdentifierIR(getattr(den_expr, "name", None) or "?", getattr(den_expr, "location", expr.location), den_defid, type_info=_ti(den_expr), shape_info=_si(den_expr)),
             ],
             expr.location,
+            defid=autodiff_builtin_defid(kind),
             type_info=_ti(expr),
             shape_info=_si(expr),
         )
@@ -581,10 +598,12 @@ class AutodiffPass(BasePass):
         operand = expr.operand
         if not isinstance(operand, IdentifierIR) or operand.defid is None:
             raise RuntimeError("Phase-1 autodiff symbolic print only supports identifier differentials")
+        kind = AutodiffBuiltinKind.SYMBOLIC_TANGENT
         return BuiltinCallIR(
-            "__autodiff_symbolic_tangent",
+            autodiff_builtin_name(kind),
             [IdentifierIR(operand.name, operand.location, operand.defid, type_info=_ti(operand), shape_info=_si(operand))],
             expr.location or operand.location,
+            defid=autodiff_builtin_defid(kind),
             type_info=STR,
             shape_info=None,
         )
@@ -594,13 +613,15 @@ class AutodiffPass(BasePass):
         num_defid, den_defid = pair
         num_expr = expr.left.operand if isinstance(expr.left, DifferentialIR) else expr.left
         den_expr = expr.right.operand if isinstance(expr.right, DifferentialIR) else expr.right
+        kind = AutodiffBuiltinKind.SYMBOLIC_JACOBIAN
         return BuiltinCallIR(
-            "__autodiff_symbolic_jacobian",
+            autodiff_builtin_name(kind),
             [
                 IdentifierIR(getattr(num_expr, "name", None) or "?", getattr(num_expr, "location", expr.location), num_defid, type_info=_ti(num_expr), shape_info=_si(num_expr)),
                 IdentifierIR(getattr(den_expr, "name", None) or "?", getattr(den_expr, "location", expr.location), den_defid, type_info=_ti(den_expr), shape_info=_si(den_expr)),
             ],
             expr.location,
+            defid=autodiff_builtin_defid(kind),
             type_info=STR,
             shape_info=None,
         )

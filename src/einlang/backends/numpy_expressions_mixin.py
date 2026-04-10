@@ -1778,21 +1778,30 @@ class ExpressionVisitorMixin:
         return apply_pipeline_right(expr.right, left_value, expr.location, self)
 
     def visit_builtin_call(self, expr: BuiltinCallIR) -> Any:
-        if expr.builtin_name.startswith("__autodiff_"):
+        from ..shared.defid import DefId
+
+        def _coerce_defid(raw: Any) -> Any:
+            if raw is None:
+                return None
+            if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+                return DefId(krate=int(raw[0]), index=int(raw[1]))
+            if hasattr(raw, "krate") and hasattr(raw, "index"):
+                return DefId(krate=int(raw.krate), index=int(raw.index))
+            return raw
+
+        defid = _coerce_defid(expr.defid)
+        from ..autodiff import autodiff_builtin_kind
+
+        autodiff_kind = autodiff_builtin_kind(defid)
+        if autodiff_kind is not None:
             try:
-                return self._evaluate_autodiff_builtin(expr)
+                return self._evaluate_autodiff_builtin(expr, autodiff_kind)
             except Exception as e:
                 self._raise_here(e, expr)
-        from ..shared.defid import DefId
+
         raw = expr.defid
         if raw is None:
             raise RuntimeError("Builtin call has no DefId")
-        if isinstance(raw, (list, tuple)) and len(raw) >= 2:
-            defid = DefId(krate=int(raw[0]), index=int(raw[1]))
-        elif hasattr(raw, "krate") and hasattr(raw, "index"):
-            defid = DefId(krate=int(raw.krate), index=int(raw.index))
-        else:
-            defid = raw
         fn = self.env.get_value(defid)
         if fn is None or not callable(fn):
             raise RuntimeError(f"Builtin not found (DefId: {defid})")
@@ -1803,10 +1812,11 @@ class ExpressionVisitorMixin:
         except Exception as e:
             self._raise_here(e, expr)
 
-    def _evaluate_autodiff_builtin(self, expr: BuiltinCallIR) -> Any:
+    def _evaluate_autodiff_builtin(self, expr: BuiltinCallIR, kind: Any) -> Any:
         from ..passes.autodiff import AutodiffPass
         from ..shared.defid import DefId
-        from ..autodiff_runtime import (
+        from ..autodiff import (
+            AutodiffBuiltinKind,
             jacobian_value_for_defids,
             symbolic_jacobian_relation,
             symbolic_tangent_for_defid,
@@ -1833,18 +1843,18 @@ class ExpressionVisitorMixin:
             return arg.defid
 
         value_lookup = self.env.get_value
-        if expr.builtin_name == "__autodiff_tangent":
+        if kind is AutodiffBuiltinKind.TANGENT:
             return tangent_value_for_defid(_identifier_defid(expr.args[0]), analysis, value_lookup)
-        if expr.builtin_name == "__autodiff_jacobian":
+        if kind is AutodiffBuiltinKind.JACOBIAN:
             return jacobian_value_for_defids(
                 _identifier_defid(expr.args[0]),
                 _identifier_defid(expr.args[1]),
                 analysis,
                 value_lookup,
             )
-        if expr.builtin_name == "__autodiff_symbolic_tangent":
+        if kind is AutodiffBuiltinKind.SYMBOLIC_TANGENT:
             return symbolic_tangent_for_defid(_identifier_defid(expr.args[0]), analysis, value_lookup)
-        if expr.builtin_name == "__autodiff_symbolic_jacobian":
+        if kind is AutodiffBuiltinKind.SYMBOLIC_JACOBIAN:
             return symbolic_jacobian_relation(
                 _identifier_defid(expr.args[0]),
                 _identifier_defid(expr.args[1]),
