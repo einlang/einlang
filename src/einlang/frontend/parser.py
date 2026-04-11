@@ -5,7 +5,7 @@ Rust Pattern: rustc_parse
 Reference: COMPILER_FLOW_DESIGN.md
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 from pathlib import Path
 from lark import Lark
 from lark.exceptions import UnexpectedToken, UnexpectedCharacters, ParseError as LarkParseError
@@ -22,25 +22,27 @@ from .transformers.base import EinlangTransformer
 
 logger = logging.getLogger("einlang.frontend.parser")
 
-# Process-level Lark singleton — Lark.open() deserializes LALR tables from disk
-# which costs ~120ms per call.  All Parser instances share the same compiled
-# grammar; each parse gets a fresh transformer carrying the current source file.
-_shared_lark: Optional[Lark] = None
+# Process-level Lark singletons keyed by cache path. Disk cache is disabled by
+# default to avoid persistent parser files; callers can opt in with an explicit
+# cache file path.
+_shared_lark: Dict[Optional[str], Lark] = {}
 
 
-def _get_shared_lark(cache_file: str) -> Lark:
-    global _shared_lark
-    if _shared_lark is None:
+def _get_shared_lark(cache_file: Optional[str]) -> Lark:
+    cache_key = str(cache_file) if cache_file else None
+    shared = _shared_lark.get(cache_key)
+    if shared is None:
         grammar_path = Path(__file__).parent / "grammar.lark"
-        _shared_lark = Lark.open(
+        shared = Lark.open(
             grammar_path,
             start='program',
             parser='lalr',
-            cache=cache_file,
+            cache=cache_key if cache_key else False,
             propagate_positions=True,
             maybe_placeholders=False,
         )
-    return _shared_lark
+        _shared_lark[cache_key] = shared
+    return shared
 
 
 class Parser:
@@ -58,7 +60,7 @@ class Parser:
     Reference: `rustc_parse::parse()` for parser interface
     """
     
-    def __init__(self, cache_file: str = DEFAULT_PARSER_CACHE_FILE):
+    def __init__(self, cache_file: Optional[str] = DEFAULT_PARSER_CACHE_FILE):
         """
         Initialize parser with Lark best practices.
         

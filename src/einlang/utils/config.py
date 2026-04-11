@@ -10,10 +10,11 @@ MAX_ERROR_LINE_LENGTH = 80  # Maximum length for error line display
 ERROR_CONTEXT_CHARS = 40   # Characters of context around error position
 ERROR_DISPLAY_PADDING = 30  # Padding for error display truncation
 
-# Parser configuration constants (cache under temp dir to avoid cluttering project root)
+# Parser configuration constants
 import os
-import tempfile
-DEFAULT_PARSER_CACHE_FILE = os.path.join(tempfile.gettempdir(), "einlang_parser_improved.cache")
+
+# Disk-backed parser cache is opt-in only to avoid background file churn.
+DEFAULT_PARSER_CACHE_FILE = (os.environ.get("EINLANG_PARSER_CACHE_FILE") or "").strip() or None
 
 # Module resolution constants
 STD_MODULE_PREFIX = "std"

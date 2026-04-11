@@ -61,24 +61,24 @@ def main() -> int:
     parser.add_argument(
         "--profile-all",
         action="store_true",
-        help="Same as --profile-verbose plus compile-time EINLANG_DUMP_FINAL_IR (writes ir_dump/final_ir.sexpr in cwd)",
+        help="Same as --profile-verbose. Persistent IR dumps are disabled to avoid extra disk writes.",
     )
     parser.add_argument(
         "--debug-all",
         action="store_true",
-        help="All runtime debug logs plus structured NDJSON debug topics (same env as --profile-verbose plus EINLANG_DEBUG_RECURRENCE_BLOCK=1; no IR file dumps; use --profile-all for EINLANG_DUMP_FINAL_IR)",
+        help="All runtime debug logs plus structured NDJSON debug topics on stderr (same env as --profile-verbose plus EINLANG_DEBUG_RECURRENCE_BLOCK=1; no IR file dumps).",
     )
     parser.add_argument(
         "--debug-autodiff",
         action="store_true",
-        help="Write structured autodiff / quotient debug logs (sets EINLANG_DEBUG_AUTODIFF=1)",
+        help="Emit structured autodiff / quotient debug logs to stderr (sets EINLANG_DEBUG_AUTODIFF=1)",
     )
     parser.add_argument(
         "--debug-log-file",
         type=Path,
         default=None,
         metavar="FILE",
-        help="Write structured debug NDJSON logs to FILE (sets EINLANG_DEBUG_LOG_FILE)",
+        help="Deprecated: accepted for compatibility, but structured debug logs are no longer persisted to disk.",
     )
     parser.add_argument("--cprofile", action="store_true", help="Run execution under cProfile and print stats")
     parser.add_argument("--cprofile-out", type=Path, default=None, metavar="FILE", help="Write cProfile stats to FILE (for snakeviz, etc.)")
@@ -109,8 +109,6 @@ def main() -> int:
         os.environ["EINLANG_DEBUG_VECTORIZE"] = "verbose"
         if args.profile_lines == 0:
             os.environ["EINLANG_PROFILE_LINES"] = "20"
-    if args.profile_all:
-        os.environ["EINLANG_DUMP_FINAL_IR"] = "1"
     if args.debug_all:
         os.environ["EINLANG_PROFILE_STATEMENTS"] = "1"
         os.environ["EINLANG_PROFILE_FUNCTIONS"] = "1"
@@ -123,8 +121,6 @@ def main() -> int:
             os.environ["EINLANG_PROFILE_LINES"] = "20"
     if args.debug_autodiff:
         os.environ["EINLANG_DEBUG_AUTODIFF"] = "1"
-    if args.debug_log_file is not None:
-        os.environ["EINLANG_DEBUG_LOG_FILE"] = str(args.debug_log_file.resolve())
     if args.vectorize_recurrence_block and not (os.environ.get("EINLANG_DEBUG_VECTORIZE", "").strip()):
         os.environ["EINLANG_DEBUG_VECTORIZE"] = "verbose"
 

@@ -39,6 +39,7 @@ from .numpy_expressions_support import (
 )
 from .numpy_helpers import _PatternMatcher
 from .numpy_einstein_analysis import (
+    _BodyReferencesDefidVisitor,
     _count_reduction_dims_in_expr,
     _reduction_uses_clause_var_in_bounds,
 )

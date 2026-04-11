@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 
@@ -37,16 +37,6 @@ def debug_topic_enabled(topic: str) -> bool:
     return False
 
 
-def debug_log_path() -> Path:
-    configured = (os.environ.get("EINLANG_DEBUG_LOG_FILE") or "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    debug_dir = (os.environ.get("EINLANG_DEBUG_DIR") or "").strip()
-    if debug_dir:
-        return Path(debug_dir).expanduser() / "einlang-debug.ndjson"
-    return Path.cwd() / ".cursor" / "einlang-debug.ndjson"
-
-
 def emit_debug_log(
     topic: str,
     location: str,
@@ -55,7 +45,6 @@ def emit_debug_log(
 ) -> None:
     if not debug_topic_enabled(topic):
         return
-    path = debug_log_path()
     payload = {
         "timestamp_ms": int(time.time() * 1000),
         "pid": os.getpid(),
@@ -65,8 +54,6 @@ def emit_debug_log(
         "data": data or {},
     }
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, default=str, sort_keys=True) + "\n")
+        sys.stderr.write(json.dumps(payload, default=str, sort_keys=True) + "\n")
     except Exception:
         pass
