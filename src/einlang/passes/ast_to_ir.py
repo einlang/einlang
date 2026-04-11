@@ -12,7 +12,7 @@ from typing import Optional, List, Union, Dict, Tuple, Any
 
 logger = logging.getLogger(__name__)
 from ..passes.base import BasePass, TyCtxt
-from ..passes.visitor_helpers import defid_of_var_in_expr
+from ..passes.visitor_helpers import defid_of_var_in_expr, extract_assignment_binding
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, BindingIR, FunctionDefIR, FunctionValueIR, ConstantDefIR, DiffRuleIR, EinsteinIR,
     is_function_binding,
@@ -1328,15 +1328,38 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             return None
         # Lower constraints
         constraints_ir = []
+        binding_constraints = []
+        guard_constraints = []
         if node.where_clause:
             for constraint in node.where_clause.constraints:
                 constraint_ir = constraint.accept(self)
                 if isinstance(constraint_ir, ExpressionIR):
                     constraints_ir.append(constraint_ir)
+                    binding_info = extract_assignment_binding(constraint_ir)
+                    if binding_info is None:
+                        guard_constraints.append(constraint_ir)
+                        continue
+                    defid, rhs = binding_info
+                    name = (
+                        constraint_ir.left.name
+                        if hasattr(constraint_ir, "left") and constraint_ir.left is not None
+                        else ""
+                    )
+                    binding_constraints.append(
+                        BindingIR(
+                            name=name,
+                            expr=rhs,
+                            location=constraint_ir.location,
+                            defid=defid,
+                            type_info=getattr(constraint_ir.left, "type_info", None),
+                        )
+                    )
         return WhereExpressionIR(
             expr=expr_ir,
             constraints=constraints_ir,
-            location=location
+            location=location,
+            binding_constraints=binding_constraints,
+            guard_constraints=guard_constraints,
         )
     
     def visit_range(self, node: ASTRange) -> Optional[ExpressionIR]:

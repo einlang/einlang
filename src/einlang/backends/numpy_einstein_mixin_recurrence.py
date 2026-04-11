@@ -5,7 +5,6 @@ from .numpy_einstein_analysis import _einlang_recurrence_block_vectorized_bindin
 from .numpy_einstein_recurrence_analysis import (
     _extract_loop_range,
     _recurrence_dims,
-    _recurrence_dims_for_hybrid_or_full,
 )
 from .numpy_einstein_vectorization import _try_fast_2d_wave_step
 
@@ -111,9 +110,9 @@ class EinsteinExecutionRecurrenceMixin:
         guards = item.guards or []
         clause_indices = item.indices or []
         recurrence_dims = item.recurrence_dims_override
-        if not recurrence_dims and variable_defid:
-            recurrence_dims = _recurrence_dims_for_hybrid_or_full(item, variable_defid, clause_indices)
-        if not recurrence_dims and variable_defid:
+        if recurrence_dims is None:
+            recurrence_dims = _recurrence_dims(item, variable_defid, clause_indices)
+        elif not recurrence_dims:
             recurrence_dims = _recurrence_dims(item, variable_defid, clause_indices)
         recurrence_dims = recurrence_dims or []
         ndim = len(loops)
@@ -167,31 +166,12 @@ class EinsteinExecutionRecurrenceMixin:
                     res = item.body.accept(self)
             if res is not None:
                 slice_list: List[Any] = []
-                if clause_indices and len(clause_indices) == output.ndim:
-                    loop_pos = 0
-                    for idx in clause_indices:
-                        literal_val = self._literal_index_value(idx)
-                        if literal_val is not None:
-                            slice_list.append(literal_val)
-                            continue
-                        if loop_pos >= len(loop_info):
-                            break
-                        outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, loop_pos)
-                        if outer_defid is not None and outer_defid in rec_context:
-                            slice_list.append(self._coerce_scalar_index(rec_context[outer_defid]))
-                        else:
-                            start, end = loop_info[loop_pos][1]
-                            slice_list.append(slice(int(start), int(end)))
-                        loop_pos += 1
-                    if loop_pos != len(loops):
-                        slice_list = []
-                else:
-                    for dim in range(ndim):
-                        outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, dim)
-                        if outer_defid is not None and outer_defid in rec_context:
-                            slice_list.append(self._coerce_scalar_index(rec_context[outer_defid]))
-                        else:
-                            slice_list.append(slice(loop_info[dim][1][0], loop_info[dim][1][1]))
+                for dim in range(ndim):
+                    outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, dim)
+                    if outer_defid is not None and outer_defid in rec_context:
+                        slice_list.append(self._coerce_scalar_index(rec_context[outer_defid]))
+                    else:
+                        slice_list.append(slice(loop_info[dim][1][0], loop_info[dim][1][1]))
                 if len(slice_list) == output.ndim:
                     if object_output:
                         output[tuple(slice_list)] = res

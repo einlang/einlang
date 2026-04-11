@@ -29,26 +29,9 @@ Forward-mode chain rule across atoms, binary ops (product, quotient, power rules
 
 The [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md) `reduce_mean`-style walkthrough shows how quotient cancellation and zero tangents on non-differentiable paths simplify to the expected tangent expression.
 
-## `@fn` — custom derivative syntax, not an escape hatch
+## `@fn` — correct derivatives for foreign primals
 
-Pair a NumPy (or other) primal with an explicit rule:
-
-```rust
-fn exp(x) { python::numpy::exp(x) }
-@fn exp(x) { exp(x) * @x }
-```
-
-This `@fn` syntax is a key Einlang feature. It lets you keep the primal wherever it belongs while still making the derivative part of the language and compiler pipeline. The stdlib uses the same pattern for `exp`, `sin`, `cos`, `log`, `atan2`, and other functions whose primals delegate to foreign code.
-
-For multiple arguments, the implementation decomposes into partials with unit tangents and combines them as \(\sum_i (\partial f/\partial x_i)\,d(x_i)\), so multi-arg rules compose correctly:
-
-```rust
-fn atan2(y, x) { python::numpy::arctan2(y, x) }
-@fn atan2(y, x) {
-    (x / (x * x + y * y)) * @y +
-    (-y / (x * x + y * y)) * @x
-}
-```
+Pair a NumPy (or other) primal with an explicit rule, e.g. `@fn exp(x) { exp(x) * @x }`. For multiple arguments, the implementation decomposes into partials with unit tangents and combines them as \(\sum_i (\partial f/\partial x_i)\,d(x_i)\), so multi-arg rules like `atan2` compose correctly. You keep numerics where you want them while keeping derivatives trustworthy in Einlang IR.
 
 ## Einstein and `@y / @x`
 

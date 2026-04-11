@@ -3,6 +3,7 @@
 from typing import Callable
 
 from ..ir.nodes import BlockExpressionIR
+from ..shared.defid import DefId
 
 from .numpy_einstein_vectorization import *
 from .numpy_einstein_analysis import (
@@ -17,8 +18,6 @@ from .numpy_einstein_analysis import (
 from .numpy_einstein_recurrence_analysis import (
     _extract_loop_range,
     _infer_lowered_einstein_output_defid,
-    _recurrence_dims,
-    _recurrence_dims_for_hybrid,
     _slice_list_from_clause_indices,
 )
 
@@ -62,8 +61,8 @@ class _CircularRecurrenceBuffer:
         if not isinstance(key, tuple):
             key = (key,)
         items = list(key)
-        ell_idx = next((i for i, item in enumerate(items) if item is Ellipsis), None)
-        if ell_idx is not None:
+        if Ellipsis in items:
+            ell_idx = items.index(Ellipsis)
             missing = self.ndim - (len(items) - 1)
             items = items[:ell_idx] + [slice(None)] * missing + items[ell_idx + 1 :]
         if len(items) < self.ndim:
@@ -259,9 +258,10 @@ class EinsteinExecutionSetupMixin:
         ):
             return None
         body_items = list(node.body.items or [])
-        if not body_items:
+        if len(body_items) != 1:
             return None
-        if any(item.bindings or item.guards for item in body_items):
+        item0 = body_items[0]
+        if len(item0.loops or []) != 1 or item0.bindings or item0.guards:
             return None
         # Block-bodied recurrence steps can contain nested reductions that still rely on
         # outer timestep bindings staying scalar in the ambient env. The circular-buffer
@@ -436,9 +436,10 @@ class EinsteinExecutionSetupMixin:
         """
         out_defid = _infer_lowered_einstein_output_defid(lowered)
         if out_defid is None:
-            seq = getattr(self, "_nested_einstein_synth_seq", 0) + 1
-            self._nested_einstein_synth_seq = seq
-            out_defid = DefId(RUNTIME_CRATE, seq)
+            raise RuntimeError(
+                "Nested LoweredEinsteinIR is missing a compile-time output DefId. "
+                "Compiler lowering must annotate the storage target instead of synthesizing it at runtime."
+            )
 
         class _SyntheticEinsteinDecl:
             __slots__ = ("defid", "name")
@@ -456,14 +457,44 @@ class EinsteinExecutionSetupMixin:
         try:
             from .numpy_einstein_call_index_analysis import _collect_defids_by_name
 
+            body_name_cache = getattr(self, "_cached_defids_by_name", None)
+            if callable(body_name_cache):
+                defids_by_name = body_name_cache(lowered)
+            else:
+                defids_by_name = _collect_defids_by_name(lowered)
+
             captured_ctx = {}
-            for dids in _collect_defids_by_name(lowered).values():
+            for dids in defids_by_name.values():
                 for did in dids:
                     if did is None:
                         continue
                     cur = self.env.get_value(did)
                     if cur is not None:
                         captured_ctx[did] = cur
+            cache = None
+            cache_key = None
+            if allow_outer_slot_eval and self._vectorization_parallel_shape() is not None:
+                cache = getattr(self, "_nested_lowered_eval_cache", None)
+            if cache is not None:
+                def _sort_key(item: Tuple[Any, Any]) -> Tuple[int, int]:
+                    did = item[0]
+                    return (getattr(did, "krate", 0), getattr(did, "index", 0))
+
+                captured_fingerprint = tuple(
+                    (did, self._cache_value_fingerprint(val))
+                    for did, val in sorted(captured_ctx.items(), key=_sort_key)
+                )
+                scalar_fingerprint = tuple(
+                    (did, self._cache_value_fingerprint(val))
+                    for did, val in sorted((scalar_index_bindings or {}).items(), key=_sort_key)
+                )
+                cache_key = (
+                    id(lowered),
+                    captured_fingerprint,
+                    scalar_fingerprint,
+                )
+                if cache_key in cache:
+                    return cache[cache_key]
             with self.env.scope():
                 env_names = getattr(self.env, "_defid_names", {}) or {}
                 for did, val in captured_ctx.items():
@@ -473,8 +504,13 @@ class EinsteinExecutionSetupMixin:
                 if allow_outer_slot_eval:
                     slot_eval = self._evaluate_lowered_per_outer_slot(lowered)
                     if slot_eval is not None:
+                        if cache is not None and cache_key is not None:
+                            cache[cache_key] = slot_eval
                         return slot_eval
-                return lowered.accept(self)
+                value = lowered.accept(self)
+                if cache is not None and cache_key is not None:
+                    cache[cache_key] = value
+                return value
         finally:
             stack.pop()
 
@@ -663,7 +699,7 @@ class EinsteinExecutionSetupMixin:
                     self.env.set_value(variable_key, zero_value)
                 return zero_value
         output_shape = None
-        if tensor_shape:
+        if tensor_shape is not None:
             output_shape = []
             for shape_dim in tensor_shape:
                 try:
@@ -683,9 +719,9 @@ class EinsteinExecutionSetupMixin:
                 else:
                     output_shape = None
                     break
-        if not output_shape and lowered_einstein.items:
+        if output_shape is None and lowered_einstein.items:
             output_shape = self._shape_from_all_items(lowered_einstein.items)
-        elif output_shape and lowered_einstein.items:
+        elif output_shape is not None and lowered_einstein.items:
             # Compiler shape may underestimate for multi-segment declarations
             # (e.g. _compute_shape_union picks a symbolic expr that evaluates to
             # the first clause's end, not the union).  Widen only when loop ranks match
@@ -694,12 +730,12 @@ class EinsteinExecutionSetupMixin:
             items_shape = self._shape_from_all_items(lowered_einstein.items)
             if items_shape and len(items_shape) == len(output_shape):
                 output_shape = [max(a, b) for a, b in zip(output_shape, items_shape)]
-        if not output_shape and lowered_einstein.items:
+        if output_shape is None and lowered_einstein.items:
             raise RuntimeError(
                 "Einstein declaration has no shape from compiler. "
                 "Compiler must set shape (union of clause ranges) on LoweredEinsteinIR."
             )
-        if not output_shape:
+        if output_shape is None:
             output_shape = [1]
         dtype = self._type_info_to_numpy_dtype(tensor_element_type)
         if dtype is None:
@@ -745,9 +781,10 @@ class EinsteinExecutionSetupMixin:
                 loops_it = (it.loops or [])
                 rec_dims = it.recurrence_dims_override
                 if rec_dims is None:
-                    rec_dims = _recurrence_dims_for_hybrid(it, variable_defid, clause_indices)
-                if not rec_dims:
-                    rec_dims = _recurrence_dims(it, variable_defid, clause_indices)
+                    raise RuntimeError(
+                        "Lowered Einstein clause missing compiler-owned recurrence_dims_override. "
+                        "RecurrenceOrderPass must annotate recurrence metadata before execution."
+                    )
                 body_refs = _BodyReferencesDefidVisitor(variable_defid).references(it.body)
                 # Recurrence = has recurrence dim(s). Allow pure recurrence (only t) so t is extracted as outer loop.
                 # When len(rec_dims) < len(loops_it) we vectorize over the rest; when equal we run one scalar/point per t.

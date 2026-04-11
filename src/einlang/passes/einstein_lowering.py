@@ -9,6 +9,8 @@ Rust Pattern: rustc_mir::transform::MirPass
 
 """
 
+import copy
+
 from typing import Dict, List, Optional, Any, Tuple, Set
 from ..passes.base import BasePass, TyCtxt
 from ..passes.range_analysis import RangeAnalysisPass, Range
@@ -23,7 +25,8 @@ from ..ir.nodes import (
     WhereClauseIR, RangeIR, LiteralIR, EinsteinClauseIR, EinsteinIR,
     LoopStructure, BindingIR, GuardCondition, is_einstein_binding, is_function_binding,
     LoweredEinsteinClauseIR, LoweredEinsteinIR, LoweredReductionIR, LoweredComprehensionIR,
-    IRVisitor, RectangularAccessIR, MemberAccessIR,
+    LoweredRecurrenceIR,
+    IRNode, IRVisitor, RectangularAccessIR, MemberAccessIR,
     ArrayComprehensionIR, BinaryOpIR, UnaryOpIR, FunctionCallIR,
     BlockExpressionIR, IfExpressionIR, WhereExpressionIR,
     DifferentialIR,
@@ -148,6 +151,12 @@ def _einstein_reduction_arity_key(e: EinsteinIR) -> Optional[Any]:
     if isinstance(v, ReductionExpressionIR):
         return (v.operation, len(v.loop_vars or []))
     return None
+
+
+def _detached_ir_expr(expr: Optional[ExpressionIR]) -> Optional[ExpressionIR]:
+    if expr is None:
+        return None
+    return copy.deepcopy(expr)
 
 
 def _body_contains_lowerable(node: Any, seen: Optional[Set[Any]] = None) -> bool:
@@ -386,7 +395,7 @@ class EinsteinLoweringPass(BasePass):
     Converts Einstein bindings to LoweredIteration structures.
     All ranges are pre-computed by RangeAnalysisPass.
     """
-    requires = [RangeAnalysisPass]  # Depends on range analysis
+    requires = [RangeAnalysisPass, "AutodiffLeakCheckPass"]
     
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         """Lower Einstein declarations to loop structures"""
@@ -409,6 +418,31 @@ class EinsteinLoweringPass(BasePass):
                 result = stmt
             new_statements.append(result)
         ir.statements = new_statements
+
+        # Also lower autodiff diff blocks stored in analysis so runtime per-quotient
+        # paths can execute lowered IR.
+        try:
+            from ..passes.autodiff import AutodiffPass
+
+            ad = tcx.get_analysis(AutodiffPass)
+            diff_block = ad.get("diff_block")
+            if diff_block:
+                lowered_diff: List[Any] = []
+                for stmt in diff_block:
+                    if stmt is None:
+                        raise ValueError("Autodiff diff block statement is None")
+                    res = stmt.accept(visitor)
+                    if res is None:
+                        raise ValueError("Einstein lowering returned None for diff block statement")
+                    if isinstance(stmt, BindingIR) and not isinstance(res, BindingIR):
+                        object.__setattr__(stmt, 'expr', res)
+                        res = stmt
+                    lowered_diff.append(res)
+                ad = dict(ad)
+                ad["diff_block"] = lowered_diff
+                tcx.set_analysis(AutodiffPass, ad)
+        except RuntimeError:
+            pass
 
         from ..analysis.analysis_guard import should_analyze_function, is_generic_function
         function_ir_map = getattr(tcx, 'function_ir_map', None) or {}
@@ -834,6 +868,127 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             ]
         ] = [[]]
 
+    def _canonicalize_scope_expr(self, expr: Any, env: Dict[str, Any]) -> Any:
+        if expr is None:
+            return None
+        if isinstance(expr, IdentifierIR):
+            canonical = env.get(expr.name)
+            if canonical is not None and expr.defid != canonical:
+                expr.defid = canonical
+            return expr
+        if isinstance(expr, IndexVarIR):
+            canonical = env.get(expr.name)
+            if canonical is not None and expr.defid != canonical:
+                expr.defid = canonical
+            if expr.range_ir is not None:
+                self._canonicalize_scope_expr(expr.range_ir, dict(env))
+            return expr
+        if isinstance(expr, BindingIR):
+            if expr.expr is not None:
+                self._canonicalize_scope_expr(expr.expr, dict(env))
+            if expr.name and expr.defid is not None:
+                env[expr.name] = expr.defid
+            return expr
+        if isinstance(expr, BlockExpressionIR):
+            block_env = dict(env)
+            for stmt in expr.statements or []:
+                self._canonicalize_scope_expr(stmt, block_env)
+            if expr.final_expr is not None:
+                self._canonicalize_scope_expr(expr.final_expr, block_env)
+            return expr
+        if isinstance(expr, IfExpressionIR):
+            self._canonicalize_scope_expr(expr.condition, dict(env))
+            self._canonicalize_scope_expr(expr.then_expr, dict(env))
+            if expr.else_expr is not None:
+                self._canonicalize_scope_expr(expr.else_expr, dict(env))
+            return expr
+        if isinstance(expr, LoweredReductionIR):
+            return self._canonicalize_looped_expr(expr, env, body_attr="body")
+        if isinstance(expr, LoweredSelectAtArgmaxIR):
+            return self._canonicalize_looped_expr(expr, env, body_attr="primal_body", extra_body_attr="diff_body")
+        if isinstance(expr, LoweredComprehensionIR):
+            return self._canonicalize_looped_expr(expr, env, body_attr="body")
+        if isinstance(expr, LoweredEinsteinClauseIR):
+            return self._canonicalize_looped_expr(expr, env, body_attr="body", include_indices=True)
+        if isinstance(expr, LoweredEinsteinIR):
+            for item in expr.items or []:
+                self._canonicalize_scope_expr(item, dict(env))
+            return expr
+        if isinstance(expr, LoweredRecurrenceIR):
+            rec_env = dict(env)
+            if expr.initial is not None:
+                self._canonicalize_scope_expr(expr.initial, dict(env))
+            if expr.recurrence_loop is not None:
+                if expr.recurrence_loop.iterable is not None:
+                    self._canonicalize_scope_expr(expr.recurrence_loop.iterable, dict(env))
+                rv = expr.recurrence_loop.variable
+                if rv is not None and rv.name and rv.defid is not None:
+                    rec_env[rv.name] = rv.defid
+            if expr.body is not None:
+                self._canonicalize_scope_expr(expr.body, rec_env)
+            return expr
+        if isinstance(expr, IRNode):
+            for cls in type(expr).__mro__:
+                for slot in getattr(cls, "__slots__", ()):
+                    value = getattr(expr, slot, None)
+                    self._canonicalize_generic_value(value, env)
+            return expr
+        return expr
+
+    def _canonicalize_looped_expr(
+        self,
+        expr: Any,
+        env: Dict[str, Any],
+        *,
+        body_attr: str,
+        extra_body_attr: Optional[str] = None,
+        include_indices: bool = False,
+    ) -> Any:
+        loop_env = dict(env)
+        for loop in getattr(expr, "loops", ()) or ():
+            iterable = getattr(loop, "iterable", None)
+            if iterable is not None:
+                self._canonicalize_scope_expr(iterable, dict(loop_env))
+            var = getattr(loop, "variable", None)
+            if var is not None and getattr(var, "name", None) and getattr(var, "defid", None) is not None:
+                loop_env[var.name] = var.defid
+        for binding in getattr(expr, "bindings", ()) or ():
+            self._canonicalize_scope_expr(binding, loop_env)
+        for guard in getattr(expr, "guards", ()) or ():
+            cond = getattr(guard, "condition", None)
+            if cond is not None:
+                self._canonicalize_scope_expr(cond, dict(loop_env))
+        if include_indices:
+            for idx in getattr(expr, "indices", ()) or ():
+                self._canonicalize_scope_expr(idx, dict(loop_env))
+        body = getattr(expr, body_attr, None)
+        if body is not None:
+            self._canonicalize_scope_expr(body, dict(loop_env))
+        if extra_body_attr is not None:
+            extra = getattr(expr, extra_body_attr, None)
+            if extra is not None:
+                self._canonicalize_scope_expr(extra, dict(loop_env))
+        return expr
+
+    def _canonicalize_generic_value(self, value: Any, env: Dict[str, Any]) -> None:
+        if value is None:
+            return
+        if isinstance(value, list):
+            for item in value:
+                self._canonicalize_generic_value(item, env)
+            return
+        if isinstance(value, tuple):
+            for item in value:
+                self._canonicalize_generic_value(item, env)
+            return
+        if isinstance(value, dict):
+            for key, item in value.items():
+                self._canonicalize_generic_value(key, env)
+                self._canonicalize_generic_value(item, env)
+            return
+        if isinstance(value, IRNode):
+            self._canonicalize_scope_expr(value, env)
+
     def _resolve_prior_einstein_binding(self, e: EinsteinIR) -> IdentifierIR:
         k = _einstein_binding_key(e)
         lk = _einstein_binding_key_loose(e)
@@ -932,6 +1087,8 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                     tensor_shape = self._compute_shape_union(all_shapes, loc)
                 if tensor_shape is None and items[0].loops:
                     tensor_shape = self._compute_shape(items[0].loops)
+                if tensor_shape is None:
+                    tensor_shape = ()
                 return LoweredEinsteinIR(items=items, shape=tensor_shape, element_type=element_type)
             return None
         return self._lower_einstein_clause_to_lowered(node, clauses[0])
@@ -968,6 +1125,8 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                     tensor_shape = self._compute_shape_union(all_shapes, loc)
                 if tensor_shape is None and items[0].loops:
                     tensor_shape = self._compute_shape(items[0].loops)
+                if tensor_shape is None:
+                    tensor_shape = ()
                 return LoweredEinsteinIR(items=items, shape=tensor_shape, element_type=element_type)
             return node
         lowered_single = self._lower_einstein_clause_to_lowered(None, clauses[0], rvalue_einstein=node)
@@ -1197,6 +1356,8 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         )
         # Wrap in group with shared shape, element_type
         self._current_einstein_clause = prev_clause
+        if shape is None and not loops:
+            shape = ()
         return LoweredEinsteinIR(items=[lowered_clause_ir], shape=shape, element_type=element_type)
 
     def lower_reduction_expression(self, node: ReductionExpressionIR) -> None:
@@ -1271,6 +1432,21 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             lowered_body = body.accept(self)
             if lowered_body is not None:
                 body = lowered_body
+        # Autodiff lowering can intentionally reuse primal subtrees inside derivative
+        # expressions. Scope canonicalization mutates defids in place, so detach this
+        # lowered body before canonicalization to avoid rewriting shared primal IR.
+        body = _detached_ir_expr(body)
+        loop_env = {
+            loop.variable.name: loop.variable.defid
+            for loop in loops
+            if loop.variable is not None and loop.variable.name and loop.variable.defid is not None
+        }
+        self._canonicalize_scope_expr(body, dict(loop_env))
+        for binding in bindings:
+            self._canonicalize_scope_expr(binding, loop_env)
+        for guard in guards:
+            if guard.condition is not None:
+                self._canonicalize_scope_expr(guard.condition, dict(loop_env))
         return LoweredReductionIR(
             body=body,
             operation=node.operation,
@@ -1336,6 +1512,15 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                 )
         lowered_primal = node.primal_body.accept(self) if node.primal_body else node.primal_body
         lowered_diff = node.diff_body.accept(self) if node.diff_body else node.diff_body
+        lowered_primal = _detached_ir_expr(lowered_primal)
+        lowered_diff = _detached_ir_expr(lowered_diff)
+        loop_env = {
+            loop.variable.name: loop.variable.defid
+            for loop in loops
+            if loop.variable is not None and loop.variable.name and loop.variable.defid is not None
+        }
+        self._canonicalize_scope_expr(lowered_primal, dict(loop_env))
+        self._canonicalize_scope_expr(lowered_diff, dict(loop_env))
         return LoweredSelectAtArgmaxIR(
             primal_body=lowered_primal or node.primal_body,
             diff_body=lowered_diff or node.diff_body,
@@ -1396,6 +1581,17 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
                     continue
             cond_lowered = c.accept(self) if c is not None else c
             guards.append(GuardCondition(cond_lowered if cond_lowered is not None else c))
+        loop_env = {
+            loop.variable.name: loop.variable.defid
+            for loop in loops
+            if loop.variable is not None and loop.variable.name and loop.variable.defid is not None
+        }
+        self._canonicalize_scope_expr(body, dict(loop_env))
+        for binding in bindings:
+            self._canonicalize_scope_expr(binding, loop_env)
+        for guard in guards:
+            if guard.condition is not None:
+                self._canonicalize_scope_expr(guard.condition, dict(loop_env))
         return LoweredComprehensionIR(
             body=body,
             loops=loops,
@@ -2223,6 +2419,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         for g in node.guards or []:
             if g.condition is not None:
                 g.condition = g.condition.accept(self)
+        self._canonicalize_scope_expr(node, {})
         return node
 
     def visit_lowered_select_at_argmax(self, node: LoweredSelectAtArgmaxIR) -> Any:
@@ -2249,6 +2446,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         for g in node.guards or []:
             if g.condition is not None:
                 g.condition = g.condition.accept(self)
+        self._canonicalize_scope_expr(node, {})
         return node
 
     def visit_lowered_comprehension(self, node) -> Any:
@@ -2260,6 +2458,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         for g in node.guards or []:
             if g.condition is not None:
                 g.condition = g.condition.accept(self)
+        self._canonicalize_scope_expr(node, {})
         return node
 
     def visit_lowered_einstein_clause(self, node) -> Any:
@@ -2274,6 +2473,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         for g in node.guards or []:
             if g.condition is not None:
                 g.condition = g.condition.accept(self)
+        self._canonicalize_scope_expr(node, {})
         return node
 
     def visit_lowered_einstein(self, node) -> Any:

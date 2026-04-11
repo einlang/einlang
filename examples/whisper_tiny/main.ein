@@ -346,9 +346,7 @@ fn decoder_block_token(
     (out, K_next, V_next)
 }
 
-fn whisper_decode_step(
-    current_token_id: i32,
-    step: i32,
+fn make_cross_cache(
     Kch0: [f32; 6, 1500, 64],
     Vch0: [f32; 6, 1500, 64],
     Kch1: [f32; 6, 1500, 64],
@@ -356,15 +354,65 @@ fn whisper_decode_step(
     Kch2: [f32; 6, 1500, 64],
     Vch2: [f32; 6, 1500, 64],
     Kch3: [f32; 6, 1500, 64],
-    Vch3: [f32; 6, 1500, 64],
-    K0_prev: [f32; 6, 40, 64],
-    V0_prev: [f32; 6, 40, 64],
-    K1_prev: [f32; 6, 40, 64],
-    V1_prev: [f32; 6, 40, 64],
-    K2_prev: [f32; 6, 40, 64],
-    V2_prev: [f32; 6, 40, 64],
-    K3_prev: [f32; 6, 40, 64],
-    V3_prev: [f32; 6, 40, 64]
+    Vch3: [f32; 6, 1500, 64]
+) -> (
+    [f32; 6, 1500, 64],
+    [f32; 6, 1500, 64],
+    [f32; 6, 1500, 64],
+    [f32; 6, 1500, 64],
+    [f32; 6, 1500, 64],
+    [f32; 6, 1500, 64],
+    [f32; 6, 1500, 64],
+    [f32; 6, 1500, 64]
+) {
+    (Kch0, Vch0, Kch1, Vch1, Kch2, Vch2, Kch3, Vch3)
+}
+
+fn make_prev_cache(
+    K0: [f32; 6, 40, 64],
+    V0: [f32; 6, 40, 64],
+    K1: [f32; 6, 40, 64],
+    V1: [f32; 6, 40, 64],
+    K2: [f32; 6, 40, 64],
+    V2: [f32; 6, 40, 64],
+    K3: [f32; 6, 40, 64],
+    V3: [f32; 6, 40, 64]
+) -> (
+    [f32; 6, 40, 64],
+    [f32; 6, 40, 64],
+    [f32; 6, 40, 64],
+    [f32; 6, 40, 64],
+    [f32; 6, 40, 64],
+    [f32; 6, 40, 64],
+    [f32; 6, 40, 64],
+    [f32; 6, 40, 64]
+) {
+    (K0, V0, K1, V1, K2, V2, K3, V3)
+}
+
+fn whisper_decode_step(
+    current_token_id: i32,
+    step: i32,
+    cross_cache: (
+        [f32; 6, 1500, 64],
+        [f32; 6, 1500, 64],
+        [f32; 6, 1500, 64],
+        [f32; 6, 1500, 64],
+        [f32; 6, 1500, 64],
+        [f32; 6, 1500, 64],
+        [f32; 6, 1500, 64],
+        [f32; 6, 1500, 64]
+    ),
+    prev_cache: (
+        [f32; 6, 40, 64],
+        [f32; 6, 40, 64],
+        [f32; 6, 40, 64],
+        [f32; 6, 40, 64],
+        [f32; 6, 40, 64],
+        [f32; 6, 40, 64],
+        [f32; 6, 40, 64],
+        [f32; 6, 40, 64]
+    )
 ) -> (
     [f32; 6, 40, 64],
     [f32; 6, 40, 64],
@@ -377,10 +425,10 @@ fn whisper_decode_step(
     i32
 ) {
     let x = decoder_input_token(current_token_id, step - 1);
-    let (x0, K0_next, V0_next) = decoder_block_token(x, K0_prev, V0_prev, Kch0, Vch0, step, 0);
-    let (x1, K1_next, V1_next) = decoder_block_token(x0, K1_prev, V1_prev, Kch1, Vch1, step, 1);
-    let (x2, K2_next, V2_next) = decoder_block_token(x1, K2_prev, V2_prev, Kch2, Vch2, step, 2);
-    let (x3, K3_next, V3_next) = decoder_block_token(x2, K3_prev, V3_prev, Kch3, Vch3, step, 3);
+    let (x0, K0_next, V0_next) = decoder_block_token(x, prev_cache.0, prev_cache.1, cross_cache.0, cross_cache.1, step, 0);
+    let (x1, K1_next, V1_next) = decoder_block_token(x0, prev_cache.2, prev_cache.3, cross_cache.2, cross_cache.3, step, 1);
+    let (x2, K2_next, V2_next) = decoder_block_token(x1, prev_cache.4, prev_cache.5, cross_cache.4, cross_cache.5, step, 2);
+    let (x3, K3_next, V3_next) = decoder_block_token(x2, prev_cache.6, prev_cache.7, cross_cache.6, cross_cache.7, step, 3);
     let final_ln = layer_norm_token(x3, dec_ln_w, dec_ln_b, 1e-5);
     let logits[v in 0..51865] = sum[d in 0..384](final_ln[d] * dec_tok_emb[v, d]);
     let next_token = argmax(logits);
@@ -399,54 +447,46 @@ let dec_kch2 = decoder_cross_k_heads(enc_out, 2);
 let dec_vch2 = decoder_cross_v_heads(enc_out, 2);
 let dec_kch3 = decoder_cross_k_heads(enc_out, 3);
 let dec_vch3 = decoder_cross_v_heads(enc_out, 3);
+let cross_cache = make_cross_cache(dec_kch0, dec_vch0, dec_kch1, dec_vch1, dec_kch2, dec_vch2, dec_kch3, dec_vch3);
 
 let SOT_TOKENS = [50258, 50259, 50359, 50363];
 let zero_step = decoder_zero_step();
-let decode_steps[1] =
-    whisper_decode_step(
-        SOT_TOKENS[0],
-        1,
-        dec_kch0,
-        dec_vch0,
-        dec_kch1,
-        dec_vch1,
-        dec_kch2,
-        dec_vch2,
-        dec_kch3,
-        dec_vch3,
-        zero_step.1,
-        zero_step.2,
-        zero_step.1,
-        zero_step.2,
-        zero_step.1,
-        zero_step.2,
-        zero_step.1,
-        zero_step.2
-    );
-let decode_steps[step in 2..40] =
-    whisper_decode_step(
-        if step <= 4 { SOT_TOKENS[step - 1] } else { decode_steps[step - 1].8 },
-        step,
-        dec_kch0,
-        dec_vch0,
-        dec_kch1,
-        dec_vch1,
-        dec_kch2,
-        dec_vch2,
-        dec_kch3,
-        dec_vch3,
-        decode_steps[step - 1].0,
-        decode_steps[step - 1].1,
-        decode_steps[step - 1].2,
-        decode_steps[step - 1].3,
-        decode_steps[step - 1].4,
-        decode_steps[step - 1].5,
-        decode_steps[step - 1].6,
-        decode_steps[step - 1].7
-    );
-let tokens[t in 0..4] = SOT_TOKENS[t];
-let tokens[4] = decode_steps[4].8;
-let tokens[t in 5..40] = decode_steps[t].8;
+let K_zero = zero_step.1;
+let V_zero = zero_step.2;
+let zero_cache = make_prev_cache(K_zero, V_zero, K_zero, V_zero, K_zero, V_zero, K_zero, V_zero);
+
+let warm1 = whisper_decode_step(
+    SOT_TOKENS[0], 1,
+    cross_cache,
+    zero_cache
+);
+let warm2 = whisper_decode_step(
+    SOT_TOKENS[1], 2,
+    cross_cache,
+    make_prev_cache(warm1.0, warm1.1, warm1.2, warm1.3, warm1.4, warm1.5, warm1.6, warm1.7)
+);
+let warm3 = whisper_decode_step(
+    SOT_TOKENS[2], 3,
+    cross_cache,
+    make_prev_cache(warm2.0, warm2.1, warm2.2, warm2.3, warm2.4, warm2.5, warm2.6, warm2.7)
+);
+let warm4 = whisper_decode_step(
+    SOT_TOKENS[3], 4,
+    cross_cache,
+    make_prev_cache(warm3.0, warm3.1, warm3.2, warm3.3, warm3.4, warm3.5, warm3.6, warm3.7)
+);
+let decode_state[0] = warm4;
+let decode_state[s in 1..36] = whisper_decode_step(
+    decode_state[s - 1].8, s + 4,
+    cross_cache,
+    make_prev_cache(
+        decode_state[s - 1].0, decode_state[s - 1].1,
+        decode_state[s - 1].2, decode_state[s - 1].3,
+        decode_state[s - 1].4, decode_state[s - 1].5,
+        decode_state[s - 1].6, decode_state[s - 1].7
+    )
+);
+let tokens[t in 0..40] = if t < 4 { SOT_TOKENS[t] } else { decode_state[t - 4].8 };
 
 let text = python::whisper_helpers::decode_tokens(tokens);
 print(text);

@@ -15,7 +15,6 @@ from ..ir.nodes import (
     is_function_binding, is_einstein_binding,
     IRVisitor, BindingIR,
 )
-from ..shared.defid import DefId, RUNTIME_CRATE
 from ..shared.optional_attr import opt_defid
 from ..shared.types import (
     BF16,
@@ -303,62 +302,95 @@ class _ReductionDimsCounter(IRVisitor[int]):
 
     def visit_lowered_reduction(self, node: Any) -> int:
         loops = node.loops or []
-        body_count = node.body.accept(self)
+        body_count = node.body.accept(self) or 0
         return max(len(loops), body_count)
 
     def visit_binary_op(self, node: Any) -> int:
-        return max(node.left.accept(self), node.right.accept(self))
+        left = node.left.accept(self) or 0
+        right = node.right.accept(self) or 0
+        return max(left, right)
 
     def visit_rectangular_access(self, node: Any) -> int:
-        n = node.array.accept(self)
+        n = node.array.accept(self) or 0
         for idx in node.indices:
-            n = max(n, idx.accept(self))
+            val = idx.accept(self)
+            if val is None:
+                val = 0
+            n = max(n, val)
         return n
 
     def visit_function_call(self, node: Any) -> int:
-        n = node.callee_expr.accept(self)
+        n = node.callee_expr.accept(self) or 0
         for a in node.arguments:
-            n = max(n, a.accept(self))
+            val = a.accept(self)
+            if val is None:
+                val = 0
+            n = max(n, val)
         return n
 
     def visit_unary_op(self, node: Any) -> int:
-        return node.operand.accept(self)
+        return node.operand.accept(self) or 0
 
     def visit_if_expression(self, node: Any) -> int:
-        c = node.condition.accept(self)
-        t = node.then_expr.accept(self)
+        c = node.condition.accept(self) or 0
+        t = node.then_expr.accept(self) or 0
         e = node.else_expr.accept(self) if node.else_expr is not None else 0
+        if e is None:
+            e = 0
         return max(c, t, e)
 
     def visit_block_expression(self, node: Any) -> int:
         n = 0
         for stmt in node.statements:
-            n = max(n, stmt.accept(self))
+            val = stmt.accept(self)
+            if val is None:
+                val = 0
+            n = max(n, val)
         final = node.final_expr.accept(self) if node.final_expr is not None else 0
+        if final is None:
+            final = 0
         return max(n, final)
 
     def visit_lambda(self, node: Any) -> int:
-        return node.body.accept(self)
+        return node.body.accept(self) or 0
 
     def visit_range(self, node: Any) -> int:
-        return max(node.start.accept(self), node.end.accept(self))
+        start = node.start.accept(self) if node.start is not None else 0
+        end = node.end.accept(self) if node.end is not None else 0
+        if start is None:
+            start = 0
+        if end is None:
+            end = 0
+        return max(start, end)
 
     def visit_array_comprehension(self, node: Any) -> int:
-        return node.body.accept(self)
+        return node.body.accept(self) or 0
 
     def visit_where_expression(self, node: Any) -> int:
-        n = node.expr.accept(self)
+        n = node.expr.accept(self) or 0
         for c in node.constraints:
-            n = max(n, c.accept(self))
+            val = c.accept(self)
+            if val is None:
+                val = 0
+            n = max(n, val)
         return n
 
     def visit_pipeline_expression(self, node: Any) -> int:
-        return max(node.left.accept(self), node.right.accept(self))
+        left = node.left.accept(self)
+        right = node.right.accept(self)
+        if left is None:
+            left = 0
+        if right is None:
+            right = 0
+        return max(left, right)
 
     def visit_builtin_call(self, node: Any) -> int:
         n = 0
         for a in node.args:
-            n = max(n, a.accept(self))
+            val = a.accept(self)
+            if val is None:
+                val = 0
+            n = max(n, val)
         return n
 
     def visit_literal(self, node: Any) -> int:
@@ -368,15 +400,21 @@ class _ReductionDimsCounter(IRVisitor[int]):
         return 0
 
     def visit_index_var(self, node: Any) -> int:
-        return node.range_ir.accept(self) if node.range_ir is not None else 0
+        if node.range_ir is None:
+            return 0
+        val = node.range_ir.accept(self)
+        return val if val is not None else 0
 
     def visit_index_rest(self, node: Any) -> int:
         return 0
 
     def visit_jagged_access(self, node: Any) -> int:
-        n = node.base.accept(self)
+        n = node.base.accept(self) or 0
         for idx in node.index_chain:
-            n = max(n, idx.accept(self))
+            val = idx.accept(self)
+            if val is None:
+                val = 0
+            n = max(n, val)
         return n
 
     def visit_module(self, node: Any) -> int:
@@ -385,37 +423,49 @@ class _ReductionDimsCounter(IRVisitor[int]):
     def visit_array_literal(self, node: Any) -> int:
         n = 0
         for e in node.elements:
-            n = max(n, e.accept(self))
+            val = e.accept(self)
+            if val is None:
+                val = 0
+            n = max(n, val)
         return n
 
     def visit_tuple_expression(self, node: Any) -> int:
         n = 0
         for e in node.elements:
-            n = max(n, e.accept(self))
+            val = e.accept(self)
+            if val is None:
+                val = 0
+            n = max(n, val)
         return n
 
     def visit_tuple_access(self, node: Any) -> int:
-        return node.tuple_expr.accept(self)
+        return node.tuple_expr.accept(self) or 0
 
     def visit_interpolated_string(self, node: Any) -> int:
         n = 0
         for p in node.parts:
-            n = max(n, p.accept(self))
+            val = p.accept(self)
+            if val is None:
+                val = 0
+            n = max(n, val)
         return n
 
     def visit_cast_expression(self, node: Any) -> int:
-        return node.expr.accept(self)
+        return node.expr.accept(self) or 0
 
     def visit_member_access(self, node: Any) -> int:
-        return node.object.accept(self)
+        return node.object.accept(self) or 0
 
     def visit_try_expression(self, node: Any) -> int:
-        return node.operand.accept(self)
+        return node.operand.accept(self) or 0
 
     def visit_match_expression(self, node: Any) -> int:
-        n = node.scrutinee.accept(self)
+        n = node.scrutinee.accept(self) or 0
         for arm in node.arms:
-            n = max(n, arm.body.accept(self))
+            val = arm.body.accept(self)
+            if val is None:
+                val = 0
+            n = max(n, val)
         return n
 
     def visit_reduction_expression(self, node: Any) -> int:
@@ -936,4 +986,3 @@ class _DefidsByNameCollector(IRVisitor[Dict[str, List[Any]]]):
 
     def visit_einstein_clause(self, node: Any) -> Dict[str, List[Any]]:
         return self._empty()
-

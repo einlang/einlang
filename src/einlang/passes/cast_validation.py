@@ -53,7 +53,7 @@ class CastValidationPass(BasePass):
     
     Validates type casts to ensure they are safe and valid.
     """
-    requires = [TypeInferencePass]  # Depends on type inference (needs type information)
+    requires = [TypeInferencePass, "RecurrenceOrderPass"]
     
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         """Validate casts in IR"""

@@ -8,6 +8,7 @@ Reference: SHAPE_ANALYSIS_DESIGN.md
 import logging
 from typing import Dict, List, Optional, Set, Tuple, Any
 from ..passes.base import BasePass, TyCtxt
+from ..passes.range_analysis import RangeAnalysisPass
 from ..passes.rest_pattern_preprocessing import RestPatternPreprocessingPass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, ArrayLiteralIR, ArrayComprehensionIR,
@@ -225,8 +226,7 @@ class UnifiedShapeAnalysisPass(BasePass):
     
     Runs AFTER range analysis (needs ranges to compute output dims with offsets)
     """
-    requires = [RestPatternPreprocessingPass]  # RestPattern → Range → Shape
-    # Note: RangeAnalysisPass dependency is implicit via pass ordering (not declared to avoid import cycles)
+    requires = [RangeAnalysisPass, RestPatternPreprocessingPass]  # RestPattern → Range → Shape
     
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         """Analyze shapes in IR"""
@@ -956,5 +956,4 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
     
     def visit_module(self, node) -> None:
         pass
-
 

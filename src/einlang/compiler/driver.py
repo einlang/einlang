@@ -5,7 +5,6 @@ Rust Pattern: rustc_driver::driver
 Reference: COMPILER_FLOW_DESIGN.md
 """
 
-import os
 from typing import Optional
 from pathlib import Path
 from ..passes.base import TyCtxt, PassManager, BasePass
@@ -17,15 +16,6 @@ from ..passes.ast_to_ir import ASTToIRLoweringPass
 from ..passes.type_inference import TypeInferencePass
 from ..passes.range_analysis import RangeAnalysisPass
 from ..analysis.module_system import ModuleSystem
-
-
-def _env_ir_dump_enabled(var_name: str) -> bool:
-    """Per-pass / final IR file dumps are off unless explicitly enabled (1/true/yes/on).
-
-    Any other value (including unset, empty, 0, false) keeps dumps disabled.
-    """
-    v = (os.environ.get(var_name) or "").strip().lower()
-    return v in ("1", "true", "yes", "on")
 
 
 def _location_is_meaningful(loc: Optional[SourceLocation]) -> bool:
@@ -187,44 +177,67 @@ class CompilerDriver:
         """
         # 0. AST to IR lowering
         self.pass_manager.register_pass(ASTToIRLoweringPass)
-        # Note: Einstein grouping runs on AST as part of NameResolutionPass
+        # Note: Einstein grouping runs on IR via EinsteinDeclarationGroupingPass (registered below)
+
+        # 1. Einstein declaration grouping (analysis)
+        from ..passes.einstein_grouping import EinsteinDeclarationGroupingPass
+        self.pass_manager.register_pass(EinsteinDeclarationGroupingPass)
+
+        # 2. Constraint classification (analysis)
+        from ..passes.constraint_classifier import ConstraintClassifierPass
+        self.pass_manager.register_pass(ConstraintClassifierPass)
         
-        # 2. Rest pattern preprocessing (expands ..batch to batch.0 early)
+        # 3. Rest pattern preprocessing (expands ..batch to batch.0 early)
         from ..passes.rest_pattern_preprocessing import RestPatternPreprocessingPass
         self.pass_manager.register_pass(RestPatternPreprocessingPass)
         
-        # 3. Range analysis (infers ranges for loop variables)
+        # 4. Range analysis (infers ranges for loop variables)
         # CRITICAL: Must come before shape analysis (shape needs ranges for offsets)
         self.pass_manager.register_pass(RangeAnalysisPass)
         
-        # 4. Shape analysis (uses ranges to compute output dimensions)
+        # 5. Shape analysis (uses ranges to compute output dimensions)
         from ..passes.shape_analysis import UnifiedShapeAnalysisPass
         self.pass_manager.register_pass(UnifiedShapeAnalysisPass)
         
-        # 5. Type inference (Type analysis runs after shape)
+        # 6. Type inference (Type analysis runs after shape)
         # This allows type inference to use shape information
         self.pass_manager.register_pass(TypeInferencePass)
 
-        # 5a. Pre-autodiff pruning (shape/rank branch pruning only)
+        # 7. Canonicalize generic extremum-selection patterns to SelectAtArgmaxIR
+        from ..passes.extremum_selection_canonicalization import (
+            ExtremumSelectionCanonicalizationPass,
+        )
+        self.pass_manager.register_pass(ExtremumSelectionCanonicalizationPass)
+
+        # 8. Pre-autodiff pruning (shape/rank branch pruning only)
         from ..passes.pre_autodiff_pruning import PreAutodiffPruningPass
         self.pass_manager.register_pass(PreAutodiffPruningPass)
 
-        # 5b. Autodiff (high-level EinsteinIR only; before lowering)
+        # 9. Autodiff (high-level EinsteinIR only; before lowering)
         from ..passes.autodiff import AutodiffPass
         self.pass_manager.register_pass(AutodiffPass)
 
-        # 5c. Post-autodiff pruning (shape/rank branch pruning only)
+        # 10. Post-autodiff pruning (shape/rank branch pruning only)
         from ..passes.pre_autodiff_pruning import PostAutodiffPruningPass
         self.pass_manager.register_pass(PostAutodiffPruningPass)
 
-        # 6. Einstein lowering (lower Einstein declarations to loops)
+        # 11. Autodiff leak check (fail if @ artifacts survive)
+        from ..passes.autodiff_leak_check import AutodiffLeakCheckPass
+        self.pass_manager.register_pass(AutodiffLeakCheckPass)
+
+        # 12. Einstein lowering (lower Einstein declarations to loops)
         from ..passes.einstein_lowering import EinsteinLoweringPass
         self.pass_manager.register_pass(EinsteinLoweringPass)
 
+        # 13. Recurrence ordering and lowering
         from ..passes.recurrence_order import RecurrenceOrderPass
         self.pass_manager.register_pass(RecurrenceOrderPass)
 
-        # 7. Validation passes
+        # 14. Compiler-owned lowered execution metadata for backend hot paths
+        from ..passes.lowered_execution_facts import LoweredExecutionFactsPass
+        self.pass_manager.register_pass(LoweredExecutionFactsPass)
+
+        # 15. Validation passes
         from ..passes.cast_validation import CastValidationPass
         self.pass_manager.register_pass(CastValidationPass)
         
@@ -234,7 +247,7 @@ class CompilerDriver:
         from ..passes.exhaustiveness import ExhaustivenessPass
         self.pass_manager.register_pass(ExhaustivenessPass)
         
-        # 8. IR validation (validation)
+        # 16. IR validation (validation)
         from ..passes.ir_validation import IRValidationPass
         self.pass_manager.register_pass(IRValidationPass)
         
@@ -277,7 +290,6 @@ class CompilerDriver:
         tcx.source_files[source_file] = source
         # In-memory module sources (avoid I/O on critical path when possible)
         tcx.source_overlay = source_overlay if source_overlay is not None else {}
-
         ir: Optional[ProgramIR] = None
         try:
             # Phase 1: Parsing (source → AST)
@@ -312,58 +324,20 @@ class CompilerDriver:
                     success=False, ir=None, tcx=tcx, entry_source_file=source_file
                 )
 
-            dump_ir_per_pass = _env_ir_dump_enabled("EINLANG_DUMP_IR_PER_PASS")
-            if dump_ir_per_pass:
-                from ..ir.serialization import serialize_ir
-                ir_dump_dir = Path("ir_dump")
-                ir_dump_dir.mkdir(parents=True, exist_ok=True)
-                try:
-                    (ir_dump_dir / "after_ast_to_ir_lowering.sexpr").write_text(serialize_ir(ir), encoding="utf-8")
-                except Exception:
-                    pass
-
             # Check if we should stop after lowering
             if stop_after_pass == 'ASTToIRLoweringPass':
                 return CompilationResult(success=True, ir=ir, tcx=tcx, entry_source_file=source_file)
 
-            if dump_ir_per_pass:
-                from ..ir.serialization import serialize_ir
-                dump_dir = Path("ir_dumps")
-                dump_dir.mkdir(parents=True, exist_ok=True)
-                try:
-                    (dump_dir / "00_after_ASTToIRLoweringPass.sexpr").write_text(serialize_ir(ir), encoding="utf-8")
-                except Exception:
-                    pass
-
             # Run remaining passes on IR
             # Filter out ASTToIRLoweringPass from pass manager (already run)
             remaining_passes = [
-                p for p in self.pass_manager.passes 
+                p for p in self.pass_manager.ordered_passes()
                 if p != ASTToIRLoweringPass
             ]
             
             # Run remaining passes using pass manager (handles dependencies automatically)
             # Design Pattern: Use pass manager for dependency resolution (no manual isinstance checks)
-            dump_dir = Path("ir_dumps") if dump_ir_per_pass else None
-            pass_index = 1
             for pass_class in remaining_passes:
-                if dump_dir is not None:
-                    dump_dir.mkdir(parents=True, exist_ok=True)
-                    if pass_index == 1:
-                        readme = dump_dir / "README.txt"
-                        if not readme.exists():
-                            readme.write_text(
-                                "IR S-expr dumps per pass (EINLANG_DUMP_IR_PER_PASS=1).\n"
-                                "00 = after ASTToIRLoweringPass; NN_before_Pass = IR before pass N; NN_after_Pass = IR after pass N.\n"
-                                "Reductions include :loop_var_ranges only when non-empty.\n",
-                                encoding="utf-8",
-                            )
-                    from ..ir.serialization import serialize_ir
-                    try:
-                        before_path = dump_dir / f"{pass_index:02d}_before_{pass_class.__name__}.sexpr"
-                        before_path.write_text(serialize_ir(ir), encoding="utf-8")
-                    except Exception:
-                        pass
                 pass_instance = pass_class()
                 try:
                     ir = pass_instance.run(ir, tcx)
@@ -374,33 +348,6 @@ class CompilerDriver:
                     return CompilationResult(
                         success=False, ir=ir, tcx=tcx, entry_source_file=source_file
                     )
-
-                if dump_dir is not None:
-                    try:
-                        out_path = dump_dir / f"{pass_index:02d}_after_{pass_class.__name__}.sexpr"
-                        out_path.write_text(serialize_ir(ir), encoding="utf-8")
-                    except Exception:
-                        pass
-                if pass_class.__name__ == "EinsteinLoweringPass" and _env_ir_dump_enabled(
-                    "EINLANG_DUMP_IR_AFTER_EINSTEIN_LOWERING"
-                ):
-                    from ..ir.serialization import serialize_ir
-                    from ..ir.nodes import ProgramIR
-                    dump_dir = Path("ir_dumps")
-                    dump_dir.mkdir(parents=True, exist_ok=True)
-                    try:
-                        func_map = getattr(tcx, "function_ir_map", None) or {}
-                        extra = [f for f in func_map.values() if f is not None and f not in ir.functions]
-                        all_stmts = list(ir.statements or []) + extra
-                        combined = ProgramIR(
-                            statements=all_stmts,
-                            modules=ir.modules or [],
-                            source_files=ir.source_files or {},
-                        )
-                        (dump_dir / "after_einstein_lowering.sexpr").write_text(serialize_ir(combined), encoding="utf-8")
-                    except Exception:
-                        pass
-                pass_index += 1
 
                 # Stop after specified pass if requested
                 if stop_after_pass and pass_class.__name__ == stop_after_pass:
@@ -422,15 +369,6 @@ class CompilerDriver:
             
             from ..passes.tree_shaking import tree_shake
             ir = tree_shake(ir)
-
-            if _env_ir_dump_enabled("EINLANG_DUMP_FINAL_IR"):
-                from ..ir.serialization import serialize_ir
-                ir_dump_dir = Path("ir_dump")
-                ir_dump_dir.mkdir(parents=True, exist_ok=True)
-                try:
-                    (ir_dump_dir / "final_ir.sexpr").write_text(serialize_ir(ir), encoding="utf-8")
-                except Exception:
-                    pass
             return CompilationResult(ir=ir, tcx=tcx, success=True, entry_source_file=source_file)
         
         except ParseError as e:

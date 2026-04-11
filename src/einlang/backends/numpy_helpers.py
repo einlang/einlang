@@ -5,13 +5,11 @@ from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar
 
 import numpy as np
 
-from ..shared.types import BinaryOp
 from ..ir.nodes import (
-    LiteralIR, IdentifierIR, BinaryOpIR, IRVisitor,
+    LiteralIR, IdentifierIR, IRVisitor,
     LiteralPatternIR, IdentifierPatternIR,
     TuplePatternIR, ArrayPatternIR, RestPatternIR, GuardPatternIR,
-    ProgramIR, BindingIR, ExpressionIR,
-    is_function_binding, is_einstein_binding,
+    BindingIR,
 )
 from ..shared.defid import DefId
 
@@ -419,124 +417,3 @@ class _PatternMatcher(_OptionalDefaultVisitor[Dict[DefId, Any]]):
         if node.inclusive:
             return {} if node.start <= val <= node.end else None
         return {} if node.start <= val < node.end else None
-
-def _extract_binding(constraint: Any) -> Optional[Tuple[DefId, Any]]:
-    if isinstance(constraint, BinaryOpIR) and constraint.operator == BinaryOp.ASSIGN and isinstance(constraint.left, IdentifierIR):
-        did = constraint.left.defid
-        if did:
-            return (did, constraint.right)
-    return None
-
-
-class FunctionDefRegistrar(_NoneDefaultVisitor):
-    def __init__(self, def_table: Dict[DefId, BindingIR]):
-        self.def_table = def_table
-        self._scope_stack: List[Optional[DefId]] = []
-
-    def visit_program(self, node: ProgramIR) -> None:
-        for f in node.functions:
-            f.accept(self)
-
-    def visit_binding(self, stmt: BindingIR) -> None:
-        if is_function_binding(stmt):
-            self._scope_stack.append(stmt.defid)
-            try:
-                if stmt.defid:
-                    self.def_table[stmt.defid] = stmt
-                if stmt.body is not None:
-                    stmt.body.accept(self)
-            finally:
-                self._scope_stack.pop()
-        elif is_einstein_binding(stmt):
-            pass
-        else:
-            if stmt.expr is not None:
-                stmt.expr.accept(self)
-
-    def visit_block_expression(self, n: Any) -> None:
-        for stmt in (n.statements or []):
-            stmt.accept(self)
-        if n.final_expr is not None:
-            n.final_expr.accept(self)
-    def visit_if_expression(self, n: Any) -> None:
-        if n.then_expr is not None:
-            n.then_expr.accept(self)
-        if n.else_expr is not None:
-            n.else_expr.accept(self)
-    def visit_lambda(self, n: Any) -> None:
-        if n.body is not None:
-            n.body.accept(self)
-
-
-class NameToDefIdLookup(_OptionalDefaultVisitor[DefId]):
-    def __init__(self, name: str):
-        self.name = name
-
-    def visit_program(self, node: ProgramIR) -> Optional[DefId]:
-        for f in node.functions:
-            r = f.accept(self)
-            if r is not None: return r
-        for c in node.constants:
-            r = c.accept(self)
-            if r is not None: return r
-        for stmt in node.statements:
-            if isinstance(stmt, ExpressionIR):
-                r = stmt.accept(self)
-                if r is not None: return r
-        return None
-
-    def visit_binding(self, stmt: BindingIR) -> Optional[DefId]:
-        if is_function_binding(stmt):
-            return stmt.defid if stmt.name == self.name and stmt.defid else None
-        if is_einstein_binding(stmt):
-            return None
-        return stmt.expr.accept(self) if stmt.expr is not None else None
-
-    def visit_where_expression(self, node: Any) -> Optional[DefId]:
-        r = node.expr.accept(self)
-        if r: return r
-        for c in (node.constraints or []):
-            r = c.accept(self)
-            if r: return r
-        return None
-
-
-class DefIdToNameLookup(_OptionalDefaultVisitor[str]):
-    def __init__(self, defid: DefId):
-        self.defid = defid
-
-    def visit_program(self, node: ProgramIR) -> Optional[str]:
-        for f in node.functions:
-            r = f.accept(self)
-            if r is not None: return r
-        for c in node.constants:
-            r = c.accept(self)
-            if r is not None: return r
-        d2n = node.defid_to_name
-        if d2n:
-            return d2n.get(self.defid)
-        for stmt in node.statements:
-            if isinstance(stmt, ExpressionIR) and stmt.defid == self.defid and d2n:
-                return d2n.get(self.defid)
-        return None
-
-    def visit_binding(self, stmt: BindingIR) -> Optional[str]:
-        if is_function_binding(stmt):
-            return stmt.name if stmt.defid == self.defid else None
-        if is_einstein_binding(stmt):
-            return None
-        return stmt.expr.accept(self) if stmt.expr is not None else None
-
-
-class BindingExtractor(_OptionalDefaultVisitor[Tuple[DefId, ExpressionIR]]):
-    def visit_binary_op(self, expr: BinaryOpIR) -> Optional[Tuple[DefId, ExpressionIR]]:
-        if expr.operator == BinaryOp.ASSIGN and isinstance(expr.left, IdentifierIR):
-            did = expr.left.defid
-            if did:
-                return (did, expr.right)
-        return None
-
-    def visit_binding(self, n: BindingIR) -> Optional[Tuple[DefId, ExpressionIR]]:
-        if is_function_binding(n) or is_einstein_binding(n):
-            return None
-        return n.expr.accept(self) if n.expr is not None else None

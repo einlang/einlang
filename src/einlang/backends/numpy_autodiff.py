@@ -1,0 +1,86 @@
+"""Public NumPy autodiff surface for Einlang.
+
+This file stays intentionally small. The autodiff graph/JVP/VJP core lives in
+``numpy_autodiff_core.py`` and plain IR execution lives in
+``numpy_ir_tensor_runtime.py``.
+"""
+
+from __future__ import annotations
+
+from .numpy_autodiff_core import (
+    ArrayLike,
+    Index,
+    LazyJacobianTensor,
+    PrimitiveRule,
+    SymbolicExpr,
+    Tensor,
+    TensorOp,
+    _assert_allclose,
+    binary_tensor,
+    cos_tensor,
+    custom_diff_call,
+    ensure_tensor,
+    exp_tensor,
+    getitem_tensor,
+    grad,
+    jacobian,
+    jvp,
+    log_tensor,
+    neg_tensor,
+    primal_expr,
+    reshape_tensor,
+    sin_tensor,
+    stack_tensors,
+    symbolic_jacobian_application,
+    symbolic_tangent_expr,
+    symbolic_tangent_program,
+    tangent_of,
+    vjp,
+    where_tensors,
+)
+from .numpy_ir_tensor_runtime import (
+    IRAutodiffError,
+    NativeIRAutodiffRuntime,
+    jacobian_value_for_defids,
+    symbolic_jacobian_relation,
+    symbolic_tangent_for_defid,
+    tangent_value_for_defid,
+)
+
+__all__ = [
+    "ArrayLike",
+    "IRAutodiffError",
+    "Index",
+    "LazyJacobianTensor",
+    "NativeIRAutodiffRuntime",
+    "PrimitiveRule",
+    "SymbolicExpr",
+    "Tensor",
+    "TensorOp",
+    "_assert_allclose",
+    "binary_tensor",
+    "cos_tensor",
+    "custom_diff_call",
+    "ensure_tensor",
+    "exp_tensor",
+    "getitem_tensor",
+    "grad",
+    "jacobian",
+    "jacobian_value_for_defids",
+    "jvp",
+    "log_tensor",
+    "neg_tensor",
+    "primal_expr",
+    "reshape_tensor",
+    "sin_tensor",
+    "stack_tensors",
+    "symbolic_jacobian_application",
+    "symbolic_jacobian_relation",
+    "symbolic_tangent_expr",
+    "symbolic_tangent_for_defid",
+    "symbolic_tangent_program",
+    "tangent_of",
+    "tangent_value_for_defid",
+    "vjp",
+    "where_tensors",
+]

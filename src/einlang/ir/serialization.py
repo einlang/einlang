@@ -587,6 +587,10 @@ class IRSerializer:
                 self._sym(":loops"), loops,
                 self._sym(":bindings"), bindings,
                 self._sym(":guards"), guards]
+        if getattr(node, "execution_facts_id", None) is not None:
+            core.extend([self._sym(":execution_facts_id"), int(node.execution_facts_id)])
+        if getattr(node, "kernel_plan_id", None) is not None:
+            core.extend([self._sym(":kernel_plan_id"), int(node.kernel_plan_id)])
         return self._add_expr_metadata(node, core)
     
     def _serialize_param(self, p) -> list:
@@ -719,6 +723,12 @@ class IRSerializer:
         expr = self.serialize_to_sexpr(node.expr)
         constraints = [self.serialize_to_sexpr(c) for c in (node.constraints or [])]
         core = [self._sym("where-expression"), expr, constraints]
+        if getattr(node, "binding_constraints", None) is not None:
+            bindings = [self.serialize_to_sexpr(b) for b in (node.binding_constraints or [])]
+            core.extend([self._sym(":bindings"), bindings])
+        if getattr(node, "guard_constraints", None) is not None:
+            guards = [self.serialize_to_sexpr(g) for g in (node.guard_constraints or [])]
+            core.extend([self._sym(":guards"), guards])
         return self._add_expr_metadata(node, core)
 
     def _serialize_MatchExpressionIR(self, node) -> list:
@@ -873,6 +883,17 @@ def _sym_val(x: Any) -> str:
     if isinstance(x, str):
         return x
     return str(x)
+
+
+def _bool_sym(x: Any) -> Optional[bool]:
+    if x is None:
+        return None
+    v = _sym_val(x)
+    if v == "true":
+        return True
+    if v == "false":
+        return False
+    return None
 
 
 def _parse_location(sexpr: Any):
@@ -1592,8 +1613,109 @@ class IRDeserializer:
                 cond = self.deserialize(g)
                 if cond is not None:
                     guards.append(GuardCondition(condition=cond))
+        execution_facts_id = opts.get(":execution_facts_id")
+        kernel_plan_id = opts.get(":kernel_plan_id")
         ty = self._deserialize_type(opts.get(":inferred_type"))
-        return LoweredReductionIR(body=body, operation=operation, loops=loops, bindings=bindings, guards=guards, location=loc, type_info=ty)
+        return LoweredReductionIR(
+            body=body,
+            operation=operation,
+            loops=loops,
+            bindings=bindings,
+            guards=guards,
+            location=loc,
+            type_info=ty,
+            execution_facts_id=int(execution_facts_id) if isinstance(execution_facts_id, (int, float)) else None,
+            kernel_plan_id=int(kernel_plan_id) if isinstance(kernel_plan_id, (int, float)) else None,
+        )
+
+    def _deserialize_select_at_argmax(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import SelectAtArgmaxIR, IndexVarIR
+        from ..shared.source_location import SourceLocation
+
+        primal = self.deserialize(tail[0]) if len(tail) > 0 else None
+        diff = self.deserialize(tail[1]) if len(tail) > 1 else None
+        loop_vars_sexpr = tail[2] if len(tail) > 2 and isinstance(tail[2], list) else []
+        loop_vars = []
+        for v in loop_vars_sexpr:
+            if isinstance(v, list) and v:
+                loop_vars.append(self.deserialize(v))
+            elif isinstance(v, str):
+                loop_vars.append(IndexVarIR(name=v, location=SourceLocation("", 0, 0), defid=None))
+            else:
+                loop_vars.append(self.deserialize(v) if v is not None else None)
+        _, opts = _plist(tail[3:])
+        loc = self._loc_from_opts(opts) or (
+            getattr(primal, "location", None) or SourceLocation("", 0, 0)
+        )
+        lvr_sexpr = opts.get(":loop_var_ranges") or []
+        loop_var_ranges = {}
+        if isinstance(lvr_sexpr, list):
+            for pair in lvr_sexpr:
+                if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                    d = _parse_defid(pair[0])
+                    r = self.deserialize(pair[1]) if pair[1] is not None else None
+                    if d is not None:
+                        loop_var_ranges[d] = r
+        use_argmin = opts.get(":use_argmin") is not None
+        ty = self._deserialize_type(opts.get(":inferred_type"))
+        shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
+        return SelectAtArgmaxIR(
+            primal_body=primal,
+            diff_body=diff,
+            loop_vars=loop_vars,
+            loop_var_ranges=loop_var_ranges,
+            location=loc,
+            type_info=ty,
+            shape_info=shape_info,
+            use_argmin=use_argmin,
+        )
+
+    def _deserialize_lowered_select_at_argmax(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import LoweredSelectAtArgmaxIR, GuardCondition, BindingIR
+        from ..shared.source_location import SourceLocation
+
+        primal = self.deserialize(tail[0]) if len(tail) > 0 else None
+        diff = self.deserialize(tail[1]) if len(tail) > 1 else None
+        _, opts = _plist(tail[2:])
+        loc = self._loc_from_opts(opts) or (
+            getattr(primal, "location", None) or SourceLocation("", 0, 0)
+        )
+        loops_sexpr = opts.get(":loops")
+        loops = []
+        if isinstance(loops_sexpr, list):
+            for s in loops_sexpr:
+                if isinstance(s, list) and _sym_val(s[0]) == "loop":
+                    loop = self._deserialize_loop_structure(s)
+                    if loop is not None:
+                        loops.append(loop)
+        bindings_sexpr = opts.get(":bindings")
+        bindings = []
+        if isinstance(bindings_sexpr, list):
+            for s in bindings_sexpr:
+                b = self.deserialize(s)
+                if isinstance(b, BindingIR):
+                    bindings.append(b)
+        guards_sexpr = opts.get(":guards")
+        guards = []
+        if isinstance(guards_sexpr, list):
+            for g in guards_sexpr:
+                cond = self.deserialize(g)
+                if cond is not None:
+                    guards.append(GuardCondition(condition=cond))
+        use_argmin = opts.get(":use_argmin") is not None
+        ty = self._deserialize_type(opts.get(":inferred_type"))
+        shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
+        return LoweredSelectAtArgmaxIR(
+            primal_body=primal,
+            diff_body=diff,
+            loops=loops,
+            bindings=bindings,
+            guards=guards,
+            location=loc,
+            type_info=ty,
+            shape_info=shape_info,
+            use_argmin=use_argmin,
+        )
 
     def _deserialize_lowered_comprehension(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LoweredComprehensionIR, GuardCondition, BindingIR
@@ -1667,7 +1789,7 @@ class IRDeserializer:
         indices = [self.deserialize(s) for s in indices_sexpr] if isinstance(indices_sexpr, list) else []
         rec_override_raw = opts.get(":recurrence_dims_override")
         recurrence_dims_override = None
-        if isinstance(rec_override_raw, list) and len(rec_override_raw) > 0:
+        if isinstance(rec_override_raw, list):
             recurrence_dims_override = [int(x) for x in rec_override_raw if isinstance(x, (int, float))]
         return LoweredEinsteinClauseIR(body=body, loops=loops, bindings=bindings, guards=guards, reduction_ranges=red_ranges, indices=indices, recurrence_dims_override=recurrence_dims_override, location=loc)
 
@@ -1724,15 +1846,35 @@ class IRDeserializer:
         return InterpolatedStringIR(parts=parts, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_where_expression(self, _tag: str, tail: list, _full: list) -> Any:
-        from ..ir.nodes import WhereExpressionIR
+        from ..ir.nodes import WhereExpressionIR, BindingIR
         pos, opts = _plist(tail)
         loc = self._loc_from_opts(opts)
         expr = self.deserialize(pos[0]) if len(pos) > 0 else None
         constraints_sexpr = pos[1] if len(pos) > 1 and isinstance(pos[1], list) else []
         constraints = [self.deserialize(c) for c in constraints_sexpr] if constraints_sexpr else []
+        bindings = None
+        bindings_sexpr = opts.get(":bindings")
+        if isinstance(bindings_sexpr, list):
+            bindings = []
+            for s in bindings_sexpr:
+                b = self.deserialize(s)
+                if isinstance(b, BindingIR):
+                    bindings.append(b)
+        guards = None
+        guards_sexpr = opts.get(":guards")
+        if isinstance(guards_sexpr, list):
+            guards = [self.deserialize(g) for g in guards_sexpr]
         ty = self._deserialize_type(opts.get(":inferred_type"))
         shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
-        return WhereExpressionIR(expr=expr, constraints=constraints, location=loc, type_info=ty, shape_info=shape_info)
+        return WhereExpressionIR(
+            expr=expr,
+            constraints=constraints,
+            location=loc,
+            type_info=ty,
+            shape_info=shape_info,
+            binding_constraints=bindings,
+            guard_constraints=guards,
+        )
 
     def _deserialize_where_clause(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import WhereClauseIR

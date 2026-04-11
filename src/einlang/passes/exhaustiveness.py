@@ -7,7 +7,6 @@ Reference: PATTERN_MATCHING_DESIGN.md
 
 from typing import List, Set, Optional, Any
 from ..passes.base import BasePass, TyCtxt
-from ..passes.type_inference import TypeInferencePass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, MatchExpressionIR, MatchArmIR,
     PatternIR, LiteralPatternIR, WildcardPatternIR, GuardPatternIR,
@@ -26,7 +25,7 @@ class ExhaustivenessPass(BasePass):
     
     Checks if match expressions are exhaustive (cover all possible values).
     """
-    requires = [TypeInferencePass]  # Depends on type inference (needs type information)
+    requires = ["PipelineTypeValidationPass"]  # Runs after pipeline validation
     
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         """Check exhaustiveness in IR"""

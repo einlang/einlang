@@ -9,7 +9,6 @@ Start with [Getting started](https://github.com/einlang/einlang/blob/main/docs/G
 | You want to… | Go here |
 |--------------|--------|
 | **Get running quickly** | [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) |
-| **See the syntax fast** | [SYNTAX_BY_EXAMPLE](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_BY_EXAMPLE.md) |
 | **Install or use from Python** | [README — Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) |
 | **Learn by examples** | [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md) |
 | **Understand the language** | [reference.md](https://github.com/einlang/einlang/blob/main/docs/reference.md) |
@@ -25,12 +24,11 @@ Start with [Getting started](https://github.com/einlang/einlang/blob/main/docs/G
 | Doc | What it is |
 |-----|------------|
 | [GETTING_STARTED](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) | Short introduction, first commands, first example, and next steps |
-| [SYNTAX_BY_EXAMPLE](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_BY_EXAMPLE.md) | Small, copy-pasteable language snippets: Einstein notation, where-clauses, rest patterns, autodiff, recurrences |
-| [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) | Full language reference: syntax, types, Einstein notation, named rest patterns, where-clauses, recurrences, autodiff |
-| [stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) | Built-in modules and functions, including readable conv/pool code in Einlang |
+| [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) | Full language reference: syntax, types, Einstein notation, where-clauses, recurrences, autodiff |
+| [stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) | Built-in modules and functions |
 | [WHY_EINLANG](https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md) | Motivation and high-level comparison |
 | [MATH](https://github.com/einlang/einlang/blob/main/docs/MATH.md) | Math notation mapped to Einlang code |
-| [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) | Short overview of autodiff in the language, including `@fn` custom rules |
+| [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) | Short overview of autodiff in the language |
 | [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) | Main autodiff design and implementation doc |
 | [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md) | Learning path and examples by domain |
 
@@ -54,8 +52,6 @@ Start with [Getting started](https://github.com/einlang/einlang/blob/main/docs/G
 | **How do I use it from Python?** | `from einlang import run` — see [README — Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) |
 | **Where are the examples?** | [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md) |
 | **How do I get derivatives?** | Use `@expr`, `@a / @b`, `@loss / @w`, or `@C / @A`; see [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) |
-| **How do I define a custom derivative?** | Define the primal with `fn`, then add `@fn name(args) { ... }`; see [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) and [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) |
-| **How do I keep batch dims generic in Einstein code?** | Use a named rest pattern such as `..batch`; see [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) and [stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) for `conv` / `pool` examples |
 | **How do I report a bug?** | Open an [issue](https://github.com/einlang/einlang/issues) or see [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md) |
 
 ---
@@ -65,10 +61,8 @@ Start with [Getting started](https://github.com/einlang/einlang/blob/main/docs/G
 Short version:
 
 - keep tensor structure explicit in the source
-- make rank-generic tensor structure readable with rest-pattern Einstein syntax
 - catch shape and index errors before execution
 - keep differentiation in the language
-- allow explicit `@fn` derivative rules when a function body is foreign or opaque
 - use one language for model code, optimization, and numerical programs
 
 For the user-facing motivation page, see [WHY_EINLANG](https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md).

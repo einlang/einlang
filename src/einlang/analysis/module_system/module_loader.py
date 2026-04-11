@@ -49,11 +49,11 @@ _FILE_CACHE_MAX = 256
 
 
 def _get_cache_dir() -> Optional[Path]:
-    """Return parse cache directory; None when caching is explicitly disabled."""
-    env = os.environ.get("EINLANG_CACHE_DIR", "")
-    if env.lower() in ("0", "false", "off", "no"):
+    """Return parse cache directory only when explicitly enabled."""
+    env = (os.environ.get("EINLANG_CACHE_DIR") or "").strip()
+    if not env or env.lower() in ("0", "false", "off", "no"):
         return None
-    base = Path(env) if env else Path.home() / ".cache" / "einlang"
+    base = Path(env).expanduser()
     try:
         base.mkdir(parents=True, exist_ok=True)
         return base
@@ -83,8 +83,8 @@ def _parse_source(source_code: str, source_file: str):
 
     Two-level cache:
     1. In-process lru_cache (fast, lives for the duration of the Python process).
-    2. Disk cache keyed by SHA-256(source_code + source_file) so Lark parsing is
-       skipped on subsequent process restarts when stdlib files are unchanged.
+    2. Optional disk cache keyed by SHA-256(source_code + source_file) when
+       EINLANG_CACHE_DIR is explicitly configured.
     """
     cache_dir = _get_cache_dir()
     if cache_dir is not None:

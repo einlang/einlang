@@ -1,11 +1,9 @@
 """NumPy backend Einstein execution. Compatibility shim."""
 
-from .numpy_einstein_analysis import _BodyReferencesDefidVisitor
-from .numpy_einstein_call_index_analysis import (
-    _index_expr_is_loop_var,
-)
-from .numpy_einstein_recurrence_analysis import (
+from ..shared.recurrence_analysis import (
+    _BodyReferencesDefidVisitor,
     _collect_lhs_read_index_lists,
+    _index_expr_is_loop_var,
     _index_expr_is_loop_var_or_offset,
     _loop_dims_from_clause_indices,
     _recurrence_dims,

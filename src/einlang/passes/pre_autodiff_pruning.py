@@ -38,6 +38,8 @@ from ..ir.nodes import (
     WhereClauseIR,
 )
 from ..passes.base import BasePass, TyCtxt
+from ..passes.shape_analysis import UnifiedShapeAnalysisPass
+from ..passes.type_inference import TypeInferencePass
 from ..shared.types import BinaryOp, RectangularType
 
 logger = logging.getLogger("einlang.passes.pre_autodiff_pruning")
@@ -46,7 +48,7 @@ logger = logging.getLogger("einlang.passes.pre_autodiff_pruning")
 class PreAutodiffPruningPass(BasePass):
     """Conservative pre-autodiff pruning pass."""
 
-    requires = []
+    requires = [TypeInferencePass, UnifiedShapeAnalysisPass]
 
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         pruner = _IfBranchPruner()
@@ -65,6 +67,7 @@ class PreAutodiffPruningPass(BasePass):
 
 class PostAutodiffPruningPass(PreAutodiffPruningPass):
     """Same pruning logic, scheduled after autodiff-generated IR exists."""
+    requires = ["AutodiffPass"]
 
 
 class _IfBranchPruner:
