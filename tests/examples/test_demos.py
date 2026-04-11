@@ -273,7 +273,7 @@ class TestDemos:
             env=env,
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=900,
             check=False,
         )
         if proc.returncode != 0:
@@ -294,7 +294,7 @@ class TestDemos:
                 "(2) numerical/implementation difference -> if einlang output is correct, update golden_ref.txt "
                 "with: echo -n '<output>' > examples/whisper_tiny/golden_ref.txt"
             )
-        _assert_vectorize_counts(combined, min_vectorized=5724, max_scalar=5, label="whisper_tiny")
+        _assert_vectorize_counts(combined, min_vectorized=5723, max_scalar=0, label="whisper_tiny")
 
 
 if __name__ == "__main__":

@@ -604,6 +604,16 @@ class ExpressionVisitorMixin:
             if getattr(array, "is_circular_recurrence_buffer", False):
                 return array[tuple(indices)]
             if isinstance(array, np.ndarray):
+                if array.dtype == object and any(
+                    isinstance(raw_idx, np.ndarray) and raw_idx.ndim > 0 for raw_idx in indices
+                ):
+                    idx_arrays = [np.asarray(raw_idx) for raw_idx in indices]
+                    broadcasted = np.broadcast_arrays(*idx_arrays)
+                    gathered = np.empty(broadcasted[0].shape, dtype=object)
+                    for pos in np.ndindex(gathered.shape):
+                        key = tuple(int(arr[pos]) for arr in broadcasted)
+                        gathered[pos] = array[key]
+                    return gathered
                 if self._vectorization_safe_oob_enabled():
                     return _safe_oob_ndarray_access(array, indices)
                 return array[tuple(indices)]
@@ -842,8 +852,27 @@ class ExpressionVisitorMixin:
     def visit_tuple_expression(self, expr: TupleExpressionIR) -> Any:
         return tuple(e.accept(self) for e in expr.elements)
 
+    def _project_object_array_member(self, array: np.ndarray, member_index: int) -> Any:
+        projected = np.empty(array.shape, dtype=object)
+        for idx in np.ndindex(array.shape):
+            projected[idx] = array[idx][member_index]
+        if projected.size == 0:
+            return projected
+        first = projected.reshape(-1)[0]
+        flat = [projected[idx] for idx in np.ndindex(projected.shape)]
+        if isinstance(first, np.ndarray) and all(
+            isinstance(value, np.ndarray) and value.shape == first.shape for value in flat
+        ):
+            return np.stack(flat, axis=0).reshape(projected.shape + first.shape)
+        try:
+            return np.asarray(projected.tolist())
+        except Exception:
+            return projected
+
     def visit_tuple_access(self, expr: TupleAccessIR) -> Any:
         t = expr.tuple_expr.accept(self)
+        if isinstance(t, np.ndarray) and t.dtype == object:
+            return self._project_object_array_member(t, expr.index)
         return t[expr.index]
 
     def visit_interpolated_string(self, expr: InterpolatedStringIR) -> Any:
@@ -940,6 +969,12 @@ class ExpressionVisitorMixin:
         if member is None:
             return None
         if isinstance(member, str):
+            if member.isdigit():
+                member_index = int(member)
+                if isinstance(obj, np.ndarray) and obj.dtype == object:
+                    return self._project_object_array_member(obj, member_index)
+                if isinstance(obj, (list, tuple, np.ndarray)):
+                    return obj[member_index]
             if member == "length" and isinstance(obj, (np.ndarray, list, tuple, str)):
                 return len(obj)
             if member == "size" and isinstance(obj, np.ndarray):
@@ -948,6 +983,8 @@ class ExpressionVisitorMixin:
                 return obj.shape
             return getattr(obj, member, None)
         if isinstance(member, int):
+            if isinstance(obj, np.ndarray) and obj.dtype == object:
+                return self._project_object_array_member(obj, member)
             return obj[member]
         key = member.accept(self) if hasattr(member, "accept") else getattr(member, "value", member)
         return obj[key] if key is not None else None

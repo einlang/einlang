@@ -51,7 +51,10 @@ def _debug_value_payload(value: Any) -> Dict[str, Any]:
     if value is None:
         return {"shape": None, "value": None}
     try:
-        arr = np.asarray(value)
+        if isinstance(value, (list, tuple)):
+            arr = np.asarray(value, dtype=object)
+        else:
+            arr = np.asarray(value)
         return {"shape": list(arr.shape), "value": arr.tolist()}
     except Exception:
         return {"shape": None, "value": repr(value)}

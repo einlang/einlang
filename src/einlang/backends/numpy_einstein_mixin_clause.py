@@ -18,6 +18,7 @@ from .numpy_einstein_recurrence_analysis import (
     _recurrence_dims,
     _slice_list_from_clause_indices,
 )
+from ..utils.config import DEFAULT_EINSTEIN_LOOP_MAX
 from .numpy_einstein_vectorization import (
     _eval_clause_body_with_broadcast_loops,
     _try_call_scalar_vectorize_clause,
@@ -333,6 +334,116 @@ class EinsteinExecutionClauseMixin:
             # spend most of its time in nested Python loops. Keep the scalar fallback
             # below, but optimistically try the normal vectorized paths first.
             force_scalar_clause = _block_has_direct_nested_lowered_binding(body_node)
+            if object_output and not lowered.loops:
+                with self.env.scope():
+                    if variable_defid is not None:
+                        self.env.set_value(variable_defid, output)
+                    full_context = {}
+                    for binding in (lowered.bindings or []) or []:
+                        defid = binding.defid
+                        if defid is None:
+                            continue
+                        val = binding.expr.accept(self)
+                        full_context[defid] = val
+                        self.env.set_value(defid, val)
+                    if lowered.guards:
+                        from ..runtime.compute.lowered_execution import check_lowered_guards
+
+                        if not check_lowered_guards(lowered.guards, full_context, lambda e: self._to_bool(e.accept(self))):
+                            if variable_defid:
+                                self._clause_set_output(variable_defid, output)
+                            self._einstein_hybrid = getattr(self, "_einstein_hybrid", 0) + 1
+                            self._vectorize_debug_log(
+                                "hybrid",
+                                lowered,
+                                variable_decl,
+                                axes="object_singleton_guarded",
+                            )
+                            _record_profile(
+                                tuple(output.shape) if getattr(output, "shape", None) is not None else None,
+                                path="hybrid",
+                            )
+                            return output
+                    value = lowered.body.accept(self)
+                if value is not None:
+                    idx_tuple = cell_index(full_context)
+                    if idx_tuple is None:
+                        idx_tuple = ()
+                    if len(idx_tuple) == 1:
+                        output[idx_tuple[0]] = value
+                    elif len(idx_tuple) > 1:
+                        output[idx_tuple] = value
+                    elif output.shape == ():
+                        output[...] = value
+                    else:
+                        output.reshape(-1)[0] = value
+                if variable_defid:
+                    self._clause_set_output(variable_defid, output)
+                self._einstein_hybrid = getattr(self, "_einstein_hybrid", 0) + 1
+                self._vectorize_debug_log(
+                    "hybrid",
+                    lowered,
+                    variable_decl,
+                    axes="object_singleton_write",
+                )
+                _record_profile(
+                    tuple(output.shape) if getattr(output, "shape", None) is not None else None,
+                    path="hybrid",
+                )
+                return output
+            if object_output and lowered.loops:
+                _MAX = int(DEFAULT_EINSTEIN_LOOP_MAX)
+                n_iter = 0
+                for context in execute_lowered_loops(lowered.loops, {}, expr_evaluator):
+                    n_iter += 1
+                    if n_iter > _MAX:
+                        raise RuntimeError(
+                            f"Einstein recurrence/object loop iterations exceeded limit ({_MAX}). "
+                            "Reduce clause range or increase config.DEFAULT_EINSTEIN_LOOP_MAX."
+                        )
+                    with self.env.scope():
+                        if variable_defid is not None:
+                            self.env.set_value(variable_defid, output)
+                        full_context = dict(context)
+                        for defid, val in context.items():
+                            if defid is not None:
+                                self.env.set_value(defid, val, name=_loop_defid_to_name.get(defid))
+                        for binding in (lowered.bindings or []) or []:
+                            defid = binding.defid
+                            if defid is None:
+                                continue
+                            val = binding.expr.accept(self)
+                            full_context[defid] = val
+                            self.env.set_value(defid, val)
+                        if lowered.guards:
+                            from ..runtime.compute.lowered_execution import check_lowered_guards
+
+                            if not check_lowered_guards(lowered.guards, full_context, lambda e: self._to_bool(e.accept(self))):
+                                continue
+                        value = lowered.body.accept(self)
+                    if value is None:
+                        continue
+                    idx_tuple = cell_index(full_context)
+                    if idx_tuple is None:
+                        continue
+                    if len(idx_tuple) == 1:
+                        output[idx_tuple[0]] = value
+                    else:
+                        output[idx_tuple] = value
+                if variable_defid:
+                    self._clause_set_output(variable_defid, output)
+                self._einstein_hybrid = getattr(self, "_einstein_hybrid", 0) + 1
+                self._vectorize_debug_log(
+                    "hybrid",
+                    lowered,
+                    variable_decl,
+                    axes="object_cell_loop",
+                )
+                _record_profile(
+                    tuple(output.shape) if getattr(output, "shape", None) is not None else None,
+                    path="hybrid",
+                )
+                return output
             # When body has a call that uses loop vars in its args (e.g. topk_2d_row_values(X, i, ...)), those vars must be scalar.
             # Try call-scalar first so we don't use wrong full-vectorize result (array-valued row index).
             if (
@@ -394,6 +505,55 @@ class EinsteinExecutionClauseMixin:
                     # Every loop dim is recurrence (e.g. u[t] = f(u[t-1]) with a single t). Cannot vectorize over t;
                     # must run scalar loop so prior indices of u are visible (e.g. numerics::euler_decay).
                     recurrence_needs_scalar = True
+            if object_output and lowered.loops and variable_defid is not None:
+                recurrence_dims_object = getattr(lowered, "recurrence_dims_override", None)
+                if recurrence_dims_object is None:
+                    recurrence_dims_object = _recurrence_dims(lowered, variable_defid, clause_indices)
+                if recurrence_dims_object and len(recurrence_dims_object) == len(lowered.loops):
+                    from ..runtime.compute.lowered_execution import execute_lowered_loops
+                    from ..utils.config import DEFAULT_EINSTEIN_LOOP_MAX as _RECURRENCE_LOOP_MAX
+
+                    recurrence_loops_outer = [lowered.loops[d] for d in recurrence_dims_object]
+                    max_iter = int(_RECURRENCE_LOOP_MAX)
+                    iter_count = 0
+                    recurrence_ok = True
+                    for rec_context in execute_lowered_loops(recurrence_loops_outer, {}, expr_evaluator):
+                        iter_count += 1
+                        if iter_count > max_iter:
+                            raise RuntimeError(
+                                f"Einstein recurrence loop iterations exceeded limit ({max_iter}). "
+                                "Reduce clause range or increase config.DEFAULT_EINSTEIN_LOOP_MAX."
+                            )
+                        step_result = self._execute_lowered_einstein_clause_one_recurrence_step(
+                            lowered,
+                            variable_decl,
+                            output,
+                            variable_defid,
+                            variable_defid,
+                            rec_context,
+                            recurrence_loops_outer,
+                            expr_evaluator,
+                            shape,
+                            element_type,
+                        )
+                        if step_result is None:
+                            recurrence_ok = False
+                            break
+                    if recurrence_ok:
+                        if variable_defid:
+                            self._clause_set_output(variable_defid, output)
+                        self._einstein_hybrid = getattr(self, "_einstein_hybrid", 0) + 1
+                        self._vectorize_debug_log(
+                            "hybrid",
+                            lowered,
+                            variable_decl,
+                            axes="recurrence_object_timestep",
+                        )
+                        _record_profile(
+                            tuple(output.shape) if getattr(output, "shape", None) is not None else None,
+                            path="hybrid",
+                        )
+                        return output
             # Try full vectorize over loop dims (literal idx -> fixed slice; other dims -> vectorize).
             if lowered.loops and not object_output:
                 # Slice-vectorize: body "if p < t then ... else 0" -> vectorize over [0..t), fill rest (e.g. emb in decode).

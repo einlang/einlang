@@ -398,16 +398,19 @@ def _try_slice_vectorize_if_clause(
         try:
             else_val = float(v) if isinstance(v, (int, float)) else 0
         except (TypeError, ValueError):
-            else_val = 0
+            return None
     elif else_expr is not None:
         try:
             else_val = else_expr.accept(backend)
-            if isinstance(else_val, np.ndarray) and else_val.ndim == 0:
-                else_val = float(else_val)
+            if isinstance(else_val, np.ndarray):
+                if else_val.ndim == 0:
+                    else_val = float(else_val)
+                else:
+                    return None
             elif not isinstance(else_val, (int, float)):
-                else_val = 0
+                return None
         except Exception:
-            else_val = 0
+            return None
     output.fill(else_val)
     sl: List[Any] = [slice(None)] * output.ndim
     sl[dim] = slice(0, bound)
