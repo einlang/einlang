@@ -20,9 +20,9 @@ import numpy as np
 
 from ..passes.autodiff.compiler import (
     AutodiffCompiledFacts,
+    AutodiffBuiltinRequest,
+    autodiff_builtin_request,
     binding_for_defid,
-    collect_runtime_defids,
-    runtime_source_quotient_pair,
 )
 from ..ir.nodes import (
     ArrayLiteralIR,
@@ -50,6 +50,7 @@ from ..ir.nodes import (
     UnaryOpIR,
     is_function_binding,
 )
+from ..shared.autodiff_intrinsics import AutodiffBuiltinKind
 from ..shared.defid import DefId, fixed_builtin_defid
 from ..shared.types import BinaryOp, ReductionOp, UnaryOp
 
@@ -1130,6 +1131,7 @@ class NativeIRAutodiffRuntime:
         self._bindings: Dict[DefId, BindingIR] = dict(compiled_facts.get("bindings") or {})
         self._functions: Dict[DefId, BindingIR] = dict(compiled_facts.get("functions") or {})
         self._leaf_defids = set(compiled_facts.get("leaf_defids") or set())
+        self._self_recursive_defids = set(compiled_facts.get("self_recursive_defids") or set())
         self._value_lookup = value_lookup
         self._tensor_cache: Dict[Tuple[DefId, bool], Tensor] = {}
         self._self_tensor_store_stack: list[Dict[DefId, Dict[Tuple[int, ...], Tensor]]] = []
@@ -1159,7 +1161,7 @@ class NativeIRAutodiffRuntime:
                     isinstance(binding.expr, LoweredRecurrenceIR)
                     or (
                         binding.defid is not None
-                        and binding.defid in collect_runtime_defids(binding.expr)
+                        and binding.defid in self._self_recursive_defids
                     )
                 )
             )
@@ -1196,6 +1198,93 @@ class NativeIRAutodiffRuntime:
             )
         return self.eval_tensor(expr, locals_map)
 
+    def _autodiff_request(self, expr: BuiltinCallIR) -> Optional[AutodiffBuiltinRequest]:
+        return autodiff_builtin_request(self._compiled_facts, expr)
+
+    def _resolve_autodiff_target_tensor(
+        self,
+        target_defid: DefId,
+        locals_map: Dict[DefId, Tensor],
+        *,
+        exact: bool,
+    ) -> Tensor:
+        local = locals_map.get(target_defid)
+        if local is not None:
+            return local
+        if exact:
+            return self._binding_tensor_exact(target_defid)
+        return self.binding_tensor(target_defid)
+
+    def _resolve_autodiff_target_name(
+        self,
+        request: AutodiffBuiltinRequest,
+        index: int,
+        locals_map: Dict[DefId, Tensor],
+        *,
+        exact: bool,
+    ) -> str:
+        target_defid = request.target_defids[index]
+        tensor = locals_map.get(target_defid)
+        if tensor is not None and tensor.name:
+            return tensor.name
+        binding = self._bindings.get(target_defid) or self._functions.get(target_defid)
+        name = getattr(binding, "name", None)
+        if name:
+            return name
+        if tensor is None:
+            tensor = self._resolve_autodiff_target_tensor(target_defid, locals_map, exact=exact)
+        if tensor.name:
+            return tensor.name
+        if index < len(request.target_names):
+            return request.target_names[index]
+        return "x" if index else "y"
+
+    def _eval_autodiff_builtin(
+        self,
+        expr: BuiltinCallIR,
+        locals_map: Dict[DefId, Tensor],
+        *,
+        exact: bool,
+    ) -> Any:
+        request = self._autodiff_request(expr)
+        if request is None:
+            raise IRAutodiffError(f"Unsupported autodiff builtin in native autodiff: {expr.builtin_name}")
+        kind = request.kind
+
+        if kind is AutodiffBuiltinKind.TANGENT:
+            target_defid = request.target_defids[0]
+            target = locals_map.get(target_defid)
+            if target is not None:
+                return _identity_seed(target.value)
+            primal = self._value_lookup(target_defid)
+            if primal is None:
+                primal = self.binding_tensor(target_defid).value
+            return _identity_seed(primal)
+
+        if kind is AutodiffBuiltinKind.JACOBIAN:
+            numerator_defid, denominator_defid = request.target_defids
+            numerator = self._resolve_autodiff_target_tensor(numerator_defid, locals_map, exact=exact)
+            denominator = self._resolve_autodiff_target_tensor(denominator_defid, locals_map, exact=exact)
+            lazy = jacobian(numerator, denominator)
+            if numerator.size == 1 and denominator.size == 1:
+                scalar = np.asarray(lazy).reshape(-1)[0]
+                return scalar.item() if hasattr(scalar, "item") else scalar
+            return lazy
+
+        if kind is AutodiffBuiltinKind.SYMBOLIC_TANGENT:
+            target_defid = request.target_defids[0]
+            target = self._resolve_autodiff_target_tensor(target_defid, locals_map, exact=exact)
+            if target.name is None:
+                target.named(self._resolve_autodiff_target_name(request, 0, locals_map, exact=exact))
+            return symbolic_tangent_program(target)
+
+        if kind is AutodiffBuiltinKind.SYMBOLIC_JACOBIAN:
+            num_name = self._resolve_autodiff_target_name(request, 0, locals_map, exact=exact)
+            den_name = self._resolve_autodiff_target_name(request, 1, locals_map, exact=exact)
+            return f"(@{num_name} / @{den_name}) · @{den_name}"
+
+        raise IRAutodiffError(f"Unknown autodiff builtin in native autodiff: {expr.builtin_name}")
+
     def _eval_custom_diff_tensor(
         self,
         expr: ExpressionIR,
@@ -1203,15 +1292,23 @@ class NativeIRAutodiffRuntime:
         tangent_locals: Dict[DefId, Tensor],
     ) -> Tensor:
         if isinstance(expr, DifferentialIR):
-            operand = expr.operand
-            if isinstance(operand, IdentifierIR) and operand.defid is not None and operand.defid in tangent_locals:
-                return tangent_locals[operand.defid]
-            raise IRAutodiffError("Custom diff rule uses unsupported differential operand")
+            raise IRAutodiffError("DifferentialIR should be rewritten before native autodiff runtime execution")
         if isinstance(expr, LiteralIR):
             return Tensor.leaf(expr.value)
         if isinstance(expr, ArrayLiteralIR):
             return Tensor.leaf(self.eval_primal(expr, primal_locals))
         if isinstance(expr, BuiltinCallIR):
+            request = self._autodiff_request(expr)
+            if request is not None and request.kind is AutodiffBuiltinKind.TANGENT:
+                target_defid = request.target_defids[0]
+                tangent = tangent_locals.get(target_defid)
+                if tangent is None:
+                    raise IRAutodiffError(
+                        f"Autodiff tangent builtin in custom diff body missing tangent for {target_defid}"
+                    )
+                return tangent
+            if request is not None:
+                return Tensor.leaf(self._eval_autodiff_builtin(expr, primal_locals, exact=False))
             return Tensor.leaf(self.eval_primal(expr, primal_locals))
         if isinstance(expr, MemberAccessIR):
             return Tensor.leaf(self.eval_primal(expr, primal_locals))
@@ -1226,20 +1323,6 @@ class NativeIRAutodiffRuntime:
                 raise IRAutodiffError(f"Missing index value in custom diff body: {getattr(expr, 'name', '?')}")
             return primal_locals[expr.defid]
         if isinstance(expr, BinaryOpIR):
-            pair = runtime_source_quotient_pair(expr) if expr.operator == BinaryOp.DIV else None
-            if pair is not None:
-                num_defid, den_defid = pair
-                numerator = primal_locals.get(num_defid)
-                if numerator is None:
-                    numerator = self.binding_tensor(num_defid)
-                denominator = primal_locals.get(den_defid)
-                if denominator is None:
-                    denominator = self.binding_tensor(den_defid)
-                lazy = jacobian(numerator, denominator)
-                if numerator.size == 1 and denominator.size == 1:
-                    scalar = np.asarray(lazy).reshape(-1)[0]
-                    return Tensor.leaf(scalar.item() if hasattr(scalar, "item") else scalar)
-                return Tensor.leaf(np.asarray(lazy))
             left = self._eval_custom_diff_tensor(expr.left, primal_locals, tangent_locals)
             right = self._eval_custom_diff_tensor(expr.right, primal_locals, tangent_locals)
             if expr.operator == BinaryOp.ADD:
@@ -1309,6 +1392,8 @@ class NativeIRAutodiffRuntime:
         if isinstance(expr, ArrayLiteralIR):
             return Tensor.leaf(self.eval_primal(expr, locals_map))
         if isinstance(expr, BuiltinCallIR):
+            if self._autodiff_request(expr) is not None:
+                return Tensor.leaf(self._eval_autodiff_builtin(expr, locals_map, exact=True))
             return Tensor.leaf(self.eval_primal(expr, locals_map))
         if isinstance(expr, MemberAccessIR):
             return Tensor.leaf(self.eval_primal(expr, locals_map))
@@ -1325,22 +1410,6 @@ class NativeIRAutodiffRuntime:
                 raise IRAutodiffError(f"Missing loop/index value for autodiff graph: {getattr(expr, 'name', '?')}")
             return locals_map[expr.defid]
         if isinstance(expr, BinaryOpIR):
-            direct_q = None
-            if expr.operator == BinaryOp.DIV:
-                direct_q = runtime_source_quotient_pair(expr)
-            if direct_q is not None:
-                num_defid, den_defid = direct_q
-                numerator = locals_map.get(num_defid)
-                if numerator is None:
-                    numerator = self._binding_tensor_exact(num_defid)
-                denominator = locals_map.get(den_defid)
-                if denominator is None:
-                    denominator = self._binding_tensor_exact(den_defid)
-                lazy = jacobian(numerator, denominator)
-                if numerator.size == 1 and denominator.size == 1:
-                    scalar = np.asarray(lazy).reshape(-1)[0]
-                    return Tensor.leaf(scalar.item() if hasattr(scalar, "item") else scalar)
-                return Tensor.leaf(np.asarray(lazy))
             left = self.eval_tensor(expr.left, locals_map)
             right = self.eval_tensor(expr.right, locals_map)
             if expr.operator == BinaryOp.ADD:
@@ -1698,6 +1767,8 @@ class NativeIRAutodiffRuntime:
         if isinstance(expr, ArrayLiteralIR):
             return np.asarray([self.eval_primal(elem, locals_map) for elem in (expr.elements or [])], dtype=np.float64)
         if isinstance(expr, BuiltinCallIR):
+            if self._autodiff_request(expr) is not None:
+                return self._eval_autodiff_builtin(expr, locals_map, exact=True)
             args = [self.eval_primal(arg, locals_map) for arg in (expr.args or [])]
             builtin_defid = _builtin_call_defid(expr)
             evaluator = _PRIMAL_BUILTIN_EVALUATORS.get(builtin_defid)

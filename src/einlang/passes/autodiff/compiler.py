@@ -2,26 +2,27 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Set, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
-from ...ir.nodes import (
-    BindingIR,
-    BinaryOpIR,
-    DifferentialIR,
-    ExpressionIR,
-    IdentifierIR,
-    IRNode,
-)
+from ...ir.nodes import BindingIR, BuiltinCallIR, IdentifierIR, IRNode
+from ...shared.autodiff_intrinsics import AutodiffBuiltinKind, autodiff_builtin_kind
 from ...shared.defid import DefId
-from ...shared.types import BinaryOp
 
 
 AutodiffCompiledFacts = Dict[str, Any]
 
 
-def collect_runtime_defids(node: Any) -> Set[DefId]:
-    out: Set[DefId] = set()
-    seen: Set[int] = set()
+@dataclass(frozen=True)
+class AutodiffBuiltinRequest:
+    kind: AutodiffBuiltinKind
+    target_defids: tuple[DefId, ...]
+    target_names: tuple[str, ...]
+
+
+def collect_autodiff_builtin_requests(node: Any) -> Dict[int, AutodiffBuiltinRequest]:
+    out: Dict[int, AutodiffBuiltinRequest] = {}
+    seen: set[int] = set()
     stack: list[Any] = [node]
     while stack:
         cur = stack.pop()
@@ -31,9 +32,21 @@ def collect_runtime_defids(node: Any) -> Set[DefId]:
         if oid in seen:
             continue
         seen.add(oid)
-        did = getattr(cur, "defid", None)
-        if did is not None and isinstance(did, DefId):
-            out.add(did)
+        if isinstance(cur, BuiltinCallIR):
+            kind = autodiff_builtin_kind(getattr(cur, "defid", None))
+            if kind is not None:
+                target_defids = []
+                target_names = []
+                for arg in cur.args or ():
+                    if not isinstance(arg, IdentifierIR) or arg.defid is None:
+                        continue
+                    target_defids.append(arg.defid)
+                    target_names.append(arg.name or "?")
+                out[oid] = AutodiffBuiltinRequest(
+                    kind=kind,
+                    target_defids=tuple(target_defids),
+                    target_names=tuple(target_names),
+                )
         if isinstance(cur, dict):
             stack.extend(cur.keys())
             stack.extend(cur.values())
@@ -48,33 +61,40 @@ def collect_runtime_defids(node: Any) -> Set[DefId]:
     return out
 
 
-def runtime_differential_target(expr: ExpressionIR) -> Optional[DefId]:
-    if isinstance(expr, DifferentialIR):
-        operand = expr.operand
-        if isinstance(operand, IdentifierIR) and operand.defid is not None:
-            return operand.defid
-    return None
-
-
-def runtime_source_quotient_pair(expr: ExpressionIR) -> Optional[Tuple[DefId, DefId]]:
-    if not isinstance(expr, BinaryOpIR) or expr.operator != BinaryOp.DIV:
-        return None
-    left = runtime_differential_target(expr.left)
-    right = runtime_differential_target(expr.right)
-    if left is None or right is None:
-        return None
-    return left, right
-
-
 def binding_for_defid(compiled_facts: AutodiffCompiledFacts, defid: DefId) -> Optional[BindingIR]:
     bindings = compiled_facts.get("bindings") or {}
     functions = compiled_facts.get("functions") or {}
     return bindings.get(defid) or functions.get(defid)
 
 
+def autodiff_builtin_request(
+    compiled_facts: AutodiffCompiledFacts,
+    expr: BuiltinCallIR,
+) -> Optional[AutodiffBuiltinRequest]:
+    requests = compiled_facts.get("builtin_requests_by_expr_id") or {}
+    request = requests.get(id(expr))
+    if request is not None:
+        return request
+    return collect_autodiff_builtin_requests(expr).get(id(expr))
+
+
 def compile_autodiff_graph(analysis: Dict[str, Any]) -> AutodiffCompiledFacts:
+    bindings = dict(analysis.get("graph_binding_by_defid") or {})
+    functions = dict(analysis.get("graph_function_ir_map") or {})
+    builtin_requests_by_expr_id = dict(analysis.get("graph_builtin_requests_by_expr_id") or {})
+    if bindings or functions:
+        builtin_requests_by_expr_id.update(
+            collect_autodiff_builtin_requests(
+                {
+                    "bindings": bindings,
+                    "functions": functions,
+                }
+            )
+        )
     return {
-        "bindings": dict(analysis.get("graph_binding_by_defid") or {}),
-        "functions": dict(analysis.get("graph_function_ir_map") or {}),
+        "bindings": bindings,
+        "functions": functions,
         "leaf_defids": set(analysis.get("graph_leaf_defids") or set()),
+        "self_recursive_defids": set(analysis.get("graph_self_recursive_defids") or set()),
+        "builtin_requests_by_expr_id": builtin_requests_by_expr_id,
     }

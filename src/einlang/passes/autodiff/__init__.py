@@ -19,6 +19,7 @@ from ..extremum_selection_canonicalization import ExtremumSelectionCanonicalizat
 from ..pre_autodiff_pruning import PreAutodiffPruningPass
 from ..shape_analysis import UnifiedShapeAnalysisPass
 from ..type_inference import TypeInferencePass
+from .compiler import collect_autodiff_builtin_requests
 from ...shared.autodiff_intrinsics import (
     AutodiffBuiltinKind,
     autodiff_builtin_defid,
@@ -336,6 +337,10 @@ def _collect_targets_expr(expr: Optional[ExpressionIR]) -> Tuple[List[Tuple[DefI
             stack.append(cur.left)
             stack.append(cur.right)
             continue
+        if isinstance(cur, FunctionValueIR):
+            stack.extend(cur.parameters or ())
+            stack.append(cur.body)
+            continue
         if isinstance(cur, dict):
             stack.extend(cur.keys())
             stack.extend(cur.values())
@@ -421,6 +426,10 @@ def _collect_standalone_diff_targets_expr(expr: ExpressionIR) -> Set[DefId]:
                 out.add(operand.defid)
             stack.append(operand)
             continue
+        if isinstance(cur, FunctionValueIR):
+            stack.extend(cur.parameters or ())
+            stack.append(cur.body)
+            continue
         if isinstance(cur, dict):
             stack.extend(cur.keys())
             stack.extend(cur.values())
@@ -463,9 +472,19 @@ class AutodiffPass(BasePass):
             return program
 
         targets = self._collect_requested_targets(program, bindings)
+        if (
+            not targets.diff_targets
+            and not targets.standalone_diff_target_defids
+            and not targets.quotient_pairs
+            and not targets.source_quotient_slots
+        ):
+            self._record_empty_analysis(tcx, [])
+            return program
         binding_ctx = self._build_binding_context(bindings, tcx)
         graph_program = _clone_ir_value(program, {})
         graph_function_ir_map = _clone_ir_value(getattr(tcx, "function_ir_map", None) or {}, {})
+        self._rewrite_program_for_runtime(graph_program)
+        graph_function_ir_map = self._rewrite_runtime_node(graph_function_ir_map)
         graph_bindings = _bindings_in(graph_program, graph_program) or []
         graph_binding_by_defid = {
             b.defid: b
@@ -480,6 +499,17 @@ class AutodiffPass(BasePass):
             and not is_function_binding(binding)
             and not binding_ctx.deps_for(did)
         }
+        graph_self_recursive_defids = {
+            did
+            for did, binding in graph_binding_by_defid.items()
+            if binding.expr is not None and did in _collect_defids(binding.expr)
+        }
+        graph_builtin_requests_by_expr_id = collect_autodiff_builtin_requests(
+            {
+                "program": graph_program,
+                "functions": graph_function_ir_map,
+            }
+        )
         self._rewrite_program_for_runtime(program)
         tcx.set_analysis(
             AutodiffPass,
@@ -496,6 +526,8 @@ class AutodiffPass(BasePass):
                 "graph_binding_by_defid": graph_binding_by_defid,
                 "graph_function_ir_map": graph_function_ir_map,
                 "graph_leaf_defids": graph_leaf_defids,
+                "graph_self_recursive_defids": graph_self_recursive_defids,
+                "graph_builtin_requests_by_expr_id": graph_builtin_requests_by_expr_id,
             },
         )
         return program
@@ -516,6 +548,8 @@ class AutodiffPass(BasePass):
                 "graph_binding_by_defid": {},
                 "graph_function_ir_map": {},
                 "graph_leaf_defids": set(),
+                "graph_self_recursive_defids": set(),
+                "graph_builtin_requests_by_expr_id": {},
             },
         )
 
