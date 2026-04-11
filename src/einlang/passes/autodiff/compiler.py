@@ -72,25 +72,13 @@ def autodiff_builtin_request(
     expr: BuiltinCallIR,
 ) -> Optional[AutodiffBuiltinRequest]:
     requests = compiled_facts.get("builtin_requests_by_expr_id") or {}
-    request = requests.get(id(expr))
-    if request is not None:
-        return request
-    return collect_autodiff_builtin_requests(expr).get(id(expr))
+    return requests.get(id(expr))
 
 
 def compile_autodiff_graph(analysis: Dict[str, Any]) -> AutodiffCompiledFacts:
     bindings = dict(analysis.get("graph_binding_by_defid") or {})
     functions = dict(analysis.get("graph_function_ir_map") or {})
     builtin_requests_by_expr_id = dict(analysis.get("graph_builtin_requests_by_expr_id") or {})
-    if bindings or functions:
-        builtin_requests_by_expr_id.update(
-            collect_autodiff_builtin_requests(
-                {
-                    "bindings": bindings,
-                    "functions": functions,
-                }
-            )
-        )
     return {
         "bindings": bindings,
         "functions": functions,

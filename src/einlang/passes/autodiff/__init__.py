@@ -19,7 +19,7 @@ from ..extremum_selection_canonicalization import ExtremumSelectionCanonicalizat
 from ..pre_autodiff_pruning import PreAutodiffPruningPass
 from ..shape_analysis import UnifiedShapeAnalysisPass
 from ..type_inference import TypeInferencePass
-from .compiler import collect_autodiff_builtin_requests
+from .compiler import collect_autodiff_builtin_requests, compile_autodiff_graph
 from ...shared.autodiff_intrinsics import (
     AutodiffBuiltinKind,
     autodiff_builtin_defid,
@@ -542,6 +542,15 @@ class AutodiffPass(BasePass):
         tcx.set_analysis(
             AutodiffPass,
             {
+                "compiled_graph": compile_autodiff_graph(
+                    {
+                        "graph_binding_by_defid": graph_binding_by_defid,
+                        "graph_function_ir_map": graph_function_ir_map,
+                        "graph_leaf_defids": graph_leaf_defids,
+                        "graph_self_recursive_defids": graph_self_recursive_defids,
+                        "graph_builtin_requests_by_expr_id": graph_builtin_requests_by_expr_id,
+                    }
+                ),
                 "diff_block": None,
                 "differential_targets": set(targets.diff_targets),
                 "differential_buffer_by_defid": {},
@@ -564,6 +573,7 @@ class AutodiffPass(BasePass):
         tcx.set_analysis(
             AutodiffPass,
             {
+                "compiled_graph": None,
                 "diff_block": None,
                 "differential_targets": set(diff_targets),
                 "differential_buffer_by_defid": {},

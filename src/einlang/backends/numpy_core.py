@@ -75,22 +75,16 @@ def _register_fixed_builtins(env: ExecutionEnvironment) -> None:
             env.set_value(DefId(krate=_BUILTIN_CRATE, index=i), fn)
 
 
-def _compiled_autodiff_graph(tcx: Optional[Any], binding_overlay: Optional[Dict[DefId, Any]] = None) -> Optional[Dict[str, Any]]:
+def _compiled_autodiff_graph(tcx: Optional[Any]) -> Optional[Dict[str, Any]]:
     if tcx is None:
         return None
     try:
         from ..passes.autodiff import AutodiffPass
-        from ..passes.autodiff.compiler import compile_autodiff_graph
 
         analysis = tcx.get_analysis(AutodiffPass)
         if not isinstance(analysis, dict):
             return None
-        if binding_overlay:
-            binding_map = dict(analysis.get("graph_binding_by_defid") or {})
-            binding_map.update(binding_overlay)
-            analysis = dict(analysis)
-            analysis["graph_binding_by_defid"] = binding_map
-        return compile_autodiff_graph(analysis)
+        return analysis.get("compiled_graph")
     except RuntimeError:
         return None
 
@@ -432,11 +426,9 @@ class CoreExecutionMixin:
         pending_differential = getattr(self, "_pending_differential_slot_map", None) or {}
         pending_quotient = getattr(self, "_pending_quotient_slot_map", None) or {}
         slot_defid = getattr(node, "defid", None)
-        local_stack = getattr(self, "_autodiff_local_bindings_stack", None) or []
-        binding_overlay = dict(local_stack[-1]) if local_stack else None
         if slot_defid in pending_differential:
             target_defid = pending_differential.get(slot_defid)
-            compiled_graph = _compiled_autodiff_graph(getattr(self, "_tcx", None), binding_overlay)
+            compiled_graph = _compiled_autodiff_graph(getattr(self, "_tcx", None))
             if compiled_graph is not None and target_defid is not None:
                 try:
                     from .numpy_autodiff import tangent_value_for_defid
@@ -450,7 +442,7 @@ class CoreExecutionMixin:
             return (_DIFFERENTIAL_PENDING, slot_defid, target_defid)
         if slot_defid in pending_quotient:
             num_defid, den_defid = pending_quotient[slot_defid]
-            compiled_graph = _compiled_autodiff_graph(getattr(self, "_tcx", None), binding_overlay)
+            compiled_graph = _compiled_autodiff_graph(getattr(self, "_tcx", None))
             if compiled_graph is not None and num_defid is not None and den_defid is not None:
                 try:
                     from .numpy_autodiff import jacobian_value_for_defids

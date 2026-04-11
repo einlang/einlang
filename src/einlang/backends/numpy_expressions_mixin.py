@@ -662,15 +662,6 @@ class ExpressionVisitorMixin:
             self._binding_eval_cache = {}
             previous_nested_lowered_cache = getattr(self, "_nested_lowered_eval_cache", None)
             self._nested_lowered_eval_cache = {}
-            previous_autodiff_locals = getattr(self, "_autodiff_local_bindings_stack", None)
-            if previous_autodiff_locals is None:
-                self._autodiff_local_bindings_stack = []
-            inherited_autodiff_locals = (
-                dict(self._autodiff_local_bindings_stack[-1])
-                if self._autodiff_local_bindings_stack
-                else {}
-            )
-            self._autodiff_local_bindings_stack.append(inherited_autodiff_locals)
             try:
                 binding_cache = self._binding_eval_cache
                 for stmt in (expr.statements or []) or []:
@@ -728,16 +719,9 @@ class ExpressionVisitorMixin:
                                 },
                             )
                         self.env.set_value(variable_defid, result_value, name=var_name)
-                        if binding is not None:
-                            self._autodiff_local_bindings_stack[-1][variable_defid] = binding
                 if expr.final_expr:
                     return expr.final_expr.accept(self)
             finally:
-                self._autodiff_local_bindings_stack.pop()
-                if previous_autodiff_locals is None:
-                    delattr(self, "_autodiff_local_bindings_stack")
-                else:
-                    self._autodiff_local_bindings_stack = previous_autodiff_locals
                 if previous_binding_cache is None:
                     delattr(self, "_binding_eval_cache")
                 else:
@@ -1815,7 +1799,6 @@ class ExpressionVisitorMixin:
 
     def _evaluate_autodiff_builtin(self, expr: BuiltinCallIR, kind: Any) -> Any:
         from ..passes.autodiff import AutodiffPass
-        from ..passes.autodiff.compiler import compile_autodiff_graph
         from ..shared.defid import DefId
         from ..shared.autodiff_intrinsics import AutodiffBuiltinKind
         from .numpy_autodiff import (
@@ -1831,14 +1814,9 @@ class ExpressionVisitorMixin:
         analysis = tcx.get_analysis(AutodiffPass)
         if not isinstance(analysis, dict):
             raise RuntimeError("Autodiff analysis missing or malformed")
-        local_stack = getattr(self, "_autodiff_local_bindings_stack", None) or []
-        if local_stack:
-            local_overlay = dict(local_stack[-1])
-            binding_map = dict(analysis.get("graph_binding_by_defid") or {})
-            binding_map.update(local_overlay)
-            analysis = dict(analysis)
-            analysis["graph_binding_by_defid"] = binding_map
-        compiled_graph = compile_autodiff_graph(analysis)
+        compiled_graph = analysis.get("compiled_graph")
+        if compiled_graph is None:
+            raise RuntimeError("Autodiff compiled graph missing from analysis")
 
         def _identifier_defid(arg: Any) -> DefId:
             if not isinstance(arg, IdentifierIR) or arg.defid is None:
