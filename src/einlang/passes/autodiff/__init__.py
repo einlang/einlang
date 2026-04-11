@@ -26,19 +26,30 @@ from ...shared.autodiff_intrinsics import (
     autodiff_builtin_name,
 )
 from ...ir.nodes import (
+    ArrayLiteralIR,
     BindingIR,
     BinaryOpIR,
     BlockExpressionIR,
     BuiltinCallIR,
+    CastExpressionIR,
     DiffRuleIR,
     DifferentialIR,
+    EinsteinIR,
     ExpressionIR,
+    FunctionCallIR,
     FunctionValueIR,
     IRNode,
     IdentifierIR,
+    IfExpressionIR,
     IndexRestIR,
     IndexVarIR,
+    LiteralIR,
+    MemberAccessIR,
     ProgramIR,
+    RangeIR,
+    RectangularAccessIR,
+    ReductionExpressionIR,
+    UnaryOpIR,
     is_function_binding,
 )
 from ...shared.defid import DefId, fixed_builtin_defid
@@ -73,6 +84,13 @@ class _AutodiffTargets:
     standalone_diff_target_defids: Set[DefId] = field(default_factory=set)
     quotient_pairs: List[Tuple[DefId, DefId]] = field(default_factory=list)
     source_quotient_slots: Dict[DefId, Tuple[DefId, DefId]] = field(default_factory=dict)
+
+
+@dataclass
+class _RuntimeRewriteState:
+    pending_differential_slots: Dict[DefId, DefId] = field(default_factory=dict)
+    pending_quotient_slots: Dict[DefId, Tuple[DefId, DefId]] = field(default_factory=dict)
+    temp_counter: int = 0
 
 
 class _DependencyQueryCache:
@@ -150,6 +168,7 @@ _SHARED_CLONE_SLOTS = frozenset(
 )
 
 
+
 def _clone_ir_value(value: Any, memo: Dict[int, Any]) -> Any:
     if value is None or isinstance(value, (str, int, float, bool, bytes)):
         return value
@@ -206,6 +225,10 @@ def clear_custom_diff_body_everywhere(program: ProgramIR) -> None:
             for cls in type(cur).__mro__:
                 for slot in getattr(cls, "__slots__", ()):
                     stack.append(getattr(cur, slot, None))
+
+
+
+
 
 
 def clear_autodiff_only_ir(obj: Any) -> None:
@@ -483,8 +506,8 @@ class AutodiffPass(BasePass):
         binding_ctx = self._build_binding_context(bindings, tcx)
         graph_program = _clone_ir_value(program, {})
         graph_function_ir_map = _clone_ir_value(getattr(tcx, "function_ir_map", None) or {}, {})
-        self._rewrite_program_for_runtime(graph_program)
-        graph_function_ir_map = self._rewrite_runtime_node(graph_function_ir_map)
+        self._rewrite_graph_for_runtime(graph_program)
+        graph_function_ir_map = self._rewrite_graph_node(graph_function_ir_map)
         graph_bindings = _bindings_in(graph_program, graph_program) or []
         graph_binding_by_defid = {
             b.defid: b
@@ -510,7 +533,12 @@ class AutodiffPass(BasePass):
                 "functions": graph_function_ir_map,
             }
         )
-        self._rewrite_program_for_runtime(program)
+        runtime_rewrite = _RuntimeRewriteState()
+        self._rewrite_program_for_runtime(program, tcx, runtime_rewrite)
+        function_ir_map_live = getattr(tcx, "function_ir_map", None) or {}
+        for fn in function_ir_map_live.values():
+            if isinstance(fn, BindingIR) and is_function_binding(fn):
+                self._rewrite_statement(fn, getattr(tcx, "resolver", None), runtime_rewrite)
         tcx.set_analysis(
             AutodiffPass,
             {
@@ -519,8 +547,8 @@ class AutodiffPass(BasePass):
                 "differential_buffer_by_defid": {},
                 "autodiff_differential_map": {},
                 "differential_leaves": set(),
-                "pending_differential_slot_by_defid": {},
-                "pending_quotient_slot_by_defid": {},
+                "pending_differential_slot_by_defid": dict(runtime_rewrite.pending_differential_slots),
+                "pending_quotient_slot_by_defid": dict(runtime_rewrite.pending_quotient_slots),
                 "source_quotient_slot_by_defid": targets.source_quotient_slots,
                 "graph_program": graph_program,
                 "graph_binding_by_defid": graph_binding_by_defid,
@@ -553,12 +581,12 @@ class AutodiffPass(BasePass):
             },
         )
 
-    def _rewrite_program_for_runtime(self, program: ProgramIR) -> None:
+    def _rewrite_graph_for_runtime(self, program: ProgramIR) -> None:
         for stmt in list(program.statements or []):
-            self._rewrite_runtime_node(stmt)
+            self._rewrite_graph_node(stmt)
         program.bindings = [s for s in (program.statements or []) if isinstance(s, BindingIR)]
 
-    def _rewrite_runtime_node(self, obj: object) -> object:
+    def _rewrite_graph_node(self, obj: object) -> object:
         if obj is None or isinstance(obj, (str, int, float, bool, bytes)):
             return obj
         if isinstance(obj, DifferentialIR):
@@ -567,8 +595,8 @@ class AutodiffPass(BasePass):
             direct_q = _source_requested_quotient_pair(obj)
             if direct_q is not None:
                 return self._make_runtime_jacobian_call(obj, direct_q)
-            obj.left = self._rewrite_runtime_node(obj.left)
-            obj.right = self._rewrite_runtime_node(obj.right)
+            obj.left = self._rewrite_graph_node(obj.left)
+            obj.right = self._rewrite_graph_node(obj.right)
             return obj
         if isinstance(obj, BuiltinCallIR) and _builtin_defid(obj) == _PRINT_BUILTIN_DEFID and len(obj.args or []) == 1:
             arg0 = obj.args[0]
@@ -584,14 +612,14 @@ class AutodiffPass(BasePass):
                 for slot in getattr(cls, "__slots__", ()):
                     if slot == "location":
                         continue
-                    setattr(obj, slot, self._rewrite_runtime_node(getattr(obj, slot, None)))
+                    setattr(obj, slot, self._rewrite_graph_node(getattr(obj, slot, None)))
             return obj
         if isinstance(obj, list):
-            return [self._rewrite_runtime_node(item) for item in obj]
+            return [self._rewrite_graph_node(item) for item in obj]
         if isinstance(obj, tuple):
-            return tuple(self._rewrite_runtime_node(item) for item in obj)
+            return tuple(self._rewrite_graph_node(item) for item in obj)
         if isinstance(obj, dict):
-            return {self._rewrite_runtime_node(k): self._rewrite_runtime_node(v) for k, v in obj.items()}
+            return {self._rewrite_graph_node(k): self._rewrite_graph_node(v) for k, v in obj.items()}
         return obj
 
     @staticmethod
@@ -658,6 +686,267 @@ class AutodiffPass(BasePass):
             defid=autodiff_builtin_defid(kind),
             type_info=STR,
             shape_info=None,
+        )
+
+    def _rewrite_program_for_runtime(
+        self,
+        program: ProgramIR,
+        tcx: TyCtxt,
+        state: _RuntimeRewriteState,
+    ) -> None:
+        resolver = getattr(tcx, "resolver", None)
+        if resolver is None:
+            raise RuntimeError("AutodiffPass requires resolver for runtime rewrite")
+        program.statements = self._rewrite_statement_list(program.statements or [], resolver, state)
+        program.bindings = [s for s in (program.statements or []) if isinstance(s, BindingIR)]
+
+    def _rewrite_statement_list(
+        self,
+        statements: List[Any],
+        resolver: Any,
+        state: _RuntimeRewriteState,
+    ) -> List[Any]:
+        out: List[Any] = []
+        for stmt in statements:
+            out.extend(self._rewrite_statement(stmt, resolver, state))
+        return out
+
+    def _rewrite_statement(
+        self,
+        stmt: Any,
+        resolver: Any,
+        state: _RuntimeRewriteState,
+    ) -> List[Any]:
+        if isinstance(stmt, BindingIR):
+            direct_diff = _pending_differential_target(stmt.expr) if stmt.expr is not None else None
+            direct_q = _source_requested_quotient_pair(stmt.expr) if stmt.expr is not None else None
+            if stmt.defid is not None and direct_diff is not None:
+                state.pending_differential_slots[stmt.defid] = direct_diff
+                stmt.expr = LiteralIR(
+                    0.0,
+                    stmt.location or _LOC0,
+                    type_info=_ti(stmt.expr),
+                    shape_info=_si(stmt.expr),
+                )
+                return [stmt]
+            if stmt.defid is not None and direct_q is not None:
+                state.pending_quotient_slots[stmt.defid] = direct_q
+                stmt.expr = LiteralIR(
+                    0.0,
+                    stmt.location or _LOC0,
+                    type_info=_ti(stmt.expr),
+                    shape_info=_si(stmt.expr),
+                )
+                return [stmt]
+            prefixes, rewritten = self._rewrite_expr_for_program(stmt.expr, resolver, state)
+            stmt.expr = rewritten
+            return prefixes + [stmt]
+        if isinstance(stmt, ExpressionIR):
+            prefixes, rewritten = self._rewrite_expr_for_program(stmt, resolver, state)
+            return prefixes + [rewritten]
+        return [stmt]
+
+    def _fresh_pending_binding(
+        self,
+        resolver: Any,
+        state: _RuntimeRewriteState,
+        *,
+        name_hint: str,
+        expr: ExpressionIR,
+        pending_target: Optional[DefId] = None,
+        pending_pair: Optional[Tuple[DefId, DefId]] = None,
+    ) -> Tuple[BindingIR, IdentifierIR]:
+        state.temp_counter += 1
+        did = resolver.allocate_for_local()
+        name = f"{DIFF_PREFIX}{name_hint}_{state.temp_counter}"
+        binding = BindingIR(
+            name=name,
+            expr=LiteralIR(0.0, expr.location or _LOC0, type_info=_ti(expr), shape_info=_si(expr)),
+            location=expr.location or _LOC0,
+            defid=did,
+            type_info=_ti(expr),
+        )
+        if pending_target is not None:
+            state.pending_differential_slots[did] = pending_target
+        if pending_pair is not None:
+            state.pending_quotient_slots[did] = pending_pair
+        ident = IdentifierIR(name, expr.location or _LOC0, did, type_info=_ti(expr), shape_info=_si(expr))
+        return binding, ident
+
+    def _symbolic_print_literal(self, expr: ExpressionIR) -> Optional[LiteralIR]:
+        if isinstance(expr, DifferentialIR):
+            operand = expr.operand
+            if isinstance(operand, IdentifierIR):
+                return LiteralIR(
+                    f"@{operand.name or '?'}",
+                    expr.location or operand.location or _LOC0,
+                    type_info=STR,
+                )
+        pair = _source_requested_quotient_pair(expr)
+        if pair is not None and isinstance(expr, BinaryOpIR):
+            num_expr = expr.left.operand if isinstance(expr.left, DifferentialIR) else expr.left
+            den_expr = expr.right.operand if isinstance(expr.right, DifferentialIR) else expr.right
+            num_name = getattr(num_expr, "name", None) or "y"
+            den_name = getattr(den_expr, "name", None) or "x"
+            return LiteralIR(
+                f"(@{num_name} / @{den_name}) · @{den_name}",
+                expr.location or _LOC0,
+                type_info=STR,
+            )
+        return None
+
+    def _rewrite_expr_for_program(
+        self,
+        expr: Optional[ExpressionIR],
+        resolver: Any,
+        state: _RuntimeRewriteState,
+    ) -> Tuple[List[BindingIR], Optional[ExpressionIR]]:
+        if expr is None:
+            return [], None
+        if isinstance(expr, DifferentialIR):
+            target = _pending_differential_target(expr)
+            if target is None:
+                raise RuntimeError("AutodiffPass currently only supports identifier differentials in executable IR")
+            operand = expr.operand
+            name_hint = getattr(operand, "name", None) or "d"
+            binding, ident = self._fresh_pending_binding(
+                resolver,
+                state,
+                name_hint=name_hint,
+                expr=expr,
+                pending_target=target,
+            )
+            return [binding], ident
+        if isinstance(expr, BinaryOpIR):
+            pair = _source_requested_quotient_pair(expr)
+            if pair is not None:
+                left_name = getattr(expr.left.operand if isinstance(expr.left, DifferentialIR) else expr.left, "name", None) or "j"
+                binding, ident = self._fresh_pending_binding(
+                    resolver,
+                    state,
+                    name_hint=left_name,
+                    expr=expr,
+                    pending_pair=pair,
+                )
+                return [binding], ident
+            lp, left = self._rewrite_expr_for_program(expr.left, resolver, state)
+            rp, right = self._rewrite_expr_for_program(expr.right, resolver, state)
+            expr.left = left
+            expr.right = right
+            return lp + rp, expr
+        if isinstance(expr, UnaryOpIR):
+            pp, operand = self._rewrite_expr_for_program(expr.operand, resolver, state)
+            expr.operand = operand
+            return pp, expr
+        if isinstance(expr, BuiltinCallIR):
+            if _builtin_defid(expr) == _PRINT_BUILTIN_DEFID and len(expr.args or []) == 1:
+                literal = self._symbolic_print_literal(expr.args[0])
+                if literal is not None:
+                    expr.args = (literal,)
+                    return [], expr
+            prefixes: List[BindingIR] = []
+            new_args: List[ExpressionIR] = []
+            for arg in expr.args or []:
+                pp, new_arg = self._rewrite_expr_for_program(arg, resolver, state)
+                prefixes.extend(pp)
+                if new_arg is not None:
+                    new_args.append(new_arg)
+            expr.args = tuple(new_args)
+            return prefixes, expr
+        if isinstance(expr, FunctionCallIR):
+            prefixes: List[BindingIR] = []
+            if expr.callee_expr is not None:
+                pp, callee_expr = self._rewrite_expr_for_program(expr.callee_expr, resolver, state)
+                prefixes.extend(pp)
+                expr.callee_expr = callee_expr
+            new_args: List[ExpressionIR] = []
+            for arg in expr.arguments or []:
+                pp, new_arg = self._rewrite_expr_for_program(arg, resolver, state)
+                prefixes.extend(pp)
+                if new_arg is not None:
+                    new_args.append(new_arg)
+            expr.arguments = tuple(new_args)
+            return prefixes, expr
+        if isinstance(expr, RectangularAccessIR):
+            prefixes: List[BindingIR] = []
+            pp, array = self._rewrite_expr_for_program(expr.array, resolver, state)
+            prefixes.extend(pp)
+            expr.array = array
+            new_indices: List[ExpressionIR] = []
+            for idx in expr.indices or []:
+                pp, new_idx = self._rewrite_expr_for_program(idx, resolver, state)
+                prefixes.extend(pp)
+                if new_idx is not None:
+                    new_indices.append(new_idx)
+            expr.indices = tuple(new_indices)
+            return prefixes, expr
+        if isinstance(expr, CastExpressionIR):
+            pp, inner = self._rewrite_expr_for_program(expr.expr, resolver, state)
+            expr.expr = inner
+            return pp, expr
+        if isinstance(expr, MemberAccessIR):
+            pp, obj = self._rewrite_expr_for_program(expr.object, resolver, state)
+            expr.object = obj
+            return pp, expr
+        if isinstance(expr, ArrayLiteralIR):
+            prefixes: List[BindingIR] = []
+            elems: List[ExpressionIR] = []
+            for elem in expr.elements or []:
+                pp, new_elem = self._rewrite_expr_for_program(elem, resolver, state)
+                prefixes.extend(pp)
+                if new_elem is not None:
+                    elems.append(new_elem)
+            expr.elements = tuple(elems)
+            return prefixes, expr
+        if isinstance(expr, BlockExpressionIR):
+            expr.statements = tuple(self._rewrite_statement_list(list(expr.statements or []), resolver, state))
+            pp, final_expr = self._rewrite_expr_for_program(expr.final_expr, resolver, state)
+            if pp:
+                expr.statements = tuple(list(expr.statements or []) + pp)
+            expr.final_expr = final_expr
+            return [], expr
+        if isinstance(expr, IfExpressionIR):
+            cond_prefix, cond = self._rewrite_expr_for_program(expr.condition, resolver, state)
+            then_prefix, then_expr = self._rewrite_expr_for_program(expr.then_expr, resolver, state)
+            else_prefix, else_expr = self._rewrite_expr_for_program(expr.else_expr, resolver, state)
+            expr.condition = cond
+            expr.then_expr = self._wrap_prefix_block(then_prefix, then_expr)
+            expr.else_expr = self._wrap_prefix_block(else_prefix, else_expr)
+            return cond_prefix, expr
+        if isinstance(expr, RangeIR):
+            sp, start = self._rewrite_expr_for_program(expr.start, resolver, state)
+            ep, end = self._rewrite_expr_for_program(expr.end, resolver, state)
+            expr.start = start
+            expr.end = end
+            return sp + ep, expr
+        if isinstance(expr, ReductionExpressionIR):
+            body_prefix, body = self._rewrite_expr_for_program(expr.body, resolver, state)
+            expr.body = self._wrap_prefix_block(body_prefix, body)
+            return [], expr
+        if isinstance(expr, EinsteinIR):
+            for clause in expr.clauses or []:
+                value_prefix, value = self._rewrite_expr_for_program(clause.value, resolver, state)
+                clause.value = self._wrap_prefix_block(value_prefix, value)
+            return [], expr
+        if isinstance(expr, FunctionValueIR):
+            if expr.body is not None:
+                body_prefix, body = self._rewrite_expr_for_program(expr.body, resolver, state)
+                expr.body = self._wrap_prefix_block(body_prefix, body)
+            return [], expr
+        return [], expr
+
+    @staticmethod
+    def _wrap_prefix_block(prefixes: List[BindingIR], expr: Optional[ExpressionIR]) -> Optional[ExpressionIR]:
+        if expr is None:
+            return None
+        if not prefixes:
+            return expr
+        return BlockExpressionIR(
+            statements=tuple(prefixes),
+            final_expr=expr,
+            location=getattr(expr, "location", None) or _LOC0,
+            type_info=_ti(expr),
+            shape_info=_si(expr),
         )
 
     def _collect_requested_targets(self, program: ProgramIR, bindings: List[BindingIR]) -> _AutodiffTargets:

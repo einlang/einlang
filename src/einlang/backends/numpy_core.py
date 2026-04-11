@@ -75,6 +75,26 @@ def _register_fixed_builtins(env: ExecutionEnvironment) -> None:
             env.set_value(DefId(krate=_BUILTIN_CRATE, index=i), fn)
 
 
+def _compiled_autodiff_graph(tcx: Optional[Any], binding_overlay: Optional[Dict[DefId, Any]] = None) -> Optional[Dict[str, Any]]:
+    if tcx is None:
+        return None
+    try:
+        from ..passes.autodiff import AutodiffPass
+        from ..passes.autodiff.compiler import compile_autodiff_graph
+
+        analysis = tcx.get_analysis(AutodiffPass)
+        if not isinstance(analysis, dict):
+            return None
+        if binding_overlay:
+            binding_map = dict(analysis.get("graph_binding_by_defid") or {})
+            binding_map.update(binding_overlay)
+            analysis = dict(analysis)
+            analysis["graph_binding_by_defid"] = binding_map
+        return compile_autodiff_graph(analysis)
+    except RuntimeError:
+        return None
+
+
 def _resolved_call_name(
     call: FunctionCallIR,
     function_ir_map: Dict[Any, Any],
@@ -409,16 +429,38 @@ class CoreExecutionMixin:
             stack.pop()
 
     def _maybe_pending_gradient_binding(self, node: Any) -> Optional[Any]:
-        if not getattr(self, "_in_top_level_forward", False):
-            return None
         pending_differential = getattr(self, "_pending_differential_slot_map", None) or {}
         pending_quotient = getattr(self, "_pending_quotient_slot_map", None) or {}
         slot_defid = getattr(node, "defid", None)
+        local_stack = getattr(self, "_autodiff_local_bindings_stack", None) or []
+        binding_overlay = dict(local_stack[-1]) if local_stack else None
         if slot_defid in pending_differential:
             target_defid = pending_differential.get(slot_defid)
+            compiled_graph = _compiled_autodiff_graph(getattr(self, "_tcx", None), binding_overlay)
+            if compiled_graph is not None and target_defid is not None:
+                try:
+                    from .numpy_autodiff import tangent_value_for_defid
+
+                    return tangent_value_for_defid(target_defid, compiled_graph, self.env.get_value)
+                except Exception:
+                    if not getattr(self, "_in_top_level_forward", False):
+                        raise
+            if not getattr(self, "_in_top_level_forward", False):
+                raise RuntimeError(f"Unable to resolve local autodiff tangent slot for {getattr(node, 'name', slot_defid)}")
             return (_DIFFERENTIAL_PENDING, slot_defid, target_defid)
         if slot_defid in pending_quotient:
             num_defid, den_defid = pending_quotient[slot_defid]
+            compiled_graph = _compiled_autodiff_graph(getattr(self, "_tcx", None), binding_overlay)
+            if compiled_graph is not None and num_defid is not None and den_defid is not None:
+                try:
+                    from .numpy_autodiff import jacobian_value_for_defids
+
+                    return jacobian_value_for_defids(num_defid, den_defid, compiled_graph, self.env.get_value)
+                except Exception:
+                    if not getattr(self, "_in_top_level_forward", False):
+                        raise
+            if not getattr(self, "_in_top_level_forward", False):
+                raise RuntimeError(f"Unable to resolve local autodiff quotient slot for {getattr(node, 'name', slot_defid)}")
             emit_debug_log(
                 "runtime.quotient",
                 "numpy_core.py:_maybe_pending_gradient_binding",
@@ -625,7 +667,24 @@ class CoreExecutionMixin:
                             and len(result_value) == 3
                             and result_value[0] is _DIFFERENTIAL_PENDING
                         ):
-                            pending_differential_slots.append((result_value[1], result_value[2]))
+                            slot_defid, target_defid = result_value[1], result_value[2]
+                            immediate_val = None
+                            compiled_graph = _compiled_autodiff_graph(tcx_pre)
+                            if compiled_graph is not None and target_defid is not None:
+                                try:
+                                    from .numpy_autodiff import tangent_value_for_defid
+
+                                    immediate_val = tangent_value_for_defid(
+                                        target_defid,
+                                        compiled_graph,
+                                        self.env.get_value,
+                                    )
+                                except Exception:
+                                    immediate_val = None
+                            if immediate_val is not None:
+                                self._store_output_value(outputs, slot_defid, immediate_val, name=None)
+                            else:
+                                pending_differential_slots.append((slot_defid, target_defid))
                             if profile_statements:
                                 elapsed = time.perf_counter() - self._stmt_t0
                                 self._print_statement_profile(stmt_index, stmt, elapsed)
@@ -637,6 +696,26 @@ class CoreExecutionMixin:
                             and result_value[0] is _QUOTIENT_PENDING
                         ):
                             slot_defid, num_defid, den_defid = result_value[1], result_value[2], result_value[3]
+                            immediate_val = None
+                            compiled_graph = _compiled_autodiff_graph(tcx_pre)
+                            if compiled_graph is not None and num_defid is not None and den_defid is not None:
+                                try:
+                                    from .numpy_autodiff import jacobian_value_for_defids
+
+                                    immediate_val = jacobian_value_for_defids(
+                                        num_defid,
+                                        den_defid,
+                                        compiled_graph,
+                                        self.env.get_value,
+                                    )
+                                except Exception:
+                                    immediate_val = None
+                            if immediate_val is not None:
+                                self._store_output_value(outputs, slot_defid, immediate_val, name=None)
+                                if profile_statements:
+                                    elapsed = time.perf_counter() - self._stmt_t0
+                                    self._print_statement_profile(stmt_index, stmt, elapsed)
+                                continue
                             # If numerator/denominator are scalar, compute immediately so forward code can use it.
                             try:
                                 num_val = self.env.get_value(num_defid)
@@ -905,6 +984,14 @@ class CoreExecutionMixin:
             return None
         pending = self._maybe_pending_gradient_binding(node)
         if pending is not None:
+            if not (
+                isinstance(pending, tuple)
+                and pending
+                and pending[0] in (_DIFFERENTIAL_PENDING, _QUOTIENT_PENDING)
+            ):
+                if node.defid is not None:
+                    self.env.set_value(node.defid, pending, name=node.name)
+                return pending
             return pending
         if is_einstein_binding(node):
             from ..ir.nodes import LoweredEinsteinIR, LoweredRecurrenceIR
