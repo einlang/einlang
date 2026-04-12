@@ -419,31 +419,6 @@ class EinsteinLoweringPass(BasePass):
             new_statements.append(result)
         ir.statements = new_statements
 
-        # Also lower autodiff diff blocks stored in analysis so runtime per-quotient
-        # paths can execute lowered IR.
-        try:
-            from ..passes.autodiff import AutodiffPass
-
-            ad = tcx.get_analysis(AutodiffPass)
-            diff_block = ad.get("diff_block")
-            if diff_block:
-                lowered_diff: List[Any] = []
-                for stmt in diff_block:
-                    if stmt is None:
-                        raise ValueError("Autodiff diff block statement is None")
-                    res = stmt.accept(visitor)
-                    if res is None:
-                        raise ValueError("Einstein lowering returned None for diff block statement")
-                    if isinstance(stmt, BindingIR) and not isinstance(res, BindingIR):
-                        object.__setattr__(stmt, 'expr', res)
-                        res = stmt
-                    lowered_diff.append(res)
-                ad = dict(ad)
-                ad["diff_block"] = lowered_diff
-                tcx.set_analysis(AutodiffPass, ad)
-        except RuntimeError:
-            pass
-
         from ..analysis.analysis_guard import should_analyze_function, is_generic_function
         function_ir_map = getattr(tcx, 'function_ir_map', None) or {}
         specialized_list = getattr(tcx, 'specialized_functions', []) or []

@@ -13,7 +13,7 @@ Einlang is a language for tensor programs written with explicit indices, reducti
 let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply — compiler checks A, B, C shapes
 ```
 
-The language includes **where-clauses** for index relations and guards, **recurrences** for sequential definitions, and **automatic differentiation** through forms such as `@loss / @weights`, `@state / @param`, and `@C / @A`. The standard library covers mathematical and machine-learning operations, and the examples span numerical methods as well as model code. **[Why Einlang?](WHY_EINLANG.md)** gives a broader overview.
+The language includes **where-clauses** for index relations and guards, **recurrences** for sequential definitions, and **automatic differentiation** through forms such as `@loss / @weights`, `@state / @param`, and `@C / @A`. In practice, you bind the value first and then differentiate that binding. The standard library covers mathematical and machine-learning operations, and the examples span numerical methods as well as model code. **[Why Einlang?](WHY_EINLANG.md)** gives a broader overview.
 
 ---
 

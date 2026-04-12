@@ -606,19 +606,4 @@ class RecurrenceOrderPass(BasePass):
                 continue
             self._process_statement_sequence([binding], allow_isolate=True)
             seen_ids.add(id(binding))
-        # Also analyze autodiff diff blocks so lowered reductions get execution facts.
-        try:
-            from ..passes.autodiff import AutodiffPass
-
-            ad = tcx.get_analysis(AutodiffPass)
-            diff_block = ad.get("diff_block") or []
-            for stmt in diff_block:
-                if stmt is None:
-                    continue
-                if id(stmt) in seen_ids:
-                    continue
-                self._process_statement_sequence([stmt], allow_isolate=True)
-                seen_ids.add(id(stmt))
-        except RuntimeError:
-            pass
         return ir

@@ -13,7 +13,7 @@ Start with [Getting started](https://github.com/einlang/einlang/blob/main/docs/G
 | **Learn by examples** | [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md) |
 | **Understand the language** | [reference.md](https://github.com/einlang/einlang/blob/main/docs/reference.md) |
 | **Look up functions** | [stdlib.md](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) |
-| **Understand autodiff** | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) |
+| **Understand autodiff** | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [AUTODIFF_VJP_JVP_REWRITE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_VJP_JVP_REWRITE.md) |
 | **Find the right doc by background** | [SYNTAX_COMPARISON](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md) · [EINLANG_FOR_JULIA_PROGRAMMERS](https://github.com/einlang/einlang/blob/main/docs/EINLANG_FOR_JULIA_PROGRAMMERS.md) |
 | **Get brief answers** | [FAQ](https://github.com/einlang/einlang/blob/main/docs/FAQ.md) |
 
@@ -29,7 +29,8 @@ Start with [Getting started](https://github.com/einlang/einlang/blob/main/docs/G
 | [WHY_EINLANG](https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md) | Motivation and high-level comparison |
 | [MATH](https://github.com/einlang/einlang/blob/main/docs/MATH.md) | Math notation mapped to Einlang code |
 | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) | Short overview of autodiff in the language |
-| [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) | Main autodiff design and implementation doc |
+| [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) | Main current autodiff compiler/runtime contract |
+| [AUTODIFF_VJP_JVP_REWRITE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_VJP_JVP_REWRITE.md) | Current JVP/VJP and lazy-Jacobian runtime architecture |
 | [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md) | Learning path and examples by domain |
 
 ---
@@ -51,7 +52,7 @@ Start with [Getting started](https://github.com/einlang/einlang/blob/main/docs/G
 | **How do I run Einlang?** | `python3 -m einlang -c "let x = 1+1; print(x);"` or `python3 -m einlang examples/hello.ein` |
 | **How do I use it from Python?** | `from einlang import run` — see [README — Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) |
 | **Where are the examples?** | [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md) |
-| **How do I get derivatives?** | Use `@expr`, `@a / @b`, `@loss / @w`, or `@C / @A`; see [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) |
+| **How do I get derivatives?** | Bind the value first, then use `@name`, `@a / @b`, `@loss / @w`, or `@C / @A`; see [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) |
 | **How do I report a bug?** | Open an [issue](https://github.com/einlang/einlang/issues) or see [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md) |
 
 ---
@@ -89,6 +90,7 @@ These docs are useful when you are working on a specific compiler or backend are
 
 | Area | Docs |
 |------|------|
-| **Autodiff internals** | [AUTODIFF_PIPELINE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_PIPELINE.md) · [AUTODIFF_IMPLEMENTATION](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_IMPLEMENTATION.md) · [AUTODIFF_ALGORITHM](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_ALGORITHM.md) · [AUTODIFF_OPS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_OPS.md) |
+| **Autodiff internals** | [AUTODIFF_PIPELINE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_PIPELINE.md) · [AUTODIFF_VJP_JVP_REWRITE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_VJP_JVP_REWRITE.md) · [AUTODIFF_OPS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_OPS.md) |
+| **Autodiff historical notes** | [AUTODIFF_IMPLEMENTATION](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_IMPLEMENTATION.md) · [AUTODIFF_ALGORITHM](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_ALGORITHM.md) |
 | **Einstein / lowering details** | [AUTODIFF_EINSTEIN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_EINSTEIN.md) · [AUTODIFF_EINSTEIN_OPS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_EINSTEIN_OPS.md) · [VECTORIZATION_DESIGN](https://github.com/einlang/einlang/blob/main/docs/VECTORIZATION_DESIGN.md) · [RECURRENCE_ORDER_DESIGN](https://github.com/einlang/einlang/blob/main/docs/RECURRENCE_ORDER_DESIGN.md) |
 | **Targeted investigations** | `RUNTIME_TO_COMPILER_FINDINGS.md`, `STUDY_SKIP_IR_ANALYSIS.md`, `TEST_PRINT_AT_STUDY_SKIP_*.md`, `TRT_MNIST_EXAMPLE.md` |

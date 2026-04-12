@@ -67,10 +67,10 @@ Base cases and recursive case in one place; the compiler handles evaluation orde
 | In math                       | In Einlang                                                  | Reference                                                                                                                                                                               |
 | ----------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ∂z/∂x, gradient of z w.r.t. x | `let dz_dx = @z / @x;`                                      | [Automatic differentiation](reference.md#automatic-differentiation)                                                                                                                     |
-| Chain rule (compiler-derived) | Write the expression, then differentiate it in place with `@z / @x` or `@loss / @w` — no hand-written gradients | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein) |
+| Chain rule (compiler-owned) | Bind the value, then differentiate it in place with `@z / @x` or `@loss / @w` — no hand-written gradients | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein) |
 
 
-The compiler supports **built-in automatic differentiation**: derivatives and gradients from `@expr` and `@a / @b`, directly on expressions instead of through a separate function-wrapper API.
+The compiler supports **built-in automatic differentiation**: derivatives and gradients from named bindings via `@x` and `@a / @b`, directly in the language instead of through a separate function-wrapper API.
 
 ---
 
@@ -142,5 +142,5 @@ In Einlang, **stdlib functions** (e.g. `std::math::sqrt`, `std::ml::relu`) parti
 
 - **Full syntax and semantics:** [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md)
 - **Math and other functions:** [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md) — `std::math`, `std::ml`
-- **Autodiff:** [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein)
+- **Autodiff:** [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md) · [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md) · [AUTODIFF_VJP_JVP_REWRITE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_VJP_JVP_REWRITE.md) · [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein)
 - **Run an example:** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) · [Examples by domain](https://github.com/einlang/einlang/blob/main/examples/README.md) · [README#examples](https://github.com/einlang/einlang/blob/main/README.md#examples)

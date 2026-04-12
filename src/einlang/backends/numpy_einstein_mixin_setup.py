@@ -433,23 +433,37 @@ class EinsteinExecutionSetupMixin:
         Prefer the inferred output DefId for recurrence (``u[t-1]`` reads) so execution
         reuses ``u``'s storage. Use a fresh DefId when inference finds only diagonal
         input reads (``x[i]``) so pullback output does not alias ``x``.
+
+        When inference cannot recover a tensor owner, fall back to the enclosing
+        variable declaration already on the stack. That matches the ordinary
+        top-level execution path where ``LoweredEinsteinIR`` inherits storage
+        identity from the surrounding binding instead of carrying its own owner.
         """
         out_defid = _infer_lowered_einstein_output_defid(lowered)
+        stack = getattr(self, "_variable_decl_stack", None)
+        parent_decl = stack[-1] if stack else None
+        parent_binding = getattr(parent_decl, "_binding", None) or parent_decl
+        inherited_defid = (
+            getattr(parent_binding, "defid", None)
+            if parent_binding is not None
+            else None
+        )
+        if out_defid is None:
+            out_defid = inherited_defid
         if out_defid is None:
             raise RuntimeError(
-                "Nested LoweredEinsteinIR is missing a compile-time output DefId. "
-                "Compiler lowering must annotate the storage target instead of synthesizing it at runtime."
+                "Nested LoweredEinsteinIR has no owner DefId and no enclosing binding DefId to inherit. "
+                "Nested lowered Einstein execution must follow the normal binding-owned storage path."
             )
 
         class _SyntheticEinsteinDecl:
             __slots__ = ("defid", "name")
 
-            def __init__(self, defid: Any) -> None:
+            def __init__(self, defid: Any, name: Optional[str]) -> None:
                 self.defid = defid
-                self.name = "?"
+                self.name = name or "?"
 
-        decl = _SyntheticEinsteinDecl(out_defid)
-        stack = getattr(self, "_variable_decl_stack", None)
+        decl = _SyntheticEinsteinDecl(out_defid, getattr(parent_binding, "name", None))
         if stack is None:
             self._variable_decl_stack = []
             stack = self._variable_decl_stack

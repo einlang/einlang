@@ -9,7 +9,7 @@ Einlang is a language and compiler for tensor programs with explicit indices, re
 Main pieces:
 
 - Einstein-style tensor code as language syntax
-- built-in automatic differentiation with forms such as `@expr`, `@loss / @w`, and `@C / @A`
+- built-in automatic differentiation with forms such as `@name`, `@loss / @w`, and `@C / @A`
 - compile-time checking of shape and index structure
 - a NumPy backend for execution today
 - a repository of examples spanning model code, optimization, recurrence, and numerical programs
@@ -76,7 +76,7 @@ The repository has four main parts:
 | Area | What to inspect |
 |------|-----------------|
 | **Language** | [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md), [stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md), [MATH](https://github.com/einlang/einlang/blob/main/docs/MATH.md) |
-| **Autodiff** | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [examples/autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
+| **Autodiff** | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), [AUTODIFF_VJP_JVP_REWRITE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_VJP_JVP_REWRITE.md), [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [examples/autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
 | **Examples** | [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md), [mnist](https://github.com/einlang/einlang/tree/main/examples/mnist), [optimization](https://github.com/einlang/einlang/tree/main/examples/optimization), [ode](https://github.com/einlang/einlang/tree/main/examples/ode), [recurrence](https://github.com/einlang/einlang/tree/main/examples/recurrence) |
 | **Implementation** | [src/einlang/passes](https://github.com/einlang/einlang/tree/main/src/einlang/passes), [src/einlang/backends](https://github.com/einlang/einlang/tree/main/src/einlang/backends), [DEVELOPMENT](https://github.com/einlang/einlang/blob/main/docs/DEVELOPMENT.md) |
 
@@ -134,6 +134,7 @@ Autodiff docs:
 
 - [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md)
 - [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md)
+- [AUTODIFF_VJP_JVP_REWRITE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_VJP_JVP_REWRITE.md)
 - [AUTODIFF_PIPELINE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_PIPELINE.md)
 - [AUTODIFF_OPS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_OPS.md)
 
