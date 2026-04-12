@@ -1024,8 +1024,10 @@ class IRDeserializer:
         return self._deserialize_type(opts.get(":inferred_type"))
 
     def _parse_shape_info_raw(self, raw: Any) -> Optional[Any]:
-        if raw is None or not isinstance(raw, list) or not raw:
+        if raw is None or not isinstance(raw, list):
             return None
+        if not raw:
+            return ()
         out = []
         for x in raw:
             if sexpdata and isinstance(x, sexpdata.Symbol):
