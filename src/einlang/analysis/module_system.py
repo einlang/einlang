@@ -5,13 +5,12 @@ Rust Pattern: rustc_resolve::module
 Reference: MODULE_SYSTEM_DESIGN.md
 """
 
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Dict, Tuple, Optional
 from pathlib import Path
 
 from ..utils.io_utils import read_source_file, is_temp_path
 from ..shared.defid import DefId, DefType, Resolver
-from ..ir.nodes import ModuleIR, ProgramIR, BindingIR
-from ..shared.source_location import SourceLocation
+from ..ir.nodes import ModuleIR
 
 
 class ModuleDiscovery:
@@ -336,4 +335,3 @@ class ModuleSystem:
             stdlib_modules[module_path] = tsc_file
         
         return stdlib_modules
-

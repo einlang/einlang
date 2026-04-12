@@ -1010,9 +1010,7 @@ class EinlangTransformer(Transformer):
     def rectangular_type(self, meta: LarkMeta, *args):
         """Transform rectangular type: LSQB primitive_type (SEMICOLON shape_spec)? RSQB"""
         from ...shared.types import RectangularType
-        
-        location = self._extract_location(meta)  # For error messages only
-        
+
         # Filter out tokens to get the actual data
         element_type = None
         shape_spec = None
@@ -1052,9 +1050,7 @@ class EinlangTransformer(Transformer):
     def jagged_type(self, meta: LarkMeta, *args):
         """Transform jagged type: "jagged" LSQB primitive_type (SEMICOLON jagged_depth)? RSQB"""
         from ...shared.types import JaggedType
-        
-        location = self._extract_location(meta)
-        
+
         # Filter out tokens to get the actual data
         element_type = None
         jagged_depth = None

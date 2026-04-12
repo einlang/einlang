@@ -373,11 +373,11 @@ class NameResolutionPass(BasePass):
         
         from ..backends.numpy import (
             builtin_assert, builtin_print, builtin_len, builtin_typeof, builtin_array_append,
-            builtin_shape, builtin_sum, builtin_max, builtin_min,
+            builtin_shape, builtin_sum, builtin_max, builtin_min, builtin___basis_tensor,
         )
         _builtin_impls = (
             builtin_assert, builtin_print, builtin_len, builtin_typeof, builtin_array_append,
-            builtin_shape, builtin_sum, builtin_max, builtin_min,
+            builtin_shape, builtin_sum, builtin_max, builtin_min, builtin___basis_tensor,
         )
         for name, definition in zip(FIXED_BUILTIN_ORDER, _builtin_impls):
             resolver.allocate_for_item((), name, definition, DefType.BUILTIN)

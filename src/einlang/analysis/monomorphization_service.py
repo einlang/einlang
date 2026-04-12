@@ -18,7 +18,15 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..shared.defid import DefId, DefType
-from ..ir.nodes import BindingIR, FunctionCallIR, IRNode, ParameterIR, is_function_binding
+from ..ir.nodes import (
+    BindingIR,
+    BlockExpressionIR,
+    ExpressionIR,
+    FunctionCallIR,
+    IRNode,
+    ParameterIR,
+    is_function_binding,
+)
 from ..shared.types import Type
 from ..passes.base import TyCtxt
 
@@ -362,7 +370,7 @@ class MonomorphizationService:
             module_path, display_name, None, DefType.FUNCTION
         )
         specialized_func = self._clone_and_specialize(
-            generic_func, arg_types, specialized_defid
+            generic_func, generic_defid, arg_types, specialized_defid
         )
         if not specialized_func:
             return None
@@ -407,6 +415,7 @@ class MonomorphizationService:
     def _clone_and_specialize(
         self,
         generic_func: BindingIR,
+        generic_defid: DefId,
         arg_types: Tuple[Type, ...],
         specialized_defid: DefId,
     ) -> Optional[BindingIR]:
@@ -420,6 +429,20 @@ class MonomorphizationService:
             if isinstance(param, ParameterIR):
                 object.__setattr__(param, "param_type", pt)
         object.__setattr__(spec, "defid", specialized_defid)
+        if spec.expr is not None:
+            object.__setattr__(spec.expr, "_generic_defid", generic_defid)
+            if getattr(spec.expr, "custom_diff_body", None) is None:
+                query = self.tcx.get_definition(generic_defid)
+                ast_def = query[1] if query and query[0] == DefType.FUNCTION else None
+                custom_diff_ast = getattr(ast_def, "custom_diff_body", None)
+                if custom_diff_ast is not None:
+                    from ..passes.ast_to_ir import ASTToIRLowerer
+                    lowerer = ASTToIRLowerer(self.tcx)
+                    diff_ir = custom_diff_ast.accept(lowerer)
+                    if isinstance(diff_ir, BlockExpressionIR) and diff_ir.final_expr is not None:
+                        object.__setattr__(spec.expr, "custom_diff_body", diff_ir)
+                    elif isinstance(diff_ir, ExpressionIR):
+                        object.__setattr__(spec.expr, "custom_diff_body", diff_ir)
         return spec
 
     # ---------- DCE on specialized bodies ----------

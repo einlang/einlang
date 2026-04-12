@@ -12,6 +12,7 @@ from ..ir.nodes import (
     LiteralIR, FunctionCallIR,
     BlockExpressionIR, RectangularAccessIR,
     IdentifierIR,
+    EinsteinIR,
     LoweredReductionIR, LoweredSelectAtArgmaxIR,
     is_einstein_binding, is_function_binding,
 )
@@ -22,13 +23,20 @@ from ..runtime.runtime import ExecutionResult
 from .numpy_helpers import (
     NumPyVectorizationState,
     builtin_assert, builtin_print, builtin_len, builtin_typeof, builtin_array_append,
-    builtin_shape, builtin_sum, builtin_max, builtin_min,
+    builtin_shape, builtin_sum, builtin_max, builtin_min, builtin___basis_tensor,
 )
 
 
 def _debug_value_payload(value: Any) -> Dict[str, Any]:
     if value is None:
         return {"shape": None, "value": None}
+    if bool(getattr(value, "preserve_runtime_output_lazy", False)) or bool(getattr(value, "is_sparse_tensor", False)):
+        shape = getattr(value, "shape", None)
+        try:
+            shape_list = list(shape) if shape is not None else None
+        except Exception:
+            shape_list = None
+        return {"shape": shape_list, "value": repr(value)}
     try:
         if isinstance(value, (list, tuple)):
             arr = np.asarray(value, dtype=object)
@@ -50,7 +58,7 @@ def _int_list_from_expr(expr: Any, backend: Any) -> List[int]:
 def _register_fixed_builtins(env: ExecutionEnvironment) -> None:
     fns = (
         builtin_assert, builtin_print, builtin_len, builtin_typeof, builtin_array_append,
-        builtin_shape, builtin_sum, builtin_max, builtin_min,
+        builtin_shape, builtin_sum, builtin_max, builtin_min, builtin___basis_tensor,
     )
     for i, fn in enumerate(fns):
         if i < len(FIXED_BUILTIN_ORDER):
@@ -137,6 +145,13 @@ class CoreExecutionMixin:
     def _print_statement_profile(self, stmt_index: int, stmt: Any, elapsed: float) -> None:
         print(f"{self._statement_profile_label(stmt_index, stmt)} {elapsed:.2f}s", flush=True)
 
+    @staticmethod
+    def _should_preserve_lazy_output(value: Any) -> bool:
+        return bool(
+            getattr(value, "preserve_runtime_output_lazy", False)
+            or getattr(value, "is_sparse_tensor", False)
+        )
+
     def _store_output_value(
         self,
         outputs: Dict[DefId, Any],
@@ -147,7 +162,7 @@ class CoreExecutionMixin:
     ) -> None:
         if defid is None:
             return
-        if getattr(value, "is_circular_recurrence_buffer", False):
+        if getattr(value, "is_circular_recurrence_buffer", False) and not self._should_preserve_lazy_output(value):
             value = value.materialize()
         self.env.set_value(defid, value, name=name)
         outputs[defid] = value
@@ -174,6 +189,7 @@ class CoreExecutionMixin:
         self._profile_functions = profile_functions
         self._profile_fn_times = {} if profile_functions else {}
         self._differential_buffers = {}
+        self._autodiff_runtime_engine = None
         self._vectorization_state = NumPyVectorizationState()
 
     def _register_program_functions(self, program: ProgramIR, tcx: Optional[Any]) -> None:
@@ -323,7 +339,7 @@ class CoreExecutionMixin:
                                 self._profile_buckets = {}
                     for defid, value in self.env.get_current_scope().items():
                         if defid not in outputs:
-                            if getattr(value, "is_circular_recurrence_buffer", False):
+                            if getattr(value, "is_circular_recurrence_buffer", False) and not self._should_preserve_lazy_output(value):
                                 value = value.materialize()
                             outputs[defid] = value
             self._print_function_profile_report(0.001)
@@ -401,14 +417,14 @@ class CoreExecutionMixin:
         if is_einstein_binding(node):
             from ..ir.nodes import LoweredEinsteinIR, LoweredRecurrenceIR
             expr = node.expr
-            if not isinstance(expr, (LoweredEinsteinIR, LoweredRecurrenceIR)):
+            if not isinstance(expr, (LoweredEinsteinIR, LoweredRecurrenceIR, EinsteinIR)):
                 raise RuntimeError(
                     f"Non-lowered EinsteinDeclaration reached backend. "
                     f"EinsteinLoweringPass must run before codegen. (node type: {type(node).__name__})"
                 )
         from ..ir.nodes import LoweredEinsteinIR, LoweredRecurrenceIR
         expr = node.expr
-        if isinstance(expr, (LoweredEinsteinIR, LoweredRecurrenceIR)):
+        if isinstance(expr, (LoweredEinsteinIR, LoweredRecurrenceIR, EinsteinIR)):
             result = self._execute_lowered_binding_expr(node, expr)
             if node.defid is not None:
                 self.env.set_value(node.defid, result, name=node.name)

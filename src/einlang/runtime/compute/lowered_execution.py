@@ -182,6 +182,58 @@ def execute_select_at_argmax_vectorized(
     (parallel_shape[i],) to set parallel (batch) indices when body uses them.
     """
     try:
+        def _selected_diff_result(
+            idx_flat: Any,
+            red_shape: Tuple[int, ...],
+            loop_values: List[np.ndarray],
+            loop_defids: List[Any],
+            current_parallel_shape: Tuple[int, ...],
+        ) -> Tuple[bool, Any]:
+            try:
+                if current_parallel_shape:
+                    if initial_context:
+                        result = None
+                        for outer_idx in np.ndindex(current_parallel_shape):
+                            red_multi = np.unravel_index(idx_flat[outer_idx], red_shape)
+                            chosen_ctx = {
+                                did: int(loop_values[axis][red_multi[axis]])
+                                for axis, did in enumerate(loop_defids)
+                            }
+                            for axis, (did, val) in enumerate(initial_context):
+                                arr = np.asarray(val)
+                                if arr.size == 0:
+                                    continue
+                                pos = outer_idx[axis] if axis < len(outer_idx) else 0
+                                chosen_ctx[did] = int(arr.reshape(-1)[pos])
+                            chosen = diff_body_ev(chosen_ctx)
+                            chosen_arr = np.asarray(chosen)
+                            if result is None:
+                                result_shape = current_parallel_shape + tuple(chosen_arr.shape)
+                                result = np.empty(result_shape, dtype=chosen_arr.dtype)
+                            result[outer_idx] = chosen_arr
+                        if result is not None:
+                            return True, result
+                    red_multi = np.unravel_index(idx_flat, red_shape)
+                    chosen_ctx = {
+                        did: np.asarray(vals[red_multi[axis]], dtype=np.intp)
+                        for axis, (did, vals) in enumerate(zip(loop_defids, loop_values))
+                    }
+                    chosen = diff_body_ev(chosen_ctx)
+                    chosen_arr = np.asarray(chosen)
+                    if chosen_arr.shape[: len(current_parallel_shape)] == current_parallel_shape:
+                        return True, chosen
+                    if chosen_arr.shape == ():
+                        return True, np.broadcast_to(chosen_arr, current_parallel_shape)
+                    return False, None
+                red_multi = np.unravel_index(int(idx_flat), red_shape)
+                chosen_ctx = {
+                    did: int(loop_values[axis][red_multi[axis]])
+                    for axis, did in enumerate(loop_defids)
+                }
+                return True, diff_body_ev(chosen_ctx)
+            except Exception:
+                return False, None
+
         arrs: List[np.ndarray] = []
         defids: List[Any] = []
         for loop in reduction_loops:
@@ -200,7 +252,6 @@ def execute_select_at_argmax_vectorized(
             return False, None
         n = len(arrs)
         red_shape_tuple = tuple(int(arr.size) for arr in arrs)
-        spot_diff_is_tensor = False
         if parallel_shape is None:
             spot_ctx: Dict[Any, Any] = {}
             for defid, arr in (initial_context or []):
@@ -208,8 +259,6 @@ def execute_select_at_argmax_vectorized(
             for defid, arr in zip(defids, arrs):
                 spot_ctx[defid] = int(arr.flat[0])
             spot_val = primal_body_ev(spot_ctx)
-            spot_diff = diff_body_ev(spot_ctx)
-            spot_diff_is_tensor = isinstance(spot_diff, np.ndarray) and spot_diff.size > 1
             if isinstance(spot_val, np.ndarray):
                 parallel_shape = tuple(spot_val.shape)
             else:
@@ -239,9 +288,33 @@ def execute_select_at_argmax_vectorized(
             else:
                 ctx[defid] = red_arr
         primal_result = primal_body_ev(ctx)
-        diff_result = diff_body_ev(ctx)
         if not isinstance(primal_result, np.ndarray):
             return False, None
+        if parallel_shape:
+            primal_flat = primal_result.reshape(parallel_shape + (-1,))
+            idx_flat = np.argmin(primal_flat, axis=-1) if use_argmin else np.argmax(primal_flat, axis=-1)
+            ok_selected, selected = _selected_diff_result(
+                idx_flat,
+                red_shape_tuple,
+                arrs,
+                defids,
+                tuple(parallel_shape),
+            )
+            if ok_selected:
+                return True, selected
+        else:
+            idx_flat = int(np.argmin(primal_result) if use_argmin else np.argmax(primal_result))
+            ok_selected, selected = _selected_diff_result(
+                idx_flat,
+                red_shape_tuple,
+                arrs,
+                defids,
+                (),
+            )
+            if ok_selected:
+                return True, selected
+
+        diff_result = diff_body_ev(ctx)
         if not isinstance(diff_result, np.ndarray):
             diff_result = np.broadcast_to(
                 np.asarray(diff_result),
@@ -250,8 +323,6 @@ def execute_select_at_argmax_vectorized(
         primal_shape = tuple(primal_result.shape)
         diff_shape = tuple(diff_result.shape)
         if diff_shape == primal_shape:
-            if spot_diff_is_tensor:
-                return False, None
             tail_shape: Tuple[int, ...] = ()
         elif diff_shape[: len(primal_shape)] == primal_shape:
             tail_shape = diff_shape[len(primal_shape) :]
@@ -270,12 +341,10 @@ def execute_select_at_argmax_vectorized(
                 axis=len(parallel_shape),
             ).squeeze(axis=len(parallel_shape))
             return True, out
-        else:
-            idx_flat = int(np.argmin(primal_result) if use_argmin else np.argmax(primal_result))
-            if tail_shape:
-                return True, diff_result.reshape((-1,) + tail_shape)[idx_flat]
-            scalar = diff_result.reshape(-1)[idx_flat]
-            return True, scalar.item() if hasattr(scalar, "item") else scalar
+        if tail_shape:
+            return True, diff_result.reshape((-1,) + tail_shape)[idx_flat]
+        scalar = diff_result.reshape(-1)[idx_flat]
+        return True, scalar.item() if hasattr(scalar, "item") else scalar
     except Exception:
         pass
     return False, None

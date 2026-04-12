@@ -215,6 +215,8 @@ class ModuleLoader:
                 path_for_info = file_path
 
             program = _parse_cached(self.parser, source_code, str(path_for_info))
+            from ...passes.merge_diff_rules import merge_diff_rules_into_functions
+            merge_diff_rules_into_functions(program)
             
             # Parse module declarations (mod name;)
             declarations = self._parse_module_declarations(source_code)

@@ -174,6 +174,69 @@ def builtin_array_append(array: Any, value: Any) -> Any:
     return np.array(lst, dtype=array.dtype) if isinstance(array, np.ndarray) else lst
 
 
+class BasisTensorValue:
+    preserve_runtime_output_lazy = True
+    is_sparse_tensor = True
+
+    def __init__(self, shape: Tuple[int, ...], selected_axes: Tuple[Any, ...]) -> None:
+        self.shape = tuple(int(v) for v in shape)
+        self.ndim = len(self.shape)
+        self.selected_axes = tuple(selected_axes)
+
+    def _normalize_key(self, key: Any) -> Tuple[Any, ...]:
+        if not isinstance(key, tuple):
+            key = (key,)
+        items = list(key)
+        ell_idx = next((i for i, item in enumerate(items) if item is Ellipsis), None)
+        if ell_idx is not None:
+            missing = self.ndim - (len(items) - 1)
+            items = items[:ell_idx] + [slice(None)] * missing + items[ell_idx + 1 :]
+        if len(items) < self.ndim:
+            items.extend([slice(None)] * (self.ndim - len(items)))
+        return tuple(items[: self.ndim])
+
+    def __getitem__(self, key: Any) -> Any:
+        key = self._normalize_key(key)
+        mask: Any = True
+        for axis, idx in enumerate(key):
+            selected = self.selected_axes[axis]
+            if isinstance(idx, slice):
+                lhs: Any = np.arange(self.shape[axis], dtype=np.intp)[idx]
+            elif isinstance(idx, list):
+                lhs = np.asarray(idx, dtype=np.intp)
+            elif isinstance(idx, np.ndarray):
+                lhs = np.asarray(idx, dtype=np.intp)
+            else:
+                lhs = int(idx)
+
+            if isinstance(selected, np.ndarray):
+                rhs: Any = np.asarray(selected, dtype=np.intp)
+            elif isinstance(selected, (list, tuple)):
+                rhs = np.asarray(selected, dtype=np.intp)
+            else:
+                rhs = int(selected)
+            mask = np.logical_and(mask, np.equal(lhs, rhs))
+
+        if isinstance(mask, np.ndarray):
+            return mask.astype(np.float64, copy=False)
+        return 1.0 if mask else 0.0
+
+    def __repr__(self) -> str:
+        return f"BasisTensorValue(shape={self.shape}, selected_axes={self.selected_axes})"
+
+
+def builtin___basis_tensor(shape: Any, selected_axes: Any) -> Any:
+    """Create a sparse basis tensor for autodiff seeding."""
+    shape_vals = tuple(int(v) for v in np.asarray(shape, dtype=np.intp).reshape(-1))
+    if isinstance(selected_axes, np.ndarray) and selected_axes.ndim >= 1 and selected_axes.shape[0] == len(shape_vals):
+        selected_vals = tuple(selected_axes[i] for i in range(selected_axes.shape[0]))
+    elif isinstance(selected_axes, (list, tuple)) and len(selected_axes) == len(shape_vals):
+        selected_vals = tuple(selected_axes)
+    else:
+        selected_vals = tuple(np.asarray(selected_axes, dtype=np.intp).reshape(-1))
+    return BasisTensorValue(shape_vals, selected_vals)
+
+
 class _DefaultVisitor(IRVisitor[T], Generic[T]):
     """IRVisitor base with a shared default result for nodes a subclass ignores."""
 

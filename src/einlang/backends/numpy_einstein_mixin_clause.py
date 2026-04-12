@@ -930,9 +930,17 @@ class EinsteinExecutionClauseMixin:
                         if _guards and not check_lowered_guards(_guards, full_context, lambda e: _to_bool(e.accept(self))):
                             continue
                         try:
-                            needs_outer_reduction_ctx = _expr_contains_lowered_select_at_argmax(_body) or _expr_contains_lowered_reduction(
-                                _body
-                            )
+                            contains_ir_types = getattr(self, "_cached_contains_ir_types", None)
+                            if callable(contains_ir_types):
+                                needs_outer_reduction_ctx = contains_ir_types(
+                                    _body,
+                                    LoweredSelectAtArgmaxIR,
+                                    LoweredReductionIR,
+                                )
+                            else:
+                                needs_outer_reduction_ctx = _expr_contains_lowered_select_at_argmax(_body) or _expr_contains_lowered_reduction(
+                                    _body
+                                )
                             if needs_outer_reduction_ctx:
                                 # Pass parallel indices into reduction so guard/body can see them.
                                 # For SelectAtArgmaxIR bodies, primal_body and diff_body may use
@@ -942,7 +950,11 @@ class EinsteinExecutionClauseMixin:
                                 _ri_ctx.update(full_context)
                                 if _loops and _body is not None:
                                     _outer_val = full_context
-                                    _body_defids_by_name = _collect_defids_by_name(_body)
+                                    body_name_cache = getattr(self, "_cached_defids_by_name", None)
+                                    if callable(body_name_cache):
+                                        _body_defids_by_name = body_name_cache(_body)
+                                    else:
+                                        _body_defids_by_name = _collect_defids_by_name(_body)
                                     for _lp in _loops:
                                         _vv = _lp.variable
                                         if (
@@ -1033,6 +1045,14 @@ class EinsteinExecutionClauseMixin:
                                         value = value[ri]
                                 elif value.shape == output.shape:
                                     value = value[ri]
+                            elif (
+                                hasattr(value, "shape")
+                                and hasattr(value, "__getitem__")
+                            ):
+                                try:
+                                    value = value[idx_tuple[0]]
+                                except Exception:
+                                    pass
                             try:
                                 output[idx_tuple[0]] = value
                             except Exception as exc:
@@ -1051,6 +1071,14 @@ class EinsteinExecutionClauseMixin:
                                 and value.shape == output.shape
                             ):
                                 value = value[idx_tuple]
+                            elif (
+                                hasattr(value, "shape")
+                                and hasattr(value, "__getitem__")
+                            ):
+                                try:
+                                    value = value[idx_tuple]
+                                except Exception:
+                                    pass
                             try:
                                 output[idx_tuple] = value
                             except Exception as exc:

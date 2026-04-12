@@ -8,18 +8,23 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Iterable, List, Optional, Tuple
+from typing import Any, List, Optional
 
 from ..passes.autodiff import AutodiffPass
 from ..passes.base import BasePass, TyCtxt
 from ..passes.pre_autodiff_pruning import PostAutodiffPruningPass
 from ..ir.nodes import (
+    BuiltinCallIR,
     DiffRuleIR,
     DifferentialIR,
     FunctionValueIR,
     IRNode,
+    JvpIR,
+    LazyJacobianIR,
     ProgramIR,
+    VjpIR,
 )
+from ..shared.autodiff_intrinsics import autodiff_builtin_kind
 from ..shared.types import DifferentialType, Type, strip_differential_types_deep
 
 logger = logging.getLogger("einlang.passes.autodiff_leak_check")
@@ -69,6 +74,14 @@ class _LeakFinder:
             self._record("DifferentialIR", origin, getattr(obj, "location", None))
         elif isinstance(obj, DiffRuleIR):
             self._record("DiffRuleIR", origin, getattr(obj, "location", None))
+        elif isinstance(obj, JvpIR):
+            self._record("JvpIR", origin, getattr(obj, "location", None))
+        elif isinstance(obj, VjpIR):
+            self._record("VjpIR", origin, getattr(obj, "location", None))
+        elif isinstance(obj, LazyJacobianIR):
+            self._record("LazyJacobianIR", origin, getattr(obj, "location", None))
+        elif isinstance(obj, BuiltinCallIR) and autodiff_builtin_kind(getattr(obj, "defid", None)) is not None:
+            self._record("autodiff builtin", origin, getattr(obj, "location", None))
         elif isinstance(obj, FunctionValueIR):
             if getattr(obj, "custom_diff_body", None) is not None:
                 self._record("custom_diff_body", origin, getattr(obj, "location", None))

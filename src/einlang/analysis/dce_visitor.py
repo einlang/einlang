@@ -10,7 +10,6 @@ Only used on already-cloned specialized copies — never mutates generic IR.
 from typing import Optional, Any
 from ..ir.scoped_visitor import ScopedIRVisitor
 from ..ir.nodes import (
-    ExpressionIR,
     LiteralIR, IdentifierIR, BinaryOpIR, UnaryOpIR,
     FunctionCallIR, BindingIR,
     RectangularAccessIR, JaggedAccessIR,
