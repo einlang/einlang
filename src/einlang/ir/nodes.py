@@ -247,6 +247,83 @@ class DifferentialIR(ExpressionIR):
         return f"@{self.operand}"
 
 
+class JvpIR(ExpressionIR):
+    """Runtime forward-mode Jacobian-vector product request."""
+    __slots__ = ("target", "wrt", "tangent")
+
+    def __init__(
+        self,
+        target: ExpressionIR,
+        wrt: ExpressionIR,
+        location: SourceLocation,
+        tangent: Optional[ExpressionIR] = None,
+        type_info: Optional[Any] = None,
+        shape_info: Optional[Any] = None,
+    ):
+        super().__init__(location, type_info, shape_info)
+        self.target = target
+        self.wrt = wrt
+        self.tangent = tangent
+
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_jvp(self)
+
+    def __str__(self) -> str:
+        if self.tangent is None:
+            return f"jvp({self.target}, {self.wrt})"
+        return f"jvp({self.target}, {self.wrt}, tangent={self.tangent})"
+
+
+class VjpIR(ExpressionIR):
+    """Runtime reverse-mode vector-Jacobian product request."""
+    __slots__ = ("target", "wrt", "cotangent")
+
+    def __init__(
+        self,
+        target: ExpressionIR,
+        wrt: ExpressionIR,
+        location: SourceLocation,
+        cotangent: Optional[ExpressionIR] = None,
+        type_info: Optional[Any] = None,
+        shape_info: Optional[Any] = None,
+    ):
+        super().__init__(location, type_info, shape_info)
+        self.target = target
+        self.wrt = wrt
+        self.cotangent = cotangent
+
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_vjp(self)
+
+    def __str__(self) -> str:
+        if self.cotangent is None:
+            return f"vjp({self.target}, {self.wrt})"
+        return f"vjp({self.target}, {self.wrt}, cotangent={self.cotangent})"
+
+
+class LazyJacobianIR(ExpressionIR):
+    """Runtime lazy Jacobian request."""
+    __slots__ = ("target", "wrt")
+
+    def __init__(
+        self,
+        target: ExpressionIR,
+        wrt: ExpressionIR,
+        location: SourceLocation,
+        type_info: Optional[Any] = None,
+        shape_info: Optional[Any] = None,
+    ):
+        super().__init__(location, type_info, shape_info)
+        self.target = target
+        self.wrt = wrt
+
+    def accept(self, visitor: 'IRVisitor[T]') -> 'T':
+        return visitor.visit_lazy_jacobian(self)
+
+    def __str__(self) -> str:
+        return f"lazy_jacobian({self.target}, {self.wrt})"
+
+
 class RectangularAccessIR(ExpressionIR):
     """
     Rectangular array access: A[i, j] (multi-dimensional indexing)
@@ -1768,6 +1845,18 @@ class IRVisitor(ABC, Generic[T]):
         """Visit differential expression (@expr). Default: recurse into operand."""
         return node.operand.accept(self)
 
+    def visit_jvp(self, node: 'JvpIR') -> T:
+        """Visit runtime JVP request. Default: recurse into target."""
+        return node.target.accept(self)
+
+    def visit_vjp(self, node: 'VjpIR') -> T:
+        """Visit runtime VJP request. Default: recurse into target."""
+        return node.target.accept(self)
+
+    def visit_lazy_jacobian(self, node: 'LazyJacobianIR') -> T:
+        """Visit runtime lazy Jacobian request. Default: recurse into target."""
+        return node.target.accept(self)
+
     @abstractmethod
     def visit_range(self, node: RangeIR) -> T:
         """Visit range expression"""
@@ -1886,10 +1975,6 @@ class IRVisitor(ABC, Generic[T]):
     def visit_pipeline_expression(self, node: PipelineExpressionIR) -> T:
         """Visit pipeline expression"""
         raise NotImplementedError
-
-    def visit_differential(self, node: 'DifferentialIR') -> T:
-        """Visit differential expression (@expr). Default: recurse into operand."""
-        return node.operand.accept(self)
 
     @abstractmethod
     def visit_builtin_call(self, node: BuiltinCallIR) -> T:

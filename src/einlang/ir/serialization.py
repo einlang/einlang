@@ -25,6 +25,7 @@ from ..ir.nodes import IRNode, ExpressionIR
 # Keywords/symbols (from _sym) - unquoted. Names (node.name, etc.) use "".
 _KNOWN_SYMBOLS = frozenset({
     "nil", "program", "variable", "literal", "binary-op", "unary-op", "differential",
+    "jvp", "vjp", "lazy-jacobian",
     "rectangular-access", "function-call", "builtin-call", "cast", "array-literal",
     "index", "index-var", "index-rest",
     "array-comprehension", "range", "loop", "binding", "lowered-einstein", "lowered-einstein-clause",
@@ -172,6 +173,8 @@ class IRSerializer:
         for x in shape_info:
             if x is None or (isinstance(x, str) and x.strip() == "?"):
                 out.append(self._sym("?"))
+            elif hasattr(x, "accept"):
+                out.append(self.serialize_to_sexpr(x))
             elif isinstance(x, int):
                 out.append(x)
             else:
@@ -365,6 +368,22 @@ class IRSerializer:
         core = [self._sym("builtin-call"), node.builtin_name, args]
         if node.defid is not None:
             core.extend([self._sym(":defid"), self._brackets([node.defid.krate, node.defid.index])])
+        return self._add_expr_metadata(node, core)
+
+    def _serialize_JvpIR(self, node) -> list:
+        core = [self._sym("jvp"), self.serialize_to_sexpr(node.target), self.serialize_to_sexpr(node.wrt)]
+        if node.tangent is not None:
+            core.append(self.serialize_to_sexpr(node.tangent))
+        return self._add_expr_metadata(node, core)
+
+    def _serialize_VjpIR(self, node) -> list:
+        core = [self._sym("vjp"), self.serialize_to_sexpr(node.target), self.serialize_to_sexpr(node.wrt)]
+        if node.cotangent is not None:
+            core.append(self.serialize_to_sexpr(node.cotangent))
+        return self._add_expr_metadata(node, core)
+
+    def _serialize_LazyJacobianIR(self, node) -> list:
+        core = [self._sym("lazy-jacobian"), self.serialize_to_sexpr(node.target), self.serialize_to_sexpr(node.wrt)]
         return self._add_expr_metadata(node, core)
     
     # === Cast Expressions ===
@@ -845,7 +864,7 @@ class IRSerializer:
         return core
 
     def _serialize_FunctionValueIR(self, node) -> list:
-        """Serialize function value (rvalue). Name/defid on binding; format (function-value (params) body :return_type :custom_diff_body :loc)."""
+        """Serialize function value (rvalue). Name/defid on binding; format (function-value (params) body :return_type :generic_defid :partially_specialized :custom_diff_body :loc)."""
         params = [self._serialize_param(p) for p in node.parameters]
         body = self.serialize_to_sexpr(node.body) if node.body else [self._sym("nil")]
         core = [self._sym("function-value"), params, body]
@@ -854,6 +873,11 @@ class IRSerializer:
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
         if self.include_type_info and node.return_type is not None:
             core.extend([self._sym(":return_type"), self._serialize_type(node.return_type)])
+        generic_defid = getattr(node, "_generic_defid", None)
+        if generic_defid is not None:
+            core.extend([self._sym(":generic_defid"), self._brackets([generic_defid.krate, generic_defid.index])])
+        if getattr(node, "_is_partially_specialized", False):
+            core.extend([self._sym(":partially_specialized"), self._sym("true")])
         custom_diff = getattr(node, "custom_diff_body", None)
         if custom_diff is not None:
             core.extend([self._sym(":custom_diff_body"), self.serialize_to_sexpr(custom_diff)])
@@ -1002,8 +1026,10 @@ class IRDeserializer:
         return self._deserialize_type(opts.get(":inferred_type"))
 
     def _parse_shape_info_raw(self, raw: Any) -> Optional[Any]:
-        if raw is None or not isinstance(raw, list) or not raw:
+        if raw is None or not isinstance(raw, list):
             return None
+        if not raw:
+            return ()
         out = []
         for x in raw:
             if sexpdata and isinstance(x, sexpdata.Symbol):
@@ -1015,6 +1041,8 @@ class IRDeserializer:
                         out.append(int(v))
                     except (TypeError, ValueError):
                         out.append(None)
+            elif isinstance(x, list):
+                out.append(self.deserialize(x))
             elif x is None or (isinstance(x, str) and x.strip() == "?"):
                 out.append(None)
             elif isinstance(x, int):
@@ -1186,6 +1214,38 @@ class IRDeserializer:
         ty = self._deserialize_type(opts.get(":inferred_type"))
         shape_info = self._opts_shape_info(tail, 2)
         return BuiltinCallIR(builtin_name=name, args=args, location=loc, defid=defid, type_info=ty, shape_info=shape_info)
+
+    def _deserialize_jvp(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import JvpIR
+        pos, opts = _plist(tail[2:])
+        loc = self._loc_from_opts(opts)
+        target = self.deserialize(tail[0])
+        wrt = self.deserialize(tail[1])
+        tangent = self.deserialize(pos[0]) if pos else None
+        ty = self._deserialize_type(opts.get(":inferred_type"))
+        shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
+        return JvpIR(target=target, wrt=wrt, tangent=tangent, location=loc, type_info=ty, shape_info=shape_info)
+
+    def _deserialize_vjp(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import VjpIR
+        pos, opts = _plist(tail[2:])
+        loc = self._loc_from_opts(opts)
+        target = self.deserialize(tail[0])
+        wrt = self.deserialize(tail[1])
+        cotangent = self.deserialize(pos[0]) if pos else None
+        ty = self._deserialize_type(opts.get(":inferred_type"))
+        shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
+        return VjpIR(target=target, wrt=wrt, cotangent=cotangent, location=loc, type_info=ty, shape_info=shape_info)
+
+    def _deserialize_lazy_jacobian(self, _tag: str, tail: list, _full: list) -> Any:
+        from ..ir.nodes import LazyJacobianIR
+        _, opts = _plist(tail[2:])
+        loc = self._loc_from_opts(opts)
+        target = self.deserialize(tail[0])
+        wrt = self.deserialize(tail[1])
+        ty = self._opts_type(tail, 2)
+        shape_info = self._opts_shape_info(tail, 2)
+        return LazyJacobianIR(target=target, wrt=wrt, location=loc, type_info=ty, shape_info=shape_info)
 
     def _deserialize_array_literal(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import ArrayLiteralIR
@@ -1544,6 +1604,8 @@ class IRDeserializer:
         _, opts = _plist(tail[2:])
         loc = self._loc_from_opts(opts)
         return_type = self._deserialize_type(opts.get(":return_type"))
+        generic_defid = _parse_defid(opts.get(":generic_defid"))
+        is_partially_specialized = _bool_sym(opts.get(":partially_specialized")) is True
         custom_diff_sexpr = opts.get(":custom_diff_body")
         custom_diff_body = (
             self.deserialize(custom_diff_sexpr) if custom_diff_sexpr is not None else None
@@ -1553,6 +1615,8 @@ class IRDeserializer:
             body=body,
             location=loc,
             return_type=return_type,
+            _is_partially_specialized=is_partially_specialized,
+            _generic_defid=generic_defid,
             custom_diff_body=custom_diff_body,
         )
 

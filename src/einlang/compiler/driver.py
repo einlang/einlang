@@ -217,27 +217,31 @@ class CompilerDriver:
         from ..passes.autodiff import AutodiffPass
         self.pass_manager.register_pass(AutodiffPass)
 
-        # 10. Post-autodiff pruning (shape/rank branch pruning only)
+        # 10. Lower autodiff request nodes to ordinary IR
+        from ..passes.autodiff import AutodiffRequestLoweringPass
+        self.pass_manager.register_pass(AutodiffRequestLoweringPass)
+
+        # 11. Post-autodiff pruning (shape/rank branch pruning only)
         from ..passes.pre_autodiff_pruning import PostAutodiffPruningPass
         self.pass_manager.register_pass(PostAutodiffPruningPass)
 
-        # 11. Autodiff leak check (fail if @ artifacts survive)
+        # 12. Autodiff leak check (fail if @ artifacts survive)
         from ..passes.autodiff_leak_check import AutodiffLeakCheckPass
         self.pass_manager.register_pass(AutodiffLeakCheckPass)
 
-        # 12. Einstein lowering (lower Einstein declarations to loops)
+        # 13. Einstein lowering (lower Einstein declarations to loops)
         from ..passes.einstein_lowering import EinsteinLoweringPass
         self.pass_manager.register_pass(EinsteinLoweringPass)
 
-        # 13. Recurrence ordering and lowering
+        # 14. Recurrence ordering and lowering
         from ..passes.recurrence_order import RecurrenceOrderPass
         self.pass_manager.register_pass(RecurrenceOrderPass)
 
-        # 14. Compiler-owned lowered execution metadata for backend hot paths
+        # 15. Compiler-owned lowered execution metadata for backend hot paths
         from ..passes.lowered_execution_facts import LoweredExecutionFactsPass
         self.pass_manager.register_pass(LoweredExecutionFactsPass)
 
-        # 15. Validation passes
+        # 16. Validation passes
         from ..passes.cast_validation import CastValidationPass
         self.pass_manager.register_pass(CastValidationPass)
         

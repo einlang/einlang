@@ -8,7 +8,7 @@ Design Pattern: Visitor pattern for AST traversal (no isinstance/hasattr)
 """
 
 import logging
-from typing import Optional, List, Union, Dict, Tuple, Any
+from typing import Optional, List, Union, Dict, Tuple, Any, Set
 
 logger = logging.getLogger(__name__)
 from ..passes.base import BasePass, TyCtxt
@@ -141,6 +141,79 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         self.tcx = tcx
         self._all_functions: List[FunctionDefIR] = []
         self._all_bindings: List[BindingIR] = []
+
+    def _walk_ast_nodes(self, node: Any, _seen: Optional[Set[int]] = None):
+        """Yield AST nodes recursively, skipping scalars and source spans."""
+        if _seen is None:
+            _seen = set()
+        if node is None or isinstance(node, (str, int, float, bool, bytes)):
+            return
+        oid = id(node)
+        if oid in _seen:
+            return
+        _seen.add(oid)
+        if isinstance(node, list):
+            for item in node:
+                yield from self._walk_ast_nodes(item, _seen)
+            return
+        if isinstance(node, tuple):
+            for item in node:
+                yield from self._walk_ast_nodes(item, _seen)
+            return
+        if not hasattr(node, "__dict__"):
+            return
+        yield node
+        for attr_name, attr_value in vars(node).items():
+            if attr_name == "location":
+                continue
+            yield from self._walk_ast_nodes(attr_value, _seen)
+
+    def _collect_local_custom_diff_defids(self, custom_diff_ast: Any) -> Set[DefId]:
+        """Collect local definitions inside a custom diff body so param remapping preserves shadowing."""
+        from ..shared.nodes import EinsteinDeclaration as ASTEinsteinDeclaration
+        from ..shared.nodes import LambdaExpression as ASTLambdaExpression
+        from ..shared.nodes import VariableDeclaration as ASTVariableDeclaration
+
+        local_defids: Set[DefId] = set()
+        for node in self._walk_ast_nodes(custom_diff_ast):
+            if isinstance(node, ASTVariableDeclaration):
+                defid = opt_defid(node)
+                if defid is not None:
+                    local_defids.add(defid)
+            elif isinstance(node, ASTEinsteinDeclaration):
+                defid = opt_defid(node)
+                if defid is not None:
+                    local_defids.add(defid)
+            elif isinstance(node, ASTLambdaExpression):
+                for did in ((getattr(node, "_param_defids", None) or {}).values()):
+                    if did is not None:
+                        local_defids.add(did)
+        return local_defids
+
+    def _rebind_custom_diff_param_uses(self, custom_diff_ast: Any, parameters: List[ASTParameter]) -> None:
+        """Ensure merged @fn bodies reference the owning function parameters' DefIds."""
+        if custom_diff_ast is None or not parameters:
+            return
+        param_defids_by_name = {
+            str(param.name): param.defid
+            for param in parameters
+            if getattr(param, "name", None) is not None and getattr(param, "defid", None) is not None
+        }
+        if not param_defids_by_name:
+            return
+        local_defids = self._collect_local_custom_diff_defids(custom_diff_ast)
+        for node in self._walk_ast_nodes(custom_diff_ast):
+            if not isinstance(node, ASTIdentifier):
+                continue
+            target_defid = param_defids_by_name.get(str(node.name))
+            if target_defid is None:
+                continue
+            current_defid = opt_defid(node)
+            if current_defid == target_defid:
+                continue
+            if current_defid is not None and current_defid in local_defids:
+                continue
+            object.__setattr__(node, "defid", target_defid)
     
     def lower_program(self, ast: ASTProgram) -> ProgramIR:
         """Lower entire program"""
@@ -424,6 +497,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         custom_diff_ir: Optional[ExpressionIR] = None
         custom_diff_ast = getattr(ast_func, "custom_diff_body", None)
         if custom_diff_ast is not None:
+            self._rebind_custom_diff_param_uses(custom_diff_ast, ast_func.parameters)
             diff_block_ir = custom_diff_ast.accept(self)
             if isinstance(diff_block_ir, BlockExpressionIR) and diff_block_ir.final_expr is not None:
                 custom_diff_ir = diff_block_ir

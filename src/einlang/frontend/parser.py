@@ -16,7 +16,6 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from einlang.shared.nodes import Program as ASTProgram
-from einlang.shared.errors import EinlangSourceError
 from einlang.utils.config import DEFAULT_PARSER_CACHE_FILE
 from .transformers.base import EinlangTransformer
 

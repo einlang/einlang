@@ -77,7 +77,7 @@ BUILTIN_CRATE = 1
 _BUILTIN_CRATE = BUILTIN_CRATE
 
 FIXED_BUILTIN_ORDER = (
-    "assert", "print", "len", "typeof", "array_append", "shape", "sum", "max", "min",
+    "assert", "print", "len", "typeof", "array_append", "shape", "sum", "max", "min", "__basis_tensor",
 )
 
 

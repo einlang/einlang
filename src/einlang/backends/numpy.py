@@ -17,6 +17,7 @@ from .numpy_helpers import (
     builtin_sum,
     builtin_max,
     builtin_min,
+    builtin___basis_tensor,
 )
 
 

@@ -78,10 +78,16 @@ def autodiff_builtin_request(
 def compile_autodiff_graph(analysis: Dict[str, Any]) -> AutodiffCompiledFacts:
     bindings = dict(analysis.get("graph_binding_by_defid") or {})
     functions = dict(analysis.get("graph_function_ir_map") or {})
+    local_contexts_by_defid = dict(analysis.get("graph_local_contexts_by_defid") or {})
+    runtime_jvp_templates_by_pair = dict(analysis.get("runtime_jvp_templates_by_pair") or {})
+    runtime_vjp_templates_by_target = dict(analysis.get("runtime_vjp_templates_by_target") or {})
     builtin_requests_by_expr_id = dict(analysis.get("graph_builtin_requests_by_expr_id") or {})
     return {
         "bindings": bindings,
         "functions": functions,
+        "local_contexts_by_defid": local_contexts_by_defid,
+        "runtime_jvp_templates_by_pair": runtime_jvp_templates_by_pair,
+        "runtime_vjp_templates_by_target": runtime_vjp_templates_by_target,
         "leaf_defids": set(analysis.get("graph_leaf_defids") or set()),
         "self_recursive_defids": set(analysis.get("graph_self_recursive_defids") or set()),
         "builtin_requests_by_expr_id": builtin_requests_by_expr_id,

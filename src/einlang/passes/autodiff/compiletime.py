@@ -35,6 +35,7 @@ from ...ir.nodes import (
     IRNode,
     IndexRestIR,
     IndexVarIR,
+    LazyJacobianIR,
     LiteralIR,
     MemberAccessIR,
     ProgramIR,
@@ -87,6 +88,7 @@ _SHARED_CLONE_SLOTS = frozenset(
         "inclusive",
     }
 )
+_TEMPLATE_CRATE = -98
 
 
 def _ti(node: Any) -> Any:
@@ -330,6 +332,17 @@ def _simplify(expr: ExpressionIR) -> ExpressionIR:
     if isinstance(expr, RectangularAccessIR):
         expr.array = _simplify(expr.array)
         expr.indices = tuple(_simplify(idx) for idx in (expr.indices or ()))
+        if isinstance(expr.array, LiteralIR):
+            return expr.array
+        if isinstance(expr.array, EinsteinIR):
+            clauses = tuple(expr.array.clauses or ())
+            if len(clauses) == 1:
+                only = clauses[0]
+                if (
+                    isinstance(only.value, LiteralIR)
+                    and not (only.where_clause and only.where_clause.constraints)
+                ):
+                    return only.value
         return expr
     if isinstance(expr, ReductionExpressionIR):
         expr.body = _simplify(expr.body)
@@ -642,6 +655,34 @@ def _shape_dim_expr(dim: Any, loc: SourceLocation) -> ExpressionIR:
     return _lit_int(0, loc)
 
 
+def _infer_shape_from_einstein(binding: BindingIR) -> Tuple[ExpressionIR, ...]:
+    expr = getattr(binding, "expr", None)
+    if not isinstance(expr, EinsteinIR):
+        return ()
+    inferred: List[Optional[ExpressionIR]] = []
+    for clause in expr.clauses or ():
+        for axis, idx in enumerate(clause.indices or ()):
+            dim_expr: Optional[ExpressionIR] = None
+            if isinstance(idx, IndexVarIR):
+                rng = clause.variable_ranges.get(idx.defid) or getattr(idx, "range_ir", None)
+                if isinstance(rng, RangeIR):
+                    start = _clone_expr(rng.start)
+                    end = _clone_expr(rng.end)
+                    loc = rng.location or binding.location or _LOC0
+                    dim_expr = BinaryOpIR(BinaryOp.SUB, end, start, loc, type_info=PrimitiveType("i32"))
+                    if getattr(rng, "inclusive", False):
+                        dim_expr = BinaryOpIR(BinaryOp.ADD, dim_expr, _lit_int(1, loc), loc, type_info=PrimitiveType("i32"))
+                elif isinstance(rng, ExpressionIR):
+                    dim_expr = _clone_expr(rng)
+            if dim_expr is None:
+                continue
+            while len(inferred) <= axis:
+                inferred.append(None)
+            if inferred[axis] is None:
+                inferred[axis] = dim_expr
+    return tuple(dim for dim in inferred if dim is not None)
+
+
 def _binding_shape(binding: Optional[BindingIR]) -> Tuple[ExpressionIR, ...]:
     if binding is None:
         return ()
@@ -654,7 +695,73 @@ def _binding_shape(binding: Optional[BindingIR]) -> Tuple[ExpressionIR, ...]:
         return tuple(_shape_dim_expr(dim, binding.location or _LOC0) for dim in shape)
     if isinstance(shape, list):
         return tuple(_shape_dim_expr(dim, binding.location or _LOC0) for dim in shape)
+    inferred = _infer_shape_from_einstein(binding)
+    if inferred:
+        return inferred
     return ()
+
+
+def _template_defid(counter: List[int]) -> DefId:
+    idx = counter[0]
+    counter[0] += 1
+    return DefId(_TEMPLATE_CRATE, idx)
+
+
+def _binding_identifier(binding: BindingIR) -> IdentifierIR:
+    expr = getattr(binding, "expr", None)
+    return IdentifierIR(
+        binding.name or "?",
+        binding.location or _LOC0,
+        defid=binding.defid,
+        type_info=_ti(expr) if expr is not None else binding.type_info,
+        shape_info=_si(expr) if expr is not None else None,
+    )
+
+
+def _make_cotangent_objective(binding: BindingIR, seed_ident: IdentifierIR, counter: List[int]) -> ExpressionIR:
+    loc = binding.location or _LOC0
+    target_ident = _binding_identifier(binding)
+    shape = _binding_shape(binding)
+    if not shape:
+        return BinaryOpIR(
+            BinaryOp.MUL,
+            target_ident,
+            seed_ident,
+            loc,
+            type_info=_ti(getattr(binding, "expr", None)),
+            shape_info=_si(getattr(binding, "expr", None)),
+        )
+
+    loop_vars: List[IndexVarIR] = []
+    loop_var_ranges: Dict[DefId, RangeIR] = {}
+    indices: List[IndexVarIR] = []
+    for axis, dim in enumerate(shape):
+        iv_defid = _template_defid(counter)
+        iv = IndexVarIR(
+            f"_ad_idx_{axis}",
+            loc,
+            iv_defid,
+            type_info=PrimitiveType("i32"),
+        )
+        rng = RangeIR(_lit_int(0, loc), _clone_expr(dim), loc, type_info=PrimitiveType("range"))
+        iv.range_ir = rng
+        loop_vars.append(iv)
+        loop_var_ranges[iv_defid] = rng
+        indices.append(iv)
+
+    body = BinaryOpIR(
+        BinaryOp.MUL,
+        RectangularAccessIR(target_ident, list(indices), loc),
+        RectangularAccessIR(seed_ident, list(indices), loc),
+        loc,
+    )
+    return ReductionExpressionIR(
+        ReductionOp.SUM,
+        list(loop_vars),
+        body,
+        loc,
+        loop_var_ranges=loop_var_ranges,
+    )
 
 
 def _tensor_constant_like(
@@ -785,6 +892,7 @@ class _Differentiator:
             )
         }
         self._cache: Dict[Tuple[Optional[DefId], bool, DefId], ExpressionIR] = {}
+        self._binding_diff_cache: Optional[Dict[DefId, ExpressionIR]] = None
 
     @staticmethod
     def _local_depends_on(
@@ -846,7 +954,34 @@ class _Differentiator:
 
     def standalone(self, expr: ExpressionIR, loc: SourceLocation, *, symbolic: bool) -> ExpressionIR:
         seed_map = self._seed_map(None, symbolic, loc)
-        return self._diff_expr(expr, seed_map, {}, {}, symbolic, loc)
+        prev_cache = self._binding_diff_cache
+        self._binding_diff_cache = {}
+        try:
+            return self._diff_expr(expr, seed_map, {}, {}, symbolic, loc)
+        finally:
+            self._binding_diff_cache = prev_cache
+
+    def differentiate_expr(
+        self,
+        expr: ExpressionIR,
+        wrt_defid: DefId,
+        loc: SourceLocation,
+        *,
+        symbolic: bool,
+        local_bindings: Optional[Dict[DefId, BindingIR]] = None,
+        seed_override: Optional[ExpressionIR] = None,
+    ) -> ExpressionIR:
+        scoped_locals = dict(local_bindings or {})
+        seed_map = self._seed_map(wrt_defid, symbolic, loc, local_bindings=scoped_locals)
+        if seed_override is not None:
+            seed_map[wrt_defid] = _clone_expr(seed_override)
+        prev_cache = self._binding_diff_cache
+        self._binding_diff_cache = {}
+        try:
+            expr_out = self._diff_expr(expr, seed_map, scoped_locals, {}, symbolic, loc)
+            return _simplify(expr_out)
+        finally:
+            self._binding_diff_cache = prev_cache
 
     def wrt(self, target_defid: DefId, wrt_defid: DefId, loc: SourceLocation, *, symbolic: bool) -> ExpressionIR:
         key = (wrt_defid, symbolic, target_defid)
@@ -857,9 +992,13 @@ class _Differentiator:
         if binding is None or binding.expr is None:
             return _z(loc)
         local_bindings = self._local_contexts.get(target_defid) or {}
-        seed_map = self._seed_map(wrt_defid, symbolic, loc, local_bindings=local_bindings)
-        expr = self._diff_expr(binding.expr, seed_map, dict(local_bindings), {}, symbolic, loc)
-        expr = _simplify(expr)
+        expr = self.differentiate_expr(
+            binding.expr,
+            wrt_defid,
+            loc,
+            symbolic=symbolic,
+            local_bindings=local_bindings,
+        )
         self._cache[key] = expr
         return _clone_expr(expr)
 
@@ -876,10 +1015,20 @@ class _Differentiator:
             return _clone_expr(local_diffs[defid])
         if defid in seed_map:
             return _clone_expr(seed_map[defid])
+        binding_cache = self._binding_diff_cache
+        if binding_cache is not None and defid in binding_cache:
+            return _clone_expr(binding_cache[defid])
         binding = local_bindings.get(defid) or self._ctx.bindings.get(defid)
         if binding is None or binding.expr is None or is_function_binding(binding):
             return _z(loc)
-        return self._diff_expr(binding.expr, seed_map, local_bindings, local_diffs, symbolic, loc)
+        diff_expr = self._diff_expr(binding.expr, seed_map, local_bindings, local_diffs, symbolic, loc)
+        if (
+            binding_cache is not None
+            and defid not in local_bindings
+            and defid not in self._self_recursive_bindings
+        ):
+            binding_cache[defid] = diff_expr
+        return _clone_expr(diff_expr)
 
     def _diff_expr(
         self,
@@ -1234,6 +1383,22 @@ class _ProgramRewriter:
         pair = _source_requested_quotient_pair(expr)
         if pair is not None:
             num_defid, den_defid = pair
+            numerator = expr.left.operand if isinstance(expr.left, DifferentialIR) else None
+            denominator = expr.right.operand if isinstance(expr.right, DifferentialIR) else None
+            if isinstance(numerator, IdentifierIR) and isinstance(denominator, IdentifierIR):
+                target_binding = self._differentiator._ctx.bindings.get(num_defid)
+                wrt_binding = self._differentiator._ctx.bindings.get(den_defid)
+                type_info = getattr(target_binding, "expr", None).type_info if target_binding is not None and getattr(target_binding, "expr", None) is not None else _ti(expr)
+                shape_info = getattr(target_binding, "expr", None).shape_info if target_binding is not None and getattr(target_binding, "expr", None) is not None else _si(expr)
+                if wrt_binding is not None and _binding_shape(wrt_binding):
+                    type_info = getattr(wrt_binding, "expr", None).type_info if getattr(wrt_binding, "expr", None) is not None else type_info
+                return LazyJacobianIR(
+                    target=_clone_expr(numerator),
+                    wrt=_clone_expr(denominator),
+                    location=loc,
+                    type_info=type_info,
+                    shape_info=shape_info,
+                )
             return _simplify(self._differentiator.wrt(num_defid, den_defid, loc, symbolic=False))
         if isinstance(expr, DifferentialIR):
             return _simplify(self._differentiator.standalone(expr.operand, loc, symbolic=False))
@@ -1311,8 +1476,6 @@ class _ProgramRewriter:
         if isinstance(expr, FunctionValueIR):
             if expr.body is not None:
                 expr.body = self.rewrite_expr(expr.body)
-            if expr.custom_diff_body is not None:
-                expr.custom_diff_body = self.rewrite_expr(expr.custom_diff_body)
             return expr
         if isinstance(expr, WhereExpressionIR):
             expr.expr = self.rewrite_expr(expr.expr)
@@ -1351,20 +1514,44 @@ class AutodiffPass(BasePass):
 
     def _core(self, program: ProgramIR, tcx: TyCtxt) -> ProgramIR:
         bindings = _binding_map(program, tcx)
-        dep_cache = _DependencyQueryCache(bindings)
-        binding_ctx = _AutodiffBindingContext(bindings=bindings, dep_cache=dep_cache)
+        source_bindings = {
+            did: _clone_ir_value(binding, {})
+            for did, binding in (bindings or {}).items()
+            if did is not None and isinstance(binding, BindingIR)
+        }
+        dep_cache = _DependencyQueryCache(source_bindings)
+        binding_ctx = _AutodiffBindingContext(bindings=source_bindings, dep_cache=dep_cache)
         local_contexts = _local_binding_contexts(program)
         function_ir_map = getattr(tcx, "function_ir_map", None) or {}
         for binding in function_ir_map.values():
             if isinstance(binding, BindingIR):
                 local_contexts.update(_local_binding_contexts(binding))
+        source_local_contexts = {
+            did: {
+                local_did: _clone_ir_value(binding, {})
+                for local_did, binding in (context or {}).items()
+            }
+            for did, context in (local_contexts or {}).items()
+        }
+        source_function_ir_map = {
+            did: _clone_ir_value(binding, {})
+            for did, binding in (function_ir_map or {}).items()
+            if did is not None and isinstance(binding, BindingIR)
+        }
         targets = self._collect_targets(program, tcx)
         if not targets.diff_targets and not targets.quotient_pairs:
-            self._record_analysis(tcx, targets)
+            self._record_analysis(
+                tcx,
+                targets,
+                binding_ctx=binding_ctx,
+                differentiator=None,
+                local_contexts=source_local_contexts,
+                function_ir_map=source_function_ir_map,
+            )
             return program
 
         resolver = getattr(tcx, "resolver", None)
-        differentiator = _Differentiator(binding_ctx, resolver, local_contexts=local_contexts)
+        differentiator = _Differentiator(binding_ctx, resolver, local_contexts=source_local_contexts)
         rewriter = _ProgramRewriter(differentiator)
         program.statements = rewriter.rewrite_statement_list(program.statements or ())
         program.bindings = [stmt for stmt in (program.statements or []) if isinstance(stmt, BindingIR)]
@@ -1373,7 +1560,14 @@ class AutodiffPass(BasePass):
             if isinstance(binding, BindingIR) and isinstance(binding.expr, FunctionValueIR):
                 binding.expr = rewriter.rewrite_expr(binding.expr)
 
-        self._record_analysis(tcx, targets)
+        self._record_analysis(
+            tcx,
+            targets,
+            binding_ctx=binding_ctx,
+            differentiator=differentiator,
+            local_contexts=source_local_contexts,
+            function_ir_map=source_function_ir_map,
+        )
         return program
 
     def _collect_targets(self, program: ProgramIR, tcx: TyCtxt) -> _AutodiffTargets:
@@ -1399,7 +1593,37 @@ class AutodiffPass(BasePass):
                     targets.quotient_pairs.extend(quotient_pairs)
         return targets
 
-    def _record_analysis(self, tcx: TyCtxt, targets: _AutodiffTargets) -> None:
+    def _record_analysis(
+        self,
+        tcx: TyCtxt,
+        targets: _AutodiffTargets,
+        *,
+        binding_ctx: _AutodiffBindingContext,
+        differentiator: Optional[_Differentiator],
+        local_contexts: Dict[DefId, Dict[DefId, BindingIR]],
+        function_ir_map: Dict[Any, Any],
+    ) -> None:
+        graph_binding_by_defid = {
+            did: _clone_ir_value(binding, {})
+            for did, binding in (binding_ctx.bindings or {}).items()
+            if did is not None
+        }
+        graph_function_ir_map = {
+            did: _clone_ir_value(binding, {})
+            for did, binding in (function_ir_map or {}).items()
+            if did is not None and isinstance(binding, BindingIR)
+        }
+        graph_local_contexts = {
+            did: {
+                local_did: _clone_ir_value(binding, {})
+                for local_did, binding in (context or {}).items()
+            }
+            for did, context in (local_contexts or {}).items()
+        }
+        runtime_jvp_templates_by_pair: Dict[Tuple[DefId, DefId], Dict[str, Any]] = {}
+        runtime_vjp_templates_by_target: Dict[DefId, Dict[str, Any]] = {}
+        # Plain-IR lowering removes autodiff request nodes before backend execution,
+        # so the old runtime JVP/VJP template analysis is intentionally left empty.
         tcx.set_analysis(
             AutodiffPass,
             {
@@ -1409,10 +1633,13 @@ class AutodiffPass(BasePass):
                 "pending_quotient_slot_by_defid": {},
                 "source_quotient_slot_by_defid": {},
                 "graph_program": None,
-                "graph_binding_by_defid": {},
-                "graph_function_ir_map": {},
-                "graph_leaf_defids": set(),
-                "graph_self_recursive_defids": set(),
+                "graph_binding_by_defid": graph_binding_by_defid,
+                "graph_function_ir_map": graph_function_ir_map,
+                "graph_leaf_defids": set(getattr(binding_ctx, "_leaf_bindings", {}) or {}),
+                "graph_self_recursive_defids": set(getattr(binding_ctx, "_self_recursive_bindings", set()) or set()),
+                "graph_local_contexts_by_defid": graph_local_contexts,
+                "runtime_jvp_templates_by_pair": runtime_jvp_templates_by_pair,
+                "runtime_vjp_templates_by_target": runtime_vjp_templates_by_target,
                 "graph_builtin_requests_by_expr_id": {},
             },
         )

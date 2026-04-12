@@ -12,7 +12,7 @@ from ..passes.range_analysis import RangeAnalysisPass
 from ..passes.rest_pattern_preprocessing import RestPatternPreprocessingPass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, ArrayLiteralIR, ArrayComprehensionIR,
-    FunctionCallIR, BindingIR, is_einstein_binding, is_function_binding, RectangularAccessIR,
+    FunctionCallIR, BindingIR, FunctionValueIR, is_einstein_binding, is_function_binding, RectangularAccessIR,
     IRVisitor, RangeIR, IdentifierIR, LiteralIR, MemberAccessIR, BinaryOpIR, DifferentialIR,
 )
 from ..shared.defid import DefId
@@ -824,7 +824,11 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
                 if clause.value:
                     clause.value.accept(self)
         elif is_function_binding(node):
-            pass
+            if isinstance(node.expr, FunctionValueIR):
+                if node.expr.body is not None:
+                    node.expr.body.accept(self)
+                if node.expr.custom_diff_body is not None:
+                    node.expr.custom_diff_body.accept(self)
         else:
             if node.value:
                 node.value.accept(self)
@@ -956,4 +960,3 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
     
     def visit_module(self, node) -> None:
         pass
-

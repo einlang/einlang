@@ -17,6 +17,9 @@ from .nodes import (
     BinaryOpIR,
     UnaryOpIR,
     DifferentialIR,
+    JvpIR,
+    VjpIR,
+    LazyJacobianIR,
     RectangularAccessIR,
     JaggedAccessIR,
     BlockExpressionIR,
@@ -83,6 +86,9 @@ __all__ = [
     'BinaryOpIR',
     'UnaryOpIR',
     'DifferentialIR',
+    'JvpIR',
+    'VjpIR',
+    'LazyJacobianIR',
     'RectangularAccessIR',
     'JaggedAccessIR',
     'BlockExpressionIR',
@@ -133,4 +139,3 @@ __all__ = [
     'load_ir',
     'dump_ir',
 ]
-

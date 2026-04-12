@@ -13,10 +13,11 @@ _AUTODIFF_INTERNAL_BUILTIN_BASE = 10000
 
 
 class AutodiffBuiltinKind(Enum):
-    TANGENT = 0
-    JACOBIAN = 1
-    SYMBOLIC_TANGENT = 2
-    SYMBOLIC_JACOBIAN = 3
+    JVP = 0
+    VJP = 1
+    LAZY_JACOBIAN = 2
+    SYMBOLIC_TANGENT = 3
+    SYMBOLIC_JACOBIAN = 4
 
 
 @dataclass(frozen=True)
@@ -28,23 +29,28 @@ class AutodiffBuiltinSpec:
 
 _AUTODIFF_BUILTIN_SPECS = (
     AutodiffBuiltinSpec(
-        AutodiffBuiltinKind.TANGENT,
+        AutodiffBuiltinKind.JVP,
         DefId(BUILTIN_CRATE, _AUTODIFF_INTERNAL_BUILTIN_BASE + 0),
-        "__autodiff_tangent",
+        "__autodiff_jvp",
     ),
     AutodiffBuiltinSpec(
-        AutodiffBuiltinKind.JACOBIAN,
+        AutodiffBuiltinKind.VJP,
         DefId(BUILTIN_CRATE, _AUTODIFF_INTERNAL_BUILTIN_BASE + 1),
-        "__autodiff_jacobian",
+        "__autodiff_vjp",
+    ),
+    AutodiffBuiltinSpec(
+        AutodiffBuiltinKind.LAZY_JACOBIAN,
+        DefId(BUILTIN_CRATE, _AUTODIFF_INTERNAL_BUILTIN_BASE + 2),
+        "__autodiff_lazy_jacobian",
     ),
     AutodiffBuiltinSpec(
         AutodiffBuiltinKind.SYMBOLIC_TANGENT,
-        DefId(BUILTIN_CRATE, _AUTODIFF_INTERNAL_BUILTIN_BASE + 2),
+        DefId(BUILTIN_CRATE, _AUTODIFF_INTERNAL_BUILTIN_BASE + 3),
         "__autodiff_symbolic_tangent",
     ),
     AutodiffBuiltinSpec(
         AutodiffBuiltinKind.SYMBOLIC_JACOBIAN,
-        DefId(BUILTIN_CRATE, _AUTODIFF_INTERNAL_BUILTIN_BASE + 3),
+        DefId(BUILTIN_CRATE, _AUTODIFF_INTERNAL_BUILTIN_BASE + 4),
         "__autodiff_symbolic_jacobian",
     ),
 )

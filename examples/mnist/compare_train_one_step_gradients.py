@@ -11,20 +11,74 @@ import numpy as np
 
 DT = np.float32
 
+GRADIENT_KEYS = (
+    "d_loss_d_x",
+    "d_loss_d_y",
+    "d_loss_d_c1_0",
+    "d_loss_d_p1_0",
+    "d_loss_d_c2_0",
+    "d_loss_d_p2_0",
+    "d_loss_d_flat0",
+    "d_loss_d_logits0",
+    "d_loss_d_conv1_w",
+    "d_loss_d_conv1_b",
+    "d_loss_d_conv2_w",
+    "d_loss_d_conv2_b",
+    "d_loss_d_fc_w",
+    "d_loss_d_fc_b",
+)
 
-def _run_einlang_gradients(repo_root: Path) -> Dict[str, np.ndarray]:
+LEAF_GRADIENT_KEYS = (
+    "d_loss_d_x",
+    "d_loss_d_y",
+    "d_loss_d_conv1_w",
+    "d_loss_d_conv1_b",
+    "d_loss_d_conv2_w",
+    "d_loss_d_conv2_b",
+    "d_loss_d_fc_w",
+    "d_loss_d_fc_b",
+)
+
+GRADIENT_BINDINGS = {
+    "d_loss_d_x": "let d_loss_d_x = @loss0_scalar / @x;",
+    "d_loss_d_y": "let d_loss_d_y = @loss0_scalar / @y;",
+    "d_loss_d_c1_0": "let d_loss_d_c1_0 = @loss0_scalar / @c1_0;",
+    "d_loss_d_p1_0": "let d_loss_d_p1_0 = @loss0_scalar / @p1_0;",
+    "d_loss_d_c2_0": "let d_loss_d_c2_0 = @loss0_scalar / @c2_0;",
+    "d_loss_d_p2_0": "let d_loss_d_p2_0 = @loss0_scalar / @p2_0;",
+    "d_loss_d_flat0": "let d_loss_d_flat0 = @loss0_scalar / @flat0;",
+    "d_loss_d_logits0": "let d_loss_d_logits0 = @loss0_scalar / @logits0;",
+    "d_loss_d_conv1_w": "let d_loss_d_conv1_w = @loss0_scalar / @conv1_w0;",
+    "d_loss_d_conv1_b": "let d_loss_d_conv1_b = @loss0_scalar / @conv1_b0;",
+    "d_loss_d_conv2_w": "let d_loss_d_conv2_w = @loss0_scalar / @conv2_w0;",
+    "d_loss_d_conv2_b": "let d_loss_d_conv2_b = @loss0_scalar / @conv2_b0;",
+    "d_loss_d_fc_w": "let d_loss_d_fc_w = @loss0_scalar / @fc_w0;",
+    "d_loss_d_fc_b": "let d_loss_d_fc_b = @loss0_scalar / @fc_b0;",
+}
+
+
+def _run_einlang_gradients(
+    repo_root: Path, gradient_keys: tuple[str, ...] = GRADIENT_KEYS
+) -> Dict[str, np.ndarray]:
     import sys
 
     sys.path.insert(0, str(repo_root / "src"))
     from einlang.compiler.driver import CompilerDriver
     from einlang.runtime.runtime import EinlangRuntime
 
+    requested = tuple(gradient_keys)
+    unknown = [key for key in requested if key not in GRADIENT_BINDINGS]
+    if unknown:
+        raise KeyError(f"Unknown gradient keys: {unknown}")
+
     mnist_dir = repo_root / "examples" / "mnist"
     source_file = mnist_dir / "train_one_step.ein"
-    source = source_file.read_text(encoding="utf-8") + """
-let d_loss_d_x = @loss0_scalar / @x;
-let d_loss_d_y = @loss0_scalar / @y;
-"""
+    full_source = source_file.read_text(encoding="utf-8")
+    marker = "let loss0_scalar = loss0[0];"
+    prefix, found, _ = full_source.partition(marker)
+    if not found:
+        raise RuntimeError(f"Could not find marker {marker!r} in {source_file}")
+    source = prefix + marker + "\n" + "\n".join(GRADIENT_BINDINGS[key] for key in requested) + "\n"
 
     compiler = CompilerDriver()
     runtime = EinlangRuntime()
@@ -36,16 +90,7 @@ let d_loss_d_y = @loss0_scalar / @y;
         raise RuntimeError(str(exec_result.error))
 
     out = exec_result.outputs or {}
-    return {
-        "d_loss_d_x": np.asarray(out["d_loss_d_x"], dtype=np.float64),
-        "d_loss_d_y": np.asarray(out["d_loss_d_y"], dtype=np.float64),
-        "d_loss_d_conv1_w": np.asarray(out["d_loss_d_conv1_w"], dtype=np.float64),
-        "d_loss_d_conv1_b": np.asarray(out["d_loss_d_conv1_b"], dtype=np.float64),
-        "d_loss_d_conv2_w": np.asarray(out["d_loss_d_conv2_w"], dtype=np.float64),
-        "d_loss_d_conv2_b": np.asarray(out["d_loss_d_conv2_b"], dtype=np.float64),
-        "d_loss_d_fc_w": np.asarray(out["d_loss_d_fc_w"], dtype=np.float64),
-        "d_loss_d_fc_b": np.asarray(out["d_loss_d_fc_b"], dtype=np.float64),
-    }
+    return {key: np.asarray(out[key], dtype=np.float64) for key in requested}
 
 
 def _conv2d_nchw(x: np.ndarray, w: np.ndarray, b: np.ndarray, pad: int = 1, stride: int = 1) -> np.ndarray:
@@ -127,7 +172,9 @@ def _maxpool2x2_backward(dout: np.ndarray, arg: np.ndarray, in_shape: Tuple[int,
     return dx
 
 
-def _run_numpy_gradients() -> Dict[str, np.ndarray]:
+def _run_numpy_gradients(
+    gradient_keys: tuple[str, ...] = LEAF_GRADIENT_KEYS,
+) -> Dict[str, np.ndarray]:
     x = np.zeros((1, 1, 8, 8), dtype=DT)
     for h in range(8):
         for w in range(8):
@@ -183,9 +230,15 @@ def _run_numpy_gradients() -> Dict[str, np.ndarray]:
     d_x, d_conv1_w, d_conv1_b = _conv2d_backward(dc1, x, conv1_w, pad=1, stride=1)
     d_y = (-dlogits).astype(DT)
 
-    return {
+    results = {
         "d_loss_d_x": np.asarray(d_x, dtype=np.float64),
         "d_loss_d_y": np.asarray(d_y, dtype=np.float64),
+        "d_loss_d_c1_0": np.asarray(dc1, dtype=np.float64),
+        "d_loss_d_p1_0": np.asarray(dp1, dtype=np.float64),
+        "d_loss_d_c2_0": np.asarray(dc2, dtype=np.float64),
+        "d_loss_d_p2_0": np.asarray(dp2, dtype=np.float64),
+        "d_loss_d_flat0": np.asarray(dflat, dtype=np.float64),
+        "d_loss_d_logits0": np.asarray(dlogits, dtype=np.float64),
         "d_loss_d_conv1_w": np.asarray(d_conv1_w, dtype=np.float64),
         "d_loss_d_conv1_b": np.asarray(d_conv1_b, dtype=np.float64),
         "d_loss_d_conv2_w": np.asarray(d_conv2_w, dtype=np.float64),
@@ -193,6 +246,7 @@ def _run_numpy_gradients() -> Dict[str, np.ndarray]:
         "d_loss_d_fc_w": np.asarray(d_fc_w, dtype=np.float64),
         "d_loss_d_fc_b": np.asarray(d_fc_b, dtype=np.float64),
     }
+    return {key: results[key] for key in gradient_keys}
 
 
 def _print_entrywise(name: str, a: np.ndarray, b: np.ndarray) -> None:
@@ -212,16 +266,7 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parents[2]
     ad = _run_einlang_gradients(repo_root)
     npg = _run_numpy_gradients()
-    for key in [
-        "d_loss_d_x",
-        "d_loss_d_y",
-        "d_loss_d_conv1_w",
-        "d_loss_d_conv1_b",
-        "d_loss_d_conv2_w",
-        "d_loss_d_conv2_b",
-        "d_loss_d_fc_w",
-        "d_loss_d_fc_b",
-    ]:
+    for key in GRADIENT_KEYS:
         _print_entrywise(key, ad[key], npg[key])
     return 0
 
