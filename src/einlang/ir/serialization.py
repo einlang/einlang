@@ -173,6 +173,8 @@ class IRSerializer:
         for x in shape_info:
             if x is None or (isinstance(x, str) and x.strip() == "?"):
                 out.append(self._sym("?"))
+            elif hasattr(x, "accept"):
+                out.append(self.serialize_to_sexpr(x))
             elif isinstance(x, int):
                 out.append(x)
             else:
@@ -1039,6 +1041,8 @@ class IRDeserializer:
                         out.append(int(v))
                     except (TypeError, ValueError):
                         out.append(None)
+            elif isinstance(x, list):
+                out.append(self.deserialize(x))
             elif x is None or (isinstance(x, str) and x.strip() == "?"):
                 out.append(None)
             elif isinstance(x, int):
