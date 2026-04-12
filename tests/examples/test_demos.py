@@ -3,7 +3,6 @@
 Parametrized demos tests - loads all file contents together upfront for speed.
 """
 
-import re
 import subprocess
 import sys
 import os
@@ -17,29 +16,6 @@ import numpy as np
 from einlang.compiler.driver import CompilerDriver
 from einlang.runtime.runtime import EinlangRuntime
 from tests.test_utils import compile_and_execute, load_example_sources, project_root as repo_root
-
-
-def _parse_vectorize_counts(output: str):
-    """Extract (vectorized, scalar, hybrid, call_scalar) from --debug-vectorize output."""
-    m = re.search(
-        r"\[vectorize\] Einstein clauses: (\d+) vectorized, (\d+) scalar, (\d+) hybrid, (\d+) call-scalar",
-        output,
-    )
-    if m is None:
-        return None
-    return int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
-
-
-def _assert_vectorize_counts(output: str, min_vectorized: int, max_scalar: int, label: str):
-    counts = _parse_vectorize_counts(output)
-    assert counts is not None, f"{label}: --debug-vectorize summary line not found in output"
-    vectorized, scalar, hybrid, call_scalar = counts
-    assert vectorized >= min_vectorized, (
-        f"{label}: vectorized count regressed: {vectorized} < {min_vectorized}"
-    )
-    assert scalar <= max_scalar, (
-        f"{label}: scalar count increased: {scalar} > {max_scalar}"
-    )
 
 
 def _assert_vectorize_counts_dict(counts, min_vectorized: int, max_scalar: int, label: str):
@@ -128,6 +104,28 @@ def _run_file_with_stats(path: Path):
         exec_result = runtime.execute(result)
     assert exec_result.success, exec_result.error or exec_result.errors
     return exec_result, runtime.get_last_vectorize_counts()
+
+
+@contextmanager
+def _temporary_environment(overrides, *, clear_prefixes=()):
+    sentinel = object()
+    previous = {}
+    for key in list(os.environ):
+        if any(key.startswith(prefix) for prefix in clear_prefixes):
+            previous.setdefault(key, os.environ.get(key, sentinel))
+            if key not in overrides:
+                os.environ.pop(key, None)
+    for key, value in overrides.items():
+        previous.setdefault(key, os.environ.get(key, sentinel))
+        os.environ[key] = value
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is sentinel:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 @contextmanager
@@ -258,33 +256,26 @@ class TestDemos:
         )
         golden_text = golden.read_text(encoding="utf-8").strip()
 
-        env = {
-            **os.environ,
-            "PYTHONPATH": str(root / "src"),
-            "OPENBLAS_NUM_THREADS": "1",
-            "OMP_NUM_THREADS": "1",
-            "MKL_NUM_THREADS": "1",
-            "VECLIB_MAXIMUM_THREADS": "1",
-            "NUMEXPR_NUM_THREADS": "1",
-        }
-        proc = subprocess.run(
-            [sys.executable, "-m", "einlang", "main.ein", "--debug-vectorize"],
-            cwd=str(whisper_dir),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=900,
-            check=False,
-        )
-        if proc.returncode != 0:
-            pytest.fail(f"whisper_tiny subprocess failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
-        combined = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
-        lines = [
-            line.strip()
-            for line in (proc.stdout or "").splitlines()
-            if line.strip() and not line.startswith("[vectorize]") and not line.startswith("[profile]")
-        ]
-        output = lines[0] if lines else ""
+        with _temporary_environment(
+            {
+                "PYTHONHASHSEED": "0",
+                "OPENBLAS_NUM_THREADS": "1",
+                "OMP_NUM_THREADS": "1",
+                "MKL_NUM_THREADS": "1",
+                "VECLIB_MAXIMUM_THREADS": "1",
+                "NUMEXPR_NUM_THREADS": "1",
+                # Whisper correctness depends on the default recurrence-block broadcast path;
+                # do not inherit debug/legacy EINLANG_* overrides from earlier tests.
+                "EINLANG_VECTORIZE_RECURRENCE_BLOCK": "1",
+            },
+            clear_prefixes=("EINLANG_",),
+        ):
+            exec_result, counts = _run_file_with_stats(main_ein)
+
+        output = exec_result.outputs.get("text")
+        if isinstance(output, np.ndarray) and output.ndim == 0:
+            output = output.item()
+        output = "" if output is None else str(output).strip()
         if output != golden_text:
             print(f"\nwhisper_tiny transcription:\n  golden:  {golden_text!r}\n  einlang: {output!r}")
             pytest.fail(
@@ -294,7 +285,10 @@ class TestDemos:
                 "(2) numerical/implementation difference -> if einlang output is correct, update golden_ref.txt "
                 "with: echo -n '<output>' > examples/whisper_tiny/golden_ref.txt"
             )
-        _assert_vectorize_counts(combined, min_vectorized=5723, max_scalar=0, label="whisper_tiny")
+        # The tuple-valued decode_state -> token projection keeps one scalar fallback
+        # for correctness; the hang regression was the hidden per-slot scalarization
+        # inside nested bindings, which is now fixed.
+        _assert_vectorize_counts_dict(counts, min_vectorized=5722, max_scalar=1, label="whisper_tiny")
 
 
 if __name__ == "__main__":

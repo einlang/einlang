@@ -52,13 +52,6 @@ def build_lowered_execution_facts_analysis(ir: ProgramIR, tcx: Any) -> Dict[str,
     function_ir_map = getattr(tcx, "function_ir_map", None) or {}
     for binding in function_ir_map.values():
         analyzer.walk(binding)
-    try:
-        from .autodiff import AutodiffPass
-
-        autodiff_analysis = tcx.get_analysis(AutodiffPass)
-        analyzer.walk(autodiff_analysis.get("diff_block"))
-    except RuntimeError:
-        pass
     return {
         "reduction_facts_by_id": analyzer.reduction_facts_by_id,
         "reduction_kernel_plans_by_id": analyzer.reduction_kernel_plans_by_id,

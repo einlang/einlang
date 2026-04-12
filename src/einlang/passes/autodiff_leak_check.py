@@ -115,15 +115,6 @@ class AutodiffLeakCheckPass(BasePass):
                 continue
             finder.scan(binding, "function_ir_map")
 
-        # Scan autodiff diff block, if present.
-        try:
-            analysis = tcx.get_analysis(AutodiffPass)
-        except RuntimeError:
-            analysis = {}
-        diff_block = analysis.get("diff_block") if isinstance(analysis, dict) else None
-        if diff_block:
-            finder.scan(diff_block, "diff_block")
-
         if finder.leaks:
             first = finder.leaks[0]
             tcx.reporter.report_error(
@@ -139,4 +130,3 @@ class AutodiffLeakCheckPass(BasePass):
 
         logger.debug("Autodiff leak check passed")
         return ir
-

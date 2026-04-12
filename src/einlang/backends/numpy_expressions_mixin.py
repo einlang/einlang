@@ -1461,7 +1461,7 @@ class ExpressionVisitorMixin:
         expr_key = id(expr)
         depids = dep_bucket.get(expr_key)
         if depids is None:
-            from ..passes.autodiff import _collect_all_defids_ir
+            from ..passes.autodiff.compiletime import _collect_all_defids_ir
 
             depids = tuple(
                 sorted(
@@ -1812,15 +1812,6 @@ class ExpressionVisitorMixin:
             return raw
 
         defid = _coerce_defid(expr.defid)
-        from ..shared.autodiff_intrinsics import autodiff_builtin_kind
-
-        autodiff_kind = autodiff_builtin_kind(defid)
-        if autodiff_kind is not None:
-            try:
-                return self._evaluate_autodiff_builtin(expr, autodiff_kind)
-            except Exception as e:
-                self._raise_here(e, expr)
-
         raw = expr.defid
         if raw is None:
             raise RuntimeError("Builtin call has no DefId")
@@ -1833,50 +1824,3 @@ class ExpressionVisitorMixin:
             return _invoke_runtime_builtin(fn, args)
         except Exception as e:
             self._raise_here(e, expr)
-
-    def _evaluate_autodiff_builtin(self, expr: BuiltinCallIR, kind: Any) -> Any:
-        from ..passes.autodiff import AutodiffPass
-        from ..shared.defid import DefId
-        from ..shared.autodiff_intrinsics import AutodiffBuiltinKind
-        from .numpy_autodiff import (
-            jacobian_value_for_defids,
-            symbolic_jacobian_relation,
-            symbolic_tangent_for_defid,
-            tangent_value_for_defid,
-        )
-
-        tcx = getattr(self, "_tcx", None)
-        if tcx is None:
-            raise RuntimeError("Autodiff builtin requires TyCtxt analysis")
-        analysis = tcx.get_analysis(AutodiffPass)
-        if not isinstance(analysis, dict):
-            raise RuntimeError("Autodiff analysis missing or malformed")
-        compiled_graph = analysis.get("compiled_graph")
-        if compiled_graph is None:
-            raise RuntimeError("Autodiff compiled graph missing from analysis")
-
-        def _identifier_defid(arg: Any) -> DefId:
-            if not isinstance(arg, IdentifierIR) or arg.defid is None:
-                raise RuntimeError(f"Autodiff builtin {expr.builtin_name} expects identifier arguments")
-            return arg.defid
-
-        value_lookup = self.env.get_value
-        if kind is AutodiffBuiltinKind.TANGENT:
-            return tangent_value_for_defid(_identifier_defid(expr.args[0]), compiled_graph, value_lookup)
-        if kind is AutodiffBuiltinKind.JACOBIAN:
-            return jacobian_value_for_defids(
-                _identifier_defid(expr.args[0]),
-                _identifier_defid(expr.args[1]),
-                compiled_graph,
-                value_lookup,
-            )
-        if kind is AutodiffBuiltinKind.SYMBOLIC_TANGENT:
-            return symbolic_tangent_for_defid(_identifier_defid(expr.args[0]), compiled_graph, value_lookup)
-        if kind is AutodiffBuiltinKind.SYMBOLIC_JACOBIAN:
-            return symbolic_jacobian_relation(
-                _identifier_defid(expr.args[0]),
-                _identifier_defid(expr.args[1]),
-                compiled_graph,
-                value_lookup,
-            )
-        raise RuntimeError(f"Unknown internal autodiff builtin: {expr.builtin_name}")
