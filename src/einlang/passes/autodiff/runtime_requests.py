@@ -529,6 +529,7 @@ class _PlainRequestLowerer:
         seed_defid, seed_ident, seed_binding = self._make_seed_placeholder("__autodiff_tangent", wrt_binding, loc)
         scoped_locals = dict(local_bindings or {})
         scoped_locals[seed_defid] = seed_binding
+        emitted_bindings: List[BindingIR] = []
         template = self._differentiator.differentiate_expr(
             expr,
             wrt_binding.defid,
@@ -536,7 +537,16 @@ class _PlainRequestLowerer:
             symbolic=False,
             local_bindings=scoped_locals,
             seed_override=seed_ident,
+            emitted_bindings=emitted_bindings,
         )
+        if emitted_bindings:
+            template = BlockExpressionIR(
+                list(emitted_bindings),
+                loc,
+                template,
+                type_info=getattr(template, "type_info", fallback_type),
+                shape_info=getattr(template, "shape_info", fallback_shape),
+            )
         lowered = _simplify(_substitute_identifiers(template, {seed_defid: seed_expr}))
         return _stamp_expr_metadata(
             lowered,
