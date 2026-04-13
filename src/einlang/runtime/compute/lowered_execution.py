@@ -172,6 +172,7 @@ def execute_select_at_argmax_vectorized(
     parallel_shape: Optional[Tuple[int, ...]] = None,
     initial_context: Optional[Sequence[Tuple[Any, Any]]] = None,
     use_argmin: bool = False,
+    precomputed_idx_flat: Optional[Any] = None,
 ) -> Tuple[bool, Any]:
     """
     Vectorized select-at-argmax: evaluate primal and diff bodies over the reduction
@@ -287,12 +288,18 @@ def execute_select_at_argmax_vectorized(
                 )
             else:
                 ctx[defid] = red_arr
-        primal_result = primal_body_ev(ctx)
-        if not isinstance(primal_result, np.ndarray):
-            return False, None
+        primal_result = None
+        idx_flat = precomputed_idx_flat
+        if idx_flat is None:
+            primal_result = primal_body_ev(ctx)
+            if not isinstance(primal_result, np.ndarray):
+                return False, None
+            if parallel_shape:
+                primal_flat = primal_result.reshape(parallel_shape + (-1,))
+                idx_flat = np.argmin(primal_flat, axis=-1) if use_argmin else np.argmax(primal_flat, axis=-1)
+            else:
+                idx_flat = int(np.argmin(primal_result) if use_argmin else np.argmax(primal_result))
         if parallel_shape:
-            primal_flat = primal_result.reshape(parallel_shape + (-1,))
-            idx_flat = np.argmin(primal_flat, axis=-1) if use_argmin else np.argmax(primal_flat, axis=-1)
             ok_selected, selected = _selected_diff_result(
                 idx_flat,
                 red_shape_tuple,
@@ -303,7 +310,6 @@ def execute_select_at_argmax_vectorized(
             if ok_selected:
                 return True, selected
         else:
-            idx_flat = int(np.argmin(primal_result) if use_argmin else np.argmax(primal_result))
             ok_selected, selected = _selected_diff_result(
                 idx_flat,
                 red_shape_tuple,
@@ -314,6 +320,10 @@ def execute_select_at_argmax_vectorized(
             if ok_selected:
                 return True, selected
 
+        if primal_result is None:
+            primal_result = primal_body_ev(ctx)
+            if not isinstance(primal_result, np.ndarray):
+                return False, None
         diff_result = diff_body_ev(ctx)
         if not isinstance(diff_result, np.ndarray):
             diff_result = np.broadcast_to(

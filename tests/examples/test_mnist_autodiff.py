@@ -10,13 +10,7 @@ from pathlib import Path
 import sys
 
 import numpy as np
-import pytest
 from tests.test_utils import compile_and_execute
-
-
-pytestmark = pytest.mark.skip(
-    reason="source-level MNIST runtime autodiff for nested max-pool pullbacks is not stable yet"
-)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent

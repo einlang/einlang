@@ -931,7 +931,45 @@ class ExpressionVisitorMixin:
         return range(int(start), end_int)
 
     def visit_array_comprehension(self, expr: ArrayComprehensionIR) -> Any:
-        _reject_non_lowered(type(expr).__name__)
+        loop_vars = list(getattr(expr, "loop_vars", None) or [])
+        ranges = list(getattr(expr, "ranges", None) or [])
+        constraints = list(getattr(expr, "constraints", None) or [])
+        if not loop_vars:
+            return expr.body.accept(self)
+
+        iterables: List[List[Any]] = []
+        for rng in ranges:
+            value = rng.accept(self)
+            if isinstance(value, range):
+                iterables.append(list(value))
+            else:
+                iterables.append(list(value))
+
+        def evaluate(depth: int) -> Any:
+            if depth >= len(loop_vars):
+                for constraint in constraints:
+                    if not self._to_bool(constraint.accept(self)):
+                        return None
+                return expr.body.accept(self)
+            var = loop_vars[depth]
+            values = iterables[depth] if depth < len(iterables) else []
+            out: List[Any] = []
+            for item in values:
+                with self.env.scope():
+                    if getattr(var, "defid", None) is not None:
+                        self.env.set_value(var.defid, item, name=getattr(var, "name", None))
+                    out.append(evaluate(depth + 1))
+            return out
+
+        evaluated = evaluate(0)
+        type_info = getattr(expr, "type_info", None)
+        dtype = None
+        converter = getattr(self, "_type_info_to_numpy_dtype", None)
+        if callable(converter) and type_info is not None:
+            dtype = converter(getattr(type_info, "element_type", None) or type_info)
+        if dtype is not None:
+            return np.array(evaluated, dtype=dtype)
+        return np.array(evaluated)
 
     def visit_einstein(self, expr: EinsteinIR) -> Any:
         from ..runtime.compute.lowered_execution import execute_lowered_loops
@@ -948,6 +986,53 @@ class ExpressionVisitorMixin:
             if type_shape is not None:
                 shape = type_shape
         if shape is None:
+            inferred: List[Optional[int]] = []
+            for clause in expr.clauses or ():
+                for axis, idx in enumerate(clause.indices or ()):
+                    dim_value: Optional[int] = None
+                    rng = None
+                    if isinstance(idx, IndexVarIR):
+                        rng = (clause.variable_ranges or {}).get(getattr(idx, "defid", None)) or getattr(idx, "range_ir", None)
+                    if isinstance(rng, RangeIR):
+                        try:
+                            start = int(np.asarray(rng.start.accept(self)).reshape(-1)[0])
+                            end = int(np.asarray(rng.end.accept(self)).reshape(-1)[0])
+                            dim_value = end - start + (1 if getattr(rng, "inclusive", False) else 0)
+                        except Exception:
+                            dim_value = None
+                    elif isinstance(idx, LiteralIR) and isinstance(idx.value, int):
+                        dim_value = int(idx.value) + 1
+                    if dim_value is None:
+                        continue
+                    while len(inferred) <= axis:
+                        inferred.append(None)
+                    current = inferred[axis]
+                    inferred[axis] = dim_value if current is None else max(current, dim_value)
+            if inferred and all(dim is not None for dim in inferred):
+                shape = tuple(int(dim) for dim in inferred if dim is not None)
+        if shape is None:
+            direct_only = bool(expr.clauses)
+            for clause in expr.clauses or ():
+                if not all(isinstance(idx, LiteralIR) for idx in (clause.indices or ())):
+                    direct_only = False
+                    break
+            if direct_only:
+                direct_result = None
+                for clause in expr.clauses or ():
+                    with self.env.scope():
+                        if clause.where_clause is not None:
+                            guards_ok = all(
+                                self._to_bool(constraint.accept(self))
+                                for constraint in (clause.where_clause.constraints or ())
+                            )
+                            if not guards_ok:
+                                continue
+                        value = clause.value.accept(self)
+                    if value is None:
+                        continue
+                    direct_result = value if direct_result is None else direct_result + value
+                if direct_result is not None:
+                    return direct_result
             raise RuntimeError(
                 "EinsteinIR missing concrete shape metadata; expected expr.shape, "
                 "expr.shape_info, or concrete RectangularType.shape"
@@ -998,6 +1083,8 @@ class ExpressionVisitorMixin:
                     idx_tuple = tuple(int(np.asarray(idx.accept(self)).reshape(-1)[0]) for idx in (clause.indices or ()))
                     value = clause.value.accept(self)
                     arr = np.asarray(value, dtype=output.dtype)
+                    if output.ndim == 0 and arr.ndim > 0:
+                        return arr
                     if arr.size == 1:
                         output[idx_tuple] = arr.reshape(-1)[0]
                         continue
@@ -1734,7 +1821,9 @@ class ExpressionVisitorMixin:
             raise RuntimeError("SelectAtArgmax has no reduction loops")
         n_red = len(reduction_loops)
         dep_bucket = self._analysis_cache_bucket("select_at_argmax_depids")
+        primal_dep_bucket = self._analysis_cache_bucket("select_at_argmax_primal_depids")
         cache_bucket = self._analysis_cache_bucket("select_at_argmax_result")
+        winner_cache_bucket = self._analysis_cache_bucket("select_at_argmax_winner")
         expr_key = id(expr)
         depids = dep_bucket.get(expr_key)
         if depids is None:
@@ -1758,6 +1847,27 @@ class ExpressionVisitorMixin:
                 )
             )
             dep_bucket[expr_key] = depids
+        primal_depids = primal_dep_bucket.get(expr_key)
+        if primal_depids is None:
+            from ..passes.autodiff.compiletime import _collect_all_defids_ir
+
+            primal_depids = tuple(
+                sorted(
+                    (
+                        did for did in (
+                            _collect_all_defids_ir(expr.primal_body)
+                            | {
+                                d
+                                for loop in reduction_loops
+                                for d in _collect_all_defids_ir(loop.iterable)
+                            }
+                        )
+                        if did is not None
+                    ),
+                    key=lambda d: (d.krate, d.index),
+                )
+            )
+            primal_dep_bucket[expr_key] = primal_depids
 
         reduction_body_defids: Set[Any] = set()
         for _lp in expr.loops or []:
@@ -1791,12 +1901,27 @@ class ExpressionVisitorMixin:
             for did in depids
             if did not in loop_defid_set
         )
+        primal_dep_fingerprint = tuple(
+            (did, self._cache_value_fingerprint(self.env.get_value(did)))
+            for did in primal_depids
+            if did not in loop_defid_set
+        )
         ri_fingerprint = tuple(
             sorted(
                 (
                     (did, self._cache_value_fingerprint(val))
                     for did, val in _ri0.items()
                     if did is not None
+                ),
+                key=lambda item: (item[0].krate, item[0].index),
+            )
+        )
+        primal_ri_fingerprint = tuple(
+            sorted(
+                (
+                    (did, self._cache_value_fingerprint(val))
+                    for did, val in _ri0.items()
+                    if did is not None and did in primal_depids
                 ),
                 key=lambda item: (item[0].krate, item[0].index),
             )
@@ -1908,6 +2033,63 @@ class ExpressionVisitorMixin:
         def ev(e):
             return e.accept(self)
 
+        def _compute_primal_winner() -> Tuple[Optional[Tuple[int, ...]], Any]:
+            arrs: List[np.ndarray] = []
+            defids: List[Any] = []
+            for loop in reduction_loops:
+                iterable = ev(loop.iterable)
+                if isinstance(iterable, range):
+                    step = iterable.step if iterable.step is not None else 1
+                    arr = np.arange(iterable.start, iterable.stop, step, dtype=np.intp)
+                else:
+                    arr = np.array(list(iterable), dtype=np.intp)
+                if arr.size == 0:
+                    return None, None
+                arrs.append(arr)
+                defids.append(loop.variable.defid)
+            if not arrs:
+                return None, None
+            local_parallel_shape = parallel_shape
+            if local_parallel_shape is None:
+                spot_ctx: Dict[Any, Any] = {}
+                for defid, arr in (initial_context or []):
+                    arr_np = np.asarray(arr)
+                    spot_ctx[defid] = int(arr_np.flat[0]) if arr_np.size else 0
+                for defid, arr in zip(defids, arrs):
+                    spot_ctx[defid] = int(arr.flat[0])
+                spot_val = primal_body_ev(spot_ctx)
+                if isinstance(spot_val, np.ndarray):
+                    local_parallel_shape = tuple(spot_val.shape)
+                else:
+                    local_parallel_shape = ()
+            full_shape = tuple(local_parallel_shape) + tuple(int(arr.size) for arr in arrs)
+            ctx: Dict[Any, Any] = {}
+            if initial_context and local_parallel_shape:
+                k_par = len(local_parallel_shape)
+                for i, (defid, val) in enumerate(initial_context):
+                    v = np.asarray(val, dtype=np.intp)
+                    v = v.reshape((1,) * i + (v.size,) + (1,) * (k_par - 1 - i) + (1,) * len(arrs))
+                    ctx[defid] = np.broadcast_to(v, full_shape)
+            for i, (defid, arr) in enumerate(zip(defids, arrs)):
+                if len(arrs) == 1:
+                    red_shape = (arr.size,)
+                else:
+                    red_shape = tuple(arr.size if j == i else 1 for j in range(len(arrs)))
+                red_arr = arr.reshape(red_shape)
+                if local_parallel_shape:
+                    ctx[defid] = np.broadcast_to(red_arr, full_shape)
+                else:
+                    ctx[defid] = red_arr
+            primal_result = primal_body_ev(ctx)
+            if not isinstance(primal_result, np.ndarray):
+                return local_parallel_shape, None
+            if local_parallel_shape:
+                primal_flat = primal_result.reshape(local_parallel_shape + (-1,))
+                idx_flat = np.argmin(primal_flat, axis=-1) if getattr(expr, "use_argmin", False) else np.argmax(primal_flat, axis=-1)
+            else:
+                idx_flat = int(np.argmin(primal_result) if getattr(expr, "use_argmin", False) else np.argmax(primal_result))
+            return tuple(local_parallel_shape), idx_flat
+
         ri0 = getattr(self, "_reduction_initial_context", None) or {}
         force_scalar_select = False
         diff_shape = getattr(expr.diff_body, "shape", None)
@@ -2000,6 +2182,26 @@ class ExpressionVisitorMixin:
 
         ok = False
         result = None
+        winner_cache_key = (
+            expr_key,
+            tuple(parallel_shape or ()),
+            tuple(outer_index_defids),
+            bool(getattr(expr, "use_argmin", False)),
+            primal_dep_fingerprint,
+            primal_ri_fingerprint,
+        )
+        winner_cached = winner_cache_bucket.get(winner_cache_key)
+        winner_parallel_shape = None
+        winner_idx_flat = None
+        if winner_cached is not None:
+            winner_parallel_shape, winner_idx_flat = winner_cached
+            if winner_parallel_shape is not None:
+                parallel_shape = winner_parallel_shape
+        else:
+            winner_parallel_shape, winner_idx_flat = _compute_primal_winner()
+            if winner_parallel_shape is not None:
+                parallel_shape = winner_parallel_shape
+            winner_cache_bucket[winner_cache_key] = (winner_parallel_shape, winner_idx_flat)
         if not force_scalar_select:
             ok, result = execute_select_at_argmax_vectorized(
                 primal_body_ev,
@@ -2009,6 +2211,7 @@ class ExpressionVisitorMixin:
                 parallel_shape=parallel_shape,
                 initial_context=initial_context if initial_context else None,
                 use_argmin=getattr(expr, "use_argmin", False),
+                precomputed_idx_flat=winner_idx_flat,
             )
         if not ok or result is None:
             from ..runtime.compute.lowered_execution import execute_lowered_loops
