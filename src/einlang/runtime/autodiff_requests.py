@@ -141,6 +141,9 @@ class AutodiffRuntimeEngine:
         self._backend = backend
         self._compiled: Optional[Dict[str, Any]] = None
         self._scalar_vjp_cache: Dict[DefId, Dict[DefId, Any]] = {}
+        self._generic_vjp_templates: Dict[Tuple[DefId, DefId], Dict[str, Any]] = {}
+        self._generic_reachable_order: Dict[DefId, List[DefId]] = {}
+        self._generic_template_counter = 0
 
     def _analysis(self) -> Dict[str, Any]:
         tcx = getattr(self._backend, "_tcx", None)
@@ -187,7 +190,87 @@ class AutodiffRuntimeEngine:
         compiled = self._compiled_graph()
         by_target = compiled.get("runtime_vjp_templates_by_target") or {}
         target_entry = by_target.get(target_defid) or {}
-        return list(target_entry.get("order") or ())
+        order = list(target_entry.get("order") or ())
+        if order:
+            return order
+        cached = self._generic_reachable_order.get(target_defid)
+        if cached is not None:
+            return list(cached)
+        bindings = {}
+        bindings.update(compiled.get("bindings") or {})
+        bindings.update(compiled.get("functions") or {})
+        from ..passes.autodiff.compiletime import _AutodiffBindingContext, _DependencyQueryCache
+
+        binding_ctx = _AutodiffBindingContext(bindings=bindings, dep_cache=_DependencyQueryCache(bindings))
+        seen: set[DefId] = set()
+        order_out: List[DefId] = []
+
+        def dfs(did: DefId) -> None:
+            if did in seen:
+                return
+            seen.add(did)
+            for dep in binding_ctx.deps_for(did):
+                if dep in bindings:
+                    dfs(dep)
+            order_out.append(did)
+
+        dfs(target_defid)
+        self._generic_reachable_order[target_defid] = order_out
+        return list(order_out)
+
+    def _generic_vjp_template(self, source_defid: DefId, dep_defid: DefId) -> Dict[str, Any]:
+        key = (source_defid, dep_defid)
+        cached = self._generic_vjp_templates.get(key)
+        if cached is not None:
+            return cached
+        bindings = {}
+        bindings.update(self._compiled_graph().get("bindings") or {})
+        bindings.update(self._compiled_graph().get("functions") or {})
+        local_contexts = dict(self._compiled_graph().get("local_contexts_by_defid") or {})
+        source_binding = bindings.get(source_defid)
+        dep_binding = bindings.get(dep_defid)
+        if source_binding is None or dep_binding is None:
+            raise RuntimeError(f"runtime generic VJP template missing binding for edge {source_defid}->{dep_defid}")
+        from ..passes.autodiff.runtime_requests import _PlainRequestLowerer
+        from ..ir.nodes import VjpIR
+
+        lowerer = _PlainRequestLowerer(bindings, local_contexts, getattr(getattr(self._backend, "_tcx", None), "resolver", None))
+        loc = getattr(source_binding, "location", None)
+        seed_defid = DefId(-991, self._generic_template_counter)
+        self._generic_template_counter += 1
+        cot_ident = IdentifierIR(
+            "__autodiff_runtime_cotangent",
+            loc,
+            defid=seed_defid,
+            type_info=getattr(getattr(source_binding, "expr", None), "type_info", None),
+            shape_info=getattr(getattr(source_binding, "expr", None), "shape_info", None),
+        )
+        expr = lowerer._lower_vjp(
+            VjpIR(
+                target=IdentifierIR(
+                    getattr(source_binding, "name", "?"),
+                    loc,
+                    defid=source_defid,
+                    type_info=getattr(getattr(source_binding, "expr", None), "type_info", None),
+                    shape_info=getattr(getattr(source_binding, "expr", None), "shape_info", None),
+                ),
+                wrt=IdentifierIR(
+                    getattr(dep_binding, "name", "?"),
+                    loc,
+                    defid=dep_defid,
+                    type_info=getattr(getattr(dep_binding, "expr", None), "type_info", None),
+                    shape_info=getattr(getattr(dep_binding, "expr", None), "shape_info", None),
+                ),
+                location=loc,
+                type_info=getattr(getattr(dep_binding, "expr", None), "type_info", None),
+                shape_info=getattr(getattr(dep_binding, "expr", None), "shape_info", None),
+                cotangent=cot_ident,
+            ),
+            cotangent_expr=cot_ident,
+        )
+        template = {"expr": expr, "seed_defid": seed_defid, "context_defid": source_defid}
+        self._generic_vjp_templates[key] = template
+        return template
 
     def _accumulate(self, existing: Optional[Any], contribution: Any) -> Any:
         if existing is None:
@@ -233,25 +316,47 @@ class AutodiffRuntimeEngine:
 
     def _reverse_vjp_all(self, target_defid: DefId, cotangent_value: Any) -> Dict[DefId, Any]:
         bars: Dict[DefId, Any] = {target_defid: cotangent_value}
-        for did in reversed(self._reachable_bindings(target_defid)):
+        compiled = self._compiled_graph()
+        runtime_templates = (compiled.get("runtime_vjp_templates_by_target") or {}).get(target_defid) or {}
+        runtime_edges = runtime_templates.get("edges") or {}
+        reachable = self._reachable_bindings(target_defid)
+        bindings = {}
+        bindings.update(compiled.get("bindings") or {})
+        bindings.update(compiled.get("functions") or {})
+        for did in reversed(reachable):
             current_bar = bars.get(did)
             if current_bar is None:
                 continue
-            target_entry = (self._compiled_graph().get("runtime_vjp_templates_by_target") or {}).get(target_defid) or {}
-            for edge_key, edge in (target_entry.get("edges") or {}).items():
-                source_did, dep_did = edge_key
-                if source_did != did:
+            if runtime_edges:
+                for edge_key, edge in runtime_edges.items():
+                    source_did, dep_did = edge_key
+                    if source_did != did:
+                        continue
+                    if edge.get("jvp_expr") is not None:
+                        contribution = self._edge_contribution_via_jvp(edge, current_bar, dep_did)
+                    else:
+                        contribution = self._evaluate_expr(
+                            edge["expr"],
+                            {edge["seed_defid"]: current_bar},
+                            context_defid=edge.get("context_defid"),
+                        )
+                    bars[dep_did] = self._accumulate(bars.get(dep_did), contribution)
+                continue
+            for dep_did in [dep for dep in reachable if dep in bindings and dep != did]:
+                if dep_did not in (self._generic_reachable_order.get(target_defid) or []):
                     continue
-                if edge.get("jvp_expr") is not None:
-                    contribution = self._edge_contribution_via_jvp(edge, current_bar, dep_did)
-                else:
-                    contribution = self._evaluate_expr(
-                        edge["expr"],
-                        {edge["seed_defid"]: current_bar},
-                        context_defid=edge.get("context_defid"),
-                    )
-                dep = dep_did
-                bars[dep] = self._accumulate(bars.get(dep), contribution)
+            from ..passes.autodiff.compiletime import _AutodiffBindingContext, _DependencyQueryCache
+            binding_ctx = _AutodiffBindingContext(bindings=bindings, dep_cache=_DependencyQueryCache(bindings))
+            for dep_did in binding_ctx.deps_for(did):
+                if dep_did not in bindings:
+                    continue
+                edge = self._generic_vjp_template(did, dep_did)
+                contribution = self._evaluate_expr(
+                    edge["expr"],
+                    {edge["seed_defid"]: current_bar},
+                    context_defid=edge.get("context_defid"),
+                )
+                bars[dep_did] = self._accumulate(bars.get(dep_did), contribution)
         return bars
 
     def eval_vjp(self, target_defid: DefId, wrt_defid: DefId, cotangent_value: Optional[Any] = None) -> Any:

@@ -80,8 +80,6 @@ class _LeakFinder:
             self._record("VjpIR", origin, getattr(obj, "location", None))
         elif isinstance(obj, LazyJacobianIR):
             self._record("LazyJacobianIR", origin, getattr(obj, "location", None))
-        elif isinstance(obj, BuiltinCallIR) and autodiff_builtin_kind(getattr(obj, "defid", None)) is not None:
-            self._record("autodiff builtin", origin, getattr(obj, "location", None))
         elif isinstance(obj, FunctionValueIR):
             if getattr(obj, "custom_diff_body", None) is not None:
                 self._record("custom_diff_body", origin, getattr(obj, "location", None))

@@ -931,7 +931,45 @@ class ExpressionVisitorMixin:
         return range(int(start), end_int)
 
     def visit_array_comprehension(self, expr: ArrayComprehensionIR) -> Any:
-        _reject_non_lowered(type(expr).__name__)
+        loop_vars = list(getattr(expr, "loop_vars", None) or [])
+        ranges = list(getattr(expr, "ranges", None) or [])
+        constraints = list(getattr(expr, "constraints", None) or [])
+        if not loop_vars:
+            return expr.body.accept(self)
+
+        iterables: List[List[Any]] = []
+        for rng in ranges:
+            value = rng.accept(self)
+            if isinstance(value, range):
+                iterables.append(list(value))
+            else:
+                iterables.append(list(value))
+
+        def evaluate(depth: int) -> Any:
+            if depth >= len(loop_vars):
+                for constraint in constraints:
+                    if not self._to_bool(constraint.accept(self)):
+                        return None
+                return expr.body.accept(self)
+            var = loop_vars[depth]
+            values = iterables[depth] if depth < len(iterables) else []
+            out: List[Any] = []
+            for item in values:
+                with self.env.scope():
+                    if getattr(var, "defid", None) is not None:
+                        self.env.set_value(var.defid, item, name=getattr(var, "name", None))
+                    out.append(evaluate(depth + 1))
+            return out
+
+        evaluated = evaluate(0)
+        type_info = getattr(expr, "type_info", None)
+        dtype = None
+        converter = getattr(self, "_type_info_to_numpy_dtype", None)
+        if callable(converter) and type_info is not None:
+            dtype = converter(getattr(type_info, "element_type", None) or type_info)
+        if dtype is not None:
+            return np.array(evaluated, dtype=dtype)
+        return np.array(evaluated)
 
     def visit_einstein(self, expr: EinsteinIR) -> Any:
         from ..runtime.compute.lowered_execution import execute_lowered_loops
@@ -948,6 +986,53 @@ class ExpressionVisitorMixin:
             if type_shape is not None:
                 shape = type_shape
         if shape is None:
+            inferred: List[Optional[int]] = []
+            for clause in expr.clauses or ():
+                for axis, idx in enumerate(clause.indices or ()):
+                    dim_value: Optional[int] = None
+                    rng = None
+                    if isinstance(idx, IndexVarIR):
+                        rng = (clause.variable_ranges or {}).get(getattr(idx, "defid", None)) or getattr(idx, "range_ir", None)
+                    if isinstance(rng, RangeIR):
+                        try:
+                            start = int(np.asarray(rng.start.accept(self)).reshape(-1)[0])
+                            end = int(np.asarray(rng.end.accept(self)).reshape(-1)[0])
+                            dim_value = end - start + (1 if getattr(rng, "inclusive", False) else 0)
+                        except Exception:
+                            dim_value = None
+                    elif isinstance(idx, LiteralIR) and isinstance(idx.value, int):
+                        dim_value = int(idx.value) + 1
+                    if dim_value is None:
+                        continue
+                    while len(inferred) <= axis:
+                        inferred.append(None)
+                    current = inferred[axis]
+                    inferred[axis] = dim_value if current is None else max(current, dim_value)
+            if inferred and all(dim is not None for dim in inferred):
+                shape = tuple(int(dim) for dim in inferred if dim is not None)
+        if shape is None:
+            direct_only = bool(expr.clauses)
+            for clause in expr.clauses or ():
+                if not all(isinstance(idx, LiteralIR) for idx in (clause.indices or ())):
+                    direct_only = False
+                    break
+            if direct_only:
+                direct_result = None
+                for clause in expr.clauses or ():
+                    with self.env.scope():
+                        if clause.where_clause is not None:
+                            guards_ok = all(
+                                self._to_bool(constraint.accept(self))
+                                for constraint in (clause.where_clause.constraints or ())
+                            )
+                            if not guards_ok:
+                                continue
+                        value = clause.value.accept(self)
+                    if value is None:
+                        continue
+                    direct_result = value if direct_result is None else direct_result + value
+                if direct_result is not None:
+                    return direct_result
             raise RuntimeError(
                 "EinsteinIR missing concrete shape metadata; expected expr.shape, "
                 "expr.shape_info, or concrete RectangularType.shape"
@@ -998,6 +1083,8 @@ class ExpressionVisitorMixin:
                     idx_tuple = tuple(int(np.asarray(idx.accept(self)).reshape(-1)[0]) for idx in (clause.indices or ()))
                     value = clause.value.accept(self)
                     arr = np.asarray(value, dtype=output.dtype)
+                    if output.ndim == 0 and arr.ndim > 0:
+                        return arr
                     if arr.size == 1:
                         output[idx_tuple] = arr.reshape(-1)[0]
                         continue

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from ..base import BasePass, TyCtxt
 from ...ir.nodes import (
@@ -20,6 +20,7 @@ from ...ir.nodes import (
     FunctionValueIR,
     IdentifierIR,
     IfExpressionIR,
+    IRNode,
     IndexVarIR,
     JvpIR,
     LazyJacobianIR,
@@ -44,9 +45,11 @@ from .compiletime import (
     _AutodiffBindingContext,
     _DependencyQueryCache,
     _Differentiator,
+    _binding_identifier,
     _binding_map,
     _binding_shape,
     _clone_expr,
+    _collect_defids,
     _make_cotangent_objective,
     _simplify,
     _substitute_identifiers,
@@ -355,7 +358,6 @@ class _PlainRequestLowerer:
             resolver,
             local_contexts=local_contexts,
         )
-
     @staticmethod
     def _int_literal_expr(value: int, loc: Any) -> LiteralIR:
         return LiteralIR(int(value), loc, type_info=PrimitiveType("i32"))
@@ -469,9 +471,135 @@ class _PlainRequestLowerer:
             return tuple(_clone_expr(dim) for dim in raw_shape)
         return ()
 
+    def _sum_contributions(
+        self,
+        binding: BindingIR,
+        contributions: List[ExpressionIR],
+        loc: Any,
+    ) -> ExpressionIR:
+        if not contributions:
+            return self._default_seed(binding, loc, 0.0)
+        acc = contributions[0]
+        for expr in contributions[1:]:
+            acc = _simplify(
+                BinaryOpIR(
+                    BinaryOp.ADD,
+                    acc,
+                    expr,
+                    loc,
+                    type_info=_tensor_type_info(binding),
+                    shape_info=tuple(_clone_expr(dim) for dim in self._binding_shape(binding)) or (),
+                )
+            )
+        return acc
+
+    def _build_shared_scalar_target_bars(
+        self,
+        target_defid: DefId,
+        wrt_defids: List[DefId],
+        loc: Any,
+    ) -> Tuple[List[BindingIR], Dict[DefId, IdentifierIR]]:
+        scope_bindings = dict(self._binding_map)
+        scope_bindings.update(self._local_contexts.get(target_defid) or {})
+        ctx = _AutodiffBindingContext(bindings=scope_bindings, dep_cache=_DependencyQueryCache(scope_bindings))
+        requested = set(wrt_defids)
+
+        needed_memo: Dict[DefId, bool] = {}
+
+        def needed(did: DefId) -> bool:
+            if did in needed_memo:
+                return needed_memo[did]
+            if did in requested:
+                needed_memo[did] = True
+                return True
+            needed_memo[did] = False
+            for dep in ctx.deps_for(did):
+                if dep in scope_bindings and needed(dep):
+                    needed_memo[did] = True
+                    return True
+            return False
+
+        if not needed(target_defid):
+            return [], {}
+
+        order: List[DefId] = []
+        seen: Set[DefId] = set()
+
+        def dfs(did: DefId) -> None:
+            if did in seen:
+                return
+            seen.add(did)
+            for dep in ctx.deps_for(did):
+                if dep in scope_bindings and needed(dep):
+                    dfs(dep)
+            order.append(did)
+
+        dfs(target_defid)
+        target_first = list(reversed(order))
+
+        bar_binding_by_defid: Dict[DefId, BindingIR] = {}
+        bar_ident_by_defid: Dict[DefId, IdentifierIR] = {}
+        for did in target_first:
+            binding = scope_bindings[did]
+            bar_defid = self._fresh_defid()
+            bar_name = self._fresh_name(f"__ad_bar_{binding.name or 'tmp'}")
+            ident = IdentifierIR(
+                bar_name,
+                loc,
+                defid=bar_defid,
+                type_info=_tensor_type_info(binding),
+                shape_info=tuple(_clone_expr(dim) for dim in self._binding_shape(binding)) or (),
+            )
+            bar_ident_by_defid[did] = ident
+            bar_binding_by_defid[did] = BindingIR(
+                bar_name,
+                None,
+                location=loc,
+                defid=bar_defid,
+                type_info=_tensor_type_info(binding),
+            )
+
+        contributions: Dict[DefId, List[ExpressionIR]] = {did: [] for did in target_first}
+        target_binding = scope_bindings[target_defid]
+        contributions[target_defid].append(self._default_seed(target_binding, loc, 1.0))
+
+        emitted: List[BindingIR] = []
+        for did in target_first:
+            binding = scope_bindings[did]
+            bar_expr = self._sum_contributions(binding, contributions.get(did, []), loc)
+            bar_expr = self._hoist_tensor_arrays_from_reductions(bar_expr)
+            emitted.append(
+                BindingIR(
+                    bar_ident_by_defid[did].name,
+                    bar_expr,
+                    location=loc,
+                    defid=bar_ident_by_defid[did].defid,
+                    type_info=_tensor_type_info(binding),
+                )
+            )
+            for dep in ctx.deps_for(did):
+                if dep not in scope_bindings or not needed(dep):
+                    continue
+                source_binding = scope_bindings[did]
+                dep_binding = scope_bindings[dep]
+                contribution = self._lower_vjp(
+                    VjpIR(
+                        target=_binding_identifier(source_binding),
+                        wrt=_binding_identifier(dep_binding),
+                        location=loc,
+                        cotangent=_clone_expr(bar_ident_by_defid[did]),
+                        type_info=_tensor_type_info(dep_binding),
+                        shape_info=tuple(_clone_expr(dim) for dim in self._binding_shape(dep_binding)),
+                    ),
+                    cotangent_expr=_clone_expr(bar_ident_by_defid[did]),
+                    emit_intermediate_bindings=False,
+                )
+                contributions.setdefault(dep, []).append(contribution)
+        return emitted, {did: bar_ident_by_defid[did] for did in requested if did in bar_ident_by_defid}
+
     def rewrite_statement_list(self, statements: Iterable[Any]) -> List[Any]:
         out: List[Any] = []
-        for stmt in statements:
+        for stmt in list(statements):
             out.extend(self.rewrite_statement(stmt))
         return out
 
@@ -525,11 +653,12 @@ class _PlainRequestLowerer:
         local_bindings: Optional[Dict[DefId, BindingIR]] = None,
         fallback_type: Any = None,
         fallback_shape: Any = None,
+        emit_intermediate_bindings: bool = True,
     ) -> ExpressionIR:
         seed_defid, seed_ident, seed_binding = self._make_seed_placeholder("__autodiff_tangent", wrt_binding, loc)
         scoped_locals = dict(local_bindings or {})
         scoped_locals[seed_defid] = seed_binding
-        emitted_bindings: List[BindingIR] = []
+        emitted_bindings: Optional[List[BindingIR]] = [] if emit_intermediate_bindings else None
         template = self._differentiator.differentiate_expr(
             expr,
             wrt_binding.defid,
@@ -554,6 +683,183 @@ class _PlainRequestLowerer:
             fallback_type=fallback_type,
             fallback_shape=fallback_shape,
         )
+
+    def _hoist_tensor_arrays_from_reductions(self, expr: ExpressionIR) -> ExpressionIR:
+        def make_rewriter(local_blocked: Set[DefId], bindings: List[BindingIR], memo: Dict[int, IdentifierIR], inherited_blocked: Set[DefId]):
+            def rewrite(cur: ExpressionIR) -> ExpressionIR:
+                if isinstance(cur, RectangularAccessIR):
+                    arr = rewrite(cur.array) if isinstance(cur.array, ExpressionIR) else cur.array
+                    idxs = [rewrite(idx) if isinstance(idx, ExpressionIR) else idx for idx in (cur.indices or ())]
+                    candidate = arr
+                    if (
+                        isinstance(candidate, (EinsteinIR, BlockExpressionIR, IfExpressionIR))
+                        and not (_collect_defids(candidate) & local_blocked)
+                    ):
+                        key = id(candidate)
+                        ident = memo.get(key)
+                        if ident is None:
+                            did = self._fresh_defid()
+                            name = self._fresh_name("__ad_hoist")
+                            ident = IdentifierIR(
+                                name,
+                                candidate.location or cur.location,
+                                defid=did,
+                                type_info=getattr(candidate, "type_info", None),
+                                shape_info=getattr(candidate, "shape_info", None),
+                            )
+                            memo[key] = ident
+                            bindings.append(
+                                BindingIR(
+                                    name,
+                                    candidate,
+                                    location=candidate.location or cur.location,
+                                    defid=did,
+                                    type_info=getattr(candidate, "type_info", None),
+                                )
+                            )
+                        return RectangularAccessIR(
+                            _clone_expr(ident),
+                            idxs,
+                            cur.location,
+                            type_info=cur.type_info,
+                            shape_info=cur.shape_info,
+                        )
+                    return RectangularAccessIR(arr, idxs, cur.location, type_info=cur.type_info, shape_info=cur.shape_info)
+                if isinstance(cur, BinaryOpIR):
+                    return BinaryOpIR(cur.operator, rewrite(cur.left), rewrite(cur.right), cur.location, type_info=cur.type_info, shape_info=cur.shape_info)
+                if isinstance(cur, UnaryOpIR):
+                    return UnaryOpIR(cur.operator, rewrite(cur.operand), cur.location, type_info=cur.type_info, shape_info=cur.shape_info)
+                if isinstance(cur, IfExpressionIR):
+                    return IfExpressionIR(
+                        rewrite(cur.condition),
+                        rewrite(cur.then_expr),
+                        cur.location,
+                        else_expr=rewrite(cur.else_expr) if cur.else_expr is not None else None,
+                        type_info=cur.type_info,
+                        shape_info=cur.shape_info,
+                    )
+                if isinstance(cur, BuiltinCallIR):
+                    return BuiltinCallIR(
+                        builtin_name=cur.builtin_name,
+                        args=tuple(rewrite(arg) for arg in (cur.args or ())),
+                        location=cur.location,
+                        defid=cur.defid,
+                        type_info=cur.type_info,
+                        shape_info=cur.shape_info,
+                    )
+                    if isinstance(cur, FunctionCallIR):
+                        return FunctionCallIR(
+                            callee_expr=rewrite(cur.callee_expr),
+                            location=cur.location,
+                            arguments=tuple(rewrite(arg) for arg in (cur.arguments or ())),
+                            module_path=cur.module_path,
+                            type_info=cur.type_info,
+                            shape_info=cur.shape_info,
+                        )
+                if isinstance(cur, BlockExpressionIR):
+                    return BlockExpressionIR(
+                        [stmt if not isinstance(stmt, ExpressionIR) else rewrite(stmt) for stmt in (cur.statements or ())],
+                        cur.location,
+                        rewrite(cur.final_expr) if cur.final_expr is not None else None,
+                        type_info=cur.type_info,
+                        shape_info=cur.shape_info,
+                    )
+                if isinstance(cur, ReductionExpressionIR):
+                    return transform(cur, inherited_blocked) or cur
+                if isinstance(cur, ArrayComprehensionIR):
+                    return transform(cur, inherited_blocked) or cur
+                if isinstance(cur, EinsteinIR):
+                    return transform(cur, inherited_blocked) or cur
+                return cur
+            return rewrite
+
+        def transform(node: Optional[ExpressionIR], blocked: Set[DefId]) -> Optional[ExpressionIR]:
+            if node is None:
+                return None
+            if isinstance(node, ReductionExpressionIR):
+                local_blocked = {
+                    getattr(loop_var, "defid", None)
+                    for loop_var in (node.loop_vars or ())
+                    if getattr(loop_var, "defid", None) is not None
+                }
+                body = transform(node.body, blocked | local_blocked)
+                if body is None:
+                    return node
+                bindings: List[BindingIR] = []
+                memo: Dict[int, IdentifierIR] = {}
+                rewrite = make_rewriter(local_blocked, bindings, memo, blocked | local_blocked)
+                rebuilt = ReductionExpressionIR(
+                    node.operation,
+                    list(node.loop_vars or ()),
+                    rewrite(body),
+                    node.location,
+                    where_clause=node.where_clause,
+                    loop_var_ranges=dict(node.loop_var_ranges or {}),
+                    type_info=node.type_info,
+                    shape_info=node.shape_info,
+                )
+                if bindings:
+                    return BlockExpressionIR(bindings, node.location, rebuilt, type_info=rebuilt.type_info, shape_info=rebuilt.shape_info)
+                return rebuilt
+            if isinstance(node, ArrayComprehensionIR):
+                local_blocked = {
+                    getattr(loop_var, "defid", None)
+                    for loop_var in (node.loop_vars or ())
+                    if getattr(loop_var, "defid", None) is not None
+                }
+                body = transform(node.body, blocked | local_blocked)
+                if body is None:
+                    return node
+                bindings: List[BindingIR] = []
+                memo: Dict[int, IdentifierIR] = {}
+                rewrite = make_rewriter(local_blocked, bindings, memo, blocked | local_blocked)
+                rebuilt = ArrayComprehensionIR(
+                    rewrite(body),
+                    list(node.loop_vars or ()),
+                    list(node.ranges or ()),
+                    node.location,
+                    type_info=node.type_info,
+                    shape_info=node.shape_info,
+                    constraints=list(node.constraints or ()),
+                )
+                if bindings:
+                    return BlockExpressionIR(bindings, node.location, rebuilt, type_info=rebuilt.type_info, shape_info=rebuilt.shape_info)
+                return rebuilt
+            if isinstance(node, EinsteinIR):
+                bindings: List[BindingIR] = []
+                memo: Dict[int, IdentifierIR] = {}
+                new_clauses: List[EinsteinClauseIR] = []
+                for clause in node.clauses or ():
+                    local_blocked = {
+                        getattr(idx, "defid", None)
+                        for idx in (clause.indices or ())
+                        if getattr(idx, "defid", None) is not None
+                    }
+                    value = transform(clause.value, blocked | local_blocked)
+                    rewrite = make_rewriter(local_blocked, bindings, memo, blocked | local_blocked)
+                    new_clause = EinsteinClauseIR(
+                        indices=[_clone_expr(idx) for idx in (clause.indices or ())],
+                        value=rewrite(value) if value is not None else None,
+                        location=clause.location,
+                        where_clause=clause.where_clause,
+                        variable_ranges=dict(clause.variable_ranges or {}),
+                    )
+                    new_clauses.append(new_clause)
+                rebuilt = EinsteinIR(
+                    clauses=new_clauses,
+                    shape=list(node.shape or ()) if node.shape is not None else None,
+                    element_type=node.element_type,
+                    location=node.location,
+                    type_info=node.type_info,
+                    shape_info=node.shape_info,
+                )
+                if bindings:
+                    return BlockExpressionIR(bindings, node.location, rebuilt, type_info=rebuilt.type_info, shape_info=rebuilt.shape_info)
+                return rebuilt
+            return node
+
+        transformed = transform(expr, set())
+        return transformed if transformed is not None else expr
 
     def _normalize_tensor_body(
         self,
@@ -625,9 +931,16 @@ class _PlainRequestLowerer:
             local_bindings=local_bindings,
             fallback_type=node.type_info,
             fallback_shape=node.shape_info,
+            emit_intermediate_bindings=True,
         )
 
-    def _lower_vjp(self, node: VjpIR, cotangent_expr: Optional[ExpressionIR]) -> ExpressionIR:
+    def _lower_vjp(
+        self,
+        node: VjpIR,
+        cotangent_expr: Optional[ExpressionIR],
+        *,
+        emit_intermediate_bindings: bool = True,
+    ) -> ExpressionIR:
         target_binding = _binding_by_identifier(node.target, self._binding_map)
         wrt_binding = _binding_by_identifier(node.wrt, self._binding_map)
         if target_binding is None or wrt_binding is None or target_binding.expr is None:
@@ -647,6 +960,7 @@ class _PlainRequestLowerer:
                 local_bindings=local_bindings,
                 fallback_type=node.type_info,
                 fallback_shape=node.shape_info,
+                emit_intermediate_bindings=emit_intermediate_bindings,
             )
             lowered = _simplify(_substitute_identifiers(lowered, {cot_defid: cotangent_value}))
             return _stamp_expr_metadata(
@@ -667,6 +981,7 @@ class _PlainRequestLowerer:
             local_bindings=local_bindings,
             fallback_type=_tensor_element_type(wrt_binding, node.type_info),
             fallback_shape=(),
+            emit_intermediate_bindings=emit_intermediate_bindings,
         )
         gradient_component = _simplify(_substitute_identifiers(gradient_component, {cot_defid: cotangent_value}))
         lowered = self._nest_array_comprehensions(
