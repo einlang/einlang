@@ -1164,7 +1164,12 @@ class ExpressionVisitorMixin:
                         self.env.set_value(defid, val)
                 if not (expr.guards and not check_lowered_guards(expr.guards, full, lambda c: self._to_bool(c.accept(self)))):
                     results.append(expr.body.accept(self))
-        return np.array(results) if results else np.array([])
+        if not results:
+            return np.array([])
+        try:
+            return np.array(results)
+        except ValueError:
+            return list(results)
 
     def visit_array_literal(self, expr: ArrayLiteralIR) -> Any:
         type_info = expr.type_info
@@ -1192,7 +1197,10 @@ class ExpressionVisitorMixin:
                     dtype = np.float32
         if dtype is not None:
             return np.array(evaluated, dtype=dtype)
-        return np.array(evaluated)
+        try:
+            return np.array(evaluated)
+        except ValueError:
+            return list(evaluated)
 
     def visit_tuple_expression(self, expr: TupleExpressionIR) -> Any:
         return tuple(e.accept(self) for e in expr.elements)
