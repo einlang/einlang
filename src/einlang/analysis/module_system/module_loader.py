@@ -75,6 +75,7 @@ def _read_file_cached(file_path: Path) -> str:
 # In-process pickle-byte cache: avoids repeated deepcopy by using C-level pickle.loads.
 # Keys match _parse_source's lru_cache keys.
 _parse_pickle_bytes: Dict[Tuple[str, str], bytes] = {}
+_parser_instance = None
 
 
 @lru_cache(maxsize=512)
@@ -100,18 +101,28 @@ def _parse_source(source_code: str, source_file: str):
             except Exception as exc:
                 logger.debug("Disk parse cache load failed (%s): %s", cache_file.name, exc)
 
-    from ...frontend.parser import Parser
-    result = Parser().parse(source_code, source_file)
+    global _parser_instance
+    if _parser_instance is None:
+        from ...frontend.parser import Parser
+
+        _parser_instance = Parser()
+    result = _parser_instance.parse(source_code, source_file)
+
+    try:
+        _parse_pickle_bytes[(source_code, source_file)] = pickle.dumps(
+            result, protocol=pickle.HIGHEST_PROTOCOL
+        )
+    except Exception as exc:
+        logger.debug("In-memory parse pickle cache save failed: %s", exc)
 
     if cache_dir is not None:
         key = hashlib.sha256((source_code + "\x00" + source_file).encode()).hexdigest()[:24]
         cache_file = cache_dir / f"parse_{key}.pkl"
         tmp = cache_file.with_suffix(".tmp")
         try:
-            raw = pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL)
+            raw = _parse_pickle_bytes[(source_code, source_file)]
             tmp.write_bytes(raw)
             tmp.replace(cache_file)
-            _parse_pickle_bytes[(source_code, source_file)] = raw
         except Exception as exc:
             logger.debug("Disk parse cache save failed: %s", exc)
 

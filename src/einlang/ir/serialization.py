@@ -522,6 +522,8 @@ class IRSerializer:
                 self._sym(":recurrence_dims_override"), list(rec_override_sexpr)]
         if red_defids_str:
             core.extend([self._sym(":reduction_loop_defids"), red_defids_str])
+        if getattr(node, "execution_facts_id", None) is not None:
+            core.extend([self._sym(":execution_facts_id"), int(node.execution_facts_id)])
         if self.include_location and node.location:
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
@@ -532,10 +534,13 @@ class IRSerializer:
         shape = [self.serialize_to_sexpr(s) for s in node.shape] if node.shape else []
         elem_type = self._serialize_type(node.element_type) if node.element_type else [self._sym("nil")]
         items = [self.serialize_to_sexpr(clause) for clause in node.items]
-        return [self._sym("lowered-einstein"),
+        core = [self._sym("lowered-einstein"),
                 self._sym(":shape"), shape,
                 self._sym(":element_type"), elem_type,
                 self._sym(":items"), items]
+        if getattr(node, "execution_facts_id", None) is not None:
+            core.extend([self._sym(":execution_facts_id"), int(node.execution_facts_id)])
+        return core
 
     def _serialize_LoweredRecurrenceIR(self, node) -> list:
         """Serialize LoweredRecurrenceIR: (lowered-recurrence :initial ... :recurrence_loop ... :body ...)."""
@@ -706,6 +711,8 @@ class IRSerializer:
             core.extend([self._sym(":guards"), [self.serialize_to_sexpr(g.condition) for g in node.guards]])
         if getattr(node, "use_argmin", False):
             core.extend([self._sym(":use_argmin"), self._sym("true")])
+        if getattr(node, "execution_facts_id", None) is not None:
+            core.extend([self._sym(":execution_facts_id"), int(node.execution_facts_id)])
         return self._add_expr_metadata(node, core)
 
     def _serialize_ReductionExpressionIR(self, node) -> list:
@@ -1767,6 +1774,7 @@ class IRDeserializer:
                 if cond is not None:
                     guards.append(GuardCondition(condition=cond))
         use_argmin = opts.get(":use_argmin") is not None
+        execution_facts_id = opts.get(":execution_facts_id")
         ty = self._deserialize_type(opts.get(":inferred_type"))
         shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
         return LoweredSelectAtArgmaxIR(
@@ -1779,6 +1787,7 @@ class IRDeserializer:
             type_info=ty,
             shape_info=shape_info,
             use_argmin=use_argmin,
+            execution_facts_id=int(execution_facts_id) if isinstance(execution_facts_id, (int, float)) else None,
         )
 
     def _deserialize_lowered_comprehension(self, _tag: str, tail: list, _full: list) -> Any:
@@ -1855,7 +1864,18 @@ class IRDeserializer:
         recurrence_dims_override = None
         if isinstance(rec_override_raw, list):
             recurrence_dims_override = [int(x) for x in rec_override_raw if isinstance(x, (int, float))]
-        return LoweredEinsteinClauseIR(body=body, loops=loops, bindings=bindings, guards=guards, reduction_ranges=red_ranges, indices=indices, recurrence_dims_override=recurrence_dims_override, location=loc)
+        execution_facts_id = opts.get(":execution_facts_id")
+        return LoweredEinsteinClauseIR(
+            body=body,
+            loops=loops,
+            bindings=bindings,
+            guards=guards,
+            reduction_ranges=red_ranges,
+            indices=indices,
+            recurrence_dims_override=recurrence_dims_override,
+            execution_facts_id=int(execution_facts_id) if isinstance(execution_facts_id, (int, float)) else None,
+            location=loc,
+        )
 
     def _deserialize_lowered_einstein(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LoweredEinsteinIR
@@ -1866,7 +1886,14 @@ class IRDeserializer:
         element_type = self._deserialize_type(opts.get(":element_type"))
         items_sexpr = opts.get(":items")
         items = [self.deserialize(s) for s in items_sexpr] if isinstance(items_sexpr, list) else []
-        return LoweredEinsteinIR(items=items, shape=shape, element_type=element_type, location=loc)
+        execution_facts_id = opts.get(":execution_facts_id")
+        return LoweredEinsteinIR(
+            items=items,
+            shape=shape,
+            element_type=element_type,
+            execution_facts_id=int(execution_facts_id) if isinstance(execution_facts_id, (int, float)) else None,
+            location=loc,
+        )
 
     def _deserialize_lowered_recurrence(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import LoweredRecurrenceIR

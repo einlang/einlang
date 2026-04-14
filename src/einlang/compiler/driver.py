@@ -297,8 +297,7 @@ class CompilerDriver:
         ir: Optional[ProgramIR] = None
         try:
             # Phase 1: Parsing (source → AST)
-            parser = Parser()
-            ast = parser.parse(source, source_file)
+            ast = self.parser.parse(source, source_file)
             
             if root_path is None:
                 root_path = Path.cwd()

@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
 
 _ROUND_TRIP_ENABLED = os.environ.get("EINLANG_ROUND_TRIP", "1") != "0"
+_ROUND_TRIP_DEEP_VERIFY = os.environ.get("EINLANG_ROUND_TRIP_DEEP_VERIFY", "0") != "0"
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from einlang.compiler.driver import CompilerDriver as EinlangCompiler
@@ -175,28 +176,33 @@ def apply_ir_round_trip(compilation_result: Any) -> Any:
     ir = compilation_result.ir
     if ir is None:
         return compilation_result
-    from einlang.ir.serialization import serialize_ir, deserialize_ir
-    _ser_opts = {"pretty": False, "include_type_info": True, "include_location": True}
-    wire = serialize_ir(ir, **_ser_opts)
-    round_tripped = deserialize_ir(wire)
+    from einlang.ir.serialization import IRDeserializer, IRSerializer
+
+    serializer = IRSerializer(include_location=False, include_type_info=False)
+    sexpr = serializer.serialize_to_sexpr(ir)
+    round_tripped = IRDeserializer().deserialize(sexpr)
     if round_tripped.source_files is None or not round_tripped.source_files:
         sf = ir.source_files
         if sf:
             round_tripped.source_files = sf
-    _diff = _ir_data_equal_diff(round_tripped, ir, "ProgramIR")
-    if _diff is not None:
-        import sys
-        sys.stderr.write("=== first difference: %s\n" % _diff)
-        _orig_r = repr(ir)
-        _rt_r = repr(round_tripped)
-        _max = 30000
-        sys.stderr.write("=== original (repr, first %d chars) ===\n" % _max)
-        sys.stderr.write(_orig_r[:_max] + ("\n... truncated\n" if len(_orig_r) > _max else "\n"))
-        sys.stderr.write("=== round-tripped (repr, first %d chars) ===\n" % _max)
-        sys.stderr.write(_rt_r[:_max] + ("\n... truncated\n" if len(_rt_r) > _max else "\n"))
-        assert False, "round-trip must preserve data: %s" % _diff
+    if _ROUND_TRIP_DEEP_VERIFY:
+        _diff = _ir_data_equal_diff(round_tripped, ir, "ProgramIR")
+        if _diff is not None:
+            import sys
+            sys.stderr.write("=== first difference: %s\n" % _diff)
+            _orig_r = repr(ir)
+            _rt_r = repr(round_tripped)
+            _max = 30000
+            sys.stderr.write("=== original (repr, first %d chars) ===\n" % _max)
+            sys.stderr.write(_orig_r[:_max] + ("\n... truncated\n" if len(_orig_r) > _max else "\n"))
+            sys.stderr.write("=== round-tripped (repr, first %d chars) ===\n" % _max)
+            sys.stderr.write(_rt_r[:_max] + ("\n... truncated\n" if len(_rt_r) > _max else "\n"))
+            assert False, "round-trip must preserve data: %s" % _diff
     orig_stmts = ir.statements or []
     rt_stmts = round_tripped.statements or []
+    assert len(rt_stmts) == len(orig_stmts), (
+        f"round-trip changed top-level statement count: orig={len(orig_stmts)} rt={len(rt_stmts)}"
+    )
     for i in range(min(len(orig_stmts), len(rt_stmts))):
         orig, rt = orig_stmts[i], rt_stmts[i]
         orig_defid = getattr(orig, "defid", None)

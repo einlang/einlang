@@ -123,14 +123,33 @@ def _expr_contains_lowered_reduction(node: Any) -> bool:
 
 
 class EinsteinExecutionClauseMixin:
+    def _clause_loop_ranges(
+        self,
+        lowered: Any,
+        expr_evaluator: Any,
+    ) -> List[Tuple[int, int]]:
+        ranges: List[Tuple[int, int]] = []
+        clause_facts = None
+        lowered_clause_facts = getattr(self, "_lowered_einstein_clause_facts", None)
+        if callable(lowered_clause_facts):
+            clause_facts = lowered_clause_facts(lowered)
+        static_ranges = list(getattr(clause_facts, "static_loop_ranges", ()) or ()) if clause_facts is not None else []
+        for idx, loop in enumerate(lowered.loops or []):
+            static_range = static_ranges[idx] if idx < len(static_ranges) else None
+            if static_range is not None:
+                ranges.append((int(static_range[0]), int(static_range[1])))
+            else:
+                start, end = _extract_loop_range(loop, expr_evaluator)
+                ranges.append((int(start), int(end)))
+        return ranges
+
     def _clause_loop_slices(
         self,
         lowered: Any,
         expr_evaluator: Any,
     ) -> List[Any]:
         slices: List[Any] = []
-        for loop in lowered.loops:
-            start, end = _extract_loop_range(loop, expr_evaluator)
+        for start, end in self._clause_loop_ranges(lowered, expr_evaluator):
             slices.append(slice(int(start), int(end)))
         return slices
 
@@ -309,31 +328,57 @@ class EinsteinExecutionClauseMixin:
             def expr_evaluator(expr: Any) -> Any:
                 return expr.accept(self)
 
-            has_literal_idx = any(isinstance(idx, LiteralIR) for idx in clause_indices)
+            clause_facts = None
+            lowered_clause_facts = getattr(self, "_lowered_einstein_clause_facts", None)
+            if callable(lowered_clause_facts):
+                clause_facts = lowered_clause_facts(lowered)
+            has_literal_idx = (
+                bool(getattr(clause_facts, "has_literal_index", False))
+                if clause_facts is not None
+                else any(isinstance(idx, LiteralIR) for idx in clause_indices)
+            )
             object_output = isinstance(output, np.ndarray) and output.dtype == object
             body_node = lowered.body
             _body = lowered.body
             _bindings = lowered.bindings or []
             _guards = lowered.guards or []
             _loops = lowered.loops
-            _loop_defid_to_name = {}
-            for lp in _loops:
-                v = lp.variable
-                if v and v.defid:
-                    _loop_defid_to_name[v.defid] = v.name
-            loop_defids = [lp.variable.defid for lp in (lowered.loops or [])]
-            loop_defids_nonnull = [d for d in loop_defids if d is not None]
-            cached_has_call_using_loop = getattr(self, "_cached_body_contains_call_using_loop_var", None)
-            if callable(cached_has_call_using_loop):
-                has_call_using_loop = cached_has_call_using_loop(body_node, loop_defids_nonnull)
+            _loop_defid_to_name = (
+                dict(getattr(clause_facts, "loop_names_by_defid", {}) or {})
+                if clause_facts is not None
+                else {}
+            )
+            if not _loop_defid_to_name:
+                for lp in _loops:
+                    v = lp.variable
+                    if v and v.defid:
+                        _loop_defid_to_name[v.defid] = v.name
+            loop_defids = (
+                list(getattr(clause_facts, "loop_defids", ()) or ())
+                if clause_facts is not None
+                else [lp.variable.defid for lp in (lowered.loops or [])]
+            )
+            loop_defids_nonnull = (
+                list(getattr(clause_facts, "loop_defids_nonnull", ()) or ())
+                if clause_facts is not None
+                else [d for d in loop_defids if d is not None]
+            )
+            if clause_facts is not None:
+                has_call_using_loop = bool(getattr(clause_facts, "body_contains_call_using_loop_var", False))
+                call_arg_loop_defids = set(getattr(clause_facts, "call_arg_loop_defids", ()) or ())
             else:
                 has_call_using_loop = _body_contains_call_using_loop_var(body_node, loop_defids_nonnull)
+                call_arg_loop_defids = _loop_defids_in_call_args(body_node, loop_defids)
             # Some autodiff-generated helper clauses use block bodies with nested lowered
             # reductions/selects. Those can still execute correctly with broadcast loop
             # bindings, and eagerly forcing scalar here makes MNIST one-step training
             # spend most of its time in nested Python loops. Keep the scalar fallback
             # below, but optimistically try the normal vectorized paths first.
-            force_scalar_clause = _block_has_direct_nested_lowered_binding(body_node)
+            force_scalar_clause = (
+                bool(getattr(clause_facts, "body_has_direct_nested_lowered_binding", False))
+                if clause_facts is not None
+                else _block_has_direct_nested_lowered_binding(body_node)
+            )
             if object_output and not lowered.loops:
                 with self.env.scope():
                     if variable_defid is not None:
@@ -452,11 +497,10 @@ class EinsteinExecutionClauseMixin:
                 and has_call_using_loop
                 and not object_output
             ):
-                scalar_defids = _loop_defids_in_call_args(body_node, loop_defids)
                 scalar_loop_indices_call = [
                     dim
                     for dim, lp in enumerate(lowered.loops)
-                    if lp.variable.defid in scalar_defids
+                    if lp.variable.defid in call_arg_loop_defids
                 ]
                 if 0 < len(scalar_loop_indices_call) < len(lowered.loops):
                     call_hybrid_out = _try_call_scalar_vectorize_clause(
@@ -581,7 +625,7 @@ class EinsteinExecutionClauseMixin:
                     and len(lowered.loops) == output.ndim
                 ):
                     try:
-                        full_ranges = [_extract_loop_range(lp, expr_evaluator) for lp in lowered.loops]
+                        full_ranges = self._clause_loop_ranges(lowered, expr_evaluator)
                         if len(full_ranges) == output.ndim and output.shape[0] > 1:
                             rest_size = max(1, output.size // output.shape[0])
                             chunk_rows = max(1, min(output.shape[0], chunk_threshold // rest_size))
@@ -620,7 +664,7 @@ class EinsteinExecutionClauseMixin:
                 vec_shape = list(output.shape)
                 if has_literal_idx and len(clause_indices) == output.ndim:
                     try:
-                        vec_shape = [int(_extract_loop_range(lp, expr_evaluator)[1]) - int(_extract_loop_range(lp, expr_evaluator)[0]) for lp in lowered.loops]
+                        vec_shape = [int(end) - int(start) for start, end in self._clause_loop_ranges(lowered, expr_evaluator)]
                     except (RuntimeError, TypeError, ValueError):
                         vec_shape = list(output.shape)
                 vec_result = _try_vectorize_clause(
@@ -756,11 +800,10 @@ class EinsteinExecutionClauseMixin:
                 and not has_literal_idx
                 and has_call_using_loop
             ):
-                scalar_defids = _loop_defids_in_call_args(body_node, loop_defids)
                 scalar_loop_indices = [
                     dim
                     for dim, lp in enumerate(lowered.loops)
-                    if lp.variable.defid in scalar_defids
+                    if lp.variable.defid in call_arg_loop_defids
                 ]
                 if 0 < len(scalar_loop_indices) < len(lowered.loops):
                     call_hybrid_out = _try_call_scalar_vectorize_clause(
@@ -786,9 +829,8 @@ class EinsteinExecutionClauseMixin:
 
             # Element-wise call (e.g. gelu(fc1[s,k])): must run once with full array, not scalar loop.
             if lowered.loops:
-                cached_body_is_elementwise_call = getattr(self, "_cached_body_is_elementwise_call", None)
-                if callable(cached_body_is_elementwise_call):
-                    body_is_elementwise = cached_body_is_elementwise_call(body_node, loop_defids)
+                if clause_facts is not None:
+                    body_is_elementwise = bool(getattr(clause_facts, "body_is_elementwise_call", False))
                 else:
                     body_is_elementwise = _body_is_elementwise_call(body_node, loop_defids)
             else:
@@ -930,17 +972,19 @@ class EinsteinExecutionClauseMixin:
                         if _guards and not check_lowered_guards(_guards, full_context, lambda e: _to_bool(e.accept(self))):
                             continue
                         try:
-                            contains_ir_types = getattr(self, "_cached_contains_ir_types", None)
-                            if callable(contains_ir_types):
-                                needs_outer_reduction_ctx = contains_ir_types(
-                                    _body,
-                                    LoweredSelectAtArgmaxIR,
-                                    LoweredReductionIR,
+                            if clause_facts is not None:
+                                needs_outer_reduction_ctx = bool(
+                                    getattr(clause_facts, "body_contains_nested_reduction_or_select", False)
                                 )
+                                _body_defids_by_name = {
+                                    name: list(dids)
+                                    for name, dids in (getattr(clause_facts, "body_defids_by_name", {}) or {}).items()
+                                }
                             else:
                                 needs_outer_reduction_ctx = _expr_contains_lowered_select_at_argmax(_body) or _expr_contains_lowered_reduction(
                                     _body
                                 )
+                                _body_defids_by_name = _collect_defids_by_name(_body)
                             if needs_outer_reduction_ctx:
                                 # Pass parallel indices into reduction so guard/body can see them.
                                 # For SelectAtArgmaxIR bodies, primal_body and diff_body may use
@@ -950,11 +994,6 @@ class EinsteinExecutionClauseMixin:
                                 _ri_ctx.update(full_context)
                                 if _loops and _body is not None:
                                     _outer_val = full_context
-                                    body_name_cache = getattr(self, "_cached_defids_by_name", None)
-                                    if callable(body_name_cache):
-                                        _body_defids_by_name = body_name_cache(_body)
-                                    else:
-                                        _body_defids_by_name = _collect_defids_by_name(_body)
                                     for _lp in _loops:
                                         _vv = _lp.variable
                                         if (

@@ -1434,7 +1434,16 @@ class LoweredIteration(IRNode):
 class LoweredEinsteinClauseIR(IRNode):
     """Single lowered Einstein clause (body, loops, bindings, guards, indices). reduction_ranges keyed by DefId.
     recurrence_dims_override: set by RecurrenceOrderPass when clause has same-timestep dependency (e.g. reads u[t,0] when writing u[t,1])."""
-    __slots__ = ('body', 'loops', 'reduction_ranges', 'bindings', 'guards', 'indices', 'recurrence_dims_override')
+    __slots__ = (
+        'body',
+        'loops',
+        'reduction_ranges',
+        'bindings',
+        'guards',
+        'indices',
+        'recurrence_dims_override',
+        'execution_facts_id',
+    )
 
     def __init__(
         self,
@@ -1445,6 +1454,7 @@ class LoweredEinsteinClauseIR(IRNode):
         guards: Optional[List[GuardCondition]] = None,
         indices: Optional[List[Any]] = None,
         recurrence_dims_override: Optional[List[int]] = None,
+        execution_facts_id: Optional[int] = None,
         location: Optional[SourceLocation] = None,
     ):
         super().__init__(location or SourceLocation('', 0, 0))
@@ -1455,6 +1465,7 @@ class LoweredEinsteinClauseIR(IRNode):
         self.guards = _t(guards)
         self.indices = _t(indices)
         self.recurrence_dims_override = recurrence_dims_override
+        self.execution_facts_id = execution_facts_id
     
     def __str__(self) -> str:
         idx = ', '.join(str(i) for i in self.indices) if self.indices else ''
@@ -1466,16 +1477,18 @@ class LoweredEinsteinClauseIR(IRNode):
 
 class LoweredEinsteinIR(IRNode):
     """Lowered Einstein declaration: one tensor, one shape. All clauses write to the same memory (same shape)."""
-    __slots__ = ('items', 'shape', 'element_type')
+    __slots__ = ('items', 'shape', 'element_type', 'execution_facts_id')
 
     def __init__(self, items: List['LoweredEinsteinClauseIR'],
                  shape: Optional[List[ExpressionIR]] = None,
                  element_type: Optional[Any] = None,
+                 execution_facts_id: Optional[int] = None,
                  location: Optional[SourceLocation] = None):
         super().__init__(location or SourceLocation('', 0, 0))
         self.items = _t(items)
         self.shape = _t(shape) if shape is not None else None
         self.element_type = element_type
+        self.execution_facts_id = execution_facts_id
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_lowered_einstein(self)
@@ -1607,7 +1620,7 @@ class LoweredReductionIR(ExpressionIR):
 
 class LoweredSelectAtArgmaxIR(ExpressionIR):
     """Lowered select-at-argmax/argmin (autodiff of max/min). primal_body, diff_body, loops; result = diff at argmax/argmin(primal)."""
-    __slots__ = ('primal_body', 'diff_body', 'loops', 'bindings', 'guards', 'use_argmin')
+    __slots__ = ('primal_body', 'diff_body', 'loops', 'bindings', 'guards', 'use_argmin', 'execution_facts_id')
 
     def __init__(
         self,
@@ -1620,6 +1633,7 @@ class LoweredSelectAtArgmaxIR(ExpressionIR):
         type_info: Optional[Any] = None,
         shape_info: Optional[Any] = None,
         use_argmin: bool = False,
+        execution_facts_id: Optional[int] = None,
     ):
         loc = location or (primal_body.location if primal_body else None)
         if loc is None:
@@ -1631,6 +1645,7 @@ class LoweredSelectAtArgmaxIR(ExpressionIR):
         self.bindings = _t(bindings)
         self.guards = _t(guards)
         self.use_argmin = use_argmin
+        self.execution_facts_id = execution_facts_id
 
     @property
     def reduction_ranges(self) -> Dict[DefId, LoopStructure]:
