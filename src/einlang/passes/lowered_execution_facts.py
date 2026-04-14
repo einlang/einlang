@@ -10,6 +10,7 @@ from .base import BasePass, TyCtxt
 from ..ir.nodes import (
     BinaryOpIR,
     BindingIR,
+    BlockExpressionIR,
     ExpressionIR,
     FunctionCallIR,
     IRNode,
@@ -17,7 +18,9 @@ from ..ir.nodes import (
     IndexVarIR,
     IdentifierIR,
     LiteralIR,
+    LoweredEinsteinClauseIR,
     LoweredEinsteinIR,
+    LoweredRecurrenceIR,
     LoweredReductionIR,
     LoweredSelectAtArgmaxIR,
     ProgramIR,
@@ -46,6 +49,35 @@ class ReductionKernelPlan:
     scale: Optional[float]
 
 
+@dataclass(frozen=True)
+class LoweredEinsteinClauseExecutionFacts:
+    facts_id: int
+    has_literal_index: bool
+    loop_defids: Tuple[Any, ...]
+    loop_defids_nonnull: Tuple[Any, ...]
+    loop_names_by_defid: Dict[Any, str]
+    call_arg_loop_defids: Tuple[Any, ...]
+    static_loop_ranges: Tuple[Optional[Tuple[int, int]], ...]
+    body_contains_call_using_loop_var: bool
+    body_is_elementwise_call: bool
+    body_has_direct_nested_lowered_binding: bool
+
+
+@dataclass(frozen=True)
+class LoweredSelectAtArgmaxExecutionFacts:
+    facts_id: int
+    depids: Tuple[Any, ...]
+    primal_depids: Tuple[Any, ...]
+    loop_names_by_defid: Dict[Any, str]
+    body_defids_by_name: Dict[str, Tuple[Any, ...]]
+
+
+@dataclass(frozen=True)
+class LoweredEinsteinExecutionFacts:
+    facts_id: int
+    contains_select_at_argmax: bool
+
+
 def build_lowered_execution_facts_analysis(ir: ProgramIR, tcx: Any) -> Dict[str, Any]:
     analyzer = _LoweredExecutionFactsAnalyzer()
     analyzer.walk(ir)
@@ -55,6 +87,9 @@ def build_lowered_execution_facts_analysis(ir: ProgramIR, tcx: Any) -> Dict[str,
     return {
         "reduction_facts_by_id": analyzer.reduction_facts_by_id,
         "reduction_kernel_plans_by_id": analyzer.reduction_kernel_plans_by_id,
+        "clause_facts_by_id": analyzer.clause_facts_by_id,
+        "select_facts_by_id": analyzer.select_facts_by_id,
+        "einstein_facts_by_id": analyzer.einstein_facts_by_id,
     }
 
 
@@ -76,6 +111,9 @@ class _LoweredExecutionFactsAnalyzer:
         self._next_id = 1
         self.reduction_facts_by_id: Dict[int, LoweredReductionExecutionFacts] = {}
         self.reduction_kernel_plans_by_id: Dict[int, ReductionKernelPlan] = {}
+        self.clause_facts_by_id: Dict[int, LoweredEinsteinClauseExecutionFacts] = {}
+        self.select_facts_by_id: Dict[int, LoweredSelectAtArgmaxExecutionFacts] = {}
+        self.einstein_facts_by_id: Dict[int, LoweredEinsteinExecutionFacts] = {}
         self._seen_object_ids: set[int] = set()
 
     def _new_id(self) -> int:
@@ -106,6 +144,12 @@ class _LoweredExecutionFactsAnalyzer:
             return None
         if isinstance(node, LoweredReductionIR):
             self._annotate_lowered_reduction(node)
+        if isinstance(node, LoweredEinsteinClauseIR):
+            self._annotate_lowered_einstein_clause(node)
+        if isinstance(node, LoweredEinsteinIR):
+            self._annotate_lowered_einstein(node)
+        if isinstance(node, LoweredSelectAtArgmaxIR):
+            self._annotate_lowered_select_at_argmax(node)
         if isinstance(node, IRNode):
             for slot in _iter_slots(type(node)):
                 self.walk(getattr(node, slot, None))
@@ -136,6 +180,121 @@ class _LoweredExecutionFactsAnalyzer:
             if node.kernel_plan_id is None:
                 node.kernel_plan_id = plan.plan_id
             self.reduction_kernel_plans_by_id[plan.plan_id] = plan
+
+    def _annotate_lowered_einstein_clause(self, node: LoweredEinsteinClauseIR) -> None:
+        facts_id = node.execution_facts_id
+        if facts_id is not None and facts_id in self.clause_facts_by_id:
+            return
+        if facts_id is None:
+            facts_id = self._new_id()
+            node.execution_facts_id = facts_id
+
+        loop_defids = tuple(getattr(getattr(loop, "variable", None), "defid", None) for loop in (node.loops or ()))
+        loop_defids_nonnull = tuple(defid for defid in loop_defids if defid is not None)
+        loop_names_by_defid = {
+            loop.variable.defid: loop.variable.name
+            for loop in (node.loops or ())
+            if getattr(getattr(loop, "variable", None), "defid", None) is not None
+        }
+        body = node.body
+        call_arg_loop_defids = tuple(
+            sorted(
+                _loop_defids_in_call_args(body, loop_defids_nonnull),
+                key=lambda did: (getattr(did, "krate", -1), getattr(did, "index", -1)),
+            )
+        )
+        static_loop_ranges = tuple(_static_loop_range(loop) for loop in (node.loops or ()))
+        facts = LoweredEinsteinClauseExecutionFacts(
+            facts_id=facts_id,
+            has_literal_index=any(isinstance(idx, LiteralIR) for idx in (node.indices or ())),
+            loop_defids=loop_defids,
+            loop_defids_nonnull=loop_defids_nonnull,
+            loop_names_by_defid=loop_names_by_defid,
+            call_arg_loop_defids=call_arg_loop_defids,
+            static_loop_ranges=static_loop_ranges,
+            body_contains_call_using_loop_var=_body_contains_call_using_loop_var(body, loop_defids_nonnull),
+            body_is_elementwise_call=_body_is_elementwise_call(body, loop_defids_nonnull),
+            body_has_direct_nested_lowered_binding=(
+                isinstance(body, BlockExpressionIR)
+                and _contains_node_type(
+                    body,
+                    LoweredEinsteinIR,
+                    LoweredRecurrenceIR,
+                    LoweredReductionIR,
+                    LoweredSelectAtArgmaxIR,
+                )
+            ),
+        )
+        self.clause_facts_by_id[facts_id] = facts
+
+    def _annotate_lowered_select_at_argmax(self, node: LoweredSelectAtArgmaxIR) -> None:
+        facts_id = node.execution_facts_id
+        if facts_id is not None and facts_id in self.select_facts_by_id:
+            return
+        if facts_id is None:
+            facts_id = self._new_id()
+            node.execution_facts_id = facts_id
+
+        loop_names_by_defid = {
+            loop.variable.defid: loop.variable.name
+            for loop in (node.loops or ())
+            if getattr(getattr(loop, "variable", None), "defid", None) is not None
+        }
+        body_defids_by_name: Dict[str, List[Any]] = {}
+        for subnode in (node.primal_body, node.diff_body):
+            _merge_defids_by_name(body_defids_by_name, _collect_defids_by_name(subnode))
+        depids = tuple(
+            sorted(
+                (
+                    did for did in (
+                        _collect_all_defids(node.primal_body)
+                        | _collect_all_defids(node.diff_body)
+                        | {
+                            d
+                            for loop in (node.loops or ())
+                            for d in _collect_all_defids(getattr(loop, "iterable", None))
+                        }
+                    )
+                    if did is not None
+                ),
+                key=lambda d: (d.krate, d.index),
+            )
+        )
+        primal_depids = tuple(
+            sorted(
+                (
+                    did for did in (
+                        _collect_all_defids(node.primal_body)
+                        | {
+                            d
+                            for loop in (node.loops or ())
+                            for d in _collect_all_defids(getattr(loop, "iterable", None))
+                        }
+                    )
+                    if did is not None
+                ),
+                key=lambda d: (d.krate, d.index),
+            )
+        )
+        self.select_facts_by_id[facts_id] = LoweredSelectAtArgmaxExecutionFacts(
+            facts_id=facts_id,
+            depids=depids,
+            primal_depids=primal_depids,
+            loop_names_by_defid=loop_names_by_defid,
+            body_defids_by_name=_freeze_defids_by_name(body_defids_by_name),
+        )
+
+    def _annotate_lowered_einstein(self, node: LoweredEinsteinIR) -> None:
+        facts_id = getattr(node, "execution_facts_id", None)
+        if facts_id is not None and facts_id in self.einstein_facts_by_id:
+            return
+        if facts_id is None:
+            facts_id = self._new_id()
+            node.execution_facts_id = facts_id
+        self.einstein_facts_by_id[facts_id] = LoweredEinsteinExecutionFacts(
+            facts_id=facts_id,
+            contains_select_at_argmax=_contains_node_type(node, LoweredSelectAtArgmaxIR),
+        )
 
 
 def _contains_node_type(node: Any, *node_types: type) -> bool:
@@ -230,6 +389,41 @@ def _collect_defids_by_name(node: Any) -> Dict[str, List[Any]]:
     return _DefidsByNameCollector().collect(node)
 
 
+def _collect_all_defids(node: Any) -> set[Any]:
+    out: set[Any] = set()
+
+    def walk(cur: Any) -> None:
+        if cur is None:
+            return
+        if isinstance(cur, (IdentifierIR, IndexVarIR)):
+            did = getattr(cur, "defid", None)
+            if did is not None:
+                out.add(did)
+            range_ir = getattr(cur, "range_ir", None)
+            if range_ir is not None:
+                walk(range_ir)
+            return
+        if isinstance(cur, list):
+            for item in cur:
+                walk(item)
+            return
+        if isinstance(cur, tuple):
+            for item in cur:
+                walk(item)
+            return
+        if isinstance(cur, dict):
+            for key, value in cur.items():
+                walk(key)
+                walk(value)
+            return
+        if isinstance(cur, IRNode):
+            for slot in _iter_slots(type(cur)):
+                walk(getattr(cur, slot, None))
+
+    walk(node)
+    return out
+
+
 @lru_cache(maxsize=None)
 def _iter_slots(cls: type) -> Tuple[str, ...]:
     out: List[str] = []
@@ -251,6 +445,162 @@ def _iter_slots(cls: type) -> Tuple[str, ...]:
 
 def _freeze_defids_by_name(mapping: Dict[str, List[Any]]) -> Dict[str, Tuple[Any, ...]]:
     return {key: tuple(values) for key, values in mapping.items()}
+
+
+def _try_static_int(expr: Any) -> Optional[int]:
+    if isinstance(expr, int):
+        return int(expr)
+    if isinstance(expr, LiteralIR):
+        try:
+            return int(expr.value)
+        except (TypeError, ValueError):
+            return None
+    if isinstance(expr, BinaryOpIR):
+        left = _try_static_int(expr.left)
+        right = _try_static_int(expr.right)
+        if left is None or right is None:
+            return None
+        if expr.operator == BinaryOp.ADD:
+            return left + right
+        if expr.operator == BinaryOp.SUB:
+            return left - right
+        if expr.operator == BinaryOp.MUL:
+            return left * right
+    return None
+
+
+def _static_loop_range(loop: Any) -> Optional[Tuple[int, int]]:
+    iterable = getattr(loop, "iterable", None)
+    if iterable is None:
+        return None
+    if isinstance(iterable, LiteralIR) and isinstance(iterable.value, range):
+        try:
+            return (int(iterable.value.start), int(iterable.value.stop))
+        except (TypeError, ValueError):
+            return None
+    start_node = getattr(iterable, "start", None)
+    end_node = getattr(iterable, "end", None)
+    if start_node is None and end_node is None:
+        return None
+    end_value = _try_static_int(end_node)
+    if end_value is None:
+        return None
+    start_value = 0 if start_node is None else _try_static_int(start_node)
+    if start_value is None:
+        return None
+    return (int(start_value), int(end_value))
+
+
+def _expr_contains_any_defid(expr: Any, target_defids: set[Any]) -> bool:
+    if expr is None or not target_defids:
+        return False
+    if isinstance(expr, (IdentifierIR, IndexVarIR)):
+        return getattr(expr, "defid", None) in target_defids
+    if isinstance(expr, list):
+        return any(_expr_contains_any_defid(item, target_defids) for item in expr)
+    if isinstance(expr, tuple):
+        return any(_expr_contains_any_defid(item, target_defids) for item in expr)
+    if isinstance(expr, dict):
+        return any(
+            _expr_contains_any_defid(key, target_defids) or _expr_contains_any_defid(value, target_defids)
+            for key, value in expr.items()
+        )
+    if isinstance(expr, IRNode):
+        for slot in _iter_slots(type(expr)):
+            if _expr_contains_any_defid(getattr(expr, slot, None), target_defids):
+                return True
+    return False
+
+
+def _body_contains_call_using_loop_var(expr: Any, loop_defids: Tuple[Any, ...]) -> bool:
+    if expr is None or not loop_defids:
+        return False
+    loop_set = {defid for defid in loop_defids if defid is not None}
+    if not loop_set:
+        return False
+    if isinstance(expr, FunctionCallIR):
+        if _expr_contains_any_defid(expr.callee_expr, loop_set):
+            return True
+        if any(_expr_contains_any_defid(arg, loop_set) for arg in (expr.arguments or ())):
+            return True
+    if isinstance(expr, list):
+        return any(_body_contains_call_using_loop_var(item, loop_defids) for item in expr)
+    if isinstance(expr, tuple):
+        return any(_body_contains_call_using_loop_var(item, loop_defids) for item in expr)
+    if isinstance(expr, dict):
+        return any(
+            _body_contains_call_using_loop_var(key, loop_defids)
+            or _body_contains_call_using_loop_var(value, loop_defids)
+            for key, value in expr.items()
+        )
+    if isinstance(expr, IRNode):
+        for slot in _iter_slots(type(expr)):
+            if _body_contains_call_using_loop_var(getattr(expr, slot, None), loop_defids):
+                return True
+    return False
+
+
+def _collect_loop_defids_in_call_args(expr: Any, loop_set: set[Any], out: set[Any], *, inside_call: bool = False) -> None:
+    if expr is None or not loop_set:
+        return
+    if isinstance(expr, (IdentifierIR, IndexVarIR)):
+        defid = getattr(expr, "defid", None)
+        if inside_call and defid in loop_set:
+            out.add(defid)
+        range_ir = getattr(expr, "range_ir", None)
+        if range_ir is not None:
+            _collect_loop_defids_in_call_args(range_ir, loop_set, out, inside_call=inside_call)
+        return
+    if isinstance(expr, FunctionCallIR):
+        _collect_loop_defids_in_call_args(expr.callee_expr, loop_set, out, inside_call=True)
+        for arg in (expr.arguments or ()):
+            _collect_loop_defids_in_call_args(arg, loop_set, out, inside_call=True)
+        return
+    if isinstance(expr, RectangularAccessIR):
+        _collect_loop_defids_in_call_args(expr.array, loop_set, out, inside_call=inside_call)
+        if inside_call:
+            for idx in (expr.indices or ()):
+                _collect_loop_defids_in_call_args(idx, loop_set, out, inside_call=True)
+        return
+    if isinstance(expr, list):
+        for item in expr:
+            _collect_loop_defids_in_call_args(item, loop_set, out, inside_call=inside_call)
+        return
+    if isinstance(expr, tuple):
+        for item in expr:
+            _collect_loop_defids_in_call_args(item, loop_set, out, inside_call=inside_call)
+        return
+    if isinstance(expr, dict):
+        for key, value in expr.items():
+            _collect_loop_defids_in_call_args(key, loop_set, out, inside_call=inside_call)
+            _collect_loop_defids_in_call_args(value, loop_set, out, inside_call=inside_call)
+        return
+    if isinstance(expr, IRNode):
+        for slot in _iter_slots(type(expr)):
+            _collect_loop_defids_in_call_args(getattr(expr, slot, None), loop_set, out, inside_call=inside_call)
+
+
+def _loop_defids_in_call_args(body: Any, loop_defids: Tuple[Any, ...]) -> set[Any]:
+    loop_set = {defid for defid in loop_defids if defid is not None}
+    out: set[Any] = set()
+    _collect_loop_defids_in_call_args(body, loop_set, out)
+    return out
+
+
+def _body_is_elementwise_call(body: Any, loop_defids: Tuple[Any, ...]) -> bool:
+    if body is None or not loop_defids:
+        return False
+    loop_set = {defid for defid in loop_defids if defid is not None}
+    if not loop_set:
+        return False
+    in_call = _loop_defids_in_call_args(body, loop_defids)
+    if in_call != loop_set:
+        return False
+    if isinstance(body, FunctionCallIR):
+        return True
+    if isinstance(body, BlockExpressionIR):
+        return _body_is_elementwise_call(body.final_expr, loop_defids)
+    return False
 
 
 def _expr_contains_defid(expr: Any, target_defid: Any) -> bool:
