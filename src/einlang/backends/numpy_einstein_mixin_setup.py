@@ -469,17 +469,12 @@ class EinsteinExecutionSetupMixin:
             stack = self._variable_decl_stack
         stack.append(decl)
         try:
-            from .numpy_einstein_call_index_analysis import _collect_defids_by_name
-
-            body_name_cache = getattr(self, "_cached_defids_by_name", None)
-            if callable(body_name_cache):
-                defids_by_name = body_name_cache(lowered)
-            else:
-                defids_by_name = _collect_defids_by_name(lowered)
-
             captured_ctx = {}
-            for dids in defids_by_name.values():
-                for did in dids:
+            lowered_facts_getter = getattr(self, "_lowered_einstein_facts", None)
+            lowered_facts = lowered_facts_getter(lowered) if callable(lowered_facts_getter) else None
+            depids = tuple(getattr(lowered_facts, "depids", ()) or ())
+            if depids:
+                for did in depids:
                     if did is None:
                         continue
                     cur = self.env.get_value(did)

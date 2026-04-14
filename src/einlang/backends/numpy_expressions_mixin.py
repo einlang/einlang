@@ -129,13 +129,18 @@ class ExpressionVisitorMixin:
     def _lowered_execution_analysis(self) -> Dict[str, Any]:
         tcx = getattr(self, "_tcx", None)
         if tcx is None:
-            return {}
-        try:
-            from ..passes.lowered_execution_facts import LoweredExecutionFactsPass
+            raise RuntimeError(
+                "Lowered execution requires compiler analysis (missing TyCtxt on backend)."
+            )
+        from ..passes.lowered_execution_facts import LoweredExecutionFactsPass
 
-            return tcx.get_analysis(LoweredExecutionFactsPass) or {}
-        except RuntimeError:
-            return {}
+        analysis = tcx.get_analysis(LoweredExecutionFactsPass)
+        if analysis is None:
+            raise RuntimeError(
+                "Lowered execution facts analysis is missing from TyCtxt. "
+                "Compiler must run LoweredExecutionFactsPass before execution."
+            )
+        return analysis or {}
 
     def _lowered_reduction_facts(self, expr: LoweredReductionIR) -> Optional[Any]:
         facts_id = getattr(expr, "execution_facts_id", None)
@@ -163,23 +168,50 @@ class ExpressionVisitorMixin:
     def _lowered_einstein_clause_facts(self, clause: Any) -> Optional[Any]:
         facts_id = getattr(clause, "execution_facts_id", None)
         if facts_id is None:
-            return None
+            raise RuntimeError(
+                "LoweredEinsteinClauseIR missing compiler-owned execution_facts_id. "
+                "LoweredExecutionFactsPass must annotate lowered clause facts before execution."
+            )
         analysis = self._lowered_execution_analysis()
-        return (analysis.get("clause_facts_by_id") or {}).get(facts_id)
+        facts = (analysis.get("clause_facts_by_id") or {}).get(facts_id)
+        if facts is None:
+            raise RuntimeError(
+                f"Missing lowered clause execution facts for id={facts_id}. "
+                "Compiler/runtime lowered-execution analysis mismatch."
+            )
+        return facts
 
     def _lowered_select_at_argmax_facts(self, expr: Any) -> Optional[Any]:
         facts_id = getattr(expr, "execution_facts_id", None)
         if facts_id is None:
-            return None
+            raise RuntimeError(
+                "LoweredSelectAtArgmaxIR missing compiler-owned execution_facts_id. "
+                "LoweredExecutionFactsPass must annotate lowered select facts before execution."
+            )
         analysis = self._lowered_execution_analysis()
-        return (analysis.get("select_facts_by_id") or {}).get(facts_id)
+        facts = (analysis.get("select_facts_by_id") or {}).get(facts_id)
+        if facts is None:
+            raise RuntimeError(
+                f"Missing lowered select execution facts for id={facts_id}. "
+                "Compiler/runtime lowered-execution analysis mismatch."
+            )
+        return facts
 
     def _lowered_einstein_facts(self, expr: Any) -> Optional[Any]:
         facts_id = getattr(expr, "execution_facts_id", None)
         if facts_id is None:
-            return None
+            raise RuntimeError(
+                "LoweredEinsteinIR missing compiler-owned execution_facts_id. "
+                "LoweredExecutionFactsPass must annotate lowered Einstein facts before execution."
+            )
         analysis = self._lowered_execution_analysis()
-        return (analysis.get("einstein_facts_by_id") or {}).get(facts_id)
+        facts = (analysis.get("einstein_facts_by_id") or {}).get(facts_id)
+        if facts is None:
+            raise RuntimeError(
+                f"Missing lowered Einstein execution facts for id={facts_id}. "
+                "Compiler/runtime lowered-execution analysis mismatch."
+            )
+        return facts
 
     def _analysis_cache_bucket(self, name: str) -> Dict[Any, Any]:
         cache = getattr(self, "_analysis_cache", None)
@@ -712,11 +744,7 @@ class ExpressionVisitorMixin:
                 for idx in indices
             )
             lowered_einstein_facts = self._lowered_einstein_facts(expr.array)
-            contains_select = (
-                bool(getattr(lowered_einstein_facts, "contains_select_at_argmax", False))
-                if lowered_einstein_facts is not None
-                else self._cached_contains_ir_types(expr.array, LoweredSelectAtArgmaxIR)
-            )
+            contains_select = bool(getattr(lowered_einstein_facts, "contains_select_at_argmax", False))
             if len(indices) == lowered_rank and all_scalar_indices and not contains_select:
                 direct_cell = self._evaluate_lowered_einstein_at_indices(expr.array, indices)
                 if direct_cell is not None:
@@ -1820,84 +1848,23 @@ class ExpressionVisitorMixin:
         if not reduction_loops:
             raise RuntimeError("SelectAtArgmax has no reduction loops")
         n_red = len(reduction_loops)
-        dep_bucket = self._analysis_cache_bucket("select_at_argmax_depids")
-        primal_dep_bucket = self._analysis_cache_bucket("select_at_argmax_primal_depids")
         cache_bucket = self._analysis_cache_bucket("select_at_argmax_result")
         winner_cache_bucket = self._analysis_cache_bucket("select_at_argmax_winner")
         expr_key = id(expr)
         select_facts = self._lowered_select_at_argmax_facts(expr)
-        if select_facts is not None:
-            depids = tuple(getattr(select_facts, "depids", ()) or ())
-            primal_depids = tuple(getattr(select_facts, "primal_depids", ()) or ())
-        else:
-            depids = dep_bucket.get(expr_key)
-            if depids is None:
-                from ..passes.autodiff.compiletime import _collect_all_defids_ir
-
-                depids = tuple(
-                    sorted(
-                        (
-                            did for did in (
-                                _collect_all_defids_ir(expr.primal_body)
-                                | _collect_all_defids_ir(expr.diff_body)
-                                | {
-                                    d
-                                    for loop in reduction_loops
-                                    for d in _collect_all_defids_ir(loop.iterable)
-                                }
-                            )
-                            if did is not None
-                        ),
-                        key=lambda d: (d.krate, d.index),
-                    )
-                )
-                dep_bucket[expr_key] = depids
-            primal_depids = primal_dep_bucket.get(expr_key)
-            if primal_depids is None:
-                from ..passes.autodiff.compiletime import _collect_all_defids_ir
-
-                primal_depids = tuple(
-                    sorted(
-                        (
-                            did for did in (
-                                _collect_all_defids_ir(expr.primal_body)
-                                | {
-                                    d
-                                    for loop in reduction_loops
-                                    for d in _collect_all_defids_ir(loop.iterable)
-                                }
-                            )
-                            if did is not None
-                        ),
-                        key=lambda d: (d.krate, d.index),
-                    )
-                )
-                primal_dep_bucket[expr_key] = primal_depids
+        depids = tuple(getattr(select_facts, "depids", ()) or ())
+        primal_depids = tuple(getattr(select_facts, "primal_depids", ()) or ())
 
         reduction_body_defids: Set[Any] = set()
         for _lp in expr.loops or []:
             if _lp.variable is not None and _lp.variable.defid is not None:
                 reduction_body_defids.add(_lp.variable.defid)
 
-        if select_facts is not None:
-            loop_name_by_defid = dict(getattr(select_facts, "loop_names_by_defid", {}) or {})
-            body_defids_by_name = {
-                name: list(dids)
-                for name, dids in (getattr(select_facts, "body_defids_by_name", {}) or {}).items()
-            }
-        else:
-            loop_name_by_defid = {
-                _lp.variable.defid: _lp.variable.name
-                for _lp in expr.loops or []
-                if _lp.variable is not None and _lp.variable.defid is not None and _lp.variable.name
-            }
-            body_defids_by_name: Dict[str, List[Any]] = {}
-            for _node in (expr.primal_body, expr.diff_body):
-                for _name, _dids in self._cached_defids_by_name(_node).items():
-                    bucket = body_defids_by_name.setdefault(_name, [])
-                    for _did in _dids:
-                        if _did is not None and _did not in bucket:
-                            bucket.append(_did)
+        loop_name_by_defid = dict(getattr(select_facts, "loop_names_by_defid", {}) or {})
+        body_defids_by_name = {
+            name: list(dids)
+            for name, dids in (getattr(select_facts, "body_defids_by_name", {}) or {}).items()
+        }
 
         outer_index_defids = tuple(getattr(self, "_select_outer_index_defids", ()) or ())
         parallel_shape = None

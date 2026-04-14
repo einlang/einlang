@@ -244,9 +244,12 @@ def _eval_clause_body_with_broadcast_loops(
     if not loops or clause.guards or clause.bindings:
         return None
     clause_ndim = len(loops)
-    count_reduction_dims = getattr(backend, "_cached_count_reduction_dims", None)
-    if callable(count_reduction_dims):
-        n_red = count_reduction_dims(clause.body)
+    clause_facts = None
+    lowered_clause_facts = getattr(backend, "_lowered_einstein_clause_facts", None)
+    if callable(lowered_clause_facts):
+        clause_facts = lowered_clause_facts(clause)
+    if clause_facts is not None:
+        n_red = int(getattr(clause_facts, "body_reduction_dim_count", 0) or 0)
     else:
         n_red = _count_reduction_dims_in_expr(clause.body)
     ndim = clause_ndim + n_red
@@ -259,22 +262,21 @@ def _eval_clause_body_with_broadcast_loops(
     if loop_info is None:
         return None
     clause_loop_defids = [defid for (defid, _, _) in loop_info]
-    reduction_uses_clause_var_in_bounds = getattr(backend, "_cached_reduction_uses_clause_var_in_bounds", None)
-    if callable(reduction_uses_clause_var_in_bounds):
-        uses_clause_var_in_bounds = reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids)
+    if clause_facts is not None:
+        uses_clause_var_in_bounds = bool(getattr(clause_facts, "body_reduction_uses_clause_var_in_bounds", False))
     else:
         uses_clause_var_in_bounds = _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids)
     if uses_clause_var_in_bounds:
         return None
-    body_name_cache = getattr(backend, "_cached_defids_by_name", None)
-    if callable(body_name_cache):
-        body_defids_by_name = body_name_cache(clause.body)
+    if clause_facts is not None:
+        body_defids_by_name = {
+            name: list(dids)
+            for name, dids in (getattr(clause_facts, "body_defids_by_name", {}) or {}).items()
+        }
+        safe_oob = bool(getattr(clause_facts, "body_contains_if_expression", False))
     else:
         body_defids_by_name = _collect_defids_by_name(clause.body)
-    contains_ir_types = getattr(backend, "_cached_contains_ir_types", None)
-    safe_oob = bool(
-        callable(contains_ir_types) and clause.body is not None and contains_ir_types(clause.body, IfExpressionIR)
-    )
+        safe_oob = isinstance(clause.body, IfExpressionIR)
     try:
         with backend.env.scope():
             for dim, (defid, rng, name) in enumerate(loop_info):
@@ -443,9 +445,12 @@ def _try_vectorize_clause(
         return None
 
     clause_ndim = len(loops)
-    count_reduction_dims = getattr(backend, "_cached_count_reduction_dims", None)
-    if callable(count_reduction_dims):
-        n_red = count_reduction_dims(clause.body)
+    clause_facts = None
+    lowered_clause_facts = getattr(backend, "_lowered_einstein_clause_facts", None)
+    if callable(lowered_clause_facts):
+        clause_facts = lowered_clause_facts(clause)
+    if clause_facts is not None:
+        n_red = int(getattr(clause_facts, "body_reduction_dim_count", 0) or 0)
     else:
         n_red = _count_reduction_dims_in_expr(clause.body)
     ndim = clause_ndim + n_red
@@ -463,9 +468,8 @@ def _try_vectorize_clause(
         loop_info.append((defid, r, name))
 
     clause_loop_defids = [defid for (defid, _, _) in loop_info]
-    reduction_uses_clause_var_in_bounds = getattr(backend, "_cached_reduction_uses_clause_var_in_bounds", None)
-    if callable(reduction_uses_clause_var_in_bounds):
-        uses_clause_var_in_bounds = reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids)
+    if clause_facts is not None:
+        uses_clause_var_in_bounds = bool(getattr(clause_facts, "body_reduction_uses_clause_var_in_bounds", False))
     else:
         uses_clause_var_in_bounds = _reduction_uses_clause_var_in_bounds(clause.body, clause_loop_defids)
     if uses_clause_var_in_bounds:
@@ -545,7 +549,17 @@ def _try_hybrid_vectorize_clause(
     n_iter = [0]
     output_ndim = output.ndim
     has_literal = bool(clause_indices and any(isinstance(idx, LiteralIR) for idx in clause_indices))
-    body_defids_by_name = _collect_defids_by_name(clause.body)
+    clause_facts = None
+    lowered_clause_facts = getattr(backend, "_lowered_einstein_clause_facts", None)
+    if callable(lowered_clause_facts):
+        clause_facts = lowered_clause_facts(clause)
+    if clause_facts is not None:
+        body_defids_by_name = {
+            name: list(dids)
+            for name, dids in (getattr(clause_facts, "body_defids_by_name", {}) or {}).items()
+        }
+    else:
+        body_defids_by_name = _collect_defids_by_name(clause.body)
 
     try:
         for rec_context in execute_lowered_loops(recurrence_loops, {}, expr_evaluator):

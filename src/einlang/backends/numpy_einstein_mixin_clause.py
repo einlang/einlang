@@ -972,17 +972,19 @@ class EinsteinExecutionClauseMixin:
                         if _guards and not check_lowered_guards(_guards, full_context, lambda e: _to_bool(e.accept(self))):
                             continue
                         try:
-                            contains_ir_types = getattr(self, "_cached_contains_ir_types", None)
-                            if callable(contains_ir_types):
-                                needs_outer_reduction_ctx = contains_ir_types(
-                                    _body,
-                                    LoweredSelectAtArgmaxIR,
-                                    LoweredReductionIR,
+                            if clause_facts is not None:
+                                needs_outer_reduction_ctx = bool(
+                                    getattr(clause_facts, "body_contains_nested_reduction_or_select", False)
                                 )
+                                _body_defids_by_name = {
+                                    name: list(dids)
+                                    for name, dids in (getattr(clause_facts, "body_defids_by_name", {}) or {}).items()
+                                }
                             else:
                                 needs_outer_reduction_ctx = _expr_contains_lowered_select_at_argmax(_body) or _expr_contains_lowered_reduction(
                                     _body
                                 )
+                                _body_defids_by_name = _collect_defids_by_name(_body)
                             if needs_outer_reduction_ctx:
                                 # Pass parallel indices into reduction so guard/body can see them.
                                 # For SelectAtArgmaxIR bodies, primal_body and diff_body may use
@@ -992,11 +994,6 @@ class EinsteinExecutionClauseMixin:
                                 _ri_ctx.update(full_context)
                                 if _loops and _body is not None:
                                     _outer_val = full_context
-                                    body_name_cache = getattr(self, "_cached_defids_by_name", None)
-                                    if callable(body_name_cache):
-                                        _body_defids_by_name = body_name_cache(_body)
-                                    else:
-                                        _body_defids_by_name = _collect_defids_by_name(_body)
                                     for _lp in _loops:
                                         _vv = _lp.variable
                                         if (

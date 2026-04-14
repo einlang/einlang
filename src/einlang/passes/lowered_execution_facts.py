@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -58,6 +58,11 @@ class LoweredEinsteinClauseExecutionFacts:
     loop_names_by_defid: Dict[Any, str]
     call_arg_loop_defids: Tuple[Any, ...]
     static_loop_ranges: Tuple[Optional[Tuple[int, int]], ...]
+    body_defids_by_name: Dict[str, Tuple[Any, ...]]
+    body_reduction_dim_count: int
+    body_reduction_uses_clause_var_in_bounds: bool
+    body_contains_if_expression: bool
+    body_contains_nested_reduction_or_select: bool
     body_contains_call_using_loop_var: bool
     body_is_elementwise_call: bool
     body_has_direct_nested_lowered_binding: bool
@@ -76,6 +81,188 @@ class LoweredSelectAtArgmaxExecutionFacts:
 class LoweredEinsteinExecutionFacts:
     facts_id: int
     contains_select_at_argmax: bool
+    depids: Tuple[Any, ...]
+
+
+@dataclass
+class _NodeSummary:
+    all_defids: set[Any] = field(default_factory=set)
+    defids_by_name: Dict[str, set[Any]] = field(default_factory=dict)
+    call_arg_defids: set[Any] = field(default_factory=set)
+    reduction_bound_defids: set[Any] = field(default_factory=set)
+    max_reduction_dims: int = 0
+    contains_if_expression: bool = False
+    contains_lowered_einstein: bool = False
+    contains_select_at_argmax: bool = False
+    contains_nested_reduction_or_select: bool = False
+    contains_nested_lowered_ir: bool = False
+
+
+def _merge_summary(dst: _NodeSummary, src: _NodeSummary) -> _NodeSummary:
+    if not src:
+        return dst
+    dst.all_defids.update(src.all_defids)
+    for name, dids in src.defids_by_name.items():
+        dst.defids_by_name.setdefault(name, set()).update(dids)
+    dst.call_arg_defids.update(src.call_arg_defids)
+    dst.reduction_bound_defids.update(src.reduction_bound_defids)
+    dst.max_reduction_dims = max(dst.max_reduction_dims, src.max_reduction_dims)
+    dst.contains_if_expression = dst.contains_if_expression or src.contains_if_expression
+    dst.contains_lowered_einstein = dst.contains_lowered_einstein or src.contains_lowered_einstein
+    dst.contains_select_at_argmax = dst.contains_select_at_argmax or src.contains_select_at_argmax
+    dst.contains_nested_reduction_or_select = (
+        dst.contains_nested_reduction_or_select or src.contains_nested_reduction_or_select
+    )
+    dst.contains_nested_lowered_ir = dst.contains_nested_lowered_ir or src.contains_nested_lowered_ir
+    return dst
+
+
+class _SummaryCollector:
+    def __init__(self) -> None:
+        self._memo: Dict[int, _NodeSummary] = {}
+        self._lowered_reductions: Dict[int, LoweredReductionIR] = {}
+        self._lowered_clauses: Dict[int, LoweredEinsteinClauseIR] = {}
+        self._lowered_selects: Dict[int, LoweredSelectAtArgmaxIR] = {}
+        self._lowered_einsteins: Dict[int, LoweredEinsteinIR] = {}
+
+    def collect(self, node: Any) -> _NodeSummary:
+        if node is None:
+            return _NodeSummary()
+        if isinstance(node, (list, tuple, dict, IRNode)):
+            cached = self._memo.get(id(node))
+            if cached is not None:
+                return cached
+
+        if isinstance(node, list):
+            out = _NodeSummary()
+            self._memo[id(node)] = out
+            for item in node:
+                _merge_summary(out, self.collect(item))
+            return out
+        if isinstance(node, tuple):
+            out = _NodeSummary()
+            self._memo[id(node)] = out
+            for item in node:
+                _merge_summary(out, self.collect(item))
+            return out
+        if isinstance(node, dict):
+            out = _NodeSummary()
+            self._memo[id(node)] = out
+            for key, value in node.items():
+                _merge_summary(out, self.collect(key))
+                _merge_summary(out, self.collect(value))
+            return out
+        if not isinstance(node, IRNode):
+            return _NodeSummary()
+
+        out = _NodeSummary()
+        self._memo[id(node)] = out
+
+        if isinstance(node, LoweredReductionIR):
+            self._lowered_reductions[id(node)] = node
+        if isinstance(node, LoweredEinsteinClauseIR):
+            self._lowered_clauses[id(node)] = node
+        if isinstance(node, LoweredSelectAtArgmaxIR):
+            self._lowered_selects[id(node)] = node
+        if isinstance(node, LoweredEinsteinIR):
+            self._lowered_einsteins[id(node)] = node
+
+        if isinstance(node, (IdentifierIR, IndexVarIR)):
+            defid = getattr(node, "defid", None)
+            name = getattr(node, "name", None)
+            if defid is not None:
+                out.all_defids.add(defid)
+                if name is not None:
+                    out.defids_by_name.setdefault(name, set()).add(defid)
+            range_ir = getattr(node, "range_ir", None)
+            if range_ir is not None:
+                _merge_summary(out, self.collect(range_ir))
+            return out
+
+        if isinstance(node, FunctionCallIR):
+            callee_summary = self.collect(node.callee_expr)
+            _merge_summary(out, callee_summary)
+            out.call_arg_defids.update(callee_summary.all_defids)
+            for arg in node.arguments or ():
+                arg_summary = self.collect(arg)
+                _merge_summary(out, arg_summary)
+                out.call_arg_defids.update(arg_summary.all_defids)
+            return out
+
+        if isinstance(node, LoweredReductionIR):
+            out.contains_nested_reduction_or_select = True
+            out.contains_nested_lowered_ir = True
+            out.max_reduction_dims = max(out.max_reduction_dims, len(node.loops or ()))
+            for loop in node.loops or ():
+                _merge_summary(out, self.collect(loop.variable))
+                iterable_summary = self.collect(loop.iterable)
+                _merge_summary(out, iterable_summary)
+                out.reduction_bound_defids.update(iterable_summary.all_defids)
+            _merge_summary(out, self.collect(node.body))
+            _merge_summary(out, self.collect(node.bindings))
+            _merge_summary(out, self.collect(node.guards))
+            return out
+
+        if isinstance(node, LoweredSelectAtArgmaxIR):
+            out.contains_select_at_argmax = True
+            out.contains_nested_reduction_or_select = True
+            out.contains_nested_lowered_ir = True
+            for loop in node.loops or ():
+                _merge_summary(out, self.collect(loop.variable))
+                _merge_summary(out, self.collect(loop.iterable))
+            _merge_summary(out, self.collect(node.primal_body))
+            _merge_summary(out, self.collect(node.diff_body))
+            _merge_summary(out, self.collect(node.bindings))
+            _merge_summary(out, self.collect(node.guards))
+            return out
+
+        if isinstance(node, LoweredEinsteinIR):
+            out.contains_lowered_einstein = True
+            out.contains_nested_lowered_ir = True
+            _merge_summary(out, self.collect(node.items))
+            _merge_summary(out, self.collect(node.shape))
+            return out
+
+        if isinstance(node, LoweredRecurrenceIR):
+            out.contains_nested_lowered_ir = True
+            _merge_summary(out, self.collect(node.initial))
+            _merge_summary(out, self.collect(node.recurrence_loop))
+            _merge_summary(out, self.collect(node.body))
+            return out
+
+        if isinstance(node, IfExpressionIR):
+            out.contains_if_expression = True
+
+        for slot in _iter_slots(type(node)):
+            _merge_summary(out, self.collect(getattr(node, slot, None)))
+        return out
+
+    def lowered_reductions(self) -> List[LoweredReductionIR]:
+        return list(self._lowered_reductions.values())
+
+    def lowered_clauses(self) -> List[LoweredEinsteinClauseIR]:
+        return list(self._lowered_clauses.values())
+
+    def lowered_selects(self) -> List[LoweredSelectAtArgmaxIR]:
+        return list(self._lowered_selects.values())
+
+    def lowered_einsteins(self) -> List[LoweredEinsteinIR]:
+        return list(self._lowered_einsteins.values())
+
+
+def _summary_root_is_terminal_call(node: Any) -> bool:
+    if isinstance(node, FunctionCallIR):
+        return True
+    if isinstance(node, BlockExpressionIR):
+        return _summary_root_is_terminal_call(node.final_expr)
+    return False
+
+
+def _freeze_summary_defids_by_name(mapping: Dict[str, set[Any]]) -> Dict[str, Tuple[Any, ...]]:
+    return {
+        key: tuple(sorted(values, key=lambda d: (getattr(d, "krate", -1), getattr(d, "index", -1))))
+        for key, values in mapping.items()
+    }
 
 
 def build_lowered_execution_facts_analysis(ir: ProgramIR, tcx: Any) -> Dict[str, Any]:
@@ -84,6 +271,7 @@ def build_lowered_execution_facts_analysis(ir: ProgramIR, tcx: Any) -> Dict[str,
     function_ir_map = getattr(tcx, "function_ir_map", None) or {}
     for binding in function_ir_map.values():
         analyzer.walk(binding)
+    analyzer.finalize()
     return {
         "reduction_facts_by_id": analyzer.reduction_facts_by_id,
         "reduction_kernel_plans_by_id": analyzer.reduction_kernel_plans_by_id,
@@ -114,7 +302,7 @@ class _LoweredExecutionFactsAnalyzer:
         self.clause_facts_by_id: Dict[int, LoweredEinsteinClauseExecutionFacts] = {}
         self.select_facts_by_id: Dict[int, LoweredSelectAtArgmaxExecutionFacts] = {}
         self.einstein_facts_by_id: Dict[int, LoweredEinsteinExecutionFacts] = {}
-        self._seen_object_ids: set[int] = set()
+        self._summary = _SummaryCollector()
 
     def _new_id(self) -> int:
         current = self._next_id
@@ -122,38 +310,18 @@ class _LoweredExecutionFactsAnalyzer:
         return current
 
     def walk(self, node: Any) -> Any:
-        if node is None:
-            return None
-        if isinstance(node, (list, tuple, dict, IRNode)):
-            oid = id(node)
-            if oid in self._seen_object_ids:
-                return None
-            self._seen_object_ids.add(oid)
-        if isinstance(node, list):
-            for item in node:
-                self.walk(item)
-            return None
-        if isinstance(node, tuple):
-            for item in node:
-                self.walk(item)
-            return None
-        if isinstance(node, dict):
-            for key, value in node.items():
-                self.walk(key)
-                self.walk(value)
-            return None
-        if isinstance(node, LoweredReductionIR):
-            self._annotate_lowered_reduction(node)
-        if isinstance(node, LoweredEinsteinClauseIR):
-            self._annotate_lowered_einstein_clause(node)
-        if isinstance(node, LoweredEinsteinIR):
-            self._annotate_lowered_einstein(node)
-        if isinstance(node, LoweredSelectAtArgmaxIR):
-            self._annotate_lowered_select_at_argmax(node)
-        if isinstance(node, IRNode):
-            for slot in _iter_slots(type(node)):
-                self.walk(getattr(node, slot, None))
+        self._summary.collect(node)
         return None
+
+    def finalize(self) -> None:
+        for node in self._summary.lowered_reductions():
+            self._annotate_lowered_reduction(node)
+        for node in self._summary.lowered_clauses():
+            self._annotate_lowered_einstein_clause(node)
+        for node in self._summary.lowered_selects():
+            self._annotate_lowered_select_at_argmax(node)
+        for node in self._summary.lowered_einsteins():
+            self._annotate_lowered_einstein(node)
 
     def _annotate_lowered_reduction(self, node: LoweredReductionIR) -> None:
         facts_id = node.execution_facts_id
@@ -163,15 +331,15 @@ class _LoweredExecutionFactsAnalyzer:
             facts_id = self._new_id()
             node.execution_facts_id = facts_id
 
+        body_summary = self._summary.collect(node.body)
+        guard_summary = self._summary.collect([g.condition for g in (node.guards or ())])
         facts = LoweredReductionExecutionFacts(
             facts_id=facts_id,
-            contains_nested_reduction_or_select=_contains_node_type(
-                node.body, LoweredReductionIR, LoweredSelectAtArgmaxIR
-            ),
-            contains_if_expression=_contains_node_type(node.body, IfExpressionIR),
-            contains_lowered_einstein=_contains_node_type(node.body, LoweredEinsteinIR),
-            body_defids_by_name=_freeze_defids_by_name(_collect_defids_by_name(node.body)),
-            guard_defids_by_name=_freeze_defids_by_name(_collect_defids_by_name([g.condition for g in (node.guards or [])])),
+            contains_nested_reduction_or_select=body_summary.contains_nested_reduction_or_select,
+            contains_if_expression=body_summary.contains_if_expression,
+            contains_lowered_einstein=body_summary.contains_lowered_einstein,
+            body_defids_by_name=_freeze_summary_defids_by_name(body_summary.defids_by_name),
+            guard_defids_by_name=_freeze_summary_defids_by_name(guard_summary.defids_by_name),
         )
         self.reduction_facts_by_id[facts_id] = facts
 
@@ -197,9 +365,11 @@ class _LoweredExecutionFactsAnalyzer:
             if getattr(getattr(loop, "variable", None), "defid", None) is not None
         }
         body = node.body
+        body_summary = self._summary.collect(body)
+        loop_defid_set = set(loop_defids_nonnull)
         call_arg_loop_defids = tuple(
             sorted(
-                _loop_defids_in_call_args(body, loop_defids_nonnull),
+                (did for did in body_summary.call_arg_defids if did in loop_defid_set),
                 key=lambda did: (getattr(did, "krate", -1), getattr(did, "index", -1)),
             )
         )
@@ -212,17 +382,20 @@ class _LoweredExecutionFactsAnalyzer:
             loop_names_by_defid=loop_names_by_defid,
             call_arg_loop_defids=call_arg_loop_defids,
             static_loop_ranges=static_loop_ranges,
-            body_contains_call_using_loop_var=_body_contains_call_using_loop_var(body, loop_defids_nonnull),
-            body_is_elementwise_call=_body_is_elementwise_call(body, loop_defids_nonnull),
+            body_defids_by_name=_freeze_summary_defids_by_name(body_summary.defids_by_name),
+            body_reduction_dim_count=body_summary.max_reduction_dims,
+            body_reduction_uses_clause_var_in_bounds=bool(body_summary.reduction_bound_defids & loop_defid_set),
+            body_contains_if_expression=body_summary.contains_if_expression,
+            body_contains_nested_reduction_or_select=body_summary.contains_nested_reduction_or_select,
+            body_contains_call_using_loop_var=bool(call_arg_loop_defids),
+            body_is_elementwise_call=(
+                bool(loop_defid_set)
+                and set(call_arg_loop_defids) == loop_defid_set
+                and _summary_root_is_terminal_call(body)
+            ),
             body_has_direct_nested_lowered_binding=(
                 isinstance(body, BlockExpressionIR)
-                and _contains_node_type(
-                    body,
-                    LoweredEinsteinIR,
-                    LoweredRecurrenceIR,
-                    LoweredReductionIR,
-                    LoweredSelectAtArgmaxIR,
-                )
+                and body_summary.contains_nested_lowered_ir
             ),
         )
         self.clause_facts_by_id[facts_id] = facts
@@ -240,39 +413,21 @@ class _LoweredExecutionFactsAnalyzer:
             for loop in (node.loops or ())
             if getattr(getattr(loop, "variable", None), "defid", None) is not None
         }
-        body_defids_by_name: Dict[str, List[Any]] = {}
-        for subnode in (node.primal_body, node.diff_body):
-            _merge_defids_by_name(body_defids_by_name, _collect_defids_by_name(subnode))
+        primal_summary = self._summary.collect(node.primal_body)
+        diff_summary = self._summary.collect(node.diff_body)
+        iterable_summary = self._summary.collect([getattr(loop, "iterable", None) for loop in (node.loops or ())])
+        body_defids_by_name: Dict[str, set[Any]] = {}
+        _merge_summary_maps(body_defids_by_name, primal_summary.defids_by_name)
+        _merge_summary_maps(body_defids_by_name, diff_summary.defids_by_name)
         depids = tuple(
             sorted(
-                (
-                    did for did in (
-                        _collect_all_defids(node.primal_body)
-                        | _collect_all_defids(node.diff_body)
-                        | {
-                            d
-                            for loop in (node.loops or ())
-                            for d in _collect_all_defids(getattr(loop, "iterable", None))
-                        }
-                    )
-                    if did is not None
-                ),
+                (primal_summary.all_defids | diff_summary.all_defids | iterable_summary.all_defids),
                 key=lambda d: (d.krate, d.index),
             )
         )
         primal_depids = tuple(
             sorted(
-                (
-                    did for did in (
-                        _collect_all_defids(node.primal_body)
-                        | {
-                            d
-                            for loop in (node.loops or ())
-                            for d in _collect_all_defids(getattr(loop, "iterable", None))
-                        }
-                    )
-                    if did is not None
-                ),
+                (primal_summary.all_defids | iterable_summary.all_defids),
                 key=lambda d: (d.krate, d.index),
             )
         )
@@ -281,7 +436,7 @@ class _LoweredExecutionFactsAnalyzer:
             depids=depids,
             primal_depids=primal_depids,
             loop_names_by_defid=loop_names_by_defid,
-            body_defids_by_name=_freeze_defids_by_name(body_defids_by_name),
+            body_defids_by_name=_freeze_summary_defids_by_name(body_defids_by_name),
         )
 
     def _annotate_lowered_einstein(self, node: LoweredEinsteinIR) -> None:
@@ -291,9 +446,16 @@ class _LoweredExecutionFactsAnalyzer:
         if facts_id is None:
             facts_id = self._new_id()
             node.execution_facts_id = facts_id
+        summary = self._summary.collect(node)
         self.einstein_facts_by_id[facts_id] = LoweredEinsteinExecutionFacts(
             facts_id=facts_id,
-            contains_select_at_argmax=_contains_node_type(node, LoweredSelectAtArgmaxIR),
+            contains_select_at_argmax=summary.contains_select_at_argmax,
+            depids=tuple(
+                sorted(
+                    (did for did in summary.all_defids if did is not None),
+                    key=lambda d: (d.krate, d.index),
+                )
+            ),
         )
 
 
@@ -324,6 +486,12 @@ def _merge_defids_by_name(a: Dict[str, List[Any]], b: Dict[str, List[Any]]) -> D
         for value in values:
             if value not in bucket:
                 bucket.append(value)
+    return a
+
+
+def _merge_summary_maps(a: Dict[str, set[Any]], b: Dict[str, set[Any]]) -> Dict[str, set[Any]]:
+    for key, values in b.items():
+        a.setdefault(key, set()).update(values)
     return a
 
 
@@ -383,46 +551,6 @@ class _DefidsByNameCollector:
                 _merge_defids_by_name(out, self.collect(getattr(node, slot, None)))
             return out
         return {}
-
-
-def _collect_defids_by_name(node: Any) -> Dict[str, List[Any]]:
-    return _DefidsByNameCollector().collect(node)
-
-
-def _collect_all_defids(node: Any) -> set[Any]:
-    out: set[Any] = set()
-
-    def walk(cur: Any) -> None:
-        if cur is None:
-            return
-        if isinstance(cur, (IdentifierIR, IndexVarIR)):
-            did = getattr(cur, "defid", None)
-            if did is not None:
-                out.add(did)
-            range_ir = getattr(cur, "range_ir", None)
-            if range_ir is not None:
-                walk(range_ir)
-            return
-        if isinstance(cur, list):
-            for item in cur:
-                walk(item)
-            return
-        if isinstance(cur, tuple):
-            for item in cur:
-                walk(item)
-            return
-        if isinstance(cur, dict):
-            for key, value in cur.items():
-                walk(key)
-                walk(value)
-            return
-        if isinstance(cur, IRNode):
-            for slot in _iter_slots(type(cur)):
-                walk(getattr(cur, slot, None))
-
-    walk(node)
-    return out
-
 
 @lru_cache(maxsize=None)
 def _iter_slots(cls: type) -> Tuple[str, ...]:
@@ -489,119 +617,6 @@ def _static_loop_range(loop: Any) -> Optional[Tuple[int, int]]:
     if start_value is None:
         return None
     return (int(start_value), int(end_value))
-
-
-def _expr_contains_any_defid(expr: Any, target_defids: set[Any]) -> bool:
-    if expr is None or not target_defids:
-        return False
-    if isinstance(expr, (IdentifierIR, IndexVarIR)):
-        return getattr(expr, "defid", None) in target_defids
-    if isinstance(expr, list):
-        return any(_expr_contains_any_defid(item, target_defids) for item in expr)
-    if isinstance(expr, tuple):
-        return any(_expr_contains_any_defid(item, target_defids) for item in expr)
-    if isinstance(expr, dict):
-        return any(
-            _expr_contains_any_defid(key, target_defids) or _expr_contains_any_defid(value, target_defids)
-            for key, value in expr.items()
-        )
-    if isinstance(expr, IRNode):
-        for slot in _iter_slots(type(expr)):
-            if _expr_contains_any_defid(getattr(expr, slot, None), target_defids):
-                return True
-    return False
-
-
-def _body_contains_call_using_loop_var(expr: Any, loop_defids: Tuple[Any, ...]) -> bool:
-    if expr is None or not loop_defids:
-        return False
-    loop_set = {defid for defid in loop_defids if defid is not None}
-    if not loop_set:
-        return False
-    if isinstance(expr, FunctionCallIR):
-        if _expr_contains_any_defid(expr.callee_expr, loop_set):
-            return True
-        if any(_expr_contains_any_defid(arg, loop_set) for arg in (expr.arguments or ())):
-            return True
-    if isinstance(expr, list):
-        return any(_body_contains_call_using_loop_var(item, loop_defids) for item in expr)
-    if isinstance(expr, tuple):
-        return any(_body_contains_call_using_loop_var(item, loop_defids) for item in expr)
-    if isinstance(expr, dict):
-        return any(
-            _body_contains_call_using_loop_var(key, loop_defids)
-            or _body_contains_call_using_loop_var(value, loop_defids)
-            for key, value in expr.items()
-        )
-    if isinstance(expr, IRNode):
-        for slot in _iter_slots(type(expr)):
-            if _body_contains_call_using_loop_var(getattr(expr, slot, None), loop_defids):
-                return True
-    return False
-
-
-def _collect_loop_defids_in_call_args(expr: Any, loop_set: set[Any], out: set[Any], *, inside_call: bool = False) -> None:
-    if expr is None or not loop_set:
-        return
-    if isinstance(expr, (IdentifierIR, IndexVarIR)):
-        defid = getattr(expr, "defid", None)
-        if inside_call and defid in loop_set:
-            out.add(defid)
-        range_ir = getattr(expr, "range_ir", None)
-        if range_ir is not None:
-            _collect_loop_defids_in_call_args(range_ir, loop_set, out, inside_call=inside_call)
-        return
-    if isinstance(expr, FunctionCallIR):
-        _collect_loop_defids_in_call_args(expr.callee_expr, loop_set, out, inside_call=True)
-        for arg in (expr.arguments or ()):
-            _collect_loop_defids_in_call_args(arg, loop_set, out, inside_call=True)
-        return
-    if isinstance(expr, RectangularAccessIR):
-        _collect_loop_defids_in_call_args(expr.array, loop_set, out, inside_call=inside_call)
-        if inside_call:
-            for idx in (expr.indices or ()):
-                _collect_loop_defids_in_call_args(idx, loop_set, out, inside_call=True)
-        return
-    if isinstance(expr, list):
-        for item in expr:
-            _collect_loop_defids_in_call_args(item, loop_set, out, inside_call=inside_call)
-        return
-    if isinstance(expr, tuple):
-        for item in expr:
-            _collect_loop_defids_in_call_args(item, loop_set, out, inside_call=inside_call)
-        return
-    if isinstance(expr, dict):
-        for key, value in expr.items():
-            _collect_loop_defids_in_call_args(key, loop_set, out, inside_call=inside_call)
-            _collect_loop_defids_in_call_args(value, loop_set, out, inside_call=inside_call)
-        return
-    if isinstance(expr, IRNode):
-        for slot in _iter_slots(type(expr)):
-            _collect_loop_defids_in_call_args(getattr(expr, slot, None), loop_set, out, inside_call=inside_call)
-
-
-def _loop_defids_in_call_args(body: Any, loop_defids: Tuple[Any, ...]) -> set[Any]:
-    loop_set = {defid for defid in loop_defids if defid is not None}
-    out: set[Any] = set()
-    _collect_loop_defids_in_call_args(body, loop_set, out)
-    return out
-
-
-def _body_is_elementwise_call(body: Any, loop_defids: Tuple[Any, ...]) -> bool:
-    if body is None or not loop_defids:
-        return False
-    loop_set = {defid for defid in loop_defids if defid is not None}
-    if not loop_set:
-        return False
-    in_call = _loop_defids_in_call_args(body, loop_defids)
-    if in_call != loop_set:
-        return False
-    if isinstance(body, FunctionCallIR):
-        return True
-    if isinstance(body, BlockExpressionIR):
-        return _body_is_elementwise_call(body.final_expr, loop_defids)
-    return False
-
 
 def _expr_contains_defid(expr: Any, target_defid: Any) -> bool:
     if expr is None or target_defid is None:
