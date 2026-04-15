@@ -999,7 +999,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
 
     def visit_binding(self, node: BindingIR) -> Any:
         # Preserve derivative quotient (e.g. dy_dx = d_y/d_x): keep as BinaryOpIR so backend can defer
-        # per-quotient diff run (AUTODIFF_DESIGN.md §8.2). Do not lower to Einstein.
+        # per-quotient diff run (AUTODIFF.md §8.2). Do not lower to Einstein.
         if isinstance(node.expr, BinaryOpIR) and node.expr.operator == BinaryOp.DIV:
             return self.visit_variable_declaration(node)
         if is_einstein_binding(node):
@@ -2247,7 +2247,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         return node
 
     def visit_differential(self, node: DifferentialIR) -> Any:
-        """Preserve DifferentialIR; only recurse into operand (AUTODIFF_IMPLEMENTATION.md)."""
+        """Preserve DifferentialIR; only recurse into operand (AUTODIFF.md)."""
         if node.operand is not None:
             node.operand = node.operand.accept(self)
         return node

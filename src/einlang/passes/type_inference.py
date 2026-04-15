@@ -660,7 +660,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         left_type = expr.left.accept(self)
         right_type = expr.right.accept(self)
         
-        # Gradient quotient: df / dx when both sides are Gradient(T) (AUTODIFF_IMPLEMENTATION.md §5, step 7)
+        # Gradient quotient: df / dx when both sides are Gradient(T) (AUTODIFF.md §5, step 7)
         if expr.operator == BinaryOp.DIV and isinstance(left_type, DifferentialType) and isinstance(right_type, DifferentialType):
             li = left_type.inner_type
             ri = right_type.inner_type
@@ -1304,7 +1304,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         return inferred_type
 
     def visit_differential(self, expr: DifferentialIR) -> Type:
-        """Infer type of @expr: Differential(T) where T is the type of operand (AUTODIFF_IMPLEMENTATION.md §5, step 6)."""
+        """Infer type of @expr: Differential(T) where T is the type of operand (AUTODIFF.md §5, step 6)."""
         operand_type = expr.operand.accept(self)
         diff_type = DifferentialType(operand_type)
         expr.type_info = diff_type

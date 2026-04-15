@@ -57,4 +57,4 @@ pip install -e .
 python3 -m einlang examples/hello.ein
 ```
 
-**Next:** [Getting started](GETTING_STARTED.md) · [Autodiff highlights](AUTODIFF_HIGHLIGHTS.md) · [Autodiff design](AUTODIFF_DESIGN.md) · [Examples](https://github.com/einlang/einlang/tree/main/examples)
+**Next:** [Getting started](GETTING_STARTED.md) · [Autodiff](AUTODIFF.md) · [Examples](https://github.com/einlang/einlang/tree/main/examples)

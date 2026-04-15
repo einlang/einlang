@@ -231,7 +231,7 @@ class UnaryOpIR(ExpressionIR):
 class DifferentialIR(ExpressionIR):
     """
     Differential of the value of operand (@expr). Same shape and dtype as operand.
-    Differentials combine per math (e.g. dz = dx + dy); see AUTODIFF_DESIGN.md.
+    Differentials combine per math (e.g. dz = dx + dy); see AUTODIFF.md.
     """
     __slots__ = ('operand',)
 

@@ -866,7 +866,7 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
         pass
     
     def visit_differential(self, node: DifferentialIR) -> None:
-        """DifferentialIR(operand) has the same shape as operand (AUTODIFF_IMPLEMENTATION.md §5)."""
+        """DifferentialIR(operand) has the same shape as operand (AUTODIFF.md §5)."""
         node.operand.accept(self)
         operand_shape = self.analyzer.get_shape(node.operand)
         if operand_shape:

@@ -129,7 +129,7 @@ This page lists **syntax and features that Einlang intentionally does not suppor
 
 **Supported:** The compiler supports automatic differentiation. Bind the value first, then use `@name` for a tangent request and `@a / @b` to compute the derivative (numeric quotient) directly on the values you care about. The compiler derives gradients via the chain rule; no hand-written gradient code or separate `grad(f)` wrapper is required for supported ops.
 
-**Docs and examples:** [AUTODIFF_HIGHLIGHTS.md](AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_IMPLEMENTATION.md](AUTODIFF_IMPLEMENTATION.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md), [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Examples: [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein). Language reference: [Automatic differentiation](reference.md#automatic-differentiation).
+**Docs and examples:** [AUTODIFF.md](AUTODIFF.md). Examples: [autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein). Language reference: [Automatic differentiation](reference.md#automatic-differentiation).
 
 **Known limitation: MNIST-style one-step training is not numerically correct yet.**
 
@@ -188,7 +188,7 @@ The current autodiff/runtime stack still has a remaining bug for the composed tr
 | LHS index expression (e.g. `t+1`) | Name or literal in bracket; refer to prior step in body (e.g. `seq[t-1]`) | [Recurrence relations](reference.md#recurrence-relations) |
 | Forward ref / future value (e.g. `h[t+1,i,j]`, `h[t,i+1,j]` when defining `h[t,i,j]`) | Backward ref only in every dim (e.g. `h[t-1,i,j]`, `h[t,i-1,j]`, `h[t,i,j-1]`) | [Recurrence relations](reference.md#recurrence-relations) |
 | Mutable bindings | New `let`; recurrences for sequences | [let](reference.md#let-declarations), [Recurrences](reference.md#recurrence-relations) |
-| ~~Automatic differentiation~~ | **Supported:** `@name`, `@a / @b` — see [AUTODIFF_HIGHLIGHTS](AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](AUTODIFF_DESIGN.md), [reference](reference.md#automatic-differentiation), [autodiff examples](https://github.com/einlang/einlang/tree/main/examples) |
+| ~~Automatic differentiation~~ | **Supported:** `@name`, `@a / @b` — see [AUTODIFF](AUTODIFF.md), [reference](reference.md#automatic-differentiation), [autodiff examples](https://github.com/einlang/einlang/tree/main/examples) |
 
 ---
 

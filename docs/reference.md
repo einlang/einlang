@@ -570,13 +570,13 @@ See [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.
 
 ## Automatic differentiation
 
-The compiler supports **built-in automatic differentiation**: you can request tangents, derivatives, and Jacobians directly in the language without a separate `grad(f)` wrapper API. The current executable path is centered on **named bindings**: bind the value first, then differentiate it. For an overview of the current compiler/runtime design, see [AUTODIFF_HIGHLIGHTS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), and [AUTODIFF_VJP_JVP_REWRITE.md](AUTODIFF_VJP_JVP_REWRITE.md).
+The compiler supports **built-in automatic differentiation**: you can request tangents, derivatives, and Jacobians directly in the language without a separate `grad(f)` wrapper API. The current executable path is centered on **named bindings**: bind the value first, then differentiate it. For an overview of the current compiler/runtime design, see [AUTODIFF.md](AUTODIFF.md).
 
 - **`@x`** — for a named binding `x`, the executable value form materializes the identity tangent seed of `x` (`1.0` for scalars, ones-like for tensors). Direct `print(@x)` is instead a symbolic display path.
 - **`@a / @b`** — the numeric derivative/Jacobian of named binding `a` with respect to named binding `b`. Scalar/scalar cases evaluate to a scalar; tensor cases use a lazy Jacobian-backed runtime value.
 - **Mental model** — write the program value first, then differentiate that value in place: `@loss / @w`, `@state / @dt`, and `@C / @A` are ordinary Einlang expressions, not calls to a separate gradient API.
 
-**Matmul, conv, einsum:** Derivatives of Einstein expressions are supported: e.g. `let C[i,j] = sum[k](A[i,k]*B[k,j]); let dC_dA = @C / @A;` (matmul), or convolution written as `sum[kh,kw](in[ih,iw]*w[kh,kw]) where ih = oh+kh, iw = ow+kw`. Any sum-of-products declaration can be differentiated w.r.t. any input array. See [AUTODIFF_OPS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_OPS.md) and [AUTODIFF_EINSTEIN.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_EINSTEIN.md).
+**Matmul, conv, einsum:** Derivatives of Einstein expressions are supported: e.g. `let C[i,j] = sum[k](A[i,k]*B[k,j]); let dC_dA = @C / @A;` (matmul), or convolution written as `sum[kh,kw](in[ih,iw]*w[kh,kw]) where ih = oh+kh, iw = ow+kw`. Any sum-of-products declaration can be differentiated w.r.t. any input array. See [AUTODIFF.md](AUTODIFF.md).
 
 Example:
 
@@ -590,7 +590,7 @@ print(dz_dx);
 print(dz_dy);
 ```
 
-The compiler derives gradients via the chain rule, but the current implementation answers autodiff requests through runtime JVP/VJP machinery instead of emitting a standalone derivative IR program. Supported operations and rules are documented in [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Design and pipeline: [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_VJP_JVP_REWRITE.md](AUTODIFF_VJP_JVP_REWRITE.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) (`autodiff_small.ein`, `autodiff_matmul.ein`, `autodiff_chain.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein`) for scalar, tensor, and training-style expression derivatives.
+The compiler derives gradients via the chain rule, but the current implementation answers autodiff requests through runtime JVP/VJP machinery instead of emitting a standalone derivative IR program. Supported operations and rules are documented in [AUTODIFF.md](AUTODIFF.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) (`autodiff_small.ein`, `autodiff_matmul.ein`, `autodiff_chain.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein`) for scalar, tensor, and training-style expression derivatives.
 
 ---
 
