@@ -938,8 +938,19 @@ class _Differentiator:
             if did == wrt:
                 continue
             out[did] = _seed_expr(leaf, symbolic=symbolic, resolver=self._resolver, loc=loc, value=0.0)
+        memo: Dict[Tuple[DefId, DefId], bool] = {}
+        for did, top_binding in self._ctx.bindings.items():
+            if did == wrt or did in out or is_function_binding(top_binding):
+                continue
+            if not self._top_level_depends_on(did, wrt, memo):
+                out[did] = _seed_expr(
+                    top_binding,
+                    symbolic=symbolic,
+                    resolver=self._resolver,
+                    loc=loc,
+                    value=0.0,
+                )
         if local_bindings:
-            memo: Dict[Tuple[DefId, DefId], bool] = {}
             for did, local_binding in local_bindings.items():
                 if did == wrt or did in out:
                     continue
@@ -952,6 +963,29 @@ class _Differentiator:
                         value=0.0,
                     )
         return out
+
+    def _top_level_depends_on(
+        self,
+        defid: DefId,
+        wrt: DefId,
+        memo: Dict[Tuple[DefId, DefId], bool],
+    ) -> bool:
+        key = (defid, wrt)
+        if key in memo:
+            return memo[key]
+        if defid == wrt:
+            memo[key] = True
+            return True
+        binding = self._ctx.bindings.get(defid)
+        if binding is None or binding.expr is None or is_function_binding(binding):
+            memo[key] = False
+            return False
+        memo[key] = False
+        for dep in self._ctx.deps_for(defid):
+            if self._top_level_depends_on(dep, wrt, memo):
+                memo[key] = True
+                break
+        return memo[key]
 
     def standalone(self, expr: ExpressionIR, loc: SourceLocation, *, symbolic: bool) -> ExpressionIR:
         seed_map = self._seed_map(None, symbolic, loc)

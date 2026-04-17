@@ -432,3 +432,32 @@ def test_runtime_executes_nested_max_pool_pullback_via_chain_rule():
     expected = np.zeros((1, 1, 4, 4), dtype=np.float64)
     expected[0, 0, 3, 3] = 1.0
     np.testing.assert_allclose(actual, expected)
+
+
+def test_request_lowering_clears_differentials_for_multi_stage_autodiff_updates():
+    result = _compile_after_request_lowering(
+        """
+        let x = [[1.0, 2.0], [3.0, 4.0]];
+        let y = [[1.0, 0.0], [0.0, 1.0]];
+        let w0[i in 0..2, j in 0..2] = 0.1 * (1.0 + (i + j) as f32);
+        let b0[j in 0..2] = 0.0;
+        let logits0[n in 0..2, j in 0..2] = sum[d in 0..2](x[n, d] * w0[d, j]) + b0[j];
+        let diff0[n in 0..2, j in 0..2] = logits0[n, j] - y[n, j];
+        let loss0 = sum[n in 0..2, j in 0..2](diff0[n, j] * diff0[n, j]);
+        let d_w0 = @loss0 / @w0;
+        let d_b0 = @loss0 / @b0;
+        let w1[i in 0..2, j in 0..2] = w0[i, j] - 0.1 * d_w0[i, j];
+        let b1[j in 0..2] = b0[j] - 0.1 * d_b0[j];
+        let logits1[n in 0..2, j in 0..2] = sum[d in 0..2](x[n, d] * w1[d, j]) + b1[j];
+        let diff1[n in 0..2, j in 0..2] = logits1[n, j] - y[n, j];
+        let loss1 = sum[n in 0..2, j in 0..2](diff1[n, j] * diff1[n, j]);
+        let d_w1 = @loss1 / @w1;
+        let d_b1 = @loss1 / @b1;
+        let main = d_b1[0];
+        """
+    )
+
+    assert not _contains_node_type(result.ir, DifferentialIR)
+    assert not _contains_node_type(result.ir, LazyJacobianIR)
+    assert not _contains_node_type(result.ir, JvpIR)
+    assert not _contains_node_type(result.ir, VjpIR)

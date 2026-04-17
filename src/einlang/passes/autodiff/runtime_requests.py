@@ -607,6 +607,13 @@ class _PlainRequestLowerer:
         if isinstance(stmt, BindingIR):
             if stmt.expr is not None:
                 stmt.expr = self.rewrite_expr(stmt.expr)
+            if stmt.defid is not None:
+                self._binding_map[stmt.defid] = stmt
+                self._differentiator._ctx.bindings[stmt.defid] = stmt
+                self._differentiator._ctx.binding_deps.pop(stmt.defid, None)
+                for context in self._local_contexts.values():
+                    if stmt.defid in context:
+                        context[stmt.defid] = stmt
             return [stmt]
         if isinstance(stmt, ExpressionIR):
             return [self.rewrite_expr(stmt)]
