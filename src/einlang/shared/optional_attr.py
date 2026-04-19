@@ -8,7 +8,7 @@ node does not have the attribute.
 
 Use the helpers here instead of getattr(..., "attr", default) at call sites where
 the node type is not statically known, so we have a single place to document and
-adjust behavior. The trust_ir_nodes script does not replace these.
+adjust behavior.
 """
 
 from typing import Any, Optional

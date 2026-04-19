@@ -6,6 +6,7 @@ Parametrized demos tests - loads all file contents together upfront for speed.
 import subprocess
 import sys
 import os
+import json
 import importlib
 import time
 from collections import Counter
@@ -124,6 +125,50 @@ def _run_file_with_stats(path: Path):
     return exec_result, runtime.get_last_vectorize_counts()
 
 
+def _run_file_with_stats_subprocess(path: Path, *, timeout: int = 300):
+    repo = repo_root()
+    child_env = {
+        key: value for key, value in os.environ.items() if not key.startswith("EINLANG_")
+    }
+    child_env.update(
+        {
+            "PYTHONHASHSEED": "0",
+            "OPENBLAS_NUM_THREADS": "1",
+            "OMP_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
+            "VECLIB_MAXIMUM_THREADS": "1",
+            "NUMEXPR_NUM_THREADS": "1",
+        }
+    )
+    script = (
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        f"repo = Path({str(repo)!r})\n"
+        "sys.path.insert(0, str(repo / 'src'))\n"
+        "sys.path.insert(0, str(repo))\n"
+        "from tests.examples.test_demos import _run_file_with_stats\n"
+        f"path = Path({str(path)!r})\n"
+        "exec_result, counts = _run_file_with_stats(path)\n"
+        "predictions = exec_result.outputs.get('predictions')\n"
+        "if hasattr(predictions, 'tolist'):\n"
+        "    predictions = predictions.tolist()\n"
+        "print(json.dumps({'predictions': predictions, 'counts': counts}))\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(repo),
+        env=child_env,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    lines = [line for line in proc.stdout.splitlines() if line.strip()]
+    assert lines, "mnist subprocess produced no output"
+    payload = json.loads(lines[-1])
+    return payload["predictions"], payload["counts"]
+
+
 def _walk_ir(node):
     if node is None:
         return
@@ -236,8 +281,7 @@ class TestDemos:
         root = repo_root()
         mnist_dir = root / "examples" / "mnist"
         main_ein = mnist_dir / "main.ein"
-        exec_result, counts = _run_file_with_stats(main_ein)
-        predictions = np.asarray(exec_result.outputs.get("predictions")).tolist()
+        predictions, counts = _run_file_with_stats_subprocess(main_ein, timeout=600)
         assert predictions == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], f"unexpected output: {predictions!r}"
         _assert_vectorize_counts_dict(counts, min_vectorized=1, max_scalar=0, label="mnist")
 
@@ -346,10 +390,16 @@ class TestDemos:
                 "(2) numerical/implementation difference -> if einlang output is correct, update golden_ref.txt "
                 "with: echo -n '<output>' > examples/whisper_tiny/golden_ref.txt"
             )
-        # The tuple-valued decode_state -> token projection keeps one scalar fallback
-        # for correctness; the hang regression was the hidden per-slot scalarization
-        # inside nested bindings, which is now fixed.
-        _assert_vectorize_counts_dict(counts, min_vectorized=5722, max_scalar=1, label="whisper_tiny")
+        # The tuple-valued decode_state recurrence now uses one recurrence-object
+        # hybrid step for correctness; the old hidden per-slot scalar fallback
+        # inside nested bindings is still fixed.
+        _assert_vectorize_counts_dict(
+            counts,
+            min_vectorized=5722,
+            max_scalar=0,
+            max_hybrid=1,
+            label="whisper_tiny",
+        )
 
 
 if __name__ == "__main__":

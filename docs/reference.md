@@ -590,7 +590,7 @@ print(dz_dx);
 print(dz_dy);
 ```
 
-The compiler derives gradients via the chain rule, but the current implementation answers autodiff requests through runtime JVP/VJP machinery instead of emitting a standalone derivative IR program. Supported operations and rules are documented in [AUTODIFF.md](AUTODIFF.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) (`autodiff_small.ein`, `autodiff_matmul.ein`, `autodiff_chain.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein`) for scalar, tensor, and training-style expression derivatives.
+The compiler derives gradients via the chain rule, but the current implementation answers autodiff requests through runtime JVP/VJP machinery instead of emitting a standalone derivative IR program. Supported operations and rules are documented in [AUTODIFF.md](AUTODIFF.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) for scalar checks (`autodiff_small.ein`, `autodiff_matmul.ein`), fitting workflows (`applications/linear_regression_autodiff.ein`, `applications/decay_calibration_autodiff.ein`), and training-style workloads (`gradient_descent_autodiff.ein`, `mnist/train_recurrence.ein`).
 
 ---
 

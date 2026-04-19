@@ -65,7 +65,7 @@ out = run(file="examples/hello.ein")
 |------|-----|
 | Learn the basics | `python3 -m einlang examples/hello.ein` |
 | See tensor notation | `python3 -m einlang examples/demos/matrix_operations.ein` |
-| Try autodiff | `python3 -m einlang examples/autodiff_small.ein` |
+| Try autodiff on a real fit | `python3 -m einlang examples/applications/linear_regression_autodiff.ein` |
 | Run a recurrence | `python3 -m einlang examples/recurrence/recurrence_suite.ein` |
 | Run numerics examples | `python3 -m einlang examples/ode/ode_suite.ein` |
 | Run a model | `python3 -m einlang examples/mnist/main.ein` |

@@ -9,12 +9,12 @@ Run these from the repository root:
 ```bash
 python3 -m einlang examples/hello.ein
 python3 -m einlang examples/demos/matrix_operations.ein
-python3 -m einlang examples/autodiff_small.ein
+python3 -m einlang examples/applications/linear_regression_autodiff.ein
 python3 -m einlang examples/recurrence/recurrence_suite.ein
 python3 -m einlang examples/ode/ode_suite.ein
 ```
 
-That sequence covers the language basics, tensor notation, autodiff, recurrences, and numerics.
+That sequence covers the language basics, tensor notation, real fitting with autodiff, recurrences, and numerics.
 
 ## By goal
 
@@ -22,7 +22,10 @@ That sequence covers the language basics, tensor notation, autodiff, recurrences
 |------|---------------|-----|
 | Learn the language | `examples/basics/`, `examples/demos/` | `python3 -m einlang examples/basics/variables_demo.ein` |
 | See feature-sized syntax examples | `examples/units/` | [units/README](units/README.md) |
-| Try autodiff | root autodiff examples | `python3 -m einlang examples/autodiff_small.ein` |
+| Try autodiff basics | root autodiff examples | `python3 -m einlang examples/autodiff_small.ein` |
+| See autodiff on real fitting tasks | `examples/applications/`, `examples/gradient_descent_autodiff.ein`, `examples/mnist/` | `python3 -m einlang examples/applications/linear_regression_autodiff.ein` |
+| See the main sklearn-backed training showcase | `examples/mnist/train_sklearn_digits.ein` | `cd examples/mnist && PYTHONPATH=../../src python3 -m einlang train_sklearn_digits.ein` |
+| See estimator-style testing around an Einlang model | `examples/applications/linear_regression_sklearn_style_checks.py` | `python3 examples/applications/linear_regression_sklearn_style_checks.py` |
 | Explore recurrences and dynamic programs | `examples/recurrence/`, `examples/value_iteration/`, `examples/job_search/` | `python3 -m einlang examples/recurrence/recurrence_suite.ein` |
 | Run numerical simulations | `examples/ode/`, `examples/pde_1d/`, `examples/wave_2d/`, `examples/brusselator/` | `python3 -m einlang examples/ode/ode_suite.ein` |
 | Run optimization and workflow examples | `examples/optimization/`, `examples/applications/`, `examples/time_series/`, `examples/finance/` | `python3 -m einlang examples/optimization/optimization_suite.ein` |
@@ -35,10 +38,11 @@ That sequence covers the language basics, tensor notation, autodiff, recurrences
 | `examples/basics/` | Small language primers |
 | `examples/demos/` | Matrix and tensor examples |
 | `examples/units/` | Feature-by-feature lookup examples |
+| `examples/applications/`, `examples/gradient_descent_autodiff.ein`, `examples/mnist/` | Real-world autodiff examples: fitting, calibration, optimization, and training |
 | `examples/recurrence/` | Recurrence patterns and discrete dynamics |
 | `examples/ode/`, `examples/pde_1d/`, `examples/wave_2d/`, `examples/brusselator/` | Numerical simulation examples |
 | `examples/optimization/`, `examples/value_iteration/`, `examples/job_search/`, `examples/applications/` | Optimization, DP, economics, and workflow examples |
-| `examples/mnist/`, `examples/mnist_quantized/`, `examples/deit_tiny/`, `examples/whisper_tiny/` | Larger model examples |
+| `examples/mnist/`, `examples/mnist_quantized/`, `examples/deit_tiny/`, `examples/whisper_tiny/` | Larger model examples, including the full-split sklearn digits training showcase |
 
 ## Detailed guides kept on purpose
 

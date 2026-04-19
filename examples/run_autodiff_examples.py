@@ -168,6 +168,51 @@ def main() -> None:
         ("d_loss_d_pred", 2.0, "∂loss/∂pred = 2*(pred-target)"),
     ]))
 
+    out_linreg = run_and_print(
+        examples_dir / "applications" / "linear_regression_autodiff.ein",
+        "linear_regression_autodiff.ein — one gradient step for line fitting (slope/intercept)",
+        vars_to_show=["sse", "sse_next", "slope_next", "intercept_next"],
+    )
+    all_errors.extend(check_accuracy("linear_regression_autodiff", out_linreg, [
+        ("sse", 13.69, "initial sum of squared errors"),
+        ("sse_next", 1.53872, "SSE after one autodiff update"),
+        ("slope_next", 0.552, "updated slope"),
+        ("intercept_next", 0.244, "updated intercept"),
+    ]))
+
+    out_decay = run_and_print(
+        examples_dir / "applications" / "decay_calibration_autodiff.ein",
+        "decay_calibration_autodiff.ein — one gradient step for exponential-decay calibration",
+        vars_to_show=["sse", "sse_next", "k_next", "u0_next"],
+    )
+    all_errors.extend(check_accuracy("decay_calibration_autodiff", out_decay, [
+        ("sse", 1.5444184024608496, "initial decay-fit SSE"),
+        ("sse_next", 0.5930878097710628, "SSE after one autodiff refinement"),
+        ("k_next", -0.019471059071288918, "updated decay rate"),
+        ("u0_next", 1.6836614447059501, "updated initial amplitude"),
+    ]))
+
+    out_gd = run_and_print(
+        examples_dir / "gradient_descent_autodiff.ein",
+        "gradient_descent_autodiff.ein — recurrence-driven optimization with autodiff inner gradients",
+        vars_to_show=["loss_initial", "loss_final", "x"],
+    )
+    all_errors.extend(check_accuracy("gradient_descent_autodiff", out_gd, [
+        ("loss_initial", 2.0, "quadratic loss at x=[0,0]"),
+        ("loss_final", 7.421505188176525e-09, "quadratic loss after recurrence updates"),
+    ]))
+    if out_gd and "x" in out_gd:
+        import numpy as np
+        x_hist = np.asarray(out_gd["x"], dtype=np.float64)
+        if x_hist.shape != (20, 2):
+            all_errors.append(f"  gradient_descent_autodiff: x shape = {x_hist.shape} (expected (20, 2))")
+        else:
+            if not np.allclose(x_hist[-1], np.array([0.5000304579734802, 0.5000304579734802]), atol=ATOL, rtol=RTOL):
+                all_errors.append(
+                    f"  gradient_descent_autodiff: final x = {x_hist[-1]} "
+                    "(expected about [0.50003046, 0.50003046])"
+                )
+
     # Accuracy summary
     print("=" * 60)
     print("Accuracy check")

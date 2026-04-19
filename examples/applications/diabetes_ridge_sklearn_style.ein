@@ -1,0 +1,58 @@
+// Classical sklearn-style regression example on the diabetes dataset.
+//
+// Workflow:
+// 1. Load sklearn's diabetes dataset through python::diabetes_data::*.
+// 2. Build train/test design matrices with a bias column.
+// 3. Fit a ridge regressor with the closed-form normal equations.
+// 4. Evaluate with MSE and R^2 on train and test splits.
+//
+// Run (cwd = examples/applications): PYTHONPATH=../../src python3 -m einlang diabetes_ridge_sklearn_style.ein
+
+use std::ml::linalg_ops::solve_cholesky;
+
+let train_features = python::diabetes_data::load_train_features() as [f32; 353, 10];
+let train_targets = python::diabetes_data::load_train_targets() as [f32; 353];
+let test_features = python::diabetes_data::load_test_features() as [f32; 89, 10];
+let test_targets = python::diabetes_data::load_test_targets() as [f32; 89];
+
+let n_features = 10;
+let n_params = 11;
+let alpha = 1.0;
+
+let train_design[n in 0..353, p in 0..11] = if p < n_features { train_features[n, p] } else { 1.0 };
+let test_design[n in 0..89, p in 0..11] = if p < n_features { test_features[n, p] } else { 1.0 };
+
+let gram[i in 0..11, j in 0..11] = sum[n in 0..353](train_design[n, i] * train_design[n, j]);
+let system[i in 0..11, j in 0..11] =
+    gram[i, j] + if i == j && i < n_features { alpha } else { 0.0 };
+let rhs[p in 0..11] = sum[n in 0..353](train_design[n, p] * train_targets[n]);
+let weights = solve_cholesky(system, rhs);
+
+let train_preds[n in 0..353] = sum[p in 0..11](train_design[n, p] * weights[p]);
+let test_preds[n in 0..89] = sum[p in 0..11](test_design[n, p] * weights[p]);
+
+let train_sq_error[n in 0..353] = (train_preds[n] - train_targets[n]) * (train_preds[n] - train_targets[n]);
+let test_sq_error[n in 0..89] = (test_preds[n] - test_targets[n]) * (test_preds[n] - test_targets[n]);
+let train_mse = sum[n in 0..353](train_sq_error[n]) / 353.0;
+let test_mse = sum[n in 0..89](test_sq_error[n]) / 89.0;
+
+let train_target_mean = sum[n in 0..353](train_targets[n]) / 353.0;
+let test_target_mean = sum[n in 0..89](test_targets[n]) / 89.0;
+let train_ss_res = sum[n in 0..353](train_sq_error[n]);
+let test_ss_res = sum[n in 0..89](test_sq_error[n]);
+let train_ss_tot =
+    sum[n in 0..353]((train_targets[n] - train_target_mean) * (train_targets[n] - train_target_mean));
+let test_ss_tot =
+    sum[n in 0..89]((test_targets[n] - test_target_mean) * (test_targets[n] - test_target_mean));
+let train_r2 = 1.0 - train_ss_res / train_ss_tot;
+let test_r2 = 1.0 - test_ss_res / test_ss_tot;
+let intercept = weights[10];
+
+print("Train MSE:", train_mse);
+print("Test MSE:", test_mse);
+print("Train R2:", train_r2);
+print("Test R2:", test_r2);
+print("Intercept:", intercept);
+
+assert(train_r2 > 0.4, "ridge fit should explain a useful amount of training variance");
+assert(test_r2 > 0.4, "ridge fit should generalize better than the mean baseline");

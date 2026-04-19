@@ -1,0 +1,89 @@
+// One-step 2-layer MLP training on scikit-learn digits data.
+// The data comes from python::mnist_data::* (backed by sklearn.load_digits),
+// while the forward pass, autodiff, update, and evaluation stay in Einlang.
+//
+// Network:
+// 8x8 image -> flatten(64) -> Dense(12) -> ReLU -> Dense(10) -> argmax
+//
+// Run (cwd = examples/mnist): PYTHONPATH=../../src python3 -m einlang train_sklearn_digits_mlp.ein
+
+use std::ml::relu;
+
+let train_images_4d = python::mnist_data::load_train_images() as [f32; 1437, 1, 8, 8];
+let train_labels_full = python::mnist_data::load_train_labels() as [f32; 1437, 10];
+let test_images_4d = python::mnist_data::load_test_images() as [f32; 360, 1, 8, 8];
+let test_labels_full = python::mnist_data::load_test_labels() as [f32; 360, 10];
+
+let batch_size = 16;
+let eval_size = 16;
+let hidden_size = 12;
+let lr = 0.1;
+
+let train_images[n in 0..batch_size, d in 0..64] = train_images_4d[n, 0, d / 8, d % 8];
+let train_labels[n in 0..batch_size, cls in 0..10] = train_labels_full[n, cls];
+let train_truth = std::ml::argmax(train_labels);
+
+let eval_images[n in 0..eval_size, d in 0..64] = test_images_4d[n, 0, d / 8, d % 8];
+let eval_labels[n in 0..eval_size, cls in 0..10] = test_labels_full[n, cls];
+let eval_truth = std::ml::argmax(eval_labels);
+
+// Keep weights and bias in one tensor per layer by reserving the last row for bias.
+let w1_0[p in 0..65, h in 0..hidden_size] =
+    if p == 64 { 0.02 * (1.0 + ((h * 5) % 7) as f32) } else { 5e-3 * (1.0 + ((p * 7 + h * 3) % 17) as f32) };
+let w2_0[p in 0..13, cls in 0..10] =
+    if p == 12 { 0.01 * (1.0 + ((cls * 2) % 5) as f32) } else { 5e-3 * (1.0 + ((p * 5 + cls * 7) % 19) as f32) };
+
+let hidden_pre0[n in 0..batch_size, h in 0..hidden_size] =
+    sum[d in 0..64](train_images[n, d] * w1_0[d, h]) + w1_0[64, h];
+let hidden0 = relu(hidden_pre0);
+let batch_logits0[n in 0..batch_size, cls in 0..10] =
+    sum[h in 0..hidden_size](hidden0[n, h] * w2_0[h, cls]) + w2_0[12, cls];
+let batch_diff0[n in 0..batch_size, cls in 0..10] = batch_logits0[n, cls] - train_labels[n, cls];
+let batch_loss0 =
+    sum[n in 0..batch_size, cls in 0..10](batch_diff0[n, cls] * batch_diff0[n, cls]) / ((batch_size * 10) as f32);
+let batch_preds0 = std::ml::argmax(batch_logits0);
+let batch_correct0 = sum[n in 0..batch_size](if batch_preds0[n] == train_truth[n] { 1 } else { 0 });
+let batch_accuracy0 = (batch_correct0 as f32) / (batch_size as f32);
+
+let eval_hidden_pre0[n in 0..eval_size, h in 0..hidden_size] =
+    sum[d in 0..64](eval_images[n, d] * w1_0[d, h]) + w1_0[64, h];
+let eval_hidden0 = relu(eval_hidden_pre0);
+let eval_logits0[n in 0..eval_size, cls in 0..10] =
+    sum[h in 0..hidden_size](eval_hidden0[n, h] * w2_0[h, cls]) + w2_0[12, cls];
+let eval_preds0 = std::ml::argmax(eval_logits0);
+let eval_correct0 = sum[n in 0..eval_size](if eval_preds0[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy0 = (eval_correct0 as f32) / (eval_size as f32);
+
+let d_w1_0 = @batch_loss0 / @w1_0;
+let d_w2_0 = @batch_loss0 / @w2_0;
+let w1_1[p in 0..65, h in 0..hidden_size] = w1_0[p, h] - lr * d_w1_0[p, h];
+let w2_1[p in 0..13, cls in 0..10] = w2_0[p, cls] - lr * d_w2_0[p, cls];
+
+let hidden_pre1[n in 0..batch_size, h in 0..hidden_size] =
+    sum[d in 0..64](train_images[n, d] * w1_1[d, h]) + w1_1[64, h];
+let hidden1 = relu(hidden_pre1);
+let batch_logits1[n in 0..batch_size, cls in 0..10] =
+    sum[h in 0..hidden_size](hidden1[n, h] * w2_1[h, cls]) + w2_1[12, cls];
+let batch_diff1[n in 0..batch_size, cls in 0..10] = batch_logits1[n, cls] - train_labels[n, cls];
+let batch_loss1 =
+    sum[n in 0..batch_size, cls in 0..10](batch_diff1[n, cls] * batch_diff1[n, cls]) / ((batch_size * 10) as f32);
+let batch_preds1 = std::ml::argmax(batch_logits1);
+let batch_correct1 = sum[n in 0..batch_size](if batch_preds1[n] == train_truth[n] { 1 } else { 0 });
+let batch_accuracy1 = (batch_correct1 as f32) / (batch_size as f32);
+
+let eval_hidden_pre1[n in 0..eval_size, h in 0..hidden_size] =
+    sum[d in 0..64](eval_images[n, d] * w1_1[d, h]) + w1_1[64, h];
+let eval_hidden1 = relu(eval_hidden_pre1);
+let eval_logits1[n in 0..eval_size, cls in 0..10] =
+    sum[h in 0..hidden_size](eval_hidden1[n, h] * w2_1[h, cls]) + w2_1[12, cls];
+let eval_preds1 = std::ml::argmax(eval_logits1);
+let eval_correct1 = sum[n in 0..eval_size](if eval_preds1[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy1 = (eval_correct1 as f32) / (eval_size as f32);
+
+print("Batch loss:", batch_loss0, "->", batch_loss1);
+print("Batch accuracy:", batch_accuracy0 * 100.0, "->", batch_accuracy1 * 100.0);
+print("Eval accuracy:", eval_accuracy0 * 100.0, "->", eval_accuracy1 * 100.0);
+
+assert(batch_loss1 < batch_loss0, "training batch loss did not decrease");
+assert(batch_correct1 > batch_correct0, "training batch accuracy did not improve");
+assert(eval_correct1 > eval_correct0, "held-out accuracy did not improve");

@@ -94,15 +94,29 @@ In practice, if you can express the computation cleanly in Einlang, autodiff is 
 
 ## Recommended examples
 
+Start with the small calculus examples to learn the syntax, then move straight to fitting and training workloads:
+
 Run these from the repository root:
 
 ```bash
 python3 -m einlang examples/autodiff_small.ein
 python3 -m einlang examples/autodiff_matmul.ein
-python3 -m einlang examples/autodiff_chain.ein
-python3 -m einlang examples/autodiff_loss.ein
+python3 -m einlang examples/applications/linear_regression_autodiff.ein
+python3 -m einlang examples/applications/decay_calibration_autodiff.ein
 python3 -m einlang examples/gradient_descent_autodiff.ein
+cd examples/mnist && PYTHONPATH=../../src python3 -m einlang train_sklearn_digits.ein
+cd examples/mnist && PYTHONPATH=../../src python3 -m einlang train_recurrence.ein
 ```
+
+Use this mental grouping:
+
+- syntax and local sanity checks: `autodiff_small`, `autodiff_matmul`, `autodiff_chain`, `autodiff_loss`
+- real fitting workflows: `applications/linear_regression_autodiff`, `applications/decay_calibration_autodiff`
+- optimization loops: `gradient_descent_autodiff`
+- model training showcase on separate train/test data: `mnist/train_sklearn_digits.ein`
+- smaller training demos on bundled data: `mnist/train_recurrence.ein`, `mnist/train_full.ein`
+
+If you want the clearest “autodiff is doing real ML training work” example, start with `mnist/train_sklearn_digits.ein`. It uses the full `sklearn.load_digits` train/test split and reaches strong held-out accuracy after multiple autodiff updates.
 
 ## Next
 

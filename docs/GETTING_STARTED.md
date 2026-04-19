@@ -38,8 +38,15 @@ Then try a few representative examples:
 
 ```bash
 python3 -m einlang examples/demos/matrix_operations.ein
-python3 -m einlang examples/autodiff_small.ein
+python3 -m einlang examples/applications/linear_regression_autodiff.ein
 python3 -m einlang examples/recurrence/recurrence_suite.ein
+```
+
+If you want a more substantial showcase after that, run the full sklearn-backed digits trainer:
+
+```bash
+cd examples/mnist
+PYTHONPATH=../../src python3 -m einlang train_sklearn_digits.ein
 ```
 
 ## Use it from Python
