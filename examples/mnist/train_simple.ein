@@ -1,0 +1,78 @@
+use std::array::argmax;
+
+// Load MNIST data
+let (X_train, y_train, X_test, y_test) = load_mnist_train_test();
+
+// Initialize CNN weights (same as before)
+let conv1_weight = randn([32, 1, 3, 3]);
+let conv1_bias = randn([32]);
+let conv2_weight = randn([64, 32, 3, 3]);
+let conv2_bias = randn([64]);
+let fc1_weight = randn([128, 64 * 4 * 4]);
+let fc1_bias = randn([128]);
+let fc2_weight = randn([10, 128]);
+let fc2_bias = randn([10]);
+
+// Train on first sample
+let sample_idx = 0;
+let x = X_train[sample_idx];  // Shape: [1, 8, 8]
+let true_label = y_train[sample_idx];  // Shape: [10] (one-hot)
+
+// Forward pass
+let conv1_out = relu(conv2d(x, conv1_weight, conv1_bias, stride=1, padding=1));
+let pool1_out = max_pool2d(conv1_out, kernel_size=2, stride=2);
+let conv2_out = relu(conv2d(pool1_out, conv2_weight, conv2_bias, stride=1, padding=1));
+let pool2_out = max_pool2d(conv2_out, kernel_size=2, stride=2);
+let flattened = flatten(pool2_out);
+let fc1_out = relu(matmul(fc1_weight, flattened) + fc1_bias);
+let logits = matmul(fc2_weight, fc1_out) + fc2_bias;
+
+// Compute loss (cross-entropy)
+let loss = cross_entropy_loss(logits, true_label);
+print("Training loss:", loss);
+
+// Compute gradients and update weights
+let d_logits = softmax_cross_entropy_grad(logits, true_label);
+let (d_fc2_weight, d_fc2_bias, d_fc1_out) = linear_grad(fc2_weight, fc2_bias, d_logits, fc1_out);
+let d_fc1_out_activated = relu_grad(d_fc1_out, fc1_out);
+let (d_fc1_weight, d_fc1_bias, d_flattened) = linear_grad(fc1_weight, fc1_bias, d_fc1_out_activated, flattened);
+let d_pool2_out = unflatten(d_flattened, pool2_out.shape);
+let d_conv2_out = max_pool2d_grad(d_pool2_out, conv2_out, pool2_out, kernel_size=2, stride=2);
+let d_conv2_out_activated = relu_grad(d_conv2_out, conv2_out);
+let (d_conv2_weight, d_conv2_bias, d_pool1_out) = conv2d_grad(conv2_weight, conv2_bias, d_conv2_out_activated, pool1_out);
+let d_conv1_out = max_pool2d_grad(d_pool1_out, conv1_out, pool1_out, kernel_size=2, stride=2);
+let d_conv1_out_activated = relu_grad(d_conv1_out, conv1_out);
+let (d_conv1_weight, d_conv1_bias, _) = conv2d_grad(conv1_weight, conv1_bias, d_conv1_out_activated, x);
+
+// Update weights (simple gradient descent)
+let learning_rate = 0.01;
+let conv1_weight = conv1_weight - learning_rate * d_conv1_weight;
+let conv1_bias = conv1_bias - learning_rate * d_conv1_bias;
+let conv2_weight = conv2_weight - learning_rate * d_conv2_weight;
+let conv2_bias = conv2_bias - learning_rate * d_conv2_bias;
+let fc1_weight = fc1_weight - learning_rate * d_fc1_weight;
+let fc1_bias = fc1_bias - learning_rate * d_fc1_bias;
+let fc2_weight = fc2_weight - learning_rate * d_fc2_weight;
+let fc2_bias = fc2_bias - learning_rate * d_fc2_bias;
+
+// Test on first test sample
+let test_idx = 0;
+let x_test = X_test[test_idx];
+let true_label_test = y_test[test_idx];
+
+// Forward pass on test sample
+let conv1_out_test = relu(conv2d(x_test, conv1_weight, conv1_bias, stride=1, padding=1));
+let pool1_out_test = max_pool2d(conv1_out_test, kernel_size=2, stride=2);
+let conv2_out_test = relu(conv2d(pool1_out_test, conv2_weight, conv2_bias, stride=1, padding=1));
+let pool2_out_test = max_pool2d(conv2_out_test, kernel_size=2, stride=2);
+let flattened_test = flatten(pool2_out_test);
+let fc1_out_test = relu(matmul(fc1_weight, flattened_test) + fc1_bias);
+let logits_test = matmul(fc2_weight, fc1_out_test) + fc2_bias;
+
+// Get predictions
+let predicted_class = argmax(logits_test);
+let true_class = argmax(true_label_test);
+
+print("Predicted class:", predicted_class);
+print("True class:", true_class);
+print("Test result:", if predicted_class == true_class { "CORRECT" } else { "INCORRECT" });

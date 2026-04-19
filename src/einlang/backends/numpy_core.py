@@ -241,9 +241,22 @@ class CoreExecutionMixin:
         if stack is None:
             self._variable_decl_stack = []
             stack = self._variable_decl_stack
-        nested_under_vectorized_binding = bool(stack) and self._vectorization_parallel_shape() is not None
+        nested_under_vectorized_binding = self._vectorization_parallel_shape() is not None
         stack.append(node)
         try:
+            if nested_under_vectorized_binding:
+                from .numpy_expressions_mixin import _collect_ir_defids
+                parallel_defids = {
+                    did for did in (self._vectorization_parallel_defids_order() or ()) if did is not None
+                }
+                if parallel_defids:
+                    referenced = _collect_ir_defids(expr)
+                    if not (referenced & parallel_defids):
+                        with self._vectorization_scope(
+                            parallel_shape=None,
+                            parallel_defids_order=None,
+                        ):
+                            return expr.accept(self)
             if nested_under_vectorized_binding and isinstance(
                 expr,
                 (LoweredReductionIR, LoweredSelectAtArgmaxIR),

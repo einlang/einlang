@@ -999,7 +999,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
 
     def visit_binding(self, node: BindingIR) -> Any:
         # Preserve derivative quotient (e.g. dy_dx = d_y/d_x): keep as BinaryOpIR so backend can defer
-        # per-quotient diff run (AUTODIFF_DESIGN.md §8.2). Do not lower to Einstein.
+        # per-quotient diff run (AUTODIFF.md §8.2). Do not lower to Einstein.
         if isinstance(node.expr, BinaryOpIR) and node.expr.operator == BinaryOp.DIV:
             return self.visit_variable_declaration(node)
         if is_einstein_binding(node):
@@ -1307,6 +1307,25 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
             lhs_shape = self._shape_from_clause_indices(node, node.location)
             if lhs_shape is not None:
                 shape = lhs_shape
+
+        body_type = getattr(node.value, "type_info", None) if node.value is not None else None
+        body_shape = getattr(body_type, "shape", None) if body_type is not None else None
+        if shape is not None and isinstance(body_shape, (list, tuple)) and body_shape:
+            suffix = []
+            for dim in body_shape:
+                if isinstance(dim, ExpressionIR):
+                    suffix.append(_clone_expr(dim))
+                elif isinstance(dim, (int, float)):
+                    suffix.append(
+                        LiteralIR(
+                            value=int(dim),
+                            location=node.location,
+                            shape_info=None,
+                            type_info=infer_literal_type(int(dim)),
+                        )
+                    )
+            if suffix:
+                shape = list(shape) + suffix
         
         # Element type comes only from type pass (decl.expr.element_type or type_info)
         decl_expr = meta_expr
@@ -2247,7 +2266,7 @@ class EinsteinLoweringVisitor(IRVisitor[None]):
         return node
 
     def visit_differential(self, node: DifferentialIR) -> Any:
-        """Preserve DifferentialIR; only recurse into operand (AUTODIFF_IMPLEMENTATION.md)."""
+        """Preserve DifferentialIR; only recurse into operand (AUTODIFF.md)."""
         if node.operand is not None:
             node.operand = node.operand.accept(self)
         return node

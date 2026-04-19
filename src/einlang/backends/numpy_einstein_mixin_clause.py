@@ -245,12 +245,8 @@ class EinsteinExecutionClauseMixin:
         binding = getattr(variable_decl, "_binding", None)
         variable_defid = (binding.defid if binding else None) or getattr(variable_decl, "defid", None)
         body_node = lowered.body
-        has_recurrence = bool(
-            variable_defid is not None
-            and body_node is not None
-            and _BodyReferencesDefidVisitor(variable_defid).references(body_node)
-            and len(_recurrence_dims(lowered, variable_defid, clause_indices)) > 0
-        )
+        planned_recurrence_dims = list(getattr(lowered, "recurrence_dims_override", None) or [])
+        has_recurrence = bool(planned_recurrence_dims)
         with self._vectorization_scope(recurrence_clause=has_recurrence):
             def cell_index(full_context: dict) -> Optional[tuple]:
                 out = []
@@ -332,6 +328,17 @@ class EinsteinExecutionClauseMixin:
             lowered_clause_facts = getattr(self, "_lowered_einstein_clause_facts", None)
             if callable(lowered_clause_facts):
                 clause_facts = lowered_clause_facts(lowered)
+            planned_vectorization_strategy = getattr(lowered, "vectorization_strategy", None)
+            planned_scalar_loop_indices = list(getattr(lowered, "vectorization_scalar_loop_dims", None) or [])
+            if clause_facts is not None and not planned_scalar_loop_indices:
+                planned_scalar_loop_indices = list(
+                    getattr(clause_facts, "vectorization_scalar_loop_dims", ()) or ()
+                )
+            if not isinstance(planned_vectorization_strategy, str):
+                raise RuntimeError(
+                    "LoweredEinsteinClauseIR missing compiler-owned vectorization_strategy. "
+                    "LoweredExecutionFactsPass must annotate lowered clause strategies before execution."
+                )
             has_literal_idx = (
                 bool(getattr(clause_facts, "has_literal_index", False))
                 if clause_facts is not None
@@ -343,6 +350,7 @@ class EinsteinExecutionClauseMixin:
             _bindings = lowered.bindings or []
             _guards = lowered.guards or []
             _loops = lowered.loops
+            _loop_defids_tuple = tuple(lp.variable.defid for lp in _loops)
             _loop_defid_to_name = (
                 dict(getattr(clause_facts, "loop_names_by_defid", {}) or {})
                 if clause_facts is not None
@@ -363,22 +371,13 @@ class EinsteinExecutionClauseMixin:
                 if clause_facts is not None
                 else [d for d in loop_defids if d is not None]
             )
-            if clause_facts is not None:
-                has_call_using_loop = bool(getattr(clause_facts, "body_contains_call_using_loop_var", False))
-                call_arg_loop_defids = set(getattr(clause_facts, "call_arg_loop_defids", ()) or ())
-            else:
-                has_call_using_loop = _body_contains_call_using_loop_var(body_node, loop_defids_nonnull)
-                call_arg_loop_defids = _loop_defids_in_call_args(body_node, loop_defids)
-            # Some autodiff-generated helper clauses use block bodies with nested lowered
-            # reductions/selects. Those can still execute correctly with broadcast loop
-            # bindings, and eagerly forcing scalar here makes MNIST one-step training
-            # spend most of its time in nested Python loops. Keep the scalar fallback
-            # below, but optimistically try the normal vectorized paths first.
-            force_scalar_clause = (
-                bool(getattr(clause_facts, "body_has_direct_nested_lowered_binding", False))
-                if clause_facts is not None
-                else _block_has_direct_nested_lowered_binding(body_node)
+            has_call_using_loop = bool(
+                clause_facts is not None
+                and getattr(clause_facts, "body_contains_call_using_loop_var", False)
             )
+            call_arg_loop_defids = set(
+                getattr(clause_facts, "call_arg_loop_defids", ()) or ()
+            ) if clause_facts is not None else set()
             if object_output and not lowered.loops:
                 with self.env.scope():
                     if variable_defid is not None:
@@ -493,15 +492,11 @@ class EinsteinExecutionClauseMixin:
             # Try call-scalar first so we don't use wrong full-vectorize result (array-valued row index).
             if (
                 lowered.loops
-                and not has_literal_idx
-                and has_call_using_loop
                 and not object_output
             ):
-                scalar_loop_indices_call = [
-                    dim
-                    for dim, lp in enumerate(lowered.loops)
-                    if lp.variable.defid in call_arg_loop_defids
-                ]
+                scalar_loop_indices_call: List[int] = []
+                if planned_vectorization_strategy == "call-scalar":
+                    scalar_loop_indices_call = list(planned_scalar_loop_indices)
                 if 0 < len(scalar_loop_indices_call) < len(lowered.loops):
                     call_hybrid_out = _try_call_scalar_vectorize_clause(
                         lowered,
@@ -525,14 +520,9 @@ class EinsteinExecutionClauseMixin:
                         return output
             # Literal idx / self-ref (recurrence) -> scalar; other indices -> vectorize.
             # When body has recurrence (reads LHS at different index), try hybrid first so we read prior timestep correctly.
-            recurrence_needs_scalar = False
-            if (
-                lowered.loops
-                and variable_defid is not None
-                and _BodyReferencesDefidVisitor(variable_defid).references(body_node)
-            ):
-                recurrence_dims = _recurrence_dims(lowered, variable_defid, clause_indices)
-                if 0 < len(recurrence_dims) < len(lowered.loops):
+            recurrence_needs_scalar = planned_vectorization_strategy == "scalar"
+            if lowered.loops and variable_defid is not None:
+                if planned_vectorization_strategy == "recurrence-hybrid":
                     hybrid_out = _try_hybrid_vectorize_clause(
                         lowered, list(output.shape), output, variable_defid, expr_evaluator, backend=self,
                         clause_indices=clause_indices,
@@ -544,10 +534,6 @@ class EinsteinExecutionClauseMixin:
                         self._vectorize_debug_log("hybrid", lowered, variable_decl, axes="recurrence_hybrid")
                         _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path="hybrid")
                         return output
-                    recurrence_needs_scalar = True  # hybrid failed; use scalar path so we read LHS[t-1] correctly
-                elif len(recurrence_dims) == len(lowered.loops) and recurrence_dims:
-                    # Every loop dim is recurrence (e.g. u[t] = f(u[t-1]) with a single t). Cannot vectorize over t;
-                    # must run scalar loop so prior indices of u are visible (e.g. numerics::euler_decay).
                     recurrence_needs_scalar = True
             if object_output and lowered.loops and variable_defid is not None:
                 recurrence_dims_object = getattr(lowered, "recurrence_dims_override", None)
@@ -599,9 +585,18 @@ class EinsteinExecutionClauseMixin:
                         )
                         return output
             # Try full vectorize over loop dims (literal idx -> fixed slice; other dims -> vectorize).
-            if lowered.loops and not object_output:
+            if (
+                lowered.loops
+                and not object_output
+                and planned_vectorization_strategy in ("slice-if", "vectorized", "recurrence-hybrid")
+            ):
                 # Slice-vectorize: body "if p < t then ... else 0" -> vectorize over [0..t), fill rest (e.g. emb in decode).
-                if not recurrence_needs_scalar and not lowered.guards and not lowered.bindings:
+                if (
+                    planned_vectorization_strategy == "slice-if"
+                    and not recurrence_needs_scalar
+                    and not lowered.guards
+                    and not lowered.bindings
+                ):
                     slice_vec = _try_slice_vectorize_if_clause(lowered, output, expr_evaluator, backend=self)
                     if slice_vec is not None:
                         if variable_defid:
@@ -618,6 +613,8 @@ class EinsteinExecutionClauseMixin:
                 # Optional chunked execution to reduce peak memory (env EINLANG_CHUNK_ELEMENTS > 0).
                 chunk_threshold = int(os.environ.get("EINLANG_CHUNK_ELEMENTS", "0") or "0")
                 if (
+                    planned_vectorization_strategy == "vectorized"
+                    and
                     chunk_threshold > 0
                     and output.size > chunk_threshold
                     and not recurrence_needs_scalar
@@ -703,8 +700,7 @@ class EinsteinExecutionClauseMixin:
                                     len(lowered.loops),
                                 )
                                 if len(slices_list_partial) == len(lowered.loops) and not range_is_full_partial:
-                                    recurrence_dims = _recurrence_dims(lowered, variable_defid, clause_indices) if _BodyReferencesDefidVisitor(variable_defid).references(lowered.body) else []
-                                    if recurrence_dims:
+                                    if planned_vectorization_strategy == "recurrence-hybrid":
                                         hybrid_out = _try_hybrid_vectorize_clause(
                                             lowered, list(output.shape), output, variable_defid, expr_evaluator, backend=self,
                                             clause_indices=clause_indices,
@@ -797,14 +793,9 @@ class EinsteinExecutionClauseMixin:
             # Fallback: call-scalar hybrid when only some loop vars in call args (e.g. topk) and full vectorize failed.
             if (
                 lowered.loops
-                and not has_literal_idx
-                and has_call_using_loop
+                and planned_vectorization_strategy == "call-scalar"
             ):
-                scalar_loop_indices = [
-                    dim
-                    for dim, lp in enumerate(lowered.loops)
-                    if lp.variable.defid in call_arg_loop_defids
-                ]
+                scalar_loop_indices = list(planned_scalar_loop_indices)
                 if 0 < len(scalar_loop_indices) < len(lowered.loops):
                     call_hybrid_out = _try_call_scalar_vectorize_clause(
                         lowered,
@@ -828,16 +819,9 @@ class EinsteinExecutionClauseMixin:
                         return output
 
             # Element-wise call (e.g. gelu(fc1[s,k])): must run once with full array, not scalar loop.
-            if lowered.loops:
-                if clause_facts is not None:
-                    body_is_elementwise = bool(getattr(clause_facts, "body_is_elementwise_call", False))
-                else:
-                    body_is_elementwise = _body_is_elementwise_call(body_node, loop_defids)
-            else:
-                body_is_elementwise = False
             if (
                 lowered.loops
-                and body_is_elementwise
+                and planned_vectorization_strategy == "elementwise-call"
             ):
                 elem_result = _eval_clause_body_with_broadcast_loops(
                     lowered, list(output.shape), expr_evaluator, self
@@ -860,7 +844,11 @@ class EinsteinExecutionClauseMixin:
                         _record_profile(tuple(output.shape) if getattr(output, "shape", None) is not None else None, path=_path)
                         return output
 
-            if force_scalar_clause and lowered.loops and isinstance(body_node, BlockExpressionIR):
+            if (
+                planned_vectorization_strategy == "scalar"
+                and lowered.loops
+                and isinstance(body_node, BlockExpressionIR)
+            ):
                 try:
                     manual_scalar = True
                     with self.env.scope():
@@ -873,7 +861,12 @@ class EinsteinExecutionClauseMixin:
                                     self.env.set_value(defid, val, name=_loop_defid_to_name.get(defid))
                             if _guards and not check_lowered_guards(_guards, full_context, lambda e: self._to_bool(e.accept(self))):
                                 continue
-                            value = _body.accept(self)
+                            with self._vectorization_scope(
+                                parallel_shape=None,
+                                parallel_defids_order=None,
+                                safe_oob=False,
+                            ):
+                                value = _body.accept(self)
                             if isinstance(value, np.ndarray):
                                 if value.ndim == 0 or value.size == 1:
                                     value = value.reshape(-1)[0].item()
@@ -925,8 +918,6 @@ class EinsteinExecutionClauseMixin:
                     break
             if _cell_index_spec is not None and _loop_pos != len(_loops):
                 _cell_index_spec = None
-            _loop_defids_tuple = tuple(lp.variable.defid for lp in _loops)
-
             with self.env.scope():
                 # Child scope must see the clause output tensor (e.g. u in u[t-1]).
                 if variable_defid is not None:
@@ -1008,8 +999,16 @@ class EinsteinExecutionClauseMixin:
                                                     _ri_ctx[_body_did] = _val
                                 setattr(self, "_reduction_initial_context", _ri_ctx)
                                 setattr(self, "_select_outer_index_defids", _loop_defids_tuple)
+                                for _ctx_did, _ctx_val in _ri_ctx.items():
+                                    if _ctx_did is not None:
+                                        _set_value(_ctx_did, _ctx_val, name=_loop_defid_to_name.get(_ctx_did))
                             try:
-                                value = _body.accept(self)
+                                with self._vectorization_scope(
+                                    parallel_shape=None,
+                                    parallel_defids_order=None,
+                                    safe_oob=False,
+                                ):
+                                    value = _body.accept(self)
                             finally:
                                 if needs_outer_reduction_ctx and hasattr(self, "_reduction_initial_context"):
                                     delattr(self, "_reduction_initial_context")

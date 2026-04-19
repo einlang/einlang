@@ -1,7 +1,7 @@
 
 # Einlang Language Reference
 
-Full syntax and semantics. Einlang is **math-intuitive**: indices, sums, where-clauses, and derivatives map directly from equation to code. **New here?** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) or [run a quick example](https://github.com/einlang/einlang/blob/main/README.md#try-it) first. **Built-in functions:** [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md). **Doc index:** [README](https://github.com/einlang/einlang/blob/main/docs/README.md). **Math notation → code:** [MATH.md](https://github.com/einlang/einlang/blob/main/docs/MATH.md). **Syntax we intentionally do not support (and why):** [Unsupported by design](https://github.com/einlang/einlang/blob/main/docs/UNSUPPORTED.md).
+Full syntax and semantics. If you are new here, start with [GETTING_STARTED](GETTING_STARTED.md) or the [examples guide](../examples/README.md) first. For modules and built-in library functions, see [stdlib](stdlib.md). For derivatives and tangents, see [AUTODIFF](AUTODIFF.md).
 
 ---
 
@@ -449,7 +449,7 @@ let fib[n in 2..8] = fib[n-1] + fib[n-2];
 
 **Alignment with math:** You cannot read **future** values: when defining the element at index `(t, i, j)`, you must not read the same array at an index that is not yet computed (e.g. `h[t+1, i, j]` or `h[t, i+1, j]`). Use **backward references only** along every dimension: e.g. `h[t-1, i, j]` in time, `h[t, i-1, j]` and `h[t, i, j-1]` in space. So for time index `t` use `h[t-1, ...]`, not `h[t+1, ...]`; for space index `i` use `h[t, i-1, j]`, not `h[t, i+1, j]`.
 
-The recurrence index range goes **in the bracket** (`n in 2..8`), not in a `where` clause. See [Unsupported by design](UNSUPPORTED.md#9-index-range-in-where-all-cases-invalid).
+The recurrence index range goes **in the bracket** (`n in 2..8`), not in a `where` clause.
 
 **Declaration bracket:** Each index slot in `let x[...] = ...` may only be an **identifier** (e.g. `n`, `i`, `t`) or a **literal** (e.g. `0`, `1`) or a named rest (`..name`). Expressions like `n-1` or `t+1` are **not** allowed in the declaration bracket. In the **body**, use only **backward** references when reading the same array (no future indices in any dimension).
 
@@ -545,7 +545,7 @@ When resolving a name, the compiler searches:
 - **Built-ins** are language primitives: a small, fixed set known to the compiler and runtime (e.g. by DefId in a builtin crate). They are available without any `use` and cannot be removed. Examples: `print`, `assert`, `len`, `shape`, `typeof`, `array_append`, `sum`, `max`, `min`.
 - **Stdlib** is the standard library: modules and functions implemented in Einlang (`.ein` in `stdlib/`). You bring them in with `use std::math::{...};` etc. They are normal code; the compiler does not treat them as primitives. Many call out to Python/NumPy or (in future) C under the hood.
 
-So: built-in = part of the language; stdlib = library that ships with the language. See [BUILTINS_VS_C.md](BUILTINS_VS_C.md) for the design rationale and comparison with Julia/MATLAB.
+So: built-in = part of the language; stdlib = library that ships with the language.
 
 ---
 
@@ -570,13 +570,13 @@ See [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.
 
 ## Automatic differentiation
 
-The compiler supports **built-in automatic differentiation**: you can request tangents, derivatives, and Jacobians directly in the language without a separate `grad(f)` wrapper API. The current executable path is centered on **named bindings**: bind the value first, then differentiate it. For an overview of the current compiler/runtime design, see [AUTODIFF_HIGHLIGHTS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), and [AUTODIFF_VJP_JVP_REWRITE.md](AUTODIFF_VJP_JVP_REWRITE.md).
+The compiler supports **built-in automatic differentiation**: you can request tangents, derivatives, and Jacobians directly in the language without a separate `grad(f)` wrapper API. The current executable path is centered on **named bindings**: bind the value first, then differentiate it. For an overview of the current compiler/runtime design, see [AUTODIFF.md](AUTODIFF.md).
 
 - **`@x`** — for a named binding `x`, the executable value form materializes the identity tangent seed of `x` (`1.0` for scalars, ones-like for tensors). Direct `print(@x)` is instead a symbolic display path.
 - **`@a / @b`** — the numeric derivative/Jacobian of named binding `a` with respect to named binding `b`. Scalar/scalar cases evaluate to a scalar; tensor cases use a lazy Jacobian-backed runtime value.
 - **Mental model** — write the program value first, then differentiate that value in place: `@loss / @w`, `@state / @dt`, and `@C / @A` are ordinary Einlang expressions, not calls to a separate gradient API.
 
-**Matmul, conv, einsum:** Derivatives of Einstein expressions are supported: e.g. `let C[i,j] = sum[k](A[i,k]*B[k,j]); let dC_dA = @C / @A;` (matmul), or convolution written as `sum[kh,kw](in[ih,iw]*w[kh,kw]) where ih = oh+kh, iw = ow+kw`. Any sum-of-products declaration can be differentiated w.r.t. any input array. See [AUTODIFF_OPS.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_OPS.md) and [AUTODIFF_EINSTEIN.md](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_EINSTEIN.md).
+**Matmul, conv, einsum:** Derivatives of Einstein expressions are supported: e.g. `let C[i,j] = sum[k](A[i,k]*B[k,j]); let dC_dA = @C / @A;` (matmul), or convolution written as `sum[kh,kw](in[ih,iw]*w[kh,kw]) where ih = oh+kh, iw = ow+kw`. Any sum-of-products declaration can be differentiated w.r.t. any input array. See [AUTODIFF.md](AUTODIFF.md).
 
 Example:
 
@@ -590,7 +590,7 @@ print(dz_dx);
 print(dz_dy);
 ```
 
-The compiler derives gradients via the chain rule, but the current implementation answers autodiff requests through runtime JVP/VJP machinery instead of emitting a standalone derivative IR program. Supported operations and rules are documented in [AUTODIFF_OPS.md](AUTODIFF_OPS.md). Design and pipeline: [AUTODIFF_DESIGN.md](AUTODIFF_DESIGN.md), [AUTODIFF_VJP_JVP_REWRITE.md](AUTODIFF_VJP_JVP_REWRITE.md), [AUTODIFF_PIPELINE.md](AUTODIFF_PIPELINE.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) (`autodiff_small.ein`, `autodiff_matmul.ein`, `autodiff_chain.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein`) for scalar, tensor, and training-style expression derivatives.
+The compiler derives gradients via the chain rule, but the current implementation answers autodiff requests through runtime JVP/VJP machinery instead of emitting a standalone derivative IR program. Supported operations and rules are documented in [AUTODIFF.md](AUTODIFF.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) (`autodiff_small.ein`, `autodiff_matmul.ein`, `autodiff_chain.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein`) for scalar, tensor, and training-style expression derivatives.
 
 ---
 
@@ -614,7 +614,15 @@ The compiler derives gradients via the chain rule, but the current implementatio
 
 ## Unsupported by design
 
-Einlang does not support certain syntax or features **by design** (e.g. no `for`/`while`, no `return`, no string-based einsum, no implicit widening, no slice `:` notation). For the full list, rationale, and what to use instead, see [Unsupported by design](https://github.com/einlang/einlang/blob/main/docs/UNSUPPORTED.md).
+Einlang intentionally does not support some familiar constructs:
+
+- no `for` or `while`; use comprehensions, Einstein notation, or recurrences
+- no `return`; the last expression in a block is the value
+- no string-based `einsum`; use named indices directly
+- no implicit numeric widening; use explicit casts
+- no slice `:` syntax; build the view you want with indices
+
+These are part of the language shape, not temporary omissions.
 
 ---
 

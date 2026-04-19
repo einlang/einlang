@@ -228,6 +228,6 @@ slides:
         variant: "secondary"
         icon: "doc"
       - label: "Autodiff"
-        url: "https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md"
+        url: "https://github.com/einlang/einlang/blob/main/docs/AUTODIFF.md"
         variant: "primary"
         icon: "spark"

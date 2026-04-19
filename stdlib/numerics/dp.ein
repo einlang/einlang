@@ -5,20 +5,20 @@ use std::math::{pow, abs};
 
 // Expected value at state s: E[V | s] = sum_s' P[s',s] * V[s'].
 pub fn expected_value_at_state(V: [f64; ?], P: [f64; ?, ?], s: i32, n_states: i32) -> f64 {
-  sum[s_prime in 0..n_states](P[s_prime, s] * V[s_prime])
+  sum[s_prime in 0..n_states]((P[s_prime, s] as f64) * (V[s_prime] as f64))
 }
 
 // Discounted return: sum_{t=0}^{n_periods-1} beta^t * rewards[t]. rewards length >= n_periods.
 pub fn discounted_return(rewards: [f64; ?], beta: f64, n_periods: i32) -> f64 {
-  sum[t in 0..n_periods](pow(beta, t as f64) * rewards[t])
+  sum[t in 0..n_periods](pow(beta as f64, t as f64) * (rewards[t] as f64))
 }
 
 // One Bellman step: V_new[s] = r[s] + beta * sum_s'( P[s',s] * V[s'] ).
 // P is (n_states, n_states), columns = from state; r and V length n_states.
 pub fn bellman_step(V: [f64; ?], r: [f64; ?], P: [f64; ?, ?], beta: f64, n_states: i32) -> [f64; ?] {
   let V_new[s in 0..n_states] = {
-    let ev = sum[s_prime in 0..n_states](P[s_prime, s] * V[s_prime]);
-    r[s] + beta * ev
+    let ev = sum[s_prime in 0..n_states]((P[s_prime, s] as f64) * (V[s_prime] as f64));
+    (r[s] as f64) + (beta as f64) * (ev as f64)
   };
   V_new
 }
@@ -27,8 +27,8 @@ pub fn bellman_step(V: [f64; ?], r: [f64; ?], P: [f64; ?, ?], beta: f64, n_state
 pub fn value_iteration(r: [f64; ?], P: [f64; ?, ?], beta: f64, n_states: i32, n_iters: i32) -> [f64; ?, ?] {
   let V[0, s in 0..n_states] = 0.0;
   let V[k in 1..(n_iters + 1), s in 0..n_states] = {
-    let ev = sum[s_prime in 0..n_states](P[s_prime, s] * V[k - 1, s_prime]);
-    r[s] + beta * ev
+    let ev = sum[s_prime in 0..n_states]((P[s_prime, s] as f64) * (V[k - 1, s_prime] as f64));
+    (r[s] as f64) + (beta as f64) * (ev as f64)
   };
   V
 }
@@ -36,5 +36,5 @@ pub fn value_iteration(r: [f64; ?], P: [f64; ?, ?], beta: f64, n_states: i32, n_
 // Max absolute difference between V and one Bellman step from V (for convergence checking).
 // Returns max_s |(r[s] + beta*E[V|s]) - V[s]|.
 pub fn bellman_residual(V: [f64; ?], r: [f64; ?], P: [f64; ?, ?], beta: f64, n_states: i32) -> f64 {
-  max[s in 0..n_states](abs((r[s] + beta * sum[s_prime in 0..n_states](P[s_prime, s] * V[s_prime])) - V[s]))
+  max[s in 0..n_states](abs((((r[s] as f64) + (beta as f64) * sum[s_prime in 0..n_states]((P[s_prime, s] as f64) * (V[s_prime] as f64)))) - (V[s] as f64)))
 }

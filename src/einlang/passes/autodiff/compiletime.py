@@ -812,7 +812,7 @@ def _substitute_identifiers(expr: ExpressionIR, repl: Dict[DefId, ExpressionIR])
     def walk(node: Any) -> Any:
         if node is None or isinstance(node, (str, int, float, bool, bytes)):
             return node
-        if isinstance(node, IdentifierIR) and node.defid in repl:
+        if isinstance(node, (IdentifierIR, IndexVarIR)) and node.defid in repl:
             return _clone_expr(repl[node.defid])
         if isinstance(node, dict):
             return {walk(k): walk(v) for k, v in node.items()}
@@ -871,6 +871,19 @@ class _Differentiator:
         self._ctx = binding_ctx
         self._resolver = resolver
         self._local_contexts = local_contexts or {}
+        self._local_binding_defids = {
+            did
+            for did in self._local_contexts
+            if did is not None
+        }
+        self._local_binding_defids.update(
+            {
+                did
+            for context in self._local_contexts.values()
+            for did in (context or {})
+            if did is not None
+            }
+        )
         self._self_recursive_bindings = {
             did
             for did, binding in binding_ctx.bindings.items()
@@ -886,6 +899,8 @@ class _Differentiator:
             did: binding
             for did, binding in binding_ctx.bindings.items()
             if (
+                did not in self._local_binding_defids
+                and
                 not is_function_binding(binding)
                 and did not in self._self_recursive_bindings
                 and not binding_ctx.deps_for(did)
@@ -938,10 +953,37 @@ class _Differentiator:
             if did == wrt:
                 continue
             out[did] = _seed_expr(leaf, symbolic=symbolic, resolver=self._resolver, loc=loc, value=0.0)
+        wrt_is_local = bool(local_bindings and wrt in local_bindings)
+        memo: Dict[Tuple[DefId, DefId], bool] = {}
+        if not wrt_is_local:
+            for did, top_binding in self._ctx.bindings.items():
+                if (
+                    did == wrt
+                    or did in out
+                    or did in self._local_binding_defids
+                    or is_function_binding(top_binding)
+                ):
+                    continue
+                if not self._top_level_depends_on(did, wrt, memo):
+                    out[did] = _seed_expr(
+                        top_binding,
+                        symbolic=symbolic,
+                        resolver=self._resolver,
+                        loc=loc,
+                        value=0.0,
+                    )
         if local_bindings:
-            memo: Dict[Tuple[DefId, DefId], bool] = {}
             for did, local_binding in local_bindings.items():
                 if did == wrt or did in out:
+                    continue
+                if isinstance(getattr(local_binding, "expr", None), TupleAccessIR):
+                    out[did] = _seed_expr(
+                        local_binding,
+                        symbolic=symbolic,
+                        resolver=self._resolver,
+                        loc=loc,
+                        value=0.0,
+                    )
                     continue
                 if not self._local_depends_on(did, wrt, local_bindings, memo):
                     out[did] = _seed_expr(
@@ -952,6 +994,29 @@ class _Differentiator:
                         value=0.0,
                     )
         return out
+
+    def _top_level_depends_on(
+        self,
+        defid: DefId,
+        wrt: DefId,
+        memo: Dict[Tuple[DefId, DefId], bool],
+    ) -> bool:
+        key = (defid, wrt)
+        if key in memo:
+            return memo[key]
+        if defid == wrt:
+            memo[key] = True
+            return True
+        binding = self._ctx.bindings.get(defid)
+        if binding is None or binding.expr is None or is_function_binding(binding):
+            memo[key] = False
+            return False
+        memo[key] = False
+        for dep in self._ctx.deps_for(defid):
+            if self._top_level_depends_on(dep, wrt, memo):
+                memo[key] = True
+                break
+        return memo[key]
 
     def standalone(self, expr: ExpressionIR, loc: SourceLocation, *, symbolic: bool) -> ExpressionIR:
         seed_map = self._seed_map(None, symbolic, loc)
@@ -1038,7 +1103,6 @@ class _Differentiator:
         if (
             emitted_bindings is not None
             and defid not in local_bindings
-            and defid not in self._self_recursive_bindings
         ):
             extract_defid = self._fresh_extract_defid()
             extract_name = self._fresh_extract_name(binding.name or "tmp")
@@ -1094,6 +1158,31 @@ class _Differentiator:
             return _z(expr.location or loc)
         if isinstance(expr, IdentifierIR):
             if expr.defid is None:
+                expr_name = getattr(expr, "name", None)
+                if isinstance(expr_name, str) and expr_name:
+                    for binding in reversed(list(local_bindings.values())):
+                        if binding is None or binding.name != expr_name:
+                            continue
+                        if binding.defid is not None:
+                            return self._diff_binding_ref(
+                                binding.defid,
+                                seed_map,
+                                local_bindings,
+                                local_diffs,
+                                symbolic,
+                                expr.location or loc,
+                                emitted_bindings=emitted_bindings,
+                            )
+                        if binding.expr is not None and not is_function_binding(binding):
+                            return self._diff_expr(
+                                binding.expr,
+                                seed_map,
+                                local_bindings,
+                                local_diffs,
+                                symbolic,
+                                expr.location or loc,
+                                emitted_bindings=emitted_bindings,
+                            )
                 return _z(expr.location or loc)
             return self._diff_binding_ref(expr.defid, seed_map, local_bindings, local_diffs, symbolic, expr.location or loc, emitted_bindings=emitted_bindings)
         if isinstance(expr, DifferentialIR):
@@ -1173,6 +1262,61 @@ class _Differentiator:
         if isinstance(expr, RectangularAccessIR):
             loc0 = expr.location or loc
             darr = self._diff_expr(expr.array, seed_map, local_bindings, local_diffs, symbolic, loc0, emitted_bindings=emitted_bindings)
+            if isinstance(darr, EinsteinIR):
+                clauses = list(darr.clauses or ())
+                if len(clauses) == 1:
+                    clause = clauses[0]
+                    if not (clause.where_clause and clause.where_clause.constraints):
+                        clause_indices = list(clause.indices or ())
+                        access_indices = list(expr.indices or ())
+                        if len(access_indices) <= len(clause_indices):
+                            repl: Dict[DefId, ExpressionIR] = {}
+                            ok = True
+                            for idx_expr, access_expr in zip(clause_indices[: len(access_indices)], access_indices):
+                                did = getattr(idx_expr, "defid", None)
+                                if did is None:
+                                    if not _collect_defids(idx_expr):
+                                        if not _expr_eq(idx_expr, access_expr):
+                                            ok = False
+                                            break
+                                    else:
+                                        ok = False
+                                        break
+                                else:
+                                    repl[did] = _clone_expr(access_expr)
+                            if ok:
+                                substituted = _substitute_identifiers(clause.value, repl)
+                                if len(access_indices) == len(clause_indices):
+                                    return _simplify(substituted)
+                                remaining_indices = [_clone_expr(idx) for idx in clause_indices[len(access_indices):]]
+                                remaining_defids = {
+                                    getattr(idx, "defid", None)
+                                    for idx in clause_indices[len(access_indices):]
+                                    if getattr(idx, "defid", None) is not None
+                                }
+                                remaining_ranges = {
+                                    did: _clone_expr(rng)
+                                    for did, rng in (clause.variable_ranges or {}).items()
+                                    if did in remaining_defids
+                                }
+                                return _simplify(
+                                    EinsteinIR(
+                                        clauses=[
+                                            EinsteinClauseIR(
+                                                indices=remaining_indices,
+                                                value=substituted,
+                                                location=clause.location,
+                                                where_clause=clause.where_clause,
+                                                variable_ranges=remaining_ranges,
+                                            )
+                                        ],
+                                        shape=list((darr.shape or ())[len(access_indices):]) if darr.shape is not None else None,
+                                        element_type=darr.element_type,
+                                        location=darr.location or loc0,
+                                        type_info=_ti(darr),
+                                        shape_info=tuple((darr.shape or ())[len(access_indices):]) if darr.shape is not None else _si(darr),
+                                    )
+                                )
             return _simplify(
                 RectangularAccessIR(
                     darr,
@@ -1228,16 +1372,43 @@ class _Differentiator:
             nested_diffs = dict(local_diffs)
             out_statements: List[Any] = []
             for stmt in expr.statements or ():
-                if isinstance(stmt, BindingIR) and stmt.defid is not None and stmt.expr is not None and not is_function_binding(stmt):
+                if isinstance(stmt, BindingIR) and stmt.expr is not None and not is_function_binding(stmt):
+                    stmt_defid = stmt.defid
+                    if stmt_defid is None and stmt.name:
+                        stmt_defid = self._resolver.allocate_for_local() if self._resolver is not None else self._fresh_extract_defid()
                     primal_stmt = BindingIR(
                         stmt.name,
                         _clone_expr(stmt.expr),
                         location=stmt.location or loc0,
-                        defid=stmt.defid,
+                        defid=stmt_defid,
                         type_info=stmt.type_info,
                     )
-                    nested_bindings[stmt.defid] = primal_stmt
+                    if stmt_defid is not None:
+                        nested_bindings[stmt_defid] = primal_stmt
                     out_statements.append(primal_stmt)
+                    if stmt_defid is not None and stmt_defid in seed_map:
+                        seeded_diff = _clone_expr(seed_map[stmt_defid])
+                        nested_diffs[stmt_defid] = seeded_diff
+                        if self._resolver is not None:
+                            diff_defid = self._resolver.allocate_for_local()
+                            diff_ident = IdentifierIR(
+                                f"{DIFF_PREFIX}{stmt.name or 'tmp'}",
+                                stmt.location or loc0,
+                                diff_defid,
+                                type_info=_ti(stmt.expr) or stmt.type_info,
+                                shape_info=_si(stmt.expr),
+                            )
+                            out_statements.append(
+                                BindingIR(
+                                    diff_ident.name,
+                                    seeded_diff,
+                                    location=stmt.location or loc0,
+                                    defid=diff_defid,
+                                    type_info=_ti(stmt.expr) or stmt.type_info,
+                                )
+                            )
+                            nested_diffs[stmt_defid] = diff_ident
+                        continue
                     diff_defid = self._resolver.allocate_for_local() if self._resolver is not None else None
                     diff_ident = IdentifierIR(
                         f"{DIFF_PREFIX}{stmt.name or 'tmp'}",
@@ -1251,9 +1422,11 @@ class _Differentiator:
                         # RHS so self-recursive bindings (for example recurrences like
                         # u[t] = f(u[t-1])) differentiate to _@u[t-1] instead of
                         # recursing forever or falling back to a zero-shaped seed.
-                        nested_diffs[stmt.defid] = diff_ident
+                        if stmt_defid is not None:
+                            nested_diffs[stmt_defid] = diff_ident
                     diff_expr = _simplify(self._diff_expr(stmt.expr, seed_map, nested_bindings, nested_diffs, symbolic, stmt.location or loc0, emitted_bindings=emitted_bindings))
-                    nested_diffs[stmt.defid] = diff_ident if diff_defid is not None else diff_expr
+                    if stmt_defid is not None:
+                        nested_diffs[stmt_defid] = diff_ident if diff_defid is not None else diff_expr
                     if diff_defid is not None:
                         out_statements.append(
                             BindingIR(
@@ -1273,6 +1446,8 @@ class _Differentiator:
         if isinstance(expr, ReductionExpressionIR):
             loc0 = expr.location or loc
             body_diff = self._diff_expr(expr.body, seed_map, local_bindings, local_diffs, symbolic, loc0, emitted_bindings=emitted_bindings)
+            if _is_zero(body_diff):
+                return _z(loc0)
             if expr.operation == ReductionOp.SUM:
                 return _simplify(
                     ReductionExpressionIR(

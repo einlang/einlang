@@ -511,6 +511,8 @@ class IRSerializer:
         indices_sexpr = [self.serialize_to_sexpr(idx) for idx in indices]
         rec_override = node.recurrence_dims_override
         rec_override_sexpr = rec_override if isinstance(rec_override, list) else []
+        vectorization_strategy = getattr(node, "vectorization_strategy", None)
+        vectorization_scalar_loop_dims = getattr(node, "vectorization_scalar_loop_dims", None)
         core = [self._sym("lowered-einstein-clause"),
                 self._sym(":body"), body,
                 self._sym(":loops"), loops,
@@ -520,6 +522,10 @@ class IRSerializer:
                 self._sym(":reduction_ranges"), red_ranges_sexpr,
                 self._sym(":indices"), indices_sexpr,
                 self._sym(":recurrence_dims_override"), list(rec_override_sexpr)]
+        if vectorization_strategy:
+            core.extend([self._sym(":vectorization_strategy"), self._sym(vectorization_strategy)])
+        if vectorization_scalar_loop_dims is not None:
+            core.extend([self._sym(":vectorization_scalar_loop_dims"), list(vectorization_scalar_loop_dims)])
         if red_defids_str:
             core.extend([self._sym(":reduction_loop_defids"), red_defids_str])
         if getattr(node, "execution_facts_id", None) is not None:
@@ -615,6 +621,8 @@ class IRSerializer:
             core.extend([self._sym(":execution_facts_id"), int(node.execution_facts_id)])
         if getattr(node, "kernel_plan_id", None) is not None:
             core.extend([self._sym(":kernel_plan_id"), int(node.kernel_plan_id)])
+        if getattr(node, "execution_strategy", None):
+            core.extend([self._sym(":execution_strategy"), self._sym(str(node.execution_strategy))])
         return self._add_expr_metadata(node, core)
     
     def _serialize_param(self, p) -> list:
@@ -1686,6 +1694,7 @@ class IRDeserializer:
                     guards.append(GuardCondition(condition=cond))
         execution_facts_id = opts.get(":execution_facts_id")
         kernel_plan_id = opts.get(":kernel_plan_id")
+        execution_strategy = _sym_val(opts.get(":execution_strategy"))
         ty = self._deserialize_type(opts.get(":inferred_type"))
         return LoweredReductionIR(
             body=body,
@@ -1697,6 +1706,7 @@ class IRDeserializer:
             type_info=ty,
             execution_facts_id=int(execution_facts_id) if isinstance(execution_facts_id, (int, float)) else None,
             kernel_plan_id=int(kernel_plan_id) if isinstance(kernel_plan_id, (int, float)) else None,
+            execution_strategy=execution_strategy if isinstance(execution_strategy, str) else None,
         )
 
     def _deserialize_select_at_argmax(self, _tag: str, tail: list, _full: list) -> Any:
@@ -1864,6 +1874,13 @@ class IRDeserializer:
         recurrence_dims_override = None
         if isinstance(rec_override_raw, list):
             recurrence_dims_override = [int(x) for x in rec_override_raw if isinstance(x, (int, float))]
+        vectorization_strategy = _sym_val(opts.get(":vectorization_strategy"))
+        vectorization_scalar_loop_dims_raw = opts.get(":vectorization_scalar_loop_dims")
+        vectorization_scalar_loop_dims = None
+        if isinstance(vectorization_scalar_loop_dims_raw, list):
+            vectorization_scalar_loop_dims = [
+                int(x) for x in vectorization_scalar_loop_dims_raw if isinstance(x, (int, float))
+            ]
         execution_facts_id = opts.get(":execution_facts_id")
         return LoweredEinsteinClauseIR(
             body=body,
@@ -1873,6 +1890,8 @@ class IRDeserializer:
             reduction_ranges=red_ranges,
             indices=indices,
             recurrence_dims_override=recurrence_dims_override,
+            vectorization_strategy=vectorization_strategy if isinstance(vectorization_strategy, str) else None,
+            vectorization_scalar_loop_dims=vectorization_scalar_loop_dims,
             execution_facts_id=int(execution_facts_id) if isinstance(execution_facts_id, (int, float)) else None,
             location=loc,
         )

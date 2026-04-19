@@ -34,6 +34,7 @@ from .numpy_expressions_support import (
     _BINARY_OP_MAP,
     _UNARY_OP_MAP,
     _first_parallel_index_defid,
+    _is_scalar_or_0d_array,
     _invoke_runtime_builtin,
     _normalize_literal_sequence,
     _reject_non_lowered,
@@ -164,6 +165,24 @@ class ExpressionVisitorMixin:
             return None
         analysis = self._lowered_execution_analysis()
         return (analysis.get("reduction_kernel_plans_by_id") or {}).get(plan_id)
+
+    def _lowered_reduction_execution_strategy(
+        self,
+        expr: LoweredReductionIR,
+        reduction_facts: Optional[Any] = None,
+    ) -> str:
+        strategy = getattr(expr, "execution_strategy", None)
+        if isinstance(strategy, str):
+            return strategy
+        if reduction_facts is None:
+            reduction_facts = self._lowered_reduction_facts(expr)
+        strategy = getattr(reduction_facts, "execution_strategy", None)
+        if isinstance(strategy, str):
+            return strategy
+        raise RuntimeError(
+            "LoweredReductionIR missing compiler-owned execution_strategy. "
+            "LoweredExecutionFactsPass must annotate lowered reduction strategies before execution."
+        )
 
     def _lowered_einstein_clause_facts(self, clause: Any) -> Optional[Any]:
         facts_id = getattr(clause, "execution_facts_id", None)
@@ -745,7 +764,17 @@ class ExpressionVisitorMixin:
             )
             lowered_einstein_facts = self._lowered_einstein_facts(expr.array)
             contains_select = bool(getattr(lowered_einstein_facts, "contains_select_at_argmax", False))
-            if len(indices) == lowered_rank and all_scalar_indices and not contains_select:
+            nested_lowered_work = any(
+                _contains_nested_lowered_reduction(getattr(item, "body", None))
+                or _contains_ir_node_type(getattr(item, "body", None), LoweredEinsteinIR)
+                for item in items
+            )
+            if (
+                len(indices) == lowered_rank
+                and all_scalar_indices
+                and not contains_select
+                and not nested_lowered_work
+            ):
                 direct_cell = self._evaluate_lowered_einstein_at_indices(expr.array, indices)
                 if direct_cell is not None:
                     return direct_cell
@@ -1446,7 +1475,8 @@ class ExpressionVisitorMixin:
     ) -> Any:
         """Evaluate a lowered reduction, optionally with vectorized path when parallel_shape is set.
         When parallel_shape is None, uses the backend vectorization state when present (e.g. in a vectorized clause).
-        Fast paths (matmul, conv via einsum) only when parallel_shape is set; stricter conditions avoid LSTM."""
+        Structural fast paths (matmul/einsum/tensordot) may also run without an ambient parallel grid when the
+        compiler-recognized kernel is still safe; stricter conditions avoid LSTM-style alias hazards."""
         import os
         if expr.operation == ReductionOp.SUM and self._lowered_expr_is_zero(expr.body):
             zero_value = self._zero_value_for_lowered_expr(expr.body)
@@ -1457,6 +1487,21 @@ class ExpressionVisitorMixin:
             getattr(reduction_facts, "contains_nested_reduction_or_select", False)
             or getattr(reduction_facts, "contains_if_expression", False)
         )
+        has_outer_reduction_ctx = bool(getattr(self, "_reduction_initial_context", None))
+        if has_outer_reduction_ctx:
+            force_scalar_reduction = True
+        reduction_loop_defids = {
+            getattr(getattr(loop, "variable", None), "defid", None)
+            for loop in (expr.loops or ())
+        }
+        reduction_loop_defids.discard(None)
+        has_dynamic_outer_bounds = any(
+            bool(getattr(loop, "iterable", None))
+            and bool(_collect_ir_defids(loop.iterable) - reduction_loop_defids)
+            for loop in (expr.loops or ())
+        )
+        if has_dynamic_outer_bounds:
+            force_scalar_reduction = True
         if parallel_shape is None:
             parallel_shape = self._vectorization_parallel_shape()
         _loop_alias_map, _reduction_defid_names = self._reduction_loop_defid_alias_maps(expr, reduction_facts)
@@ -1465,38 +1510,56 @@ class ExpressionVisitorMixin:
         # A single alternate defid vs. the loop header still needs ctx expansion below but is
         # safe for the same structural fast paths as a unified defid.
         has_defid_aliases = any(len(alist) > 1 for alist in _loop_alias_map.values())
-        # Recurrence clauses may use partial vectorization but must not use fast_matmul / fast_conv.
+        plan = self._lowered_reduction_kernel_plan(expr)
+        planned_execution_strategy = self._lowered_reduction_execution_strategy(expr, reduction_facts)
+        plan_kind = getattr(plan, "kind", None)
+        in_recurrence_clause = self._in_recurrence_vectorization_clause()
+        recurrence_structural_fast_path_ok = (
+            in_recurrence_clause and plan_kind in ("matmul_sumprod", "einsum_sumprod")
+        )
+        allow_no_parallel_structural_fast_path = (
+            not has_outer_reduction_ctx
+            and parallel_shape is None
+            and plan_kind in (
+            "matmul_sumprod",
+            "einsum_sumprod",
+        )
+        )
+        # Recurrence clauses still avoid the more specialized windowed/conv shortcut, but
+        # compiler-recognized matmul/einsum reductions are safe to run on the broadcast grid.
         if (
-            parallel_shape is not None
+            (parallel_shape is not None or allow_no_parallel_structural_fast_path)
             and not force_scalar_reduction
-            and not self._in_recurrence_vectorization_clause()
+            and planned_execution_strategy in ("windowed_sumprod", "matmul_sumprod", "einsum_sumprod")
+            and (not in_recurrence_clause or recurrence_structural_fast_path_ok)
             and not has_defid_aliases
         ):
-            plan = self._lowered_reduction_kernel_plan(expr)
-            kind = getattr(plan, "kind", None)
-            if kind == "windowed_sumprod":
+            def _fast_path_matches_parallel_shape(result: Any) -> bool:
+                if parallel_shape is None:
+                    return isinstance(result, np.ndarray) or _is_scalar_or_0d_array(result)
+                if isinstance(result, np.ndarray):
+                    return result.shape == tuple(parallel_shape)
+                return False
+
+            if plan_kind == "windowed_sumprod":
                 windowed_result = _try_windowed_sumprod_einsum(expr, self, plan)
-                if windowed_result is not None and isinstance(windowed_result, np.ndarray):
-                    if windowed_result.shape == tuple(parallel_shape):
-                        setattr(self, "_last_reduction_fast_path", "windowed-einsum")
-                        return windowed_result
-            elif kind == "matmul_sumprod":
+                if windowed_result is not None and _fast_path_matches_parallel_shape(windowed_result):
+                    setattr(self, "_last_reduction_fast_path", "windowed-einsum")
+                    return windowed_result
+            elif plan_kind == "matmul_sumprod":
                 matmul_result = _try_matmul_reduction(expr, self, plan)
-                if matmul_result is not None and isinstance(matmul_result, np.ndarray):
-                    if matmul_result.shape == tuple(parallel_shape):
-                        setattr(self, "_last_reduction_fast_path", "matmul")
-                        return matmul_result
+                if matmul_result is not None and _fast_path_matches_parallel_shape(matmul_result):
+                    setattr(self, "_last_reduction_fast_path", "matmul")
+                    return matmul_result
                 einsum_result = _try_einsum_reduction(expr, self, plan)
-                if einsum_result is not None and isinstance(einsum_result, np.ndarray):
-                    if einsum_result.shape == tuple(parallel_shape):
-                        setattr(self, "_last_reduction_fast_path", "einsum")
-                        return einsum_result
-            elif kind == "einsum_sumprod":
+                if einsum_result is not None and _fast_path_matches_parallel_shape(einsum_result):
+                    setattr(self, "_last_reduction_fast_path", "einsum")
+                    return einsum_result
+            elif plan_kind == "einsum_sumprod":
                 einsum_result = _try_einsum_reduction(expr, self, plan)
-                if einsum_result is not None and isinstance(einsum_result, np.ndarray):
-                    if einsum_result.shape == tuple(parallel_shape):
-                        setattr(self, "_last_reduction_fast_path", "einsum")
-                        return einsum_result
+                if einsum_result is not None and _fast_path_matches_parallel_shape(einsum_result):
+                    setattr(self, "_last_reduction_fast_path", "einsum")
+                    return einsum_result
         from ..runtime.compute.lowered_execution import (
             execute_reduction_with_loops,
             execute_select_at_argmax_vectorized,
@@ -1578,6 +1641,11 @@ class ExpressionVisitorMixin:
             return merged
 
         def body_ev(ctx):
+            outer_ctx = {
+                defid: val
+                for defid, val in (getattr(self, "_reduction_initial_context", None) or {}).items()
+                if defid is not None
+            }
             _ctx = _apply_name_aliases(
                 _expand_reduction_ctx(
                     {
@@ -1588,6 +1656,10 @@ class ExpressionVisitorMixin:
                 ),
                 body_defids_by_name,
             )
+            if outer_ctx:
+                merged_outer = _apply_name_aliases(dict(outer_ctx), body_defids_by_name)
+                merged_outer.update(_ctx)
+                _ctx = merged_outer
             saved: Dict[Any, Any] = {}
             for defid in _ctx:
                 if defid is not None:
@@ -1632,6 +1704,11 @@ class ExpressionVisitorMixin:
         def guard_ev(ctx):
             if not expr.guards:
                 return True
+            outer_ctx = {
+                defid: val
+                for defid, val in (getattr(self, "_reduction_initial_context", None) or {}).items()
+                if defid is not None
+            }
             _ctx = _apply_name_aliases(
                 _expand_reduction_ctx(
                     {
@@ -1642,6 +1719,10 @@ class ExpressionVisitorMixin:
                 ),
                 guard_defids_by_name,
             )
+            if outer_ctx:
+                merged_outer = _apply_name_aliases(dict(outer_ctx), guard_defids_by_name)
+                merged_outer.update(_ctx)
+                _ctx = merged_outer
             for defid, val in _ctx.items():
                 if defid is not None:
                     self.env.set_value(defid, val, name=_reduction_defid_names.get(defid))
@@ -1729,7 +1810,11 @@ class ExpressionVisitorMixin:
                 except Exception:
                     pass
 
-        _use_vectorized_guarded_lowered_reduction = not has_defid_aliases and not has_cross_scope_name_shadow
+        _use_vectorized_guarded_lowered_reduction = (
+            planned_execution_strategy == "guarded_vectorized"
+            and not has_defid_aliases
+            and not has_cross_scope_name_shadow
+        )
         if _use_vectorized_guarded_lowered_reduction and expr.guards:
             op = expr.operation
             if op in (ReductionOp.SUM, ReductionOp.PROD, ReductionOp.MIN, ReductionOp.MAX):
@@ -1840,9 +1925,15 @@ class ExpressionVisitorMixin:
             vector_parallel_context=vector_parallel_ctx,
             reduction_loops_ordered=list(expr.loops or []),
             allow_speculative_vectorized_reduction=(
+                planned_execution_strategy in (
+                    "vectorized",
+                    "windowed_sumprod",
+                    "matmul_sumprod",
+                    "einsum_sumprod",
+                )
+                and
                 not has_defid_aliases
                 and not has_cross_scope_name_shadow
-                and not bool(getattr(reduction_facts, "contains_lowered_einstein", False))
             ),
         )
 

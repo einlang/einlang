@@ -2,155 +2,82 @@
 
 [![Tests](https://github.com/einlang/einlang/actions/workflows/tests.yml/badge.svg)](https://github.com/einlang/einlang/actions/workflows/tests.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python 3.7-3.14](https://img.shields.io/badge/Python-3.7--3.14-3776AB?logo=python&logoColor=white)](https://github.com/einlang/einlang/blob/main/README.md#install--run)
+[![Python 3.7-3.14](https://img.shields.io/badge/Python-3.7--3.14-3776AB?logo=python&logoColor=white)](https://github.com/einlang/einlang/blob/main/README.md#quick-start)
 
-Einlang is a language and compiler for tensor programs with explicit indices, reductions, recurrences, and derivative expressions.
-
-Main pieces:
-
-- Einstein-style tensor code as language syntax
-- built-in automatic differentiation with forms such as `@name`, `@loss / @w`, and `@C / @A`
-- compile-time checking of shape and index structure
-- a NumPy backend for execution today
-- a repository of examples spanning model code, optimization, recurrence, and numerical programs
+Einlang is a language and compiler for tensor programs with explicit indices, reductions, recurrences, and built-in automatic differentiation.
 
 ```rust
-let C[i, j] = sum[k](A[i, k] * B[k, j]);   // matrix multiply
-let dC_dA = @C / @A;                       // derivative tensor
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+let dC_dA = @C / @A;
 ```
 
-Start with [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md). For the full doc map, open [docs/README](https://github.com/einlang/einlang/blob/main/docs/README.md).
+The goal is simple: let tensor code look like the math while still getting compile-time checks on shapes and index structure.
 
----
+## Quick start
 
-## Try it
+Clone the repo if you want the examples:
+
+```bash
+git clone https://github.com/einlang/einlang.git
+cd einlang
+python3 -m pip install -e .
+python3 -m einlang examples/hello.ein
+```
+
+Or install directly and run a one-liner:
 
 ```bash
 python3 -m pip install "git+https://github.com/einlang/einlang.git"
-python3 -m einlang -c "let x = 1+1; print(x);"
+python3 -m einlang -c "let x = 1 + 1; print(x);"
 ```
 
 You should see `2`.
 
-Run a real file:
-
-```bash
-python3 -m einlang examples/hello.ein
-```
-
----
-
-## Install & run
-
-**Install:** Python 3.7+ (tested 3.7-3.14). Use `python3 -m pip install "git+https://github.com/einlang/einlang.git"` for the simplest install. For local development from a clone, use `pip install -e .`.
-
-**Run a file:**
-
-```bash
-python3 -m einlang examples/hello.ein
-python3 -m einlang path/to/file.ein
-```
-
-**Inline source:**
-
-```bash
-python3 -m einlang -c "let x = 1+1; print(x);"
-echo 'let x = 2; print(x);' | python3 -m einlang -
-```
-
-**From Python:**
+From Python:
 
 ```python
 from einlang import run
 
 out = run(file="examples/hello.ein")
-# or: out = run(source="let x = 1+1; print(x);")
+# or: out = run(source="let x = 1 + 1; print(x);")
 ```
 
----
+## Start here
 
-## Repository contents
+- [Getting started](docs/GETTING_STARTED.md)
+- [Docs index](docs/README.md)
+- [Language reference](docs/reference.md)
+- [Standard library](docs/stdlib.md)
+- [Autodiff guide](docs/AUTODIFF.md)
+- [Examples guide](examples/README.md)
 
-The repository has four main parts:
+## What Einlang is good at
 
-| Area | What to inspect |
-|------|-----------------|
-| **Language** | [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md), [stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md), [MATH](https://github.com/einlang/einlang/blob/main/docs/MATH.md) |
-| **Autodiff** | [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md), [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md), [AUTODIFF_VJP_JVP_REWRITE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_VJP_JVP_REWRITE.md), [examples/autodiff_small.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein), [examples/autodiff_matmul.ein](https://github.com/einlang/einlang/blob/main/examples/autodiff_matmul.ein) |
-| **Examples** | [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md), [mnist](https://github.com/einlang/einlang/tree/main/examples/mnist), [optimization](https://github.com/einlang/einlang/tree/main/examples/optimization), [ode](https://github.com/einlang/einlang/tree/main/examples/ode), [recurrence](https://github.com/einlang/einlang/tree/main/examples/recurrence) |
-| **Implementation** | [src/einlang/passes](https://github.com/einlang/einlang/tree/main/src/einlang/passes), [src/einlang/backends](https://github.com/einlang/einlang/tree/main/src/einlang/backends), [DEVELOPMENT](https://github.com/einlang/einlang/blob/main/docs/DEVELOPMENT.md) |
+- Einstein-style tensor expressions without string-based `einsum`
+- Gradients written directly in the language with `@loss / @weights`
+- Recurrences for sequences, dynamic programs, and time stepping
+- NumPy-backed execution from the CLI or from Python
+- Examples that cover basics, optimization, simulation, and full models
 
----
+## Example entry points
 
-## Project shape
-
-- a readable tensor language, not a Python wrapper around `einsum`
-- autodiff in the language and compiler, not a separate gradient API
-- a NumPy execution path now, with future backend work documented separately
-- examples that cover both ML-shaped programs and non-ML numerical workloads
-- documentation that points directly to reference material and concrete artifacts
-
-If you want the motivation and comparison page, read [WHY_EINLANG](https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md).
-
----
-
-## Examples
-
-Start with [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md). A few entry points:
-
-| Area | Run |
+| Goal | Run |
 |------|-----|
-| **Basics** | `python3 -m einlang examples/hello.ein` |
-| **Autodiff** | `python3 -m einlang examples/autodiff_small.ein` |
-| **Recurrence** | `python3 -m einlang examples/recurrence/recurrence_suite.ein` |
-| **Optimization** | `python3 -m einlang examples/optimization/optimization_suite.ein` |
-| **ODEs** | `python3 -m einlang examples/ode/ode_suite.ein` |
-| **MNIST** | `python3 -m einlang examples/mnist/main.ein` |
+| Learn the basics | `python3 -m einlang examples/hello.ein` |
+| See tensor notation | `python3 -m einlang examples/demos/matrix_operations.ein` |
+| Try autodiff | `python3 -m einlang examples/autodiff_small.ein` |
+| Run a recurrence | `python3 -m einlang examples/recurrence/recurrence_suite.ein` |
+| Run numerics examples | `python3 -m einlang examples/ode/ode_suite.ein` |
+| Run a model | `python3 -m einlang examples/mnist/main.ein` |
 
-Examples span:
+More paths live in [examples/README](examples/README.md).
 
-- language basics and tensor expressions
-- autodiff and gradient-based examples
-- recurrence and dynamic programs
-- optimization and value iteration
-- ODE, PDE, and wave-style simulation
-- MNIST, quantized MNIST, DeiT-tiny, and Whisper-tiny artifacts
+## Status
 
----
+Einlang currently executes through a NumPy backend. The repository includes the language implementation, standard library, tests, and a large example set.
 
-## Docs
-
-Use these as the main entry points:
-
-- [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md)
-- [Docs index](https://github.com/einlang/einlang/blob/main/docs/README.md)
-- [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md)
-- [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md)
-- [Why Einlang](https://github.com/einlang/einlang/blob/main/docs/WHY_EINLANG.md)
-- [Syntax comparison](https://github.com/einlang/einlang/blob/main/docs/SYNTAX_COMPARISON.md)
-- [Einlang for Julia programmers](https://github.com/einlang/einlang/blob/main/docs/EINLANG_FOR_JULIA_PROGRAMMERS.md)
-
-Autodiff docs:
-
-- [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md)
-- [AUTODIFF_DESIGN](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_DESIGN.md)
-- [AUTODIFF_VJP_JVP_REWRITE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_VJP_JVP_REWRITE.md)
-- [AUTODIFF_PIPELINE](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_PIPELINE.md)
-- [AUTODIFF_OPS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_OPS.md)
-
----
-
-## Development
-
-For contributors:
-
-- [CONTRIBUTING](https://github.com/einlang/einlang/blob/main/CONTRIBUTING.md)
-- [DEVELOPMENT](https://github.com/einlang/einlang/blob/main/docs/DEVELOPMENT.md)
-
-The current runtime path uses the NumPy backend. Longer-term direction is tracked in [ROADMAP](https://github.com/einlang/einlang/blob/main/docs/ROADMAP.md).
-
----
+If you want the motivation first, read [Why Einlang](docs/WHY_EINLANG.md). If you want to contribute, start with [CONTRIBUTING](CONTRIBUTING.md).
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Apache 2.0. See [LICENSE](LICENSE).

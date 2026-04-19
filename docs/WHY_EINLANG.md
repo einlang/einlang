@@ -26,7 +26,7 @@
 | **Built-in autodiff** | `@z / @x` is the derivative, `@z` is a tangent request on a named binding, and tensor expressions like `@C / @A` are first-class. One primitive family, quotient form for partials, and `print(@y)` for symbolic debugging. **No tapes, no dual numbers, no `grad(f)(x)` API**: the compiler rewrites autodiff requests to internal runtime intrinsics backed by the same NumPy execution stack as the primal. For supported ops, this replaces finite-difference gradient checks with compiler-derived derivatives. |
 | **Same shapes for gradients** | A gradient with respect to a variable has the same shape as that variable. No surprise reshapes or "grad has wrong size" errors at runtime. |
 | **300+ stdlib functions** | `use std::math::{sin, sqrt, exp};` — same language, same shape checking. No ad-hoc FFI for basic math. |
-| **Real models in one language** | MNIST CNN, quantized (int8) CNN, ViT, Whisper — same syntax, same checks. Simulation examples are [accuracy-tested against Julia](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md). |
+| **Real models in one language** | MNIST CNN, quantized CNN, ViT, Whisper, and numerical examples all use the same core language. |
 
 ---
 
@@ -57,4 +57,4 @@ pip install -e .
 python3 -m einlang examples/hello.ein
 ```
 
-**Next:** [Getting started](GETTING_STARTED.md) · [Autodiff highlights](AUTODIFF_HIGHLIGHTS.md) · [Autodiff design](AUTODIFF_DESIGN.md) · [Examples](https://github.com/einlang/einlang/tree/main/examples)
+**Next:** [Getting started](GETTING_STARTED.md) · [Autodiff](AUTODIFF.md) · [Examples](../examples/README.md)

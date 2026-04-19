@@ -1,0 +1,51 @@
+// Native-autodiff training on the bundled real 28x28 MNIST sample images.
+// Uses the same 10 real sample images in examples/mnist/samples for both
+// training and evaluation, in recurrence style with one full gradient update
+// per epoch.
+// Run (cwd = examples/mnist): PYTHONPATH=../../src python3 -m einlang train_recurrence.ein
+
+let sample_images = python::data_loader::load_images() as [f32; 10, 784];
+let sample_labels = python::data_loader::load_labels() as [f32; 10, 10];
+
+let lr = 5e-2;
+let epochs = 5;
+let truth = std::ml::argmax(sample_labels);
+
+let theta0[p in 0..785, cls in 0..10] =
+    if p == 784 { 0.0 } else { 1e-3 * (1.0 + ((p % 17) + cls) as f32) };
+
+// Keep the recurrence local so the runtime only needs the final step, not the
+// entire history tensor as a preserved top-level output.
+let final_theta = {
+    let theta[step in 0..epochs + 1] = if step == 0 {
+        theta0
+    } else {
+        let prev_theta = theta[step - 1] as [f32; 785, 10];
+        let logits_before[n in 0..10, j in 0..10] =
+            sum[k in 0..784](sample_images[n, k] * prev_theta[k, j]) + prev_theta[784, j];
+        let diff_before[n in 0..10, j in 0..10] = logits_before[n, j] - sample_labels[n, j];
+        let loss_before = sum[n in 0..10, j in 0..10](diff_before[n, j] * diff_before[n, j]) / 100.0;
+        let d_theta = @loss_before / @prev_theta;
+        let next_theta[p in 0..785, cls in 0..10] =
+            prev_theta[p, cls] - lr * d_theta[p, cls];
+        let logits_after[n in 0..10, j in 0..10] =
+            sum[k in 0..784](sample_images[n, k] * next_theta[k, j]) + next_theta[784, j];
+        let diff_after[n in 0..10, j in 0..10] = logits_after[n, j] - sample_labels[n, j];
+        let loss_after = sum[n in 0..10, j in 0..10](diff_after[n, j] * diff_after[n, j]) / 100.0;
+        let preds_after = std::ml::argmax(logits_after);
+        let correct_after = sum[n in 0..10](if preds_after[n] == truth[n] { 1 } else { 0 });
+        let accuracy_after = (correct_after as f32) / 10.0;
+        assert(loss_after < loss_before, "recurrence epoch did not decrease loss");
+        print("Epoch", step, "loss", loss_after, "accuracy", accuracy_after * 100.0, "%", "correct", correct_after);
+        next_theta
+    };
+    theta[epochs] as [f32; 785, 10]
+};
+let final_logits[n in 0..10, cls in 0..10] =
+    sum[d in 0..784](sample_images[n, d] * final_theta[d, cls]) + final_theta[784, cls];
+let final_preds = std::ml::argmax(final_logits);
+let final_correct = sum[n in 0..10](if final_preds[n] == truth[n] { 1 } else { 0 });
+let final_accuracy = (final_correct as f32) / 10.0;
+
+print("Final train/test accuracy:", final_accuracy * 100.0, "%");
+print("Correct predictions after epoch", epochs, ":", final_correct);

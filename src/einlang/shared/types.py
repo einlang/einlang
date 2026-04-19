@@ -216,7 +216,7 @@ class RectangularType(Type):
 class DifferentialType(Type):
     """
     Differential of a value of type inner_type. Same shape and dtype as inner_type.
-    Math-first: differentials combine (e.g. dz = dx + dy); see AUTODIFF_DESIGN.md.
+    Math-first: differentials combine (e.g. dz = dx + dy); see AUTODIFF.md.
     """
     inner_type: Type
 

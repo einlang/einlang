@@ -37,6 +37,7 @@ class LoweredReductionExecutionFacts:
     contains_lowered_einstein: bool
     body_defids_by_name: Dict[str, Tuple[Any, ...]]
     guard_defids_by_name: Dict[str, Tuple[Any, ...]]
+    execution_strategy: str
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,8 @@ class LoweredEinsteinClauseExecutionFacts:
     body_contains_call_using_loop_var: bool
     body_is_elementwise_call: bool
     body_has_direct_nested_lowered_binding: bool
+    vectorization_strategy: str
+    vectorization_scalar_loop_dims: Tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -340,10 +343,26 @@ class _LoweredExecutionFactsAnalyzer:
             contains_lowered_einstein=body_summary.contains_lowered_einstein,
             body_defids_by_name=_freeze_summary_defids_by_name(body_summary.defids_by_name),
             guard_defids_by_name=_freeze_summary_defids_by_name(guard_summary.defids_by_name),
+            execution_strategy="scalar",
         )
-        self.reduction_facts_by_id[facts_id] = facts
 
         plan = _recognize_reduction_kernel(node)
+        execution_strategy = _recognize_reduction_execution_strategy(
+            node,
+            facts,
+            plan,
+        )
+        facts = LoweredReductionExecutionFacts(
+            facts_id=facts.facts_id,
+            contains_nested_reduction_or_select=facts.contains_nested_reduction_or_select,
+            contains_if_expression=facts.contains_if_expression,
+            contains_lowered_einstein=facts.contains_lowered_einstein,
+            body_defids_by_name=facts.body_defids_by_name,
+            guard_defids_by_name=facts.guard_defids_by_name,
+            execution_strategy=execution_strategy,
+        )
+        node.execution_strategy = execution_strategy
+        self.reduction_facts_by_id[facts_id] = facts
         if plan is not None:
             if node.kernel_plan_id is None:
                 node.kernel_plan_id = plan.plan_id
@@ -397,7 +416,34 @@ class _LoweredExecutionFactsAnalyzer:
                 isinstance(body, BlockExpressionIR)
                 and body_summary.contains_nested_lowered_ir
             ),
+            vectorization_strategy="scalar",
+            vectorization_scalar_loop_dims=(),
         )
+        vectorization_strategy, vectorization_scalar_loop_dims = _recognize_clause_vectorization_strategy(
+            node,
+            facts,
+        )
+        facts = LoweredEinsteinClauseExecutionFacts(
+            facts_id=facts.facts_id,
+            has_literal_index=facts.has_literal_index,
+            loop_defids=facts.loop_defids,
+            loop_defids_nonnull=facts.loop_defids_nonnull,
+            loop_names_by_defid=facts.loop_names_by_defid,
+            call_arg_loop_defids=facts.call_arg_loop_defids,
+            static_loop_ranges=facts.static_loop_ranges,
+            body_defids_by_name=facts.body_defids_by_name,
+            body_reduction_dim_count=facts.body_reduction_dim_count,
+            body_reduction_uses_clause_var_in_bounds=facts.body_reduction_uses_clause_var_in_bounds,
+            body_contains_if_expression=facts.body_contains_if_expression,
+            body_contains_nested_reduction_or_select=facts.body_contains_nested_reduction_or_select,
+            body_contains_call_using_loop_var=facts.body_contains_call_using_loop_var,
+            body_is_elementwise_call=facts.body_is_elementwise_call,
+            body_has_direct_nested_lowered_binding=facts.body_has_direct_nested_lowered_binding,
+            vectorization_strategy=vectorization_strategy,
+            vectorization_scalar_loop_dims=vectorization_scalar_loop_dims,
+        )
+        node.vectorization_strategy = vectorization_strategy
+        node.vectorization_scalar_loop_dims = list(vectorization_scalar_loop_dims)
         self.clause_facts_by_id[facts_id] = facts
 
     def _annotate_lowered_select_at_argmax(self, node: LoweredSelectAtArgmaxIR) -> None:
@@ -618,6 +664,82 @@ def _static_loop_range(loop: Any) -> Optional[Tuple[int, int]]:
         return None
     return (int(start_value), int(end_value))
 
+
+def _loop_dims_for_defids(loop_defids: Tuple[Any, ...], target_defids: Tuple[Any, ...]) -> Tuple[int, ...]:
+    target_set = set(target_defids or ())
+    return tuple(
+        dim
+        for dim, defid in enumerate(loop_defids)
+        if defid is not None and defid in target_set
+    )
+
+
+def _clause_matches_slice_if_pattern(node: LoweredEinsteinClauseIR) -> bool:
+    body = node.body
+    if not isinstance(body, IfExpressionIR):
+        return False
+    condition = body.condition
+    if not isinstance(condition, BinaryOpIR) or condition.operator != BinaryOp.LT:
+        return False
+    loop_defids = {
+        getattr(getattr(loop, "variable", None), "defid", None)
+        for loop in (node.loops or ())
+    }
+    loop_defids.discard(None)
+    if not loop_defids:
+        return False
+    left_defid = condition.left.defid if isinstance(condition.left, (IdentifierIR, IndexVarIR)) else None
+    right_defid = condition.right.defid if isinstance(condition.right, (IdentifierIR, IndexVarIR)) else None
+    if left_defid in loop_defids and right_defid not in loop_defids:
+        return True
+    if right_defid in loop_defids and left_defid not in loop_defids:
+        return True
+    return False
+
+
+def _recognize_clause_vectorization_strategy(
+    node: LoweredEinsteinClauseIR,
+    facts: LoweredEinsteinClauseExecutionFacts,
+) -> Tuple[str, Tuple[int, ...]]:
+    loops = tuple(node.loops or ())
+    if not loops:
+        return ("scalar", ())
+
+    recurrence_dims = tuple(
+        int(dim)
+        for dim in (node.recurrence_dims_override or ())
+        if 0 <= int(dim) < len(loops)
+    )
+    if recurrence_dims:
+        if len(recurrence_dims) == len(loops):
+            return ("scalar", tuple(range(len(loops))))
+        return ("recurrence-hybrid", recurrence_dims)
+
+    if (
+        facts.body_has_direct_nested_lowered_binding
+        or (
+            isinstance(node.body, BlockExpressionIR)
+            and facts.body_contains_nested_reduction_or_select
+        )
+    ):
+        return ("scalar", tuple(range(len(loops))))
+
+    call_scalar_loop_dims = _loop_dims_for_defids(facts.loop_defids, facts.call_arg_loop_defids)
+    if (
+        facts.body_contains_call_using_loop_var
+        and not facts.has_literal_index
+        and 0 < len(call_scalar_loop_dims) < len(loops)
+    ):
+        return ("call-scalar", call_scalar_loop_dims)
+
+    if facts.body_is_elementwise_call:
+        return ("elementwise-call", ())
+
+    if _clause_matches_slice_if_pattern(node):
+        return ("slice-if", ())
+
+    return ("vectorized", ())
+
 def _expr_contains_defid(expr: Any, target_defid: Any) -> bool:
     if expr is None or target_defid is None:
         return False
@@ -821,14 +943,15 @@ def _recognize_reduction_kernel(expr: LoweredReductionIR) -> Optional[ReductionK
     reduction_defids = [loop.variable.defid for loop in loops if loop.variable is not None]
     if len(reduction_defids) != len(loops) or any(d is None for d in reduction_defids):
         return None
-    if not _reduction_indices_are_simple(list(left.indices or []) + list(right.indices or []), reduction_defids):
-        return None
     if _recognize_windowed_sumprod(loops, left, right):
         kind = "windowed_sumprod"
-    elif len(loops) in (1, 2):
-        kind = "matmul_sumprod"
     else:
-        kind = "einsum_sumprod"
+        if not _reduction_indices_are_simple(list(left.indices or []) + list(right.indices or []), reduction_defids):
+            return None
+        if len(loops) in (1, 2):
+            kind = "matmul_sumprod"
+        else:
+            kind = "einsum_sumprod"
     plan_id = id(expr)
     return ReductionKernelPlan(
         plan_id=plan_id,
@@ -838,3 +961,21 @@ def _recognize_reduction_kernel(expr: LoweredReductionIR) -> Optional[ReductionK
         bias=bias,
         scale=scale,
     )
+
+
+def _recognize_reduction_execution_strategy(
+    expr: LoweredReductionIR,
+    facts: LoweredReductionExecutionFacts,
+    plan: Optional[ReductionKernelPlan],
+) -> str:
+    if plan is not None:
+        return str(plan.kind)
+    if expr.operation not in (ReductionOp.SUM, ReductionOp.PROD, ReductionOp.MIN, ReductionOp.MAX):
+        return "scalar"
+    if expr.bindings:
+        return "scalar"
+    if expr.guards:
+        return "guarded_vectorized"
+    if facts.contains_lowered_einstein:
+        return "scalar"
+    return "vectorized"

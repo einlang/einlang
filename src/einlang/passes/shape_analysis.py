@@ -6,6 +6,7 @@ Reference: SHAPE_ANALYSIS_DESIGN.md
 """
 
 import logging
+import math
 from typing import Dict, List, Optional, Set, Tuple, Any
 from ..passes.base import BasePass, TyCtxt
 from ..passes.range_analysis import RangeAnalysisPass
@@ -14,6 +15,7 @@ from ..ir.nodes import (
     ProgramIR, ExpressionIR, ArrayLiteralIR, ArrayComprehensionIR,
     FunctionCallIR, BindingIR, FunctionValueIR, is_einstein_binding, is_function_binding, RectangularAccessIR,
     IRVisitor, RangeIR, IdentifierIR, LiteralIR, MemberAccessIR, BinaryOpIR, DifferentialIR,
+    IfExpressionIR, BlockExpressionIR,
 )
 from ..shared.defid import DefId
 from ..shared.source_location import SourceLocation
@@ -252,7 +254,7 @@ class UnifiedShapeAnalysisPass(BasePass):
 
             # defid_to_shape: Variables/Einstein use defid for lookup
             # expr_shapes still captures shapes from analyzer traversal
-            defid_to_shape = {}
+            defid_to_shape = dict(analyzer.defid_to_shape)
 
             # Store both ExpressionIR -> shape and DefId -> shape mappings
             # CRITICAL: Convert all shapes in analyzer.shapes to tuples for hashability
@@ -355,6 +357,7 @@ class ShapeAnalyzer:
         self.tcx = tcx
         self.shapes: Dict[ExpressionIR, tuple] = {}  # Expression -> shape (tuple for hashability)
         self.defid_to_shape: Dict[DefId, tuple] = {}  # DefId -> shape (for variables)
+        self.const_values: Dict[DefId, int] = {}  # DefId -> constant integer value
     
     def set_shape(self, expr: ExpressionIR, shape) -> None:
         """Set shape for expression - shape should be tuple"""
@@ -374,6 +377,58 @@ class ShapeAnalyzer:
         if isinstance(expr, IdentifierIR) and expr.defid:
             return self.defid_to_shape.get(expr.defid, None)
         return self.shapes.get(expr, None)
+
+    def eval_const_int(self, expr: Optional[ExpressionIR]) -> Optional[int]:
+        if expr is None:
+            return None
+        if isinstance(expr, LiteralIR) and isinstance(expr.value, (int, float)):
+            if isinstance(expr.value, float) and not math.isfinite(expr.value):
+                return None
+            return int(expr.value)
+        if isinstance(expr, IdentifierIR) and expr.defid:
+            return self.const_values.get(expr.defid)
+        if isinstance(expr, BinaryOpIR):
+            left = self.eval_const_int(expr.left)
+            right = self.eval_const_int(expr.right)
+            if left is None or right is None:
+                return None
+            if expr.operator == BinaryOp.ADD:
+                return left + right
+            if expr.operator == BinaryOp.SUB:
+                return left - right
+            if expr.operator == BinaryOp.MUL:
+                return left * right
+            if expr.operator == BinaryOp.DIV and right != 0:
+                return left // right
+        return None
+
+    def infer_value_shape(self, expr: Optional[ExpressionIR]) -> Optional[tuple]:
+        """Best-effort shape inference for tensor-valued clause bodies."""
+        if expr is None:
+            return None
+        shape = self.get_shape(expr)
+        if shape:
+            return tuple(shape) if not isinstance(shape, tuple) else shape
+        if isinstance(expr, IfExpressionIR):
+            then_shape = self.infer_value_shape(expr.then_expr)
+            else_shape = self.infer_value_shape(expr.else_expr)
+            if then_shape and else_shape:
+                return then_shape if then_shape == else_shape else None
+            return then_shape or else_shape
+        if isinstance(expr, BlockExpressionIR):
+            for stmt in expr.statements or ():
+                if isinstance(stmt, BindingIR) and is_einstein_binding(stmt):
+                    nested_shape = self.infer_einstein_shape(stmt)
+                    if nested_shape:
+                        self.set_shape(stmt, nested_shape)
+                        if stmt.defid:
+                            self.defid_to_shape[stmt.defid] = nested_shape
+                elif isinstance(stmt, BindingIR) and stmt.expr is not None:
+                    nested_shape = self.infer_value_shape(stmt.expr)
+                    if nested_shape and stmt.defid:
+                        self.defid_to_shape[stmt.defid] = nested_shape
+            return self.infer_value_shape(expr.final_expr)
+        return None
 
     def _is_array_literal_element(self, elem: ExpressionIR) -> bool:
         """True if element is an array literal (nested array). ElementTypeChecker.visit_array_literal -> 'array'."""
@@ -453,9 +508,8 @@ class ShapeAnalyzer:
         """Get size of range expression. Only RangeIR has .start/.end; comprehension over collection (e.g. IdentifierIR) has no size here."""
         if not isinstance(range_expr, RangeIR):
             return None
-        evaluator = ConstantEvaluator()
-        start = range_expr.start.accept(evaluator)
-        end = range_expr.end.accept(evaluator)
+        start = self.eval_const_int(range_expr.start)
+        end = self.eval_const_int(range_expr.end)
         if start is not None and end is not None:
             return max(0, end - start)
         return None
@@ -528,7 +582,7 @@ class ShapeAnalyzer:
                     logger.debug("[ShapeAnalysis] Resolved dependent range end to %s", resolved)
 
     def infer_einstein_shape(self, decl: BindingIR) -> Optional[tuple]:
-        """Infer shape as max of output indices of each clause (per dimension)."""
+        """Infer shape as output-index shape plus any tensor-valued clause body shape."""
         from ..passes.range_info import StaticRange
         import logging
         logger = logging.getLogger(__name__)
@@ -572,8 +626,9 @@ class ShapeAnalyzer:
                         shape.append(range_obj.stop)
                     elif isinstance(range_obj, RangeIR) and range_obj.end is not None:
                         end_expr = range_obj.end
-                        if isinstance(end_expr, LiteralIR) and isinstance(end_expr.value, (int, float)):
-                            shape.append(int(end_expr.value))
+                        end_value = self.eval_const_int(end_expr)
+                        if end_value is not None:
+                            shape.append(end_value)
                         else:
                             s = self._infer_shape_from_arrays(index_var, value_expr, variable_ranges)
                             shape.append(s)
@@ -606,7 +661,30 @@ class ShapeAnalyzer:
             except TypeError:
                 dim_max = dim_vals[0]
             combined.append(dim_max)
-        result = tuple(combined) if combined else None
+        outer_shape = tuple(combined) if combined else None
+        if outer_shape is None:
+            return None
+
+        value_shapes: List[tuple] = []
+        for clause in clauses:
+            clause_value_shape = self.infer_value_shape(clause.value)
+            if clause_value_shape:
+                value_shapes.append(
+                    clause_value_shape if isinstance(clause_value_shape, tuple) else tuple(clause_value_shape)
+                )
+        if not value_shapes:
+            result = outer_shape
+            logger.debug(f"[infer_einstein_shape] {decl.name} final shape: {result}")
+            return result
+
+        first_value_shape = value_shapes[0]
+        for other in value_shapes[1:]:
+            if other != first_value_shape:
+                logger.debug(
+                    f"[infer_einstein_shape] {decl.name} clause value shape mismatch: {first_value_shape} vs {other}"
+                )
+                return None
+        result = outer_shape + first_value_shape
         logger.debug(f"[infer_einstein_shape] {decl.name} final shape: {result}")
         return result
     
@@ -800,10 +878,16 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
     
     def visit_binding(self, node: BindingIR) -> None:
         if is_einstein_binding(node):
+            # Process each clause's value
+            for clause in (node.clauses or []):
+                if clause.value:
+                    clause.value.accept(self)
             from ..shared.types import infer_literal_type
             shape_tuple = self.analyzer.infer_einstein_shape(node)
             if shape_tuple:
                 self.analyzer.set_shape(node, shape_tuple)
+                if node.defid:
+                    self.analyzer.defid_to_shape[node.defid] = shape_tuple
                 # Store shape on the IR node so lowering/backend can read it without lookup
                 shape_list = []
                 loc = node.location
@@ -819,10 +903,6 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
                     node.expr.shape = shape_list
             # Resolve dependent ranges (0..array.shape[dim]) to literals when we know array shape
             self.analyzer._resolve_dependent_ranges_on_decl(node)
-            # Process each clause's value
-            for clause in (node.clauses or []):
-                if clause.value:
-                    clause.value.accept(self)
         elif is_function_binding(node):
             if isinstance(node.expr, FunctionValueIR):
                 if node.expr.body is not None:
@@ -832,6 +912,10 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
         else:
             if node.value:
                 node.value.accept(self)
+                if node.defid:
+                    const_value = self.analyzer.eval_const_int(node.value)
+                    if const_value is not None:
+                        self.analyzer.const_values[node.defid] = const_value
                 if node.defid:
                     shape = self.analyzer.get_shape(node.value)
                     if shape:
@@ -866,7 +950,7 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
         pass
     
     def visit_differential(self, node: DifferentialIR) -> None:
-        """DifferentialIR(operand) has the same shape as operand (AUTODIFF_IMPLEMENTATION.md §5)."""
+        """DifferentialIR(operand) has the same shape as operand (AUTODIFF.md §5)."""
         node.operand.accept(self)
         operand_shape = self.analyzer.get_shape(node.operand)
         if operand_shape:
@@ -875,16 +959,57 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
             node.shape_info = shape
 
     def visit_rectangular_access(self, node) -> None:
-        pass
+        if node.array:
+            node.array.accept(self)
+        for idx in (node.indices or []):
+            if idx is not None:
+                idx.accept(self)
+        array_shape = self.analyzer.get_shape(node.array)
+        if array_shape:
+            shape = tuple(array_shape) if not isinstance(array_shape, tuple) else array_shape
+            num_indices = len(node.indices or [])
+            if num_indices < len(shape):
+                remaining = shape[num_indices:]
+                self.analyzer.set_shape(node, remaining)
+                node.shape_info = remaining
     
     def visit_jagged_access(self, node) -> None:
         pass
     
     def visit_block_expression(self, node) -> None:
-        pass
-    
+        for stmt in (node.statements or []):
+            if stmt is not None:
+                stmt.accept(self)
+        if node.final_expr is not None:
+            node.final_expr.accept(self)
+            final_shape = self.analyzer.get_shape(node.final_expr)
+            if final_shape:
+                shape = tuple(final_shape) if not isinstance(final_shape, tuple) else final_shape
+                self.analyzer.set_shape(node, shape)
+                node.shape_info = shape
+
     def visit_if_expression(self, node) -> None:
-        pass
+        if node.condition is not None:
+            node.condition.accept(self)
+        if node.then_expr is not None:
+            node.then_expr.accept(self)
+        if node.else_expr is not None:
+            node.else_expr.accept(self)
+        then_shape = self.analyzer.get_shape(node.then_expr) if node.then_expr is not None else None
+        else_shape = self.analyzer.get_shape(node.else_expr) if node.else_expr is not None else None
+        shape = None
+        if then_shape and else_shape:
+            t = tuple(then_shape) if not isinstance(then_shape, tuple) else then_shape
+            e = tuple(else_shape) if not isinstance(else_shape, tuple) else else_shape
+            if t == e:
+                shape = t
+        elif then_shape:
+            shape = tuple(then_shape) if not isinstance(then_shape, tuple) else then_shape
+        elif else_shape:
+            shape = tuple(else_shape) if not isinstance(else_shape, tuple) else else_shape
+        if shape:
+            self.analyzer.set_shape(node, shape)
+            node.shape_info = shape
     
     def visit_lambda(self, node) -> None:
         pass

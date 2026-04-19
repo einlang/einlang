@@ -300,6 +300,7 @@ def _eval_clause_body_with_broadcast_loops(
                 return clause.body.accept(backend)
     except Exception as exc:
         if backend is not None and getattr(backend, "_vectorize_debug_enabled", None) and backend._vectorize_debug_enabled():
+            import traceback
             loc = getattr(clause, "location", None)
             line = int(getattr(loc, "line", 0) or 0)
             seen = getattr(backend, "_vectorize_eval_failed_seen", None)
@@ -313,6 +314,7 @@ def _eval_clause_body_with_broadcast_loops(
                     f"[vectorize] eval-failed L{line or '?'} {type(exc).__name__}: {exc}",
                     flush=True,
                 )
+                print(traceback.format_exc(limit=20), flush=True)
         return None
 
 

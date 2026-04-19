@@ -21,6 +21,7 @@ from ..ir.nodes import (
     FunctionValueIR,
     IdentifierIR,
     IfExpressionIR,
+    IndexVarIR,
     IRNode,
     LambdaIR,
     LiteralIR,
@@ -178,7 +179,7 @@ def _partition_recurrence(
     non_recurrence_items: List[Any] = []
     recurrence_items: List[Any] = []
     recurrence_loops_for_outer: Optional[List[Any]] = None
-    if len(items) <= 1 or variable_defid is None:
+    if not items or variable_defid is None:
         return (non_recurrence_items, recurrence_items, recurrence_loops_for_outer)
     for it in items:
         clause_indices = it.indices or []
@@ -252,17 +253,88 @@ def _int_literal_value(expr: Any) -> Optional[int]:
     return None
 
 
-def _extent_from_shape_dim(shape_dim: Any) -> Optional[int]:
-    if shape_dim is None:
+def _collect_binding_exprs(node: Any, out: dict) -> None:
+    if node is None:
+        return
+    if isinstance(node, BindingIR) and node.defid is not None and node.expr is not None:
+        out[node.defid] = node.expr
+    for child in _iter_ir_children(node):
+        _collect_binding_exprs(child, out)
+
+
+def _eval_static_int_expr(
+    expr: Any,
+    binding_expr_by_defid: dict,
+    *,
+    memo: Optional[dict] = None,
+    active_defids: Optional[set] = None,
+) -> Optional[int]:
+    if expr is None:
         return None
-    if isinstance(shape_dim, int):
-        return int(shape_dim)
-    if isinstance(shape_dim, LiteralIR):
-        try:
-            return int(shape_dim.value)
-        except (TypeError, ValueError):
+    if isinstance(expr, int):
+        return int(expr)
+    if isinstance(expr, LiteralIR):
+        value = expr.value
+        if isinstance(value, bool):
             return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        return None
+    if isinstance(expr, (IdentifierIR, IndexVarIR)) and expr.defid is not None:
+        if memo is None:
+            memo = {}
+        if active_defids is None:
+            active_defids = set()
+        if expr.defid in memo:
+            return memo[expr.defid]
+        if expr.defid in active_defids:
+            return None
+        bound_expr = binding_expr_by_defid.get(expr.defid)
+        if bound_expr is None:
+            memo[expr.defid] = None
+            return None
+        active_defids.add(expr.defid)
+        try:
+            value = _eval_static_int_expr(
+                bound_expr,
+                binding_expr_by_defid,
+                memo=memo,
+                active_defids=active_defids,
+            )
+            memo[expr.defid] = value
+            return value
+        finally:
+            active_defids.remove(expr.defid)
+    if isinstance(expr, BinaryOpIR):
+        left = _eval_static_int_expr(
+            expr.left,
+            binding_expr_by_defid,
+            memo=memo,
+            active_defids=active_defids,
+        )
+        right = _eval_static_int_expr(
+            expr.right,
+            binding_expr_by_defid,
+            memo=memo,
+            active_defids=active_defids,
+        )
+        if left is None or right is None:
+            return None
+        if expr.operator == BinaryOp.ADD:
+            return left + right
+        if expr.operator == BinaryOp.SUB:
+            return left - right
+        if expr.operator == BinaryOp.MUL:
+            return left * right
+        if expr.operator == BinaryOp.DIV and right != 0 and left % right == 0:
+            return left // right
     return None
+
+
+def _extent_from_shape_dim(shape_dim: Any, binding_expr_by_defid: dict) -> Optional[int]:
+    return _eval_static_int_expr(shape_dim, binding_expr_by_defid)
 
 
 def _loop_dim_and_output_dim_for_recurrence_item(
@@ -337,6 +409,7 @@ def _analyze_tail_use_in_node(
     target_defid: Any,
     recurrence_output_dim: Optional[int],
     recurrence_extent: Optional[int],
+    binding_expr_by_defid: dict,
 ) -> Tuple[Optional[int], bool]:
     """Return (tail_steps, requires_full_output) for references under one IR node."""
     if node is None:
@@ -349,7 +422,7 @@ def _analyze_tail_use_in_node(
             indices = list(node.indices or [])
             if recurrence_output_dim >= len(indices):
                 return (None, True)
-            idx_val = _int_literal_value(indices[recurrence_output_dim])
+            idx_val = _eval_static_int_expr(indices[recurrence_output_dim], binding_expr_by_defid)
             if idx_val is None:
                 return (None, True)
             if idx_val < 0 or idx_val >= recurrence_extent:
@@ -361,6 +434,7 @@ def _analyze_tail_use_in_node(
                     target_defid=target_defid,
                     recurrence_output_dim=recurrence_output_dim,
                     recurrence_extent=recurrence_extent,
+                    binding_expr_by_defid=binding_expr_by_defid,
                 )
                 if child_full:
                     return (None, True)
@@ -376,6 +450,7 @@ def _analyze_tail_use_in_node(
             target_defid=target_defid,
             recurrence_output_dim=recurrence_output_dim,
             recurrence_extent=recurrence_extent,
+            binding_expr_by_defid=binding_expr_by_defid,
         )
         if child_full:
             return (None, True)
@@ -390,6 +465,7 @@ def _infer_downstream_tail_steps(
     target_defid: Any,
     recurrence_output_dim: Optional[int],
     recurrence_extent: Optional[int],
+    binding_expr_by_defid: dict,
 ) -> Tuple[Optional[int], bool]:
     tail_steps = 0
     for stmt in later_statements:
@@ -398,6 +474,7 @@ def _infer_downstream_tail_steps(
             target_defid=target_defid,
             recurrence_output_dim=recurrence_output_dim,
             recurrence_extent=recurrence_extent,
+            binding_expr_by_defid=binding_expr_by_defid,
         )
         if requires_full:
             return (None, True)
@@ -411,6 +488,7 @@ def _build_recurrence_storage_metadata(
     body: LoweredEinsteinIR,
     variable_defid: Any,
     later_statements: Sequence[Any],
+    binding_expr_by_defid: dict,
 ) -> dict:
     recurrence_loop_dim: Optional[int] = None
     recurrence_output_dim: Optional[int] = None
@@ -427,7 +505,10 @@ def _build_recurrence_storage_metadata(
         and lowered.shape
         and recurrence_output_dim < len(lowered.shape)
     ):
-        recurrence_extent = _extent_from_shape_dim(lowered.shape[recurrence_output_dim])
+        recurrence_extent = _extent_from_shape_dim(
+            lowered.shape[recurrence_output_dim],
+            binding_expr_by_defid,
+        )
 
     history_lookback_steps = _infer_history_lookback_steps(
         body,
@@ -439,6 +520,7 @@ def _build_recurrence_storage_metadata(
         target_defid=variable_defid,
         recurrence_output_dim=recurrence_output_dim,
         recurrence_extent=recurrence_extent,
+        binding_expr_by_defid=binding_expr_by_defid,
     )
 
     if requires_full_output:
@@ -466,10 +548,11 @@ def _isolate_recurrence(
     lowered: LoweredEinsteinIR,
     variable_defid: Any,
     later_statements: Sequence[Any],
+    binding_expr_by_defid: dict,
 ) -> bool:
-    """If lowered has both non-recurrence and recurrence items, replace binding.expr with LoweredRecurrenceIR. Return True if replaced."""
+    """Replace a lowered Einstein binding with LoweredRecurrenceIR when recurrence is present."""
     non_rec, rec_items, rec_loops = _partition_recurrence(lowered, variable_defid)
-    if not non_rec or not rec_items or not rec_loops:
+    if not rec_items or not rec_loops:
         return False
     shape = lowered.shape
     element_type = lowered.element_type
@@ -491,6 +574,7 @@ def _isolate_recurrence(
         body,
         variable_defid,
         later_statements,
+        binding_expr_by_defid,
     )
     # Single recurrence loop for LoweredRecurrenceIR (first recurrence dim, e.g. t).
     recurrence_loop = rec_loops[0]
@@ -513,6 +597,9 @@ def _isolate_recurrence(
 class RecurrenceOrderPass(BasePass):
     """Pass that sets recurrence_dims_override on clauses with same-timestep dependency."""
     requires = ["EinsteinLoweringPass"]
+
+    def __init__(self) -> None:
+        self._binding_expr_by_defid: dict = {}
 
     def _process_expr(
         self,
@@ -578,7 +665,13 @@ class RecurrenceOrderPass(BasePass):
                         _annotate_recurrence_override(value, owner_defid)
                         if allow_isolate:
                             later = seq[i + 1 :] + tail
-                            _isolate_recurrence(stmt, value, owner_defid, later)
+                            _isolate_recurrence(
+                                stmt,
+                                value,
+                                owner_defid,
+                                later,
+                                self._binding_expr_by_defid,
+                            )
                             value = stmt.expr
                 self._process_expr(value, allow_isolate=allow_isolate, variable_defid=owner_defid)
             else:
@@ -593,12 +686,18 @@ class RecurrenceOrderPass(BasePass):
             self._process_module(submodule)
 
     def run(self, ir: ProgramIR, tcx: TyCtxt) -> ProgramIR:
+        binding_expr_by_defid: dict = {}
+        _collect_binding_exprs(ir, binding_expr_by_defid)
+        function_ir_map = getattr(tcx, "function_ir_map", None) or {}
+        for binding in function_ir_map.values():
+            _collect_binding_exprs(binding, binding_expr_by_defid)
+        self._binding_expr_by_defid = binding_expr_by_defid
+
         self._process_statement_sequence(list(ir.statements or []), allow_isolate=True)
         for module in ir.modules or []:
             self._process_module(module)
 
         seen_ids = {id(stmt) for stmt in (ir.statements or [])}
-        function_ir_map = getattr(tcx, "function_ir_map", None) or {}
         for binding in function_ir_map.values():
             if not isinstance(binding, BindingIR):
                 continue

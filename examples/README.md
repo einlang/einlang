@@ -1,148 +1,64 @@
 # Einlang Examples
 
-**First time?** [Try it in 30 seconds](https://github.com/einlang/einlang/blob/main/README.md#try-it) or read [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md). **Want one capability?** [Examples by feature](https://github.com/einlang/einlang/blob/main/README.md#examples).
+This is the example map for users. If you only want a few good entry points, start here instead of browsing every directory.
 
-Examples are grouped **by domain** below. For a step-by-step path (basics → demos → MNIST → ViT → Whisper), see [Learning path](#learning-path).
+## Best first runs
 
----
-
-## By domain
-
-### Scientific simulation (ODEs & PDEs)
-
-Time-stepping and spatial stencils; no weights. Each `.ein` has a **Julia equivalent** in comments. When a workflow needs sensitivities, the same language can use autodiff instead of finite-difference gradient estimates. See [Julia demos → Einlang](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md).
-
-| Directory | What it does | Run |
-|-----------|--------------|-----|
-| [`ode/`](https://github.com/einlang/einlang/tree/main/examples/ode) | ODEs: suite (decay, linear, harmonic, pendulum, van der Pol, Lotka–Volterra) + lorenz, sir, fitzhugh_nagumo, lorenz96 | `python3 -m einlang examples/ode/ode_suite.ein`; `lorenz.ein`; `sir.ein`; … |
-| [`pde_1d/`](https://github.com/einlang/einlang/tree/main/examples/pde_1d) | 1D heat, advection; [run_heat_1d.py](https://github.com/einlang/einlang/blob/main/examples/pde_1d/run_heat_1d.py) for HTML | `python3 -m einlang examples/pde_1d/heat_1d.ein`; `python3 examples/pde_1d/run_heat_1d.py` |
-| [`wave_2d/`](https://github.com/einlang/einlang/tree/main/examples/wave_2d) | 2D acoustic wave | `python3 -m einlang examples/wave_2d/main.ein`; `python3 examples/wave_2d/run_wave.py` |
-| [`brusselator/`](https://github.com/einlang/einlang/tree/main/examples/brusselator) | Reaction–diffusion (SciML Brusselator) | `python3 -m einlang examples/brusselator/main.ein`; `python3 examples/brusselator/run_brusselator.py` |
-
-### Discrete dynamics & recurrence
-
-Recurrences (base case + step); Markov chains, chaos.
-
-| Directory | What it does | Run |
-|-----------|--------------|-----|
-| [`recurrence/`](https://github.com/einlang/einlang/tree/main/examples/recurrence) | Suite: fibonacci, logistic, markov_stationary, random_walk | `python3 -m einlang examples/recurrence/recurrence_suite.ein` |
-
-### Finance
-
-| Directory | What it does | Run |
-|-----------|--------------|-----|
-| [`finance/`](https://github.com/einlang/einlang/tree/main/examples/finance) | Savings / compound interest projection | `python3 -m einlang examples/finance/savings.ein` |
-
-### Economics & optimization
-
-| Directory | What it does | Run |
-|-----------|--------------|-----|
-| **Autodiff** (root) | **Compiler-owned, expression-native AD** — bind the value, then use `@name`, `@a / @b`, `@loss / @w`, and tensor quotients like `@C / @A` without hand-written pullbacks or a separate `grad(f)` layer. Same stack as MNIST/ViT-style models, and the usual replacement for finite-difference gradients in supported scientific and optimization examples. Narrative: [AUTODIFF_HIGHLIGHTS](https://github.com/einlang/einlang/blob/main/docs/AUTODIFF_HIGHLIGHTS.md). | `python3 examples/run_autodiff_examples.py` or `autodiff_small.ein`, `autodiff_matmul.ein`, `gradient_descent_autodiff.ein`, `autodiff_user_fn.ein`, `autodiff_loss.ein` |
-| [`value_iteration/`](https://github.com/einlang/einlang/tree/main/examples/value_iteration) | Value iteration (Bellman); **policy iteration** (Howard: evaluate + improve) | `python3 -m einlang examples/value_iteration/main.ein` · `policy_iteration.ein` |
-| [`job_search/`](https://github.com/einlang/einlang/tree/main/examples/job_search) | McCall job search (QuantEcon): value function iteration, reservation wage | `python3 -m einlang examples/job_search/mccall.ein` |
-| [`optimization/`](https://github.com/einlang/einlang/tree/main/examples/optimization) | Suite: gradient descent, power iteration, projected gradient, Rosenbrock (Optim.jl/SciML) | `python3 -m einlang examples/optimization/optimization_suite.ein` |
-| **[`numerics/`](https://github.com/einlang/einlang/tree/main/examples/numerics)** | **Reusable numerics:** DiffEq (Euler decay), Optim (gradient descent 2D), QuantEcon (value iteration) | `python3 -m einlang examples/run_numerics.ein`; see [numerics/README](https://github.com/einlang/einlang/blob/main/examples/numerics/README.md) |
-
-### Time series
-
-| Directory | What it does | Run |
-|-----------|--------------|-----|
-| [`time_series/`](https://github.com/einlang/einlang/tree/main/examples/time_series) | Exponential smoothing (forecasting; StateSpaceModels/TimeSeries-style) | `python3 -m einlang examples/time_series/exponential_smoothing.ein` |
-
-### Parameter estimation & scenario workflows
-
-Multi-step patterns: fit model to data then use it, or run one model over many parameter sets (sensitivity/scenario analysis). These are the places where autodiff usually replaces finite-difference tuning loops. See [Learning from Julia: real applications](https://github.com/einlang/einlang/blob/main/docs/LEARNING_FROM_JULIA.md).
-
-| Directory | What it does | Run |
-|-----------|--------------|-----|
-| [`applications/`](https://github.com/einlang/einlang/tree/main/examples/applications) | **Calibrate then forecast** (decay_calibration); **steady-state risk** (markov_credit); **Kalman filter** (kalman_filter: track position/velocity from noisy measurements, migrated from 223-line NumPy app). | `python3 -m einlang examples/applications/decay_calibration.ein` · `markov_credit.ein` · `examples/applications/kalman_filter/main.ein` |
-
-### Computer vision
-
-| Directory | What it does | Run |
-|-----------|--------------|-----|
-| [`mnist/`](https://github.com/einlang/einlang/tree/main/examples/mnist) | CNN digit recognition | `python3 -m einlang examples/mnist/main.ein` |
-| [`mnist_quantized/`](https://github.com/einlang/einlang/tree/main/examples/mnist_quantized) | Same CNN, int8 quantization | `python3 -m einlang examples/mnist_quantized/main.ein` |
-| [`deit_tiny/`](https://github.com/einlang/einlang/tree/main/examples/deit_tiny) | Vision Transformer (ImageNet) | `python3 -m einlang examples/deit_tiny/main.ein` |
-
-### Speech & sequence
-
-| Directory | What it does | Run |
-|-----------|--------------|-----|
-| [`whisper_tiny/`](https://github.com/einlang/einlang/tree/main/examples/whisper_tiny) | Speech-to-text (encoder–decoder, BPE) | `python3 -m einlang examples/whisper_tiny/main.ein` (run `download_weights.py` first) |
-
-### Language & basics
-
-Learn the language: variables, functions, Einstein notation, tensors.
-
-| Directory | What you'll learn | Run |
-|-----------|-------------------|-----|
-| [`basics/`](https://github.com/einlang/einlang/tree/main/examples/basics) | Variables, arithmetic, functions, data processing | `python3 -m einlang examples/basics/variables_demo.ein` |
-| [`demos/`](https://github.com/einlang/einlang/tree/main/examples/demos) | Matrices, tensors, imports, overloading | `python3 -m einlang examples/demos/matrix_operations.ein` |
-| [`units/`](https://github.com/einlang/einlang/tree/main/examples/units) | 60+ unit-style examples (every feature) | Lookup by feature; see [units/README](https://github.com/einlang/einlang/blob/main/examples/units/README.md) |
-
----
-
-## Learning path
-
-If you prefer a linear path:
-
-| Step | Domain | Run |
-|------|--------|-----|
-| 1 | Language | [basics/](https://github.com/einlang/einlang/tree/main/examples/basics), [demos/](https://github.com/einlang/einlang/tree/main/examples/demos) |
-| 2 | Simulation (ODE suite) | `python3 -m einlang examples/ode/ode_suite.ein` |
-| 3 | Computer vision | [mnist/](https://github.com/einlang/einlang/tree/main/examples/mnist) → [mnist_quantized/](https://github.com/einlang/einlang/tree/main/examples/mnist_quantized) → [deit_tiny/](https://github.com/einlang/einlang/tree/main/examples/deit_tiny) |
-| 4 | Speech | [whisper_tiny/](https://github.com/einlang/einlang/tree/main/examples/whisper_tiny) |
-
----
-
-## Running
-
-From repository root:
+Run these from the repository root:
 
 ```bash
-# Simulation (no weights)
-python3 -m einlang examples/ode/ode_suite.ein
-python3 examples/pde_1d/run_heat_1d.py
-python3 examples/wave_2d/run_wave.py
-
-# Recurrence, finance, economics, optimization, workflows
-python3 -m einlang examples/recurrence/recurrence_suite.ein
-python3 -m einlang examples/finance/savings.ein
-python3 -m einlang examples/job_search/mccall.ein
-python3 -m einlang examples/optimization/optimization_suite.ein
-python3 -m einlang examples/value_iteration/main.ein
-python3 -m einlang examples/run_numerics.ein
-python3 -m einlang examples/applications/decay_calibration.ein
-python3 -m einlang examples/applications/markov_credit.ein
-python3 -m einlang examples/applications/kalman_filter/main.ein
-
-# Language & autodiff
-python3 -m einlang examples/basics/variables_demo.ein
+python3 -m einlang examples/hello.ein
 python3 -m einlang examples/demos/matrix_operations.ein
 python3 -m einlang examples/autodiff_small.ein
-python3 -m einlang examples/autodiff_matmul.ein
-
-# Models (need weights; see Setup below)
-python3 -m einlang examples/mnist/main.ein
-python3 -m einlang examples/whisper_tiny/main.ein
+python3 -m einlang examples/recurrence/recurrence_suite.ein
+python3 -m einlang examples/ode/ode_suite.ein
 ```
 
-**Tests (including simulation accuracy):**
+That sequence covers the language basics, tensor notation, autodiff, recurrences, and numerics.
 
-```bash
-python3 -m pytest tests/examples/
-```
+## By goal
 
-Every simulation example is [accuracy-tested](https://github.com/einlang/einlang/blob/main/tests/examples/test_simulation_accuracy.py) against NumPy or analytical references and has a **Julia equivalent** in the `.ein` file. See [Julia demos → Einlang](https://github.com/einlang/einlang/blob/main/docs/JULIA_DEMOS.md).
+| Goal | Where to look | Run |
+|------|---------------|-----|
+| Learn the language | `examples/basics/`, `examples/demos/` | `python3 -m einlang examples/basics/variables_demo.ein` |
+| See feature-sized syntax examples | `examples/units/` | [units/README](units/README.md) |
+| Try autodiff | root autodiff examples | `python3 -m einlang examples/autodiff_small.ein` |
+| Explore recurrences and dynamic programs | `examples/recurrence/`, `examples/value_iteration/`, `examples/job_search/` | `python3 -m einlang examples/recurrence/recurrence_suite.ein` |
+| Run numerical simulations | `examples/ode/`, `examples/pde_1d/`, `examples/wave_2d/`, `examples/brusselator/` | `python3 -m einlang examples/ode/ode_suite.ein` |
+| Run optimization and workflow examples | `examples/optimization/`, `examples/applications/`, `examples/time_series/`, `examples/finance/` | `python3 -m einlang examples/optimization/optimization_suite.ein` |
+| Run model examples | `examples/mnist/`, `examples/mnist_quantized/`, `examples/deit_tiny/`, `examples/whisper_tiny/` | `python3 -m einlang examples/mnist/main.ein` |
 
----
+## Directories worth knowing
 
-## Setup (weights and samples)
+| Directory | What it contains |
+|-----------|------------------|
+| `examples/basics/` | Small language primers |
+| `examples/demos/` | Matrix and tensor examples |
+| `examples/units/` | Feature-by-feature lookup examples |
+| `examples/recurrence/` | Recurrence patterns and discrete dynamics |
+| `examples/ode/`, `examples/pde_1d/`, `examples/wave_2d/`, `examples/brusselator/` | Numerical simulation examples |
+| `examples/optimization/`, `examples/value_iteration/`, `examples/job_search/`, `examples/applications/` | Optimization, DP, economics, and workflow examples |
+| `examples/mnist/`, `examples/mnist_quantized/`, `examples/deit_tiny/`, `examples/whisper_tiny/` | Larger model examples |
 
-- **whisper_tiny:** Weights in repo (≤10 MiB); after clone run `git lfs pull`. Samples via `download_weights.py`.
-- **mnist, mnist_quantized, deit_tiny:** Weights/samples not in repo; see each example’s README (e.g. `download_weights.py`, `prepare_weights.py`).
+## Detailed guides kept on purpose
 
----
+Most example directories no longer have their own README. The ones that remain are the ones that provide setup details or real lookup value:
 
-**Reference:** [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md) · [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md). **Doc index:** [docs/README](https://github.com/einlang/einlang/blob/main/docs/README.md).
+- [units/README](units/README.md)
+- [mnist/README](mnist/README.md)
+- [mnist_quantized/README](mnist_quantized/README.md)
+- [deit_tiny/README](deit_tiny/README.md)
+- [whisper_tiny/README](whisper_tiny/README.md)
+- [applications/kalman_filter/README](applications/kalman_filter/README.md)
+
+## Setup notes
+
+- `mnist`, `mnist_quantized`, `deit_tiny`, and `whisper_tiny` have extra weight or sample setup; use their README files above.
+- Many of the smaller examples run immediately after `pip install -e .`.
+
+## Related docs
+
+- [Getting started](../docs/GETTING_STARTED.md)
+- [Language reference](../docs/reference.md)
+- [Standard library](../docs/stdlib.md)
+- [Autodiff guide](../docs/AUTODIFF.md)

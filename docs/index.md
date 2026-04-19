@@ -1,11 +1,11 @@
+# Einlang docs
 
-# Einlang
+This is the same small doc set surfaced in [docs/README](README.md).
 
-This page overlaps with [docs/README](https://github.com/einlang/einlang/blob/main/docs/README.md). Use that page as the main documentation index.
-
-Start here:
-
-- [GETTING_STARTED](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md)
-- [docs/README](https://github.com/einlang/einlang/blob/main/docs/README.md)
-- [reference](https://github.com/einlang/einlang/blob/main/docs/reference.md)
-- [stdlib](https://github.com/einlang/einlang/blob/main/docs/stdlib.md)
+- [Getting started](GETTING_STARTED.md)
+- [Language reference](reference.md)
+- [Standard library](stdlib.md)
+- [Autodiff guide](AUTODIFF.md)
+- [Syntax comparison](SYNTAX_COMPARISON.md)
+- [Why Einlang](WHY_EINLANG.md)
+- [Examples guide](../examples/README.md)

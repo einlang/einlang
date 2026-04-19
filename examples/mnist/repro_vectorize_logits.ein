@@ -1,0 +1,18 @@
+// Tiny repro for the current vectorization failure in the logits_before clause.
+// This mirrors the shape of:
+//   logits[n, j] = sum[k](sample_images[n, k] * theta[k, j]) + theta[784, j]
+//
+// Run:
+//   PYTHONPATH=../../src python3 -m einlang repro_vectorize_logits.ein --debug-vectorize-detail --profile-reductions
+
+let x[n in 0..2, k in 0..4] = (1 + n + k) as f32;
+let theta[k in 0..5, j in 0..3] =
+    if k == 4 { 0.5 * (1 + j) as f32 } else { 0.1 * (1 + k + j) as f32 };
+
+let logits[n in 0..2, j in 0..3] =
+    sum[k in 0..4](x[n, k] * theta[k, j]) + theta[4, j];
+let diff[n in 0..2, j in 0..3] = logits[n, j] - (n == j) as f32;
+let loss = sum[n in 0..2, j in 0..3](diff[n, j] * diff[n, j]);
+
+print(logits);
+print(loss);

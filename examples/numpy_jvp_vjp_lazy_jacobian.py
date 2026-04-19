@@ -1,7 +1,7 @@
 """Standalone NumPy AD prototype: JVP, VJP, and lazy Jacobians.
 
 This file is intentionally outside Einlang proper. It is a small executable
-reference for the rewrite in ``docs/AUTODIFF_VJP_JVP_REWRITE.md``:
+reference for the rewrite in ``docs/AUTODIFF.md``:
 
 - one traced tensor graph
 - one primitive rule registry
