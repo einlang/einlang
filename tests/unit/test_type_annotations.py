@@ -211,6 +211,20 @@ class TestTypeAnnotations:
         for source in cases:
             result = compile_and_execute(source, compiler, runtime, source_file='test.ein')
             assert result.success, f"Execution failed: {result.errors}"
+
+    def test_rejects_removed_type_aliases(self, compiler):
+        cases = [
+            "let x: u8 = 1;",
+            "let x: qint8 = 1;",
+            "let x: quint8 = 1;",
+            "let x: qint32 = 1;",
+            "let x: int = 1;",
+            "let x: float = 1.0;",
+        ]
+
+        for source in cases:
+            result = compiler.compile(source, "<test>")
+            assert not result.success, f"Expected removed alias to fail: {source!r}"
     
     def test_shape_dimension_normalization(self, compiler, runtime):
         """Test that shape dimensions are normalized to integers where possible"""
@@ -262,4 +276,3 @@ class TestTypeAnnotations:
                 assert result.success, f"Expected success but got errors: {result.errors} for: {source}"
             else:
                 assert not result.success, f"Expected failure but compilation succeeded for: {source}"
-

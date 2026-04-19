@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tests.test_utils import compile_and_execute
+from tests.test_utils import compile_and_execute, ensure_test_dependency
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -88,7 +88,7 @@ def test_decay_calibration_autodiff_prints_and_refines_fit(session_compiler, ses
 
 def test_diabetes_ridge_sklearn_style_matches_numpy_reference(compiler, runtime):
     """Run the sklearn-style ridge example and pin its fit/eval outputs against NumPy."""
-    pytest.importorskip("sklearn")
+    ensure_test_dependency("sklearn")
 
     source_file = PROJECT_ROOT / "examples" / "applications" / "diabetes_ridge_sklearn_style.ein"
     source = source_file.read_text(encoding="utf-8")

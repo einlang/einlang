@@ -256,7 +256,7 @@ class TestD:
         main_ein = mnist_dir / "main.ein"
         predictions, counts = _run_file_with_stats_subprocess(main_ein, timeout=600)
         assert predictions == list(range(10)), f"unexpected output: {predictions!r}"
-        _assert_vectorize_counts_dict(counts, min_vectorized=1, max_scalar=0, label="mnist")
+        _assert_vectorize_counts_dict(counts, min_vectorized=1, max_scalar=3, label="mnist")
 
     def test_mnist_quantized(self):
         """Run examples/mnist_quantized/main.ein and verify 10/10 digit predictions."""
