@@ -126,6 +126,29 @@ def test_lowered_execution_facts_recognize_windowed_sumprod_kernel():
     assert facts.execution_strategy == "windowed_sumprod"
 
 
+def test_lowered_execution_facts_recognize_windowed_sumprod_with_symbolic_stride():
+    ir, tcx = _compile(
+        """
+        fn slide(x, w, stride) {
+            let y[co in 0..3, t in 0..2] =
+                sum[ci in 0..2, k in 0..3](x[ci, t * stride + k] * w[co, ci, k]);
+            y
+        }
+        let x[ci in 0..2, t in 0..6] = (1 + ci + t) as f32;
+        let w[co in 0..3, ci in 0..2, k in 0..3] = (1 + co + ci + k) as f32;
+        let y = slide(x, w, 3);
+        """
+    )
+
+    plan_map = tcx.get_analysis(LoweredExecutionFactsPass)["reduction_kernel_plans_by_id"]
+    plans = list(plan_map.values())
+    assert plans, "expected at least one reduction kernel plan"
+    kinds = {plan.kind for plan in plans}
+    assert "windowed_sumprod" in kinds
+    reductions = _reductions(ir)
+    assert any(reduction.execution_strategy == "windowed_sumprod" for reduction in reductions)
+
+
 def test_lowered_execution_facts_annotate_clause_call_and_nested_lowered_flags():
     ir, tcx = _compile(
         """

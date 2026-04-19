@@ -1,0 +1,239 @@
+// Multi-epoch linear training on the full scikit-learn digits split.
+// The data comes from python::mnist_data::* (backed by sklearn.load_digits),
+// while the forward pass, autodiff, updates, and evaluation stay in Einlang.
+//
+// Model:
+// 8x8 image -> flatten(64) -> Dense(10) -> argmax
+//
+// This is the main sklearn-backed training example because it uses the full
+// train/test split and needs multiple epochs before the held-out accuracy is
+// genuinely strong.
+//
+// Run (cwd = examples/mnist): PYTHONPATH=../../src python3 -m einlang train_sklearn_digits.ein
+
+let train_images_4d = python::mnist_data::load_train_images() as [f32; 1437, 1, 8, 8];
+let train_labels_full = python::mnist_data::load_train_labels() as [f32; 1437, 10];
+let test_images_4d = python::mnist_data::load_test_images() as [f32; 360, 1, 8, 8];
+let test_labels_full = python::mnist_data::load_test_labels() as [f32; 360, 10];
+
+let lr = 0.2;
+
+let train_images[n in 0..1437, d in 0..64] = train_images_4d[n, 0, d / 8, d % 8];
+let train_labels[n in 0..1437, cls in 0..10] = train_labels_full[n, cls];
+let train_truth = std::ml::argmax(train_labels);
+
+let eval_images[n in 0..360, d in 0..64] = test_images_4d[n, 0, d / 8, d % 8];
+let eval_labels[n in 0..360, cls in 0..10] = test_labels_full[n, cls];
+let eval_truth = std::ml::argmax(eval_labels);
+
+// Bias lives in the last row so the whole classifier stays in one tensor.
+let theta0[p in 0..65, cls in 0..10] =
+    if p == 64 { 0.0 } else { 1e-3 * (1.0 + ((p * 3 + cls) % 11) as f32) };
+
+let logits0[n in 0..1437, cls in 0..10] =
+    sum[d in 0..64](train_images[n, d] * theta0[d, cls]) + theta0[64, cls];
+let diff0[n in 0..1437, cls in 0..10] = logits0[n, cls] - train_labels[n, cls];
+let loss0 =
+    sum[n in 0..1437, cls in 0..10](diff0[n, cls] * diff0[n, cls]) / ((1437 * 10) as f32);
+let preds0 = std::ml::argmax(logits0);
+let correct0 = sum[n in 0..1437](if preds0[n] == train_truth[n] { 1 } else { 0 });
+let accuracy0 = (correct0 as f32) / 1437.0;
+let eval_logits0[n in 0..360, cls in 0..10] =
+    sum[d in 0..64](eval_images[n, d] * theta0[d, cls]) + theta0[64, cls];
+let eval_preds0 = std::ml::argmax(eval_logits0);
+let eval_correct0 = sum[n in 0..360](if eval_preds0[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy0 = (eval_correct0 as f32) / 360.0;
+
+let d_theta0 = @loss0 / @theta0;
+let theta1[p in 0..65, cls in 0..10] = theta0[p, cls] - lr * d_theta0[p, cls];
+
+let logits1[n in 0..1437, cls in 0..10] =
+    sum[d in 0..64](train_images[n, d] * theta1[d, cls]) + theta1[64, cls];
+let diff1[n in 0..1437, cls in 0..10] = logits1[n, cls] - train_labels[n, cls];
+let loss1 =
+    sum[n in 0..1437, cls in 0..10](diff1[n, cls] * diff1[n, cls]) / ((1437 * 10) as f32);
+let preds1 = std::ml::argmax(logits1);
+let correct1 = sum[n in 0..1437](if preds1[n] == train_truth[n] { 1 } else { 0 });
+let accuracy1 = (correct1 as f32) / 1437.0;
+let eval_logits1[n in 0..360, cls in 0..10] =
+    sum[d in 0..64](eval_images[n, d] * theta1[d, cls]) + theta1[64, cls];
+let eval_preds1 = std::ml::argmax(eval_logits1);
+let eval_correct1 = sum[n in 0..360](if eval_preds1[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy1 = (eval_correct1 as f32) / 360.0;
+
+let d_theta1 = @loss1 / @theta1;
+let theta2[p in 0..65, cls in 0..10] = theta1[p, cls] - lr * d_theta1[p, cls];
+
+let logits2[n in 0..1437, cls in 0..10] =
+    sum[d in 0..64](train_images[n, d] * theta2[d, cls]) + theta2[64, cls];
+let diff2[n in 0..1437, cls in 0..10] = logits2[n, cls] - train_labels[n, cls];
+let loss2 =
+    sum[n in 0..1437, cls in 0..10](diff2[n, cls] * diff2[n, cls]) / ((1437 * 10) as f32);
+let preds2 = std::ml::argmax(logits2);
+let correct2 = sum[n in 0..1437](if preds2[n] == train_truth[n] { 1 } else { 0 });
+let accuracy2 = (correct2 as f32) / 1437.0;
+let eval_logits2[n in 0..360, cls in 0..10] =
+    sum[d in 0..64](eval_images[n, d] * theta2[d, cls]) + theta2[64, cls];
+let eval_preds2 = std::ml::argmax(eval_logits2);
+let eval_correct2 = sum[n in 0..360](if eval_preds2[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy2 = (eval_correct2 as f32) / 360.0;
+
+let d_theta2 = @loss2 / @theta2;
+let theta3[p in 0..65, cls in 0..10] = theta2[p, cls] - lr * d_theta2[p, cls];
+
+let logits3[n in 0..1437, cls in 0..10] =
+    sum[d in 0..64](train_images[n, d] * theta3[d, cls]) + theta3[64, cls];
+let diff3[n in 0..1437, cls in 0..10] = logits3[n, cls] - train_labels[n, cls];
+let loss3 =
+    sum[n in 0..1437, cls in 0..10](diff3[n, cls] * diff3[n, cls]) / ((1437 * 10) as f32);
+let preds3 = std::ml::argmax(logits3);
+let correct3 = sum[n in 0..1437](if preds3[n] == train_truth[n] { 1 } else { 0 });
+let accuracy3 = (correct3 as f32) / 1437.0;
+let eval_logits3[n in 0..360, cls in 0..10] =
+    sum[d in 0..64](eval_images[n, d] * theta3[d, cls]) + theta3[64, cls];
+let eval_preds3 = std::ml::argmax(eval_logits3);
+let eval_correct3 = sum[n in 0..360](if eval_preds3[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy3 = (eval_correct3 as f32) / 360.0;
+
+let d_theta3 = @loss3 / @theta3;
+let theta4[p in 0..65, cls in 0..10] = theta3[p, cls] - lr * d_theta3[p, cls];
+
+let logits4[n in 0..1437, cls in 0..10] =
+    sum[d in 0..64](train_images[n, d] * theta4[d, cls]) + theta4[64, cls];
+let diff4[n in 0..1437, cls in 0..10] = logits4[n, cls] - train_labels[n, cls];
+let loss4 =
+    sum[n in 0..1437, cls in 0..10](diff4[n, cls] * diff4[n, cls]) / ((1437 * 10) as f32);
+let preds4 = std::ml::argmax(logits4);
+let correct4 = sum[n in 0..1437](if preds4[n] == train_truth[n] { 1 } else { 0 });
+let accuracy4 = (correct4 as f32) / 1437.0;
+let eval_logits4[n in 0..360, cls in 0..10] =
+    sum[d in 0..64](eval_images[n, d] * theta4[d, cls]) + theta4[64, cls];
+let eval_preds4 = std::ml::argmax(eval_logits4);
+let eval_correct4 = sum[n in 0..360](if eval_preds4[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy4 = (eval_correct4 as f32) / 360.0;
+
+let d_theta4 = @loss4 / @theta4;
+let theta5[p in 0..65, cls in 0..10] = theta4[p, cls] - lr * d_theta4[p, cls];
+
+let logits5[n in 0..1437, cls in 0..10] =
+    sum[d in 0..64](train_images[n, d] * theta5[d, cls]) + theta5[64, cls];
+let diff5[n in 0..1437, cls in 0..10] = logits5[n, cls] - train_labels[n, cls];
+let loss5 =
+    sum[n in 0..1437, cls in 0..10](diff5[n, cls] * diff5[n, cls]) / ((1437 * 10) as f32);
+let preds5 = std::ml::argmax(logits5);
+let correct5 = sum[n in 0..1437](if preds5[n] == train_truth[n] { 1 } else { 0 });
+let accuracy5 = (correct5 as f32) / 1437.0;
+let eval_logits5[n in 0..360, cls in 0..10] =
+    sum[d in 0..64](eval_images[n, d] * theta5[d, cls]) + theta5[64, cls];
+let eval_preds5 = std::ml::argmax(eval_logits5);
+let eval_correct5 = sum[n in 0..360](if eval_preds5[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy5 = (eval_correct5 as f32) / 360.0;
+
+let d_theta5 = @loss5 / @theta5;
+let theta6[p in 0..65, cls in 0..10] = theta5[p, cls] - lr * d_theta5[p, cls];
+
+let logits6[n in 0..1437, cls in 0..10] =
+    sum[d in 0..64](train_images[n, d] * theta6[d, cls]) + theta6[64, cls];
+let diff6[n in 0..1437, cls in 0..10] = logits6[n, cls] - train_labels[n, cls];
+let loss6 =
+    sum[n in 0..1437, cls in 0..10](diff6[n, cls] * diff6[n, cls]) / ((1437 * 10) as f32);
+let preds6 = std::ml::argmax(logits6);
+let correct6 = sum[n in 0..1437](if preds6[n] == train_truth[n] { 1 } else { 0 });
+let accuracy6 = (correct6 as f32) / 1437.0;
+let eval_logits6[n in 0..360, cls in 0..10] =
+    sum[d in 0..64](eval_images[n, d] * theta6[d, cls]) + theta6[64, cls];
+let eval_preds6 = std::ml::argmax(eval_logits6);
+let eval_correct6 = sum[n in 0..360](if eval_preds6[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy6 = (eval_correct6 as f32) / 360.0;
+
+let d_theta6 = @loss6 / @theta6;
+let theta7[p in 0..65, cls in 0..10] = theta6[p, cls] - lr * d_theta6[p, cls];
+
+let logits7[n in 0..1437, cls in 0..10] =
+    sum[d in 0..64](train_images[n, d] * theta7[d, cls]) + theta7[64, cls];
+let diff7[n in 0..1437, cls in 0..10] = logits7[n, cls] - train_labels[n, cls];
+let loss7 =
+    sum[n in 0..1437, cls in 0..10](diff7[n, cls] * diff7[n, cls]) / ((1437 * 10) as f32);
+let preds7 = std::ml::argmax(logits7);
+let correct7 = sum[n in 0..1437](if preds7[n] == train_truth[n] { 1 } else { 0 });
+let accuracy7 = (correct7 as f32) / 1437.0;
+let eval_logits7[n in 0..360, cls in 0..10] =
+    sum[d in 0..64](eval_images[n, d] * theta7[d, cls]) + theta7[64, cls];
+let eval_preds7 = std::ml::argmax(eval_logits7);
+let eval_correct7 = sum[n in 0..360](if eval_preds7[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy7 = (eval_correct7 as f32) / 360.0;
+
+let d_theta7 = @loss7 / @theta7;
+let theta8[p in 0..65, cls in 0..10] = theta7[p, cls] - lr * d_theta7[p, cls];
+
+let logits8[n in 0..1437, cls in 0..10] =
+    sum[d in 0..64](train_images[n, d] * theta8[d, cls]) + theta8[64, cls];
+let diff8[n in 0..1437, cls in 0..10] = logits8[n, cls] - train_labels[n, cls];
+let loss8 =
+    sum[n in 0..1437, cls in 0..10](diff8[n, cls] * diff8[n, cls]) / ((1437 * 10) as f32);
+let preds8 = std::ml::argmax(logits8);
+let correct8 = sum[n in 0..1437](if preds8[n] == train_truth[n] { 1 } else { 0 });
+let accuracy8 = (correct8 as f32) / 1437.0;
+let eval_logits8[n in 0..360, cls in 0..10] =
+    sum[d in 0..64](eval_images[n, d] * theta8[d, cls]) + theta8[64, cls];
+let eval_preds8 = std::ml::argmax(eval_logits8);
+let eval_correct8 = sum[n in 0..360](if eval_preds8[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy8 = (eval_correct8 as f32) / 360.0;
+
+let d_theta8 = @loss8 / @theta8;
+let theta9[p in 0..65, cls in 0..10] = theta8[p, cls] - lr * d_theta8[p, cls];
+
+let logits9[n in 0..1437, cls in 0..10] =
+    sum[d in 0..64](train_images[n, d] * theta9[d, cls]) + theta9[64, cls];
+let diff9[n in 0..1437, cls in 0..10] = logits9[n, cls] - train_labels[n, cls];
+let loss9 =
+    sum[n in 0..1437, cls in 0..10](diff9[n, cls] * diff9[n, cls]) / ((1437 * 10) as f32);
+let preds9 = std::ml::argmax(logits9);
+let correct9 = sum[n in 0..1437](if preds9[n] == train_truth[n] { 1 } else { 0 });
+let accuracy9 = (correct9 as f32) / 1437.0;
+let eval_logits9[n in 0..360, cls in 0..10] =
+    sum[d in 0..64](eval_images[n, d] * theta9[d, cls]) + theta9[64, cls];
+let eval_preds9 = std::ml::argmax(eval_logits9);
+let eval_correct9 = sum[n in 0..360](if eval_preds9[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy9 = (eval_correct9 as f32) / 360.0;
+
+let d_theta9 = @loss9 / @theta9;
+let theta10[p in 0..65, cls in 0..10] = theta9[p, cls] - lr * d_theta9[p, cls];
+
+let logits10[n in 0..1437, cls in 0..10] =
+    sum[d in 0..64](train_images[n, d] * theta10[d, cls]) + theta10[64, cls];
+let diff10[n in 0..1437, cls in 0..10] = logits10[n, cls] - train_labels[n, cls];
+let loss10 =
+    sum[n in 0..1437, cls in 0..10](diff10[n, cls] * diff10[n, cls]) / ((1437 * 10) as f32);
+let preds10 = std::ml::argmax(logits10);
+let correct10 = sum[n in 0..1437](if preds10[n] == train_truth[n] { 1 } else { 0 });
+let accuracy10 = (correct10 as f32) / 1437.0;
+let eval_logits10[n in 0..360, cls in 0..10] =
+    sum[d in 0..64](eval_images[n, d] * theta10[d, cls]) + theta10[64, cls];
+let eval_preds10 = std::ml::argmax(eval_logits10);
+let eval_correct10 = sum[n in 0..360](if eval_preds10[n] == eval_truth[n] { 1 } else { 0 });
+let eval_accuracy10 = (eval_correct10 as f32) / 360.0;
+
+print("Epoch 0:", "train loss", loss0, "train accuracy", accuracy0 * 100.0, "%", "test accuracy", eval_accuracy0 * 100.0, "%");
+print("Epoch 1:", "train loss", loss1, "train accuracy", accuracy1 * 100.0, "%", "test accuracy", eval_accuracy1 * 100.0, "%");
+print("Epoch 2:", "train loss", loss2, "train accuracy", accuracy2 * 100.0, "%", "test accuracy", eval_accuracy2 * 100.0, "%");
+print("Epoch 3:", "train loss", loss3, "train accuracy", accuracy3 * 100.0, "%", "test accuracy", eval_accuracy3 * 100.0, "%");
+print("Epoch 4:", "train loss", loss4, "train accuracy", accuracy4 * 100.0, "%", "test accuracy", eval_accuracy4 * 100.0, "%");
+print("Epoch 5:", "train loss", loss5, "train accuracy", accuracy5 * 100.0, "%", "test accuracy", eval_accuracy5 * 100.0, "%");
+print("Epoch 6:", "train loss", loss6, "train accuracy", accuracy6 * 100.0, "%", "test accuracy", eval_accuracy6 * 100.0, "%");
+print("Epoch 7:", "train loss", loss7, "train accuracy", accuracy7 * 100.0, "%", "test accuracy", eval_accuracy7 * 100.0, "%");
+print("Epoch 8:", "train loss", loss8, "train accuracy", accuracy8 * 100.0, "%", "test accuracy", eval_accuracy8 * 100.0, "%");
+print("Epoch 9:", "train loss", loss9, "train accuracy", accuracy9 * 100.0, "%", "test accuracy", eval_accuracy9 * 100.0, "%");
+print("Epoch 10:", "train loss", loss10, "train accuracy", accuracy10 * 100.0, "%", "test accuracy", eval_accuracy10 * 100.0, "%");
+
+assert(loss1 < loss0, "epoch 1 did not decrease train loss");
+assert(loss2 < loss1, "epoch 2 did not decrease train loss");
+assert(loss3 < loss2, "epoch 3 did not decrease train loss");
+assert(loss4 < loss3, "epoch 4 did not decrease train loss");
+assert(loss5 < loss4, "epoch 5 did not decrease train loss");
+assert(loss6 < loss5, "epoch 6 did not decrease train loss");
+assert(loss7 < loss6, "epoch 7 did not decrease train loss");
+assert(loss8 < loss7, "epoch 8 did not decrease train loss");
+assert(loss9 < loss8, "epoch 9 did not decrease train loss");
+assert(loss10 < loss9, "epoch 10 did not decrease train loss");
+assert(eval_correct10 > 300, "full-split training should clear a useful held-out accuracy bar");

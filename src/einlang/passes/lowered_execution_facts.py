@@ -792,19 +792,23 @@ def _conv_spatial_stride_from_index(
     if isinstance(right, (IdentifierIR, IndexVarIR)):
         return 1
     if isinstance(right, BinaryOpIR) and right.operator == BinaryOp.MUL:
-        lit = None
-        other = None
-        if isinstance(right.left, LiteralIR):
-            lit = right.left
-            other = right.right
-        elif isinstance(right.right, LiteralIR):
-            lit = right.right
-            other = right.left
-        if lit is not None and isinstance(other, (IdentifierIR, IndexVarIR)):
-            try:
-                return int(lit.value)
-            except (TypeError, ValueError):
-                return None
+        outer = None
+        scale = None
+        if isinstance(right.left, (IdentifierIR, IndexVarIR)) and not _expr_contains_defid(right.right, kernel_red_defid):
+            outer = right.left
+            scale = right.right
+        elif isinstance(right.right, (IdentifierIR, IndexVarIR)) and not _expr_contains_defid(right.left, kernel_red_defid):
+            outer = right.right
+            scale = right.left
+        if outer is not None and scale is not None:
+            if isinstance(scale, LiteralIR):
+                try:
+                    return int(scale.value)
+                except (TypeError, ValueError):
+                    return None
+            # Compile-time recognition only needs to know this is a valid affine
+            # output-stride term; runtime re-checks the concrete scalar value.
+            return 1
     return None
 
 

@@ -160,8 +160,20 @@ def _assert_mnist(result):
     assert predictions == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], predictions
 
 
+def _assert_linear_regression_autodiff(result):
+    _assert_success(result)
+    expected = {
+        "sse": 13.69,
+        "sse_next": 1.53872,
+        "slope_next": 0.552,
+        "intercept_next": 0.244,
+    }
+    for name, expected_value in expected.items():
+        assert float(_as_scalar(result.outputs[name])) == pytest.approx(expected_value), name
+
+
 README_EXAMPLE_VALIDATORS = {
-    "examples/autodiff_small.ein": _assert_autodiff_small,
+    "examples/applications/linear_regression_autodiff.ein": _assert_linear_regression_autodiff,
     "examples/demos/matrix_operations.ein": _assert_success,
     "examples/hello.ein": _assert_hello,
     "examples/mnist/main.ein": _assert_mnist,

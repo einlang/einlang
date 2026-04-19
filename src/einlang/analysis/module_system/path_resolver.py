@@ -13,6 +13,7 @@ This class is stateless and can be shared/reused.
 import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
+from ...resources import default_stdlib_root
 
 logger = logging.getLogger(__name__)
 
@@ -56,16 +57,9 @@ class PathResolver:
     
     def _find_stdlib_root(self, start_path: Path) -> Path:
         """Find stdlib root directory by searching up from start_path"""
-        current = start_path.resolve()
-        for _ in range(5):
-            stdlib_path = current / "stdlib"
-            if stdlib_path.exists() and stdlib_path.is_dir():
-                return stdlib_path
-            parent = current.parent
-            if parent == current:  # Reached filesystem root
-                break
-            current = parent
-        # Default fallback
+        resolved = default_stdlib_root(start_path)
+        if resolved is not None:
+            return resolved
         return Path("stdlib")
     
     def set_crate_root(self, crate_root: Path) -> None:
@@ -313,4 +307,3 @@ class PathResolver:
     def is_external_crate(self, path_parts: Tuple[str, ...]) -> bool:
         """Check if path refers to an external crate"""
         return path_parts and path_parts[0] in self.external_crates
-

@@ -8,6 +8,7 @@ Reference: MODULE_SYSTEM_DESIGN.md
 from typing import Dict, Tuple, Optional
 from pathlib import Path
 
+from ..resources import default_stdlib_root
 from ..utils.io_utils import read_source_file, is_temp_path
 from ..shared.defid import DefId, DefType, Resolver
 from ..ir.nodes import ModuleIR
@@ -207,13 +208,17 @@ class ModuleSystem:
     """
     
     def __init__(self, root_path: Path, resolver: Resolver, stdlib_root: Optional[Path] = None):
-        self.root_path = root_path
+        self.root_path = Path(root_path).resolve()
         self.resolver = resolver
-        self.discovery = ModuleDiscovery(root_path)
+        self.discovery = ModuleDiscovery(self.root_path)
         self.loader = ModuleLoader()
         self.resolver_module = ModuleResolver(resolver)
         # Stdlib root: explicit override or discover by searching up from root_path
-        self.stdlib_root = Path(stdlib_root).resolve() if stdlib_root is not None else self._find_stdlib_root(root_path)
+        self.stdlib_root = (
+            Path(stdlib_root).resolve()
+            if stdlib_root is not None
+            else self._find_stdlib_root(self.root_path)
+        )
     
     def _find_stdlib_root(self, root_path: Path) -> Optional[Path]:
         """
@@ -221,17 +226,7 @@ class ModuleSystem:
         
         Searches for stdlib directory starting from root_path and going up.
         """
-        current = Path(root_path).resolve()
-        # Search up to 5 levels
-        for _ in range(5):
-            stdlib_path = current / "stdlib"
-            if stdlib_path.exists() and stdlib_path.is_dir():
-                return stdlib_path
-            parent = current.parent
-            if parent == current:  # Reached filesystem root
-                break
-            current = parent
-        return None
+        return default_stdlib_root(root_path)
     
     def process_modules(
         self,

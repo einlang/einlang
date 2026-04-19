@@ -1,0 +1,4 @@
+include README.md
+include LICENSE
+include src/einlang/frontend/grammar.lark
+recursive-include stdlib *.ein

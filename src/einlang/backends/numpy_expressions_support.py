@@ -196,10 +196,11 @@ def _conv_spatial_stride_from_index(
     spatial_idx: Any,
     kernel_red_defid: Any,
     *,
+    backend: Any = None,
     _add: BinaryOp,
     _mul: BinaryOp,
 ) -> Optional[int]:
-    """Stride along output for ``out * stride + kernel`` or ``out + kernel`` (same rules as 1D fast path)."""
+    """Stride along output for ``out * stride + kernel`` or ``out + kernel``."""
     if isinstance(spatial_idx, BinaryOpIR) and spatial_idx.operator == _add:
         left, right = spatial_idx.left, spatial_idx.right
         if _expr_contains_defid(left, kernel_red_defid) and _expr_contains_defid(right, kernel_red_defid):
@@ -212,13 +213,35 @@ def _conv_spatial_stride_from_index(
             return 1
         if isinstance(right, BinaryOpIR) and right.operator == _mul:
             rL, rR = right.left, right.right
-            if isinstance(rR, LiteralIR):
-                stride = int(rR.value)
-            elif isinstance(rL, LiteralIR):
-                stride = int(rL.value)
-            else:
+            outer = None
+            scale = None
+            if isinstance(rL, (IdentifierIR, IndexVarIR)) and not _expr_contains_defid(rR, kernel_red_defid):
+                outer = rL
+                scale = rR
+            elif isinstance(rR, (IdentifierIR, IndexVarIR)) and not _expr_contains_defid(rL, kernel_red_defid):
+                outer = rR
+                scale = rL
+            if outer is None or scale is None:
                 return None
-            if stride not in (1, 2):
+            if isinstance(scale, LiteralIR):
+                try:
+                    stride = int(scale.value)
+                except (TypeError, ValueError):
+                    return None
+            else:
+                if backend is None:
+                    return None
+                try:
+                    stride_val = scale.accept(backend)
+                except Exception:
+                    return None
+                if not _is_scalar_or_0d_array(stride_val):
+                    return None
+                try:
+                    stride = int(np.asarray(stride_val).reshape(-1)[0].item())
+                except Exception:
+                    return None
+            if stride <= 0:
                 return None
             return stride
         return None
@@ -754,7 +777,7 @@ def _try_windowed_sumprod_einsum_spatial_nd(
     for s in range(n_spatial):
         sp_idx = il[n_batch + 1 + s]
         st = _conv_spatial_stride_from_index(
-            sp_idx, reduction_defids[s + 1], _add=_add, _mul=_mul
+            sp_idx, reduction_defids[s + 1], backend=backend, _add=_add, _mul=_mul
         )
         if st is None:
             return None
@@ -843,7 +866,7 @@ def _try_windowed_sumprod_einsum(expr: LoweredReductionIR, backend: Any, plan: A
     """Fast path for Einstein sum-of-products over sliding windows.
 
     Recognizes 1D (two reduction loops) and 2D/3D conv (three/four loops): channel plus
-    spatial kernel axes, valid convolution, dilation 1, strides 1 or 2 per spatial dim.
+    spatial kernel axes, valid convolution, dilation 1, positive integer stride per spatial dim.
     """
     from ..shared.types import ReductionOp
     op = expr.operation
@@ -886,7 +909,9 @@ def _try_windowed_sumprod_einsum(expr: LoweredReductionIR, backend: Any, plan: A
         return None
     if not (_expr_contains_defid(il[0], red0_defid) and _expr_contains_defid(ir[1], red0_defid) and _expr_contains_defid(ir[2], red1_defid)):
         return None
-    stride = _conv_spatial_stride_from_index(cast(Any, il[1]), cast(Any, red1_defid), _add=_add, _mul=_mul)
+    stride = _conv_spatial_stride_from_index(
+        cast(Any, il[1]), cast(Any, red1_defid), backend=backend, _add=_add, _mul=_mul
+    )
     if stride is None:
         return None
     # Use full arrays (no parallel/reduction indexing) so we get 2D input and 3D weight for im2col + BLAS.
