@@ -1,9 +1,8 @@
-"""Einlang - a programming language for tensor computations."""
+"""Einlang public package interface."""
 
-__version__ = "0.1.0"
-
-from einlang.compiler.driver import CompilerDriver
-from einlang.runtime.runtime import EinlangRuntime
-from einlang.run import run
+from ._version import __version__
+from .compiler.driver import CompilerDriver
+from .runtime.runtime import EinlangRuntime
+from .run import run
 
 __all__ = ["__version__", "CompilerDriver", "EinlangRuntime", "run"]

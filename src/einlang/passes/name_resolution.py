@@ -15,9 +15,8 @@ from ..shared.optional_attr import opt_attr, opt_defid, opt_name
 from ..shared.scope import ScopeManager, ScopeKind, Binding, BindingType, ScopeRedefinitionError
 from ..analysis.module_system.path_resolver import MODULE_SEPARATOR
 from ..analysis.module_system.module_loader import _read_file_cached
+from ..resources import default_stdlib_root
 from ..utils.io_utils import is_temp_path
-import sys
-import os
 from pathlib import Path
 
 logger = logging.getLogger("einlang.passes.name_resolution")
@@ -277,18 +276,9 @@ _MAX_PATH_CACHE_SIZE = 32
 
 def _discover_stdlib_and_crate_root(root_path: Path, stdlib_root_from_system: Optional[Path] = None) -> Tuple[Path, Path]:
     """Find stdlib and crate root; used when cache misses."""
-    current = root_path.resolve()
     stdlib_root = stdlib_root_from_system
     if stdlib_root is None:
-        for _ in range(5):
-            sp = current / "stdlib"
-            if sp.exists() and sp.is_dir():
-                stdlib_root = sp
-                break
-            parent = current.parent
-            if parent == current:
-                break
-            current = parent
+        stdlib_root = default_stdlib_root(root_path)
         if stdlib_root is None:
             stdlib_root = Path("stdlib")
     current = root_path.resolve()
@@ -313,9 +303,6 @@ def _discover_stdlib_and_crate_root(root_path: Path, stdlib_root_from_system: Op
     if crate_root is None:
         crate_root = root_path
     return (stdlib_root, crate_root)
-
-# Import AST nodes for name resolution on AST
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from ..shared.nodes import (
     Program as ASTProgram, 
     FunctionDefinition,
@@ -2067,10 +2054,14 @@ class NameResolverVisitor(ASTVisitor[None]):
             # Try to resolve as user module (Einlang module, not Python)
             if hasattr(self, 'path_resolver') and self.path_resolver:
                 # Ensure crate_root is set before resolving user modules
-                # Use stdlib_root's parent to find project root (not cwd which might be temp dir)
-                if not self.path_resolver.crate_root and self.path_resolver.stdlib_root:
-                    # Use stdlib_root's parent as project root
-                    project_root = self.path_resolver.stdlib_root.parent
+                if not self.path_resolver.crate_root:
+                    module_system = getattr(self.tcx, "module_system", None)
+                    project_root = getattr(module_system, "root_path", None)
+                    if project_root is None and self.path_resolver.stdlib_root:
+                        project_root = self.path_resolver.stdlib_root.parent
+                else:
+                    project_root = None
+                if not self.path_resolver.crate_root and project_root is not None:
                     demos_path = project_root / "examples" / "demos"
                     if demos_path.exists() and demos_path.is_dir():
                         self.path_resolver.set_crate_root(demos_path)
@@ -2084,7 +2075,10 @@ class NameResolverVisitor(ASTVisitor[None]):
                 elif not self.path_resolver.crate_root:
                     # Fallback: search from stdlib_root if available, otherwise from cwd
                     from pathlib import Path as PathLib
-                    start_path = self.path_resolver.stdlib_root.parent if self.path_resolver.stdlib_root else PathLib.cwd()
+                    module_system = getattr(self.tcx, "module_system", None)
+                    start_path = getattr(module_system, "root_path", None)
+                    if start_path is None:
+                        start_path = self.path_resolver.stdlib_root.parent if self.path_resolver.stdlib_root else PathLib.cwd()
                     for _ in range(5):
                         demos_path = start_path / "examples" / "demos"
                         if demos_path.exists() and demos_path.is_dir():

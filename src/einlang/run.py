@@ -16,6 +16,7 @@ def run(
     inputs: Optional[Dict[str, Any]] = None,
     source_file: str = "<inline>",
     root_path: Optional[Union[str, Path]] = None,
+    stdlib_root: Optional[Union[str, Path]] = None,
 ) -> ExecutionResult:
     """
     Compile and execute Einlang source in one call.
@@ -31,6 +32,7 @@ def run(
         inputs: Optional dict of input name -> value for the program.
         source_file: Name used in error messages (default "<inline>").
         root_path: Root for module resolution (default cwd when using source).
+        stdlib_root: Optional override for the standard library root.
 
     Returns:
         ExecutionResult with .outputs, .error, .success.
@@ -59,9 +61,11 @@ def run(
             root_path = Path.cwd()
         else:
             root_path = Path(root_path)
+    if stdlib_root is not None:
+        stdlib_root = Path(stdlib_root)
 
     compiler = CompilerDriver()
-    result = compiler.compile(source, source_file, root_path=root_path)
+    result = compiler.compile(source, source_file, root_path=root_path, stdlib_root=stdlib_root)
 
     if not result.success:
         msg = "compilation failed"

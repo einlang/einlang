@@ -34,12 +34,9 @@ from ..ir.nodes import (
 from ..shared.source_location import SourceLocation
 from ..shared.defid import DefId, DefType
 from ..shared.types import UnaryOp, ReductionOp
-import sys
-import os
 
 
 # Import existing AST nodes and visitor
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from ..shared.nodes import (
     Program as ASTProgram,
     FunctionDefinition as ASTFunctionDef,
