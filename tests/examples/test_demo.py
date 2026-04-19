@@ -132,21 +132,6 @@ def _run_file_with_stats(path: Path):
 def _run_file_with_stats_subprocess(path: Path, *, timeout: int = 300):
     repo = repo_root()
     child_env = dict(os.environ)
-    path_entries = [str(repo), str(repo / "src")]
-    existing_pythonpath = child_env.get("PYTHONPATH")
-    if existing_pythonpath:
-        path_entries.append(existing_pythonpath)
-    child_env.update(
-        {
-            "PYTHONPATH": os.pathsep.join(path_entries),
-            "PYTHONHASHSEED": "0",
-            "OPENBLAS_NUM_THREADS": "1",
-            "OMP_NUM_THREADS": "1",
-            "MKL_NUM_THREADS": "1",
-            "VECLIB_MAXIMUM_THREADS": "1",
-            "NUMEXPR_NUM_THREADS": "1",
-        }
-    )
     script = (
         "import json, sys\n"
         "from pathlib import Path\n"
@@ -216,28 +201,6 @@ def _compile_reduction_strategy_counts(path: Path):
         for node in _walk_ir(result.ir)
         if isinstance(node, LoweredReductionIR)
     )
-
-
-@contextmanager
-def _temporary_environment(overrides, *, clear_prefixes=()):
-    sentinel = object()
-    previous = {}
-    for key in list(os.environ):
-        if any(key.startswith(prefix) for prefix in clear_prefixes):
-            previous.setdefault(key, os.environ.get(key, sentinel))
-            if key not in overrides:
-                os.environ.pop(key, None)
-    for key, value in overrides.items():
-        previous.setdefault(key, os.environ.get(key, sentinel))
-        os.environ[key] = value
-    try:
-        yield
-    finally:
-        for key, value in previous.items():
-            if value is sentinel:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
 
 
 @contextmanager
@@ -365,19 +328,7 @@ class TestD:
         )
         golden_text = golden.read_text(encoding="utf-8").strip()
 
-        with _temporary_environment(
-            {
-                "PYTHONHASHSEED": "0",
-                "OPENBLAS_NUM_THREADS": "1",
-                "OMP_NUM_THREADS": "1",
-                "MKL_NUM_THREADS": "1",
-                "VECLIB_MAXIMUM_THREADS": "1",
-                "NUMEXPR_NUM_THREADS": "1",
-                # Whisper correctness depends on enabling the broadcast recurrence-block path.
-                "EINLANG_VECTORIZE_RECURRENCE_BLOCK": "1",
-            },
-        ):
-            exec_result, counts = _run_file_with_stats(main_ein)
+        exec_result, counts = _run_file_with_stats(main_ein)
 
         output = exec_result.outputs.get("text")
         if isinstance(output, np.ndarray) and output.ndim == 0:
