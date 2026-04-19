@@ -8,24 +8,42 @@ import sys
 import os
 import importlib
 import time
+from collections import Counter
 from contextlib import contextmanager
 import pytest
 from pathlib import Path
 import numpy as np
 
 from einlang.compiler.driver import CompilerDriver
+from einlang.ir.nodes import IRNode, LoweredReductionIR
 from einlang.runtime.runtime import EinlangRuntime
 from tests.test_utils import compile_and_execute, load_example_sources, project_root as repo_root
 
 
-def _assert_vectorize_counts_dict(counts, min_vectorized: int, max_scalar: int, label: str):
+def _assert_vectorize_counts_dict(
+    counts,
+    min_vectorized: int,
+    max_scalar: int,
+    label: str,
+    *,
+    max_hybrid: int = 0,
+    max_call_scalar: int = 0,
+):
     vectorized = int(counts.get("vectorized", 0))
     scalar = int(counts.get("scalar", 0))
+    hybrid = int(counts.get("hybrid", 0))
+    call_scalar = int(counts.get("call_scalar", 0))
     assert vectorized >= min_vectorized, (
         f"{label}: vectorized count regressed: {vectorized} < {min_vectorized}"
     )
     assert scalar <= max_scalar, (
         f"{label}: scalar count increased: {scalar} > {max_scalar}"
+    )
+    assert hybrid <= max_hybrid, (
+        f"{label}: hybrid count increased: {hybrid} > {max_hybrid}"
+    )
+    assert call_scalar <= max_call_scalar, (
+        f"{label}: call-scalar count increased: {call_scalar} > {max_call_scalar}"
     )
 
 
@@ -104,6 +122,45 @@ def _run_file_with_stats(path: Path):
         exec_result = runtime.execute(result)
     assert exec_result.success, exec_result.error or exec_result.errors
     return exec_result, runtime.get_last_vectorize_counts()
+
+
+def _walk_ir(node):
+    if node is None:
+        return
+    if isinstance(node, (list, tuple)):
+        for item in node:
+            yield from _walk_ir(item)
+        return
+    if not isinstance(node, IRNode):
+        return
+    yield node
+    slots = []
+    for cls in type(node).__mro__:
+        cls_slots = getattr(cls, "__slots__", ())
+        if isinstance(cls_slots, str):
+            slots.append(cls_slots)
+        else:
+            slots.extend(cls_slots)
+    seen = set()
+    for slot in slots:
+        if slot in seen:
+            continue
+        seen.add(slot)
+        yield from _walk_ir(getattr(node, slot, None))
+
+
+def _compile_reduction_strategy_counts(path: Path):
+    source = path.read_text(encoding="utf-8")
+    compiler = CompilerDriver()
+    with _example_runtime_context(path.parent):
+        result = compiler.compile(source, source_file=str(path), root_path=path.parent)
+    assert result.success, result.get_errors() or "compile failed"
+    assert result.ir is not None
+    return Counter(
+        getattr(node, "execution_strategy", None)
+        for node in _walk_ir(result.ir)
+        if isinstance(node, LoweredReductionIR)
+    )
 
 
 @contextmanager
@@ -219,6 +276,7 @@ class TestDemos:
         root = repo_root()
         deit_dir = root / "examples" / "deit_tiny"
         main_ein = deit_dir / "main.ein"
+        reduction_strategies = _compile_reduction_strategy_counts(main_ein)
 
         weight_names = [
             "patch_proj_w.npy", "patch_proj_b.npy", "cls_token.npy", "pos_embed.npy",
@@ -234,6 +292,9 @@ class TestDemos:
         exec_result, counts = _run_file_with_stats(main_ein)
         names = np.asarray(exec_result.outputs.get("names")).tolist()
         assert names == ["Egyptian Mau", "Golden Retriever", "strawberry"], f"unexpected output: {names!r}"
+        assert reduction_strategies.get("windowed_sumprod", 0) >= 2, reduction_strategies
+        assert reduction_strategies.get("matmul_sumprod", 0) >= 14, reduction_strategies
+        assert reduction_strategies.get("scalar", 0) == 0, reduction_strategies
         _assert_vectorize_counts_dict(counts, min_vectorized=963, max_scalar=0, label="deit_tiny")
 
     def test_whisper_tiny(self):

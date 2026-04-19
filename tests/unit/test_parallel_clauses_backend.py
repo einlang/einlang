@@ -162,6 +162,73 @@ let y[co in 0..3, t in 0..4] =
     assert hits, "expected 1D sliding-window sum-of-products to use the windowed einsum fast path"
     assert hits[0]["kind"] == "windowed_sumprod"
     assert hits[0]["shape"] == (3, 4)
+    counts = runtime.get_last_vectorize_counts()
+    assert counts == {
+        "vectorized": 3,
+        "scalar": 0,
+        "hybrid": 0,
+        "call_scalar": 0,
+    }
+
+
+def test_windowed_sumprod_uses_windowed_einsum_fast_path_with_symbolic_stride(monkeypatch):
+    source = """
+fn slide(x, w, stride) {
+    let y[co in 0..3, t in 0..2] =
+        sum[ci in 0..2, k in 0..3](x[ci, t * stride + k] * w[co, ci, k]);
+    y
+}
+let x[ci in 0..2, t in 0..6] = (1 + ci + t) as f32;
+let w[co in 0..3, ci in 0..2, k in 0..3] = (1 + co + ci + k) as f32;
+let y = slide(x, w, 3);
+"""
+
+    compiler = CompilerDriver()
+    runtime = EinlangRuntime(backend="numpy")
+    hits = []
+    original_try_windowed = numpy_expressions_mixin._try_windowed_sumprod_einsum
+
+    def _tracking_try_windowed(expr, backend, plan):
+        result = original_try_windowed(expr, backend, plan)
+        if result is not None:
+            hits.append(
+                {
+                    "kind": getattr(plan, "kind", None),
+                    "shape": tuple(np.asarray(result).shape),
+                }
+            )
+        return result
+
+    monkeypatch.setattr(
+        numpy_expressions_mixin,
+        "_try_windowed_sumprod_einsum",
+        _tracking_try_windowed,
+    )
+
+    result = compile_and_execute(
+        source.strip(),
+        compiler,
+        runtime,
+        source_file="<windowed_sumprod_symbolic_stride_fast_path>",
+    )
+
+    assert result.success, (result.errors if result.errors else result.error)
+    np.testing.assert_allclose(
+        result.outputs["y"],
+        np.array(
+            [
+                [43.0, 88.0],
+                [58.0, 121.0],
+                [73.0, 154.0],
+            ],
+            dtype=np.float32,
+        ),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    assert hits, "expected symbolic-stride sliding-window sum-of-products to use the windowed einsum fast path"
+    assert hits[0]["kind"] == "windowed_sumprod"
+    assert hits[0]["shape"] == (3, 2)
 
 
 def test_matmul_fast_path_handles_extra_bias_row_outside_reduction(monkeypatch):
@@ -210,7 +277,12 @@ let logits[n in 0..2, j in 0..3] =
         atol=1e-5,
     )
     counts = runtime.get_last_vectorize_counts()
-    assert int(counts.get("scalar", 0)) == 0
+    assert counts == {
+        "vectorized": 3,
+        "scalar": 0,
+        "hybrid": 0,
+        "call_scalar": 0,
+    }
     assert hits, "expected logits reduction with an extra bias row to use the matmul fast path"
     assert hits[0]["kind"] == "matmul_sumprod"
     assert hits[0]["shape"] == (2, 3)
