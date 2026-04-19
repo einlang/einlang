@@ -131,9 +131,7 @@ def _run_file_with_stats(path: Path):
 
 def _run_file_with_stats_subprocess(path: Path, *, timeout: int = 300):
     repo = repo_root()
-    child_env = {
-        key: value for key, value in os.environ.items() if not key.startswith("EINLANG_")
-    }
+    child_env = dict(os.environ)
     path_entries = [str(repo), str(repo / "src")]
     existing_pythonpath = child_env.get("PYTHONPATH")
     if existing_pythonpath:
@@ -375,11 +373,9 @@ class TestD:
                 "MKL_NUM_THREADS": "1",
                 "VECLIB_MAXIMUM_THREADS": "1",
                 "NUMEXPR_NUM_THREADS": "1",
-                # Whisper correctness depends on the default recurrence-block broadcast path;
-                # do not inherit debug/legacy EINLANG_* overrides from earlier tests.
+                # Whisper correctness depends on enabling the broadcast recurrence-block path.
                 "EINLANG_VECTORIZE_RECURRENCE_BLOCK": "1",
             },
-            clear_prefixes=("EINLANG_",),
         ):
             exec_result, counts = _run_file_with_stats(main_ein)
 

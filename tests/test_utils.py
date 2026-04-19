@@ -178,7 +178,10 @@ def apply_ir_round_trip(compilation_result: Any) -> Any:
         return compilation_result
     from einlang.ir.serialization import IRDeserializer, IRSerializer
 
-    serializer = IRSerializer(include_location=False, include_type_info=False)
+    # Round-trip coverage should preserve execution-relevant IR metadata so the
+    # flag validates serialization fidelity instead of exercising a different
+    # runtime program.
+    serializer = IRSerializer(include_location=False, include_type_info=True)
     sexpr = serializer.serialize_to_sexpr(ir)
     round_tripped = IRDeserializer().deserialize(sexpr)
     if round_tripped.source_files is None or not round_tripped.source_files:
