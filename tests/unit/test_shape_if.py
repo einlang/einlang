@@ -7,8 +7,8 @@ Tests that if-expressions validate shape compatibility across branches.
 import pytest
 
 
-class TestIfExpressionShapeUnification:
-    """Test if-expression shape unification and validation"""
+class TestIfShape:
+    """If-expression shape checks."""
     
     def test_if_expression_same_shape(self, compiler):
         """Test if-expression with same shapes in both branches"""
@@ -145,4 +145,3 @@ class TestIfExpressionShapeUnification:
         
         result = compiler.compile(source, "<test>")
         assert result.success
-

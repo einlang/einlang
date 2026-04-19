@@ -28,8 +28,8 @@ def compile_and_run(code: str, compiler, runtime):
     return Outputs(result.outputs)
 
 
-class TestPrecisionPropagationSimple:
-    """Simple precision propagation"""
+class TestCore:
+    """Core precision propagation."""
 
     def test_scalars_arrays_and_arithmetic(self, compiler, runtime):
         code = """
@@ -85,7 +85,9 @@ class TestPrecisionPropagationSimple:
         assert out["fib"].dtype == np.int64 and list(out["fib"]) == [0, 1]
 
 
-class TestPrecisionInferenceWorkflow:
+class TestFlow:
+    """Precision propagation through execution and pass boundaries."""
+
     def test_precision_pass_and_runtime_read(self, compiler, runtime):
         code = """
         let x = 42;
@@ -96,9 +98,6 @@ class TestPrecisionInferenceWorkflow:
         t = out["tensor"]
         assert t.dtype in (np.int32, np.int64) and t[0] == 100
 
-
-class TestPrecisionShapepropagation:
-    """Precision and shape propagation across multiple tensors"""
 
     def test_three_tensor_propagation_and_widening(self, compiler, runtime):
         code = """
@@ -171,7 +170,6 @@ class TestPrecisionShapepropagation:
         assert out["F"].dtype == np.float32 and out["G"].dtype == np.float32
 
 
-class TestPrecisionShapePropagationWithPasses:
     def test_passes_preserve_precision_and_shape(self, compiler, runtime):
         code = """
         let A[0] = 10 as i64;
@@ -189,8 +187,8 @@ class TestPrecisionShapePropagationWithPasses:
         assert out["M"].shape == out["N"].shape == (2, 2)
 
 
-class TestLowPrecisionTypes:
-    """Test f16, i8 cast and dtype propagation"""
+class TestLow:
+    """Low-precision dtype checks."""
 
     def test_f16_cast_and_propagation(self, compiler, runtime):
         code = """

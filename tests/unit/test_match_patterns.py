@@ -13,21 +13,23 @@ Tests for all advanced pattern matching features:
 """
 
 import pytest
-from tests.test_utils import apply_ir_round_trip
+from tests.test_utils import compile_and_execute
 
 
-class TestTuplePatterns:
-    """Test tuple pattern matching"""
-    
+def _compile_and_execute(source: str, compiler, runtime, inputs=None):
+    result = compile_and_execute(source, compiler, runtime, inputs=inputs, source_file="<test>")
+    assert result.success, f"Execution failed: {result.error or result.errors}"
+    return result
+
+
+class _PatternExecutionMixin:
     def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        """Helper to compile and execute Einlang code"""
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
-    
+        return _compile_and_execute(source, compiler, runtime, inputs=inputs)
+
+
+class TestCore(_PatternExecutionMixin):
+    """Core match pattern coverage."""
+
     def test_tuple_pattern_basic(self, compiler, runtime):
         """Test basic tuple pattern matching"""
         source = """
@@ -114,18 +116,6 @@ class TestTuplePatterns:
         self._compile_and_execute(source, compiler, runtime)
 
 
-class TestArrayPatterns:
-    """Test array pattern matching"""
-    
-    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        """Helper to compile and execute Einlang code"""
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
-    
     def test_array_pattern_empty(self, compiler, runtime):
         """Test empty array pattern"""
         source = """
@@ -233,18 +223,6 @@ class TestArrayPatterns:
         self._compile_and_execute(source, compiler, runtime)
 
 
-class TestGuardClauses:
-    """Test guard clauses with where syntax"""
-    
-    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        """Helper to compile and execute Einlang code"""
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
-    
     def test_guard_clause_simple(self, compiler, runtime):
         """Test simple guard clause"""
         source = """
@@ -338,18 +316,6 @@ class TestGuardClauses:
         self._compile_and_execute(source, compiler, runtime)
 
 
-class TestCombinedPatterns:
-    """Test combinations of different pattern types"""
-    
-    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        """Helper to compile and execute Einlang code"""
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
-    
     def test_tuple_and_array_mixed(self, compiler, runtime):
         """Test match with both tuple and array patterns"""
         source = """
@@ -391,18 +357,6 @@ class TestCombinedPatterns:
         self._compile_and_execute(source, compiler, runtime)
 
 
-class TestExhaustiveness:
-    """Test exhaustiveness checking (basic)"""
-    
-    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        """Helper to compile and execute Einlang code"""
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
-    
     def test_wildcard_makes_exhaustive(self, compiler, runtime):
         """Test that wildcard pattern makes match exhaustive"""
         source = """
@@ -430,18 +384,9 @@ class TestExhaustiveness:
         self._compile_and_execute(source, compiler, runtime)
 
 
-class TestArrayPatternEdgeCases:
-    """Test edge cases for array patterns"""
-    
-    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        """Helper to compile and execute Einlang code"""
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
-    
+class TestEdge(_PatternExecutionMixin):
+    """Edge cases for match patterns."""
+
     def test_array_pattern_rest_empty(self, compiler, runtime):
         """Test array pattern with rest when array is empty"""
         source = """
@@ -578,18 +523,6 @@ class TestArrayPatternEdgeCases:
         self._compile_and_execute(source, compiler, runtime)
 
 
-class TestTuplePatternEdgeCases:
-    """Test edge cases for tuple patterns"""
-    
-    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        """Helper to compile and execute Einlang code"""
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
-    
     def test_tuple_pattern_4_element(self, compiler, runtime):
         """Test tuple pattern with 4 elements"""
         source = """
@@ -649,18 +582,6 @@ class TestTuplePatternEdgeCases:
         self._compile_and_execute(source, compiler, runtime)
 
 
-class TestGuardClauseEdgeCases:
-    """Test edge cases for guard clauses"""
-    
-    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        """Helper to compile and execute Einlang code"""
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
-    
     def test_guard_clause_with_rest_pattern(self, compiler, runtime):
         """Test guard clause with array rest pattern"""
         source = """
@@ -729,18 +650,6 @@ class TestGuardClauseEdgeCases:
         self._compile_and_execute(source, compiler, runtime)
 
 
-class TestComplexNestedPatterns:
-    """Test complex nested pattern scenarios"""
-    
-    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        """Helper to compile and execute Einlang code"""
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
-    
     def test_nested_tuple_in_array(self, compiler, runtime):
         """Test nested tuple patterns in array"""
         source = """
@@ -791,167 +700,135 @@ class TestComplexNestedPatterns:
         self._compile_and_execute(source, compiler, runtime)
 
 
-class TestOrPatterns:
-    """Test or-pattern matching (pat1 | pat2)"""
-    
-    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
-    
-    def test_or_pattern_literals(self, compiler, runtime):
-        source = """
-        let x = 2;
-        let result = match x {
-            1 | 2 | 3 => "low",
-            4 | 5 | 6 => "mid",
-            _ => "high"
-        };
-        assert(result == "low");
-        """
-        self._compile_and_execute(source, compiler, runtime)
-    
-    def test_or_pattern_second_arm(self, compiler, runtime):
-        source = """
-        let x = 5;
-        let result = match x {
-            1 | 2 | 3 => "low",
-            4 | 5 | 6 => "mid",
-            _ => "high"
-        };
-        assert(result == "mid");
-        """
-        self._compile_and_execute(source, compiler, runtime)
-    
-    def test_or_pattern_fallthrough(self, compiler, runtime):
-        source = """
-        let x = 99;
-        let result = match x {
-            1 | 2 | 3 => "low",
-            4 | 5 | 6 => "mid",
-            _ => "high"
-        };
-        assert(result == "high");
-        """
-        self._compile_and_execute(source, compiler, runtime)
-    
-    def test_or_pattern_with_guard(self, compiler, runtime):
-        source = """
-        let x = 3;
-        let result = match x {
-            1 | 2 | 3 where x > 2 => "low-large",
-            1 | 2 | 3 => "low",
-            _ => "other"
-        };
-        assert(result == "low-large");
-        """
-        self._compile_and_execute(source, compiler, runtime)
-    
-    def test_or_pattern_two_alternatives(self, compiler, runtime):
-        source = """
-        let x = true;
-        let result = match x {
-            true | false => "boolean"
-        };
-        assert(result == "boolean");
-        """
+class TestForms(_PatternExecutionMixin):
+    """Alternate match forms and range syntax."""
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            """
+            let x = 2;
+            let result = match x {
+                1 | 2 | 3 => "low",
+                4 | 5 | 6 => "mid",
+                _ => "high"
+            };
+            assert(result == "low");
+            """,
+            """
+            let x = 5;
+            let result = match x {
+                1 | 2 | 3 => "low",
+                4 | 5 | 6 => "mid",
+                _ => "high"
+            };
+            assert(result == "mid");
+            """,
+            """
+            let x = 99;
+            let result = match x {
+                1 | 2 | 3 => "low",
+                4 | 5 | 6 => "mid",
+                _ => "high"
+            };
+            assert(result == "high");
+            """,
+            """
+            let x = 3;
+            let result = match x {
+                1 | 2 | 3 where x > 2 => "low-large",
+                1 | 2 | 3 => "low",
+                _ => "other"
+            };
+            assert(result == "low-large");
+            """,
+            """
+            let x = true;
+            let result = match x {
+                true | false => "boolean"
+            };
+            assert(result == "boolean");
+            """,
+        ],
+        ids=[
+            "or-literals",
+            "or-second-arm",
+            "or-fallthrough",
+            "or-guard",
+            "or-two-alternatives",
+        ],
+    )
+    def test_or_patterns(self, compiler, runtime, source):
         self._compile_and_execute(source, compiler, runtime)
 
 
-class TestRangePatterns:
-    """Test range pattern matching (start..end, start..=end)"""
-    
-    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
-    
-    def test_range_pattern_inclusive(self, compiler, runtime):
-        source = """
-        let x = 5;
-        let result = match x {
-            0..=9 => "digit",
-            _ => "other"
-        };
-        assert(result == "digit");
-        """
-        self._compile_and_execute(source, compiler, runtime)
-    
-    def test_range_pattern_inclusive_boundary(self, compiler, runtime):
-        source = """
-        let x = 9;
-        let result = match x {
-            0..=9 => "digit",
-            _ => "other"
-        };
-        assert(result == "digit");
-        """
-        self._compile_and_execute(source, compiler, runtime)
-    
-    def test_range_pattern_exclusive(self, compiler, runtime):
-        source = """
-        let x = 5;
-        let result = match x {
-            0..10 => "single-digit",
-            _ => "other"
-        };
-        assert(result == "single-digit");
-        """
-        self._compile_and_execute(source, compiler, runtime)
-    
-    def test_range_pattern_exclusive_boundary(self, compiler, runtime):
-        source = """
-        let x = 10;
-        let result = match x {
-            0..10 => "single-digit",
-            _ => "other"
-        };
-        assert(result == "other");
-        """
-        self._compile_and_execute(source, compiler, runtime)
-    
-    def test_range_pattern_multiple_ranges(self, compiler, runtime):
-        source = """
-        let x = 50;
-        let result = match x {
-            0..=9 => "digit",
-            10..=99 => "two-digit",
-            100..=999 => "three-digit",
-            _ => "large"
-        };
-        assert(result == "two-digit");
-        """
-        self._compile_and_execute(source, compiler, runtime)
-    
-    def test_range_pattern_negative(self, compiler, runtime):
-        source = """
-        let x = -3;
-        let result = match x {
-            -10..0 => "negative",
-            0..=10 => "non-negative",
-            _ => "other"
-        };
-        assert(result == "negative");
-        """
+    @pytest.mark.parametrize(
+        "source",
+        [
+            """
+            let x = 5;
+            let result = match x {
+                0..=9 => "digit",
+                _ => "other"
+            };
+            assert(result == "digit");
+            """,
+            """
+            let x = 9;
+            let result = match x {
+                0..=9 => "digit",
+                _ => "other"
+            };
+            assert(result == "digit");
+            """,
+            """
+            let x = 5;
+            let result = match x {
+                0..10 => "single-digit",
+                _ => "other"
+            };
+            assert(result == "single-digit");
+            """,
+            """
+            let x = 10;
+            let result = match x {
+                0..10 => "single-digit",
+                _ => "other"
+            };
+            assert(result == "other");
+            """,
+            """
+            let x = 50;
+            let result = match x {
+                0..=9 => "digit",
+                10..=99 => "two-digit",
+                100..=999 => "three-digit",
+                _ => "large"
+            };
+            assert(result == "two-digit");
+            """,
+            """
+            let x = -3;
+            let result = match x {
+                -10..0 => "negative",
+                0..=10 => "non-negative",
+                _ => "other"
+            };
+            assert(result == "negative");
+            """,
+        ],
+        ids=[
+            "inclusive",
+            "inclusive-boundary",
+            "exclusive",
+            "exclusive-boundary",
+            "multiple-ranges",
+            "negative",
+        ],
+    )
+    def test_range_patterns(self, compiler, runtime, source):
         self._compile_and_execute(source, compiler, runtime)
 
-
-class TestInclusiveRangeOutsidePattern:
-    """Test inclusive range (..=) in expressions, not in match patterns."""
-
-    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
 
     def test_inclusive_range_comprehension(self, compiler, runtime):
         source = """
@@ -973,79 +850,65 @@ class TestInclusiveRangeOutsidePattern:
         self._compile_and_execute(source, compiler, runtime)
 
 
-class TestBindingPatterns:
-    """Test binding pattern matching (name @ pattern)"""
-    
-    def _compile_and_execute(self, source: str, compiler, runtime, inputs=None):
-        context = compiler.compile(source, "<test>")
-        assert context.success, f"Compilation failed: {context.get_errors()}"
-        apply_ir_round_trip(context)
-        exec_result = runtime.execute(context, inputs or {})
-        assert exec_result.success, f"Execution failed: {exec_result.error}"
-        return exec_result
-    
-    def test_binding_with_literal(self, compiler, runtime):
-        source = """
-        let x = 42;
-        let result = match x {
-            n @ 42 => n + 1,
-            _ => 0
-        };
-        assert(result == 43);
-        """
+    @pytest.mark.parametrize(
+        "source",
+        [
+            """
+            let x = 42;
+            let result = match x {
+                n @ 42 => n + 1,
+                _ => 0
+            };
+            assert(result == 43);
+            """,
+            """
+            let x = 10;
+            let result = match x {
+                n @ 42 => n + 1,
+                _ => 0
+            };
+            assert(result == 0);
+            """,
+            """
+            let x = 7;
+            let result = match x {
+                n @ _ => n * 2
+            };
+            assert(result == 14);
+            """,
+            """
+            let pair = (3, 4);
+            let result = match pair {
+                p @ (3, 4) => 1,
+                _ => 0
+            };
+            assert(result == 1);
+            """,
+            """
+            let x = 5;
+            let result = match x {
+                n @ 0..=9 => n * 2,
+                _ => 0
+            };
+            assert(result == 10);
+            """,
+            """
+            let x = 15;
+            let result = match x {
+                n @ 0..=9 => n,
+                _ => -1
+            };
+            assert(result == -1);
+            """,
+        ],
+        ids=[
+            "binding-literal",
+            "binding-literal-no-match",
+            "binding-wildcard",
+            "binding-tuple",
+            "binding-range",
+            "binding-range-no-match",
+        ],
+    )
+    def test_binding_patterns(self, compiler, runtime, source):
         self._compile_and_execute(source, compiler, runtime)
-    
-    def test_binding_with_literal_no_match(self, compiler, runtime):
-        source = """
-        let x = 10;
-        let result = match x {
-            n @ 42 => n + 1,
-            _ => 0
-        };
-        assert(result == 0);
-        """
-        self._compile_and_execute(source, compiler, runtime)
-    
-    def test_binding_with_wildcard(self, compiler, runtime):
-        source = """
-        let x = 7;
-        let result = match x {
-            n @ _ => n * 2
-        };
-        assert(result == 14);
-        """
-        self._compile_and_execute(source, compiler, runtime)
-    
-    def test_binding_with_tuple(self, compiler, runtime):
-        source = """
-        let pair = (3, 4);
-        let result = match pair {
-            p @ (3, 4) => 1,
-            _ => 0
-        };
-        assert(result == 1);
-        """
-        self._compile_and_execute(source, compiler, runtime)
-
-    def test_binding_with_range(self, compiler, runtime):
-        source = """
-        let x = 5;
-        let result = match x {
-            n @ 0..=9 => n * 2,
-            _ => 0
-        };
-        assert(result == 10);
-        """
-        self._compile_and_execute(source, compiler, runtime)
-
-    def test_binding_with_range_no_match(self, compiler, runtime):
-        source = """
-        let x = 15;
-        let result = match x {
-            n @ 0..=9 => n,
-            _ => -1
-        };
-        assert(result == -1);
-        """
-        self._compile_and_execute(source, compiler, runtime)
-

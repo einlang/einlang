@@ -9,8 +9,8 @@ import pytest
 from pathlib import Path
 
 
-class TestFunctionExistenceValidation:
-    """Test that ModulePass validates function existence"""
+class TestFnExist:
+    """ModulePass function-existence checks."""
     
     def test_valid_function_call_passes(self, compiler, runtime):
         """Verify that valid function calls pass validation"""
@@ -96,4 +96,3 @@ pub fn public_func() { 100 }
         error_str = " ".join(str(e) for e in error_messages)
         assert any(name in error_str for name in ("func1", "func2", "func3")), \
             f"Expected error mentioning at least one of func1/func2/func3, got: {error_str[:500]}"
-
