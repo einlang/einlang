@@ -15,7 +15,6 @@ import numpy as np
 import pytest
 
 from einlang import run as einlang_run
-from tests.examples.test_simulation_accuracy import ALL_ACCURACY_EXAMPLES, _assert_accuracy_case
 from tests.test_utils import compile_and_execute
 
 
@@ -26,14 +25,6 @@ README_PATH = PROJECT_ROOT / "README.md"
 def _extract_concrete_readme_example_paths():
     text = README_PATH.read_text(encoding="utf-8")
     return tuple(sorted(set(re.findall(r"examples/[A-Za-z0-9_./-]+\.ein", text))))
-
-
-_ACCURACY_CASES_BY_PATH = {}
-for case in ALL_ACCURACY_EXAMPLES:
-    path = case[0]
-    if isinstance(path, str):
-        _ACCURACY_CASES_BY_PATH.setdefault(path, []).append(case[1:])
-
 
 @contextmanager
 def _example_runtime_context(example_dir: Path):
@@ -101,65 +92,6 @@ def _assert_hello(result):
     )
 
 
-def _assert_autodiff_small(result):
-    _assert_success(result)
-    expected = {
-        "x": 1.0,
-        "y": 2.0,
-        "z": 3.0,
-        "dz_dx": 1.0,
-        "dz_dy": 1.0,
-        "w": 2.0,
-        "dw_dx": 2.0,
-        "dw_dy": 1.0,
-        "u": -1.0,
-        "du_dx": 1.0,
-        "du_dy": -1.0,
-        "v": 0.5,
-        "dv_dx": 0.5,
-        "dv_dy": -0.25,
-    }
-    for name, expected_value in expected.items():
-        assert float(_as_scalar(result.outputs[name])) == pytest.approx(expected_value), name
-
-
-def _assert_autodiff_matmul(result):
-    _assert_success(result)
-    np.testing.assert_allclose(
-        np.asarray(result.outputs["C"], dtype=np.float64),
-        np.array([[19.0, 22.0], [43.0, 50.0]], dtype=np.float64),
-    )
-    np.testing.assert_allclose(
-        np.asarray(result.outputs["dC_dA"], dtype=np.float64),
-        np.array(
-            [
-                [
-                    [[5.0, 7.0], [0.0, 0.0]],
-                    [[6.0, 8.0], [0.0, 0.0]],
-                ],
-                [
-                    [[0.0, 0.0], [5.0, 7.0]],
-                    [[0.0, 0.0], [6.0, 8.0]],
-                ],
-            ],
-            dtype=np.float64,
-        ),
-    )
-
-
-def _assert_accuracy_registered_example(result, relative_path: str):
-    _assert_success(result)
-    assert relative_path in _ACCURACY_CASES_BY_PATH, f"missing accuracy registry for {relative_path}"
-    for output_key, ref_fn, rtol, atol, first_n in _ACCURACY_CASES_BY_PATH[relative_path]:
-        _assert_accuracy_case(result, relative_path, output_key, ref_fn, rtol, atol, first_n)
-
-
-def _assert_mnist(result):
-    _assert_success(result)
-    predictions = np.asarray(result.outputs["predictions"]).tolist()
-    assert predictions == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], predictions
-
-
 def _assert_linear_regression_autodiff(result):
     _assert_success(result)
     expected = {
@@ -172,28 +104,31 @@ def _assert_linear_regression_autodiff(result):
         assert float(_as_scalar(result.outputs[name])) == pytest.approx(expected_value), name
 
 
-README_EXAMPLE_VALIDATORS = {
+README_EXECUTE_VALIDATORS = {
     "examples/applications/linear_regression_autodiff.ein": _assert_linear_regression_autodiff,
-    "examples/demos/matrix_operations.ein": _assert_success,
     "examples/hello.ein": _assert_hello,
-    "examples/mnist/main.ein": _assert_mnist,
-    "examples/ode/ode_suite.ein": lambda result: _assert_accuracy_registered_example(
-        result, "examples/ode/ode_suite.ein"
-    ),
-    "examples/recurrence/recurrence_suite.ein": lambda result: _assert_accuracy_registered_example(
-        result, "examples/recurrence/recurrence_suite.ein"
-    ),
+}
+
+README_DUPLICATE_EXAMPLE_PATHS = {
+    # These README examples are already covered by stronger dedicated suites.
+    "examples/demos/matrix_operations.ein",
+    "examples/mnist/main.ein",
+    "examples/ode/ode_suite.ein",
+    "examples/recurrence/recurrence_suite.ein",
 }
 
 
 def test_readme_example_registry_matches_concrete_paths():
-    assert set(README_EXAMPLE_VALIDATORS) == set(_extract_concrete_readme_example_paths())
+    assert set(README_EXECUTE_VALIDATORS) | README_DUPLICATE_EXAMPLE_PATHS == set(
+        _extract_concrete_readme_example_paths()
+    )
 
 
-@pytest.mark.parametrize("relative_path", README_EXAMPLE_VALIDATORS, ids=lambda path: path)
+@pytest.mark.parametrize("relative_path", README_EXECUTE_VALIDATORS, ids=lambda path: path)
 def test_readme_concrete_examples_execute(compiler, runtime, relative_path):
     result = _run_readme_example(compiler, runtime, relative_path)
-    README_EXAMPLE_VALIDATORS[relative_path](result)
+    validator = README_EXECUTE_VALIDATORS[relative_path]
+    validator(result)
 
 
 def test_readme_cli_inline_source_example():

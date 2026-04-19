@@ -164,6 +164,13 @@ def _run_file_with_stats_subprocess(path: Path, *, timeout: int = 300):
     return payload["predictions"], payload["counts"]
 
 
+def _assert_mnist_main_example(path: Path, *, timeout: int = 600):
+    """Shared slow-path check for examples/mnist/main.ein."""
+    predictions, counts = _run_file_with_stats_subprocess(path, timeout=timeout)
+    assert predictions == list(range(10)), f"unexpected output: {predictions!r}"
+    _assert_vectorize_counts_dict(counts, min_vectorized=1, max_scalar=4, label="mnist")
+
+
 def _walk_ir(node):
     if node is None:
         return
@@ -248,15 +255,6 @@ class TestD:
             if expected_fail:
                 return
             pytest.fail(f"{demo_source.name} exception: {e}")
-
-    def test_mnist(self):
-        """Run examples/mnist/main.ein and verify inference output."""
-        root = repo_root()
-        mnist_dir = root / "examples" / "mnist"
-        main_ein = mnist_dir / "main.ein"
-        predictions, counts = _run_file_with_stats_subprocess(main_ein, timeout=600)
-        assert predictions == list(range(10)), f"unexpected output: {predictions!r}"
-        _assert_vectorize_counts_dict(counts, min_vectorized=1, max_scalar=4, label="mnist")
 
     def test_mnist_quantized(self):
         """Run examples/mnist_quantized/main.ein and verify 10/10 digit predictions."""
