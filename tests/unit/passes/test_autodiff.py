@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from pathlib import Path
 
 from einlang.compiler.driver import CompilerDriver
@@ -55,6 +56,24 @@ def _compile_after_request_lowering(source: str):
     )
     assert result.success, result.get_errors()
     return result
+
+
+def _assert_no_runtime_autodiff_ir(node: object) -> None:
+    assert not _contains_node_type(node, LazyJacobianIR)
+    assert not _contains_node_type(node, JvpIR)
+    assert not _contains_node_type(node, VjpIR)
+    assert not _contains_autodiff_builtin(node)
+
+
+def _compile_and_run_main(source: str, source_file: str):
+    compiler = CompilerDriver()
+    runtime = EinlangRuntime(backend="numpy")
+    result = compiler.compile(source, source_file=source_file)
+    assert result.success, result.get_errors()
+    _assert_no_runtime_autodiff_ir(result.ir)
+    exec_result = runtime.execute(result, inputs={})
+    assert exec_result.success, exec_result.error
+    return exec_result.value if exec_result.value is not None else exec_result.outputs.get("main"), result
 
 
 def _binding_by_name(binding_map, name: str) -> BindingIR:
@@ -186,7 +205,7 @@ def _walk_nodes(node: object):
             stack.extend(cur)
 
 
-def test_autodiff_rewrites_direct_source_quotients_to_lazy_jacobian_ir():
+def test_rewrites_direct_quotients():
     result = _compile_after_autodiff(
         """
         let x = 3.0;
@@ -201,7 +220,7 @@ def test_autodiff_rewrites_direct_source_quotients_to_lazy_jacobian_ir():
     assert not _contains_node_type(main_binding.expr, DifferentialIR)
 
 
-def test_recurrence_slice_autodiff_ir_has_no_nested_ad_hoists_after_request_lowering():
+def test_recurrence_slice_no_nested_hoists():
     source_path = PROJECT_ROOT / "examples" / "mnist" / "repro_vectorize_logits_recurrence_slice.ein"
     result = CompilerDriver().compile(
         source_path.read_text(encoding="utf-8"),
@@ -215,35 +234,30 @@ def test_recurrence_slice_autodiff_ir_has_no_nested_ad_hoists_after_request_lowe
     assert "__ad_hoist_" not in ir_text
 
 
-def test_autodiff_pass_skips_graph_snapshot_when_program_has_no_autodiff_requests():
-    analysis = _compile_analysis(
+@pytest.mark.parametrize(
+    "source",
+    [
         """
         let x = 3.0;
         let y = x * x;
         let main = y;
-        """
-    )
-
-    assert analysis["graph_program"] is None
-    assert analysis["graph_binding_by_defid"] != {}
-    assert analysis["graph_builtin_requests_by_expr_id"] == {}
-
-
-def test_autodiff_pass_ignores_dormant_custom_diff_rules_without_runtime_requests():
-    analysis = _compile_analysis(
+        """,
         """
         use std::math::exp;
         let x = exp(2.0);
         let main = x;
-        """
-    )
-
+        """,
+    ],
+    ids=["no-autodiff-requests", "dormant-custom-diff"],
+)
+def test_no_graph(source):
+    analysis = _compile_analysis(source)
     assert analysis["graph_program"] is None
     assert analysis["graph_binding_by_defid"] != {}
     assert analysis["graph_builtin_requests_by_expr_id"] == {}
 
 
-def test_autodiff_rewrites_custom_diff_calls_to_lazy_jacobian_ir():
+def test_rewrites_custom_diff_calls():
     result = _compile_after_autodiff(
         """
         fn ratio(x, y) { x / y }
@@ -261,7 +275,7 @@ def test_autodiff_rewrites_custom_diff_calls_to_lazy_jacobian_ir():
     assert not _contains_node_type(result.ir, DifferentialIR)
 
 
-def test_imported_custom_diff_body_uses_function_param_defids():
+def test_imported_custom_diff_param_defids():
     result = CompilerDriver().compile(
         """
         use std::ml;
@@ -286,7 +300,7 @@ def test_imported_custom_diff_body_uses_function_param_defids():
     assert all(ident.defid == param_defid for ident in custom_diff_identifiers)
 
 
-def test_scalar_source_quotients_lower_to_plain_ir():
+def test_scalar_quotients_lower_to_plain_ir():
     result = _compile_after_request_lowering(
         """
         let x = 3.0;
@@ -303,52 +317,28 @@ def test_scalar_source_quotients_lower_to_plain_ir():
     assert not _contains_autodiff_builtin(main_binding.expr)
 
 
-def test_runtime_executes_scalar_autodiff_via_plain_ir_end_to_end():
-    compiler = CompilerDriver()
-    runtime = EinlangRuntime(backend="numpy")
-    result = compiler.compile(
+def test_runtime_executes_scalar_plain_ir():
+    out, _ = _compile_and_run_main(
         """
         let x = 3.0;
         let y = x * x;
         let main = @y / @x;
         """,
-        source_file="<autodiff_runtime_exec>",
+        "<autodiff_runtime_exec>",
     )
-    assert result.success, result.get_errors()
-    assert not _contains_node_type(result.ir, LazyJacobianIR)
-    assert not _contains_node_type(result.ir, JvpIR)
-    assert not _contains_node_type(result.ir, VjpIR)
-    assert not _contains_autodiff_builtin(result.ir)
-
-    exec_result = runtime.execute(result, inputs={})
-
-    assert exec_result.success, exec_result.error
-    out = exec_result.value if exec_result.value is not None else exec_result.outputs.get("main")
     assert np.allclose(np.asarray(out, dtype=np.float64), np.array(6.0, dtype=np.float64))
 
 
-def test_runtime_executes_tensor_jacobian_via_plain_ir_end_to_end():
-    compiler = CompilerDriver()
-    runtime = EinlangRuntime(backend="numpy")
-    result = compiler.compile(
+def test_runtime_executes_tensor_jacobian():
+    out, _ = _compile_and_run_main(
         """
         let A = [[1.0, 2.0], [3.0, 4.0]];
         let B = [[5.0, 6.0], [7.0, 8.0]];
         let C[i, j] = sum[k](A[i, k] * B[k, j]);
         let main = @C / @A;
         """,
-        source_file="<autodiff_tensor_jacobian_plain_ir>",
+        "<autodiff_tensor_jacobian_plain_ir>",
     )
-    assert result.success, result.get_errors()
-    assert not _contains_node_type(result.ir, LazyJacobianIR)
-    assert not _contains_node_type(result.ir, JvpIR)
-    assert not _contains_node_type(result.ir, VjpIR)
-    assert not _contains_autodiff_builtin(result.ir)
-
-    exec_result = runtime.execute(result, inputs={})
-
-    assert exec_result.success, exec_result.error
-    out = exec_result.value if exec_result.value is not None else exec_result.outputs.get("main")
     actual = np.asarray(out, dtype=np.float64)
     expected = np.zeros((2, 2, 2, 2), dtype=np.float64)
     B = np.array([[5.0, 6.0], [7.0, 8.0]], dtype=np.float64)
@@ -361,7 +351,7 @@ def test_runtime_executes_tensor_jacobian_via_plain_ir_end_to_end():
     np.testing.assert_allclose(actual, expected)
 
 
-def test_autodiff_pass_handles_local_recurrence_source_quotients_without_lazy_cycle():
+def test_local_recurrence_quotients_no_lazy_cycle():
     result = CompilerDriver().compile(
         """
         let alpha = 0.25;
@@ -382,10 +372,8 @@ def test_autodiff_pass_handles_local_recurrence_source_quotients_without_lazy_cy
     assert not _contains_node_type(result.ir, DifferentialIR)
 
 
-def test_custom_diff_rewritten_tangent_uses_incoming_chain_tangent():
-    compiler = CompilerDriver()
-    runtime = EinlangRuntime(backend="numpy")
-    result = compiler.compile(
+def test_custom_diff_uses_chain_tangent():
+    out, _ = _compile_and_run_main(
         """
         use std::math::exp;
         let k = 0.05;
@@ -393,19 +381,13 @@ def test_custom_diff_rewritten_tangent_uses_incoming_chain_tangent():
         let y = exp(-k * t);
         let main = @y / @k;
         """,
-        source_file="<autodiff_custom_diff_chain>",
+        "<autodiff_custom_diff_chain>",
     )
-    assert result.success, result.get_errors()
-
-    exec_result = runtime.execute(result, inputs={})
-
-    assert exec_result.success, exec_result.error
-    out = exec_result.value if exec_result.value is not None else exec_result.outputs.get("main")
     expected = -0.2 * np.exp(-0.05 * 0.2)
     assert np.allclose(np.asarray(out, dtype=np.float64), np.array(expected, dtype=np.float64))
 
 
-def test_direct_print_of_identifier_differential_rewrites_to_symbolic_literal():
+def test_print_identifier_diff_rewrites():
     arg = _compiled_print_arg(
         """
         let xxx = 3.0;
@@ -417,7 +399,7 @@ def test_direct_print_of_identifier_differential_rewrites_to_symbolic_literal():
     assert arg.value == "let @xxx = @xxx;"
 
 
-def test_direct_print_of_binding_differential_rewrites_to_compile_time_tangent_program():
+def test_print_binding_diff_rewrites():
     arg = _compiled_print_arg(
         """
         let x = 3.0;
@@ -430,7 +412,7 @@ def test_direct_print_of_binding_differential_rewrites_to_compile_time_tangent_p
     assert arg.value == "let @y = 2.0 * x * @x;"
 
 
-def test_runtime_keeps_direct_print_symbolic_but_bound_tangent_numeric(capsys):
+def test_runtime_print_symbolic_then_numeric(capsys):
     compiler = CompilerDriver()
     runtime = EinlangRuntime(backend="numpy")
     result = compiler.compile(
@@ -451,10 +433,8 @@ def test_runtime_keeps_direct_print_symbolic_but_bound_tangent_numeric(capsys):
     assert lines == ["let @xxx = @xxx;", "1.0"]
 
 
-def test_runtime_executes_nested_max_pool_pullback_via_chain_rule():
-    compiler = CompilerDriver()
-    runtime = EinlangRuntime(backend="numpy")
-    result = compiler.compile(
+def test_nested_max_pool_pullback():
+    out, _ = _compile_and_run_main(
         """
         use std::ml::{max_pool, relu};
 
@@ -464,24 +444,16 @@ def test_runtime_executes_nested_max_pool_pullback_via_chain_rule():
         let loss = p2[0, 0, 0, 0];
         let main = @loss / @x;
         """,
-        source_file="<autodiff_nested_max_pool_pullback>",
+        "<autodiff_nested_max_pool_pullback>",
     )
-    assert result.success, result.get_errors()
-
-    exec_result = runtime.execute(result, inputs={})
-
-    assert exec_result.success, exec_result.error
-    out = exec_result.value if exec_result.value is not None else exec_result.outputs.get("main")
     actual = np.asarray(out, dtype=np.float64)
     expected = np.zeros((1, 1, 4, 4), dtype=np.float64)
     expected[0, 0, 3, 3] = 1.0
     np.testing.assert_allclose(actual, expected)
 
 
-def test_runtime_executes_intermediate_max_pool_pullback_without_nested_output_aliasing():
-    compiler = CompilerDriver()
-    runtime = EinlangRuntime(backend="numpy")
-    result = compiler.compile(
+def test_intermediate_max_pool_pullback():
+    out, _ = _compile_and_run_main(
         """
         use std::ml::{max_pool, relu};
 
@@ -491,21 +463,15 @@ def test_runtime_executes_intermediate_max_pool_pullback_without_nested_output_a
         let loss = p2[0, 0, 0, 0];
         let main = @loss / @p1;
         """,
-        source_file="<autodiff_nested_max_pool_intermediate_pullback>",
+        "<autodiff_nested_max_pool_intermediate_pullback>",
     )
-    assert result.success, result.get_errors()
-
-    exec_result = runtime.execute(result, inputs={})
-
-    assert exec_result.success, exec_result.error
-    out = exec_result.value if exec_result.value is not None else exec_result.outputs.get("main")
     actual = np.asarray(out, dtype=np.float64)
     expected = np.zeros((1, 1, 2, 2), dtype=np.float64)
     expected[0, 0, 1, 1] = 1.0
     np.testing.assert_allclose(actual, expected)
 
 
-def test_request_lowering_clears_differentials_for_multi_stage_autodiff_updates():
+def test_req_lower_clears():
     result = _compile_after_request_lowering(
         """
         let x = [[1.0, 2.0], [3.0, 4.0]];
@@ -534,7 +500,7 @@ def test_request_lowering_clears_differentials_for_multi_stage_autodiff_updates(
     assert not _contains_node_type(result.ir, VjpIR)
 
 
-def test_explicit_matmul_bias_gradient_executes_without_dangling_reduction_index():
+def test_explicit_matmul_bias_grad():
     compiler = CompilerDriver()
     runtime = EinlangRuntime(backend="numpy")
     result = compiler.compile(

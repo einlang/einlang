@@ -5,8 +5,8 @@ import pytest
 from tests.test_utils import compile_and_execute
 
 
-class TestEinsteinNotationAnalyzer:
-    """Tests for Einstein Notation Analyzer using EinlangCompiler"""
+class TestEinNote:
+    """Einstein notation analyzer checks."""
     
     def test_extract_components_matrix_multiply(self, compiler):
         """Test matrix multiplication component extraction using system"""

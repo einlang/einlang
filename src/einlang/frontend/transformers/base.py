@@ -955,8 +955,6 @@ class EinlangTransformer(Transformer):
             'f64': F64,
             'bool': BOOL,
             'str': STR,
-            'int': I32,    # Generic int maps to i32
-            'float': F32,  # Generic float maps to f32 (Rust-like default)
         }
         return type_obj_mapping.get(type_name, I32)  # Default to I32 if unknown
     

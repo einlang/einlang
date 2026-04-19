@@ -238,7 +238,7 @@ tuple_type: LPAR type_list RPAR
 function_type: LPAR type_list? RPAR "->" type
 type_list: type ("," type)*
 
-primitive_type: PTYPE_F8E4M3 | PTYPE_F16 | PTYPE_BF16 | PTYPE_F32 | PTYPE_F64 | PTYPE_I8 | PTYPE_I32 | PTYPE_I64 | PTYPE_BOOL | PTYPE_STR | PTYPE_INT | PTYPE_FLOAT
+primitive_type: PTYPE_F8E4M3 | PTYPE_F16 | PTYPE_BF16 | PTYPE_F32 | PTYPE_F64 | PTYPE_I8 | PTYPE_I32 | PTYPE_I64 | PTYPE_BOOL | PTYPE_STR
 
 // =============================================================================
 // OPERATORS - Using terminals instead of rules
@@ -294,8 +294,6 @@ PTYPE_I32: "i32"
 PTYPE_I64: "i64"
 PTYPE_BOOL: "bool"
 PTYPE_STR: "str"
-PTYPE_INT: "int"
-PTYPE_FLOAT: "float"
 
 TRUE: "true"
 FALSE: "false"

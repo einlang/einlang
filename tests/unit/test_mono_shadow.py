@@ -13,8 +13,8 @@ import pytest
 from tests.test_utils import apply_ir_round_trip
 
 
-class TestFunctionShadowing:
-    """Test monomorphization with function name shadowing."""
+class TestScope:
+    """Monomorphization scope and shadowing checks."""
     
     def test_nested_function_shadows_outer(self, compiler, runtime):
         """
@@ -227,9 +227,6 @@ class TestFunctionShadowing:
         assert result.outputs["result"] == 11
 
 
-class TestScopeAwareMangling:
-    """Test that mangled names include scope information."""
-    
     def test_same_name_different_scopes_get_unique_mangles(self, compiler):
         """
         Test that functions with same name in different scopes get unique mangled names.
@@ -259,4 +256,3 @@ class TestScopeAwareMangling:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

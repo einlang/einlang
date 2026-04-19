@@ -12,8 +12,8 @@ from tests.test_utils import compile_and_execute
 _F32_REDUCTION_TOL = 1e-6
 
 
-class TestReductionCoverageSemantics:
-    """Verify reductions with value filtering never create coverage holes"""
+class TestRed:
+    """Reduction/filter coverage checks."""
     
     def test_reduction_with_filter_produces_scalar(self, compiler, runtime):
         """Value filtering in reduction still produces a scalar, not a sparse array"""

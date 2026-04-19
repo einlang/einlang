@@ -10,7 +10,7 @@ from .source_location import SourceLocation
 from .errors import Error, ErrorReporter, EinlangError, EinlangSourceError, EinlangImplementationError
 from .types import (
     Type, TypeKind, PrimitiveType, FunctionType, RectangularType, JaggedType, TupleType, DifferentialType, TypeVisitor,
-    I32, F32, F64, I64, BOOL, STR, UNKNOWN, UNIT,
+    I8, I32, F32, F64, I64, BOOL, STR, UNKNOWN, UNIT,
     BinaryOp, UnaryOp, PipelineClauseType,
     strip_differential_types_deep,
 )

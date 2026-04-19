@@ -159,10 +159,10 @@ let doubled[i in 0..3] = arr[i] * 2;
 # Class 1 – EinsteinIR.element_type after TypeInferencePass
 # ===========================================================================
 
-class TestEinsteinIRElementTypeAfterTypeInference:
-    """EinsteinIR.element_type is set correctly by TypeInferencePass."""
+class TestCore:
+    """Core element_type checks across inference and lowering."""
 
-    def _get_element_type(self, source: str, binding_name: str) -> str:
+    def _infer_element_type(self, source: str, binding_name: str) -> str:
         ir = _compile(source, "TypeInferencePass")
         ein = _einstein_expr(ir, binding_name)
         return _prim_name(ein.element_type)
@@ -171,7 +171,7 @@ class TestEinsteinIRElementTypeAfterTypeInference:
 
     def test_weighted_avg_sum_of_products_of_float_arrays_is_f32(self):
         """sum[k](float_array[…] * float_array[…]) → element_type must be f32."""
-        et = self._get_element_type(_SRC_WEIGHTED_AVG, "weighted_avg")
+        et = self._infer_element_type(_SRC_WEIGHTED_AVG, "weighted_avg")
         assert et == "f32", (
             f"weighted_avg: expected element_type='f32', got '{et}'. "
             "TypeInferencePass failed to propagate float type through "
@@ -180,21 +180,21 @@ class TestEinsteinIRElementTypeAfterTypeInference:
 
     def test_moving_avg_sum_div_float_literal_is_f32(self):
         """sum(float_array[…]) / 3.0 → element_type must be f32."""
-        et = self._get_element_type(_SRC_MOVING_AVG, "moving_avg")
+        et = self._infer_element_type(_SRC_MOVING_AVG, "moving_avg")
         assert et == "f32", (
             f"moving_avg: expected element_type='f32', got '{et}'."
         )
 
     def test_filter_sum_of_float_array_products_is_f32(self):
         """sum(float_array * float_array) → element_type must be f32."""
-        et = self._get_element_type(_SRC_FILTER, "filtered")
+        et = self._infer_element_type(_SRC_FILTER, "filtered")
         assert et == "f32", (
             f"filtered: expected element_type='f32', got '{et}'."
         )
 
     def test_elementwise_float_product_is_f32(self):
         """float_array[i] * float_array[i] → element_type must be f32."""
-        et = self._get_element_type(_SRC_FLOAT_ELT, "C")
+        et = self._infer_element_type(_SRC_FLOAT_ELT, "C")
         assert et == "f32", (
             f"C: expected element_type='f32', got '{et}'."
         )
@@ -203,21 +203,21 @@ class TestEinsteinIRElementTypeAfterTypeInference:
 
     def test_cumsum_of_int_array_is_i32(self):
         """sum(int_array[…]) → element_type must be i32."""
-        et = self._get_element_type(_SRC_CUMSUM, "cumsum")
+        et = self._infer_element_type(_SRC_CUMSUM, "cumsum")
         assert et == "i32", (
             f"cumsum: expected element_type='i32', got '{et}'."
         )
 
     def test_correlation_sum_of_int_products_is_i32(self):
         """sum(int_array * int_array) → element_type must be i32."""
-        et = self._get_element_type(_SRC_CORRELATION, "correlation")
+        et = self._infer_element_type(_SRC_CORRELATION, "correlation")
         assert et == "i32", (
             f"correlation: expected element_type='i32', got '{et}'."
         )
 
     def test_elementwise_int_product_is_i32(self):
         """int_array[i] * 2 → element_type must be i32."""
-        et = self._get_element_type(_SRC_INT_ELT, "doubled")
+        et = self._infer_element_type(_SRC_INT_ELT, "doubled")
         assert et == "i32", (
             f"doubled: expected element_type='i32', got '{et}'."
         )
@@ -227,10 +227,7 @@ class TestEinsteinIRElementTypeAfterTypeInference:
 # Class 2 – LoweredEinsteinIR.element_type after EinsteinLoweringPass
 # ===========================================================================
 
-class TestLoweredEinsteinIRElementType:
-    """LoweredEinsteinIR.element_type carries the correct dtype into the runtime."""
-
-    def _get_element_type(self, source: str, binding_name: str) -> str:
+    def _lower_element_type(self, source: str, binding_name: str) -> str:
         ir = _compile(source, "EinsteinLoweringPass")
         lowered = _lowered_einstein(ir, binding_name)
         return _prim_name(lowered.element_type)
@@ -239,26 +236,26 @@ class TestLoweredEinsteinIRElementType:
 
     def test_weighted_avg_lowered_element_type_is_f32(self):
         """LoweredEinsteinIR for weighted_avg must carry element_type=f32."""
-        et = self._get_element_type(_SRC_WEIGHTED_AVG, "weighted_avg")
+        et = self._lower_element_type(_SRC_WEIGHTED_AVG, "weighted_avg")
         assert et == "f32", (
             f"weighted_avg (lowered): expected element_type='f32', got '{et}'. "
             "EinsteinLoweringPass lost the float type inferred by TypeInferencePass."
         )
 
     def test_moving_avg_lowered_element_type_is_f32(self):
-        et = self._get_element_type(_SRC_MOVING_AVG, "moving_avg")
+        et = self._lower_element_type(_SRC_MOVING_AVG, "moving_avg")
         assert et == "f32", (
             f"moving_avg (lowered): expected element_type='f32', got '{et}'."
         )
 
     def test_filter_lowered_element_type_is_f32(self):
-        et = self._get_element_type(_SRC_FILTER, "filtered")
+        et = self._lower_element_type(_SRC_FILTER, "filtered")
         assert et == "f32", (
             f"filtered (lowered): expected element_type='f32', got '{et}'."
         )
 
     def test_float_elementwise_lowered_element_type_is_f32(self):
-        et = self._get_element_type(_SRC_FLOAT_ELT, "C")
+        et = self._lower_element_type(_SRC_FLOAT_ELT, "C")
         assert et == "f32", (
             f"C (lowered): expected element_type='f32', got '{et}'."
         )
@@ -266,19 +263,19 @@ class TestLoweredEinsteinIRElementType:
     # --- integer cases ---
 
     def test_cumsum_lowered_element_type_is_i32(self):
-        et = self._get_element_type(_SRC_CUMSUM, "cumsum")
+        et = self._lower_element_type(_SRC_CUMSUM, "cumsum")
         assert et == "i32", (
             f"cumsum (lowered): expected element_type='i32', got '{et}'."
         )
 
     def test_correlation_lowered_element_type_is_i32(self):
-        et = self._get_element_type(_SRC_CORRELATION, "correlation")
+        et = self._lower_element_type(_SRC_CORRELATION, "correlation")
         assert et == "i32", (
             f"correlation (lowered): expected element_type='i32', got '{et}'."
         )
 
     def test_int_elementwise_lowered_element_type_is_i32(self):
-        et = self._get_element_type(_SRC_INT_ELT, "doubled")
+        et = self._lower_element_type(_SRC_INT_ELT, "doubled")
         assert et == "i32", (
             f"doubled (lowered): expected element_type='i32', got '{et}'."
         )
@@ -312,8 +309,8 @@ let result[i in 0..1, j in 0..3] = if last_l[i, j] >= 0 {
 """
 
 
-class TestScatterElementsPatternElementType:
-    """IR element_type for the scatter_elements rank-2 axis-1 pattern."""
+class TestScatter:
+    """Scatter-pattern element_type checks."""
 
     def _et_after_lowering(self, binding_name: str) -> str:
         ir = _compile(_SRC_SCATTER_RANK2_AXIS1, "EinsteinLoweringPass")
@@ -364,8 +361,8 @@ let output[i in 0..1, j in 0..2] = sum[k in 0..2](x[i, k] * weights[j, k]) + bia
 """
 
 
-class TestBatchMatmulPatternElementType:
-    """IR element_type for the batched matrix-multiply pattern."""
+class TestBatch:
+    """Batch/layer float pattern checks."""
 
     def test_batch_matmul_type_inference_is_f32(self):
         """sum[k](float3D * float3D) → EinsteinIR.element_type must be f32."""
@@ -417,8 +414,8 @@ let max_per_row[i in 0..2] = max[j in 0..3](X_t[i, j]);
 """
 
 
-class TestTopkTransposePatternElementType:
-    """IR element_type for the topk transpose and max-select patterns."""
+class TestTopk:
+    """Topk transpose/select element_type checks."""
 
     def test_transpose_type_inference_is_f32(self):
         """let X_t[j,i] = X[i,j] (transpose of float2D) → element_type must be f32."""
@@ -473,8 +470,8 @@ let x_copy[i in 0..1, j in 0..3] = x[i, j];
 """
 
 
-class TestTrigopsFloatPatternElementType:
-    """IR element_type for float array arithmetic chains (trig ops substrate)."""
+class TestTrig:
+    """Float arithmetic chain checks."""
 
     def test_float_array_literal_x_element_type(self):
         """Input array [[0.0, 1.5708, …]] → LoweredEinsteinIR element_type must be f32."""
@@ -540,8 +537,8 @@ let clamped[i in 0..3] = if rounded[i] < -128.0 { -128.0 } else if rounded[i] > 
 """
 
 
-class TestQuantizeLinearPatternElementType:
-    """IR element_type for the quantize_linear step-by-step pipeline."""
+class TestQuant:
+    """Quantize pipeline element_type checks."""
 
     def _et(self, name: str, source: str = _SRC_QUANTIZE) -> str:
         ir = _compile(source, "EinsteinLoweringPass")
@@ -632,7 +629,7 @@ def _compile_windowing(stop_after: str) -> "ProgramIR":
     return result.ir
 
 
-class TestEinsteinWindowing:
+class TestWindow:
     """Full IR type coverage for examples/units/einstein_windowing.ein.
 
     Every Einstein declaration in the file is checked for element_type in the
@@ -645,13 +642,13 @@ class TestEinsteinWindowing:
 
     @staticmethod
     def _ir():
-        if not hasattr(TestEinsteinWindowing, "_cached_ir"):
-            TestEinsteinWindowing._cached_ir = _compile_windowing("EinsteinLoweringPass")
-        return TestEinsteinWindowing._cached_ir
+        if not hasattr(TestWindow, "_cached_ir"):
+            TestWindow._cached_ir = _compile_windowing("EinsteinLoweringPass")
+        return TestWindow._cached_ir
 
     @staticmethod
     def _et(name: str) -> str:
-        return _prim_name(_lowered_einstein(TestEinsteinWindowing._ir(), name).element_type)
+        return _prim_name(_lowered_einstein(TestWindow._ir(), name).element_type)
 
     # ------------------------------------------------------------------
     # Integer declarations

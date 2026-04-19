@@ -7,16 +7,6 @@ Imports of CompilerDriver and EinlangRuntime are deferred to fixture use (faster
 """
 
 import os
-# IR round-trip: off by default for fast local runs. GitHub workflow sets EINLANG_ROUND_TRIP=1 for coverage.
-os.environ.setdefault("EINLANG_ROUND_TRIP", "0")
-for _thread_env in (
-    "OPENBLAS_NUM_THREADS",
-    "OMP_NUM_THREADS",
-    "MKL_NUM_THREADS",
-    "VECLIB_MAXIMUM_THREADS",
-    "NUMEXPR_NUM_THREADS",
-):
-    os.environ.setdefault(_thread_env, "1")
 
 import sys
 import pytest

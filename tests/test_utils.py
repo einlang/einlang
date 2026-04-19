@@ -7,8 +7,11 @@ by the architecture where runtime executes IR (IR-only execution).
 
 import math
 import os
+import importlib
 import numpy as np
+import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -48,6 +51,78 @@ def project_root() -> Path:
     """Return the repository root used by tests."""
 
     return Path(__file__).parent.parent
+
+
+def _default_test_dependency_spec(import_name: str) -> str:
+    """Return a pip install target that matches the current interpreter."""
+
+    if import_name == "sklearn":
+        # Python 3.7 needs the last scikit-learn line that still supports it.
+        if sys.version_info < (3, 8):
+            return "scikit-learn<1.1"
+        return "scikit-learn"
+    return import_name
+
+
+def _wait_for_test_lock(lock_dir: Path, timeout: int) -> None:
+    deadline = time.time() + timeout
+    while True:
+        try:
+            lock_dir.mkdir(parents=True)
+            return
+        except FileExistsError:
+            if time.time() >= deadline:
+                raise TimeoutError(f"timed out waiting for dependency lock {lock_dir.name}")
+            time.sleep(0.2)
+
+
+def ensure_test_dependency(import_name: str, *, package_spec: Optional[str] = None, timeout: int = 600):
+    """Import a test dependency, installing it into the active environment if needed."""
+
+    try:
+        return importlib.import_module(import_name)
+    except ImportError:
+        pass
+
+    package_spec = package_spec or _default_test_dependency_spec(import_name)
+    lock_dir = project_root() / ".pytest-package-locks" / import_name
+
+    _wait_for_test_lock(lock_dir, timeout)
+    try:
+        importlib.invalidate_caches()
+        try:
+            return importlib.import_module(import_name)
+        except ImportError:
+            pass
+
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                package_spec,
+            ],
+            cwd=str(project_root()),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if proc.returncode != 0:
+            output = (proc.stdout or "") + (proc.stderr or "")
+            raise RuntimeError(
+                f"failed to install {package_spec} for tests (exit {proc.returncode})\n{output.strip()}"
+            )
+
+        importlib.invalidate_caches()
+        sys.modules.pop(import_name, None)
+        return importlib.import_module(import_name)
+    finally:
+        try:
+            lock_dir.rmdir()
+        except OSError:
+            pass
 
 
 @lru_cache(maxsize=None)
@@ -178,7 +253,10 @@ def apply_ir_round_trip(compilation_result: Any) -> Any:
         return compilation_result
     from einlang.ir.serialization import IRDeserializer, IRSerializer
 
-    serializer = IRSerializer(include_location=False, include_type_info=False)
+    # Round-trip coverage should preserve execution-relevant IR metadata so the
+    # flag validates serialization fidelity instead of exercising a different
+    # runtime program.
+    serializer = IRSerializer(include_location=False, include_type_info=True)
     sexpr = serializer.serialize_to_sexpr(ir)
     round_tripped = IRDeserializer().deserialize(sexpr)
     if round_tripped.source_files is None or not round_tripped.source_files:

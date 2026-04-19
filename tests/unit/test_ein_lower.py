@@ -14,67 +14,53 @@ This ensures the loop-based execution is robust and handles all scenarios correc
 
 import pytest
 import numpy as np
-import sys
-from pathlib import Path
-
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
-
-from einlang.compiler.driver import CompilerDriver
-from einlang.runtime.runtime import EinlangRuntime
 from einlang.ir.nodes import ReductionExpressionIR
-from tests.test_utils import apply_ir_round_trip
-@pytest.fixture
-def compiler():
-    return CompilerDriver()
+from tests.test_utils import compile_and_execute
 
 
-@pytest.fixture
-def runtime():
-    return EinlangRuntime()
+def _execute_program(source, compiler, runtime):
+    result = compile_and_execute(source, compiler, runtime, source_file="<test>")
+    assert result.success, f"Compilation failed: {result.get_errors()}"
+    return result
 
 
-def compile_and_execute(source, compiler, runtime):
-    """Helper to compile and execute source code"""
-    compile_result = compiler.compile(source, source_file="<test>")
-    if not compile_result.success:
-        return compile_result
-    apply_ir_round_trip(compile_result)
-    return runtime.execute(compile_result)
+def _assert_hidden_seed_result(hidden):
+    hidden = np.asarray(hidden)
+    assert hidden.shape == (3, 2, 2), f"expected (3,2,2), got {hidden.shape}"
+    expected_layer0 = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=hidden.dtype)
+    np.testing.assert_allclose(hidden[0], expected_layer0, rtol=1e-5, atol=1e-8)
 
 
-class TestEinsteinLoweringIntegration:
+class TestEL:
     """Comprehensive integration tests for loop-based execution"""
 
-    def test_einstein_literal_indices_only(self, compiler, runtime):
+    def test_literal_indices(self, compiler, runtime):
         """Single clause with only literal indices (no loops)."""
         source = """
         let x[0] = 42;
         x;
         """
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         assert "x" in result.outputs
         x = result.outputs["x"]
         assert isinstance(x, np.ndarray)
         assert x.shape == (1,)
         assert int(x[0]) == 42
 
-    def test_einstein_mixed_literal_and_index(self, compiler, runtime):
+    def test_mixed_literal_and_index(self, compiler, runtime):
         """Single clause with mixed literal and loop indices: [0, i]."""
         source = """
         let x[0, i in 0..4] = i;
         x;
         """
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         assert "x" in result.outputs
         x = result.outputs["x"]
         assert isinstance(x, np.ndarray)
         assert x.shape == (1, 4)
         np.testing.assert_array_equal(x[0], np.array([0, 1, 2, 3]))
 
-    def test_einstein_multi_clause_literal_and_recurrence(self, compiler, runtime):
+    def test_multi_clause_recurrence(self, compiler, runtime):
         """Three consecutive clauses: A[0,i]=i, A[i,0]=i, A[i,j]=A[i-1,j]+A[i,j-1] for i,j in 1.."""
         source = """
         let A[0, i in 0..4] = i;
@@ -82,8 +68,7 @@ class TestEinsteinLoweringIntegration:
         let A[i in 1..6, j in 1..4] = A[i - 1, j] + A[i, j - 1];
         A;
         """
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         A = result.outputs["A"]
         expected = np.array([
             [0, 1, 2, 3],
@@ -95,83 +80,71 @@ class TestEinsteinLoweringIntegration:
         ], dtype=A.dtype)
         np.testing.assert_array_equal(A, expected)
 
-    def test_einstein_gru_pattern_two_clauses_same_buffer(self, compiler, runtime):
-        """GRU-like pattern: two consecutive clauses on same array; first clause literal t=0, second recurrence. Fails if hidden[0] not written."""
-        source = """
-        let ref = [[0.1, 0.2], [0.3, 0.4]];
-        let hidden[0, b in 0..2, h in 0..2] = ref[b, h];
-        let hidden[t in 1..3, b in 0..2, h in 0..2] = hidden[t - 1, b, h] + 1.0;
-        hidden;
-        """
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
-        hidden = result.outputs["hidden"]
-        assert hidden.shape == (3, 2, 2)
-        expected_layer0 = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=hidden.dtype)
-        np.testing.assert_allclose(hidden[0], expected_layer0, rtol=1e-5, atol=1e-8)
-
-    def test_einstein_gru_pattern_variable_bounds_at_toplevel(self, compiler, runtime):
-        """Two-clause hidden with variable bounds at top level (like GRU but no function)."""
-        source = """
-        let batch_size = 2;
-        let hidden_size = 2;
-        let ref = [[0.1, 0.2], [0.3, 0.4]];
-        let hidden[0, b in 0..batch_size, h in 0..hidden_size] = ref[b, h];
-        let hidden[t in 1..3, b in 0..batch_size, h in 0..hidden_size] = hidden[t - 1, b, h] + 1.0;
-        hidden;
-        """
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
-        hidden = result.outputs["hidden"]
-        hidden = np.asarray(hidden)
-        assert hidden.shape == (3, 2, 2), f"expected (3,2,2), got {hidden.shape}"
-        expected_layer0 = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=hidden.dtype)
-        np.testing.assert_allclose(hidden[0], expected_layer0, rtol=1e-5, atol=1e-8)
-
-    def test_einstein_gru_pattern_inside_function(self, compiler, runtime):
-        """Two-clause hidden inside a function (reproduces GRU context). Return value in let out = fn(...)."""
-        source = """
-        fn gru_like(batch_size, hidden_size, initial_h) {
-            let hidden[0, b in 0..batch_size, h in 0..hidden_size] = initial_h[b, h];
-            let hidden[t in 1..3, b in 0..batch_size, h in 0..hidden_size] = hidden[t - 1, b, h] + 1.0;
-            hidden
-        }
-        let init = [[0.1, 0.2], [0.3, 0.4]];
-        let out = gru_like(2, 2, init);
-        out;
-        """
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
-        hidden = result.outputs["out"] if "out" in result.outputs else result.outputs.get("hidden")
+    @pytest.mark.parametrize(
+        ("source", "output_name"),
+        [
+            pytest.param(
+                """
+                let ref = [[0.1, 0.2], [0.3, 0.4]];
+                let hidden[0, b in 0..2, h in 0..2] = ref[b, h];
+                let hidden[t in 1..3, b in 0..2, h in 0..2] = hidden[t - 1, b, h] + 1.0;
+                hidden;
+                """,
+                "hidden",
+                id="gru-two-clauses",
+            ),
+            pytest.param(
+                """
+                let batch_size = 2;
+                let hidden_size = 2;
+                let ref = [[0.1, 0.2], [0.3, 0.4]];
+                let hidden[0, b in 0..batch_size, h in 0..hidden_size] = ref[b, h];
+                let hidden[t in 1..3, b in 0..batch_size, h in 0..hidden_size] = hidden[t - 1, b, h] + 1.0;
+                hidden;
+                """,
+                "hidden",
+                id="gru-variable-bounds",
+            ),
+            pytest.param(
+                """
+                fn gru_like(batch_size, hidden_size, initial_h) {
+                    let hidden[0, b in 0..batch_size, h in 0..hidden_size] = initial_h[b, h];
+                    let hidden[t in 1..3, b in 0..batch_size, h in 0..hidden_size] = hidden[t - 1, b, h] + 1.0;
+                    hidden
+                }
+                let init = [[0.1, 0.2], [0.3, 0.4]];
+                let out = gru_like(2, 2, init);
+                out;
+                """,
+                "out",
+                id="gru-inside-function",
+            ),
+            pytest.param(
+                """
+                fn gru_like(batch_size, hidden_size, initial_h) {
+                    let hidden[0, b in 0..batch_size, h in 0..hidden_size] =
+                        if typeof(initial_h) == "rectangular" { initial_h[b, h] } else { 0.0 };
+                    let hidden[t in 1..3, b in 0..batch_size, h in 0..hidden_size] = hidden[t - 1, b, h] + 1.0;
+                    hidden
+                }
+                let init = [[0.1, 0.2], [0.3, 0.4]];
+                let out = gru_like(2, 2, init);
+                out;
+                """,
+                "out",
+                id="gru-typeof-conditional",
+            ),
+        ],
+    )
+    def test_gru_patterns(self, compiler, runtime, source, output_name):
+        result = _execute_program(source, compiler, runtime)
+        hidden = result.outputs.get(output_name)
+        if hidden is None:
+            hidden = result.outputs.get("hidden")
         assert hidden is not None, f"outputs: {result.outputs}"
-        hidden = np.asarray(hidden)
-        assert hidden.shape == (3, 2, 2), f"expected (3,2,2), got {hidden.shape}"
-        expected_layer0 = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=hidden.dtype)
-        np.testing.assert_allclose(hidden[0], expected_layer0, rtol=1e-5, atol=1e-8)
+        _assert_hidden_seed_result(hidden)
 
-    def test_einstein_gru_pattern_with_typeof_initial_h_conditional(self, compiler, runtime):
-        """GRU first-clause body: if typeof(initial_h) == \"rectangular\" { initial_h[b, h] } else { 0.0 }. Check rectangular branch."""
-        source = """
-        fn gru_like(batch_size, hidden_size, initial_h) {
-            let hidden[0, b in 0..batch_size, h in 0..hidden_size] =
-                if typeof(initial_h) == "rectangular" { initial_h[b, h] } else { 0.0 };
-            let hidden[t in 1..3, b in 0..batch_size, h in 0..hidden_size] = hidden[t - 1, b, h] + 1.0;
-            hidden
-        }
-        let init = [[0.1, 0.2], [0.3, 0.4]];
-        let out = gru_like(2, 2, init);
-        out;
-        """
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
-        hidden = result.outputs["out"] if "out" in result.outputs else result.outputs.get("hidden")
-        assert hidden is not None, f"outputs: {result.outputs}"
-        hidden = np.asarray(hidden)
-        assert hidden.shape == (3, 2, 2), f"expected (3,2,2), got {hidden.shape}"
-        expected_layer0 = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=hidden.dtype)
-        np.testing.assert_allclose(hidden[0], expected_layer0, rtol=1e-5, atol=1e-8)
-
-    def test_heat_equation_2d_explicit(self, compiler, runtime):
+    def test_heat_2d_explicit(self, compiler, runtime):
         """Real 2D heat equation ∂u/∂t = α∇²u, explicit FTCS: 5-point Laplacian stencil
         u^{n+1}_{i,j} = u^n_{i,j} + r*(u^n_{i-1,j} + u^n_{i+1,j} + u^n_{i,j-1} + u^n_{i,j+1} - 4*u^n_{i,j})
         with r = α Δt/h²; r = 0.1 (stability r ≤ 1/4 for 2D). All reads at t-1 (no future values).
@@ -184,8 +157,7 @@ class TestEinsteinLoweringIntegration:
         let u[t in 1..3, i in 1..3, j in 1..3] = u[t - 1, i, j] + r * (u[t - 1, i - 1, j] + u[t - 1, i + 1, j] + u[t - 1, i, j - 1] + u[t - 1, i, j + 1] - 4.0 * u[t - 1, i, j]);
         u;
         """
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         u = np.asarray(result.outputs["u"])
         # Shape from backend (e.g. 3 time steps, 4x4 grid)
         assert u.ndim == 3 and u.shape[0] == 3, f"expected 3 time steps, got {u.shape}"
@@ -210,7 +182,7 @@ class TestEinsteinLoweringIntegration:
         assert u[1, 1, 1] < u[0, 1, 1]
         assert u[1, 2, 1] > 0
 
-    def test_einstein_literal_reference(self, compiler, runtime):
+    def test_literal_reference(self, compiler, runtime):
         """Reference array B only at literal indices: A[0,0]=B[0,0], A[0,i]=B[0,i], A[i,0]=B[i,0]; recurrence uses B[i,j]. Compare full A to numpy."""
         source = """
         let B[i in 0..6, j in 0..4] = i + j;
@@ -220,8 +192,7 @@ class TestEinsteinLoweringIntegration:
         let A[i in 1..6, j in 1..4] = A[i - 1, j] + A[i, j - 1] + B[i, j];
         A;
         """
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         A = result.outputs["A"]
         expected = np.array([
             [0, 1, 2, 3],
@@ -233,7 +204,7 @@ class TestEinsteinLoweringIntegration:
         ], dtype=A.dtype)
         np.testing.assert_array_equal(A, expected)
 
-    def test_matrix_multiplication(self, compiler, runtime):
+    def test_matmul(self, compiler, runtime):
         """Test matrix multiplication with nested reductions"""
         source = """
         let A[i in 0..3, j in 0..4] = i * 3 + j;
@@ -242,7 +213,7 @@ class TestEinsteinLoweringIntegration:
         C;
         """
     
-    def test_matrix_multiplication_implicit_ranges(self, compiler, runtime):
+    def test_matmul_implicit_ranges(self, compiler, runtime):
         """Test matrix multiplication with implicit range inference
         
         This test verifies that ranges can be inferred implicitly:
@@ -297,7 +268,7 @@ class TestEinsteinLoweringIntegration:
         ])
         np.testing.assert_array_equal(C, expected)
     
-    def test_convolution_2d(self, compiler, runtime):
+    def test_conv_2d(self, compiler, runtime):
         """Test 2D convolution pattern"""
         source = """
         let input[i in 0..5, j in 0..5] = i + j;
@@ -315,7 +286,7 @@ class TestEinsteinLoweringIntegration:
         output = result.outputs['output']
         assert output.shape == (3, 3)
     
-    def test_fibonacci_sequence(self, compiler, runtime):
+    def test_fib(self, compiler, runtime):
         """Test recurrence relation (Fibonacci)
         
         Note: This test currently fails because sequential Einstein declarations
@@ -329,7 +300,7 @@ class TestEinsteinLoweringIntegration:
         fib;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
+        result = compile_and_execute(source, compiler, runtime, source_file="<test>")
         if not result.success:
             errs = result.get_errors()
             err_str = " ".join(str(e) for e in errs).lower()
@@ -354,8 +325,7 @@ class TestEinsteinLoweringIntegration:
         total;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         
         assert 'total' in result.outputs
         # Sum of all elements: sum(i=0..3, j=0..3) of (i+j)
@@ -372,23 +342,21 @@ class TestEinsteinLoweringIntegration:
         sum_even + sum_odd;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         
         # sum_even = 0+2+4+6+8 = 20
         # sum_odd = 1+3+5+7+9 = 25
         # total = 45
         assert result.outputs.get('sum_even', 0) + result.outputs.get('sum_odd', 0) == 45
     
-    def test_multi_dimensional_with_guards(self, compiler, runtime):
+    def test_multi_dim_guards(self, compiler, runtime):
         """Test multi-dimensional Einstein with multiple guards"""
         source = """
         let result[i in 0..5, j in 0..5] = i * j where i > 1, j > 1, i + j < 7;
         result;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         
         assert 'result' in result.outputs
         result_array = result.outputs['result']
@@ -402,15 +370,14 @@ class TestEinsteinLoweringIntegration:
         assert result_array[4, 2] == 8  # 4*2 = 8, and 4+2=6 < 7 ✓ (all conditions satisfied)
         # i=4, j=2: i>1 ✓, j>1 ✓, i+j=6 < 7 ✓, so result[4,2] = 4*2 = 8
     
-    def test_reduction_with_dependent_ranges(self, compiler, runtime):
+    def test_dependent_ranges(self, compiler, runtime):
         """Test reduction where range depends on outer loop variable"""
         source = """
         let result[i in 0..5] = sum[j in 0..i+1](j);
         result;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         
         assert 'result' in result.outputs
         result_array = result.outputs['result']
@@ -425,15 +392,14 @@ class TestEinsteinLoweringIntegration:
         expected = np.array([0, 1, 3, 6, 10])
         np.testing.assert_array_equal(result_array, expected)
     
-    def test_three_dimensional_tensor(self, compiler, runtime):
+    def test_tensor_3d(self, compiler, runtime):
         """Test 3D Einstein declaration"""
         source = """
         let tensor[i in 0..3, j in 0..3, k in 0..3] = i * 100 + j * 10 + k;
         tensor;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         
         assert 'tensor' in result.outputs
         tensor = result.outputs['tensor']
@@ -446,7 +412,7 @@ class TestEinsteinLoweringIntegration:
         assert tensor[1, 0, 0] == 100
         assert tensor[2, 2, 2] == 222
     
-    def test_reduction_all_dimensions(self, compiler, runtime):
+    def test_reduce_all_dims(self, compiler, runtime):
         """Test full reduction (all dimensions)"""
         source = """
         let A[i in 0..3, j in 0..3] = i + j;
@@ -454,8 +420,7 @@ class TestEinsteinLoweringIntegration:
         total;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         
         assert 'total' in result.outputs
         # Sum of all elements: (0+0)+(0+1)+(0+2) + (1+0)+(1+1)+(1+2) + (2+0)+(2+1)+(2+2)
@@ -470,8 +435,7 @@ class TestEinsteinLoweringIntegration:
         row_sums;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         
         assert 'row_sums' in result.outputs
         row_sums = result.outputs['row_sums']
@@ -483,7 +447,7 @@ class TestEinsteinLoweringIntegration:
         expected = np.array([3, 6, 9])
         np.testing.assert_array_equal(row_sums, expected)
     
-    def test_product_reduction(self, compiler, runtime):
+    def test_prod_reduction(self, compiler, runtime):
         """Test product reduction"""
         source = """
         let A[i in 0..5] = i + 1;
@@ -491,8 +455,7 @@ class TestEinsteinLoweringIntegration:
         product;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         
         assert 'product' in result.outputs
         # Range i in 0..5 creates indices 0,1,2,3,4 (5 elements)
@@ -500,7 +463,7 @@ class TestEinsteinLoweringIntegration:
         # product = 1 * 2 * 3 * 4 * 5 = 120
         assert result.outputs['product'] == 120
     
-    def test_min_max_reductions(self, compiler, runtime):
+    def test_min_max(self, compiler, runtime):
         """Test min and max reductions"""
         source = """
         let A[i in 0..10] = i * 2 - 5;
@@ -509,8 +472,7 @@ class TestEinsteinLoweringIntegration:
         min_val + max_val;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         
         # Range i in 0..10 creates indices 0,1,2,...,9 (10 elements, exclusive end)
         # A[i] = i * 2 - 5, so A = [-5, -3, -1, 1, 3, 5, 7, 9, 11, 13]
@@ -518,20 +480,19 @@ class TestEinsteinLoweringIntegration:
         # sum = 8
         assert result.outputs.get('min_val', 0) + result.outputs.get('max_val', 0) == 8
     
-    def test_empty_range_handling(self, compiler, runtime):
+    def test_empty_range(self, compiler, runtime):
         """Test handling of empty ranges"""
         source = """
         let empty_sum = sum[i in 0..0](i);
         empty_sum;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         
         # Empty sum should return identity (0)
         assert result.outputs.get('empty_sum', None) == 0
     
-    def test_array_access_in_body(self, compiler, runtime):
+    def test_array_access_body(self, compiler, runtime):
         """Test Einstein declaration with array access in body"""
         source = """
         let input[i in 0..5] = i * 2;
@@ -539,8 +500,7 @@ class TestEinsteinLoweringIntegration:
         output;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         
         assert 'output' in result.outputs
         output = result.outputs['output']
@@ -554,7 +514,7 @@ class TestEinsteinLoweringIntegration:
         expected = np.array([2, 6, 10, 14])
         np.testing.assert_array_equal(output, expected)
     
-    def test_complex_nested_structure(self, compiler, runtime):
+    def test_complex_nested(self, compiler, runtime):
         """Test complex nested Einstein and reduction structure"""
         source = """
         let A[i in 0..3, j in 0..3] = i * j;
@@ -563,8 +523,7 @@ class TestEinsteinLoweringIntegration:
         C;
         """
         
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         
         # Range i in 0..3 creates indices 0,1,2 (3 elements)
         # A[i,j] = i*j where i in 0..3, j in 0..3
@@ -574,15 +533,14 @@ class TestEinsteinLoweringIntegration:
         # C = sum[i](B[i]^2) = 0^2 + 3^2 + 6^2 = 0 + 9 + 36 = 45
         assert result.outputs.get('C', 0) == 45
     
-    def test_where_clause_with_multiple_conditions(self, compiler, runtime):
+    def test_where_multi_conditions(self, compiler, runtime):
         """Clauses complement each other. First 1..8, second 0..10; shape = union (max of end) = 10."""
         source = """
         let filtered[i in 1..8] = i * i where i > 2, i < 8, i % 2 == 0;
         let filtered[i in 0..10] = 0 where i <= 2 || i >= 8 || i % 2 != 0;
         filtered;
         """
-        result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Compilation failed: {result.get_errors()}"
+        result = _execute_program(source, compiler, runtime)
         assert 'filtered' in result.outputs
         filtered = result.outputs['filtered']
         n = filtered.shape[0]
@@ -593,7 +551,7 @@ class TestEinsteinLoweringIntegration:
             else:
                 assert filtered[i] == 0, f"at i={i}"
     
-    def test_large_range_performance(self, compiler, runtime):
+    def test_large_range(self, compiler, runtime):
         """Test performance with larger ranges"""
         source = """
         let large[i in 0..100] = i * 2;
@@ -607,7 +565,7 @@ class TestEinsteinLoweringIntegration:
         # sum = sum(i=0..99) of (i*2) = 2 * sum(i=0..99) of i = 2 * 99*100/2 = 9900
         assert result.outputs.get('sum_large', 0) == 9900
     
-    def test_reduction_with_array_access(self, compiler, runtime):
+    def test_reduction_array_access(self, compiler, runtime):
         """Test reduction that accesses arrays"""
         source = """
         let A[i in 0..5] = i * 2;
@@ -623,7 +581,7 @@ class TestEinsteinLoweringIntegration:
         # = 0 + 6 + 24 + 54 + 96 = 180
         assert result.outputs.get('dot_product', 0) == 180
     
-    def test_sequential_einstein_declarations(self, compiler, runtime):
+    def test_sequential_decls(self, compiler, runtime):
         """Test multiple sequential Einstein declarations"""
         source = """
         let A[i in 0..5] = i;
@@ -642,4 +600,3 @@ class TestEinsteinLoweringIntegration:
         # C[i] = (i * 2) + 1
         expected = np.array([1, 3, 5, 7, 9])
         np.testing.assert_array_equal(C, expected)
-

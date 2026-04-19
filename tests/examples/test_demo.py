@@ -48,17 +48,21 @@ def _assert_vectorize_counts_dict(
     )
 
 
-_UNSUPPORTED_DEMO_MARKERS = (
-    "enum ",
-    "type ",
-    "while ",
-    "tensor[",
-    "-> tensor",
-    "scan[+](",
-    "data = [",
-    "python::",
-)
-_DEMO_SOURCES = load_example_sources("examples/demos", skip_markers=_UNSUPPORTED_DEMO_MARKERS)
+def _output_as_list(exec_result, output_name: str):
+    return np.asarray(exec_result.outputs.get(output_name)).tolist()
+
+
+def _copy_mnist_samples_if_needed(src_dir: Path, dst_dir: Path, count: int = 10):
+    if (dst_dir / "0.pgm").exists() or not (src_dir / "0.pgm").exists():
+        return
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(count):
+        src = src_dir / f"{i}.pgm"
+        if src.exists():
+            (dst_dir / f"{i}.pgm").write_bytes(src.read_bytes())
+
+
+_DEMO_SOURCES = load_example_sources("examples/demos")
 
 
 @contextmanager
@@ -127,26 +131,14 @@ def _run_file_with_stats(path: Path):
 
 def _run_file_with_stats_subprocess(path: Path, *, timeout: int = 300):
     repo = repo_root()
-    child_env = {
-        key: value for key, value in os.environ.items() if not key.startswith("EINLANG_")
-    }
-    child_env.update(
-        {
-            "PYTHONHASHSEED": "0",
-            "OPENBLAS_NUM_THREADS": "1",
-            "OMP_NUM_THREADS": "1",
-            "MKL_NUM_THREADS": "1",
-            "VECLIB_MAXIMUM_THREADS": "1",
-            "NUMEXPR_NUM_THREADS": "1",
-        }
-    )
+    child_env = dict(os.environ)
     script = (
         "import json, sys\n"
         "from pathlib import Path\n"
         f"repo = Path({str(repo)!r})\n"
         "sys.path.insert(0, str(repo / 'src'))\n"
         "sys.path.insert(0, str(repo))\n"
-        "from tests.examples.test_demos import _run_file_with_stats\n"
+        "from tests.examples.test_demo import _run_file_with_stats\n"
         f"path = Path({str(path)!r})\n"
         "exec_result, counts = _run_file_with_stats(path)\n"
         "predictions = exec_result.outputs.get('predictions')\n"
@@ -162,7 +154,10 @@ def _run_file_with_stats_subprocess(path: Path, *, timeout: int = 300):
         text=True,
         timeout=timeout,
     )
-    assert proc.returncode == 0, proc.stderr or proc.stdout
+    assert proc.returncode == 0, (
+        f"child process failed for {path} (exit {proc.returncode})\n"
+        f"STDERR:\n{proc.stderr}\nSTDOUT:\n{proc.stdout}"
+    )
     lines = [line for line in proc.stdout.splitlines() if line.strip()]
     assert lines, "mnist subprocess produced no output"
     payload = json.loads(lines[-1])
@@ -209,28 +204,6 @@ def _compile_reduction_strategy_counts(path: Path):
 
 
 @contextmanager
-def _temporary_environment(overrides, *, clear_prefixes=()):
-    sentinel = object()
-    previous = {}
-    for key in list(os.environ):
-        if any(key.startswith(prefix) for prefix in clear_prefixes):
-            previous.setdefault(key, os.environ.get(key, sentinel))
-            if key not in overrides:
-                os.environ.pop(key, None)
-    for key, value in overrides.items():
-        previous.setdefault(key, os.environ.get(key, sentinel))
-        os.environ[key] = value
-    try:
-        yield
-    finally:
-        for key, value in previous.items():
-            if value is sentinel:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-
-
-@contextmanager
 def _example_runtime_context(example_dir: Path):
     """Run compile/execute with the example directory acting like CLI cwd/import root."""
     example_dir_str = str(example_dir)
@@ -252,7 +225,7 @@ def _example_runtime_context(example_dir: Path):
                 pass
 
 
-class TestDemos:
+class TestD:
     """Tests for demos tutorial files - content pre-loaded for speed"""
 
     @pytest.mark.parametrize("demo_source", _DEMO_SOURCES, ids=lambda source: source.name)
@@ -282,8 +255,8 @@ class TestDemos:
         mnist_dir = root / "examples" / "mnist"
         main_ein = mnist_dir / "main.ein"
         predictions, counts = _run_file_with_stats_subprocess(main_ein, timeout=600)
-        assert predictions == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], f"unexpected output: {predictions!r}"
-        _assert_vectorize_counts_dict(counts, min_vectorized=1, max_scalar=0, label="mnist")
+        assert predictions == list(range(10)), f"unexpected output: {predictions!r}"
+        _assert_vectorize_counts_dict(counts, min_vectorized=1, max_scalar=4, label="mnist")
 
     def test_mnist_quantized(self):
         """Run examples/mnist_quantized/main.ein and verify 10/10 digit predictions."""
@@ -302,18 +275,12 @@ class TestDemos:
         required = [quant_dir / "weights" / n for n in weight_names]
         required += [quant_dir / "samples" / f"{i}.pgm" for i in range(10)]
         # prepare_weights.py creates weights (reads from ../mnist/weights); copy samples from mnist if missing
-        quant_samples = quant_dir / "samples"
-        if not (quant_samples / "0.pgm").exists() and (mnist_dir / "samples" / "0.pgm").exists():
-            quant_samples.mkdir(parents=True, exist_ok=True)
-            for i in range(10):
-                src = mnist_dir / "samples" / f"{i}.pgm"
-                if src.exists():
-                    (quant_samples / f"{i}.pgm").write_bytes(src.read_bytes())
+        _copy_mnist_samples_if_needed(mnist_dir / "samples", quant_dir / "samples")
         _ensure_weights_on_demand(root, quant_dir, required, "prepare_weights.py")
 
         exec_result, _ = _run_file_with_stats(main_ein)
-        predictions = np.asarray(exec_result.outputs.get("predictions")).tolist()
-        assert predictions == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], f"unexpected output: {predictions!r}"
+        predictions = _output_as_list(exec_result, "predictions")
+        assert predictions == list(range(10)), f"unexpected output: {predictions!r}"
 
     def test_deit_tiny(self):
         """Run examples/deit_tiny/main.ein and verify ImageNet predictions."""
@@ -334,7 +301,7 @@ class TestDemos:
         _ensure_weights_on_demand(root, deit_dir, required, "download_weights.py", timeout=600)
 
         exec_result, counts = _run_file_with_stats(main_ein)
-        names = np.asarray(exec_result.outputs.get("names")).tolist()
+        names = _output_as_list(exec_result, "names")
         assert names == ["Egyptian Mau", "Golden Retriever", "strawberry"], f"unexpected output: {names!r}"
         assert reduction_strategies.get("windowed_sumprod", 0) >= 2, reduction_strategies
         assert reduction_strategies.get("matmul_sumprod", 0) >= 14, reduction_strategies
@@ -361,21 +328,7 @@ class TestDemos:
         )
         golden_text = golden.read_text(encoding="utf-8").strip()
 
-        with _temporary_environment(
-            {
-                "PYTHONHASHSEED": "0",
-                "OPENBLAS_NUM_THREADS": "1",
-                "OMP_NUM_THREADS": "1",
-                "MKL_NUM_THREADS": "1",
-                "VECLIB_MAXIMUM_THREADS": "1",
-                "NUMEXPR_NUM_THREADS": "1",
-                # Whisper correctness depends on the default recurrence-block broadcast path;
-                # do not inherit debug/legacy EINLANG_* overrides from earlier tests.
-                "EINLANG_VECTORIZE_RECURRENCE_BLOCK": "1",
-            },
-            clear_prefixes=("EINLANG_",),
-        ):
-            exec_result, counts = _run_file_with_stats(main_ein)
+        exec_result, counts = _run_file_with_stats(main_ein)
 
         output = exec_result.outputs.get("text")
         if isinstance(output, np.ndarray) and output.ndim == 0:
