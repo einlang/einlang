@@ -108,6 +108,62 @@ let y = sum[i in 0..2, j in 0..2](A[i, j] * B[i, j]);
     assert hits[0]["parallel_shape"] is None
 
 
+def test_windowed_sumprod_uses_windowed_einsum_fast_path(monkeypatch):
+    source = """
+let x[ci in 0..2, t in 0..6] = (1 + ci + t) as f32;
+let w[co in 0..3, ci in 0..2, k in 0..3] = (1 + co + ci + k) as f32;
+let y[co in 0..3, t in 0..4] =
+    sum[ci in 0..2, k in 0..3](x[ci, t + k] * w[co, ci, k]);
+"""
+
+    compiler = CompilerDriver()
+    runtime = EinlangRuntime(backend="numpy")
+    hits = []
+    original_try_windowed = numpy_expressions_mixin._try_windowed_sumprod_einsum
+
+    def _tracking_try_windowed(expr, backend, plan):
+        result = original_try_windowed(expr, backend, plan)
+        if result is not None:
+            hits.append(
+                {
+                    "kind": getattr(plan, "kind", None),
+                    "shape": tuple(np.asarray(result).shape),
+                }
+            )
+        return result
+
+    monkeypatch.setattr(
+        numpy_expressions_mixin,
+        "_try_windowed_sumprod_einsum",
+        _tracking_try_windowed,
+    )
+
+    result = compile_and_execute(
+        source.strip(),
+        compiler,
+        runtime,
+        source_file="<windowed_sumprod_fast_path>",
+    )
+
+    assert result.success, (result.errors if result.errors else result.error)
+    np.testing.assert_allclose(
+        result.outputs["y"],
+        np.array(
+            [
+                [43.0, 58.0, 73.0, 88.0],
+                [58.0, 79.0, 100.0, 121.0],
+                [73.0, 100.0, 127.0, 154.0],
+            ],
+            dtype=np.float32,
+        ),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    assert hits, "expected 1D sliding-window sum-of-products to use the windowed einsum fast path"
+    assert hits[0]["kind"] == "windowed_sumprod"
+    assert hits[0]["shape"] == (3, 4)
+
+
 def test_matmul_fast_path_handles_extra_bias_row_outside_reduction(monkeypatch):
     source = """
 let x[n in 0..2, k in 0..4] = (1 + n + k) as f32;

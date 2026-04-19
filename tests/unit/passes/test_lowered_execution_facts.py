@@ -105,6 +105,27 @@ def test_lowered_execution_facts_recognize_matmul_sumprod_kernel():
     assert facts.execution_strategy == "matmul_sumprod"
 
 
+def test_lowered_execution_facts_recognize_windowed_sumprod_kernel():
+    ir, tcx = _compile(
+        """
+        let x[ci in 0..2, t in 0..6] = (1 + ci + t) as f32;
+        let w[co in 0..3, ci in 0..2, k in 0..3] = (1 + co + ci + k) as f32;
+        let y[co in 0..3, t in 0..4] =
+            sum[ci in 0..2, k in 0..3](x[ci, t + k] * w[co, ci, k]);
+        """
+    )
+
+    plan_map = tcx.get_analysis(LoweredExecutionFactsPass)["reduction_kernel_plans_by_id"]
+    plans = list(plan_map.values())
+    assert plans, "expected at least one reduction kernel plan"
+    kinds = {plan.kind for plan in plans}
+    assert "windowed_sumprod" in kinds
+    reduction = _first_reduction(ir)
+    facts = tcx.get_analysis(LoweredExecutionFactsPass)["reduction_facts_by_id"][reduction.execution_facts_id]
+    assert reduction.execution_strategy == "windowed_sumprod"
+    assert facts.execution_strategy == "windowed_sumprod"
+
+
 def test_lowered_execution_facts_annotate_clause_call_and_nested_lowered_flags():
     ir, tcx = _compile(
         """

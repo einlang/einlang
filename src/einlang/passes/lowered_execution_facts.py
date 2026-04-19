@@ -943,14 +943,15 @@ def _recognize_reduction_kernel(expr: LoweredReductionIR) -> Optional[ReductionK
     reduction_defids = [loop.variable.defid for loop in loops if loop.variable is not None]
     if len(reduction_defids) != len(loops) or any(d is None for d in reduction_defids):
         return None
-    if not _reduction_indices_are_simple(list(left.indices or []) + list(right.indices or []), reduction_defids):
-        return None
     if _recognize_windowed_sumprod(loops, left, right):
         kind = "windowed_sumprod"
-    elif len(loops) in (1, 2):
-        kind = "matmul_sumprod"
     else:
-        kind = "einsum_sumprod"
+        if not _reduction_indices_are_simple(list(left.indices or []) + list(right.indices or []), reduction_defids):
+            return None
+        if len(loops) in (1, 2):
+            kind = "matmul_sumprod"
+        else:
+            kind = "einsum_sumprod"
     plan_id = id(expr)
     return ReductionKernelPlan(
         plan_id=plan_id,

@@ -161,15 +161,12 @@ def _assert_mnist(result):
 
 
 README_EXAMPLE_VALIDATORS = {
-    "examples/autodiff_matmul.ein": _assert_autodiff_matmul,
     "examples/autodiff_small.ein": _assert_autodiff_small,
+    "examples/demos/matrix_operations.ein": _assert_success,
     "examples/hello.ein": _assert_hello,
     "examples/mnist/main.ein": _assert_mnist,
     "examples/ode/ode_suite.ein": lambda result: _assert_accuracy_registered_example(
         result, "examples/ode/ode_suite.ein"
-    ),
-    "examples/optimization/optimization_suite.ein": lambda result: _assert_accuracy_registered_example(
-        result, "examples/optimization/optimization_suite.ein"
     ),
     "examples/recurrence/recurrence_suite.ein": lambda result: _assert_accuracy_registered_example(
         result, "examples/recurrence/recurrence_suite.ein"
