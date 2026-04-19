@@ -1,7 +1,9 @@
 
 # Contributing to Einlang
 
-Thanks for your interest. You don't need to be a compiler expert — **doc fixes and small bugs are a great way to start.** Every fix, improvement, and idea helps. New to Einlang? [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) or [doc index by audience](https://github.com/einlang/einlang/blob/main/docs/README.md). Experts: [DEVELOPMENT](https://github.com/einlang/einlang/blob/main/docs/DEVELOPMENT.md) for project layout and adding features.
+Thanks for your interest. You do not need to be a compiler expert to help. Doc fixes, tests, and small bug fixes are all valuable.
+
+If you are new to the project, start with [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md), [docs/README](https://github.com/einlang/einlang/blob/main/docs/README.md), and [examples/README](https://github.com/einlang/einlang/blob/main/examples/README.md).
 
 ## You don't need to ask permission
 
@@ -19,7 +21,7 @@ python3 -m einlang examples/hello.ein
 python3 -m pytest -n auto tests/ --tb=short -q
 ```
 
-If those pass, you're set. See [DEVELOPMENT](https://github.com/einlang/einlang/blob/main/docs/DEVELOPMENT.md) for project layout, adding language features, and the error system.
+If those pass, you are ready to work in the repo.
 
 ## Good first contributions
 

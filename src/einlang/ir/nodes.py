@@ -1442,6 +1442,8 @@ class LoweredEinsteinClauseIR(IRNode):
         'guards',
         'indices',
         'recurrence_dims_override',
+        'vectorization_strategy',
+        'vectorization_scalar_loop_dims',
         'execution_facts_id',
     )
 
@@ -1454,6 +1456,8 @@ class LoweredEinsteinClauseIR(IRNode):
         guards: Optional[List[GuardCondition]] = None,
         indices: Optional[List[Any]] = None,
         recurrence_dims_override: Optional[List[int]] = None,
+        vectorization_strategy: Optional[str] = None,
+        vectorization_scalar_loop_dims: Optional[List[int]] = None,
         execution_facts_id: Optional[int] = None,
         location: Optional[SourceLocation] = None,
     ):
@@ -1465,6 +1469,10 @@ class LoweredEinsteinClauseIR(IRNode):
         self.guards = _t(guards)
         self.indices = _t(indices)
         self.recurrence_dims_override = recurrence_dims_override
+        self.vectorization_strategy = vectorization_strategy
+        self.vectorization_scalar_loop_dims = (
+            _t(vectorization_scalar_loop_dims) if vectorization_scalar_loop_dims is not None else None
+        )
         self.execution_facts_id = execution_facts_id
     
     def __str__(self) -> str:
@@ -1572,6 +1580,7 @@ class LoweredReductionIR(ExpressionIR):
         'guards',
         'execution_facts_id',
         'kernel_plan_id',
+        'execution_strategy',
     )
     
     def __init__(
@@ -1586,6 +1595,7 @@ class LoweredReductionIR(ExpressionIR):
         shape_info: Optional[Any] = None,
         execution_facts_id: Optional[int] = None,
         kernel_plan_id: Optional[int] = None,
+        execution_strategy: Optional[str] = None,
     ):
         loc = location or body.location
         if loc is None:
@@ -1598,6 +1608,7 @@ class LoweredReductionIR(ExpressionIR):
         self.guards = _t(guards)
         self.execution_facts_id = execution_facts_id
         self.kernel_plan_id = kernel_plan_id
+        self.execution_strategy = execution_strategy
     
     @property
     def reduction_ranges(self) -> Dict[DefId, LoopStructure]:

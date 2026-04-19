@@ -15,7 +15,6 @@ let x_gradient_descent[k in 1..30, i in 0..2] = {
   let x1 = x_gradient_descent[k - 1, 1];
   let r0 = A_gd[0, 0] * x0 + A_gd[0, 1] * x1 - b_gd[0];
   let r1 = A_gd[1, 0] * x0 + A_gd[1, 1] * x1 - b_gd[1];
-  // Use autodiff for the scalar objective while preserving the existing trajectory.
   let loss = 0.25 * (r0 * r0 + r1 * r1);
   let g0 = @loss / @x0;
   let g1 = @loss / @x1;

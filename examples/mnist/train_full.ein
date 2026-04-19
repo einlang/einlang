@@ -1,122 +1,101 @@
 // Native-autodiff training on the bundled real 28x28 MNIST sample images.
 // Uses the same 10 real sample images in examples/mnist/samples for both
-// training and evaluation, with a few explicitly unrolled epochs.
+// training and evaluation, with explicitly unrolled epochs.
+// This remains the default because it must not be slower than the recurrence version.
 // Run (cwd = examples/mnist): PYTHONPATH=../../src python3 -m einlang train_full.ein
 
 let sample_images = python::data_loader::load_images() as [f32; 10, 784];
 let sample_labels = python::data_loader::load_labels() as [f32; 10, 10];
 
 let lr = 5e-2;
-
-let w0[d in 0..784, cls in 0..10] =
-    1e-3 * (1.0 + ((d % 17) + cls) as f32);
-let b0[cls in 0..10] = 0.0;
-
 let truth = std::ml::argmax(sample_labels);
 
+let theta0[p in 0..785, cls in 0..10] =
+    if p == 784 { 0.0 } else { 1e-3 * (1.0 + ((p % 17) + cls) as f32) };
+
 let logits0[n in 0..10, cls in 0..10] =
-    sum[d in 0..784](sample_images[n, d] * w0[d, cls]) + b0[cls];
+    sum[d in 0..784](sample_images[n, d] * theta0[d, cls]) + theta0[784, cls];
 let diff0[n in 0..10, cls in 0..10] =
     logits0[n, cls] - sample_labels[n, cls];
 let loss0 =
     sum[n in 0..10, cls in 0..10](diff0[n, cls] * diff0[n, cls]) / 100.0;
-let predicted0 = std::ml::argmax(logits0);
-let correct0 = sum[n in 0..10](if predicted0[n] == truth[n] { 1 } else { 0 });
+let preds0 = std::ml::argmax(logits0);
+let correct0 = sum[n in 0..10](if preds0[n] == truth[n] { 1 } else { 0 });
 let accuracy0 = (correct0 as f32) / 10.0;
 print("Epoch 0:", "loss", loss0, "accuracy", accuracy0 * 100.0, "%", "correct", correct0);
 
-let d_w0 = @loss0 / @w0;
-let d_b0 = @loss0 / @b0;
-
-let w1[d in 0..784, cls in 0..10] =
-    w0[d, cls] - lr * d_w0[d, cls];
-let b1[cls in 0..10] =
-    b0[cls] - lr * d_b0[cls];
+let d_theta0 = @loss0 / @theta0;
+let theta1[p in 0..785, cls in 0..10] =
+    theta0[p, cls] - lr * d_theta0[p, cls];
 
 let logits1[n in 0..10, cls in 0..10] =
-    sum[d in 0..784](sample_images[n, d] * w1[d, cls]) + b1[cls];
+    sum[d in 0..784](sample_images[n, d] * theta1[d, cls]) + theta1[784, cls];
 let diff1[n in 0..10, cls in 0..10] =
     logits1[n, cls] - sample_labels[n, cls];
 let loss1 =
     sum[n in 0..10, cls in 0..10](diff1[n, cls] * diff1[n, cls]) / 100.0;
-let predicted1 = std::ml::argmax(logits1);
-let correct1 = sum[n in 0..10](if predicted1[n] == truth[n] { 1 } else { 0 });
+let preds1 = std::ml::argmax(logits1);
+let correct1 = sum[n in 0..10](if preds1[n] == truth[n] { 1 } else { 0 });
 let accuracy1 = (correct1 as f32) / 10.0;
 print("Epoch 1:", "loss", loss1, "accuracy", accuracy1 * 100.0, "%", "correct", correct1);
 
-let d_w1 = @loss1 / @w1;
-let d_b1 = @loss1 / @b1;
-
-let w2[d in 0..784, cls in 0..10] =
-    w1[d, cls] - lr * d_w1[d, cls];
-let b2[cls in 0..10] =
-    b1[cls] - lr * d_b1[cls];
+let d_theta1 = @loss1 / @theta1;
+let theta2[p in 0..785, cls in 0..10] =
+    theta1[p, cls] - lr * d_theta1[p, cls];
 
 let logits2[n in 0..10, cls in 0..10] =
-    sum[d in 0..784](sample_images[n, d] * w2[d, cls]) + b2[cls];
+    sum[d in 0..784](sample_images[n, d] * theta2[d, cls]) + theta2[784, cls];
 let diff2[n in 0..10, cls in 0..10] =
     logits2[n, cls] - sample_labels[n, cls];
 let loss2 =
     sum[n in 0..10, cls in 0..10](diff2[n, cls] * diff2[n, cls]) / 100.0;
-let predicted2 = std::ml::argmax(logits2);
-let correct2 = sum[n in 0..10](if predicted2[n] == truth[n] { 1 } else { 0 });
+let preds2 = std::ml::argmax(logits2);
+let correct2 = sum[n in 0..10](if preds2[n] == truth[n] { 1 } else { 0 });
 let accuracy2 = (correct2 as f32) / 10.0;
 print("Epoch 2:", "loss", loss2, "accuracy", accuracy2 * 100.0, "%", "correct", correct2);
 
-let d_w2 = @loss2 / @w2;
-let d_b2 = @loss2 / @b2;
-
-let w3[d in 0..784, cls in 0..10] =
-    w2[d, cls] - lr * d_w2[d, cls];
-let b3[cls in 0..10] =
-    b2[cls] - lr * d_b2[cls];
+let d_theta2 = @loss2 / @theta2;
+let theta3[p in 0..785, cls in 0..10] =
+    theta2[p, cls] - lr * d_theta2[p, cls];
 
 let logits3[n in 0..10, cls in 0..10] =
-    sum[d in 0..784](sample_images[n, d] * w3[d, cls]) + b3[cls];
+    sum[d in 0..784](sample_images[n, d] * theta3[d, cls]) + theta3[784, cls];
 let diff3[n in 0..10, cls in 0..10] =
     logits3[n, cls] - sample_labels[n, cls];
 let loss3 =
     sum[n in 0..10, cls in 0..10](diff3[n, cls] * diff3[n, cls]) / 100.0;
-let predicted3 = std::ml::argmax(logits3);
-let correct3 = sum[n in 0..10](if predicted3[n] == truth[n] { 1 } else { 0 });
+let preds3 = std::ml::argmax(logits3);
+let correct3 = sum[n in 0..10](if preds3[n] == truth[n] { 1 } else { 0 });
 let accuracy3 = (correct3 as f32) / 10.0;
 print("Epoch 3:", "loss", loss3, "accuracy", accuracy3 * 100.0, "%", "correct", correct3);
 
-let d_w3 = @loss3 / @w3;
-let d_b3 = @loss3 / @b3;
-
-let w4[d in 0..784, cls in 0..10] =
-    w3[d, cls] - lr * d_w3[d, cls];
-let b4[cls in 0..10] =
-    b3[cls] - lr * d_b3[cls];
+let d_theta3 = @loss3 / @theta3;
+let theta4[p in 0..785, cls in 0..10] =
+    theta3[p, cls] - lr * d_theta3[p, cls];
 
 let logits4[n in 0..10, cls in 0..10] =
-    sum[d in 0..784](sample_images[n, d] * w4[d, cls]) + b4[cls];
+    sum[d in 0..784](sample_images[n, d] * theta4[d, cls]) + theta4[784, cls];
 let diff4[n in 0..10, cls in 0..10] =
     logits4[n, cls] - sample_labels[n, cls];
 let loss4 =
     sum[n in 0..10, cls in 0..10](diff4[n, cls] * diff4[n, cls]) / 100.0;
-let predicted4 = std::ml::argmax(logits4);
-let correct4 = sum[n in 0..10](if predicted4[n] == truth[n] { 1 } else { 0 });
+let preds4 = std::ml::argmax(logits4);
+let correct4 = sum[n in 0..10](if preds4[n] == truth[n] { 1 } else { 0 });
 let accuracy4 = (correct4 as f32) / 10.0;
 print("Epoch 4:", "loss", loss4, "accuracy", accuracy4 * 100.0, "%", "correct", correct4);
 
-let d_w4 = @loss4 / @w4;
-let d_b4 = @loss4 / @b4;
-
-let w5[d in 0..784, cls in 0..10] =
-    w4[d, cls] - lr * d_w4[d, cls];
-let b5[cls in 0..10] =
-    b4[cls] - lr * d_b4[cls];
+let d_theta4 = @loss4 / @theta4;
+let theta5[p in 0..785, cls in 0..10] =
+    theta4[p, cls] - lr * d_theta4[p, cls];
 
 let logits5[n in 0..10, cls in 0..10] =
-    sum[d in 0..784](sample_images[n, d] * w5[d, cls]) + b5[cls];
+    sum[d in 0..784](sample_images[n, d] * theta5[d, cls]) + theta5[784, cls];
 let diff5[n in 0..10, cls in 0..10] =
     logits5[n, cls] - sample_labels[n, cls];
 let loss5 =
     sum[n in 0..10, cls in 0..10](diff5[n, cls] * diff5[n, cls]) / 100.0;
-let predicted5 = std::ml::argmax(logits5);
-let correct5 = sum[n in 0..10](if predicted5[n] == truth[n] { 1 } else { 0 });
+let preds5 = std::ml::argmax(logits5);
+let correct5 = sum[n in 0..10](if preds5[n] == truth[n] { 1 } else { 0 });
 let accuracy5 = (correct5 as f32) / 10.0;
 print("Epoch 5:", "loss", loss5, "accuracy", accuracy5 * 100.0, "%", "correct", correct5);
 

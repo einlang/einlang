@@ -9,6 +9,30 @@ from .numpy_einstein_recurrence_analysis import (
 from .numpy_einstein_vectorization import _try_fast_2d_wave_step
 
 class EinsteinExecutionRecurrenceMixin:
+    def _assign_recurrence_step_result(
+        self,
+        output: np.ndarray,
+        slice_list: List[Any],
+        res: Any,
+        *,
+        object_output: bool,
+    ) -> bool:
+        idx = tuple(slice_list)
+        target = output[idx]
+        if object_output:
+            output[idx] = res
+            return True
+        arr = np.asarray(res, dtype=output.dtype)
+        if isinstance(target, np.ndarray):
+            if arr.shape != target.shape:
+                return False
+            output[idx] = arr
+            return True
+        if arr.size != 1:
+            return False
+        output[idx] = arr.reshape(-1)[0]
+        return True
+
     def _outer_recurrence_defid_for_dim(
         self,
         outer_rec_defids: List[Tuple[int, Any]],
@@ -172,14 +196,12 @@ class EinsteinExecutionRecurrenceMixin:
                         slice_list.append(self._coerce_scalar_index(rec_context[outer_defid]))
                     else:
                         slice_list.append(slice(loop_info[dim][1][0], loop_info[dim][1][1]))
-                if len(slice_list) == output.ndim:
-                    if object_output:
-                        output[tuple(slice_list)] = res
-                    else:
-                        res = np.asarray(res, dtype=output.dtype)
-                        if res.size != 1:
-                            return None
-                        output[tuple(slice_list)] = res.flat[0]
+                if self._assign_recurrence_step_result(
+                    output,
+                    slice_list,
+                    res,
+                    object_output=object_output,
+                ):
                     if variable_key is not None:
                         self.env.set_value(variable_key, output)
                     return output
@@ -258,13 +280,13 @@ class EinsteinExecutionRecurrenceMixin:
                             _, (start, end), _ = loop_info[loop_pos]
                             slice_list.append(slice(int(start), int(end)))
                         loop_pos += 1
-                    if len(slice_list) == output.ndim:
-                        if object_output:
-                            output[tuple(slice_list)] = res
-                        elif res.size == 1:
-                            output[tuple(slice_list)] = res.flat[0]
-                        else:
-                            output[tuple(slice_list)] = res
+                    if self._assign_recurrence_step_result(
+                        output,
+                        slice_list,
+                        res,
+                        object_output=object_output,
+                    ):
+                        continue
                 self.env.set_value(variable_key, output)
                 return output
         fast_wave = _try_fast_2d_wave_step(
@@ -274,6 +296,42 @@ class EinsteinExecutionRecurrenceMixin:
             if variable_key is not None:
                 self.env.set_value(variable_key, output)
             return output
+        if recurrence_dims and len(recurrence_dims) == ndim and clause_indices and len(clause_indices) == output.ndim:
+            with self.env.scope():
+                self.env.set_value(variable_defid, output)
+                self._bind_outer_recurrence_context(outer_rec_defids, rec_context)
+                for dim in range(ndim):
+                    defid, (start, end), name = loop_info[dim]
+                    outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, dim)
+                    scalar_value = rec_context.get(outer_defid) if outer_defid in rec_context else None
+                    self._set_loop_value_or_range(defid, (start, end), name, scalar_value=scalar_value)
+                bindings = item.bindings or []
+                self._apply_lowered_bindings(bindings, loops, expr_eval, execute_lowered_bindings)
+                res = item.body.accept(self)
+            slice_list: List[Any] = []
+            loop_pos = 0
+            for idx in clause_indices:
+                literal_val = self._literal_index_value(idx)
+                if literal_val is not None:
+                    slice_list.append(literal_val)
+                    continue
+                if loop_pos < len(loops):
+                    outer_defid = self._outer_recurrence_defid_for_dim(outer_rec_defids, loop_pos)
+                    if outer_defid is not None and outer_defid in rec_context:
+                        slice_list.append(self._coerce_scalar_index(rec_context[outer_defid]))
+                    else:
+                        slice_list.append(0)
+                    loop_pos += 1
+                else:
+                    return None
+            if self._assign_recurrence_step_result(
+                output,
+                slice_list,
+                res,
+                object_output=object_output,
+            ):
+                self.env.set_value(variable_key, output)
+                return output
         # When body is a block (e.g. RNN recurrence with let + if), use scalar iteration over non-recurrence dims
         # so that reductions in the body see the same env as the clause's loop vars (avoids vectorization bugs).
         # Only when clause indices match loop count (no literal indices like LSTM state[t, slot, b, h]) so slice building is correct.
@@ -457,6 +515,7 @@ class EinsteinExecutionRecurrenceMixin:
             return None
         rank = None
         max_ends: Optional[List[int]] = None
+        body_suffix: Optional[List[int]] = None
         for item in items:
             loops = item.loops or []
             if not loops:
@@ -466,6 +525,28 @@ class EinsteinExecutionRecurrenceMixin:
                 max_ends = [0] * rank
             if len(loops) != rank:
                 return None
+            candidate_suffix = None
+            body_shape = getattr(item.body, "shape_info", None)
+            if not body_shape:
+                body_type = getattr(item.body, "type_info", None)
+                body_shape = getattr(body_type, "shape", None)
+            if isinstance(body_shape, (list, tuple)):
+                concrete_suffix: List[int] = []
+                for dim in body_shape:
+                    if isinstance(dim, (int, np.integer)):
+                        concrete_suffix.append(int(dim))
+                    elif isinstance(dim, LiteralIR) and isinstance(dim.value, (int, float)):
+                        concrete_suffix.append(int(dim.value))
+                    else:
+                        concrete_suffix = []
+                        break
+                if concrete_suffix:
+                    candidate_suffix = concrete_suffix
+            if candidate_suffix is not None:
+                if body_suffix is None:
+                    body_suffix = candidate_suffix
+                elif body_suffix != candidate_suffix:
+                    return None
             for d, loop in enumerate(loops):
                 it = loop.iterable
                 if it is None:
@@ -487,7 +568,9 @@ class EinsteinExecutionRecurrenceMixin:
                         return None
                 if end > max_ends[d]:
                     max_ends[d] = end
-        return max_ends
+        if max_ends is None:
+            return body_suffix
+        return max_ends + (body_suffix or [])
 
     def _clause_set_output(self, variable_defid: Any, output: Any) -> None:
         """Set clause result in env."""

@@ -11,10 +11,14 @@ def test_runtime_uses_circular_buffer_for_local_tail_only(monkeypatch):
     compiler = CompilerDriver()
     runtime = EinlangRuntime(backend="numpy")
     source = """
+    let epochs = 9;
     let y = {
-        let x[0] = 1.0;
-        let x[t in 1..10] = x[t - 1] + 1.0;
-        x[7] + x[8] + x[9]
+        let x[t in 0..epochs + 1] = if t == 0 {
+            1.0
+        } else {
+            x[t - 1] + 1.0
+        };
+        x[epochs - 2] + x[epochs - 1] + x[epochs]
     };
     y;
     """

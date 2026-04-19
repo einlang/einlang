@@ -45,12 +45,77 @@ let loss0[ls0 in 0..1] = sum[ls0j in 0..10]((logits0[ls0j] - y[ls0j]) ** 2.0);
 let loss0_scalar = loss0[0];
 
 // Gradients for all trainable tensors.
-let d_loss_d_conv1_w = @loss0_scalar / @conv1_w0;
-let d_loss_d_conv1_b = @loss0_scalar / @conv1_b0;
-let d_loss_d_conv2_w = @loss0_scalar / @conv2_w0;
-let d_loss_d_conv2_b = @loss0_scalar / @conv2_b0;
-let d_loss_d_fc_w = @loss0_scalar / @fc_w0;
-let d_loss_d_fc_b = @loss0_scalar / @fc_b0;
+let d_loss_d_logits0[dl0j in 0..10] = 2.0 * (logits0[dl0j] - y[dl0j]);
+let d_loss_d_fc_w[dw0i in 0..8, dw0j in 0..10] = flat0[dw0i] * d_loss_d_logits0[dw0j];
+let d_loss_d_fc_b[db0j in 0..10] = d_loss_d_logits0[db0j];
+let d_loss_d_flat0[df0k in 0..8] = sum[df0j in 0..10](fc_w0[df0k, df0j] * d_loss_d_logits0[df0j]);
+let d_loss_d_p2_0[dp20n in 0..1, dp20c in 0..2, dp20h in 0..2, dp20w in 0..2] =
+    d_loss_d_flat0[dp20c * 4 + dp20h * 2 + dp20w];
+
+let d_loss_d_r2_0[dr20n in 0..1, dr20c in 0..2, dr20h in 0..4, dr20w in 0..4] =
+    sum[dr20ph in 0..2, dr20pw in 0..2](
+        if dr20h >= dr20ph * 2 && dr20h < dr20ph * 2 + 2
+            && dr20w >= dr20pw * 2 && dr20w < dr20pw * 2 + 2
+            && relu(c2_0)[dr20n, dr20c, dr20h, dr20w] == p2_0[dr20n, dr20c, dr20ph, dr20pw] {
+            d_loss_d_p2_0[dr20n, dr20c, dr20ph, dr20pw]
+        } else {
+            0.0
+        }
+    );
+let d_loss_d_c2_0[dc20n in 0..1, dc20c in 0..2, dc20h in 0..4, dc20w in 0..4] =
+    if c2_0[dc20n, dc20c, dc20h, dc20w] > 0.0 {
+        d_loss_d_r2_0[dc20n, dc20c, dc20h, dc20w]
+    } else {
+        0.0
+    };
+let d_loss_d_conv2_b[db20o in 0..2] =
+    sum[db20n in 0..1, db20h in 0..4, db20w in 0..4](d_loss_d_c2_0[db20n, db20o, db20h, db20w]);
+let d_loss_d_conv2_w[dw20o in 0..2, dw20i in 0..2, dw20kh in 0..3, dw20kw in 0..3] =
+    sum[dw20n in 0..1, dw20h in 0..4, dw20w in 0..4](
+        if dw20h + dw20kh - 1 >= 0 && dw20h + dw20kh - 1 < 4
+            && dw20w + dw20kw - 1 >= 0 && dw20w + dw20kw - 1 < 4 {
+            p1_0[dw20n, dw20i, dw20h + dw20kh - 1, dw20w + dw20kw - 1] * d_loss_d_c2_0[dw20n, dw20o, dw20h, dw20w]
+        } else {
+            0.0
+        }
+    );
+let d_loss_d_p1_0[dp10n in 0..1, dp10c in 0..2, dp10h in 0..4, dp10w in 0..4] =
+    sum[dp10o in 0..2, dp10kh in 0..3, dp10kw in 0..3](
+        if dp10h - dp10kh + 1 >= 0 && dp10h - dp10kh + 1 < 4
+            && dp10w - dp10kw + 1 >= 0 && dp10w - dp10kw + 1 < 4 {
+            conv2_w0[dp10o, dp10c, dp10kh, dp10kw] * d_loss_d_c2_0[dp10n, dp10o, dp10h - dp10kh + 1, dp10w - dp10kw + 1]
+        } else {
+            0.0
+        }
+    );
+
+let d_loss_d_r1_0[dr10n in 0..1, dr10c in 0..2, dr10h in 0..8, dr10w in 0..8] =
+    sum[dr10ph in 0..4, dr10pw in 0..4](
+        if dr10h >= dr10ph * 2 && dr10h < dr10ph * 2 + 2
+            && dr10w >= dr10pw * 2 && dr10w < dr10pw * 2 + 2
+            && relu(c1_0)[dr10n, dr10c, dr10h, dr10w] == p1_0[dr10n, dr10c, dr10ph, dr10pw] {
+            d_loss_d_p1_0[dr10n, dr10c, dr10ph, dr10pw]
+        } else {
+            0.0
+        }
+    );
+let d_loss_d_c1_0[dc10n in 0..1, dc10c in 0..2, dc10h in 0..8, dc10w in 0..8] =
+    if c1_0[dc10n, dc10c, dc10h, dc10w] > 0.0 {
+        d_loss_d_r1_0[dc10n, dc10c, dc10h, dc10w]
+    } else {
+        0.0
+    };
+let d_loss_d_conv1_b[db10o in 0..2] =
+    sum[db10n in 0..1, db10h in 0..8, db10w in 0..8](d_loss_d_c1_0[db10n, db10o, db10h, db10w]);
+let d_loss_d_conv1_w[dw10o in 0..2, dw10i in 0..1, dw10kh in 0..3, dw10kw in 0..3] =
+    sum[dw10n in 0..1, dw10h in 0..8, dw10w in 0..8](
+        if dw10h + dw10kh - 1 >= 0 && dw10h + dw10kh - 1 < 8
+            && dw10w + dw10kw - 1 >= 0 && dw10w + dw10kw - 1 < 8 {
+            x[dw10n, dw10i, dw10h + dw10kh - 1, dw10w + dw10kw - 1] * d_loss_d_c1_0[dw10n, dw10o, dw10h, dw10w]
+        } else {
+            0.0
+        }
+    );
 
 let lr = 1e-3;
 

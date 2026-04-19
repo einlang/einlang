@@ -5,8 +5,8 @@
 // P is 3x3 (cols = from state), r length 3, V length 3.
 pub fn bellman_step(V: [f64; 3], r: [f64; 3], P: [f64; 3, 3], beta: f64) -> [f64; 3] {
   let V_new[s in 0..3] = {
-    let ev = P[0, s] * V[0] + P[1, s] * V[1] + P[2, s] * V[2];
-    r[s] + beta * ev
+    let ev = (P[0, s] as f64) * (V[0] as f64) + (P[1, s] as f64) * (V[1] as f64) + (P[2, s] as f64) * (V[2] as f64);
+    (r[s] as f64) + (beta as f64) * (ev as f64)
   };
   V_new
 }
@@ -15,8 +15,8 @@ pub fn bellman_step(V: [f64; 3], r: [f64; 3], P: [f64; 3, 3], beta: f64) -> [f64
 pub fn value_iteration(r: [f64; 3], P: [f64; 3, 3], beta: f64) -> [f64; 51, 3] {
   let V[0, s in 0..3] = 0.0;
   let V[k in 1..51, s in 0..3] = {
-    let ev = P[0, s] * V[k - 1, 0] + P[1, s] * V[k - 1, 1] + P[2, s] * V[k - 1, 2];
-    r[s] + beta * ev
+    let ev = (P[0, s] as f64) * (V[k - 1, 0] as f64) + (P[1, s] as f64) * (V[k - 1, 1] as f64) + (P[2, s] as f64) * (V[k - 1, 2] as f64);
+    (r[s] as f64) + (beta as f64) * (ev as f64)
   };
   V
 }

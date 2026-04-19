@@ -557,6 +557,7 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any, plan: Any) -> 
     if not loops:
         return None
     reduction_defids: List[Any] = []
+    reduction_values: List[np.ndarray] = []
     reduction_sizes: List[int] = []
     for loop in loops:
         loop_var = loop.variable
@@ -570,7 +571,13 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any, plan: Any) -> 
             iterable = loop.iterable.accept(backend)
             if iterable is None:
                 return None
-            reduction_sizes.append(int(len(iterable)))
+            if isinstance(iterable, range):
+                step = iterable.step if iterable.step is not None else 1
+                reduction_idx = np.arange(iterable.start, iterable.stop, step, dtype=np.intp)
+            else:
+                reduction_idx = np.array(list(iterable), dtype=np.intp)
+            reduction_values.append(reduction_idx)
+            reduction_sizes.append(int(reduction_idx.size))
         except Exception:
             return None
     mul_left = getattr(plan, "left", None)
@@ -633,6 +640,10 @@ def _try_matmul_reduction(expr: LoweredReductionIR, backend: Any, plan: Any) -> 
     if axes_right is None:
         axes_right = _infer_reduction_axes_from_shape(right_val.shape, reduction_sizes)
     if axes_left is None or axes_right is None:
+        return None
+    left_val = _slice_array_at_reduction_values(left_val, axes_left, reduction_values)
+    right_val = _slice_array_at_reduction_values(right_val, axes_right, reduction_values)
+    if left_val is None or right_val is None:
         return None
     # np.matmul supports batch dims: 2D @ 3D -> (batch, m, p), 3D @ 2D -> (batch, m, p), 3D @ 3D -> (batch, m, p).
     # Contraction: last dim of left, first "matrix" dim of right (0 if 2D, 1 if 3D).
@@ -950,6 +961,11 @@ def _slice_array_at_scalar_indices(
     sliced to a scalar (so subscript letters for those positions are still needed).
     E.g. ln1[0, s, d] with s array, d reduction -> slice at 0 only -> (197, 192), kept=[1,2]."""
     if arr.ndim != len(indices):
+        if backend is not None and getattr(backend, "_vectorize_debug_enabled", None) and backend._vectorize_debug_enabled():
+            print(
+                f"[vectorize] slice-rank-mismatch arr_ndim={arr.ndim} index_rank={len(indices)} indices={[type(i).__name__ for i in indices]}",
+                flush=True,
+            )
         return arr, list(range(arr.ndim))
     key: List[Any] = []
     kept: List[int] = []
@@ -989,6 +1005,30 @@ def _remap_axes_after_scalar_slicing(
     return tuple(remapped)
 
 
+def _slice_array_at_reduction_values(
+    arr: np.ndarray,
+    axes: Optional[Tuple[int, ...]],
+    reduction_values: List[np.ndarray],
+) -> Optional[np.ndarray]:
+    """Gather the exact loop values along each reduction axis before fast-path contraction."""
+    if axes is None:
+        return arr
+    result = arr
+    for axis, values in zip(axes, reduction_values):
+        idx = np.asarray(values, dtype=np.intp).reshape(-1)
+        if idx.size == 0:
+            return None
+        if result.shape[axis] == idx.size and np.array_equal(
+            idx, np.arange(result.shape[axis], dtype=np.intp)
+        ):
+            continue
+        try:
+            result = np.take(result, idx, axis=axis)
+        except Exception:
+            return None
+    return result
+
+
 def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any, plan: Any) -> Optional[Any]:
     """Generic sum-of-product fast path: sum over (left * right [+ bias]) lowered to np.einsum.
     Supports any number of reduction dims; indices must be simple (IdentifierIR/IndexVarIR) on reduction dims.
@@ -1003,6 +1043,7 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any, plan: Any) -> 
     if not loops:
         return None
     reduction_defids: List[Any] = []
+    reduction_values: List[np.ndarray] = []
     reduction_sizes: List[int] = []
     for loop in loops:
         loop_var = loop.variable
@@ -1016,7 +1057,13 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any, plan: Any) -> 
             iterable = loop.iterable.accept(backend)
             if iterable is None:
                 return None
-            reduction_sizes.append(int(len(iterable)))
+            if isinstance(iterable, range):
+                step = iterable.step if iterable.step is not None else 1
+                reduction_idx = np.arange(iterable.start, iterable.stop, step, dtype=np.intp)
+            else:
+                reduction_idx = np.array(list(iterable), dtype=np.intp)
+            reduction_values.append(reduction_idx)
+            reduction_sizes.append(int(reduction_idx.size))
         except Exception:
             return None
     mul_left = getattr(plan, "left", None)
@@ -1078,20 +1125,42 @@ def _try_einsum_reduction(expr: LoweredReductionIR, backend: Any, plan: Any) -> 
                     shape = [1] * n_red
                     shape[i] = N
                     backend.env.set_value(defid, np.arange(N, dtype=np.intp).reshape(shape))
-            if left_arr is not None:
-                left_val = left_arr.accept(backend)
-            else:
-                left_val = mul_left.accept(backend)
-            if right_arr is not None:
-                right_val = right_arr.accept(backend)
-            else:
-                right_val = mul_right.accept(backend)
+            # Evaluate base tensors without the ambient clause vectorization scope.
+            # The einsum planner already reconstructs free-axis structure from the
+            # Einstein indices, so keeping outer broadcast axes here only inflates
+            # arrays like `prev_theta` from 2D into rank-5 broadcasted views.
+            with backend._vectorization_scope(
+                parallel_shape=None,
+                parallel_defids_order=None,
+            ):
+                if left_arr is not None:
+                    left_val = left_arr.accept(backend)
+                else:
+                    left_val = mul_left.accept(backend)
+                if right_arr is not None:
+                    right_val = right_arr.accept(backend)
+                else:
+                    right_val = mul_right.accept(backend)
     except Exception:
         return None
     if not isinstance(left_val, np.ndarray) or not isinstance(right_val, np.ndarray):
         return None
     left_val, kept_left = _slice_array_at_scalar_indices(left_val, indices_left, reduction_defids, backend)
     right_val, kept_right = _slice_array_at_scalar_indices(right_val, indices_right, reduction_defids, backend)
+    left_axes = tuple(
+        axis
+        for axis, pos in enumerate(kept_left)
+        if _index_to_reduction_position(indices_left[pos], reduction_defids) is not None
+    )
+    right_axes = tuple(
+        axis
+        for axis, pos in enumerate(kept_right)
+        if _index_to_reduction_position(indices_right[pos], reduction_defids) is not None
+    )
+    left_val = _slice_array_at_reduction_values(left_val, left_axes, reduction_values)
+    right_val = _slice_array_at_reduction_values(right_val, right_axes, reduction_values)
+    if left_val is None or right_val is None:
+        return None
     left_sub = "".join(left_sub_list[i] for i in kept_left)
     right_sub = "".join(right_sub_list[i] for i in kept_right)
     out_sub = "".join(

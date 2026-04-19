@@ -494,6 +494,11 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         else:
             type_annotation = None
 
+        if is_ein and node.defid is not None:
+            provisional = self._infer_einstein_provisional_type(node.expr)
+            if provisional is not None and provisional != UNKNOWN:
+                self.set_var(node.defid, provisional)
+
         try:
             result = node.expr.accept(self)
         finally:
@@ -515,6 +520,43 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         if node.defid is not None and result is not None:
             self.set_var(node.defid, result)
         return result
+
+    def _infer_einstein_provisional_type(self, ein_expr) -> Optional[Type]:
+        clauses = ein_expr.clauses or []
+        if not clauses:
+            return None
+        rank = len(clauses[0].indices or [])
+        value_type = None
+        for clause in clauses:
+            value_type = self._infer_provisional_value_type(clause.value)
+            if value_type is not None and value_type != UNKNOWN:
+                break
+        if value_type is None or value_type == UNKNOWN:
+            return None
+        if isinstance(value_type, RectangularType):
+            shape = tuple([None] * rank + list(value_type.shape or ()))
+            return RectangularType(value_type.element_type, shape=shape)
+        return RectangularType(value_type, shape=tuple([None] * rank))
+
+    def _infer_provisional_value_type(self, expr: Optional[ExpressionIR]) -> Optional[Type]:
+        if expr is None:
+            return None
+        if isinstance(expr, IfExpressionIR):
+            then_type = self._infer_provisional_value_type(expr.then_expr)
+            if then_type is not None and then_type != UNKNOWN:
+                return then_type
+            return self._infer_provisional_value_type(expr.else_expr)
+        if isinstance(expr, BlockExpressionIR):
+            return self._infer_provisional_value_type(expr.final_expr)
+        prev_binding = self._current_binding
+        prev_expected = self._expected_type
+        try:
+            self._current_binding = None
+            self._expected_type = None
+            return expr.accept(self)
+        finally:
+            self._current_binding = prev_binding
+            self._expected_type = prev_expected
     
     def _is_literal_coercion(self, expr, value_type: Type, expected_type: Type) -> bool:
         """
@@ -1605,13 +1647,49 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 )
             num_dimensions = ranks[0]
 
+        clause_value_shapes = []
+        for clause in clauses:
+            clause_type = getattr(clause.value, "type_info", None) if clause.value is not None else None
+            if isinstance(clause_type, RectangularType) and clause_type.shape:
+                clause_value_shapes.append(tuple(clause_type.shape))
+
+        outer_concrete_shape = None
+        if clauses:
+            first_clause = clauses[0]
+            dims = []
+            for idx in (first_clause.indices or []):
+                dim_value = None
+                if isinstance(idx, LiteralIR) and isinstance(idx.value, int):
+                    dim_value = int(idx.value) + 1
+                else:
+                    range_obj = (first_clause.variable_ranges or {}).get(getattr(idx, "defid", None))
+                    if isinstance(range_obj, RangeIR) and isinstance(range_obj.end, LiteralIR) and isinstance(range_obj.end.value, (int, float)):
+                        dim_value = int(range_obj.end.value)
+                if dim_value is None:
+                    dims = []
+                    break
+                dims.append(dim_value)
+            if dims:
+                outer_concrete_shape = tuple(dims)
+
         shape_exprs = ein_expr.shape or []
         concrete = self._concrete_shape_from_exprs(shape_exprs)
+        if concrete is None and outer_concrete_shape is not None:
+            concrete = outer_concrete_shape
+        if concrete is not None and clause_value_shapes:
+            first_value_shape = clause_value_shapes[0]
+            if all(shape == first_value_shape for shape in clause_value_shapes[1:]):
+                concrete = tuple(concrete) + tuple(first_value_shape)
+        elif concrete is None and clause_value_shapes and outer_concrete_shape is not None:
+            first_value_shape = clause_value_shapes[0]
+            if all(shape == first_value_shape for shape in clause_value_shapes[1:]):
+                concrete = tuple(outer_concrete_shape) + tuple(first_value_shape)
         if concrete is not None:
             elem = element_type if not _is_unknown_type(element_type) else UNKNOWN
             array_type = RectangularType(element_type=elem, shape=concrete)
         else:
-            array_type = self._build_rectangular_array_type(element_type, num_dimensions)
+            extra_rank = len(clause_value_shapes[0]) if clause_value_shapes else 0
+            array_type = self._build_rectangular_array_type(element_type, num_dimensions + extra_rank)
 
         if node.defid is None:
             raise RuntimeError(
@@ -1860,8 +1938,11 @@ class TypeInferencer(ScopedIRVisitor[Type]):
     def visit_tuple_access(self, expr) -> Type:
         """Infer type of tuple access"""
         tuple_type = expr.tuple_expr.accept(self)
-        # TODO: Extract element type at index
         inferred_type = UNKNOWN
+        if isinstance(tuple_type, TupleType):
+            idx = int(expr.index)
+            if 0 <= idx < len(tuple_type.element_types):
+                inferred_type = tuple_type.element_types[idx]
         
         # Set type_info on IR node
         expr.type_info = inferred_type
@@ -1893,8 +1974,14 @@ class TypeInferencer(ScopedIRVisitor[Type]):
     def visit_member_access(self, expr) -> Type:
         """Infer type of member access"""
         object_type = expr.object.accept(self)
-        # TODO: Lookup member type from object type (struct field, module item)
         inferred_type = UNKNOWN
+        member = getattr(expr, "member", None)
+        if isinstance(object_type, TupleType) and (
+            isinstance(member, int) or (isinstance(member, str) and member.isdigit())
+        ):
+            idx = int(member)
+            if 0 <= idx < len(object_type.element_types):
+                inferred_type = object_type.element_types[idx]
 
         # Set type_info on IR node
         expr.type_info = inferred_type

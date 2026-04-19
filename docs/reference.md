@@ -1,7 +1,7 @@
 
 # Einlang Language Reference
 
-Full syntax and semantics. Einlang is **math-intuitive**: indices, sums, where-clauses, and derivatives map directly from equation to code. **New here?** [Getting started](https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md) or [run a quick example](https://github.com/einlang/einlang/blob/main/README.md#try-it) first. **Built-in functions:** [Standard Library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md). **Doc index:** [README](https://github.com/einlang/einlang/blob/main/docs/README.md). **Math notation → code:** [MATH.md](https://github.com/einlang/einlang/blob/main/docs/MATH.md). **Syntax we intentionally do not support (and why):** [Unsupported by design](https://github.com/einlang/einlang/blob/main/docs/UNSUPPORTED.md).
+Full syntax and semantics. If you are new here, start with [GETTING_STARTED](GETTING_STARTED.md) or the [examples guide](../examples/README.md) first. For modules and built-in library functions, see [stdlib](stdlib.md). For derivatives and tangents, see [AUTODIFF](AUTODIFF.md).
 
 ---
 
@@ -449,7 +449,7 @@ let fib[n in 2..8] = fib[n-1] + fib[n-2];
 
 **Alignment with math:** You cannot read **future** values: when defining the element at index `(t, i, j)`, you must not read the same array at an index that is not yet computed (e.g. `h[t+1, i, j]` or `h[t, i+1, j]`). Use **backward references only** along every dimension: e.g. `h[t-1, i, j]` in time, `h[t, i-1, j]` and `h[t, i, j-1]` in space. So for time index `t` use `h[t-1, ...]`, not `h[t+1, ...]`; for space index `i` use `h[t, i-1, j]`, not `h[t, i+1, j]`.
 
-The recurrence index range goes **in the bracket** (`n in 2..8`), not in a `where` clause. See [Unsupported by design](UNSUPPORTED.md#9-index-range-in-where-all-cases-invalid).
+The recurrence index range goes **in the bracket** (`n in 2..8`), not in a `where` clause.
 
 **Declaration bracket:** Each index slot in `let x[...] = ...` may only be an **identifier** (e.g. `n`, `i`, `t`) or a **literal** (e.g. `0`, `1`) or a named rest (`..name`). Expressions like `n-1` or `t+1` are **not** allowed in the declaration bracket. In the **body**, use only **backward** references when reading the same array (no future indices in any dimension).
 
@@ -545,7 +545,7 @@ When resolving a name, the compiler searches:
 - **Built-ins** are language primitives: a small, fixed set known to the compiler and runtime (e.g. by DefId in a builtin crate). They are available without any `use` and cannot be removed. Examples: `print`, `assert`, `len`, `shape`, `typeof`, `array_append`, `sum`, `max`, `min`.
 - **Stdlib** is the standard library: modules and functions implemented in Einlang (`.ein` in `stdlib/`). You bring them in with `use std::math::{...};` etc. They are normal code; the compiler does not treat them as primitives. Many call out to Python/NumPy or (in future) C under the hood.
 
-So: built-in = part of the language; stdlib = library that ships with the language. See [BUILTINS_VS_C.md](BUILTINS_VS_C.md) for the design rationale and comparison with Julia/MATLAB.
+So: built-in = part of the language; stdlib = library that ships with the language.
 
 ---
 
@@ -614,7 +614,15 @@ The compiler derives gradients via the chain rule, but the current implementatio
 
 ## Unsupported by design
 
-Einlang does not support certain syntax or features **by design** (e.g. no `for`/`while`, no `return`, no string-based einsum, no implicit widening, no slice `:` notation). For the full list, rationale, and what to use instead, see [Unsupported by design](https://github.com/einlang/einlang/blob/main/docs/UNSUPPORTED.md).
+Einlang intentionally does not support some familiar constructs:
+
+- no `for` or `while`; use comprehensions, Einstein notation, or recurrences
+- no `return`; the last expression in a block is the value
+- no string-based `einsum`; use named indices directly
+- no implicit numeric widening; use explicit casts
+- no slice `:` syntax; build the view you want with indices
+
+These are part of the language shape, not temporary omissions.
 
 ---
 

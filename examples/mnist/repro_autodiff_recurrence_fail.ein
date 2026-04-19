@@ -1,0 +1,38 @@
+// Minimal failure case: same math as repro_autodiff_two_stage_ok.ein,
+// but expressed with a recurrence-style state update.
+//
+// Current behavior:
+// - Fails during AutodiffRequestLoweringPass with a recursion-depth error.
+//
+// Run:
+//   PYTHONPATH=../../src python3 -m einlang repro_autodiff_recurrence_fail.ein
+
+let x = [[1.0, 2.0], [3.0, 4.0]];
+let y = [[1.0, 0.0], [0.0, 1.0]];
+let lr = 0.1;
+let epochs = 2;
+
+let w0[i in 0..2, j in 0..2] = 0.1 * (1.0 + (i + j) as f32);
+let b0[j in 0..2] = 0.0;
+
+let trained[step in 0..epochs + 1] = if step == 0 {
+    (w0, b0)
+} else {
+    let (prev_w, prev_b) = trained[step - 1];
+
+    let logits[n in 0..2, j in 0..2] = sum[d in 0..2](x[n, d] * prev_w[d, j]) + prev_b[j];
+    let diff[n in 0..2, j in 0..2] = logits[n, j] - y[n, j];
+    let loss = sum[n in 0..2, j in 0..2](diff[n, j] * diff[n, j]);
+
+    let d_w = @loss / @prev_w;
+    let d_b = @loss / @prev_b;
+
+    let next_w[i in 0..2, j in 0..2] = prev_w[i, j] - lr * d_w[i, j];
+    let next_b[j in 0..2] = prev_b[j] - lr * d_b[j];
+
+    (next_w, next_b)
+};
+
+let (w_final, b_final) = trained[epochs];
+let logits_final[n in 0..2, j in 0..2] = sum[d in 0..2](x[n, d] * w_final[d, j]) + b_final[j];
+print(logits_final[0, 0]);

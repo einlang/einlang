@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import numpy as np
+from pathlib import Path
 
 from einlang.compiler.driver import CompilerDriver
+from einlang.ir import dump_ir
 from einlang.ir.nodes import (
     BindingIR,
     BlockExpressionIR,
@@ -14,11 +16,14 @@ from einlang.ir.nodes import (
     JvpIR,
     LazyJacobianIR,
     LiteralIR,
+    RectangularAccessIR,
     VjpIR,
 )
 from einlang.passes.autodiff import AutodiffPass
 from einlang.shared.autodiff_intrinsics import autodiff_builtin_kind
 from einlang.runtime.runtime import EinlangRuntime
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _compile_analysis(source: str):
@@ -156,6 +161,31 @@ def _identifier_nodes(node: object):
                     stack.append(getattr(cur, slot, None))
 
 
+def _walk_nodes(node: object):
+    seen = set()
+    stack = [node]
+    while stack:
+        cur = stack.pop()
+        if cur is None:
+            continue
+        oid = id(cur)
+        if oid in seen:
+            continue
+        seen.add(oid)
+        if isinstance(cur, IRNode):
+            yield cur
+            for cls in type(cur).__mro__:
+                for slot in getattr(cls, "__slots__", ()):
+                    stack.append(getattr(cur, slot, None))
+            continue
+        if isinstance(cur, dict):
+            stack.extend(cur.keys())
+            stack.extend(cur.values())
+            continue
+        if isinstance(cur, (list, tuple)):
+            stack.extend(cur)
+
+
 def test_autodiff_rewrites_direct_source_quotients_to_lazy_jacobian_ir():
     result = _compile_after_autodiff(
         """
@@ -169,6 +199,20 @@ def test_autodiff_rewrites_direct_source_quotients_to_lazy_jacobian_ir():
 
     assert isinstance(main_binding.expr, LazyJacobianIR)
     assert not _contains_node_type(main_binding.expr, DifferentialIR)
+
+
+def test_recurrence_slice_autodiff_ir_has_no_nested_ad_hoists_after_request_lowering():
+    source_path = PROJECT_ROOT / "examples" / "mnist" / "repro_vectorize_logits_recurrence_slice.ein"
+    result = CompilerDriver().compile(
+        source_path.read_text(encoding="utf-8"),
+        source_file=str(source_path),
+    )
+
+    assert result.success, result.get_errors()
+    ir_text = dump_ir(result.ir)
+
+    assert "lowered-recurrence" in ir_text
+    assert "__ad_hoist_" not in ir_text
 
 
 def test_autodiff_pass_skips_graph_snapshot_when_program_has_no_autodiff_requests():
@@ -434,6 +478,33 @@ def test_runtime_executes_nested_max_pool_pullback_via_chain_rule():
     np.testing.assert_allclose(actual, expected)
 
 
+def test_runtime_executes_intermediate_max_pool_pullback_without_nested_output_aliasing():
+    compiler = CompilerDriver()
+    runtime = EinlangRuntime(backend="numpy")
+    result = compiler.compile(
+        """
+        use std::ml::{max_pool, relu};
+
+        let x[n in 0..1, c in 0..1, h in 0..4, w in 0..4] = (h * 4 + w + 1) as f32;
+        let p1 = max_pool(relu(x), [2, 2], [2, 2], [0, 0]);
+        let p2 = max_pool(relu(p1), [2, 2], [2, 2], [0, 0]);
+        let loss = p2[0, 0, 0, 0];
+        let main = @loss / @p1;
+        """,
+        source_file="<autodiff_nested_max_pool_intermediate_pullback>",
+    )
+    assert result.success, result.get_errors()
+
+    exec_result = runtime.execute(result, inputs={})
+
+    assert exec_result.success, exec_result.error
+    out = exec_result.value if exec_result.value is not None else exec_result.outputs.get("main")
+    actual = np.asarray(out, dtype=np.float64)
+    expected = np.zeros((1, 1, 2, 2), dtype=np.float64)
+    expected[0, 0, 1, 1] = 1.0
+    np.testing.assert_allclose(actual, expected)
+
+
 def test_request_lowering_clears_differentials_for_multi_stage_autodiff_updates():
     result = _compile_after_request_lowering(
         """
@@ -461,3 +532,40 @@ def test_request_lowering_clears_differentials_for_multi_stage_autodiff_updates(
     assert not _contains_node_type(result.ir, LazyJacobianIR)
     assert not _contains_node_type(result.ir, JvpIR)
     assert not _contains_node_type(result.ir, VjpIR)
+
+
+def test_explicit_matmul_bias_gradient_executes_without_dangling_reduction_index():
+    compiler = CompilerDriver()
+    runtime = EinlangRuntime(backend="numpy")
+    result = compiler.compile(
+        """
+        let x[n in 0..2, d in 0..4] = (1 + n + d) as f32;
+        let y[n in 0..2, cls in 0..3] = (n == cls) as f32;
+        let theta[p in 0..5, cls in 0..3] =
+            if p == 4 { 0.0 } else { 1e-2 * (1 + p + cls) as f32 };
+        let logits[n in 0..2, cls in 0..3] =
+            sum[d in 0..4](x[n, d] * theta[d, cls]) + theta[4, cls];
+        let diff[n in 0..2, cls in 0..3] = logits[n, cls] - y[n, cls];
+        let loss = sum[n in 0..2, cls in 0..3](diff[n, cls] * diff[n, cls]) / 6.0;
+        let grad = @loss / @theta;
+        let main = grad[0, 0];
+        """,
+        source_file="<autodiff_explicit_matmul_bias_gradient>",
+    )
+    assert result.success, result.get_errors()
+
+    grad_binding = _binding_by_name(result.ir.bindings, "grad")
+    theta_accesses = [
+        node
+        for node in _walk_nodes(grad_binding.expr)
+        if isinstance(node, RectangularAccessIR)
+        and isinstance(getattr(node, "array", None), IdentifierIR)
+        and getattr(node.array, "defid", None) == _binding_by_name(result.ir.bindings, "theta").defid
+    ]
+    assert theta_accesses, "expected explicit theta gradient to preserve accesses to the wrt tensor"
+
+    exec_result = runtime.execute(result, inputs={})
+
+    assert exec_result.success, exec_result.error
+    main = exec_result.value if exec_result.value is not None else exec_result.outputs.get("main")
+    assert np.isfinite(float(np.asarray(main, dtype=np.float64)))

@@ -133,6 +133,14 @@ class EinsteinExecutionSetupMixin:
             snapshot.update(scope)
         return snapshot
 
+    def _fresh_nested_lowered_output_defid(self) -> DefId:
+        resolver = getattr(self, "resolver", None)
+        if resolver is not None:
+            return resolver.allocate_for_local()
+        next_index = int(getattr(self, "_runtime_nested_lowered_defid_counter", 0) or 0)
+        setattr(self, "_runtime_nested_lowered_defid_counter", next_index + 1)
+        return DefId(krate=-1, index=next_index)
+
     def _materialize_recurrence_with_snapshot(
         self,
         node: LoweredRecurrenceIR,
@@ -177,12 +185,21 @@ class EinsteinExecutionSetupMixin:
 
     def _execute_lowered_recurrence_full(self, node: LoweredRecurrenceIR, variable_decl: Any) -> Any:
         """Existing full-history recurrence execution path."""
-        output = self._execute_lowered_einstein(node.initial, variable_decl)
         binding = getattr(variable_decl, "_binding", None) or variable_decl
         variable_key = binding.defid or getattr(variable_decl, "defid", None)
         variable_defid = variable_key
-        tensor_shape = list(output.shape) if output is not None else None
-        tensor_element_type = node.initial.element_type or None
+        tensor_element_type = (node.initial.element_type if node.initial is not None else None) or getattr(node.body, "element_type", None)
+        resolved_shape = self._resolve_lowered_output_shape(node.initial or node.body)
+        dtype = self._type_info_to_numpy_dtype(tensor_element_type) or np.int32
+        output = _allocate_numpy_output(resolved_shape or [1], dtype)
+        if variable_key is not None:
+            self.env.set_value(variable_key, output)
+        initial_result = self._execute_lowered_einstein(node.initial, variable_decl) if node.initial is not None else output
+        if isinstance(initial_result, np.ndarray) and initial_result.shape == tuple(resolved_shape or [1]):
+            output = initial_result
+            if variable_key is not None:
+                self.env.set_value(variable_key, output)
+        tensor_shape = list(output.shape) if output is not None else list(resolved_shape or [])
 
         def expr_eval(e: Any) -> Any:
             return e.accept(self)
@@ -434,27 +451,18 @@ class EinsteinExecutionSetupMixin:
         reuses ``u``'s storage. Use a fresh DefId when inference finds only diagonal
         input reads (``x[i]``) so pullback output does not alias ``x``.
 
-        When inference cannot recover a tensor owner, fall back to the enclosing
-        variable declaration already on the stack. That matches the ordinary
-        top-level execution path where ``LoweredEinsteinIR`` inherits storage
-        identity from the surrounding binding instead of carrying its own owner.
+        When inference cannot recover a safe tensor owner, use a fresh runtime-local
+        DefId instead of aliasing the enclosing binding. Nested pullbacks may read a
+        lowered helper while the enclosing binding is the Jacobian/output tensor
+        currently being filled, and reusing that storage leaks writes across outer
+        autodiff slots.
         """
         out_defid = _infer_lowered_einstein_output_defid(lowered)
         stack = getattr(self, "_variable_decl_stack", None)
         parent_decl = stack[-1] if stack else None
         parent_binding = getattr(parent_decl, "_binding", None) or parent_decl
-        inherited_defid = (
-            getattr(parent_binding, "defid", None)
-            if parent_binding is not None
-            else None
-        )
         if out_defid is None:
-            out_defid = inherited_defid
-        if out_defid is None:
-            raise RuntimeError(
-                "Nested LoweredEinsteinIR has no owner DefId and no enclosing binding DefId to inherit. "
-                "Nested lowered Einstein execution must follow the normal binding-owned storage path."
-            )
+            out_defid = self._fresh_nested_lowered_output_defid()
 
         class _SyntheticEinsteinDecl:
             __slots__ = ("defid", "name")

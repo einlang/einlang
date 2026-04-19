@@ -1,9 +1,9 @@
 
 # Einlang Standard Library
 
-The **standard library** is a set of modules and functions (300+) implemented in Einlang (`.ein` in `stdlib/`). It is **not** the same as **language built-ins**: built-ins (e.g. `print`, `assert`, `len`, `shape`, `sum`, `max`, `min`) are primitives available without import; stdlib you bring in with `use std::math::{...};` etc. See [Reference: Built-in vs stdlib](reference.md#built-in-vs-stdlib).
+The standard library is a set of modules and functions implemented in Einlang under `stdlib/`. It is separate from language built-ins such as `print`, `assert`, `len`, `sum`, `max`, and `min`, which are available without import.
 
-**Syntax and types:** [Language Reference](reference.md). **New here?** [Getting started](GETTING_STARTED.md) or [try an example](https://github.com/einlang/einlang/blob/main/README.md#try-it). **Doc index:** [README](README.md).
+For syntax and type rules, see [reference](reference.md). If you are just getting started, read [GETTING_STARTED](GETTING_STARTED.md) or browse [examples/README](../examples/README.md).
 
 ---
 
@@ -111,7 +111,7 @@ let idx = argmax([3, 1, 4, 1, 5]);   // 4
 
 ## `std::numerics`
 
-General-purpose numerics (Julia-style): no hardcoded sizes; step counts and dimensions are parameters. See [Numerics stdlib design](https://github.com/einlang/einlang/blob/main/docs/NUMERICS_STDLIB_DESIGN.md). **20 functions** for real-world applications: ODEs (scalar decay + linear systems), optimization (quadratic + least-squares), and dynamic programming (value iteration + convergence).
+General-purpose numerics modules for ODEs, optimization, and dynamic programming.
 
 ### `std::numerics::ode` (8 functions)
 

@@ -68,12 +68,32 @@ def test_recurrence_storage_falls_back_to_full_output_for_whole_tensor_use():
     assert rec.requires_full_output is True
 
 
-def test_recurrence_storage_falls_back_to_full_output_for_non_literal_tail_access():
+def test_recurrence_storage_recognizes_symbolic_extent_and_tail_access():
+    rec = _compile_recurrence_binding(
+        """
+        let epochs = 9;
+        let x[t in 0..epochs + 1] = if t == 0 {
+            1.0
+        } else {
+            x[t - 1] + 1.0
+        };
+        let last = x[epochs];
+        last;
+        """,
+        "x",
+    )
+    assert rec.history_lookback_steps == 1
+    assert rec.downstream_tail_steps == 1
+    assert rec.preserve_steps == 2
+    assert rec.requires_full_output is False
+
+
+def test_recurrence_storage_falls_back_to_full_output_for_non_constant_tail_access():
     rec = _compile_recurrence_binding(
         """
         let x[0] = 1.0;
         let x[t in 1..10] = x[t - 1] + 1.0;
-        let idx = 9;
+        let idx = x[0] as i32;
         let last = x[idx];
         last;
         """,
