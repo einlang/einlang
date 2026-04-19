@@ -33,6 +33,12 @@ python3 -m einlang -c "let x = 1 + 1; print(x);"
 
 You should see `2`.
 
+If you want the latest formal release artifact instead of the current `main` branch:
+
+```bash
+python3 -m pip install "https://github.com/einlang/einlang/releases/latest/download/einlang-latest-py3-none-any.whl"
+```
+
 From Python:
 
 ```python

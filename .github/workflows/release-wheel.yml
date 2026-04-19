@@ -1,15 +1,11 @@
 name: Release Wheel
 
 on:
-  push:
-    branches: [main]
+  release:
+    types: [published]
 
 permissions:
   contents: write
-
-concurrency:
-  group: release-wheel-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build-and-release:
@@ -30,18 +26,14 @@ jobs:
       - name: Build wheel
         run: python -m build --wheel --outdir dist
 
-      - name: Publish rolling latest release
-        uses: ncipollo/release-action@v1
-        with:
-          tag: latest
-          name: Latest wheel build
-          prerelease: true
-          allowUpdates: true
-          replacesArtifacts: true
-          removeArtifacts: true
-          artifactErrorsFailBuild: true
-          artifacts: dist/*.whl
-          body: |
-            Latest wheel built from `main`.
+      - name: Create stable latest wheel alias
+        run: |
+          set -euo pipefail
+          wheel_path="$(ls dist/*.whl)"
+          cp "$wheel_path" dist/einlang-latest-py3-none-any.whl
 
-            Commit: ${{ github.sha }}
+      - name: Upload wheel to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" dist/*.whl --clobber
