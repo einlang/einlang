@@ -17,6 +17,9 @@ htmlcov/
 
 # IDE
 .vscode/
+.cursor/
+.cursorignore
+.cursorrules
 .idea/
 *.swp
 *~

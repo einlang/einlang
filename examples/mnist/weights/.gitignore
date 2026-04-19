@@ -1,5 +1,4 @@
 *.npy
-!.gitkeep
 !W.npy
 !conv1_w.npy
 !conv1_b.npy
