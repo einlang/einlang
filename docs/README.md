@@ -8,7 +8,7 @@ This doc set is intentionally small. If you are using Einlang, start with the us
 |------|-----|-----------|
 | 30 seconds | `python3 -m einlang examples/hello.ein` | [GETTING_STARTED](GETTING_STARTED.md) |
 | 5 minutes | `python3 -m einlang examples/autodiff_small.ein`<br>`python3 -m einlang examples/demos/matrix_operations.ein` | [AUTODIFF](AUTODIFF.md) |
-| 30 minutes | `python3 -m einlang examples/applications/linear_regression_autodiff.ein`<br>`python3 -m einlang examples/recurrence/recurrence_suite.ein`<br>`python3 -m einlang examples/ode/ode_suite.ein`<br>`python3 -m einlang examples/mnist/main.ein` | [examples/README](../examples/README.md) |
+| 30 minutes | `python3 -m einlang examples/applications/linear_regression_autodiff.ein`<br>`python3 -m einlang examples/recurrence/recurrence_suite.ein`<br>`python3 -m einlang examples/ode/ode_suite.ein`<br>`python3 -m einlang examples/optimization/optimization_suite.ein` | [examples/README](../examples/README.md) |
 
 ## Use Einlang
 

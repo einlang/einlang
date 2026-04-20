@@ -416,11 +416,20 @@ class _PlainRequestLowerer:
         binding_map: Dict[Any, BindingIR],
         local_contexts: Dict[DefId, Dict[DefId, BindingIR]],
         resolver: Any,
+        roots: Optional[Iterable[Any]] = None,
     ) -> None:
         self._binding_map = binding_map
         self._local_contexts = local_contexts
         self._resolver = resolver
         self._counter = [0]
+        roots_tuple = tuple(roots or ())
+        self._original_expr_by_defid = self._collect_original_expr_by_defid(roots_tuple)
+        for did, binding in (binding_map or {}).items():
+            if did is None or did in self._original_expr_by_defid:
+                continue
+            if isinstance(binding, BindingIR) and isinstance(getattr(binding, "expr", None), ExpressionIR):
+                self._original_expr_by_defid[did] = _clone_expr(binding.expr)
+        self._removable_lazy_binding_defids = self._collect_removable_lazy_binding_defids(roots_tuple)
         binding_ctx = _AutodiffBindingContext(
             bindings=binding_map,
             dep_cache=_DependencyQueryCache(binding_map),
@@ -430,6 +439,115 @@ class _PlainRequestLowerer:
             resolver,
             local_contexts=local_contexts,
         )
+
+    def _collect_original_expr_by_defid(self, roots: Iterable[Any]) -> Dict[Any, ExpressionIR]:
+        original_expr_by_defid: Dict[Any, ExpressionIR] = {}
+        seen: Set[int] = set()
+
+        def walk(node: Any) -> None:
+            if node is None:
+                return
+            if isinstance(node, (str, int, float, bool, bytes)):
+                return
+            oid = id(node)
+            if oid in seen:
+                return
+            seen.add(oid)
+            if isinstance(node, BindingIR):
+                did = getattr(node, "defid", None)
+                expr = getattr(node, "expr", None)
+                if did is not None and isinstance(expr, ExpressionIR):
+                    original_expr_by_defid.setdefault(did, _clone_expr(expr))
+                walk(expr)
+                return
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    walk(key)
+                    walk(value)
+                return
+            if isinstance(node, (list, tuple)):
+                for item in node:
+                    walk(item)
+                return
+            if isinstance(node, IRNode):
+                for cls in type(node).__mro__:
+                    for attr in getattr(cls, "__slots__", ()):
+                        walk(getattr(node, attr, None))
+
+        for root in roots:
+            walk(root)
+        return original_expr_by_defid
+
+    def _collect_removable_lazy_binding_defids(self, roots: Iterable[Any]) -> Set[DefId]:
+        lazy_defids = {
+            did
+            for did, expr in (self._original_expr_by_defid or {}).items()
+            if isinstance(expr, LazyJacobianIR)
+        }
+        if not lazy_defids:
+            return set()
+        fuseable: Dict[DefId, bool] = {did: True for did in lazy_defids}
+        used: Dict[DefId, bool] = {did: False for did in lazy_defids}
+        seen: Set[int] = set()
+
+        def use_is_fuseable(did: DefId, parent: Any, slot: Optional[str]) -> bool:
+            if not (slot == "array" and isinstance(parent, RectangularAccessIR)):
+                return False
+            original = self._original_expr_by_defid.get(did)
+            if not isinstance(original, LazyJacobianIR):
+                return False
+            target_binding = _binding_by_identifier(original.target, self._binding_map)
+            wrt_binding = _binding_by_identifier(original.wrt, self._binding_map)
+            if target_binding is None or wrt_binding is None:
+                return False
+            target_rank = len(self._binding_shape(target_binding))
+            total_rank = target_rank + len(self._binding_shape(wrt_binding))
+            index_count = len(parent.indices or ())
+            return target_rank > 0 and target_rank <= index_count <= total_rank
+
+        def walk(node: Any, parent: Any = None, slot: Optional[str] = None) -> None:
+            if node is None:
+                return
+            if isinstance(node, (str, int, float, bool, bytes)):
+                return
+            oid = id(node)
+            if oid in seen:
+                return
+            seen.add(oid)
+            if isinstance(node, IdentifierIR) and node.defid in fuseable:
+                used[node.defid] = True
+                fuseable[node.defid] = fuseable[node.defid] and use_is_fuseable(node.defid, parent, slot)
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    walk(key, node, "key")
+                    walk(value, node, "value")
+                return
+            if isinstance(node, (list, tuple)):
+                for item in node:
+                    walk(item, node, "item")
+                return
+            if isinstance(node, IRNode):
+                for cls in type(node).__mro__:
+                    for attr in getattr(cls, "__slots__", ()):
+                        value = getattr(node, attr, None)
+                        if attr == "indices" and isinstance(value, (list, tuple)):
+                            for item in value:
+                                walk(item, node, "index")
+                            continue
+                        walk(value, node, attr)
+
+        for root in roots:
+            walk(root)
+        return {did for did, ok in fuseable.items() if ok and used.get(did, False)}
+
+    def _original_lazy_expr(self, expr: Any) -> Optional[LazyJacobianIR]:
+        if isinstance(expr, LazyJacobianIR):
+            return expr
+        if isinstance(expr, IdentifierIR):
+            original = self._original_expr_by_defid.get(getattr(expr, "defid", None))
+            if isinstance(original, LazyJacobianIR):
+                return _clone_expr(original)
+        return None
     @staticmethod
     def _int_literal_expr(value: int, loc: Any) -> LiteralIR:
         return LiteralIR(int(value), loc, type_info=PrimitiveType("i32"))
@@ -689,6 +807,9 @@ class _PlainRequestLowerer:
 
     def rewrite_statement(self, stmt: Any) -> List[Any]:
         if isinstance(stmt, BindingIR):
+            original_expr = self._original_expr_by_defid.get(getattr(stmt, "defid", None))
+            if stmt.defid in self._removable_lazy_binding_defids and isinstance(original_expr, LazyJacobianIR):
+                return []
             if stmt.expr is not None:
                 stmt.expr = self.rewrite_expr(stmt.expr)
             if stmt.defid is not None:
@@ -1680,7 +1801,7 @@ class _PlainRequestLowerer:
     def _make_basis_tensor(
         self,
         binding: BindingIR,
-        selected_axes: List[IdentifierIR],
+        selected_axes: List[ExpressionIR],
         loc: Any,
     ) -> ExpressionIR:
         shape = self._binding_shape(binding)
@@ -1704,6 +1825,115 @@ class _PlainRequestLowerer:
             defid=fixed_builtin_defid("__basis_tensor"),
             type_info=_tensor_type_info(binding),
             shape_info=tuple(_clone_expr(dim) for dim in shape),
+        )
+
+    def _lower_lazy_row_via_vjp(
+        self,
+        expr: LazyJacobianIR,
+        target_binding: BindingIR,
+        wrt_binding: BindingIR,
+        output_indices: List[ExpressionIR],
+        loc: Any,
+    ) -> ExpressionIR:
+        cotangent_basis = self._make_basis_tensor(target_binding, output_indices, loc)
+        return self._lower_vjp(
+            VjpIR(
+                target=_clone_expr(expr.target),
+                wrt=_clone_expr(expr.wrt),
+                location=loc,
+                cotangent=cotangent_basis,
+                type_info=_tensor_type_info(wrt_binding, expr.type_info),
+                shape_info=tuple(_clone_expr(dim) for dim in self._binding_shape(wrt_binding)),
+            ),
+            cotangent_expr=cotangent_basis,
+        )
+
+    def _lower_lazy_column_via_jvp(
+        self,
+        expr: LazyJacobianIR,
+        target_binding: BindingIR,
+        wrt_binding: BindingIR,
+        wrt_indices: List[ExpressionIR],
+        loc: Any,
+    ) -> ExpressionIR:
+        tangent_basis = self._make_basis_tensor(wrt_binding, wrt_indices, loc)
+        return self._lower_jvp(
+            JvpIR(
+                target=_clone_expr(expr.target),
+                wrt=_clone_expr(expr.wrt),
+                location=loc,
+                tangent=tangent_basis,
+                type_info=_tensor_type_info(target_binding, expr.type_info),
+                shape_info=tuple(_clone_expr(dim) for dim in self._binding_shape(target_binding)),
+            ),
+            tangent_expr=tangent_basis,
+        )
+
+    def _rewrite_lazy_access(self, expr: RectangularAccessIR, lazy_expr: LazyJacobianIR) -> Optional[ExpressionIR]:
+        target_binding = _binding_by_identifier(lazy_expr.target, self._binding_map)
+        wrt_binding = _binding_by_identifier(lazy_expr.wrt, self._binding_map)
+        if target_binding is None or wrt_binding is None:
+            return None
+        target_shape = self._binding_shape(target_binding)
+        wrt_shape = self._binding_shape(wrt_binding)
+        target_rank = len(target_shape)
+        wrt_rank = len(wrt_shape)
+        if target_rank == 0:
+            return None
+        rewritten_indices = [
+            rewritten
+            for idx in (expr.indices or ())
+            for rewritten in [self.rewrite_expr(idx)]
+            if rewritten is not None
+        ]
+        if len(rewritten_indices) < target_rank or len(rewritten_indices) > target_rank + wrt_rank:
+            return None
+        loc = expr.location or lazy_expr.location
+        out_indices = rewritten_indices[:target_rank]
+        wrt_indices = rewritten_indices[target_rank:]
+
+        if len(rewritten_indices) == target_rank + wrt_rank and wrt_indices:
+            mode = self._choose_lazy_mode(target_binding, wrt_binding)
+            if mode == "jvp":
+                column_expr = self._lower_lazy_column_via_jvp(
+                    lazy_expr,
+                    target_binding,
+                    wrt_binding,
+                    list(wrt_indices),
+                    loc,
+                )
+                return self.rewrite_expr(
+                    RectangularAccessIR(
+                        column_expr,
+                        list(out_indices),
+                        loc,
+                        type_info=expr.type_info,
+                        shape_info=expr.shape_info,
+                    )
+                )
+
+        row_expr = self._lower_lazy_row_via_vjp(
+            lazy_expr,
+            target_binding,
+            wrt_binding,
+            list(out_indices),
+            loc,
+        )
+        if wrt_indices:
+            return self.rewrite_expr(
+                RectangularAccessIR(
+                    row_expr,
+                    list(wrt_indices),
+                    loc,
+                    type_info=expr.type_info,
+                    shape_info=expr.shape_info,
+                )
+            )
+        return _stamp_expr_metadata(
+            row_expr,
+            self._binding_map,
+            fallback_type=expr.type_info,
+            fallback_shape=expr.shape_info,
         )
 
     def _make_einstein_axes(
@@ -1946,6 +2176,11 @@ class _PlainRequestLowerer:
             expr.operand = self.rewrite_expr(expr.operand)
             return expr
         if isinstance(expr, RectangularAccessIR):
+            lazy_expr = self._original_lazy_expr(expr.array)
+            if lazy_expr is not None:
+                fused = self._rewrite_lazy_access(expr, lazy_expr)
+                if fused is not None:
+                    return fused
             expr.array = self.rewrite_expr(expr.array)
             expr.indices = tuple(self.rewrite_expr(idx) for idx in (expr.indices or ()))
             return expr
@@ -2049,10 +2284,17 @@ class AutodiffRequestLoweringPass(BasePass):
         if not binding_map:
             binding_map = _binding_map(ir, tcx)
         local_contexts = dict(analysis.get("graph_local_contexts_by_defid") or {})
-        lowerer = _PlainRequestLowerer(binding_map, local_contexts, getattr(tcx, "resolver", None))
+        function_ir_map = getattr(tcx, "function_ir_map", None) or {}
+        lowerer_roots: List[Any] = [ir]
+        lowerer_roots.extend(binding for binding in function_ir_map.values() if isinstance(binding, BindingIR))
+        lowerer = _PlainRequestLowerer(
+            binding_map,
+            local_contexts,
+            getattr(tcx, "resolver", None),
+            roots=lowerer_roots,
+        )
         ir.statements = lowerer.rewrite_statement_list(ir.statements or ())
         ir.bindings = [stmt for stmt in (ir.statements or []) if isinstance(stmt, BindingIR)]
-        function_ir_map = getattr(tcx, "function_ir_map", None) or {}
         for binding in function_ir_map.values():
             if isinstance(binding, BindingIR) and isinstance(binding.expr, FunctionValueIR):
                 binding.expr = lowerer.rewrite_expr(binding.expr)
