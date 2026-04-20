@@ -122,6 +122,55 @@ def _expr_contains_lowered_reduction(node: Any) -> bool:
     return False
 
 
+def _expr_contains_computed_tensor_access(node: Any) -> bool:
+    """True when a tensor read indexes into a computed tensor-producing expression.
+
+    These reads are correct under scalar execution, but some fully vectorized clause
+    paths can lose the outer-slot distinction when they flow through nested lowered
+    reductions produced by autodiff.
+    """
+    if node is None:
+        return False
+    if isinstance(node, RectangularAccessIR):
+        if isinstance(node.array, (BlockExpressionIR, IfExpressionIR)):
+            return True
+        return _expr_contains_computed_tensor_access(node.array) or any(
+            _expr_contains_computed_tensor_access(idx) for idx in (node.indices or [])
+        )
+    if isinstance(node, BindingIR):
+        return _expr_contains_computed_tensor_access(node.expr)
+    if isinstance(node, BlockExpressionIR):
+        return any(_expr_contains_computed_tensor_access(stmt) for stmt in (node.statements or [])) or _expr_contains_computed_tensor_access(
+            node.final_expr
+        )
+    if isinstance(node, BinaryOpIR):
+        return _expr_contains_computed_tensor_access(node.left) or _expr_contains_computed_tensor_access(node.right)
+    if isinstance(node, UnaryOpIR):
+        return _expr_contains_computed_tensor_access(node.operand)
+    if isinstance(node, IfExpressionIR):
+        return (
+            _expr_contains_computed_tensor_access(node.condition)
+            or _expr_contains_computed_tensor_access(node.then_expr)
+            or _expr_contains_computed_tensor_access(node.else_expr)
+        )
+    if isinstance(node, LoweredReductionIR):
+        return (
+            _expr_contains_computed_tensor_access(node.body)
+            or any(_expr_contains_computed_tensor_access(loop.iterable) for loop in (node.loops or []))
+            or any(_expr_contains_computed_tensor_access(binding) for binding in (node.bindings or []))
+            or any(_expr_contains_computed_tensor_access(guard.condition) for guard in (node.guards or []))
+        )
+    if isinstance(node, LoweredSelectAtArgmaxIR):
+        return (
+            _expr_contains_computed_tensor_access(node.primal_body)
+            or _expr_contains_computed_tensor_access(node.diff_body)
+            or any(_expr_contains_computed_tensor_access(loop.iterable) for loop in (node.loops or []))
+            or any(_expr_contains_computed_tensor_access(binding) for binding in (node.bindings or []))
+            or any(_expr_contains_computed_tensor_access(guard.condition) for guard in (node.guards or []))
+        )
+    return False
+
+
 class EinsteinExecutionClauseMixin:
     def _clause_loop_ranges(
         self,
@@ -339,6 +388,13 @@ class EinsteinExecutionClauseMixin:
                     "LoweredEinsteinClauseIR missing compiler-owned vectorization_strategy. "
                     "LoweredExecutionFactsPass must annotate lowered clause strategies before execution."
                 )
+            if (
+                planned_vectorization_strategy != "scalar"
+                and isinstance(body_node, (LoweredReductionIR, LoweredSelectAtArgmaxIR))
+                and _expr_contains_computed_tensor_access(body_node)
+            ):
+                planned_vectorization_strategy = "scalar"
+                planned_scalar_loop_indices = list(range(len(lowered.loops or [])))
             has_literal_idx = (
                 bool(getattr(clause_facts, "has_literal_index", False))
                 if clause_facts is not None

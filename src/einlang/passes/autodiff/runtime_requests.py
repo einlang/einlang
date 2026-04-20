@@ -1527,7 +1527,7 @@ class _PlainRequestLowerer:
                             fallback_type=node.type_info,
                             fallback_shape=tuple(_clone_expr(dim) for dim in wrt_shape),
                         )
-        if False and prefer_factored_scalar_target and not target_shape and wrt_shape:
+        if prefer_factored_scalar_target and not target_shape and wrt_shape:
             emitted, bar_ident_by_defid = self._build_shared_scalar_target_bars(
                 target_binding.defid,
                 [wrt_binding.defid],

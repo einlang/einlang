@@ -481,7 +481,6 @@ def test_nested_max_pool_pullback():
     np.testing.assert_allclose(actual, expected)
 
 
-@pytest.mark.skip(reason="overlapping grad not supported yet")
 def test_average_pool_pullback():
     # Test average pool gradient computation with overlapping windows
     out, _ = _compile_and_run_main(
@@ -501,12 +500,12 @@ def test_average_pool_pullback():
     # Edge elements (like [0,1], [1,0]): 2 windows  
     # Center elements (like [1,1]): 4 windows
     # Each window contributes 1.0/4 = 0.25 to each element in it
-    expected = np.array([[[[
+    expected = np.array([[[
         [0.25, 0.50, 0.50, 0.25],  # row 0: corner=1*0.25, edges=2*0.25
         [0.50, 1.00, 1.00, 0.50],  # row 1: edges=2*0.25, center=4*0.25
         [0.50, 1.00, 1.00, 0.50],  # row 2: edges=2*0.25, center=4*0.25
         [0.25, 0.50, 0.50, 0.25]   # row 3: corner=1*0.25, edges=2*0.25
-    ]]]], dtype=np.float64)
+    ]]], dtype=np.float64)
     np.testing.assert_allclose(actual, expected)
 
 
