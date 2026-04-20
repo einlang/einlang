@@ -19,7 +19,7 @@ CURATED_FIRST_VISIT_PATHS = {
     "examples/applications/linear_regression_autodiff.ein",
     "examples/recurrence/recurrence_suite.ein",
     "examples/ode/ode_suite.ein",
-    "examples/mnist/main.ein",
+    "examples/optimization/optimization_suite.ein",
 }
 
 ENTRY_DOCS_WITH_CURATED_PATH = (

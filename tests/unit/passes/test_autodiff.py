@@ -380,6 +380,58 @@ def test_runtime_executes_tensor_jacobian():
     np.testing.assert_allclose(actual, expected)
 
 
+def test_named_tensor_jacobian_row_access_fuses_at_request_lowering():
+    result = _compile_after_request_lowering(
+        """
+        let A = [[1.0, 2.0], [3.0, 4.0]];
+        let B = [[5.0, 6.0], [7.0, 8.0]];
+        let C[i, j] = sum[k](A[i, k] * B[k, j]);
+        let J = @C / @A;
+        let main = J[1, 1];
+        """
+    )
+
+    _assert_no_runtime_autodiff_ir(result.ir)
+    assert all(binding.name != "J" for binding in result.ir.bindings)
+
+    main_binding = _binding_by_name(result.ir.bindings, "main")
+    assert not isinstance(main_binding.expr, RectangularAccessIR) or not isinstance(main_binding.expr.array, IdentifierIR)
+
+
+def test_runtime_executes_fused_named_tensor_jacobian_row_access():
+    out, result = _compile_and_run_main(
+        """
+        let A = [[1.0, 2.0], [3.0, 4.0]];
+        let B = [[5.0, 6.0], [7.0, 8.0]];
+        let C[i, j] = sum[k](A[i, k] * B[k, j]);
+        let J = @C / @A;
+        let main = J[1, 1];
+        """,
+        "<autodiff_tensor_jacobian_named_row_access>",
+    )
+
+    assert all(binding.name != "J" for binding in result.ir.bindings)
+    actual = np.asarray(out, dtype=np.float64)
+    expected = np.array([[0.0, 0.0], [6.0, 8.0]], dtype=np.float64)
+    np.testing.assert_allclose(actual, expected)
+
+
+def test_runtime_executes_fused_named_tensor_jacobian_entry_access_via_jvp():
+    out, result = _compile_and_run_main(
+        """
+        let x = [2.0, 3.0];
+        let y[i in 0..2, j in 0..2] = x[i] * (j + 1) as f32;
+        let J = @y / @x;
+        let main = J[1, 1, 1];
+        """,
+        "<autodiff_tensor_jacobian_named_entry_access_jvp>",
+    )
+
+    assert all(binding.name != "J" for binding in result.ir.bindings)
+    actual = np.asarray(out, dtype=np.float64)
+    np.testing.assert_allclose(actual, np.array(2.0, dtype=np.float64))
+
+
 def test_local_recurrence_quotients_no_lazy_cycle():
     result = CompilerDriver().compile(
         """
@@ -481,7 +533,6 @@ def test_nested_max_pool_pullback():
     np.testing.assert_allclose(actual, expected)
 
 
-@pytest.mark.skip(reason="overlapping grad not supported yet")
 def test_average_pool_pullback():
     # Test average pool gradient computation with overlapping windows
     out, _ = _compile_and_run_main(
@@ -501,12 +552,12 @@ def test_average_pool_pullback():
     # Edge elements (like [0,1], [1,0]): 2 windows  
     # Center elements (like [1,1]): 4 windows
     # Each window contributes 1.0/4 = 0.25 to each element in it
-    expected = np.array([[[[
+    expected = np.array([[[
         [0.25, 0.50, 0.50, 0.25],  # row 0: corner=1*0.25, edges=2*0.25
         [0.50, 1.00, 1.00, 0.50],  # row 1: edges=2*0.25, center=4*0.25
         [0.50, 1.00, 1.00, 0.50],  # row 2: edges=2*0.25, center=4*0.25
         [0.25, 0.50, 0.50, 0.25]   # row 3: corner=1*0.25, edges=2*0.25
-    ]]]], dtype=np.float64)
+    ]]], dtype=np.float64)
     np.testing.assert_allclose(actual, expected)
 
 

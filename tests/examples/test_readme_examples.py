@@ -129,8 +129,8 @@ README_EXECUTE_VALIDATORS = {
 README_DUPLICATE_EXAMPLE_PATHS = {
     # These README examples are already covered by stronger dedicated suites.
     "examples/demos/matrix_operations.ein",
-    "examples/mnist/main.ein",
     "examples/ode/ode_suite.ein",
+    "examples/optimization/optimization_suite.ein",
     "examples/recurrence/recurrence_suite.ein",
 }
 

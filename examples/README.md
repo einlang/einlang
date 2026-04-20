@@ -10,7 +10,7 @@ These are the lowest-friction paths through the repo. They all run from the repo
 |------|-----|-----------------------|
 | 30 seconds | `python3 -m einlang examples/hello.ein` | Confirms the install and shows the CLI on a tiny program. |
 | 5 minutes | `python3 -m einlang examples/autodiff_small.ein`<br>`python3 -m einlang examples/demos/matrix_operations.ein` | Shows the core autodiff syntax and the tensor notation quickly. |
-| 30 minutes | `python3 -m einlang examples/applications/linear_regression_autodiff.ein`<br>`python3 -m einlang examples/recurrence/recurrence_suite.ein`<br>`python3 -m einlang examples/ode/ode_suite.ein`<br>`python3 -m einlang examples/mnist/main.ein` | Shows that the same language reaches fitting, recurrences, numerics, and a model example. |
+| 30 minutes | `python3 -m einlang examples/applications/linear_regression_autodiff.ein`<br>`python3 -m einlang examples/recurrence/recurrence_suite.ein`<br>`python3 -m einlang examples/ode/ode_suite.ein`<br>`python3 -m einlang examples/optimization/optimization_suite.ein` | Shows that the same language reaches fitting, recurrences, numerics, and optimization workflows. |
 | After that | [examples/README](README.md), [mnist/README](mnist/README.md), [deit_tiny/README](deit_tiny/README.md), [whisper_tiny/README](whisper_tiny/README.md) | Use the directory guides once you want the heavier showcases or extra setup. |
 
 If you only run one thing after `hello.ein`, run `autodiff_small.ein`.

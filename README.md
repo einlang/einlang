@@ -41,7 +41,7 @@ The derivative request lives in the language right next to the primal expression
 |------|-----|----------------|
 | 30 seconds | `python3 -m einlang examples/hello.ein` | The toolchain is working and the language reads cleanly. |
 | 5 minutes | `python3 -m einlang examples/autodiff_small.ein`<br>`python3 -m einlang examples/demos/matrix_operations.ein` | Autodiff syntax and Einstein-style tensor code without helper APIs. |
-| 30 minutes | `python3 -m einlang examples/applications/linear_regression_autodiff.ein`<br>`python3 -m einlang examples/recurrence/recurrence_suite.ein`<br>`python3 -m einlang examples/ode/ode_suite.ein`<br>`python3 -m einlang examples/mnist/main.ein` | The same notation on fitting, recurrences, numerics, and a full model example. |
+| 30 minutes | `python3 -m einlang examples/applications/linear_regression_autodiff.ein`<br>`python3 -m einlang examples/recurrence/recurrence_suite.ein`<br>`python3 -m einlang examples/ode/ode_suite.ein`<br>`python3 -m einlang examples/optimization/optimization_suite.ein` | The same notation on fitting, recurrences, numerics, and optimization workflows. |
 
 The commands above all run from the repository root after install. If a larger showcase needs extra setup or a different working directory, its directory README calls that out explicitly instead of putting friction in the first run.
 
@@ -95,9 +95,9 @@ python3 -m einlang --backend iree examples/hello.ein
 
 ## Why visitors stick around
 
-- The same notation keeps working from tiny autodiff snippets to recurrences, numerics, MNIST, DeiT, and Whisper-style examples.
+- The same notation keeps working from tiny autodiff snippets to fitting, recurrences, numerics, and optimization examples.
 - The example set is curated through [examples/README](examples/README.md) instead of expecting visitors to browse the whole tree cold.
-- The front-door examples are checked in [README example tests](tests/examples/test_readme_examples.py), and larger showcases are covered by [demo/example suites](tests/examples/test_demo.py) and [autodiff/model checks](tests/examples/test_mnist_autodiff.py).
+- The front-door examples are checked in [README example tests](tests/examples/test_readme_examples.py), and larger showcases are covered by [demo/example suites](tests/examples/test_demo.py) and [autodiff/example checks](tests/examples/test_mnist_autodiff.py).
 
 ## Start here
 
@@ -116,7 +116,7 @@ python3 -m einlang --backend iree examples/hello.ein
 - Einstein-style tensor expressions without string-based `einsum`
 - Recurrences for sequences, dynamic programs, and time stepping
 - NumPy-backed execution from the CLI or from Python
-- Examples that cover basics, optimization, simulation, and full models
+- Examples that cover basics, optimization, simulation, and end-to-end programs
 
 ## Example entry points
 
@@ -128,7 +128,7 @@ python3 -m einlang --backend iree examples/hello.ein
 | Try autodiff on a real fit | `python3 -m einlang examples/applications/linear_regression_autodiff.ein` |
 | Run a recurrence | `python3 -m einlang examples/recurrence/recurrence_suite.ein` |
 | Run numerics examples | `python3 -m einlang examples/ode/ode_suite.ein` |
-| Run a model | `python3 -m einlang examples/mnist/main.ein` |
+| Run optimization workflows | `python3 -m einlang examples/optimization/optimization_suite.ein` |
 
 More paths live in [examples/README](examples/README.md).
 

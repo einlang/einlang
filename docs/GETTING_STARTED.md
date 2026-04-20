@@ -64,12 +64,12 @@ python3 -m einlang examples/applications/linear_regression_autodiff.ein
 
 ### 30 minutes
 
-Once the syntax feels comfortable, branch into recurrences, numerics, or a full model example:
+Once the syntax feels comfortable, branch into recurrences, numerics, or optimization workflows:
 
 ```bash
 python3 -m einlang examples/recurrence/recurrence_suite.ein
 python3 -m einlang examples/ode/ode_suite.ein
-python3 -m einlang examples/mnist/main.ein
+python3 -m einlang examples/optimization/optimization_suite.ein
 ```
 
 If you want training-oriented or directory-local showcases after that, use [examples/README](../examples/README.md) and the relevant example directory README. Those pages keep the extra setup notes out of the first-run path.
