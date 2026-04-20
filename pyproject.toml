@@ -37,14 +37,20 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/einlang/einlang"
 Repository = "https://github.com/einlang/einlang"
-Documentation = "https://github.com/einlang/einlang/tree/main/docs"
+Documentation = "https://einlang.github.io/einlang/"
 Issues = "https://github.com/einlang/einlang/issues"
 
 [project.scripts]
 einlang = "einlang.__main__:main"
 
 [project.optional-dependencies]
-test = ["pytest>=7", "pytest-xdist>=3.0"]
+test = [
+    "pytest>=7",
+    "pytest-xdist>=3.0",
+    "scikit-learn<1.1; python_version < '3.8'",
+    "scikit-learn; python_version >= '3.8'",
+]
+iree = ["iree-base-compiler", "iree-base-runtime"]
 
 [tool.setuptools]
 include-package-data = true

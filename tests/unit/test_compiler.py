@@ -30,6 +30,16 @@ class TestEinlangCompiler:
         exec_result = runtime.execute(compile_result, inputs={})
         assert exec_result.success
         assert exec_result.outputs["y"] == 15
+
+    def test_main_function_entrypoint_executes(self, compiler, runtime):
+        """Tree shaking must preserve an explicit main entrypoint."""
+        source_code = "fn main() { 42 }"
+
+        compile_result = compiler.compile(source_code, "<test>")
+        assert compile_result.success
+        exec_result = runtime.execute(compile_result, inputs={})
+        assert exec_result.success
+        assert exec_result.value == 42
     
 
 if __name__ == "__main__":

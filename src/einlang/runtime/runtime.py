@@ -114,9 +114,12 @@ class EinlangRuntime:
         Rust Pattern: Runtime selects execution strategy
         """
         from ..backends.numpy import NumPyBackend
+        from ..backends.iree import IREEBackend
         
         if backend == "numpy":
             self.backend: Backend = NumPyBackend()
+        elif backend == "iree":
+            self.backend = IREEBackend()
         else:
             raise ValueError(f"Unknown backend: {backend}")
         self._last_vectorize_counts: Dict[str, int] = {

@@ -79,6 +79,42 @@ def test_mnist_train_one_step_source_loss_matches_numpy_reference_and_decreases(
     assert np.allclose(loss1, ref_loss1, atol=1e-6, rtol=1e-6)
 
 
+def test_mnist_train_one_step_runs_under_iree_backend_with_current_fallbacks(compiler):
+    from einlang.backends.iree import IREEBackend
+    from einlang.runtime.runtime import EinlangRuntime
+
+    source_file = PROJECT_ROOT / "examples" / "mnist" / "train_one_step.ein"
+    source = source_file.read_text(encoding="utf-8")
+
+    runtime = EinlangRuntime(backend="iree")
+    result = compile_and_execute(
+        source,
+        compiler,
+        runtime,
+        source_file=str(source_file),
+    )
+
+    assert result.success, result.error or result.errors
+
+    loss0 = float(np.asarray(result.outputs["loss0_scalar"], dtype=np.float64))
+    loss1 = float(np.asarray(result.outputs["loss1_scalar"], dtype=np.float64))
+    assert loss1 < loss0
+
+    compilation_result = compiler.compile(source, str(source_file), root_path=source_file.parent)
+    assert compilation_result.success
+    backend = IREEBackend()
+    exec_result = backend.execute(
+        compilation_result.ir,
+        resolver=compilation_result.tcx.resolver if compilation_result.tcx else None,
+        tcx=compilation_result.tcx,
+        main_defid=None,
+        entry_source_file=str(source_file),
+    )
+
+    assert exec_result.error is None, str(exec_result.error)
+    assert backend._iree_module_cache == {}
+
+
 def test_mnist_train_sklearn_digits_multi_epoch_matches_numpy_reference_and_improves(compiler, runtime):
     ensure_test_dependency("sklearn")
 

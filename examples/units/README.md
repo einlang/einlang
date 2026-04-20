@@ -14,7 +14,7 @@ This directory contains 60+ standalone `.ein` files, each exercising a specific 
 | Comprehensions | `comprehensions.ein`, `array_comprehension_syntax.ein`, `tuple_expressions.ein`, `tuple_syntax.ein` | `[expr \| var in range]`, nested comprehensions, tuple iteration |
 | Reductions | `reduction_operations.ein`, `cumulative_operations.ein`, `scan_operations.ein`, `multidimensional_scans.ein` | `sum[i]`, `max[i]`, `min[i]`, scans, cumulative sums |
 | Einstein notation | `chained_einstein.ein`, `einstein_windowing.ein`, `tensors.ein`, `forward_indexing_patterns.ein` | Index expressions, windowed ops, tensor contractions |
-| Convolutions | `convolution_operations.ein`, `auto_convolution_inference.ein`, `windowed_operations_working.ein` | Manual and stdlib conv, automatic shape inference |
+| Convolutions | `convolution_operations.ein`, `auto_convolution_inference.ein`, `windowed_operations_examples.ein` | Manual and stdlib conv, automatic shape inference |
 | Functions | `functions.ein`, `functions_advanced.ein`, `function_overloading.ein`, `bootstrap_functions.ein` | Definition, recursion, overloading, closures |
 | Control flow | `conditionals.ein`, `expressions.ein`, `complex_expressions.ein`, `where_constraints.ein` | `if`/`else`, `where` clauses, expression nesting |
 | Strings | `string_operations.ein`, `string_interpolation.ein`, `string_utility_functions.ein` | Concatenation, `"{x}"` interpolation, utility functions |

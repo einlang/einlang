@@ -1,5 +1,5 @@
-// CORE FEATURE: Working Windowed Operations with Einstein Notation
-// PURPOSE: Demonstrates windowed operations that work with current range inference
+// CORE FEATURE: Windowed Operations with Einstein Notation
+// PURPOSE: Demonstrates windowed operations with the current range inference
 // VALUE: Shows practical Einstein patterns for signal processing and ML
 
 // 2D Max Pooling - Works with automatic range inference

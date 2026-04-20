@@ -1,50 +1,29 @@
 # Einlang docs
 
-This directory now keeps a small user-focused doc set. If you are learning or using Einlang, these are the pages that matter.
+This doc set is intentionally small. If you are using Einlang, start with the user docs below. If you are changing Einlang, jump to the contributor docs at the end.
 
-## Start here
+## First visit
 
-- [Getting started](GETTING_STARTED.md)
-- [Examples guide](../examples/README.md)
-- [Language reference](reference.md)
-- [Standard library](stdlib.md)
-- [Autodiff guide](AUTODIFF.md)
+| Time | Run | Then read |
+|------|-----|-----------|
+| 30 seconds | `python3 -m einlang examples/hello.ein` | [GETTING_STARTED](GETTING_STARTED.md) |
+| 5 minutes | `python3 -m einlang examples/autodiff_small.ein`<br>`python3 -m einlang examples/demos/matrix_operations.ein` | [AUTODIFF](AUTODIFF.md) |
+| 30 minutes | `python3 -m einlang examples/applications/linear_regression_autodiff.ein`<br>`python3 -m einlang examples/recurrence/recurrence_suite.ein`<br>`python3 -m einlang examples/ode/ode_suite.ein`<br>`python3 -m einlang examples/mnist/main.ein` | [examples/README](../examples/README.md) |
 
-## Choose by goal
+## Use Einlang
 
-| You want to... | Read |
-|----------------|------|
-| Understand what Einlang is for | [WHY_EINLANG](WHY_EINLANG.md) |
-| Run your first program | [GETTING_STARTED](GETTING_STARTED.md) |
-| Learn the syntax precisely | [reference](reference.md) |
-| Look up modules and functions | [stdlib](stdlib.md) |
-| Use gradients and tangents | [AUTODIFF](AUTODIFF.md) |
-| Translate from Python, Julia, or Rust habits | [SYNTAX_COMPARISON](SYNTAX_COMPARISON.md) |
-| Find runnable programs | [examples/README](../examples/README.md) |
+- [Getting started](GETTING_STARTED.md): install, first run, and the shortest learning path.
+- [Examples guide](../examples/README.md): curated runnable programs by goal.
+- [Autodiff guide](AUTODIFF.md): how `@x`, `@y / @x`, and related forms work.
+- [Why Einlang](WHY_EINLANG.md): project motivation and positioning.
+- [Syntax comparison](SYNTAX_COMPARISON.md): bridge from NumPy, Julia, or Rust habits.
 
-## Quick answers
+## Reference
 
-| Question | Answer |
-|----------|--------|
-| How do I run Einlang? | `python3 -m einlang examples/hello.ein` or `python3 -m einlang -c "let x = 1 + 1; print(x);"` |
-| How do I use it from Python? | `from einlang import run` |
-| Where are the examples? | [examples/README](../examples/README.md) |
-| How do I take derivatives? | Bind the value, then use `@x`, `@y / @x`, or `@loss / @weights`; see [AUTODIFF](AUTODIFF.md) |
-| Where do I start if I know NumPy or Julia? | [SYNTAX_COMPARISON](SYNTAX_COMPARISON.md) |
+- [Language reference](reference.md): syntax and semantics.
+- [Standard library](stdlib.md): library reference.
 
-## Core docs
+## Contribute
 
-| Doc | Purpose |
-|-----|---------|
-| [README](../README.md) | Project landing page, install, first commands |
-| [GETTING_STARTED](GETTING_STARTED.md) | First run and first next steps |
-| [reference](reference.md) | Language syntax and semantics |
-| [stdlib](stdlib.md) | Standard library reference |
-| [AUTODIFF](AUTODIFF.md) | User guide for derivatives and tangents |
-| [WHY_EINLANG](WHY_EINLANG.md) | Motivation and positioning |
-| [SYNTAX_COMPARISON](SYNTAX_COMPARISON.md) | Mental-model bridge from other languages |
-| [examples/README](../examples/README.md) | Curated example map |
-
-## Contributing
-
-For docs fixes, bugs, or small improvements, start with [CONTRIBUTING](../CONTRIBUTING.md).
+- [Architecture guide](ARCHITECTURE.md): repo map, compiler flow, and where to edit what.
+- [Contributing](../CONTRIBUTING.md): project workflow and contribution expectations.

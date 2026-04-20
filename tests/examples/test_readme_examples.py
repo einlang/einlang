@@ -104,8 +104,25 @@ def _assert_linear_regression_autodiff(result):
         assert float(_as_scalar(result.outputs[name])) == pytest.approx(expected_value), name
 
 
+def _assert_autodiff_small(result):
+    _assert_success(result)
+    expected = {
+        "dz_dx": 1.0,
+        "dz_dy": 1.0,
+        "dw_dx": 2.0,
+        "dw_dy": 1.0,
+        "du_dx": 1.0,
+        "du_dy": -1.0,
+        "dv_dx": 0.5,
+        "dv_dy": -0.25,
+    }
+    for name, expected_value in expected.items():
+        assert float(_as_scalar(result.outputs[name])) == pytest.approx(expected_value), name
+
+
 README_EXECUTE_VALIDATORS = {
     "examples/applications/linear_regression_autodiff.ein": _assert_linear_regression_autodiff,
+    "examples/autodiff_small.ein": _assert_autodiff_small,
     "examples/hello.ein": _assert_hello,
 }
 

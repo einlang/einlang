@@ -1,5 +1,5 @@
 meta:
-  description: "einlang is a language for readable tensor programs with explicit indices, shape checking, recurrences, and in-language autodiff."
+  description: "Einlang is a language for readable tensor programs with explicit indices, shape checking, recurrences, in-language autodiff, and runnable examples that scale."
   brand_tagline: ""
 
 navigation:
@@ -7,14 +7,17 @@ navigation:
     url: "https://github.com/einlang/einlang"
     icon: "repo"
     emphasis: true
-  - label: "Documentation"
+  - label: "Docs Index"
     url: "https://github.com/einlang/einlang/blob/main/docs/README.md"
     icon: "doc"
   - label: "Syntax"
     url: "#language"
     icon: "code"
-  - label: "Showcase"
-    url: "#workloads"
+  - label: "Path"
+    url: "#path"
+    icon: "spark"
+  - label: "Trust"
+    url: "#trust"
     icon: "spark"
   - label: "Start"
     url: "#start"
@@ -22,58 +25,59 @@ navigation:
 
 hero:
   deck_label: "Einlang"
-  eyebrow: "Explicit indices, in-language autodiff, and tensor code you can still read."
-  title: "Tensor math that stays legible."
-  summary: "Most tensor stacks hide the important structure behind helper calls, layer wrappers, and gradient machinery. Einlang puts indices, reductions, recurrences, and derivatives directly in the source so the program still reads like the idea."
+  eyebrow: "Explicit indices, in-language autodiff, and a first-run path that gets to the point quickly."
+  title: "Tensor math that stays legible from first example to real workload."
+  summary: "A first visit should not require framework lore or a scavenger hunt. Einlang keeps indices, reductions, recurrences, and derivatives in the source, then backs that up with runnable examples from tiny autodiff demos to MNIST, DeiT, and Whisper-style programs."
   actions:
     - label: "Open repository"
       url: "https://github.com/einlang/einlang"
       variant: "primary"
       icon: "repo"
+    - label: "View visitor path"
+      url: "#path"
+      variant: "secondary"
+      icon: "spark"
     - label: "See the syntax"
       url: "#language"
       variant: "secondary"
       icon: "code"
-    - label: "View examples"
-      url: "#workloads"
-      variant: "secondary"
-      icon: "spark"
   signal_strip:
     - "Indices"
-    - "Reductions"
-    - "Autodiff"
+    - "Autodiff syntax"
     - "Recurrences"
+    - "Runnable examples"
+    - "CI tested"
   spotlight:
-    label: "One expression"
+    label: "60-second taste"
     code: |
-      let logits[b, c] = sum[i](x[b, i] * W[c, i]) + bias[c];
-      let probs[b, c] = exp(logits[b, c]) / sum[k](exp(logits[b, k]));
-      let loss = -sum[b, c](target[b, c] * log(probs[b, c]));
-      let dloss_dW = @loss / @W;
+      let x = 1.0;
+      let y = x * x + 3.0 * x;
+      let dy_dx = @y / @x;
+      print(dy_dx);
   status:
-    title: "Why it feels different"
+    title: "What keeps people around"
     items:
-      - "The computational shape stays in view."
-      - "Gradients live in the same notation."
-      - "Examples scale without changing style."
+      - "The derivative request is part of the language."
+      - "The first highlighted examples run from the repo root."
+      - "The same notation shows up again in larger examples."
 
 slides:
   - id: "premise"
     theme: "warm"
     step: "01"
     label: "Why"
-    title: "Tensor code should still be readable."
-    intro: "Too often, tensor programs vanish into helper calls and framework ceremony. Einlang keeps the important relationships on the page, so the source still reads like the idea behind it."
+    title: "Tensor code should still show the important structure."
+    intro: "Too often, tensor programs disappear into helper calls, layer wrappers, and gradient machinery. Einlang keeps the axes, reductions, and derivatives on the page so the source still reads like the idea behind it."
     points:
       - title: "You can see the axes"
-        text: "Indices and reductions are written directly instead of being implied by library calls."
+        text: "Indices and reductions are written directly instead of being hidden in strings or helper calls."
       - title: "You can see the derivative"
-        text: "Gradient expressions appear beside the original definitions, not in a separate system."
-      - title: "You can stay in one notation"
-        text: "The same style carries from simple algebra to recurrences, optimization, and larger models."
+        text: "Gradient expressions live beside the original definitions, not in a separate autodiff API."
+      - title: "You can keep one notation"
+        text: "The same style carries from simple algebra to recurrences, numerics, and larger models."
     callout:
       label: "The payoff"
-      text: "Programs become easier to inspect, easier to explain, and easier to trust."
+      text: "Programs get easier to inspect, easier to explain, and easier to trust."
 
   - id: "language"
     theme: "ink"
@@ -172,59 +176,111 @@ slides:
             if tmp > 0 { tmp * scale } else { 0 }
           };
 
-  - id: "workloads"
+  - id: "path"
     theme: "paper"
     step: "03"
-    label: "Showcase"
-    title: "The same language, from first read to full workload."
-    intro: "Einlang is most convincing when the same syntax appears in both small fragments and larger programs. These are good places to start."
+    label: "Path"
+    title: "A better first visit is time-boxed."
+    intro: "Instead of dropping visitors into dozens of directories, the best entry path is staged. Start small, see the differentiator quickly, then branch into the workloads that match your interests."
     cards:
-      - title: "A first read"
-        text: "Start with the smallest examples to get the feel of the notation."
+      - title: "30 seconds"
+        text: "Confirm the install with `hello.ein`, then immediately see the differentiator with `autodiff_small.ein`."
         links:
           - label: "examples/hello.ein"
             url: "https://github.com/einlang/einlang/blob/main/examples/hello.ein"
-          - label: "examples/demos"
-            url: "https://github.com/einlang/einlang/tree/main/examples/demos"
-      - title: "Vision-style models"
-        text: "Convolutional examples keep local structure legible instead of hiding it in layers of framework code."
+          - label: "examples/autodiff_small.ein"
+            url: "https://github.com/einlang/einlang/blob/main/examples/autodiff_small.ein"
+      - title: "5 minutes"
+        text: "Use matrix notation and a real fitting example to see that the syntax still holds up outside the toy stage."
         links:
+          - label: "examples/demos/matrix_operations.ein"
+            url: "https://github.com/einlang/einlang/blob/main/examples/demos/matrix_operations.ein"
+          - label: "examples/applications/linear_regression_autodiff.ein"
+            url: "https://github.com/einlang/einlang/blob/main/examples/applications/linear_regression_autodiff.ein"
+      - title: "30 minutes"
+        text: "Branch into recurrences, numerics, or the MNIST inference showcase once the syntax feels natural."
+        links:
+          - label: "examples/recurrence/recurrence_suite.ein"
+            url: "https://github.com/einlang/einlang/blob/main/examples/recurrence/recurrence_suite.ein"
+          - label: "examples/ode/ode_suite.ein"
+            url: "https://github.com/einlang/einlang/blob/main/examples/ode/ode_suite.ein"
           - label: "examples/mnist"
             url: "https://github.com/einlang/einlang/tree/main/examples/mnist"
-          - label: "examples/mnist_quantized"
-            url: "https://github.com/einlang/einlang/tree/main/examples/mnist_quantized"
-      - title: "Attention-heavy programs"
-        text: "DeiT and Whisper artifacts show how the notation holds up under denser workloads."
+      - title: "After that"
+        text: "Use the example guide once you want the heavier showcases, larger models, or directory-local training examples."
         links:
+          - label: "examples/README"
+            url: "https://github.com/einlang/einlang/blob/main/examples/README.md"
           - label: "examples/deit_tiny"
             url: "https://github.com/einlang/einlang/tree/main/examples/deit_tiny"
           - label: "examples/whisper_tiny"
             url: "https://github.com/einlang/einlang/tree/main/examples/whisper_tiny"
-      - title: "Beyond standard ML"
-        text: "Optimization, recurrence, and numerical examples show the same language in a wider setting."
+
+  - id: "trust"
+    theme: "steel"
+    step: "04"
+    label: "Trust"
+    title: "Show the proof, not just the pitch."
+    intro: "Visitors stay when a repo makes it easy to verify its claims. The front door should say what is special, point to a clean path, and make the validation work visible."
+    cards:
+      - title: "Runnable front door"
+        text: "The highlighted README path stays root-run and low-friction instead of immediately requiring working-directory tricks."
         links:
-          - label: "examples/optimization"
-            url: "https://github.com/einlang/einlang/tree/main/examples/optimization"
-          - label: "examples/ode"
-            url: "https://github.com/einlang/einlang/tree/main/examples/ode"
+          - label: "README"
+            url: "https://github.com/einlang/einlang/blob/main/README.md"
+          - label: "Getting started"
+            url: "https://github.com/einlang/einlang/blob/main/docs/GETTING_STARTED.md"
+      - title: "Regression-tested examples"
+        text: "README examples have contract tests, while larger demos and autodiff/model showcases have their own dedicated suites."
+        links:
+          - label: "tests/examples/test_readme_examples.py"
+            url: "https://github.com/einlang/einlang/blob/main/tests/examples/test_readme_examples.py"
+          - label: "tests/examples/test_demo.py"
+            url: "https://github.com/einlang/einlang/blob/main/tests/examples/test_demo.py"
+          - label: "tests/examples/test_mnist_autodiff.py"
+            url: "https://github.com/einlang/einlang/blob/main/tests/examples/test_mnist_autodiff.py"
+      - title: "CI keeps watch"
+        text: "GitHub Actions runs the test suite across multiple Python versions so breakage in examples gets caught early."
+        links:
+          - label: ".github/workflows/tests.yml"
+            url: "https://github.com/einlang/einlang/blob/main/.github/workflows/tests.yml"
+      - title: "Curated next steps"
+        text: "The docs and examples are split by job: quick start, examples map, reference docs, and deeper motivation."
+        links:
+          - label: "docs/README"
+            url: "https://github.com/einlang/einlang/blob/main/docs/README.md"
+          - label: "examples/README"
+            url: "https://github.com/einlang/einlang/blob/main/examples/README.md"
 
   - id: "start"
     theme: "accent"
-    step: "04"
+    step: "05"
     label: "Start"
     title: "Run one file, then keep going."
-    intro: "A small example is enough to begin. From there, the examples and the reference docs open up the rest of the language."
+    intro: "A small example is enough to begin. From there, the examples guide, reference docs, and heavier showcases open up the rest of the language."
+    callout:
+      label: "Advanced note"
+      text: "Some training-oriented or directory-local examples use local Python helper modules or extra setup. Their directory README gives the exact command when that matters."
+    timeline:
+      - stage: "30 sec"
+        text: "Install and run `examples/hello.ein`."
+      - stage: "5 min"
+        text: "Run `examples/autodiff_small.ein` and `examples/demos/matrix_operations.ein`."
+      - stage: "30 min"
+        text: "Branch into `linear_regression_autodiff.ein`, `recurrence_suite.ein`, `ode_suite.ein`, or `mnist/main.ein`."
     command_label: "Quick start"
     command: |
-      python3 -m pip install "git+https://github.com/einlang/einlang.git"
+      git clone https://github.com/einlang/einlang.git
+      cd einlang
+      python3 -m pip install -e .
       python3 -m einlang examples/hello.ein
     actions:
-      - label: "Documentation"
+      - label: "Docs index"
         url: "https://github.com/einlang/einlang/blob/main/docs/README.md"
         variant: "secondary"
         icon: "doc"
-      - label: "Reference"
-        url: "https://github.com/einlang/einlang/blob/main/docs/reference.md"
+      - label: "Examples guide"
+        url: "https://github.com/einlang/einlang/blob/main/examples/README.md"
         variant: "secondary"
         icon: "doc"
       - label: "Autodiff"

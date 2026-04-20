@@ -221,10 +221,39 @@ def test_rewrites_direct_quotients():
 
 
 def test_recurrence_slice_no_nested_hoists():
-    source_path = PROJECT_ROOT / "examples" / "mnist" / "repro_vectorize_logits_recurrence_slice.ein"
+    source = """
+    let epochs = 1;
+
+    let x[n in 0..2, k in 0..4] = (1 + n + k) as f32;
+
+    let theta0[p in 0..5, j in 0..3] =
+        if p == 4 { 0.5 * (1 + j) as f32 } else { 0.1 * (1 + p + j) as f32 };
+
+    let theta[step in 0..epochs + 1] = if step == 0 {
+        theta0
+    } else {
+        let prev_theta = theta[step - 1] as [f32; 5, 3];
+        let logits_before[n in 0..2, j in 0..3] =
+            sum[k in 0..4](x[n, k] * prev_theta[k, j]) + prev_theta[4, j];
+        let diff_before[n in 0..2, j in 0..3] = logits_before[n, j] - (n == j) as f32;
+        let loss_before = sum[n in 0..2, j in 0..3](diff_before[n, j] * diff_before[n, j]);
+        let d_theta = @loss_before / @prev_theta;
+        let next_theta[p in 0..5, j in 0..3] = prev_theta[p, j] - 0.01 * d_theta[p, j];
+        next_theta
+    };
+
+    let final_theta = theta[epochs] as [f32; 5, 3];
+    let logits[n in 0..2, j in 0..3] =
+        sum[k in 0..4](x[n, k] * final_theta[k, j]) + final_theta[4, j];
+    let diff[n in 0..2, j in 0..3] = logits[n, j] - (n == j) as f32;
+    let loss = sum[n in 0..2, j in 0..3](diff[n, j] * diff[n, j]);
+
+    print(logits);
+    print(loss);
+    """
     result = CompilerDriver().compile(
-        source_path.read_text(encoding="utf-8"),
-        source_file=str(source_path),
+        source,
+        source_file="<autodiff_recurrence_slice_hoist>",
     )
 
     assert result.success, result.get_errors()
@@ -449,6 +478,35 @@ def test_nested_max_pool_pullback():
     actual = np.asarray(out, dtype=np.float64)
     expected = np.zeros((1, 1, 4, 4), dtype=np.float64)
     expected[0, 0, 3, 3] = 1.0
+    np.testing.assert_allclose(actual, expected)
+
+
+@pytest.mark.skip(reason="overlapping grad not supported yet")
+def test_average_pool_pullback():
+    # Test average pool gradient computation with overlapping windows
+    out, _ = _compile_and_run_main(
+        """
+        use std::ml::average_pool;
+
+        let x = [[[[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0], [13.0, 14.0, 15.0, 16.0]]]];
+        let pooled = average_pool(x, [2, 2], [1, 1], [0, 0]);
+        let loss = sum[n in 0..1, c in 0..1, h in 0..3, w in 0..3](pooled[n, c, h, w]);
+        let main = @loss / @x;
+        """,
+        "<autodiff_average_pool_pullback>",
+    )
+    actual = np.asarray(out, dtype=np.float64)
+    # With 2x2 kernel and stride [1,1], each input element appears in multiple windows:
+    # Corner elements (like [0,0]): 1 window
+    # Edge elements (like [0,1], [1,0]): 2 windows  
+    # Center elements (like [1,1]): 4 windows
+    # Each window contributes 1.0/4 = 0.25 to each element in it
+    expected = np.array([[[[
+        [0.25, 0.50, 0.50, 0.25],  # row 0: corner=1*0.25, edges=2*0.25
+        [0.50, 1.00, 1.00, 0.50],  # row 1: edges=2*0.25, center=4*0.25
+        [0.50, 1.00, 1.00, 0.50],  # row 2: edges=2*0.25, center=4*0.25
+        [0.25, 0.50, 0.50, 0.25]   # row 3: corner=1*0.25, edges=2*0.25
+    ]]]], dtype=np.float64)
     np.testing.assert_allclose(actual, expected)
 
 
