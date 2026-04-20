@@ -1,6 +1,6 @@
-// CORE FEATURE: Scan Operations with Einstein Notation (Working Version)
+// CORE FEATURE: Scan Operations with Einstein Notation
 // PURPOSE: Demonstrates cumulative operations using backward indexing pattern
-// VALUE: Shows Einstein notation for scan/prefix operations that work with current implementation
+// VALUE: Shows Einstein notation for scan/prefix operations in the current implementation
 
 
 // Cumulative Sum - running totals

@@ -2,19 +2,18 @@
 
 This is the example map for users. If you only want a few good entry points, start here instead of browsing every directory.
 
-## Best first runs
+## Visitor path
 
-Run these from the repository root:
+These are the lowest-friction paths through the repo. They all run from the repository root after `pip install -e .`.
 
-```bash
-python3 -m einlang examples/hello.ein
-python3 -m einlang examples/demos/matrix_operations.ein
-python3 -m einlang examples/applications/linear_regression_autodiff.ein
-python3 -m einlang examples/recurrence/recurrence_suite.ein
-python3 -m einlang examples/ode/ode_suite.ein
-```
+| Time | Run | Why it is a good stop |
+|------|-----|-----------------------|
+| 30 seconds | `python3 -m einlang examples/hello.ein` | Confirms the install and shows the CLI on a tiny program. |
+| 5 minutes | `python3 -m einlang examples/autodiff_small.ein`<br>`python3 -m einlang examples/demos/matrix_operations.ein` | Shows the core autodiff syntax and the tensor notation quickly. |
+| 30 minutes | `python3 -m einlang examples/applications/linear_regression_autodiff.ein`<br>`python3 -m einlang examples/recurrence/recurrence_suite.ein`<br>`python3 -m einlang examples/ode/ode_suite.ein`<br>`python3 -m einlang examples/mnist/main.ein` | Shows that the same language reaches fitting, recurrences, numerics, and a model example. |
+| After that | [examples/README](README.md), [mnist/README](mnist/README.md), [deit_tiny/README](deit_tiny/README.md), [whisper_tiny/README](whisper_tiny/README.md) | Use the directory guides once you want the heavier showcases or extra setup. |
 
-That sequence covers the language basics, tensor notation, real fitting with autodiff, recurrences, and numerics.
+If you only run one thing after `hello.ein`, run `autodiff_small.ein`.
 
 ## By goal
 
@@ -24,7 +23,7 @@ That sequence covers the language basics, tensor notation, real fitting with aut
 | See feature-sized syntax examples | `examples/units/` | [units/README](units/README.md) |
 | Try autodiff basics | root autodiff examples | `python3 -m einlang examples/autodiff_small.ein` |
 | See autodiff on real fitting tasks | `examples/applications/`, `examples/gradient_descent_autodiff.ein`, `examples/mnist/` | `python3 -m einlang examples/applications/linear_regression_autodiff.ein` |
-| See the main sklearn-backed training showcase | `examples/mnist/train_sklearn_digits.ein` | `cd examples/mnist && PYTHONPATH=../../src python3 -m einlang train_sklearn_digits.ein` |
+| See the main sklearn-backed training showcase | `examples/mnist/train_sklearn_digits.ein` | [mnist/README](mnist/README.md) |
 | See estimator-style testing around an Einlang model | `examples/applications/linear_regression_sklearn_style_checks.py` | `python3 examples/applications/linear_regression_sklearn_style_checks.py` |
 | Explore recurrences and dynamic programs | `examples/recurrence/`, `examples/value_iteration/`, `examples/job_search/` | `python3 -m einlang examples/recurrence/recurrence_suite.ein` |
 | Run numerical simulations | `examples/ode/`, `examples/pde_1d/`, `examples/wave_2d/`, `examples/brusselator/` | `python3 -m einlang examples/ode/ode_suite.ein` |
@@ -57,8 +56,11 @@ Most example directories no longer have their own README. The ones that remain a
 
 ## Setup notes
 
+- The first-run paths above are intentionally root-run and low-friction.
+- High-setup directories keep their exact commands in their local README files instead of front-loading that complexity here.
 - `mnist`, `mnist_quantized`, `deit_tiny`, and `whisper_tiny` have extra weight or sample setup; use their README files above.
 - Many of the smaller examples run immediately after `pip install -e .`.
+- Compiler repro programs and isolated pattern fixtures live under `tests/fixtures/`; they are intentionally kept out of the curated visitor path.
 
 ## Related docs
 

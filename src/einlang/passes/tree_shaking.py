@@ -246,6 +246,7 @@ def tree_shake(ir: ProgramIR) -> ProgramIR:
     """Remove unreachable functions from the program IR.
 
     1. Seed the reachable set from top-level statements.
+    2. Preserve an explicit top-level `main` entrypoint when present.
     2. Transitively follow FunctionCallIR / IdentifierIR (callee) edges.
     3. Filter ProgramIR.functions to the reachable set.
     """
@@ -255,6 +256,12 @@ def tree_shake(ir: ProgramIR) -> ProgramIR:
             func_by_defid[func.defid] = func
 
     reachable: Set[DefId] = set()
+
+    # Preserve the conventional runtime entrypoint even when it is not
+    # referenced by another top-level statement.
+    for func in ir.functions:
+        if func.defid is not None and getattr(func, "name", None) == "main":
+            reachable.add(func.defid)
 
     # Seed: top-level statements
     for stmt in (ir.statements or []):

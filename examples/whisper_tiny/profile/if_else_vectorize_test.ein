@@ -1,2 +1,0 @@
-let mask[i in 0..4, j in 0..4] = if j <= i { 0.0 } else { -10000.0 };
-print(mask);

@@ -1,11 +1,21 @@
 # Einlang docs
 
-This is the same small doc set surfaced in [docs/README](README.md).
+The docs stay intentionally small. Use this page as the public index, or open the fuller [docs/README](README.md) view on GitHub.
+
+## Use Einlang
 
 - [Getting started](GETTING_STARTED.md)
+- [Examples guide](../examples/README.md)
+- [Autodiff guide](AUTODIFF.md)
+- [Why Einlang](WHY_EINLANG.md)
+- [Syntax comparison](SYNTAX_COMPARISON.md)
+
+## Reference
+
 - [Language reference](reference.md)
 - [Standard library](stdlib.md)
-- [Autodiff guide](AUTODIFF.md)
-- [Syntax comparison](SYNTAX_COMPARISON.md)
-- [Why Einlang](WHY_EINLANG.md)
-- [Examples guide](../examples/README.md)
+
+## Contribute
+
+- [Architecture guide](ARCHITECTURE.md)
+- [Contributing](../CONTRIBUTING.md)

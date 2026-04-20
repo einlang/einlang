@@ -1,3 +1,6 @@
+// Run this after examples/hello.ein.
+// The point is that derivatives are syntax in the language, not a separate API call.
+
 let x = 1.0;
 let y = 2.0;
 

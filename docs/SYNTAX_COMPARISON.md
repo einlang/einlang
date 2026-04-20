@@ -15,7 +15,7 @@
 | Sum over an axis | `np.sum(x, axis=1)` | `let s[i] = sum[j](x[i, j]);` | [Reductions](https://github.com/einlang/einlang/blob/main/docs/reference.md#einstein-notation) |
 | Element-wise ops | `A * B`, `A + 1` | `let out[i, j] = A[i, j] * B[i, j];` or same-shape `A + B` | [Rectangular declarations](https://github.com/einlang/einlang/blob/main/docs/reference.md#einstein-notation), [Operators](https://github.com/einlang/einlang/blob/main/docs/reference.md#operators) |
 | Differentiate a loss | `jax.grad(lambda w: loss(w))(w)` or library-specific wrappers | `let dloss_dw = @loss / @w;` right where the loss is defined | [Automatic differentiation](https://github.com/einlang/einlang/blob/main/docs/reference.md#automatic-differentiation) |
-| Run your code | — | `from einlang import run; run(file="...")` or `run(source="...")` | [Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) |
+| Run your code | — | `from einlang import run; run(file="...")` or `run(source="...")` | [Install & run](https://github.com/einlang/einlang/blob/main/README.md#quick-start) |
 
 Einlang runs **inside** your Python process; you pass a file path or a source string. The language looks Rust-like, not Python — but you only need to write the `.ein` side; calling it is one line.
 
@@ -56,4 +56,4 @@ Einlang runs **inside** your Python process; you pass a file path or a source st
 
 - **Full syntax and semantics:** [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md)
 - **Built-in functions:** [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md)
-- **Run from Python:** [Install & run](https://github.com/einlang/einlang/blob/main/README.md#install--run) in the main README
+- **Run from Python:** [Install & run](https://github.com/einlang/einlang/blob/main/README.md#quick-start) in the main README
