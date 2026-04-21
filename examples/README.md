@@ -2,7 +2,7 @@
 
 This is the example map for users. If you only want a few good entry points, start here instead of browsing every directory.
 
-## Visitor path
+## Suggested path
 
 These are the lowest-friction paths through the repo. They all run from the repository root after `pip install -e .`.
 
@@ -60,7 +60,7 @@ Most example directories no longer have their own README. The ones that remain a
 - High-setup directories keep their exact commands in their local README files instead of front-loading that complexity here.
 - `mnist`, `mnist_quantized`, `deit_tiny`, and `whisper_tiny` have extra weight or sample setup; use their README files above.
 - Many of the smaller examples run immediately after `pip install -e .`.
-- Compiler repro programs and isolated pattern fixtures live under `tests/fixtures/`; they are intentionally kept out of the curated visitor path.
+- Compiler repro programs and isolated pattern fixtures live under `tests/fixtures/`; they are intentionally kept out of the curated starting path.
 
 ## Related docs
 
