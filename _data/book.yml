@@ -16,7 +16,7 @@
   kind: frontmatter
   section: Front Matter
   eyebrow: Teaching Guide
-- title: Chapter 1: Data and Indices
+- title: "Chapter 1: Data and Indices"
   url: /book/chapter-1-data-and-indices.html
   short_title: 1. Data and Indices
   kind: chapter
@@ -36,7 +36,7 @@
     - rank
     - shape
     - slice
-- title: Chapter 2: Reduction
+- title: "Chapter 2: Reduction"
   url: /book/chapter-2-reduction.html
   short_title: 2. Reduction
   kind: chapter
@@ -55,7 +55,7 @@
     - identity value
     - guarded reduction
     - pooling
-- title: Chapter 3: Broadcasting and Transformations
+- title: "Chapter 3: Broadcasting and Transformations"
   url: /book/chapter-3-broadcasting-and-transformations.html
   short_title: 3. Broadcasting
   kind: chapter
@@ -75,7 +75,7 @@
     - rest pattern
     - convolution
     - affine index expression
-- title: Chapter 4: Automatic Differentiation
+- title: "Chapter 4: Automatic Differentiation"
   url: /book/chapter-4-automatic-differentiation.html
   short_title: 4. Autodiff
   kind: chapter
@@ -95,7 +95,7 @@
     - Jacobian
     - chain rule
     - higher-order derivative
-- title: Chapter 5: Recurrence and Time
+- title: "Chapter 5: Recurrence and Time"
   url: /book/chapter-5-recurrence-and-time.html
   short_title: 5. Recurrence
   kind: chapter
@@ -115,7 +115,7 @@
     - schedule
     - dynamic programming
     - rolling window
-- title: Chapter 6: Living With Python
+- title: "Chapter 6: Living With Python"
   url: /book/chapter-6-living-with-python.html
   short_title: 6. Python
   kind: chapter
@@ -135,7 +135,7 @@
     - boundary
     - observation
     - host ecosystem
-- title: Chapter 7: The Small Core and Its Boundaries
+- title: "Chapter 7: The Small Core and Its Boundaries"
   url: /book/chapter-7-small-core-and-boundaries.html
   short_title: 7. Boundaries
   kind: chapter
