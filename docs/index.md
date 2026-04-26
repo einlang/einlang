@@ -5,7 +5,7 @@ The docs stay intentionally small. Use this page as the public index, or open th
 ## Use Einlang
 
 - [Getting started](GETTING_STARTED.md)
-- [Einlang: Formulas as Code](../book/)
+- [Einlang: Formulas as Code](https://einlang.github.io/einlang/book/)
 - [Examples guide](../examples/README.md)
 - [Autodiff guide](AUTODIFF.md)
 - [Why Einlang](WHY_EINLANG.md)
@@ -15,6 +15,11 @@ The docs stay intentionally small. Use this page as the public index, or open th
 
 - [Language reference](reference.md)
 - [Standard library](stdlib.md)
+
+## Research
+
+- [Paper](../paper/einlang_paper.pdf)
+- [Thesis-form report](../thesis/einlang_thesis.pdf)
 
 ## Contribute
 

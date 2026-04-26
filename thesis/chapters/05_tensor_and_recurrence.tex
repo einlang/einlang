@@ -1,0 +1,643 @@
+\chapter{Tensor Lowering and Recurrence}
+
+Tensor lowering is the main compiler path that makes \einlang{} different from
+a plain expression interpreter. The source program exposes named axes and
+reductions; the compiler turns those source facts into lowered loops, reduction
+kernels, recurrence order metadata, and storage decisions.
+
+\section{Einstein Grouping}
+
+Multiple clauses for the same indexed binding are first grouped into a single
+\texttt{EinsteinIR}. This is needed for recurrences and piecewise tensor
+definitions:
+
+\begin{lstlisting}[style=einlang]
+let y[0] = init0;
+let y[1] = init1;
+let y[t in 2..T] = y[t - 1] + y[t - 2];
+\end{lstlisting}
+
+The grouping pass keeps these clauses as one semantic binding instead of three
+unrelated assignments. Later passes can therefore see that the final clause
+reads the same binding it writes.
+
+The example is short, but it is the reason grouping must run before most tensor
+analyses. Without grouping, the first two clauses would look like independent
+scalar assignments and the third would look like a separate indexed tensor
+definition. Grouping gives the compiler a single object with boundary coverage,
+recurrent domain, and self-read offsets. That one object is what range
+analysis, recurrence detection, storage inference, and the backend agree on.
+
+\section{Rest Patterns and Implicit Ranges}
+
+Named rest indices such as \texttt{..batch} express a variable number of leading
+or trailing dimensions. The rest-pattern preprocessing pass expands them into
+compiler-generated index variables once enough rank information is available.
+The implicit range detector recovers ranges from shaped reads, reductions, and
+index expressions. Together these passes let source programs write compact
+generic tensor code while the backend receives explicit loops.
+
+For example, a function that preserves batch axes can be written against an
+unknown-rank prefix. The compiler expands that prefix only after rank
+information is known, replacing the rest index with concrete generated index
+variables. This avoids requiring a separate family of functions for every batch
+rank.
+
+\subsection{Rest Expansion Algorithm}
+
+The rest-pattern pass follows a determination-first rule. A rest pattern may be
+used in a mixed access only after some access determines how many dimensions it
+spans. This prevents ambiguous programs such as two unknown rest patterns
+appearing together before either one has a rank.
+
+\begin{lstlisting}[style=pythoncode,caption={Named rest-index preprocessing.}]
+expand_rest_patterns(einstein_binding):
+    clauses = einstein_binding.clauses
+    require all clauses to have the same output rank
+
+    output_rests = rest names in first clause indices
+    if output_rests is empty:
+        return
+
+    accesses = rectangular accesses inside first clause body
+    for rest_name in output_rests:
+        require rest_name appears in at least one body access
+        require at least one access determines rest_name alone
+
+    rest_dim_mapping = {}
+    for rest_name in output_rests:
+        access = first body access using rest_name
+        array_rank = rank_of_access_array(access) or len(access.indices)
+        explicit_count = number of non-rest indices in access
+        span = max(0, array_rank - explicit_count)
+        rest_dim_mapping[rest_name] = [0, ..., span - 1]
+
+    for clause in clauses:
+        new_output_indices = []
+        old_rest_defid_to_new_defids = {}
+        for index in clause.indices:
+            if index is IndexRestIR("batch"):
+                for dim in rest_dim_mapping["batch"]:
+                    did = resolver.allocate_for_local()
+                    new_output_indices.append(IndexVarIR("batch.dim", did))
+                    old_rest_defid_to_new_defids[index.defid].append(did)
+            else:
+                new_output_indices.append(copy index)
+
+        clause.indices = new_output_indices
+        clause.value = replace_body_rest_indices(
+            clause.value, rest_dim_mapping, old_rest_defid_to_new_defids)
+
+        for generated index used in an array access:
+            clause.variable_ranges[index.defid] = 0 .. array.shape[axis]
+\end{lstlisting}
+
+The same expansion machinery is used for reduction rests such as
+\texttt{sum[..batch](...)}. The result is that range analysis and lowering do
+not need a separate representation for unknown-rank groups; they receive
+ordinary generated index variables and shape-derived ranges.
+
+The pass is careful to require a determining access because otherwise a rest
+name would be underconstrained. In an expression with two unknown-rank tensors,
+the compiler cannot safely infer how many axes \texttt{..batch} spans unless at
+least one read ties the rest pattern to a known or inferred rank. Once the span
+is known, however, generated indices behave exactly like user-written indices:
+they receive DefIds, ranges, and later loop structures. This keeps the rest
+syntax ergonomic without creating a second class of index variable.
+
+The replacement map from old rest DefIds to generated DefIds is also important
+for diagnostics and lowering. The source program has one rest name, but the
+lowered compiler needs one loop variable per concrete axis. Keeping a mapping
+between those identities lets the compiler report errors against the source
+rest while executing explicit generated loops. That is the pattern used
+throughout the implementation: preserve the source fact for messages, but make
+the backend-facing representation explicit.
+
+The expansion pass is also where rest syntax stops being magical. Before this
+point, \texttt{..batch} is a compact source phrase whose arity depends on rank
+information elsewhere in the expression. After this point, every generated
+dimension is an ordinary index variable with its own DefId and range. That means
+range analysis, shape analysis, lowering, and diagnostics do not need special
+cases for variable-arity source syntax. They see the same kind of explicit
+index objects they would have seen if the programmer had written every axis by
+hand.
+
+The determination rule is conservative because ambiguous rest expansion can
+silently change program meaning. If two operands both contain \texttt{..batch}
+but neither operand has a known rank, there are several possible spans that
+could make the syntax type-check. Choosing one would bake an arbitrary layout
+decision into the compiler. Requiring a determining access turns that ambiguity
+into a source diagnostic and gives the programmer a clear repair: add a range,
+an annotation, or a shaped read that fixes the rank. This keeps generic tensor
+code flexible without making rank inference guessy.
+
+\textit{Concrete example.} Consider \texttt{let y[..batch, c] =
+sum[i](x[..batch, i] * w[i, c]);}. If shape analysis knows that \texttt{x} has
+rank three, then \texttt{..batch} spans the first two axes and is expanded into
+two generated indices, for example \texttt{batch.0} and \texttt{batch.1}. Those
+indices receive ranges from the first two axes of \texttt{x}; \texttt{i}
+receives the final axis of \texttt{x} and the first axis of \texttt{w}; and
+\texttt{c} receives the second axis of \texttt{w}. If the rank of \texttt{x}
+is unknown, the same source is rejected until another annotation or access
+determines the rest span.
+
+\section{Einstein Lowering}
+
+\pathcode{src/einlang/passes/einstein_lowering.py} lowers high-level tensor IR
+into explicit lowered nodes:
+
+\begin{itemize}
+\item \texttt{LoweredEinsteinIR} represents an indexed tensor binding as one or
+more lowered clauses.
+\item \texttt{LoweredReductionIR} represents reductions such as \texttt{sum},
+\texttt{max}, \texttt{min}, \texttt{prod}, \texttt{all}, and \texttt{any}.
+\item \texttt{LoweredSelectAtArgmaxIR} represents selected values at extremum
+indices.
+\item \texttt{LoweredComprehensionIR} represents array comprehensions after
+range and constraint analysis.
+\end{itemize}
+
+The lowered form keeps loop structures, guards, value bindings, reduction
+ranges, and body expressions explicit. The backend therefore executes a checked
+loop plan rather than rediscovering source syntax.
+
+\subsection{Lowered Clause Shape}
+
+A lowered clause contains four important pieces: the write indices, the loop
+structures that enumerate those indices, value bindings introduced by
+\texttt{where}, and guard predicates that decide whether the clause applies.
+The backend can evaluate base clauses, guarded clauses, and recurrent clauses
+with one common representation. This is why the grouping and constraint passes
+run before lowering: by the time the backend sees a clause, the compiler has
+already classified which parts are iteration, binding, and guard logic.
+
+\subsection{Lowering Algorithm}
+
+Lowering turns declarative clauses into loop plans while preserving source
+structure. It does not execute anything; it makes execution explicit.
+
+\begin{lstlisting}[style=pythoncode,caption={Lowering an Einstein binding.}]
+lower_einstein_binding(binding):
+    lowered_items = []
+    output_shape = union_shape_from_clause_ranges(binding.clauses)
+
+    for clause in binding.clauses:
+        loops = []
+        bindings = []
+        guards = []
+
+        for output_index in clause.indices:
+            if output_index is index variable:
+                range = clause.variable_ranges[output_index.defid]
+                loops.append(LoopStructure(output_index, range))
+            else if output_index is literal:
+                remember literal write position
+
+        for where item in classified_where_clause(clause):
+            if item is value binding:
+                bindings.append(lower_binding(item))
+            else if item is predicate:
+                guards.append(GuardCondition(item))
+            else if item is range domain:
+                attach to matching loop variable
+
+        body = lower_expr(clause.value)
+        lowered_items.append(
+            LoweredEinsteinClauseIR(indices=clause.indices,
+                                    loops=loops,
+                                    bindings=bindings,
+                                    guards=guards,
+                                    body=body))
+
+    return LoweredEinsteinIR(items=lowered_items,
+                             shape=output_shape,
+                             element_type=inferred_element_type)
+
+lower_reduction(reduction):
+    loops = [LoopStructure(var, reduction.loop_var_ranges[var.defid])
+             for var in reduction.loop_vars]
+    body = lower_expr(reduction.body)
+    return LoweredReductionIR(operation=reduction.operation,
+                              loops=loops,
+                              body=body,
+                              guards=lowered_where_guards)
+\end{lstlisting}
+
+Several later optimizations rely on this representation. A reduction nested
+inside a clause remains visibly nested; a guard remains a guard rather than a
+Python \texttt{if}; and literal-index boundary clauses remain distinguishable
+from loop-bearing recurrence clauses.
+
+The lowering algorithm is the point where declarative source clauses become a
+backend plan. Output indices are split into literal write positions and loop
+variables, where items are split into bindings and guards, and reductions are
+converted into explicit loop-bearing nodes. The body expression is lowered only
+after that structure is available, so nested reductions and guarded bodies keep
+their meaning. This is why earlier classifier passes matter: lowering should
+not guess whether a where-clause item is a loop domain or a predicate.
+
+The returned \texttt{LoweredEinsteinIR} is still not executable code in the
+bytecode sense. It is an explicit data structure describing writes, loops,
+guards, and bodies. That representation gives the NumPy backend freedom to
+choose vectorized or scalar execution without changing semantics. It also gives
+later recurrence and execution-fact passes a uniform object to inspect; they do
+not need to understand the entire high-level syntax again.
+
+The lowered representation also separates allocation from assignment. A binding
+may have several clauses, some with literal output positions and some with loop
+variables. Lowering computes the shared output shape once, then records each
+clause as a write plan into that allocation. This is why boundary clauses, guard
+clauses, and interior recurrent clauses can coexist without being flattened into
+unstructured Python control flow. The backend receives a compact execution plan,
+but the plan still remembers which source clause produced each write.
+
+The reduction branch follows the same philosophy. A reduction is not evaluated
+during lowering, and it is not erased into a generic call. It becomes a
+\texttt{LoweredReductionIR} with explicit loop structures, guards, and a lowered
+body. That makes specialized kernel recognition possible later: the execution
+facts pass can inspect a structured reduction and decide whether it is a matrix
+contraction, a scalar accumulation, or a nested reduction requiring a safer
+path. The value of the algorithm is therefore not only that it creates loops,
+but that it creates loops with analyzable intent.
+
+\textit{Concrete example.} The source binding \texttt{let pos[i] = x[i] where
+x[i] > 0;} lowers to one loop over \texttt{i}, one guard
+\texttt{x[i] > 0}, and a body \texttt{x[i]}. The guard remains a
+\texttt{GuardCondition} rather than becoming a host-language \texttt{if} hidden
+inside the backend visitor. For \texttt{let fib[0] = 0; let fib[n in 1..N] =
+fib[n - 1] + 1;}, lowering produces a literal write clause for \texttt{0} and
+a loop-bearing recurrent clause for \texttt{n}. The backend can therefore
+initialize the boundary point once and run the recurrent clause in dependency
+order.
+
+\section{Backend Execution Facts}
+
+\pathcode{src/einlang/passes/lowered_execution_facts.py} computes summaries for
+lowered reductions and clauses. The facts include nested reduction presence,
+conditional bodies, loop DefIds, static loop ranges, call arguments that depend
+on loop variables, reduction dimension counts, direct nested lowerings, and
+candidate vectorization strategies. This is a deliberate compiler/backend
+boundary: the compiler owns analysis, while the backend uses attached facts to
+choose execution paths.
+
+\subsection{Execution-Fact Algorithm}
+
+Execution facts summarize lowered IR once, in the compiler, so the backend does
+not rediscover dependencies by ad hoc inspection at runtime.
+
+\begin{lstlisting}[style=pythoncode,caption={Lowered execution-fact construction.}]
+build_lowered_execution_facts(program):
+    collector = SummaryCollector()
+    collector.collect(program)
+    collector.collect(each function in function_ir_map)
+
+    for reduction in collector.lowered_reductions:
+        summary = collector.collect(reduction.body)
+        plan = recognize_reduction_kernel(reduction)
+        strategy = recognize_reduction_strategy(reduction, summary, plan)
+        reduction.execution_facts_id = fresh_id()
+        reduction.execution_strategy = strategy
+        store ReductionFacts(id, nested_reductions, ifs, defids, strategy)
+        if plan exists:
+            reduction.kernel_plan_id = plan.id
+
+    for clause in collector.lowered_clauses:
+        body = collector.collect(clause.body)
+        loop_defids = [loop.variable.defid for loop in clause.loops]
+        call_arg_loop_defids = body.call_arg_defids intersect loop_defids
+        static_ranges = [static_range(loop.iterable) for loop in clause.loops]
+        strategy, scalar_dims = recognize_clause_strategy(clause, body)
+        clause.execution_facts_id = fresh_id()
+        clause.vectorization_strategy = strategy
+        clause.vectorization_scalar_loop_dims = scalar_dims
+        store ClauseFacts(id, loop_defids, static_ranges, body_summary, strategy)
+\end{lstlisting}
+
+The backend treats a missing strategy as a compiler error. That design makes
+analysis omissions visible during testing rather than silently choosing a
+different execution path.
+
+Execution facts are the compiler/backend contract for tensor performance. The
+collector walks lowered IR once and records the facts that would be expensive
+or fragile for the backend to rediscover repeatedly: loop DefIds, static
+ranges, nested reductions, call dependencies, and vectorization candidates. The
+backend then uses an attached ID or strategy rather than performing ad hoc
+structural analysis while executing every clause.
+
+This separation improves correctness as much as speed. If a clause body
+contains a function call that depends on a loop variable, the compiler can mark
+that fact and force a call-scalar path. If a reduction matches a known kernel,
+the compiler can attach a plan. If no plan is recognized, tests can detect the
+missing strategy immediately. In other words, the algorithm turns implicit
+backend assumptions into explicit IR metadata.
+
+The fact IDs are a small but useful indirection. They let lowered nodes carry a
+stable handle while the full summaries live in compiler-owned tables. That keeps
+IR nodes from becoming oversized containers and lets tests inspect summaries
+directly. It also means a backend can fail loudly if a lowered node has no fact
+ID even though the pipeline promised one. The absence of metadata becomes an
+implementation error, not a silent request to recompute analysis at runtime.
+
+The body summary is especially important for mixed execution strategies. A
+clause can look vectorizable at the loop level but contain a function call whose
+arguments depend on a loop DefId. Broadcasting such a call would change the
+calling convention or produce an object array. By recording call dependencies,
+nested reductions, conditionals, and static ranges, the compiler can choose a
+hybrid or scalar path only where it is needed. The backend optimization is then
+bounded by facts that were computed once in a phase designed for structural
+inspection.
+
+\textit{Concrete example.} A lowered matrix multiplication reduction receives a
+summary with one reduction loop, no conditionals, no loop-dependent calls, and a
+body that is a product of two rectangular accesses; the recognizer can attach a
+specialized reduction strategy. A clause such as \texttt{let y[i] = f(i)}
+instead records that a call argument depends on the loop DefId for \texttt{i},
+so the backend chooses the call-scalar path. Both programs may be small, but
+the attached facts are different enough that the backend should not rediscover
+them by inspecting Python objects during execution.
+
+\section{Reduction and Vectorization Paths}
+
+The NumPy backend has several execution strategies for lowered tensor nodes:
+fully vectorized clauses, scalar loops, hybrid clauses, call-scalar paths, and
+specialized reduction kernels. Matrix-like contractions can be recognized and
+sent through efficient NumPy operations; clauses with calls, conditionals, or
+nested reductions may fall back to scalar or hybrid execution. Debug and
+profiling flags in the CLI expose vectorization counts and reduction-path
+decisions.
+
+\begin{table}[htbp]
+\centering
+\caption{Backend execution strategies for lowered tensor clauses.}
+\label{tab:tensor-execution-strategies}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular}{@{}L{0.24\textwidth}L{0.64\textwidth}@{}}
+\toprule
+Strategy & Used when \\
+\midrule
+Vectorized & Clause body can be evaluated with NumPy broadcasting over all loop axes. \\
+Scalar & Clause body depends on features that are safest to evaluate one output point at a time. \\
+Hybrid & Some axes are scalarized while remaining axes are evaluated with broadcast arrays. \\
+Call-scalar & Function calls depend on loop variables in a way that prevents full vectorization. \\
+Specialized reduction & A lowered reduction matches a known kernel pattern such as matrix-like contraction. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Recurrence Dependency Extraction}
+
+Recurrence analysis is shared between compiler and backend helpers in
+\pathcode{src/einlang/shared/recurrence_analysis.py}. The analysis searches
+lowered clause bodies for reads of the same binding DefId that is being written.
+It then checks whether each read subscript is the current loop variable, a
+constant offset from the loop variable, or a reduction variable bounded by the
+loop variable.
+
+For a recurrent binding over indices $(i_1,\ldots,i_n)$, a self-read such as
+\texttt{H[i - 1, j]} contributes offset $(-1,0)$ and a read such as
+\texttt{H[i, j - 1]} contributes $(0,-1)$. These offsets define a point
+dependency graph. A legal execution order is any topological order of that
+graph. For common non-positive offsets, row-major or timestep-major traversal is
+legal after boundary clauses have been checked.
+
+\subsection{Recurrence Detection Algorithm}
+
+Recurrence detection is structural. A clause is recurrent when its body reads
+the same binding DefId that the surrounding lowered Einstein writes, and at
+least one read index is not the same output loop variable at that dimension.
+
+\begin{lstlisting}[style=pythoncode,caption={Structural recurrence detection.}]
+recurrence_dims(clause, written_defid):
+    loop_dims = map clause output dimensions to clause loop positions
+    loop_defids = [loop.variable.defid for loop in clause.loops]
+    read_index_lists = collect_rectangular_reads(clause.body, written_defid)
+    out = []
+
+    for loop_pos, output_dim in enumerate(loop_dims):
+        loop_defid = loop_defids[loop_pos]
+        for read_indices in read_index_lists:
+            if output_dim >= len(read_indices):
+                continue
+            read_index = read_indices[output_dim]
+            if read_index is exactly loop_defid:
+                continue
+            if read_index is loop_defid - positive_literal:
+                out.append(loop_pos)
+                break
+            if read_index is bounded reduction variable tied to loop_defid:
+                out.append(loop_pos)
+                break
+            if read_index is same timestep but another clause writes first:
+                out.append(loop_pos)
+                break
+    return out
+\end{lstlisting}
+
+The same pass also handles same-timestep dependencies. If one clause writes
+\texttt{state[t, 0]} and a later clause reads \texttt{state[t, 0]} while writing
+\texttt{state[t, 1]}, the second clause must run inside a timestep-major loop
+even though the read is not \texttt{t - 1}. This is why the compiler annotates
+all lowered clauses with \texttt{recurrence\_dims\_override}; the backend can
+then use the planned order directly.
+
+The recurrence detector is structural because the source language exposes
+self-reads directly. It does not need to infer a dependency graph from arbitrary
+Python control flow. Instead, it searches for reads of the same written DefId
+and compares the read index expression with the current loop variable. Exact
+use means same point, negative literal offsets mean previous points, and
+bounded reduction variables can represent dependencies over a finite prefix.
+Those cases cover the current optimized recurrence fragment.
+
+The conservative cases are just as important. If a read expression is dynamic
+or cannot be related to the loop variable, the compiler should not invent a
+finite ordering or storage window. It can still execute by materializing the
+full tensor, but it should not claim an optimization proof. This is why the
+analysis returns dimensions and overrides rather than rewriting the program
+into a fixed loop schedule too early.
+
+The detector's unit of identity is the written binding DefId. This prevents a
+read of another value with the same printed name in a different scope from being
+mistaken for a self-dependency. It also lets recurrent dependencies survive
+function and module elaboration: the recurrence question is "does this clause
+read the binding it is writing?" rather than "does this text contain the same
+identifier spelling?" That is the same identity discipline used by range and
+shape analysis, now applied to temporal dependencies.
+
+Same-timestep dependencies are the non-obvious case. A clause can depend on a
+value written earlier at the same timestep rather than on a previous timestep.
+This is not a negative offset, but it still constrains order. Treating that case
+as recurrence metadata rather than as a separate backend trick lets the compiler
+choose timestep-major execution when needed. The algorithm therefore captures
+both historical dependencies and intra-step dependencies in one annotation
+scheme, which is necessary for dynamic-programming kernels that update several
+fields per timestep.
+
+\textit{Concrete example.} For \texttt{let fib[n in 2..N] = fib[n - 1] +
+fib[n - 2];}, the detector finds two reads of the written DefId and extracts
+backward offsets one and two along the only output dimension. The recurrence
+dimension is therefore dimension zero, and storage inference later knows the
+lookback is two. For a two-field state where \texttt{state[t,1]} reads
+\texttt{state[t,0]}, the read has no negative offset, but it still constrains
+clause order inside each \texttt{t}; the detector records a same-timestep
+dependency so the backend executes the producer clause first.
+
+\section{Recurrence Ordering}
+
+\pathcode{src/einlang/passes/recurrence_order.py} annotates lowered Einstein
+clauses with recurrence dimensions. It handles ordinary backward dependencies,
+hybrid dependencies where reduction variables are bounded by loop variables, and
+same-timestep dependencies where one clause writes a point that another clause
+reads at the same recurrence index. It can override recurrence dimension order
+for cases such as Cholesky-like programs where the natural dependency order is
+not simply the textual loop order.
+
+\section{Storage Window Inference}
+
+The same offset information drives storage decisions. If a one-dimensional
+recurrence only reads the previous two values and later code reads the final
+value, the runtime does not need the full sequence. It needs enough history for
+self-reads and enough suffix for later observations:
+
+\[
+\mathit{preserve} = \max(\mathit{lookback}, \mathit{tail})
+\]
+
+In the implementation, this calculation is attached to the lowered recurrence
+node as storage metadata: whether the output must be fully materialized, which
+output dimension is the recurrence dimension, how many steps must be preserved,
+and whether downstream observations are bounded. The runtime consults this
+metadata when deciding whether to allocate a full tensor or a circular buffer.
+
+Whole-tensor observations and dynamic tail reads force full materialization. The
+current implementation demonstrates finite-window execution for the primary
+recurrence axis, including multidimensional tensor values whose non-windowed
+axes are retained fully. The circular buffer implementation in
+\pathcode{src/einlang/backends/numpy_einstein_mixin_setup.py} can also represent
+multiple circular dimensions, which prepares the runtime for general
+multidimensional vector windows.
+
+\subsection{Circular Buffer Execution}
+
+The circular recurrence buffer stores only the preserved suffix along the
+recurrence axis. Writes are remapped by modulo arithmetic; reads of retained
+history are remapped to the corresponding buffer slot. If a value later escapes
+as a public output and the compiler did not mark it as safely lazy, the backend
+materializes the buffer into a full tensor before returning it. This keeps the
+observable output model simple while allowing local recurrence computations to
+use less memory.
+
+\begin{lstlisting}[style=pythoncode,caption={Finite-window recurrence-storage inference.}]
+infer_storage(lowered_recurrence, later_statements):
+    recurrence_dim = first recurrence output dimension
+    recurrence_extent = static_extent(lowered_recurrence.shape[recurrence_dim])
+
+    lookback = 0
+    for recurrent_clause in lowered_recurrence.body.items:
+        for self_read in reads_of_written_defid(recurrent_clause.body):
+            offset = backward_offset(self_read.indices[recurrence_dim])
+            if offset is unknown:
+                return requires_full_output
+            lookback = max(lookback, offset)
+
+    tail = 0
+    for later in later_statements:
+        for use in uses_of_written_defid(later):
+            if use is whole tensor or dynamic index:
+                return requires_full_output
+            idx = static_int(use.indices[recurrence_dim])
+            tail = max(tail, recurrence_extent - idx)
+
+    history_window = lookback + 1
+    preserve_steps = max(history_window, tail)
+    return circular_buffer(axis=recurrence_dim, preserve_steps=preserve_steps)
+
+execute_circular_recurrence(node):
+    if node.requires_full_output or preserve_steps >= full_extent:
+        execute full-history recurrence
+    ring = CircularRecurrenceBuffer(shape, axis, preserve_steps)
+    bind output DefId to ring in the environment
+    execute initial clauses into ring
+    for timestep in recurrence_loop:
+        execute recurrent clauses for this timestep
+        map every write/read on recurrence axis through index % preserve_steps
+        if unsupported observation materializes ring:
+            fall back to full materialization
+    return ring
+\end{lstlisting}
+
+The storage algorithm combines two independent obligations. The first is
+history: recurrent clauses need enough previous timesteps to satisfy self-reads
+such as \texttt{t - 1} or \texttt{t - 2}. The second is observation: later code
+may request the final value, the last few values, or the whole tensor. The
+preserved window is the maximum of those requirements. If either side cannot be
+bounded statically, the compiler chooses full materialization.
+
+The execution half is written to preserve observable semantics. The environment
+binds the output DefId to a circular buffer so recurrent self-reads and writes
+use the same identity as a full tensor would. Internally, the recurrence axis is
+remapped through modulo arithmetic. Externally, if a value must escape as a
+normal array and the compiler has not proven that a suffix is enough, the ring
+is materialized before returning. The optimization is therefore invisible to
+the source program except through memory use and profiling.
+
+The current implementation focuses on a primary recurrence axis, but the data
+structure anticipates more general windows. This is why the algorithm keeps the
+axis and preserved step count explicit in metadata instead of baking a
+one-dimensional special case into every backend path. Future multidimensional
+storage inference can extend the proof without replacing the execution model.
+
+The preservation formula deliberately includes the current timestep by using
+\texttt{lookback + 1}. A recurrence that reads \texttt{t - 2} needs the values
+for the current write plus two earlier slots to make modulo indexing
+unambiguous. The tail term is separate because later observations impose a
+different constraint: a program that reads the final three values needs those
+three values even if the recurrence itself only reads one step back. Taking the
+maximum of the two obligations is what lets the compiler use one buffer for both
+internal recurrence correctness and external observation.
+
+The fallback cases protect the source-level value model. Whole-tensor reads,
+dynamic indices, and unknown backward offsets all force full materialization
+because the compiler cannot prove which points will be observed. This is an
+intentional asymmetry: the implementation can always allocate more memory and
+preserve semantics, but it must not allocate less memory unless the proof is
+available. The thesis therefore treats circular buffering as a certified
+optimization. The metadata attached to the lowered recurrence is the
+certificate, and the runtime optimization is allowed only when the certificate
+states a bounded window.
+
+\textit{Concrete example.} For the Fibonacci program above with a later read
+\texttt{fib[N - 1]}, the recurrent clause needs two previous values, so
+\texttt{history\_window = 3}; the observation needs only the final value, so
+\texttt{tail = 1}; the chosen circular buffer preserves three steps. For a
+program that later returns \texttt{fib} as a whole tensor, the tail cannot be
+bounded to a suffix, so the same recurrence is fully materialized. The numerical
+recurrence is identical in both cases; only the proven observation pattern
+changes the storage plan.
+
+\begin{table}[htbp]
+\centering
+\caption{Representative recurrence-storage cases covered by tests.}
+\label{tab:storage-checks}
+\renewcommand{\arraystretch}{1.06}
+\begin{tabular}{@{}lcccl@{}}
+\toprule
+Case & lookback & tail & preserve & Decision \\
+\midrule
+two-step, final & 2 & 1 & 3 & circular buffer \\
+one-step, last 3 & 1 & 3 & 3 & circular buffer \\
+symbolic T, final & 1 & 1 & 2 & circular buffer \\
+multidimensional tensor & 1 & 1 & 2 & circular buffer on recurrence axis \\
+whole tensor & 1 & -- & -- & full materialization \\
+dynamic tail & 1 & -- & -- & full materialization \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Current Boundary}
+
+The current compiler proves finite storage only for static-offset recurrence
+patterns with an inferred primary recurrence axis. It falls back to full
+materialization when source observations demand the whole tensor or when the
+tail bound cannot be statically proven. This conservative boundary is important:
+the implementation should miss some optimization opportunities before it risks
+returning an incomplete recurrence value.

@@ -119,15 +119,8 @@ passed onward, or differentiated again when supported.
 > **Think More.** The chain rule is not only a theorem about derivatives; in a
 > compiler it is also a traversal strategy over dependencies. Which intermediate
 > values should be cached? Which paths can be ignored? How would the answer
-> change if a program asks for many related gradients instead of one? The chain
-> rule becomes a mechanism for composing derivative operations, building complex
-> sensitivity analyses from simple local differentiations. The topic
-> naturally expands from calculus into scheduling, memory, and reuse.
-> Implementation models for the chain rule differ: forward accumulation computes
-> derivatives alongside values, while backward accumulation builds a graph and
-> traverses in reverse. Programming paradigms range from explicit chain rule
-> application to automatic composition, affecting both performance and
-> correctness.
+> change if a program asks for many related gradients instead of one? This turns
+> calculus into questions about scheduling, memory, and reuse.
 
 Formula:
 
@@ -183,14 +176,8 @@ otherwise have to be rediscovered.
 > are truly expressions. If `@y / @x` can be differentiated again, the language
 > must avoid expanding everything too early. What representation keeps the
 > second question meaningful without turning the program into a giant formula?
-> This enables differentiation to be treated as a composable operation, where
-> derivatives of derivatives can be computed systematically.
 > Follow that question toward sparse Hessians, lazy graphs, and the difference
-> between symbolic elegance and practical computation. Implementation models for
-> higher-order derivatives range from nested AD applications to specialized
-> algorithms, each with different efficiency characteristics. Programming
-> paradigms differ: some make higher-order derivatives first-class, others
-> require explicit composition, affecting both usability and optimization.
+> between symbolic form and practical computation.
 
 Formula:
 
@@ -261,14 +248,8 @@ one wants for gradient-based fitting.
 > **Think More.** Gradient descent is often presented as assignment:
 > `theta = theta - lr * grad`. Mathematically, it is a recurrence over versions
 > of `theta`. What becomes easier to analyze if optimization is written as time,
-> and what becomes harder for a programmer used to mutation? This recurrence
-> view abstracts optimization as a temporal process, making it analyzable and
-> composable within the language's existing structures. This is a good
+> and what becomes harder for a programmer used to mutation? This is a good
 > point to compare clarity for the compiler with familiarity for the human.
-> Implementation models for optimization differ: some use mutable state, others
-> use immutable recurrences, each affecting analysis and parallelization.
-> Programming paradigms range from imperative updates to functional recurrences,
-> where the choice influences both correctness and performance.
 
 Formula:
 
@@ -313,14 +294,10 @@ operational.
 
 ## 4.5 Differentiation Algorithms and Patterns
 
-> **Think More.** Automatic differentiation enables sophisticated optimization
-> algorithms, from simple gradient descent to complex second-order methods. When
-> differentiation is first-class in the language, algorithms can be expressed
-> directly rather than through external frameworks. Implementation models range
-> from forward-mode AD (efficient for few outputs) to reverse-mode AD (efficient
-> for few inputs), each with different computational trade-offs. Programming
-> paradigms differ: some embed AD in the language syntax, others keep it in
-> libraries, affecting both usability and optimization opportunities.
+> **Think More.** First-class differentiation makes gradients values that can be
+> named and inspected. Which algorithms become clearer when derivative requests
+> are explicit in source, and which details should still belong to the lowering
+> strategy?
 
 First-class differentiation enables direct expression of advanced optimization
 algorithms.
@@ -338,7 +315,8 @@ let hess = @@f / @x / @x;  // Second derivative
 let x_next = x - grad / hess;
 ```
 
-Higher-order derivatives enable more sophisticated optimization.
+Higher-order derivatives support optimization methods that need second-order
+information.
 
 ### Jacobian Computations
 
@@ -387,7 +365,7 @@ Efficient when there are few inputs but many outputs.
 Enables algebraic simplifications but may be complex.
 
 **Source-Code AD**: Transforms the source program to compute derivatives.
-Provides full control but requires sophisticated compilation.
+Provides full control but requires a more capable compiler.
 
 **Operator Overloading AD**: Uses overloaded operators to track derivatives.
 Simple to implement but may have performance overhead.
@@ -419,7 +397,7 @@ Suppose we ask for
 let dloss_dW = @loss / @W;
 ```
 
-The result is not a magical side effect on `W`. It is a shaped sensitivity whose
+The result is not an opaque side effect on `W`. It is a shaped sensitivity whose
 entries correspond to the entries of `W`. If `W` is a matrix, the gradient is a
 matrix-shaped value. If the output were itself a vector, the result might be
 Jacobian-like. The language therefore encourages an important mental habit:
@@ -435,8 +413,8 @@ is one of the strongest arguments for making autodiff a source-language feature.
 ### Naming Sensitivities Changes the Style of Programs
 
 When derivative results can be bound explicitly, programs begin to read
-differently. A training step stops being "call optimizer magic on model and
-loss." Instead it becomes a chain of named relationships:
+differently. A training step stops being "call an optimizer on a hidden model
+state." Instead it becomes a chain of named relationships:
 
 ```rust
 let pred = ...;
@@ -542,7 +520,7 @@ is shorter. It is that the language can talk about the same object the user is
 thinking about. If a researcher writes down a loss and asks "how does this
 change with respect to those parameters?" that is already a semantic question
 about named quantities. Encoding the question directly preserves the user's
-intent instead of translating it into an indirect API ritual.
+intent instead of translating it into an indirect API pattern.
 
 That directness also helps when differentiation is not the end goal. A user may
 need gradients for optimization, yes, but they may also need local sensitivity
@@ -597,145 +575,64 @@ let grad = @loss / @weights;
 ```
 
 For readers coming from machine learning practice, this can be a relief. It
-replaces ritual with interpretation. For readers coming from programming
+replaces procedure with interpretation. For readers coming from programming
 languages, it reveals autodiff as a design issue about values, names, and
 representations rather than merely a trick of compiler engineering. That double
 readability is part of what this chapter is trying to earn.
 
-## 4.10 Why Differentiation Changes How We Read Tensor Languages
+## 4.10 Discussion: How Differentiation Changes Reading
 
-Differentiation is not only an extra computational capability layered on top of
-tensor equations. Once it is present, it changes what counts as a good source
-program. Intermediate values become more worth naming. Reduction boundaries
-become more consequential. Recurrence becomes not just a way to express time but
-also a way to expose optimization loops structurally. In other words, autodiff
-feeds back into the design criteria for the language itself.
+Differentiation changes what is worth naming. Intermediate values are not only
+temporary arithmetic; they may become the targets or sources of sensitivity
+questions. Reduction boundaries matter because gradients flow back through
+them. Recurrences matter because optimization itself can be expressed as a
+time-indexed computation. Autodiff therefore feeds back into how a program is
+organized, not only how it is executed.
 
-That feedback is part of the chapter's larger importance. The language is not
-simply learning how to answer derivative questions. It is becoming a place where
-derivative questions can shape style, structure, and explanation. A good tensor
-language for differentiable work is therefore not one that merely supports
-gradients somehow. It is one whose ordinary source forms remain meaningful when
-gradients enter the picture. That is the stronger claim this chapter is making.
+This is the source-level point of `@y / @x`. A derivative request is a statement
+about named values in the program. It gives the reader a place to ask: what is
+the objective, what is the target, and which intermediate relationships should
+remain visible because they explain the derivative?
 
-## 4.11 A Broader Meaning of Differentiable Programming
+## 4.11 Discussion: Differentiable Programming Beyond Training
 
-It is useful to end the chapter by widening the phrase "differentiable
-programming." In popular use, it can sound like a synonym for machine learning
-training loops. The source-level perspective in this book suggests something
-broader. A differentiable program is one that can state not only what values it
-computes, but what sensitivity questions about those values are meaningful and
-structurally supported.
+Differentiable programming is often introduced through machine learning
+training loops, but the idea is broader. A differentiable program can state what
+it computes and which sensitivity questions about those values are meaningful.
+That includes optimization, but also analysis, debugging, robustness checks, and
+inspection of intermediate quantities.
 
-That broader view includes optimization, of course, but it also includes
-analysis, interpretability, robustness studies, and the design of reusable
-mathematical components whose internal relationships remain inspectable. A
-language that treats derivative requests as first-class expressions is therefore
-making a larger claim than "we can train models." It is claiming that change,
-sensitivity, and responsibility among named quantities belong in the program's
-semantic world. That is the deepest reason this chapter matters.
-
-In diagram form:
+In compact form:
 
 ```text
-named values -> dependency graph -> derivative question
+named values -> dependency structure -> derivative question
 ```
 
-Readers who absorb that lesson can approach differentiable systems with a
-different kind of confidence. Instead of treating gradients as invisible
-infrastructure, they can read derivative questions as part of the explicit logic
-of the program. That is not only elegant. It is empowering.
+Source-level derivative requests make that chain readable. The gradient is not
+only an operation performed by a runtime; it is a relation the program names.
+That relation can then interact with the same source structures used elsewhere
+in the language: indices, reductions, recurrences, and intermediate bindings.
 
-And once that empowerment is present, the language can support a wider range of
-serious work: optimization, inspection, critique, and explanation all begin from
-the same visible derivative relation rather than from isolated tool rituals. The
-chapter's claim is therefore technical, conceptual, and stylistic at once.
+## 4.12 Reading Optimization Programs
 
-This is why autodiff belongs in the book's main thread rather than off to one
-side as an advanced trick. It changes how programs are organized, how readers
-ask questions of them, and how implementations justify their answers. A language
-that takes differentiation seriously is designing for a richer notion of program
-meaning than raw evaluation alone.
+When an optimization program feels complicated, isolate four bindings: the
+parameters, the forward result, the objective, and the derivative request. Those
+points usually reveal the semantic skeleton of the computation.
 
-That richer notion of meaning is ultimately what makes differentiable
-programming intellectually interesting. A program is not only a machine for
-producing values. It is also, in the right setting, a structured account of how
-those values depend on one another. Einlang's derivative syntax is a compact way
-of honoring that broader account.
-
-Once that idea is accepted, the rest of the chapter reads differently. Forward
-and reverse strategies, lazy Jacobian representations, intermediate bindings,
-and optimization recurrences all become answers to one shared design question:
-how should a language expose change as part of what its programs mean? That is a
-question worth carrying beyond this chapter into the broader design of
-differentiable systems.
-
-### A Last Reading Hint
-
-When an optimization program feels complicated, it often helps to ignore the
-training harness for a moment and isolate four bindings: the parameters, the
-forward result, the objective, and the derivative request. Those four points
-usually reveal the real semantic skeleton of the system.
-
-It also leaves the reader with a broader standard for future tools: not merely
-whether they can compute gradients, but whether they can make gradient questions
-part of the readable structure of a program. That standard is worth carrying
-forward into any later encounter with differentiable systems.
-
-In practical terms, that means a reader can ask more of the code in front of
-them. Where is the objective? What are the derivative targets? Which
-intermediates deserve names because they matter mathematically, not only
-operationally? A language that supports those questions gracefully is offering
-more than automation. It is offering a clearer way of thinking about change in
-computation.
-
-That clarity is one of the chapter's deepest ambitions. It reaches beyond any
-single optimization algorithm or machine learning workflow. It suggests that
-differentiation can be part of a language's ordinary explanatory power rather
-than a specialist add-on known only to experts in the runtime.
-
-The better that claim is realized, the more natural it becomes to write,
-inspect, and debate differentiable programs as programs rather than as incant
-ations around a hidden engine.
-
-In that stronger world, derivative-bearing programs become not just executable
-artifacts but readable mathematical objects. That aspiration gives the chapter
-its depth, and it helps explain why the topic belongs in the main line of the
-book rather than in a tool appendix. Differentiation changes what counts as
-visible structure, and once that is true, it changes the language as a whole.
-
-That broader consequence is the right place to leave the subject. Autodiff is
-powerful partly because it enlarges what a program can say about itself.
-
-It gives the source a richer language of responsibility among values, and that
-is a design win whether one is optimizing a model, inspecting a system, or
-trying simply to explain why a result changes.
-
-One can even read the logic aloud:
-
-```text
-loss changes because pred changes
-pred changes because weights change
-therefore @loss / @weights is a meaningful source question
+```rust
+let pred = model(input, weights);
+let loss = mse(pred, target);
+let grad = @loss / @weights;
 ```
 
-That final expansion of meaning is a fitting place to leave the chapter.
-
-It names change as part of the program rather than outside it.
-
-That is a concise but far-reaching shift in perspective.
-
-It reshapes both notation and expectation.
+That reading habit is the practical payoff of source-level autodiff. A gradient
+is not hidden in a training harness; it is a named relation between values in
+the program.
 
 ## Summary
 
-Automatic differentiation transforms the relationship between programs and
-calculus, making derivatives not an afterthought but an integral part of
-computation. What emerges is a programming model where optimization is not
-bolted onto computation, but woven into its fabric from the start.
-
-The elegance comes from unifying differentiation with the language's core
-disciplines:
+Automatic differentiation adds sensitivity questions to the same source model
+used for tensors and reductions.
 
 - Derivative requests refer to named bindings, making differentiation a
   relationship between specific values rather than abstract functions;
@@ -749,12 +646,5 @@ disciplines:
 - Optimization loops can be expressed as recurrences with local derivative
   requests, turning iterative optimization into structured temporal patterns.
 
-This integration creates a foundation where algorithms that rely on
-differentiation - gradient descent, Newton's method, neural network training - can
-be expressed with the same clarity and analyzability as the mathematical
-operations they optimize. The result is not just automatic differentiation, but
-differentiation that enhances the expressiveness and reliability of the entire
-programming system.
-
-The next chapter extends this temporal thinking by introducing recurrence,
-where time itself becomes an index that can be analyzed and optimized.
+The next chapter introduces recurrence, where time-like dependence becomes an
+index relationship that can be analyzed alongside tensors and derivatives.

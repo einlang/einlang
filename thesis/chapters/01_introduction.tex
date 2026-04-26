@@ -1,0 +1,110 @@
+\chapter{Introduction}
+
+Programs for machine learning, simulation, optimization, and dynamic programming
+are often written as tensor equations. The programmer names axes, sums over
+intermediate dimensions, carries state through a recurrence, and eventually asks
+how one quantity changes with respect to another. Those activities are
+mathematically related, but contemporary programming systems often expose them
+through separate interfaces.
+
+For example, a computation may use an \texttt{einsum} string to express a
+contraction, a host-language loop or scan combinator to express recurrence, and
+a separate automatic-differentiation transform to obtain a gradient. The program
+executes, but the compiler-facing facts are scattered: output axes are hidden in
+one notation, recurrence dependencies in another, and derivative targets in a
+third. The central question of this thesis is whether those facts can remain in
+one source language without sacrificing executable behavior.
+
+\section{Thesis Statement}
+
+The thesis is that indexed tensor definitions, declarative recurrence, and local
+derivative requests form a productive abstraction boundary for tensor-heavy
+programs. When these constructs share one binding environment, the source
+program keeps mathematical structure visible long enough for compiler passes to
+check shape consistency, derive recurrence order, choose storage windows, and
+lower derivative requests as shaped values.
+
+\section{Implementation Scope}
+
+This document is intentionally broader than the paper. The paper isolates the
+language-design claim. The thesis treats \einlang{} as an implementation
+artifact and documents the substantial subsystems in the repository:
+
+\begin{table}[htbp]
+\centering
+\caption{Implementation subsystems covered by this thesis.}
+\label{tab:implementation-map}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular}{@{}L{0.32\textwidth}L{0.56\textwidth}@{}}
+\toprule
+Subsystem & Non-trivial responsibility \\
+\midrule
+Frontend & Lark grammar, parse caching, source locations, AST construction, string interpolation, functions, literals, patterns, and Einstein syntax. \\
+Identity and modules & DefId allocation, scoped resolution, Rust-like module paths, stdlib discovery, imports, aliases, re-exports, and Python module hooks. \\
+IR and passes & Slot-based IR nodes, visitors, S-expression serialization, pass ordering, \texttt{TyCtxt}, range, shape, type, validation, pruning, lowering, and tree shaking. \\
+Tensor lowering & Einstein declaration grouping, rest-index preprocessing, implicit range discovery, lowerings for reductions, selections, comprehensions, and backend execution facts. \\
+Recurrence & Dependency extraction, recurrence-dimension ordering, same-timestep dependencies, storage-window metadata, and circular-buffer runtime execution. \\
+Autodiff & Source \texttt{@} forms, differential IR, high-level differentiation, request lowering, leak checks, runtime JVP/VJP templates, and lazy Jacobian values. \\
+Runtime and backends & DefId-keyed execution environment, NumPy expression and Einstein interpreters, vectorization, profiling/debug hooks, IREE lowering subset, and fallback behavior. \\
+Library and evidence & Standard library modules, examples, reference implementations, unit/integration/stdlib/example tests, and docs contracts. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Non-Focuses}
+
+It is equally important to state what this implementation is not. \einlang{} is
+not currently a bytecode VM, a garbage-collected native runtime, or a compiler
+whose central technical step is conversion from mutable code into SSA. The
+repository contains an interpreter-style NumPy backend and an experimental IREE
+lowering path; Python and NumPy own ordinary object allocation and memory
+management.
+
+\begin{table}[htbp]
+\centering
+\caption{Implementation areas that are not thesis claims.}
+\label{tab:non-focus}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular}{@{}L{0.34\textwidth}L{0.54\textwidth}@{}}
+\toprule
+Not claimed & Reason \\
+\midrule
+Mutable-to-SSA conversion & Source bindings are immutable, but the compiler IR is a mutable, source-located tree annotated by passes; there is no CFG-level SSA conversion or phi-node pass. \\
+Bytecode generation and register allocation & The main backend executes IR through Python/NumPy visitors. The IREE backend emits MLIR for a limited function subset, not an Einlang bytecode format. \\
+Custom virtual machine & There is no register VM, threaded dispatch loop, or bytecode interpreter in the current runtime. \\
+Custom garbage collector & Memory is managed by Python and NumPy. Recurrence circular buffers are storage optimizations, not a GC. \\
+C FFI and pinning & The current implementation has Python module hooks and NumPy file I/O, but no C FFI with pinning or ownership transfer. \\
+Parser generator as whole frontend & Lark supplies parsing machinery, but the grammar, transformers, source locations, AST normalization, diagnostics, and module integration are implementation work. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Contributions}
+
+This work makes five contributions.
+\begin{itemize}
+\item It identifies indexed recurrence with local derivative requests as a useful
+source boundary for programs that mix tensor algebra, dynamic programming,
+sequence models, and sensitivity analysis.
+\item It presents \einlang{}, a source language in which multidimensional
+indexed definitions, recurrent clauses, and derivative requests share names and
+scope.
+\item It describes the compiler contracts that make the constructs
+compositional: clause-scoped index domains, static self-read offsets, shaped
+derivative values, and DefId-stable binding identity.
+\item It gives concrete compiler and runtime analyses for range/shape
+inference, Einstein lowering, recurrence order, recurrence storage, autodiff,
+and backend execution.
+\item It reports on a NumPy-backed implementation, an experimental IREE backend,
+and a test/example suite that exercises the major language and implementation
+paths.
+\end{itemize}
+
+\begin{figure}[p]
+\centering
+\resizebox{\textwidth}{!}{\input{figures/source_fact_lifecycle_tikz.tex}}
+\caption{Thesis-specific implementation view: source facts are preserved until
+the compiler pass that consumes them, then carried into lowered backend-facing
+IR.}
+\label{fig:fragmentation}
+\end{figure}

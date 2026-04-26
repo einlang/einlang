@@ -65,12 +65,7 @@ the family of scalar expressions has been evaluated.
 > and orchestration. Where should conversions be automatic, and where should the
 > programmer be forced to state shape and type explicitly? The discussion can
 > begin with ergonomics, then turn into trust: which boundary mistakes should be
-> caught early, loudly, and by whom? This boundary abstraction enables modular
-> system design, where each component handles its domain of expertise without
-> unnecessary coupling. Implementation models range from implicit conversion to
-> explicit casting, each with different safety and usability characteristics.
-> Programming paradigms differ: some use seamless integration, others use
-> explicit boundaries, affecting both reliability and developer experience.
+> caught early, loudly, and by whom?
 
 The current interop syntax is module-path based:
 
@@ -171,15 +166,12 @@ relationship. Neither side has to pretend to be the other.
 
 ## 6.4 Interop Algorithms and Patterns
 
-> **Think More.** Interoperability enables complex systems that combine
-> specialized languages for different concerns. When boundaries are explicit,
-> systems can be composed reliably while maintaining type safety and performance.
-> Implementation models range from foreign function interfaces to embedded
-> interpreters, each with different integration characteristics. Programming
-> paradigms differ: some use tight coupling, others use loose coupling through
-> data exchange, affecting both modularity and efficiency.
+> **Think More.** Interop is healthiest when each side keeps a clear
+> responsibility. What information must cross with a value so the receiving
+> language can trust it: type, shape, layout, lifetime, or provenance?
 
-Explicit boundaries enable sophisticated cross-language algorithms.
+Explicit boundaries support cross-language workflows while keeping contracts
+visible.
 
 ### Data Pipeline Integration
 
@@ -411,24 +403,14 @@ quietly expand into a general-purpose environment by stealth. It is included so
 that a narrow tensor language can remain narrow while still participating in
 real work.
 
-## 6.8 The Wider Audience for a Language With Borders
+## 6.8 Discussion: Boundaries as Contracts
 
-It is worth stressing that this boundary story is not only for specialists in
-language design. Many readers encounter tensor programming from practical
-pressure first: they have data in one place, models in another, experiments in a
-third, and a great deal of notebook or service code holding everything together.
-For such readers, a language that insists on clear borders can be more useful
-than one that promises total ownership and delivers a blurrier reality. The
-border makes responsibilities legible.
-
-That is part of why this chapter belongs in a broader publication rather than
-only in a technical appendix. It addresses a recurring experience of modern
-computing: meaningful systems are often assembled from components that are good
-at different things. The question is not whether a pure single-language world
-would be elegant in theory. The question is whether a real system can remain
-coherent while crossing tools, runtimes, and communities of practice. Einlang's
-answer is that coherence comes from explicit contracts, not from pretending the
-crossings do not exist.
+The Python boundary is not only a convenience feature. It is a contract about
+responsibility. Python admits the outside world: files, notebooks, services,
+plots, and experimental scaffolding. Einlang receives values whose tensor
+structure has been made explicit enough to check. That division keeps the tensor
+core readable without pretending that data pipelines and surrounding tools do
+not exist.
 
 At a glance, the boundary looks like:
 
@@ -436,28 +418,26 @@ At a glance, the boundary looks like:
 Python loader -> cast -> Einlang equation -> Python report
 ```
 
+The cast is the important middle step. It is where a dynamic host value becomes
+a shaped claim the tensor language can reason about. Without that step, interop
+would only move bytes; with it, interop preserves meaning.
+
 ## 6.9 Boundary Case Studies
 
-It helps to make the boundary argument concrete with recurring case studies.
-First, consider exploratory work. A practitioner may want to load a dataset,
-inspect a few examples, try several preprocessing variants, and then express the
-core tensor relationship clearly. Python is an excellent medium for the
-exploration, but the tensor equation benefits from Einlang's structure-visible
-syntax. In that workflow, the boundary is not a nuisance. It is the line between
-experimentation infrastructure and mathematical core.
+Three common workflows make the boundary concrete.
 
-Second, consider a long-lived project with multiple contributors. Data loading,
-evaluation reports, and external services may evolve rapidly. The tensor logic
-may need stronger stability guarantees because it is the part that most benefits
-from explicit shapes, reductions, and derivative requests. Here again the
-boundary is useful because it prevents every layer from inheriting the full
-complexity of every other layer.
+In exploratory work, Python loads data, inspects examples, and tries
+preprocessing variants. Einlang can then state the core tensor relationship with
+visible axes and reductions. The boundary separates experimental scaffolding
+from the equation that should be read closely.
 
-Third, consider educational or communicative work. A notebook or article may
-need to explain not only what a system computes, but how its tensor structure
-works. Python can handle the surrounding exposition and plotting. Einlang can
-hold the exact equations worth reading closely. The split keeps the explanation
-honest: auxiliary tasks remain auxiliary, while the tensor core remains visible.
+In a long-lived project, data loading, reports, and service integration may
+change independently from the tensor logic. Keeping the tensor logic in a small
+source language can make its shape and derivative contracts easier to review.
+
+In teaching or exposition, Python can handle plotting and surrounding
+demonstration code, while Einlang shows the exact indexed equation. The split
+helps readers distinguish auxiliary workflow from mathematical structure.
 
 A tiny example is enough to show the pattern:
 
@@ -467,27 +447,18 @@ let logits[n, c] = sum[d](images[n, d] * W[d, c]);
 python::report::plot_logits(logits);
 ```
 
-Across all three cases, the same lesson appears. A boundary is healthiest when
-it reflects a real difference in semantic responsibility. Python is the place
-where the outside world is admitted. Einlang is the place where the tensor
-relationships are stated with maximal clarity. The more faithfully that split is
-kept, the more coherent the overall system tends to remain.
+Across these cases, the same rule applies: a boundary is healthiest when it
+matches a real difference in responsibility. Python is where broad ecosystem
+work happens. Einlang is where tensor relationships are stated with maximal
+clarity.
 
-## 6.10 Why Wider Audiences Should Care About This Chapter
+## 6.10 Discussion: Tool Quality at the Edges
 
-Readers who are not planning to adopt Einlang immediately may still find this
-chapter useful because it names a general problem in contemporary technical
-work. Many systems today are assembled from specialized tools rather than
-written end to end in one homogeneous language. The real challenge is often not
-whether those tools can call one another, but whether the boundary between them
-preserves meaning instead of erasing it.
-
-That question appears in data science, machine learning, simulation, graphics,
-and even ordinary business software. One tool is good at storage, another at
-analysis, another at visualization, another at serving. Systems become brittle
-when these crossings are handled only by habit and implicit convention. They
-become more trustworthy when contracts, casts, and observable handoff points are
-part of the design.
+Tool quality is often revealed at handoff points. Many systems are assembled
+from specialized parts: one tool stores data, another transforms it, another
+visualizes it, and another serves it. The hard question is not only whether the
+tools can call one another. It is whether the meaning of a value survives the
+crossing.
 
 The failure mode is usually simple:
 
@@ -495,64 +466,11 @@ The failure mode is usually simple:
 opaque helper -> hidden reshape -> later mismatch
 ```
 
-Seen from that angle, the Python chapter is not merely a pragmatic appendix to a
-tensor language. It is part of the book's wider argument that boundaries can be
-an intellectual achievement. A system becomes clearer when it knows where one
-kind of meaning ends and another begins. Einlang's interop story is one
-instance of that more general principle.
-
-## 6.11 Why the Boundary Story Matters So Much
-
-The reason this chapter needs so much space is that boundaries are where many
-technical systems become either honest or misleading. A small tensor language
-can look beautiful in isolation while remaining awkward in practice if it has no
-clear account of how it meets datasets, plotting tools, services, notebooks,
-and surrounding libraries. Conversely, a language with very modest scope can
-become surprisingly powerful if it crosses those borders well.
-
-Einlang's answer is not magical seamlessness. It is legibility. The user is
-meant to see when a value enters from Python, when a shape claim is being made,
-when a tensor is being inspected, and when a result is returning outward. That
-legibility helps beginners learn, helps practitioners debug, helps collaborators
-divide labor, and helps implementers keep the core language focused. The chapter
-therefore occupies a deeper place in the book than a mere "integration notes"
-section would suggest.
-
-There is also a broader cultural argument here. Modern technical work is almost
-never done inside one pure, sealed environment. We work across data tools,
-visualization layers, deployment systems, experiment harnesses, and domain
-libraries. A publication about a serious language should therefore say something
-intelligent about crossing worlds. By presenting interop as a structured
-contract rather than an embarrassment, this chapter tries to do exactly that.
-
-For readers outside the immediate Einlang project, that may be the most portable
-lesson. Any specialized tool becomes more trustworthy when its boundaries are
-clear, observable, and honest about what they promise. The Python chapter is one
-instance of that wider principle, but the principle travels far beyond this
-language.
-
-## 6.12 A Publication-Worthy Lesson About Tools
-
-A serious publication should leave the reader with something larger than a
-feature checklist. This chapter's larger lesson is that tool quality is often
-revealed at the edges. Many systems look impressive when viewed only at their
-most elegant core examples. Far fewer remain impressive when one asks how data
-enters, how assumptions are stated, how meaning survives translation, and how
-responsibility is divided across layers.
-
-Einlang's interaction with Python is meant to answer that harder question. It
-does not promise that every crossing is invisible. It promises that crossings
-can be explicit enough to reason about. That is a stronger and more durable kind
-of sophistication than seamlessness-by-marketing. A reader deciding whether the
-language is serious should care about this chapter precisely because it shows how
-the project behaves when the outside world arrives.
-
-The publication-level importance of this is easy to miss. Many books about tools
-and languages dwell on internal elegance and leave boundary realities to README
-files or scattered examples. But a language earns trust when its boundary story
-is part of its stated design. That is what this chapter has tried to supply: not
-merely proof that Python interop exists, but an argument for what kind of
-clarity a good interop story should preserve.
+Einlang's answer is not to make every crossing invisible. It is to make the
+crossing visible enough to inspect. A user should be able to see when a value
+enters from Python, when a shape claim is made, when a tensor is observed, and
+when a result returns outward. That visibility helps debugging and keeps the
+core language focused.
 
 ### A Final Practical Reading
 
@@ -560,125 +478,22 @@ If a practitioner remembers only one operational lesson from this chapter, it
 could be this: keep the outer world broad and flexible, but make the inner
 tensor claims narrow and explicit. Load, inspect, orchestrate, and visualize in
 the environment already good at those things. Cast, name, reduce, recur, and
-differentiate in the environment whose entire reason for existing is to make
-that structure visible. The cleaner that separation remains, the stronger both
-sides tend to become.
-
-## 6.13 Interop and the Shape of Real Work
-
-Real technical work rarely arrives as a pure mathematical object waiting
-obediently for one ideal language. It arrives mixed with files, services,
-scripts, dashboards, experiments, and partial data. A language becomes more
-useful when it can meet that reality without losing its semantic center. That is
-exactly what a good interop story provides.
-
-For Einlang, the center is explicit tensor structure. The surrounding world is
-allowed to remain heterogeneous, but the boundary is where that heterogeneity is
-translated into a form the tensor language can state clearly and check. This is
-why the chapter belongs in the main arc of the book: it explains how a language
-with narrow ambition participates in broad reality without giving up the source
-of its coherence.
-
-That lesson generalizes. Many successful tools are not universal; they are
-disciplined participants in larger ecosystems. What makes them durable is not
-that they eliminate boundaries, but that they make boundary crossings legible.
-Einlang's relationship with Python is one example of that broader pattern.
-
-This is also why the chapter should matter to readers who care about software
-quality more broadly. Systems often fail where meanings are translated, not only
-where equations are computed. A shape contract omitted at the boundary can be as
-damaging as a bug in the kernel itself. By insisting that boundary claims be
-spelled out, observed, and checked, Einlang is arguing for a style of technical
-honesty that extends beyond tensor programming.
-
-Seen this way, interop is part of the language's publication-level identity. It
-shows how the project expects to live in the world rather than only in ideal
-examples. The host language remains the place for breadth and reach. Einlang
-remains the place for explicit tensor meaning. A good border lets both remain
-good at what they are for.
-
-There is also a kind of readerly relief in this arrangement. One does not need
-to pretend that every surrounding concern belongs in the tensor language in
-order to take the tensor language seriously. The book can say plainly: here is
-where the formula should live, here is where the ecosystem should help, and here
-is how the crossing between them should be made understandable. That candor is
-part of what makes a narrow tool feel trustworthy.
-
-In practice, that means the chapter is not a detour away from the core. It is a
-demonstration that the core can keep its shape under real conditions. A language
-with a good boundary story can remain small without becoming isolated, and it
-can remain principled without becoming impractical. That is a substantial design
-achievement.
-
-This is also why the chapter speaks to a wide audience. Anyone who has watched a
-beautiful internal abstraction dissolve at the point where real inputs and real
-systems arrive will recognize the stakes. A language proves part of its worth by
-how it survives contact with the outside world. Clear interop is one way of
-surviving that contact without losing identity.
-
-Put differently: the chapter is about practical dignity. It argues that a small
-language need not become vague in order to be useful, and need not become
-universal in order to participate in serious work. It can keep its center by
-crossing boundaries well. That is a lesson many specialized tools could stand to
-learn.
+differentiate in the environment whose reason for existing is to make that
+structure visible.
 
 ### A Final Boundary Question
 
-Whenever a value crosses from Python into Einlang, or back again, ask one blunt
-question: what meaning would be lost if this crossing were undocumented? The
-answer usually tells you what contract, cast, print, or named intermediate is
-still worth adding.
-
-The chapter therefore closes not only with an interoperability recipe, but with
-a general design value: boundaries are strongest when they preserve meaning
-rather than merely moving bytes. That value applies to many tools beyond
-Einlang, and it is one reason this discussion belongs at the center of the
-book's argument about clarity.
-
-That same value is useful whenever systems are built from specialized parts.
-Clear boundaries help teams collaborate, help readers debug assumptions, and
-help languages remain good at the things that justify their existence. Interop,
-in other words, can be a source of rigor rather than a concession to impurity.
-
-This chapter argues that the best boundary is neither invisible nor clumsy. It
-is visible enough to inspect and disciplined enough to trust. That is the kind
-of practicality a serious publication should defend.
-
-The claim is modest in wording but ambitious in implication: software becomes
-more legible when crossings between worlds are treated as semantic events worth
-designing carefully. Interop, in that sense, is part of the language's theory of
-clarity.
-
-That is why the chapter is ultimately about more than Python. It is about how a
-focused tool keeps its promises while living in a broader world. The answer is
-not isolation, and it is not total absorption. It is a border clear enough that
-meaning survives the crossing. Readers who build any kind of multi-tool system
-will recognize the value of that answer.
-
-The chapter's practical wisdom lies there: clear boundaries are a way of keeping
-both power and honesty at once. That is a rare and useful combination.
-
-In that respect, the chapter is as much about system character as about system
-mechanics. It asks a language to be explicit not only at the center of the
-equation, but also at the point where the equation meets the world.
-
-That is a strong standard, and a useful one.
-
-It is also one that scales well from notebooks to larger systems.
-
-That scalability is part of what makes the boundary story feel mature.
-
-It keeps practical breadth from dissolving semantic focus.
+Whenever a value crosses from Python into Einlang, or back again, ask: what
+meaning would be lost if this crossing were undocumented? The answer usually
+tells you what contract, cast, print, or named intermediate is still worth
+adding.
 
 ## Summary
 
-The relationship between Einlang and Python demonstrates the power of
-deliberate boundaries in language design. Rather than attempting universal
-coverage, Einlang focuses intensely on tensor computation while leveraging
-Python's ecosystem for everything else. This symbiotic approach creates more
-power than either language could achieve alone.
+The relationship between Einlang and Python is a boundary design. Einlang keeps
+the tensor core focused while Python handles the surrounding ecosystem work.
 
-The design principles that enable this collaboration are carefully chosen:
+The main design principles are:
 
 - `print` observes values and helps debug the expression graph, providing
   explicit observation points in a lazy computational model;
@@ -689,13 +504,5 @@ The design principles that enable this collaboration are carefully chosen:
 - Examples such as MNIST keep data loading in Python and model equations in
   Einlang, demonstrating clean separation of concerns.
 
-This boundary-driven approach transforms what could be a weakness - limited
-scope - into a strength. By being excellent at tensor computation and explicitly
-handing off everything else to Python, Einlang creates a more reliable and
-composable system than a language trying to do everything adequately. The
-result is not compromise, but synergy: each language handles its domain with
-depth and clarity.
-
-The final chapter explores the philosophical foundations of these design
-choices, examining why Einlang's boundaries are not limitations, but the
-source of its focused power.
+The final chapter discusses why this narrow core is a deliberate design choice
+rather than an accident of implementation.

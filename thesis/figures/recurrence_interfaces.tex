@@ -1,0 +1,40 @@
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{Einlang: dependency relation}
+\begin{lstlisting}[style=einlang,basicstyle=\ttfamily\footnotesize]
+let y[0] = init;
+let y[t in 1..T] =
+    step(y[t - 1], x[t]);
+let out = y[T - 1];
+\end{lstlisting}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{JAX: carry contract}
+\begin{lstlisting}[style=pythoncode,basicstyle=\ttfamily\footnotesize]
+def body(carry, x_t):
+    y = step(carry, x_t)
+    return y, y
+out, ys = jax.lax.scan(
+    body, init, x[1:])
+\end{lstlisting}
+\end{minipage}
+
+\vspace{0.45\baselineskip}
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{PyTorch: host storage}
+\begin{lstlisting}[style=pythoncode,basicstyle=\ttfamily\footnotesize]
+ys = [init]
+for x_t in x[1:]:
+    ys.append(step(ys[-1], x_t))
+out = ys[-1]
+\end{lstlisting}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{Compiler-visible fact}
+\begin{lstlisting}[style=pythoncode,basicstyle=\ttfamily\footnotesize]
+self_reads = {t: t - 1}
+order = topological_order(self_reads)
+storage = bounded_window(self_reads)
+\end{lstlisting}
+\end{minipage}

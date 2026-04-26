@@ -36,6 +36,10 @@ functions, modules, blocks, `if`, `match`, comprehensions, and Python interop,
 but its center is tensor computation. The language is strongest when the source
 program can keep the formula's structure intact.
 
+This book is the tutorial path. The [paper]({{ '/paper/einlang_paper.pdf' | relative_url }})
+states the compact design argument, and the [thesis-form report]({{ '/thesis/einlang_thesis.pdf' | relative_url }})
+documents the implementation algorithms behind the compiler and runtime.
+
 ## How to Read a Program
 
 A small example already contains the main discipline:

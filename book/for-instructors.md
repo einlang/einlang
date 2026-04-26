@@ -21,7 +21,7 @@ The strongest course pairings are:
 - scientific computing, where students already know arrays but not
   source-visible tensor structure;
 - machine learning systems, where autodiff and tensor kernels are important but
-  often treated as magical infrastructure;
+  often treated as opaque infrastructure;
 - independent projects on compilers, tensor runtimes, or differentiable
   programming.
 

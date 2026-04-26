@@ -13,7 +13,7 @@ This doc set is intentionally small. If you are using Einlang, start with the us
 ## Use Einlang
 
 - [Getting started](GETTING_STARTED.md): install, first run, and the shortest learning path.
-- [Einlang: Formulas as Code](../book/): a book-style introduction to Einlang's core abstractions.
+- [Einlang: Formulas as Code](https://einlang.github.io/einlang/book/): a book-style introduction to Einlang's core abstractions.
 - [Examples guide](../examples/README.md): curated runnable programs by goal.
 - [Autodiff guide](AUTODIFF.md): how `@x`, `@y / @x`, and related forms work.
 - [Why Einlang](WHY_EINLANG.md): project motivation and positioning.
@@ -23,6 +23,11 @@ This doc set is intentionally small. If you are using Einlang, start with the us
 
 - [Language reference](reference.md): syntax and semantics.
 - [Standard library](stdlib.md): library reference.
+
+## Research
+
+- [Paper](../paper/einlang_paper.pdf): the compact language-design argument.
+- [Thesis-form report](../thesis/einlang_thesis.pdf): the fuller implementation writeup with compiler algorithms.
 
 ## Contribute
 

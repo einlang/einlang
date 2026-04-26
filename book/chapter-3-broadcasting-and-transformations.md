@@ -8,7 +8,7 @@ title: "Chapter 3: Broadcasting and Transformations"
 Not every tensor operation creates or consumes an axis. Some operations align
 axes, repeat values conceptually, reorder dimensions, or derive one coordinate
 from another. This chapter treats those transformations as index relationships
-rather than as hidden array-manipulation rituals. By making these operations
+rather than as hidden array-manipulation idioms. By making these operations
 explicit in the index structure, we enable the compiler to optimize memory
 access patterns, avoid unnecessary copies, and generate efficient code for
 different architectures. The result is a programming model where
@@ -94,15 +94,7 @@ inside the concept.
 > **Think More.** A transpose can be implemented as data movement, a view, or
 > even eliminated by later fusion. At the source level, it is only a different
 > ordering of named axes. How much should a language expose about layout, and how
-> much should it leave as a backend decision? A discussion can split here between
-> the mathematical view of tensors and the systems view of memory. By abstracting
-> transformations as coordinate mappings, we enable flexible composition where
-> the same tensor can be viewed through different lenses without fixing the
-> underlying representation. Implementation models range from eager transposition
-> (immediate data rearrangement) to lazy transposition (deferred until access),
-> each with different memory and performance trade-offs. Programming paradigms
-> differ: some treat transposition as a data operation, others as a metadata
-> operation, affecting how algorithms compose transformations.
+> much should it leave as a backend decision?
 
 Formula:
 
@@ -155,13 +147,7 @@ consumer is a later decision.
 > polymorphism by pattern, not by a separate type calculus. What kinds of generic
 > tensor programs become possible if "the rest of the shape" can be named? What
 > mistakes also become easier to make when a pattern hides several axes behind
-> one word? This pattern enables polymorphic operations that work across varying
-> tensor ranks, building on the index abstraction to create reusable components
-> that maintain type safety through consistent naming. Implementation models
-> differ: some systems expand rest patterns early, while others preserve them
-> for later analysis. Programming paradigms range from explicit axis naming
-> (verbose but clear) to rest patterns (concise but potentially confusing), where
-> the choice affects both expressiveness and error detection.
+> one word?
 
 Formula:
 
@@ -218,16 +204,7 @@ condition.
 > the language provide a special `conv` primitive, or should it let the compiler
 > recognize the indexed pattern and choose an efficient lowering? This question
 > opens a broader discussion about whether domain knowledge belongs in syntax,
-> libraries, or compiler intelligence. Implementation models range from primitive
-> convolution operations (efficient but limited) to pattern recognition
-> (flexible but complex), each affecting how domain-specific optimizations are
-> implemented. Programming paradigms differ: some embed domain operations in the
-> language, others keep them in libraries, affecting both performance and
-> extensibility.
-> libraries, or compiler pattern recognition. By expressing convolution through
-> index arithmetic, we build complex operations from the same primitives used
-> for simpler transformations, enabling a unified approach to tensor
-> computations.
+> libraries, or compiler intelligence.
 
 Formula:
 
@@ -289,20 +266,13 @@ compiler has enough context to make them well.
 
 ## 3.5 Transformation Algorithms and Patterns
 
-> **Think More.** Transformations like broadcasting, transposition, and
-> reshaping form the connective tissue of tensor algorithms, enabling operations
-> to work across different shapes and layouts. When transformations are explicit
-> in the index structure, compilers can optimize memory access patterns, avoid
-> unnecessary copies, and generate efficient code. Implementation models range
-> from view-based transformations (no data movement) to copy-based
-> transformations (explicit rearrangement), each with different performance and
-> memory characteristics. Programming paradigms differ: some languages treat
-> transformations as metadata (cheap views), while others treat them as data
-> movement (explicit operations), affecting how algorithms are structured and
-> composed.
+> **Think More.** Broadcasting, transposition, and reshaping are not just
+> convenience calls; they are coordinate transformations. When those
+> transformations are explicit, what should the compiler preserve as a view,
+> materialize as data movement, or fuse away?
 
-Explicit transformation patterns enable sophisticated algorithms that would be
-complex or impossible with implicit approaches.
+Explicit transformation patterns make some algorithms easier to state, inspect,
+and lower efficiently.
 
 ### Batch Processing with Broadcasting
 
@@ -378,7 +348,7 @@ some optimizations but increases memory usage.
 accessed. Enables fusion optimizations but can hide performance costs.
 
 **Compile-Time Model**: Analyze transformation patterns and generate optimized
-code. Best performance but requires sophisticated analysis.
+code. Best performance, but it requires stronger analysis.
 
 **Runtime Model**: Perform transformations dynamically based on data shapes.
 Flexible but may incur runtime overhead.
@@ -521,16 +491,16 @@ operation.
 
 ## 3.8 Transformation Families as a Way of Thinking
 
-Perhaps the deepest lesson of this chapter is that transformations are not a
-grab-bag of special operations. They are a family of related ideas about how
-coordinates determine meaning. Broadcasting says a term ignores an axis.
+The main lesson of this chapter is that transformations are not a grab-bag of
+special operations. They are a family of related ideas about how coordinates
+determine meaning. Broadcasting says a term ignores an axis.
 Transpose says the result names the same coordinates in a different order.
 Convolution says one coordinate is derived from another through arithmetic.
 Rest patterns say a whole group of axes may move through an equation as a named
 block. These are all facets of one underlying viewpoint: tensor programs are
 coordinate programs.
 
-Once that viewpoint clicks, many library rituals look different. A mysterious
+Once that viewpoint clicks, many library idioms look different. A mysterious
 chain of `unsqueeze`, `transpose`, `reshape`, and `expand` calls in another
 system can often be re-read as a sequence of straightforward coordinate claims.
 The point of Einlang is not to eliminate all need for transformation. It is to
@@ -579,14 +549,19 @@ broadcasted bias may contribute to a gradient summed over a batch. A convolution
 pattern may later be recognized by a lowering pass. All of these depend on the
 fact that coordinate relationships were not erased too early.
 
-### The Chapter's Wider Argument
+### Discussion: Transformation as Meaning
 
-The wider argument of this chapter is therefore simple but far-reaching:
-transformation should be treated as meaning, not cleanup. Once we accept that,
-it becomes natural to give broadcasting, permutation, and coordinate arithmetic
-a direct place in the language. The result is not merely prettier code. It is a
-programming model in which data shape, coordinate logic, and implementation
-strategy can be discussed in one vocabulary.
+Transformation should not be treated as cleanup around the real computation.
+Elementwise arithmetic says what happens at a point; transformations say how
+points in one family correspond to points in another. Broadcasting, permutation,
+rest patterns, and index arithmetic are therefore part of the meaning of a
+tensor program, not only part of its implementation strategy.
+
+This matters because many tensor bugs are geometric. The scalar formula may be
+right while the axes are aligned, repeated, or collapsed in the wrong way.
+Keeping coordinate relationships in source gives beginners a clearer map,
+practitioners a better debugging handle, and compiler passes a representation
+that can survive into view selection, fusion, or layout-aware lowering.
 
 ## 3.9 A Reader's Checklist for Transformation-Heavy Code
 
@@ -597,106 +572,29 @@ four simple questions. Which axes survive from input to output? Which axes are
 newly introduced? Which axes are merely reordered or renamed? Which terms are
 constant along some output direction and therefore only conceptually repeated?
 
-This checklist sounds modest, but it scales surprisingly well. It clarifies why
-a bias broadcasts across a batch, why a transpose can disappear into a later
-consumer, why a convolution window is not a new axis in the output, and why a
-named rest pattern is stronger than a vague "any leading dimensions are okay"
-promise. In effect, it turns transformations from a pile of tactics into a
-stable reading method.
+This checklist clarifies why a bias broadcasts across a batch, why a transpose
+can disappear into a later consumer, why a convolution window is not a new axis
+in the output, and why a named rest pattern is stronger than a vague "any
+leading dimensions are okay" promise. When a tensor program is hard to follow,
+return to its coordinate relationships before blaming the arithmetic.
 
-That stability is what makes this chapter more than a catalog of array tricks.
-It teaches a habit of interpretation. Once that habit is learned, many
-apparently different tensor rewrites collapse into one family of coordinate
-arguments. That is the wider payoff of treating transformations as first-class
-source structure.
+## 3.10 Discussion: Why Shape-Sensitive Readers Care
 
-## 3.10 Transformations as the Grammar of Tensor Programs
+A reader who can explain how axes line up, survive, and move will usually find a
+program easier to maintain than a reader who only recognizes the operator names.
+The same arithmetic can mean different things under different coordinate
+arrangements. That is why shape logic deserves visible syntax rather than being
+left to side effects of library calls.
 
-Elementwise arithmetic tells us what happens at a point. Transformations tell us
-how points relate across families. In that sense, broadcasting, permutation,
-rest patterns, and index arithmetic together form much of the grammar of tensor
-programs. They explain how one family of values is reinterpreted, aligned, or
-projected into another family before any heavy arithmetic even begins.
-
-This is why so much tensor code lives or dies by the clarity of its
-transformations. When those relationships are explicit, the program stays close
-to its mathematics. When they are obscured by convenience calls and hidden shape
-manipulation, the arithmetic may still be correct, but the program becomes hard
-to trust. Einlang's transformation syntax therefore earns its place by doing
-more than saving keystrokes. It gives shape logic a readable grammar of its own.
-
-## 3.11 Why Shape-Sensitive Readers Care
-
-Readers who work seriously with tensor systems quickly learn that many bugs,
-performance surprises, and interpretive mistakes come not from the local
-arithmetic but from the silent handling of shape. A tensor program can compute
-the right scalar formula in the wrong geometric arrangement and still mislead
-its reader for a long time. Broadcasting and transformation syntax matter
-because they put shape logic where it can be discussed openly rather than
-rediscovered from side effects.
-
-That openness is valuable across audiences. The beginner gains a clearer map of
-which axes are doing what. The practitioner gains a more trustworthy description
-of how data is being aligned and reused. The implementer gains visible
-relationships that may later support views, fusion, or layout-aware lowering.
-The same explicitness serves all three because shape is not an incidental
-property of tensor programs. It is one of their main sources of meaning.
-
-For that reason, transformation syntax should not be treated as auxiliary
-ornament around "real" tensor computation. In many systems it is the part that
-most determines whether the computation can be trusted, explained, or optimized.
-Einlang gives it a first-class place because shape logic deserves to live in the
-open.
-
-That is why this chapter continues to matter even when the later mathematics
-becomes more advanced. Broadcasting, permutation, and coordinate arithmetic are
-not introductory housekeeping concepts we quickly outgrow. They are the durable
-means by which tensor programs keep their geometry intelligible.
-
-Whenever a tensor program feels confusing, it is often worth returning to the
-transformations first. Very often the arithmetic is innocent and the real source
-of difficulty is hidden geometry. A language that surfaces that geometry is
-therefore doing more than offering convenience. It is protecting the reader's
-ability to understand the program at all.
-
-That protection is one reason transformation syntax belongs in the conceptual
-center of tensor programming. Geometry is not an accessory to the computation.
-It is one of the things the computation is about.
-
-### A Final Rule of Thumb
-
-When two tensor programs compute the same arithmetic but differ in how clearly
-their axes line up, survive, or move, prefer the one whose transformation logic
-you can explain aloud. In practice, that is usually the one that will age
-better, teach better, and optimize better too.
-
-That interpretive habit is one of the most transferable skills the chapter
-offers to anyone who reads tensor code seriously.
-
-It helps with design, debugging, and communication alike. Once a reader starts
-to see transformations as public statements about coordinate meaning, many
-otherwise mysterious tensor programs become discussable in ordinary language.
-That is a real gain, and it is part of why this material deserves space in the
-book rather than a quick mention.
-
-It also gives the chapter a durable afterlife: long after specific APIs change,
-the underlying geometry remains readable.
-
-That durability is one of the best reasons to learn it.
-
-It keeps tensor shape from becoming an afterthought.
+The durable habit from this chapter is simple: prefer tensor code whose
+transformation logic can be explained aloud. That habit helps with design,
+debugging, and communication, and it remains useful even when the surrounding
+APIs change.
 
 ## Summary
 
-Broadcasting and transformations reveal the elegance of index relationships as
-the foundation for tensor composition. What emerges is not a collection of
-special-case operations, but a unified framework where shape compatibility,
-memory efficiency, and computational intent are all expressed through index
-dependencies. This chapter demonstrates how making transformations explicit
-turns what could be opaque optimizations into transparent, analyzable
-operations.
-
-The principles that emerge are both simple and profound:
+Broadcasting and transformations are coordinate relationships. Making them
+explicit keeps shape logic visible to readers and available to compiler passes.
 
 - A missing output index means invariance along that axis, enabling
   broadcasting as a natural consequence of index relationships;
@@ -707,13 +605,5 @@ The principles that emerge are both simple and profound:
 - `where` names derived indices and gives range analysis more information,
   turning conditional operations into structured transformations.
 
-These principles create a foundation where transformations are not
-afterthoughts, but integral parts of the computational model. The compiler can
-reason about memory layouts, optimize data movement, and verify shape
-compatibility because the intent is visible in the source. This visibility
-transforms optimization from guesswork into systematic analysis.
-
-The next chapter builds on this foundation by asking a transformative question:
-once values are named, can the language ask how one value changes with respect
-to another? The answer leads us into the world of automatic differentiation,
-where relationships between values become the basis for computing derivatives.
+The next chapter builds on this foundation by asking how one named value changes
+with respect to another. That question leads to automatic differentiation.

@@ -1,0 +1,25 @@
+\chapter{Conclusion}
+
+\einlang{} is a tensor language built around three first-class constructs:
+source-level multidimensional indexed tensor definitions, declarative
+recurrences, and local derivative requests over named bindings. These constructs
+form an executable abstraction boundary for tensor-heavy programs. The compiler
+can use source-level axes, domains, dependency offsets, and derivative targets
+to perform checks and analyses that are harder to recover after the program has
+been split across host APIs.
+
+The implementation supports this design with a full pipeline: Lark parsing,
+source-located ASTs, DefId-based name resolution, module loading, IR lowering,
+range and shape analysis, type inference, monomorphization, Einstein lowering,
+recurrence order and storage metadata, compile-time and runtime autodiff,
+validation, a DefId-keyed execution environment, a NumPy backend, an
+experimental IREE backend, a standard library, examples, diagnostics, profiling,
+and tests.
+
+The next milestone is to deepen the implementation where the current thesis
+draws conservative boundaries: mixed finite/full multidimensional storage
+windows, richer dynamic-offset reasoning, wider IREE lowering, GPU execution,
+and a stronger formal account of type and shape soundness. The architectural
+through-line should remain the same: keep tensor, recurrence, and differential
+structure visible in the source and preserve it until the compiler pass that can
+use it.
