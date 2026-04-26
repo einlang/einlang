@@ -1,7 +1,9 @@
 # GitHub Pages: deploy from branch main, folder / (root)
 # Site: https://einlang.github.io/einlang/
-# Renders from index.md only; everything else excluded so no other pages are built.
+# Renders the root site plus the public book/ folder. Reference docs remain
+# excluded from Pages and are read on GitHub.
 title: Einlang
+url: "https://einlang.github.io"
 baseurl: "/einlang"
 exclude:
   - README.md

@@ -3,6 +3,8 @@
 
 **If you already think in NumPy, Julia, or Rust,** this page maps your mental model to Einlang. Same ideas, different syntax — so you can guess the rest. Full details: [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md).
 
+One small syntax note up front: Einlang source uses `//` for line comments. It does not use `--`.
+
 ---
 
 ## Python / NumPy
@@ -32,7 +34,7 @@ Einlang runs **inside** your Python process; you pass a file path or a source st
 | Ranges | `1:10` (inclusive) | `1..10` (exclusive), `0..=10` (inclusive) | [Ranges](https://github.com/einlang/einlang/blob/main/docs/reference.md#ranges) |
 | Functions | `function f(x) ... end` | `fn f(x) { ... }` (last expression is the return value) | [fn declarations](https://github.com/einlang/einlang/blob/main/docs/reference.md#fn-declarations) |
 | Differentiate a loss | `Zygote.gradient(w -> loss(w), w)` | `let dloss_dw = @loss / @w;` right in the program expression graph | [Automatic differentiation](https://github.com/einlang/einlang/blob/main/docs/reference.md#automatic-differentiation) |
-| Index algebra (e.g. conv) | Manual `ih = oh + kh` in loops | `where ih = oh + kh, iw = ow + kw` on the expression | [Where clauses](https://github.com/einlang/einlang/blob/main/docs/reference.md#where-clauses) |
+| Index algebra (e.g. conv) | Manual coordinate temporaries in loops | `input[b, c, oh + kh, ow + kw]` inside the indexed expression | [Einstein notation](https://github.com/einlang/einlang/blob/main/docs/reference.md#einstein-notation) |
 | Recurrence (e.g. RNN) | Loops or recursion | `let h[t in 0..T, i in 0..H] = ...` with body reading prior step (e.g. `h[t-1, i]`). LHS index must be a name or literal, not `t+1`. | [Recurrence relations](https://github.com/einlang/einlang/blob/main/docs/reference.md#recurrence-relations) |
 
 ---

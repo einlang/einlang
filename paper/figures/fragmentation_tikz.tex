@@ -1,0 +1,63 @@
+\begingroup
+\newcommand{\figkw}[1]{\textcolor{einKeyword}{\bfseries #1}}
+\newcommand{\figstr}[1]{\textcolor{einString}{#1}}
+\newcommand{\figad}[1]{\textcolor{figRose}{#1}}
+\begin{tikzpicture}[
+  x=1cm,
+  y=1cm,
+  font=\footnotesize,
+  code/.style={anchor=west, font=\ttfamily\footnotesize, text=figInk},
+  codepart/.style={anchor=west, font=\ttfamily\footnotesize, text=figInk, align=left},
+  codebox/.style={draw=einFrame, fill=einBg, rounded corners=1.5pt,
+    line width=0.4pt, inner xsep=4pt, inner ysep=3.5pt,
+    font=\ttfamily\footnotesize, text=figInk, align=left},
+  sideleft/.style={anchor=east, font=\bfseries\footnotesize, text=figInk, align=right, text width=1.65cm},
+  sideright/.style={anchor=west, font=\bfseries\footnotesize, text=figInk, align=left, text width=1.45cm},
+  head/.style={anchor=west, font=\bfseries\footnotesize, text=figInk}
+]
+\node[head] at (0.00,3.20) {Fragmented status quo};
+\node[head] at (9.15,3.20) {\einlang{} source};
+
+\draw[draw=figLine, line width=0.4pt] (0.00,2.95) -- (7.85,2.95);
+\draw[draw=figLine, line width=0.4pt] (9.15,2.95) -- (17.10,2.95);
+\draw[draw=figLine, line width=0.35pt] (8.55,3.30) -- (8.55,-0.95);
+
+% Left: split across separate host/API fragments.
+\draw[draw=figLine, line width=0.35pt] (1.70,2.70) -- (1.70,-0.90);
+
+\node[sideleft] at (1.48,2.33) {Tensor\\call};
+\node[codebox, anchor=west, text width=5.55cm] at (1.95,2.33) {score = einsum(\figstr{"td,d->t"}, x, w)};
+
+\node[sideleft] at (1.48,1.00) {Host\\recurrence};
+\node[codebox, anchor=west, text width=5.55cm] at (1.95,1.00) {%
+prefix[0] = score[0]\\
+\figkw{for} t \figkw{in} range(1, T):\\
+\hspace*{1.7em}prefix[t] = prefix[t - 1] + score[t]};
+
+\node[sideleft] at (1.48,-0.48) {AD\\call};
+\node[codebox, anchor=west, text width=5.55cm] at (1.95,-0.48) {%
+loss = prefix[-1]\\
+loss.backward()\\
+dw = w.grad};
+
+% Right: one co-resident source fragment.
+\draw[draw=figLine, line width=0.35pt] (15.50,2.70) -- (15.50,-0.90);
+
+\path[draw=einFrame, fill=einBg, rounded corners=1.5pt, line width=0.4pt]
+  (9.30,-0.82) rectangle (15.28,2.62);
+\node[codepart] at (9.45,2.33) {\figkw{let} score[t] = \figkw{sum}[d](x[t, d] * w[d]);};
+\node[codepart] at (9.45,0.98) {%
+\figkw{let} prefix[0] = score[0];\\
+\figkw{let} prefix[t \figkw{in} 1..T] = prefix[t - 1]\\
+\hspace*{1.7em}+ score[t];};
+\node[codepart] at (9.45,-0.45) {%
+\figkw{let} loss = prefix[T - 1];\\
+\figkw{let} dw = \figad{@loss / @w};};
+\node[sideright] at (15.65,2.33) {Indexed\\definition};
+
+\node[sideright] at (15.65,0.98) {Declarative\\recurrence};
+
+\node[sideright] at (15.65,-0.45) {Local\\derivative};
+
+\end{tikzpicture}
+\endgroup

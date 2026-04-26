@@ -1,0 +1,37 @@
+\begin{tikzpicture}[
+  x=1cm,
+  y=1cm,
+  >=Latex,
+  font=\footnotesize,
+  stage/.style={draw=figLine, line width=0.5pt, minimum width=1.95cm, minimum height=1.0cm, align=center, inner sep=4pt},
+  source/.style={draw=figLine, line width=0.55pt, minimum width=2.55cm, minimum height=1.15cm, align=center, inner sep=4pt},
+  highlight/.style={stage, line width=0.75pt},
+  fact/.style={font=\scriptsize, align=center, text=figInk, text width=2.45cm},
+  line/.style={-{Latex[length=1.9mm]}, draw=figLine, line width=0.5pt}
+]
+\node[source] (src) at (1.45,0.75) {%
+\textbf{Source program}\\
+indexed definitions\\
+recurrences\\
+derivative requests};
+\node[stage] (s1) at (4.05,0.75) {Range and\\shape analysis};
+\node[stage] (s2) at (6.55,0.75) {Type\\inference};
+\node[highlight] (s3) at (9.05,0.75) {High-level\\autodiff};
+\node[stage] (s4) at (11.55,0.75) {Lowering and\\recurrence order};
+
+\draw[line] (src.east) -- (s1.west);
+\draw[line] (s1.east) -- (s2.west);
+\draw[line] (s2.east) -- (s3.west);
+\draw[line] (s3.east) -- (s4.west);
+
+\node[fact] (f1) at (4.05,2.15) {\textbf{Indexed facts}\\output and reduction axes};
+\node[fact] (f2) at (8.70,2.15) {\textbf{Differential facts}\\target and parameter bindings};
+\node[fact] (f3) at (11.90,2.15) {\textbf{Dependency facts}\\recurrent reads\\storage cues};
+
+\draw[line] (f1.south) -- (s1.north);
+\draw[line] (f2.south) -- (s3.north);
+\draw[line] (f3.south) -- (s4.north);
+
+\node[font=\scriptsize, text=figInk, align=center, text width=11.7cm] at (6.50,-0.80)
+{Source-level tensor, recurrence, and differential structure remain explicit until the pass that consumes each one.};
+\end{tikzpicture}

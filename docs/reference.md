@@ -9,6 +9,15 @@ Full syntax and semantics. If you are new here, start with [GETTING_STARTED](GET
 
 A program is a sequence of statements. Every statement ends with `;`.
 
+### Comments
+
+Einlang uses `//` for line comments. There is no `--` comment syntax.
+
+```rust
+// compute one value
+let x = 1 + 1;   // inline comment
+```
+
 ### `let` declarations
 
 All bindings are immutable. The type annotation is optional; when omitted the type is inferred from the right-hand side.
@@ -397,17 +406,19 @@ let output[i, j] = activated
 
 Without the where clause, you'd have to write the `sum[k](...)` expression twice (once for the comparison, once for the value).
 
-### Index remapping
+### Index arithmetic
 
-Bind derived indices to expressions of the output indices. The compiler uses these equalities to determine the valid iteration space.
+Write derived coordinates directly in index positions. The compiler uses these
+expressions to determine the valid iteration space.
 
 ```rust
 let conv[b, oc, oh, ow] = sum[ic, kh, kw](
-    input[b, ic, ih, iw] * weight[oc, ic, kh, kw]
-) where ih = oh + kh, iw = ow + kw;
+    input[b, ic, oh + kh, ow + kw] * weight[oc, ic, kh, kw]
+);
 ```
 
-Here `ih` and `iw` are not free variables — they are computed from `oh + kh` and `ow + kw`. The compiler ensures the resulting indices stay within `input`'s bounds.
+Here `oh + kh` and `ow + kw` are coordinate expressions, not new axes. The
+compiler ensures the resulting indices stay within `input`'s bounds.
 
 ### Boolean guards
 
@@ -489,19 +500,20 @@ Both calls succeed. If the body doesn't make sense for a given type (e.g., calli
 
 ---
 
-## Shadowing
+## Redeclaration
 
-A `let` binding or inner `fn` can shadow an outer name. The inner binding takes precedence within its scope.
+A `let` binding may not redefine a name that is already bound in the same
+scope. Write a fresh name instead.
 
 ```rust
 let x = 10;
-let x = x + 1;     // shadows previous x; x is now 11
-
-fn min(a, b) { a * 2 }   // shadows the builtin min
-let r = min(3, 4);        // 6, not 3
+let x = x + 1;       // ERROR: redefinition of `x` in the same scope
+let x_next = x + 1;  // OK
 ```
 
-Builtins can be shadowed. The shadowing is lexical — it applies within the block where the new binding is introduced.
+Inner scopes may still introduce local names without mutating outer bindings.
+Same-scope duplicate declarations are rejected so each binding has a stable
+meaning.
 
 ---
 
@@ -576,7 +588,7 @@ The compiler supports **built-in automatic differentiation**: you can request ta
 - **`@a / @b`** — the numeric derivative/Jacobian of named binding `a` with respect to named binding `b`. Scalar/scalar cases evaluate to a scalar; tensor cases use a lazy Jacobian-backed runtime value.
 - **Mental model** — write the program value first, then differentiate that value in place: `@loss / @w`, `@state / @dt`, and `@C / @A` are ordinary Einlang expressions, not calls to a separate gradient API.
 
-**Matmul, conv, einsum:** Derivatives of Einstein expressions are supported: e.g. `let C[i,j] = sum[k](A[i,k]*B[k,j]); let dC_dA = @C / @A;` (matmul), or convolution written as `sum[kh,kw](in[ih,iw]*w[kh,kw]) where ih = oh+kh, iw = ow+kw`. Any sum-of-products declaration can be differentiated w.r.t. any input array. See [AUTODIFF.md](AUTODIFF.md).
+**Matmul, conv, einsum:** Derivatives of Einstein expressions are supported: e.g. `let C[i,j] = sum[k](A[i,k]*B[k,j]); let dC_dA = @C / @A;` (matmul), or convolution written as `sum[kh,kw](in[oh+kh,ow+kw]*w[kh,kw])`. Any sum-of-products declaration can be differentiated w.r.t. any input array. See [AUTODIFF.md](AUTODIFF.md).
 
 Example:
 

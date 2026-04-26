@@ -88,6 +88,25 @@ def test_recurrence_storage_recognizes_symbolic_extent_and_tail_access():
     assert rec.requires_full_output is False
 
 
+def test_recurrence_storage_keeps_window_for_multidimensional_tensor():
+    rec = _compile_recurrence_binding(
+        """
+        let epochs = 5;
+        let width = 4;
+        let x[0, i in 0..width] = i as f64;
+        let x[t in 1..epochs + 1, i in 0..width] = x[t - 1, i] + 10.0;
+        let last = x[epochs, 2];
+        last;
+        """,
+        "x",
+    )
+    assert rec.recurrence_output_dim == 0
+    assert rec.history_lookback_steps == 1
+    assert rec.downstream_tail_steps == 1
+    assert rec.preserve_steps == 2
+    assert rec.requires_full_output is False
+
+
 def test_recurrence_storage_falls_back_to_full_output_for_non_constant_tail_access():
     rec = _compile_recurrence_binding(
         """
