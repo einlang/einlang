@@ -1,0 +1,44 @@
+use std::ml::argmax;
+
+let samples = 10;
+let features = 8;
+let classes = 3;
+let epochs = 5;
+let lr = 0.2;
+
+let x[n in 0..samples, d in 0..features] = (((n * 5 + d * 2 + 1) % 11) as f32) / 10.0;
+let teacher[d in 0..features, cls in 0..classes] = 0.05 * (1.0 + ((d * 3 + cls * 7) % 9) as f32);
+let teacher_b[cls in 0..classes] = 0.1 * (1.0 + (cls as f32));
+let teacher_logits[n in 0..samples, cls in 0..classes] = sum[d in 0..features](x[n, d] * teacher[d, cls]) + teacher_b[cls];
+let truth = argmax(teacher_logits);
+let y[n in 0..samples, cls in 0..classes] = if cls == truth[n] { 1.0 } else { 0.0 };
+
+let theta0[p in 0..features + 1, cls in 0..classes] =
+    if p == features { 0.01 * (1.0 + ((cls * 2) % 5) as f32) } else { 0.02 * (1.0 + ((p * 7 + cls * 3) % 13) as f32) };
+
+let final_theta = {
+    let theta[step in 0..epochs + 1] = if step == 0 {
+        theta0
+    } else {
+        let prev_theta = theta[step - 1] as [f32; 9, 3];
+        let logits_before[n in 0..samples, cls in 0..classes] = sum[d in 0..features](x[n, d] * prev_theta[d, cls]) + prev_theta[features, cls];
+        let diff_before[n in 0..samples, cls in 0..classes] = logits_before[n, cls] - y[n, cls];
+        let loss_before = sum[n in 0..samples, cls in 0..classes](diff_before[n, cls] * diff_before[n, cls]) / ((samples * classes) as f32);
+        let d_theta = @loss_before / @prev_theta;
+        let next_theta[p in 0..features + 1, cls in 0..classes] = prev_theta[p, cls] - lr * d_theta[p, cls];
+        let logits_after[n in 0..samples, cls in 0..classes] = sum[d in 0..features](x[n, d] * next_theta[d, cls]) + next_theta[features, cls];
+        let preds_after = argmax(logits_after);
+        let correct_after = sum[n in 0..samples](if preds_after[n] == truth[n] { 1 } else { 0 });
+        print(step);
+        print(loss_before);
+        print(correct_after);
+        next_theta
+    };
+    theta[epochs] as [f32; 9, 3]
+};
+
+let final_logits[n in 0..samples, cls in 0..classes] = sum[d in 0..features](x[n, d] * final_theta[d, cls]) + final_theta[features, cls];
+let final_preds = argmax(final_logits);
+let final_correct = sum[n in 0..samples](if final_preds[n] == truth[n] { 1 } else { 0 });
+
+print(final_correct);

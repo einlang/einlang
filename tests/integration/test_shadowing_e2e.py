@@ -1,14 +1,8 @@
 """
-End-to-end tests for Rust-style natural shadowing.
+End-to-end tests for lexical scope and redeclaration rules.
 
-Tests that names shadow each other naturally in a single namespace:
-- Lambdas can shadow functions
-- Functions can shadow builtins
-- Inner scopes shadow outer scopes
-- No special priorities - just natural shadowing
-
-Note: has different shadowing/duplicate-declaration semantics;
-some tests may be skipped when rejects duplicate names.
+Same-scope redeclaration is rejected. Inner scopes may introduce local names
+that hide outer names, and user-defined functions can still hide builtins.
 """
 
 import pytest
@@ -16,28 +10,26 @@ from tests.test_utils import compile_and_execute
 
 
 
-class TestRustStyleShadowing:
-    """Test Rust-style natural shadowing across all name types."""
+class TestLexicalScope:
+    """Test current lexical scope semantics."""
     
-    def test_lambda_shadows_function(self, compiler, runtime):
-        """Test that lambda variables shadow function definitions."""
+    def test_lambda_redefinition_of_function_in_same_scope_errors(self, compiler, runtime):
+        """A let binding cannot redefine a function in the same scope."""
         source = """
         // Define a function
         fn double(x: i32) -> i32 {
             x * 2
         }
         
-        // Lambda shadows the function
+        // Same-scope lambda redefinition is rejected.
         let double = |x| x * 3;
-        
-        // Should call lambda (x * 3), not function (x * 2)
+
         let result[0] = double(5);
-        
-        assert(result[0] == 15, "Lambda should shadow function: 5 * 3 = 15");
         """
         
         result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Test failed: {result.errors}"
+        assert not result.success, "Expected same-scope lambda/function redefinition to fail"
+        assert "redefinition" in " ".join(result.errors)
         
     
     def test_function_shadows_builtin(self, compiler, runtime):
@@ -105,8 +97,8 @@ class TestRustStyleShadowing:
         assert result.success, f"Test failed: {result.errors}"
         
     
-    def test_multiple_shadowing_layers(self, compiler, runtime):
-        """Test multiple layers of shadowing in nested scopes."""
+    def test_lambda_redefinition_after_builtin_shadowing_errors(self, compiler, runtime):
+        """A local function can hide a builtin, but a later same-scope let cannot replace it."""
         source = """
         // Layer 1: Builtin 'min' exists
         
@@ -117,17 +109,15 @@ class TestRustStyleShadowing:
         
         let layer2_result[0] = min(5, 3);
         
-        // Layer 3: Lambda shadows function
+        // Layer 3: Same-scope lambda redefinition is rejected.
         let min = |a, b| a * 100;  // Returns a * 100
         
         let layer3_result[0] = min(5, 3);
-        
-        assert(layer2_result[0] == 50, "Function shadows builtin: 5 * 10 = 50");
-        assert(layer3_result[0] == 500, "Lambda shadows function: 5 * 100 = 500");
         """
         
         result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Test failed: {result.errors}"
+        assert not result.success, "Expected same-scope lambda/function redefinition to fail"
+        assert "redefinition" in " ".join(result.errors)
         
     
     def test_shadowing_with_same_name_different_scopes(self, compiler, runtime):
@@ -170,14 +160,10 @@ class TestRustStyleShadowing:
         assert result.success, f"Test failed: {result.errors}"
         
     
-    def test_no_priority_just_scope(self, compiler, runtime):
+    def test_let_cannot_replace_hoisted_function_in_same_scope(self, compiler, runtime):
         """
-        Test that there's no special priority - just scope-based lookup.
-        
-        Demonstrates that in Rust-style resolution:
-        - Function definitions are hoisted (visible throughout scope)
-        - Lambda variables shadow functions (let statements execute in order)
-        - Type of binding doesn't create priority - only scope matters
+        Test that function definitions are hoisted and cannot be replaced by a
+        same-scope let binding.
         """
         source = """
         // Function shadows builtin everywhere in this scope (hoisting)
@@ -187,27 +173,25 @@ class TestRustStyleShadowing:
         
         let test1[0] = min(3, 5);  // Uses function (already hoisted): 3 * 2 = 6
         
-        // Lambda shadows function from this point onward
+        // Same-scope lambda redefinition is rejected.
         let min = |a, b| a * 3;  // Not actual min
         
         let test2[0] = min(3, 5);  // Uses lambda: 3 * 3 = 9
-        
-        assert(test1[0] == 6, "Function hoisted, shadows builtin: 3 * 2 = 6");
-        assert(test2[0] == 9, "Lambda shadows function: 3 * 3 = 9");
         """
         
         result = compile_and_execute(source, compiler, runtime)
-        assert result.success, f"Test failed: {result.errors}"
+        assert not result.success, "Expected same-scope lambda/function redefinition to fail"
+        assert "redefinition" in " ".join(result.errors)
         
     
     def test_builtins_cannot_shadow_locals(self, compiler, runtime):
         """
         Test that builtins are in outermost scope and cannot shadow locals.
         
-        In Rust's model:
+        In the current model:
         - Builtins/prelude are in the outermost scope
         - Local definitions are in inner scopes
-        - Inner scopes always win (natural shadowing)
+        - Inner scopes win over outer scopes
         - Builtins can BE shadowed, but cannot SHADOW others
         """
         source = """
@@ -282,4 +266,3 @@ class TestRustStyleShadowing:
         result = compile_and_execute(source, compiler, runtime)
         assert result.success, f"Test failed: {result.errors}"
         
-

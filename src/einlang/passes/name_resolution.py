@@ -1021,8 +1021,15 @@ class NameResolverVisitor(ASTVisitor[None]):
             self._define_variable_in_scope(scope, var_name, node, defid, node)
 
     def _define_variable_in_scope(self, scope, var_name, node, defid, loc_node):
-        """Rust semantics: `let` always shadows previous bindings in the same scope."""
+        """Define a let-bound variable; same-scope redeclaration is an error."""
         if not scope:
+            return
+        if scope.defined_in_this_scope(var_name):
+            if self.tcx and self.tcx.reporter:
+                self.tcx.reporter.report_error(
+                    f"redefinition of '{var_name}' in same scope",
+                    getattr(loc_node, "location", getattr(node, "location", None)),
+                )
             return
         binding = Binding(
             name=var_name,

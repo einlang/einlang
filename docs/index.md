@@ -5,6 +5,7 @@ The docs stay intentionally small. Use this page as the public index, or open th
 ## Use Einlang
 
 - [Getting started](GETTING_STARTED.md)
+- [Einlang: Formulas as Code](../book/)
 - [Examples guide](../examples/README.md)
 - [Autodiff guide](AUTODIFF.md)
 - [Why Einlang](WHY_EINLANG.md)

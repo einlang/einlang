@@ -3,7 +3,8 @@ Scope resolution — scope resolution system.
 
 
     Value = (type, value, defid) e.g. ('function', func_def, defid), ('alias', path, defid).
-Same idea — stack of scopes, each scope is name → Binding. define = set_var, lookup = get_var.
+Same idea — stack of scopes, each scope is name → Binding. lookup = get_var.
+Callers decide whether replacing an existing binding is legal before define().
 """
 
 from __future__ import annotations
@@ -83,7 +84,8 @@ class Binding:
 class Scope:
     """
     One scope level (one Dict[str, T] in _scope_stack).
-    Single map: name → Binding. define() overwrites (shadow); lookup() inner→outer.
+    Single map: name → Binding. lookup() searches inner→outer.
+    define() writes the current map after caller-side duplicate checks.
     """
 
     parent: Optional[Scope]
@@ -116,7 +118,7 @@ class Scope:
         return self._bindings.get(name)
 
     def define(self, name: str, binding: Binding) -> None:
-        """Set variable in current scope; overwrites if present (set_var)."""
+        """Set variable in current scope after caller-side validation."""
         self._bindings[name] = binding
 
 

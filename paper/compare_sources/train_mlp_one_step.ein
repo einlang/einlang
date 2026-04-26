@@ -1,0 +1,48 @@
+use std::ml::{argmax, relu};
+
+let batch_size = 16;
+let eval_size = 16;
+let hidden_size = 12;
+let lr = 0.1;
+
+let train_images[n in 0..batch_size, d in 0..64] = (((n * 11 + d * 3) % 17) as f32) / 16.0;
+let train_truth[n in 0..batch_size] = (n * 3) % 10;
+let train_labels[n in 0..batch_size, cls in 0..10] = if cls == train_truth[n] { 1.0 } else { 0.0 };
+let eval_images[n in 0..eval_size, d in 0..64] = ((((n + 5) * 7 + d * 5) % 19) as f32) / 18.0;
+let eval_truth[n in 0..eval_size] = (n * 3 + 1) % 10;
+let eval_labels[n in 0..eval_size, cls in 0..10] = if cls == eval_truth[n] { 1.0 } else { 0.0 };
+
+let w1_0[p in 0..65, h in 0..hidden_size] =
+    if p == 64 { 0.02 * (1.0 + ((h * 5) % 7) as f32) } else { 5e-3 * (1.0 + ((p * 7 + h * 3) % 17) as f32) };
+let w2_0[p in 0..13, cls in 0..10] =
+    if p == 12 { 0.01 * (1.0 + ((cls * 2) % 5) as f32) } else { 5e-3 * (1.0 + ((p * 5 + cls * 7) % 19) as f32) };
+
+let hidden_pre0[n in 0..batch_size, h in 0..hidden_size] = sum[d in 0..64](train_images[n, d] * w1_0[d, h]) + w1_0[64, h];
+let hidden0 = relu(hidden_pre0);
+let batch_logits0[n in 0..batch_size, cls in 0..10] = sum[h in 0..hidden_size](hidden0[n, h] * w2_0[h, cls]) + w2_0[12, cls];
+let batch_loss0 = sum[n in 0..batch_size, cls in 0..10]((batch_logits0[n, cls] - train_labels[n, cls]) ** 2.0) / ((batch_size * 10) as f32);
+let eval_hidden_pre0[n in 0..eval_size, h in 0..hidden_size] = sum[d in 0..64](eval_images[n, d] * w1_0[d, h]) + w1_0[64, h];
+let eval_hidden0 = relu(eval_hidden_pre0);
+let eval_logits0[n in 0..eval_size, cls in 0..10] = sum[h in 0..hidden_size](eval_hidden0[n, h] * w2_0[h, cls]) + w2_0[12, cls];
+let eval_preds0 = argmax(eval_logits0);
+let eval_correct0 = sum[n in 0..eval_size](if eval_preds0[n] == eval_truth[n] { 1 } else { 0 });
+
+let d_w1_0 = @batch_loss0 / @w1_0;
+let d_w2_0 = @batch_loss0 / @w2_0;
+let w1_1[p in 0..65, h in 0..hidden_size] = w1_0[p, h] - lr * d_w1_0[p, h];
+let w2_1[p in 0..13, cls in 0..10] = w2_0[p, cls] - lr * d_w2_0[p, cls];
+
+let hidden_pre1[n in 0..batch_size, h in 0..hidden_size] = sum[d in 0..64](train_images[n, d] * w1_1[d, h]) + w1_1[64, h];
+let hidden1 = relu(hidden_pre1);
+let batch_logits1[n in 0..batch_size, cls in 0..10] = sum[h in 0..hidden_size](hidden1[n, h] * w2_1[h, cls]) + w2_1[12, cls];
+let batch_loss1 = sum[n in 0..batch_size, cls in 0..10]((batch_logits1[n, cls] - train_labels[n, cls]) ** 2.0) / ((batch_size * 10) as f32);
+let eval_hidden_pre1[n in 0..eval_size, h in 0..hidden_size] = sum[d in 0..64](eval_images[n, d] * w1_1[d, h]) + w1_1[64, h];
+let eval_hidden1 = relu(eval_hidden_pre1);
+let eval_logits1[n in 0..eval_size, cls in 0..10] = sum[h in 0..hidden_size](eval_hidden1[n, h] * w2_1[h, cls]) + w2_1[12, cls];
+let eval_preds1 = argmax(eval_logits1);
+let eval_correct1 = sum[n in 0..eval_size](if eval_preds1[n] == eval_truth[n] { 1 } else { 0 });
+
+print(batch_loss0);
+print(batch_loss1);
+print(eval_correct0);
+print(eval_correct1);

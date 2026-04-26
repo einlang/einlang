@@ -23,7 +23,7 @@ from .numpy_einstein_recurrence_analysis import (
 
 
 class _CircularRecurrenceBuffer:
-    """Logical full tensor backed by a ring buffer on one recurrence dimension."""
+    """Logical full tensor backed by ring storage on one or more dimensions."""
 
     is_circular_recurrence_buffer = True
 
@@ -31,17 +31,36 @@ class _CircularRecurrenceBuffer:
         self,
         full_shape: List[int],
         dtype: Any,
-        recurrence_dim: int,
-        preserve_steps: int,
+        recurrence_dim: Any,
+        preserve_steps: Any,
         materializer: Optional[Callable[[], np.ndarray]] = None,
     ) -> None:
         self._full_shape = tuple(int(v) for v in full_shape)
-        self._recurrence_dim = int(recurrence_dim)
-        self._preserve_steps = int(preserve_steps)
+        if isinstance(recurrence_dim, (list, tuple)):
+            recurrence_dims = tuple(int(v) for v in recurrence_dim)
+        else:
+            recurrence_dims = (int(recurrence_dim),)
+        if isinstance(preserve_steps, (list, tuple)):
+            preserve_values = tuple(int(v) for v in preserve_steps)
+        else:
+            preserve_values = (int(preserve_steps),)
+        if len(recurrence_dims) != len(preserve_values):
+            raise ValueError("recurrence_dim and preserve_steps must have the same arity")
+        if any(step <= 0 for step in preserve_values):
+            raise ValueError("preserve_steps must be positive")
+        for dim in recurrence_dims:
+            if dim < 0 or dim >= len(self._full_shape):
+                raise ValueError("recurrence dimension out of bounds")
+        self._recurrence_dims = recurrence_dims
+        self._preserve_by_dim = dict(zip(recurrence_dims, preserve_values))
+        # Back-compat attributes used by existing tests and debug hooks.
+        self._recurrence_dim = recurrence_dims[0]
+        self._preserve_steps = preserve_values[0]
         self._materializer = materializer
         self._materialized: Optional[np.ndarray] = None
         buffer_shape = list(self._full_shape)
-        buffer_shape[self._recurrence_dim] = self._preserve_steps
+        for dim, steps in self._preserve_by_dim.items():
+            buffer_shape[dim] = steps
         self._buffer = _allocate_numpy_output(buffer_shape, dtype)
         self.shape = self._full_shape
         self.ndim = len(self._full_shape)
@@ -61,45 +80,48 @@ class _CircularRecurrenceBuffer:
         if not isinstance(key, tuple):
             key = (key,)
         items = list(key)
-        if Ellipsis in items:
-            ell_idx = items.index(Ellipsis)
+        ell_idx = next((i for i, item in enumerate(items) if item is Ellipsis), None)
+        if ell_idx is not None:
             missing = self.ndim - (len(items) - 1)
             items = items[:ell_idx] + [slice(None)] * missing + items[ell_idx + 1 :]
         if len(items) < self.ndim:
             items.extend([slice(None)] * (self.ndim - len(items)))
         return tuple(items[: self.ndim])
 
-    def _translate_recurrence_index(self, idx: Any) -> Any:
+    def _translate_recurrence_index(self, idx: Any, dim: int) -> Any:
+        preserve_steps = self._preserve_by_dim[dim]
+        full_extent = self._full_shape[dim]
         if isinstance(idx, (np.integer, int)):
             value = int(idx)
-            if value < 0 or value >= self._full_shape[self._recurrence_dim]:
+            if value < 0 or value >= full_extent:
                 raise IndexError("recurrence index out of ring-buffer bounds")
-            return value % self._preserve_steps
+            return value % preserve_steps
         if isinstance(idx, slice):
-            start, stop, step = idx.indices(self._full_shape[self._recurrence_dim])
+            start, stop, step = idx.indices(full_extent)
             arr = np.arange(start, stop, step, dtype=np.intp)
-            if arr.size > self._preserve_steps:
+            if arr.size > preserve_steps:
                 raise RuntimeError("slice exceeds preserved recurrence window")
             if arr.size == 0:
                 return slice(0, 0, 1)
-            mapped = arr % self._preserve_steps
+            mapped = arr % preserve_steps
             if arr.size > 1 and np.all(np.diff(mapped) == 1):
                 return slice(int(mapped[0]), int(mapped[-1]) + 1, 1)
             return mapped
         if isinstance(idx, np.ndarray):
             arr = np.asarray(idx, dtype=np.intp)
-            if np.any(arr < 0) or np.any(arr >= self._full_shape[self._recurrence_dim]):
+            if np.any(arr < 0) or np.any(arr >= full_extent):
                 raise IndexError("recurrence index array out of ring-buffer bounds")
-            if arr.size > self._preserve_steps:
+            if arr.size > preserve_steps:
                 raise RuntimeError("index array exceeds preserved recurrence window")
-            return arr % self._preserve_steps
+            return arr % preserve_steps
         if isinstance(idx, list):
-            return self._translate_recurrence_index(np.asarray(idx, dtype=np.intp))
+            return self._translate_recurrence_index(np.asarray(idx, dtype=np.intp), dim)
         raise RuntimeError(f"unsupported recurrence index type: {type(idx).__name__}")
 
     def _translated_key(self, key: Any) -> tuple:
         expanded = list(self._expand_key(key))
-        expanded[self._recurrence_dim] = self._translate_recurrence_index(expanded[self._recurrence_dim])
+        for dim in self._recurrence_dims:
+            expanded[dim] = self._translate_recurrence_index(expanded[dim], dim)
         return tuple(expanded)
 
     def __getitem__(self, key: Any) -> Any:
@@ -278,7 +300,7 @@ class EinsteinExecutionSetupMixin:
         if len(body_items) != 1:
             return None
         item0 = body_items[0]
-        if len(item0.loops or []) != 1 or item0.bindings or item0.guards:
+        if len(item0.loops or []) < 1 or item0.bindings or item0.guards:
             return None
         # Block-bodied recurrence steps can contain nested reductions that still rely on
         # outer timestep bindings staying scalar in the ambient env. The circular-buffer

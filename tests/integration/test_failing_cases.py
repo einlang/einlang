@@ -228,6 +228,23 @@ class TestFunctionOverloading:
         assert "redefinition" in error_str and "add" in error_str, f"Expected redefinition error, got: {result.errors}"
 
 
+class TestLetRedeclaration:
+    """Same-scope let redeclaration should be rejected."""
+
+    def test_same_scope_let_redeclaration_errors(self, compiler, runtime):
+        source = """
+        let x = 1;
+        let x = x + 1;
+        """
+
+        result = compile_and_execute(source, compiler, runtime)
+
+        assert result is not None, "Execution returned None"
+        assert not result.success, "Expected same-scope let redeclaration to fail"
+        error_str = " ".join(result.errors)
+        assert "redefinition" in error_str and "x" in error_str, f"Expected redefinition error, got: {result.errors}"
+
+
 class TestReductionOperations:
     """Test cases for reduction operation failures"""
     
@@ -247,4 +264,3 @@ class TestReductionOperations:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

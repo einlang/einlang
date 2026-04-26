@@ -9,11 +9,33 @@ build/
 # Environments
 .venv/
 venv/
+.tools/
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
+
+# LaTeX
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+paper/*.pdf
+!paper/einlang_paper.pdf
+paper/*_draft.md
+paper/figures/*.png
+paper/figures/*.svg
+
+# Local notes
+skills/memory.md
 
 # IDE
 .vscode/
@@ -43,6 +65,7 @@ ir_dumps/
 
 # Generated / large files (obtain via example setup scripts)
 *.html
+!_layouts/*.html
 examples/*/weights/
 !examples/mnist/weights/
 !examples/mnist/weights/**

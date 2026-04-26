@@ -254,6 +254,7 @@ Supported functions compile through IREE; anything outside the current subset fa
 If you want to keep going after the path above, here is the practical split. None of these are required for the first run:
 
 - [examples/README](examples/README.md) is the place to browse more runnable programs, especially the heavier showcases with their own setup details.
+- [book/index.md](book/index.md) is the book-style path through the core abstractions: indexed data, recurrence, local derivatives, and storage.
 - [docs/reference.md](docs/reference.md) is for syntax and semantics once you want the language spelled out precisely.
 - [docs/stdlib.md](docs/stdlib.md) is the lookup page for built-ins, modules, and library surface.
 - [docs/AUTODIFF.md](docs/AUTODIFF.md) goes deeper on differential expressions and autodiff-specific behavior.

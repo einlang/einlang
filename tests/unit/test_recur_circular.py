@@ -1,4 +1,5 @@
 import einlang.backends.numpy_einstein_mixin_setup as recurrence_setup
+import numpy as np
 
 from einlang.backends.numpy import NumPyBackend
 from einlang.compiler.driver import CompilerDriver
@@ -68,6 +69,87 @@ def test_runtime_uses_circular_buffer_for_local_tail_only(monkeypatch):
     assert ring_stats["full_shape"] == (10,)
     assert ring_stats["recurrence_dim"] == 0
     assert ring_stats["preserve_steps"] == 3
+
+
+def test_runtime_uses_circular_buffer_for_multidimensional_tensor(monkeypatch):
+    compiler = CompilerDriver()
+    runtime = EinlangRuntime(backend="numpy")
+    source = """
+    let epochs = 5;
+    let width = 4;
+    let y = {
+        let x[0, i in 0..width] = i as f64;
+        let x[t in 1..epochs + 1, i in 0..width] = x[t - 1, i] + 10.0;
+        x[epochs, 2]
+    };
+    y;
+    """
+
+    calls = {"full": 0}
+    ring_stats = {
+        "created": 0,
+        "materialized": 0,
+        "full_shape": None,
+        "buffer_shape": None,
+        "recurrence_dim": None,
+        "preserve_steps": None,
+    }
+    original = NumPyBackend._execute_lowered_recurrence_full
+    original_init = recurrence_setup._CircularRecurrenceBuffer.__init__
+    original_materialize = recurrence_setup._CircularRecurrenceBuffer.materialize
+
+    def _tracking_init(self, full_shape, dtype, recurrence_dim, preserve_steps, materializer=None):
+        ring_stats["created"] += 1
+        ring_stats["full_shape"] = tuple(full_shape)
+        ring_stats["recurrence_dim"] = recurrence_dim
+        ring_stats["preserve_steps"] = preserve_steps
+        result = original_init(self, full_shape, dtype, recurrence_dim, preserve_steps, materializer)
+        ring_stats["buffer_shape"] = tuple(self._buffer.shape)
+        return result
+
+    def _tracking_materialize(self):
+        ring_stats["materialized"] += 1
+        return original_materialize(self)
+
+    def _fail_if_full(self, node, variable_decl):
+        calls["full"] += 1
+        raise AssertionError("full recurrence path should not run for bounded multidimensional recurrence")
+
+    monkeypatch.setattr(NumPyBackend, "_execute_lowered_recurrence_full", _fail_if_full)
+    monkeypatch.setattr(recurrence_setup._CircularRecurrenceBuffer, "__init__", _tracking_init)
+    monkeypatch.setattr(recurrence_setup._CircularRecurrenceBuffer, "materialize", _tracking_materialize)
+    try:
+        result = compile_and_execute(source, compiler, runtime, source_file="<recurrence_circular_multidim>")
+    finally:
+        monkeypatch.setattr(NumPyBackend, "_execute_lowered_recurrence_full", original)
+        monkeypatch.setattr(recurrence_setup._CircularRecurrenceBuffer, "__init__", original_init)
+        monkeypatch.setattr(recurrence_setup._CircularRecurrenceBuffer, "materialize", original_materialize)
+
+    assert result.success, (result.errors if result.errors else result.error)
+    assert result.outputs["y"] == 52.0
+    assert calls["full"] == 0
+    assert ring_stats["created"] == 1
+    assert ring_stats["materialized"] == 0
+    assert ring_stats["full_shape"] == (6, 4)
+    assert ring_stats["buffer_shape"] == (2, 4)
+    assert ring_stats["recurrence_dim"] == 0
+    assert ring_stats["preserve_steps"] == 2
+
+
+def test_circular_buffer_supports_multiple_circular_dimensions():
+    ring = recurrence_setup._CircularRecurrenceBuffer(
+        [5, 6],
+        np.float64,
+        recurrence_dim=(0, 1),
+        preserve_steps=(2, 3),
+    )
+
+    ring[3, 4] = 7.0
+    ring[4, 5] = 11.0
+
+    assert ring._buffer.shape == (2, 3)
+    assert ring[3, 4] == 7.0
+    assert ring[4, 5] == 11.0
 
 
 def test_runtime_keeps_full_path_when_full_output_is_required(monkeypatch):

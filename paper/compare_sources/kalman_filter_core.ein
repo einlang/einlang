@@ -1,0 +1,32 @@
+let dt = 0.1;
+let q_pos = 0.01;
+let q_vel = 0.1;
+let r_meas = 1.0;
+let n_steps = 100;
+
+let F = [[1.0, dt], [0.0, 1.0]];
+let Q = [[dt * dt * dt * dt / 4.0 * q_pos + dt * dt * q_vel, dt * dt * dt / 2.0 * q_vel], [dt * dt * dt / 2.0 * q_vel, dt * dt * q_vel]];
+let H0 = 1.0;
+let H1 = 0.0;
+let z[k in 0..n_steps] = (k as f64) * dt + 0.5 * ((k as f64) * 0.01 - 0.5);
+
+let x[0, 0] = 0.0;
+let x[0, 1] = 1.0;
+let P[0, 0, 0] = 1.0;
+let P[0, 0, 1] = 0.0;
+let P[0, 1, 0] = 0.0;
+let P[0, 1, 1] = 1.0;
+
+let x_pred[t in 1..n_steps + 1, i in 0..2] = F[i, 0] * x[t - 1, 0] + F[i, 1] * x[t - 1, 1];
+let P_pred[t in 1..n_steps + 1, i in 0..2, j in 0..2] = sum[k in 0..2](F[i, k] * sum[l in 0..2](P[t - 1, k, l] * F[j, l])) + Q[i, j];
+let y[t in 1..n_steps + 1] = z[t - 1] - (H0 * x_pred[t, 0] + H1 * x_pred[t, 1]);
+let S[t in 1..n_steps + 1] = H0 * (P_pred[t, 0, 0] * H0 + P_pred[t, 0, 1] * H1) + H1 * (P_pred[t, 1, 0] * H0 + P_pred[t, 1, 1] * H1) + r_meas;
+let K[t in 1..n_steps + 1, i in 0..2] = (P_pred[t, i, 0] * H0 + P_pred[t, i, 1] * H1) / S[t];
+let x[t in 1..n_steps + 1, i in 0..2] = x_pred[t, i] + K[t, i] * y[t];
+let P[t in 1..n_steps + 1, i in 0..2, j in 0..2] = if i == 0 { (1.0 - K[t, 0]) * P_pred[t, 0, j] - K[t, 1] * P_pred[t, 1, j] } else { P_pred[t, 1, j] };
+
+let x_final[i in 0..2] = x[n_steps, i];
+let P_final_diag[i in 0..2] = P[n_steps, i, i];
+
+print(x_final);
+print(P_final_diag);
