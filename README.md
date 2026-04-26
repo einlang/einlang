@@ -29,7 +29,7 @@ If you already know NumPy, JAX, or PyTorch, the easiest mental model is:
 
 That is the core of Einlang: keep the structure of the math visible, keep gradients local, and keep the notation consistent as programs grow.
 
-For the longer research writeups, read the [ACM-style paper](paper/einlang_paper.pdf) for the language-design argument and the [thesis-form report](thesis/einlang_thesis.pdf) for the implementation details.
+For the longer research writeups, read the [ACM-style paper](https://einlang.github.io/einlang/paper/einlang_paper.pdf) for the language-design argument and the [thesis-form report](https://einlang.github.io/einlang/thesis/einlang_thesis.pdf) for the implementation details. The [book](https://einlang.github.io/einlang/book/) is the tutorial path through the core abstractions.
 
 ## Why it feels different
 

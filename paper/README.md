@@ -2,9 +2,9 @@
 
 This directory contains the ACM-style Einlang paper.
 
-- Generated PDF: `einlang_paper.pdf`
+- Generated PDF: https://einlang.github.io/einlang/paper/einlang_paper.pdf
 - Source driver: `einlang_paper.tex`
-- Fuller implementation writeup: `../thesis/einlang_thesis.pdf`
+- Fuller implementation writeup: https://einlang.github.io/einlang/thesis/einlang_thesis.pdf
 
 Build from this directory:
 

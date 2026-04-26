@@ -26,8 +26,8 @@ This doc set is intentionally small. If you are using Einlang, start with the us
 
 ## Research
 
-- [Paper](../paper/einlang_paper.pdf): the compact language-design argument.
-- [Thesis-form report](../thesis/einlang_thesis.pdf): the fuller implementation writeup with compiler algorithms.
+- [Paper](https://einlang.github.io/einlang/paper/einlang_paper.pdf): the compact language-design argument.
+- [Thesis-form report](https://einlang.github.io/einlang/thesis/einlang_thesis.pdf): the fuller implementation writeup with compiler algorithms.
 
 ## Contribute
 
