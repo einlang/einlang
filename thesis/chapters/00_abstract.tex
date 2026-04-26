@@ -1,0 +1,31 @@
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+Tensor programs need a source boundary that users can write directly and
+compilers can inspect. A common pattern still crosses several boundaries:
+multidimensional indexing, recurrent state updates, and sensitivity queries are
+usually expressed through separate interfaces such as \texttt{einsum}-like
+functions, host-language loops or scan combinators, and \texttt{grad} or
+\texttt{backward} APIs. This fragmentation makes programs executable, but it
+hides the source facts that connect the mathematical definition to compiler
+analysis.
+
+This thesis presents \einlang{}, a tensor language and compiler that integrates
+multidimensional indexed definitions, declarative recurrences, and local
+derivative requests in one binding environment. In \einlang{}, a recurrence is a
+named binding over an index space that declares its dependencies; later
+expressions can read points of that recurrence, and derivative requests can
+target either final results or intermediate bindings. The contribution is an
+executable abstraction boundary: indexed clauses define axes and covered
+domains, recurrent bindings define dependency graphs, and derivative requests
+denote shaped derivative values.
+
+The thesis also documents the non-trivial implementation pieces that make this
+boundary executable: the grammar and transformer front end, DefId-based name
+resolution, module loading and standard-library discovery, the IR and pass
+pipeline, range and shape analyses, type inference and monomorphization,
+Einstein lowering, recurrence ordering and storage metadata, compile-time and
+runtime autodiff machinery, NumPy execution, the experimental IREE backend,
+diagnostics, testing, and example validation. The result is a source form for
+tensor programs that stays close to the mathematical description while
+preserving structure for compiler and runtime passes.

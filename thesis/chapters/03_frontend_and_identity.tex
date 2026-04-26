@@ -1,0 +1,325 @@
+\chapter{Frontend, Names, and Modules}
+
+The front end turns source text into a source-located AST and then into a
+DefId-resolved IR. This part of the implementation is non-trivial because
+\einlang{} is not only an expression language: it has modules, imports,
+function hoisting, index scopes, named rest patterns, and local derivative
+syntax.
+
+\section{Parsing and AST Construction}
+
+The parser in \pathcode{src/einlang/frontend/parser.py} wraps a shared Lark LALR
+parser loaded from \pathcode{src/einlang/frontend/grammar.lark}. The shared
+parser is keyed by cache path so repeated compilations do not rebuild grammar
+tables. Disk parser caches are disabled by default, but the code can use an
+explicit cache path when configured. The parser propagates source positions and
+converts Lark errors into \einlang{} parse errors with source locations.
+
+AST construction is handled by frontend transformers under
+\pathcode{src/einlang/frontend/transformers}. The transformer layer is split by
+concern: base expression and statement construction, function-specific logic,
+literals, and string interpolation. This split matters because later compiler
+passes assume that syntax has already been normalized into the AST node classes
+in \pathcode{src/einlang/shared/nodes.py}.
+
+The transformer is not just a mechanical parse-tree adapter. It constructs
+source spans, normalizes equivalent surface forms, attaches structured nodes for
+patterns and type annotations, and records interpolation pieces so the backend
+can later evaluate a string expression without reparsing source text. Lark
+therefore supplies the parsing engine, but \einlang{} still owns the language
+grammar and the AST shape consumed by later compiler phases.
+
+\section{Grammar Coverage}
+
+The grammar contains the executed tensor subset and the broader language shape.
+It parses:
+
+\begin{itemize}
+\item declarations: \texttt{fn}, \texttt{pub fn}, \texttt{@fn},
+\texttt{let}, \texttt{const}, and indexed Einstein declarations;
+\item expressions: arithmetic, logic, ranges, casts, calls, member access,
+array access, array literals, comprehensions, tuples, blocks, \texttt{if},
+\texttt{match}, lambdas, pipelines, and \texttt{try};
+\item tensor syntax: rectangular access, reductions, explicit index ranges,
+literal indices, and named rest indices such as \texttt{..batch};
+\item modules: \texttt{use}, wildcard imports, list imports, aliases,
+\texttt{mod}, public modules, and inline modules;
+\item types: primitive, rectangular, jagged, tuple, function, generic, and
+named types.
+\end{itemize}
+
+The important implementation choice is that tensor notation is not parsed as a
+separate mini-language. It participates in the same expression grammar as the
+rest of the source program.
+
+\section{DefId-Based Identity}
+
+Names become semantic identifiers during name resolution. The DefId system in
+\pathcode{src/einlang/shared/defid.py} follows the rustc pattern: a definition
+identifier is a pair \texttt{(krate, index)}. User code uses crate 0, and
+builtins use a separate builtin crate with fixed DefIds for values such as
+\texttt{print}, \texttt{assert}, \texttt{len}, \texttt{shape}, \texttt{sum},
+\texttt{max}, and \texttt{min}.
+
+This design removes ambiguity from later stages. Once name resolution has run,
+runtime lookup and compiler analyses use DefIds rather than strings. Strings
+remain for diagnostics and debugging, but they do not decide identity. This is
+especially important for index variables and local variables because the same
+spelling may appear in different scopes.
+
+\section{Name Resolution and Scope}
+
+The name-resolution pass in \pathcode{src/einlang/passes/name_resolution.py}
+allocates DefIds, resolves use sites, handles builtins, assigns DefIds to
+parameters and locals, and wires functions and modules into the compilation
+context. Function differential rules are first merged into ordinary functions by
+\pathcode{src/einlang/passes/merge_diff_rules.py}, so the compiler sees one
+function definition with attached differential behavior instead of two
+unrelated definitions.
+
+The scope system in \pathcode{src/einlang/shared/scope.py} tracks scope kind and
+binding type. Local variable DefIds are allocated without inserting them into
+the global symbol table; item-like definitions such as functions, constants,
+modules, and builtins are registered in the resolver tables. That separation is
+what lets local shadowing work without corrupting module-level lookup.
+
+\subsection{Resolution Algorithm}
+
+The resolver is a two-level identity algorithm. Item-like names are installed in
+module-level maps, while local names are installed only in lexical scopes. Every
+use site is rewritten from a string name to a DefId before later passes run.
+The key invariant is simple: after resolution, semantic equality is DefId
+equality.
+
+\begin{lstlisting}[style=pythoncode,caption={DefId-based name resolution.}]
+resolve_program(ast, tcx):
+    group_consecutive_einstein_declarations(ast)
+    install_fixed_builtins(tcx.resolver)
+    load_and_link_imported_modules(ast, tcx.module_loader, tcx.symbol_linker)
+
+    # Hoist item identities before resolving bodies.
+    for item in ast.top_level_items:
+        if item is function or constant or module:
+            did = resolver.allocate_for_item(item.module_path, item.name)
+            item.defid = did
+            resolver.register(did, item)
+            current_module.define(item.name, Binding(did, ITEM))
+
+    for item in ast.top_level_items:
+        resolve_item_body(item)
+
+resolve_item_body(item):
+    with scope(kind=FUNCTION_OR_MODULE):
+        for parameter in item.parameters:
+            did = resolver.allocate_for_local()
+            parameter.defid = did
+            scope.define(parameter.name, Binding(did, PARAMETER))
+        resolve_expr(item.body)
+
+resolve_expr(expr):
+    case local binding:
+        resolve_expr(expr.value)
+        did = resolver.allocate_for_local()
+        expr.defid = did
+        scope.define(expr.name, Binding(did, LOCAL))
+    case identifier:
+        binding = scope.lookup(expr.name) or module_lookup(expr.name)
+        expr.defid = binding.defid
+    case indexed clause:
+        with scope(kind=INDEX):
+            allocate DefIds for output indices and where-bindings
+            resolve body and guard expressions in that scope
+    case nested block:
+        with scope(kind=BLOCK):
+            resolve statements in source order
+\end{lstlisting}
+
+This algorithm explains why shadowing is safe. A local \texttt{i} in one
+Einstein clause and another local \texttt{i} in a different clause may share a
+printed name, but their DefIds differ. Range, shape, type, lowering, and
+runtime lookup therefore do not need to guess which \texttt{i} a later node
+means.
+
+The listing is longer than a conventional symbol-table sketch because the
+resolver is also the first pass that makes tensor syntax semantically precise.
+Top-level hoisting gives functions and constants stable identities before their
+bodies are visited, which permits forward references and module-level cycles to
+be diagnosed at the right boundary. Local allocation is intentionally separate:
+parameters, block locals, and index variables live in lexical scopes and do not
+pollute the module table. This is the property that allows a tensor clause to
+introduce \texttt{i} without changing the meaning of a neighboring clause.
+
+The indexed-clause case is especially important. Output indices and
+where-bound variables are allocated in an index scope before the body is
+resolved, so every rectangular access and reduction body can point at the
+precise DefId it uses. Later passes never need to inspect textual names to
+recover that relationship. If a diagnostic still wants to print the spelling
+\texttt{i}, it can do so as presentation; the compiler's semantic decisions are
+already made from DefIds. That split between user-facing names and compiler
+identity is one of the main reasons the rest of the implementation can remain
+modular.
+
+The ordering of the traversal is also part of the algorithm's correctness.
+Hoisting items before resolving bodies means that a call can refer to a
+function that appears later in the file, while local bindings remain
+source-ordered so a block cannot accidentally use a value before it is
+introduced. The resolver therefore uses two different temporal models: an
+item-level model for modules and functions, and a statement-level model for
+locals. This split is small in code, but it is what lets \einlang{} support both
+ordinary function libraries and expression-like blocks without a second
+resolution mechanism.
+
+The failure modes are designed to remain source-facing. An unresolved
+identifier is reported at the use site, not at a later backend lookup; an
+attempt to bind an index in the wrong scope is rejected while the compiler still
+knows which clause introduced it; and an imported name conflict is reported
+against the relevant \texttt{use} declaration. The later compiler can then
+treat missing DefIds as internal bugs rather than user errors. This is an
+important thesis point: the resolver turns textual ambiguity into either a
+stable identity or an early diagnostic, and every smart pass depends on that
+binary outcome.
+
+\textit{Concrete example.} In a program containing \texttt{fn norm(x) \{ let
+x = x * x; x \}} and a separate indexed binding \texttt{let y[i] = x[i];}, the
+printed name \texttt{x} names three different things: the function parameter,
+the local square, and the top-level tensor read by \texttt{y}. Resolution gives
+each binding its own DefId before type or shape analysis runs. The local
+\texttt{x} shadows the parameter only inside the function body, while the
+\texttt{x[i]} read in the indexed binding still points to the top-level tensor.
+This is the concrete reason later passes do not carry name-disambiguation code:
+they see only DefIds and scopes that have already been checked.
+
+\begin{table}[htbp]
+\centering
+\caption{Representative DefId ownership rules.}
+\label{tab:defid-rules}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular}{@{}L{0.26\textwidth}L{0.62\textwidth}@{}}
+\toprule
+Definition kind & Resolution behavior \\
+\midrule
+Builtins & Allocated in a fixed builtin crate so runtime and compiler can agree on names such as \texttt{print}, \texttt{shape}, and \texttt{\_\_basis\_tensor}. \\
+Functions and constants & Registered in the module symbol table and resolver registry. They can be imported, re-exported, and looked up by module path. \\
+Parameters and locals & Allocated as local DefIds and attached to definitions and use sites, but not inserted into the global symbol table. \\
+Index variables & Allocated as local DefIds so repeated spellings such as \texttt{i} in different indexed bindings remain distinct. \\
+Generated indices & Allocated by the resolver when rest-pattern or lowering passes need compiler-created loop variables. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Module Loading}
+
+\einlang{} modules are file based. The module system under
+\pathcode{src/einlang/analysis/module_system} resolves module paths, loads
+source, parses module ASTs, detects circular imports, processes submodule
+declarations, and handles exported symbols. The path resolver follows
+Rust-inspired rules:
+
+\begin{itemize}
+\item \texttt{std::math} resolves into the bundled standard-library tree;
+\item \texttt{crate::x}, \texttt{self::x}, and \texttt{super::x} are handled as
+structured module paths;
+\item project-local modules resolve relative to the crate root;
+\item \texttt{python::...} is a virtual path for Python module integration.
+\end{itemize}
+
+Module loading is performance-sensitive because standard-library modules are
+used repeatedly. The loader caches file contents and parsed ASTs in process, and
+can optionally use a disk parse cache when \texttt{EINLANG\_CACHE\_DIR} is set.
+Callers receive fresh AST copies because later compiler passes mutate node
+metadata.
+
+The loader also supports source overlays. Tests and embedding callers can supply
+in-memory module sources keyed by module path, avoiding filesystem reads while
+still exercising the same module and name-resolution code as normal programs.
+
+\subsection{Module Loading Algorithm}
+
+Module loading is deliberately written as a cache-and-copy algorithm. The
+cached object is parsed syntax; the returned object is a fresh copy that later
+passes may annotate or mutate.
+
+\begin{lstlisting}[style=pythoncode,caption={Source overlay and module-cache resolution.}]
+load_module(path, requester):
+    normalized = path_resolver.resolve(path, requester)
+    if normalized in active_import_stack:
+        report circular import
+
+    if normalized in source_overlays:
+        source = source_overlays[normalized]
+        cache_key = ("overlay", normalized, hash(source))
+    else:
+        file_path = path_resolver.to_file(normalized)
+        source = read_file_cached(file_path)
+        cache_key = ("file", file_path, mtime_or_content_key)
+
+    if cache_key not in parsed_ast_cache:
+        parsed_ast_cache[cache_key] = parse_source(source)
+
+    ast = deep_copy(parsed_ast_cache[cache_key])
+    active_import_stack.push(normalized)
+    process_submodules_and_use_statements(ast)
+    active_import_stack.pop()
+    return ast
+\end{lstlisting}
+
+The overlay branch is important for tests and embedding: it makes synthetic
+modules go through the same import, symbol-linking, and resolution machinery as
+files on disk. The deep-copy step is equally important because downstream IR
+and AST passes attach DefIds, types, shapes, ranges, and lowering facts.
+
+The cache stores parsed syntax rather than analyzed syntax. That choice avoids
+sharing mutable compiler annotations between compilations, which would be a
+subtle source of stale DefIds, stale shape facts, or stale diagnostics. A cache
+hit therefore saves parsing work but still returns a tree that the caller can
+own. This is a conservative design: it gives repeated stdlib imports and tests
+the performance benefit of caching without turning later passes into
+copy-on-write clients of a global AST.
+
+The active import stack is the other non-trivial part of the algorithm. Module
+loading is recursive because a module may declare submodules or import other
+paths while it is being processed. Recording the normalized path before
+descending lets the loader report circular imports as source errors rather than
+recursing indefinitely. The same normalized path also lets source overlays and
+filesystem modules share the symbol-linking path, which keeps test fixtures and
+real projects behaviorally aligned.
+
+The cache key design prevents a subtle class of bugs. Overlay modules are keyed
+by content hash because two tests may reuse the same logical module path with
+different in-memory source. Filesystem modules are keyed by a file-derived
+freshness value, so editing a standard-library file can invalidate the cached
+parse tree. In both cases the cached artifact is syntax only. DefIds, types,
+shapes, and module exports are deliberately recomputed because they depend on
+the compilation context that requested the module.
+
+The algorithm also makes module loading compositional. A module can import a
+submodule, that submodule can import a sibling, and all of those paths collapse
+to normalized module identities before caching and cycle detection run. This is
+why the circular-import stack stores normalized paths rather than raw source
+strings. Without normalization, \texttt{self::x}, \texttt{crate::m::x}, and a
+relative filesystem spelling could look different while naming the same module.
+The loader's job is to collapse those spellings before the resolver assigns
+semantic identities to exported items.
+
+\textit{Concrete example.} A source file that says \texttt{use
+std::math::basic::sqrt;} first resolves the path to the bundled stdlib module,
+then parses or reuses the cached AST for that module, then returns a fresh copy
+for this compilation. A test may override the same logical path with a source
+overlay defining a tiny fake \texttt{sqrt}; the cache key includes the overlay
+contents, so that fake module cannot poison later filesystem loads. In both
+cases the resolver receives an ordinary module AST and assigns DefIds to the
+exported function in the requesting compilation context.
+
+\section{Imports, Aliases, and Re-exports}
+
+The symbol linker resolves \texttt{use} statements into function mappings and
+module aliases. It supports direct imports, wildcard imports, module aliases,
+and public re-exports. For example, \texttt{use std::math::basic::sqrt;} maps
+the visible name \texttt{sqrt} to the module that exported it, while
+\texttt{use std::math as m;} creates an alias used by later module-access
+expressions.
+
+This module machinery is not decoration around the core language. The standard
+library, examples, and tests depend on it, and the implementation treats stdlib
+functions as ordinary \einlang{} code rather than as compiler magic whenever
+possible.

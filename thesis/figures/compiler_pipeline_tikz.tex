@@ -1,0 +1,140 @@
+\begin{tikzpicture}[
+  font=\sffamily\footnotesize,
+  >=Latex,
+  stage/.style={draw=figLine,line width=0.6pt,rounded corners=2pt,fill=white,align=left,inner sep=6pt,text=figInk,minimum width=2.9cm,minimum height=1.2cm},
+  phase/.style={stage,fill=figBlueBg,draw=figBlue},
+  analysis/.style={stage,fill=figGreenBg,draw=figGreen},
+  lowering/.style={stage,fill=figGoldBg,draw=figGold},
+  runtime/.style={stage,fill=figRoseBg,draw=figRose},
+  side/.style={draw=figLine,line width=0.6pt,rounded corners=2pt,fill=figSlateBg,align=left,inner sep=6pt,text=figInk,minimum width=3.0cm},
+  arrow/.style={->,line width=0.8pt,draw=figLine},
+  bus/.style={line width=0.8pt,draw=figLine},
+  rowlabel/.style={font=\sffamily\bfseries,text=figInk,align=right}
+]
+
+\node[rowlabel] at (-1.5,0) {Front end};
+\node[phase] (parse) at (1.25,0) {
+  \textbf{Parse and AST}\\
+  Lark parser\\
+  transformers\\
+  source spans
+};
+\node[phase] (resolve) at (4.95,0) {
+  \textbf{Identity}\\
+  modules/imports\\
+  DefIds\\
+  scoped names
+};
+\node[phase] (ir) at (8.65,0) {
+  \textbf{IR construction}\\
+  slot nodes\\
+  source locations\\
+  DefId uses
+};
+
+\node[rowlabel] at (-1.5,-2.9) {Static\\analyses};
+\node[analysis] (range) at (1.25,-2.9) {
+  \textbf{Range}\\
+  explicit domains\\
+  implicit reads\\
+  intersections
+};
+\node[analysis] (shape) at (4.95,-2.9) {
+  \textbf{Shape}\\
+  output axes\\
+  array literals\\
+  dependent ranges
+};
+\node[analysis] (type) at (8.65,-2.9) {
+  \textbf{Type}\\
+  primitives\\
+  tensors\\
+  calls and matches
+};
+
+\node[rowlabel] at (-1.5,-5.8) {High-level\\transforms};
+\node[lowering] (mono) at (1.25,-5.8) {
+  \textbf{Specialize}\\
+  clone generics\\
+  dynamic shapes\\
+  incremental passes
+};
+\node[lowering] (ad) at (4.95,-5.8) {
+  \textbf{Autodiff}\\
+  rewrite \texttt{@}\\
+  synthesize JVP/VJP\\
+  lazy Jacobians
+};
+\node[lowering] (ein) at (8.65,-5.8) {
+  \textbf{Tensor lowering}\\
+  loops/guards\\
+  reductions\\
+  execution facts
+};
+
+\node[rowlabel] at (-1.5,-8.7) {Execution\\boundary};
+\node[runtime] (rec) at (1.25,-8.7) {
+  \textbf{Recurrence}\\
+  same-step order\\
+  window metadata\\
+  circular buffers
+};
+\node[runtime] (validate) at (4.95,-8.7) {
+  \textbf{Validate}\\
+  casts\\
+  exhaustiveness\\
+  AD leak checks
+};
+\node[runtime] (backend) at (8.65,-8.7) {
+  \textbf{Backends}\\
+  NumPy visitor\\
+  IREE subset\\
+  profiling/debug
+};
+
+\node[side] (tcx) at (12.65,-1.45) {
+  \textbf{TyCtxt}\\
+  resolver state\\
+  source files\\
+  diagnostics\\
+  analysis tables\\
+  module loader
+};
+\node[side] (facts) at (12.65,-5.8) {
+  \textbf{Attached facts}\\
+  \texttt{range\_ir}\\
+  \texttt{shape\_info}\\
+  \texttt{type\_info}\\
+  recurrence dims\\
+  vectorization strategy
+};
+
+\draw[arrow] (parse.east) -- (resolve.west);
+\draw[arrow] (resolve.east) -- (ir.west);
+\coordinate (frontbus) at (8.65,-1.6);
+\draw[bus] (ir.south) -- (frontbus);
+\draw[bus] (frontbus) -- (1.25,-1.6);
+\draw[arrow] (1.25,-1.6) -- (range.north);
+
+\draw[arrow] (range.east) -- (shape.west);
+\draw[arrow] (shape.east) -- (type.west);
+\coordinate (analysisbus) at (8.65,-4.5);
+\draw[bus] (type.south) -- (analysisbus);
+\draw[bus] (analysisbus) -- (1.25,-4.5);
+\draw[arrow] (1.25,-4.5) -- (mono.north);
+
+\draw[arrow] (mono.east) -- (ad.west);
+\draw[arrow] (ad.east) -- (ein.west);
+\coordinate (loweringbus) at (8.65,-7.4);
+\draw[bus] (ein.south) -- (loweringbus);
+\draw[bus] (loweringbus) -- (1.25,-7.4);
+\draw[arrow] (1.25,-7.4) -- (rec.north);
+
+\draw[arrow] (rec.east) -- (validate.west);
+\draw[arrow] (validate.east) -- (backend.west);
+
+\draw[arrow] (tcx.west) -- ++(-0.55,0) |- (type.east);
+\draw[arrow] (facts.west) -- (ein.east);
+\draw[arrow] (facts.south west) -- ++(-0.55,-0.55) |- (backend.east);
+
+\end{tikzpicture}

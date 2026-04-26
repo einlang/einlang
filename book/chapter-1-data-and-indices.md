@@ -24,17 +24,8 @@ computational intent rather than hiding it behind opaque operations.
 > where shape checks, dependency analysis, printing, and differentiation can
 > attach? A discussion can start by comparing three views of a name: a label for
 > the reader, a handle for the compiler, and a coordinate in the program's
-> dependency graph. This foundation enables building complex systems from simple
-> parts, where each name becomes a composable building block in the program's
-> structure. Furthermore, names enable different implementation models: in a
-> pure functional model, names are immutable bindings; in an imperative model,
-> they might be mutable cells; in a symbolic model, they could represent
-> algebraic expressions. The choice of naming model affects what analyses become
-> possible - static shape inference requires immutable names, while dynamic
-> shape checking might work with mutable ones. By choosing immutable names, we
-> prioritize analyzability over flexibility, creating a foundation where
-> algorithms can be composed reliably and optimizations can be applied
-> systematically.
+> dependency graph. Which analyses become harder if the name can silently change
+> meaning?
 
 The first abstraction in a tensor language is not a tensor. It is a name. A
 tensor program with no stable names quickly becomes a pile of temporary
@@ -240,19 +231,9 @@ index binders whose ranges are inferred or declared in context.
 > **Think More.** Rank is often treated as metadata, something discovered after
 > an array already exists. Einlang moves rank into syntax. Does that make tensor
 > programs more verbose, or does it make intent harder to hide? Where should a
-> language draw the line between explicit structure and visual noise? This can
-> lead into a larger question: when does notation teach, and when does it get in
-> the way? By making rank explicit, we enable a layered approach where simple
-> scalars build to vectors, matrices, and beyond, each layer adding structure
-> while maintaining composability. The analysis extends to implementation models:
-> explicit rank enables static shape inference and compile-time optimization,
-> while implicit rank requires runtime checks and dynamic allocation. Different
-> programming paradigms emerge - rank-polymorphic languages allow flexible
-> abstractions but complicate optimization, while rank-explicit languages enable
-> powerful analysis but may feel restrictive. The trade-off involves balancing
-> expressiveness against analyzability, where explicit rank creates opportunities
-> for algorithmic transformations and error detection that implicit approaches
-> cannot easily provide.
+> language draw the line between explicit structure and visual noise? A useful
+> answer depends on what the language wants to make checkable: shape agreement,
+> axis use, and errors near the source.
 
 Once we understand a vector as a one-index family, a matrix is not a new kind of
 object. It is a two-index family. A higher-rank tensor is the same idea repeated:
@@ -325,20 +306,10 @@ the sizes must be compatible: the source program gave them the same index name.
 > more than a convenience for extracting data; it is a way of asking which axes
 > still matter after part of the context has been chosen. How should a compiler
 > represent that partial choice: as a view, a copy, a delayed expression, or a
-> proof obligation about bounds? Different answers imply different performance
-> stories, error messages, and mental models for the programmer. This abstraction
-> of partial instantiation allows us to treat high-dimensional data as
->  composable, where fixing indices creates specialized views that maintain the
-> underlying family structure. Implementation models vary widely: view-based
-> slicing avoids copying but complicates memory management; copy-based slicing
-> simplifies ownership but increases memory usage; lazy slicing defers
-> computation but can lead to unexpected performance. Programming models range
-> from functional slicing (creating new immutable views) to imperative slicing
-> (modifying in-place), each with different composition and optimization
-> properties. The choice affects how algorithms can be structured - some slicing
-> models enable elegant composition, while others favor performance or
-> predictability.
-> Einlang uses zero-based indexing:
+> proof obligation about bounds? Each answer changes performance, diagnostics,
+> and the programmer's mental model.
+
+Einlang uses zero-based indexing:
 
 ```rust
 let col[i] = A[i, 0];
@@ -393,12 +364,8 @@ or temporary mutation are part of the source explanation.
 > **Think More.** An algorithm is not just a sequence of steps; it is a pattern
 > of index relationships that can be composed and analyzed. When we write
 > algorithms with explicit indices, we expose the data dependencies that loops
-> often hide. This enables deeper compiler optimizations, clearer error messages,
-> and more reliable composition. Different implementation models emerge: some
-> compilers might vectorize operations, others might use parallel reduction, and
-> some might generate specialized kernels. By making indices explicit, we create
-> a foundation where algorithmic patterns become first-class abstractions that
-> can be reasoned about, transformed, and optimized systematically.
+> often hide. What optimizations or error messages become possible when those
+> relationships are visible in the source?
 
 Beyond basic indexing, Einlang's index notation enables direct expression of
 many common algorithms. Let's explore several examples that demonstrate how
@@ -704,40 +671,35 @@ itself is a map of the intended relationships.
 
 ### Explicitness and Judgment
 
-Of course explicit notation does not eliminate judgment. A reader still decides
+Explicit notation does not remove the need for judgment. A reader still decides
 how much to name, where to introduce intermediate bindings, and when to split a
-long definition into clearer parts. In fact, explicit languages often reveal the
-quality of judgment more clearly, because a muddled program cannot hide behind a
-large convenience API.
+long definition into clearer parts. The examples in this chapter stay small so
+that those decisions are easy to see. The same habit scales to larger programs:
+name the relationships that matter, keep index domains visible, and make shape
+claims explicit at the point where they are introduced.
 
-That is one reason the worked examples in this book use small fragments. The
-goal is not to imply that real programs are always tiny. The goal is to show how
-judgment works at the scale where structure is easy to see. Once that judgment
-is learned, larger programs can be decomposed into similarly legible pieces.
+### Discussion: Visible Structure Versus Convenience
 
-### The Broader Lesson
+The broader lesson of the chapter is not only that Einlang can write scalars,
+vectors, and matrices. It is that a source language can choose where meaning
+lives. In a library-heavy style, some structure is carried by function names,
+some by array shapes, and some by runtime convention. In Einlang, the binding
+name, the visible indices, and the ranges all participate in the same source
+statement.
 
-The lesson of this chapter is therefore broader than "how to write a scalar,
-vector, or matrix." It is about the trade between convenience and visible
-meaning. Einlang chooses to make names, indices, and surviving coordinates part
-of the program's surface. That choice asks a little more precision from the
-writer, but it returns much more leverage to the reader and the compiler. The
-language becomes a place where structure can be discussed, checked, and
-transformed explicitly instead of being recovered afterward from operational
-behavior.
+That choice is not free. The writer has to be precise about names and index
+domains. The payoff is that readers and compiler passes can ask sharper
+questions: which axes exist, which values agree pointwise, which index has been
+fixed, and which shape claim failed? Convenience is still valuable, but this
+chapter argues that convenience should not hide the relationships that later
+analysis depends on.
 
 ## Summary
 
-In this chapter, we have uncovered the profound power of explicit structure.
-The first abstraction is not "tensor" but "named family of values" - a conceptual
-foundation that transforms how we think about computation. A scalar becomes a
-named value, a vector a one-index family, a matrix a two-index family. Each
-layer builds upon the previous, creating a hierarchy of abstractions where
-fixing an index naturally transforms higher-rank families into lower-rank
-ones.
-
-This structural clarity enables the compiler to become a true partner in
-programming:
+This chapter introduced tensors as named families of values. A scalar is a
+named value, a vector is a one-index family, and a matrix is a two-index family.
+Fixing an index produces a lower-rank value, and repeated index names express
+shape relationships that the compiler can check.
 
 - `let` binds an immutable name, creating stable points for analysis and
   transformation;
@@ -748,9 +710,11 @@ programming:
   conciseness;
 - constant indices can be checked against known shapes, catching errors early.
 
-What emerges is not just a syntax, but a philosophy: computation as structured
-relationships rather than sequential operations. This foundation enables the
-deep analyses and transformations that follow, where the source code becomes
-both specification and optimization guide. The next chapter builds upon this
-foundation by introducing reduction - the first operation that deliberately
-removes an index, transforming families into summaries.
+The point of this explicitness is not ceremony. It gives later chapters a stable
+surface to build on: reduction can consume visible indices, broadcasting can
+explain missing ones, recurrence can refer to earlier coordinates, and autodiff
+can ask questions about named bindings.
+
+The next chapter builds on this foundation by introducing reduction: the first
+operation that deliberately removes an index and turns a family of values into a
+summary.

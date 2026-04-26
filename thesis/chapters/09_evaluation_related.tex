@@ -1,0 +1,191 @@
+\chapter{Evaluation and Related Work}
+
+The evaluation asks whether the language boundary is executable and whether it
+preserves useful compiler facts. It does not claim peak kernel performance
+against mature tensor compilers. The relevant question is source structure:
+whether axes, recurrence dependencies, and derivative targets remain available
+without wrapper-style refactoring.
+
+\section{Executable Credibility}
+
+The implementation runs small kernels, autodiff examples, recurrence suites,
+stdlib tests, simulation examples, optimization examples, and model-shaped
+indexed programs. Unit tests inspect compiler metadata for recurrence storage
+choices and lazy derivative values. Example tests compare selected programs
+against NumPy references. Larger demonstrations check that the same syntax and
+backend machinery scales beyond toy expressions.
+
+\section{Source Boundary Comparisons}
+
+For matrix multiplication, \einlang{} replaces a contraction string with source
+indices:
+
+\begin{lstlisting}[style=einlang]
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+\end{lstlisting}
+
+The source-indexed form gives the compiler three facts before lowering:
+\texttt{i} and \texttt{j} survive into the output, while \texttt{k} is consumed
+by the reduction. That is more than a spelling difference from an
+\texttt{einsum} string. It lets the resolver assign DefIds to the axes, lets
+range analysis infer domains from shaped reads, and lets diagnostics point to
+ordinary source syntax when a contraction dimension is inconsistent.
+
+For convolution, it avoids a split between patch extraction and contraction:
+
+\begin{lstlisting}[style=pythoncode]
+patches = sliding_window_view(x, (KH, KW), axis=(2, 3))
+y = np.einsum("ncijrs,ocrs->noij", patches, w)
+\end{lstlisting}
+
+The NumPy version is a useful baseline because it is explicit about the two
+operations most libraries require: first build a windowed view, then contract
+that view. The implementation claim for \einlang{} is that the sliding offsets
+and contracted axes can live in one indexed source binding. That gives the
+compiler a chance to check offset bounds, infer output shape, and choose a
+backend path without asking the programmer to expose a patch tensor as a
+separate source artifact.
+
+For recurrence, it avoids requiring the programmer to encode the source
+relation as a carry contract before the compiler has inspected later reads. The
+advantage in each case is not shorter syntax by itself; it is that the compiler
+receives one source object containing the facts that later passes need.
+
+\section{What the Current Artifact Shows}
+
+The current artifact supports four claims:
+
+\begin{itemize}
+\item Source coherence: indexed definitions, recurrent clauses, and derivative
+requests can coexist in one binding environment.
+\item Compiler leverage: range, shape, type, recurrence, and autodiff passes
+consume facts that are still visible in the IR.
+\item Runtime execution: the NumPy backend executes lowered tensor programs,
+recurrences, stdlib calls, and local derivative requests.
+\item Conservative optimization: finite recurrence storage is used only when
+the compiler can prove bounded history and bounded observation.
+\end{itemize}
+
+\section{Evaluation Obligations}
+
+The next evaluation step is to turn several current qualitative checks into
+larger generated suites. For recurrence storage, the generator should vary
+lookback distance, observed tail length, whole-tensor escape, symbolic extent,
+dynamic tail indices, and multidimensional recurrence geometry. For autodiff,
+the generator should compare scalar gradients, projected Jacobian entries,
+rows, columns, and full materializations against numerical or framework
+references where appropriate. For tensor lowering, the generator should compare
+vectorized, scalar, hybrid, and call-scalar paths on the same mathematical
+program to ensure that backend strategy changes do not change results.
+
+\begin{lstlisting}[style=pythoncode,caption={Generated evaluation-suite outline.}]
+generate_recurrence_suite():
+    for lookback in [1, 2, 4]:
+        for tail_observation in ["final", "last_k", "whole", "dynamic"]:
+            program = synthesize_recurrence(lookback, tail_observation)
+            result = compile_and_run(program)
+            reference = run_numpy_reference(program.parameters)
+            assert_close(result.value, reference)
+            if tail_observation is bounded:
+                assert compiler_storage(program).preserve_steps is finite
+            else:
+                assert compiler_storage(program).requires_full_output
+
+generate_autodiff_suite():
+    for shape_y, shape_x in scalar_and_tensor_shapes:
+        program = synthesize_function_and_query(shape_y, shape_x)
+        for projection in ["entry", "row", "column", "full"]:
+            got = compile_and_run(project(program, projection))
+            expected = numerical_or_framework_reference(program, projection)
+            assert_close(got, expected)
+
+generate_tensor_lowering_suite():
+    for strategy in ["vectorized", "scalar", "hybrid", "call-scalar"]:
+        program = synthesize_equivalent_tensor_program(strategy)
+        got = compile_and_run(program)
+        expected = direct_numpy_reference(program)
+        assert_close(got, expected)
+\end{lstlisting}
+
+This generator would evaluate the compiler's smart paths directly: not only
+whether a program returns the right value, but whether the compiler chose and
+recorded the expected range, shape, recurrence-storage, autodiff, and
+vectorization facts.
+
+The generated-suite sketch is intentionally larger than a value-only test. A
+recurrence case is not finished when the numerical output matches; the test
+also has to assert whether the compiler proved a finite window or fell back to
+full materialization for the right reason. An autodiff case is not finished
+when a scalar gradient matches; it should also cover entry, row, column, and
+full Jacobian projections so lazy lowering decisions are exercised. A tensor
+lowering case is not finished when one strategy works; equivalent programs
+should force vectorized, scalar, hybrid, and call-scalar paths.
+
+This is the evaluation counterpart of the thesis implementation story. The
+"smart" parts of the compiler are metadata-producing analyses, not only value
+transformations. A strong generated suite therefore checks both outputs and the
+facts attached to the IR. If a future optimization changes a backend strategy,
+the suite should detect semantic regressions and also detect cases where the
+compiler silently stopped proving the intended property.
+
+The recurrence portion should also assert negative cases. A whole-tensor
+observation, a dynamic tail index, or an unknown offset should force full
+materialization even when the numerical result would match a circular-buffer
+run for a particular input size. These tests protect the proof boundary: the
+compiler is allowed to be conservative, but it is not allowed to claim a finite
+window without a static reason. The generated suite should therefore check both
+\texttt{preserve\_steps} values and fallback markers in the compiler metadata.
+
+The autodiff portion needs the same two-layer structure. Numerical agreement
+shows that the derivative value is correct for a sampled program, while
+projection checks show that lazy lowering selected the intended row, column, or
+entry path. A full materialization test is still useful, but it should not be
+the only case. The thesis claim is specifically about local derivative requests
+remaining shaped and demand-driven, so the evaluation should exercise uses that
+ask for less than the dense Jacobian.
+
+For tensor lowering, equivalent mathematical programs should be shaped so that
+the compiler is forced onto different execution strategies. One version may be
+fully vectorizable, another may include a loop-dependent function call, another
+may include guards, and another may include nested reductions. Comparing all of
+them against direct NumPy references checks semantic preservation, while
+inspecting execution facts checks that the strategy classifier is still doing
+the smart work the thesis describes.
+
+\section{Limitations}
+
+The strongest current result is language-design evidence backed by a concrete
+compiler and runtime. The executable recurrence storage optimization targets
+static offsets and one inferred finite recurrence axis. General
+multidimensional mixed finite/full storage, dynamic offset reasoning,
+automatic line-buffer inference, KV-cache inference, GPU code generation, full
+whole-language type soundness, and broader IREE lowering remain future work.
+
+\section{Related Work}
+
+The closest neighboring ecosystems for everyday numerical programming are
+NumPy, TensorFlow, PyTorch, and JAX. These systems provide the baseline for the
+comparison here \cite{numpy2020,tensorflow2016,pytorch2019,jax2018}. They are
+more mature and more general ecosystems than \einlang{}. The distinction is the
+programming boundary: \einlang{} makes indexed definitions, recurrences, and
+derivative requests native source constructs of one checked language rather
+than separate host, library, and transformation interfaces.
+
+TVM and Halide preserve compiler-facing tensor structure and expose powerful
+scheduling or lowering interfaces \cite{tvm2018,halide2013}. \einlang{} sits
+earlier in the source pipeline: it is concerned with how the programmer writes
+the tensor relation, recurrence relation, and local derivative query before a
+schedule is selected.
+
+Automatic differentiation systems such as Zygote and DiffTaichi show that
+differentiation can be integrated deeply into language or compiler structure
+\cite{zygote2019,difftaichi2020}. \einlang{} shares the goal of treating
+differentiation as a semantic concern, but its claim is narrower: derivative
+requests are local expressions over named indexed and recurrent bindings.
+
+The storage-window analysis connects to classical data-flow analysis, loop
+transformations, locality optimization, software pipelining, and polyhedral
+dependence analysis \cite{allen2001optimizing,muchnick1997advanced,lam1988software,rau1994iterative,feautrier1991data,bondhugula2008pluto,bastoul2004code}. The
+specific contribution here is source placement: recurrent dependencies and
+later observations are represented directly in the indexed program, allowing
+storage planning before the computation has been lowered into backend loops.

@@ -71,12 +71,7 @@ The indices remain visible even when some points are masked.
 > humans? Which model is easier for compilers? The answer may depend on whether
 > we are writing a quick script or a program meant to be analyzed deeply. That
 > distinction matters: not every programming convenience belongs in a language
-> built for reasoning. By choosing recurrence over mutation, we abstract state
-> evolution into structured, analyzable patterns. Implementation models range
-> from mutable state with aliasing challenges to immutable sequences with
-> optimization opportunities. Programming paradigms differ: imperative mutation
-> favors familiarity, functional recurrence enables analysis, affecting both
-> usability and performance.
+> built for reasoning.
 
 All `let` bindings are immutable. Updating state means defining a new point in a
 recurrence:
@@ -117,13 +112,7 @@ only a suffix is needed.
 > minimalism can also become frustrating if common work falls outside the core.
 > How should a language decide what belongs inside and what should remain at the
 > boundary? A discussion can start by naming the cost of each new feature, not
-> only its immediate usefulness. Through deliberate minimalism, we achieve
-> focused power by building each abstraction on a solid foundation without
-> unnecessary complexity. Implementation models differ: some cores are extended
-> through libraries, others through compiler plugins, and some through
-> metaprogramming. Programming paradigms range from minimal cores with rich
-> ecosystems to maximal languages with everything built-in, affecting both
-> learning curve and extensibility.
+> only its immediate usefulness.
 
 Einlang has functions, blocks, `if`, `match`, modules, comprehensions, and a
 standard library. But its center of gravity is small:
@@ -172,14 +161,7 @@ constructs carry a lot of domain structure.
 > **Think More.** Self-hosting is a powerful story for a general language, but
 > it may be the wrong aspiration for a domain language. If Einlang cannot easily
 > express parsers, file systems, or code generators, is that a weakness, or a
-> sign that its boundary is honest? This question should stay unsettled for a
-> while, because it touches the deepest design tension in the project: focus
-> versus universality. By maintaining clear boundaries, we enable focused
-> abstractions that excel in their domain without attempting universal coverage.
-> Implementation models differ: some languages bootstrap themselves, others use
-> existing infrastructure, and some remain embedded. Programming paradigms range
-> from self-hosting purity to pragmatic boundaries, affecting both philosophical
-> consistency and practical utility.
+> sign that its boundary is honest?
 
 Einlang is not trying to be a universal systems language. A compiler needs
 string-heavy parsing, syntax trees, diagnostics, file management, code
@@ -193,14 +175,10 @@ and differentiation.
 
 ## 7.5 Design Patterns and Trade-offs
 
-> **Think More.** Language design involves fundamental trade-offs between
-> expressiveness, analyzability, and usability. When boundaries are explicit,
-> designers can make deliberate choices about what to include and what to
-> exclude. Implementation models range from minimal cores with rich libraries to
-> maximal languages with complex compilers, each with different development and
-> performance characteristics. Programming paradigms differ: some prioritize
-> conceptual purity, others prioritize practical usability, affecting both
-> adoption and long-term maintenance.
+> **Think More.** Language design balances expressiveness, analyzability, and
+> usability. For each feature, ask what becomes clearer, what becomes harder to
+> check, and whether the same capability belongs better in the core, a library,
+> or the host.
 
 Explicit design boundaries enable principled language construction.
 
@@ -391,40 +369,30 @@ That is one of the ways a language can teach. It does not merely permit good
 structure; it gently pressures the writer toward it. Over time, that pressure
 can reshape how users think about the domain itself.
 
-### A Wider Audience for the Argument
+### Discussion: What Refusal Protects
 
-Even readers who never plan to write Einlang can take something from this
-chapter. The question "what should a language refuse?" matters far beyond tensor
-notation. Every DSL, every framework, and every numerical stack faces the same
-tension between convenience and meaning. Einlang's answer is one possible
-response: choose a narrow core where semantics are unusually visible, and rely
-on explicit boundaries rather than silent universality.
+Even readers who never write Einlang can use the question "what should this tool
+refuse?" as a design test. Every DSL, framework, and numerical stack faces the
+same tension between convenience and meaning. Einlang's answer is to protect a
+narrow core where tensor structure stays unusually visible, then rely on
+explicit boundaries for work that belongs elsewhere.
 
-That is why the final chapter has a philosophical tone. It is not merely a
-defense of one project's omissions. It is an argument about what makes a
-programming system legible, optimizable, and teachable. Boundaries are part of
-that answer because they keep the language honest about what it is for.
+This is not a defense of omission for its own sake. It is a way to keep the
+system legible, optimizable, and teachable. A refusal is useful when it preserves
+the meaning the tool exists to expose.
 
-## 7.9 A Language and the Audience It Invites
+## 7.9 Discussion: What a Small Core Invites
 
-A final way to think about boundaries is to ask what kind of readership a
-language invites. Universal languages invite readers to bring almost any task
-under one roof. Focused languages invite readers to ask whether their problem
-really benefits from stronger semantic concentration. Neither invitation is
-inherently superior. They simply produce different cultures of use.
+A focused language invites a particular kind of reader. It is not trying to
+bring every task under one roof. It asks whether the problem benefits from
+visible tensor structure, explicit shape relations, readable reductions,
+recurrence as dependency, and derivative questions that belong in the source.
 
-Einlang is inviting readers who care about visible tensor structure, explicit
-shape relations, readable reductions, recurrence as dependency, and derivative
-questions that belong in the source. That invitation may appeal to a researcher
-trying to explain an algorithm, an engineer trying to stabilize a model kernel,
-a teacher trying to show how formulas become code, or a language designer
-interested in what happens when a domain is taken seriously enough to shape the
-syntax around it.
-
-The important point is that a language's audience is partly formed by what it
-chooses not to hide. By refusing some generic conveniences, Einlang is saying
-that the right reader is someone willing to exchange a little permissiveness for
-much more explicit meaning in a narrow but important domain.
+That audience may include researchers explaining algorithms, engineers
+stabilizing model kernels, teachers showing how formulas become code, and
+language designers studying what happens when a domain shapes syntax. The common
+thread is not job title; it is the need to keep a narrow set of semantic facts
+visible.
 
 A tiny contrast helps:
 
@@ -433,233 +401,52 @@ do anything somehow         -> broad but semantically loose
 do tensor structure clearly -> narrow but semantically dense
 ```
 
-## 7.10 Beyond This Project
+## 7.10 Discussion: Growth Without Losing the Core
 
-The broader interest of a chapter like this is not confined to whether Einlang
-itself becomes widely used. The same questions will keep returning in other
-settings. How small can a language remain while still being powerful? When does
-an external ecosystem help focus rather than weaken a tool? Which conveniences
-destroy analyzability, and which ones merely package it more effectively? How
-should a language choose what belongs in syntax and what belongs in libraries or
-adjacent systems?
+Refusal is not the same as stagnation. The standard library can grow, interop
+can improve, and new operations can be added. The design test is whether a
+feature makes important structure more visible or merely makes the language feel
+more familiar.
 
-Those are durable questions in programming language design. Tensor languages
-happen to make them vivid because the underlying mathematics is structured enough
-to reward explicit notation, yet practical enough that everyone feels the pull
-of convenience. Einlang is one answer to that tension. Even a reader who prefers
-other answers can use the argument here as a sharpened comparison point.
+This test does not settle every future debate, but it keeps the debate attached
+to the language's purpose. Mutation, general loops, and broad host escape
+hatches may be useful in some contexts; the question is whether they belong in
+the tensor core or at a boundary.
 
-A broader design sketch looks like:
+## 7.11 Beyond This Project
 
-```text
-small core
-  -> stronger meanings
-  -> better analysis
-  -> clearer boundaries
-```
+The final lesson extends beyond Einlang. Many tools face the same questions:
+how much belongs in the core, which operations deserve first-class notation,
+when convenience helps, and when it erases the structure a tool exists to
+expose.
 
-That is a fitting place for the book to end. The earlier chapters taught a
-particular way of writing formulas as code. This chapter asks what kind of
-language ecology makes that writing style worth preserving. Its answer is that a
-small core, clear borders, and disciplined refusal can produce not a lesser
-language, but a more coherent one.
-
-## 7.11 Why Refusal Can Be Generative
-
-There is a tendency to think of refusal in language design as purely negative:
-the language lacks something, forbids something, or postpones something users
-would otherwise enjoy. But some refusals are generative. They create the
-conditions under which a stronger style of program becomes normal. Refusing
-mutation in the tensor core encourages recurrence and stable naming. Refusing
-implicit reduction encourages visible contraction points. Refusing to absorb the
-whole host ecosystem encourages explicit boundaries and better contracts.
-
-This kind of refusal is productive because it clears semantic space. It prevents
-too many overlapping idioms from competing to express the same central ideas.
-When a language has fewer but stronger routes through a problem, readers learn
-those routes more deeply and implementations can optimize them more reliably.
-
-### The Shape of a Coherent Tool
-
-Coherence is difficult to measure in the abstract, but users often feel it
-immediately. A coherent tool makes the same explanation work in many places. It
-reuses its own ideas. It does not constantly ask the reader to switch mental
-models in order to keep going. Much of this book has been an attempt to show
-that effect in practice. Names, indices, reductions, recurrence, and derivative
-requests keep reappearing because the language is trying to do more with less.
-
-The final chapter gives that experience a design rationale. The language does
-not remain small out of ascetic pride. It remains small because semantic
-coherence is a real engineering asset. Programs become easier to analyze, easier
-to teach, easier to optimize, and easier to discuss across communities when the
-core constructs are few and powerful.
-
-### A Closing Thought
-
-In that light, the question of whether Einlang should grow is not answered once
-and for all. Growth is possible. The standard library can expand. Interop can
-become smoother. New supported operations can appear. But the standard for such
-growth should remain high: does the new capability deepen the existing semantic
-story, or does it muddy it? A language that can keep asking that question of
-itself has a better chance of staying useful as it matures.
-
-## 7.12 The Book's Final Design Lesson
-
-The deepest design lesson of this book is not that every language should look
-like Einlang. It is that a language becomes clearer when it chooses a domain,
-treats that domain's structure seriously, and resists the temptation to hide
-hard semantic questions behind generic convenience. Einlang's small core is one
-particular answer to that challenge. Other languages may answer differently. But
-the challenge itself is durable.
-
-If readers carry anything outward from the final chapter, it might be this:
-expressiveness is not only a matter of how many things a language allows. It is
-also a matter of how directly the language lets important structure appear in
-source. Sometimes the boldest move a language can make is not to add more ways
-to speak, but to preserve a few ways of speaking that remain unusually honest.
-
-That is the spirit in which the book closes. Boundaries are not the opposite of
-power. In the right design, they are one of its sources.
-
-## 7.13 Why This Argument Extends Beyond Einlang
-
-It would be too small a conclusion to say only that Einlang itself should remain
-focused. The wider importance of the chapter is that many technical projects,
-whether they call themselves languages or not, live or die by the same choices.
-How much should be built into the core? Which operations deserve first-class
-notation or special treatment? When does convenience help, and when does it
-obscure? How should a system cooperate with adjacent tools without losing its
-own center of gravity?
-
-Those questions appear in tensor libraries, visualization systems, query
-languages, dataflow tools, hardware DSLs, scientific notebooks, and model
-serving stacks. Einlang is a case study, but the design tensions are general.
-Readers who care about tools more broadly can therefore treat the chapter as a
-portable argument about focus, semantic density, and the productive role of
-refusal.
-
-### Closing the Circle
-
-That broader relevance helps explain the shape of the whole book. It began with
-the smallest act of naming a value and ends with the largest question of what a
-language should choose to be. In between, the same theme kept returning:
-structure is most useful when it remains visible. The final chapter simply says
-that this theme applies not only to equations inside programs, but to the design
-of the language itself.
-
-The closing claim is therefore simple. A language is strongest not when it wins
-every argument for convenience, but when it knows what kind of meaning it wants
-its source programs to carry. Einlang's boundaries are one expression of that
-knowledge. They protect a style of explicitness that the earlier chapters have
-shown to be analytically, pedagogically, and computationally valuable.
-
-That protection is not passive. It actively shapes the kinds of programs people
-will write, the kinds of analyses compilers can perform, and the kinds of
-conversations readers can have about what a program means. In that sense, a
-boundary is not merely a fence around a language. It is part of the architecture
-that makes the language itself possible.
-
-The broader audience for this argument is anyone who builds or studies tools.
-Questions of focus, scope, and semantic density appear everywhere. Einlang's
-answer is one example, but the underlying lesson is portable: clarity often
-depends less on saying yes to everything than on saying a deep, well-supported
-yes to a smaller number of things.
-
-That is an appropriately wide note on which to end. The book began with the
-small act of naming a value and ends with the larger claim that a language, too,
-must decide what it wants to name clearly and what it will leave outside its
-center. The boundaries are the shape of that decision made visible.
-
-There is a quiet consistency in that ending. The book has repeatedly argued that
-good source code is not merely executable, but legible in the dimensions that
-matter most. The final chapter extends the same principle from programs to the
-language itself. A good language is not merely capable; it is explicit about
-what kind of capability it wants to make unusually clear.
-
-That is the reason the chapter can close on a note broader than one project.
-Questions of scope, refusal, and semantic density will outlast any individual
-tool. Einlang offers one sharply drawn answer, and the value of the answer lies
-as much in the clarity of the argument as in the particular feature set it
-defends.
+Einlang is one answer to those tensions. The portable idea is that expressiveness
+is not only the number of things a language permits. It is also how directly the
+language lets important structure appear in source.
 
 ### One Last Design Question
 
-If a future feature request arrives, the final chapter suggests a simple test:
-does the feature make important structure more visible, or does it merely make
-the language feel more familiar? The answer may not settle every debate, but it
-is a strong place to begin.
-
-Seen this way, the final chapter is not just a defense of omission. It is a
-positive account of how focus, refusal, and explicit borders can produce a tool
-whose semantic center remains unusually visible. That lesson is useful whether
-or not the reader ultimately works inside Einlang itself.
-
-It is also a reminder that language design is a matter of values as much as
-mechanism. What a tool refuses to hide, and what it refuses to absorb, shapes
-the kind of understanding it makes possible. Einlang's answer is only one
-answer, but it is a clear one, and clarity is itself a design virtue.
-
-For that reason the chapter ends on a deliberately wide horizon. The argument
-about small cores, explicit borders, and semantic density belongs not only to
-this project, but to any serious attempt to build tools that people can both use
-and understand.
-
-Its final challenge to the reader is simple: choose the kinds of meaning your
-language most needs to keep visible, and then protect them with enough
-discipline that they remain visible under pressure.
-
-That challenge applies as much to future tools as to Einlang itself. It asks
-designers to think not only about what users can do, but about what kinds of
-understanding the tool will make easy, repeatable, and durable. Boundaries are
-part of that answer because they keep the semantic center from dissolving.
-
-That is why the chapter ends with refusal in a positive key. Saying no well can
-be one of the ways a language says its strongest yes.
-
-The point is not austerity for its own sake. It is fidelity to the kinds of
-meaning the language most wants to preserve. That is the chapter's final design
-claim, and it reaches well beyond this single project.
-
-It is also the book's last reminder that focus can be a form of strength.
-
-That reminder is worth carrying into other tools and languages as well.
-
-It gives the final chapter a reach wider than the project it directly names.
-
-That wider reach is part of why the argument matters.
+For any future feature request, ask: does this make important structure more
+visible, or does it mostly provide another way around the existing structure? A
+focused language can grow, but it should grow by strengthening the semantic
+center rather than blurring it.
 
 ## Summary
 
-Einlang's boundaries are not limitations, but the deliberate choices that
-create its focused power. What could be seen as restrictions become the
-foundation for reliability, analyzability, and elegance. This final chapter
-reveals that true language design is not about including everything, but about
-choosing what matters most.
+Einlang's boundaries are deliberate design choices:
 
-The boundaries that define Einlang are carefully chosen for their productive
-power:
-
-- Elementwise `if` and `where` handle common control-flow needs without hiding
+- elementwise `if` and `where` handle common control-flow needs without hiding
   tensor shape, preserving the structural clarity that enables analysis;
-- Immutable bindings make analysis reliable, transforming what could be
+- immutable bindings make analysis reliable, transforming what could be
   fragile state management into predictable, optimizable relationships;
-- Recurrence replaces mutation when state evolution matters, turning temporal
+- recurrence replaces mutation when state evolution matters, turning temporal
   patterns into structured, analyzable sequences;
-- The core stays small because Python handles non-tensor work, enabling focus
+- the core stays small because Python handles non-tensor work, enabling focus
   without isolation;
-- The compiler does not need to be written in the language for the language to
+- the compiler does not need to be written in the language for the language to
   be useful, proving that practical impact comes from solving real problems,
   not self-referential purity.
 
-These choices create a language that is not smaller despite its boundaries,
-but stronger because of them. Einlang demonstrates that the most powerful
-programming systems emerge not from universal ambition, but from deliberate
-focus - choosing depth over breadth, reliability over convenience, and clarity
-over comprehensiveness.
-
-What remains is not a finished language, but a foundation for thinking
-differently about programming. Einlang shows that when we make structure
-visible, computation becomes more than a sequence of operations - it becomes a
-space of relationships we can analyze, optimize, and understand. The boundaries
-are not the end, but the beginning of what becomes possible when we program
-with intention.
+These choices keep the core small enough for the compiler and reader to track.
+The point is not that every language should be small in the same way, but that a
+language should protect the meanings its source is meant to expose.

@@ -1,0 +1,532 @@
+\chapter{Autodiff Implementation}
+
+Autodiff in \einlang{} is part of the source language. The user writes a primal
+program normally, binds the values of interest, and then asks for tangents or
+derivatives with \texttt{@}. This design creates implementation pressure: the
+compiler must understand derivative requests while high-level tensor structure
+is still available, but the backend should not execute raw source-level
+\texttt{@} nodes.
+
+\section{Source Forms}
+
+The two core forms are:
+
+\begin{lstlisting}[style=einlang]
+let tx = @x;
+let dy_dx = @y / @x;
+\end{lstlisting}
+
+\texttt{@x} asks for the tangent of a named binding. The quotient form asks for
+the derivative or Jacobian of a target binding with respect to a parameter
+binding. Tensor quotients may be large, so the implementation can represent
+them lazily instead of immediately materializing dense Jacobians.
+
+These two forms are intentionally name-based. The compiler can attach the
+request to DefIds for \texttt{x}, \texttt{y}, and the parameter being
+differentiated, which makes the derivative a query over the already-resolved
+program rather than a transformation over anonymous source text. That choice
+also explains why later passes can lower a derivative request into JVP, VJP, or
+lazy-Jacobian IR: the request has a stable target, a stable parameter, and
+known shape metadata.
+
+\section{Autodiff IR}
+
+The IR contains explicit nodes for autodiff intent:
+\texttt{DifferentialIR}, \texttt{JvpIR}, \texttt{VjpIR}, and
+\texttt{LazyJacobianIR}. These nodes are allowed in the high-level compiler
+phase but must be removed or lowered before final execution. The separate
+\pathcode{src/einlang/passes/autodiff_leak_check.py} pass enforces that phase
+boundary.
+
+\section{Compile-Time Differentiation}
+
+\pathcode{src/einlang/passes/autodiff/compiletime.py} implements the main
+high-level autodiff pass. It clones IR templates, simplifies generated
+expressions, tracks dependency queries, and synthesizes derivative expressions
+for supported operations. It runs after range, shape, type, extremum
+canonicalization, and pre-autodiff pruning, but before Einstein lowering. That
+placement is important because derivative generation can still see source-level
+indexed definitions and reductions.
+
+The pass also records graph facts: binding maps, function maps, local contexts,
+leaf DefIds, and self-recursive DefIds. The current primary path lowers
+requests back into ordinary IR; the recorded graph facts remain available for
+diagnostics and for the thin runtime autodiff builtin handler.
+
+\subsection{Source Request Rewrite Algorithm}
+
+The first autodiff pass rewrites source-level request syntax while high-level
+tensor IR is still visible. Plain \texttt{@x} is expanded immediately. A
+quotient \texttt{@y / @x} becomes a lazy-Jacobian IR node when both sides are
+named bindings, because the dense Jacobian may be too large to build eagerly.
+
+\begin{lstlisting}[style=pythoncode,caption={Compile-time autodiff request rewriting.}]
+autodiff_pass(program, tcx):
+    bindings = clone binding_map(program, tcx)
+    local_contexts = clone local bindings inside blocks/functions
+    targets = collect DifferentialIR and quotient pairs
+    if targets is empty:
+        record empty autodiff analysis
+        return program
+
+    differentiator = Differentiator(bindings, local_contexts, resolver)
+    for statement in program.statements:
+        statement = rewrite_expr(statement)
+    for function in function_ir_map:
+        function.body = rewrite_expr(function.body)
+    record cloned graph facts for request lowering and diagnostics
+
+rewrite_expr(expr):
+    if expr is DifferentialIR(operand):
+        return differentiator.standalone(operand, symbolic=False)
+    if expr is DifferentialIR(target) / DifferentialIR(wrt)
+       and both are identifiers:
+        return LazyJacobianIR(target=target, wrt=wrt)
+    recursively rewrite children
+\end{lstlisting}
+
+The rewrite pass is the phase boundary between source syntax and differentiable
+IR. It first clones the binding and local-context maps because derivative
+generation may need to re-enter source expressions after the main traversal has
+mutated them. It then rewrites plain differentials and quotient requests while
+the high-level tensor structure is still present. That timing matters: once
+Einstein lowering has erased source-level clauses into loops, it is much harder
+to preserve a derivative as a shaped indexed value.
+
+The lazy-Jacobian case is the most important branch. A quotient such as
+\texttt{@y/@x} might describe a scalar gradient, a vector Jacobian, or a large
+tensor product of target axes and parameter axes. The rewrite pass does not
+decide immediately how much of that value to compute. It records the target and
+parameter identities, leaving request lowering to choose a row, column, entry,
+or full materialization after it sees how the value is consumed. This is the
+implementation reason local derivative requests can remain concise in source.
+
+The clone of binding and local-context maps is not an optimization detail; it is
+what keeps rewriting stable. During the traversal, request nodes may be replaced
+by generated IR, and blocks may gain derivative-local bindings. If derivative
+generation looked only at the partially rewritten program, a later request could
+observe a mixture of source and generated structure. Keeping a snapshot gives
+the differentiator a consistent primal graph for all requests in the pass.
+
+The rewrite also establishes the shape contract for derivatives. Plain
+\texttt{@x} can often be expanded immediately because it asks for the tangent of
+one value under the current differentiation context. A quotient has a product
+shape formed from target axes and parameter axes, so it is represented lazily
+until a use site reveals whether the program needs a row, column, entry, or
+full value. The analysis point is that \einlang{} treats a derivative request as
+a first-class shaped expression while postponing the expensive part of deciding
+how much derivative structure to compute.
+
+\textit{Concrete example.} In \texttt{let loss = sum[i]((pred[i] -
+target[i]) * (pred[i] - target[i])); let g = @loss / @W;}, the rewrite pass
+does not build the full Jacobian immediately. It records a
+\texttt{LazyJacobianIR} whose target DefId is \texttt{loss} and whose
+with-respect-to DefId is \texttt{W}. If \texttt{loss} is scalar and \texttt{W}
+is a matrix, the lazy value has the shape of \texttt{W}; if a later expression
+indexes only one element of \texttt{g}, request lowering can compute that
+projection instead of materializing the entire derivative value.
+
+\subsection{Differentiation Rules}
+
+The differentiator handles the ordinary expression structure of the language:
+literals produce zero tangents, the differentiated variable produces an identity
+tangent, addition and subtraction distribute, multiplication uses the product
+rule, division uses the quotient rule, and reductions differentiate through
+their bodies. Indexed tensor expressions preserve their index structure where
+possible, so a derivative of an indexed definition can itself be represented as
+an indexed or lazy shaped value instead of being flattened immediately.
+
+The pass is conservative around unsupported constructs. It is better for a
+derivative request to remain unsupported than for the compiler to silently
+switch to a finite-difference approximation or erase a dependency.
+
+\subsection{Forward Differentiation Algorithm}
+
+The differentiator computes symbolic forward tangents over IR. A seed map says
+which binding is differentiated with respect to which input; every other known
+leaf receives a zero seed. For top-level bindings, the differentiator memoizes
+derivative expressions by DefId so repeated uses of the same dependency do not
+duplicate work.
+
+\begin{lstlisting}[style=pythoncode,caption={Symbolic forward-mode differentiation.}]
+differentiate_expr(expr, wrt_defid, seed_override=None):
+    seed_map = {}
+    seed_map[wrt_defid] = seed_override or ones_like(binding(wrt_defid))
+    for leaf in graph_leaf_bindings:
+        if leaf.defid != wrt_defid:
+            seed_map[leaf.defid] = zeros_like(leaf)
+    for binding in top_level_bindings:
+        if binding does not depend on wrt_defid:
+            seed_map[binding.defid] = zeros_like(binding)
+    return simplify(diff(expr, seed_map, local_bindings={}, local_diffs={}))
+
+diff(expr):
+    case literal:
+        return 0
+    case identifier:
+        if identifier.defid in seed_map:
+            return clone(seed_map[identifier.defid])
+        return diff(binding(identifier.defid).expr)
+    case a + b:
+        return diff(a) + diff(b)
+    case a - b:
+        return diff(a) - diff(b)
+    case a * b:
+        return a * diff(b) + b * diff(a)
+    case a / b:
+        return (b * diff(a) - a * diff(b)) / (b ** 2)
+    case a ** literal n:
+        return n * (a ** (n - 1)) * diff(a)
+    case array[index]:
+        return diff(array)[index], substituting indices into Einstein bodies
+    case if condition then x else y:
+        return if condition then diff(x) else diff(y)
+    case block:
+        emit primal local bindings and matching tangent bindings in order
+    case sum[indices](body):
+        return sum[indices](diff(body))
+    case max[indices](body):
+        return select derivative body at argmax of primal body
+    case EinsteinIR clauses:
+        differentiate each clause value and drop zero clauses
+    case function call:
+        inline function body with primal arguments, or use custom @fn rule
+\end{lstlisting}
+
+Two implementation details make this work for indexed programs. First,
+rectangular access into a differentiated \texttt{EinsteinIR} substitutes access
+indices into the clause body instead of materializing the whole tangent tensor.
+Second, block differentiation emits tangent bindings beside primal bindings, so
+self-recursive recurrence definitions can refer to their own tangent history.
+
+The differentiation algorithm is symbolic and structural. It does not execute
+the program to build a tape; it walks IR and constructs new IR that represents
+the tangent computation. The seed map gives the differentiated parameter an
+identity tangent and gives unrelated leaves zero tangents. Memoization by DefId
+prevents repeated dependencies from expanding into duplicated derivative
+expressions, which is especially important when several indexed clauses read
+the same binding.
+
+The indexed cases are where the implementation differs from a scalar textbook
+derivative. A tensor access into a differentiated binding can often be lowered
+by substituting the access indices into the derivative of the binding's clause.
+That preserves sparsity and avoids materializing tangents that the program
+never observes. Reductions also keep their loop variables, so differentiating a
+sum produces another sum rather than a flattened vector operation. The result
+is still ordinary IR that later range, shape, and lowering passes can process.
+
+The block case is where symbolic differentiation meets imperative-looking
+source order. A block may introduce local bindings that later expressions use.
+The differentiator therefore emits the primal local and the corresponding
+tangent local in sequence, preserving the dependency order of the original
+program. This lets derivative expressions for later locals refer to earlier
+tangent values by DefId, just as primal expressions refer to earlier primal
+values. Without this paired local structure, differentiating blocks would either
+duplicate subexpressions aggressively or require a separate runtime tape.
+
+The function-call case is intentionally split between inlining and custom
+\texttt{@fn} rules. Inlining keeps ordinary source functions transparent to the
+differentiator, which is useful for small standard-library helpers. Custom rules
+provide a controlled escape hatch for operations whose derivative is simpler or
+more stable than their source expansion. Both paths still return IR, not Python
+callbacks. That keeps generated derivative code inside the same range, shape,
+type, lowering, and validation pipeline as handwritten \einlang{} code.
+
+\textit{Concrete example.} For \texttt{let y = x * x + 3.0 * x; let dy =
+@y / @x;}, the seed map gives \texttt{x} tangent one. The structural rules
+produce \texttt{x * 1 + x * 1 + 3.0 * 1}, which simplification can present as
+\texttt{2.0 * x + 3.0}. For an indexed sum \texttt{let s = sum[i](w[i] *
+w[i]);}, the derivative with respect to \texttt{w[j]} stays sparse: the
+generated expression preserves the reduction/index relationship rather than
+first flattening \texttt{w} into an anonymous vector.
+
+\section{Request Lowering}
+
+\pathcode{src/einlang/passes/autodiff/runtime_requests.py} lowers remaining
+autodiff requests into ordinary IR before backend execution. It
+contains logic for basis tensors, identity Jacobians, scalar objectives,
+cotangent construction, metadata stamping, and plain request lowering. The pass
+can lower projected Jacobian uses without forcing a full dense matrix when a row
+or column is enough.
+
+For a lazy Jacobian access, the lowerer splits indices into output axes and
+with-respect-to axes. If all output axes are fixed, the access becomes a VJP
+with a basis cotangent. If all parameter axes are fixed, the access becomes a
+JVP with a basis tangent. If neither side is fixed enough, the lowerer falls
+back to materializing the lazy value through a generated indexed expression.
+
+\subsection{JVP and VJP Lowering Algorithm}
+
+Request lowering is still compile-time IR generation. It builds seed tensors,
+invokes the same differentiator, simplifies the generated tensor IR, and stamps
+type and shape metadata back onto the result.
+
+\begin{lstlisting}[style=pythoncode,caption={Plain IR lowering for JVP and VJP requests.}]
+lower_jvp(target, wrt, tangent):
+    target_binding = binding_of(target)
+    wrt_binding = binding_of(wrt)
+    seed = tangent or default_seed(wrt_binding, value=1)
+    local_bindings = local_contexts[target_binding.defid]
+    return differentiate_with_seed(target_binding.expr,
+                                   wrt_binding,
+                                   seed,
+                                   local_bindings)
+
+lower_vjp(target, wrt, cotangent):
+    target_binding = binding_of(target)
+    wrt_binding = binding_of(wrt)
+    cot = cotangent or default_seed(target_binding, value=1)
+    cot_defid, cot_ident = make_seed_placeholder(cot)
+
+    objective = sum_over_target_axes(target * cot_ident)
+    if target is scalar and wrt is tensor:
+        bars = build_shared_scalar_target_bars(target, [wrt], cot)
+        return simplify_and_hoist(bars[wrt.defid])
+
+    if wrt is scalar:
+        return substitute(cot_defid -> cot,
+                          differentiate(objective, wrt, seed=1))
+
+    wrt_axes = fresh axes for wrt shape
+    basis = __basis_tensor(wrt.shape, wrt_axes)
+    component = differentiate(objective, wrt, seed=basis)
+    component = substitute(cot_defid -> cot, component)
+    return EinsteinIR(indices=wrt_axes, value=simplify(component))
+\end{lstlisting}
+
+The scalar-target VJP branch is important for machine-learning examples: a loss
+is often scalar while parameters are tensors. The lowerer factors the reverse
+accumulation so shared intermediate bars can be reused instead of regenerating
+the same derivative expression for every parameter index.
+
+The JVP and VJP lowerers expose two complementary views of the same local
+Jacobian. JVP seeds a parameter-direction tangent and asks how the target
+changes; VJP seeds a target-direction cotangent and asks how that cotangent
+pulls back to the parameter. The code keeps both paths in compile-time IR so
+the generated derivative can still be simplified, hoisted, typed, and lowered
+like any other expression.
+
+The scalar-target optimization is more than a performance tweak. When a loss is
+scalar and a parameter is a tensor, computing one derivative expression per
+parameter element would duplicate the same upstream work. Building shared bars
+for the scalar target lets the compiler reuse intermediate adjoints and then
+project the requested parameter shape. This preserves the local source
+interface while avoiding a naive dense-Jacobian expansion for common training
+patterns.
+
+The VJP construction uses a scalar objective because reverse-style propagation
+is naturally a pullback from a cotangent. Multiplying the target by a cotangent
+and summing over target axes turns a shaped target into a scalar whose
+derivative with respect to the parameter has the parameter shape. This is the
+compile-time IR equivalent of asking how a weighted observation of the target
+changes with the parameter. The generated objective is ordinary source-like IR,
+so simplification and hoisting can remove seed placeholders and common
+subexpressions before backend execution.
+
+The JVP construction is dual. A tangent seed with the parameter shape selects a
+direction in parameter space, and differentiation pushes that direction forward
+to the target. The lowerer keeps this as an explicit generated expression rather
+than as a black-box runtime request, which means projected derivatives can still
+benefit from tensor lowering and recurrence storage analysis. The two paths are
+therefore not competing implementations; they are two projections of the same
+Jacobian chosen according to how the source program indexes the lazy value.
+
+\textit{Concrete example.} If \texttt{loss} is scalar and \texttt{W} is a
+matrix, \texttt{@loss/@W} enters the scalar-target VJP branch. The lowerer
+builds shared bars for the scalar objective and returns a matrix-shaped
+gradient with the same axes as \texttt{W}. If instead \texttt{h[t]} is a vector
+state and the program asks how a single parameter direction changes the whole
+state, a basis tangent for that parameter selects a JVP column. In both cases
+the seed is an ordinary generated tensor expression that subsequent range,
+shape, and lowering passes can inspect.
+
+\subsection{Lazy Jacobian Access Algorithm}
+
+\begin{lstlisting}[style=pythoncode,caption={Projected lazy-Jacobian lowering.}]
+rewrite_access(lazy[target, wrt], indices):
+    target_shape = shape(target)
+    wrt_shape = shape(wrt)
+    out_rank = len(target_shape)
+    wrt_rank = len(wrt_shape)
+
+    out_indices = indices[:out_rank]
+    wrt_indices = indices[out_rank:]
+
+    if all output axes are fixed and no wrt axes are fixed:
+        cotangent = basis_tensor(target_shape, out_indices)
+        return lower_vjp(target, wrt, cotangent)
+
+    if all wrt axes are fixed and mode(target, wrt) == "jvp":
+        tangent = basis_tensor(wrt_shape, wrt_indices)
+        column = lower_jvp(target, wrt, tangent)
+        return column[out_indices]
+
+    if all output axes are fixed and some wrt axes are fixed:
+        row = lower_vjp(target, wrt, basis_tensor(target_shape, out_indices))
+        return row[wrt_indices]
+
+    return materialize_lazy_jacobian_as_einstein(target, wrt)
+\end{lstlisting}
+
+The materialization fallback still generates ordinary indexed IR. If JVP mode
+is chosen, the generated Jacobian iterates over parameter axes, computes one
+JVP column with a basis tangent, and indexes the target axes. If VJP mode is
+chosen, it iterates over output axes, computes one VJP row with a basis
+cotangent, and indexes the parameter axes.
+
+The projection algorithm is where lazy Jacobians become operational. The
+indices of a Jacobian access are split into target axes and parameter axes. If
+the target side is fully fixed, the request is a row query and VJP is natural.
+If the parameter side is fully fixed, the request is a column query and JVP is
+natural. If both sides are partially fixed, the lowerer chooses the cheapest
+known projection and indexes the result. Only the ambiguous case requires full
+materialization.
+
+This delayed decision is the main benefit of representing \texttt{@y/@x} as a
+value. Source code can pass, index, or bind a derivative request without
+committing to a dense matrix. The compiler observes the use site and then emits
+ordinary IR for the demanded projection. That is why the lazy value still has a
+shape: it behaves like a shaped tensor to the source language, even when the
+backend computes only a row, a column, or a single entry.
+
+The access splitter is deliberately syntactic after shape analysis. Once the
+lazy Jacobian's shape is known, the first \texttt{out\_rank} indices always
+refer to target axes and the remaining indices always refer to parameter axes.
+That convention avoids ambiguity when target and parameter have the same rank or
+similar index names. It also gives diagnostics a simple story: an out-of-bounds
+or under-specified access can be explained in terms of the concatenated
+Jacobian shape rather than in terms of a hidden matrix layout.
+
+The fallback to materialization is still structured. The compiler does not call
+into a generic dense-Jacobian runtime by default; it generates indexed IR that
+iterates over the relevant axes and fills the lazy value. That fallback is more
+expensive, but it remains analyzable by the normal compiler pipeline. This is an
+important safety property: even when the projection optimizer cannot reduce the
+request to a row or column, the program stays in the language's own IR rather
+than escaping into an opaque autodiff subsystem.
+
+\textit{Concrete example.} If \texttt{h} has shape \texttt{[T,H]} and
+\texttt{theta} has shape \texttt{[P]}, then \texttt{J = @h/@theta} has shape
+\texttt{[T,H,P]}. Accessing \texttt{J[t,j,:]} fixes all output axes and asks
+for one row of the Jacobian, so lowering uses a VJP with a basis cotangent for
+\texttt{h[t,j]}. Accessing \texttt{J[:,:,p]} fixes the parameter axis and asks
+for one column, so lowering uses a JVP with a basis tangent for
+\texttt{theta[p]}. Accessing \texttt{J[t,j,p]} can compute the row and then
+index one parameter entry.
+
+\section{Lazy Jacobians}
+
+\pathcode{src/einlang/runtime/autodiff_requests.py} defines
+\texttt{LazyJacobianValue}. A lazy Jacobian knows the target DefId, the
+with-respect-to DefId, and the runtime autodiff engine. Its shape is the target
+shape concatenated with the parameter shape. It chooses JVP mode when the
+parameter dimension is no larger than the output dimension and VJP mode
+otherwise. Indexing a single entry, row, or column can call a JVP or VJP without
+materializing the full Jacobian.
+
+This behavior is tested directly in \pathcode{tests/unit/test_lazy_jacobian.py}:
+entry, row, and column indexing return correct results while leaving the dense
+matrix unmaterialized.
+
+\section{Runtime Autodiff Boundary}
+
+The primary executed path is compile-time lowering: source \texttt{@} syntax is
+removed before final lowered tensor execution. The runtime autodiff engine in
+\pathcode{src/einlang/runtime/autodiff_requests.py} remains a thin internal
+handler for autodiff builtins and for the standalone \texttt{LazyJacobianValue}
+tests. It reads compiler-produced binding maps and local contexts when it needs
+to evaluate a JVP or VJP request against the current backend environment.
+
+\begin{lstlisting}[style=pythoncode,caption={Runtime lazy-value projection.}]
+lazy_jacobian_getitem(item):
+    split item into output key and wrt key
+    if all output axes and all wrt axes are integers:
+        if mode() == "jvp":
+            return column(wrt_key)[output_key]
+        else:
+            return row(output_key)[wrt_key]
+    if all output axes are integers:
+        return row(output_key)[wrt_key]
+    if all wrt axes are integers:
+        return column(wrt_key)[output_key]
+    return materialize()[item]
+\end{lstlisting}
+
+This runtime object is intentionally not the semantic center of autodiff. The
+compiler path is responsible for eliminating source-level request nodes, and
+\pathcode{src/einlang/passes/autodiff_leak_check.py} rejects any
+\texttt{DifferentialIR}, \texttt{JvpIR}, \texttt{VjpIR}, or
+\texttt{LazyJacobianIR} that survives past the allowed phase boundary.
+
+The runtime projection code mirrors the compile-time lowering logic, but it is
+used only when a lazy object reaches the runtime boundary in controlled tests or
+internal builtin paths. It first separates output indices from parameter
+indices, then chooses entry, row, column, or materialization behavior. The
+important invariant is the same as in the compiler: indexing a Jacobian should
+not force a full dense value unless the access pattern demands it.
+
+Keeping this object small prevents two semantic centers from diverging. The
+compiler owns source-level derivative meaning, while the runtime object
+provides a practical lazy-value interface for projection behavior. The leak
+check enforces the handoff. If a source \texttt{@} node survives too late, that
+is a compiler bug rather than a backend feature to interpret.
+
+The runtime lazy value exists mainly to make projection behavior concrete and
+testable. Its mode choice is a heuristic over shape sizes: use JVP when
+parameter-side directions are cheaper, and VJP when output-side cotangents are
+cheaper. Because the compile-time lowering path owns ordinary source programs,
+this heuristic does not define the language semantics. It defines how the
+runtime object serves entry, row, column, and full requests when such an object
+is intentionally constructed.
+
+This boundary keeps future implementations flexible. A more advanced backend
+could replace the runtime projection helper with compiled Jacobian kernels, or
+the compiler could recognize more projection patterns statically. As long as the
+phase invariant holds, those changes do not alter what \texttt{@y/@x} means in
+source. The current implementation therefore uses the runtime object as a
+practical bridge and a test target, while the thesis treats compile-time request
+lowering as the semantic center.
+
+\textit{Concrete example.} In the lazy-Jacobian unit tests, a runtime value for
+\texttt{@y/@x} may be asked for \texttt{J[0,1]}, \texttt{J[0,:]}, or
+\texttt{J[:,1]}. The first case computes a single entry through the cheaper of
+row or column projection; the second computes a row; the third computes a
+column. Only a slice that leaves both target and parameter axes unfixed calls
+\texttt{materialize()}. This mirrors the compile-time rule and makes the
+expected projection behavior executable in isolation.
+
+\begin{table}[htbp]
+\centering
+\caption{Autodiff responsibilities by phase.}
+\label{tab:autodiff-phases}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular}{@{}L{0.26\textwidth}L{0.62\textwidth}@{}}
+\toprule
+Phase & Responsibility \\
+\midrule
+High-level pass & Find source \texttt{@} forms, collect dependency facts, synthesize derivative IR, and preserve indexed structure. \\
+Request lowering & Turn JVP, VJP, and lazy-Jacobian requests into ordinary IR; rewrite projected accesses when possible. \\
+Leak check & Reject any source-level autodiff artifacts that survive past the allowed phase boundary. \\
+Runtime engine & Support internal autodiff builtins and standalone lazy-value projection tests when such requests reach runtime. \\
+Lazy value & Expose Jacobian shape, entry, row, column, and materialization behavior for runtime lazy objects. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Differential Rules and Builtins}
+
+The source grammar supports \texttt{@fn} differential rules. The compiler merges
+these into ordinary function definitions before name resolution so each function
+has one DefId. Autodiff builtin requests are collected by scanning builtin calls
+whose DefIds identify autodiff intrinsics. This lets derivative-related helpers
+participate in ordinary IR and backend execution without requiring a separate
+side language.
+
+\section{Current Boundary}
+
+Autodiff is broad enough for scalar arithmetic, elementwise tensor math,
+reductions, indexed contractions, many standard-library functions, fitting
+examples, and MNIST-style training examples. Unsupported derivative paths should
+produce an error or conservative behavior rather than a silent finite-difference
+approximation. The key implementation invariant is that source-level
+\texttt{@} artifacts do not leak past the autodiff phase.

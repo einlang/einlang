@@ -114,18 +114,8 @@ for different matrix sizes and layouts.
 > to the question "what should survive from this axis?" Max pooling, products,
 > and masked reductions all make different promises. Which promises are algebraic
 > enough for optimization, and which ones require the compiler to be more
-> conservative? This is a place to debate whether a language should expose only
-> safe reductions, or let users define new reduction behaviors. By treating
-> reduction as a composable abstraction, we can build complex aggregations from
-> simple combining operations, layering functionality while maintaining
-> analyzability. The deeper analysis considers implementation models: associative
-> reductions enable parallel execution and reordering optimizations, while
-> non-associative reductions require sequential processing. Programming models
-> vary from built-in reductions (limited but optimized) to user-defined
-> reductions (flexible but potentially inefficient), where the choice affects
-> both expressiveness and performance. Different reduction algebras enable
-> different algorithmic patterns, from statistical computations to machine
-> learning aggregations.
+> conservative? Where should user-defined reducers sit between flexibility and
+> analyzability?
 
 A reduction is a pattern, not a synonym for addition. The syntax names an index
 domain and a way of combining the values encountered over that domain.
@@ -202,22 +192,10 @@ statically; otherwise they become runtime obligations.
 
 ## 2.3 Why Reduction Is Explicit
 
-> **Think More.** Implicit summation is elegant because readers infer intent
+> **Think More.** Implicit summation is compact because readers infer intent
 > from convention. Einlang chooses explicit reduction because the disappearance
-> of an axis is a semantic event. Is explicitness worth the extra syntax when it
-> makes optimization, diagnostics, and teaching simpler? The conversation does
-> not have to settle on one answer; it can ask which audiences benefit from
-> implicit beauty and which benefit from visible machinery. This explicitness
-> enables building layered systems where each reduction operation is a clear
-> step in transforming data, from detailed families to summarized scalars.
-> Implementation models differ significantly: implicit reductions require
-> inference algorithms that may be complex or incomplete, while explicit
-> reductions provide clear optimization targets. Programming paradigms range
-> from mathematical notation (compact but potentially ambiguous) to explicit
-> programming (verbose but analyzable), where the choice affects readability,
-> maintainability, and tool support. The trade-off involves balancing
-> expressiveness against clarity, where explicit reductions enable better
-> debugging and optimization but may feel more verbose.
+> of an axis is a semantic event. Is the extra syntax worth it when it marks the
+> exact point where shape, storage, and derivative structure change?
 
 Einstein notation often uses repeated subscripts to imply summation. Einlang
 does not. It writes the reduction point:
@@ -264,17 +242,10 @@ needed its own mechanism. The missing index already tells the story.
 
 ## 2.4 Reduction Algorithms and Patterns
 
-> **Think More.** Reduction patterns form the algorithmic core of many tensor
-> operations, from basic aggregations to complex statistical computations. When
-> reductions are explicit, we can analyze their algebraic properties, optimize
-> their implementation, and compose them reliably. Different reduction strategies
-> emerge: sequential accumulation, parallel tree reduction, or SIMD operations.
-> Implementation models vary from eager evaluation (compute immediately) to lazy
-> evaluation (defer until needed), each with different memory and performance
-> characteristics. Programming models range from functional reductions (pure
-> functions over immutable data) to imperative reductions (mutable accumulators),
-> where the functional approach enables better composition and analysis but may
-> require different optimization strategies.
+> **Think More.** A reduction is both a mathematical operation and a scheduling
+> opportunity. Sequential accumulation, tree reduction, and SIMD lowering may
+> compute the same result only when the operation's laws permit it. Which facts
+> should surface in the language?
 
 Beyond basic reductions, explicit reduction syntax enables direct expression
 of many algorithmic patterns that are often hidden behind library calls.
@@ -424,7 +395,7 @@ matters. A consumed axis is not lying dormant in the result. It is gone.
 
 That is why implicit summation conventions are such an uneasy fit for a language
 concerned with compiler-visible structure. A repeated index in a formula may be
-beautifully compact for a mathematician, but it hides the fact that a structural
+compact for a mathematician, but it hides the fact that a structural
 transition has occurred. Einlang spends a few extra characters on `sum[k]`
 because those characters mark the event precisely where it happens.
 
@@ -570,7 +541,7 @@ let C[i, j] = sum[k](prod[i, j, k]);
 A naive implementation might materialize `prod` in full and then reduce it. A
 better implementation may fuse the multiplication into the reduction and never
 store the full rank-3 intermediate. The key observation is that fusion is not a
-magical optimization guessed from machine code. It is justified by the explicit
+black-box optimization guessed after the fact. It is justified by the explicit
 structure of the source. The compiler can see that `k` is local to the
 aggregation and that `prod` has no independent life outside the reduced use.
 
@@ -591,7 +562,7 @@ let row_sum[i] = sum[j](A[i, j]);
 the compiler may traverse one row at a time, maintain a scalar accumulator for
 that row, and write the result once. The source already suggests that strategy
 because the surviving and consumed axes are visible. A library call like
-`A.sum(axis=1)` may ultimately do something similar, but it does not expose the
+`A.sum(axis=1)` may do something similar, but it does not expose the
 same structural relation to the rest of the language.
 
 ### Reduction in the Larger Language
@@ -609,118 +580,50 @@ describe whole algorithms that summarize, compare, normalize, and contract those
 families. The language becomes capable not only of representing structure, but
 of transforming structure in ways that remain legible.
 
-### A Broader Reading of Aggregation
-
-There is a philosophical point here too. Reduction is the moment where a program
-decides what distinctions matter and what distinctions can be collapsed. Summing
-over `k` in matrix multiplication says the inner feature alignment is important
-locally but not part of the final output address. Taking a maximum over a window
-in pooling says the exact position of every value in the window matters only
-insofar as it affects the selected representative. A mean says individual
-fluctuations are less important than a collective level.
-
-Seen this way, reduction is not only a tensor primitive. It is a language for
-summarization. Einlang makes that language explicit, typed by indices, and
-available to the compiler. That explicitness is the reason the notation can stay
-close to the formula while still supporting robust implementation choices.
-
-## 2.8 Reading Large Programs Through Their Reductions
+## 2.8 Reading Larger Programs Through Reductions
 
 Once a reader learns to notice reductions, larger tensor programs become easier
-to decompose. A good practical habit is to scan a definition and ask, in order:
-which axes are introduced, which axes are merely carried through, and where do
-axes disappear? That sequence of questions often reveals the computational
-intent faster than operator names alone.
+to decompose. Scan a definition and ask three questions:
 
-In an attention block, one reduction contracts features to build scores, another
-reduces over keys to normalize, and a third reduces over keys again to combine
-values. In a convolutional layer, reductions over channel and kernel-offset axes
-tell us where local evidence is being summarized. In a loss function,
-reductions over batch or token axes say where many local errors become one
-training signal. The details differ, but the structural role is shared:
-reduction marks the points where the program decides how a multiplicity of local
-facts becomes a smaller family of global facts.
+- Which axes are introduced?
+- Which axes are carried through to the result?
+- Which axes disappear inside reductions?
 
-This makes reduction one of the best diagnostic lenses for reading unfamiliar
-tensor code. If a program feels dense, ask where the reductions are and what
-they consume. Very often that is where the conceptual work is being done. The
-remaining elementwise expressions are important, but the reductions reveal the
-program's overall geometry of summarization. Learning to see that geometry is
-part of becoming fluent in the language.
+In an attention block, reductions build scores, normalize over keys, and combine
+values. In a convolution, reductions over channel and kernel-offset axes combine
+local evidence. In a loss function, reductions over batch or token axes turn
+many local errors into a smaller objective. The operators differ, but the
+reading habit is the same: reductions mark the places where a program consumes
+one coordinate domain to produce another.
 
-## 2.9 From Local Evidence to Global Decisions
+## 2.9 Discussion: Reduction as a Modeling Choice
 
-Another way to understand reduction is to see it as the language's explicit
-answer to a universal modeling problem: local evidence is abundant, but final
-decisions usually depend on some structured summary of that evidence. Dot
-products summarize aligned features. Matrix multiplication summarizes all shared
-feature interactions between rows and columns. Pooling summarizes neighborhoods.
-Loss functions summarize example-wise discrepancies into one scalar objective.
+Reduction is not only a way to compute fewer numbers. It is a way to say which
+distinctions remain visible in the result. In matrix multiplication, summing
+over `k` says that the shared feature axis explains how each output cell is
+formed, but does not itself survive as an output address. In pooling, reducing
+over a window says that the window contributes to a selected representative. In
+a loss, reducing over examples says that many local discrepancies are being
+turned into one objective.
 
-This broader reading matters because it prevents reduction from being mistaken
-for a narrow numerical trick. It is a general form for moving from many related
-facts to fewer, more consequential ones. By attaching that move to named
-indices, Einlang keeps the summarization process legible. The user can see what
-is being collapsed, what remains visible afterward, and what algebraic rule
-governs the collapse. That is the conceptual payoff of making reduction a core
-source construct rather than a library convenience.
+This is why reduction benefits from source-level notation. The reader can see
+what is being collapsed, what remains visible afterward, and which algebraic
+operation governs the collapse. The compiler can use the same facts when it
+checks shapes, lowers loops, reasons about identities, or decides whether a
+reduction can be fused or reordered.
 
-## 2.10 Reduction as a Habit of Thought
+## 2.10 A Practical Heuristic
 
-Perhaps the most durable lesson of this chapter is not tied to any single
-operator. It is the habit of asking what a program is aggregating and why. Any
-time a tensor definition grows from local interactions into a smaller global
-judgment, a reduction story is present whether or not the surrounding library
-gives it a memorable name. Einlang's notation simply makes that story explicit.
-
-Once readers internalize that habit, many tensor programs become easier to read.
-The major structural moments reveal themselves as contractions, maxima, products,
-or guarded summaries over visible domains. Instead of seeing a long expression
-as an opaque chain of operators, one begins to see a sequence of reductions that
-progressively decide which distinctions matter in the final result. That is a
-powerful shift in perspective, and it is one of the reasons reduction deserves
-its central place in the language.
-
-Reduction therefore belongs among the language's most explanatory constructs.
-It tells both the human reader and the compiler where multiplicity becomes
-decision, where local structure becomes summary, and where an axis stops being
-part of the observable result. That is a great deal of meaning for one small
-piece of syntax to carry, and it is why the chapter is foundational.
-
-In that sense, reduction teaches one of the book's most general lessons:
-structure becomes easier to trust when the points of collapse are explicit. The
-reader can see where many values become one, and the compiler can optimize
-without first guessing what the source was trying to summarize.
-
-Even at the scale of one line, that explicitness changes the feel of the
-program. The source is no longer just performing arithmetic. It is explaining
-how a family of values is being interpreted as evidence for a smaller family of
-values. That is the conceptual weight carried by a reduction form.
-
-That explanatory power is exactly what makes reduction worth teaching early and
-using often. It turns aggregation from background mechanism into visible source
-meaning.
-
-### One Last Practical Heuristic
-
-If you are ever unsure how to read a dense tensor expression, look for the
-reductions first and ask what each one is allowed to forget. That question
-usually reveals the conceptual stakes of the program more quickly than reading
-operators from left to right.
-
-One more reason reduction deserves attention is that it trains the eye to ask
-what a program is compressing, and on what terms.
+If a dense tensor expression is hard to read, find the reductions first and ask
+what each one is allowed to forget. That question often reveals the purpose of
+the expression faster than reading operators from left to right. It also helps
+separate local arithmetic from the structural step where many values become
+fewer values.
 
 ## Summary
 
-Reduction transforms the landscape of tensor computation by introducing
-controlled complexity reduction. What begins as explicit index consumption
-becomes the foundation for algebraic operations that span from simple sums to
-sophisticated aggregations. This chapter reveals how reduction is not merely
-an operation, but a design philosophy that makes aggregation patterns as
-visible and analyzable as the element-wise operations that create them.
-
-The power emerges from disciplined scoping:
+Reduction consumes index domains explicitly. That makes shape changes visible
+and gives the compiler a clear object to analyze.
 
 - A reduction index is lexically scoped, creating local transformations that
   compose cleanly;
@@ -733,9 +636,6 @@ The power emerges from disciplined scoping:
 - Explicit reductions are easier to check, differentiate, and optimize,
   turning what could be opaque operations into transparent transformations.
 
-This foundation enables the compiler to become an algebraic reasoning engine,
-where reduction patterns can be fused, reordered, and optimized based on their
-mathematical properties. The result is not just faster code, but more reliable
-and composable programs. As we move forward, reduction becomes the bridge
-between element-wise operations and the higher-level algorithms that depend on
-them.
+As we move forward, reduction becomes the bridge between elementwise tensor
+definitions and higher-level algorithms that summarize, normalize, compare, and
+contract data.

@@ -29,6 +29,10 @@ autodiff, recurrence, or Python boundaries. A language designer can read it as
 an argument about notation and compiler-visible structure. A researcher can use
 it as a compact statement of the design space around explicit tensor syntax.
 
+For a shorter formal argument, read the [paper]({{ '/paper/einlang_paper.pdf' | relative_url }}).
+For the implementation-level account, including detailed compiler algorithms,
+read the [thesis-form report]({{ '/thesis/einlang_thesis.pdf' | relative_url }}).
+
 This book tracks the current project reality:
 
 - statements end with semicolons;

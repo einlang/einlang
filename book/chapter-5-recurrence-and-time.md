@@ -78,12 +78,7 @@ abstraction itself.
 > should the language report when the graph has a real cycle rather than a valid
 > time delay? This opens a conversation about diagnostics: should the compiler
 > merely reject the program, or explain the dependency path that made evaluation
-> impossible? This dependency-based approach abstracts complex state interactions
-> into networks of relationships, enabling modular construction of dynamic systems.
-> Implementation models for mutual recurrence differ: some use fixed-point
-> iteration, others use explicit scheduling, and some use constraint solving.
-> Programming paradigms range from explicit dependency ordering to automatic
-> scheduling, affecting both usability and performance.
+> impossible?
 
 Formula:
 
@@ -140,12 +135,7 @@ That line asks for a value from the future.
 > dependency neighborhood, it can ask a deeper question: is the full history part
 > of the result, or only a scaffold needed to compute the next state? From there,
 > the discussion can move toward checkpointing, streaming, and what users should
-> be allowed to promise about future reads. This unified recurrence abstraction
-> allows diverse temporal patterns to be expressed with consistent structure.
-> Implementation models range from full history storage to minimal state
-> tracking, each with different memory and performance characteristics.
-> Programming paradigms differ: some treat temporal patterns as loops, others
-> as dataflow networks, affecting both expressiveness and optimization.
+> be allowed to promise about future reads.
 
 Formula:
 
@@ -224,13 +214,9 @@ that dependency.
 
 ## 5.4 Temporal Algorithms and Patterns
 
-> **Think More.** Recurrence patterns enable sophisticated temporal algorithms,
-> from simple filters to complex state machines. When time is treated as a
-> structured index, compilers can analyze dependencies, optimize storage, and
-> parallelize computation. Implementation models range from sequential processing
-> to parallel scan algorithms, each with different performance characteristics.
-> Programming paradigms differ: some treat time as mutable state, others as
-> immutable sequences, affecting both correctness and optimization.
+> **Think More.** Treating time as an index lets a recurrence describe
+> dependencies before storage is chosen. Which recurrences can be streamed,
+> checkpointed, or parallelized, and what promises must the source make?
 
 Explicit temporal structure enables advanced time-series algorithms.
 
@@ -359,7 +345,7 @@ implementation has to respect a graph of edges among `a[n]`, `a[n - 1]`,
 `b[n - 2]`, and `b[n - 1]`. If a reader can picture those edges, they can
 already understand why some schedules are valid and others are not. This is one
 of the chapter's central claims: recurrence is easier to discuss when it is
-framed as dependency geometry rather than mutation ritual.
+framed as dependency geometry rather than a mutation pattern.
 
 ### Causality Is a Semantic Resource
 
@@ -406,7 +392,7 @@ It is important not to confuse these two layers. Denotationally, the recurrence
 defines a history. Operationally, the implementation may compress that history
 aggressively. The source stays clean because it does not force the user to write
 their idea in the same impoverished state-machine style that an optimized
-runtime may ultimately use.
+runtime may use.
 
 This is one of the subtle advantages of recurrence over manual mutation. In
 imperative code, the source often already looks like the storage optimization:
@@ -589,107 +575,38 @@ cannot be expressed well if time-like dependence remains invisible. This chapter
 argues that the right response is not to reintroduce general mutable machinery by
 default, but to make temporal dependence itself explicit enough to analyze.
 
-## 5.10 Why Recurrence Belongs in the Core
+## 5.10 Discussion: Why Recurrence Belongs in the Core
 
-By the end of this chapter, recurrence should no longer look like a niche
-feature for a few sequence models. It is a way of saying that later structure
-depends on earlier structure, and that such dependence deserves to be visible.
-If a tensor language can express shapes, reductions, and derivatives but cannot
-express time-like dependence clearly, then a major class of real computations
-will still be forced back into host-language update folklore.
+Recurrence should not be read as a niche feature for sequence models. It is the
+source form for any computation where later points depend on earlier points:
+solvers, filters, simulators, decoders, dynamic programs, and iterative
+optimization. If a tensor language can express shapes, reductions, and
+derivatives but cannot express time-like dependence clearly, then an important
+class of programs is pushed back into host-language mutation.
 
-Putting recurrence in the core avoids that fallback. It gives temporal
-computation the same dignity that the earlier chapters gave spatial computation.
-The result is a language in which state evolution can be discussed with the same
-clarity as matrix multiplication or broadcasting. For any system that aims to be
-serious about structured numerical programs, that is a major gain.
+Making recurrence explicit gives both the reader and the compiler a better
+account of what the program remembers. The source can show which earlier points
+are needed, which points can be computed independently, and when a full history
+is semantically required. That is the practical reason recurrence belongs next
+to indexing, reduction, and autodiff rather than outside the core language.
 
-It is also a gain in imagination. Once readers begin to see recurrence as a
-general way of exposing ordered dependence, they can recognize the same idea in
-more places: solvers, filters, simulators, decoders, controllers, and adaptive
-systems. The construct becomes not a niche feature, but a general lens on how
-programs remember.
+## 5.11 A Practical Test for Recurrence
 
-That widening of perspective is one of the most valuable outcomes of the
-chapter. Time stops looking like a special-case nuisance that must be managed in
-host-language control flow. It becomes part of the explicit structure a language
-can reason about directly, just as it reasons about rank, shape, and reduction.
+A useful final test is simple: can you point to any recurrent clause and say
+which earlier points it needs, and why those points should already exist? If you
+can, the temporal structure is probably clear. If you cannot, the ambiguity is
+often real rather than stylistic.
 
-That shift also clarifies why recurrence belongs alongside the other core
-constructs. It is one more way of making important structure visible rather than
-implicit. When the language can see time-like dependence directly, the reader
-and the compiler gain a better account of what the program remembers, when it
-remembers it, and what follows from that memory.
-
-The gain is therefore practical and philosophical at once. Practically, visible
-recurrence supports scheduling, storage optimization, and clearer debugging.
-Conceptually, it says that temporal dependence deserves the same source-level
-honesty that the earlier chapters demanded for rank, shape, and reduction. A
-language that can express state evolution without hiding it in imperative
-folklore has crossed an important threshold.
-
-For readers working in any domain where "current state depends on earlier
-state" is a recurring fact, this matters. It means that the language has a way
-to speak directly about memory rather than only about updates. That is a richer
-resource than a loop with a mutable accumulator, and the chapter's examples are
-intended to make that resource feel both natural and powerful.
-
-### A Last Way to Test a Recurrent Definition
-
-A useful final test is simple: can you point to any line in the recurrence and
-say exactly which earlier points it needs, and why those points should already
-exist? If you can, the program's temporal structure is probably clear. If you
-cannot, the ambiguity is often real rather than merely stylistic.
-
-That is why recurrence feels like more than a convenience once it is understood.
-It becomes part of the language's general commitment to making structure,
-including temporal structure, visible enough to inspect and optimize. A reader
-who takes that seriously will notice recurrent thinking in many places beyond
-the examples in this chapter.
-
-The chapter therefore enlarges the reader's vocabulary for talking about state.
-Instead of jumping straight from "value now" to "value after an update," it
-offers a whole family of ordered versions whose dependencies can be named,
-checked, and reasoned about. That shift is subtle at first, but it has large
-consequences for how temporal computation is explained and implemented.
-
-For many domains, that alone is enough to justify recurrence as a first-class
-idea. It turns a notoriously messy part of numerical programming into something
-the source can state with dignity.
-
-That dignity matters. It means temporal structure can be read, argued about, and
-optimized in the open rather than hidden inside update folklore.
-
-It also means that time stops being an embarrassment in the source and becomes a
-dimension of meaning on which the language can act intelligently. That is an
-important threshold for any system that wants to speak seriously about state,
-memory, or evolution. Recurrence is the chapter's name for crossing that
-threshold with clarity intact.
-
-That clarity is what makes temporal programs feel structurally readable rather
-than merely operationally executable. It is a major gain.
-
-And because it is a structural gain, not only a runtime gain, it improves
-teaching, reviewing, and maintenance as well as execution. Time becomes
-something the program can state, not merely something the implementation must
-smuggle.
-
-That shift is small in syntax and large in consequence.
-
-It lets the language talk about memory directly.
-
-That directness is hard to give up once it becomes available in source.
-
-It makes temporal reasoning feel native rather than improvised.
+Use the same test for storage decisions. If later code reads only a suffix of a
+recurrent value, a rolling window may be possible. If later code can observe
+arbitrary points, full materialization is usually required. The source-level
+recurrence gives both the reader and the compiler the information needed to make
+that distinction.
 
 ## Summary
 
-Recurrence elevates time from an operational detail to a structured index,
-unifying temporal and spatial computation under the same analytical framework.
-What emerges is not just a way to express sequences, but a foundation for
-reasoning about change, state, and evolution in systematic ways.
-
-The principles that enable this transformation are elegantly simple:
+Recurrence makes time-like dependence explicit in the same indexed style used
+for tensors.
 
 - Base clauses define boundary points, establishing the initial conditions
   that anchor temporal computation;
@@ -700,13 +617,7 @@ The principles that enable this transformation are elegantly simple:
 - Lookback analysis implies possible rolling storage windows, optimizing
   memory usage for long-running computations.
 
-This structured approach to time creates opportunities that traditional
-loop-based programming cannot match. Algorithms that depend on temporal
-patterns - Kalman filtering, recurrent neural networks, dynamic programming - can
-be expressed with the same clarity and analyzability as their spatial
-counterparts. The compiler can optimize storage, parallelize computation, and
-verify correctness because the temporal structure is explicit in the source.
-
-The next chapter explores the boundaries between Einlang and the broader
-programming ecosystem, showing how a focused language can achieve power
-through deliberate limitations rather than universal coverage.
+Algorithms that depend on temporal patterns, including Kalman filtering,
+recurrent neural networks, and dynamic programming, can then be read as indexed
+dependencies rather than host-language mutation. The next chapter turns to the
+boundary between Einlang and Python.
