@@ -30,6 +30,19 @@ let matrix: [f32; 2, 3] = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
 
 If both annotation and value are present, the value must be assignment-compatible with the annotation (see Type Compatibility).
 
+Tuple-valued expressions can be destructured directly in a `let` binding:
+
+```rust
+let pair = (10, 20);
+let (x, y) = pair;
+let (a: f32, b: f32) = (1.0, 2.0);
+```
+
+Tuple destructuring supports typed elements. It is intended for fixed-arity
+results such as library calls returning `(values, indices)`. Array
+destructuring is not part of `let` declarations; use `match` array patterns
+when you need to inspect array shape.
+
 Rectangular declarations bind a new tensor by iterating over index variables:
 
 ```rust
@@ -37,6 +50,19 @@ let scaled[i, j] = data[i, j] * 2.0;
 ```
 
 This produces a new tensor whose shape matches `data`. Each element is computed independently. Index variables introduced on the left-hand side (`i`, `j` here) are in scope for the body expression and the where clause, but not outside this statement.
+
+### `const` declarations
+
+`const` binds a named constant expression:
+
+```rust
+const HIDDEN: i32 = 256;
+const EPS: f32 = 1e-6;
+```
+
+Constants participate in name resolution like other module items and can be
+used from later declarations. They are immutable and are intended for values
+that should not be recomputed at each use site.
 
 ### `fn` declarations
 
@@ -59,6 +85,39 @@ Parameters without type annotations accept any type; the compiler monomorphizes 
 `pub` makes the function visible to other modules.
 
 Functions are hoisted: a function can be called before its textual definition in the same block.
+
+### `@fn` custom differentiation rules
+
+A function can provide a custom autodiff rule with `@fn`:
+
+```rust
+fn ratio(x, y) { x / y }
+
+@fn ratio(x, y) {
+    (y * @x - x * @y) / y ** 2.0
+}
+```
+
+The `@fn` declaration has the same function name and parameter list as the
+primal function. Inside the rule body, `@x` means the tangent flowing through
+parameter `x`, `@y` means the tangent flowing through parameter `y`, and so on.
+The body describes how the output tangent is assembled from parameter
+tangents.
+
+Custom rules are useful when the primal function calls an external
+implementation or intentionally chooses a surrogate derivative. For example,
+the standard library defines `exp` through NumPy and gives it a rule:
+
+```rust
+pub fn exp(x) {
+    python::numpy::exp(x)
+}
+
+@fn exp(x) { exp(x) * @x }
+```
+
+The rule is used only when an autodiff request reaches a call to the matching
+function. If no derivative request is present, the `@fn` body is dormant.
 
 ### `use` declarations
 
@@ -84,8 +143,12 @@ pub use std::math::sin;
 
 | Type | Description | Default literal |
 |------|-------------|-----------------|
+| `i8` | 8-bit signed integer | explicit cast |
 | `i32` | 32-bit signed integer | `42` |
 | `i64` | 64-bit signed integer | requires annotation |
+| `f8e4m3` | 8-bit floating point, E4M3 format | explicit cast |
+| `f16` | 16-bit float | explicit cast |
+| `bf16` | bfloat16 | explicit cast |
 | `f32` | 32-bit float | `3.14` |
 | `f64` | 64-bit float | requires annotation |
 | `bool` | Boolean | `true`, `false` |
@@ -96,6 +159,15 @@ Integer literals default to `i32`, float literals to `f32`. To get `i64` or `f64
 ```rust
 let x: i64 = 42;       // literal coerced to i64
 let y: f64 = 3.14;     // literal coerced to f64
+```
+
+For narrower or reduced-precision numeric types, use an explicit cast:
+
+```rust
+let a = 1 as i8;
+let b = 1.0 as f16;
+let c = 1.0 as bf16;
+let d = 1.0 as f8e4m3;
 ```
 
 ### Rectangular types
@@ -276,6 +348,12 @@ Pattern kinds:
 - **Literal**: `0`, `true`, `"hello"` — matches by value.
 - **Wildcard**: `_` — matches anything, does not bind.
 - **Identifier**: `x` — matches anything and binds the matched value to `x` in the arm body.
+- **Tuple**: `(x, y)` — matches fixed-arity tuple values and binds elements.
+- **Array**: `[head, ..tail]`, `[..prefix, last]`, `[first, ..middle, last]` — matches array length/shape and optionally binds a rest array.
+- **Range**: `0..10`, `0..=10` — matches numeric literals in an exclusive or inclusive range.
+- **Binding**: `whole @ pattern` — binds the whole matched value while also matching the nested pattern.
+- **Or pattern**: `0 | 1 => ...` — tries several patterns for the same arm.
+- **Guard**: `pattern where condition => ...` — accepts the arm only when the condition is true.
 
 The compiler checks exhaustiveness: a `match` without `_` or an identifier catch-all must cover all possible values.
 
@@ -324,6 +402,20 @@ Two forms are supported:
 
 Both are used in comprehension generators, explicit Einstein index domains, and recurrence bounds.
 
+### Pipeline expressions
+
+The standard pipeline operator passes the value on the left to the callable on
+the right:
+
+```rust
+let result = 42
+    |> |x| x * 2
+    |> |x| x + 10;
+```
+
+Pipeline expressions are primarily useful with lambdas or named functions when
+you want to write a sequence of transformations in data-flow order.
+
 ---
 
 ## Einstein Notation
@@ -346,6 +438,26 @@ Element-wise operations don't need a reduction:
 let doubled[i, j] = matrix[i, j] * 2.0;
 let sum_AB[i, j] = A[i, j] + B[i, j];
 ```
+
+Index slots may be:
+
+- A name: `i`
+- A name with an explicit domain: `i in 0..n`
+- A literal base-case index: `0`
+- A named rest index: `..batch`
+
+Named rest indices stand for zero or more adjacent axes and are useful for
+batch-polymorphic code:
+
+```rust
+let result[..batch, j] = x[..batch, j] + bias[j];
+let row_sum[..batch] = sum[j](x[..batch, j]);
+let total = sum[..batch](row_sum[..batch]);
+```
+
+The same rest name must describe the same axis span within the expression.
+If `..batch` is inferred from `x[..batch, j]`, it can be reused on the output
+and in reductions over those axes.
 
 ### Reductions
 
@@ -543,6 +655,23 @@ pub fn exported(x) { x * 2 }   // visible to importers
 fn internal(x) { x + 1 }       // only visible in this file
 ```
 
+### Module declarations and re-exports
+
+Use `mod` to declare a submodule file, and `pub mod` to make it visible through
+the current module:
+
+```rust
+mod basic;
+pub mod math;
+```
+
+`pub use` re-exports imported names:
+
+```rust
+pub use math::*;
+pub use math::sqrt as root;
+```
+
 ### Name resolution order
 
 When resolving a name, the compiler searches:
@@ -586,6 +715,7 @@ The compiler supports **built-in automatic differentiation**: you can request ta
 
 - **`@x`** — for a named binding `x`, the executable value form materializes the identity tangent seed of `x` (`1.0` for scalars, ones-like for tensors). Direct `print(@x)` is instead a symbolic display path.
 - **`@a / @b`** — the numeric derivative/Jacobian of named binding `a` with respect to named binding `b`. Scalar/scalar cases evaluate to a scalar; tensor cases use a lazy Jacobian-backed runtime value.
+- **`@fn f(...) { ... }`** — a custom tangent rule for calls to function `f`. See [`@fn` custom differentiation rules](#fn-custom-differentiation-rules).
 - **Mental model** — write the program value first, then differentiate that value in place: `@loss / @w`, `@state / @dt`, and `@C / @A` are ordinary Einlang expressions, not calls to a separate gradient API.
 
 **Matmul, conv, einsum:** Derivatives of Einstein expressions are supported: e.g. `let C[i,j] = sum[k](A[i,k]*B[k,j]); let dC_dA = @C / @A;` (matmul), or convolution written as `sum[kh,kw](in[oh+kh,ow+kw]*w[kh,kw])`. Any sum-of-products declaration can be differentiated w.r.t. any input array. See [AUTODIFF.md](AUTODIFF.md).
@@ -600,6 +730,17 @@ let dz_dx = @z / @x;   // 1.0
 let dz_dy = @z / @y;   // 1.0
 print(dz_dx);
 print(dz_dy);
+```
+
+Custom rules compose with ordinary derivative requests:
+
+```rust
+fn square_plus_one(x) { x * x + 1.0 }
+@fn square_plus_one(x) { 2.0 * x * @x }
+
+let x = 3.0;
+let y = square_plus_one(x);
+let dy_dx = @y / @x;   // 6.0
 ```
 
 The compiler derives gradients via the chain rule, but the current implementation answers autodiff requests through runtime JVP/VJP machinery instead of emitting a standalone derivative IR program. Supported operations and rules are documented in [AUTODIFF.md](AUTODIFF.md). Examples: run `python3 examples/run_autodiff_examples.py` or see [examples/](https://github.com/einlang/einlang/tree/main/examples) for scalar checks (`autodiff_small.ein`, `autodiff_matmul.ein`), fitting workflows (`applications/linear_regression_autodiff.ein`, `applications/decay_calibration_autodiff.ein`), and training-style workloads (`gradient_descent_autodiff.ein`, `mnist/train_recurrence.ein`).

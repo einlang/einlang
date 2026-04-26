@@ -12,7 +12,7 @@ let tx = @x;        // tangent of x
 let dy_dx = @y / @x;
 ```
 
-Use these rules:
+Core rules:
 
 - `@x` asks for the tangent of the named binding `x`
 - `@y / @x` asks for the derivative or Jacobian of `y` with respect to `x`
@@ -45,6 +45,36 @@ Tensor quotient:
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
 let dC_dA = @C / @A;
 ```
+
+## Custom derivative rules with `@fn`
+
+Use `@fn` to attach a custom tangent rule to a function:
+
+```rust
+fn ratio(x, y) { x / y }
+
+@fn ratio(x, y) {
+    (y * @x - x * @y) / y ** 2.0
+}
+```
+
+The rule name and parameters match the primal function. Inside the rule body,
+`@x` is the tangent flowing through parameter `x`, `@y` is the tangent flowing
+through parameter `y`, and the body returns the tangent of the function result.
+
+This is how standard-library functions backed by external implementations stay
+differentiable:
+
+```rust
+pub fn exp(x) {
+    python::numpy::exp(x)
+}
+
+@fn exp(x) { exp(x) * @x }
+```
+
+An `@fn` rule is dormant unless an autodiff request reaches a call to that
+function. Without a derivative request, the primal function runs normally.
 
 ## What `@x` means
 
@@ -89,14 +119,15 @@ In practice, if you can express the computation cleanly in Einlang, autodiff is 
 ## Practical expectations
 
 - Tensor quotients may be represented lazily instead of materializing a dense Jacobian immediately.
-- Some expressions and operations are better supported than others; if a derivative path is unsupported, you should expect an error rather than a silent approximation.
+- Some expressions and operations are better supported than others; an unsupported derivative path reports an error rather than silently approximating.
 - Binding names matters. `@` works on named values, not arbitrary inline subexpressions.
 
-## Recommended examples
+## Example Groups
 
-Start with the small calculus examples to learn the syntax, then move straight to fitting and training workloads:
+The small calculus examples introduce the syntax; the fitting and training
+workloads show the same notation in larger programs.
 
-Run these from the repository root:
+From the repository root:
 
 ```bash
 python3 -m einlang examples/autodiff_small.ein
@@ -108,7 +139,7 @@ cd examples/mnist && PYTHONPATH=../../src python3 -m einlang train_sklearn_digit
 cd examples/mnist && PYTHONPATH=../../src python3 -m einlang train_recurrence.ein
 ```
 
-Use this mental grouping:
+The examples fall into three groups:
 
 - syntax and local sanity checks: `autodiff_small`, `autodiff_matmul`, `autodiff_chain`, `autodiff_loss`
 - real fitting workflows: `applications/linear_regression_autodiff`, `applications/decay_calibration_autodiff`

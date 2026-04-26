@@ -1,0 +1,152 @@
+\documentclass[12pt,oneside]{report}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{etoolbox}
+\usepackage{listings}
+\usepackage[nopatch=footnote]{microtype}
+\usepackage{needspace}
+\usepackage{ragged2e}
+\usepackage{setspace}
+\usepackage{tabularx}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usepackage{xurl}
+\usepackage{hyperref}
+\usetikzlibrary{arrows.meta,calc,decorations.pathreplacing,fit,matrix,positioning}
+
+\onehalfspacing
+
+\newcommand{\einlang}{\textsc{Einlang}}
+\newcommand{\pathcode}[1]{\nolinkurl{#1}}
+\newcolumntype{L}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\RaggedRight\arraybackslash}X}
+\emergencystretch=2em
+
+\definecolor{einKeyword}{RGB}{0,74,128}
+\definecolor{einComment}{RGB}{90,104,120}
+\definecolor{einString}{RGB}{153,79,0}
+\definecolor{einFrame}{RGB}{188,194,201}
+\definecolor{einBg}{RGB}{249,250,251}
+\definecolor{figInk}{RGB}{29,44,61}
+\definecolor{figLine}{RGB}{122,136,150}
+\definecolor{figBlue}{RGB}{39,92,138}
+\definecolor{figBlueBg}{RGB}{235,244,250}
+\definecolor{figGreen}{RGB}{55,111,92}
+\definecolor{figGreenBg}{RGB}{233,244,239}
+\definecolor{figGold}{RGB}{167,116,39}
+\definecolor{figGoldBg}{RGB}{250,244,230}
+\definecolor{figRose}{RGB}{155,83,71}
+\definecolor{figRoseBg}{RGB}{248,238,234}
+\definecolor{figSlateBg}{RGB}{243,246,248}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=einKeyword,
+  citecolor=einKeyword,
+  urlcolor=einKeyword,
+  linktoc=all,
+  bookmarksnumbered=true,
+  bookmarksopen=true
+}
+\Urlmuskip=0mu plus 2mu
+
+\lstdefinelanguage{Einlang}{
+  morekeywords={let,fn,if,else,match,use,where,sum,in,assert,print,true,false,as},
+  sensitive=true,
+  morecomment=[l]{//},
+  morestring=[b]"
+}
+
+\lstdefinestyle{einlang}{
+  language=Einlang,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{einKeyword}\bfseries,
+  commentstyle=\color{einComment}\itshape,
+  stringstyle=\color{einString},
+  breaklines=true,
+  breakatwhitespace=true,
+  columns=fullflexible,
+  keepspaces=true,
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{einFrame},
+  backgroundcolor=\color{einBg},
+  framesep=4pt,
+  showstringspaces=false,
+  aboveskip=0.4\baselineskip,
+  belowskip=0.4\baselineskip
+}
+
+\lstdefinestyle{pythoncode}{
+  language=Python,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{einKeyword}\bfseries,
+  commentstyle=\color{einComment}\itshape,
+  stringstyle=\color{einString},
+  breaklines=true,
+  breakatwhitespace=true,
+  columns=fullflexible,
+  keepspaces=true,
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{einFrame},
+  backgroundcolor=\color{einBg},
+  framesep=4pt,
+  showstringspaces=false,
+  aboveskip=0.4\baselineskip,
+  belowskip=0.4\baselineskip
+}
+
+\BeforeBeginEnvironment{lstlisting}{\par\Needspace{12\baselineskip}}
+
+\title{\einlang{}: A Source Language for Indexed Tensor Programs with Recurrence and Local Derivatives}
+\author{Bowen Fu}
+\date{April 2026}
+
+\begin{document}
+
+\hypersetup{pageanchor=false}
+\begin{titlepage}
+\centering
+\vspace*{1.0in}
+{\Large \einlang{}: A Source Language for Indexed Tensor Programs with Recurrence and Local Derivatives\par}
+\vspace{0.75in}
+{\large Bowen Fu\par}
+\vfill
+{\large A thesis-form project report\par}
+\vspace{0.3in}
+{\large April 2026\par}
+\end{titlepage}
+\clearpage
+\hypersetup{pageanchor=true}
+
+\pagenumbering{roman}
+
+\input{chapters/00_abstract}
+
+\cleardoublepage
+\phantomsection
+\pdfbookmark[0]{Contents}{toc}
+\tableofcontents
+\clearpage
+\pagenumbering{arabic}
+
+\input{chapters/01_introduction}
+\input{chapters/02_language}
+\input{chapters/03_frontend_and_identity}
+\input{chapters/04_ir_and_pass_pipeline}
+\input{chapters/05_tensor_and_recurrence}
+\input{chapters/06_autodiff}
+\input{chapters/07_runtime_and_backends}
+\input{chapters/08_stdlib_examples_tests}
+\input{chapters/09_evaluation_related}
+\input{chapters/10_conclusion}
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{../paper/references}
+
+\end{document}

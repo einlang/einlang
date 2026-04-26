@@ -48,33 +48,6 @@
       text-transform: uppercase;
       color: rgba(31, 41, 55, 0.62);
     }
-    .chapter-toolbox {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 16px;
-      margin: 0 0 34px;
-    }
-    .chapter-toolbox-card {
-      min-width: 0;
-      padding: 16px 18px;
-      border: 1px solid rgba(120, 136, 150, 0.24);
-      background: rgba(255, 252, 248, 0.72);
-    }
-    .chapter-toolbox-label {
-      margin: 0 0 8px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      color: rgba(31, 41, 55, 0.58);
-    }
-    .chapter-toolbox-list {
-      margin: 0;
-      padding-left: 18px;
-    }
-    .chapter-toolbox-list li + li {
-      margin-top: 0.4em;
-    }
     .book-frame {
       display: grid;
       grid-template-columns: 230px minmax(0, 1fr);
@@ -158,7 +131,7 @@
       margin: 18px 0 24px;
       padding: 14px 16px;
       border: 1px solid rgba(120, 136, 150, 0.22);
-      background: rgba(248, 250, 252, 0.92);
+      background: #f8fafc;
       border-radius: 6px;
     }
     .book-content pre code {
@@ -166,6 +139,65 @@
       background: transparent;
       border-radius: 0;
       font-size: 0.92em;
+    }
+    .book-content pre code.language-rust,
+    .book-content pre code.language-ein,
+    .book-content .language-rust pre code,
+    .book-content .language-ein pre code {
+      color: #1f2937;
+    }
+    .book-content pre code.language-rust .hl-keyword,
+    .book-content pre code.language-ein .hl-keyword,
+    .book-content .language-rust pre code .hl-keyword,
+    .book-content .language-ein pre code .hl-keyword {
+      color: #b45309;
+      font-weight: 700;
+    }
+    .book-content pre code.language-rust .hl-type,
+    .book-content pre code.language-ein .hl-type,
+    .book-content .language-rust pre code .hl-type,
+    .book-content .language-ein pre code .hl-type {
+      color: #0369a1;
+      font-weight: 600;
+    }
+    .book-content pre code.language-rust .hl-fn,
+    .book-content pre code.language-ein .hl-fn,
+    .book-content .language-rust pre code .hl-fn,
+    .book-content .language-ein pre code .hl-fn {
+      color: #0f766e;
+      font-weight: 600;
+    }
+    .book-content pre code.language-rust .hl-number,
+    .book-content pre code.language-ein .hl-number,
+    .book-content .language-rust pre code .hl-number,
+    .book-content .language-ein pre code .hl-number {
+      color: #7c3aed;
+    }
+    .book-content pre code.language-rust .hl-string,
+    .book-content pre code.language-ein .hl-string,
+    .book-content .language-rust pre code .hl-string,
+    .book-content .language-ein pre code .hl-string {
+      color: #15803d;
+    }
+    .book-content pre code.language-rust .hl-comment,
+    .book-content pre code.language-ein .hl-comment,
+    .book-content .language-rust pre code .hl-comment,
+    .book-content .language-ein pre code .hl-comment {
+      color: #64748b;
+      font-style: italic;
+    }
+    .book-content pre code.language-rust .hl-macro,
+    .book-content pre code.language-ein .hl-macro,
+    .book-content .language-rust pre code .hl-macro,
+    .book-content .language-ein pre code .hl-macro {
+      color: #be123c;
+      font-weight: 600;
+    }
+    .book-content pre code.language-rust .hl-punct,
+    .book-content pre code.language-ein .hl-punct,
+    .book-content .language-rust pre code .hl-punct,
+    .book-content .language-ein pre code .hl-punct {
+      color: #475569;
     }
     .book-content blockquote {
       margin: 22px 0 28px;
@@ -187,6 +219,92 @@
       font-weight: 700;
       letter-spacing: 0.06em;
       text-transform: uppercase;
+      color: rgba(51, 65, 85, 0.82);
+    }
+    .axis-map-figure {
+      margin: 28px 0 34px;
+      padding: 16px;
+      border: 1px solid rgba(120, 136, 150, 0.28);
+      border-radius: 8px;
+      background: rgba(248, 250, 252, 0.78);
+    }
+    .axis-map-title {
+      margin: 0 0 12px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: rgba(51, 65, 85, 0.78);
+    }
+    .axis-map-flow {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      gap: 12px;
+      align-items: stretch;
+    }
+    .axis-snapshot {
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.38);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.86);
+    }
+    .axis-snapshot-label {
+      margin: 0 0 10px;
+      font-size: 12px;
+      font-weight: 700;
+      color: rgba(15, 23, 42, 0.72);
+    }
+    .axis-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .axis-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 9px;
+      border: 1px solid rgba(71, 85, 105, 0.18);
+      border-radius: 6px;
+      background: rgba(226, 232, 240, 0.62);
+      font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      font-size: 13px;
+      color: rgba(15, 23, 42, 0.9);
+    }
+    .axis-chip-fixed {
+      background: rgba(209, 250, 229, 0.72);
+    }
+    .axis-chip-moved {
+      background: rgba(219, 234, 254, 0.78);
+    }
+    .axis-chip-packed {
+      background: rgba(254, 243, 199, 0.9);
+    }
+    .axis-map-arrow {
+      align-self: center;
+      padding: 0 4px;
+      font-weight: 700;
+      color: rgba(51, 65, 85, 0.76);
+      white-space: nowrap;
+    }
+    .axis-map-rules {
+      display: grid;
+      gap: 7px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(148, 163, 184, 0.28);
+      font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      font-size: 13px;
+      color: rgba(30, 41, 59, 0.92);
+    }
+    .axis-map-figure figcaption {
+      margin-top: 12px;
+      font-size: 14px;
+      line-height: 1.55;
       color: rgba(51, 65, 85, 0.82);
     }
     .book-content table {
@@ -271,8 +389,12 @@
       .book-frame {
         display: block;
       }
-      .chapter-toolbox {
+      .axis-map-flow {
         grid-template-columns: 1fr;
+      }
+      .axis-map-arrow {
+        justify-self: start;
+        padding: 0;
       }
       .book-toc {
         position: static;
@@ -317,9 +439,6 @@
       .book-content table {
         break-inside: avoid;
       }
-      .chapter-toolbox {
-        display: none;
-      }
     }
   </style>
 </head>
@@ -359,40 +478,6 @@
       <article class="book-content">
         {% if current_book_page and current_book_page.eyebrow %}
           <p class="book-page-kicker">{{ current_book_page.eyebrow }}</p>
-        {% endif %}
-        {% if current_book_page and current_book_page.kind == "chapter" %}
-          <section class="chapter-toolbox" aria-label="Chapter overview">
-            {% if current_book_page.prerequisites %}
-              <section class="chapter-toolbox-card">
-                <p class="chapter-toolbox-label">Reader Background</p>
-                <ul class="chapter-toolbox-list">
-                  {% for item in current_book_page.prerequisites %}
-                    <li>{{ item }}</li>
-                  {% endfor %}
-                </ul>
-              </section>
-            {% endif %}
-            {% if current_book_page.objectives %}
-              <section class="chapter-toolbox-card">
-                <p class="chapter-toolbox-label">What This Chapter Gives You</p>
-                <ul class="chapter-toolbox-list">
-                  {% for item in current_book_page.objectives %}
-                    <li>{{ item }}</li>
-                  {% endfor %}
-                </ul>
-              </section>
-            {% endif %}
-            {% if current_book_page.key_terms %}
-              <section class="chapter-toolbox-card">
-                <p class="chapter-toolbox-label">Ideas in Play</p>
-                <ul class="chapter-toolbox-list">
-                  {% for item in current_book_page.key_terms %}
-                    <li>{{ item }}</li>
-                  {% endfor %}
-                </ul>
-              </section>
-            {% endif %}
-          </section>
         {% endif %}
         {{ content }}
         {% assign previous_entry = nil %}
@@ -438,5 +523,106 @@
       </article>
     </div>
   </main>
+  <script>
+    (function () {
+      var keywords = new Set([
+        "as", "break", "const", "continue", "else", "enum", "false", "fn",
+        "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
+        "mut", "pub", "ref", "return", "self", "Self", "static", "struct",
+        "sum", "super", "trait", "true", "type", "unsafe", "use", "where",
+        "while"
+      ]);
+      var types = new Set([
+        "bool", "f32", "f64", "i8", "i16", "i32", "i64", "i128", "isize",
+        "str", "u8", "u16", "u32", "u64", "u128", "usize"
+      ]);
+
+      function escapeHtml(value) {
+        return value
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      function span(className, value) {
+        return '<span class="' + className + '">' + escapeHtml(value) + '</span>';
+      }
+
+      function highlightRustLike(source) {
+        var out = "";
+        var i = 0;
+
+        while (i < source.length) {
+          var rest = source.slice(i);
+          var match;
+
+          if (rest.startsWith("//")) {
+            match = rest.match(/^\/\/[^\n]*/);
+            out += span("hl-comment", match[0]);
+            i += match[0].length;
+            continue;
+          }
+          if (rest.startsWith("#")) {
+            match = rest.match(/^#[^\n]*/);
+            out += span("hl-comment", match[0]);
+            i += match[0].length;
+            continue;
+          }
+          if (rest[0] === '"') {
+            match = rest.match(/^"(?:\\.|[^"\\])*"/);
+            if (match) {
+              out += span("hl-string", match[0]);
+              i += match[0].length;
+              continue;
+            }
+          }
+          match = rest.match(/^\d+(?:\.\d+)?/);
+          if (match) {
+            out += span("hl-number", match[0]);
+            i += match[0].length;
+            continue;
+          }
+          match = rest.match(/^[A-Za-z_][A-Za-z0-9_]*!?/);
+          if (match) {
+            var word = match[0];
+            if (word.endsWith("!")) {
+              out += span("hl-macro", word);
+            } else if (keywords.has(word)) {
+              out += span("hl-keyword", word);
+            } else if (types.has(word)) {
+              out += span("hl-type", word);
+            } else if (source.slice(i + word.length).match(/^\s*\(/)) {
+              out += span("hl-fn", word);
+            } else {
+              out += escapeHtml(word);
+            }
+            i += word.length;
+            continue;
+          }
+          match = rest.match(/^[()\[\]{},.;:@/*+\-=<>?]+/);
+          if (match) {
+            out += span("hl-punct", match[0]);
+            i += match[0].length;
+            continue;
+          }
+
+          out += escapeHtml(source[i]);
+          i += 1;
+        }
+
+        return out;
+      }
+
+      document.querySelectorAll(
+        "pre code.language-rust, pre code.language-ein, " +
+        ".language-rust pre code, .language-ein pre code"
+      )
+        .forEach(function (block) {
+          if (block.dataset.highlighted === "true") return;
+          block.innerHTML = highlightRustLike(block.textContent);
+          block.dataset.highlighted = "true";
+        });
+    })();
+  </script>
 </body>
 </html>

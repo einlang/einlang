@@ -1,11 +1,11 @@
 # Einlang docs
 
-The docs stay intentionally small. Use this page as the public index, or open the fuller [docs/README](README.md) view on GitHub.
+The docs stay intentionally small. This page is the public index; the fuller [docs/README](README.md) view has more context on GitHub.
 
-## Use Einlang
+## Einlang in Practice
 
 - [Getting started](GETTING_STARTED.md)
-- [Einlang: Formulas as Code](../book/)
+- [Einlang: Formulas as Code](https://einlang.github.io/einlang/book/)
 - [Examples guide](../examples/README.md)
 - [Autodiff guide](AUTODIFF.md)
 - [Why Einlang](WHY_EINLANG.md)
@@ -15,6 +15,11 @@ The docs stay intentionally small. Use this page as the public index, or open th
 
 - [Language reference](reference.md)
 - [Standard library](stdlib.md)
+
+## Research
+
+- [Paper](https://einlang.github.io/einlang/paper/einlang_paper.pdf)
+- [Thesis-form report](https://einlang.github.io/einlang/thesis/einlang_thesis.pdf)
 
 ## Contribute
 

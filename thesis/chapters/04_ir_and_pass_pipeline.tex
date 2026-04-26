@@ -1,0 +1,733 @@
+\chapter{IR and Compiler Pass Pipeline}
+
+The compiler driver in \pathcode{src/einlang/compiler/driver.py} orchestrates
+the implementation. It parses source, constructs the module system, merges
+differential rules, resolves names, lowers AST to IR, runs the pass pipeline,
+tree-shakes unused code, and returns a compilation result. The runtime receives
+IR that has already been annotated with the facts needed by the backend.
+
+\begin{figure}[p]
+\centering
+\resizebox{\textwidth}{!}{\input{figures/compiler_pipeline_tikz.tex}}
+\caption{Thesis-specific compiler pipeline: the implementation moves from
+source identity through static analyses, high-level transforms, recurrence
+metadata, validation, and backend execution.}
+\label{fig:pipeline}
+\end{figure}
+
+\section{Type Context and Pass Manager}
+
+\pathcode{src/einlang/passes/base.py} defines the shared pass interfaces. The
+\texttt{TyCtxt} object is the compiler's single context for resolver state,
+source files, diagnostics, analysis results, module-system state, source
+overlays, and later pass metadata. This mirrors rustc's discipline: passes
+communicate through an explicit context instead of through global state.
+
+Passes derive from \texttt{BasePass}; each exposes a \texttt{run} method that
+receives the program and \texttt{TyCtxt}. The \texttt{PassManager} records pass
+classes and sorts them by declared dependencies. The driver still owns a few
+phase boundaries, notably parsing, name resolution, and AST-to-IR lowering.
+Later pipeline steps follow the registered pass order.
+
+\subsection{Pass Scheduling Algorithm}
+
+The pass manager is intentionally small. Each pass declares its dependencies,
+and the manager converts that dependency graph into an execution order. The
+driver then runs passes over the same mutable IR and shared \texttt{TyCtxt}.
+
+\begin{lstlisting}[style=pythoncode,caption={Dependency-ordered pass execution.}]
+run_pass_pipeline(program, tcx, requested_passes):
+    order = topological_sort(requested_passes, edge = pass.requires)
+    for pass_class in order:
+        analysis_before = tcx.analysis_table
+        program = pass_class().run(program, tcx)
+        assert program is not None
+        tcx.mark_pass_complete(pass_class)
+        validate_declared_outputs_if_enabled(program, analysis_before, tcx)
+    return program
+
+topological_sort(passes):
+    temporary = set()
+    permanent = set()
+    out = []
+
+    visit(pass):
+        if pass in permanent:
+            return
+        if pass in temporary:
+            report dependency cycle
+        temporary.add(pass)
+        for dep in pass.requires:
+            visit(resolve_pass(dep))
+        temporary.remove(pass)
+        permanent.add(pass)
+        out.append(pass)
+
+    for pass in passes:
+        visit(pass)
+    return out
+\end{lstlisting}
+
+Specialization is the one place where pass scheduling becomes incremental:
+type inference may discover a new specialized function, then invoke the prefix
+of the pipeline needed to analyze that new body. The same \texttt{TyCtxt}
+holds the shared resolver and specialization registry, so the specialized body
+can be inserted back into the main program without losing identity.
+
+The scheduling algorithm is deliberately conservative. A pass can only rely on
+facts produced by its declared dependencies, and the driver records completion
+after a pass has successfully returned a program. This prevents hidden ordering
+contracts such as "shape analysis happens to run before type inference" from
+living only in the driver's source order. The cycle check is equally important:
+analysis passes often grow by consuming newly attached facts, and a dependency
+cycle would otherwise turn into a confusing partial analysis rather than an
+explicit compiler configuration error.
+
+The validation hook after each pass is an implementation guardrail. Many passes
+mutate IR annotations rather than creating a fresh immutable tree, so a pass can
+accidentally leave stale facts behind. Capturing the analysis table before the
+pass and validating declared outputs gives tests a way to assert that a pass
+produced the metadata it promised. This is the practical substitute for a
+heavier typed pass framework: the repository stays small, but the pipeline still
+has auditable boundaries.
+
+The algorithm is intentionally a scheduler, not a hidden optimizer. It does not
+try to reorder passes based on cost or opportunistic shortcuts; it only respects
+declared dependencies. That makes pass behavior easier to explain in the thesis:
+range analysis is before shape analysis because shape analysis consumes ranges,
+not because a particular driver happened to call it first. When a new pass is
+added, the author must state what it depends on, and the topological sort either
+places it legally or reports a cycle.
+
+This matters for incremental monomorphization as well. A specialized function
+created during type inference is not allowed to skip the facts that ordinary
+functions receive. The driver can run the required prefix over the clone because
+the pass dependencies define that prefix in reusable terms. The result is a
+pipeline that can grow dynamically while preserving the same invariants as the
+initial program. The small pseudo-code listing therefore captures a larger
+engineering principle: compiler phases are explicit contracts, and generated IR
+must satisfy the same contracts as source IR.
+
+\textit{Concrete example.} For \texttt{let C[i,j] =
+sum[k](A[i,k]*B[k,j]);}, a requested backend execution cannot run type
+inference before range analysis, because type inference depends on the shape
+facts derived from \texttt{i}, \texttt{j}, and \texttt{k}. The scheduler places
+range analysis before shape analysis, shape analysis before type inference, and
+type inference before lowering. If a later generic call creates a specialized
+matrix helper during type inference, the same dependency prefix is run on the
+clone before it rejoins the program. The example shows why pass order is a data
+dependency, not a cosmetic list.
+
+\section{IR Node Design}
+
+The IR in \pathcode{src/einlang/ir/nodes.py} is a slot-based class hierarchy.
+Every IR node has a source location. Expression nodes carry optional
+\texttt{type\_info} and \texttt{shape\_info}. Identity-bearing nodes such as
+bindings, parameters, identifiers, functions, index variables, and rest indices
+carry DefIds. The visitor interfaces in \pathcode{src/einlang/ir} and
+\pathcode{src/einlang/ir/scoped_visitor.py} let passes recurse through the IR
+without hand-writing traversal logic for every use.
+
+\subsection{Mutable Analysis Annotations}
+
+Although \einlang{} source bindings are immutable, the compiler IR is not a
+formal immutable SSA graph. IR nodes are slot-based Python objects, and passes
+attach or update analysis fields such as \texttt{type\_info},
+\texttt{shape\_info}, \texttt{range\_ir}, recurrence overrides, execution-facts
+IDs, and lowered forms. This is a pragmatic compiler representation: source
+values are single-assignment from the user's point of view, while compiler
+metadata evolves as each pass learns more.
+
+There is therefore no mutable-to-SSA conversion pass. The compiler instead uses
+DefIds for identity and explicit IR nodes for binding, control flow, tensor
+clauses, reductions, and lowered loops. If a future backend needs a CFG-style
+SSA representation, that would be a new lowering target rather than a
+description of the current IR.
+
+\begin{table}[htbp]
+\centering
+\caption{Important IR families.}
+\label{tab:ir-families}
+\renewcommand{\arraystretch}{1.08}
+\small
+\begin{tabular}{@{}L{0.32\textwidth}L{0.56\textwidth}@{}}
+\toprule
+IR family & Role \\
+\midrule
+Expression IR & Literals, identifiers, unary and binary operations, calls, blocks, arrays, tuples, casts, member access, control flow, and builtins. \\
+Tensor IR & Rectangular access, reduction expressions, Einstein bindings, Einstein clauses, and lowered tensor nodes. \\
+Autodiff IR & Differential, JVP, VJP, and lazy-Jacobian request nodes. \\
+Binding IR & Top-level and local bindings, functions, constants, parameters, where clauses, modules, and patterns. \\
+Lowered IR & Lowered Einstein, reduction, selection, comprehension, and recurrence nodes. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+IR serialization in \pathcode{src/einlang/ir/serialization.py} supports
+S-expression dumps. The CLI exposes this through \texttt{--dump-ir}, which is
+important for debugging pass interactions.
+
+\section{Compiler Pipeline}
+
+The registered pipeline is ordered so that source facts are available before
+passes consume them. The important passes are:
+
+\begin{table}[p]
+\centering
+\caption{Main compiler passes and their responsibilities.}
+\label{tab:pass-pipeline}
+\renewcommand{\arraystretch}{1.08}
+\small
+\begin{tabular}{@{}L{0.32\textwidth}L{0.56\textwidth}@{}}
+\toprule
+Pass & Responsibility \\
+\midrule
+AST to IR lowering & Convert source AST into IR, preserving source locations, DefIds, declarations, expressions, and tensor syntax. \\
+Einstein grouping & Group repeated indexed clauses for the same binding into one high-level Einstein binding. \\
+Constraint classifier & Classify where-clause predicates and bindings so later range and lowering passes know which constraints are domains, predicates, or value bindings. \\
+Rest preprocessing & Expand named rest patterns such as \texttt{..batch} into concrete generated index variables where possible. \\
+Range analysis & Infer index ranges from explicit domains, shaped reads, reductions, comprehensions, and constraints. \\
+Shape analysis & Compute shapes for expressions and bindings, including array literals, indexed bindings, reductions, offsets, and conditionals. \\
+Type inference & Infer scalar precision, array ranks, function types, tuple types, differential types, and call compatibility. \\
+Extremum canonicalization & Turn recognized argmax/argmin selection patterns into explicit selection IR. \\
+Pre-autodiff pruning & Prune shape/rank branches before differentiation. \\
+Autodiff & Expand source differential forms and collect derivative graph facts while high-level tensor IR is still visible. \\
+AD request lowering & Lower JVP/VJP/lazy-Jacobian requests into ordinary IR/runtime requests. \\
+AD leak check & Ensure source-level \texttt{@} artifacts do not survive past the autodiff phase. \\
+Einstein lowering & Lower indexed tensor definitions and reductions into lowered loop/reduction IR. \\
+Recurrence order & Infer recurrence dimensions, same-timestep dependencies, execution order hints, and storage metadata. \\
+Lowered execution facts & Attach compiler-owned facts that let the backend choose vectorized, scalar, hybrid, or specialized reduction paths without re-analysis. \\
+Validation passes & Validate casts, pipeline types, match exhaustiveness, and IR invariants before execution. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Range, Shape, and Type}
+
+Range analysis in \pathcode{src/einlang/passes/range_analysis.py} maintains a
+DefId-keyed map from index variables to range IR. It intersects multiple
+constraints by taking the maximum of starts and the minimum of ends. It also
+uses an implicit range detector to recover ranges from tensor reads. Shape
+analysis in \pathcode{src/einlang/passes/shape_analysis.py} uses those ranges to
+derive output shapes, check rectangular indexing, handle offset expressions, and
+annotate expressions with shape facts. Type inference in
+\pathcode{src/einlang/passes/type_inference.py} then assigns primitive,
+rectangular, tuple, function, and differential types.
+
+The separation is deliberate. Shapes are not stored inside scalar precision
+types; rectangular types can mention rank and optional static dimensions, while
+shape analysis carries concrete expression-level shape facts. That split keeps
+type compatibility and tensor shape reasoning from collapsing into one
+monolithic pass.
+
+\subsection{Analysis Flow}
+
+The three analyses form a dependency chain:
+
+\begin{enumerate}
+\item Range analysis discovers domains for index variables from explicit
+brackets, reductions, comprehensions, shaped reads, and classified constraints.
+\item Shape analysis uses those domains to assign shapes to indexed bindings,
+array literals, reductions, calls, and control-flow joins.
+\item Type inference uses shape and rank information to check operations,
+function calls, casts, literals, tuples, and differential values.
+\end{enumerate}
+
+This order is what lets code such as matrix multiplication report an index or
+shape problem at compile time rather than failing inside a NumPy call.
+
+\begin{lstlisting}[style=einlang]
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+\end{lstlisting}
+
+The compiler must infer that \texttt{i} comes from the first axis of
+\texttt{A}, \texttt{j} from the second axis of \texttt{B}, and \texttt{k} from
+both the second axis of \texttt{A} and the first axis of \texttt{B}. A mismatch
+in those inferred \texttt{k} ranges is a source-level shape error.
+
+This one-line program also explains why the analyses are separate. Range
+analysis can discover candidate domains for \texttt{i}, \texttt{j}, and
+\texttt{k} without yet deciding the element type of the multiplication. Shape
+analysis can then use those ranges to infer the result rank and verify that the
+contracted axis is compatible. Type inference finally checks whether the
+element operations are legal. If those concerns were fused into one pass, every
+diagnostic would have to disentangle domain, shape, and element-type failures
+after the fact.
+
+The line also illustrates how source structure affects error locality. If
+\texttt{A} has shape \texttt{[M,K]} and \texttt{B} has shape \texttt{[L,N]},
+the inconsistency is not an arbitrary runtime broadcasting error; it is the fact
+that the same reduction DefId \texttt{k} is constrained by two incompatible
+axes. The diagnostic can therefore point to the two reads that introduced the
+conflicting domains. That is a stronger compiler story than treating the
+program as a call to a library contraction and reporting whatever error the
+library raises.
+
+\subsection{Range Analysis Algorithm}
+
+Range analysis is a DefId-indexed constraint collection pass. It stores every
+candidate range for an index variable and resolves the effective range as the
+intersection of those candidates. Intersection is represented in IR, not only
+as integers: multiple lower bounds become \texttt{max(...)} and multiple upper
+bounds become \texttt{min(...)}.
+
+\begin{lstlisting}[style=pythoncode,caption={Range inference for indices and reductions.}]
+analyze_ranges(program):
+    analyzer.ranges = map DefId -> list[RangeIR]
+    for function in analyzable_functions(program):
+        visit_function(function)
+    for statement in program.statements:
+        visit(statement)
+    return analyzer
+
+visit_einstein_binding(binding):
+    check all clauses have the same output rank
+    for clause in binding.clauses:
+        for output_index in clause.indices:
+            if output_index has explicit range:
+                analyzer.add_range(output_index.defid, output_index.range_ir)
+                clause.variable_ranges[output_index.defid] = output_index.range_ir
+        classify where-constraints as ranges, guards, or local bindings
+        infer implicit ranges from shaped reads in clause.value
+        copy ranges across clauses at the same output-axis position
+
+visit_reduction(reduction):
+    visit reduction.body and reduction.where constraints
+    detector = ImplicitRangeDetector(visible_bindings, tcx)
+    detector.infer_reduction_ranges_from_where(reduction)
+    for loop_var in reduction.loop_vars:
+        if loop_var has no explicit range:
+            range = detector.infer_implicit_range(reduction.body, loop_var.defid)
+                 or detector.infer_reduction_var_range_from_body(...)
+        if range is missing:
+            report source diagnostic with a suggested explicit range
+        reduction.loop_var_ranges[loop_var.defid] = range
+
+get_range(defid):
+    candidates = analyzer.ranges[defid]
+    start = max(candidate.start for candidate in candidates)
+    end = min(candidate.end for candidate in candidates)
+    return RangeIR(start, end)
+\end{lstlisting}
+
+The important detail is that the range map is keyed by DefId rather than by
+printed names. This lets one function contain several independent variables
+called \texttt{i}; their ranges never collide.
+
+The algorithm is constraint collection followed by normalization. Explicit
+ranges are the strongest source of information because they come directly from
+the binding or reduction syntax. Implicit ranges are secondary: they are
+recovered from shaped reads only when the compiler can determine which axis of
+which tensor an index variable inhabits. Where-clause classification happens in
+the same pass boundary because predicates and value bindings can look similar
+at the surface but lower to very different IR. A predicate becomes a guard; a
+range domain becomes a loop bound; a value binding becomes a local computation.
+
+Representing intersections as IR rather than as immediate integers is what
+lets symbolic programs remain analyzable. If one use gives \texttt{0..N} and
+another gives \texttt{0..M}, the effective range can be represented as
+\texttt{0..min(N,M)} even when neither extent is known yet. Later shape
+analysis may simplify that expression after more dimensions are known. The
+failure path is also part of the design: when a reduction variable cannot be
+inferred, the compiler reports a source diagnostic asking for an explicit
+range instead of silently choosing a full tensor extent.
+
+The algorithm also explains why implicit inference is deliberately limited. A
+single index occurrence in a shaped read is informative only when the compiler
+can pair that occurrence with an array axis. Arithmetic expressions such as
+\texttt{i + r} contribute bounds only after the participating indices already
+have candidate ranges. This avoids circular reasoning: the compiler may refine a
+known range with an offset constraint, but it should not invent a domain from an
+unanchored arithmetic expression. The user-facing consequence is predictable:
+write explicit ranges when shape reads do not determine the domain.
+
+Range analysis therefore serves two audiences. Shape analysis consumes the
+normalized ranges to allocate tensor extents, while diagnostics consume the
+candidate list to explain where each bound came from. Keeping the candidates,
+rather than only the final \texttt{max}/\texttt{min} expression, lets the
+compiler distinguish an explicit user range from an inferred axis range. That is
+useful when a future warning or optimization wants to explain why a loop is
+smaller than a source dimension or why two symbolic bounds could not be proven
+compatible.
+
+\textit{Concrete example.} If \texttt{A} has shape \texttt{[M,K]} and
+\texttt{B} has shape \texttt{[K,N]}, the reduction variable \texttt{k} in
+\texttt{A[i,k] * B[k,j]} receives two candidate ranges, both \texttt{0..K}; the
+effective range remains \texttt{0..K}. If the second tensor instead has shape
+\texttt{[L,N]}, the range map records candidates \texttt{0..K} and
+\texttt{0..L} for the same DefId and normalizes them to
+\texttt{0..min(K,L)} while preserving the original sources of the constraints
+for diagnostics. If \texttt{k} appears only in \texttt{k + 1} with no shaped
+read or explicit \texttt{k in 0..K}, the pass reports that no domain can be
+inferred.
+
+\subsection{Shape Analysis Algorithm}
+
+Shape analysis consumes ranges and writes two maps: expression-to-shape and
+DefId-to-shape. The DefId map lets an identifier recover the shape of the value
+it names even when the identifier node itself has not been seen before.
+
+\begin{lstlisting}[style=pythoncode,caption={Einstein shape inference.}]
+infer_einstein_shape(binding):
+    clauses = binding.clauses
+    rank = first non-empty clause index count
+    clause_shapes = []
+
+    for clause in clauses:
+        axis_extents = []
+        for index in clause.indices:
+            if index is a literal:
+                axis_extents.append(index.value + 1)
+            else if clause.variable_ranges[index.defid] has static end:
+                axis_extents.append(end_value)
+            else:
+                axis_extents.append(infer_extent_from_array_reads(index, clause.value))
+        clause_shapes.append(tuple(axis_extents))
+
+    outer_shape = dimensionwise_max(clause_shapes)
+
+    value_shapes = []
+    for clause in clauses:
+        value_shape = infer_value_shape(clause.value)
+        if value_shape is known:
+            value_shapes.append(value_shape)
+
+    if value_shapes is empty:
+        return outer_shape
+    if all value_shapes are identical:
+        return outer_shape + value_shapes[0]
+    report or defer shape mismatch
+\end{lstlisting}
+
+Dependent ranges are resolved opportunistically. Range analysis may leave an
+axis as \texttt{0..x.shape[dim]}. Once shape analysis knows the shape of
+\texttt{x}, it rewrites the end of that range to a literal dimension. That
+rewrite lets later lowering and backend planning see a concrete loop bound.
+
+The clause loop in the algorithm has to account for piecewise tensor
+definitions. A literal index such as \texttt{0} contributes a covered point, not
+an output loop variable, while an index variable contributes an axis whose
+extent must be inferred or read from the explicit domain. Taking the
+dimensionwise maximum across clause shapes gives the allocation shape for a
+rectangular backend while preserving the fact that not every clause writes the
+whole tensor. This is why boundary clauses and interior clauses can coexist in
+one binding.
+
+The value-shape portion handles tensors whose elements are themselves shaped
+values. An indexed binding may produce scalars, vectors, or higher-rank tensor
+elements. The output-index shape is therefore only the outer part of the result;
+the body shape is appended when all clauses agree. If body shapes disagree, the
+compiler can report a mismatch at the clause level rather than allowing a
+ragged rectangular tensor to reach the backend. This check is a direct example
+of source structure improving diagnostics.
+
+The algorithm separates allocation shape from value shape because indexed
+definitions can describe tensor-valued elements. For scalar-valued clauses the
+outer shape is the whole result. For vector-valued or matrix-valued clause
+bodies, the output axes describe where each element lives and the body shape
+describes what each element contains. This distinction prevents a common
+implementation shortcut: flattening everything into one rank and later guessing
+which axes belonged to the source. \einlang{} keeps the source axes and element
+axes explicit until lowering.
+
+The dimensionwise maximum is conservative but useful for piecewise definitions.
+A base clause that writes \texttt{0} and an interior clause that writes
+\texttt{1..N} must agree on one rectangular result allocation, even though their
+coverage sets differ. Shape analysis computes that allocation while leaving
+coverage and guard information on the clauses. The backend can then allocate the
+right container without pretending that every clause covers every point. This is
+one of the places where the high-level IR keeps more information than a simple
+loop nest would.
+
+\textit{Concrete example.} The three-clause Fibonacci binding writes literal
+points \texttt{fib[0]} and \texttt{fib[1]} plus a ranged clause
+\texttt{fib[n in 2..N]}. Shape analysis treats the literal clauses as covered
+points and the ranged clause as the axis extent, so the allocation shape is the
+single sequence axis rather than three unrelated scalar outputs. For a binding
+such as \texttt{let rows[i] = [x[i], y[i]]}, the outer shape comes from
+\texttt{i}, while the body contributes an element shape of length two; the
+result is a rectangular two-dimensional value whose axes remain distinguishable
+for lowering and diagnostics.
+
+\subsection{Type Inference Algorithm}
+
+The current type pass is a checking and propagation pass, not full Hindley-
+Milner inference. It walks IR in scoped order, assigns types to nodes, checks
+operator compatibility, registers parameter and pattern bindings, and asks the
+monomorphization service for specialized copies of generic functions when call
+argument types become informative.
+
+\begin{lstlisting}[style=pythoncode,caption={Type checking with specialization feedback.}]
+infer_types(program):
+    inferencer = TypeInferencer(tcx)
+    program.accept(inferencer)
+
+    while monomorphization_service.has_pending_functions():
+        pending = monomorphization_service.take_pending_functions()
+        for specialized in pending:
+            insert specialized into program and function_ir_map
+            if specialized.return_type is unknown:
+                specialized.accept(inferencer)
+
+    rewrite generic call sites to specialized DefIds where available
+    return program
+
+visit_call(call):
+    infer argument types
+    callee = resolve function_defid
+    if callee is generic and argument types expose precision or rank:
+        spec = monomorphization_service.incremental_monomorphize(
+            call, argument_types, current_pass="type",
+            required_passes=["einstein_grouping", "constraint_classifier",
+                             "rest_pattern", "range", "shape", "type"])
+        if spec exists:
+            call.function_defid = spec.defid
+            return spec.return_type
+    check argument compatibility against callee parameters
+    return callee.return_type
+\end{lstlisting}
+
+The type pass is intentionally described as feedback-driven rather than purely
+bottom-up. A call can reveal enough information to specialize a generic
+function, and that specialization may need earlier passes before its return
+type is available. The pass therefore alternates between ordinary inference and
+processing pending specialized functions. This keeps the public language
+generic while still giving later passes concrete DefIds and more precise
+parameter types.
+
+The algorithm also draws the current boundary of inference. It checks and
+propagates types that the implementation knows how to represent; it does not
+attempt principal-type inference for the whole language. That boundary is a
+good fit for the compiler because most hard tensor questions depend on shape
+and range metadata rather than on polymorphic type schemes. When argument
+precision or rank is informative, the monomorphization service clones a body
+and lets the established pass pipeline analyze it. When the call is too
+ambiguous, the compiler leaves it generic until more information is available
+or reports a compatibility error.
+
+The feedback loop also controls when generic functions become ordinary analyzed
+functions. A call with only dynamic-rank information may not justify a clone; a
+call with known precision or rank can produce a body that shape analysis and
+lowering can reason about more concretely. The pass records that choice through
+DefIds rather than through a runtime tag, so after rewriting the call site the
+specialized function is just another function in the program. This keeps later
+passes simple: they do not need to know whether a body was written by the user
+or generated by monomorphization.
+
+The current algorithm favors explicit checks over global inference. That is a
+reasonable boundary for \einlang{} because most examples are numerical kernels
+whose hard questions are about axes, shapes, and derivative structure. Full
+principal-type inference would add complexity without replacing the need for
+range and shape analysis. The implemented pass therefore spends its precision
+budget where the language needs it most: typed calls, scalar operations,
+tensor ranks, and the creation of specialized bodies that downstream passes can
+validate.
+
+\textit{Concrete example.} A generic helper \texttt{fn twice(x) \{ x + x \}}
+can be called with a scalar \texttt{f32}, a vector \texttt{[f32]}, and a matrix
+\texttt{[f32; *, *]}. Type inference checks the addition in each context and,
+when rank or precision is informative, asks monomorphization for a specialized
+body. The scalar call returns an \texttt{f32}; the vector call returns a vector
+with the argument's element precision; and the matrix call keeps rank-two shape
+facts available for later indexed uses. A call with an unsupported pair such as
+a tuple and a tensor fails during type checking before lowering.
+
+\section{Monomorphization}
+
+Generic functions are specialized by
+\pathcode{src/einlang/analysis/monomorphization_service.py}. The service keys
+specializations by generic DefId and normalized parameter types. It can create
+full specializations when both precision and rank are known, and partial
+specializations when only precision or only rank is available. Newly specialized
+functions are analyzed incrementally by the relevant passes and then inserted
+into the program before tree shaking.
+
+This matters for the standard library: many library functions are written once
+but called at different ranks or precisions. Monomorphization lets the compiler
+keep the source surface generic while giving later analysis and backend code
+more concrete IR.
+
+The service is incremental because specialization can be discovered while type
+inference is already walking a program. A call site can request a specialized
+copy, the service can clone and register that copy with a new DefId, and the
+relevant analysis passes can run over the new body. After specialization, call
+sites are rewritten to the specialized DefId so the backend does not perform
+generic dispatch at runtime.
+
+\subsection{Specialization Algorithm}
+
+The specialization key is the generic function DefId plus normalized parameter
+types. Normalization preserves the facts needed by the compiler while avoiding
+one copy per concrete tensor extent. For rectangular tensors, concrete extents
+are replaced by \texttt{None} at each known rank position.
+
+\begin{lstlisting}[style=pythoncode,caption={Incremental monomorphization.}]
+incremental_monomorphize(call, arg_types, required_passes):
+    if call target is not generic:
+        return None
+    if arg_types expose neither precision nor rank:
+        return None
+    if specialization count for target exceeds safety limit:
+        return None
+
+    key = Instance(call.function_defid, normalize(arg_types))
+    if key in registry:
+        spec = registry[key]
+        run_missing_required_passes(spec, required_passes)
+        call.function_defid = spec.defid
+        return spec
+
+    if target is already being monomorphized:
+        return None
+
+    clone = deep_copy(generic_function)
+    clone.defid = resolver.allocate_for_item(module_path, specialized_name)
+    for parameter, arg_type in zip(clone.parameters, arg_types):
+        parameter.param_type = dynamic_shape_type(arg_type)
+    copy custom differential rule from generic function if needed
+
+    registry[key] = clone
+    function_ir_map[clone.defid] = clone
+    pending_specialized_functions.append(clone)
+    run_required_prefix_passes(clone, required_passes)
+    call.function_defid = clone.defid
+    return clone
+\end{lstlisting}
+
+The service also performs a small dead-code-elimination pass over the cloned
+body before analysis. Conditions such as \texttt{len(x.shape) == 2} can become
+compile-time constants after parameter ranks are known, so unreachable branches
+are removed before range and shape analysis see them.
+
+The specialization key deliberately ignores concrete extents for rectangular
+tensors while preserving rank and element facts. This prevents a function from
+being cloned once for every input length, but still lets the compiler
+distinguish scalar, vector, matrix, and dynamic-rank behavior. The safety limit
+and re-entrancy check are defensive: generic code can be recursive or can
+produce many call shapes, so specialization must not turn a small program into
+an unbounded clone graph.
+
+Copying custom differential rules along with the function body is also part of
+semantic preservation. A generic function and its specialized copy should agree
+about how autodiff treats the call. Once the specialized DefId is installed,
+the call site no longer needs runtime generic dispatch; range, shape, type,
+autodiff, and backend passes can reason about a concrete function body. The
+analysis value is therefore not only performance. Specialization makes later
+compiler facts more precise while keeping source code reusable.
+
+The clone step must also preserve identity hygiene. Parameters in the cloned
+function receive specialized type information, but the function itself receives
+a new DefId so uses of the generic body and uses of the specialized body do not
+collide. Any local DefIds inside the clone are treated as belonging to that
+clone's analysis context. This is why specialization is routed through the same
+resolver and function map as source functions rather than being stored as an
+opaque backend cache.
+
+The partial-specialization policy is a practical compromise. Preserving rank but
+not concrete extent lets a matrix helper specialize once for all two-dimensional
+inputs of the same element family. Preserving precision lets numeric builtins
+avoid repeatedly checking scalar families at runtime. At the same time, ignoring
+extent prevents common workloads from producing one clone per batch size. The
+algorithm is therefore a semantic precision tool with an explicit blow-up
+guard, not an unconditional inliner.
+
+\textit{Concrete example.} Suppose a stdlib function branches on rank:
+\texttt{if len(x.shape) == 2 \{ mat\_case(x) \} else \{ vec\_case(x) \}}. When
+the call site passes a matrix, specialization normalizes the argument type to
+"rank two, element family known, extents dynamic" and clones a rank-two body.
+The dead branch for non-matrices can be pruned before range and shape analysis,
+so the backend never sees a runtime rank test for that call. Passing matrices
+of shapes \texttt{32x32} and \texttt{64x64} reuses the same specialization
+because concrete extents are not part of the key.
+
+\section{Diagnostics and Validation}
+
+Diagnostics are implemented in \pathcode{src/einlang/shared/errors.py}. Errors
+carry source locations, optional codes, labels, notes, help messages, and
+multi-span labels. The formatter renders rustc-style snippets when the source
+text is available. Compiler-driver exception handling turns uncaught pass
+exceptions into diagnostics tied to either the current IR span or the original
+source file.
+
+Validation is split across focused passes. Cast validation checks explicit
+numeric conversions. Pipeline validation checks pipeline expression types.
+Exhaustiveness validates match coverage. IR validation checks post-lowering
+invariants, including the requirement that semantic identity be DefId-based.
+Tree shaking removes unused functions and modules after all analyses have had a
+chance to run.
+
+\subsection{Validation Algorithms}
+
+Validation passes are deliberately narrow. For example, exhaustiveness checking
+does not try to prove every numeric interval; it implements the cases currently
+supported by the pattern language and reports precise missing cases when it
+can.
+
+\begin{lstlisting}[style=pythoncode,caption={Current match exhaustiveness check.}]
+check_match(match_expr):
+    type_name = primitive_name(match_expr.scrutinee.type_info)
+    patterns = flatten_or_patterns(arm.pattern for arm in match_expr.arms)
+
+    if any(pattern is wildcard or identifier binding for pattern in patterns):
+        return exhaustive
+
+    if type_name is bool:
+        has_true = any(pattern is literal True for pattern in patterns)
+        has_false = any(pattern is literal False for pattern in patterns)
+        if not has_true or not has_false:
+            report E0004 with missing true/false labels
+        return has_true and has_false
+
+    if type_name is integer:
+        report E0004 unless a wildcard-like pattern exists
+
+    otherwise:
+        conservatively report non-exhaustive
+\end{lstlisting}
+
+The same design applies to post-lowering validation: the compiler checks the
+invariants that later code assumes, such as non-null DefIds on semantic
+identifiers, expanded rest indices before range analysis, no source-level
+autodiff nodes after request lowering, and compiler-owned recurrence and
+vectorization metadata before the NumPy backend executes lowered tensor IR.
+
+The exhaustiveness algorithm is intentionally modest, but that modesty is a
+feature of the current implementation rather than a gap in the thesis story.
+For booleans, the compiler can give exact missing-case diagnostics because the
+domain has two values. For integers, the current pass requires a wildcard-like
+case rather than proving interval coverage. For other types, it reports
+conservatively unless a catch-all pattern is present. This avoids pretending to
+prove properties that the pattern language and type information do not yet
+support.
+
+The broader validation lesson is that each pass enforces the invariants needed
+by the next implementation boundary. Exhaustiveness protects match execution,
+cast validation protects numeric conversion, the autodiff leak check protects
+the backend from source-level \texttt{@} nodes, and IR validation protects
+DefId-based lookup. The code snippet is therefore one example of a repeated
+pattern: narrow validators produce clearer errors and make backend assumptions
+explicit.
+
+The analysis value of the validator is that it documents what the compiler does
+not yet prove. Boolean exhaustiveness is exact, integer exhaustiveness is
+conservative, and richer pattern domains are reported conservatively unless a
+catch-all exists. That conservatism is preferable to a validator that accepts a
+match by accident and lets the interpreter discover a missing arm later. The
+validator's result is therefore a phase certificate: execution may assume that
+the currently supported pattern fragment has been checked.
+
+The same philosophy applies to leak checks and IR validation. They are not
+optimizations; they are boundary tests between compiler phases. If source-level
+autodiff reaches the backend, the backend would have to decide what \texttt{@}
+means after the phase designed for that meaning has already passed. If an
+identifier lacks a DefId after resolution, runtime lookup would have to fall
+back to strings. The validators reject these states so backend code can stay
+small and direct.
+
+\textit{Concrete example.} The expression \texttt{match flag \{ true => 1 \}}
+is rejected for a boolean scrutinee because the pass can name the missing
+\texttt{false} case exactly. The expression \texttt{match n \{ 0 => 1 \}} is
+also rejected for an integer scrutinee, but for a different reason: the current
+implementation does not prove full integer interval coverage, so it requires a
+wildcard-like arm. After autodiff lowering, a remaining \texttt{@loss/@W} node
+is likewise rejected as a phase leak rather than being passed to the backend.

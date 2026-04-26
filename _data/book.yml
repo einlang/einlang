@@ -2,167 +2,113 @@
   url: /book/
   short_title: Index
   kind: frontmatter
-  section: Front Matter
+  section: Opening
   eyebrow: Book
 - title: Preface
   url: /book/preface.html
   short_title: Preface
   kind: frontmatter
-  section: Front Matter
+  section: Opening
   eyebrow: Preface
-- title: For Instructors
-  url: /book/for-instructors.html
-  short_title: For Instructors
-  kind: frontmatter
-  section: Front Matter
-  eyebrow: Teaching Guide
-- title: "Chapter 1: Data and Indices"
-  url: /book/chapter-1-data-and-indices.html
-  short_title: 1. Data and Indices
+- title: "Chapter 1: What Can the Compiler Not See?"
+  url: /book/chapter-01-compiler-blindness.html
+  short_title: 1. Compiler Blindness
   kind: chapter
-  section: Chapters
+  section: "Section I: Named Axes"
   eyebrow: Chapter 1
-  prerequisites:
-    - Comfort reading algebraic notation with subscripts.
-    - Familiarity with variables, functions, and arrays in a general-purpose language.
-  objectives:
-    - Explain why immutable names are the first useful abstraction in Einlang.
-    - Read indexed bindings as families of scalar equations rather than loops.
-    - Infer rank and shape from visible index structure.
-    - Predict how fixing indices produces slices, subtensors, and scalars.
-  key_terms:
-    - binding
-    - index
-    - rank
-    - shape
-    - slice
-- title: "Chapter 2: Reduction"
-  url: /book/chapter-2-reduction.html
-  short_title: 2. Reduction
+- title: "Chapter 2: Axis Roles Are Not Axis Positions"
+  url: /book/chapter-02-axis-roles.html
+  short_title: 2. Axis Roles
   kind: chapter
-  section: Chapters
+  section: "Section I: Named Axes"
   eyebrow: Chapter 2
-  prerequisites:
-    - Chapter 1, especially indexed bindings and visible rank.
-  objectives:
-    - Distinguish surviving indices from consumed indices in a reduction.
-    - Read dot products and matrix multiplication directly from index structure.
-    - Explain why explicit reductions are easier to check and optimize than implicit summation.
-    - Use guards and bounded reductions to describe selective aggregation.
-  key_terms:
-    - reduction
-    - contraction
-    - identity value
-    - guarded reduction
-    - pooling
-- title: "Chapter 3: Broadcasting and Transformations"
-  url: /book/chapter-3-broadcasting-and-transformations.html
-  short_title: 3. Broadcasting
+- title: "Chapter 3: Coordinate Maps in the Standard Library"
+  url: /book/chapter-03-coordinate-maps.html
+  short_title: 3. Coordinate Maps
   kind: chapter
-  section: Chapters
+  section: "Section I: Named Axes"
   eyebrow: Chapter 3
-  prerequisites:
-    - Chapters 1 and 2.
-    - Basic familiarity with matrix and tensor notation.
-  objectives:
-    - Explain broadcasting as non-dependence on a missing output index.
-    - Read transposes and permutations as axis maps rather than copying rituals.
-    - Use named rest patterns to describe rank-polymorphic tensor families.
-    - Interpret convolution as index arithmetic plus reduction.
-  key_terms:
-    - broadcasting
-    - permutation
-    - rest pattern
-    - convolution
-    - affine index expression
-- title: "Chapter 4: Automatic Differentiation"
-  url: /book/chapter-4-automatic-differentiation.html
-  short_title: 4. Autodiff
+- title: "Chapter 4: What Does Broadcasting Hide?"
+  url: /book/chapter-04-broadcasting.html
+  short_title: 4. Broadcasting
   kind: chapter
-  section: Chapters
+  section: "Section II: Rules from Indices"
   eyebrow: Chapter 4
-  prerequisites:
-    - Chapters 1 through 3.
-    - Introductory calculus, especially derivatives and the chain rule.
-  objectives:
-    - Explain why derivative requests in Einlang are expressions over named bindings.
-    - Distinguish scalar gradients, tensor-shaped sensitivities, and Jacobian-like values.
-    - Trace the chain rule through named intermediate bindings.
-    - Describe gradient descent as recurrence instead of mutation.
-  key_terms:
-    - autodiff
-    - gradient
-    - Jacobian
-    - chain rule
-    - higher-order derivative
-- title: "Chapter 5: Recurrence and Time"
-  url: /book/chapter-5-recurrence-and-time.html
-  short_title: 5. Recurrence
+- title: "Chapter 5: The Index That Leaves"
+  url: /book/chapter-05-index-that-leaves.html
+  short_title: 5. Consumed Indices
   kind: chapter
-  section: Chapters
+  section: "Section II: Rules from Indices"
   eyebrow: Chapter 5
-  prerequisites:
-    - Chapters 1 through 4.
-    - Familiarity with sequences, recurrence relations, or dynamic programming.
-  objectives:
-    - Read recurrence clauses as dependency relations over time-indexed values.
-    - Explain how dependency offsets constrain legal evaluation schedules.
-    - Predict when rolling storage windows are possible.
-    - Connect recurrence syntax to RNNs, dynamic programming, and streaming state.
-  key_terms:
-    - recurrence
-    - lookback
-    - schedule
-    - dynamic programming
-    - rolling window
-- title: "Chapter 6: Living With Python"
-  url: /book/chapter-6-living-with-python.html
-  short_title: 6. Python
+- title: "Chapter 6: Softmax Has Three Coordinate Roles"
+  url: /book/chapter-06-softmax-coordinate-roles.html
+  short_title: 6. Softmax
   kind: chapter
-  section: Chapters
+  section: "Section II: Rules from Indices"
   eyebrow: Chapter 6
-  prerequisites:
-    - Chapters 1 through 5.
-    - Basic Python and NumPy literacy.
-  objectives:
-    - Identify which responsibilities belong naturally in Python and which belong in Einlang.
-    - Use `print` and explicit casts as boundary tools for debugging and safety.
-    - Describe how shaped casts turn dynamic external values into checked tensor contracts.
-    - Read end-to-end interop examples such as MNIST-style workflows.
-  key_terms:
-    - interop
-    - cast
-    - boundary
-    - observation
-    - host ecosystem
-- title: "Chapter 7: The Small Core and Its Boundaries"
-  url: /book/chapter-7-small-core-and-boundaries.html
-  short_title: 7. Boundaries
+- title: "Chapter 7: What Is a Gradient?"
+  url: /book/chapter-07-gradients.html
+  short_title: 7. Gradients
   kind: chapter
-  section: Chapters
+  section: "Section III: Compile-Time Autodiff"
   eyebrow: Chapter 7
-  prerequisites:
-    - The full book, especially recurrence and Python interop.
-  objectives:
-    - Explain why a small tensor language can be stronger than a universal one.
-    - Distinguish local control flow from general-purpose program control.
-    - Compare recurrence with mutation as models of state.
-    - Evaluate trade-offs between focus, analyzability, and convenience.
-  key_terms:
-    - small core
-    - mutation
-    - control flow
-    - analyzability
-    - domain language
-- title: Appendices
-  url: /book/appendices.html
-  short_title: Appendices
-  kind: backmatter
-  section: Back Matter
-  eyebrow: Appendices
-- title: Manuscript Targets
-  url: /book/manuscript-targets.html
-  short_title: Manuscript Targets
-  kind: backmatter
-  section: Back Matter
-  eyebrow: Back Matter
+- title: "Chapter 8: Matrix Multiplication Teaches the Pullback"
+  url: /book/chapter-08-matmul-pullback.html
+  short_title: 8. Matmul Pullback
+  kind: chapter
+  section: "Section III: Compile-Time Autodiff"
+  eyebrow: Chapter 8
+- title: "Chapter 9: Local Derivatives, Global Shape"
+  url: /book/chapter-09-local-derivatives-global-shape.html
+  short_title: 9. Local Derivatives
+  kind: chapter
+  section: "Section III: Compile-Time Autodiff"
+  eyebrow: Chapter 9
+- title: "Chapter 10: The Wall of Time Steps"
+  url: /book/chapter-10-time-steps.html
+  short_title: 10. Time Steps
+  kind: chapter
+  section: "Section IV: Dependency Graphs and Storage"
+  eyebrow: Chapter 10
+- title: "Chapter 11: Storage Follows Observation"
+  url: /book/chapter-11-storage-follows-observation.html
+  short_title: 11. Storage
+  kind: chapter
+  section: "Section IV: Dependency Graphs and Storage"
+  eyebrow: Chapter 11
+- title: "Chapter 12: An RNN Is a Dependency Graph"
+  url: /book/chapter-12-rnn-dependency-graph.html
+  short_title: 12. RNN
+  kind: chapter
+  section: "Section IV: Dependency Graphs and Storage"
+  eyebrow: Chapter 12
+- title: "Chapter 13: If Dimensions Had Names Everywhere"
+  url: /book/chapter-13-named-dimensions-everywhere.html
+  short_title: 13. Named Dimensions
+  kind: chapter
+  section: "Section V: Framework and Compiler Boundaries"
+  eyebrow: Chapter 13
+- title: "Chapter 14: Attention as Named Communication"
+  url: /book/chapter-14-attention-named-communication.html
+  short_title: 14. Attention
+  kind: chapter
+  section: "Section V: Framework and Compiler Boundaries"
+  eyebrow: Chapter 14
+- title: "Chapter 15: What the Notation Refuses to Hide"
+  url: /book/chapter-15-notation-refuses-to-hide.html
+  short_title: 15. Refusals
+  kind: chapter
+  section: "Section VI: Principles Under Stress"
+  eyebrow: Chapter 15
+- title: "Chapter 16: Dynamic Routing and Low-Rank Communication"
+  url: /book/chapter-16-dynamic-routing-low-rank-communication.html
+  short_title: 16. Routing
+  kind: chapter
+  section: "Section VI: Principles Under Stress"
+  eyebrow: Chapter 16
+- title: "Appendix: Coordinate Diagnostics"
+  url: /book/appendix-coordinate-diagnostics.html
+  short_title: Appendix. Diagnostics
+  kind: frontmatter
+  section: Closing
+  eyebrow: Appendix

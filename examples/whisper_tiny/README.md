@@ -82,4 +82,4 @@ This runs the NumPy reference and Einlang `main.ein` and compares their output t
    - Generates up to 36 new tokens.
 4. **Output**: Token IDs are decoded to text via the Python bridge (`whisper_helpers.py`).
 
-This completes the model examples. For a comprehensive reference of every language feature, see [`units/`](https://github.com/einlang/einlang/tree/main/examples/units).
+This completes the model examples. For a full reference of the language features, see [`units/`](https://github.com/einlang/einlang/tree/main/examples/units).

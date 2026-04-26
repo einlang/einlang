@@ -1,0 +1,37 @@
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{Einlang: shaped source expression}
+\begin{lstlisting}[style=einlang,basicstyle=\ttfamily\footnotesize]
+let local[t, j] =
+    @h[t, j] / @theta[j];
+\end{lstlisting}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{JAX: package selected value}
+\begin{lstlisting}[style=pythoncode,basicstyle=\ttfamily\footnotesize]
+local = jax.grad(
+    lambda th: run(th)[t, j]
+)(theta)[j]
+\end{lstlisting}
+\end{minipage}
+
+\vspace{0.45\baselineskip}
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{Julia/Zygote: closure boundary}
+\begin{lstlisting}[style=pythoncode,basicstyle=\ttfamily\footnotesize]
+using Zygote
+local = gradient(
+    th -> run(th)[t, j], theta
+)[1][j]
+\end{lstlisting}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{PyTorch: graph-state query}
+\begin{lstlisting}[style=pythoncode,basicstyle=\ttfamily\footnotesize]
+h = run(theta)
+theta.grad = None
+h[t, j].backward()
+local = theta.grad[j]
+\end{lstlisting}
+\end{minipage}

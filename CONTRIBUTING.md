@@ -31,7 +31,7 @@ If those pass, you are ready to work in the repo.
 - Improve an error message or add a `help:` suggestion in the compiler
 - Try an example from [examples/](https://github.com/einlang/einlang/tree/main/examples) and report what was confusing or broken
 
-## Where should this change go?
+## Where Changes Go
 
 - Parser or syntax work: `src/einlang/frontend/`
 - Name resolution or module loading: `src/einlang/passes/name_resolution.py` and `src/einlang/analysis/module_system/`

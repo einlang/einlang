@@ -1,6 +1,6 @@
 # Einlang architecture
 
-This is the short contributor map. If you are asking "where should I make this change?", start here.
+This is the short contributor map: the usual homes for parser, compiler, runtime, documentation, and test changes.
 
 ## Flow
 

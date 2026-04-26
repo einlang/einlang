@@ -1,0 +1,494 @@
+\chapter{Runtime and Backends}
+
+The runtime layer is intentionally thin. The compiler owns parsing, resolution,
+analysis, lowering, and validation. The runtime selects a backend, maps user
+inputs to DefIds, delegates execution, and maps DefId outputs back to user names.
+This division keeps language semantics in compiler passes and keeps backends
+focused on execution.
+
+\section{CLI and Python API}
+
+\pathcode{src/einlang/__main__.py} implements the command-line entry point. It
+can run a file, inline source through \texttt{-c}, or standard input through
+\texttt{-}. It supports backend selection, project root and stdlib overrides,
+IR dumping, cProfile output, vectorization debugging, recurrence-block
+debugging, reduction profiling, function and block profiling, and autodiff
+debug logs.
+
+\pathcode{src/einlang/run.py} provides a single-call Python API:
+compile a source string or file, then execute it with optional named inputs. It
+is the small embedding surface used by users who want to stay in Python while
+trying \einlang{} programs.
+
+\section{Execution Environment}
+
+\pathcode{src/einlang/runtime/environment.py} implements a DefId-keyed scope
+stack. Function calls and blocks push scopes; exiting a scope clears its values
+so large arrays can be reclaimed. Lookup walks from the innermost scope outward.
+There is no name-based runtime lookup after name resolution. This invariant
+matches the compiler identity model and prevents shadowing bugs in execution.
+
+\section{Runtime Delegation}
+
+\pathcode{src/einlang/runtime/runtime.py} defines \texttt{EinlangRuntime}. It
+constructs either a NumPy backend or IREE backend, creates a fresh backend per
+execution to avoid state leaks, resolves named inputs to DefIds, resolves
+\texttt{main} when present, delegates execution, and returns an
+\texttt{ExecutionResult}. It also records vectorization counts from the backend
+for tests and profiling.
+
+Inputs are name-keyed at the public API boundary but DefId-keyed inside the
+runtime. Before execution, the runtime resolves each input name against
+top-level bindings and functions in the compiled program. Outputs travel the
+opposite direction: the backend records values by DefId, and the runtime maps
+those DefIds back to user-facing names in the final result.
+
+\subsection{Runtime Delegation Algorithm}
+
+\begin{lstlisting}[style=pythoncode,caption={Public execution boundary.}]
+EinlangRuntime.execute(compilation_result, inputs):
+    program = compilation_result.ir
+    tcx = compilation_result.tcx
+    backend = fresh_backend(selected_backend)
+
+    input_by_defid = {}
+    for name, value in user_inputs.items():
+        did = resolve_top_level_input_name(name, program, tcx.resolver)
+        input_by_defid[did] = value
+
+    main_defid = resolve_main_if_present(program, tcx.resolver)
+    raw_result = backend.execute(program,
+                                 input_by_defid=input_by_defid,
+                                 main_defid=main_defid,
+                                 resolver=tcx.resolver,
+                                 tcx=tcx)
+
+    if raw_result has DefId-keyed outputs:
+        return map output DefIds back to source names
+    return raw_result
+\end{lstlisting}
+
+The fresh-backend step avoids state leakage between executions. The backend is
+allowed to keep per-run caches such as vectorization counters and IREE modules,
+but public execution starts from a clean environment.
+
+The algorithm also marks the public/private boundary of identity. Users pass
+inputs by source names because that is the ergonomic API, but the runtime
+immediately resolves those names to DefIds using the compiler's resolver. From
+that point onward, execution is DefId-keyed. The final mapping back to source
+names is presentation only. This prevents local shadowing, imported aliases, or
+generated bindings from turning into runtime name collisions.
+
+Creating a fresh backend per run is a simple but important isolation rule.
+Backends are allowed to accumulate execution counters, circular-buffer state,
+compiled IREE modules, and profiling data while a program runs. Reusing that
+state across calls would make tests order-dependent and could keep large arrays
+alive longer than intended. The runtime therefore treats backend construction
+as part of the execution transaction.
+
+The \texttt{main} branch also keeps application-style and notebook-style uses
+separate without changing compilation. When \texttt{main} exists, execution is
+the value of that entry function. When it does not, top-level bindings become
+observable results. Both modes still run through the same DefId environment and
+backend visitor, so examples can remain script-like while larger programs can
+provide an explicit entry point. The runtime boundary decides only how to start
+and package execution, not how the language is analyzed.
+
+Resolving inputs before the backend starts is important for error reporting.
+An unknown public input name is a runtime API error at the boundary, whereas a
+missing DefId inside backend execution is an implementation error. The
+algorithm makes that distinction before any tensor allocation or compiled
+backend setup occurs. This keeps user mistakes close to the public interface and
+keeps backend code free to assume that input bindings already match compiler
+identity.
+
+\textit{Concrete example.} A Python caller may run a compiled program with
+\texttt{\{"A": A, "B": B\}} as inputs. The runtime resolves the public names
+\texttt{A} and \texttt{B} to the DefIds assigned during compilation, then passes
+\texttt{\{did(A): A, did(B): B\}} to the backend. If the program produces
+\texttt{C}, the backend stores the value by \texttt{did(C)}, and the runtime
+maps that DefId back to the user-facing key \texttt{"C"} in the result. A
+local variable also named \texttt{A} inside a helper function never enters this
+public input map.
+
+\section{Backend Interface}
+
+\pathcode{src/einlang/backends/base.py} defines the backend contract. A backend
+must execute a program, execute an individual expression, and optionally produce
+target code. Backends are expected to trust compiler IR and use attached
+metadata rather than re-running analysis. This is why passes such as
+\texttt{LoweredExecutionFacts} matter: they put backend-facing decisions on the
+IR before execution.
+
+\section{NumPy Backend}
+
+The NumPy backend is the main executable backend. It is split across mixins:
+\pathcode{numpy_core.py} handles program execution, environment setup, function
+calls, profiling, output storage, builtins, and inputs;
+\pathcode{numpy_expressions.py} and related support files evaluate ordinary
+expressions; \pathcode{numpy_einstein.py} and its mixins execute lowered
+Einstein, reduction, comprehension, recurrence, and vectorization paths.
+
+The backend registers fixed builtins in the environment, loads functions and
+modules, evaluates statements in order, stores outputs by DefId, materializes
+circular recurrence buffers only when necessary, and returns an execution
+result. It also tracks vectorized, scalar, hybrid, and call-scalar counts for
+Einstein clauses.
+
+\subsection{NumPy Program Execution Algorithm}
+
+\begin{lstlisting}[style=pythoncode,caption={NumPy backend top-level execution.}]
+numpy_execute(program, input_by_defid, main_defid):
+    set entry-file process variables for relative resource loading
+    env = ExecutionEnvironment()
+    register fixed builtins in env
+    register program functions and module functions in env
+    register builtin DefIds from resolver
+    for did, value in input_by_defid:
+        env.set_value(did, value)
+
+    if main_defid exists:
+        return call_function(env.get_value(main_defid), [])
+
+    outputs = {}
+    with env.scope():
+        for statement in program.statements:
+            value = statement.accept(backend_visitor)
+            did, binding = output_defid_for(statement)
+            if did is not None:
+                store_output_value(outputs, did, value, binding.name)
+
+        for did, value in env.current_scope_items():
+            if did not in outputs:
+                if value is circular recurrence buffer and must be observable:
+                    value = value.materialize()
+                outputs[did] = value
+    return ExecutionResult(outputs=outputs)
+\end{lstlisting}
+
+Top-level execution has two modes. If a \texttt{main} function is present, the
+program behaves like an entry-point application and the backend returns that
+call result. Otherwise, the backend executes top-level statements in order and
+collects observable bindings. Both modes share the same environment and DefId
+lookup rules, so examples, tests, and embedded calls exercise the same runtime
+machinery.
+
+The output collection logic is more subtle than a dictionary copy. A top-level
+statement may produce a value directly, bind a function, or create a circular
+recurrence buffer whose observable value depends on later materialization
+rules. The backend records outputs by DefId, checks whether ring buffers must
+be materialized, and returns an \texttt{ExecutionResult} that the public runtime
+can translate back to names. This preserves the compiler's identity model all
+the way to the result boundary.
+
+Registering functions and builtins before evaluating statements is the runtime
+equivalent of frontend hoisting. A top-level statement may call a function that
+appears later in source order, and builtins such as \texttt{shape} or
+\texttt{\_\_basis\_tensor} must be available to generated derivative IR. The
+backend therefore prepares the environment in layers: fixed builtins, program
+functions, module functions, user inputs, then executable statements. Each
+layer is keyed by DefId, so later layers can shadow where the language allows
+without corrupting earlier registrations.
+
+The top-level scope is also a lifetime boundary. During execution, statements
+may allocate temporary arrays, circular buffers, closures, or function-local
+values. Only observable bindings are copied into the output map. When the scope
+ends, unobserved temporaries can be released by Python's normal reference
+management. This does not make \einlang{} a native runtime, but it gives the
+NumPy backend a disciplined way to avoid retaining large intermediate tensors
+after a program has finished.
+
+\textit{Concrete example.} A script-style matrix multiplication binding
+executes at the top level and returns \texttt{C} as an observable output. A
+program with an explicit \texttt{main} function instead resolves and calls
+\texttt{main}, returning the entry-point result rather than every top-level
+helper binding. Both paths register stdlib functions and builtins before
+statement execution, so generated derivative code can still call helpers such
+as the basis-tensor builtin.
+
+\section{Expression Execution}
+
+Expression execution handles literals, identifiers, arithmetic, calls, blocks,
+conditionals, arrays, tuples, member access, casts, matches, where expressions,
+pipelines, and builtins. Function calls push a new scope, bind parameters by
+DefId, evaluate the function body, and pop the scope. Builtins include
+\texttt{assert}, \texttt{print}, \texttt{len}, \texttt{typeof},
+\texttt{array\_append}, \texttt{shape}, \texttt{sum}, \texttt{max},
+\texttt{min}, and \texttt{\_\_basis\_tensor}.
+
+The environment also tracks the most recent value for a DefId so escaped local
+values can still be recovered in controlled cases. This is a runtime convenience
+around block and function scopes; it does not change the compiler's rule that
+semantic identity is DefId-based.
+
+\section{Tensor Execution}
+
+Lowered tensor execution chooses among vectorized, scalar, hybrid, and
+specialized reduction paths using compiler-provided facts. The implementation
+contains call-index analysis, recurrence analysis, vectorization helpers, and
+setup utilities for temporary tensors and circular buffers. This is the largest
+backend surface because it must preserve \einlang{}'s source-level tensor
+semantics while exploiting NumPy when it is safe to do so.
+
+\subsection{Lowered Tensor Execution Algorithm}
+
+The backend executes compiler-planned lowered clauses. It may choose vectorized
+or scalar code paths, but the semantic loop plan is always the lowered IR.
+
+\begin{lstlisting}[style=pythoncode,caption={Executing a lowered Einstein value.}]
+execute_lowered_einstein(lowered, binding):
+    shape = evaluate compiler shape or infer from clause ranges
+    output = existing output array for binding or allocate array(shape)
+    env.set_value(binding.defid, output)
+
+    recurrence_items = []
+    non_recurrence_items = []
+    for item in lowered.items:
+        rec_dims = item.recurrence_dims_override
+        if rec_dims and item.body reads binding.defid:
+            recurrence_items.append(item)
+            remember recurrence loops
+        else:
+            non_recurrence_items.append(item)
+
+    for item in non_recurrence_items:
+        execute_clause(item, output)
+
+    if recurrence_items:
+        for rec_context in execute_lowered_loops(recurrence_loops):
+            for item in recurrence_items in source order:
+                ok = execute_one_recurrence_step(item, rec_context, output)
+                if not ok:
+                    execute full clause fallback against current output
+        return output
+
+    for item in lowered.items:
+        execute_clause(item, output)
+    return output
+
+execute_clause(item, output):
+    strategy = item.vectorization_strategy
+    if strategy is vectorized:
+        evaluate body over broadcast loop axes and write slice
+    else if strategy is recurrence-hybrid:
+        scalarize recurrence axes and broadcast remaining axes
+    else if strategy is call-scalar or scalar:
+        for context in execute_lowered_loops(item.loops):
+            context = execute_lowered_bindings(item.bindings, context)
+            if check_lowered_guards(item.guards, context):
+                output[index_tuple(context)] = evaluate(item.body, context)
+\end{lstlisting}
+
+The same helper functions execute reductions: build loop contexts, evaluate
+local bindings, skip contexts whose guards fail, and combine body values using
+the reduction identity and operator.
+
+The lowered Einstein executor is organized around semantic partitions rather
+than around one fixed loop implementation. Non-recurrent clauses can be
+executed first because they do not depend on future writes of the same binding.
+Recurrent clauses are separated so their loop order can honor recurrence
+metadata. Within each clause, the vectorization strategy controls performance,
+but the lowered loop plan controls meaning. This separation lets the backend
+take fast NumPy paths without changing the source dependency relation.
+
+The fallback cases are part of correctness. A recurrence step may discover that
+the optimized path cannot handle a particular body, guard, or call dependency.
+In that case, it executes a full clause fallback against the current output
+rather than producing a partial result. Similarly, scalar and call-scalar paths
+are slower but semantically direct: they enumerate loop contexts, evaluate
+bindings, test guards, and write exactly one output point. The smart path is
+therefore optional; the lowered IR remains the source of truth.
+
+The recurrence partition also prevents base clauses from being repeatedly
+executed inside recurrent loops. Non-recurrent clauses initialize or fill points
+that do not depend on future values. Recurrent clauses then run in an order
+chosen from compiler metadata. This organization is what makes boundary clauses
+and interior recurrence clauses share one lowered binding without producing
+incorrect overwrites. The backend does not infer this relation from names; it
+receives the recurrence dimensions and source-ordered items from the compiler.
+
+Vectorization is deliberately subordinate to guards and bindings. A clause can
+be fully vectorized only when its body, local where-bindings, guards, and calls
+can all be evaluated over broadcast loop axes with the same meaning as scalar
+iteration. Hybrid execution scalarizes the dimensions that break that property
+while preserving vector execution elsewhere. The algorithm therefore describes a
+semantic ladder: vectorize when the facts prove it, hybridize when only some
+axes are safe, and fall back to scalar loops when direct execution is the only
+clear guarantee.
+
+\textit{Concrete example.} A lowered matrix multiplication clause with no
+guards and no loop-dependent calls can evaluate the body over broadcast arrays
+and write the whole output slice through a vectorized path. A recurrence such
+as \texttt{h[t] = step(h[t - 1], x[t])} is partitioned differently: the base
+clause initializes \texttt{h[0]}, and the recurrent clause runs timestep by
+timestep so each write sees the previous value. A guarded clause such as
+\texttt{let y[i] = x[i] where x[i] > 0} may scalarize the guard check if the
+facts do not prove that a vectorized mask path is safe.
+
+\section{IREE Backend}
+
+\pathcode{src/einlang/backends/iree.py} implements an experimental hybrid IREE
+backend. It subclasses the NumPy backend and lazily compiles structurally
+eligible pure functions through IREE's CPU path. The supported subset includes
+scalars and tensors with simple arithmetic, casts, array literals, identifiers,
+and simple block-local bindings. Unsupported functions fall back to the NumPy
+execution path, so language coverage remains intact while the compiled subset
+grows.
+
+The IREE backend infers value specs from runtime arguments, emits MLIR for the
+supported function body, caches compiled modules by function DefId and argument
+signature, invokes compiled callables, and reports compile or runtime failures
+with the original function name.
+
+The IREE path is deliberately hybrid. A supported function can compile to IREE
+while the rest of the program continues through NumPy. The cache key includes
+the function DefId and argument shape/dtype signature, so the same source
+function can have multiple compiled variants. Unsupported operators,
+side-effectful constructs, or complex tensor control flow use the fallback path
+instead of blocking execution of the whole program.
+
+\subsection{Hybrid IREE Algorithm}
+
+\begin{lstlisting}[style=pythoncode,caption={Lazy IREE compilation with fallback.}]
+call_function_iree(func, args):
+    if func is not a named Einlang function:
+        return numpy_call_function(func, args)
+    if body contains unsupported node or side effect:
+        return numpy_call_function(func, args)
+
+    arg_specs = infer shape and dtype from runtime args
+    key = (func.defid, arg_specs.signature)
+    if module_cache[key] is fallback_sentinel:
+        return numpy_call_function(func, args)
+
+    if key not in module_cache:
+        preview = numpy_call_function(func, args)
+        try:
+            mlir = emit_mlir(func.body, arg_specs, result_spec(preview))
+            module_cache[key] = compile_with_iree(mlir)
+        except unsupported:
+            module_cache[key] = fallback_sentinel
+            return preview
+
+    return invoke_compiled(module_cache[key], prepared_args)
+\end{lstlisting}
+
+The preview run is intentionally pragmatic: it gives the backend an actual
+result shape and dtype for the supported subset while preserving correct
+behavior if compilation later proves impossible.
+
+The hybrid IREE path is designed to be opportunistic. It first rejects
+functions that are not named \einlang{} functions or that contain unsupported
+side effects, because compiling them would change the execution model. For
+eligible functions, the backend builds a signature from runtime argument
+shapes and dtypes and caches compiled modules by DefId plus signature. This
+allows the same source function to compile separately for different tensor
+shapes while still falling back safely when the subset is exceeded.
+
+The preview execution is a deliberate trade-off. It may do work twice on a
+successful first compile, but it gives the compiler-backed emitter a concrete
+result specification and gives the runtime a correct value if MLIR emission or
+IREE compilation fails. The fallback sentinel then prevents repeated failed
+compilation attempts for the same signature. The result is a backend that can
+grow incrementally without making unsupported programs unexecutable.
+
+The preview run also guards result typing. MLIR emission needs to know not only
+argument shapes and dtypes but also the result shape expected from the supported
+function body. Rather than duplicating the full evaluator in the emitter, the
+backend asks the existing NumPy path for one correct value and uses that value
+as a specification. This is not ideal for peak performance, but it is a sound
+engineering compromise for an experimental backend whose supported subset is
+still growing.
+
+The fallback sentinel is a negative cache. Without it, an unsupported function
+called in a loop would repeatedly attempt compilation and repeatedly fail. By
+storing failure for the DefId/signature pair, the backend pays the exploratory
+cost once and then executes through NumPy directly. This keeps the hybrid design
+predictable: adding IREE cannot make unsupported programs slower without bound,
+and successful compiled paths remain isolated from functions that stay in the
+interpreter.
+
+\textit{Concrete example.} A pure helper \texttt{fn add2(x) \{ x + 2.0 \}}
+called with a float matrix can be previewed once through NumPy, emitted as a
+small MLIR function, and cached under the helper's DefId plus the matrix
+shape/dtype signature. A helper that calls \texttt{print}, performs unsupported
+control flow, or touches a complex lowered tensor node receives a fallback
+sentinel for that signature and continues through NumPy. Repeated calls to the
+unsupported helper do not repeatedly attempt compilation.
+
+\section{Memory Model}
+
+\einlang{} does not implement a custom garbage collector. Ordinary values are
+Python objects and NumPy arrays. The runtime reduces memory pressure by clearing
+scope dictionaries on exit, avoiding state reuse between executions, using
+circular buffers for bounded recurrences, and materializing lazy values only
+when observation requires it. These choices are runtime engineering decisions,
+not a replacement for a native heap or precise GC.
+
+\subsection{Scope Lifetime Algorithm}
+
+\begin{lstlisting}[style=pythoncode,caption={DefId-keyed scope lifetime.}]
+with env.scope():
+    push empty dict onto scope stack
+    execute block or function body
+    on exit:
+        copy escaped or output values already recorded by DefId
+        clear popped scope dictionary
+        pop scope
+
+get_value(defid):
+    for scope in reversed(scope_stack):
+        if defid in scope:
+            return scope[defid]
+    return last_values.get(defid) for controlled escaped-local cases
+\end{lstlisting}
+
+This is not memory management in the native-runtime sense, but it matters for
+large NumPy arrays. A completed block or function should not keep temporary
+tensors alive through a stale scope dictionary.
+
+The scope algorithm is small because Python and NumPy own actual allocation,
+but it still enforces an important lifetime discipline. Every block or function
+pushes a dictionary keyed by DefId; leaving that block clears the dictionary so
+temporary arrays are not retained by the runtime environment. Values that must
+escape are copied to output storage or remembered in the controlled
+\texttt{last\_values} path before the scope is popped. This gives the runtime a
+predictable ownership boundary without implementing a custom heap.
+
+Lookup walks from inner to outer scopes, matching lexical shadowing after name
+resolution. Because every binding has a DefId, two variables with the same
+printed name never conflict in the environment. This is the runtime mirror of
+the resolver invariant: user-facing names are useful for diagnostics and API
+inputs, but executable storage is keyed by semantic identity.
+
+The \texttt{last\_values} path is intentionally narrow. It supports controlled
+cases where a value must be recoverable after its lexical scope is gone, but it
+does not turn the environment into a global variable table. Ordinary lookup
+still respects the active scope stack, and source programs cannot address local
+values by string after resolution. This keeps the runtime convenient for
+execution bookkeeping without weakening lexical scoping.
+
+Clearing dictionaries on scope exit is especially relevant for tensor programs.
+A temporary in a scalar example is cheap; a temporary in a convolution,
+recurrence, or generated Jacobian can be large enough to dominate memory use.
+Because Python frees arrays only when references disappear, stale scope entries
+would keep tensors alive even after they are semantically dead. The scope
+algorithm is therefore a small piece of runtime hygiene that supports the
+larger compiler goal of making storage decisions explicit.
+
+\textit{Concrete example.} In a norm helper, a temporary tensor \texttt{sq}
+may store \texttt{x[i] * x[i]} while the function body computes
+\texttt{sum[i](sq[i])}. The temporary is stored in the function scope while the
+body runs. After the return value is computed, the scope dictionary holding
+\texttt{sq} is cleared, so the NumPy array can be released when no other
+references remain. If the returned value is bound at the top level, that value
+is copied to output storage by DefId before the function scope disappears.
+
+\section{Debugging and Profiling}
+
+The CLI and backend expose practical debugging tools: IR dumps, statement
+profiling, line-bucket profiling, function profiling, block profiling,
+reduction-path profiling, vectorization summaries, recurrence-block debug
+output, and structured autodiff debug logs. These hooks are implementation
+features, not just developer conveniences: they make it possible to validate
+whether a large example is exercising the intended compiler and backend paths.

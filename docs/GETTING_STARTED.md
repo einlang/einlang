@@ -37,7 +37,7 @@ python3 -m pip install -e .
 python3 -m einlang -c "let x = 1 + 1; print(x);"
 ```
 
-You should see `2`.
+The command prints `2`.
 
 ## A better first visit
 
@@ -72,9 +72,9 @@ python3 -m einlang examples/ode/ode_suite.ein
 python3 -m einlang examples/optimization/optimization_suite.ein
 ```
 
-If you want training-oriented or directory-local showcases after that, use [examples/README](../examples/README.md) and the relevant example directory README. Those pages keep the extra setup notes out of the first-run path.
+For training-oriented or directory-local showcases after that, [examples/README](../examples/README.md) and the relevant example directory README hold the extra setup notes.
 
-## Use it from Python
+## Python Integration
 
 ```python
 from einlang import run

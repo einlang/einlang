@@ -5,92 +5,99 @@ title: "Preface"
 
 # Preface
 
-Tensor programs often begin as equations and end as scattered machinery:
-indexing in one API, reductions in another, loops in the host language, and
-derivatives wrapped around a function boundary. Einlang starts from a different
-question:
+Einlang started with a small annoyance I kept running into while reading tensor
+programs. The code would run, the shapes would line up, and still the most
+important part of the program was somewhere else: in a comment, in a variable
+name, in a convention about axis order, or simply in the author's memory.
+
+Here is the sort of question I mean. A tensor is reshaped, transposed,
+broadcast, reduced, and passed to an automatic differentiator. Which dimension
+is batch? Which one is time? Which one was split into groups? Which value is
+being reused because it does not depend on the current coordinate? These are
+not exotic concerns. They are ordinary facts that decide whether the program
+means what the author thinks it means.
+
+Most tensor libraries are good at checking extents. They can tell whether two
+arrays have compatible shapes. They are less able to check the role a dimension
+was supposed to play. A dimension of size `64` might be a feature axis, a time
+axis, a hidden-state axis, or a batch axis. The number alone is not the role.
+
+This book asks what changes if some of those roles are written into the source.
+Not as comments beside the program, but as indices and coordinate relationships
+the compiler can inspect.
+
+Einlang is the small language used for that question. It is not presented here
+as a replacement for Python, NumPy, PyTorch, or existing compiler stacks. It is
+a deliberately narrow object: enough syntax to write tensor formulas with named
+coordinates, reductions, derivative requests, and recurrences, and enough
+compiler machinery to see what those formulas preserve.
+
+The intended reader is someone who builds things below the level of an API call:
+a DSL, a compiler pass, a numerical library, an autodiff system, a model
+compiler, or even just a careful notation shared by a team. If you mainly want
+another framework function to call, this manuscript will probably spend too much
+time looking under the floorboards. That is by design. The interesting question
+here is not how to spell one operation, but what facts a language lets later
+tools rely on.
+
+There are several reasonable ways through the book. If you are here for tensor
+notation and shape bugs, read chapters 1 through 6 first. If automatic
+differentiation is your main concern, you can skim the first six chapters for
+the vocabulary and then slow down in chapters 7 through 9. If recurrence,
+storage, or model compilers are the draw, chapters 10 through 12 are the
+shortest path. If you are designing framework boundaries, diagnostics, or
+library APIs, chapters 13 through 15 are the payoff. If you want to see the
+principle stressed by low-rank attention and dynamic expert routing, chapter 16
+is the late test case. The chapters are ordered as an argument, but they are
+also a toolbox; enter where the next hidden axis is already hurting you.
+
+One inconvenience should be stated early. This book will not make you write
+less code. It tries to make each important line harder to hand-wave away. That
+is a different bargain: more source facts where meaning is fragile, fewer
+silent conventions for a future reader or compiler to reconstruct.
+
+The chapters follow a recurring pattern. They begin with a piece of tensor code
+that feels familiar. Then they ask which fact has been left implicit. Sometimes
+the missing fact is an axis role. Sometimes it is the coordinate a term does
+not depend on. Sometimes it is the direction of a recurrence, the address of a
+gradient, or the contract at a boundary with host-language data.
+
+The examples are small because small examples leave fewer places to hide. A
+single cell of a matrix product can show the same issue that later appears in a
+batched layer. One recurrent edge can show the distinction between a loop and a
+dependency graph. One attention score can show why query and key positions
+should not be allowed to collapse into "the sequence axis."
+
+There is one rule I return to more than any other:
 
 ```text
-What if the structures in the formula were source-language constructs?
+Do not hide a fact that later reasoning must recover.
 ```
 
-This book answers that question gradually. We will not begin with the compiler.
-We will begin with names, subscripts, reductions, recurrence equations, and
-derivative requests. Each chapter asks the same questions:
+That rule is not a demand to make every program verbose. Good notation hides
+plenty. It should hide details that are accidental, not details that decide
+correctness. Layout, scheduling, storage policy, and kernel choice may be
+lowering decisions. Axis roles, consumed indices, omitted coordinates,
+derivative addresses, and time dependencies often have to be known before those
+decisions are safe.
 
-- What names does this construct introduce?
-- Which indices survive into the result?
-- Which indices are consumed?
-- What shape can the compiler infer?
-- What dependency or derivative fact becomes visible?
+A small vocabulary point matters throughout the book. Axis names are not scalar
+types. Einlang has ordinary scalar and tensor types such as `i32`, `f32`,
+`[f32; 3, 4]`, `[f32; ?, ?]`, and `[f32; *]`. Index variables are coordinates,
+introduced by indexed bindings, reductions, or ranges such as `i in 0..n`.
+The notation does not write `i: batch`. When I say that an axis behaves like a
+contract, I mean that its name, range, and tensor shape give later compiler
+passes a fact they can check.
 
-This is a book about designing a notation. It treats programs as objects that
-can be read by two audiences at once: a person and a compiler. The person wants
-the program to resemble the equation they already understand. The compiler wants
-the program to reveal enough structure to check shapes, infer ranges, schedule
-recurrences, and lower derivative requests. Einlang's bet is that these goals
-can reinforce each other.
+The implementation is included to keep the prose honest. The compiler parses
+source, resolves names, lowers formulas to IR, groups Einstein-style
+declarations, classifies constraints, infers ranges, checks shapes, infers
+types, rewrites autodiff requests, lowers recurrences, records execution facts,
+and validates the result. The book does not document every corner of that
+implementation, but it tries not to claim a property the implementation has no
+way to represent.
 
-Einlang is not presented here as a universal programming language. It has
-functions, modules, blocks, `if`, `match`, comprehensions, and Python interop,
-but its center is tensor computation. The language is strongest when the source
-program can keep the formula's structure intact.
-
-## How to Read a Program
-
-A small example already contains the main discipline:
-
-```rust
-let C[i, j] = sum[k](A[i, k] * B[k, j]);
-```
-
-Read it in layers. First, `C` is a new binding. Second, `i` and `j` are output
-indices, so they define the axes of `C`. Third, `k` is introduced by `sum[k]`,
-so it is local to the reduction and disappears afterward. Fourth, the reads
-`A[i, k]` and `B[k, j]` force the `k` dimension of `A` to match the `k`
-dimension of `B`.
-
-That little reading gives a shape rule, a scope rule, and a runtime strategy.
-The shape rule says `C` has the outer dimensions of `A` and `B`. The scope rule
-says `k` cannot be used outside the reduction. The runtime strategy can be a
-loop nest, an einsum-like lowering, a matrix multiply fast path, or something
-else. The source does not choose the schedule too early; it states the
-structure.
-
-This style of reading carries through the whole book.
-
-## A Note on Syntax
-
-The examples use current Einlang syntax. A few choices are worth keeping in
-mind:
-
-```rust
-let C[i, j] = sum[k](A[i, k] * B[k, j]);
-let tail[..batch] = sum[k](x[..batch, k]);
-let dy_dx = @y / @x;
-let data = python::numpy::load("x.npy") as [f32; 10, 20];
-```
-
-Ranges are end-exclusive by default:
-
-```rust
-let x[i in 0..5] = i;   // i = 0, 1, 2, 3, 4
-```
-
-Use `..=` for an inclusive end:
-
-```rust
-let x[i in 0..=5] = i;  // i = 0, 1, 2, 3, 4, 5
-```
-
-## How to Run Examples
-
-Standalone files can be run from the repository root:
-
-```bash
-python3 -m einlang path/to/file.ein
-```
-
-Many book snippets are intentionally partial. Their purpose is to explain the
-notation and the compiler-visible structure, not to serve as complete programs
-with data loading and assertions.
+The larger claim is modest: tensor code often contains more structure than its
+surface syntax admits. Naming coordinates is one way to keep some of that
+structure available long enough for a reader, a checker, or a compiler pass to
+use it.

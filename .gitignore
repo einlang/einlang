@@ -33,6 +33,9 @@ paper/*.pdf
 paper/*_draft.md
 paper/figures/*.png
 paper/figures/*.svg
+thesis/*.pdf
+!thesis/einlang_thesis.pdf
+thesis/*_draft.md
 
 # Local notes
 skills/memory.md

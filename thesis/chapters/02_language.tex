@@ -1,0 +1,334 @@
+\chapter{Language Design}
+
+The language design is intentionally small at the surface. A scalar binding
+names a value; an indexed binding builds a tensor point by point; a reduction
+introduces a local index; a recurrence defines a binding through base and
+recurrent clauses; and a derivative request asks for the sensitivity of one
+named value with respect to another.
+
+\begin{lstlisting}[style=einlang]
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+let x[0] = x0;
+let x[t in 1..T] = step(x[t - 1], u[t]);
+let dx0 = @x[T - 1] / @x0;
+\end{lstlisting}
+
+The matrix multiplication line exposes output axes \texttt{i} and \texttt{j}
+and reduction axis \texttt{k}. The recurrence exposes the self-read offset
+\texttt{t - 1}. The derivative request names the target and parameter at the
+point where the sensitivity is needed.
+
+The example is intentionally small, but it shows the thesis boundary. The
+compiler does not receive an opaque tensor call followed by a host loop followed
+by an AD transform; it receives three source constructs in one binding
+environment. That means the name resolver, range analysis, recurrence analysis,
+and autodiff passes can agree on the same DefIds. The programmer still writes
+mathematical notation, while the implementation keeps enough structure to make
+compile-time checks and lowering choices before execution.
+
+\section{Indexed Definitions}
+
+An indexed binding defines a tensor over an index environment. Explicit ranges
+such as \texttt{i in 0..M} attach domains directly to variables. When ranges are
+omitted, shaped tensor reads can provide candidate domains: a read of
+\texttt{A[i,k]} constrains \texttt{i} to the first axis of \texttt{A} and
+\texttt{k} to the second. Reduction indices follow the same rule inside the
+reduction body.
+
+\begin{lstlisting}[style=einlang]
+let Y[n in 0..N, o in 0..OC, i in 0..OH, j in 0..OW] =
+    sum[c in 0..IC, r in 0..KH, s in 0..KW](
+        X[n, c, i + r, j + s] * W[o, c, r, s]);
+\end{lstlisting}
+
+This direct convolution keeps surviving axes, reduction axes, and affine input
+offsets in one source expression. An \texttt{einsum}-plus-patches encoding can
+run the same computation, but it splits the sliding-window construction from the
+contraction. \einlang{} keeps both facts in one binding.
+
+The analysis value is the combination, not only the notation. The output axes
+\texttt{n}, \texttt{o}, \texttt{i}, and \texttt{j} define the produced tensor,
+while the reduction axes \texttt{c}, \texttt{r}, and \texttt{s} define the
+contracted kernel domain. The affine offsets \texttt{i + r} and \texttt{j + s}
+also remain visible to bounds checking and lowering. A backend may still choose
+to run this as patches, scalar loops, or a vectorized contraction, but that is a
+later execution decision rather than the source-level representation.
+
+\begin{center}
+\centering
+\input{figures/indexed_reduction_interfaces.tex}
+\captionsetup{type=figure,hypcap=false}
+\caption{Thesis-adapted comparison of indexed reduction interfaces. The reused
+paper example is copied into the thesis figure set and retuned around compiler
+facts rather than presentation brevity.}
+\label{fig:thesis-indexed-reduction-interfaces}
+\end{center}
+
+Figure~\ref{fig:thesis-indexed-reduction-interfaces} should be read as a
+compiler-boundary comparison. NumPy places the contraction structure in a
+string, which is compact but separated from ordinary name resolution. TVM and
+Halide expose structured tensor expressions, but they are embedded in host-side
+scheduling systems. The \einlang{} form keeps the same source binding, the same
+index variables, and the same diagnostics context available to later passes.
+That is why the thesis treats indexed notation as an implementation contract
+rather than as surface sugar.
+
+\subsection{Index Domains and Where Clauses}
+
+Index domains are intentionally attached to index positions rather than hidden
+inside a separate loop statement. This matters for diagnostics and lowering. A
+range such as \texttt{i in 0..M} is in scope for the indexed body, and a
+reduction range such as \texttt{k in 0..K} is in scope only for the reduction
+body. Predicate-style \texttt{where} clauses refine a domain, while iteration
+ranges in \texttt{where} clauses are rejected by validation because they obscure
+which source construct owns the index.
+
+\begin{lstlisting}[style=einlang]
+let even_square[i in 0..N] = i * i where i % 2 == 0;
+let total = sum[k in 0..N](even_square[k]);
+\end{lstlisting}
+
+The implementation uses this discipline in range analysis: every index variable
+has a DefId, and all inferred domains are keyed by that DefId. The same spelling
+can be reused in separate indexed bindings without aliasing compiler state.
+
+The two-line example demonstrates both parts of the rule. The first binding
+creates a tensor only over even points in \texttt{0..N}; the second reduction
+then consumes that tensor through an ordinary loop variable. Because the
+\texttt{where} predicate is not itself a new iteration domain, the compiler can
+classify it as a guard. That distinction matters later: guards become lowered
+conditions, while ranges become loop bounds. Collapsing the two would make it
+harder to explain diagnostics and harder for the backend to choose a correct
+execution strategy.
+
+\section{Declarative Recurrence}
+
+A recurrent binding may have multiple clauses. Base clauses define boundary
+points; recurrent clauses define the remaining domain and may read other points
+of the same binding.
+
+\begin{lstlisting}[style=einlang]
+let H[0, j in 0..N] = top[j];
+let H[i in 0..M, 0] = left[i];
+let H[i in 1..M, j in 1..N] =
+    mix(H[i - 1, j], H[i, j - 1], input[i, j]);
+\end{lstlisting}
+
+The source contract is dependency, not schedule. The compiler must evaluate each
+point after the points it reads, but the source program does not have to pick a
+loop nest, carry tuple, row buffer, or full materialization policy up front.
+
+This example is a two-dimensional dependency relation. The interior clause
+reads one point above and one point to the left, so a legal traversal must
+respect both predecessor directions. The source does not say whether rows,
+columns, tiles, or a full materialized grid should be used; it states the
+relation that any such schedule must satisfy. The implementation can therefore
+derive recurrence dimensions and storage metadata from reads of the same DefId,
+instead of attempting to reverse-engineer a relation from already-written host
+control flow.
+
+\begin{center}
+\centering
+\input{figures/recurrence_interfaces.tex}
+\captionsetup{type=figure,hypcap=false}
+\caption{Thesis-adapted comparison of recurrence interfaces. The thesis copy
+emphasizes which scheduling and storage decisions are source obligations in
+neighboring systems and which are compiler obligations in \einlang{}.}
+\label{fig:thesis-recurrence-interfaces}
+\end{center}
+
+Figure~\ref{fig:thesis-recurrence-interfaces} highlights the delayed
+commitment. JAX asks the user to choose a carry boundary and stacked output
+shape before the compiler sees later observations. A PyTorch loop makes storage
+an ordinary host-language list decision. In \einlang{}, the self-read offset is
+the source fact; traversal order and finite-window storage are compiler
+obligations. This difference is small in a one-step recurrence, but it becomes
+important when later code observes only a suffix, a final value, or an
+intermediate derivative.
+
+\subsection{Boundary Clauses}
+
+Base and recurrent clauses share one binding name. The grouping pass therefore
+sees the following as one recurrent definition rather than as unrelated
+assignments:
+
+\begin{lstlisting}[style=einlang]
+let fib[0] = 0;
+let fib[1] = 1;
+let fib[n in 2..N] = fib[n - 1] + fib[n - 2];
+\end{lstlisting}
+
+This source form is small, but it carries three compiler facts: the covered
+boundary points, the recurrent domain, and the static self-read offsets. Those
+facts are consumed later by lowering, recurrence-order analysis, and storage
+planning.
+
+The base clauses are not special cases outside the binding. They are part of
+the same grouped definition as the recurrent clause, which lets the compiler
+check that the values read by \texttt{fib[n - 1]} and \texttt{fib[n - 2]} are
+available when the recurrent body runs. The same grouping also prevents the
+runtime from treating the three statements as independent outputs. The
+important analysis point is that boundary coverage and recurrence dependency
+are represented together, so storage inference can distinguish required
+history from values that only initialize the sequence.
+
+\section{Local Derivative Requests}
+
+Derivative requests are expressions over named source bindings:
+
+\begin{lstlisting}[style=einlang]
+let loss = sum[i]((pred[i] - target[i]) * (pred[i] - target[i]));
+let dloss_dW = @loss / @W;
+\end{lstlisting}
+
+The target and parameter names determine the derivative shape. Because the
+request is an expression, it can appear near the computation it differentiates,
+including near intermediate or recurrent values. This is narrower than a full
+host-language AD system, but it gives the source language a simple and local
+differentiation interface.
+
+The quotient form is restricted to named source bindings because this makes the
+compiler's dependency query precise. A derivative of an anonymous inline
+subexpression would force the compiler to invent a hidden binding and decide its
+scope. \einlang{} instead asks the programmer to name the value, which also
+improves diagnostics and reuse.
+
+The two-line derivative example is deliberately source-local. The user names
+the loss once, then asks for the sensitivity with respect to \texttt{W} where
+the result is needed. The compiler can use the DefId of \texttt{loss} as the
+target and the DefId of \texttt{W} as the parameter, so the request is a
+structured dependency query rather than a string or callback. This is also why
+anonymous derivatives are not the core interface: naming the target gives the
+implementation a stable node to analyze, cache, lower, and report in
+diagnostics.
+
+\begin{center}
+\centering
+\input{figures/local_derivative_interfaces.tex}
+\captionsetup{type=figure,hypcap=false}
+\caption{Thesis-adapted comparison of local derivative interfaces. The thesis
+copy keeps the paper's motivating query but retunes the labels around the
+implementation boundary that the autodiff passes consume.}
+\label{fig:thesis-local-derivative-interfaces}
+\end{center}
+
+Figure~\ref{fig:thesis-local-derivative-interfaces} compares where the
+derivative boundary appears. JAX and Zygote package the selected value behind a
+function-like object; PyTorch exposes the query through graph state and a
+gradient buffer. \einlang{} instead makes the sensitivity an expression whose
+shape follows from the target and parameter. The implementation burden is
+higher because the compiler must lower the shaped request, but the source
+benefit is that intermediate and recurrent sensitivities stay in the same
+indexed language as the values they describe.
+
+\section{Types and Values}
+
+The executed implementation supports primitive scalars, rectangular arrays,
+jagged arrays for non-Einstein data, tuples, function values, and differential
+types used during the autodiff phase. Rectangular arrays are the tensor type
+that participates in indexed notation. A type can specify concrete dimensions,
+unknown dimensions, or dynamic rank:
+
+\begin{lstlisting}[style=einlang]
+let x: f32 = 1.0;
+let v: [f32] = [1.0, 2.0, 3.0];
+let m: [f32; 2, 3] = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+let dyn: [f32; *] = load_npy("weights.npy");
+\end{lstlisting}
+
+Shape is not only a type annotation. The compiler separately computes
+expression-level shape facts from literals, indexed definitions, reductions,
+and calls. This separation lets the type system track precision and rank while
+shape analysis tracks the concrete dimensions needed for indexing and lowering.
+
+The example distinguishes four levels of precision. A scalar has a primitive
+type only; a vector fixes rank but may leave length dynamic; a rectangular
+literal can expose concrete dimensions; and a loaded array may have dynamic
+rank. The compiler keeps these cases separate so that a function can be type
+compatible even when a later range or lowering pass still needs a concrete
+shape fact. In other words, type checking decides whether an expression is a
+tensor-like value of the right element kind, while shape analysis decides which
+indices and loops are legal for that value.
+
+\section{Functions, Blocks, and Modules}
+
+Functions are expressions with parameters, optional type annotations, and an
+implicit return value equal to the final block expression. Functions can be
+called before their textual definition after name resolution has hoisted item
+bindings. Modules are file-backed units resolved through \texttt{use} and
+\texttt{mod} declarations. Public functions and public re-exports make the
+standard library usable as ordinary \einlang{} code rather than as a bag of
+compiler intrinsics.
+
+\begin{lstlisting}[style=einlang]
+use std::math::basic::sqrt;
+
+fn norm2(x, y) {
+    sqrt(x * x + y * y)
+}
+
+let r = norm2(3.0, 4.0);
+\end{lstlisting}
+
+This snippet shows the ordinary-language machinery that the tensor features
+depend on. The \texttt{use} statement must resolve through the module system
+before the function call can be typed, and the function body must be hoisted so
+the call site can refer to a stable DefId. The final expression of the block is
+the return value, which keeps functions lightweight enough to use in indexed
+bodies. Without this module and function layer, the tensor core would collapse
+into a set of builtins rather than a language with reusable source libraries.
+
+The example also shows why ordinary expression features are part of the
+implementation story rather than background convenience. A standard-library
+function such as \texttt{sqrt} has to be imported, assigned a DefId, checked as
+a callable value, and executed through the same backend path as user functions.
+The final-expression return rule lets helper functions remain small enough to
+appear naturally inside tensor bodies, while the module system lets those
+helpers live outside the compiler. This is what keeps tensor notation from
+becoming a closed DSL with only hard-coded operations.
+
+\section{General Language Surface}
+
+The implementation supports more than the tensor core. The grammar includes
+function definitions, public functions, \texttt{@fn} differential rules, typed
+parameters and returns, immutable \texttt{let} and \texttt{const} declarations,
+tuple destructuring, blocks as expressions, \texttt{if}, \texttt{match},
+patterns, arrays, tuples, member access, pipeline expressions, casts,
+interpolated strings, module paths, \texttt{use} statements, inline modules,
+struct and enum syntax, and where clauses. Some parsed surface forms are
+implemented as current language features, while some remain parsed but not yet
+fully supported by the backend. The thesis focuses on the non-trivial executed
+path: tensor definitions, functions, modules, typing, recurrences, autodiff,
+standard-library calls, and examples.
+
+\section{Composition}
+
+The constructs are designed to be orthogonal. An indexed definition can feed a
+recurrence; a recurrence can feed an indexed reduction; a derivative request can
+target a final scalar or an intermediate tensor. The language benefit is stable
+notation. The compiler benefit is that the same IR can carry axes, domains,
+dependency offsets, and derivative targets until the pass that consumes each
+fact has run.
+
+\begin{lstlisting}[style=einlang]
+let score[t] = sum[d](x[t, d] * w[d]);
+let prefix[0] = score[0];
+let prefix[t in 1..T] = prefix[t - 1] + score[t];
+let dw = @prefix[T - 1] / @w;
+\end{lstlisting}
+
+The same source region contains a contraction, a recurrent binding, and a local
+derivative request. In a host framework this would typically become an array
+operation, a loop or scan, and a separate AD call. In \einlang{}, the compiler
+sees the named axes, the recurrent dependency, and the derivative target before
+any of them are lowered to backend operations.
+
+Composition is the strongest reason to keep the constructs in one language.
+The \texttt{score} binding exposes an indexed contraction, \texttt{prefix}
+turns that value into a recurrent sequence, and \texttt{dw} asks for a
+derivative of the final recurrent value. Each line consumes facts produced by
+earlier lines without changing notation families. The compiler can therefore
+thread range facts, recurrence offsets, and autodiff dependencies through one
+IR instead of coordinating several external APIs. This is the source-level
+version of the implementation thesis: smart passes become possible because the
+program has not hidden its structure too early.

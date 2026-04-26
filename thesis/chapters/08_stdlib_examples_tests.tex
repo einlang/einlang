@@ -1,0 +1,105 @@
+\chapter{Standard Library, Examples, and Tests}
+
+The implementation is only useful if the language can support realistic
+programs. The standard library, examples, and tests are therefore part of the
+artifact, not peripheral material.
+
+\section{Standard Library}
+
+The standard library lives under \pathcode{stdlib}. It is implemented in
+\einlang{} source files and imported through the module system. Builtins are a
+small fixed set known to the compiler and runtime; stdlib functions are normal
+library code whenever possible.
+
+At the time of this thesis draft, the repository contains 41 standard-library
+\texttt{.ein} files. That size matters because it forces the module loader,
+name resolver, type inference, monomorphization service, and backend to support
+ordinary library use rather than only hand-written compiler tests.
+
+\begin{table}[htbp]
+\centering
+\caption{Major standard-library areas.}
+\label{tab:stdlib}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular}{@{}L{0.28\textwidth}L{0.60\textwidth}@{}}
+\toprule
+Area & Examples \\
+\midrule
+\texttt{std::math} & Basic arithmetic helpers, constants, trigonometric, exponential, logarithmic, hyperbolic, clamp, modulo, and special functions. \\
+\texttt{std::array} & Flatten, transpose, reductions, concatenation, argmax/argmin, partition, top-k helpers, and array utility operations. \\
+\texttt{std::ml} & Activations, comparison/logical ops, convolution, indexing, layers, linear algebra, normalization, pooling, reductions, recurrent ops, resizing, selection, shape ops, special ops, transforms, and utilities. \\
+\texttt{std::numerics} & ODE stepping and trajectories, optimization helpers, and dynamic-programming routines. \\
+\texttt{std::io} & Loading and saving NumPy arrays plus printing-oriented support. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The breadth of the stdlib stresses modules, imports, function calls,
+monomorphization, tensor ranks, shape operations, and backend execution.
+
+\section{Examples}
+
+The examples directory covers the language from small onboarding programs to
+larger model-shaped workloads. Important groups include:
+
+\begin{itemize}
+\item basics and demos for syntax, arrays, functions, matrix operations, tuple
+syntax, pipeline operators, and module imports;
+\item autodiff examples for scalar derivatives, chains, losses, matrix
+products, gradient descent, and user functions;
+\item recurrence, ODE, PDE, optimization, finance, value-iteration, time-series,
+and job-search examples;
+\item application examples such as linear regression, decay calibration,
+Kalman filtering, MNIST training, quantized MNIST inference, DeiT-Tiny, and
+Whisper-Tiny.
+\end{itemize}
+
+The model examples matter because they exercise scale and shape complexity. The
+MNIST examples exercise autodiff and training loops. DeiT-Tiny and Whisper-Tiny
+exercise larger indexed tensor programs and standard-library ML operations.
+
+The repository currently includes 128 \texttt{.ein} example programs. They
+serve two roles: public demonstrations for users and integration pressure for
+the compiler. A small syntax example usually touches parsing, name resolution,
+type inference, and the NumPy expression backend. A model example additionally
+touches modules, stdlib imports, shape analysis across many intermediate
+tensors, lowering choices, file I/O, and backend performance diagnostics.
+
+\section{Test Suite}
+
+The test tree is divided by evidence type:
+
+\begin{itemize}
+\item \pathcode{tests/unit} checks narrow compiler/runtime behavior such as IR
+serialization, arrays, expressions, declarations, diagnostics, type and shape
+validation, pipeline validation, lazy Jacobians, recurrence storage, circular
+buffers, NumPy helpers, IREE fallback behavior, and specific pass behavior.
+\item \pathcode{tests/integration} checks end-to-end language behavior such as
+Fibonacci recurrence, reductions, named rest patterns, recursive functions,
+precision, shadowing, quantifier equivalences, scans, monomorphization, and IR
+execution.
+\item \pathcode{tests/stdlib} checks stdlib modules and ML operations against
+NumPy references across ranks and operator families.
+\item \pathcode{tests/examples} checks public examples, docs examples, MNIST
+autodiff behavior, simulation accuracy, and larger demo workloads.
+\end{itemize}
+
+Reference implementations in \pathcode{tests/examples/reference_implementations.py}
+provide NumPy baselines for simulation and numerical examples. Some paper
+comparison sources under \pathcode{paper/compare_sources} provide nearby JAX and
+PyTorch encodings for source-boundary comparison.
+
+There are 115 Python test files in the current test tree. This count is less
+important than the spread: unit tests catch small compiler invariants,
+integration tests exercise end-to-end language behavior, stdlib tests compare
+library functions against NumPy references, and example tests protect public
+promises in the README and docs.
+
+\section{Coverage Philosophy}
+
+The tests are not only regression tests. They encode the claims of the system:
+range and shape errors should be detected before execution; recurring bindings
+should execute in legal order; bounded recurrences should use circular storage
+when safe; local derivative requests should behave as shaped values; stdlib
+functions should match numerical references; public examples should continue to
+run as documented.

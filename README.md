@@ -15,7 +15,7 @@ let C[i, j] = sum[k](A[i, k] * B[k, j]);
 let dC_dA = @C / @A;
 ```
 
-The goal is simple: let math-heavy code stay close to the math while still catching shape and index mistakes before the program runs.
+Einlang keeps math-heavy code close to the math while catching shape and index mistakes before the program runs.
 
 If you are wondering whether this is worth your time, the shortest honest path is simple: run one tiny program, run one autodiff example, then run one slightly more realistic example. This README follows that path.
 
@@ -29,6 +29,8 @@ If you already know NumPy, JAX, or PyTorch, the easiest mental model is:
 
 That is the core of Einlang: keep the structure of the math visible, keep gradients local, and keep the notation consistent as programs grow.
 
+For the longer research writeups, read the [ACM-style paper](https://einlang.github.io/einlang/paper/einlang_paper.pdf) for the language-design argument and the [thesis-form report](https://einlang.github.io/einlang/thesis/einlang_thesis.pdf) for the implementation details. The [book](https://einlang.github.io/einlang/book/) is a seven-section treatment of explicit indices and compiler-visible tensor structure.
+
 ## Why it feels different
 
 | Instead of... | In Einlang... |
@@ -36,9 +38,9 @@ That is the core of Einlang: keep the structure of the math visible, keep gradie
 | `y = np.einsum("bi,ci->bc", x, W) + bias` | `let y[b, c] = sum[i](x[b, i] * W[c, i]) + bias[c];` |
 | `dloss_dW = jax.grad(loss_fn)(W)` | `let dloss_dW = @loss / @W;` |
 
-The point is not only that Einlang can run this kind of code. It keeps the structure you care about visible.
+Einlang can run this kind of code, and it keeps the structure you care about visible.
 
-## How to read the syntax
+## Syntax at a Glance
 
 Most new readers do not need the full language reference first. These are the five patterns that matter most:
 
@@ -121,7 +123,7 @@ let C[i, j] = sum[k](A[i, k] * B[k, j]);
 
 Read it as: "make `C`; for each output position `(i, j)`, multiply matching entries from row `i` of `A` and column `j` of `B`, then add over `k`."
 
-If you want an even quicker sanity check after install, this should print `2`:
+For an even quicker sanity check after install, this prints `2`:
 
 ```bash
 python3 -m einlang -c "let x = 1 + 1; print(x);"
@@ -144,7 +146,7 @@ That file uses `x = 1.0` and `y = 2.0`, then asks for derivatives of `x + y`, `x
 - for `w = x * y`, `dw_dx = 2` and `dw_dy = 1`
 - for `v = x / y`, `dv_dx = 0.5` and `dv_dy = -0.25`
 
-So the point is not just the syntax. The example shows that derivative requests are normal executable parts of the program.
+So the point is more than syntax. The example shows that derivative requests are normal executable parts of the program.
 
 Once that feels comfortable, widen the scope a little:
 
@@ -174,13 +176,13 @@ python3 -m einlang examples/ode/ode_suite.ein
 python3 -m einlang examples/optimization/optimization_suite.ein
 ```
 
-You do not have to run all three in one sitting. Start with the one closest to what you care about.
+The three examples are independent; the closest one is enough for a first pass.
 
-- If you care about sequences, state that evolves over time, or dynamic programs, start with `examples/recurrence/recurrence_suite.ein`.
-- If you care about time stepping and simulation, start with `examples/ode/ode_suite.ein`.
-- If you care about fitting loops and iterative methods, start with `examples/optimization/optimization_suite.ein`.
+- sequences, evolving state, or dynamic programs: `examples/recurrence/recurrence_suite.ein`
+- time stepping and simulation: `examples/ode/ode_suite.ein`
+- fitting loops and iterative methods: `examples/optimization/optimization_suite.ein`
 
-Those three examples answer the practical question most people have by this point: does the language still feel coherent once the toy examples are gone? That is the real promise of the project, and these are the examples that make it concrete.
+Those three examples answer the practical question most people have by this point: does the language still feel coherent once the introductory examples are gone? That is the real promise of the project, and these are the examples that make it concrete.
 
 By the end of that path, you have seen Einlang handle:
 
@@ -190,7 +192,7 @@ By the end of that path, you have seen Einlang handle:
 - simulation-style workflows
 - optimization-oriented examples
 
-If you want heavier showcases or directory-specific setup after that, use [examples/README](examples/README.md). That page is the map for the larger repo. This README is meant to be the friendly front door.
+For heavier showcases or directory-specific setup, [examples/README](examples/README.md) maps the larger repo.
 
 ## Common first questions
 
@@ -210,7 +212,7 @@ No. The CLI is the easiest first run, but you can also call Einlang from Python.
 
 Yes, in the honest sense that it is still growing. The NumPy path is the main one today, the example suite is large, and the IREE path is still in progress.
 
-## Use it from Python
+## Python Integration
 
 If you would rather stay in Python while trying things out, that works too:
 
@@ -254,7 +256,7 @@ Supported functions compile through IREE; anything outside the current subset fa
 If you want to keep going after the path above, here is the practical split. None of these are required for the first run:
 
 - [examples/README](examples/README.md) is the place to browse more runnable programs, especially the heavier showcases with their own setup details.
-- [book/index.md](book/index.md) is the book-style path through the core abstractions: indexed data, recurrence, local derivatives, and storage.
+- [Visible Dimensions](https://einlang.github.io/einlang/book/) is a seven-section book about what tensor programs can state once dimensions have names.
 - [docs/reference.md](docs/reference.md) is for syntax and semantics once you want the language spelled out precisely.
 - [docs/stdlib.md](docs/stdlib.md) is the lookup page for built-ins, modules, and library surface.
 - [docs/AUTODIFF.md](docs/AUTODIFF.md) goes deeper on differential expressions and autodiff-specific behavior.

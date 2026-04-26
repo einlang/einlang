@@ -1,0 +1,35 @@
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{Einlang: named axes in IR}
+\begin{lstlisting}[style=einlang,basicstyle=\ttfamily\footnotesize]
+let C[i, j] =
+    sum[k](A[i, k] * B[k, j]);
+\end{lstlisting}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{NumPy: string mini-language}
+\begin{lstlisting}[style=pythoncode,basicstyle=\ttfamily\footnotesize]
+C = np.einsum("ik,kj->ij", A, B)
+\end{lstlisting}
+\end{minipage}
+
+\vspace{0.45\baselineskip}
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{TVM: tensor expression}
+\begin{lstlisting}[style=pythoncode,basicstyle=\ttfamily\footnotesize]
+k = te.reduce_axis((0, K), "k")
+C = te.compute((M, N),
+    lambda i, j: te.sum(
+        A[i, k] * B[k, j], axis=k))
+\end{lstlisting}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{Halide: update definition}
+\begin{lstlisting}[style=pythoncode,basicstyle=\ttfamily\footnotesize]
+Var i, j;
+RDom k(0, K);
+Func C;
+C(i, j) += A(i, k) * B(k, j);
+\end{lstlisting}
+\end{minipage}

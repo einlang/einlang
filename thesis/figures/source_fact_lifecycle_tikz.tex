@@ -1,0 +1,96 @@
+\begin{tikzpicture}[
+  font=\sffamily\footnotesize,
+  >=Latex,
+  title/.style={font=\sffamily\bfseries\large,text=figInk,align=center},
+  box/.style={draw=figLine,line width=0.6pt,rounded corners=2pt,fill=white,align=left,inner sep=7pt,text=figInk},
+  fact/.style={box,minimum width=3.3cm,minimum height=1.25cm},
+  consumer/.style={box,minimum width=3.3cm,minimum height=1.25cm,fill=figSlateBg},
+  spine/.style={box,minimum width=11.4cm,minimum height=1.0cm,align=center},
+  backend/.style={box,minimum width=5.0cm,minimum height=1.1cm,fill=white},
+  arrow/.style={->,line width=0.8pt,draw=figLine},
+  bus/.style={line width=0.8pt,draw=figLine}
+]
+
+\node[title] (title) at (0,0) {Source Facts and Their Implementation Consumers};
+
+\node[spine,fill=figBlueBg,draw=figBlue] (source) at (0,-1.25) {
+  \textbf{One Einlang source program}\\
+  indexed bindings, recurrence clauses, derivative requests, modules, and local names
+};
+
+\node[fact,fill=figBlueBg,draw=figBlue] (axes) at (-4.1,-3.05) {
+  \textbf{Axis facts}\\
+  output indices\\
+  reduction indices\\
+  rest-pattern spans
+};
+\node[fact,fill=figGreenBg,draw=figGreen] (deps) at (0,-3.05) {
+  \textbf{Dependency facts}\\
+  self-read offsets\\
+  same-timestep reads\\
+  later observations
+};
+\node[fact,fill=figRoseBg,draw=figRose] (diffs) at (4.1,-3.05) {
+  \textbf{Derivative facts}\\
+  target bindings\\
+  wrt bindings\\
+  tangent axes
+};
+
+\node[consumer] (shape) at (-4.1,-5.35) {
+  \textbf{Range, shape, type}\\
+  infer domains\\
+  check ranks\\
+  type expressions
+};
+\node[consumer] (storage) at (0,-5.35) {
+  \textbf{Recurrence planning}\\
+  choose order\\
+  prove windows\\
+  annotate storage
+};
+\node[consumer] (ad) at (4.1,-5.35) {
+  \textbf{Autodiff lowering}\\
+  synthesize IR\\
+  project Jacobians\\
+  enforce leak checks
+};
+
+\node[spine,fill=figGoldBg,draw=figGold] (lowered) at (0,-7.65) {
+  \textbf{Lowered, DefId-keyed implementation IR}\\
+  explicit loops, guards, bindings, recurrence metadata, and backend execution facts
+};
+
+\node[backend] (numpy) at (-2.85,-9.75) {
+  \textbf{NumPy backend}\\
+  scalar, vectorized, hybrid\\
+  reductions and circular buffers
+};
+\node[backend] (iree) at (2.85,-9.75) {
+  \textbf{IREE subset}\\
+  lazy MLIR emission\\
+  signature cache and fallback
+};
+
+\draw[arrow] ([xshift=-4.1cm]source.south) -- (axes.north);
+\draw[arrow] (source.south) -- (deps.north);
+\draw[arrow] ([xshift=4.1cm]source.south) -- (diffs.north);
+
+\draw[arrow] (axes.south) -- (shape.north);
+\draw[arrow] (deps.south) -- (storage.north);
+\draw[arrow] (diffs.south) -- (ad.north);
+
+\coordinate (lowerbus) at (0,-6.55);
+\draw[bus] (-4.1,-6.55) -- (4.1,-6.55);
+\draw[bus] (shape.south) -- (-4.1,-6.55);
+\draw[bus] (storage.south) -- (0,-6.55);
+\draw[bus] (ad.south) -- (4.1,-6.55);
+\draw[arrow] (lowerbus) -- (lowered.north);
+
+\coordinate (backendbus) at (0,-8.75);
+\draw[arrow] (lowered.south) -- (backendbus);
+\draw[bus] (-2.85,-8.75) -- (2.85,-8.75);
+\draw[arrow] (-2.85,-8.75) -- (numpy.north);
+\draw[arrow] (2.85,-8.75) -- (iree.north);
+
+\end{tikzpicture}
