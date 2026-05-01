@@ -209,6 +209,21 @@ in the `col` domain. This is another design boundary: reduction can consume a
 coordinate, but a language should not smuggle the consumed coordinate back in
 unless the source requested it.
 
+Once that boundary exists, a user-defined function can preserve it:
+
+```rust
+fn top1[class](x: [f32; ..left, class, ..right])
+    -> [i32; ..left, ..right]
+{
+    argmax[class](x[..left, class, ..right])
+}
+```
+
+The caller writes `top1[class](logits)`. The function body may hide the local
+selection loop, but the signature still says that `class` is consumed and that
+all surrounding coordinates survive. That is the reusable form of "the index
+that leaves."
+
 This same pattern will recur: the operation may be compact, but the consumed
 coordinate remains visible in brackets. That is what keeps `argmax[col]` from
 being just another positional helper.

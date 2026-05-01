@@ -91,15 +91,24 @@ let result[..batch, i, j] = x[..batch, j, i];
 The reusable form should preserve the same contract. A coordinate function
 could expose the moving roles directly:
 
-```text
-let result[..batch, i, j] =
-    transpose_last2[i, j](x[..batch, j, i])
+```rust
+fn swap[j, k](x: [f32; ..left, j, ..middle, k, ..right])
+    -> [f32; ..left, k, ..middle, j, ..right]
+{
+    let y[..left, k, ..middle, j, ..right] =
+        x[..left, j, ..middle, k, ..right];
+    y
+}
+
+let result = swap[j, i](x);
 ```
 
 The call is short because the map is conventional, not because the coordinate
 story disappeared. The implementation may lower to a view, but the function
-boundary still says which two coordinates trade places and which prefix is
-carried.
+boundary still says which two coordinates trade places and which surrounding
+packs are carried. The function does not assume rank. It only requires that
+`j` occur before `k` in the argument layout for this definition; a companion
+definition can cover the reverse order if a library wants both directions.
 
 <figure class="axis-map-figure">
   <p class="axis-map-title">Named Axis Snapshot: Transpose</p>
@@ -195,6 +204,12 @@ This is the first appearance of a pattern the book will reuse. Human-facing
 coordinate functions can compress a family of coordinate relations. The
 compiler-facing IR eventually needs the family made explicit enough for range,
 shape, and lowering to act on it.
+
+That is also why coordinate packs belong in function signatures. A call such
+as `swap[j, i](x)` names only the two roles being moved. The `..left`,
+`..middle`, and `..right` packs are recovered from `x` and then stamped onto the
+call as compiler facts. The caller does not count axes; the compiler still gets
+the full explicit list before lowering.
 
 ## Depth to Space Is a Coordinate Unpacking
 

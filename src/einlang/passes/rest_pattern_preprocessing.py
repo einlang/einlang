@@ -1271,6 +1271,8 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
         )
         new_node.type_info = node.type_info
         new_node.shape_info = node.shape_info
+        new_node.coordinate_layout = getattr(node, "coordinate_layout", None)
+        new_node.coordinate_address_domain = getattr(node, "coordinate_address_domain", None)
         return new_node
     
     # Identity transformations for most nodes
@@ -1290,6 +1292,7 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
             location=node.location
         )
         new_node.type_info = node.type_info
+        new_node.shape_info = node.shape_info
         return new_node
     
     def visit_unary_op(self, node: UnaryOpIR) -> ExpressionIR:

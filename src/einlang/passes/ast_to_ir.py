@@ -617,9 +617,15 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         for coord in getattr(ast_call, "coordinate_args", []) or []:
             if isinstance(coord, ASTIdentifier):
                 coordinate_args.append(IdentifierIR(coord.name, location, defid=getattr(coord, "defid", None)))
+            elif isinstance(coord, ASTTupleExpression):
+                elements = []
+                for elem in coord.elements:
+                    if isinstance(elem, ASTIdentifier):
+                        elements.append(IdentifierIR(elem.name, location, defid=getattr(elem, "defid", None)))
+                coordinate_args.append(TupleExpressionIR(elements=elements, location=location))
             else:
                 coord_ir = coord.accept(self) if hasattr(coord, "accept") else None
-                if isinstance(coord_ir, IdentifierIR):
+                if isinstance(coord_ir, ExpressionIR):
                     coordinate_args.append(coord_ir)
 
         # Expression callee (lambda, etc.) -> use callee_expr; name/module callee -> use name/defid path

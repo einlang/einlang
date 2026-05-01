@@ -164,6 +164,12 @@ class IRSerializer:
             result.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
         if node.shape_info is not None:
             result.extend([self._sym(":shape_info"), self._serialize_shape_info(node.shape_info)])
+        layout = getattr(node, "coordinate_layout", None)
+        if layout:
+            result.extend([self._sym(":coordinate_layout"), [str(axis) for axis in layout]])
+        address_domain = getattr(node, "coordinate_address_domain", None)
+        if address_domain:
+            result.extend([self._sym(":coordinate_address_domain"), str(address_domain)])
         return result
 
     def _serialize_shape_info(self, shape_info: Any) -> list:
@@ -1082,6 +1088,21 @@ class IRDeserializer:
         _, opts = _plist(tail[skip:])
         return self._parse_shape_info_raw(opts.get(":shape_info"))
 
+    def _apply_coordinate_metadata(self, node: Any, opts: dict) -> Any:
+        layout = opts.get(":coordinate_layout")
+        if isinstance(layout, list):
+            try:
+                node.coordinate_layout = tuple(str(_sym_val(axis)) for axis in layout)
+            except AttributeError:
+                pass
+        address_domain = opts.get(":coordinate_address_domain")
+        if address_domain is not None:
+            try:
+                node.coordinate_address_domain = str(_sym_val(address_domain))
+            except AttributeError:
+                pass
+        return node
+
     def _coerce_literal_value_by_type(self, value: Any, ty: Any) -> Any:
         from ..shared.types import TupleType
 
@@ -1122,7 +1143,10 @@ class IRDeserializer:
         defid = _parse_defid(opts.get(":defid"))
         ty = self._deserialize_type(opts.get(":inferred_type"))
         shape_info = self._opts_shape_info(tail, 1)
-        return IdentifierIR(name=name, location=loc, defid=defid, type_info=ty, shape_info=shape_info)
+        return self._apply_coordinate_metadata(
+            IdentifierIR(name=name, location=loc, defid=defid, type_info=ty, shape_info=shape_info),
+            opts,
+        )
 
     def _deserialize_binary_op(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import BinaryOpIR
@@ -1223,7 +1247,10 @@ class IRDeserializer:
         if callee is None:
             callee = IdentifierIR(name="", location=loc, defid=func_defid)
         shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
-        return FunctionCallIR(callee_expr=callee, location=loc, arguments=args, module_path=module_path, type_info=ty, shape_info=shape_info, coordinate_args=coordinate_args)
+        return self._apply_coordinate_metadata(
+            FunctionCallIR(callee_expr=callee, location=loc, arguments=args, module_path=module_path, type_info=ty, shape_info=shape_info, coordinate_args=coordinate_args),
+            opts,
+        )
 
     def _deserialize_builtin_call(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import BuiltinCallIR
@@ -1602,7 +1629,10 @@ class IRDeserializer:
         loc = self._loc_from_opts(opts) or SourceLocation("", 0, 0)
         type_info = self._deserialize_type(opts.get(":inferred_type"))
         shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
-        return EinsteinIR(clauses=clauses, shape=shape, element_type=element_type, location=loc, type_info=type_info, shape_info=shape_info)
+        return self._apply_coordinate_metadata(
+            EinsteinIR(clauses=clauses, shape=shape, element_type=element_type, location=loc, type_info=type_info, shape_info=shape_info),
+            opts,
+        )
 
     def _deserialize_binding(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import BindingIR
@@ -2051,7 +2081,10 @@ class IRDeserializer:
         where_clause = self.deserialize(where_clause_sexpr) if where_clause_sexpr is not None else None
         ty = self._deserialize_type(opts.get(":inferred_type"))
         shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
-        return ReductionExpressionIR(operation=ReductionOp.parse(operation), loop_vars=loop_vars, body=body, location=loc, where_clause=where_clause, loop_var_ranges=loop_var_ranges, type_info=ty, shape_info=shape_info)
+        return self._apply_coordinate_metadata(
+            ReductionExpressionIR(operation=ReductionOp.parse(operation), loop_vars=loop_vars, body=body, location=loc, where_clause=where_clause, loop_var_ranges=loop_var_ranges, type_info=ty, shape_info=shape_info),
+            opts,
+        )
 
     def _deserialize_expr(self, tag: str, tail: list, full: list) -> Any:
         raise ValueError(f"Unknown IR tag: {tag}")

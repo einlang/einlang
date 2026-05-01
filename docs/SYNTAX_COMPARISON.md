@@ -15,6 +15,7 @@ One small syntax note up front: Einlang source uses `//` for line comments. It d
 |--------------|-----------------|------------|-------------------|
 | Matrix multiply | `np.einsum('ik,kj->ij', A, B)` or `A @ B` | `let C[i, j] = sum[k](A[i, k] * B[k, j]);` | [Einstein notation](https://github.com/einlang/einlang/blob/main/docs/reference.md#einstein-notation) |
 | Sum over an axis | `np.sum(x, axis=1)` | `let s[i] = sum[j](x[i, j]);` | [Reductions](https://github.com/einlang/einlang/blob/main/docs/reference.md#einstein-notation) |
+| Softmax / argmax over an axis | `softmax(logits, axis=-1)` or `np.argmax(logits, axis=1)` | `let p[b, class] = softmax[class](logits[b, class]);`<br>`let pred[b] = argmax[class](p[b, class]);` | [Coordinate-aware functions](https://github.com/einlang/einlang/blob/main/docs/reference.md#coordinate-aware-functions) |
 | Element-wise ops | `A * B`, `A + 1` | `let out[i, j] = A[i, j] * B[i, j];` or same-shape `A + B` | [Rectangular declarations](https://github.com/einlang/einlang/blob/main/docs/reference.md#einstein-notation), [Operators](https://github.com/einlang/einlang/blob/main/docs/reference.md#operators) |
 | Differentiate a loss | `jax.grad(lambda w: loss(w))(w)` or library-specific wrappers | `let dloss_dw = @loss / @w;` right where the loss is defined | [Automatic differentiation](https://github.com/einlang/einlang/blob/main/docs/reference.md#automatic-differentiation) |
 | Run your code | — | `from einlang import run; run(file="...")` or `run(source="...")` | [Install & run](https://github.com/einlang/einlang/blob/main/README.md#quick-start) |
@@ -30,6 +31,7 @@ Einlang runs **inside** your Python process; you pass a file path or a source st
 | You usually… | Julia | In Einlang | More in reference |
 |--------------|--------|------------|-------------------|
 | Matrix multiply | `A * B` or loops | `let C[i, j] = sum[k](A[i, k] * B[k, j]);` | [Einstein notation](https://github.com/einlang/einlang/blob/main/docs/reference.md#einstein-notation) |
+| Axis-sensitive helper | `mapslices`, `dims`, or package-specific axis arguments | `softmax[class](logits)` or `argmax[class](logits)` | [Coordinate-aware functions](https://github.com/einlang/einlang/blob/main/docs/reference.md#coordinate-aware-functions) |
 | Comprehensions | `[x^2 for x in 1:10]` | `[i * i \| i in 1..10]` | [Array comprehensions](https://github.com/einlang/einlang/blob/main/docs/reference.md#array-comprehensions) |
 | Ranges | `1:10` (inclusive) | `1..10` (exclusive), `0..=10` (inclusive) | [Ranges](https://github.com/einlang/einlang/blob/main/docs/reference.md#ranges) |
 | Functions | `function f(x) ... end` | `fn f(x) { ... }` (last expression is the return value) | [fn declarations](https://github.com/einlang/einlang/blob/main/docs/reference.md#fn-declarations) |
@@ -47,6 +49,7 @@ Einlang runs **inside** your Python process; you pass a file path or a source st
 |--------------|------|------------|-------------------|
 | Bindings | `let x = 42;` | `let x = 42;` | [let declarations](https://github.com/einlang/einlang/blob/main/docs/reference.md#let-declarations) |
 | Functions | `fn f(x: i32) -> i32 { ... }` | `fn f(x) { ... }` or add types: `fn f(x: i32) -> i32 { ... }` | [fn declarations](https://github.com/einlang/einlang/blob/main/docs/reference.md#fn-declarations) |
+| Function with an axis contract | Pass an enum/axis argument by convention | `fn normalize[j](x: [f32; ..left, j, ..right]) { ... }`<br>`normalize[class](logits)` | [Coordinate-aware functions](https://github.com/einlang/einlang/blob/main/docs/reference.md#coordinate-aware-functions) |
 | Blocks | `{ stmt; expr }` | `{ stmt; expr }` (last expr is the value) | [Block expressions](https://github.com/einlang/einlang/blob/main/docs/reference.md#block-expressions) |
 | Match | `match x { 0 => ..., _ => ... }` | `match x { 0 => ..., _ => ... }` | [match expressions](https://github.com/einlang/einlang/blob/main/docs/reference.md#match-expressions) |
 | Arrays | `let a: [i32; 3] = [1, 2, 3];` | `let a = [1, 2, 3];` (inferred) or add type if you want | [Types](https://github.com/einlang/einlang/blob/main/docs/reference.md#types), [Literals](https://github.com/einlang/einlang/blob/main/docs/reference.md#literals) |
@@ -57,5 +60,6 @@ Einlang runs **inside** your Python process; you pass a file path or a source st
 ## Where to go next
 
 - **Full syntax and semantics:** [Language reference](https://github.com/einlang/einlang/blob/main/docs/reference.md)
+- **Coordinate-aware calls:** [Coordinate functions](https://github.com/einlang/einlang/blob/main/docs/COORDINATE_FUNCTIONS.md)
 - **Built-in functions:** [Standard library](https://github.com/einlang/einlang/blob/main/docs/stdlib.md)
 - **Run from Python:** [Install & run](https://github.com/einlang/einlang/blob/main/README.md#quick-start) in the main README

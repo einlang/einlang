@@ -214,6 +214,18 @@ This is the difference between asking "what operations happened?" and asking
 differentiating with respect to?" The latter question is visible in the
 formula.
 
+A coordinate-aware `matmul` keeps that visibility when the formula is hidden:
+
+```rust
+fn matmul[i, j, k](a: [f32; ..batch, i, k],
+                  b: [f32; ..batch, k, j])
+    -> [f32; ..batch, i, j]
+```
+
+The pullback rules do not need `matmul` to stay expanded forever. They need the
+function boundary to remember which coordinate was contracted and which prefix
+was carried.
+
 ## What Must the Gradient Be Addressed Like?
 
 Before any implementation strategy appears, the request `@loss / @A` has a

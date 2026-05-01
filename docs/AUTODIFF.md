@@ -76,6 +76,24 @@ pub fn exp(x) {
 An `@fn` rule is dormant unless an autodiff request reaches a call to that
 function. Without a derivative request, the primal function runs normally.
 
+Coordinate-aware functions can also have coordinate-aware custom rules. The
+coordinate parameter list must match the primal function:
+
+```rust
+fn ste_top1[j](p: [f32; ..left, j, ..right]) -> [i32; ..left, ..right] {
+    argmax[j](p[..left, j, ..right])
+}
+
+@fn ste_top1[j](p: [f32; ..left, j, ..right]) {
+    soft_surrogate_tangent[j](p, @p)
+}
+```
+
+This is useful for axis-sensitive helpers such as selections, routing, or
+normalization, where the derivative rule must preserve the same coordinate
+contract as the primal call. See [COORDINATE_FUNCTIONS](COORDINATE_FUNCTIONS.md)
+for the full coordinate-function rules.
+
 ## What `@x` means
 
 `@x` materializes the identity tangent of `x`.
@@ -113,6 +131,7 @@ Autodiff is designed for the kinds of tensor programs Einlang is already good at
 - Einstein-style contractions such as matrix multiply
 - expressions with `where` clauses
 - many standard-library math and ML operations
+- coordinate-aware calls such as `softmax[class](x)` when the called operation has a supported rule
 
 In practice, if you can express the computation cleanly in Einlang, autodiff is often the first thing to try instead of finite-difference estimates.
 
@@ -152,4 +171,5 @@ If you want the clearest “autodiff is doing real ML training work” example, 
 ## Next
 
 - For the full language rules, see [reference](reference.md).
+- For coordinate-aware function contracts, see [COORDINATE_FUNCTIONS](COORDINATE_FUNCTIONS.md).
 - For runnable programs, see [examples/README](../examples/README.md).

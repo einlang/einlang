@@ -16,6 +16,7 @@ This doc set is intentionally small. If you are using Einlang, start with the us
 - [Einlang: Formulas as Code](https://einlang.github.io/einlang/book/): a book-style introduction to Einlang's core abstractions.
 - [Examples guide](../examples/README.md): curated runnable programs by goal.
 - [Autodiff guide](AUTODIFF.md): how `@x`, `@y / @x`, and related forms work.
+- [Coordinate-aware functions](COORDINATE_FUNCTIONS.md): how `softmax[class]`, `argmax[class]`, and coordinate-parameterized `fn` declarations work.
 - [Why Einlang](WHY_EINLANG.md): project motivation and positioning.
 - [Syntax comparison](SYNTAX_COMPARISON.md): bridge from NumPy, Julia, or Rust habits.
 
@@ -23,7 +24,7 @@ This doc set is intentionally small. If you are using Einlang, start with the us
 
 - [Language reference](reference.md): syntax and semantics.
 - [Standard library](stdlib.md): library reference.
-- [Coordinate-aware functions design](COORDINATE_FUNCTIONS.md): proposal for indexed function contracts, selection reductions, and integer domain contracts.
+- [Coordinate-aware functions](COORDINATE_FUNCTIONS.md): indexed function contracts, selection reductions, and integer domain contracts.
 
 ## Research
 

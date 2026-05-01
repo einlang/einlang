@@ -167,8 +167,16 @@ class EinlangTransformer(Transformer):
         """✅ Grammar: 'pub' 'fn' NAME LPAR param_list? RPAR ('->' type)? block - 'pub', 'fn' and '->' filtered"""
         return self.function_parser.parse_function_definition(meta, name, *args, is_public=True)
 
+    def coord_pack_param(self, meta: LarkMeta, *items: Token) -> str:
+        """Coordinate parameter pack: ..axes."""
+        for item in items:
+            token_info = handle_token(item)
+            if token_info.get("type") == "NAME":
+                return f"..{token_info.get('value')}"
+        return ".."
+
     def coord_params(self, meta: LarkMeta, lsqb: Token, *items: Token) -> Dict[str, List[str]]:
-        """Coordinate parameter list: [j] or [left, right]."""
+        """Coordinate parameter list: [j] or [..axes]."""
         names: List[str] = []
         for item in items:
             token_info = handle_token(item)
@@ -1374,6 +1382,10 @@ class EinlangTransformer(Transformer):
                 elements.append(arg)  # Keep expressions
         
         return TupleExpression(elements=elements, location=location)
+
+    def empty_tuple_expr(self, meta: LarkMeta, *args: Token) -> TupleExpression:
+        """Empty tuple expression; in coordinate calls this is an empty pack."""
+        return TupleExpression(elements=[], location=self._extract_location(meta))
     
 
         

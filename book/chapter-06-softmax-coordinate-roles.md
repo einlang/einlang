@@ -34,13 +34,21 @@ that the compact call hides.
 Once that structure is stated, it can become a coordinate function:
 
 ```rust
-let output[..batch, j] = softmax[j](x[..batch, j]);
+fn softmax[j](x: [f32; ..batch, j]) -> [f32; ..batch, j] {
+    let m[..batch] = max[j](x[..batch, j]);
+    let e[..batch, j] = exp(x[..batch, j] - m[..batch]);
+    let z[..batch] = sum[j](e[..batch, j]);
+    e[..batch, j] / z[..batch]
+}
+
+let output = softmax[j](x);
 ```
 
 This call is compact, but it is not positional. The bracketed `j` says which
-coordinate is normalized, while the result still carries `j`. The standard
-library can hide the stable maximum and denominator scans only because the
-coordinate contract remains visible at the boundary.
+coordinate is normalized, while the result still carries `j`. The `..batch`
+pack is inferred from the argument. The standard library can hide the stable
+maximum and denominator scans only because the coordinate contract remains
+visible at the boundary.
 
 Softmax has one logical feature axis, but several coordinate jobs: the
 feature being returned, the feature scanned by the denominator, and the feature

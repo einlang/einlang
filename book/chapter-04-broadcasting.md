@@ -90,6 +90,17 @@ is acceptable only if the bracketed coordinate states the reuse contract:
 coordinate argument, the helper has hidden the same fact broadcasting usually
 hides.
 
+The corresponding function signature should make the same promise:
+
+```rust
+fn add_bias[feature](x: [f32; ..batch, feature], bias: [f32; feature])
+    -> [f32; ..batch, feature]
+```
+
+The caller names `feature`; the batch-like prefix is inferred. That is the
+coordinate-function version of broadcasting: the function hides addition, not
+the independence of `bias` from every coordinate in `..batch`.
+
 ## Omitted Coordinates
 
 An index-oriented version can make the omission explicit without inventing a

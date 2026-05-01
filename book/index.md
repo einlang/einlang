@@ -42,6 +42,9 @@ let y[i] = x[i] + 1;
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
 let p[b, class] = softmax[class](logits[b, class]);
 let pred[b] = argmax[class](p[b, class]);
+let image[channel, row, col] = load_image();
+let channels_last = move_channel[channel](image);
+let swapped = swap[time, feature](x);
 let dy_dx = @y / @x;
 let h[t in 1..T] = step(h[t - 1], x[t]);
 ```
@@ -56,6 +59,22 @@ library convenience; it is the way common tensor ideas become reusable without
 falling back to anonymous axis numbers. The expanded indexed form teaches the
 contract. The coordinate-function form carries the same contract across a
 function boundary.
+
+Coordinate packs are the same idea at rank-polymorphic scale. A function can
+say that one named axis matters while the surrounding axes should be inferred:
+
+```rust
+fn move_channel[channel, ..spatial](x: [f32; channel, ..spatial])
+    -> [f32; ..spatial, channel]
+
+let image[channel, row, col] = load_image();
+move_channel[channel](image)
+```
+
+Here the caller names only the axis whose role matters. The `..spatial` pack is
+not another argument to remember; it is inferred from the actual layout. When a
+whole group must be chosen explicitly, the group is one parenthesized
+coordinate argument, such as `layer_norm[(height, width, channel)](x)`.
 
 Two distinctions are worth keeping close. An axis name is a semantic role:
 `batch`, `time`, `feature`, `class`, `head`, `row`, `col`. A dimension size is

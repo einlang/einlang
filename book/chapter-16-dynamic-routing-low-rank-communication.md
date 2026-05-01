@@ -541,6 +541,18 @@ MoE, name the route, the slot, the keep mask, and the expert statistics. Those
 names are not surface documentation. They are the facts later analysis will
 need for gradients, storage, load balance, streaming, and debugging.
 
+Coordinate functions are the compression mechanism that keeps this discipline
+usable. A helper such as:
+
+```rust
+fn ste_top1[e](p: [f32; ..left, e, ..right]) -> [i32; ..left, ..right]
+```
+
+can hide the straight-through mechanics while preserving the visible choice:
+`e` is the expert coordinate being selected, and the surrounding coordinates
+survive. That is the same bargain as `softmax[class]`, only under a harder
+dynamic route.
+
 The book began with a reshape whose shape was right but whose reason was
 hidden. It ends here with more modern failures: an approximation whose
 bottleneck is hidden, and a routing decision whose topology is hidden. The

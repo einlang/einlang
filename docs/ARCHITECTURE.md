@@ -34,7 +34,7 @@ The main flow inside [`CompilerDriver.compile`](../src/einlang/compiler/driver.p
 2. Set up the module system in [`src/einlang/analysis/module_system`](../src/einlang/analysis/module_system)
 3. Run name resolution in [`src/einlang/passes/name_resolution.py`](../src/einlang/passes/name_resolution.py)
 4. Lower AST to IR with [`src/einlang/passes/ast_to_ir.py`](../src/einlang/passes/ast_to_ir.py)
-5. Run IR passes from [`src/einlang/passes`](../src/einlang/passes)
+5. Run IR passes from [`src/einlang/passes`](../src/einlang/passes), including coordinate analysis for calls such as `softmax[class](x)` and `argmax[class](x)`
 6. Tree-shake and hand the result to the runtime/backend
 
 ## Where to edit what
@@ -47,6 +47,8 @@ The main flow inside [`CompilerDriver.compile`](../src/einlang/compiler/driver.p
   [`src/einlang/passes/ast_to_ir.py`](../src/einlang/passes/ast_to_ir.py)
 - Shape, range, or type issue:
   [`range_analysis.py`](../src/einlang/passes/range_analysis.py), [`shape_analysis.py`](../src/einlang/passes/shape_analysis.py), [`type_inference.py`](../src/einlang/passes/type_inference.py)
+- Coordinate-aware function or selection-reduction issue:
+  [`coordinate_analysis.py`](../src/einlang/passes/coordinate_analysis.py), [`ast_to_ir.py`](../src/einlang/passes/ast_to_ir.py), [`range_analysis.py`](../src/einlang/passes/range_analysis.py)
 - Autodiff issue:
   [`src/einlang/passes/autodiff`](../src/einlang/passes/autodiff)
 - Einstein lowering or recurrence issue:

@@ -243,6 +243,19 @@ The derivative engine does not need to rediscover that batch structure is
 carried unchanged. The source has separated batch structure from contraction
 structure.
 
+This is exactly the kind of fact a coordinate function must preserve if
+`matmul` becomes a library boundary:
+
+```rust
+fn matmul[i, j, k](a: [f32; ..batch, i, k],
+                  b: [f32; ..batch, k, j])
+    -> [f32; ..batch, i, j]
+```
+
+The function may lower to a tuned kernel, but the contract still says that
+`k` is consumed and `..batch` is not. Autodiff can ask for the pullback against
+that contract rather than guessing from a positional call.
+
 ## Graphs Are History; Gradients Are Structure
 
 Execution graphs remain useful implementation devices. A real compiler may

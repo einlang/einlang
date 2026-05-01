@@ -71,6 +71,22 @@ Both calls are short, but neither asks the reader to remember that `class`
 happens to be axis `1`. The operation names and the coordinate roles meet at
 the call site.
 
+The same rule scales beyond one coordinate. If a helper only needs the channel
+role, the caller should not have to spell every surrounding spatial role:
+
+```rust
+fn move_channel[channel, ..spatial](x: [f32; channel, ..spatial])
+    -> [f32; ..spatial, channel]
+
+let image[channel, row, col] = load_image();
+let y = move_channel[channel](image);
+```
+
+The word `channel` is the explicit choice. The pack `..spatial` is inferred as
+`row, col`. That is the difference between a coordinate function and a
+positional wrapper around `permute`: the function quantifies over roles, not
+over slot numbers.
+
 So the argument is not "names on dimensions are useless." It is that names
 become much more powerful when operations are written in terms of them, rather
 than merely carrying them beside positional operations.

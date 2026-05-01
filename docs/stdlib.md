@@ -1,11 +1,38 @@
 
 # Einlang Standard Library
 
-The standard library is a set of modules and functions implemented in Einlang under `stdlib/`. It is separate from language built-ins such as `print`, `assert`, `len`, `sum`, `max`, and `min`, which are available without import.
+The standard library is a set of modules and functions implemented in Einlang under `stdlib/`. It is separate from language built-ins such as `print`, `assert`, `len`, `sum`, `max`, `min`, `argmax`, and `argmin`, which are available without import.
 
 For syntax and type rules, see [reference](reference.md). If you are just getting started, read [GETTING_STARTED](GETTING_STARTED.md) or browse [examples/README](../examples/README.md).
 
 ---
+
+## Coordinate Functions
+
+Coordinate functions use bracketed coordinate arguments before ordinary value
+arguments. The bracket names the coordinate domain the operation consumes,
+normalizes, selects, or returns as an address.
+
+```rust
+let probs[b, class] = softmax[class](logits[b, class]);
+let pred[b] = argmax[class](probs[b, class]);
+let route[b, t] = argmax[expert](gate_prob[b, t, expert]);
+```
+
+Common coordinate forms:
+
+| Function | Meaning |
+|----------|---------|
+| `sum[j](x[..batch, j])` | Reduce over `j` and keep the other coordinates. |
+| `max[j](x[..batch, j])` / `min[j](...)` | Reduce to the extremal value over `j`. |
+| `prod[j](x[..batch, j])` | Product reduction over `j`. |
+| `argmax[j](x[..batch, j])` / `argmin[j](...)` | Return integer addresses in the `j` domain. |
+| `softmax[j](x[..batch, j])` | Normalize over `j` while preserving `j` in the result; import from `std::ml::activations`. |
+
+Use ordinary pointwise calls such as `relu(x)` or `exp(x)` when the function
+does not need to name a coordinate. Use a coordinate argument when the operation
+would otherwise hide an axis choice. See [COORDINATE_FUNCTIONS](COORDINATE_FUNCTIONS.md)
+for the full contract.
 
 ## `std::math`
 
@@ -177,7 +204,7 @@ use std::ml::activations::{relu, sigmoid, softmax, log_softmax, leaky_relu,
                             threshold, thresholded_relu, celu, gelu_tanh};
 
 let out = relu([[-1, 0, 1], [2, -2, 0.5]]);  // [[0, 0, 1], [2, 0, 0.5]]
-let probs = softmax([1.0, 2.0, 3.0]);
+let probs[class] = softmax[class]([1.0, 2.0, 3.0][class]);
 ```
 
 ### Layers (`std::ml::layers`)

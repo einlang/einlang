@@ -125,13 +125,15 @@ indices. A call such as:
 ```rust
 let p[b, class] = softmax[class](logits[b, class]);
 let pred[b] = argmax[class](p[b, class]);
+let image_hw_c = move_channel[channel](image);
 ```
 
 is still compact, but it has not fallen back to positional convention. The
 bracketed coordinate is part of the call's meaning: `softmax` normalizes across
-`class`, and `argmax` returns addresses in the `class` domain. The function can
-hide a stable implementation while exposing the coordinate fact that review,
-autodiff, and lowering must preserve.
+`class`, `argmax` returns addresses in the `class` domain, and `move_channel`
+moves the chosen channel role while inferring the spatial pack. The function
+can hide a stable implementation while exposing the coordinate fact that
+review, autodiff, and lowering must preserve.
 
 That makes coordinate functions more than standard-library convenience. They
 are the abstraction boundary for tensor programs. Ordinary scalar functions can

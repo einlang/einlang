@@ -202,6 +202,72 @@ entire deep learning framework. It has only shown a test for framework
 features: if coordinate structure affects correctness, the program needs a
 place to state it.
 
+## Relatives, Not Rivals
+
+This idea has neighbors. It should. If no one had tried to escape raw axis
+numbers before, named coordinates would be suspicious rather than promising.
+
+Einops is the most immediate relative. A line such as:
+
+```python
+rearrange(x, "b h w c -> b c h w")
+```
+
+is better than `transpose(x, (0, 3, 1, 2))` because the pattern says what the
+positions mean. But the pattern is still an argument to one operation. It is a
+string-shaped contract at the call site, not a function boundary that later
+analysis can reuse.
+
+PyTorch named tensors and earlier named-tensor libraries make a different
+move: attach names to tensor dimensions and let operations check or propagate
+those names. That is closer to the spirit of this book. It says that a tensor
+axis is not only a position. The remaining question is where user-defined
+abstractions state their coordinate contracts. If a helper consumes `class` or
+moves `channel` across a spatial pack, the boundary should say so directly:
+
+```rust
+fn move_channel[channel, ..spatial](x: [f32; channel, ..spatial])
+    -> [f32; ..spatial, channel]
+```
+
+At the call site, the caller usually needs to name only `channel`:
+
+```rust
+move_channel[c](x)
+```
+
+The spatial pack is then inferred as the remaining coordinates of `x`. A pack
+only needs its own parenthesized coordinate argument when that group is the
+choice the caller must make, as in `id_axes[(height, width)](x)`.
+
+xarray goes further in the data-analysis direction. It treats labeled arrays
+as first-class data objects and makes alignment by name feel natural. That is
+excellent for scientific datasets. Einlang is aiming at a smaller and sharper
+center: compiled tensor formulas where coordinate roles affect lowering,
+derivatives, and shape propagation.
+
+Shape-annotation libraries such as jaxtyping also identify the right pain.
+They let Python code say that an argument has shape `"batch channels"` or that
+two arrays share a named dimension. That catches many mistakes. But the
+annotation is still beside the expression language. The expression itself
+usually continues to call operations with positional axes, strings, or
+framework conventions.
+
+So the distinction is placement:
+
+```text
+einops             readable operation patterns
+named tensors      named axis metadata on tensors
+xarray             labeled array data model
+shape annotations  checked shape promises beside Python code
+Einlang            coordinate contracts inside ordinary function syntax
+```
+
+The claim is not that these tools were wrong. They are evidence that the
+problem is real. Einlang's wager is that the coordinate contract should be
+part of the program the compiler sees, not only metadata, a string pattern, a
+runtime wrapper, or a type comment.
+
 ## Are Functions the Right Abstraction?
 
 A tensor language cannot avoid functions. Standard-library operations,
@@ -245,6 +311,21 @@ let y[b, class] = softmax[class](logits[b, class]);
 The function is then a named coordinate operation, not just a shortcut around a
 block of code. It hides the stable implementation, but the call site still says
 which coordinate supplies the distribution.
+
+Rank-polymorphic helpers make the same point more strongly:
+
+```rust
+fn move_channel[channel, ..spatial](x: [f32; channel, ..spatial])
+    -> [f32; ..spatial, channel]
+
+let image[channel, row, col] = load_image();
+move_channel[channel](image)
+```
+
+Only `channel` is named at the call site because only that role is the choice.
+The surrounding spatial pack is inferred from the value. If the caller really
+must choose a whole group, the group is one coordinate argument:
+`layer_norm[(height, width, channel)](x)`.
 
 The implementation gives this design some room. Parameters without type
 annotations are monomorphized at call sites, and specialized function bodies

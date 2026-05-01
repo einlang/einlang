@@ -76,6 +76,13 @@ while the coordinate story is wrong.
     Diagnostic: rewrite the call with bracketed coordinate arguments, such as
     `softmax[class]` or `argmax[expert]`. If the coordinate cannot be grounded
     in the argument, the helper is hiding too much.
+
+12. Coordinate function asks for too much
+    Symptom: the call names every surrounding axis even though only one role is
+    the choice. The extra names make the abstraction look ceremonial.
+    Diagnostic: move the surrounding axes into a pack in the signature. Prefer
+    `move_channel[channel](x)` over a call that repeats `height` and `width`
+    when those coordinates are already determined by `x`.
 ```
 
 ## A Four-Step Audit

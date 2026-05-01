@@ -229,6 +229,21 @@ The RNN has the same failure mode as the earlier reshape and softmax examples:
 shape can be right while role is wrong. Coordinates give that role a place to
 stand in the source.
 
+If a library wraps the cell, the boundary should still keep the directional
+roles:
+
+```rust
+fn rnn_cell[input, hidden, prev_hidden](
+    x: [f32; ..batch, input],
+    h_prev: [f32; ..batch, prev_hidden],
+    W: [f32; hidden, input],
+    R: [f32; hidden, prev_hidden]
+) -> [f32; ..batch, hidden]
+```
+
+The implementation can hide activations and bias terms. It should not hide
+that `prev_hidden` is scanned to produce `hidden`.
+
 The same reading scales to more complex recurrent cells. An LSTM adds a cell
 state and several gates. A GRU adds reset and update gates. Those mechanisms
 introduce more named pieces, but the questions do not change: which state is

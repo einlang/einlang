@@ -34,10 +34,26 @@ compiler machinery to see what those formulas preserve.
 
 The book does not ask every useful operation to stay expanded forever. A common
 operation can be a coordinate function: `softmax[class]`, `argmax[class]`,
-and similar calls are meant to hide stable mechanics while keeping the
-coordinate contract at the boundary. That compromise matters throughout the
-argument. Without it, visible coordinates would become a verbose teaching
-notation instead of a usable programming model.
+`move_channel[channel]`, and similar calls are meant to hide stable mechanics
+while keeping the coordinate contract at the boundary. That compromise matters
+throughout the argument. Without it, visible coordinates would become a verbose
+teaching notation instead of a usable programming model.
+
+The most important version of this idea is rank-polymorphic. A coordinate
+function can name the one role the caller must choose and let the rest of the
+layout be inferred:
+
+```rust
+fn move_channel[channel, ..spatial](x: [f32; channel, ..spatial])
+    -> [f32; ..spatial, channel]
+
+let image[channel, row, col] = load_image();
+move_channel[channel](image)
+```
+
+The expanded indexed form remains the reference meaning. The coordinate
+function is what makes that meaning reusable without falling back to `axis=1`
+or `permute(1, 2, 0)`.
 
 The intended reader is someone who builds things below the level of an API call:
 a DSL, a compiler pass, a numerical library, an autodiff system, a model

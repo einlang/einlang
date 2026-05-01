@@ -61,13 +61,24 @@ class ExpressionIR(IRNode):
     Design Pattern: Visitor pattern handles dispatch - no kind field needed
     Regular class (not dataclass) to avoid inheritance issues
     """
-    __slots__ = ('type_info', 'shape_info')
+    __slots__ = (
+        'type_info',
+        'shape_info',
+        'coordinate_layout',
+        'coordinate_address_domain',
+        'coordinate_axis_bindings',
+        'coordinate_pack_bindings',
+    )
 
     def __init__(self, location: SourceLocation,
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
         super().__init__(location)
         self.type_info = type_info
         self.shape_info = shape_info
+        self.coordinate_layout: Optional[Tuple[str, ...]] = None
+        self.coordinate_address_domain: Optional[str] = None
+        self.coordinate_axis_bindings: Optional[Dict[str, str]] = None
+        self.coordinate_pack_bindings: Optional[Dict[str, Tuple[str, ...]]] = None
 
 
 class LiteralIR(ExpressionIR):
@@ -502,7 +513,7 @@ class FunctionCallIR(ExpressionIR):
                  arguments: Optional[List[ExpressionIR]] = None,
                  module_path: Optional[Tuple[str, ...]] = None,
                  type_info: Optional[Any] = None, shape_info: Optional[Any] = None,
-                 coordinate_args: Optional[Sequence['IdentifierIR']] = None):
+                 coordinate_args: Optional[Sequence['ExpressionIR']] = None):
         super().__init__(location, type_info, shape_info)
         self.callee_expr = callee_expr
         self.arguments = _t(arguments)

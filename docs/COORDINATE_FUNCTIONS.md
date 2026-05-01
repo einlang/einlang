@@ -1,21 +1,44 @@
 # Coordinate-Aware Functions and Selection Reductions
 
-Status: design proposal.
+Status: implemented language surface, with some analysis metadata and backend
+coverage still evolving.
 
-This document sketches a conservative extension to Einlang's function and
-reduction story. The goal is to let function boundaries preserve the coordinate
-facts that the book relies on, without making ordinary calls carry a pile of
-index annotations.
+Coordinate-aware functions are ordinary-looking calls with one extra piece of
+syntax: bracketed coordinate arguments before the value arguments. They let
+function boundaries preserve the coordinate facts that tensor code relies on,
+without making every common operation expand into raw indexed formulas.
+
+```rust
+let p[b, class] = softmax[class](logits[b, class]);
+let pred[b] = argmax[class](p[b, class]);
+```
+
+Read `softmax[class]` as "normalize over the `class` coordinate." Read
+`argmax[class]` as "select an address in the `class` coordinate domain."
+The bracket is not decoration and it is not an axis number. It is part of the
+call's contract.
+
+Ordinary pointwise functions do not need coordinate arguments:
+
+```rust
+let y[b, f] = relu(x[b, f]);
+let z[b, f] = exp(y[b, f]);
+```
+
+Use coordinate arguments when the callee consumes, normalizes, selects, routes,
+or otherwise needs to refer to a coordinate domain by identity. The rest of
+this page is both user reference and implementation notes. For the short syntax
+reference, see [reference](reference.md#coordinate-aware-functions).
 
 ## Design Goal
 
 The user-facing syntax must be short enough to use in real model code.
 Coordinate precision is valuable only if the common path stays light.
 
-Einlang should let a library function hide an implementation, but not hide the
+Einlang lets a library function hide an implementation, but not hide the
 coordinate contract that makes the implementation meaningful.
 
-Common calls should look like this:
+Common calls look like this:
 
 ```rust
 let h = relu(conv3d(x, weight, bias));
@@ -37,23 +60,24 @@ Convenience calls must lower to precise coordinate contracts.
 ```
 
 If `argmax[class](logits)` resolves to the `class` coordinate, the result
-should carry the corresponding address-domain fact.
+carries the corresponding address-domain fact.
 
 ## Ergonomic Surface, Precise Core
 
-The concise coordinate-argument form is the preferred user-facing form:
+The concise coordinate-argument form is the user-facing form:
 
 ```rust
 softmax[class](x)
 argmax[class](x)
 ```
 
-When the selected coordinate is unambiguous, the coordinate argument can be
-omitted:
+When a standard-library helper has a legacy positional form, that form may
+remain available, but the coordinate-aware form is the one that preserves role
+meaning:
 
 ```rust
-argmax(logits)     // ok only if logits has exactly one selectable coordinate
-softmax(logits)    // ok only under the same unambiguous rule
+softmax[class](logits)
+argmax[class](logits)
 ```
 
 These calls are not wrappers around a more verbose public API. They are the
@@ -70,11 +94,26 @@ let logits[b, class] = model(x);
 let p = softmax[class](logits);  // ok: logits carries class
 ```
 
+Coordinate facts also flow through pointwise expressions:
+
+```rust
+let x[class in 0..3] = if class == 1 { -5.0 } else { class as f32 };
+let pred = argmax[class](x ** 2.0);  // ok: x ** 2.0 still carries class
+let energy = sum[class](x ** 2.0);   // reductions use the same rule
+```
+
 This is not legal unless `raw` already has a `class` coordinate fact:
 
 ```rust
 let raw = model(x);
 let p = softmax[class](raw);     // error: class is not grounded
+```
+
+If a value does not carry coordinate facts, make the body explicit:
+
+```rust
+let raw = [-1.0, 3.0, -5.0];
+let pred = argmax[class](raw[class] ** 2.0);
 ```
 
 Valid grounding sources are:
@@ -115,7 +154,7 @@ are not actually the same.
 
 ## Selection Reductions
 
-`argmax` and `argmin` should be reduction-like forms, but they are not ordinary
+`argmax` and `argmin` are reduction-like forms, but they are not ordinary
 numeric reductions.
 
 ```rust
@@ -126,7 +165,7 @@ let route[b, t] = argmax[e](gate_prob[b, t, e]);
 `max[e](body)` returns a value. `argmax[e](body)` returns an address in the
 `e` coordinate domain.
 
-The proposed facts are:
+The relevant facts are:
 
 ```text
 argmax[e](body) scans e.
@@ -142,7 +181,7 @@ let route[b, t] = argmax[e](gate_prob[b, t, e]);
 let y[b, t, o] = expert_output[route[b, t], o];
 ```
 
-The compiler should know that the integer value `route[b, t]` is an
+The compiler records that the integer value `route[b, t]` is an
 expert-domain address, not an arbitrary integer.
 
 ## Integer Indices With Domain Contracts
@@ -171,7 +210,7 @@ checking, diagnostics, and optimization.
 
 ## Domain, Range, and Extent
 
-This proposal uses `domain` deliberately.
+This document uses `domain` deliberately.
 
 ```text
 domain   the coordinate identity and legal address set, such as class or expert
@@ -247,6 +286,39 @@ A pack is scoped to the function signature and body.
 A pack is read-only; it cannot be rebound in the function body.
 ```
 
+Coordinate parameter lists can bind packs directly:
+
+```rust
+fn id_axes[..axes](x: [f32; ..axes]) -> [f32; ..axes] {
+    x
+}
+
+let y = id_axes[(height, width)](x);
+```
+
+The explicit coordinate argument list is strict but may be partial. Each
+provided item binds one coordinate parameter in order; omitted coordinate
+parameters are inferred from the ordinary arguments when the signature makes
+that possible. Scalar parameters receive a bare coordinate:
+`softmax[class](x)`. Pack parameters receive one parenthesized group when they
+must be supplied explicitly: `id_axes[(height, width)](x)`.
+
+```rust
+fn move_channel[channel, ..spatial](x: [f32; channel, ..spatial])
+    -> [f32; ..spatial, channel]
+{
+    let y[..spatial, channel] = x[channel, ..spatial];
+    y
+}
+
+let y = move_channel[c](x);
+```
+
+Here `channel` is the only explicit choice. The spatial pack is whatever
+remains after matching `[channel, ..spatial]` against the argument layout. The
+parenthesized group rule avoids implicit splitting: `id_axes[height, width](x)`
+has two coordinate arguments; it does not silently pack `height, width`.
+
 This means:
 
 ```rust
@@ -307,7 +379,7 @@ The second call has no way to prove that `raw` contains a `class` coordinate.
 The caller should annotate, index, or cast the value first:
 
 ```rust
-let logits[b, class] = raw as [f32; b, class];
+let logits[b, class] = raw[b, class];
 let p = softmax[class](logits);
 ```
 
@@ -375,8 +447,8 @@ to input spatial coordinates by stride, padding, and dilation.
 
 ## Custom Differentiation
 
-Einlang already has `@fn` for custom tangent rules. This proposal does not add
-a new custom-differentiation primitive.
+Einlang already has `@fn` for custom tangent rules. Coordinate-aware functions
+do not add a new custom-differentiation primitive.
 
 An STE helper can be a coordinate-aware standard-library function with an
 attached `@fn` rule:
@@ -392,13 +464,13 @@ fn ste_top1[j](p: [f32; ..left, j, ..right]) -> [i32; ..left, ..right]
 }
 ```
 
-The missing piece is not the ability to write a custom tangent. The missing
+The important piece is not the ability to write a custom tangent. The important
 piece is the source-level contract that the forward result is an address in
 the `j` domain.
 
-## Proposed Implementation Stages
+## Implementation Stages
 
-Only two stages are needed.
+The implementation is easiest to understand as two conceptual stages.
 
 Stage 1: selection reductions and coordinate grounding.
 
@@ -564,18 +636,52 @@ Support two equivalent source styles:
 ```rust
 argmax[class](logits[b, class])
 argmax[class](logits)
+argmax[class](logits ** 2.0)
+sum[class](logits ** 2.0)
 ```
 
-The first form is an explicit reduction body. The second form is tensor-axis
-shorthand. After coordinate analysis proves that `logits` has a `class` axis,
-it expands conceptually to:
+The first form is an explicit reduction body. The second and third forms are
+tensor-axis shorthand. After coordinate analysis proves that `logits` has a
+`class` axis, they expand conceptually to:
 
 ```rust
 argmax[class](logits[..left, class, ..right])
+argmax[class](logits[..left, class, ..right] ** 2.0)
+sum[class](logits[..left, class, ..right] ** 2.0)
 ```
 
-Stage 1 accepts exactly one selected coordinate. Multiple selected coordinates
-should be rejected until the language has a clear return convention for
+The same shorthand applies to ordinary reductions such as `sum`, `prod`,
+`min`, and `max`. For those reductions, multiple selected coordinates are
+allowed:
+
+```rust
+let x[b, row, col] = ...;
+let norm[b] = sum[row, col](x ** 2.0);
+```
+
+The expansion preserves the surrounding result context and indexes the reduced
+coordinates explicitly:
+
+```rust
+sum[row, col](x[b, row, col] ** 2.0)
+```
+
+Nested reductions use the outer reduction coordinates as context for inner
+shorthand:
+
+```rust
+let A[k, n] = ...;
+let total = sum[k](max[n](A));
+```
+
+Conceptually, the inner reduction sees the outer `k` and expands to:
+
+```rust
+let total = sum[k](max[n](A[k, n]));
+```
+
+Selection reductions such as `argmax` and `argmin` currently select one
+coordinate at a time because their result is a single address domain.
 multi-axis addresses.
 
 Shape behavior:
@@ -651,6 +757,37 @@ j       = class
 ..left  = [b]
 ..right = [t]
 ```
+
+The whole signature is instantiated from those bindings, not just the argument
+list. The return type is interpreted with the same coordinate substitution:
+
+```rust
+fn top1[j](x: [f32; ..left, j, ..right]) -> [i32; ..left, ..right]
+
+top1[class](logits[b, class, t])  // result coordinates: [b, t]
+```
+
+The same instantiation propagates rank and concrete dimensions when they are
+known. If `logits` has shape `(B, C, T)`, the result of `top1[class](logits)`
+has shape `(B, T)`.
+
+This is a compiler-wide contract, not a frontend hint. Coordinate analysis,
+shape analysis, and type inference use the same signature matcher, so
+coordinate layout, `shape_info`, and rectangular return types agree about the
+instantiated call. Later rewrites that rebuild calls must preserve
+`coordinate_args`, `type_info`, and `shape_info`.
+
+After coordinate analysis runs, the result is stamped directly onto IR
+expressions:
+
+```text
+expr.coordinate_layout          // surviving named coordinates, e.g. ("b", "t")
+expr.coordinate_address_domain  // for argmax/argmin, e.g. "class"
+```
+
+Later passes read those node fields. They should not rediscover coordinate
+layout from scratch or depend on a side table except while coordinate analysis
+itself is still constructing the facts.
 
 The instantiated body then behaves like ordinary Einlang code with those
 coordinate names substituted.
@@ -778,7 +915,7 @@ Use an explicit cast or rename if this alignment is intended.
 
 ## Summary
 
-The proposal keeps the call-site burden low while preserving the facts that
+The design keeps the call-site burden low while preserving the facts that
 make coordinate programs inspectable:
 
 ```text

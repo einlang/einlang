@@ -116,6 +116,17 @@ key positions `j` should sum to one. The key coordinate is the coordinate being
 normalized. The query coordinate is not reduced. It identifies which row of the
 attention matrix is being normalized.
 
+As a function boundary, the same contract would name the answering coordinate:
+
+```rust
+fn attention_softmax[key](scores: [f32; ..batch, query, key])
+    -> [f32; ..batch, query, key]
+```
+
+The caller supplies `key`; the query and batch-like coordinates are inferred.
+That is the whole point of the bracket: it distinguishes "normalize over keys"
+from "normalize over queries" without counting positions.
+
 This is a common source of mistakes. Normalizing over `i` would answer a
 different question: for each key, how do query positions distribute? That may
 be useful in some analysis, but it is not ordinary attention. Named coordinates

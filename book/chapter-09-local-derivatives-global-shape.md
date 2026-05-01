@@ -169,6 +169,18 @@ the bias gradient keeps `f` and reduces over `b`:
 let dbias[f] = sum[b](dy[b, f]);
 ```
 
+A coordinate function can name the same reuse contract in the forward pass:
+
+```rust
+fn add_bias[feature](x: [f32; ..batch, feature], bias: [f32; feature])
+    -> [f32; ..batch, feature]
+```
+
+The local derivative of addition is still scalar. The global shape comes from
+the coordinate contract: `feature` survives, `..batch` is where reuse happened,
+and the reverse pass must reduce over that reused prefix when differentiating
+with respect to `bias`.
+
 For a batch bias:
 
 ```rust

@@ -1,7 +1,7 @@
 
 # Einlang Language Reference
 
-Full syntax and semantics. If you are new here, start with [GETTING_STARTED](GETTING_STARTED.md) or the [examples guide](../examples/README.md) first. For modules and built-in library functions, see [stdlib](stdlib.md). For derivatives and tangents, see [AUTODIFF](AUTODIFF.md).
+Full syntax and semantics. If you are new here, start with [GETTING_STARTED](GETTING_STARTED.md) or the [examples guide](../examples/README.md) first. For modules and built-in library functions, see [stdlib](stdlib.md). For derivatives and tangents, see [AUTODIFF](AUTODIFF.md). For the longer coordinate-function design notes, see [COORDINATE_FUNCTIONS](COORDINATE_FUNCTIONS.md).
 
 ---
 
@@ -85,6 +85,111 @@ Parameters without type annotations accept any type; the compiler monomorphizes 
 `pub` makes the function visible to other modules.
 
 Functions are hoisted: a function can be called before its textual definition in the same block.
+
+#### Coordinate-aware functions
+
+A function may declare coordinate parameters between the function name and the
+ordinary value parameters:
+
+```rust
+fn softmax[j](x: [f32; ..left, j, ..right])
+    -> [f32; ..left, j, ..right]
+{
+    let m[..left, ..right] = max[j](x[..left, j, ..right]);
+    let e[..left, j, ..right] = exp(x[..left, j, ..right] - m[..left, ..right]);
+    let z[..left, ..right] = sum[j](e[..left, j, ..right]);
+    e[..left, j, ..right] / z[..left, ..right]
+}
+```
+
+Calls pass coordinate arguments in the same bracket position:
+
+```rust
+let logits[b, class] = model(x[b, feature]);
+let p[b, class] = softmax[class](logits[b, class]);
+```
+
+The bracketed name is part of the call contract. It says which coordinate
+domain the callee may consume, normalize, select, or otherwise use by identity.
+It is not an axis number and it is not a comment.
+
+The whole coordinate signature participates in the call. If the callee uses
+packs such as `..left` and `..right`, the compiler matches them against the
+argument layout and instantiates the return layout from the same binding:
+
+```rust
+fn top1[j](x: [f32; ..left, j, ..right]) -> [i32; ..left, ..right]
+
+top1[class](logits[b, class, t])  // result coordinates: [b, t]
+```
+
+Coordinate parameters may also be packs. A pack parameter is written with
+`..` in the function coordinate parameter list, and an explicit call must pass
+one parenthesized coordinate group for that parameter:
+
+```rust
+fn move_channel[channel, ..spatial](x: [f32; channel, ..spatial])
+    -> [f32; ..spatial, channel]
+
+move_channel[c](x)
+```
+
+Here only `channel` needs to be explicit. The `..spatial` pack is inferred
+from the ordinary argument layout. If a pack is ambiguous and must be supplied
+explicitly, it is passed as one parenthesized coordinate group:
+`id_axes[(height, width)](x)`. A bare `id_axes[height, width](x)` is not
+equivalent; it has two coordinate arguments.
+
+When the argument shape is known, the same match propagates rank and concrete
+dimensions. For `logits` with shape `(B, C, T)`, the call above has shape
+`(B, T)`.
+
+Coordinate signatures are used by coordinate analysis, shape analysis, and type
+inference through the same matcher, so the call's coordinate layout,
+`shape_info`, and rectangular return type are instantiated consistently.
+Coordinate analysis stores its result on the IR expression nodes as
+`coordinate_layout` and, for selection reductions, `coordinate_address_domain`;
+later passes consume those fields rather than re-analyzing coordinate layout.
+
+Coordinate arguments must be grounded in the argument layout, the expected
+result layout, or the callee signature. For example, `softmax[class](raw)` is
+an error unless `raw` already carries a `class` coordinate fact. Bind or index
+the value first:
+
+```rust
+let logits[b, class] = raw[b, class];
+let p = softmax[class](logits);
+```
+
+Coordinate facts flow through pointwise expressions. If `x` is bound with a
+`class` coordinate, this selection is grounded:
+
+```rust
+let x[class in 0..3] = if class == 1 { -5.0 } else { class as f32 };
+let pred = argmax[class](x ** 2.0);
+let energy = sum[class](x ** 2.0);
+```
+
+If `x` is an anonymous vector with no coordinate facts, write the selected
+coordinate explicitly in the body:
+
+```rust
+let x = [-1.0, 3.0, -5.0];
+let pred = argmax[class](x[class] ** 2.0);
+```
+
+Pointwise functions such as `relu(x)`, `exp(x)`, and `sqrt(x)` do not need
+coordinate arguments because they preserve the input coordinate structure.
+Coordinate-sensitive functions such as `softmax[class]`, `argmax[class]`, and
+axis-normalizing helpers should name the coordinate they use.
+
+Coordinate parameters also work on custom autodiff rules:
+
+```rust
+@fn softmax[j](x: [f32; ..left, j, ..right]) {
+    softmax_tangent[j](x, @x)
+}
+```
 
 ### `@fn` custom differentiation rules
 
@@ -471,6 +576,74 @@ let max_per_row[i] = max[j](matrix[i, j]);            // max reduction
 ```
 
 Identity elements: `sum` starts from 0, `prod` from 1, `max` from negative infinity, `min` from positive infinity. The body is evaluated once per combination of index values.
+
+If a value already carries coordinate facts, ordinary reductions can use a
+pointwise body shorthand:
+
+```rust
+let x[b, row, col] = ...;
+let norm[b] = sum[row, col](x ** 2.0);
+```
+
+The compiler expands the grounded value through the reduced coordinates and
+preserves the surrounding context:
+
+```rust
+let norm[b] = sum[row, col](x[b, row, col] ** 2.0);
+```
+
+Nested reductions compose the same way. An outer reduction coordinate can be
+the surrounding context for an inner reduction:
+
+```rust
+let A[k, n] = ...;
+let total = sum[k](max[n](A));
+```
+
+This is equivalent to:
+
+```rust
+let total = sum[k](max[n](A[k, n]));
+```
+
+### Selection reductions
+
+`argmax` and `argmin` use the same bracketed coordinate style as reductions,
+but return an address rather than the selected value:
+
+```rust
+let pred[b] = argmax[class](logits[b, class]);
+let route[b, t] = argmax[expert](gate_prob[b, t, expert]);
+```
+
+`max[class](logits[b, class])` returns the maximum numeric value for each
+`b`. `argmax[class](logits[b, class])` returns an integer tensor over the
+remaining coordinates; each integer is an address in the `class` coordinate
+domain. That address-domain fact is useful for later indexed reads,
+diagnostics, and routing code even though the runtime value is still an
+integer.
+
+The selected coordinate is local to the selection. It does not survive in the
+result shape:
+
+```rust
+// logits has coordinates [b, class]
+let pred[b] = argmax[class](logits[b, class]); // pred has coordinates [b]
+```
+
+For values that already carry coordinate facts, selection reductions may use a
+pointwise body shorthand:
+
+```rust
+let logits[b, class] = ...;
+let pred[b] = argmax[class](logits ** 2.0);
+```
+
+This is equivalent to indexing the grounded value at the selected coordinate:
+
+```rust
+let pred[b] = argmax[class](logits[b, class] ** 2.0);
+```
 
 ### Range inference
 

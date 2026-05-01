@@ -190,7 +190,7 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         Rust Pattern: Visitor pattern for function calls
         """
         folded_args = [arg.accept(self) for arg in expr.arguments]
-        return FunctionCallIR(
+        rebuilt = FunctionCallIR(
             callee_expr=expr.callee_expr,
             location=expr.location,
             arguments=folded_args,
@@ -199,6 +199,9 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
             shape_info=expr.shape_info,
             coordinate_args=getattr(expr, "coordinate_args", ()),
         )
+        rebuilt.coordinate_layout = getattr(expr, "coordinate_layout", None)
+        rebuilt.coordinate_address_domain = getattr(expr, "coordinate_address_domain", None)
+        return rebuilt
     
     def visit_rectangular_access(self, expr: RectangularAccessIR) -> ExpressionIR:
         """Visit rectangular array access - fold array and indices. Never set an index slot to a list."""
