@@ -5,7 +5,7 @@ Rust Pattern: rustc_hir::Node
 Reference: IR_DESIGN.md
 """
 
-from typing import List, Optional, Any, Tuple, Dict, Union, TYPE_CHECKING
+from typing import List, Optional, Any, Tuple, Dict, Union, TYPE_CHECKING, Sequence
 from ..shared.source_location import SourceLocation
 from ..shared.defid import DefId, assert_defid
 if TYPE_CHECKING:
@@ -465,14 +465,15 @@ class LambdaIR(ExpressionIR):
 class FunctionValueIR(ExpressionIR):
     """Function value (rvalue). Name and defid live on BindingIR; this holds parameters, body, return_type.
     custom_diff_body: optional @fn rule body; used only by AutodiffPass and cleared after it runs."""
-    __slots__ = ('parameters', 'return_type', 'body', '_is_partially_specialized', '_generic_defid', 'custom_diff_body')
+    __slots__ = ('parameters', 'return_type', 'body', '_is_partially_specialized', '_generic_defid', 'custom_diff_body', 'coordinate_params')
 
     def __init__(self, parameters: List['ParameterIR'], body: ExpressionIR,
                  location: SourceLocation, return_type: Optional[Any] = None,
                  shape_info: Optional[Any] = None, type_info: Optional[Any] = None,
                  _is_partially_specialized: bool = False,
                  _generic_defid: Optional[DefId] = None,
-                 custom_diff_body: Optional['ExpressionIR'] = None):
+                 custom_diff_body: Optional['ExpressionIR'] = None,
+                 coordinate_params: Optional[Sequence[str]] = None):
         super().__init__(location, type_info, shape_info)
         assert_defid(_generic_defid)
         self.parameters = _t(parameters)
@@ -481,6 +482,7 @@ class FunctionValueIR(ExpressionIR):
         self._is_partially_specialized = _is_partially_specialized
         self._generic_defid = _generic_defid
         self.custom_diff_body = custom_diff_body
+        self.coordinate_params = tuple(coordinate_params or ())
 
     def accept(self, visitor: 'IRVisitor[T]') -> 'T':
         return visitor.visit_function_value(self)
@@ -488,21 +490,24 @@ class FunctionValueIR(ExpressionIR):
     def __str__(self) -> str:
         params = ', '.join(str(p) for p in self.parameters)
         ret = f" -> {self.return_type}" if self.return_type else ""
-        return f"fn({params}){ret} {self.body}"
+        coord = f"[{', '.join(self.coordinate_params)}]" if self.coordinate_params else ""
+        return f"fn{coord}({params}){ret} {self.body}"
 
 
 class FunctionCallIR(ExpressionIR):
     """Function call. Callee is IdentifierIR (has defid = binding we call) or other expr (lambda)."""
-    __slots__ = ('callee_expr', 'arguments', 'module_path')
+    __slots__ = ('callee_expr', 'arguments', 'module_path', 'coordinate_args')
 
     def __init__(self, callee_expr: ExpressionIR, location: SourceLocation,
                  arguments: Optional[List[ExpressionIR]] = None,
                  module_path: Optional[Tuple[str, ...]] = None,
-                 type_info: Optional[Any] = None, shape_info: Optional[Any] = None):
+                 type_info: Optional[Any] = None, shape_info: Optional[Any] = None,
+                 coordinate_args: Optional[Sequence['IdentifierIR']] = None):
         super().__init__(location, type_info, shape_info)
         self.callee_expr = callee_expr
         self.arguments = _t(arguments)
         self.module_path = module_path
+        self.coordinate_args = tuple(coordinate_args or ())
 
     @property
     def function_name(self) -> str:
@@ -526,7 +531,8 @@ class FunctionCallIR(ExpressionIR):
     def __str__(self) -> str:
         name = self.function_name
         args = ', '.join(str(a) for a in self.arguments)
-        return f"{name}({args})"
+        coord = f"[{', '.join(str(a) for a in self.coordinate_args)}]" if self.coordinate_args else ""
+        return f"{name}{coord}({args})"
 
 
 class RangeIR(ExpressionIR):
@@ -1319,7 +1325,8 @@ class BindingIR(IRNode):
         if isinstance(self.expr, FunctionValueIR):
             params = ', '.join(str(p) for p in self.expr.parameters)
             ret = f" -> {self.expr.return_type}" if self.expr.return_type else ""
-            return f"fn {self.name}({params}){ret} {self.expr.body}"
+            coord = f"[{', '.join(self.expr.coordinate_params)}]" if self.expr.coordinate_params else ""
+            return f"fn {self.name}{coord}({params}){ret} {self.expr.body}"
         type_str = f": {self.type_info}" if self.type_info else ""
         name = self.name
         if isinstance(self.expr, EinsteinIR):

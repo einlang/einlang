@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import logging
 
 from ...shared import *
-from ...shared.types import BinaryOp, PipelineClauseType
+from ...shared.types import BinaryOp, PipelineClauseType, ReductionOp
 from ...utils.base import handle_token, extract_location_info
 
 @dataclass
@@ -159,22 +159,47 @@ class EinlangTransformer(Transformer):
     # FUNCTION DEFINITIONS - USING ALIASES
     # =========================================================================
     
-    def function_def(self, meta: LarkMeta, name: Token, lpar: Token, *args: Union[List[Parameter], Dict[str, Any], TypeAnnotation]) -> FunctionDefinition:
+    def function_def(self, meta: LarkMeta, name: Token, *args: Union[List[Parameter], Dict[str, Any], TypeAnnotation, Token]) -> FunctionDefinition:
         """✅ Grammar: 'fn' NAME LPAR param_list? RPAR ('->' type)? block - 'fn' and '->' filtered"""
-        return self.function_parser.parse_function_definition(meta, name, lpar, *args, is_public=False)
+        return self.function_parser.parse_function_definition(meta, name, *args, is_public=False)
     
-    def pub_function_def(self, meta: LarkMeta, name: Token, lpar: Token, *args: Union[List[Parameter], Dict[str, Any], TypeAnnotation]) -> FunctionDefinition:
+    def pub_function_def(self, meta: LarkMeta, name: Token, *args: Union[List[Parameter], Dict[str, Any], TypeAnnotation, Token]) -> FunctionDefinition:
         """✅ Grammar: 'pub' 'fn' NAME LPAR param_list? RPAR ('->' type)? block - 'pub', 'fn' and '->' filtered"""
-        return self.function_parser.parse_function_definition(meta, name, lpar, *args, is_public=True)
+        return self.function_parser.parse_function_definition(meta, name, *args, is_public=True)
 
-    def diff_rule_def(self, meta: LarkMeta, at_tok: Token, name_tok: Token, fn_tok: Token, lpar: Token, *rest: Union[List[Parameter], Token, Any]) -> 'DiffRuleDef':
+    def coord_params(self, meta: LarkMeta, lsqb: Token, *items: Token) -> Dict[str, List[str]]:
+        """Coordinate parameter list: [j] or [left, right]."""
+        names: List[str] = []
+        for item in items:
+            token_info = handle_token(item)
+            if token_info.get("type") == "RSQB":
+                continue
+            value = token_info.get("value")
+            if value is not None and str(value) not in ("[", "]", ","):
+                names.append(str(value))
+        return {"coordinate_params": names}
+
+    def diff_rule_def(self, meta: LarkMeta, *items: Union[List[Parameter], Token, Any]) -> 'DiffRuleDef':
         """@fn name(params) { body }. Grammar order: AT, 'fn', NAME, LPAR, param_list?, RPAR, block."""
         from ...shared.nodes import DiffRuleDef, BlockExpression, Parameter
         location = self._extract_location(meta)
-        name = str(name_tok.value if hasattr(name_tok, 'value') else name_tok)
+        name = ""
+        rest: List[Any] = []
+        for item in items:
+            token_info = handle_token(item)
+            if token_info.get("type") == "AT":
+                continue
+            if token_info.get("type") == "NAME" and not name:
+                name = str(token_info.get("value"))
+                continue
+            rest.append(item)
         params: List[Parameter] = []
+        coordinate_params: List[str] = []
         block = None
         for r in rest:
+            if isinstance(r, dict) and "coordinate_params" in r:
+                coordinate_params = [str(p) for p in r.get("coordinate_params", [])]
+                continue
             if isinstance(r, list):
                 params = r
                 break
@@ -188,7 +213,7 @@ class EinlangTransformer(Transformer):
         if block is None:
             block = BlockExpression(statements=[], final_expr=None)
         body = block
-        return DiffRuleDef(name=name, parameters=params, body=body, location=location)
+        return DiffRuleDef(name=name, parameters=params, body=body, location=location, coordinate_params=coordinate_params)
 
     def parameter(self, meta: LarkMeta, name: Token, type_annotation: Optional[TypeAnnotation] = None) -> Parameter:
         """✅ Uses grammar alias with meta location"""
@@ -573,8 +598,8 @@ class EinlangTransformer(Transformer):
             location=location
         )
     
-    def reduction_expression(self, meta: LarkMeta, name: Token, lsqb: Token, indices: List[ASTNode], rsqb: Token, lpar: Token, body: ASTNode, rpar: Token) -> ReductionExpression:
-        """✅ Grammar: NAME LSQB expr_list RSQB LPAR expr RPAR - terminals passed, ignore brackets
+    def reduction_expression(self, meta: LarkMeta, name: Token, lsqb: Token, indices: List[ASTNode], rsqb: Token, lpar: Token, *args_and_rpar: Union[List[ASTNode], Token]) -> Union[ReductionExpression, FunctionCall]:
+        """Bracketed call or reduction: NAME[coords](args).
         
         Supports three forms:
         1. sum[k](...)  - simple variable
@@ -584,6 +609,33 @@ class EinlangTransformer(Transformer):
         from ...shared.nodes import IndexRest
         
         location = self._extract_location(meta)
+        function_name = str(name)
+        call_args: List[ASTNode] = []
+        if len(args_and_rpar) == 2:
+            raw_args, _rpar = args_and_rpar
+            call_args = raw_args if isinstance(raw_args, list) else [raw_args]
+        elif len(args_and_rpar) == 1:
+            call_args = []
+        else:
+            raise ValueError(f"Unexpected bracketed call arguments for {function_name}: {args_and_rpar}")
+
+        try:
+            ReductionOp.parse(function_name)
+            is_reduction = True
+        except ValueError:
+            is_reduction = False
+
+        if not is_reduction:
+            return FunctionCall(
+                function_expr=Identifier(function_name, location=location),
+                arguments=call_args,
+                location=location,
+                coordinate_args=indices,
+            )
+
+        if len(call_args) != 1:
+            raise ValueError(f"Reduction '{function_name}' expects exactly one body expression")
+        body = call_args[0]
         
         # Process indices: IndexVar, IndexRest, Identifier, BinaryExpression
         range_groups = []
@@ -993,9 +1045,12 @@ class EinlangTransformer(Transformer):
     
     def shape_dimension(self, meta: LarkMeta, *args):
         """Transform shape_dimension: INTEGER_OR_FLOAT | NAME | "?" """
+        from ...shared.nodes import IndexRest
         if not args:
             return None
         dimension = args[0]
+        if isinstance(dimension, IndexRest):
+            return f"..{dimension.name}"
         dim_str = str(dimension)
         if dim_str == '?':
             return None

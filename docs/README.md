@@ -23,6 +23,7 @@ This doc set is intentionally small. If you are using Einlang, start with the us
 
 - [Language reference](reference.md): syntax and semantics.
 - [Standard library](stdlib.md): library reference.
+- [Coordinate-aware functions design](COORDINATE_FUNCTIONS.md): proposal for indexed function contracts, selection reductions, and integer domain contracts.
 
 ## Research
 

@@ -508,6 +508,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             location=location,
             return_type=return_type,
             custom_diff_body=custom_diff_ir,
+            coordinate_params=getattr(ast_func, "coordinate_params", ()),
         )
         func_ir = FunctionDefIR(
             name=ast_func.name,
@@ -612,6 +613,14 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             arg_ir = arg.accept(self)
             if isinstance(arg_ir, ExpressionIR):
                 arguments.append(arg_ir)
+        coordinate_args = []
+        for coord in getattr(ast_call, "coordinate_args", []) or []:
+            if isinstance(coord, ASTIdentifier):
+                coordinate_args.append(IdentifierIR(coord.name, location, defid=getattr(coord, "defid", None)))
+            else:
+                coord_ir = coord.accept(self) if hasattr(coord, "accept") else None
+                if isinstance(coord_ir, IdentifierIR):
+                    coordinate_args.append(coord_ir)
 
         # Expression callee (lambda, etc.) -> use callee_expr; name/module callee -> use name/defid path
         if not isinstance(ast_call.function_expr, (ASTIdentifier, ModuleAccess)):
@@ -621,6 +630,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 callee_expr=callee_ir,
                 location=location,
                 arguments=arguments,
+                coordinate_args=coordinate_args,
             )
 
         # Extract module path FIRST (for Python module support)
@@ -818,6 +828,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             location=location,
             arguments=arguments,
             module_path=module_path,
+            coordinate_args=coordinate_args,
         )
     
     def visit_block_expression(self, ast_block: ASTBlock) -> Optional[BlockExpressionIR]:

@@ -38,6 +38,8 @@ class ReductionOp(Enum):
     PROD = "prod"
     ALL = "all"
     ANY = "any"
+    ARGMAX = "argmax"
+    ARGMIN = "argmin"
 
     @staticmethod
     def parse(value: str) -> "ReductionOp":
@@ -54,6 +56,10 @@ class ReductionOp(Enum):
             return ReductionOp.ALL
         if v == "any":
             return ReductionOp.ANY
+        if v == "argmax":
+            return ReductionOp.ARGMAX
+        if v == "argmin":
+            return ReductionOp.ARGMIN
         raise ValueError(f"Unknown reduction op: {value!r}")
 
 

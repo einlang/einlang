@@ -190,6 +190,10 @@ class CompilerDriver:
         # 3. Rest pattern preprocessing (expands ..batch to batch.0 early)
         from ..passes.rest_pattern_preprocessing import RestPatternPreprocessingPass
         self.pass_manager.register_pass(RestPatternPreprocessingPass)
+
+        # 3b. Coordinate grounding and selection shorthand expansion
+        from ..passes.coordinate_analysis import CoordinateGroundingPass
+        self.pass_manager.register_pass(CoordinateGroundingPass)
         
         # 4. Range analysis (infers ranges for loop variables)
         # CRITICAL: Must come before shape analysis (shape needs ranges for offsets)

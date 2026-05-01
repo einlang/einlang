@@ -15,6 +15,7 @@ The docs stay intentionally small. This page is the public index; the fuller [do
 
 - [Language reference](reference.md)
 - [Standard library](stdlib.md)
+- [Coordinate-aware functions design](COORDINATE_FUNCTIONS.md)
 
 ## Research
 

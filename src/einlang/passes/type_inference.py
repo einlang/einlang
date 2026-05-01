@@ -28,7 +28,7 @@ from ..ir.nodes import (
     is_function_binding,
     OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR,
 )
-from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, JaggedType, TupleType, DifferentialType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp
+from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, JaggedType, TupleType, DifferentialType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp, ReductionOp
 from ..shared.defid import DefId, assert_defid
 from ..shared.source_location import SourceLocation
 from ..utils.config import DEFAULT_INT_TYPE, DEFAULT_FLOAT_TYPE
@@ -1305,6 +1305,20 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 return False
             actual_rank = len(actual.shape) if actual.shape is not None else None
             expected_rank = len(expected.shape) if expected.shape is not None else None
+            if expected.shape is not None and any(isinstance(d, str) and d.startswith("..") for d in expected.shape):
+                required_axes = sum(
+                    1
+                    for d in expected.shape
+                    if not (isinstance(d, str) and d.startswith(".."))
+                )
+                return actual_rank is None or actual_rank >= required_axes
+            if actual.shape is not None and any(isinstance(d, str) and d.startswith("..") for d in actual.shape):
+                required_axes = sum(
+                    1
+                    for d in actual.shape
+                    if not (isinstance(d, str) and d.startswith(".."))
+                )
+                return expected_rank is None or expected_rank >= required_axes
             if actual_rank == expected_rank:
                 return True
             if actual_rank is None or expected_rank is None:
@@ -2032,6 +2046,8 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             if expr.where_clause:
                 for constraint in expr.where_clause.constraints:
                     constraint.accept(self)
+            if expr.operation in (ReductionOp.ARGMAX, ReductionOp.ARGMIN):
+                inferred_type = I32
         object.__setattr__(expr, 'type_info', inferred_type)
         return inferred_type
     

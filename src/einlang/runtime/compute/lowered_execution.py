@@ -33,7 +33,16 @@ def _try_vectorized_reduction(
     When parallel_shape is None (standalone reduction), infer it by evaluating
     body with scalar reduction indices. Falls back to False, None on failure.
     """
-    if reduction_op not in (ReductionOp.SUM, ReductionOp.MAX, ReductionOp.MIN, ReductionOp.PROD):
+    if reduction_op not in (
+        ReductionOp.SUM,
+        ReductionOp.MAX,
+        ReductionOp.MIN,
+        ReductionOp.PROD,
+        ReductionOp.ARGMAX,
+        ReductionOp.ARGMIN,
+    ):
+        return False, None
+    if reduction_op in (ReductionOp.ARGMAX, ReductionOp.ARGMIN) and len(reduction_loops) != 1:
         return False, None
     try:
         arrs: List[np.ndarray] = []
@@ -145,6 +154,14 @@ def _try_vectorized_reduction(
                 reduced = result.min(axis=reduction_axes)
             elif reduction_op == ReductionOp.PROD:
                 reduced = result.prod(axis=reduction_axes)
+            elif reduction_op in (ReductionOp.ARGMAX, ReductionOp.ARGMIN):
+                if n != 1:
+                    return False, None
+                if reduction_op == ReductionOp.ARGMAX:
+                    idx_pos = np.argmax(result, axis=reduction_axes[0])
+                else:
+                    idx_pos = np.argmin(result, axis=reduction_axes[0])
+                reduced = arrs[0][idx_pos].astype(np.int32, copy=False)
             else:
                 return False, None
             return True, reduced
@@ -159,6 +176,11 @@ def _try_vectorized_reduction(
                 return True, result.min()
             elif reduction_op == ReductionOp.PROD:
                 return True, result.prod()
+            elif reduction_op in (ReductionOp.ARGMAX, ReductionOp.ARGMIN):
+                if n != 1:
+                    return False, None
+                idx_pos = int(np.argmax(result) if reduction_op == ReductionOp.ARGMAX else np.argmin(result))
+                return True, int(arrs[0][idx_pos])
     except Exception:
         pass
     return False, None
@@ -552,6 +574,26 @@ def execute_reduction_with_loops(
         def combine(acc, val):
             v = bool(np.any(val)) if isinstance(val, np.ndarray) else bool(val)
             return acc or v
+    elif reduction_op in (ReductionOp.ARGMAX, ReductionOp.ARGMIN):
+        if len(reduction_loops) != 1:
+            raise ValueError(f"{reduction_op.value} currently supports exactly one reduction variable")
+        accumulator = None
+        loop_defid = reduction_loops[0].variable.defid
+
+        def combine(acc, val, ctx=None):
+            index_value = ctx.get(loop_defid) if ctx is not None else None
+            if isinstance(index_value, np.ndarray):
+                index_value = int(index_value.item()) if index_value.size == 1 else index_value
+            if acc is None:
+                return (val, index_value)
+            best_val, best_index = acc
+            if reduction_op == ReductionOp.ARGMAX:
+                better = val > best_val
+            else:
+                better = val < best_val
+            if isinstance(better, np.ndarray):
+                return (np.where(better, val, best_val), np.where(better, index_value, best_index))
+            return (val, index_value) if better else (best_val, best_index)
     else:
         raise ValueError(f"Unknown reduction operation: {reduction_op}")
     
@@ -580,10 +622,20 @@ def execute_reduction_with_loops(
                 value = bool(value)
         
         # Accumulate
-        accumulator = combine(accumulator, value)
+        if reduction_op in (ReductionOp.ARGMAX, ReductionOp.ARGMIN):
+            accumulator = combine(accumulator, value, full_context)
+        else:
+            accumulator = combine(accumulator, value)
     
     # Handle empty reduction case for max/min
     if accumulator is None and reduction_op in (ReductionOp.MIN, ReductionOp.MAX):
         raise ValueError(f"{reduction_op}() arg is an empty sequence")
+    if accumulator is None and reduction_op in (ReductionOp.ARGMAX, ReductionOp.ARGMIN):
+        raise ValueError(f"{reduction_op.value}() arg is an empty sequence")
+    if reduction_op in (ReductionOp.ARGMAX, ReductionOp.ARGMIN):
+        _best_val, best_index = accumulator
+        if isinstance(best_index, np.ndarray):
+            return best_index.astype(np.int32, copy=False)
+        return int(best_index)
     
     return accumulator

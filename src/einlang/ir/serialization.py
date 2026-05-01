@@ -355,6 +355,9 @@ class IRSerializer:
         args = [self.serialize_to_sexpr(arg) for arg in node.arguments]
         callee = self.serialize_to_sexpr(node.callee_expr)
         core = [self._sym("function-call"), [self._sym("callee"), callee], args]
+        coordinate_args = getattr(node, "coordinate_args", ()) or ()
+        if coordinate_args:
+            core.extend([self._sym(":coordinate_args"), [self.serialize_to_sexpr(arg) for arg in coordinate_args]])
         if node.module_path:
             core.extend([self._sym(":module_path"), list(node.module_path)])
         fid = getattr(node, "function_defid", None)
@@ -886,6 +889,9 @@ class IRSerializer:
         if self.include_location and node.location:
             loc = node.location
             core.extend([self._sym(":loc"), [loc.file, loc.line, loc.column]])
+        coordinate_params = list(getattr(node, "coordinate_params", ()) or ())
+        if coordinate_params:
+            core.extend([self._sym(":coordinate_params"), coordinate_params])
         if self.include_type_info and node.return_type is not None:
             core.extend([self._sym(":return_type"), self._serialize_type(node.return_type)])
         generic_defid = getattr(node, "_generic_defid", None)
@@ -1211,11 +1217,13 @@ class IRDeserializer:
                 callee = IdentifierIR(name=name or "", location=loc, defid=func_defid)
         module_path_raw = opts.get(":module_path")
         module_path = tuple(module_path_raw) if isinstance(module_path_raw, list) else None
+        coordinate_args_raw = opts.get(":coordinate_args") or []
+        coordinate_args = [self.deserialize(a) for a in coordinate_args_raw] if isinstance(coordinate_args_raw, list) else []
         ty = self._deserialize_type(opts.get(":inferred_type"))
         if callee is None:
             callee = IdentifierIR(name="", location=loc, defid=func_defid)
         shape_info = self._parse_shape_info_raw(opts.get(":shape_info"))
-        return FunctionCallIR(callee_expr=callee, location=loc, arguments=args, module_path=module_path, type_info=ty, shape_info=shape_info)
+        return FunctionCallIR(callee_expr=callee, location=loc, arguments=args, module_path=module_path, type_info=ty, shape_info=shape_info, coordinate_args=coordinate_args)
 
     def _deserialize_builtin_call(self, _tag: str, tail: list, _full: list) -> Any:
         from ..ir.nodes import BuiltinCallIR
@@ -1625,6 +1633,8 @@ class IRDeserializer:
         custom_diff_body = (
             self.deserialize(custom_diff_sexpr) if custom_diff_sexpr is not None else None
         )
+        coordinate_params_raw = opts.get(":coordinate_params") or []
+        coordinate_params = [str(p) for p in coordinate_params_raw] if isinstance(coordinate_params_raw, list) else []
         return FunctionValueIR(
             parameters=params,
             body=body,
@@ -1633,6 +1643,7 @@ class IRDeserializer:
             _is_partially_specialized=is_partially_specialized,
             _generic_defid=generic_defid,
             custom_diff_body=custom_diff_body,
+            coordinate_params=coordinate_params,
         )
 
     def _deserialize_program(self, _tag: str, tail: list, _full: list) -> Any:
@@ -2090,7 +2101,7 @@ class IRDeserializer:
                                 try:
                                     dims.append(int(d))
                                 except (TypeError, ValueError):
-                                    dims.append(None)
+                                    dims.append(_sym_val(d) if sexpdata and isinstance(d, sexpdata.Symbol) else str(d))
                         shape = tuple(dims)
                     else:
                         if sexpdata and isinstance(third, sexpdata.Symbol):

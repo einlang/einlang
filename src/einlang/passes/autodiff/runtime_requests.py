@@ -1397,6 +1397,7 @@ class _PlainRequestLowerer:
                             module_path=cur.module_path,
                             type_info=cur.type_info,
                             shape_info=cur.shape_info,
+                            coordinate_args=tuple(rewrite(arg) for arg in (getattr(cur, "coordinate_args", ()) or ())),
                         )
                 if isinstance(cur, BlockExpressionIR):
                     return BlockExpressionIR(

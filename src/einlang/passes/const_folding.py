@@ -196,7 +196,8 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
             arguments=folded_args,
             module_path=expr.module_path,
             type_info=expr.type_info,
-            shape_info=expr.shape_info
+            shape_info=expr.shape_info,
+            coordinate_args=getattr(expr, "coordinate_args", ()),
         )
     
     def visit_rectangular_access(self, expr: RectangularAccessIR) -> ExpressionIR:
@@ -843,4 +844,3 @@ class LiteralExtractor(IRVisitor[Optional[Any]]):
     def visit_module(self, node) -> Optional[Any]:
         """Modules are not literals"""
         return None
-

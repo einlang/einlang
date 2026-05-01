@@ -1329,7 +1329,8 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
             callee_expr=node.callee_expr,
             location=node.location,
             arguments=new_arguments,
-            module_path=node.module_path
+            module_path=node.module_path,
+            coordinate_args=getattr(node, "coordinate_args", ()),
         )
         new_node.type_info = node.type_info
         return new_node
@@ -1465,4 +1466,3 @@ class RestPatternBodyTransformer(IRVisitor[ExpressionIR]):
     
     def visit_interpolated_string(self, node) -> ExpressionIR:
         return node
-
