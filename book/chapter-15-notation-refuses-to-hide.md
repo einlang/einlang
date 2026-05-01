@@ -5,6 +5,10 @@ title: "Chapter 15: What the Notation Refuses to Hide"
 
 # What the Notation Refuses to Hide
 
+The earlier chapters used the same rule in many disguises: name the coordinate
+role before a later pass has to recover it. This chapter makes that rule
+explicit and asks where the notation should stop.
+
 Every notation hides something. That is not a flaw; it is the price of being
 usable. The question is whether it hides the right thing.
 
@@ -20,6 +24,11 @@ correctness, differentiation, storage, or lowering will later need back.
 The recurring question is not how to make every detail explicit. It is which
 coordinate facts must survive long enough for review, checking, differentiation,
 and lowering to rely on them.
+
+The deletion test is the sharpest way to find the boundary. Remove comments,
+helper names, and diagrams, then ask which coordinate facts remain in the
+program itself. Facts that disappear but decide correctness should not be left
+to memory. They belong in the notation or in a coordinate-function boundary.
 
 ## Visibility as a Design Law
 

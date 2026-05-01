@@ -44,6 +44,13 @@ For matrix multiplication, that reading becomes a five-step procedure:
 5. Sum the routes that meet back at the input address: sum[j](...).
 ```
 
+This procedure is more than a mnemonic. It is the sparse Jacobian argument
+without the giant Jacobian. Holding one input cell still tells us which output
+cells can feel it, and therefore which incoming sensitivities must meet back at
+that input address. The wrong pullback often has the right-looking extents;
+what gives it away is that it sums over a survivor or preserves a route
+coordinate.
+
 The result is `dA[i, k] = sum[j](G[i, j] * B[k, j])`. The same five steps
 derive `dB` by holding a cell of `B` fixed.
 

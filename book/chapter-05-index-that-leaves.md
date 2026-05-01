@@ -34,6 +34,12 @@ A reduction should make its bargain explicit: some coordinates survive, one or
 more coordinates are local to the `sum`, and the result no longer has them.
 Square cases are the place where reducing the wrong one can stay quiet.
 
+One reliable way to read a reduction is to circle the coordinate inside the
+reducer and then try to use it after the reducer has returned. The attempt
+should feel wrong in the same way that reading a local variable outside its
+scope feels wrong. A reduction is an arithmetic operation, but it is also a
+scope boundary.
+
 ## Axis Argument or Local Name
 
 The common interface for reduction is an axis argument:

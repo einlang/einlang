@@ -14,6 +14,12 @@ moment we see `h[t]`. But the source family `h[t]` is not automatically a demand
 to store every `h`. Storage depends on the dependency window and on which
 members of the family are later observed.
 
+The mistake is to let one notation carry three different burdens at once:
+meaning, dependency, and storage. `h[t]` names a member of a family. The read
+of `h[t - 1]` states a dependency window. A later use such as `h[T - 1]` or
+`trace[t] = h[t]` states an observation. Only after those facts are separated
+does the buffer question have a well-formed answer.
+
 ## Array Semantics or Family Semantics
 
 If an indexed recurrence is treated immediately as an array allocation, the
@@ -162,6 +168,14 @@ The first line defines a family of values. The print asks the runtime to show
 that family. The shape print asks for a different witness: not the values, but
 the coordinate extent. Both observations reduce implementation freedom because
 the program has made a demand.
+
+Coordinate functions fit into the same discipline. A call such as
+`move_channel[channel](image)` or `scan[t](step, h0, x)` states a coordinate
+contract; it does not by itself demand a particular buffer layout. The
+implementation may choose a view, a copy, a fused loop, a rolling state, or a
+checkpointed schedule if the later observations permit it. What the function
+boundary preserves is the semantic fact: which coordinate moved, which
+coordinate ordered the recurrence, and which surrounding coordinates survived.
 
 ## A Wider Window
 
@@ -374,6 +388,13 @@ Once that distinction is stable, more advanced policies can be discussed
 without changing the source meaning. Full materialization, rolling buffers,
 streaming output, and checkpointing are different answers to the same visible
 dependency and observation facts.
+
+This is one reason coordinate-aware helpers are worth more than convenience.
+They allow the source to become more compact without collapsing the difference
+between meaning and storage. A shape-only helper often forces a reader to ask,
+"Was this a layout trick or a semantic transformation?" A coordinate function
+answers at the boundary: the semantic transformation is the named coordinate
+contract; the layout trick is still up to lowering.
 
 A minimal pass can be sketched like this:
 

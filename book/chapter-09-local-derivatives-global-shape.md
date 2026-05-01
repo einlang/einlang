@@ -40,6 +40,11 @@ The scalar rule is only half the answer. Local calculus tells us the value to
 multiply by; the coordinate structure tells us where that value lands and which
 shared or omitted routes must be collected on the way back.
 
+The scalar derivative is only the seed. To make it a tensor rule, place that
+seed at the coordinate address of the value being differentiated. Most wrong
+versions are not bad calculus; they are good local calculus attached to the
+wrong family of addresses.
+
 ## Scalar Rule or Shaped Rule
 
 A derivative table can tell us that the derivative of `x * x` is `2 * x`. That

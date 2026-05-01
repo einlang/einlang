@@ -10,6 +10,10 @@ coordinate map. Broadcasting became non-dependence on a coordinate. Reduction
 became the disappearance of a local coordinate. Gradients became structured
 sensitivity questions. Time steps became recurrence over a visible axis.
 
+This chapter changes scale. The question is no longer whether one expression
+can be read more clearly, but whether a framework boundary can preserve the
+same facts when values move through APIs, modules, and libraries.
+
 Now zoom out:
 
 ```text
@@ -29,6 +33,13 @@ needs a contract that later indexed expressions can actually lean on.
 The boundary between role names and implemented types matters here. Comments
 may describe an image as `[batch, row, col]`; checked code still needs rank,
 extents, element type, and a place for those role names to matter.
+
+A framework boundary should therefore behave like a receipt, not a comment.
+The caller records what is being handed over; the callee records what it is
+allowed to rely on. If only a positional shape crosses the boundary, the next
+module may know how much data arrived but not what promise arrived with it.
+The point of names is not ceremony at every temporary; it is accountability at
+the places where code hands meaning to other code.
 
 ## Names Everywhere, or Names Where They Matter
 

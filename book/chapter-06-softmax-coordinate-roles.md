@@ -50,6 +50,12 @@ pack is inferred from the argument. The standard library can hide the stable
 maximum and denominator scans only because the coordinate contract remains
 visible at the boundary.
 
+The compact call should be earned by first separating the returned coordinate,
+the denominator scan, and the stabilizing maximum. Only after those scopes are
+visible does `softmax[j]` become a safe abbreviation. The dangerous
+abbreviation is the one that normalizes over a batch-like coordinate while
+still returning an array whose shape looks plausible.
+
 Softmax has one logical feature axis, but several coordinate jobs: the
 feature being returned, the feature scanned by the denominator, and the feature
 scanned by the maximum. Since the output has the same shape as the input, it is

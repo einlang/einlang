@@ -31,6 +31,11 @@ are apart, later chapters can ask better questions than "which axis
 number was that?" Two axes can both have extent `32`; that does not make
 batch, time, and feature interchangeable.
 
+So the practical reading is to translate every "axis 1" or "last axis" into a
+role name. Then ask whether a different role of the same extent could have
+occupied the same position. If the answer is yes, the position was never the
+whole contract; it was only the place where the contract happened to sit.
+
 ## Position or Name
 
 A language designer has an immediate choice. The first option is to keep axis

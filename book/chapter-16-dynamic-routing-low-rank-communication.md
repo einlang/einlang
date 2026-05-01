@@ -5,6 +5,11 @@ title: "Chapter 16: Dynamic Routing and Low-Rank Communication"
 
 # Dynamic Routing and Low-Rank Communication
 
+The final chapter is a stress test. If the principle only works for clean
+examples like matmul, softmax, and a one-step recurrence, it is pleasant but
+small. Modern model code asks whether the same coordinate discipline survives
+compressed communication and data-dependent routes.
+
 Standard attention was a dense communication story. A query position `i`
 compared itself with every key position `j`, then gathered values from those
 same `j` positions. The graph was large, but it was fixed.
@@ -32,6 +37,12 @@ write at every call site, the right move is still not new syntax. It is a
 coordinate function: a compact call with a visible coordinate contract, a
 reference definition when ordinary source can express it, and optional compiler
 recognition for faster lowering.
+
+The chapter's question is where communication changes shape. In linear
+attention, that place is the bottleneck rank. In MoE, it is the expert route
+and the capacity slot the route creates. A fast implementation without a
+source-level name for that coordinate may still be useful, but it has hidden
+the fact that later reasoning about load, gradients, and capacity must recover.
 
 For the feature map used below, a scalar helper can be written in ordinary
 Einlang:

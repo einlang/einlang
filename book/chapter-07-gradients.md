@@ -5,6 +5,11 @@ title: "Chapter 7: What Is a Gradient?"
 
 # What Is a Gradient?
 
+The previous section established three local facts: a coordinate can survive,
+disappear inside a reduction, or be absent from a term and therefore broadcast.
+Autodiff does not replace those facts. It reuses them while changing the
+question from "what value is produced?" to "where can sensitivity flow?"
+
 Automatic differentiation is often introduced with a runtime graph. The forward
 pass records operations. The backward pass walks those operations in reverse
 and accumulates sensitivities.
@@ -38,6 +43,11 @@ asks a local sensitivity question: if this one stone moves a little, which
 height changes, and by how much? The notation `@y[i] / @x[j]` is that
 one-to-one question with addresses attached. Reverse mode usually avoids
 materializing every such question, but the address discipline is still there.
+
+That is why the derivative question should be written before the derivative
+formula. The denominator names the address family of the answer. Every other
+coordinate that appears while tracing influence is a route coordinate: it must
+be preserved, reduced, or explained by the structure of the forward program.
 
 ## Tape or Transformation
 

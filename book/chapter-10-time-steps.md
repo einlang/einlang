@@ -5,6 +5,10 @@ title: "Chapter 10: The Wall of Time Steps"
 
 # The Wall of Time Steps
 
+The autodiff chapters treated coordinates as addresses of influence. Time adds
+one more ingredient: direction. A time coordinate is still a coordinate, but a
+forward recurrence also says which way dependency edges are allowed to point.
+
 The common illusion is that a loop is the same thing as time. It is not. A loop
 is one way to execute a dependency that should be visible before scheduling.
 
@@ -33,6 +37,12 @@ A loop tells an execution story. A recurrence tells a dependency story. The
 two can lower to the same machine behavior, but they give the compiler and the
 reader different source facts to work with. The important separation is between
 `h[t]`, `h[t - 1]`, and the storage slot that may eventually hold them.
+
+The smallest useful act is to draw one edge from `h[t]` to the state it reads.
+If the edge points to `t - 1`, the source describes a forward recurrence. If it
+points to `t + 1`, the program may still describe something meaningful, but it
+is no longer the same story. It needs a different contract: a backward pass, a
+boundary-value problem, or a fixed-point computation.
 
 ## Control Step or Dependency Axis
 
@@ -127,6 +137,24 @@ let h[t] = scan[t](step, h0, x[t])
 The point of the bracket is not syntax for its own sake. It prevents `scan`
 from becoming an opaque loop-shaped box. The call says which coordinate orders
 the dependency, leaving storage and scheduling for later lowering.
+
+The same rule used for `softmax[class]` applies here. A helper is welcome when
+the scalar mechanics are conventional, but the coordinate that gives the
+operation its role should remain visible. `scan[t]` says that `t` is not just a
+batch-like prefix and not just another feature coordinate. It is the ordered
+coordinate along which each state may read earlier states.
+
+That also leaves room for rank-polymorphic use:
+
+```text
+let h[t, ..batch, hidden] =
+    scan[t](step, h0[..batch, hidden], x[t, ..batch, input])
+```
+
+The helper need not assume how many batch-like coordinates surround the time
+axis. It only needs to know which coordinate is time. The rest can be inferred
+from the argument ranks, just as `move_channel[channel](image)` can infer the
+spatial pack around the named channel coordinate.
 
 For `T = 4`, the dependency chain is almost too small to hide:
 

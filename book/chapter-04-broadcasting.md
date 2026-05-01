@@ -5,6 +5,10 @@ title: "Chapter 4: What Does Broadcasting Hide?"
 
 # What Does Broadcasting Hide?
 
+The first three chapters asked where a coordinate went when a tensor was
+rearranged. This chapter asks a quieter question: what does it mean when a
+coordinate does not appear in a term at all?
+
 The frightening broadcasting bug is not a crash. It is a model that trains
 while sharing a value across the wrong role.
 
@@ -34,7 +38,15 @@ about singleton dimensions and shape alignment. Broadcasting keeps the code
 short by moving the coordinate story into a rule the reader already knows.
 
 That trade is often worth it. It is also an excellent place for a quiet mistake
-to hide.
+to hide, because expansion is a storage description while independence is a
+semantic one. A singleton dimension says that one stored value may be reused.
+It does not, by itself, say why reuse is correct.
+
+The deeper question is therefore not "which singleton expanded?" but "which
+coordinate did this term not depend on?" Point at the smaller term and ask
+which result coordinate it omits. Then imagine a value of the same length
+being reused along a different role. That is the bug broadcasting makes easy:
+legal reuse without a visible independence claim.
 
 The quiet mistake can be expensive. Suppose a training job computes a
 per-feature running mean, but a refactor leaves the mean addressed by `batch`

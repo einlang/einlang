@@ -112,3 +112,9 @@
   kind: frontmatter
   section: Closing
   eyebrow: Appendix
+- title: "Appendix: Coordinate Reading Laws"
+  url: /book/appendix-coordinate-laws.html
+  short_title: Appendix. Laws
+  kind: frontmatter
+  section: Closing
+  eyebrow: Appendix

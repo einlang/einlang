@@ -9,7 +9,7 @@ These are the lowest-friction paths through the repo. They all run from the repo
 | Time | Run | Why it is a good stop |
 |------|-----|-----------------------|
 | 30 seconds | `python3 -m einlang examples/hello.ein` | Confirms the install and shows the CLI on a tiny program. |
-| 5 minutes | `python3 -m einlang examples/autodiff_small.ein`<br>`python3 -m einlang examples/demos/matrix_operations.ein` | Shows the core autodiff syntax and the tensor notation quickly. |
+| 5 minutes | `python3 -m einlang examples/autodiff_small.ein`<br>`python3 -m einlang examples/autodiff_matmul.ein`<br>`python3 -m einlang examples/demos/tensor_functions.ein` | Shows autodiff, one-cell pullback reading, and coordinate-aware helpers quickly. |
 | 30 minutes | `python3 -m einlang examples/applications/linear_regression_autodiff.ein`<br>`python3 -m einlang examples/recurrence/recurrence_suite.ein`<br>`python3 -m einlang examples/ode/ode_suite.ein`<br>`python3 -m einlang examples/optimization/optimization_suite.ein` | Shows that the same language reaches fitting, recurrences, numerics, and optimization workflows. |
 | After that | [examples/README](README.md), [mnist/README](mnist/README.md), [deit_tiny/README](deit_tiny/README.md), [whisper_tiny/README](whisper_tiny/README.md) | Use the directory guides once you want the heavier showcases or extra setup. |
 
@@ -21,6 +21,7 @@ If you only run one thing after `hello.ein`, run `autodiff_small.ein`.
 |------|---------------|-----|
 | Learn the language | `examples/basics/`, `examples/demos/` | `python3 -m einlang examples/basics/variables_demo.ein` |
 | See feature-sized syntax examples | `examples/units/` | [units/README](units/README.md) |
+| See the book's coordinate-contract style in existing examples | `examples/demos/tensor_functions.ein`, `examples/demos/computer_vision_tensors.ein`, `examples/autodiff_matmul.ein` | `python3 -m einlang examples/demos/computer_vision_tensors.ein` |
 | Try autodiff basics | root autodiff examples | `python3 -m einlang examples/autodiff_small.ein` |
 | See autodiff on real fitting tasks | `examples/applications/`, `examples/gradient_descent_autodiff.ein`, `examples/mnist/` | `python3 -m einlang examples/applications/linear_regression_autodiff.ein` |
 | See the main sklearn-backed training showcase | `examples/mnist/train_sklearn_digits.ein` | [mnist/README](mnist/README.md) |
@@ -35,7 +36,7 @@ If you only run one thing after `hello.ein`, run `autodiff_small.ein`.
 | Directory | What it contains |
 |-----------|------------------|
 | `examples/basics/` | Small language primers |
-| `examples/demos/` | Matrix and tensor examples |
+| `examples/demos/` | Matrix and tensor examples, including coordinate-aware helpers and named image-layout moves |
 | `examples/units/` | Feature-by-feature lookup examples |
 | `examples/applications/`, `examples/gradient_descent_autodiff.ein`, `examples/mnist/` | Real-world autodiff examples: fitting, calibration, optimization, and training |
 | `examples/recurrence/` | Recurrence patterns and discrete dynamics |

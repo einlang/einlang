@@ -17,6 +17,12 @@ An RNN cell is easy to hide behind an API. Here, read it as labeled
 communication: time moves, batch stays isolated, and hidden roles are mapped by
 the recurrent weight.
 
+To read the cell, draw one edge into `hidden[t, b, h]` from input features and
+one edge from the previous hidden state. Then change one coordinate on the
+right-hand side and ask what communication you just allowed. A
+shape-compatible mutation that mixes batch examples or reverses the hidden map
+is not a harmless indexing variant; it is a different graph.
+
 ## Cell API or Visible Recurrence
 
 One design is to hide the recurrence inside a cell API. The user calls
@@ -243,6 +249,11 @@ fn rnn_cell[input, hidden, prev_hidden](
 
 The implementation can hide activations and bias terms. It should not hide
 that `prev_hidden` is scanned to produce `hidden`.
+
+This is the same boundary rule used by `softmax[class]` and
+`move_channel[channel]`. The body may be ordinary library code. The signature
+still carries the coordinate facts that a caller, differentiator, or lowering
+pass should not have to rediscover from a black-box cell.
 
 The same reading scales to more complex recurrent cells. An LSTM adds a cell
 state and several gates. A GRU adds reset and update gates. Those mechanisms

@@ -92,6 +92,18 @@ batched layer. One recurrent edge can show the distinction between a loop and a
 dependency graph. One attention score can show why query and key positions
 should not be allowed to collapse into "the sequence axis."
 
+The book borrows a teaching habit from the best programming texts: do not
+introduce a feature as a feature. Introduce a small problem, read it by hand,
+name the rule that solved it, then use the rule again somewhere less toy-like.
+When a helper appears, the expanded form remains nearby so the abstraction can
+be checked rather than merely trusted.
+
+There is also a deliberate habit of writing the wrong program. A
+shape-compatible mistake is often more educational than a crashing one. If a
+bad line can still train, normalize, differentiate, or route, then the missing
+coordinate fact is worth making visible. Many exercises therefore ask you to
+break the program first and only then repair it with names.
+
 There is one rule I return to more than any other:
 
 ```text

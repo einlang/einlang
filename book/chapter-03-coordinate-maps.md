@@ -40,6 +40,11 @@ Before reading the examples, try to write a transpose without using the word
 feels more precise than the operation name, you have found the chapter's main
 point.
 
+The useful discipline is to erase the operation name and keep only the address
+equation. If the equation can be run backward, say what assumption made that
+possible. If two packed roles can be exchanged while the total element count
+still agrees, the operation name has not carried enough meaning by itself.
+
 ## Operation Name or Address Relation
 
 Shape libraries usually present layout changes as operations: reshape,

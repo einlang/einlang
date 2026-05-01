@@ -26,6 +26,12 @@ Attention is a larger example of the same habit. Query positions ask, key
 positions answer, and values must be gathered at the answering coordinate
 rather than at the query by accident.
 
+The most honest way to read attention is to pick one query position, list the
+key positions it scans, and then follow the chosen key to the value read. The
+common wrong version gathers values at the query coordinate. It can still look
+like ordinary matrix code, but the communication protocol has collapsed: the
+answer no longer determines what comes back.
+
 ## Special Operator or Named Communication
 
 A language could treat attention as a special operator with a fixed signature.

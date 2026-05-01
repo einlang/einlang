@@ -32,6 +32,12 @@ transpose, or what semantic role the `4` and the `32` are supposed to play.
 That is the first blind spot. Tensor code often preserves enough information
 to run, but not enough information to explain itself.
 
+The way to read the example is to choose one output address and reconstruct
+the input roles that produced it. Then make the reconstruction deliberately
+wrong while keeping the shape valid. If two different role stories survive the
+same extent checks, the missing information is not an implementation detail.
+It is the thing the source failed to say.
+
 This is not only a toy failure mode. Imagine an image model that packs
 `batch * head` into one coordinate before a projection layer. During a refactor,
 the packing order changes, but the unpacking code downstream still assumes the
@@ -119,6 +125,24 @@ The bracketed coordinates are the important part of the hypothetical helper.
 They say which split roles are being packed, so the call is not merely
 `reshape(...)` with a friendlier name. The long indexed line is the reference
 meaning; the coordinate function is the reusable boundary.
+
+This is the first appearance of a pattern that will return throughout the
+book. Write the coordinate relation once, then let a named operation carry that
+relation without making every call site repeat the arithmetic. The abstraction
+is allowed to hide loops, indexing details, storage choices, and scalar
+plumbing. It is not allowed to hide the coordinate choice that makes the
+operation meaningful.
+
+That is why the coordinate argument belongs on the call:
+
+```text
+pack_grouped_features[group, slice](x)
+```
+
+The caller is not supplying ordinary numeric parameters. It is saying which
+roles are being rearranged. A shape-only helper would ask the reader to infer
+that fact from positions and extents. A coordinate function makes it part of
+the contract.
 
 The ranges would make the relation concrete:
 
