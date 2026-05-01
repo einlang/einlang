@@ -66,7 +66,7 @@ pub use std::ml::shape_ops::{reshape, squeeze, unsqueeze, split, expand, shape};
 pub use std::ml::resize_ops::{resize, upsample};
 
 // Selection Operations
-pub use std::ml::selection_ops::{topk, nonzero, argmax, argmin};
+pub use std::ml::selection_ops::{topk, nonzero};
 
 // Recurrent Operations
 pub use std::ml::recurrent_ops::{rnn, lstm, gru};

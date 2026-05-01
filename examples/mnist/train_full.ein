@@ -8,7 +8,7 @@ let sample_images = python::data_loader::load_images() as [f32; 10, 784];
 let sample_labels = python::data_loader::load_labels() as [f32; 10, 10];
 
 let lr = 5e-2;
-let truth = std::ml::argmax(sample_labels);
+let truth[n] = argmax[cls](sample_labels[n, cls]);
 
 let theta0[p in 0..785, cls in 0..10] =
     if p == 784 { 0.0 } else { 1e-3 * (1.0 + ((p % 17) + cls) as f32) };
@@ -19,7 +19,7 @@ let diff0[n in 0..10, cls in 0..10] =
     logits0[n, cls] - sample_labels[n, cls];
 let loss0 =
     sum[n in 0..10, cls in 0..10](diff0[n, cls] * diff0[n, cls]) / 100.0;
-let preds0 = std::ml::argmax(logits0);
+let preds0[n] = argmax[cls](logits0[n, cls]);
 let correct0 = sum[n in 0..10](if preds0[n] == truth[n] { 1 } else { 0 });
 let accuracy0 = (correct0 as f32) / 10.0;
 print("Epoch 0:", "loss", loss0, "accuracy", accuracy0 * 100.0, "%", "correct", correct0);
@@ -34,7 +34,7 @@ let diff1[n in 0..10, cls in 0..10] =
     logits1[n, cls] - sample_labels[n, cls];
 let loss1 =
     sum[n in 0..10, cls in 0..10](diff1[n, cls] * diff1[n, cls]) / 100.0;
-let preds1 = std::ml::argmax(logits1);
+let preds1[n] = argmax[cls](logits1[n, cls]);
 let correct1 = sum[n in 0..10](if preds1[n] == truth[n] { 1 } else { 0 });
 let accuracy1 = (correct1 as f32) / 10.0;
 print("Epoch 1:", "loss", loss1, "accuracy", accuracy1 * 100.0, "%", "correct", correct1);
@@ -49,7 +49,7 @@ let diff2[n in 0..10, cls in 0..10] =
     logits2[n, cls] - sample_labels[n, cls];
 let loss2 =
     sum[n in 0..10, cls in 0..10](diff2[n, cls] * diff2[n, cls]) / 100.0;
-let preds2 = std::ml::argmax(logits2);
+let preds2[n] = argmax[cls](logits2[n, cls]);
 let correct2 = sum[n in 0..10](if preds2[n] == truth[n] { 1 } else { 0 });
 let accuracy2 = (correct2 as f32) / 10.0;
 print("Epoch 2:", "loss", loss2, "accuracy", accuracy2 * 100.0, "%", "correct", correct2);
@@ -64,7 +64,7 @@ let diff3[n in 0..10, cls in 0..10] =
     logits3[n, cls] - sample_labels[n, cls];
 let loss3 =
     sum[n in 0..10, cls in 0..10](diff3[n, cls] * diff3[n, cls]) / 100.0;
-let preds3 = std::ml::argmax(logits3);
+let preds3[n] = argmax[cls](logits3[n, cls]);
 let correct3 = sum[n in 0..10](if preds3[n] == truth[n] { 1 } else { 0 });
 let accuracy3 = (correct3 as f32) / 10.0;
 print("Epoch 3:", "loss", loss3, "accuracy", accuracy3 * 100.0, "%", "correct", correct3);
@@ -79,7 +79,7 @@ let diff4[n in 0..10, cls in 0..10] =
     logits4[n, cls] - sample_labels[n, cls];
 let loss4 =
     sum[n in 0..10, cls in 0..10](diff4[n, cls] * diff4[n, cls]) / 100.0;
-let preds4 = std::ml::argmax(logits4);
+let preds4[n] = argmax[cls](logits4[n, cls]);
 let correct4 = sum[n in 0..10](if preds4[n] == truth[n] { 1 } else { 0 });
 let accuracy4 = (correct4 as f32) / 10.0;
 print("Epoch 4:", "loss", loss4, "accuracy", accuracy4 * 100.0, "%", "correct", correct4);
@@ -94,7 +94,7 @@ let diff5[n in 0..10, cls in 0..10] =
     logits5[n, cls] - sample_labels[n, cls];
 let loss5 =
     sum[n in 0..10, cls in 0..10](diff5[n, cls] * diff5[n, cls]) / 100.0;
-let preds5 = std::ml::argmax(logits5);
+let preds5[n] = argmax[cls](logits5[n, cls]);
 let correct5 = sum[n in 0..10](if preds5[n] == truth[n] { 1 } else { 0 });
 let accuracy5 = (correct5 as f32) / 10.0;
 print("Epoch 5:", "loss", loss5, "accuracy", accuracy5 * 100.0, "%", "correct", correct5);

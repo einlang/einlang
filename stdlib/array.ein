@@ -47,39 +47,6 @@ pub fn concatenate(arr1, arr2) {
     [if i < len(arr1) { arr1[i] } else { arr2[i - len(arr1)] } | i in 0..(len(arr1) + len(arr2))]
 }
 
-// ============================================================================
-// Argmax/Argmin Operations
-// ============================================================================
-
-pub fn argmax(arr) {
-    // Returns index of first occurrence of maximum value
-    // Simple linear search algorithm: O(n)
-    assert(typeof(arr) == "rectangular", "argmax: argument must be rectangular array");
-    assert(len(arr) > 0, "argmax: cannot find argmax of empty array");
-    
-    // Find max value first, then find its first index
-    let max_val = max[i](arr[i]);
-    
-    // Linear search for first occurrence using comprehension
-    let indices = [i | i in 0..len(arr), arr[i] == max_val];
-    indices[0]
-}
-
-pub fn argmin(arr) {
-    // Returns index of first occurrence of minimum value
-    // Simple linear search algorithm: O(n)
-    assert(typeof(arr) == "rectangular", "argmin: argument must be rectangular array");
-    assert(len(arr) > 0, "argmin: cannot find argmin of empty array");
-    
-    // Find min value first, then find its first index
-    let min_val = min[i](arr[i]);
-    
-    // Linear search for first occurrence
-    // Use comprehension to find the index
-    let indices = [i | i in 0..len(arr), arr[i] == min_val];
-    indices[0]
-}
-
 pub fn argmax_all(arr) {
     // Returns all indices where the maximum value occurs
     // Algorithm: Find max value, then find all indices with that value

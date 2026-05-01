@@ -2,7 +2,6 @@
 
 use std::math::{min, max};
 use std::array::topk_with_indices_extract;
-use std::array::{argmax as array_argmax, argmin as array_argmin};
 
 // ============================================================================
 // Operator: TopK
@@ -212,93 +211,5 @@ pub fn nonzero(data) {
     } else {
         // Fallback for unsupported ranks
         data
-    }
-}
-
-// ============================================================================
-// Operator: ArgMax
-// ============================================================================
-
-pub fn argmax(x) {
-    // Operator: ArgMax
-    // Return index of maximum value in last dimension
-    // Input: 1D array or [..batch, features], Output: scalar (1D) or [..batch] as integer
-    // For 1D arrays, delegates to std::array::argmax (no duplicate implementation)
-    // Performance: O(n) - two passes: one for max, one for argmax
-    // Algorithm: Find max value, use sentinel trick to find first matching index
-    assert(typeof(x) == "rectangular", "argmax: input must be rectangular");
-    
-    let rank = len(x.shape);
-    if rank == 1 {
-        // 1D case: delegate to array::argmax (no duplicate implementation)
-        array_argmax(x)
-    } else {
-        // Multi-D case: find argmax along last dimension per batch
-        // Use explicit indexing throughout to avoid rest pattern shape issues
-        let batch_size = len(x);
-        let n = len(x[0]);
-        
-        // Pass 1: Find maximum value per batch
-        let max_val[i in 0..batch_size] = max[j in 0..n](x[i, j]);
-        
-        // Pass 2: Find first index where value equals max
-        // Strategy: Create array where matching positions get index j, non-matches get sentinel
-        // Then min reduction gives us smallest (first) matching index
-        // Sentinel: Use array length (guaranteed larger than any valid index 0..len-1)
-        let sentinel = n;  // Safe: valid indices are 0..n-1, so n is always out of range
-        let weighted[i in 0..batch_size, j in 0..n] = if x[i, j] == max_val[i] { 
-            j  // j is int from Einstein range
-        } else { 
-            sentinel  // Guaranteed larger than any valid index
-        };
-        
-        // Pass 3: Find minimum index (first occurrence of max value)
-        // min returns integer since weighted contains integers
-        let result[i in 0..batch_size] = min[j in 0..n](weighted[i, j]);
-        result
-    }
-}
-
-// ============================================================================
-// Operator: ArgMin
-// ============================================================================
-
-pub fn argmin(x) {
-    // Operator: ArgMin
-    // Return index of minimum value in last dimension
-    // Input: 1D array or [..batch, features], Output: scalar (1D) or [..batch] as integer
-    // For 1D arrays, delegates to std::array::argmin (no duplicate implementation)
-    // Performance: O(n) - two passes: one for min, one for argmin
-    // Algorithm: Find min value, use sentinel trick to find first matching index
-    assert(typeof(x) == "rectangular", "argmin: input must be rectangular");
-    
-    let rank = len(x.shape);
-    if rank == 1 {
-        // 1D case: delegate to array::argmin (no duplicate implementation)
-        array_argmin(x)
-    } else {
-        // Multi-D case: find argmin along last dimension per batch
-        // Use explicit indexing throughout to avoid rest pattern shape issues
-        let batch_size = len(x);
-        let n = len(x[0]);
-        
-        // Pass 1: Find minimum value per batch
-        let min_val[i in 0..batch_size] = min[j in 0..n](x[i, j]);
-        
-        // Pass 2: Find first index where value equals min
-        // Strategy: Create array where matching positions get index j, non-matches get sentinel
-        // Then min reduction gives us smallest (first) matching index
-        // Sentinel: Use array length (guaranteed larger than any valid index 0..len-1)
-        let sentinel = n;  // Safe: valid indices are 0..n-1, so n is always out of range
-        let weighted[i in 0..batch_size, j in 0..n] = if x[i, j] == min_val[i] {
-            j  // j is int from Einstein range
-        } else { 
-            sentinel  // Guaranteed larger than any valid index
-        };
-        
-        // Pass 3: Find minimum index (first occurrence of min value)
-        // min returns integer since weighted contains integers
-        let result[i in 0..batch_size] = min[j in 0..n](weighted[i, j]);
-        result
     }
 }

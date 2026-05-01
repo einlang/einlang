@@ -1,5 +1,3 @@
-use std::array::argmax;
-
 // Load MNIST data
 let (X_train, y_train, X_test, y_test) = load_mnist_train_test();
 
@@ -70,8 +68,8 @@ let fc1_out_test = relu(matmul(fc1_weight, flattened_test) + fc1_bias);
 let logits_test = matmul(fc2_weight, fc1_out_test) + fc2_bias;
 
 // Get predictions
-let predicted_class = argmax(logits_test);
-let true_class = argmax(true_label_test);
+let predicted_class = argmax[cls](logits_test[cls]);
+let true_class = argmax[cls](true_label_test[cls]);
 
 print("Predicted class:", predicted_class);
 print("True class:", true_class);

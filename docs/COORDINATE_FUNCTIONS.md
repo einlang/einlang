@@ -414,7 +414,7 @@ Stage 2: coordinate-aware function signatures.
 ```text
 fn f[j](x: [T; ..left, j, ..right]) -> ...
 rebind coordinate parameters in local reductions
-stdlib definitions for softmax and similar coordinate-aware helpers
+builtin signatures for softmax and similar coordinate-aware helpers
 ```
 
 ## Implementation Design
@@ -437,15 +437,17 @@ softmax[class](logits)
 The rule is name-based after parsing:
 
 ```text
-sum, max, min, prod, all, any, argmax, argmin
-    are reduction or selection expressions.
+all bracketed calls are parsed as calls
 
-All other resolved callees with bracket arguments
-    are coordinate-aware function calls.
+builtin coordinate intrinsics
+    lower to reduction, selection, or intrinsic runtime forms
+
+ordinary resolved callees with bracket arguments
+    lower to coordinate-aware function calls
 ```
 
-This keeps `argmax[class](x)` short without forcing `softmax` to become a
-special compiler primitive.
+This keeps the source language uniform while still giving the compiler
+special lowering hooks for reductions, selections, and axis-sensitive helpers.
 
 ### Parser and AST Changes
 
@@ -663,23 +665,35 @@ let m[..left, ..right] = max[j](x[..left, j, ..right]);
 That local rebinding is expression-scoped. It must not create a mutable
 coordinate variable in the surrounding block.
 
-### Standard Library Placement
+### Builtin Placement
 
-`argmax` and `argmin` are compiler-known selection reductions.
-
-`softmax`, `center`, and similar helpers should be ordinary standard-library
-functions written with coordinate parameters:
+Coordinate-sensitive reductions and helpers are not ordinary stdlib functions.
+They should be builtin functions with explicit coordinate signatures and
+intrinsic lowering:
 
 ```rust
-pub fn softmax[j](x: [f32; ..left, j, ..right])
-    -> [f32; ..left, j, ..right]
+builtin fn sum[j, T](x: [T; ..left, j, ..right]) -> [T; ..left, ..right];
+builtin fn max[j, T](x: [T; ..left, j, ..right]) -> [T; ..left, ..right];
+builtin fn min[j, T](x: [T; ..left, j, ..right]) -> [T; ..left, ..right];
+builtin fn argmax[j, T](x: [T; ..left, j, ..right]) -> [i32; ..left, ..right];
+builtin fn argmin[j, T](x: [T; ..left, j, ..right]) -> [i32; ..left, ..right];
+builtin fn softmax[j](x: [f32; ..left, j, ..right])
+    -> [f32; ..left, j, ..right];
+```
+
+An ordinary helper can still compose these intrinsics, but the axis-bearing
+surface entry point should not live in `stdlib/`:
+
+```rust
+let p = softmax[class](logits);
+let pred = argmax[class](logits);
 ```
 
 This is the important split:
 
 ```text
-selection primitives produce integer address results
-library functions compose reductions and pointwise operations
+builtin coordinate intrinsics own axis contracts and lowering
+stdlib functions are ordinary functions without privileged coordinate meaning
 ```
 
 ### Pass Order

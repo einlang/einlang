@@ -25,7 +25,7 @@ Building on the self-attention from [deit_tiny/](https://github.com/einlang/einl
 - **Encoder-decoder architecture** — the encoder processes audio into a fixed representation; the decoder generates text tokens conditioned on that representation.
 - **Cross-attention** — decoder queries attend to encoder keys/values (`Kc[s in 0..1500, d in 0..384]` uses `enc[s, k]`), bridging the two halves of the model.
 - **Causal self-attention** — the decoder uses a lower-triangular mask (`+ if j <= i { 0.0 } else { -10000.0 }`) so each token can only attend to previous tokens.
-- **Autoregressive decoding** — `let tokens[t in 4..40] = { ... argmax(logits) }` uses Einlang's recurrence mechanism: each token depends on all previously generated tokens.
+- **Autoregressive decoding** — `let tokens[t in 4..40] = { ... argmax[v](logits[v]) }` uses Einlang's recurrence mechanism: each token depends on all previously generated tokens.
 - **Python bridge for BPE** — `python::whisper_helpers::decode_tokens(tokens)` converts token IDs back to text using the GPT-2 tokenizer.
 
 ## Files

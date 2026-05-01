@@ -20,11 +20,11 @@ let lr = 0.2;
 
 let train_images[n in 0..1437, d in 0..64] = train_images_4d[n, 0, d / 8, d % 8];
 let train_labels[n in 0..1437, cls in 0..10] = train_labels_full[n, cls];
-let train_truth = std::ml::argmax(train_labels);
+let train_truth[n] = argmax[cls](train_labels[n, cls]);
 
 let eval_images[n in 0..360, d in 0..64] = test_images_4d[n, 0, d / 8, d % 8];
 let eval_labels[n in 0..360, cls in 0..10] = test_labels_full[n, cls];
-let eval_truth = std::ml::argmax(eval_labels);
+let eval_truth[n] = argmax[cls](eval_labels[n, cls]);
 
 // Bias lives in the last row so the whole classifier stays in one tensor.
 let theta0[p in 0..65, cls in 0..10] =
@@ -35,12 +35,12 @@ let logits0[n in 0..1437, cls in 0..10] =
 let diff0[n in 0..1437, cls in 0..10] = logits0[n, cls] - train_labels[n, cls];
 let loss0 =
     sum[n in 0..1437, cls in 0..10](diff0[n, cls] * diff0[n, cls]) / ((1437 * 10) as f32);
-let preds0 = std::ml::argmax(logits0);
+let preds0[n] = argmax[cls](logits0[n, cls]);
 let correct0 = sum[n in 0..1437](if preds0[n] == train_truth[n] { 1 } else { 0 });
 let accuracy0 = (correct0 as f32) / 1437.0;
 let eval_logits0[n in 0..360, cls in 0..10] =
     sum[d in 0..64](eval_images[n, d] * theta0[d, cls]) + theta0[64, cls];
-let eval_preds0 = std::ml::argmax(eval_logits0);
+let eval_preds0[n] = argmax[cls](eval_logits0[n, cls]);
 let eval_correct0 = sum[n in 0..360](if eval_preds0[n] == eval_truth[n] { 1 } else { 0 });
 let eval_accuracy0 = (eval_correct0 as f32) / 360.0;
 
@@ -52,12 +52,12 @@ let logits1[n in 0..1437, cls in 0..10] =
 let diff1[n in 0..1437, cls in 0..10] = logits1[n, cls] - train_labels[n, cls];
 let loss1 =
     sum[n in 0..1437, cls in 0..10](diff1[n, cls] * diff1[n, cls]) / ((1437 * 10) as f32);
-let preds1 = std::ml::argmax(logits1);
+let preds1[n] = argmax[cls](logits1[n, cls]);
 let correct1 = sum[n in 0..1437](if preds1[n] == train_truth[n] { 1 } else { 0 });
 let accuracy1 = (correct1 as f32) / 1437.0;
 let eval_logits1[n in 0..360, cls in 0..10] =
     sum[d in 0..64](eval_images[n, d] * theta1[d, cls]) + theta1[64, cls];
-let eval_preds1 = std::ml::argmax(eval_logits1);
+let eval_preds1[n] = argmax[cls](eval_logits1[n, cls]);
 let eval_correct1 = sum[n in 0..360](if eval_preds1[n] == eval_truth[n] { 1 } else { 0 });
 let eval_accuracy1 = (eval_correct1 as f32) / 360.0;
 
@@ -69,12 +69,12 @@ let logits2[n in 0..1437, cls in 0..10] =
 let diff2[n in 0..1437, cls in 0..10] = logits2[n, cls] - train_labels[n, cls];
 let loss2 =
     sum[n in 0..1437, cls in 0..10](diff2[n, cls] * diff2[n, cls]) / ((1437 * 10) as f32);
-let preds2 = std::ml::argmax(logits2);
+let preds2[n] = argmax[cls](logits2[n, cls]);
 let correct2 = sum[n in 0..1437](if preds2[n] == train_truth[n] { 1 } else { 0 });
 let accuracy2 = (correct2 as f32) / 1437.0;
 let eval_logits2[n in 0..360, cls in 0..10] =
     sum[d in 0..64](eval_images[n, d] * theta2[d, cls]) + theta2[64, cls];
-let eval_preds2 = std::ml::argmax(eval_logits2);
+let eval_preds2[n] = argmax[cls](eval_logits2[n, cls]);
 let eval_correct2 = sum[n in 0..360](if eval_preds2[n] == eval_truth[n] { 1 } else { 0 });
 let eval_accuracy2 = (eval_correct2 as f32) / 360.0;
 
@@ -86,12 +86,12 @@ let logits3[n in 0..1437, cls in 0..10] =
 let diff3[n in 0..1437, cls in 0..10] = logits3[n, cls] - train_labels[n, cls];
 let loss3 =
     sum[n in 0..1437, cls in 0..10](diff3[n, cls] * diff3[n, cls]) / ((1437 * 10) as f32);
-let preds3 = std::ml::argmax(logits3);
+let preds3[n] = argmax[cls](logits3[n, cls]);
 let correct3 = sum[n in 0..1437](if preds3[n] == train_truth[n] { 1 } else { 0 });
 let accuracy3 = (correct3 as f32) / 1437.0;
 let eval_logits3[n in 0..360, cls in 0..10] =
     sum[d in 0..64](eval_images[n, d] * theta3[d, cls]) + theta3[64, cls];
-let eval_preds3 = std::ml::argmax(eval_logits3);
+let eval_preds3[n] = argmax[cls](eval_logits3[n, cls]);
 let eval_correct3 = sum[n in 0..360](if eval_preds3[n] == eval_truth[n] { 1 } else { 0 });
 let eval_accuracy3 = (eval_correct3 as f32) / 360.0;
 
@@ -103,12 +103,12 @@ let logits4[n in 0..1437, cls in 0..10] =
 let diff4[n in 0..1437, cls in 0..10] = logits4[n, cls] - train_labels[n, cls];
 let loss4 =
     sum[n in 0..1437, cls in 0..10](diff4[n, cls] * diff4[n, cls]) / ((1437 * 10) as f32);
-let preds4 = std::ml::argmax(logits4);
+let preds4[n] = argmax[cls](logits4[n, cls]);
 let correct4 = sum[n in 0..1437](if preds4[n] == train_truth[n] { 1 } else { 0 });
 let accuracy4 = (correct4 as f32) / 1437.0;
 let eval_logits4[n in 0..360, cls in 0..10] =
     sum[d in 0..64](eval_images[n, d] * theta4[d, cls]) + theta4[64, cls];
-let eval_preds4 = std::ml::argmax(eval_logits4);
+let eval_preds4[n] = argmax[cls](eval_logits4[n, cls]);
 let eval_correct4 = sum[n in 0..360](if eval_preds4[n] == eval_truth[n] { 1 } else { 0 });
 let eval_accuracy4 = (eval_correct4 as f32) / 360.0;
 
@@ -120,12 +120,12 @@ let logits5[n in 0..1437, cls in 0..10] =
 let diff5[n in 0..1437, cls in 0..10] = logits5[n, cls] - train_labels[n, cls];
 let loss5 =
     sum[n in 0..1437, cls in 0..10](diff5[n, cls] * diff5[n, cls]) / ((1437 * 10) as f32);
-let preds5 = std::ml::argmax(logits5);
+let preds5[n] = argmax[cls](logits5[n, cls]);
 let correct5 = sum[n in 0..1437](if preds5[n] == train_truth[n] { 1 } else { 0 });
 let accuracy5 = (correct5 as f32) / 1437.0;
 let eval_logits5[n in 0..360, cls in 0..10] =
     sum[d in 0..64](eval_images[n, d] * theta5[d, cls]) + theta5[64, cls];
-let eval_preds5 = std::ml::argmax(eval_logits5);
+let eval_preds5[n] = argmax[cls](eval_logits5[n, cls]);
 let eval_correct5 = sum[n in 0..360](if eval_preds5[n] == eval_truth[n] { 1 } else { 0 });
 let eval_accuracy5 = (eval_correct5 as f32) / 360.0;
 
@@ -137,12 +137,12 @@ let logits6[n in 0..1437, cls in 0..10] =
 let diff6[n in 0..1437, cls in 0..10] = logits6[n, cls] - train_labels[n, cls];
 let loss6 =
     sum[n in 0..1437, cls in 0..10](diff6[n, cls] * diff6[n, cls]) / ((1437 * 10) as f32);
-let preds6 = std::ml::argmax(logits6);
+let preds6[n] = argmax[cls](logits6[n, cls]);
 let correct6 = sum[n in 0..1437](if preds6[n] == train_truth[n] { 1 } else { 0 });
 let accuracy6 = (correct6 as f32) / 1437.0;
 let eval_logits6[n in 0..360, cls in 0..10] =
     sum[d in 0..64](eval_images[n, d] * theta6[d, cls]) + theta6[64, cls];
-let eval_preds6 = std::ml::argmax(eval_logits6);
+let eval_preds6[n] = argmax[cls](eval_logits6[n, cls]);
 let eval_correct6 = sum[n in 0..360](if eval_preds6[n] == eval_truth[n] { 1 } else { 0 });
 let eval_accuracy6 = (eval_correct6 as f32) / 360.0;
 
@@ -154,12 +154,12 @@ let logits7[n in 0..1437, cls in 0..10] =
 let diff7[n in 0..1437, cls in 0..10] = logits7[n, cls] - train_labels[n, cls];
 let loss7 =
     sum[n in 0..1437, cls in 0..10](diff7[n, cls] * diff7[n, cls]) / ((1437 * 10) as f32);
-let preds7 = std::ml::argmax(logits7);
+let preds7[n] = argmax[cls](logits7[n, cls]);
 let correct7 = sum[n in 0..1437](if preds7[n] == train_truth[n] { 1 } else { 0 });
 let accuracy7 = (correct7 as f32) / 1437.0;
 let eval_logits7[n in 0..360, cls in 0..10] =
     sum[d in 0..64](eval_images[n, d] * theta7[d, cls]) + theta7[64, cls];
-let eval_preds7 = std::ml::argmax(eval_logits7);
+let eval_preds7[n] = argmax[cls](eval_logits7[n, cls]);
 let eval_correct7 = sum[n in 0..360](if eval_preds7[n] == eval_truth[n] { 1 } else { 0 });
 let eval_accuracy7 = (eval_correct7 as f32) / 360.0;
 
@@ -171,12 +171,12 @@ let logits8[n in 0..1437, cls in 0..10] =
 let diff8[n in 0..1437, cls in 0..10] = logits8[n, cls] - train_labels[n, cls];
 let loss8 =
     sum[n in 0..1437, cls in 0..10](diff8[n, cls] * diff8[n, cls]) / ((1437 * 10) as f32);
-let preds8 = std::ml::argmax(logits8);
+let preds8[n] = argmax[cls](logits8[n, cls]);
 let correct8 = sum[n in 0..1437](if preds8[n] == train_truth[n] { 1 } else { 0 });
 let accuracy8 = (correct8 as f32) / 1437.0;
 let eval_logits8[n in 0..360, cls in 0..10] =
     sum[d in 0..64](eval_images[n, d] * theta8[d, cls]) + theta8[64, cls];
-let eval_preds8 = std::ml::argmax(eval_logits8);
+let eval_preds8[n] = argmax[cls](eval_logits8[n, cls]);
 let eval_correct8 = sum[n in 0..360](if eval_preds8[n] == eval_truth[n] { 1 } else { 0 });
 let eval_accuracy8 = (eval_correct8 as f32) / 360.0;
 
@@ -188,12 +188,12 @@ let logits9[n in 0..1437, cls in 0..10] =
 let diff9[n in 0..1437, cls in 0..10] = logits9[n, cls] - train_labels[n, cls];
 let loss9 =
     sum[n in 0..1437, cls in 0..10](diff9[n, cls] * diff9[n, cls]) / ((1437 * 10) as f32);
-let preds9 = std::ml::argmax(logits9);
+let preds9[n] = argmax[cls](logits9[n, cls]);
 let correct9 = sum[n in 0..1437](if preds9[n] == train_truth[n] { 1 } else { 0 });
 let accuracy9 = (correct9 as f32) / 1437.0;
 let eval_logits9[n in 0..360, cls in 0..10] =
     sum[d in 0..64](eval_images[n, d] * theta9[d, cls]) + theta9[64, cls];
-let eval_preds9 = std::ml::argmax(eval_logits9);
+let eval_preds9[n] = argmax[cls](eval_logits9[n, cls]);
 let eval_correct9 = sum[n in 0..360](if eval_preds9[n] == eval_truth[n] { 1 } else { 0 });
 let eval_accuracy9 = (eval_correct9 as f32) / 360.0;
 
@@ -205,12 +205,12 @@ let logits10[n in 0..1437, cls in 0..10] =
 let diff10[n in 0..1437, cls in 0..10] = logits10[n, cls] - train_labels[n, cls];
 let loss10 =
     sum[n in 0..1437, cls in 0..10](diff10[n, cls] * diff10[n, cls]) / ((1437 * 10) as f32);
-let preds10 = std::ml::argmax(logits10);
+let preds10[n] = argmax[cls](logits10[n, cls]);
 let correct10 = sum[n in 0..1437](if preds10[n] == train_truth[n] { 1 } else { 0 });
 let accuracy10 = (correct10 as f32) / 1437.0;
 let eval_logits10[n in 0..360, cls in 0..10] =
     sum[d in 0..64](eval_images[n, d] * theta10[d, cls]) + theta10[64, cls];
-let eval_preds10 = std::ml::argmax(eval_logits10);
+let eval_preds10[n] = argmax[cls](eval_logits10[n, cls]);
 let eval_correct10 = sum[n in 0..360](if eval_preds10[n] == eval_truth[n] { 1 } else { 0 });
 let eval_accuracy10 = (eval_correct10 as f32) / 360.0;
 

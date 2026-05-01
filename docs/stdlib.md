@@ -97,14 +97,14 @@ let total = sum([1, 2, 3, 4]);  // 10
 
 ```rust
 use std::array::{flatten, transpose, sum, concatenate,
-                  argmax, argmin, argmax_all, argmin_all,
+                  argmax_all, argmin_all,
                   partition, partition_2d, topk_extract, topk_with_indices_extract};
 
 let matrix = [[1, 2], [3, 4]];
 let t = transpose(matrix);       // [[1, 3], [2, 4]]
 let f = flatten(matrix);         // [1, 2, 3, 4]
 let c = concatenate([1, 2], [3, 4]); // [1, 2, 3, 4]
-let idx = argmax([3, 1, 4, 1, 5]);   // 4
+let idx = argmax[i]([3, 1, 4, 1, 5][i]); // builtin selection reduction
 ```
 
 ---
@@ -308,7 +308,7 @@ let mask = greater(tensor, 0.0);
 ### Selection (`std::ml::selection_ops`)
 
 ```rust
-use std::ml::selection_ops::{topk, nonzero, argmax, argmin};
+use std::ml::selection_ops::{topk, nonzero};
 
 let top = topk(X, 5, 0);
 ```

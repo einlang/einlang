@@ -294,8 +294,6 @@ For top-one routing, a syntax-faithful dense sketch can use `argmax` and keep
 the hard selection visible:
 
 ```rust
-use std::array::argmax;
-
 let gate_max[b in 0..batch, t in 0..seq_len] =
     max[e in 0..num_experts](gate_score[b, t, e]);
 
@@ -309,7 +307,7 @@ let gate_prob[b in 0..batch, t in 0..seq_len, e in 0..num_experts] =
     gate_exp[b, t, e] / gate_sum[b, t];
 
 let route[b in 0..batch, t in 0..seq_len] =
-    argmax(gate_prob[b, t]);
+    argmax[e](gate_prob[b, t, e]);
 
 let hard_onehot[b in 0..batch, t in 0..seq_len, e in 0..num_experts] =
     if e == route[b, t] { 1.0 } else { 0.0 };
@@ -366,23 +364,20 @@ function. The policy choices are visible: ties follow `argmax`, tokens are
 ordered lexicographically by `[b, t]`, and overflow is represented by `keep`.
 
 ```rust
-use std::array::argmax;
-
 pub fn route_top1_with_capacity(gate_prob: [f32; ?, ?, ?], capacity: i32) {
     let batch = len(gate_prob);
     let seq_len = len(gate_prob[0]);
 
     let route[b in 0..batch, t in 0..seq_len] =
-        argmax(gate_prob[b, t]);
+        argmax[e](gate_prob[b, t, e]);
 
     let slot[b in 0..batch, t in 0..seq_len] =
-        sum[bb in 0..batch, tt in 0..seq_len](
-            if (bb < b || (bb == b && tt < t)) &&
-               route[bb, tt] == route[b, t] {
-                1
-            } else {
-                0
-            }
+        sum[bb in 0..b, tt in 0..seq_len](
+            if route[bb, tt] == route[b, t] { 1 } else { 0 }
+        )
+        +
+        sum[tt in 0..t](
+            if route[b, tt] == route[b, t] { 1 } else { 0 }
         );
 
     let keep[b in 0..batch, t in 0..seq_len] =

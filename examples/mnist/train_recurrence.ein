@@ -9,7 +9,7 @@ let sample_labels = python::data_loader::load_labels() as [f32; 10, 10];
 
 let lr = 5e-2;
 let epochs = 5;
-let truth = std::ml::argmax(sample_labels);
+let truth[n] = argmax[cls](sample_labels[n, cls]);
 
 let theta0[p in 0..785, cls in 0..10] =
     if p == 784 { 0.0 } else { 1e-3 * (1.0 + ((p % 17) + cls) as f32) };
@@ -32,7 +32,7 @@ let final_theta = {
             sum[k in 0..784](sample_images[n, k] * next_theta[k, j]) + next_theta[784, j];
         let diff_after[n in 0..10, j in 0..10] = logits_after[n, j] - sample_labels[n, j];
         let loss_after = sum[n in 0..10, j in 0..10](diff_after[n, j] * diff_after[n, j]) / 100.0;
-        let preds_after = std::ml::argmax(logits_after);
+        let preds_after[n] = argmax[j](logits_after[n, j]);
         let correct_after = sum[n in 0..10](if preds_after[n] == truth[n] { 1 } else { 0 });
         let accuracy_after = (correct_after as f32) / 10.0;
         assert(loss_after < loss_before, "recurrence epoch did not decrease loss");
@@ -43,7 +43,7 @@ let final_theta = {
 };
 let final_logits[n in 0..10, cls in 0..10] =
     sum[d in 0..784](sample_images[n, d] * final_theta[d, cls]) + final_theta[784, cls];
-let final_preds = std::ml::argmax(final_logits);
+let final_preds[n] = argmax[cls](final_logits[n, cls]);
 let final_correct = sum[n in 0..10](if final_preds[n] == truth[n] { 1 } else { 0 });
 let final_accuracy = (final_correct as f32) / 10.0;
 
