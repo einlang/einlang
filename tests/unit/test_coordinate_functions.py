@@ -178,6 +178,29 @@ def test_coordinate_analysis_stamps_ir_nodes_and_round_trips_metadata():
     assert rt_direct.expr.clauses[0].value.coordinate_address_domain == "class"
 
 
+def test_coordinate_function_selection_with_rest_packs_executes():
+    result = compile_and_execute(
+        """
+        fn top1[j](x: [f32; ..left, j, ..right]) -> [i32; ..left, ..right] {
+            argmax[j](x[..left, j, ..right])
+        }
+
+        let logits[b in 0..2, class in 0..3, t in 0..2] =
+            if class == b + t { 10.0 } else { class as f32 };
+        let pred = top1[class](logits);
+        let probe0 = pred[0, 0];
+        let probe1 = pred[1, 1];
+        (probe0, probe1);
+        """,
+        CompilerDriver(),
+        EinlangRuntime(backend="numpy"),
+    )
+
+    assert result.success, result.errors
+    assert int(np.asarray(result.outputs["probe0"]).item()) == 0
+    assert int(np.asarray(result.outputs["probe1"]).item()) == 2
+
+
 def test_softmax_coordinate_call_rejects_ungrounded_coordinate():
     result = compile_and_execute(
         """

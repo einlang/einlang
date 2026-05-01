@@ -118,7 +118,9 @@ packs such as `..left` and `..right`, the compiler matches them against the
 argument layout and instantiates the return layout from the same binding:
 
 ```rust
-fn top1[j](x: [f32; ..left, j, ..right]) -> [i32; ..left, ..right]
+fn top1[j](x: [f32; ..left, j, ..right]) -> [i32; ..left, ..right] {
+    argmax[j](x[..left, j, ..right])
+}
 
 top1[class](logits[b, class, t])  // result coordinates: [b, t]
 ```

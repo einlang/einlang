@@ -762,7 +762,9 @@ The whole signature is instantiated from those bindings, not just the argument
 list. The return type is interpreted with the same coordinate substitution:
 
 ```rust
-fn top1[j](x: [f32; ..left, j, ..right]) -> [i32; ..left, ..right]
+fn top1[j](x: [f32; ..left, j, ..right]) -> [i32; ..left, ..right] {
+    argmax[j](x[..left, j, ..right])
+}
 
 top1[class](logits[b, class, t])  // result coordinates: [b, t]
 ```
