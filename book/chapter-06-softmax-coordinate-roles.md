@@ -9,6 +9,17 @@ Softmax is often described as an operation along an axis. That is true, but it
 is not quite enough. In a stable implementation, the same logical feature axis
 appears in several different roles.
 
+The compact mathematical slogan is:
+
+```text
+softmax(x)_j = exp(x_j) / sum_k exp(x_k)
+```
+
+The stable implementation then adds a maximum, often written as if it were
+only a numerical trick. The trap is to think there is only one index because
+there is only one logical axis. Computationally, the returned feature, the
+denominator scan, and the stabilizing maximum have different scopes.
+
 The standard library writes the batched case as:
 
 ```rust
@@ -19,6 +30,17 @@ let output[..batch, j] =
 
 The formula is longer than `softmax(x, axis=-1)`, but it exposes the structure
 that the compact call hides.
+
+Once that structure is stated, it can become a coordinate function:
+
+```rust
+let output[..batch, j] = softmax[j](x[..batch, j]);
+```
+
+This call is compact, but it is not positional. The bracketed `j` says which
+coordinate is normalized, while the result still carries `j`. The standard
+library can hide the stable maximum and denominator scans only because the
+coordinate contract remains visible at the boundary.
 
 Softmax has one logical feature axis, but several coordinate jobs: the
 feature being returned, the feature scanned by the denominator, and the feature
@@ -370,10 +392,10 @@ normalizing coordinate are not doing the same job.
 
 ## Try It
 
-Write softmax twice: once with separate names for the output coordinate, the
-denominator scan, and the stabilizing max; once by reusing one name everywhere.
-The second version should feel shorter. Then ask which derivative route became
-harder to explain.
+Analyze LayerNorm the same way. Name the coordinate being returned, the
+coordinates scanned to compute the mean, the coordinates scanned to compute the
+variance, and the coordinates owned by the learned scale and shift. You should
+find several roles even before writing a derivative.
 
-**Line to keep:** softmax does not have one axis role; it has one axis wearing
-several local names.
+**Line to keep:** practical structure omitted by a mathematical slogan is
+exactly the structure source code must be able to carry.

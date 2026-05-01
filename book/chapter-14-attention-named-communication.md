@@ -5,6 +5,10 @@ title: "Chapter 14: Attention as Named Communication"
 
 # Attention as Named Communication
 
+The tempting story is that attention is just matrix multiplication with a
+softmax in the middle. That story is useful for kernels, but too small for
+debugging: it forgets who asks, who answers, and which value comes home.
+
 Attention is often introduced through matrix products:
 
 ```text
@@ -12,7 +16,7 @@ softmax(Q K^T) V
 ```
 
 That expression is compact, but it hides the roles of the sequence positions.
-The standard-library version makes the roles explicit:
+A standard-library version can make those roles explicit.
 
 This is where the earlier ideas have to work under load. Query position, key
 position, value position, feature, and head can share extents while doing
@@ -104,7 +108,7 @@ Between scores and values sits normalization:
 
 ```text
 attention_weights[b, i, j] =
-    softmax_over_j(scores[b, i, j])
+    softmax[j](scores[b, i, j])
 ```
 
 For each fixed batch item `b` and query position `i`, the weights over all
@@ -330,10 +334,10 @@ their keys.
 A deliberately wrong normalization makes the failure local:
 
 ```text
-bad_weights[b, h, i, j] = softmax_over[i](scores[b, h, i, j])
+bad_weights[b, h, i, j] = softmax[i](scores[b, h, i, j])
 ```
 
-Ordinary attention needs `softmax_over[j]` because each fixed query distributes
+Ordinary attention needs `softmax[j]` because each fixed query distributes
 over keys. The bad line consumes the query coordinate instead. A
 named-coordinate checker has a role-level objection: the operation tries to
 normalize away the coordinate that the output is supposed to preserve as the
@@ -390,10 +394,10 @@ communication pattern has collapsed.
 
 ## Try It
 
-Write the attention gather once with `V[b, h, j, d]` and once with
-`V[b, h, i, d]`. Both versions can be made shape-compatible. Now explain what
-the weights mean in the bad version. If they no longer choose among values, the
-communication contract has been broken.
+Modify the attention sketch so query and key share a `head` coordinate but use
+different feature coordinates, such as `dq` for query/key comparison and `dv`
+for values. Write the names before writing shapes. Then check whether a
+mistaken reuse of `dq` as `dv` becomes visible at compile time.
 
-**Line to keep:** in attention, `i` asks, `j` answers, and `V[j]` is what comes
-back.
+**Line to keep:** attention is not matrix multiplication; it is a communication
+protocol between named roles.

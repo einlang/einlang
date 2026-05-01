@@ -9,8 +9,8 @@ A recurrence tells us which values depend on which earlier values. It does not
 automatically tell us how much history must be stored. Storage depends on two
 things together: what each point reads, and which points later code observes.
 
-That separation is easy to lose if the moment we see `h[t]` we imagine a full
-array allocation. But the source family `h[t]` is not automatically a demand
+That separation is easy to lose if we imagine a full array allocation the
+moment we see `h[t]`. But the source family `h[t]` is not automatically a demand
 to store every `h`. Storage depends on the dependency window and on which
 members of the family are later observed.
 
@@ -146,8 +146,8 @@ evaluated and materialized. A debugging statement is therefore part of
 the storage story.
 
 This is why printing is more subtle in a language of formulas. Printing is not
-only display. It is an observation boundary. It turns
-an expression, a recurrence family, or a derivative request into a concrete
+only display. It is an observation boundary. It turns an expression, a
+recurrence family, or a derivative request into a concrete
 witness.
 
 For a smaller example:
@@ -233,8 +233,8 @@ tells us how much of the family must become concrete.
 
 The storage discussion keeps the recurrence story honest. It would be too easy
 to say "visible dependency offsets imply storage optimization" and stop there.
-The truth is subtler. Visible offsets give the compiler a fact it can use, but
-storage is a policy decision under observation.
+The truth is subtler: visible offsets give the compiler a fact it can use, but
+storage remains a policy decision under observation.
 
 That distinction is important for production systems. A compiler should be
 able to use the one-step dependency of an RNN when only the final state is
@@ -401,9 +401,10 @@ which storage choices remain possible.
 
 ## Try It
 
-Take one recurrence and mark only the final state as observed. Then add a
-single debug print of `h[3]`. Recompute the storage plan. The trap is to think
-storage follows the recurrence alone; in practice it follows observation too.
+Write the same RNN recurrence twice. In the first program, observe only
+`h[T - 1]`. In the second, bind `trace[t] = h[t]`. For each program, sketch the
+storage plan a compiler could choose: rolling state, full materialization, or a
+hybrid. The recurrence definition is the same; the observation changed.
 
-**Line to keep:** define the value family first; choose storage after you know
-who observes it.
+**Line to keep:** storage allocation is a negotiation between what is defined
+and what is observed.

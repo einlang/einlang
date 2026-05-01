@@ -22,7 +22,7 @@ survives only while convenient. Imagine writing library code where named
 coordinates are ordinary material, not comments that sit beside anonymous
 shape tuples.
 
-The boundary is the important part. If a framework receives an image, a token
+The boundary is the important part. When a framework receives an image, a token
 sequence, or a batch of logits, a comment is not a receipt. The receiving code
 needs a contract that later indexed expressions can actually lean on.
 
@@ -71,6 +71,30 @@ Otherwise, keep it anonymous if the local expression remains clear.
 The goal is not to win a ceremony contest. It is to spend names where they buy
 review, checking, or diagnostics.
 
+The same procedure can be read as a small flowchart:
+
+```text
+Does a wrong role keep the same shape?
+    no  -> a plain shape may be enough locally.
+    yes -> will the role be reduced, broadcast, packed, normalized, or
+           differentiated?
+           no  -> keep the name optional.
+           yes -> make the coordinate visible at the boundary.
+```
+
+This is selective visibility. Names should appear where a role changes
+correctness, not everywhere a tensor happens to have an axis.
+
+## A Gradual Adoption Path
+
+A large codebase does not need a flag day. Start at the boundaries where data
+enters the model: images get `b`, `row`, `col`; token batches get `b`, `t`;
+logits get `class`. Next, name the places where axes are consumed:
+normalization, reductions, attention softmax, pooling, and loss aggregation.
+Finally, name the shape-changing paths: reshape, flatten, pack, unpack, and
+dispatch. Each step should leave existing numerical tests in place while
+adding one new coordinate-level check.
+
 ## The Shift
 
 Familiar operations would change character:
@@ -90,7 +114,7 @@ dimension that something is being repeated. It would see the missing
 coordinate. It would not have to treat every loop as opaque before analysis. It
 would see a recurrence boundary and an offset.
 
-At framework scale, that is the change: an axis role stops being a convention
+At framework scale, this is the change: an axis role stops being a convention
 remembered by the caller and becomes something the operation can actually
 refer to.
 
@@ -215,17 +239,12 @@ A better boundary names the role in the interface or leaves the indexed
 relation at the call site:
 
 ```rust
-let y[b, class] = softmax_over[class](logits[b, class]);
+let y[b, class] = softmax[class](logits[b, class]);
 ```
 
-or, when the library function exists:
-
-```text
-softmax_over_class(logits)
-```
-
-with a rule that states which coordinate is consumed. The function is then
-a named coordinate operation, not just a shortcut around a block of code.
+The function is then a named coordinate operation, not just a shortcut around a
+block of code. It hides the stable implementation, but the call site still says
+which coordinate supplies the distribution.
 
 The implementation gives this design some room. Parameters without type
 annotations are monomorphized at call sites, and specialized function bodies
@@ -284,14 +303,14 @@ Imagine a classifier boundary written with roles:
 
 ```rust
 let logits[b, class] = model(x[b, feature]);
-let probs[b, class] = softmax_over[class](logits[b, class]);
+let probs[b, class] = softmax[class](logits[b, class]);
 ```
 
 The framework now has enough source material to distinguish a good
 normalization from a shape-compatible but meaning-wrong one:
 
 ```rust
-let bad[b, class] = softmax_over[b](logits[b, class]);
+let bad[b, class] = softmax[b](logits[b, class]);
 ```
 
 Both formulas can produce a tensor addressed by `[b, class]`. The difference
@@ -310,11 +329,11 @@ mistake local enough to report.
 ## What It Would Cost
 
 The cost is also real. Names create surface area. APIs have to decide when
-names must match, when they can be renamed, and when a library function is
-allowed to introduce or consume a coordinate. Error messages have to explain
-coordinate relationships without overwhelming the user. Interop with existing
-shape-based libraries has to translate between named roles and positional
-axes.
+names must match, when they can be renamed, and when a coordinate function is
+allowed to introduce, consume, or return addresses into a coordinate. Error
+messages have to explain coordinate relationships without overwhelming the
+user. Interop with existing shape-based libraries has to translate between
+named roles and positional axes.
 
 Interop is where the design becomes most concrete. A call into an existing
 kernel may still need a positional layout:
@@ -416,7 +435,7 @@ Now move to a classifier:
 
 ```rust
 let logits[b, class] = model(image[b, row, col]);
-let probs[b, class] = softmax_over[class](logits[b, class]);
+let probs[b, class] = softmax[class](logits[b, class]);
 ```
 
 The type and shape system may know that `logits` has rank two. The names say
@@ -441,8 +460,8 @@ rank, extent, element type, and coordinate roles.
 
 ## Shape Inference Builds the Check
 
-Shape analysis is where many earlier facts become one checked shape. A literal can
-give a shape:
+Shape analysis is where many earlier facts become one checked shape. A literal
+can give a shape:
 
 ```rust
 let x = [[1.0, 2.0], [3.0, 4.0]];
@@ -463,8 +482,8 @@ let y[i, j] = x[i, j] + 1.0;
 
 If `i` and `j` are inferred from `x`, then `y` receives the same extents. If
 they are written explicitly, those ranges become the result extents. Shape
-analysis is the pass that merges these sources of information: literal structure,
-type annotations, inferred index ranges, explicit ranges, rest-prefix
+analysis is the pass that merges these sources of information: literal
+structure, type annotations, inferred index ranges, explicit ranges, rest-prefix
 expansion, and grouped Einstein clauses.
 
 This is also why shape and type are adjacent but not identical. `[f32; 2, 2]`
@@ -495,10 +514,10 @@ role.
 
 ## Try It
 
-Pick one axis in a real model and decide whether it should be named. Use three
-questions: can the wrong role have the same size, can the axis be reduced or
-broadcast, and can a derivative later ask about it? If all answers are no,
-leave it anonymous. If any answer is yes, give it a role name.
+Imagine a 50,000-line Transformer codebase with no named coordinates. Design a
+three-step migration plan. At each step, introduce at most five role names,
+choose one boundary or operation family to protect, and state which existing
+tests should remain unchanged.
 
-**Line to keep:** name dimensions where future reasoning would otherwise have
-to reverse-engineer them.
+**Line to keep:** names should appear where roles affect correctness, not
+everywhere at once.

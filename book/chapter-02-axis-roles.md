@@ -25,8 +25,9 @@ size. None of those facts prove that batch stayed batch or that feature stayed
 feature.
 
 This is where anonymous axes do their quiet work. They do not usually cause a
-crash. They let two different stories fit the same tuple of numbers. The work here is to separate the numeric slot from the model role. Once those
-two things are apart, later chapters can ask better questions than "which axis
+crash. They let two different stories fit the same tuple of numbers. The work
+here is to separate the numeric slot from the model role. Once those two things
+are apart, later chapters can ask better questions than "which axis
 number was that?" Two axes can both have extent `32`; that does not make
 batch, time, and feature interchangeable.
 
@@ -49,9 +50,26 @@ names for alignment. That is already better than a naked shape tuple. The
 question this book presses is slightly different: does the operation's source
 semantics actually use the role, or is the role still mostly metadata attached
 to an array? A name that aligns two arrays is helpful. A name that also appears
-inside `sum[feature]`, `softmax_over[class]`, or
+inside `sum[feature]`, `softmax[class]`, `argmax[class]`, or
 `hidden[t] <- hidden[t - 1]` gives the compiler a stronger fact: which role was
-consumed, preserved, omitted, or shifted.
+consumed, preserved, omitted, shifted, or returned as an address.
+
+The trap is to stop at decorative names. If a tensor remembers that two axes
+are called `time` and `feature`, but a transpose-like operation can still move
+them by position without checking the role-level claim, the name helped the
+reader more than the program. Names matter most when operations are forced to
+use them.
+
+Coordinate functions are the smallest version of that requirement:
+
+```rust
+let probs[b, class] = softmax[class](logits[b, class]);
+let prediction[b] = argmax[class](probs[b, class]);
+```
+
+Both calls are short, but neither asks the reader to remember that `class`
+happens to be axis `1`. The operation names and the coordinate roles meet at
+the call site.
 
 So the argument is not "names on dimensions are useless." It is that names
 become much more powerful when operations are written in terms of them, rather
@@ -90,8 +108,8 @@ gray[b, row, col] =
 ```
 
 The coordinate `channel` is local to the sum and disappears. The coordinates
-`b`, `row`, and `col` survive. The result is more specific than "rank 3"; it is a
-family over batch and spatial position.
+`b`, `row`, and `col` survive. The result is more specific than "rank 3"; it is
+a family over batch and spatial position.
 
 Read one point:
 
@@ -355,9 +373,11 @@ the role that crossed the line.
 
 ## Try It
 
-Write two formulas over a tensor shaped `[32, 32, 128]`: one where the first
-`32` is batch and one where it is time. Then reduce over the wrong `32` axis on
-purpose. The trap is that every extent still agrees. The lesson is to name the
-role whose loss would make the result meaningless.
+Design a helper called `broadcast_like`. In a positional system, decide which
+axis expands by counting slots from the left or right. In a named system,
+decide by asking which coordinate is absent from the smaller value. Then make
+two axes have the same extent and ask which version can silently broadcast the
+wrong role.
 
-**Line to keep:** a role is not where an axis sits, but why it is there.
+**Line to keep:** equal lengths do not make two axes semantically
+interchangeable.

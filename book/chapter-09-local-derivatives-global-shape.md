@@ -27,11 +27,13 @@ pullbacks. Elementwise operations preserve coordinates.
 Keep the main duality close:
 
 ```text
-Forward broadcast  <->  Backward reduce
-Forward reduce     <->  Backward broadcast-like fan-out
+FORWARD                         BACKWARD
+term omits coordinate       ->  gradient collects that coordinate
+reduction consumes axis     ->  sensitivity fans through that axis
+coordinatewise operation    ->  coordinate survives unchanged
 ```
 
-Most surprising gradient shapes are one of these two lines with a real
+Most surprising gradient shapes are one of these three lines with a real
 coordinate name filled in.
 
 The scalar rule is only half the answer. Local calculus tells us the value to
@@ -65,7 +67,7 @@ let a[i] = x[i] * x[i];
 let b[i] = x[0] * x[0];
 ```
 
-The local derivative of squaring is the same, but the address story is not. In
+The local derivative of squaring is the same, but the address story differs. In
 the first line, each output reads its matching input. In the second, every
 output reads the same input cell. A scalar table alone cannot tell the
 difference.
@@ -324,7 +326,7 @@ let dx[b, in] = sum[out](G[b, out] * W[out, in]);
 ```
 
 This one layer contains three different global shapes built from one local
-fact. The square preserves `[b, out]`. The bias gradient reduces `b`. The
+calculus fact. The square preserves `[b, out]`. The bias gradient reduces `b`. The
 weight gradient reduces `b` but keeps `out` and `in`. The input gradient
 reduces `out` but keeps `b` and `in`.
 
@@ -402,9 +404,10 @@ coordinate. The gradient must say where that omitted coordinate went.
 
 ## Try It
 
-Add a bias `bias[out]` to an activation `z[b, out]`, then compute a scalar
-loss. Before deriving anything, predict whether `@loss / @bias` keeps `b`.
-Then write the pullback. The common mistake is to preserve the coordinate that
-was only present because of broadcasting.
+Design a tiny layer with two broadcasts, for example a feature bias and a
+per-time scale. Sketch the backward pass once in a traditional framework style
+and once with named coordinates. Compare where you had to remember which axis
+was shared.
 
-**Line to keep:** forward omission becomes backward collection.
+**Line to keep:** scalar rules are local calculus; coordinate structure tells
+where the value lands.

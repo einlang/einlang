@@ -6,15 +6,14 @@ title: "Chapter 12: An RNN Is a Dependency Graph"
 # An RNN Is a Dependency Graph
 
 The RNN standard-library excerpt is small enough to read, but dense enough to
-reward a slow reading:
-
-The reward is a graph of allowed communication. Time, batch, input feature,
-current hidden unit, and previous hidden unit are not decorative names. They
-are the labels that say which values may talk to which other values. Collapse
-them all into a cell call and the graph is still there, but it has to be
+reward a slow reading. The reward is a graph of allowed communication. Time,
+batch, input feature, current hidden unit, and previous hidden unit are not
+decorative names. They are the labels that say which values may talk to which
+other values. Collapse them all into a cell call and the graph is still there,
+but it has to be
 rediscovered.
 
-An RNN cell is easy to hide behind an API. Read it instead as labeled
+An RNN cell is easy to hide behind an API. Here, read it as labeled
 communication: time moves, batch stays isolated, and hidden roles are mapped by
 the recurrent weight.
 
@@ -135,8 +134,8 @@ at the binding site:
 hidden[t, b, h] depends on hidden[t - 1, b, h_prev]
 ```
 
-This is a statement the compiler can inspect. It can check direction in time.
-It can see that batch is preserved. It can see that previous hidden units are
+This statement is something the compiler can inspect. It can check direction in
+time. It can see that batch is preserved. It can see that previous hidden units are
 mixed into new hidden units.
 
 ## The Base Case Is Part of the Graph
@@ -391,10 +390,10 @@ labels are what make those failures visibly different.
 
 ## Try It
 
-Add a mask to the recurrence and decide whether a masked step reads
-`candidate[t, b, h]` or carries `hidden[t - 1, b, h]`. Then ask whether any
-token reads another token's batch coordinate. The exercise is to find the graph
-edge, not the loop body.
+Add a time mask `mask[t, b]` to a causal RNN. Write the coordinate condition
+that either accepts `candidate[t, b, h]` or carries `hidden[t - 1, b, h]`.
+Then describe the backward edge for a padded position and explain how the
+source avoids useless communication through padding.
 
-**Line to keep:** an RNN is not a loop with tensors; it is a dependency graph
-with a time coordinate.
+**Line to keep:** an RNN is not a black box; it is a communication graph made
+of named coordinates.

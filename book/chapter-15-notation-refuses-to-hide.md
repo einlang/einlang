@@ -42,6 +42,18 @@ performance, but they should not be facts a reader must recover to know
 whether `class` or `batch` was normalized. A compiler earns trust by hiding
 implementation choices while preserving the coordinate contract they implement.
 
+A reasonable hidden list looks like this:
+
+```text
+hide: register allocation, temporary buffers, device placement
+hide: fusion order, tiling, vector width, kernel selection
+show: consumed coordinates, omitted coordinates, address maps
+show: derivative addresses, recurrence edges, dynamic routes
+```
+
+The boundary is not about simplicity versus complexity. It is about which
+facts a future explanation will need.
+
 This is how the language can stay small without becoming arbitrary. It does
 not include a feature because the feature is expressive in general. It includes
 a feature when the feature exposes a tensor fact that later reading or lowering
@@ -61,7 +73,7 @@ output[..batch, i, j] =
     sum[k](a[..batch, i, k] * b[..batch, k, j])
 ```
 
-This is longer than a call to `matmul`. It also tells you more. The batch
+This is longer than a call to `matmul`, but it also tells you more. The batch
 prefix is carried. The coordinate `k` is consumed. The coordinates `i` and `j`
 survive.
 
@@ -70,13 +82,13 @@ being taught, transformed, differentiated, optimized, or debugged.
 
 The extra words are less useful when the operation is already obvious and
 stable. A good system can still provide library functions. We do not need to
-write everything at maximum explicitness forever; we need a source form that can
-reveal the structure when the structure matters.
+write everything at maximum explicitness forever; we need a source form that
+can reveal the structure when the structure matters.
 
 The notation should be available as a lens, not imposed as decoration. A
-library call is fine when the contract is already conventional and
-unambiguous. The indexed form earns its place when the wrong axis would still
-have the right shape.
+coordinate function is fine when the contract is conventional and carried at
+the call boundary. The fully indexed form earns its place when the wrong axis
+would still have the right shape.
 
 The same bargain applies to user-defined functions. A function is not
 automatically too opaque for Einlang, and it is not automatically the right
@@ -105,6 +117,26 @@ If the program's correctness depends on whether normalization consumes
 The right response is not "never use functions." It is to make the function
 boundary carry the coordinate contract, either in the name, the type, or the
 indexed call site.
+
+Coordinate-aware functions are the important compromise. They are how the
+language avoids forcing every common operation to be expanded into raw sums and
+indices. A call such as:
+
+```rust
+let p[b, class] = softmax[class](logits[b, class]);
+let pred[b] = argmax[class](p[b, class]);
+```
+
+is still compact, but it has not fallen back to positional convention. The
+bracketed coordinate is part of the call's meaning: `softmax` normalizes across
+`class`, and `argmax` returns addresses in the `class` domain. The function can
+hide a stable implementation while exposing the coordinate fact that review,
+autodiff, and lowering must preserve.
+
+That makes coordinate functions more than standard-library convenience. They
+are the abstraction boundary for tensor programs. Ordinary scalar functions can
+hide scalar mechanics. Coordinate functions can hide tensor mechanics only
+after naming the coordinate they consume, preserve, create, or address.
 
 ## What Remains Outside
 
@@ -175,6 +207,17 @@ a compiler, or in the margin of a paper. The notation is one answer to it, not
 the only possible answer. What matters is refusing to leave dimension meaning
 permanently in someone's head.
 
+Imagine a developer five years from now reading a compiler error:
+
+```text
+normalization consumes batch, but classifier contract expects class.
+value `logits[b, class]` grounds both coordinates; did you mean softmax[class]?
+```
+
+That error is possible only if the source preserved the role. Without the
+coordinate contract, the future developer gets a shape, a stack trace, and a
+guess.
+
 ## The Bargain in One Place
 
 The bargain is not that explicit indices are always shorter. They are not. It
@@ -235,7 +278,7 @@ omits `b`, so it is reused for every example. If a scalar loss later asks for
 let dbias[out] = sum[b](dy[b, out]);
 ```
 
-This is the compact form of the bargain. The source did not become a full
+This line is the compact form of the bargain. The source did not become a full
 execution plan, and it did not materialize a Jacobian. It simply kept the
 coordinate roles visible long enough for the reader and the compiler to ask the
 right next question.
@@ -401,14 +444,14 @@ can show it. If a bug depends on whether `bias` was shared across batch, or
 whether `W` maps input features into output features rather than the reverse,
 the indexed line gives the bug a place to live.
 
-This audit is the whole book in miniature. Name the coordinates. Mark
-the ones that survive. Mark the ones that are local. Notice the ones omitted
+This audit is the whole book in miniature. Name the coordinates. Mark the
+ones that survive. Mark the ones that are local. Notice the ones omitted
 from a term. Then let the compiler pipeline preserve, transform, and lower
 that structure.
 
 That is the standard this chapter hands to the next stress test: when
-correctness depends on a dimension role, the
-program should be able to state it. Abstraction is welcome; it just should not
+correctness depends on a dimension role, the program should be able to state
+it. Abstraction is welcome; it just should not
 erase the coordinate choice the program relies on.
 
 Take one real tensor layer and mark four things: coordinates that survive,
@@ -418,9 +461,9 @@ lowering is the one the source most needed to preserve.
 
 ## Try It
 
-Choose a library call you trust, such as normalization, attention, convolution,
-or pooling. Expand only the coordinate contract, not the whole implementation.
-Then ask which details should remain hidden and which details must be visible
-for a reviewer to detect the wrong-axis version.
+Pretend you are designing a new DSL. Write two lists: facts the DSL should hide
+and facts it must never hide. Include at least one example from normalization,
+one from a gradient, and one from a recurrence or route. Then defend the point
+where you stopped naming.
 
-**Line to keep:** good notation hides implementation detail, not semantic debt.
+**Line to keep:** do not hide facts that future reasoning must recover.

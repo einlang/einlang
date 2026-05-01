@@ -5,6 +5,9 @@ title: "Chapter 10: The Wall of Time Steps"
 
 # The Wall of Time Steps
 
+The common illusion is that a loop is the same thing as time. It is not. A loop
+is one way to execute a dependency that should be visible before scheduling.
+
 Sequence models are usually introduced with loops:
 
 ```python
@@ -13,7 +16,7 @@ for t in range(T):
     h = rnn_cell(h, x[t])
 ```
 
-This is clear executable code. It also builds a wall. The loop says "do this
+This is clear executable code, but it also builds a wall. The loop says "do this
 next," then "do this next," then "do this next." The time dependency is there,
 but the reader has to look through sequential control and mutation of `h` to
 find it.
@@ -115,6 +118,16 @@ A loop says "next, next, next." A recurrence says "this point depends on that
 earlier point." The second form gives the compiler and the reader a dependency
 relation before it gives them a schedule.
 
+A future helper can still be compact if it carries the time coordinate:
+
+```text
+let h[t] = scan[t](step, h0, x[t])
+```
+
+The point of the bracket is not syntax for its own sake. It prevents `scan`
+from becoming an opaque loop-shaped box. The call says which coordinate orders
+the dependency, leaving storage and scheduling for later lowering.
+
 For `T = 4`, the dependency chain is almost too small to hide:
 
 ```text
@@ -154,7 +167,7 @@ observation          which points later code asks to keep
 schedule/storage     how an implementation chooses to compute and retain them
 ```
 
-Traditional loop code often blends those questions together. Recurrence pulls
+Traditional loop code often blends those questions. Recurrence pulls
 them apart.
 
 ## The Error You Want Named
@@ -383,9 +396,10 @@ variable, that distinction would have to be recovered after the fact.
 
 ## Try It
 
-Write an RNN step first as a Python-style loop and then as `hidden[t]`. In the
-second version, deliberately read `hidden[t + 1]` once. The error should not
-feel like an implementation limitation; it should feel like a dependency edge
-pointing the wrong way.
+In `h[t] = f(x[t], h[t - 1])`, change one term so a time step reads future
+information, as in a bidirectional model. Write the forward and backward
+families with separate coordinates and ask how the storage demand changes when
+future reads become part of the dependency graph.
 
-**Line to keep:** a loop is an order of work; time is a dependency coordinate.
+**Line to keep:** a loop is an execution order; time is a dependency
+relationship.

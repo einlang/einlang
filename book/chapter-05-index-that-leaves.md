@@ -42,8 +42,8 @@ The common interface for reduction is an axis argument:
 sum(x, axis=-1)
 ```
 
-This is compact, but it turns the reduced coordinate into a position. If previous
-operations have moved axes around, the reader must reconstruct which role
+This is compact, but it turns the reduced coordinate into a position. If
+previous operations have moved axes around, the reader must reconstruct which role
 `-1` names. A language can add comments or shape annotations, but the reduction
 itself still consumes a number rather than a role.
 
@@ -106,7 +106,7 @@ C[2, 5] = sum[k](A[2, k] * B[k, 5])
 ```
 
 That single coordinate reading is the whole operation. Row `2` of `A` meets
-column `5` of `B`; `k` walks across the meeting and disappears.
+column `5` of `B`; `k` walks across their shared positions and disappears.
 
 The lifecycle of `k` is worth writing once:
 
@@ -197,10 +197,21 @@ It may lower a `max` differently from a `sum`.
 Some operations need a second result if the consumed coordinate still matters.
 `max[col](A[row, col])` returns the largest value in each row; it does not by
 itself preserve which `col` won. If later code needs the winning coordinate,
-the program should ask for that coordinate explicitly, as an `argmax`-like
-result. This is another design boundary: reduction can consume a coordinate,
-but a language should not smuggle the consumed coordinate back in unless the
-source requested it.
+the program should ask for that coordinate explicitly:
+
+```rust
+let winner[row] = argmax[col](A[row, col]);
+```
+
+This is the first selection-shaped coordinate function. It consumes `col` like
+a reduction, but the result is not the maximum value. It is an integer address
+in the `col` domain. This is another design boundary: reduction can consume a
+coordinate, but a language should not smuggle the consumed coordinate back in
+unless the source requested it.
+
+This same pattern will recur: the operation may be compact, but the consumed
+coordinate remains visible in brackets. That is what keeps `argmax[col]` from
+being just another positional helper.
 
 The source does not have to prescribe the schedule. It only has to state which
 coordinate is local and which reduction is being performed. That is enough for
@@ -244,7 +255,7 @@ local work      sum[k](...)
 implementation  loop, kernel, vectorized primitive, or backend call
 ```
 
-The result family and local work belong in the source model. The implementation
+The result family and local work belong in the source model. Implementation
 belongs to lowering. Mixing those layers too early makes programs harder to
 reason about. Hiding the consumed coordinate makes them harder to check.
 
@@ -419,9 +430,10 @@ Some shapes may still line up. The mathematical claim will not.
 
 ## Try It
 
-Write a row sum and a column sum for the same square matrix. Because both
-results have the same length, shape will not save you. The exercise is to
-explain which coordinate left in each formula and why that changes the
-meaning.
+In a traditional framework, write `sum(axis=n)` and then imagine later code
+referring to that consumed axis as if it still existed. Now write the same
+program in Einlang and make the mistake explicit: try to use the reduced
+coordinate on the result. The useful failure is not numerical; it is the
+compile-time discovery that a local coordinate has left scope.
 
-**Line to keep:** a reduction is the moment an index leaves the result.
+**Line to keep:** a coordinate does its work, then disappears from the result.

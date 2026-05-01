@@ -5,7 +5,7 @@ title: "Appendix: Coordinate Diagnostics"
 
 # Coordinate Diagnostics
 
-This appendix is a quick lookup table for the stubborn failures that appeared
+This appendix is a quick lookup table for the stubborn failures that appear
 throughout the book. The pattern is always the same: a shape can be plausible
 while the coordinate story is wrong.
 
@@ -54,7 +54,7 @@ while the coordinate story is wrong.
 8. Attention uses the right tensors at the wrong position
    Symptom: `Q`, `K`, `V`, weights, and output all have compatible shapes, but
    values are gathered from the query position instead of the key position.
-   Diagnostic: state the communication sentence: `i` asks, `j` answers,
+   Diagnostic: state the communication sentence: `i` asks, `j` answers, and
    `V[j, d]` is carried back.
 
 9. Low-rank attention hides the bottleneck
@@ -68,6 +68,14 @@ while the coordinate story is wrong.
     or expert imbalance is visible only as a mask tensor or aggregate metric.
     Diagnostic: name `route[b, t]`, `slot[b, t]`, and `keep[b, t]`; then reduce
     over token coordinates to compute per-expert load.
+
+11. Coordinate function hides the wrong fact
+    Symptom: a helper such as normalization, selection, pooling, or routing is
+    short enough to trust, but the call site no longer says which coordinate it
+    consumes or returns as an address.
+    Diagnostic: rewrite the call with bracketed coordinate arguments, such as
+    `softmax[class]` or `argmax[expert]`. If the coordinate cannot be grounded
+    in the argument, the helper is hiding too much.
 ```
 
 ## A Four-Step Audit

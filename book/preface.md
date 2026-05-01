@@ -18,8 +18,8 @@ not exotic concerns. They are ordinary facts that decide whether the program
 means what the author thinks it means.
 
 Most tensor libraries are good at checking extents. They can tell whether two
-arrays have compatible shapes. They are less able to check the role a dimension
-was supposed to play. A dimension of size `64` might be a feature axis, a time
+arrays have compatible shapes. They are less able to check which role a
+dimension was supposed to play. A dimension of size `64` might be a feature axis, a time
 axis, a hidden-state axis, or a batch axis. The number alone is not the role.
 
 This book asks what changes if some of those roles are written into the source.
@@ -32,6 +32,13 @@ a deliberately narrow object: enough syntax to write tensor formulas with named
 coordinates, reductions, derivative requests, and recurrences, and enough
 compiler machinery to see what those formulas preserve.
 
+The book does not ask every useful operation to stay expanded forever. A common
+operation can be a coordinate function: `softmax[class]`, `argmax[class]`,
+and similar calls are meant to hide stable mechanics while keeping the
+coordinate contract at the boundary. That compromise matters throughout the
+argument. Without it, visible coordinates would become a verbose teaching
+notation instead of a usable programming model.
+
 The intended reader is someone who builds things below the level of an API call:
 a DSL, a compiler pass, a numerical library, an autodiff system, a model
 compiler, or even just a careful notation shared by a team. If you mainly want
@@ -39,6 +46,8 @@ another framework function to call, this manuscript will probably spend too much
 time looking under the floorboards. That is by design. The interesting question
 here is not how to spell one operation, but what facts a language lets later
 tools rely on.
+
+## Reader Map
 
 There are several reasonable ways through the book. If you are here for tensor
 notation and shape bugs, read chapters 1 through 6 first. If automatic
@@ -51,10 +60,9 @@ principle stressed by low-rank attention and dynamic expert routing, chapter 16
 is the late test case. The chapters are ordered as an argument, but they are
 also a toolbox; enter where the next hidden axis is already hurting you.
 
-One inconvenience should be stated early. This book will not make you write
-less code. It tries to make each important line harder to hand-wave away. That
-is a different bargain: more source facts where meaning is fragile, fewer
-silent conventions for a future reader or compiler to reconstruct.
+One inconvenience should be stated early. The book uses extra source text where
+meaning is fragile. That is the bargain: more local facts, fewer silent
+conventions for a future reader or compiler to reconstruct.
 
 The chapters follow a recurring pattern. They begin with a piece of tensor code
 that feels familiar. Then they ask which fact has been left implicit. Sometimes
@@ -101,3 +109,6 @@ The larger claim is modest: tensor code often contains more structure than its
 surface syntax admits. Naming coordinates is one way to keep some of that
 structure available long enough for a reader, a checker, or a compiler pass to
 use it.
+
+This book will not make you write less code. It asks for something stricter:
+write lines that can survive being questioned.

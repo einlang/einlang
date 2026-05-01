@@ -13,9 +13,9 @@ Two examples from `stdlib/ml/transform_ops.ein` show the range: transpose is
 simple enough to read at a glance; `depth_to_space` is dense enough that names
 really matter.
 
-The implementation path is still concrete. Coordinate names are parsed into
-scoped symbols and carried through IR. Range analysis and shape analysis then
-reason about the same names the reader sees. A map such as
+The implementation path is concrete. Coordinate names are parsed into scoped
+symbols and carried through IR. Range analysis and shape analysis then reason
+about the same names the reader sees. A map such as
 `result[..batch, i, j] = x[..batch, j, i]` is not decoration before the "real"
 compiler starts; it is the thing later passes carry until a backend chooses a
 view, copy, or fused access.
@@ -34,6 +34,11 @@ makes visible to the compiler.
 For coordinate maps, the operation name is not enough. Transpose, flatten, and
 depth-to-space become reviewable only when the address relation is visible,
 especially when the next operation relies on adjacency.
+
+Before reading the examples, try to write a transpose without using the word
+`transpose`. Write only the source address for one result address. If that
+feels more precise than the operation name, you have found the chapter's main
+point.
 
 ## Operation Name or Address Relation
 
@@ -82,6 +87,19 @@ The transpose operator is:
 ```rust
 let result[..batch, i, j] = x[..batch, j, i];
 ```
+
+The reusable form should preserve the same contract. A coordinate function
+could expose the moving roles directly:
+
+```text
+let result[..batch, i, j] =
+    transpose_last2[i, j](x[..batch, j, i])
+```
+
+The call is short because the map is conventional, not because the coordinate
+story disappeared. The implementation may lower to a view, but the function
+boundary still says which two coordinates trade places and which prefix is
+carried.
 
 <figure class="axis-map-figure">
   <p class="axis-map-title">Named Axis Snapshot: Transpose</p>
@@ -166,16 +184,17 @@ Shape analysis should compute the output shape from explicit dimensions, not
 from an opaque prefix object. Einstein lowering should produce loops or
 vectorized execution over concrete coordinate slots.
 
-The pressure test is a generic library function. A transpose implementation
+The pressure test is a generic coordinate function. A transpose implementation
 should not need a separate definition for rank two, rank three, and rank four.
 But a backend also cannot execute "some prefix" without knowing how many
 coordinates it covers. Rest-pattern preprocessing is the bridge: it lets the
 source say "preserve the whole leading context" while giving later compiler
 passes the explicit coordinates they need.
 
-This is a pattern the book will reuse. Human-facing notation can compress a
-family of coordinate relations. Compiler-facing IR eventually needs the family
-made explicit enough for range, shape, and lowering to act on it.
+This is the first appearance of a pattern the book will reuse. Human-facing
+coordinate functions can compress a family of coordinate relations. The
+compiler-facing IR eventually needs the family made explicit enough for range,
+shape, and lowering to act on it.
 
 ## Depth to Space Is a Coordinate Unpacking
 
@@ -312,7 +331,7 @@ let x[row, col] = flat[row * width + col];
 </figure>
 
 Now row and column are packed into one position. Again, the formula is not
-about copying memory first. It is about explaining which old coordinate
+about copying memory first; it explains which old coordinate
 corresponds to which new coordinate.
 
 This matters because flattening is often treated as harmless. It can be
@@ -486,14 +505,15 @@ stories. The notation does not guess intent; it gives intent a place to be
 written.
 
 Choose one of these maps and run it backward. Part of the inverse is arithmetic;
-part of it is an assumption about layout or adjacency that the next operation
+another part is an assumption about layout or adjacency that the next operation
 quietly relies on. That boundary is where the interesting mistakes live.
 
 ## Try It
 
-Flatten a `[height, width]` image twice: once with `p = row * width + col` and
-once with `p = col * height + row`. Both maps are legal. Now ask which one a
-row-local convolution or patch extractor expects. Do not answer with shape;
-answer with the inverse coordinate map.
+Rewrite one `einops.rearrange` pattern as an Einlang coordinate map. Then ask
+what changes when the map is source syntax instead of a string argument. Which
+parts can name resolution, range analysis, and shape analysis inspect before a
+backend chooses a layout?
 
-**Line to keep:** a coordinate map is a promise about where meaning went.
+**Line to keep:** the address relation is the truth; the operation name is its
+surface expression.

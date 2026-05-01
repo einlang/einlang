@@ -8,7 +8,7 @@ description: "A book about named tensor dimensions and compiler-visible structur
 
 _Making tensor roles visible to programs that would otherwise see only shape._
 
-This book is about a common tensor-code problem: the program keeps the sizes,
+This book is about a common tensor-code problem: the program keeps the sizes
 but loses the reason those sizes mattered.
 
 Consider two lines:
@@ -18,7 +18,7 @@ y = x + bias
 z = y.reshape(batch, time, feature)
 ```
 
-They may be correct. They may also hide the bug. Did `bias` mean "one value per
+They may be correct. They may also hide a bug. Did `bias` mean "one value per
 feature," or did it accidentally line up with some other axis of the same
 length? Did the reshape preserve the intended roles, or only preserve the
 number of elements? A shape checker can answer some questions here, but not all
@@ -31,7 +31,7 @@ over an index such as `t`. I am using the language as a small instrument, not
 as a catalog of features. The question is what a compiler can check once
 coordinates have names.
 
-Code blocks marked `rust` are Einlang source and use normal semicolons. Blocks
+Code blocks marked `rust` are Einlang source and use ordinary semicolons. Blocks
 marked `text` are sketches: coordinate readings, dependency edges, or tables.
 They are not meant to be parsed as source.
 
@@ -40,9 +40,22 @@ The core forms are small enough to keep in one place:
 ```rust
 let y[i] = x[i] + 1;
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
+let p[b, class] = softmax[class](logits[b, class]);
+let pred[b] = argmax[class](p[b, class]);
 let dy_dx = @y / @x;
 let h[t in 1..T] = step(h[t - 1], x[t]);
 ```
+
+The bracketed names in calls such as `softmax[class]` and `argmax[class]` are
+not decoration. They are coordinate arguments. They let common tensor
+operations stay compact while still saying which coordinate is normalized,
+consumed, preserved, or returned as an address.
+
+That pattern appears throughout the book. A coordinate function is not a late
+library convenience; it is the way common tensor ideas become reusable without
+falling back to anonymous axis numbers. The expanded indexed form teaches the
+contract. The coordinate-function form carries the same contract across a
+function boundary.
 
 Two distinctions are worth keeping close. An axis name is a semantic role:
 `batch`, `time`, `feature`, `class`, `head`, `row`, `col`. A dimension size is

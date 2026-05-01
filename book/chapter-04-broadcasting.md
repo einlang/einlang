@@ -5,6 +5,9 @@ title: "Chapter 4: What Does Broadcasting Hide?"
 
 # What Does Broadcasting Hide?
 
+The frightening broadcasting bug is not a crash. It is a model that trains
+while sharing a value across the wrong role.
+
 Broadcasting is one of the great conveniences of array programming:
 
 ```python
@@ -40,7 +43,7 @@ subtraction broadcasts legally. The loss decreases. The model learns around a
 normalization that is shared across the wrong role. Nothing in the shape tuple
 has to scream. The first hard symptom may be a deployment set whose batch size
 or feature count changes, or a model whose calibration is wrong for reasons no
-unit test named.
+unit test caught.
 
 Broadcasting is not foolish; it is one of the reasons array code is pleasant.
 The sharper question is whether a value is truly independent of a coordinate,
@@ -58,6 +61,12 @@ reuse explicit, and it would also make ordinary tensor formulas unpleasantly
 heavy. The useful middle ground is to make absence visible in the coordinate
 story without forcing every expanded element to be written.
 
+At this point it is reasonable to object: is visible absence just another
+implicit behavior? The difference is where the fact lives. Implicit
+broadcasting asks the reader to infer reuse from shape layout. A missing
+coordinate in an indexed term declares the reuse in the expression itself.
+One is accidental expansion; the other is stated independence.
+
 Einlang's notation follows that middle path. A term that lacks `j` is not an
 accident of layout; it is a value that does not depend on `j`. The design
 principle is the same as before: if the omitted coordinate matters to later
@@ -69,6 +78,17 @@ independent of that coordinate, or did we merely arrange memory so the library
 would accept it? A feature bias is independent of batch. A per-example offset
 is not. Both can be stored as vectors. The coordinate expression is where the
 distinction becomes hard to miss.
+
+This is also a function-boundary issue. A helper such as:
+
+```text
+let y[b, feature] = add_bias[feature](x[b, feature], bias[feature])
+```
+
+is acceptable only if the bracketed coordinate states the reuse contract:
+`bias[feature]` is reused across every other coordinate of `x`. Without that
+coordinate argument, the helper has hidden the same fact broadcasting usually
+hides.
 
 ## Omitted Coordinates
 
@@ -253,8 +273,8 @@ In the first line, `bias[f]` omits `b`, so it is reused for every batch item.
 In the second line, `f` is introduced by `sum` and consumed, so it does not
 survive into `total`.
 
-This pairing matters in the gradient chapters. A value broadcast in
-the forward pass usually receives a summed gradient in the backward pass. A
+This pairing matters in the gradient chapters. A value broadcast in the forward
+pass usually receives a summed gradient in the backward pass. A
 coordinate consumed in the forward pass often reappears in the shape of a
 parameter gradient. The source notation makes those relationships easier to
 predict because it shows which coordinates were absent and which were local.
@@ -426,10 +446,11 @@ was only shape-compatible, not semantic.
 
 ## Try It
 
-Create a bias vector whose length equals both `time` and `feature` in a toy
-example. Add it to `x[b, time, feature]` in both roles. The wrong version should
-look just as plausible by shape. Then write the explicit indexed version and
-circle the coordinate the bias omits.
+Create a toy tensor where `time_count == feature_count`. Write a bias that a
+positional framework could broadcast in either role. Then write the named
+version twice, once as `bias[feature]` and once as `bias[time]`, and ask which
+one the model contract permits. The useful error message should name the role,
+not only the extent.
 
-**Line to keep:** broadcasting is not magic expansion; it is independence from
-a coordinate.
+**Line to keep:** if a term does not mention `j`, it cannot care which `j` you
+chose.

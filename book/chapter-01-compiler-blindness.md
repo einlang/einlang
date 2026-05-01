@@ -5,6 +5,9 @@ title: "Chapter 1: What Can the Compiler Not See?"
 
 # What Can the Compiler Not See?
 
+Most engineers see the next fragment as harmless shape plumbing. You probably
+will too. That is the trap: the code is legal before it is explainable.
+
 Start with a familiar fragment:
 
 ```python
@@ -71,6 +74,17 @@ The missing fact is not a number. It is a role.
 
 ## The Same Move With Named Coordinates
 
+Before the correct relation, try a tempting but weak naming attempt:
+
+```text
+tmp[b, feat, group, slice] = x[b, feat, group, slice]
+y[row, col] = tmp[?, ?, ?, ?]
+```
+
+This names the intermediate axes, but it still makes the final packing a
+mystery. The names do not participate in the address relation that matters.
+They are labels on the side of the operation, not the operation itself.
+
 Write the same intention as a coordinate relation:
 
 ```text
@@ -93,6 +107,18 @@ second output coordinate  feat * slice
 The equation is the final form of that sentence. It is not meant to impress
 the reader with clever packing arithmetic; it is meant to keep the pairing
 decision visible.
+
+Once that relation is stable, it can be named without losing the contract:
+
+```text
+let y[b * group, feat * slice] =
+    pack_grouped_features[group, slice](x[b, feat, group, slice])
+```
+
+The bracketed coordinates are the important part of the hypothetical helper.
+They say which split roles are being packed, so the call is not merely
+`reshape(...)` with a friendlier name. The long indexed line is the reference
+meaning; the coordinate function is the reusable boundary.
 
 The ranges would make the relation concrete:
 
@@ -230,7 +256,7 @@ intended.
 
 The lesson is not that shape operations are bad. They are useful and often
 efficient. The point is narrower: a shape operation is not the same as a
-semantic operation. When dimensions have names, a tensor program can say more
+semantic operation. When dimensions have names, a tensor program can state more
 of what it means.
 
 ## The First Habit
@@ -300,8 +326,8 @@ final shape `[4, 12]`. What it cannot see, from the final shape alone, is that
 the first output coordinate is "batch packed with group" rather than "feature
 packed with group" or "batch packed with slice."
 
-The real pressure appears when two roles have compatible extents. A wrong
-version can still look plausible:
+The pressure increases when two roles have compatible extents. A wrong version
+can still look plausible:
 
 ```text
 bad[b * slice_count + slice, feat * group_count + group] =
@@ -358,10 +384,10 @@ rather than from the program text.
 
 ## Try It
 
-Take a tensor with shape `[2, 3, 2, 4]` and invent two different reshape chains
-that both end at `[4, 12]`. For each chain, write one line that maps
-`y[row, col]` back to `x[b, feature, group, slice]`. The exercise is done when
-you can point to the exact coordinate that changed meaning while the final
-shape stayed legal.
+Try to describe the opening reshape chain using only positions `0`, `1`, `2`,
+and `3`. Then move `group` to the last position and describe it again. Notice
+how much of the work your memory is doing. Now write the coordinate relation
+with `b`, `feature`, `group`, and `slice`, and compare how quickly the intended
+packing becomes reviewable.
 
-**Line to keep:** shape counts addresses; coordinates explain addresses.
+**Line to keep:** roles do not live in numbers; they live in meaning.
