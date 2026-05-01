@@ -230,6 +230,24 @@ selection loop, but the signature still says that `class` is consumed and that
 all surrounding coordinates survive. That is the reusable form of "the index
 that leaves."
 
+The return annotation is doing real work here. The final expression
+`argmax[class](...)` is a selection over `class`; the declared result
+`[i32; ..left, ..right]` supplies the coordinates that remain. You could spell
+that out with a local `let pred[..left, ..right] = ...; pred`, but the function
+signature already states the same contract, so the body can stay focused on
+the one fact that matters: which coordinate leaves.
+
+There is nothing special about rest packs in this rule. A fixed-rank version:
+
+```rust
+fn top1_2d[class](x: [f32; batch, class]) -> [i32; batch] {
+    argmax[class](x[batch, class])
+}
+```
+
+uses the same idea. `batch` is available because it appears in the parameter
+type; the return type reuses it rather than inventing it.
+
 This same pattern will recur: the operation may be compact, but the consumed
 coordinate remains visible in brackets. That is what keeps `argmax[col]` from
 being just another positional helper.

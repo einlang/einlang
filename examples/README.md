@@ -9,7 +9,7 @@ These are the lowest-friction paths through the repo. They all run from the repo
 | Time | Run | Why it is a good stop |
 |------|-----|-----------------------|
 | 30 seconds | `python3 -m einlang examples/hello.ein` | Confirms the install and shows the CLI on a tiny program. |
-| 5 minutes | `python3 -m einlang examples/autodiff_small.ein`<br>`python3 -m einlang examples/autodiff_matmul.ein`<br>`python3 -m einlang examples/demos/tensor_functions.ein` | Shows autodiff, one-cell pullback reading, and coordinate-aware helpers quickly. |
+| 5 minutes | `python3 -m einlang examples/autodiff_small.ein`<br>`python3 -m einlang examples/autodiff_matmul.ein`<br>`python3 -m einlang examples/demos/matrix_operations.ein`<br>`python3 -m einlang examples/demos/tensor_functions.ein` | Shows autodiff, one-cell pullback reading, matrix notation, and coordinate-aware helpers quickly. |
 | 30 minutes | `python3 -m einlang examples/applications/linear_regression_autodiff.ein`<br>`python3 -m einlang examples/recurrence/recurrence_suite.ein`<br>`python3 -m einlang examples/ode/ode_suite.ein`<br>`python3 -m einlang examples/optimization/optimization_suite.ein` | Shows that the same language reaches fitting, recurrences, numerics, and optimization workflows. |
 | After that | [examples/README](README.md), [mnist/README](mnist/README.md), [deit_tiny/README](deit_tiny/README.md), [whisper_tiny/README](whisper_tiny/README.md) | Use the directory guides once you want the heavier showcases or extra setup. |
 

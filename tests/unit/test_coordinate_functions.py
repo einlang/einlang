@@ -314,8 +314,7 @@ def test_coordinate_function_signature_instantiates_return_layout():
     result = compile_and_execute(
         """
         fn top1[j](x: [f32; b, j]) -> [i32; b] {
-            let pred[b] = argmax[j](x[b, j]);
-            pred
+            argmax[j](x[b, j])
         }
 
         let logits[b in 0..2, class in 0..3] =
@@ -330,6 +329,20 @@ def test_coordinate_function_signature_instantiates_return_layout():
 
     assert result.success, result.errors
     assert int(np.asarray(result.outputs["total"]).item()) == 3
+
+
+def test_coordinate_function_rejects_return_only_dimension():
+    result = CompilerDriver().compile(
+        """
+        fn bad[j](x: [f32; j]) -> [i32; b] {
+            argmax[j](x[j])
+        }
+        """,
+        source_file="<test>",
+    )
+
+    assert not result.success
+    assert "return-only symbolic dimensions are not allowed" in "\n".join(result.get_errors())
 
 
 def test_coordinate_function_signature_instantiates_return_rank():

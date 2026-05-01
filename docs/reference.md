@@ -125,6 +125,21 @@ fn top1[j](x: [f32; ..left, j, ..right]) -> [i32; ..left, ..right] {
 top1[class](logits[b, class, t])  // result coordinates: [b, t]
 ```
 
+In a function body, an explicit rectangular return type can supply the result
+coordinates for the final expression. The `top1` body above is treated like an
+implicit final binding over `..left, ..right`; the programmer does not need to
+write `let pred[..left, ..right] = ...; pred` just to repeat the return shape.
+The same rule applies to ordinary named dimensions:
+
+```rust
+fn top1_2d[j](x: [f32; b, j]) -> [i32; b] {
+    argmax[j](x[b, j])
+}
+```
+
+Both `b` and rest packs such as `..left` must come from the parameter-side
+signature; return-only dimensions are not introduced by this rule.
+
 Coordinate parameters may also be packs. A pack parameter is written with
 `..` in the function coordinate parameter list, and an explicit call must pass
 one parenthesized coordinate group for that parameter:
@@ -646,6 +661,20 @@ This is equivalent to indexing the grounded value at the selected coordinate:
 ```rust
 let pred[b] = argmax[class](logits[b, class] ** 2.0);
 ```
+
+Inside a coordinate-aware function, the declared return shape can provide the
+surviving coordinates for a final selection reduction:
+
+```rust
+fn top1[class](x: [f32; ..left, class, ..right])
+    -> [i32; ..left, ..right]
+{
+    argmax[class](x[..left, class, ..right])
+}
+```
+
+This is equivalent to returning a hidden Einstein binding over
+`..left, ..right`.
 
 ### Range inference
 

@@ -133,7 +133,7 @@ indices. A call such as:
 
 ```rust
 let p[b, class] = softmax[class](logits[b, class]);
-let pred[b] = argmax[class](p[b, class]);
+let pred = argmax[class](p);
 let image_hw_c = move_channel[channel](image);
 ```
 

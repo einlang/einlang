@@ -494,7 +494,11 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             raise RuntimeError(
                 f"Failed to lower function body for '{ast_func.name}': expected ExpressionIR, got {type(body_ir).__name__} at {location}"
             )
-        body_ir = self._apply_function_result_context(body_ir, return_type)
+        body_ir = self._apply_function_result_context(
+            body_ir,
+            return_type,
+            getattr(ast_func, "_signature_dim_defids", {}) or {},
+        )
         # Lower @fn body if merged into this function (before DefId allocation)
         custom_diff_ir: Optional[ExpressionIR] = None
         custom_diff_ast = getattr(ast_func, "custom_diff_body", None)
@@ -526,6 +530,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         self,
         body_ir: ExpressionIR,
         return_type: Optional[Any],
+        dim_defids: Optional[Dict[str, DefId]] = None,
     ) -> ExpressionIR:
         """Use a declared rectangular result shape as context for a bare reduction.
 
@@ -536,7 +541,11 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         """
         if isinstance(body_ir, BlockExpressionIR):
             if body_ir.final_expr is not None:
-                contextual = self._contextual_result_binding(body_ir.final_expr, return_type)
+                contextual = self._contextual_result_binding(
+                    body_ir.final_expr,
+                    return_type,
+                    dim_defids or {},
+                )
                 if contextual is not None:
                     binding, final_ref = contextual
                     body_ir.statements = tuple(list(body_ir.statements or []) + [binding])
@@ -545,9 +554,10 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                     body_ir.final_expr = self._apply_function_result_context(
                         body_ir.final_expr,
                         return_type,
+                        dim_defids or {},
                     )
             return body_ir
-        contextual = self._contextual_result_binding(body_ir, return_type)
+        contextual = self._contextual_result_binding(body_ir, return_type, dim_defids or {})
         if contextual is None:
             return body_ir
         binding, final_ref = contextual
@@ -562,6 +572,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         self,
         expr: ExpressionIR,
         return_type: Optional[Any],
+        dim_defids: Dict[str, DefId],
     ) -> Optional[Tuple[BindingIR, IdentifierIR]]:
         if not isinstance(expr, ReductionExpressionIR):
             return None
@@ -576,19 +587,25 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 name = dim[2:]
                 if not name:
                     return None
+                defid = dim_defids.get(name)
+                if defid is None:
+                    return None
                 indices.append(
                     IndexRestIR(
                         name=name,
                         location=expr.location,
-                        defid=self.tcx.resolver.allocate_for_local(),
+                        defid=defid,
                     )
                 )
             else:
+                defid = dim_defids.get(dim)
+                if defid is None:
+                    return None
                 indices.append(
                     IndexVarIR(
                         name=dim,
                         location=expr.location,
-                        defid=self.tcx.resolver.allocate_for_local(),
+                        defid=defid,
                     )
                 )
 

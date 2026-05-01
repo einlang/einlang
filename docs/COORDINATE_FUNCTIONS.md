@@ -10,7 +10,7 @@ without making every common operation expand into raw indexed formulas.
 
 ```rust
 let p[b, class] = softmax[class](logits[b, class]);
-let pred[b] = argmax[class](p[b, class]);
+let pred = argmax[class](p);
 ```
 
 Read `softmax[class]` as "normalize over the `class` coordinate." Read
@@ -128,6 +128,27 @@ Valid grounding sources are:
 The name `class` in `softmax[class](logits)` must resolve through
 `logits` or through the expected result. It must not resolve through an
 unrelated earlier binding that happened to use the same label.
+
+Inside a function, the declared rectangular return type can provide the
+expected result coordinates for the final expression. A bare final reduction
+therefore does not need a temporary binding just to restate the output layout:
+
+```rust
+fn top1_2d[j](x: [f32; b, j]) -> [i32; b] {
+    argmax[j](x[b, j])
+}
+
+fn top1[j](x: [f32; ..left, j, ..right]) -> [i32; ..left, ..right] {
+    argmax[j](x[..left, j, ..right])
+}
+```
+
+This lowers as if the programmer had written an explicit final binding over
+`b` or over `..left, ..right`, then returned that binding. Ordinary dimension
+names and rest packs follow the same rule: they must be introduced by the
+parameter-side signature, and the return type may reuse them. The rule is
+deliberately narrow: it applies to the function's final reduction expression,
+where the return signature is already a checked coordinate contract.
 
 ## Same Name Means Unify
 
@@ -768,6 +789,9 @@ fn top1[j](x: [f32; ..left, j, ..right]) -> [i32; ..left, ..right] {
 
 top1[class](logits[b, class, t])  // result coordinates: [b, t]
 ```
+
+The body does not need `let pred[..left, ..right] = ...; pred` here. The
+declared return shape supplies that result context to the final reduction.
 
 The same instantiation propagates rank and concrete dimensions when they are
 known. If `logits` has shape `(B, C, T)`, the result of `top1[class](logits)`

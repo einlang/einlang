@@ -41,7 +41,7 @@ The core forms are small enough to keep in one place:
 let y[i] = x[i] + 1;
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
 let p[b, class] = softmax[class](logits[b, class]);
-let pred[b] = argmax[class](p[b, class]);
+let pred = argmax[class](p);
 let image[channel, row, col] = load_image();
 let channels_last = move_channel[channel](image);
 let swapped = swap[time, feature](x);

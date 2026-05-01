@@ -15,7 +15,7 @@ normalizes, selects, or returns as an address.
 
 ```rust
 let probs[b, class] = softmax[class](logits[b, class]);
-let pred[b] = argmax[class](probs[b, class]);
+let pred = argmax[class](probs);
 let route[b, t] = argmax[expert](gate_prob[b, t, expert]);
 ```
 
