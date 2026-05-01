@@ -39,6 +39,28 @@ The RNN standard-library example follows this second path. It shows enough of
 the recurrence to expose the dependency graph while still leaving activation
 dispatch, bias handling, and lowering as implementation concerns.
 
+This is not because a hand-written recurrence is always the most convenient
+user API. A framework call such as:
+
+```python
+out, final = rnn(x, h0)
+```
+
+is useful precisely because it hides a lot. The question is what kind of hiding
+it performs. If `x` is documented as `[time, batch, input]`, the documentation
+is carrying the coordinate contract. If a transpose changes it to `[batch,
+time, input]`, the call may still run under a different flag or wrapper, but
+the dependency graph has moved into convention. Einlang's recurrence spelling
+keeps the contract where the graph is defined:
+
+```text
+hidden[t, b, h] depends on hidden[t - 1, b, h_prev] and X[t, b, i]
+```
+
+That line is schematic because a real cell reduces over `i` and `h_prev`, but
+the visible part is the important part: time shifts, batch stays fixed, and
+hidden units communicate through named roles rather than positional folklore.
+
 The compiler does not need a special "RNN type" to begin this analysis. It
 sees indexed declarations, explicit ranges such as `t in 1..seq_length`,
 reductions over `i` and `h_prev`, and the offset read `hidden[t - 1, b,
@@ -420,6 +442,17 @@ Add a time mask `mask[t, b]` to a causal RNN. Write the coordinate condition
 that either accepts `candidate[t, b, h]` or carries `hidden[t - 1, b, h]`.
 Then describe the backward edge for a padded position and explain how the
 source avoids useless communication through padding.
+
+As a second variation, make one legal-looking but wrong change:
+
+```text
+hidden[t - 1, b, h_prev]        correct: previous time, same batch
+hidden[t - 1, b_prev, h_prev]   wrong unless batches are meant to communicate
+hidden[t, b, h_prev]            wrong for a forward recurrence
+```
+
+Explain which edge changed in the dependency graph. Then compare that diagnosis
+with what a shape checker alone would see.
 
 **Line to keep:** an RNN is not a black box; it is a communication graph made
 of named coordinates.

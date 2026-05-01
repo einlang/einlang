@@ -33,6 +33,28 @@ body.
 Loops are excellent execution devices. They are less direct as explanations of
 time-shaped structure.
 
+Frameworks noticed this problem and introduced structured loop helpers. JAX
+has `lax.scan`; PyTorch users often choose between an explicit Python loop,
+library RNN modules, and compiled graph capture. Those tools can be excellent
+execution interfaces:
+
+```python
+carry, ys = scan(step, init_state, xs)
+```
+
+But the call still depends on the reader knowing which axis of `xs` is time,
+which parts of the carry are state, and which coordinates are merely batched
+around the recurrence. The coordinate version tries to keep the smallest
+necessary fact on the page:
+
+```text
+let h[t, ..batch, hidden] = scan[t](step, h0[..batch, hidden], x[t, ..batch, input])
+```
+
+`scan` may be a library helper. The bracket says which coordinate gives it a
+direction. The variadic `..batch` says the recurrence is polymorphic over the
+surrounding independent coordinates, not over the ordered one.
+
 A loop tells an execution story. A recurrence tells a dependency story. The
 two can lower to the same machine behavior, but they give the compiler and the
 reader different source facts to work with. The important separation is between
@@ -424,10 +446,19 @@ variable, that distinction would have to be recovered after the fact.
 
 ## Try It
 
-In `h[t] = f(x[t], h[t - 1])`, change one term so a time step reads future
-information, as in a bidirectional model. Write the forward and backward
-families with separate coordinates and ask how the storage demand changes when
-future reads become part of the dependency graph.
+Rewrite a small loop as a recurrence:
+
+```python
+h = h0
+for t in range(T):
+    h = step(h, x[t])
+```
+
+First write it as `h[t]` with an explicit base case. Then add `..batch` and
+check that no line lets one batch member read another. Finally, change one term
+so a time step reads future information, as in a bidirectional model. Ask how
+the storage demand changes when future reads become part of the dependency
+graph.
 
 **Line to keep:** a loop is an execution order; time is a dependency
 relationship.

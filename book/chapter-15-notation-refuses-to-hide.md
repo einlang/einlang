@@ -197,9 +197,9 @@ C[i, j] = sum[k](A[i, k] * B[k, j])
 ```
 
 while the schedule says how to tile, cache, vectorize, or place it. Einlang
-makes the same separation one level earlier:
+makes the same separation one level earlier. As a coordinate-function sketch:
 
-```rust
+```text
 fn matmul[i, j, k](a: [f32; ..batch, i, k],
                   b: [f32; ..batch, k, j])
     -> [f32; ..batch, i, j]

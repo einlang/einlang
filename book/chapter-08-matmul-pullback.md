@@ -101,9 +101,9 @@ TensorOperations:
 That is close in spirit to the line above: the programmer states an indexed
 relation instead of a sequence of loops, and the system can connect that
 relation to AD and generated kernels. Einlang's extra insistence is that the
-same relation can become a checked function boundary:
+same relation can become a checked function boundary. As a signature sketch:
 
-```rust
+```text
 fn matmul[i, j, k](a: [f32; ..batch, i, k],
                   b: [f32; ..batch, k, j])
     -> [f32; ..batch, i, j]

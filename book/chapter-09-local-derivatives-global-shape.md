@@ -45,6 +45,28 @@ seed at the coordinate address of the value being differentiated. Most wrong
 versions are not bad calculus; they are good local calculus attached to the
 wrong family of addresses.
 
+This is also where ordinary autodiff notation can be too quiet. In PyTorch or
+JAX one might write:
+
+```python
+y = x * x + bias
+loss = y.sum()
+loss.backward()
+```
+
+The result is correct, but the source line does not say which coordinates
+`bias` lacks. The reduction in `bias.grad` is discovered by tracing the
+broadcast. Einlang wants that missing coordinate to be visible at the place
+where it first matters:
+
+```rust
+let y[batch, feature] = x[batch, feature] * x[batch, feature] + bias[feature];
+```
+
+Now the backward fact has a source-level reason. `feature` survives into
+`bias`; `batch` was used by the result but absent from the parameter, so the
+gradient for `bias` must collect `batch`.
+
 ## Scalar Rule or Shaped Rule
 
 A derivative table can tell us that the derivative of `x * x` is `2 * x`. That
@@ -421,10 +443,16 @@ coordinate. The gradient must say where that omitted coordinate went.
 
 ## Try It
 
-Design a tiny layer with two broadcasts, for example a feature bias and a
-per-time scale. Sketch the backward pass once in a traditional framework style
-and once with named coordinates. Compare where you had to remember which axis
-was shared.
+Design a tiny layer with two broadcasts:
+
+```rust
+let y[time, batch, feature] =
+    scale[time] * x[time, batch, feature] + bias[feature];
+```
+
+Sketch `@loss / @scale` and `@loss / @bias`. Then rewrite the same layer in a
+traditional framework style and mark where the two reductions are implicit in
+the broadcast history rather than visible in the source.
 
 **Line to keep:** scalar rules are local calculus; coordinate structure tells
 where the value lands.

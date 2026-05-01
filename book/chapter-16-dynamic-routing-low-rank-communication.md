@@ -555,7 +555,7 @@ need for gradients, storage, load balance, streaming, and debugging.
 Coordinate functions are the compression mechanism that keeps this discipline
 usable. A helper such as:
 
-```rust
+```text
 fn ste_top1[e](p: [f32; ..left, e, ..right]) -> [i32; ..left, ..right]
 ```
 

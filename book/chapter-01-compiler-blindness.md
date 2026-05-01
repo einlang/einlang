@@ -37,16 +37,20 @@ y = rearrange(x, "b f (g s) -> (b g) (f s)", g=4, s=32)
 
 That is much more readable than a chain of reshape and transpose calls. The
 pattern tells us that `g` travels with `b` and `s` travels with `f`. The
-question this book asks is what survives when that relation becomes a helper:
+question this book asks is what survives when that relation becomes a helper.
+As a boundary sketch:
 
-```rust
+```text
 fn pack_grouped[group, slice](x: [f32; b, f, group, slice])
     -> [f32; b * group, f * slice]
 ```
 
 The einops pattern is a clear local operation. The coordinate-aware signature
 is the same idea at a boundary: the caller and later compiler passes can still
-see which split roles were packed.
+see which split roles were packed. A real implementation still has to say how
+linearized coordinates are formed. The point here is smaller and sharper: once
+the relation is promoted to a library helper, the split roles should not fall
+back into comments and convention.
 
 That is the first blind spot. Tensor code often preserves enough information
 to run, but not enough information to explain itself.
