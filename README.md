@@ -12,6 +12,7 @@ Today, you write `.ein` programs and run them from the CLI or from Python. The m
 
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
+let p[b, class] = softmax[class](logits[b, class]);
 let dC_dA = @C / @A;
 ```
 
@@ -25,6 +26,7 @@ If you already know NumPy, JAX, or PyTorch, the easiest mental model is:
 
 - Einlang is a small language for the array-heavy, math-heavy part of a program, not a replacement for all of Python.
 - The notation is closer to how you would write matrix math on paper than to calling helper APIs around arrays.
+- Coordinate-aware calls such as `softmax[class](logits)` and `argmax[class](logits)` keep common library operations compact without hiding which coordinate they use.
 - Gradient and derivative requests are part of the language itself, so you write them where you need them instead of wrapping whole functions in a separate autodiff library.
 
 That is the core of Einlang: keep the structure of the math visible, keep gradients local, and keep the notation consistent as programs grow.
@@ -49,6 +51,7 @@ Most new readers do not need the full language reference first. These are the fi
 | `let x = 3.0;` | Bind an immutable value named `x`. |
 | `let C[i, j] = ...;` | Build `C` one output position at a time, using `i` and `j` as the row/column-style positions. |
 | `sum[k](expr)` | Add up `expr` over all values of `k`. |
+| `softmax[class](logits)` | Call a coordinate-aware function and name the coordinate it normalizes, selects, or otherwise uses. |
 | `@y / @x` | Ask for the derivative of `y` with respect to `x`. |
 | `let fib[n in 2..25] = fib[n - 1] + fib[n - 2];` | Fill in `fib` across a range using earlier values of `fib`. |
 
@@ -70,6 +73,7 @@ That same pattern shows up again and again as the programs get larger.
 
 - Gradients written directly in the language with `@loss / @weights`
 - Matrix and tensor expressions without string-based `einsum`
+- Coordinate-aware function calls for axis-sensitive operations such as `softmax[class]` and `argmax[class]`
 - Step-by-step definitions for sequences, dynamic programs, and time evolution
 - Running from the CLI or from Python on a NumPy backend today
 - Staying in one notation as you move from tiny examples to fitting, numerics, and optimization
@@ -259,6 +263,7 @@ If you want to keep going after the path above, here is the practical split. Non
 - [Visible Dimensions](https://einlang.github.io/einlang/book/) is a seven-section book about what tensor programs can state once dimensions have names.
 - [docs/reference.md](docs/reference.md) is for syntax and semantics once you want the language spelled out precisely.
 - [docs/stdlib.md](docs/stdlib.md) is the lookup page for built-ins, modules, and library surface.
+- [docs/COORDINATE_FUNCTIONS.md](docs/COORDINATE_FUNCTIONS.md) explains coordinate-aware calls such as `softmax[class]` and `argmax[class]`.
 - [docs/AUTODIFF.md](docs/AUTODIFF.md) goes deeper on differential expressions and autodiff-specific behavior.
 - [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) is the short companion page if you want the same onboarding path in a docs section.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/WHY_EINLANG.md](docs/WHY_EINLANG.md) are for readers deciding whether to contribute or understand the implementation and motivation in more depth.

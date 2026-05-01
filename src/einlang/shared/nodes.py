@@ -306,13 +306,14 @@ class FunctionDefinition(Statement):
     body: 'BlockExpression'  # Changed from List[Statement] + final_expr
     is_public: bool = False
     
-    def __init__(self, name: str, parameters: List['Parameter'], return_type: Optional['Type'], body: 'BlockExpression', is_public: bool = False, location: SourceLocation = None):
+    def __init__(self, name: str, parameters: List['Parameter'], return_type: Optional['Type'], body: 'BlockExpression', is_public: bool = False, location: SourceLocation = None, coordinate_params: Optional[List[str]] = None):
         super().__init__(NodeType.FUNCTION_DEF, location)
         self.name = name
         self.parameters = parameters
         self.return_type = return_type
         self.body = body
         self.is_public = is_public
+        self.coordinate_params = list(coordinate_params or [])
         
         # Analysis metadata (static attributes - always present)
         self.statement_metadata: Optional[Any] = None  # StatementMetadata from RangeAnalysisEngine
@@ -330,7 +331,8 @@ class FunctionDefinition(Statement):
     def __str__(self) -> str:
         params = _source_join(self.parameters)
         ret = f" -> {self.return_type}" if self.return_type else ""
-        return f"{_visibility_prefix(self.is_public)}fn {self.name}({params}){ret} {self.body}"
+        coord = f"[{', '.join(self.coordinate_params)}]" if self.coordinate_params else ""
+        return f"{_visibility_prefix(self.is_public)}fn {self.name}{coord}({params}){ret} {self.body}"
 
 
 @dataclass
@@ -340,11 +342,12 @@ class DiffRuleDef(Statement):
     parameters: List['Parameter']
     body: 'BlockExpression'
 
-    def __init__(self, name: str, parameters: List['Parameter'], body: 'BlockExpression', location: SourceLocation = None):
+    def __init__(self, name: str, parameters: List['Parameter'], body: 'BlockExpression', location: SourceLocation = None, coordinate_params: Optional[List[str]] = None):
         super().__init__(NodeType.DIFF_RULE_DEF, location)
         self.name = name
         self.parameters = parameters
         self.body = body
+        self.coordinate_params = list(coordinate_params or [])
         self.function_defid: Optional[Any] = None  # Set by name resolution: DefId of the function
         self.param_defids: Optional[List[Any]] = None  # Set by name resolution: DefIds of params (same order as parameters)
 
@@ -352,7 +355,8 @@ class DiffRuleDef(Statement):
         return visitor.visit_diff_rule_def(self)
 
     def __str__(self) -> str:
-        return f"@fn {self.name}({_source_join(self.parameters)}) {self.body}"
+        coord = f"[{', '.join(self.coordinate_params)}]" if self.coordinate_params else ""
+        return f"@fn {self.name}{coord}({_source_join(self.parameters)}) {self.body}"
 
 
 @dataclass
@@ -529,10 +533,11 @@ class FunctionCall(Expression):
     arguments: List[Expression]
     
     def __init__(self, function_expr: Expression, arguments: List[Expression], 
-                 location: SourceLocation = None):
+                 location: SourceLocation = None, coordinate_args: Optional[List[Expression]] = None):
         super().__init__(NodeType.FUNCTION_CALL, location)
         self.function_expr = function_expr
         self.arguments = arguments
+        self.coordinate_args = list(coordinate_args or [])
         
         # Resolution metadata (attached during ModulePass)
         self._resolved_module_key: Optional[str] = None
@@ -548,7 +553,8 @@ class FunctionCall(Expression):
         return visitor.visit_function_call(self)
 
     def __str__(self) -> str:
-        return f"{self.function_expr}({_source_join(self.arguments)})"
+        coord = f"[{_source_join(self.coordinate_args)}]" if self.coordinate_args else ""
+        return f"{self.function_expr}{coord}({_source_join(self.arguments)})"
 
 @dataclass
 class MethodCall(Expression):

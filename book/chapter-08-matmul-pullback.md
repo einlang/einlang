@@ -11,8 +11,8 @@ The forward equation is:
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
 ```
 
-This line already contains most of the backward pass. The coordinate `i` belongs to
-rows of `A` and rows of `C`. The coordinate `j` belongs to columns of `B` and
+This line already contains most of the backward pass. The coordinate `i`
+belongs to rows of `A` and rows of `C`. The coordinate `j` belongs to columns of `B` and
 columns of `C`. The coordinate `k` is the shared inner coordinate.
 
 Before differentiating anything, read the dependency of one output cell:
@@ -30,7 +30,7 @@ This is the gentler way to meet the pullback: not by materializing a giant
 Jacobian, but by asking where one output cell could have come from. The zeros
 in the dense object are already visible as omitted coordinate routes.
 
-The pullback is easiest to read by holding one input cell still and asking
+The pullback is easiest to read by holding one input cell fixed and asking
 which output cells could have noticed it. That address question removes most
 of the imaginary giant Jacobian before it is ever built.
 
@@ -44,8 +44,26 @@ For matrix multiplication, that reading becomes a five-step procedure:
 5. Sum the routes that meet back at the input address: sum[j](...).
 ```
 
+This procedure is more than a mnemonic. It is the sparse Jacobian argument
+without the giant Jacobian. Holding one input cell still tells us which output
+cells can feel it, and therefore which incoming sensitivities must meet back at
+that input address. The wrong pullback often has the right-looking extents;
+what gives it away is that it sums over a survivor or preserves a route
+coordinate.
+
 The result is `dA[i, k] = sum[j](G[i, j] * B[k, j])`. The same five steps
 derive `dB` by holding a cell of `B` fixed.
+
+The symmetry is worth keeping in sight:
+
+```text
+forward consumes k        backward reopens routes through output coordinates
+forward preserves i, j    backward preserves the input cell's coordinates
+forward broadcasts bias   backward collects the omitted coordinate
+```
+
+The pullback is not a new kind of mystery. It is the same coordinate accounting
+run in the opposite direction.
 
 ## Jacobian Object or Indexed Rule
 
@@ -61,6 +79,38 @@ can make the transpose feel like a spell rather than a consequence.
 The indexed rule sits between those extremes. It does not build the giant
 Jacobian, and it does not ask the reader to accept the transpose rule on
 faith. It shows which coordinates stay and which are collected.
+
+The same is true if matrix multiplication is later exposed as a coordinate
+function:
+
+```text
+let C[i, j] = matmul[k](A[i, k], B[k, j])
+```
+
+The call can be short because `k` names the consumed coordinate. The function
+may lower to BLAS, but the pullback still knows which routes to reopen because
+the contraction coordinate crossed the boundary.
+
+Julia has explored a nearby surface through packages such as Tullio and
+TensorOperations:
+
+```julia
+@tullio C[i, j] := A[i, k] * B[k, j]
+```
+
+That is close in spirit to the line above: the programmer states an indexed
+relation instead of a sequence of loops, and the system can connect that
+relation to AD and generated kernels. Einlang's extra insistence is that the
+same relation can become a checked function boundary. As a signature sketch:
+
+```text
+fn matmul[i, j, k](a: [f32; ..batch, i, k],
+                  b: [f32; ..batch, k, j])
+    -> [f32; ..batch, i, j]
+```
+
+The coordinate `k` should not disappear merely because `matmul` became a
+library call.
 
 It is still useful to imagine the full Jacobian once. Each cell `C[i, j]`
 would have a derivative with respect to each cell `A[p, q]`. Most of those
@@ -191,6 +241,18 @@ This is the difference between asking "what operations happened?" and asking
 "which coordinates connect the value I care about to the value I am
 differentiating with respect to?" The latter question is visible in the
 formula.
+
+A coordinate-aware `matmul` keeps that visibility when the formula is hidden:
+
+```rust
+fn matmul[i, j, k](a: [f32; ..batch, i, k],
+                  b: [f32; ..batch, k, j])
+    -> [f32; ..batch, i, j]
+```
+
+The pullback rules do not need `matmul` to stay expanded forever. They need the
+function boundary to remember which coordinate was contracted and which prefix
+was carried.
 
 ## What Must the Gradient Be Addressed Like?
 
@@ -387,8 +449,10 @@ small address question is the whole trick.
 
 ## Try It
 
-Fix one cell `A[i, k]` and list every output cell `C[i, j]` that reads it. Do
-the same for one cell `B[k, j]`. The exercise is to derive the two familiar
-transpose formulas without writing the word transpose until the end.
+Given `C[i, j] = sum[k](A[i, k] * B[k, j])`, run the five-step procedure twice:
+first with one fixed cell `A[i, k]`, then with one fixed cell `B[k, j]`. Write
+the two gradient expressions and mark which coordinate was consumed in each
+pullback.
 
-**Line to keep:** a pullback is coordinate accounting run backward.
+**Line to keep:** hold one input cell fixed and ask which output cells can feel
+it.

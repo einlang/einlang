@@ -7,15 +7,22 @@ This page is the shortest path from zero to a running program.
 Einlang is a language for tensor programs with:
 
 - explicit indices and reductions
+- coordinate-aware functions for axis-sensitive operations
 - recurrences for sequential definitions
 - compile-time checking of shapes and index structure
 - built-in automatic differentiation
 
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
+let probs[b, class] = softmax[class](logits[b, class]);
 ```
 
 If that shape of code is what you want to write, you are in the right place.
+
+The bracket in `softmax[class]` is part of the call. It says which coordinate
+the function normalizes. Pointwise calls such as `relu(x)` do not need a
+coordinate argument; calls such as `softmax[class](x)` and `argmax[class](x)`
+do because the axis choice is part of the operation's meaning.
 
 ## A 60-second taste
 
@@ -102,6 +109,7 @@ Supported functions compile through IREE; anything outside the current subset fa
 |-------------------|------|
 | Learn the syntax | [reference](reference.md) |
 | Look up functions and modules | [stdlib](stdlib.md) |
+| Understand coordinate-aware calls | [COORDINATE_FUNCTIONS](COORDINATE_FUNCTIONS.md) |
 | Use autodiff | [AUTODIFF](AUTODIFF.md) |
 | Find more runnable programs | [examples/README](../examples/README.md) |
 | Understand the motivation | [WHY_EINLANG](WHY_EINLANG.md) |

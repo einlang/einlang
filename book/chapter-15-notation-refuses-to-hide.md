@@ -5,6 +5,10 @@ title: "Chapter 15: What the Notation Refuses to Hide"
 
 # What the Notation Refuses to Hide
 
+The earlier chapters used the same rule in many disguises: name the coordinate
+role before a later pass has to recover it. This chapter makes that rule
+explicit and asks where the notation should stop.
+
 Every notation hides something. That is not a flaw; it is the price of being
 usable. The question is whether it hides the right thing.
 
@@ -20,6 +24,11 @@ correctness, differentiation, storage, or lowering will later need back.
 The recurring question is not how to make every detail explicit. It is which
 coordinate facts must survive long enough for review, checking, differentiation,
 and lowering to rely on them.
+
+The deletion test is the sharpest way to find the boundary. Remove comments,
+helper names, and diagrams, then ask which coordinate facts remain in the
+program itself. Facts that disappear but decide correctness should not be left
+to memory. They belong in the notation or in a coordinate-function boundary.
 
 ## Visibility as a Design Law
 
@@ -42,6 +51,18 @@ performance, but they should not be facts a reader must recover to know
 whether `class` or `batch` was normalized. A compiler earns trust by hiding
 implementation choices while preserving the coordinate contract they implement.
 
+A reasonable hidden list looks like this:
+
+```text
+hide: register allocation, temporary buffers, device placement
+hide: fusion order, tiling, vector width, kernel selection
+show: consumed coordinates, omitted coordinates, address maps
+show: derivative addresses, recurrence edges, dynamic routes
+```
+
+The boundary is not about simplicity versus complexity. It is about which
+facts a future explanation will need.
+
 This is how the language can stay small without becoming arbitrary. It does
 not include a feature because the feature is expressive in general. It includes
 a feature when the feature exposes a tensor fact that later reading or lowering
@@ -61,7 +82,7 @@ output[..batch, i, j] =
     sum[k](a[..batch, i, k] * b[..batch, k, j])
 ```
 
-This is longer than a call to `matmul`. It also tells you more. The batch
+This is longer than a call to `matmul`, but it also tells you more. The batch
 prefix is carried. The coordinate `k` is consumed. The coordinates `i` and `j`
 survive.
 
@@ -70,13 +91,13 @@ being taught, transformed, differentiated, optimized, or debugged.
 
 The extra words are less useful when the operation is already obvious and
 stable. A good system can still provide library functions. We do not need to
-write everything at maximum explicitness forever; we need a source form that can
-reveal the structure when the structure matters.
+write everything at maximum explicitness forever; we need a source form that
+can reveal the structure when the structure matters.
 
 The notation should be available as a lens, not imposed as decoration. A
-library call is fine when the contract is already conventional and
-unambiguous. The indexed form earns its place when the wrong axis would still
-have the right shape.
+coordinate function is fine when the contract is conventional and carried at
+the call boundary. The fully indexed form earns its place when the wrong axis
+would still have the right shape.
 
 The same bargain applies to user-defined functions. A function is not
 automatically too opaque for Einlang, and it is not automatically the right
@@ -105,6 +126,28 @@ If the program's correctness depends on whether normalization consumes
 The right response is not "never use functions." It is to make the function
 boundary carry the coordinate contract, either in the name, the type, or the
 indexed call site.
+
+Coordinate-aware functions are the important compromise. They are how the
+language avoids forcing every common operation to be expanded into raw sums and
+indices. A call such as:
+
+```rust
+let p[b, class] = softmax[class](logits[b, class]);
+let pred = argmax[class](p);
+let image_hw_c = move_channel[channel](image);
+```
+
+is still compact, but it has not fallen back to positional convention. The
+bracketed coordinate is part of the call's meaning: `softmax` normalizes across
+`class`, `argmax` returns addresses in the `class` domain, and `move_channel`
+moves the chosen channel role while inferring the spatial pack. The function
+can hide a stable implementation while exposing the coordinate fact that
+review, autodiff, and lowering must preserve.
+
+That makes coordinate functions more than standard-library convenience. They
+are the abstraction boundary for tensor programs. Ordinary scalar functions can
+hide scalar mechanics. Coordinate functions can hide tensor mechanics only
+after naming the coordinate they consume, preserve, create, or address.
 
 ## What Remains Outside
 
@@ -144,6 +187,48 @@ focused notation can give a few constructs stronger meanings. The goal is not
 to replace the surrounding ecosystem; it is to preserve tensor structure at the
 point where the ecosystem would otherwise reduce it to shape convention.
 
+Tensor Comprehensions and TVM TE belong on the lowering side of that split,
+but they are close cousins. Their compute/schedule separation says, in effect,
+"do not confuse the tensor relation with one particular implementation
+strategy." The compute can say:
+
+```text
+C[i, j] = sum[k](A[i, k] * B[k, j])
+```
+
+while the schedule says how to tile, cache, vectorize, or place it. Einlang
+makes the same separation one level earlier. As a coordinate-function sketch:
+
+```text
+fn matmul[i, j, k](a: [f32; ..batch, i, k],
+                  b: [f32; ..batch, k, j])
+    -> [f32; ..batch, i, j]
+```
+
+It asks the source to expose coordinate roles, reduction scopes, recurrence
+edges, and coordinate-function contracts before a tensor-compute DSL, a TE
+schedule, an MLIR lowering, an XLA graph, an IREE backend, a Triton kernel, or
+a Halide schedule chooses how to execute them.
+
+This is also how to read the relationship to tools such as einops, named
+tensors, xarray, and shape-annotation libraries. Einops is a beautiful answer
+when the problem is a local rearrangement pattern. Named tensors and xarray are
+good answers when tensor values or data objects need axis labels. Shape
+annotations are useful when Python function boundaries need checked promises.
+Einlang is interested in the narrower place where the computation itself
+needs the coordinate fact:
+
+```rust
+fn normalize[class](x: [f32; ..left, class, ..right])
+    -> [f32; ..left, class, ..right]
+```
+
+The important part is not that this syntax is shorter than an einops pattern
+or more general than an array label. The important part is that the function
+boundary says what later reasoning will need: `class` is the coordinate being
+used, the surrounding coordinates are grounded by the argument, and the return
+type may reuse those coordinates but not invent new return-only ones.
+
 Elementwise choice belongs in the core because it can preserve coordinate
 structure:
 
@@ -174,6 +259,17 @@ The question travels well. It can be asked in a notebook, in a code review, in
 a compiler, or in the margin of a paper. The notation is one answer to it, not
 the only possible answer. What matters is refusing to leave dimension meaning
 permanently in someone's head.
+
+Imagine a developer five years from now reading a compiler error:
+
+```text
+normalization consumes batch, but classifier contract expects class.
+value `logits[b, class]` grounds both coordinates; did you mean softmax[class]?
+```
+
+That error is possible only if the source preserved the role. Without the
+coordinate contract, the future developer gets a shape, a stack trace, and a
+guess.
 
 ## The Bargain in One Place
 
@@ -235,7 +331,7 @@ omits `b`, so it is reused for every example. If a scalar loss later asks for
 let dbias[out] = sum[b](dy[b, out]);
 ```
 
-This is the compact form of the bargain. The source did not become a full
+This line is the compact form of the bargain. The source did not become a full
 execution plan, and it did not materialize a Jacobian. It simply kept the
 coordinate roles visible long enough for the reader and the compiler to ask the
 right next question.
@@ -401,14 +497,14 @@ can show it. If a bug depends on whether `bias` was shared across batch, or
 whether `W` maps input features into output features rather than the reverse,
 the indexed line gives the bug a place to live.
 
-This audit is the whole book in miniature. Name the coordinates. Mark
-the ones that survive. Mark the ones that are local. Notice the ones omitted
+This audit is the whole book in miniature. Name the coordinates. Mark the
+ones that survive. Mark the ones that are local. Notice the ones omitted
 from a term. Then let the compiler pipeline preserve, transform, and lower
 that structure.
 
 That is the standard this chapter hands to the next stress test: when
-correctness depends on a dimension role, the
-program should be able to state it. Abstraction is welcome; it just should not
+correctness depends on a dimension role, the program should be able to state
+it. Abstraction is welcome; it just should not
 erase the coordinate choice the program relies on.
 
 Take one real tensor layer and mark four things: coordinates that survive,
@@ -418,9 +514,9 @@ lowering is the one the source most needed to preserve.
 
 ## Try It
 
-Choose a library call you trust, such as normalization, attention, convolution,
-or pooling. Expand only the coordinate contract, not the whole implementation.
-Then ask which details should remain hidden and which details must be visible
-for a reviewer to detect the wrong-axis version.
+Pretend you are designing a new DSL. Write two lists: facts the DSL should hide
+and facts it must never hide. Include at least one example from normalization,
+one from a gradient, and one from a recurrence or route. Then defend the point
+where you stopped naming.
 
-**Line to keep:** good notation hides implementation detail, not semantic debt.
+**Line to keep:** do not hide facts that future reasoning must recover.

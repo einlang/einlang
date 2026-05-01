@@ -20,12 +20,12 @@ class FunctionDefinitionParser:
     def __init__(self, location_extractor: LocationExtractor) -> None:
         self.extract_location = location_extractor
     
-    def parse_function_definition(self, meta: LarkMeta, name: Token, lpar: Token, *args: Union[List[Parameter], Dict[str, Any], TypeAnnotation, Token], is_public: bool = False) -> FunctionDefinition:
+    def parse_function_definition(self, meta: LarkMeta, name: Token, *args: Union[List[Parameter], Dict[str, Any], TypeAnnotation, Token], is_public: bool = False) -> FunctionDefinition:
         """Parse function definition with common logic for pub and private functions"""
         location = self.extract_location(meta)
         
         # Parse function components
-        params, return_type, body_block = self._parse_function_args(args)
+        coordinate_params, params, return_type, body_block = self._parse_function_args(args)
         
         # Extract function body as BlockExpression
         body = self._extract_function_body(body_block)
@@ -36,12 +36,14 @@ class FunctionDefinitionParser:
             return_type=return_type,
             body=body,
             is_public=is_public,
-            location=location
+            location=location,
+            coordinate_params=coordinate_params,
         )
     
-    def _parse_function_args(self, args: Tuple[Union[List[Parameter], 'BlockExpression', TypeAnnotation, Token], ...]) -> Tuple[List[Parameter], Optional[TypeAnnotation], Optional['BlockExpression']]:
+    def _parse_function_args(self, args: Tuple[Union[List[Parameter], Dict[str, Any], 'BlockExpression', TypeAnnotation, Token], ...]) -> Tuple[List[str], List[Parameter], Optional[TypeAnnotation], Optional['BlockExpression']]:
         """Parse function arguments: param_list?, RPAR, (return_type)?, block"""
         from ...shared.nodes import BlockExpression
+        coordinate_params: List[str] = []
         params: List[Parameter] = []
         return_type: Optional[TypeAnnotation] = None
         body_block: Optional[BlockExpression] = None
@@ -50,6 +52,8 @@ class FunctionDefinitionParser:
             # Use explicit type checking with protocols instead of hasattr/isinstance
             if self._is_rpar_token(item):
                 continue  # Skip RPAR token
+            elif isinstance(item, dict) and "coordinate_params" in item:
+                coordinate_params = [str(p) for p in item.get("coordinate_params", [])]
             elif self._is_parameter_list(item, params):
                 # First list should be parameters
                 params = item
@@ -60,7 +64,7 @@ class FunctionDefinitionParser:
                 # This is the block
                 body_block = item
         
-        return params, return_type, body_block
+        return coordinate_params, params, return_type, body_block
     
     def _extract_function_body(self, body_block: Optional['BlockExpression']) -> 'BlockExpression':
         """Extract function body as BlockExpression"""
@@ -72,9 +76,9 @@ class FunctionDefinitionParser:
         return body_block
     
     def _is_rpar_token(self, item: Any) -> bool:
-        """Check if item is an RPAR token using polymorphic dispatch"""
+        """Check if item is a parenthesis token using polymorphic dispatch."""
         token_info = handle_token(item)
-        return token_info.get('type') == 'RPAR'
+        return token_info.get('type') in ('LPAR', 'RPAR')
     
     def _is_parameter_list(self, item: Any, current_params: List[Parameter]) -> bool:
         """Check if item is a parameter list"""

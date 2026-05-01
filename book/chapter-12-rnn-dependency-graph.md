@@ -6,17 +6,22 @@ title: "Chapter 12: An RNN Is a Dependency Graph"
 # An RNN Is a Dependency Graph
 
 The RNN standard-library excerpt is small enough to read, but dense enough to
-reward a slow reading:
-
-The reward is a graph of allowed communication. Time, batch, input feature,
-current hidden unit, and previous hidden unit are not decorative names. They
-are the labels that say which values may talk to which other values. Collapse
-them all into a cell call and the graph is still there, but it has to be
+reward a slow reading. The reward is a graph of allowed communication. Time,
+batch, input feature, current hidden unit, and previous hidden unit are not
+decorative names. They are the labels that say which values may talk to which
+other values. Collapse them all into a cell call and the graph is still there,
+but it has to be
 rediscovered.
 
-An RNN cell is easy to hide behind an API. Read it instead as labeled
+An RNN cell is easy to hide behind an API. Here, read it as labeled
 communication: time moves, batch stays isolated, and hidden roles are mapped by
 the recurrent weight.
+
+To read the cell, draw one edge into `hidden[t, b, h]` from input features and
+one edge from the previous hidden state. Then change one coordinate on the
+right-hand side and ask what communication you just allowed. A
+shape-compatible mutation that mixes batch examples or reverses the hidden map
+is not a harmless indexing variant; it is a different graph.
 
 ## Cell API or Visible Recurrence
 
@@ -33,6 +38,28 @@ opening every implementation detail of the cell.
 The RNN standard-library example follows this second path. It shows enough of
 the recurrence to expose the dependency graph while still leaving activation
 dispatch, bias handling, and lowering as implementation concerns.
+
+This is not because a hand-written recurrence is always the most convenient
+user API. A framework call such as:
+
+```python
+out, final = rnn(x, h0)
+```
+
+is useful precisely because it hides a lot. The question is what kind of hiding
+it performs. If `x` is documented as `[time, batch, input]`, the documentation
+is carrying the coordinate contract. If a transpose changes it to `[batch,
+time, input]`, the call may still run under a different flag or wrapper, but
+the dependency graph has moved into convention. Einlang's recurrence spelling
+keeps the contract where the graph is defined:
+
+```text
+hidden[t, b, h] depends on hidden[t - 1, b, h_prev] and X[t, b, i]
+```
+
+That line is schematic because a real cell reduces over `i` and `h_prev`, but
+the visible part is the important part: time shifts, batch stays fixed, and
+hidden units communicate through named roles rather than positional folklore.
 
 The compiler does not need a special "RNN type" to begin this analysis. It
 sees indexed declarations, explicit ranges such as `t in 1..seq_length`,
@@ -135,8 +162,8 @@ at the binding site:
 hidden[t, b, h] depends on hidden[t - 1, b, h_prev]
 ```
 
-This is a statement the compiler can inspect. It can check direction in time.
-It can see that batch is preserved. It can see that previous hidden units are
+This statement is something the compiler can inspect. It can check direction in
+time. It can see that batch is preserved. It can see that previous hidden units are
 mixed into new hidden units.
 
 ## The Base Case Is Part of the Graph
@@ -229,6 +256,26 @@ attention on direction: from previous state into current state.
 The RNN has the same failure mode as the earlier reshape and softmax examples:
 shape can be right while role is wrong. Coordinates give that role a place to
 stand in the source.
+
+If a library wraps the cell, the boundary should still keep the directional
+roles:
+
+```rust
+fn rnn_cell[input, hidden, prev_hidden](
+    x: [f32; ..batch, input],
+    h_prev: [f32; ..batch, prev_hidden],
+    W: [f32; hidden, input],
+    R: [f32; hidden, prev_hidden]
+) -> [f32; ..batch, hidden]
+```
+
+The implementation can hide activations and bias terms. It should not hide
+that `prev_hidden` is scanned to produce `hidden`.
+
+This is the same boundary rule used by `softmax[class]` and
+`move_channel[channel]`. The body may be ordinary library code. The signature
+still carries the coordinate facts that a caller, differentiator, or lowering
+pass should not have to rediscover from a black-box cell.
 
 The same reading scales to more complex recurrent cells. An LSTM adds a cell
 state and several gates. A GRU adds reset and update gates. Those mechanisms
@@ -391,10 +438,21 @@ labels are what make those failures visibly different.
 
 ## Try It
 
-Add a mask to the recurrence and decide whether a masked step reads
-`candidate[t, b, h]` or carries `hidden[t - 1, b, h]`. Then ask whether any
-token reads another token's batch coordinate. The exercise is to find the graph
-edge, not the loop body.
+Add a time mask `mask[t, b]` to a causal RNN. Write the coordinate condition
+that either accepts `candidate[t, b, h]` or carries `hidden[t - 1, b, h]`.
+Then describe the backward edge for a padded position and explain how the
+source avoids useless communication through padding.
 
-**Line to keep:** an RNN is not a loop with tensors; it is a dependency graph
-with a time coordinate.
+As a second variation, make one legal-looking but wrong change:
+
+```text
+hidden[t - 1, b, h_prev]        correct: previous time, same batch
+hidden[t - 1, b_prev, h_prev]   wrong unless batches are meant to communicate
+hidden[t, b, h_prev]            wrong for a forward recurrence
+```
+
+Explain which edge changed in the dependency graph. Then compare that diagnosis
+with what a shape checker alone would see.
+
+**Line to keep:** an RNN is not a black box; it is a communication graph made
+of named coordinates.

@@ -5,6 +5,11 @@ title: "Chapter 16: Dynamic Routing and Low-Rank Communication"
 
 # Dynamic Routing and Low-Rank Communication
 
+The final chapter is a stress test. If the principle only works for clean
+examples like matmul, softmax, and a one-step recurrence, it is pleasant but
+small. Modern model code asks whether the same coordinate discipline survives
+compressed communication and data-dependent routes.
+
 Standard attention was a dense communication story. A query position `i`
 compared itself with every key position `j`, then gathered values from those
 same `j` positions. The graph was large, but it was fixed.
@@ -28,9 +33,16 @@ The examples in this chapter use two levels of notation. When a block is
 marked as source, it follows the language's ordinary shape: imports are
 explicit, functions return their final expression, `if` is an expression, and
 index domains appear inline as `i in 0..n`. When routing becomes too heavy to
-write at every call site, the right move is still not new syntax. It is an
-Einlang standard-library function with a visible reference definition, plus
-optional compiler recognition for faster lowering.
+write at every call site, the right move is still not new syntax. It is a
+coordinate function: a compact call with a visible coordinate contract, a
+reference definition when ordinary source can express it, and optional compiler
+recognition for faster lowering.
+
+The chapter's question is where communication changes shape. In linear
+attention, that place is the bottleneck rank. In MoE, it is the expert route
+and the capacity slot the route creates. A fast implementation without a
+source-level name for that coordinate may still be useful, but it has hidden
+the fact that later reasoning about load, gradients, and capacity must recover.
 
 For the feature map used below, a scalar helper can be written in ordinary
 Einlang:
@@ -52,7 +64,7 @@ The dense attention pattern can be written as:
 
 ```text
 scores[b, h, i, j] = sum[d](Q[b, h, i, d] * K[b, h, j, d])
-weights[b, h, i, j] = softmax_over[j](scores[b, h, i, j])
+weights[b, h, i, j] = softmax[j](scores[b, h, i, j])
 out[b, h, i, v] = sum[j](weights[b, h, i, j] * V[b, h, j, v])
 ```
 
@@ -258,7 +270,7 @@ For linear attention, the answer is `r`.
 
 ## MoE Hides a Dynamic Coordinate
 
-Mixture of Experts changes the problem. The communication graph is not only
+Mixture of Experts changes the problem. The communication graph is not merely
 compressed; it is chosen by the data.
 
 A gate computes scores for each token and expert:
@@ -271,14 +283,14 @@ let gate_score[b in 0..batch, t in 0..seq_len, e in 0..num_experts] =
 A router chooses one or more experts:
 
 ```text
-chosen[b, t] = top1[e](gate_score[b, t, e])
+chosen[b, t] = argmax[e](gate_score[b, t, e])
 ```
 
 The coordinate `e` is not just another static axis in a dense tensor. For each
 token `[b, t]`, the program chooses a route. The result `chosen[b, t]` is a
 content-dependent label. It says which expert this token will visit.
 
-That makes MoE different from the earlier chapters. Coordinates such as `i`,
+That makes MoE different from the earlier examples. Coordinates such as `i`,
 `j`, and `k` ranged over static domains. The expert domain is static, but the
 expert identity used by a token is selected by a function of the token. The
 compiler can still reason about the role only if the route is named:
@@ -294,8 +306,6 @@ For top-one routing, a syntax-faithful dense sketch can use `argmax` and keep
 the hard selection visible:
 
 ```rust
-use std::array::argmax;
-
 let gate_max[b in 0..batch, t in 0..seq_len] =
     max[e in 0..num_experts](gate_score[b, t, e]);
 
@@ -309,19 +319,27 @@ let gate_prob[b in 0..batch, t in 0..seq_len, e in 0..num_experts] =
     gate_exp[b, t, e] / gate_sum[b, t];
 
 let route[b in 0..batch, t in 0..seq_len] =
-    argmax(gate_prob[b, t]);
+    argmax[e](gate_prob[b, t, e]);
 
 let hard_onehot[b in 0..batch, t in 0..seq_len, e in 0..num_experts] =
     if e == route[b, t] { 1.0 } else { 0.0 };
 ```
 
+This is the central role of coordinate-aware functions. The call
+`argmax[e](...)` is short, but it is not an axis-number convention. It says
+that `e` is consumed and that the integer result is an address in the expert
+domain. Later uses of `route[b, t]` can therefore be checked as dynamic expert
+addresses rather than ordinary integers. The function hides the loop, not the
+coordinate contract.
+
 Top-k routing, sorting, and capacity assignment are stronger operations than
-this dense sketch. They should be exposed as library functions with stated
-coordinate contracts, not smuggled in as a fake slice syntax. The important
-constraint is that the library function should itself have an Einlang reference
-definition. A backend may later recognize and lower it to a scatter, prefix
-count, or fused routing kernel, but the source-level contract should not depend
-on an unexplained operation outside the language.
+this dense sketch. They should be exposed as coordinate functions with stated
+contracts, not smuggled in as a fake slice syntax. The important constraint is
+that the function should itself have an Einlang reference definition when the
+operation is expressible in ordinary source. A backend may later recognize and
+lower it to a scatter, prefix count, or fused routing kernel, but the
+source-level contract should not depend on an unexplained operation outside the
+language.
 
 ## Capacity Slots Are Hidden Storage
 
@@ -347,7 +365,7 @@ token writes to:
 expert_input[route[b, t], slot[b, t], d] = x[b, t, d]
 ```
 
-This is not merely a layout trick. The capacity coordinate `c` is a compiler
+This is not just a layout trick. The capacity coordinate `c` is a compiler
 or runtime allocation of space inside each expert. If too many tokens choose
 the same expert, some tokens may not fit. The mask `keep[b, t]` is therefore a
 semantic witness:
@@ -366,23 +384,20 @@ function. The policy choices are visible: ties follow `argmax`, tokens are
 ordered lexicographically by `[b, t]`, and overflow is represented by `keep`.
 
 ```rust
-use std::array::argmax;
-
 pub fn route_top1_with_capacity(gate_prob: [f32; ?, ?, ?], capacity: i32) {
     let batch = len(gate_prob);
     let seq_len = len(gate_prob[0]);
 
     let route[b in 0..batch, t in 0..seq_len] =
-        argmax(gate_prob[b, t]);
+        argmax[e](gate_prob[b, t, e]);
 
     let slot[b in 0..batch, t in 0..seq_len] =
-        sum[bb in 0..batch, tt in 0..seq_len](
-            if (bb < b || (bb == b && tt < t)) &&
-               route[bb, tt] == route[b, t] {
-                1
-            } else {
-                0
-            }
+        sum[bb in 0..b, tt in 0..seq_len](
+            if route[bb, tt] == route[b, t] { 1 } else { 0 }
+        )
+        +
+        sum[tt in 0..t](
+            if route[b, tt] == route[b, t] { 1 } else { 0 }
         );
 
     let keep[b in 0..batch, t in 0..seq_len] =
@@ -464,8 +479,8 @@ let balance_loss =
     sum[e in 0..num_experts](fraction[e] * mean_prob[e]) * (num_experts as f32);
 ```
 
-The first statistic counts hard assignments. The second statistic measures the
-gate's soft preference. Both are addressed by expert `e`, and both reduce over
+The first statistic counts hard assignments. The second measures the gate's
+soft preference. Both are addressed by expert `e`, and both reduce over
 token coordinates `[b, t]`. The final loss reduces over `e`.
 
 A positional implementation may compute the same values with `one_hot`, `sum`,
@@ -480,7 +495,7 @@ Routing introduces a hard question for autodiff. The forward pass uses a
 discrete choice:
 
 ```text
-route[b, t] = top1[e](gate_score[b, t, e])
+route[b, t] = argmax[e](gate_score[b, t, e])
 ```
 
 That choice is not an ordinary differentiable coordinate map. Some systems use
@@ -488,15 +503,28 @@ a straight-through estimator, treating the forward route as discrete while
 letting backward sensitivity flow as if a softer gate had been used.
 
 The important point for this book is not to endorse one estimator. It is to
-name the fiction. The current `@fn` form can attach a tangent rule to ordinary
+name the approximation. The current `@fn` form can attach a tangent rule to ordinary
 functions, which is enough for many smooth helper functions. A hard forward
 choice with a soft surrogate backward path is a stronger contract: it should be
-named at the source level, either as a standard-library function with a stated
-autodiff rule or, in a richer language, as an explicit custom pullback. A source
-form could make the contract visible:
+named at the source level, either as a coordinate function with a stated
+autodiff rule or, in a richer language, as an explicit custom pullback. A
+source form could make the contract visible:
 
 ```text
 route[b, t] = ste_top1[e](gate_prob[b, t, e])
+```
+
+As a source-level contract, the helper can pair the hard forward route with a
+named tangent rule:
+
+```rust
+fn ste_top1[e](p: [f32; ..left, e, ..right]) -> [i32; ..left, ..right] {
+    argmax[e](p[..left, e, ..right])
+}
+
+@fn ste_top1[e](p: [f32; ..left, e, ..right]) {
+    soft_surrogate_tangent[e](p, @p)
+}
 ```
 
 Read that as a warning label. In the forward pass, `e` is consumed to produce a
@@ -523,6 +551,18 @@ For linear attention, name the bottleneck coordinate and the prefix state. For
 MoE, name the route, the slot, the keep mask, and the expert statistics. Those
 names are not surface documentation. They are the facts later analysis will
 need for gradients, storage, load balance, streaming, and debugging.
+
+Coordinate functions are the compression mechanism that keeps this discipline
+usable. A helper such as:
+
+```text
+fn ste_top1[e](p: [f32; ..left, e, ..right]) -> [i32; ..left, ..right]
+```
+
+can hide the straight-through mechanics while preserving the visible choice:
+`e` is the expert coordinate being selected, and the surrounding coordinates
+survive. That is the same bargain as `softmax[class]`, only under a harder
+dynamic route.
 
 The book began with a reshape whose shape was right but whose reason was
 hidden. It ends here with more modern failures: an approximation whose

@@ -33,7 +33,7 @@ from ..ir.nodes import (
 )
 from ..shared.source_location import SourceLocation
 from ..shared.defid import DefId, DefType
-from ..shared.types import UnaryOp, ReductionOp
+from ..shared.types import RectangularType, UnaryOp, ReductionOp
 
 
 # Import existing AST nodes and visitor
@@ -484,12 +484,21 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             )
             parameters.append(param_ir)
 
+        # Extract return type before lowering result context. The declared result
+        # shape can provide the missing output coordinates for a bare reduction.
+        return_type = ast_func.return_type if ast_func.return_type else None
+
         # Lower body using visitor pattern
         body_ir = ast_func.body.accept(self)
         if not isinstance(body_ir, ExpressionIR):
             raise RuntimeError(
                 f"Failed to lower function body for '{ast_func.name}': expected ExpressionIR, got {type(body_ir).__name__} at {location}"
             )
+        body_ir = self._apply_function_result_context(
+            body_ir,
+            return_type,
+            getattr(ast_func, "_signature_dim_defids", {}) or {},
+        )
         # Lower @fn body if merged into this function (before DefId allocation)
         custom_diff_ir: Optional[ExpressionIR] = None
         custom_diff_ast = getattr(ast_func, "custom_diff_body", None)
@@ -500,14 +509,13 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 custom_diff_ir = diff_block_ir
             elif isinstance(diff_block_ir, ExpressionIR):
                 custom_diff_ir = diff_block_ir
-        # Extract return type from AST function definition
-        return_type = ast_func.return_type if ast_func.return_type else None
         func_value = FunctionValueIR(
             parameters=parameters,
             body=body_ir,
             location=location,
             return_type=return_type,
             custom_diff_body=custom_diff_ir,
+            coordinate_params=getattr(ast_func, "coordinate_params", ()),
         )
         func_ir = FunctionDefIR(
             name=ast_func.name,
@@ -517,6 +525,119 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         )
         self._all_functions.append(func_ir)
         return func_ir
+
+    def _apply_function_result_context(
+        self,
+        body_ir: ExpressionIR,
+        return_type: Optional[Any],
+        dim_defids: Optional[Dict[str, DefId]] = None,
+    ) -> ExpressionIR:
+        """Use a declared rectangular result shape as context for a bare reduction.
+
+        A body like `argmax[class](x[..left, class, ..right])` is scalar by
+        itself. In a function declared as `-> [i32; ..left, ..right]`, the
+        return type supplies the result coordinates, equivalent to writing an
+        explicit Einstein binding for the final expression.
+        """
+        if isinstance(body_ir, BlockExpressionIR):
+            if body_ir.final_expr is not None:
+                contextual = self._contextual_result_binding(
+                    body_ir.final_expr,
+                    return_type,
+                    dim_defids or {},
+                )
+                if contextual is not None:
+                    binding, final_ref = contextual
+                    body_ir.statements = tuple(list(body_ir.statements or []) + [binding])
+                    body_ir.final_expr = final_ref
+                else:
+                    body_ir.final_expr = self._apply_function_result_context(
+                        body_ir.final_expr,
+                        return_type,
+                        dim_defids or {},
+                    )
+            return body_ir
+        contextual = self._contextual_result_binding(body_ir, return_type, dim_defids or {})
+        if contextual is None:
+            return body_ir
+        binding, final_ref = contextual
+        return BlockExpressionIR(
+            statements=[binding],
+            final_expr=final_ref,
+            location=body_ir.location,
+            type_info=return_type,
+        )
+
+    def _contextual_result_binding(
+        self,
+        expr: ExpressionIR,
+        return_type: Optional[Any],
+        dim_defids: Dict[str, DefId],
+    ) -> Optional[Tuple[BindingIR, IdentifierIR]]:
+        if not isinstance(expr, ReductionExpressionIR):
+            return None
+        if not isinstance(return_type, RectangularType) or return_type.shape is None:
+            return None
+
+        indices: List[ExpressionIR] = []
+        for dim in return_type.shape:
+            if not isinstance(dim, str):
+                return None
+            if dim.startswith(".."):
+                name = dim[2:]
+                if not name:
+                    return None
+                defid = dim_defids.get(name)
+                if defid is None:
+                    return None
+                indices.append(
+                    IndexRestIR(
+                        name=name,
+                        location=expr.location,
+                        defid=defid,
+                    )
+                )
+            else:
+                defid = dim_defids.get(dim)
+                if defid is None:
+                    return None
+                indices.append(
+                    IndexVarIR(
+                        name=dim,
+                        location=expr.location,
+                        defid=defid,
+                    )
+                )
+
+        if not indices:
+            return None
+        clause = EinsteinClauseIR(
+            indices=indices,
+            value=expr,
+            location=expr.location,
+        )
+        einstein = EinsteinIR(
+            clauses=[clause],
+            element_type=return_type.element_type,
+            location=expr.location,
+            type_info=return_type,
+        )
+        result_defid = self.tcx.resolver.allocate_for_local()
+        result_name = "__result"
+        binding = BindingIR(
+            name=result_name,
+            expr=einstein,
+            type_info=return_type,
+            location=expr.location,
+            defid=result_defid,
+        )
+        final_ref = IdentifierIR(
+            name=result_name,
+            location=expr.location,
+            defid=result_defid,
+            type_info=return_type,
+        )
+        return binding, final_ref
 
     def visit_constant_def(self, ast_const: ASTConstantDef) -> Optional[ConstantDefIR]:
         """Lower constant definition - visitor pattern (no isinstance)"""
@@ -612,6 +733,20 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             arg_ir = arg.accept(self)
             if isinstance(arg_ir, ExpressionIR):
                 arguments.append(arg_ir)
+        coordinate_args = []
+        for coord in getattr(ast_call, "coordinate_args", []) or []:
+            if isinstance(coord, ASTIdentifier):
+                coordinate_args.append(IdentifierIR(coord.name, location, defid=getattr(coord, "defid", None)))
+            elif isinstance(coord, ASTTupleExpression):
+                elements = []
+                for elem in coord.elements:
+                    if isinstance(elem, ASTIdentifier):
+                        elements.append(IdentifierIR(elem.name, location, defid=getattr(elem, "defid", None)))
+                coordinate_args.append(TupleExpressionIR(elements=elements, location=location))
+            else:
+                coord_ir = coord.accept(self) if hasattr(coord, "accept") else None
+                if isinstance(coord_ir, ExpressionIR):
+                    coordinate_args.append(coord_ir)
 
         # Expression callee (lambda, etc.) -> use callee_expr; name/module callee -> use name/defid path
         if not isinstance(ast_call.function_expr, (ASTIdentifier, ModuleAccess)):
@@ -621,6 +756,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
                 callee_expr=callee_ir,
                 location=location,
                 arguments=arguments,
+                coordinate_args=coordinate_args,
             )
 
         # Extract module path FIRST (for Python module support)
@@ -818,6 +954,7 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
             location=location,
             arguments=arguments,
             module_path=module_path,
+            coordinate_args=coordinate_args,
         )
     
     def visit_block_expression(self, ast_block: ASTBlock) -> Optional[BlockExpressionIR]:

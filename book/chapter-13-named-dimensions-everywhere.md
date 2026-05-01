@@ -10,6 +10,10 @@ coordinate map. Broadcasting became non-dependence on a coordinate. Reduction
 became the disappearance of a local coordinate. Gradients became structured
 sensitivity questions. Time steps became recurrence over a visible axis.
 
+This chapter changes scale. The question is no longer whether one expression
+can be read more clearly, but whether a framework boundary can preserve the
+same facts when values move through APIs, modules, and libraries.
+
 Now zoom out:
 
 ```text
@@ -22,13 +26,20 @@ survives only while convenient. Imagine writing library code where named
 coordinates are ordinary material, not comments that sit beside anonymous
 shape tuples.
 
-The boundary is the important part. If a framework receives an image, a token
+The boundary is the important part. When a framework receives an image, a token
 sequence, or a batch of logits, a comment is not a receipt. The receiving code
 needs a contract that later indexed expressions can actually lean on.
 
 The boundary between role names and implemented types matters here. Comments
 may describe an image as `[batch, row, col]`; checked code still needs rank,
 extents, element type, and a place for those role names to matter.
+
+A framework boundary should therefore behave like a receipt, not a comment.
+The caller records what is being handed over; the callee records what it is
+allowed to rely on. If only a positional shape crosses the boundary, the next
+module may know how much data arrived but not what promise arrived with it.
+The point of names is not ceremony at every temporary; it is accountability at
+the places where code hands meaning to other code.
 
 ## Names Everywhere, or Names Where They Matter
 
@@ -71,6 +82,30 @@ Otherwise, keep it anonymous if the local expression remains clear.
 The goal is not to win a ceremony contest. It is to spend names where they buy
 review, checking, or diagnostics.
 
+The same procedure can be read as a small flowchart:
+
+```text
+Does a wrong role keep the same shape?
+    no  -> a plain shape may be enough locally.
+    yes -> will the role be reduced, broadcast, packed, normalized, or
+           differentiated?
+           no  -> keep the name optional.
+           yes -> make the coordinate visible at the boundary.
+```
+
+This is selective visibility. Names should appear where a role changes
+correctness, not everywhere a tensor happens to have an axis.
+
+## A Gradual Adoption Path
+
+A large codebase does not need a flag day. Start at the boundaries where data
+enters the model: images get `b`, `row`, `col`; token batches get `b`, `t`;
+logits get `class`. Next, name the places where axes are consumed:
+normalization, reductions, attention softmax, pooling, and loss aggregation.
+Finally, name the shape-changing paths: reshape, flatten, pack, unpack, and
+dispatch. Each step should leave existing numerical tests in place while
+adding one new coordinate-level check.
+
 ## The Shift
 
 Familiar operations would change character:
@@ -90,7 +125,7 @@ dimension that something is being repeated. It would see the missing
 coordinate. It would not have to treat every loop as opaque before analysis. It
 would see a recurrence boundary and an offset.
 
-At framework scale, that is the change: an axis role stops being a convention
+At framework scale, this is the change: an axis role stops being a convention
 remembered by the caller and becomes something the operation can actually
 refer to.
 
@@ -178,6 +213,199 @@ entire deep learning framework. It has only shown a test for framework
 features: if coordinate structure affects correctness, the program needs a
 place to state it.
 
+## Relatives, Not Rivals
+
+This idea has neighbors. It should. If no one had tried to escape raw axis
+numbers before, named coordinates would be suspicious rather than promising.
+
+Einops is the most immediate relative. A line such as:
+
+```python
+rearrange(x, "b h w c -> b c h w")
+```
+
+is better than `transpose(x, (0, 3, 1, 2))` because the pattern says what the
+positions mean. But the pattern is still an argument to one operation. It is a
+string-shaped contract at the call site, not a function boundary that later
+analysis can reuse.
+
+That difference is small in a single line and large in a system. Einops shines
+when the question is:
+
+```text
+How should this one tensor be rearranged, repeated, or reduced?
+```
+
+The pattern answers locally and readably. It replaces axis arithmetic with a
+small coordinate sentence. What it does not naturally answer is:
+
+```text
+What coordinate contract does this user-defined helper expose to every caller?
+Which coordinate is consumed?
+Which coordinates survive?
+Can the same contract specialize over arbitrary surrounding axes?
+```
+
+Einlang's coordinate functions are aimed at that second question:
+
+```rust
+fn top1[class](x: [f32; ..left, class, ..right])
+    -> [i32; ..left, ..right]
+{
+    argmax[class](x[..left, class, ..right])
+}
+```
+
+The compact call `top1[class](logits)` is not merely a nicer spelling for
+`argmax(axis=...)`. It is a reusable boundary. The parameter type grounds
+`class`, `..left`, and `..right`; the return type may reuse those dimensions
+but may not invent return-only ones. The body can be short because the
+signature has already stated which coordinate leaves.
+
+A fixed-rank version follows the same rule:
+
+```rust
+fn top1_2d[class](x: [f32; batch, class]) -> [i32; batch] {
+    argmax[class](x[batch, class])
+}
+```
+
+Here `batch` is not magic and not a global axis name. It is introduced by the
+parameter type and reused by the return type. That is the distinction from a
+standalone rearrangement pattern: the coordinate names become part of the
+function's checked interface.
+
+PyTorch named tensors and earlier named-tensor libraries make a different
+move: attach names to tensor dimensions and let operations check or propagate
+those names. That is closer to the spirit of this book. It says that a tensor
+axis is not only a position. The remaining question is where user-defined
+abstractions state their coordinate contracts. If a helper consumes `class` or
+moves `channel` across a spatial pack, the boundary should say so directly:
+
+```rust
+fn move_channel[channel, ..spatial](x: [f32; channel, ..spatial])
+    -> [f32; ..spatial, channel]
+```
+
+At the call site, the caller usually needs to name only `channel`:
+
+```rust
+move_channel[c](x)
+```
+
+The spatial pack is then inferred as the remaining coordinates of `x`. A pack
+only needs its own parenthesized coordinate argument when that group is the
+choice the caller must make, as in `id_axes[(height, width)](x)`.
+
+xarray goes further in the data-analysis direction. It treats labeled arrays
+as first-class data objects and makes alignment by name feel natural. That is
+excellent for scientific datasets. Einlang is aiming at a smaller and sharper
+center: compiled tensor formulas where coordinate roles affect lowering,
+derivatives, and shape propagation.
+
+The comparison with xarray is especially clarifying because xarray is not
+"less named." It is more named in a data-model sense: coordinates can be
+labels, indexes, dates, locations, and alignment keys. Einlang is not trying to
+replace that. Einlang's names are smaller: scoped coordinates in formulas and
+function contracts. They are designed to answer compiler questions such as
+"which loop disappeared?", "which axis normalized?", and "which integer tensor
+is an address into which domain?"
+
+For example, xarray can make this alignment natural:
+
+```python
+y = x + bias          # dimensions align by labels such as "feature"
+```
+
+Einlang writes the reuse inside the formula:
+
+```rust
+let y[batch, feature] = x[batch, feature] + bias[feature];
+```
+
+The second form is not trying to model xarray's labeled data world. It is
+recording one compiler fact: `bias` does not depend on `batch`.
+
+Shape-annotation libraries such as jaxtyping also identify the right pain.
+They let Python code say that an argument has shape `"batch channels"` or that
+two arrays share a named dimension. That catches many mistakes. But the
+annotation is still beside the expression language. The expression itself
+usually continues to call operations with positional axes, strings, or
+framework conventions.
+
+Julia offers another useful comparison because it has both strong AD tools and
+strong tensor-expression tools in the same ecosystem:
+
+```julia
+@tullio C[i, j] := A[i, k] * B[k, j]
+gradient(W -> sum(W * x), W)
+```
+
+Zygote, ChainRules, and Enzyme show different ways to make derivatives
+extensible and compiler-aware. Tullio and TensorOperations show how far indexed
+tensor notation can go as a library-level surface. Einlang is not claiming
+those ideas are wrong; it is moving one boundary:
+
+```rust
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+let dC_dA = @C / @A;
+```
+
+The coordinate relation and the derivative request live in the same small
+language as the function signature, so a coordinate contract does not have to
+be reconstructed from a mixture of macros, derivative rules, and shape
+comments.
+
+Shape annotations are strongest at the boundary:
+
+```text
+this argument has shape [batch, channel, height, width]
+```
+
+Coordinate expressions are strongest inside the computation:
+
+```rust
+let p[batch, class] = softmax[class](logits[batch, class]);
+let loss = sum[batch](-logp[batch, label[batch]]);
+```
+
+The boundary and the expression should agree. The bet in this book is that
+agreement should be checked by one language mechanism rather than maintained
+as a treaty between comments, decorators, pattern strings, and runtime calls.
+
+So the distinction is placement:
+
+```text
+einops             readable operation patterns
+named tensors      named axis metadata on tensors
+xarray             labeled array data model
+shape annotations  checked shape promises beside Python code
+Tullio/TC/TE       indexed tensor compute before scheduling/lowering
+Einlang            coordinate contracts inside ordinary function syntax
+```
+
+The claim is not that these tools were wrong. They are evidence that the
+problem is real. Einlang's wager is that the coordinate contract should be
+part of the program the compiler sees, not only metadata, a string pattern, a
+runtime wrapper, or a type comment.
+
+The practical test is simple. Ask where the coordinate fact lives after a
+helper is introduced.
+
+```text
+einops pattern      inside one operation call
+named tensor name   attached to a runtime tensor value
+xarray coordinate   attached to a labeled data object
+shape annotation    attached to a function boundary beside the code
+TC/TE compute       inside a tensor-compute IR before scheduling
+Einlang contract    inside the function signature and indexed expression
+```
+
+That last placement is why coordinate functions are a focus rather than a
+convenience. They let the book's earlier laws survive abstraction: a reduction
+still says what it consumes, a layout move still says what it reorders, and a
+selection still says which coordinate becomes an address.
+
 ## Are Functions the Right Abstraction?
 
 A tensor language cannot avoid functions. Standard-library operations,
@@ -215,17 +443,27 @@ A better boundary names the role in the interface or leaves the indexed
 relation at the call site:
 
 ```rust
-let y[b, class] = softmax_over[class](logits[b, class]);
+let y[b, class] = softmax[class](logits[b, class]);
 ```
 
-or, when the library function exists:
+The function is then a named coordinate operation, not just a shortcut around a
+block of code. It hides the stable implementation, but the call site still says
+which coordinate supplies the distribution.
 
-```text
-softmax_over_class(logits)
+Rank-polymorphic helpers make the same point more strongly:
+
+```rust
+fn move_channel[channel, ..spatial](x: [f32; channel, ..spatial])
+    -> [f32; ..spatial, channel]
+
+let image[channel, row, col] = load_image();
+move_channel[channel](image)
 ```
 
-with a rule that states which coordinate is consumed. The function is then
-a named coordinate operation, not just a shortcut around a block of code.
+Only `channel` is named at the call site because only that role is the choice.
+The surrounding spatial pack is inferred from the value. If the caller really
+must choose a whole group, the group is one coordinate argument:
+`layer_norm[(height, width, channel)](x)`.
 
 The implementation gives this design some room. Parameters without type
 annotations are monomorphized at call sites, and specialized function bodies
@@ -284,14 +522,14 @@ Imagine a classifier boundary written with roles:
 
 ```rust
 let logits[b, class] = model(x[b, feature]);
-let probs[b, class] = softmax_over[class](logits[b, class]);
+let probs[b, class] = softmax[class](logits[b, class]);
 ```
 
 The framework now has enough source material to distinguish a good
 normalization from a shape-compatible but meaning-wrong one:
 
 ```rust
-let bad[b, class] = softmax_over[b](logits[b, class]);
+let bad[b, class] = softmax[b](logits[b, class]);
 ```
 
 Both formulas can produce a tensor addressed by `[b, class]`. The difference
@@ -310,11 +548,11 @@ mistake local enough to report.
 ## What It Would Cost
 
 The cost is also real. Names create surface area. APIs have to decide when
-names must match, when they can be renamed, and when a library function is
-allowed to introduce or consume a coordinate. Error messages have to explain
-coordinate relationships without overwhelming the user. Interop with existing
-shape-based libraries has to translate between named roles and positional
-axes.
+names must match, when they can be renamed, and when a coordinate function is
+allowed to introduce, consume, or return addresses into a coordinate. Error
+messages have to explain coordinate relationships without overwhelming the
+user. Interop with existing shape-based libraries has to translate between
+named roles and positional axes.
 
 Interop is where the design becomes most concrete. A call into an existing
 kernel may still need a positional layout:
@@ -416,7 +654,7 @@ Now move to a classifier:
 
 ```rust
 let logits[b, class] = model(image[b, row, col]);
-let probs[b, class] = softmax_over[class](logits[b, class]);
+let probs[b, class] = softmax[class](logits[b, class]);
 ```
 
 The type and shape system may know that `logits` has rank two. The names say
@@ -441,8 +679,8 @@ rank, extent, element type, and coordinate roles.
 
 ## Shape Inference Builds the Check
 
-Shape analysis is where many earlier facts become one checked shape. A literal can
-give a shape:
+Shape analysis is where many earlier facts become one checked shape. A literal
+can give a shape:
 
 ```rust
 let x = [[1.0, 2.0], [3.0, 4.0]];
@@ -463,8 +701,8 @@ let y[i, j] = x[i, j] + 1.0;
 
 If `i` and `j` are inferred from `x`, then `y` receives the same extents. If
 they are written explicitly, those ranges become the result extents. Shape
-analysis is the pass that merges these sources of information: literal structure,
-type annotations, inferred index ranges, explicit ranges, rest-prefix
+analysis is the pass that merges these sources of information: literal
+structure, type annotations, inferred index ranges, explicit ranges, rest-prefix
 expansion, and grouped Einstein clauses.
 
 This is also why shape and type are adjacent but not identical. `[f32; 2, 2]`
@@ -495,10 +733,10 @@ role.
 
 ## Try It
 
-Pick one axis in a real model and decide whether it should be named. Use three
-questions: can the wrong role have the same size, can the axis be reduced or
-broadcast, and can a derivative later ask about it? If all answers are no,
-leave it anonymous. If any answer is yes, give it a role name.
+Imagine a 50,000-line Transformer codebase with no named coordinates. Design a
+three-step migration plan. At each step, introduce at most five role names,
+choose one boundary or operation family to protect, and state which existing
+tests should remain unchanged.
 
-**Line to keep:** name dimensions where future reasoning would otherwise have
-to reverse-engineer them.
+**Line to keep:** names should appear where roles affect correctness, not
+everywhere at once.

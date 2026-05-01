@@ -9,10 +9,16 @@ A recurrence tells us which values depend on which earlier values. It does not
 automatically tell us how much history must be stored. Storage depends on two
 things together: what each point reads, and which points later code observes.
 
-That separation is easy to lose if the moment we see `h[t]` we imagine a full
-array allocation. But the source family `h[t]` is not automatically a demand
+That separation is easy to lose if we imagine a full array allocation the
+moment we see `h[t]`. But the source family `h[t]` is not automatically a demand
 to store every `h`. Storage depends on the dependency window and on which
 members of the family are later observed.
+
+The mistake is to let one notation carry three different burdens at once:
+meaning, dependency, and storage. `h[t]` names a member of a family. The read
+of `h[t - 1]` states a dependency window. A later use such as `h[T - 1]` or
+`trace[t] = h[t]` states an observation. Only after those facts are separated
+does the buffer question have a well-formed answer.
 
 ## Array Semantics or Family Semantics
 
@@ -35,6 +41,32 @@ backends can use, including vectorized and recurrence-aware execution paths.
 The book's checkpointing examples describe the policy space those facts make
 available; they are not a promise that every checkpoint schedule is already a
 separate user-visible pass.
+
+This is also where Tensor Comprehensions and TVM TE are the right comparison.
+They make tensor compute explicit enough for a compiler to transform:
+
+```python
+C = te.compute((M, N), lambda i, j: te.sum(A[i, k] * B[k, j], axis=k))
+s = te.create_schedule(C.op)
+```
+
+The compute says what `C[i, j]` means; the schedule later chooses splitting,
+tiling, caching, vectorization, and placement. Einlang's recurrence notation is
+not a replacement for tensor-compute DSLs or scheduling machinery. It is a way
+to state the semantic family and observation facts before a scheduler decides
+which buffers must exist:
+
+```rust
+let h[t in 1..T] = step(h[t - 1], x[t]);
+let final = h[T - 1];
+```
+
+The same placement applies to XLA, MLIR, IREE, Triton, and Halide. They are
+not primarily languages for saying that `h[t]` depends on `h[t - 1]`; they are
+ways to lower, schedule, tile, fuse, and run computations once the dependency
+structure is known. A good source notation should hand those systems a clean
+semantic object rather than a prematurely chosen buffer story. Storage follows
+observation; scheduling follows a relationship that has already been stated.
 
 Consider:
 
@@ -146,8 +178,8 @@ evaluated and materialized. A debugging statement is therefore part of
 the storage story.
 
 This is why printing is more subtle in a language of formulas. Printing is not
-only display. It is an observation boundary. It turns
-an expression, a recurrence family, or a derivative request into a concrete
+only display. It is an observation boundary. It turns an expression, a
+recurrence family, or a derivative request into a concrete
 witness.
 
 For a smaller example:
@@ -162,6 +194,14 @@ The first line defines a family of values. The print asks the runtime to show
 that family. The shape print asks for a different witness: not the values, but
 the coordinate extent. Both observations reduce implementation freedom because
 the program has made a demand.
+
+Coordinate functions fit into the same discipline. A call such as
+`move_channel[channel](image)` or `scan[t](step, h0, x)` states a coordinate
+contract; it does not by itself demand a particular buffer layout. The
+implementation may choose a view, a copy, a fused loop, a rolling state, or a
+checkpointed schedule if the later observations permit it. What the function
+boundary preserves is the semantic fact: which coordinate moved, which
+coordinate ordered the recurrence, and which surrounding coordinates survived.
 
 ## A Wider Window
 
@@ -233,8 +273,8 @@ tells us how much of the family must become concrete.
 
 The storage discussion keeps the recurrence story honest. It would be too easy
 to say "visible dependency offsets imply storage optimization" and stop there.
-The truth is subtler. Visible offsets give the compiler a fact it can use, but
-storage is a policy decision under observation.
+The truth is subtler: visible offsets give the compiler a fact it can use, but
+storage remains a policy decision under observation.
 
 That distinction is important for production systems. A compiler should be
 able to use the one-step dependency of an RNN when only the final state is
@@ -375,6 +415,13 @@ without changing the source meaning. Full materialization, rolling buffers,
 streaming output, and checkpointing are different answers to the same visible
 dependency and observation facts.
 
+This is one reason coordinate-aware helpers are worth more than convenience.
+They allow the source to become more compact without collapsing the difference
+between meaning and storage. A shape-only helper often forces a reader to ask,
+"Was this a layout trick or a semantic transformation?" A coordinate function
+answers at the boundary: the semantic transformation is the named coordinate
+contract; the layout trick is still up to lowering.
+
 A minimal pass can be sketched like this:
 
 ```text
@@ -401,9 +448,10 @@ which storage choices remain possible.
 
 ## Try It
 
-Take one recurrence and mark only the final state as observed. Then add a
-single debug print of `h[3]`. Recompute the storage plan. The trap is to think
-storage follows the recurrence alone; in practice it follows observation too.
+Write the same RNN recurrence twice. In the first program, observe only
+`h[T - 1]`. In the second, bind `trace[t] = h[t]`. For each program, sketch the
+storage plan a compiler could choose: rolling state, full materialization, or a
+hybrid. The recurrence definition is the same; the observation changed.
 
-**Line to keep:** define the value family first; choose storage after you know
-who observes it.
+**Line to keep:** storage allocation is a negotiation between what is defined
+and what is observed.

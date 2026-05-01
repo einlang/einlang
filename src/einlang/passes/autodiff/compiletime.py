@@ -12,7 +12,6 @@ from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from ..base import BasePass, TyCtxt
-from ..extremum_selection_canonicalization import ExtremumSelectionCanonicalizationPass
 from ..pre_autodiff_pruning import PreAutodiffPruningPass
 from ..shape_analysis import UnifiedShapeAnalysisPass
 from ..type_inference import TypeInferencePass
@@ -1727,7 +1726,6 @@ class AutodiffPass(BasePass):
     requires = [
         TypeInferencePass,
         UnifiedShapeAnalysisPass,
-        ExtremumSelectionCanonicalizationPass,
         PreAutodiffPruningPass,
     ]
 

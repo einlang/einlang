@@ -5,6 +5,9 @@ title: "Chapter 1: What Can the Compiler Not See?"
 
 # What Can the Compiler Not See?
 
+Most engineers see the next fragment as harmless shape plumbing. You probably
+will too. That is the trap: the code is legal before it is explainable.
+
 Start with a familiar fragment:
 
 ```python
@@ -26,8 +29,37 @@ The runtime sees shapes. The compiler sees a sequence of shape-compatible
 operations. The program itself does not say why axis `1` mattered before the
 transpose, or what semantic role the `4` and the `32` are supposed to play.
 
+Einops improves exactly this kind of line:
+
+```python
+y = rearrange(x, "b f (g s) -> (b g) (f s)", g=4, s=32)
+```
+
+That is much more readable than a chain of reshape and transpose calls. The
+pattern tells us that `g` travels with `b` and `s` travels with `f`. The
+question this book asks is what survives when that relation becomes a helper.
+As a boundary sketch:
+
+```text
+fn pack_grouped[group, slice](x: [f32; b, f, group, slice])
+    -> [f32; b * group, f * slice]
+```
+
+The einops pattern is a clear local operation. The coordinate-aware signature
+is the same idea at a boundary: the caller and later compiler passes can still
+see which split roles were packed. A real implementation still has to say how
+linearized coordinates are formed. The point here is smaller and sharper: once
+the relation is promoted to a library helper, the split roles should not fall
+back into comments and convention.
+
 That is the first blind spot. Tensor code often preserves enough information
 to run, but not enough information to explain itself.
+
+The way to read the example is to choose one output address and reconstruct
+the input roles that produced it. Then make the reconstruction deliberately
+wrong while keeping the shape valid. If two different role stories survive the
+same extent checks, the missing information is not an implementation detail.
+It is the thing the source failed to say.
 
 This is not only a toy failure mode. Imagine an image model that packs
 `batch * head` into one coordinate before a projection layer. During a refactor,
@@ -71,6 +103,17 @@ The missing fact is not a number. It is a role.
 
 ## The Same Move With Named Coordinates
 
+Before the correct relation, try a tempting but weak naming attempt:
+
+```text
+tmp[b, feat, group, slice] = x[b, feat, group, slice]
+y[row, col] = tmp[?, ?, ?, ?]
+```
+
+This names the intermediate axes, but it still makes the final packing a
+mystery. The names do not participate in the address relation that matters.
+They are labels on the side of the operation, not the operation itself.
+
 Write the same intention as a coordinate relation:
 
 ```text
@@ -93,6 +136,36 @@ second output coordinate  feat * slice
 The equation is the final form of that sentence. It is not meant to impress
 the reader with clever packing arithmetic; it is meant to keep the pairing
 decision visible.
+
+Once that relation is stable, it can be named without losing the contract:
+
+```text
+let y[b * group, feat * slice] =
+    pack_grouped_features[group, slice](x[b, feat, group, slice])
+```
+
+The bracketed coordinates are the important part of the hypothetical helper.
+They say which split roles are being packed, so the call is not merely
+`reshape(...)` with a friendlier name. The long indexed line is the reference
+meaning; the coordinate function is the reusable boundary.
+
+This is the first appearance of a pattern that will return throughout the
+book. Write the coordinate relation once, then let a named operation carry that
+relation without making every call site repeat the arithmetic. The abstraction
+is allowed to hide loops, indexing details, storage choices, and scalar
+plumbing. It is not allowed to hide the coordinate choice that makes the
+operation meaningful.
+
+That is why the coordinate argument belongs on the call:
+
+```text
+pack_grouped_features[group, slice](x)
+```
+
+The caller is not supplying ordinary numeric parameters. It is saying which
+roles are being rearranged. A shape-only helper would ask the reader to infer
+that fact from positions and extents. A coordinate function makes it part of
+the contract.
 
 The ranges would make the relation concrete:
 
@@ -230,7 +303,7 @@ intended.
 
 The lesson is not that shape operations are bad. They are useful and often
 efficient. The point is narrower: a shape operation is not the same as a
-semantic operation. When dimensions have names, a tensor program can say more
+semantic operation. When dimensions have names, a tensor program can state more
 of what it means.
 
 ## The First Habit
@@ -300,8 +373,8 @@ final shape `[4, 12]`. What it cannot see, from the final shape alone, is that
 the first output coordinate is "batch packed with group" rather than "feature
 packed with group" or "batch packed with slice."
 
-The real pressure appears when two roles have compatible extents. A wrong
-version can still look plausible:
+The pressure increases when two roles have compatible extents. A wrong version
+can still look plausible:
 
 ```text
 bad[b * slice_count + slice, feat * group_count + group] =
@@ -358,10 +431,10 @@ rather than from the program text.
 
 ## Try It
 
-Take a tensor with shape `[2, 3, 2, 4]` and invent two different reshape chains
-that both end at `[4, 12]`. For each chain, write one line that maps
-`y[row, col]` back to `x[b, feature, group, slice]`. The exercise is done when
-you can point to the exact coordinate that changed meaning while the final
-shape stayed legal.
+Try to describe the opening reshape chain using only positions `0`, `1`, `2`,
+and `3`. Then move `group` to the last position and describe it again. Notice
+how much of the work your memory is doing. Now write the coordinate relation
+with `b`, `feature`, `group`, and `slice`, and compare how quickly the intended
+packing becomes reviewable.
 
-**Line to keep:** shape counts addresses; coordinates explain addresses.
+**Line to keep:** roles do not live in numbers; they live in meaning.

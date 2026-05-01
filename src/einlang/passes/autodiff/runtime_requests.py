@@ -1390,14 +1390,18 @@ class _PlainRequestLowerer:
                         shape_info=cur.shape_info,
                     )
                     if isinstance(cur, FunctionCallIR):
-                        return FunctionCallIR(
+                        rebuilt = FunctionCallIR(
                             callee_expr=rewrite(cur.callee_expr),
                             location=cur.location,
                             arguments=tuple(rewrite(arg) for arg in (cur.arguments or ())),
                             module_path=cur.module_path,
                             type_info=cur.type_info,
                             shape_info=cur.shape_info,
+                            coordinate_args=tuple(rewrite(arg) for arg in (getattr(cur, "coordinate_args", ()) or ())),
                         )
+                        rebuilt.coordinate_layout = getattr(cur, "coordinate_layout", None)
+                        rebuilt.coordinate_address_domain = getattr(cur, "coordinate_address_domain", None)
+                        return rebuilt
                 if isinstance(cur, BlockExpressionIR):
                     return BlockExpressionIR(
                         [stmt if not isinstance(stmt, ExpressionIR) else rewrite(stmt) for stmt in (cur.statements or ())],

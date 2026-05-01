@@ -11,9 +11,11 @@ program: statement*
 // =============================================================================
 
 // SIMPLIFIED with aliases - reduces transformer complexity
-function_def: "fn" NAME LPAR param_list? RPAR ("->" type)? block
-pub_function_def: "pub" "fn" NAME LPAR param_list? RPAR ("->" type)? block
-diff_rule_def: AT "fn" NAME LPAR param_list? RPAR block
+function_def: "fn" NAME coord_params? LPAR param_list? RPAR ("->" type)? block
+pub_function_def: "pub" "fn" NAME coord_params? LPAR param_list? RPAR ("->" type)? block
+diff_rule_def: AT "fn" NAME coord_params? LPAR param_list? RPAR block
+coord_params: LSQB coord_param ("," coord_param)* RSQB
+?coord_param: NAME | DOTDOT NAME -> coord_pack_param
 param_list: parameter ("," parameter)* 
 parameter: NAME (":" type)?
 
@@ -61,7 +63,8 @@ postfix_call: (postfix_call | callable_primary) LPAR argument_list? RPAR
 
 try_expr: "try" expr
 
-?atom: literal | identifier | LPAR expr RPAR
+?atom: literal | identifier | empty_tuple_expr | LPAR expr RPAR
+empty_tuple_expr: LPAR RPAR
 
 // =============================================================================
 // LITERALS - WITH ALIASES
@@ -83,7 +86,7 @@ argument_list: argument ("," argument)*
 
 ?rectangular_operation: rectangular_access | reduction_expression
 rectangular_access: NAME LSQB expr_list RSQB
-reduction_expression: NAME LSQB expr_list RSQB LPAR expr RPAR
+reduction_expression: NAME LSQB expr_list RSQB LPAR argument_list? RPAR
 
 // =============================================================================
 // CONTROL FLOW - WITH ALIASES
@@ -221,7 +224,7 @@ named_type: NAME ("::" NAME)*  // Enum or struct type: Color, Shape, Point (must
 rectangular_type: LSQB primitive_type (SEMICOLON shape_spec)? RSQB
 shape_spec: explicit_shape | dynamic_rank
 explicit_shape: shape_dimension ("," shape_dimension)*
-shape_dimension: INTEGER_OR_FLOAT | NAME | "?"
+shape_dimension: INTEGER_OR_FLOAT | NAME | named_rest | "?"
 dynamic_rank: "*"
 
 // Jagged type: jagged[element_type; depth?]

@@ -5,6 +5,13 @@ title: "Chapter 10: The Wall of Time Steps"
 
 # The Wall of Time Steps
 
+The autodiff chapters treated coordinates as addresses of influence. Time adds
+one more ingredient: direction. A time coordinate is still a coordinate, but a
+forward recurrence also says which way dependency edges are allowed to point.
+
+The common illusion is that a loop is the same thing as time. It is not. A loop
+is one way to execute a dependency that should be visible before scheduling.
+
 Sequence models are usually introduced with loops:
 
 ```python
@@ -13,7 +20,7 @@ for t in range(T):
     h = rnn_cell(h, x[t])
 ```
 
-This is clear executable code. It also builds a wall. The loop says "do this
+This is clear executable code, but it also builds a wall. The loop says "do this
 next," then "do this next," then "do this next." The time dependency is there,
 but the reader has to look through sequential control and mutation of `h` to
 find it.
@@ -26,10 +33,38 @@ body.
 Loops are excellent execution devices. They are less direct as explanations of
 time-shaped structure.
 
+Frameworks noticed this problem and introduced structured loop helpers. JAX
+has `lax.scan`; PyTorch users often choose between an explicit Python loop,
+library RNN modules, and compiled graph capture. Those tools can be excellent
+execution interfaces:
+
+```python
+carry, ys = scan(step, init_state, xs)
+```
+
+But the call still depends on the reader knowing which axis of `xs` is time,
+which parts of the carry are state, and which coordinates are merely batched
+around the recurrence. The coordinate version tries to keep the smallest
+necessary fact on the page:
+
+```text
+let h[t, ..batch, hidden] = scan[t](step, h0[..batch, hidden], x[t, ..batch, input])
+```
+
+`scan` may be a library helper. The bracket says which coordinate gives it a
+direction. The variadic `..batch` says the recurrence is polymorphic over the
+surrounding independent coordinates, not over the ordered one.
+
 A loop tells an execution story. A recurrence tells a dependency story. The
 two can lower to the same machine behavior, but they give the compiler and the
 reader different source facts to work with. The important separation is between
 `h[t]`, `h[t - 1]`, and the storage slot that may eventually hold them.
+
+The smallest useful act is to draw one edge from `h[t]` to the state it reads.
+If the edge points to `t - 1`, the source describes a forward recurrence. If it
+points to `t + 1`, the program may still describe something meaningful, but it
+is no longer the same story. It needs a different contract: a backward pass, a
+boundary-value problem, or a fixed-point computation.
 
 ## Control Step or Dependency Axis
 
@@ -115,6 +150,34 @@ A loop says "next, next, next." A recurrence says "this point depends on that
 earlier point." The second form gives the compiler and the reader a dependency
 relation before it gives them a schedule.
 
+A future helper can still be compact if it carries the time coordinate:
+
+```text
+let h[t] = scan[t](step, h0, x[t])
+```
+
+The point of the bracket is not syntax for its own sake. It prevents `scan`
+from becoming an opaque loop-shaped box. The call says which coordinate orders
+the dependency, leaving storage and scheduling for later lowering.
+
+The same rule used for `softmax[class]` applies here. A helper is welcome when
+the scalar mechanics are conventional, but the coordinate that gives the
+operation its role should remain visible. `scan[t]` says that `t` is not just a
+batch-like prefix and not just another feature coordinate. It is the ordered
+coordinate along which each state may read earlier states.
+
+That also leaves room for rank-polymorphic use:
+
+```text
+let h[t, ..batch, hidden] =
+    scan[t](step, h0[..batch, hidden], x[t, ..batch, input])
+```
+
+The helper need not assume how many batch-like coordinates surround the time
+axis. It only needs to know which coordinate is time. The rest can be inferred
+from the argument ranks, just as `move_channel[channel](image)` can infer the
+spatial pack around the named channel coordinate.
+
 For `T = 4`, the dependency chain is almost too small to hide:
 
 ```text
@@ -154,7 +217,7 @@ observation          which points later code asks to keep
 schedule/storage     how an implementation chooses to compute and retain them
 ```
 
-Traditional loop code often blends those questions together. Recurrence pulls
+Traditional loop code often blends those questions. Recurrence pulls
 them apart.
 
 ## The Error You Want Named
@@ -383,9 +446,19 @@ variable, that distinction would have to be recovered after the fact.
 
 ## Try It
 
-Write an RNN step first as a Python-style loop and then as `hidden[t]`. In the
-second version, deliberately read `hidden[t + 1]` once. The error should not
-feel like an implementation limitation; it should feel like a dependency edge
-pointing the wrong way.
+Rewrite a small loop as a recurrence:
 
-**Line to keep:** a loop is an order of work; time is a dependency coordinate.
+```python
+h = h0
+for t in range(T):
+    h = step(h, x[t])
+```
+
+First write it as `h[t]` with an explicit base case. Then add `..batch` and
+check that no line lets one batch member read another. Finally, change one term
+so a time step reads future information, as in a bidirectional model. Ask how
+the storage demand changes when future reads become part of the dependency
+graph.
+
+**Line to keep:** a loop is an execution order; time is a dependency
+relationship.

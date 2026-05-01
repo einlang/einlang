@@ -190,6 +190,10 @@ class CompilerDriver:
         # 3. Rest pattern preprocessing (expands ..batch to batch.0 early)
         from ..passes.rest_pattern_preprocessing import RestPatternPreprocessingPass
         self.pass_manager.register_pass(RestPatternPreprocessingPass)
+
+        # 3b. Coordinate grounding and selection shorthand expansion
+        from ..passes.coordinate_analysis import CoordinateGroundingPass
+        self.pass_manager.register_pass(CoordinateGroundingPass)
         
         # 4. Range analysis (infers ranges for loop variables)
         # CRITICAL: Must come before shape analysis (shape needs ranges for offsets)
@@ -203,21 +207,15 @@ class CompilerDriver:
         # This allows type inference to use shape information
         self.pass_manager.register_pass(TypeInferencePass)
 
-        # 7. Canonicalize generic extremum-selection patterns to SelectAtArgmaxIR
-        from ..passes.extremum_selection_canonicalization import (
-            ExtremumSelectionCanonicalizationPass,
-        )
-        self.pass_manager.register_pass(ExtremumSelectionCanonicalizationPass)
-
-        # 8. Pre-autodiff pruning (shape/rank branch pruning only)
+        # 7. Pre-autodiff pruning (shape/rank branch pruning only)
         from ..passes.pre_autodiff_pruning import PreAutodiffPruningPass
         self.pass_manager.register_pass(PreAutodiffPruningPass)
 
-        # 9. Autodiff (high-level EinsteinIR only; before lowering)
+        # 8. Autodiff (high-level EinsteinIR only; before lowering)
         from ..passes.autodiff import AutodiffPass
         self.pass_manager.register_pass(AutodiffPass)
 
-        # 10. Lower autodiff request nodes to ordinary IR
+        # 9. Lower autodiff request nodes to ordinary IR
         from ..passes.autodiff import AutodiffRequestLoweringPass
         self.pass_manager.register_pass(AutodiffRequestLoweringPass)
 

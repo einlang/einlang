@@ -146,11 +146,11 @@ def test_selection_clustered_accuracy(compiler, runtime):
     let arr_2d_flat = [arr_2d[i, j] | i in 0..len(arr_2d), j in 0..len(arr_2d[0])];
     let topk_2d_3 = std::array::topk_extract(arr_2d_flat, 3);
     
-    // Test argmax and argmin from std::ml
+    // Test selection reductions directly; argmax/argmin are builtins, not stdlib functions.
     let x_argmax = [[1.0, 5.0, 3.0], [2.0, 1.0, 4.0], [3.0, 2.0, 1.0]];
     let x_argmin = [[1.0, 5.0, 3.0], [2.0, 1.0, 4.0], [3.0, 2.0, 1.0]];
-    let result_argmax = std::ml::argmax(x_argmax);
-    let result_argmin = std::ml::argmin(x_argmin);
+    let result_argmax[i] = argmax[j](x_argmax[i, j]);
+    let result_argmin[i] = argmin[j](x_argmin[i, j]);
     
     // Test nonzero
     let x_nonzero_1d = [0.0, 1.0, 0.0, 2.0, 0.0, 3.0];
@@ -335,4 +335,3 @@ def test_quickselect_edge_cases(compiler, runtime):
     assert len(topk_reverse_actual) == 3, f"topk_reverse should have 3 elements, got {len(topk_reverse_actual)}"
     expected_reverse = np.array([5.0, 4.0, 3.0], dtype=np.float32)  # Top 3 largest, sorted descending
     np.testing.assert_allclose(topk_reverse_actual, expected_reverse, rtol=1e-6)
-

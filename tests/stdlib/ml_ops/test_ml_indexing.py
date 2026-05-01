@@ -76,8 +76,8 @@ def test_gather_nd_argmax_ops(compiler, runtime):
     let data_gather_nd_3d = [[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], [[7.0, 8.0, 9.0], [10.0, 11.0, 12.0]]];
     let indices_gather_nd_3d = [[0, 1, 2], [1, 0, 1]];
     let result_5 = std::ml::onehot(indices_1, depth, [0.0, 1.0]);
-    let result_6 = std::ml::argmax(x_argmax);
-    let result_7 = std::ml::argmin(x_argmin);
+    let result_6[i] = argmax[j](x_argmax[i, j]);
+    let result_7[i] = argmin[j](x_argmin[i, j]);
     let result_8 = std::ml::gather_nd(data_gather_nd, indices_gather_nd);
     let result_8_3d = std::ml::gather_nd(data_gather_nd_3d, indices_gather_nd_3d);
     """

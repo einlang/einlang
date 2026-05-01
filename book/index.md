@@ -8,7 +8,7 @@ description: "A book about named tensor dimensions and compiler-visible structur
 
 _Making tensor roles visible to programs that would otherwise see only shape._
 
-This book is about a common tensor-code problem: the program keeps the sizes,
+This book is about a common tensor-code problem: the program keeps the sizes
 but loses the reason those sizes mattered.
 
 Consider two lines:
@@ -18,7 +18,7 @@ y = x + bias
 z = y.reshape(batch, time, feature)
 ```
 
-They may be correct. They may also hide the bug. Did `bias` mean "one value per
+They may be correct. They may also hide a bug. Did `bias` mean "one value per
 feature," or did it accidentally line up with some other axis of the same
 length? Did the reshape preserve the intended roles, or only preserve the
 number of elements? A shape checker can answer some questions here, but not all
@@ -31,7 +31,7 @@ over an index such as `t`. I am using the language as a small instrument, not
 as a catalog of features. The question is what a compiler can check once
 coordinates have names.
 
-Code blocks marked `rust` are Einlang source and use normal semicolons. Blocks
+Code blocks marked `rust` are Einlang source and use ordinary semicolons. Blocks
 marked `text` are sketches: coordinate readings, dependency edges, or tables.
 They are not meant to be parsed as source.
 
@@ -40,9 +40,41 @@ The core forms are small enough to keep in one place:
 ```rust
 let y[i] = x[i] + 1;
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
+let p[b, class] = softmax[class](logits[b, class]);
+let pred = argmax[class](p);
+let image[channel, row, col] = load_image();
+let channels_last = move_channel[channel](image);
+let swapped = swap[time, feature](x);
 let dy_dx = @y / @x;
 let h[t in 1..T] = step(h[t - 1], x[t]);
 ```
+
+The bracketed names in calls such as `softmax[class]` and `argmax[class]` are
+not decoration. They are coordinate arguments. They let common tensor
+operations stay compact while still saying which coordinate is normalized,
+consumed, preserved, or returned as an address.
+
+That pattern appears throughout the book. A coordinate function is not a late
+library convenience; it is the way common tensor ideas become reusable without
+falling back to anonymous axis numbers. The expanded indexed form teaches the
+contract. The coordinate-function form carries the same contract across a
+function boundary.
+
+Coordinate packs are the same idea at rank-polymorphic scale. A function can
+say that one named axis matters while the surrounding axes should be inferred:
+
+```rust
+fn move_channel[channel, ..spatial](x: [f32; channel, ..spatial])
+    -> [f32; ..spatial, channel]
+
+let image[channel, row, col] = load_image();
+move_channel[channel](image)
+```
+
+Here the caller names only the axis whose role matters. The `..spatial` pack is
+not another argument to remember; it is inferred from the actual layout. When a
+whole group must be chosen explicitly, the group is one parenthesized
+coordinate argument, such as `layer_norm[(height, width, channel)](x)`.
 
 Two distinctions are worth keeping close. An axis name is a semantic role:
 `batch`, `time`, `feature`, `class`, `head`, `row`, `col`. A dimension size is
@@ -85,11 +117,32 @@ framework and compiler boundaries
 principles under stress
 ```
 
+That list is the spine of the book. Each part adds one kind of coordinate fact,
+then asks the next part to reuse it:
+
+```text
+roles        say what an axis means
+maps         say where a role moves
+absence      says which role a term ignores
+reduction    says which local role disappears
+autodiff     asks which roles sensitivities must keep
+recurrence   adds direction and observation
+boundaries   preserve the facts across library calls
+stress tests check whether the principle survives real model structure
+```
+
 The dependency is simple. If axes are named, index rules can talk about which
 coordinates survive, which are consumed, and which are omitted from a term. Once
 those relationships are in the source, autodiff rewrites, recurrence graphs,
 shape contracts, and compiler transformations have something firmer than
 position numbers to preserve.
+
+Coordinate functions are the pressure valve that keeps this systematic without
+making every program ceremonial. The expanded indexed form states the reference
+meaning. The function form carries that meaning compactly: `softmax[class]`
+names the normalized coordinate, `move_channel[channel]` names the moved
+coordinate while inferring the surrounding pack, and `scan[t]` names the
+ordered coordinate while leaving storage to lowering.
 
 The difficulty gradient follows the same arc. Chapters 1 through 3 start with
 static shape transformations, where the main question is "where did this
@@ -151,6 +204,7 @@ through the argument.
 ### Appendix
 
 - [Coordinate Diagnostics](appendix-coordinate-diagnostics.html)
+- [Coordinate Reading Laws](appendix-coordinate-laws.html)
 
 ## A Useful Way to Read
 
@@ -162,3 +216,17 @@ small habit is often enough to reveal the bug the shape alone would miss.
 Each chapter now ends with a small exercise. Treat those prompts as traps on
 purpose: try the shape-compatible wrong version first, then use the coordinate
 reading to explain why it is wrong.
+
+The fastest study loop is:
+
+```text
+trace one cell
+name the coordinates it reads
+write the shape-compatible wrong line
+state the law that rejects it
+hide the mechanics behind a coordinate function only after the law is clear
+```
+
+That loop is intentionally repetitive. The repetition is the point: the same
+few laws should explain reshape, broadcasting, reduction, autodiff, recurrence,
+attention, and routing.

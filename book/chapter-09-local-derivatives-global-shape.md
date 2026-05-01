@@ -27,16 +27,45 @@ pullbacks. Elementwise operations preserve coordinates.
 Keep the main duality close:
 
 ```text
-Forward broadcast  <->  Backward reduce
-Forward reduce     <->  Backward broadcast-like fan-out
+FORWARD                         BACKWARD
+term omits coordinate       ->  gradient collects that coordinate
+reduction consumes axis     ->  sensitivity fans through that axis
+coordinatewise operation    ->  coordinate survives unchanged
 ```
 
-Most surprising gradient shapes are one of these two lines with a real
+Most surprising gradient shapes are one of these three lines with a real
 coordinate name filled in.
 
 The scalar rule is only half the answer. Local calculus tells us the value to
 multiply by; the coordinate structure tells us where that value lands and which
 shared or omitted routes must be collected on the way back.
+
+The scalar derivative is only the seed. To make it a tensor rule, place that
+seed at the coordinate address of the value being differentiated. Most wrong
+versions are not bad calculus; they are good local calculus attached to the
+wrong family of addresses.
+
+This is also where ordinary autodiff notation can be too quiet. In PyTorch or
+JAX one might write:
+
+```python
+y = x * x + bias
+loss = y.sum()
+loss.backward()
+```
+
+The result is correct, but the source line does not say which coordinates
+`bias` lacks. The reduction in `bias.grad` is discovered by tracing the
+broadcast. Einlang wants that missing coordinate to be visible at the place
+where it first matters:
+
+```rust
+let y[batch, feature] = x[batch, feature] * x[batch, feature] + bias[feature];
+```
+
+Now the backward fact has a source-level reason. `feature` survives into
+`bias`; `batch` was used by the result but absent from the parameter, so the
+gradient for `bias` must collect `batch`.
 
 ## Scalar Rule or Shaped Rule
 
@@ -65,7 +94,7 @@ let a[i] = x[i] * x[i];
 let b[i] = x[0] * x[0];
 ```
 
-The local derivative of squaring is the same, but the address story is not. In
+The local derivative of squaring is the same, but the address story differs. In
 the first line, each output reads its matching input. In the second, every
 output reads the same input cell. A scalar table alone cannot tell the
 difference.
@@ -166,6 +195,18 @@ the bias gradient keeps `f` and reduces over `b`:
 ```rust
 let dbias[f] = sum[b](dy[b, f]);
 ```
+
+A coordinate function can name the same reuse contract in the forward pass:
+
+```rust
+fn add_bias[feature](x: [f32; ..batch, feature], bias: [f32; feature])
+    -> [f32; ..batch, feature]
+```
+
+The local derivative of addition is still scalar. The global shape comes from
+the coordinate contract: `feature` survives, `..batch` is where reuse happened,
+and the reverse pass must reduce over that reused prefix when differentiating
+with respect to `bias`.
 
 For a batch bias:
 
@@ -324,7 +365,7 @@ let dx[b, in] = sum[out](G[b, out] * W[out, in]);
 ```
 
 This one layer contains three different global shapes built from one local
-fact. The square preserves `[b, out]`. The bias gradient reduces `b`. The
+calculus fact. The square preserves `[b, out]`. The bias gradient reduces `b`. The
 weight gradient reduces `b` but keeps `out` and `in`. The input gradient
 reduces `out` but keeps `b` and `in`.
 
@@ -402,9 +443,16 @@ coordinate. The gradient must say where that omitted coordinate went.
 
 ## Try It
 
-Add a bias `bias[out]` to an activation `z[b, out]`, then compute a scalar
-loss. Before deriving anything, predict whether `@loss / @bias` keeps `b`.
-Then write the pullback. The common mistake is to preserve the coordinate that
-was only present because of broadcasting.
+Design a tiny layer with two broadcasts:
 
-**Line to keep:** forward omission becomes backward collection.
+```rust
+let y[time, batch, feature] =
+    scale[time] * x[time, batch, feature] + bias[feature];
+```
+
+Sketch `@loss / @scale` and `@loss / @bias`. Then rewrite the same layer in a
+traditional framework style and mark where the two reductions are implicit in
+the broadcast history rather than visible in the source.
+
+**Line to keep:** scalar rules are local calculus; coordinate structure tells
+where the value lands.

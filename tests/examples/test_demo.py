@@ -18,6 +18,7 @@ import numpy as np
 from einlang.compiler.driver import CompilerDriver
 from einlang.ir.nodes import IRNode, LoweredReductionIR
 from einlang.runtime.runtime import EinlangRuntime
+from einlang.shared.types import ReductionOp
 from tests.test_utils import compile_and_execute, load_example_sources, project_root as repo_root
 
 
@@ -196,17 +197,37 @@ def _walk_ir(node):
         yield from _walk_ir(getattr(node, slot, None))
 
 
-def _compile_reduction_strategy_counts(path: Path):
+def _compile_reductions(path: Path):
     source = path.read_text(encoding="utf-8")
     compiler = CompilerDriver()
     with _example_runtime_context(path.parent):
         result = compiler.compile(source, source_file=str(path), root_path=path.parent)
     assert result.success, result.get_errors() or "compile failed"
     assert result.ir is not None
+    return [
+        node for node in _walk_ir(result.ir)
+        if isinstance(node, LoweredReductionIR)
+    ]
+
+
+def _compile_reduction_strategy_counts(path: Path):
+    return _reduction_strategy_counts(_compile_reductions(path))
+
+
+def _reduction_strategy_counts(reductions):
     return Counter(
         getattr(node, "execution_strategy", None)
-        for node in _walk_ir(result.ir)
-        if isinstance(node, LoweredReductionIR)
+        for node in reductions
+    )
+
+
+def _scalar_non_selection_reductions(reductions):
+    selection_ops = {ReductionOp.ARGMAX, ReductionOp.ARGMIN}
+    return Counter(
+        getattr(node.operation, "value", node.operation)
+        for node in reductions
+        if getattr(node, "execution_strategy", None) == "scalar"
+        and node.operation not in selection_ops
     )
 
 
@@ -285,7 +306,8 @@ class TestD:
         root = repo_root()
         deit_dir = root / "examples" / "deit_tiny"
         main_ein = deit_dir / "main.ein"
-        reduction_strategies = _compile_reduction_strategy_counts(main_ein)
+        reductions = _compile_reductions(main_ein)
+        reduction_strategies = _reduction_strategy_counts(reductions)
 
         weight_names = [
             "patch_proj_w.npy", "patch_proj_b.npy", "cls_token.npy", "pos_embed.npy",
@@ -303,7 +325,8 @@ class TestD:
         assert names == ["Egyptian Mau", "Golden Retriever", "strawberry"], f"unexpected output: {names!r}"
         assert reduction_strategies.get("windowed_sumprod", 0) >= 2, reduction_strategies
         assert reduction_strategies.get("matmul_sumprod", 0) >= 14, reduction_strategies
-        assert reduction_strategies.get("scalar", 0) == 0, reduction_strategies
+        scalar_non_selection = _scalar_non_selection_reductions(reductions)
+        assert not scalar_non_selection, (scalar_non_selection, reduction_strategies)
         _assert_vectorize_counts_dict(counts, min_vectorized=963, max_scalar=0, label="deit_tiny")
 
     def test_whisper_tiny(self):

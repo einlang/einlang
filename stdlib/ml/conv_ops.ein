@@ -193,7 +193,6 @@ pub fn conv(X, W, B, strides, pads, dilations, group) {
     }
 }
 
-
 // Private 1D transposed convolution
 fn conv_transpose1d(X, W, B, stride, pad) {
     // X shape: [batch, c_in, width]

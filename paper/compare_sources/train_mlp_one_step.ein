@@ -1,4 +1,4 @@
-use std::ml::{argmax, relu};
+use std::ml::relu;
 
 let batch_size = 16;
 let eval_size = 16;
@@ -24,7 +24,7 @@ let batch_loss0 = sum[n in 0..batch_size, cls in 0..10]((batch_logits0[n, cls] -
 let eval_hidden_pre0[n in 0..eval_size, h in 0..hidden_size] = sum[d in 0..64](eval_images[n, d] * w1_0[d, h]) + w1_0[64, h];
 let eval_hidden0 = relu(eval_hidden_pre0);
 let eval_logits0[n in 0..eval_size, cls in 0..10] = sum[h in 0..hidden_size](eval_hidden0[n, h] * w2_0[h, cls]) + w2_0[12, cls];
-let eval_preds0 = argmax(eval_logits0);
+let eval_preds0[n] = argmax[cls](eval_logits0[n, cls]);
 let eval_correct0 = sum[n in 0..eval_size](if eval_preds0[n] == eval_truth[n] { 1 } else { 0 });
 
 let d_w1_0 = @batch_loss0 / @w1_0;
@@ -39,7 +39,7 @@ let batch_loss1 = sum[n in 0..batch_size, cls in 0..10]((batch_logits1[n, cls] -
 let eval_hidden_pre1[n in 0..eval_size, h in 0..hidden_size] = sum[d in 0..64](eval_images[n, d] * w1_1[d, h]) + w1_1[64, h];
 let eval_hidden1 = relu(eval_hidden_pre1);
 let eval_logits1[n in 0..eval_size, cls in 0..10] = sum[h in 0..hidden_size](eval_hidden1[n, h] * w2_1[h, cls]) + w2_1[12, cls];
-let eval_preds1 = argmax(eval_logits1);
+let eval_preds1[n] = argmax[cls](eval_logits1[n, cls]);
 let eval_correct1 = sum[n in 0..eval_size](if eval_preds1[n] == eval_truth[n] { 1 } else { 0 });
 
 print(batch_loss0);

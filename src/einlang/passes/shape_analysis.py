@@ -9,17 +9,24 @@ import logging
 import math
 from typing import Dict, List, Optional, Set, Tuple, Any
 from ..passes.base import BasePass, TyCtxt
+from ..passes.coordinate_utils import (
+    coord_param_name,
+    coordinate_arg_names,
+    instantiate_symbolic_sequence,
+    is_coord_pack_param,
+    match_symbolic_sequence,
+)
 from ..passes.range_analysis import RangeAnalysisPass
 from ..passes.rest_pattern_preprocessing import RestPatternPreprocessingPass
 from ..ir.nodes import (
     ProgramIR, ExpressionIR, ArrayLiteralIR, ArrayComprehensionIR,
     FunctionCallIR, BindingIR, FunctionValueIR, is_einstein_binding, is_function_binding, RectangularAccessIR,
     IRVisitor, RangeIR, IdentifierIR, LiteralIR, MemberAccessIR, BinaryOpIR, DifferentialIR,
-    IfExpressionIR, BlockExpressionIR,
+    IfExpressionIR, BlockExpressionIR, TupleExpressionIR,
 )
 from ..shared.defid import DefId
 from ..shared.source_location import SourceLocation
-from ..shared.types import BinaryOp
+from ..shared.types import BinaryOp, RectangularType
 from .visitor_helpers import ConstantEvaluator, ArrayAccessCollector, ExprInvolvesVarVisitor
 
 logger = logging.getLogger(__name__)
@@ -234,6 +241,13 @@ class UnifiedShapeAnalysisPass(BasePass):
         """Analyze shapes in IR"""
         try:
             analyzer = ShapeAnalyzer(tcx)
+            for binding in list(getattr(ir, "functions", ()) or ()) + list(getattr(ir, "statements", ()) or ()):
+                if (
+                    isinstance(binding, BindingIR)
+                    and isinstance(binding.expr, FunctionValueIR)
+                    and binding.defid is not None
+                ):
+                    analyzer.function_map[binding.defid] = binding
             
             # Analyze shapes in all expressions
             visitor = ShapeAnalysisVisitor(analyzer)
@@ -358,6 +372,7 @@ class ShapeAnalyzer:
         self.shapes: Dict[ExpressionIR, tuple] = {}  # Expression -> shape (tuple for hashability)
         self.defid_to_shape: Dict[DefId, tuple] = {}  # DefId -> shape (for variables)
         self.const_values: Dict[DefId, int] = {}  # DefId -> constant integer value
+        self.function_map: Dict[DefId, BindingIR] = {}
     
     def set_shape(self, expr: ExpressionIR, shape) -> None:
         """Set shape for expression - shape should be tuple"""
@@ -377,6 +392,10 @@ class ShapeAnalyzer:
         if isinstance(expr, IdentifierIR) and expr.defid:
             return self.defid_to_shape.get(expr.defid, None)
         return self.shapes.get(expr, None)
+
+    def get_coordinate_layout(self, expr: ExpressionIR) -> Optional[Tuple[str, ...]]:
+        layout = getattr(expr, "coordinate_layout", None)
+        return tuple(layout) if layout else None
 
     def eval_const_int(self, expr: Optional[ExpressionIR]) -> Optional[int]:
         if expr is None:
@@ -944,8 +963,73 @@ class ShapeAnalysisVisitor(IRVisitor[None]):
                 node.shape_info = shape
     
     def visit_function_call(self, node) -> None:
-        pass
-    
+        for arg in node.arguments or ():
+            if arg is not None:
+                arg.accept(self)
+
+        shape = self._shape_from_call_signature(node)
+        if shape is not None:
+            self.analyzer.set_shape(node, shape)
+            node.shape_info = shape
+
+    def _shape_from_call_signature(self, node: FunctionCallIR) -> Optional[tuple]:
+        func = self._function_value_for_call(node)
+        if func is None:
+            return None
+        return_type = getattr(func, "return_type", None)
+        if not isinstance(return_type, RectangularType) or return_type.shape is None:
+            return None
+
+        dims: Dict[str, Any] = {}
+        packs: Dict[str, tuple] = {}
+        axes: Dict[str, str] = {}
+        axis_packs: Dict[str, Tuple[str, ...]] = {}
+        coord_params = tuple(func.coordinate_params or ())
+        coord_args = tuple(node.coordinate_args or ())
+        if len(coord_args) > len(coord_params):
+            return None
+        for param, arg in zip(coord_params, coord_args):
+            names = coordinate_arg_names(arg)
+            if is_coord_pack_param(param):
+                if not isinstance(arg, TupleExpressionIR):
+                    return None
+                axis_packs[coord_param_name(param)] = names
+            elif not isinstance(arg, TupleExpressionIR) and len(names) == 1:
+                axes[str(param)] = names[0]
+            else:
+                return None
+        for param, arg in zip(func.parameters or (), node.arguments or ()):
+            formal_type = getattr(param, "param_type", None)
+            actual_shape = self.analyzer.get_shape(arg)
+            actual_layout = self.analyzer.get_coordinate_layout(arg)
+            if (
+                isinstance(formal_type, RectangularType)
+                and formal_type.shape is not None
+                and actual_shape is not None
+            ):
+                match_symbolic_sequence(
+                    tuple(formal_type.shape),
+                    tuple(actual_shape),
+                    dims=dims,
+                    packs=packs,
+                    axes=axes,
+                    axis_packs=axis_packs,
+                    actual_layout=actual_layout,
+                )
+
+        return instantiate_symbolic_sequence(tuple(return_type.shape), dims=dims, packs=packs)
+
+    def _function_value_for_call(self, node: FunctionCallIR) -> Optional[FunctionValueIR]:
+        defid = node.function_defid
+        if defid is None:
+            return None
+        binding = self.analyzer.function_map.get(defid)
+        if binding is None:
+            func_map = getattr(self.analyzer.tcx, "function_ir_map", None)
+            binding = func_map.get(defid) if func_map else None
+        expr = getattr(binding, "expr", None)
+        return expr if isinstance(expr, FunctionValueIR) else None
+
     def visit_unary_op(self, node) -> None:
         pass
     

@@ -5,6 +5,11 @@ title: "Chapter 7: What Is a Gradient?"
 
 # What Is a Gradient?
 
+The previous section established three local facts: a coordinate can survive,
+disappear inside a reduction, or be absent from a term and therefore broadcast.
+Autodiff does not replace those facts. It reuses them while changing the
+question from "what value is produced?" to "where can sensitivity flow?"
+
 Automatic differentiation is often introduced with a runtime graph. The forward
 pass records operations. The backward pass walks those operations in reverse
 and accumulates sensitivities.
@@ -20,18 +25,29 @@ Execution history says what happened. Derivative structure says where a small
 change can go. Einlang's bet is modest: when the forward program exposes its
 indices, some of the backward program is already sitting in the source.
 
-The failure to watch for is a gradient that has a plausible numeric story but
-has lost the shape of the question it was asked to answer. A tape can remember
+The easy mistake is to collapse those two ideas. A program may execute
+`a`, then `b`, then `c`; that order does not by itself say which coordinates of
+`a` can influence which coordinates of `c`. Conversely, a derivative route can
+be sparse even when the execution history looked dense. History records events;
+the derivative records possible influence.
+
+The failure to watch for is a gradient with a plausible numeric story but no
+longer the shape of the question it was asked to answer. A tape can remember
 what ran. It does not, by itself, make the derivative question's address
 obvious. The notation `@target / @source` keeps both sides of that question in
 view before the rewrite begins.
 
 Before the notation, use a physical picture. Imagine `x[j]` as one stone under
-your feet and `y[i]` as a height measured somewhere on the hill. A derivative
+your feet and `y[i]` as a height measured somewhere on a hill. A derivative
 asks a local sensitivity question: if this one stone moves a little, which
 height changes, and by how much? The notation `@y[i] / @x[j]` is that
 one-to-one question with addresses attached. Reverse mode usually avoids
 materializing every such question, but the address discipline is still there.
+
+That is why the derivative question should be written before the derivative
+formula. The denominator names the address family of the answer. Every other
+coordinate that appears while tracing influence is a route coordinate: it must
+be preserved, reduced, or explained by the structure of the forward program.
 
 ## Tape or Transformation
 
@@ -50,6 +66,26 @@ the binding.
 Execution graphs are still useful. Einlang changes what the language hands to
 the differentiator before execution begins. The source can already say which
 coordinates the derivative must keep and which ones it must collect.
+
+Julia's autodiff ecosystem is an important neighbor here. A Zygote-style call
+can keep differentiation close to ordinary code:
+
+```julia
+gradient(W -> sum(W * x), W)
+```
+
+ChainRules gives packages a shared way to say how a primitive pulls
+sensitivity backward. Enzyme pushes differentiation deeper into compiler IR.
+Those systems answer "how should differentiation be implemented and extended?"
+This chapter asks the neighboring question with addresses visible:
+
+```rust
+let y[i] = sum[j](W[i, j] * x[j]);
+let dloss_dW = @loss / @W;  // answer coordinates: [i, j]
+```
+
+Before the AD machinery runs, has the source preserved the coordinate
+addresses that the pullback must respect?
 
 In the implementation, `@` is not a wrapper around an external autodiff API.
 The compiler parses differential and quotient requests, runs range, shape, and
@@ -237,6 +273,19 @@ The derivative engine does not need to rediscover that batch structure is
 carried unchanged. The source has separated batch structure from contraction
 structure.
 
+This is exactly the kind of fact a coordinate function must preserve if
+`matmul` becomes a library boundary:
+
+```rust
+fn matmul[i, j, k](a: [f32; ..batch, i, k],
+                  b: [f32; ..batch, k, j])
+    -> [f32; ..batch, i, j]
+```
+
+The function may lower to a tuned kernel, but the contract still says that
+`k` is consumed and `..batch` is not. Autodiff can ask for the pullback against
+that contract rather than guessing from a positional call.
+
 ## Graphs Are History; Gradients Are Structure
 
 Execution graphs remain useful implementation devices. A real compiler may
@@ -396,7 +445,7 @@ autodiff runs. The derivative request can therefore be expanded as a
 transformation over checked IR rather than as a runtime investigation of a
 tape.
 
-This also explains why rest-pattern preprocessing matters to gradients. In a
+Rest-pattern preprocessing matters to gradients for the same reason. In a
 batched matmul:
 
 ```rust
@@ -423,9 +472,15 @@ another. The derivative question owns both.
 
 ## Try It
 
-For `y[i] = sum[j](W[i, j] * x[j])`, first ask for `@y / @x`, then ask for
-`@loss / @W` after `loss = sum[i](y[i] * y[i])`. The trap is to treat both
-questions as "the gradient." They are different coordinate questions with
-different shapes.
+Derive a linear layer by hand:
 
-**Line to keep:** a gradient is a question with an address.
+```rust
+let y[b, out] = sum[in](x[b, in] * W[out, in]) + bias[out];
+```
+
+Mark the roles of `b`, `in`, and `out`, then write the coordinate shape of
+`@loss / @W` and `@loss / @bias` for a scalar loss. The value rule is ordinary
+calculus; the interesting part is which coordinates must be collected.
+
+**Line to keep:** a gradient is not magic; it is a readable communication
+protocol in the source language.

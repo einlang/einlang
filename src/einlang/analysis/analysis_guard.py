@@ -2,9 +2,11 @@
 Analysis Guard - Determines which functions should be analyzed.
 
 Rule: Only analyze SPECIALIZED functions (all parameters have concrete types).
-      Skip GENERIC functions (any parameter without type annotation or with dynamic rank).
+      Skip GENERIC functions (any parameter without type annotation, with
+      dynamic rank, or with coordinate rest packs).
 
-GENERIC = ANY parameter has no type annotation OR has dynamic rank [T; *]
+GENERIC = ANY parameter has no type annotation OR has dynamic rank [T; *] OR
+          has coordinate rest packs such as [T; ..left, j, ..right]
 SPECIALIZED = ALL parameters have concrete types with known ranks
 
 
@@ -26,6 +28,7 @@ def is_generic_function(func_def: 'BindingIR') -> bool:
     A function is generic if ANY parameter:
     - Has no type annotation (param_type is None)
     - Has dynamic rank type ([T; *])
+    - Has coordinate rest packs in its rectangular type
     
     Args:
         func_def: Function definition IR node
@@ -44,6 +47,11 @@ def is_generic_function(func_def: 'BindingIR') -> bool:
         # Dynamic rank [T; *] → generic (needs monomorphization)
         if isinstance(param.param_type, RectangularType):
             if param.param_type.is_dynamic_rank:
+                return True
+            if param.param_type.shape and any(
+                isinstance(dim, str) and dim.startswith("..")
+                for dim in param.param_type.shape
+            ):
                 return True
     
     # All parameters have concrete types → specialized

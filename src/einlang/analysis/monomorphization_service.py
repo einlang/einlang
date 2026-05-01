@@ -20,11 +20,27 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from ..shared.defid import DefId, DefType
 from ..ir.nodes import (
     BindingIR,
+    BinaryOpIR,
     BlockExpressionIR,
+    CastExpressionIR,
+    DifferentialIR,
+    EinsteinIR,
+    EinsteinClauseIR,
     ExpressionIR,
     FunctionCallIR,
+    FunctionValueIR,
+    IdentifierIR,
+    IfExpressionIR,
+    IndexRestIR,
+    IndexVarIR,
     IRNode,
+    MatchExpressionIR,
     ParameterIR,
+    RectangularAccessIR,
+    ReductionExpressionIR,
+    TupleExpressionIR,
+    UnaryOpIR,
+    WhereExpressionIR,
     is_function_binding,
 )
 from ..shared.types import Type
@@ -268,6 +284,11 @@ class MonomorphizationService:
                 if isinstance(param_type, RectangularType):
                     if param_type.is_dynamic_rank:
                         return True
+                    if param_type.shape and any(
+                        isinstance(dim, str) and dim.startswith("..")
+                        for dim in param_type.shape
+                    ):
+                        return True
         return False
 
     # ---------- Specialize dispatch (_fully_specialize, _partially_specialize*) ----------
@@ -370,7 +391,7 @@ class MonomorphizationService:
             module_path, display_name, None, DefType.FUNCTION
         )
         specialized_func = self._clone_and_specialize(
-            generic_func, generic_defid, arg_types, specialized_defid
+            generic_func, generic_defid, arg_types, specialized_defid, call
         )
         if not specialized_func:
             return None
@@ -418,6 +439,7 @@ class MonomorphizationService:
         generic_defid: DefId,
         arg_types: Tuple[Type, ...],
         specialized_defid: DefId,
+        call: Optional[FunctionCallIR] = None,
     ) -> Optional[BindingIR]:
         spec = copy.deepcopy(generic_func)
         normalized = self._normalize_types_for_instance(arg_types)
@@ -443,7 +465,143 @@ class MonomorphizationService:
                         object.__setattr__(spec.expr, "custom_diff_body", diff_ir)
                     elif isinstance(diff_ir, ExpressionIR):
                         object.__setattr__(spec.expr, "custom_diff_body", diff_ir)
+            if call is not None:
+                self._instantiate_coordinate_body(spec.expr, call)
         return spec
+
+    def _instantiate_coordinate_body(
+        self,
+        func: FunctionValueIR,
+        call: FunctionCallIR,
+    ) -> None:
+        axis_bindings = dict(getattr(call, "coordinate_axis_bindings", None) or {})
+        pack_bindings = {
+            str(name): tuple(str(axis) for axis in axes)
+            for name, axes in (getattr(call, "coordinate_pack_bindings", None) or {}).items()
+        }
+        if not axis_bindings and not pack_bindings:
+            return
+        pack_defids: Dict[str, Tuple[DefId, ...]] = {}
+
+        def allocated_pack(name: str) -> Tuple[Tuple[str, DefId], ...]:
+            axes = pack_bindings.get(name, ())
+            if name not in pack_defids:
+                pack_defids[name] = tuple(self.tcx.resolver.allocate_for_local() for _ in axes)
+            return tuple(zip(axes, pack_defids[name]))
+
+        def copy_meta(dst: Any, src: Any) -> Any:
+            for attr in (
+                "type_info",
+                "shape_info",
+                "coordinate_layout",
+                "coordinate_address_domain",
+                "coordinate_axis_bindings",
+                "coordinate_pack_bindings",
+            ):
+                try:
+                    setattr(dst, attr, getattr(src, attr, None))
+                except AttributeError:
+                    pass
+            return dst
+
+        def index_items(idx: Any) -> List[Any]:
+            if isinstance(idx, IndexRestIR) and idx.name in pack_bindings:
+                out = []
+                for axis, defid in allocated_pack(idx.name):
+                    out.append(copy_meta(IndexVarIR(axis, idx.location, defid=defid), idx))
+                return out
+            if isinstance(idx, (IdentifierIR, IndexVarIR)) and idx.name in axis_bindings:
+                new_name = axis_bindings[idx.name]
+                cls = IndexVarIR if isinstance(idx, IndexVarIR) else IdentifierIR
+                if cls is IndexVarIR:
+                    repl = IndexVarIR(new_name, idx.location, defid=getattr(idx, "defid", None), range_ir=getattr(idx, "range_ir", None))
+                else:
+                    repl = IdentifierIR(new_name, idx.location, defid=getattr(idx, "defid", None))
+                return [copy_meta(repl, idx)]
+            return [idx]
+
+        def expand_indices(indices: Any) -> Tuple[Any, ...]:
+            out: List[Any] = []
+            for idx in indices or ():
+                out.extend(index_items(idx))
+            return tuple(out)
+
+        def rewrite_expr(expr: Any) -> Any:
+            if expr is None:
+                return None
+            if isinstance(expr, RectangularAccessIR):
+                expr.array = rewrite_expr(expr.array)
+                expr.indices = expand_indices(expr.indices)
+                return expr
+            if isinstance(expr, EinsteinIR):
+                for clause in expr.clauses or ():
+                    rewrite_clause(clause)
+                return expr
+            if isinstance(expr, ReductionExpressionIR):
+                expr.loop_vars = expand_indices(expr.loop_vars)
+                expr.body = rewrite_expr(expr.body)
+                if expr.where_clause is not None:
+                    for constraint in expr.where_clause.constraints or ():
+                        rewrite_expr(constraint)
+                return expr
+            if isinstance(expr, BlockExpressionIR):
+                for stmt in expr.statements or ():
+                    rewrite_binding_or_expr(stmt)
+                expr.final_expr = rewrite_expr(expr.final_expr)
+                return expr
+            if isinstance(expr, IfExpressionIR):
+                expr.condition = rewrite_expr(expr.condition)
+                expr.then_expr = rewrite_expr(expr.then_expr)
+                expr.else_expr = rewrite_expr(expr.else_expr)
+                return expr
+            if isinstance(expr, WhereExpressionIR):
+                expr.expr = rewrite_expr(expr.expr)
+                for constraint in expr.constraints or ():
+                    rewrite_expr(constraint)
+                return expr
+            if isinstance(expr, BinaryOpIR):
+                expr.left = rewrite_expr(expr.left)
+                expr.right = rewrite_expr(expr.right)
+                return expr
+            if isinstance(expr, UnaryOpIR):
+                expr.operand = rewrite_expr(expr.operand)
+                return expr
+            if isinstance(expr, CastExpressionIR):
+                expr.expr = rewrite_expr(expr.expr)
+                return expr
+            if isinstance(expr, DifferentialIR):
+                expr.operand = rewrite_expr(expr.operand)
+                return expr
+            if isinstance(expr, TupleExpressionIR):
+                expr.elements = tuple(rewrite_expr(item) for item in expr.elements or ())
+                return expr
+            if isinstance(expr, FunctionCallIR):
+                expr.arguments = tuple(rewrite_expr(arg) for arg in expr.arguments or ())
+                return expr
+            if isinstance(expr, MatchExpressionIR):
+                expr.scrutinee = rewrite_expr(expr.scrutinee)
+                for arm in expr.arms or ():
+                    if hasattr(arm, "body"):
+                        arm.body = rewrite_expr(arm.body)
+                return expr
+            return expr
+
+        def rewrite_clause(clause: EinsteinClauseIR) -> None:
+            clause.indices = expand_indices(clause.indices)
+            clause.value = rewrite_expr(clause.value)
+            if clause.where_clause is not None:
+                for constraint in clause.where_clause.constraints or ():
+                    rewrite_expr(constraint)
+
+        def rewrite_binding_or_expr(node: Any) -> Any:
+            if isinstance(node, BindingIR):
+                node.expr = rewrite_expr(node.expr)
+                return node
+            return rewrite_expr(node)
+
+        func.body = rewrite_expr(func.body)
+        if getattr(func, "custom_diff_body", None) is not None:
+            func.custom_diff_body = rewrite_expr(func.custom_diff_body)
 
     # ---------- DCE on specialized bodies ----------
 

@@ -705,6 +705,75 @@ class NameResolverVisitor(ASTVisitor[None]):
         # Current module context for resolving relative use statements
         self.current_module_path: Tuple[str, ...] = ()
 
+    def _define_function_signature_dims(self, func_scope, node: Any) -> None:
+        """Bind dimension names that appear in parameter tensor types.
+
+        Coordinate function bodies may refer to dimensions introduced by the
+        parameter signature, e.g. `x: [f32; b, j]` makes `b` and `j` usable in
+        `x[b, j]`. Return-only dimensions are intentionally not introduced here;
+        a coordinate must be grounded by an argument-side contract.
+        """
+        if func_scope is None:
+            return
+        from ..shared.types import RectangularType
+
+        dim_defids = dict(getattr(node, "_signature_dim_defids", {}) or {})
+        seen = set(dim_defids)
+        for param in getattr(node, "parameters", []) or []:
+            param_type = getattr(param, "type_annotation", None)
+            if not isinstance(param_type, RectangularType) or param_type.shape is None:
+                continue
+            for dim in param_type.shape:
+                if not isinstance(dim, str):
+                    continue
+                name = dim[2:] if dim.startswith("..") else dim
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                existing = func_scope.lookup(name)
+                if existing and getattr(existing, "defid", None):
+                    dim_defids[name] = existing.defid
+                    continue
+                dim_defid = self.resolver.allocate_for_local()
+                dim_defids[name] = dim_defid
+                _define_in_scope(
+                    func_scope,
+                    name,
+                    Binding(
+                        name=name,
+                        binding_type=BindingType.VARIABLE,
+                        definition=param,
+                        defid=dim_defid,
+                        scope=func_scope,
+                    ),
+                    param,
+                    self.tcx.reporter,
+                )
+        object.__setattr__(node, "_signature_dim_defids", dim_defids)
+
+    def _validate_no_return_only_dims(self, node: Any) -> None:
+        """Reject symbolic return dimensions not introduced by parameter types."""
+        from ..shared.types import RectangularType
+
+        return_type = getattr(node, "return_type", None)
+        if not isinstance(return_type, RectangularType) or return_type.shape is None:
+            return
+        dim_defids = getattr(node, "_signature_dim_defids", {}) or {}
+        for dim in return_type.shape:
+            if not isinstance(dim, str):
+                continue
+            name = dim[2:] if dim.startswith("..") else dim
+            if not name or name in dim_defids:
+                continue
+            loc = getattr(node, "location", None)
+            msg = (
+                f"return dimension `{dim}` is not grounded by any parameter type; "
+                "return-only symbolic dimensions are not allowed"
+            )
+            if self.tcx and self.tcx.reporter:
+                self.tcx.reporter.report_error(msg, loc, code="E0425")
+            raise ValueError(msg)
+
     def visit_identifier(self, node: ASTIdentifier) -> None:
         """
         Resolve identifier from scope stack (innermost to outermost). Set defid from binding.
@@ -912,6 +981,8 @@ class NameResolverVisitor(ASTVisitor[None]):
                             param,
                             self.tcx.reporter,
                         )
+            self._define_function_signature_dims(func_scope, node)
+            self._validate_no_return_only_dims(node)
             if node.body:
                 node.body.accept(self)
             # Resolve @fn body if merged into this function (same param scope)

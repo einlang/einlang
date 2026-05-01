@@ -4,7 +4,6 @@
 // Weights: python3 download_weights.py (once). Profile: PYTHONPATH=../../src python3 -m einlang main.ein --profile-verbose
 
 use std::ml::{layer_normalization, gelu};
-use std::array::argmax;
 use std::math::{exp, sqrt};
 use std::io::load_npy;
 
@@ -431,7 +430,7 @@ fn whisper_decode_step(
     let (x3, K3_next, V3_next) = decoder_block_token(x2, prev_cache.6, prev_cache.7, cross_cache.6, cross_cache.7, step, 3);
     let final_ln = layer_norm_token(x3, dec_ln_w, dec_ln_b, 1e-5);
     let logits[v in 0..51865] = sum[d in 0..384](final_ln[d] * dec_tok_emb[v, d]);
-    let next_token = argmax(logits);
+    let next_token = argmax[v](logits[v]);
     (K0_next, V0_next, K1_next, V1_next, K2_next, V2_next, K3_next, V3_next, next_token)
 }
 

@@ -3,6 +3,12 @@ let B = [[5.0, 6.0], [7.0, 8.0]];
 
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
 
+// Hold A[0, 1] fixed. The output cells that can feel it are C[0, j], with
+// route factors B[1, j]. This is the sparse-Jacobian reading from the book.
+let route_from_A_0_1[j] = B[1, j];
+
 let dC_dA = @C / @A;
+print("routes from A[0, 1] to C[0, j]");
+print(route_from_A_0_1);
 print("matmul: dC_dA (partial C / partial A)");
 print(dC_dA);

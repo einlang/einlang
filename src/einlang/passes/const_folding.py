@@ -190,14 +190,18 @@ class ConstantFolder(IRVisitor[ExpressionIR]):
         Rust Pattern: Visitor pattern for function calls
         """
         folded_args = [arg.accept(self) for arg in expr.arguments]
-        return FunctionCallIR(
+        rebuilt = FunctionCallIR(
             callee_expr=expr.callee_expr,
             location=expr.location,
             arguments=folded_args,
             module_path=expr.module_path,
             type_info=expr.type_info,
-            shape_info=expr.shape_info
+            shape_info=expr.shape_info,
+            coordinate_args=getattr(expr, "coordinate_args", ()),
         )
+        rebuilt.coordinate_layout = getattr(expr, "coordinate_layout", None)
+        rebuilt.coordinate_address_domain = getattr(expr, "coordinate_address_domain", None)
+        return rebuilt
     
     def visit_rectangular_access(self, expr: RectangularAccessIR) -> ExpressionIR:
         """Visit rectangular array access - fold array and indices. Never set an index slot to a list."""
@@ -843,4 +847,3 @@ class LiteralExtractor(IRVisitor[Optional[Any]]):
     def visit_module(self, node) -> Optional[Any]:
         """Modules are not literals"""
         return None
-

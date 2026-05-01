@@ -9,6 +9,13 @@ import logging
 import json
 import os
 from ..passes.base import BasePass, TyCtxt
+from ..passes.coordinate_utils import (
+    coord_param_name,
+    coordinate_arg_names,
+    instantiate_symbolic_sequence,
+    is_coord_pack_param,
+    match_symbolic_sequence,
+)
 from ..passes.range_analysis import RangeAnalysisPass
 from ..passes.shape_analysis import UnifiedShapeAnalysisPass
 from ..ir.scoped_visitor import ScopedIRVisitor
@@ -28,7 +35,7 @@ from ..ir.nodes import (
     is_function_binding,
     OrPatternIR, ConstructorPatternIR, BindingPatternIR, RangePatternIR,
 )
-from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, JaggedType, TupleType, DifferentialType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp
+from ..shared.types import Type, FunctionType, PrimitiveType, RectangularType, JaggedType, TupleType, DifferentialType, UNKNOWN, I32, I64, F32, F64, BOOL, STR, RANGE, UNIT, infer_literal_type, TypeVisitor, Optional as TypeOptional, TypeKind, UnaryOp, BinaryOp, ReductionOp
 from ..shared.defid import DefId, assert_defid
 from ..shared.source_location import SourceLocation
 from ..utils.config import DEFAULT_INT_TYPE, DEFAULT_FLOAT_TYPE
@@ -1156,6 +1163,7 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                     inferred_type = specialized_func.return_type
                 else:
                     inferred_type = UNKNOWN
+                inferred_type = self._instantiate_coordinate_return_type(expr, inferred_type)
                 expr.type_info = inferred_type
                 return inferred_type
         
@@ -1245,12 +1253,101 @@ class TypeInferencer(ScopedIRVisitor[Type]):
         else:
             # Return type not yet known (function body not yet analyzed or has UNKNOWN return type)
             inferred_type = UNKNOWN
+        inferred_type = self._instantiate_coordinate_return_type(expr, inferred_type)
         
         # Set type_info on IR node
         expr.type_info = inferred_type
         
         
         return inferred_type
+
+    def _function_value_for_call(self, expr: FunctionCallIR) -> Optional[FunctionValueIR]:
+        defid = expr.function_defid
+        if defid is None:
+            return None
+        func_map = getattr(self.tcx, "function_ir_map", None)
+        binding = func_map.get(defid) if func_map else None
+        node = getattr(binding, "expr", None)
+        return node if isinstance(node, FunctionValueIR) else None
+
+    def _coordinate_layout_for_expr(self, expr: Any) -> Optional[Tuple[str, ...]]:
+        layout = getattr(expr, "coordinate_layout", None)
+        return tuple(layout) if layout else None
+
+    def _instantiate_coordinate_return_type(self, expr: FunctionCallIR, inferred_type: Type) -> Type:
+        if not isinstance(inferred_type, RectangularType):
+            return inferred_type
+        if getattr(expr, "shape_info", None) is not None and inferred_type.shape is not None and any(
+            isinstance(dim, str) for dim in inferred_type.shape
+        ):
+            return RectangularType(
+                element_type=inferred_type.element_type,
+                shape=tuple(expr.shape_info),
+                is_dynamic_rank=False,
+            )
+        func = self._function_value_for_call(expr)
+        if func is None:
+            return inferred_type
+        return_type = getattr(func, "return_type", None)
+        if not isinstance(return_type, RectangularType) or return_type.shape is None:
+            return inferred_type
+        if getattr(expr, "shape_info", None) is not None and any(
+            isinstance(dim, str) for dim in return_type.shape
+        ):
+            return RectangularType(
+                element_type=inferred_type.element_type,
+                shape=tuple(expr.shape_info),
+                is_dynamic_rank=False,
+            )
+
+        dims: Dict[str, Any] = {}
+        packs: Dict[str, Tuple[Any, ...]] = {}
+        axes: Dict[str, str] = {}
+        axis_packs: Dict[str, Tuple[str, ...]] = {}
+        coord_params = tuple(func.coordinate_params or ())
+        coord_args = tuple(expr.coordinate_args or ())
+        if len(coord_args) > len(coord_params):
+            return inferred_type
+        for param, arg in zip(coord_params, coord_args):
+            names = coordinate_arg_names(arg)
+            if is_coord_pack_param(param):
+                if not isinstance(arg, TupleExpressionIR):
+                    return inferred_type
+                axis_packs[coord_param_name(param)] = names
+            elif not isinstance(arg, TupleExpressionIR) and len(names) == 1:
+                axes[str(param)] = names[0]
+            else:
+                return inferred_type
+        for param, arg in zip(func.parameters or (), expr.arguments or ()):
+            formal_type = getattr(param, "param_type", None)
+            actual_type = getattr(arg, "type_info", None)
+            actual_layout = self._coordinate_layout_for_expr(arg)
+            if (
+                isinstance(formal_type, RectangularType)
+                and formal_type.shape is not None
+                and isinstance(actual_type, RectangularType)
+                and actual_type.shape is not None
+            ):
+                match_symbolic_sequence(
+                    tuple(formal_type.shape),
+                    tuple(actual_type.shape),
+                    dims=dims,
+                    packs=packs,
+                    axes=axes,
+                    axis_packs=axis_packs,
+                    actual_layout=actual_layout,
+                )
+
+        instantiated = instantiate_symbolic_sequence(tuple(return_type.shape), dims=dims, packs=packs)
+        if instantiated is None:
+            instantiated = getattr(expr, "shape_info", None)
+        if instantiated is None:
+            return inferred_type
+        return RectangularType(
+            element_type=inferred_type.element_type,
+            shape=tuple(instantiated),
+            is_dynamic_rank=False,
+        )
     
     def _infer_python_module_call_type(self, func_name: str, arg_types: Tuple[Type, ...]) -> Type:
         """Infer return type for Python module calls (e.g. numpy.power, numpy.sqrt).
@@ -1305,6 +1402,20 @@ class TypeInferencer(ScopedIRVisitor[Type]):
                 return False
             actual_rank = len(actual.shape) if actual.shape is not None else None
             expected_rank = len(expected.shape) if expected.shape is not None else None
+            if expected.shape is not None and any(isinstance(d, str) and d.startswith("..") for d in expected.shape):
+                required_axes = sum(
+                    1
+                    for d in expected.shape
+                    if not (isinstance(d, str) and d.startswith(".."))
+                )
+                return actual_rank is None or actual_rank >= required_axes
+            if actual.shape is not None and any(isinstance(d, str) and d.startswith("..") for d in actual.shape):
+                required_axes = sum(
+                    1
+                    for d in actual.shape
+                    if not (isinstance(d, str) and d.startswith(".."))
+                )
+                return expected_rank is None or expected_rank >= required_axes
             if actual_rank == expected_rank:
                 return True
             if actual_rank is None or expected_rank is None:
@@ -2032,6 +2143,8 @@ class TypeInferencer(ScopedIRVisitor[Type]):
             if expr.where_clause:
                 for constraint in expr.where_clause.constraints:
                     constraint.accept(self)
+            if expr.operation in (ReductionOp.ARGMAX, ReductionOp.ARGMIN):
+                inferred_type = I32
         object.__setattr__(expr, 'type_info', inferred_type)
         return inferred_type
     

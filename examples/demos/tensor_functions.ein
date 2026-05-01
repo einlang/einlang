@@ -5,6 +5,25 @@
 use std::math::exp;
 use std::math::sqrt;
 
+// Coordinate-aware helpers keep the role-bearing axis visible at the call.
+// The body can hide stable mechanics; the bracket keeps the coordinate contract.
+fn softmax_along[class](input: [f32; ..batch, class])
+    -> [f32; ..batch, class]
+{
+    let max_val[..batch] = max[class](input[..batch, class]);
+    let exp_vals[..batch, class] = exp(input[..batch, class] - max_val[..batch]);
+    let sum_exp[..batch] = sum[class](exp_vals[..batch, class]);
+    let output[..batch, class] = exp_vals[..batch, class] / sum_exp[..batch];
+    output
+}
+
+fn add_bias[feature](input: [f32; ..batch, feature], bias: [f32; feature])
+    -> [f32; ..batch, feature]
+{
+    let output[..batch, feature] = input[..batch, feature] + bias[feature];
+    output
+}
+
 // =============================================================================
 // ACTIVATION FUNCTIONS
 // =============================================================================
@@ -35,18 +54,8 @@ fn tanh_activation(input) {
 
 // Softmax activation function (simplified for 2D)
 fn softmax_2d(input) {
-    // Step 1: Find max for numerical stability
-    let max_val[i] = max[j](input[i,j]);
-    
-    // Step 2: Subtract max and exponentiate
-    let exp_vals[i,j] = exp(input[i,j] - max_val[i]);
-    
-    // Step 3: Sum along last dimension
-    let sum_exp[i] = sum[j](exp_vals[i,j]);
-    
-    // Step 4: Normalize
-    let softmax_output[i,j] = exp_vals[i,j] / sum_exp[i];
-    softmax_output
+    // Normalize the class coordinate, while preserving the batch-like prefix.
+    softmax_along[j](input)
 }
 
 // =============================================================================
@@ -63,8 +72,7 @@ fn matmul(a,b) {
 fn linear_layer(input, weight,bias) {
     // Matrix multiplication + bias
     let temp[i,j] = sum[k](input[i,k] * weight[k,j]);
-    let linear_output[i,j] = temp[i,j] + bias[j];
-    linear_output
+    add_bias[j](temp, bias)
 }
 
 // Transpose operation
@@ -205,7 +213,8 @@ fn batch_norm_simple(input, gamma,beta) {
 // Complete neural network layer with activation
 fn dense_layer_with_activation(input, weight,bias, activation_type) {
     // Linear transformation
-    let linear_output[i,j] = sum[k](input[i,k] * weight[k,j]) + bias[j];
+    let projected[i,j] = sum[k](input[i,k] * weight[k,j]);
+    let linear_output = add_bias[j](projected, bias);
     
     // Apply activation based on type
     // Note: In real implementation, this would use conditional logic
@@ -259,17 +268,12 @@ fn mse_loss(predicted, target) {
 // Example: Simple neural network forward pass
 fn simple_neural_network(input, w1,b1, w2,b2) {
     // Layer 1: Linear + ReLU
-    let layer1_linear[i,j] = sum[k](input[i,k] * w1[k,j]) + b1[j];
+    let layer1_projected[i,j] = sum[k](input[i,k] * w1[k,j]);
+    let layer1_linear = add_bias[j](layer1_projected, b1);
     let layer1_output[i,j] = if layer1_linear[i,j] > 0 { layer1_linear[i,j] } else { 0.0 };
     
-    // Layer 2: Linear + Softmax (simplified)
-    let layer2_linear[i,j] = sum[k](layer1_output[i,k] * w2[k,j]) + b2[j];
-    
-    // Softmax normalization
-    let max_val[i] = max[j](layer2_linear[i,j]);
-    let exp_vals[i,j] = exp(layer2_linear[i,j] - max_val[i]);
-    let sum_exp[i] = sum[j](exp_vals[i,j]);
-    let nn_output[i,j] = exp_vals[i,j] / sum_exp[i];
-    
-    nn_output
+    // Layer 2: Linear + coordinate-aware softmax over the class coordinate
+    let layer2_projected[i,j] = sum[k](layer1_output[i,k] * w2[k,j]);
+    let layer2_linear = add_bias[j](layer2_projected, b2);
+    softmax_along[j](layer2_linear)
 }

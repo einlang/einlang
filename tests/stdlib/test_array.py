@@ -54,38 +54,6 @@ let data3 = [1, 2, 3, 4, 5]; let x3 = min[i](data3[i]); assert(x3 == 1);
         """
         self._test_and_execute(source, compiler, runtime)
     
-    def test_argmax_argmin(self, compiler, runtime):
-        """Test argmax and argmin functions"""
-        source = """
-use std::array;
-
-// argmax - basic cases
-let scores1 = [88, 92, 76, 92, 83];
-let idx1 = std::array::argmax(scores1);
-assert(idx1 == 1);  // First occurrence of max value 92
-
-let scores2 = [5, 3, 8, 1, 8];
-let idx2 = std::array::argmax(scores2);
-assert(idx2 == 2);  // First occurrence of max value 8
-
-let single = [42];
-assert(std::array::argmax(single) == 0);
-
-// argmin - basic cases
-let temps = [25, 18, 30, 18, 22];
-let min_idx = std::array::argmin(temps);
-assert(min_idx == 1);  // First occurrence of min value 18
-
-let nums = [10, 5, 3, 5, 7];
-assert(std::array::argmin(nums) == 2);  // First occurrence of min value 3
-
-// Edge cases - all same values
-let all_same = [5, 5, 5, 5];
-assert(std::array::argmax(all_same) == 0);  // First index
-assert(std::array::argmin(all_same) == 0);  // First index
-        """
-        self._test_and_execute(source, compiler, runtime)
-    
     def test_argmax_all_argmin_all(self, compiler, runtime):
         """Test argmax_all and argmin_all functions"""
         source = """

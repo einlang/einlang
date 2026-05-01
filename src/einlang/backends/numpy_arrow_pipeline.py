@@ -28,6 +28,7 @@ class PipelineApplier(IRVisitor[Any]):
             callee_expr=expr.callee_expr,
             location=self.location,
             arguments=[LiteralIR(value=self.left_value, location=self.location)] + expr.arguments,
+            coordinate_args=getattr(expr, "coordinate_args", ()),
         )
         return new_call.accept(self.backend)
 

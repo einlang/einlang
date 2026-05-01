@@ -3,6 +3,13 @@
 
 use std::math::sqrt;
 
+fn move_channel_last[channel, ..left, ..right](x: [f32; ..left, channel, ..right])
+    -> [f32; ..left, ..right, channel]
+{
+    let y[..left, ..right, channel] = x[..left, channel, ..right];
+    y
+}
+
 print("=== COMPUTER VISION TENSOR OPERATIONS ===");
 print("Realistic image processing with 4D tensors (NCHW format)");
 print();
@@ -29,7 +36,13 @@ let image_batch = [
     ]
 ];  // Shape: (2, 3, 4, 4) - (batch=2, channels=3, height=4, width=4)
 
+let image_nchw[batch in 0..2, channel in 0..3, row in 0..4, col in 0..4] =
+    image_batch[batch, channel, row, col];
+let image_nhwc = move_channel_last[channel](image_nchw);
+
 print("Image batch shape: (batch=2, channels=3, height=4, width=4)");
+print("Coordinate-aware channel move: NCHW -> NHWC");
+print("Image 1, row 0, col 0, RGB:", image_nhwc[0, 0, 0]);
 print("Image 1, Red channel:");
 print("Row 0:", [image_batch[0,0,0,w] | w in 0..4]);
 print("Row 1:", [image_batch[0,0,1,w] | w in 0..4]);
