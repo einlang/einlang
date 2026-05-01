@@ -31,6 +31,25 @@ let output[..batch, j] =
 The formula is longer than `softmax(x, axis=-1)`, but it exposes the structure
 that the compact call hides.
 
+This is the same comparison as before in a more demanding form:
+
+```python
+output = softmax(x, dim=-1)
+```
+
+This names a position. A named-tensor API can name the axis more directly.
+Einlang's expanded formula separates three jobs:
+
+```rust
+let m[..batch] = max[q](x[..batch, q]);
+let z[..batch] = sum[k](exp(x[..batch, k] - m[..batch]));
+let output[..batch, j] = exp(x[..batch, j] - m[..batch]) / z[..batch];
+```
+
+`j` is returned, while `q` and `k` are local scans. The coordinate function
+then puts the compact form back, but with the role still visible at the
+boundary.
+
 Once that structure is stated, it can become a coordinate function:
 
 ```rust

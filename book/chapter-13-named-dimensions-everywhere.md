@@ -229,6 +229,52 @@ positions mean. But the pattern is still an argument to one operation. It is a
 string-shaped contract at the call site, not a function boundary that later
 analysis can reuse.
 
+That difference is small in a single line and large in a system. Einops shines
+when the question is:
+
+```text
+How should this one tensor be rearranged, repeated, or reduced?
+```
+
+The pattern answers locally and readably. It replaces axis arithmetic with a
+small coordinate sentence. What it does not naturally answer is:
+
+```text
+What coordinate contract does this user-defined helper expose to every caller?
+Which coordinate is consumed?
+Which coordinates survive?
+Can the same contract specialize over arbitrary surrounding axes?
+```
+
+Einlang's coordinate functions are aimed at that second question:
+
+```rust
+fn top1[class](x: [f32; ..left, class, ..right])
+    -> [i32; ..left, ..right]
+{
+    argmax[class](x[..left, class, ..right])
+}
+```
+
+The compact call `top1[class](logits)` is not merely a nicer spelling for
+`argmax(axis=...)`. It is a reusable boundary. The parameter type grounds
+`class`, `..left`, and `..right`; the return type may reuse those dimensions
+but may not invent return-only ones. The body can be short because the
+signature has already stated which coordinate leaves.
+
+A fixed-rank version follows the same rule:
+
+```rust
+fn top1_2d[class](x: [f32; batch, class]) -> [i32; batch] {
+    argmax[class](x[batch, class])
+}
+```
+
+Here `batch` is not magic and not a global axis name. It is introduced by the
+parameter type and reused by the return type. That is the distinction from a
+standalone rearrangement pattern: the coordinate names become part of the
+function's checked interface.
+
 PyTorch named tensors and earlier named-tensor libraries make a different
 move: attach names to tensor dimensions and let operations check or propagate
 those names. That is closer to the spirit of this book. It says that a tensor
@@ -257,12 +303,75 @@ excellent for scientific datasets. Einlang is aiming at a smaller and sharper
 center: compiled tensor formulas where coordinate roles affect lowering,
 derivatives, and shape propagation.
 
+The comparison with xarray is especially clarifying because xarray is not
+"less named." It is more named in a data-model sense: coordinates can be
+labels, indexes, dates, locations, and alignment keys. Einlang is not trying to
+replace that. Einlang's names are smaller: scoped coordinates in formulas and
+function contracts. They are designed to answer compiler questions such as
+"which loop disappeared?", "which axis normalized?", and "which integer tensor
+is an address into which domain?"
+
+For example, xarray can make this alignment natural:
+
+```python
+y = x + bias          # dimensions align by labels such as "feature"
+```
+
+Einlang writes the reuse inside the formula:
+
+```rust
+let y[batch, feature] = x[batch, feature] + bias[feature];
+```
+
+The second form is not trying to model xarray's labeled data world. It is
+recording one compiler fact: `bias` does not depend on `batch`.
+
 Shape-annotation libraries such as jaxtyping also identify the right pain.
 They let Python code say that an argument has shape `"batch channels"` or that
 two arrays share a named dimension. That catches many mistakes. But the
 annotation is still beside the expression language. The expression itself
 usually continues to call operations with positional axes, strings, or
 framework conventions.
+
+Julia offers another useful comparison because it has both strong AD tools and
+strong tensor-expression tools in the same ecosystem:
+
+```julia
+@tullio C[i, j] := A[i, k] * B[k, j]
+gradient(W -> sum(W * x), W)
+```
+
+Zygote, ChainRules, and Enzyme show different ways to make derivatives
+extensible and compiler-aware. Tullio and TensorOperations show how far indexed
+tensor notation can go as a library-level surface. Einlang is not claiming
+those ideas are wrong; it is moving one boundary:
+
+```rust
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+let dC_dA = @C / @A;
+```
+
+The coordinate relation and the derivative request live in the same small
+language as the function signature, so a coordinate contract does not have to
+be reconstructed from a mixture of macros, derivative rules, and shape
+comments.
+
+Shape annotations are strongest at the boundary:
+
+```text
+this argument has shape [batch, channel, height, width]
+```
+
+Coordinate expressions are strongest inside the computation:
+
+```rust
+let p[batch, class] = softmax[class](logits[batch, class]);
+let loss = sum[batch](-logp[batch, label[batch]]);
+```
+
+The boundary and the expression should agree. The bet in this book is that
+agreement should be checked by one language mechanism rather than maintained
+as a treaty between comments, decorators, pattern strings, and runtime calls.
 
 So the distinction is placement:
 
@@ -271,6 +380,7 @@ einops             readable operation patterns
 named tensors      named axis metadata on tensors
 xarray             labeled array data model
 shape annotations  checked shape promises beside Python code
+Tullio/TC/TE       indexed tensor compute before scheduling/lowering
 Einlang            coordinate contracts inside ordinary function syntax
 ```
 
@@ -278,6 +388,23 @@ The claim is not that these tools were wrong. They are evidence that the
 problem is real. Einlang's wager is that the coordinate contract should be
 part of the program the compiler sees, not only metadata, a string pattern, a
 runtime wrapper, or a type comment.
+
+The practical test is simple. Ask where the coordinate fact lives after a
+helper is introduced.
+
+```text
+einops pattern      inside one operation call
+named tensor name   attached to a runtime tensor value
+xarray coordinate   attached to a labeled data object
+shape annotation    attached to a function boundary beside the code
+TC/TE compute       inside a tensor-compute IR before scheduling
+Einlang contract    inside the function signature and indexed expression
+```
+
+That last placement is why coordinate functions are a focus rather than a
+convenience. They let the book's earlier laws survive abstraction: a reduction
+still says what it consumes, a layout move still says what it reorders, and a
+selection still says which coordinate becomes an address.
 
 ## Are Functions the Right Abstraction?
 

@@ -59,6 +59,24 @@ inside `sum[feature]`, `softmax[class]`, `argmax[class]`, or
 `hidden[t] <- hidden[t - 1]` gives the compiler a stronger fact: which role was
 consumed, preserved, omitted, shifted, or returned as an address.
 
+Shape-annotation tools make a neighboring move. A Python boundary can say:
+
+```python
+def normalize(x: Float[Array, "batch feature"]) -> Float[Array, "batch feature"]:
+    return softmax(x, axis=-1)
+```
+
+That catches many lies at the edge of the helper. The remaining weakness is in
+the body: the operation still says `axis=-1`. The role reached the boundary,
+but the expression consumed a position. Einlang's version keeps the same name
+in both places:
+
+```rust
+fn normalize[feature](x: [f32; batch, feature]) -> [f32; batch, feature] {
+    softmax[feature](x)
+}
+```
+
 The trap is to stop at decorative names. If a tensor remembers that two axes
 are called `time` and `feature`, but a transpose-like operation can still move
 them by position without checking the role-level claim, the name helped the

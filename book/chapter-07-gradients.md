@@ -67,6 +67,26 @@ Execution graphs are still useful. Einlang changes what the language hands to
 the differentiator before execution begins. The source can already say which
 coordinates the derivative must keep and which ones it must collect.
 
+Julia's autodiff ecosystem is an important neighbor here. A Zygote-style call
+can keep differentiation close to ordinary code:
+
+```julia
+gradient(W -> sum(W * x), W)
+```
+
+ChainRules gives packages a shared way to say how a primitive pulls
+sensitivity backward. Enzyme pushes differentiation deeper into compiler IR.
+Those systems answer "how should differentiation be implemented and extended?"
+This chapter asks the neighboring question with addresses visible:
+
+```rust
+let y[i] = sum[j](W[i, j] * x[j]);
+let dloss_dW = @loss / @W;  // answer coordinates: [i, j]
+```
+
+Before the AD machinery runs, has the source preserved the coordinate
+addresses that the pullback must respect?
+
 In the implementation, `@` is not a wrapper around an external autodiff API.
 The compiler parses differential and quotient requests, runs range, shape, and
 type analysis first, then `AutodiffPass` expands those requests into ordinary

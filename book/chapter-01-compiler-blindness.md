@@ -29,6 +29,25 @@ The runtime sees shapes. The compiler sees a sequence of shape-compatible
 operations. The program itself does not say why axis `1` mattered before the
 transpose, or what semantic role the `4` and the `32` are supposed to play.
 
+Einops improves exactly this kind of line:
+
+```python
+y = rearrange(x, "b f (g s) -> (b g) (f s)", g=4, s=32)
+```
+
+That is much more readable than a chain of reshape and transpose calls. The
+pattern tells us that `g` travels with `b` and `s` travels with `f`. The
+question this book asks is what survives when that relation becomes a helper:
+
+```rust
+fn pack_grouped[group, slice](x: [f32; b, f, group, slice])
+    -> [f32; b * group, f * slice]
+```
+
+The einops pattern is a clear local operation. The coordinate-aware signature
+is the same idea at a boundary: the caller and later compiler passes can still
+see which split roles were packed.
+
 That is the first blind spot. Tensor code often preserves enough information
 to run, but not enough information to explain itself.
 

@@ -42,6 +42,32 @@ The book's checkpointing examples describe the policy space those facts make
 available; they are not a promise that every checkpoint schedule is already a
 separate user-visible pass.
 
+This is also where Tensor Comprehensions and TVM TE are the right comparison.
+They make tensor compute explicit enough for a compiler to transform:
+
+```python
+C = te.compute((M, N), lambda i, j: te.sum(A[i, k] * B[k, j], axis=k))
+s = te.create_schedule(C.op)
+```
+
+The compute says what `C[i, j]` means; the schedule later chooses splitting,
+tiling, caching, vectorization, and placement. Einlang's recurrence notation is
+not a replacement for tensor-compute DSLs or scheduling machinery. It is a way
+to state the semantic family and observation facts before a scheduler decides
+which buffers must exist:
+
+```rust
+let h[t in 1..T] = step(h[t - 1], x[t]);
+let final = h[T - 1];
+```
+
+The same placement applies to XLA, MLIR, IREE, Triton, and Halide. They are
+not primarily languages for saying that `h[t]` depends on `h[t - 1]`; they are
+ways to lower, schedule, tile, fuse, and run computations once the dependency
+structure is known. A good source notation should hand those systems a clean
+semantic object rather than a prematurely chosen buffer story. Storage follows
+observation; scheduling follows a relationship that has already been stated.
+
 Consider:
 
 ```rust

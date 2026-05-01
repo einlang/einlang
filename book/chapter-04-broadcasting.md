@@ -61,6 +61,25 @@ Broadcasting is not foolish; it is one of the reasons array code is pleasant.
 The sharper question is whether a value is truly independent of a coordinate,
 or whether a singleton dimension merely made the wrong reuse look legal.
 
+This is also where different relatives make different tradeoffs. NumPy and
+PyTorch broadcasting rely on positional shape rules:
+
+```python
+y = x + bias          # bias might have shape (feature,)
+```
+
+xarray can align by labels, so a `feature` coordinate is less likely to be
+mistaken for `batch`. Einlang asks for a smaller compiler fact inside the
+formula:
+
+```rust
+let y[batch, feature] = x[batch, feature] + bias[feature];
+```
+
+The term `bias[feature]` omits `batch`. That omission is the semantic claim:
+the same bias is reused for every batch member. Broadcasting made the program
+short; the indexed expression says why the reuse is legal.
+
 ## Implicit Expansion or Visible Absence
 
 Broadcasting offers a tempting design: let singleton dimensions expand

@@ -187,6 +187,48 @@ focused notation can give a few constructs stronger meanings. The goal is not
 to replace the surrounding ecosystem; it is to preserve tensor structure at the
 point where the ecosystem would otherwise reduce it to shape convention.
 
+Tensor Comprehensions and TVM TE belong on the lowering side of that split,
+but they are close cousins. Their compute/schedule separation says, in effect,
+"do not confuse the tensor relation with one particular implementation
+strategy." The compute can say:
+
+```text
+C[i, j] = sum[k](A[i, k] * B[k, j])
+```
+
+while the schedule says how to tile, cache, vectorize, or place it. Einlang
+makes the same separation one level earlier:
+
+```rust
+fn matmul[i, j, k](a: [f32; ..batch, i, k],
+                  b: [f32; ..batch, k, j])
+    -> [f32; ..batch, i, j]
+```
+
+It asks the source to expose coordinate roles, reduction scopes, recurrence
+edges, and coordinate-function contracts before a tensor-compute DSL, a TE
+schedule, an MLIR lowering, an XLA graph, an IREE backend, a Triton kernel, or
+a Halide schedule chooses how to execute them.
+
+This is also how to read the relationship to tools such as einops, named
+tensors, xarray, and shape-annotation libraries. Einops is a beautiful answer
+when the problem is a local rearrangement pattern. Named tensors and xarray are
+good answers when tensor values or data objects need axis labels. Shape
+annotations are useful when Python function boundaries need checked promises.
+Einlang is interested in the narrower place where the computation itself
+needs the coordinate fact:
+
+```rust
+fn normalize[class](x: [f32; ..left, class, ..right])
+    -> [f32; ..left, class, ..right]
+```
+
+The important part is not that this syntax is shorter than an einops pattern
+or more general than an array label. The important part is that the function
+boundary says what later reasoning will need: `class` is the coordinate being
+used, the surrounding coordinates are grounded by the argument, and the return
+type may reuse those coordinates but not invent new return-only ones.
+
 Elementwise choice belongs in the core because it can preserve coordinate
 structure:
 

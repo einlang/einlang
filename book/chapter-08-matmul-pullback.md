@@ -91,6 +91,27 @@ The call can be short because `k` names the consumed coordinate. The function
 may lower to BLAS, but the pullback still knows which routes to reopen because
 the contraction coordinate crossed the boundary.
 
+Julia has explored a nearby surface through packages such as Tullio and
+TensorOperations:
+
+```julia
+@tullio C[i, j] := A[i, k] * B[k, j]
+```
+
+That is close in spirit to the line above: the programmer states an indexed
+relation instead of a sequence of loops, and the system can connect that
+relation to AD and generated kernels. Einlang's extra insistence is that the
+same relation can become a checked function boundary:
+
+```rust
+fn matmul[i, j, k](a: [f32; ..batch, i, k],
+                  b: [f32; ..batch, k, j])
+    -> [f32; ..batch, i, j]
+```
+
+The coordinate `k` should not disappear merely because `matmul` became a
+library call.
+
 It is still useful to imagine the full Jacobian once. Each cell `C[i, j]`
 would have a derivative with respect to each cell `A[p, q]`. Most of those
 entries are zero, because `C[i, j]` only reads row `i` of `A`. The indexed

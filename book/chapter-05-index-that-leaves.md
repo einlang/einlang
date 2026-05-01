@@ -53,6 +53,23 @@ previous operations have moved axes around, the reader must reconstruct which ro
 `-1` names. A language can add comments or shape annotations, but the reduction
 itself still consumes a number rather than a role.
 
+Named tensor systems can improve the call by letting the axis be named:
+
+```text
+sum(x, axis="class")
+```
+
+That is already a better contract than `-1`. The next step is to make the
+reduced coordinate a scoped name in the expression:
+
+```rust
+let total[batch] = sum[class](logits[batch, class]);
+```
+
+Now the notation says not only "reduce the class axis," but also "this local
+coordinate is live inside the reduction and absent afterward." That scoping
+fact is what later pullbacks, range checks, and address-domain checks need.
+
 Einlang chooses a local name:
 
 ```text

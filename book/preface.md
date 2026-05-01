@@ -32,6 +32,24 @@ a deliberately narrow object: enough syntax to write tensor formulas with named
 coordinates, reductions, derivative requests, and recurrences, and enough
 compiler machinery to see what those formulas preserve.
 
+The book treats existing tools as relatives, not strawmen. NumPy and PyTorch
+made axis-oriented programming practical. Einops made layout patterns readable.
+Named tensors and xarray showed that labels can change how arrays align.
+Shape-annotation libraries showed how much value lives at function boundaries.
+Julia's Zygote, ChainRules, Enzyme, Tullio, and TensorOperations showed how
+productive a language can be when differentiation and tensor expressions are
+close to ordinary code.
+Compiler systems such as Tensor Comprehensions, TVM's Tensor Expression
+language, XLA, MLIR, IREE, Triton, and Halide showed how much leverage lives
+below the source program, in lowering, scheduling, fusion, layout, and code
+generation. Tensor Comprehensions and TVM TE are especially close reference
+points because they separate tensor compute from implementation strategy. The
+question here is where coordinate roles, reduction scopes, and
+function-boundary contracts should live before those systems get to work. The
+answer this book explores is: put coordinate contracts in the expression
+language itself, and let ordinary functions carry them when the indexed form
+becomes too noisy.
+
 The book does not ask every useful operation to stay expanded forever. A common
 operation can be a coordinate function: `softmax[class]`, `argmax[class]`,
 `move_channel[channel]`, and similar calls are meant to hide stable mechanics

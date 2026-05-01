@@ -286,6 +286,21 @@ fuse operations, tile memory, use specialized kernels, cache keys and values,
 or split work across devices. Visible coordinates do not replace those
 techniques. They describe the relationship those techniques must preserve.
 
+Tensor Comprehensions and TVM TE are useful analogies here. Their compute
+definitions can describe reductions such as attention's score contraction:
+
+```text
+score[b, h, i, j] = sum[d](Q[b, h, i, d] * K[b, h, j, d])
+```
+
+Later scheduling or lowering decides how to tile, cache, vectorize, or bind
+the work to hardware. Einlang is interested in the same relation as a
+source-level contract: `i` is the query coordinate, `j` is the key coordinate,
+`d` is the feature coordinate being contracted, and `h` separates heads. A
+tensor comprehension, a TE schedule, a Triton kernel, or an XLA/MLIR lowering
+should be free to optimize that computation. It should not have to rediscover
+those roles from a pile of axis numbers.
+
 That separation is the same one seen in earlier chapters: source relation
 first, lowering strategy later. The source can say that `i` queries `j`; the
 runtime can decide how to compute that relation efficiently. A good notation
