@@ -1,120 +1,120 @@
-- title: Index
+- title: "The Name in the Bracket"
   url: /book/
-  short_title: Index
+  short_title: Home
   kind: frontmatter
   section: Opening
-  eyebrow: Book
-- title: Preface
-  url: /book/preface.html
-  short_title: Preface
-  kind: frontmatter
-  section: Opening
-  eyebrow: Preface
-- title: "Chapter 1: What Can the Compiler Not See?"
+  eyebrow:
+- title: "Introduction: The Shape-Meanings Gap"
+  url: /book/chapter-00-why.html
+  short_title: "Introduction"
+  kind: chapter
+  section: "Opening"
+  eyebrow: Introduction
+- title: "What Can the Compiler Not See?"
   url: /book/chapter-01-compiler-blindness.html
-  short_title: 1. Compiler Blindness
+  short_title: "1. Compiler Blindness"
   kind: chapter
-  section: "Section I: Named Axes"
-  eyebrow: Chapter 1
-- title: "Chapter 2: Axis Roles Are Not Axis Positions"
+  section: "Part I: Coordinates"
+  eyebrow: "1"
+- title: "Axis Roles Are Not Axis Positions"
   url: /book/chapter-02-axis-roles.html
-  short_title: 2. Axis Roles
+  short_title: "2. Axis Roles"
   kind: chapter
-  section: "Section I: Named Axes"
-  eyebrow: Chapter 2
-- title: "Chapter 3: Coordinate Maps in the Standard Library"
+  section: "Part I: Coordinates"
+  eyebrow: "2"
+- title: "Coordinate Maps in the Standard Library"
   url: /book/chapter-03-coordinate-maps.html
-  short_title: 3. Coordinate Maps
+  short_title: "3. Coordinate Maps"
   kind: chapter
-  section: "Section I: Named Axes"
-  eyebrow: Chapter 3
-- title: "Chapter 4: What Does Broadcasting Hide?"
+  section: "Part I: Coordinates"
+  eyebrow: "3"
+- title: "What Does Broadcasting Hide?"
   url: /book/chapter-04-broadcasting.html
-  short_title: 4. Broadcasting
+  short_title: "4. Broadcasting"
   kind: chapter
-  section: "Section II: Rules from Indices"
-  eyebrow: Chapter 4
-- title: "Chapter 5: The Index That Leaves"
+  section: "Part I: Coordinates"
+  eyebrow: "4"
+- title: "The Index That Leaves"
   url: /book/chapter-05-index-that-leaves.html
-  short_title: 5. Consumed Indices
+  short_title: "5. Consumed Indices"
   kind: chapter
-  section: "Section II: Rules from Indices"
-  eyebrow: Chapter 5
-- title: "Chapter 6: Softmax Has Three Coordinate Roles"
+  section: "Part I: Coordinates"
+  eyebrow: "5"
+- title: "Softmax Has Three Coordinate Roles"
   url: /book/chapter-06-softmax-coordinate-roles.html
-  short_title: 6. Softmax
+  short_title: "6. Softmax"
   kind: chapter
-  section: "Section II: Rules from Indices"
-  eyebrow: Chapter 6
-- title: "Chapter 7: What Is a Gradient?"
+  section: "Part I: Coordinates"
+  eyebrow: "6"
+- title: "What Is a Gradient?"
   url: /book/chapter-07-gradients.html
-  short_title: 7. Gradients
+  short_title: "7. Gradients"
   kind: chapter
-  section: "Section III: Compile-Time Autodiff"
-  eyebrow: Chapter 7
-- title: "Chapter 8: Matrix Multiplication Teaches the Pullback"
+  section: "Part II: Derivatives"
+  eyebrow: "7"
+- title: "Matrix Multiplication Teaches the Pullback"
   url: /book/chapter-08-matmul-pullback.html
-  short_title: 8. Matmul Pullback
+  short_title: "8. Matmul Pullback"
   kind: chapter
-  section: "Section III: Compile-Time Autodiff"
-  eyebrow: Chapter 8
-- title: "Chapter 9: Local Derivatives, Global Shape"
+  section: "Part II: Derivatives"
+  eyebrow: "8"
+- title: "Local Derivatives, Global Shape"
   url: /book/chapter-09-local-derivatives-global-shape.html
-  short_title: 9. Local Derivatives
+  short_title: "9. Local Derivatives"
   kind: chapter
-  section: "Section III: Compile-Time Autodiff"
-  eyebrow: Chapter 9
-- title: "Chapter 10: The Wall of Time Steps"
+  section: "Part II: Derivatives"
+  eyebrow: "9"
+- title: "Time Steps Are Not Loops"
   url: /book/chapter-10-time-steps.html
-  short_title: 10. Time Steps
+  short_title: "10. Time Steps"
   kind: chapter
-  section: "Section IV: Dependency Graphs and Storage"
-  eyebrow: Chapter 10
-- title: "Chapter 11: Storage Follows Observation"
+  section: "Part III: Time and Recurrence"
+  eyebrow: "10"
+- title: "Storage Follows Observation"
   url: /book/chapter-11-storage-follows-observation.html
-  short_title: 11. Storage
+  short_title: "11. Storage"
   kind: chapter
-  section: "Section IV: Dependency Graphs and Storage"
-  eyebrow: Chapter 11
-- title: "Chapter 12: An RNN Is a Dependency Graph"
+  section: "Part III: Time and Recurrence"
+  eyebrow: "11"
+- title: "An RNN Is a Dependency Graph"
   url: /book/chapter-12-rnn-dependency-graph.html
-  short_title: 12. RNN
+  short_title: "12. RNN"
   kind: chapter
-  section: "Section IV: Dependency Graphs and Storage"
-  eyebrow: Chapter 12
-- title: "Chapter 13: If Dimensions Had Names Everywhere"
+  section: "Part III: Time and Recurrence"
+  eyebrow: "12"
+- title: "If Dimensions Had Names Everywhere"
   url: /book/chapter-13-named-dimensions-everywhere.html
-  short_title: 13. Named Dimensions
+  short_title: "13. Named Dimensions"
   kind: chapter
-  section: "Section V: Framework and Compiler Boundaries"
-  eyebrow: Chapter 13
-- title: "Chapter 14: Attention as Named Communication"
+  section: "Part IV: Full Applications"
+  eyebrow: "13"
+- title: "Attention as Named Communication"
   url: /book/chapter-14-attention-named-communication.html
-  short_title: 14. Attention
+  short_title: "14. Attention"
   kind: chapter
-  section: "Section V: Framework and Compiler Boundaries"
-  eyebrow: Chapter 14
-- title: "Chapter 15: What the Notation Refuses to Hide"
+  section: "Part IV: Full Applications"
+  eyebrow: "14"
+- title: "What the Notation Refuses to Hide"
   url: /book/chapter-15-notation-refuses-to-hide.html
-  short_title: 15. Refusals
+  short_title: "15. Refusals"
   kind: chapter
-  section: "Section VI: Principles Under Stress"
-  eyebrow: Chapter 15
-- title: "Chapter 16: Dynamic Routing and Low-Rank Communication"
+  section: "Part IV: Full Applications"
+  eyebrow: "15"
+- title: "Dynamic Routing and Low-Rank Communication"
   url: /book/chapter-16-dynamic-routing-low-rank-communication.html
-  short_title: 16. Routing
+  short_title: "16. Routing"
   kind: chapter
-  section: "Section VI: Principles Under Stress"
-  eyebrow: Chapter 16
+  section: "Part IV: Full Applications"
+  eyebrow: "16"
 - title: "Appendix: Coordinate Diagnostics"
   url: /book/appendix-coordinate-diagnostics.html
-  short_title: Appendix. Diagnostics
+  short_title: "App. Diagnostics"
   kind: frontmatter
   section: Closing
   eyebrow: Appendix
 - title: "Appendix: Coordinate Reading Laws"
   url: /book/appendix-coordinate-laws.html
-  short_title: Appendix. Laws
+  short_title: "App. Laws"
   kind: frontmatter
   section: Closing
   eyebrow: Appendix

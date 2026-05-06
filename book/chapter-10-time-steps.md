@@ -1,18 +1,42 @@
 ---
 layout: book
-title: "Chapter 10: The Wall of Time Steps"
+title: "Time Steps Are Not Loops"
 ---
 
-# The Wall of Time Steps
+# Time Steps Are Not Loops
 
-The autodiff chapters treated coordinates as addresses of influence. Time adds
-one more ingredient: direction. A time coordinate is still a coordinate, but a
-forward recurrence also says which way dependency edges are allowed to point.
+> "What then is time? If no one asks me, I know what it is. If I wish to explain
+> it to him who asks, I do not know."
+>
+> — Augustine of Hippo, *Confessions* (c. 400)
 
-The common illusion is that a loop is the same thing as time. It is not. A loop
-is one way to execute a dependency that should be visible before scheduling.
+Everyone can write a loop. The hard part is saying what depends on what: which
+values must come before which others, which can run in parallel, which must be
+stored and which can be forgotten. A loop tells you what runs. It does not tell
+you what a time step means. For that, you need to name the index.
 
-Sequence models are usually introduced with loops:
+Part II showed that hiding has consequences — the forward pass's omissions
+become the backward pass's sums. Part III introduces a new dimension to the
+problem: direction. When `h[t]` reads `h[t-1]`, the dependency has an arrow.
+Hiding that arrow in mutable state does not just hide one fact. It hides four:
+causality, storability, reversibility, and optimizability. Time is the first
+coordinate in this book whose name carries direction — and direction is the
+difference between a program the compiler can transform and a program it can
+only execute.
+
+## The Bug That Read Tomorrow's Token
+
+You wrote a language model. The training loop runs for three days. When it
+finishes, you check the metrics. Perplexity on the training set: 42. Perplexity
+on the validation set: 38.
+
+Validation is better than training. That never happens. Your first thought:
+the validation set is easier. You compute unigram entropy on both—identical.
+Your second thought: the checkpoint was taken at a lucky moment. You restart
+from scratch—same result. Your third thought is the one you should have had
+first.
+
+You check the model code:
 
 ```python
 h = init_state
@@ -20,237 +44,203 @@ for t in range(T):
     h = rnn_cell(h, x[t])
 ```
 
-This is clear executable code, but it also builds a wall. The loop says "do this
-next," then "do this next," then "do this next." The time dependency is there,
-but the reader has to look through sequential control and mutation of `h` to
-find it.
-
-Ask what the program states. It states that `h` is updated repeatedly. It may
-not state, in source-level form, that the value at time `t` depends on the
-value at time `t - 1`. That relationship has to be recovered from the loop
-body.
-
-Loops are excellent execution devices. They are less direct as explanations of
-time-shaped structure.
-
-Frameworks noticed this problem and introduced structured loop helpers. JAX
-has `lax.scan`; PyTorch users often choose between an explicit Python loop,
-library RNN modules, and compiled graph capture. Those tools can be excellent
-execution interfaces:
+Looks fine. But `rnn_cell` is 200 lines long and was written by an intern
+eight months ago. Buried in its body:
 
 ```python
-carry, ys = scan(step, init_state, xs)
+# Line 143: attention-like gating over "context"
+context = sum(w * x[t+1])  # accidentally reads the next token
 ```
 
-But the call still depends on the reader knowing which axis of `xs` is time,
-which parts of the carry are state, and which coordinates are merely batched
-around the recurrence. The coordinate version tries to keep the smallest
-necessary fact on the page:
+The loop runs. `x[t+1]` exists because the sequence buffer has `T+1` entries.
+The shapes are fine. The loss descends. But at every time step, the model
+peeks at the answer. On the training set, it learns to rely on that future
+peek—but training applies teacher forcing anyway, so the effect is subtle. On
+the validation set, the future peek is still available (the sequence buffer
+works the same way), so validation perplexity is good—even slightly better,
+because the shorter validation sequences make the future token an even stronger
+signal.
 
-```text
-let h[t, ..batch, hidden] = scan[t](step, h0[..batch, hidden], x[t, ..batch, input])
+The model never learned to predict. It learned to copy.
+
+A loop cannot catch this. `for t in range(T)` and `for t in range(T-1)` look
+identical in a code review. The index `t+1` is inside a 200-line function body.
+The loop only says what to execute, not what depends on what.
+
+A recurrence catches it at the definition site. The index expression itself
+reveals the direction:
+
+```rust
+// Correct: reads the past
+let h[t in 1..T] = step(h[t - 1], x[t]);
+
+// Bug: reads the future  (visible at a glance)
+let h[t in 0..T-1] = step(h[t + 1], x[t]);
 ```
 
-`scan` may be a library helper. The bracket says which coordinate gives it a
-direction. The variadic `..batch` says the recurrence is polymorphic over the
-surrounding independent coordinates, not over the ordered one.
+You do not need to read `step`'s body. The index `t + 1` in the recurrence
+definition points forward. A compiler pass can verify: every read of a
+recurrence family uses a smaller index. The loop buries the direction in
+mutable state updates. The recurrence names it in the defining equation.
 
-A loop tells an execution story. A recurrence tells a dependency story. The
-two can lower to the same machine behavior, but they give the compiler and the
-reader different source facts to work with. The important separation is between
-`h[t]`, `h[t - 1]`, and the storage slot that may eventually hold them.
+## Loop vs. Recurrence
 
-The smallest useful act is to draw one edge from `h[t]` to the state it reads.
-If the edge points to `t - 1`, the source describes a forward recurrence. If it
-points to `t + 1`, the program may still describe something meaningful, but it
-is no longer the same story. It needs a different contract: a backward pass, a
-boundary-value problem, or a fixed-point computation.
+The mathematical form of a recurrence is the same across every domain:
 
-## Control Step or Dependency Axis
+$$h_t = f(h_{t-1}, x_t), \quad h_0 = h_{\text{init}}$$
 
-The natural design is to treat time as control flow. A loop counter advances,
-a mutable state changes, and the program eventually produces a final value.
-This matches the machine well. It also makes time disappear into execution
-order.
+$t$ is the index. $h_{t-1}$ is the dependency edge — today reads yesterday.
+$x_t$ is the external input at this step. The formula says nothing about loops,
+mutable variables, or execution order. It only says what depends on what.
 
-The alternative is to treat time as an index of a value family. Then the
-program can state that `h[t]` depends on `h[t - 1]` before deciding how to run
-the computation. The compiler sees a dependency graph rather than only a
-sequence of updates.
+This is the second deepening of the book. The gradient (Part II) traced
+sensitivity backward through a static graph — one operation feeding another.
+Time traces state forward through a dynamic graph — a value depending on earlier
+versions of itself. The two directions interact: the backward pass of a
+recurrence must run in reverse time, and the compiler must know the dependency
+direction to schedule it. Hiding the time direction in mutable state hides not
+just readability but computability — the compiler cannot optimize what it cannot
+see depends on what.
 
-This is not a rejection of loops. It is a placement decision. Use loops when
-choosing an execution order. Use a recurrence when the time dependency itself
-is part of what the program is saying.
-
-The contrast is clearest when the same recurrence is written twice:
+Write the same RNN twice:
 
 ```python
+# Version A: loop (execution story)
 h = h0
 for t in range(1, T):
     h = step(h, x[t])
 ```
 
-and:
-
 ```rust
+// Version B: recurrence (dependency story)
 let h[0] = h0;
 let h[t in 1..T] = step(h[t - 1], x[t]);
 ```
 
-The first program commits early to one mutable slot and one serial schedule.
-The second states the dependency edge. A compiler may still lower it to the
-same loop, but it can first ask whether batch coordinates are independent,
-whether only the final state is observed, or whether the full family must be
-kept.
+Version A commits early to one mutable slot and one serial schedule. The
+dependency `h[t]` reads `h[t-1]` must be recovered from `step`'s body. Version
+B states the dependency edge at the definition site. `h[t - 1]` is not an
+implementation detail—it is the mark that today depends on yesterday.
 
-Two programs can have the same loop shape while answering different semantic
-questions: does step `t` depend on `t - 1`, `t - 2`, or all earlier steps? A
-loop counter alone does not answer. The answer lives in the body. A recurrence
-puts the answer at the address where the value is defined.
-
-## Time as an Index
-
-Write the same idea as recurrence:
+The contrast is clearest when a dependency is wrong:
 
 ```rust
-let h[0] = init_state;
-let h[t in 1..T] = rnn_cell(h[t - 1], x[t]);
+// This reads the future
+let bad[t in 0..T] = bad[t + 1] + 1;
 ```
 
-Now `h` is not a mutable cell. It is a family of values indexed by time. The
-base binding gives one member of the family. The recurrence rule gives the rest
-under a range constraint.
+A loop version of this bug runs without complaint—`range(T)` still iterates
+forward, the read of `bad[t+1]` is hidden in an expression, the program
+produces numbers. The recurrence version displays the problem in the index
+itself: `t + 1` points forward, and a forward simulation cannot have a future
+dependency without a different contract (boundary-value problem, fixed-point
+iteration, backward pass).
 
-For each `t`, the dependencies are visible:
+The quick check: circle every read of the same binding. If `h[t]` reads
+`h[t - 1]`, the edge points backward. If it reads `h[t + 1]`, the edge points
+forward. A compiler pass can perform this check mechanically because the
+recurrence states the relation explicitly.
+
+## The Three Questions a Recurrence Separates
+
+A loop fuses three ideas into one mutable variable. A recurrence pulls them
+apart:
 
 ```text
-h[t - 1]
-x[t]
+family       h[t]          the collection of values indexed by time
+dependency   h[t] reads    which earlier value each step uses
+             h[t - 1]
+storage      chosen later   what to keep, what to discard
 ```
 
-The offset `t - 1` is not an implementation detail. It is the little mark that
-today depends on yesterday. The range `1..T` states where the recurrence rule
-applies. The base case `h[0]` states where the dependency chain begins.
-
-Initial state is therefore not an awkward extra outside the coordinate system.
-It is the boundary member of the family. Some languages spell it as `h0`, some
-as `h[-1]`, and some as an optional input to an RNN library call. In the
-indexed form, the safest choice is to make the boundary explicit:
+Take a scalar recurrence:
 
 ```rust
-let h[0] = h0;
-let h[t in 1..T] = step(h[t - 1], x[t]);
+let h[0] = 1.0;
+let h[t in 1..5] = 0.5 * h[t - 1] + x[t];
 ```
 
-If a model really wants a state before the first input, it can choose a shifted
-domain, but the choice should be visible. Hidden initial conditions are another
-place where loop notation can smuggle a semantic boundary into setup code.
-
-A loop says "next, next, next." A recurrence says "this point depends on that
-earlier point." The second form gives the compiler and the reader a dependency
-relation before it gives them a schedule.
-
-A future helper can still be compact if it carries the time coordinate:
+With inputs `x[1] = 10, x[2] = 20, x[3] = 30, x[4] = 40`:
 
 ```text
-let h[t] = scan[t](step, h0, x[t])
+h[1] = 0.5 * h[0] + 10
+h[2] = 0.5 * h[1] + 20
+h[3] = 0.5 * h[2] + 30
+h[4] = 0.5 * h[3] + 40
 ```
 
-The point of the bracket is not syntax for its own sake. It prevents `scan`
-from becoming an opaque loop-shaped box. The call says which coordinate orders
-the dependency, leaving storage and scheduling for later lowering.
+The important fact is not the arithmetic—it is the dependency direction. Every
+`h[t]` reads `h[t - 1]`, never `h[t + 1]`. The index expression states that
+direction in the value definition itself.
 
-The same rule used for `softmax[class]` applies here. A helper is welcome when
-the scalar mechanics are conventional, but the coordinate that gives the
-operation its role should remain visible. `scan[t]` says that `t` is not just a
-batch-like prefix and not just another feature coordinate. It is the ordered
-coordinate along which each state may read earlier states.
+```
+   Time Dependency Graph
 
-That also leaves room for rank-polymorphic use:
+   Correct: h[t] depends on h[t-1]
+   h[0] ---> h[1] ---> h[2] ---> h[3] ---> h[4]
+    0.5*+x1    0.5*+x2    0.5*+x3    0.5*+x4
 
-```text
-let h[t, ..batch, hidden] =
-    scan[t](step, h0[..batch, hidden], x[t, ..batch, input])
+   Each arrow points forward in evaluation:
+   h[t] reads h[t-1], so to compute h[t] you need h[t-1] first.
+   A forward sweep can follow the arrows.
+
+   Wrong: h[t] depends on h[t+1]  (crossed out)
+   h[0] -X-> h[1] -X-> h[2] -X-> h[3] -X-> h[4]
+     reads     reads     reads     reads
+    h[1]      h[2]      h[3]      h[4]
+
+   Forward sweep cannot compute this --
+   h[0] needs h[1] which hasn't been computed yet.
+   Requires a different contract (boundary-value, fixed-point).
 ```
 
-The helper need not assume how many batch-like coordinates surround the time
-axis. It only needs to know which coordinate is time. The rest can be inferred
-from the argument ranks, just as `move_channel[channel](image)` can infer the
-spatial pack around the named channel coordinate.
-
-For `T = 4`, the dependency chain is almost too small to hide:
-
-```text
-h[1] reads h[0]
-h[2] reads h[1]
-h[3] reads h[2]
-```
-
-That chain is the program's time structure. A loop can execute it, but the
-recurrence states it.
-
-## Storage Is a Consequence
-
-Suppose the program eventually asks only for:
+Now consider storage. If the program only asks for the final state:
 
 ```rust
 let final = h[T - 1];
 ```
 
-The recurrence itself needs only `h[t - 1]` to compute `h[t]`. If no later code
-observes the full history, an implementation may keep a rolling one-step
-window. The source dependency makes that possibility visible.
-
-Now change the observation:
+The recurrence needs only a one-step rolling window. If it asks for all states:
 
 ```rust
 let all_states[t] = h[t];
 ```
 
-The recurrence rule did not change, but the storage story did. The program now
-observes every time step, so the full sequence must remain available. This is a
-clean separation:
+The full sequence must remain available. The recurrence rule did not change,
+but the storage demand did. The separation lets storage be a consequence of
+observation, not a property of the recurrence itself.
 
-```text
-dependency relation  what each point needs
-observation          which points later code asks to keep
-schedule/storage     how an implementation chooses to compute and retain them
-```
+This is the Hiding Law applied to time. A loop notation merges three facts
+into one mutable variable: what values exist, which earlier value each step
+reads, and which values must occupy memory. When those three facts are merged,
+changing one — observing a different time step — silently changes the others.
+When they are separate, the observation can change without rewriting the
+recurrence. The notation determines whether storage is a decision you make
+or a side effect you discover.
 
-Traditional loop code often blends those questions. Recurrence pulls
-them apart.
+## Batch Isolation During Recurrence
 
-## The Error You Want Named
-
-A recurrence can also state mistakes plainly:
+Add a batch dimension:
 
 ```rust
-let bad[t in 0..T] = bad[t + 1] + 1;
+let h[0, b] = init[b];
+let h[t in 1..T, b] = 0.5 * h[t - 1, b] + x[t, b];
 ```
 
-This reads the future. Unless another boundary condition resolves the
-dependency, the definition is not a forward recurrence under the stated range.
-The problem is present in the index expression `t + 1`; it does not need to
-wait for a runtime surprise.
+For `h[3, 7]`, the previous state is `h[2, 7]`. Batch stays fixed. The
+recurrence does not mix `b = 7` with `b = 2`—it only walks backward in time.
+If the formula accidentally read `h[t - 1, b_prev]` under a `sum[b_prev]`, the
+model would communicate across batch examples. The shape would be valid. The
+loss would decrease. The meaning would silently change.
 
-The quick check is simple. Circle every read of the same binding. If the rule
-for `h[t]` reads `h[t - 1]`, it points backward. If it reads `h[t + 1]`, it
-points forward. A recurrence that points forward needs a different explanation
-than ordinary forward evaluation.
+This is the same coordinate isolation from earlier chapters, applied to a
+dynamic axis. Time moves. Batch stays fixed. Named coordinates make the
+boundary explicit.
 
-This is a dependency-graph question, not only a syntax question. A legal
-forward recurrence should admit a topological order over its time points: all
-inputs to `h[t]` are available before `h[t]` is computed. The expression
-`h[t - 1]` has that property under the range `1..T`. The expression
-`h[t + 1]` does not, unless the program is really describing a backward pass, a
-boundary-value problem, or a fixed-point equation. Those are valid ideas, but
-they deserve different source contracts.
+## A Real RNN
 
-## An RNN Written as Recurrence
-
-The RNN operator in `stdlib/ml/recurrent_ops.ein` is the same dependency idea
-after it has met a real model. Here is the core, with bias handling and
-activation dispatch trimmed so the dependency is easier to see:
+The core of `stdlib/ml/recurrent_ops.ein`, with bias and activation dispatch
+trimmed:
 
 ```rust
 let hidden[0, b in 0..batch_size, h in 0..hidden_size] =
@@ -266,199 +256,195 @@ let hidden[t in 1..seq_length, b in 0..batch_size, h in 0..hidden_size] = {
 };
 ```
 
-The state has three visible coordinates: time `t`, batch `b`, and hidden unit
-`h`. The input contribution consumes `i`. The recurrent contribution consumes
-`h_prev`. The read of `hidden[t - 1, b, h_prev]` exposes a one-step temporal
-dependency while preserving the batch coordinate.
-
-Read one cell:
+Read one cell: `hidden[7, b, h]`. It is built from today's input `X[7, b, i]`
+and yesterday's hidden state `hidden[6, b, h_prev]`. Three roles are visible
+at once:
 
 ```text
-hidden[7, b, h]
+t        the time coordinate being defined
+i        the input feature consumed by the input projection
+h_prev   the previous hidden coordinate consumed by the recurrent projection
 ```
 
-It is built from today's input `X[7, b, i]` and yesterday's hidden state
-`hidden[6, b, h_prev]`. Time changes. Batch stays fixed. Hidden coordinates
-are mixed through the recurrent weights.
+Time changes. Batch stays fixed. Hidden coordinates are mixed through the
+recurrent weight matrix. All of this is visible in the source without tracing
+through a Python loop body.
 
-That is a lot of information for a compiler, and it is not hidden behind a
-Python loop.
+## Time Has Direction
 
-## What Does Time Point To?
+Time is the first coordinate in this book with an inherent direction. Batch can
+be reordered. Feature can be reduced. Time in a forward recurrence carries
+causality: `t` may depend on `t - 1`, but not on `t + 1`.
 
-The RNN excerpt makes three roles visible at once:
+Previous chapters used named coordinates to check shape and role. Time adds one
+more check: does a valid evaluation order exist? A recurrence rule is a set of
+equations, but not every set of equations is a legal forward computation. The
+index `t - 1` respects causality under the range `1..T`. The index `t + 1`
+does not.
 
-```text
-t       the time coordinate being defined
-i       the input feature coordinate consumed by the input projection
-h_prev  the previous hidden coordinate consumed by the recurrent projection
-```
+This is the wall between execution and dependency. A loop presents time as execution
+steps—all the steps are already scheduled, so direction is irrelevant. A
+recurrence presents time as a dependency axis where direction matters. The
+separation divides two ways of reading the same computation.
 
-The point is not that recurrence avoids loops forever. The point is that the
-loop becomes a lowering choice. The source first states the time-shaped
-structure. Once those roles are visible, an implementation can choose an
-execution order without pretending that the order is the meaning.
+Time is the first coordinate in this book with an inherent direction. Batch
+can be reordered. Feature can be reduced. None of the coordinates in Part II
+cared about evaluation order. Time cares. The question is not whether the
+loop runs — it does. The question is whether the notation records the
+direction of dependency, so that a future reader, a compiler pass, or a
+storage planner can verify causality at the definition site rather than
+reconstruct it from the loop body.
 
-## Time as Direction
+## Causality as a Coordinate Property
 
-Time is the first coordinate here with an inherent direction. Batch can usually
-be reordered. Feature can often be transformed or reduced. Time in a forward
-recurrence carries causality: `t` may depend on `t - 1`, but not on an
-unexplained `t + 1`.
+Causality is not a property of the loop body. It is a property of the index
+expression. The recurrence statement `let h[t in 1..T] = step(h[t - 1], x[t])`
+makes three causal claims:
 
-That direction changes the meaning of visibility. In earlier chapters, naming
-a coordinate helped the compiler check shape and role. Here, naming time helps
-the compiler check whether an evaluation order exists. A recurrence rule is a
-set of equations, but not every set of equations is a legal forward
-computation.
+1. **Monotonicity.** Every read of the recurrence family uses an index strictly
+   less than the value being defined. `h[t - 1]` is less than `h[t]`. A
+   compiler can check this mechanically: for every occurrence of `h[expr]` on
+   the right-hand side, verify `expr < t` for all `t` in the range.
 
-This is why the chapter speaks of a wall. A loop presents time as execution
-steps. A recurrence presents time as a dependency axis. Once time is visible as
-an axis, later chapters can ask how much history must be stored and how an RNN
-mixes previous hidden coordinates into the next state.
+2. **Bounded memory.** The difference `t - expr` is the number of past steps
+   consulted. `h[t - 1]` consults exactly one step. `h[t - k]` consults `k`
+   steps. The maximum difference is the backward window. This number governs
+   storage, not correctness—a recurrence with `h[t - 100]` is still causal,
+   just with a larger memory requirement.
 
-There is a second reason time deserves its own part. Time often looks like a
-scalar loop counter in code, but semantically it behaves like an axis of the
-data. A sequence model has values at many time coordinates. A dynamic program
-fills a table along one or more ordered coordinates. A simulation advances a
-state across discrete steps.
+3. **Acyclicity.** The recurrence graph has no cycles. Every edge points from
+   a smaller time index to a larger one. Forward simulation can follow the
+   edges in index order. Backpropagation follows them in reverse.
 
-When those programs are written only as loops, the axis is implicit in control
-flow. When they are written as recurrence, the axis becomes part of the value
-being defined:
-
-```text
-h[t]
-```
-
-That tiny shift lets the same questions from earlier chapters return: which
-coordinates survive, which are local, and which dependencies are visible? Time
-adds direction, but it does not require a new way of reading.
-
-## Time Direction and Batch Isolation
-
-Take a recurrence with one scalar state. The arithmetic is restrained so the
-harder question is visible: which way does the dependency edge point?
+Now consider three patterns and whether they satisfy these claims:
 
 ```rust
-let h[0] = 1.0;
-let h[t in 1..5] = 0.5 * h[t - 1] + x[t];
+// Forward recurrence — satisfies all three
+let h[t in 1..T] = step(h[t - 1], x[t]);
+
+// Backward recurrence — violates claim 1 (reads larger index)
+// This is a boundary-value problem, not a forward simulation
+let h[t in 0..T-1] = step(h[t + 1], x[t]);
+
+// Bidirectional — violates claim 1, requires different contract
+let h[t in 0..T] = step(h[t - 1], h[t + 1], x[t]);
 ```
 
-If the input values are:
+The second and third patterns are not "wrong." They are different contracts.
+A backward recurrence solves a different problem (given the end state, work
+backward). A bidirectional recurrence needs a different evaluation strategy
+(fixed-point iteration or two-pass). The point is that the recurrence syntax
+makes the contract visible. A loop makes all three look like `for t in range(T)`.
+
+The check is syntactic:
 
 ```text
-x[1] = 10.0
-x[2] = 20.0
-x[3] = 30.0
-x[4] = 40.0
+For every occurrence of h[g(t, ...)] on the right-hand side of
+  let h[t in a..b] = ...
+verify: g(t, ...) < t for all t in a..b.
+
+If the check passes: the recurrence is causal. Forward simulation works.
+If the check fails: the recurrence needs a different evaluation contract.
 ```
 
-then the recurrence expands to:
+This check is impossible with a loop because the loop does not name the
+dependency indices. `h = step(h, x[t])` says nothing about `h[t-1]` versus
+`h[t+1]`. The information is in the body of `step`, and no compiler can
+recover it from Python control flow.
 
-```text
-h[1] = 0.5 * h[0] + x[1]
-h[2] = 0.5 * h[1] + x[2]
-h[3] = 0.5 * h[2] + x[3]
-h[4] = 0.5 * h[3] + x[4]
-```
-
-The important fact is not the arithmetic. It is the dependency direction.
-Every `h[t]` reads `h[t - 1]`, never `h[t + 1]`. The index expression states
-that direction in the value definition itself.
-
-Now imagine the mistaken recurrence:
-
-```rust
-let h[t in 1..5] = 0.5 * h[t + 1] + x[t];
-```
-
-The shape of the family still looks like a time-indexed sequence. A loop might
-even be written that tries to fill it backward. But if the surrounding contract
-is forward simulation, the source has made a different claim: the present
-depends on the future. A compiler pass that sees recurrence offsets can name
-that problem much more directly than a runtime failure inside a loop.
-
-The same trace becomes more interesting with batch:
-
-```rust
-let h[0, b] = init[b];
-let h[t in 1..T, b] = 0.5 * h[t - 1, b] + x[t, b];
-```
-
-For `h[3, 7]`, the previous state is `h[2, 7]`. Batch stays fixed. The
-recurrence does not mix `b = 7` with `b = 2`; it only walks backward in time.
-That is a semantic boundary. If the formula accidentally read
-`h[t - 1, b_prev]` under a `sum[b_prev]`, the model would be communicating
-across batch examples. The shape might still be valid, but the meaning would
-change.
-
-This is why time as an axis belongs in the same book as reshape and
-broadcasting. The question is still about visible coordinates. Which
-coordinate is preserved? Which one is shifted? Which one is local? The new
-ingredient is order. A spatial coordinate usually has no natural direction;
-time does. Naming it lets the compiler and reader inspect not only that a
-dependency exists, but also which way it points.
-
-Lowering can then become an implementation choice. A backend may execute the
-recurrence with a loop, vectorize independent batch coordinates, or use
-special facts about the recurrence window. Those choices come after the source
-has stated the dependency graph. The recurrence notation does not replace
-execution; it gives execution a visible contract to follow.
-
-## Why the Loop Is Not the Dependency
-
-The same recurrence can be written as a loop:
-
-```python
-h = init
-for t in range(1, T):
-    h = step(h, x[t])
-```
-
-For execution, this is natural. For analysis, it fuses several ideas into one
-mutable variable: the family of values, the current storage slot, and the time
-dependency. The recurrence spelling separates them:
-
-```text
-family       h[t]
-dependency   h[t] reads h[t - 1]
-storage      chosen later
-```
-
-That separation is what later chapters use. Storage analysis can ask which
-members of `h[t]` are observed. An RNN analysis can ask which non-time
-coordinates are preserved while time moves. Autodiff can ask which
-intermediate states might be needed backward. Those questions are harder to
-ask when the only source object is a variable being overwritten.
-
-The point is not that loops are bad. It is that a loop is an execution story,
-while a recurrence is a dependency story. Einlang writes the dependency story
-first and lets lowering choose the execution story afterward.
-
-Once that dependency story is visible, a later implementation can still emit
-an ordinary loop. The source has not rejected loops; it has delayed them until
-after the time axis has been named.
-
-Write one edge, `h[t, b, f]` reading its predecessor. Time moves; the other
-coordinates explain what stays isolated. If `h` were only a mutable loop
-variable, that distinction would have to be recovered after the fact.
+The syntactic check is not an optimization. It is the difference between
+catching the future-peek bug at the definition site and catching it three
+days later when validation perplexity is better than training. The loop is
+not wrong — it runs. But it withholds the one fact — index direction — that
+would make the bug visible to a compiler. The notation determines not just
+what the programmer can notice, but what the compiler can refuse.
 
 ## Try It
 
-Rewrite a small loop as a recurrence:
+A loop is muscle memory. A recurrence is a different muscle. Convert this loop
+to a recurrence:
 
 ```python
 h = h0
-for t in range(T):
-    h = step(h, x[t])
+for t in range(1, T):
+    h = 0.5 * h + x[t]
 ```
 
-First write it as `h[t]` with an explicit base case. Then add `..batch` and
-check that no line lets one batch member read another. Finally, change one term
-so a time step reads future information, as in a bidirectional model. Ask how
-the storage demand changes when future reads become part of the dependency
-graph.
+Write the base case `h[0] = h0`. Write the recurrence `h[t in 1..T] = 0.5 *
+h[t - 1] + x[t]`. Verify the dependency edge points to `t - 1`, not `t + 1`.
+Add a batch coordinate and confirm no batch member reads another. The three
+facts — base case, backward edge, batch isolation — are visible in three lines.
 
-**Line to keep:** a loop is an execution order; time is a dependency
-relationship.
+Now try a bidirectional recurrence. Write the forward pass `h_f[t]` that reads
+`t-1` and the backward pass `h_b[t]` that reads `t+1`:
+
+```text
+let h_f[0, b] = init_f[b];
+let h_f[t in 1..T, b] = step_f(h_f[t - 1, b], x[t, b]);
+
+let h_b[T-1, b] = init_b[b];
+let h_b[t in 0..T-1, b] = step_b(h_b[t + 1, b], x[t, b]);
+```
+
+For `h_f[7, 3]`: reads `h_f[6, 3]` — causal, depends on the past. For
+`h_b[3, 3]`: reads `h_b[4, 3]` — anti-causal, depends on the future. The
+backward recurrence cannot be computed in a forward sweep: at time `t`, the
+value at `t+1` is not yet known. Flip the sequence — map `x_rev[t] = x[T-1-t]`
+— and the backward recurrence on `x` becomes a forward recurrence on `x_rev`.
+The index transforms from `t+1` to `t-1`. The coordinate transformation is
+visible in the index expression.
+
+Now consider a skip connection: `h[t]` reads both `h[t-1]` and `h[t-2]`. Write
+the recurrence with two base cases:
+
+```text
+let h[0] = a;
+let h[1] = b;
+let h[t in 2..T] = step(h[t - 1], h[t - 2], x[t]);
+```
+
+The dependency window is 2 steps instead of 1. For a recurrence that reads
+`h[t-k]`, you need `k` initial values. A compiler can compute this mechanically:
+scan all index offsets in the definition of `h[t]`, find the maximum `k` such
+that `t-k` appears, and require `k` base cases. The causality check is equally
+mechanical: for every occurrence of `h[expr]` in the definition of `h[t]`,
+verify `expr < t` for all `t` in the domain. Linear offsets like `t-k` with
+`k > 0` pass. `t+k` fails. The recurrence notation makes this a local check
+over index expressions. A loop body buries the check inside mutable state that
+no compiler can analyze without whole-program reasoning.
+
+**Line to keep:** a loop is an execution order; time is a dependency relationship.
+
+Time is the first coordinate in this book with an arrow, but not the only one.
+Fibonacci's `n` also flows forward. An optimizer's `iter` also flows forward.
+The arrow is the point — not that the coordinate happens to be time, but that
+the notation can record which way the dependency points. A recurrence that
+reads tomorrow is a bug. A loop that reads tomorrow is a runtime value. The
+difference is not whether the program compiles. It is whether the notation lets
+you say "I meant the past."
+
+### Where This Leads
+
+Part III changes the question. Parts I and II examined static programs — a
+reshape, a reduction, a gradient. The coordinates were fixed. The communication
+graph was determined by the formula and did not change. Part III introduces
+time, the first coordinate in this book with an inherent direction.
+
+When a coordinate carries causality — when later values depend on earlier values
+— the notation must answer a new question: does a valid evaluation order exist?
+The answer cannot be recovered from a loop body because the loop buries the
+dependency direction inside mutable state. A recurrence notation names the
+dependency index, and the check becomes mechanical: does every read use a
+smaller index than the value being defined?
+
+We have separated execution from dependency. A loop is one way to run a
+recurrence; a recurrence is a statement about which time index reads which other
+time index. But separating execution from dependency raises the next question:
+if `h[t]` is a family of values, which ones must be stored? The three chapters
+of Part III separate three ideas that a loop merges into one: the definition of
+a value family, the direction of dependency, and the choice of what to keep in
+memory.
+
+Chapter 11 shows how the same recurrence makes a different storage demand
+depending on which values are observed. The rule is simple: storage follows
+observation, and the dependency graph tells you what can be thrown away.

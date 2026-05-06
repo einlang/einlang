@@ -1,458 +1,400 @@
 ---
 layout: book
-title: "Chapter 9: Local Derivatives, Global Shape"
+title: "Local Derivatives, Global Shape"
 ---
 
 # Local Derivatives, Global Shape
 
-Not every derivative announces itself with a matrix multiply. Many are local
-elementwise facts:
+You ran the training script overnight. In the morning, the loss sits at 2.3.
+Flat. Eight hours, no movement. You check the shapes. Correct. You check the
+learning rate. Reasonable. You check for dead ReLUs. None. You add gradient
+clipping. Nothing changes.
+
+On the third afternoon you find it. The weight gradient:
 
 ```rust
-let y[i] = x[i] * x[i];
+let dW[out, in] = sum[in](G[batch, in] * x[batch, out]);  // bug
 ```
 
-For a scalar loss depending on `y`, the gradient with respect to `x` is:
+That `sum[in]` should have been `sum[batch]`. One bracket. Every dimension
+check passed. Every number was nonzero. The model descended a loss surface
+that had nothing to do with the problem you meant to solve.
+
+Chapters 7 and 8 gave you the scalar rule for pullbacks. A local derivative is
+a single number: `x[batch, in]` for the linear layer, `B[k, j]` for one side of
+a matmul. Those chapters kept the coordinate structure simple—one parameter, one
+equation. This chapter adds the complication that makes real programs dangerous:
+multiple terms, broadcast biases, and shared parameters that fan out across
+batch and time. The local derivative is still a scalar. The gradient shape may
+carry four sum coordinates. The mismatch between "the scalar is simple" and
+"the gradient has four sums" is where PyTorch users learn to fear
+`retain_graph=True`.
+
+## The Bug That Shape Checks Miss
+
+Build a tiny MLP layer:
 
 ```rust
-let dx[i] = dy[i] * 2 * x[i];
+let z[batch, out] =
+    sum[in](x[batch, in] * W[out, in])
+    + bias[out];
 ```
 
-No coordinate is reduced. The derivative at `x[i]` depends on the sensitivity
-at `y[i]` and the primal value `x[i]`. The coordinate `i` simply survives.
+Now write the gradient for `W`:
 
-This is the other side of the gradient story. Reductions create summed
-pullbacks. Elementwise operations preserve coordinates.
+```rust
+let dW[out, in] = sum[batch](G[batch, out] * x[batch, in]);
+```
 
-Keep the main duality close:
+A reader who sees `sum[batch]` for the first time might hesitate. Doesn't `W`
+have only two coordinates? Why does its gradient involve `batch`, which `W`
+doesn't even own? The answer: `W[out, in]` was used once per batch example.
+One cell of `W` contributed to `z[0, out]`, `z[1, out]`, ..., `z[31, out]`
+simultaneously. When sensitivity arrives at those 32 output cells, all 32
+routes lead back to the same `W[out, in]`. The pullback must sum them.
+
+This sum is invisible in a framework that computes `dW = x.T @ G`. The
+dimensions work: `x` is `[batch, in]`, `G` is `[batch, out]`, the product gives
+`[in, out]` (or `[out, in]` after a transpose you forgot). The code runs. The
+loss curve descends. But if `batch` sum were replaced with `in` sum—if someone
+wrote `sum[in](G[batch, in] * x[batch, out])`—the shapes would still match.
+Every dimension check would pass. The model would silently learn nonsense.
+
+The bug is not a wrong number. The bug is a wrong coordinate in a sum bracket.
+
+## One Cell, All the Routes
+
+Take the MLP layer with concrete sizes: `batch = 4`, `in = 3`, `out = 2`. Fix
+one weight cell: `W[1, 2]`. Where does this cell appear in the forward pass?
 
 ```text
-FORWARD                         BACKWARD
-term omits coordinate       ->  gradient collects that coordinate
-reduction consumes axis     ->  sensitivity fans through that axis
-coordinatewise operation    ->  coordinate survives unchanged
+z[0, 1] reads W[1, 2] through x[0, 2]
+z[1, 1] reads W[1, 2] through x[1, 2]
+z[2, 1] reads W[1, 2] through x[2, 2]
+z[3, 1] reads W[1, 2] through x[3, 2]
 ```
 
-Most surprising gradient shapes are one of these three lines with a real
-coordinate name filled in.
-
-The scalar rule is only half the answer. Local calculus tells us the value to
-multiply by; the coordinate structure tells us where that value lands and which
-shared or omitted routes must be collected on the way back.
-
-The scalar derivative is only the seed. To make it a tensor rule, place that
-seed at the coordinate address of the value being differentiated. Most wrong
-versions are not bad calculus; they are good local calculus attached to the
-wrong family of addresses.
-
-This is also where ordinary autodiff notation can be too quiet. In PyTorch or
-JAX one might write:
-
-```python
-y = x * x + bias
-loss = y.sum()
-loss.backward()
-```
-
-The result is correct, but the source line does not say which coordinates
-`bias` lacks. The reduction in `bias.grad` is discovered by tracing the
-broadcast. Einlang wants that missing coordinate to be visible at the place
-where it first matters:
-
-```rust
-let y[batch, feature] = x[batch, feature] * x[batch, feature] + bias[feature];
-```
-
-Now the backward fact has a source-level reason. `feature` survives into
-`bias`; `batch` was used by the result but absent from the parameter, so the
-gradient for `bias` must collect `batch`.
-
-## Scalar Rule or Shaped Rule
-
-A derivative table can tell us that the derivative of `x * x` is `2 * x`. That
-scalar fact is true, but it is not yet a tensor rule. A tensor language still
-has to answer where that local derivative lives.
-
-One design would keep local calculus rules separate from shape reasoning and
-ask the autodiff engine to combine them later. Another design writes local
-rules inside coordinate structure from the beginning. The second design makes a
-simple distinction visible: some derivatives stay at the same address, while
-others must collect influence from many addresses.
-
-Einlang's visible indices give local calculus a place to sit. The scalar rule
-does not disappear; it becomes one part of a shaped rule.
-
-Implementation order matters here. Shape analysis and type inference run
-before autodiff, so the differentiator is not guessing the rank of `x`, `bias`,
-or `W` from a runtime trace. It receives IR whose ranges, shapes, and scalar
-element types have already been checked as far as the source permits.
-
-Give the same scalar derivative table to two programs:
-
-```rust
-let a[i] = x[i] * x[i];
-let b[i] = x[0] * x[0];
-```
-
-The local derivative of squaring is the same, but the address story differs. In
-the first line, each output reads its matching input. In the second, every
-output reads the same input cell. A scalar table alone cannot tell the
-difference.
-
-## Elementwise Means Same Address
-
-For an elementwise operation, each output coordinate depends on the matching
-input coordinate:
-
-```rust
-let y[i] = relu(x[i]);
-```
-
-Ignoring the nondifferentiable point at zero for the moment, the pullback has
-the same coordinate:
+Four output cells, one parameter cell. The pullback:
 
 ```text
-dx[i] = dy[i] * if x[i] > 0 { 1 } else { 0 }
+dW[1, 2] = G[0, 1] * x[0, 2]
+         + G[1, 1] * x[1, 2]
+         + G[2, 1] * x[2, 2]
+         + G[3, 1] * x[3, 2]
 ```
 
-The derivative is local. The value at `x[7]` affects `y[7]`, not `y[3]` or
-`y[12]`. The gradient does not need a reduction because no output coordinate
-fan-out occurred in the forward expression.
-
-This is a useful baseline. When a gradient expression contains a `sum`, ask
-what forward dependency caused one input coordinate to influence multiple
-output coordinates. When it does not contain a `sum`, the forward relationship
-was probably coordinatewise.
-
-## Broadcasting in a Derivative
-
-Now add a scalar bias:
-
-```rust
-let y[i] = x[i] + b;
-```
-
-The gradient with respect to `x` keeps `i`:
-
-```rust
-let dx[i] = dy[i];
-```
-
-The gradient with respect to `b` is scalar, so `i` must be collected:
-
-```rust
-let db = sum[i](dy[i]);
-```
-
-The forward expression did not mention `i` in `b`; therefore `b` was broadcast
-across `i`. The backward expression reverses that broadcast by reducing over
-`i`.
-
-This is a useful sanity check. Broadcast in the forward direction usually means
-sum in the reverse direction.
-
-The accumulation is clearest with three outputs:
+That is `sum[batch](G[batch, 1] * x[batch, 2])`. Now lock `W[0, 1]`:
 
 ```text
-y[0] = x[0] + b
-y[1] = x[1] + b
-y[2] = x[2] + b
+z[0, 0] reads W[0, 1] through x[0, 1]
+z[1, 0] reads W[0, 1] through x[1, 1]
+z[2, 0] reads W[0, 1] through x[2, 1]
+z[3, 0] reads W[0, 1] through x[3, 1]
+
+dW[0, 1] = sum[batch](G[batch, 0] * x[batch, 1])
 ```
 
-The scalar derivative of each line with respect to `b` is `1`. The global
-gradient is not three separate scalars; it is one scalar receiving three
-routes of sensitivity. The coordinate `i` explains why they meet.
+The same `sum[batch]` appears. It appears for every `[out, in]` pair because
+every weight cell is shared across the entire batch. The local derivative at
+each route is the corresponding `x` value, which is different for each batch
+example. But the reduction coordinate is always `batch`.
 
-## Why Broadcast Reverses to Sum
+## The Scalar Rule and the Shape Rule Are Different Things
 
-The scalar `b` contributes to every output coordinate:
+Separate the two layers of the calculation:
 
 ```text
-y[0] = x[0] + b
-y[1] = x[1] + b
-y[2] = x[2] + b
+Layer 1 (scalar): d(loss)/d(W[out, in]) via one (batch, out) route
+  = G[batch, out] * x[batch, in]
+
+Layer 2 (collect): d(loss)/d(W[out, in]) summing all routes
+  = sum[batch](G[batch, out] * x[batch, in])
 ```
 
-If the loss changes through all three outputs, the sensitivity to `b` is the
-sum of those routes. The forward pass reused one value many times. The reverse
-pass collects many sensitivities back into one value.
+Layer 1 is local calculus. It answers "for this input cell, through this output
+cell, what number flows backward?" The answer is always a product of the
+incoming sensitivity and a local derivative. In the linear layer, the local
+derivative is `x[batch, in]`. In a squared operation `y = z * z` it would be
+`2 * z`. In a sigmoid it would be `sigmoid(z) * (1 - sigmoid(z))`.
 
-This is not a special case bolted onto autodiff. It follows from coordinates.
-The forward term `b` omitted `i`, so it was invariant along `i`. The backward
-question `@loss / @b` has no `i` coordinate, so the `i` contributions must be
-reduced.
+Layer 2 is shape reasoning. It answers "which output cells did this input cell
+touch, and how do I sum the routes back?" The answer depends entirely on which
+coordinates the input value was shared across in the forward program.
 
-## A Shaped Bias
+A programmer who confuses these two layers writes code that is numerically
+active—every value is nonzero—but coordinate-wrong. A programmer who separates
+them can debug a gradient by asking "which sum bracket did I forget?" rather
+than "are the dimensions compatible?"
 
-For a feature bias:
+The distinction between local calculus and global shape is not a property of
+the chain rule. The chain rule is always local — a product of two numbers
+at a time. The global shape — which sums appear where — is determined by
+which coordinates each value was shared across in the forward program. The
+forward pass made sharing decisions. The backward pass collects the
+consequences. The notation decides whether those sharing decisions are visible
+in the source or must be reconstructed from the arithmetic.
+
+## The Bias Pattern
+
+In the same MLP layer, `bias[out]` is shared across `batch` but not across
+`out`. Each `bias[0]` contributes to every `z[batch, 0]`. Each `bias[1]`
+contributes to every `z[batch, 1]`. The pullback:
 
 ```rust
-let y[b, f] = x[b, f] + bias[f];
+let dbias[out] = sum[batch](G[batch, out]);
 ```
 
-the bias gradient keeps `f` and reduces over `b`:
+No `in` coordinate appears. No `x` multiplier. The local derivative of `z` with
+respect to `bias` is `1`, so the per-route contribution is just `G[batch, out]`.
+The reduction coordinate is `batch`, the same as the weight pullback.
+
+Now modify the layer to broadcast differently:
 
 ```rust
-let dbias[f] = sum[b](dy[b, f]);
+let z[batch, feature] =
+    scale[feature] * x[batch, feature]
+    + bias[1];  // shared across all features
 ```
 
-A coordinate function can name the same reuse contract in the forward pass:
+The bias has no coordinates—it is a scalar broadcast to every `[batch, feature]`
+cell. Its pullback:
 
 ```rust
-fn add_bias[feature](x: [f32; ..batch, feature], bias: [f32; feature])
-    -> [f32; ..batch, feature]
+let dbias = sum[batch, feature](G[batch, feature]);
 ```
 
-The local derivative of addition is still scalar. The global shape comes from
-the coordinate contract: `feature` survives, `..batch` is where reuse happened,
-and the reverse pass must reduce over that reused prefix when differentiating
-with respect to `bias`.
+Two reduction coordinates. The local derivative is still `1`. The shape rule
+says "sum everything, because this scalar touched everything."
 
-For a batch bias:
+A reader might object: "But I never intended to share bias across features."
+The gradient does not judge intent. It invoices what the forward program
+declared. If `bias[1]` appeared in the forward expression, the gradient will
+sum across every coordinate that `bias` did not own but that appeared in the
+expression. The gradient is the shape invoice.
 
-```rust
-let y[b, f] = x[b, f] + bias[b];
-```
+An invoice is only useful if you can read it. A positional gradient delivers
+an invoice that says "summed axis 0, kept axes 1 and 2." The reader must know
+which coordinate lived at axis 0 when the forward expression was written. A
+named gradient delivers an invoice that says "summed batch, kept out and in."
+The names are the invoice line items. The numbers are just the quantities.
 
-the bias gradient keeps `b` and reduces over `f`:
+## Debug Checklist
 
-```rust
-let dbias[b] = sum[f](dy[b, f]);
-```
-
-Same rank, different meaning. The coordinate names decide the shape of the
-gradient.
-
-## Local Nonlinearities in a Larger Program
-
-Most neural-network layers mix both patterns. A dense layer creates a
-contraction:
-
-```rust
-let z[b, out] = sum[in](x[b, in] * W[out, in]) + bias[out];
-```
-
-An activation then preserves the coordinates:
-
-```rust
-let y[b, out] = relu(z[b, out]);
-```
-
-The pullback through `relu` is local in `[b, out]`. The pullback through the
-matrix multiply reduces over whichever coordinates do not belong to the
-requested parameter. The pullback through `bias[out]` reduces over `b`.
-
-The global gradient is therefore assembled from local facts:
-
-```text
-relu      preserve [b, out]
-bias      collect b, keep out
-weights   collect b, keep out and in
-input     collect out, keep b and in
-```
-
-The compiler may implement this through a graph, a tape, or symbolic
-transformation. The reader's model can stay simpler: local operations preserve
-addresses; broadcasts collect omitted coordinates; contractions collect the
-coordinates that no longer survive.
-
-## When a Local Rule Becomes Global
-
-An operation can look elementwise while still hiding a global shape effect. If
-one term omits an output coordinate, the forward pass broadcasts it. The
-gradient will later have to collect that omitted coordinate. The local
-calculus rule may be simple, but the coordinate story decides where the
-sensitivity accumulates.
-
-## Local Rule, Global Shape
-
-The gradient story separates two forces. Local calculus decides the scalar
-derivative at one coordinate. Coordinate structure decides how that local fact
-is shaped, broadcast, or reduced across the whole tensor.
-
-For:
-
-```rust
-let y[i] = x[i] * x[i];
-```
-
-the scalar derivative is `2 * x[i]`, and the coordinate structure is
-one-to-one. For:
-
-```rust
-let y[i] = x[i] + b;
-```
-
-the scalar derivative with respect to `b` is `1`, but the coordinate structure
-says that one scalar `b` influenced every `i`. Therefore the global gradient is
-not simply `1`; it is `sum[i](dy[i])`.
-
-This distinction prevents a common misunderstanding. Gradients are not only
-calculus facts, and they are not only graph facts. They are calculus facts
-placed inside coordinate structure. Visible dimensions give that structure a
-source-level form.
-
-This also explains why scalar examples can be misleading. A scalar derivative
-like:
-
-```text
-d(x * x) / dx = 2 * x
-```
-
-teaches the local calculus rule but hides the shape question. Tensor programs
-need both. The local rule says what happens at one coordinate. The coordinate
-structure says how many such coordinates exist and whether they interact.
-
-For an elementwise square, each coordinate is independent. For softmax, one
-output coordinate depends on many input coordinates. For a broadcast bias, many
-output coordinates depend on one input coordinate. These are different global
-shapes built from simple local derivative facts.
-
-The rule of thumb is simple: first identify the local derivative, then ask how
-coordinates carry that derivative across the whole expression.
-
-That rule is deliberately procedural. It gives a concrete check before
-trusting a framework result. Pick one coordinate. Ask which output
-coordinates it affects. Then generalize the answer back into an indexed
-formula. If that hand reading disagrees with the gradient shape, the bug is
-usually in the coordinate story, not in calculus.
-
-## Local Rule Inside a Shared-Parameter Layer
-
-Consider a layer that combines a matrix multiply, a feature bias, and a square.
-The scalar derivative is easy; the pressure comes from deciding which
-coordinates a shared parameter must collect:
-
-```rust
-let z[b, out] = sum[in](x[b, in] * W[out, in]) + bias[out];
-let y[b, out] = z[b, out] * z[b, out];
-let loss = sum[b, out](y[b, out]);
-```
-
-The local derivative of the square is:
-
-```text
-dy_dz[b, out] = 2 * z[b, out]
-```
-
-Because `y[b, out]` depends only on `z[b, out]`, that part is elementwise. No
-coordinate is reduced. The incoming sensitivity from `loss` is `1` at every
-`[b, out]`, so the cotangent at `z` is:
-
-```text
-G[b, out] = 2 * z[b, out]
-```
-
-Now the shaped rules diverge. The bias is addressed only by `out`, so it
-receives all batch contributions:
-
-```rust
-let dbias[out] = sum[b](G[b, out]);
-```
-
-The weight is addressed by `[out, in]`. Each weight cell is used for every
-batch example with the corresponding input feature:
-
-```rust
-let dW[out, in] = sum[b](G[b, out] * x[b, in]);
-```
-
-The input is addressed by `[b, in]`. Each input cell contributes to every
-output feature through the corresponding column of `W`:
-
-```rust
-let dx[b, in] = sum[out](G[b, out] * W[out, in]);
-```
-
-This one layer contains three different global shapes built from one local
-calculus fact. The square preserves `[b, out]`. The bias gradient reduces `b`. The
-weight gradient reduces `b` but keeps `out` and `in`. The input gradient
-reduces `out` but keeps `b` and `in`.
-
-A scalar derivative table can tell you that the derivative of `z * z` is
-`2 * z`. It cannot tell you whether `dbias` should sum over `b`, whether `dW`
-should sum over `in`, or whether `dx` should keep `out`. Those answers come
-from the coordinate structure around the local rule.
-
-This is a useful debugging procedure for real models. When a gradient has the
-wrong magnitude, do not start by suspecting calculus. Ask whether a broadcast
-caused an unintended sum. A bias shared across batch should receive a batch
-sum; a bias accidentally shared across features will receive a feature sum. A
-parameter used across time will collect time contributions. If the sharing was
-intended, the sum is right. If the sharing was accidental, the gradient exposes
-the mistake.
-
-The implemented compiler order supports this reading. Shape and type analysis
-have already determined the rectangular ranks and element types before the
-autodiff pass expands requests. The differentiator is therefore composing
-local rules inside a checked coordinate environment. That is the difference
-between "the derivative formula exists somewhere" and "the derivative formula
-has a source-level shape that can be inspected."
-
-## Debug Checklist for Non-Scalar Gradients
-
-For a suspicious gradient, read the forward program in four passes:
+For a suspicious gradient, read the forward program in four mechanical passes:
 
 ```text
 1. Which operation supplies the local scalar derivative?
+   → The elementwise function at the forward expression's core.
+
 2. Which coordinates does the denominator value own?
+   → The coordinates declared on the parameter or variable being differentiated.
+
 3. Which output coordinates did one denominator cell influence?
+   → Every coordinate in the output shape that does not appear on the denominator.
+
 4. Which of those routes must be summed back together?
+   → All of them. Every coordinate the denominator does not own becomes a sum.
 ```
 
-In the mixed layer above, the square answers the first question. The parameter
-`W[out, in]` answers the second. One weight cell influences all batch examples
-for its `out` and `in` pair, so the third answer includes `b`. The fourth
-answer is therefore `sum[b]`.
-
-This checklist is intentionally mechanical. It keeps local calculus from
-pretending to be the whole story, and it keeps shape reasoning from becoming a
-separate mystery. The derivative is a scalar rule placed into a coordinate
-network. If either part is read incorrectly, the gradient may have a plausible
-rank while still answering the wrong question.
-
-For an autodiff shape error, use the same checklist in reverse:
+Apply it to the weight gradient `dW` above:
 
 ```text
-If a gradient has an unexpected sum, find the forward term that omitted that
-coordinate.
-If a gradient is missing a coordinate, ask whether the denominator value owns
-that coordinate.
-If a broadcasted parameter has a surprising magnitude, check which forward
-coordinate it was shared across.
-If a reduction axis appears in a gradient, ask which input address preserved it.
+1. z = sum[in](x * W), local derivative is x[batch, in]
+2. W owns [out, in]
+3. One W[out, in] influences all batch examples → batch is the fan-out coordinate
+4. dW[out, in] = sum[batch](...)
 ```
 
-The blunt version is this: if you never named the axis in the forward program,
-the backward error is often the invoice.
+Apply it to a convolutional weight `K[out_chan, in_chan, kh, kw]` applied to
+input over `[batch, out_chan, h, w]`:
 
-The checklist also explains why small scalar tests are not enough. A scalar
-test can confirm the derivative of `z * z`, but it cannot confirm that a bias
-was shared over the intended coordinate. For tensor programs, numerical
-correctness and coordinate correctness meet; neither one replaces the other.
+```text
+1. Local derivative is the input patch
+2. K owns [out_chan, in_chan, kh, kw]
+3. One weight cell influences all batch, all spatial positions → fan-out: batch, h, w
+4. dK = sum[batch, h, w](...)
+```
 
-That is why the chapter keeps returning to address questions. The derivative
-value matters, but so does the coordinate where that value lands and the route
-by which it arrived there.
+Three reductions. The shape rule does not care how the weight was used—conv2d,
+depthwise, grouped. It only cares which coordinates the weight does not own but
+the output does.
 
-Both facts must remain visible.
+## Reverse Diagnosis
 
-A shared parameter such as `W[out, in]` is the simplest place to see the issue.
-A local derivative may be computed at each `b`, but the parameter has no `b`
-coordinate. The gradient must say where that omitted coordinate went.
+When a gradient has already gone wrong, reverse the checklist:
+
+```text
+- Gradient has an unexpected sum → find the forward term that used the
+  parameter across that coordinate.
+- Gradient is missing a coordinate → the denominator owns that coordinate in
+  the forward expression; check whether you intended it to.
+- Broadcast parameter has surprising magnitude → check which forward
+  coordinates it was shared across; the sum may be correct but the sharing may
+  be wrong.
+- Reduction coordinate appears in the gradient → the parameter address
+  preserved that coordinate; the sum should not include it.
+```
+
+The blunt version: if you never named the coordinate in the denominator, the
+gradient sum over that coordinate is the invoice for the omission.
+
+## Why Scalar Tests Are Not Enough
+
+A scalar test confirms `d(z^2)/dz = 2z`. It does not confirm that a bias was
+shared across the intended coordinate. A numerical gradient check with finite
+differences can verify a single `[batch, out]` entry, but it cannot verify that
+the `sum[batch]` in the weight gradient collected exactly the batch dimension
+and not the feature dimension by accident.
+
+Numerical correctness and coordinate correctness are orthogonal. A gradient can
+be numerically exact at every entry and still answer the wrong question because
+the sum brackets are wrong. The shapes alone cannot detect this. The coordinate
+names can.
+
+The distinction between local calculus and global shape is not a property of the
+mathematics. It is an artifact of the notation. The chain rule is always local —
+a product of two numbers at a time. The global shape — which sums appear where —
+is determined by which coordinates each value was shared across in the forward
+program. When coordinates are named, the global shape is a consequence of set
+subtraction: output coordinates minus denominator coordinates equals path
+coordinates. When coordinates are positional integers, the same fact requires
+tracing influence through every operation in the chain. The notation determines
+what you can notice, and in the gradient case, it determines whether you see the
+shape or must deduce it from numbers after the fact.
+
+Numerical correctness and coordinate correctness are orthogonal properties of
+a gradient program. The Hiding Law says: do not hide a fact that later
+reasoning must recover. In the gradient case, the hidden fact is which
+coordinate the value was shared across. The later reasoning is the pullback
+sum. When the notation hides the sharing, the pullback must guess the axis —
+and the guess can be numerically correct at every entry while still answering
+the wrong question. A bug that lives in the coordinate names is a bug that
+lives outside the reach of finite-difference checks.
 
 ## Try It
 
-Design a tiny layer with two broadcasts:
+Broadcasts create the hardest gradient bugs because the forward pass looks
+innocent. This exercise makes the invisible visible. Design a small layer with
+two broadcasts:
 
-```rust
+```text
 let y[time, batch, feature] =
-    scale[time] * x[time, batch, feature] + bias[feature];
+    scale[time] * x[time, batch, feature]
+    + bias[feature];
 ```
 
-Sketch `@loss / @scale` and `@loss / @bias`. Then rewrite the same layer in a
-traditional framework style and mark where the two reductions are implicit in
-the broadcast history rather than visible in the source.
+Use the four-pass checklist to derive `@loss/@scale` and `@loss/@bias`.
+For each gradient, ask: what is the local scalar derivative (for `scale`:
+`x[time, batch, feature]`; for `bias`: `1`), what coordinates does each
+denominator own (`scale[time]`; `bias[feature]`), what output coordinates did
+one denominator cell influence (every coordinate the denominator does not own:
+for `scale[time]`, that is `batch` and `feature`; for `bias[feature]`, that is
+`time` and `batch`), and what are the reduction coordinates
+(`d_scale[time] = sum[batch, feature](...)`; `d_bias[feature] = sum[time, batch](...)`).
+
+Verify: `scale[3]` is shared across all batch items and all features. Its
+gradient receives sensitivity from every `[batch, feature]` pair at time step 3.
+That is `sum[batch, feature]`. The coordinate accounting says it before any
+numbers are computed.
+
+Now trace a single parameter's gradient through a Transformer encoder. At each
+step, write the coordinate audit. Which surviving coordinates are the gradient
+address? Which are paths being reduced?
+
+```text
+Input: x[b, t, d]
+
+1. Attention: scores[b, h, t_q, t_k] = sum[d](Q[b, h, t_q, d] * K[b, h, t_k, d])
+   Gradient of Q: dQ[b, h, t_q, d] = sum[t_k](d_scores[b, h, t_q, t_k] * K[b, h, t_k, d])
+   Surviving: {b, h, t_q, d}. Path (reduced): {t_k}.
+
+2. Add+Norm: y[b, t, d] = layer_norm[d](x[b, t, d] + attn_out[b, t, d])
+   The norm consumes d to compute statistics, but d survives in the output.
+   Gradient carries d through — d is both consumed (by mean/std) and survived
+   (as output coordinate).
+
+3. FFN: z[b, t, d_out] = sum[d_in](y[b, t, d_in] * W[d_out, d_in]) + bias[d_out]
+   Gradient of W: dW[d_out, d_in] = sum[b, t](d_z[b, t, d_out] * y[b, t, d_in])
+   Surviving: {d_out, d_in}. Path: {b, t} — shared across entire batch and sequence.
+
+4. Add+Norm again: same pattern as step 2.
+```
+
+Which gradient carries the most path coordinates to reduce? The FFN weight `W`
+— it fans out across `batch` and `time` simultaneously, so its gradient must sum
+over both. A single `W` cell influences every `[b, t]` position. The gradient is
+a massive reduction that a positional autodiff system executes correctly but
+silently. The coordinate audit makes the reduction visible as `sum[b, t]`.
+Composing pullbacks is coordinate accounting at scale: each layer adds its own
+survivors and paths, and the audit scales without new rules.
+
+Next, derive the full gradient for this layer with batch norm, distinguishing
+training mode from inference mode:
+
+```text
+// Training mode: mean and variance are computed per batch
+fn batch_norm_train[feature](x: [f32; batch, feature]) -> [f32; batch, feature] {
+    let mu[feature] = mean[batch](x[batch, feature]);
+    let var[feature] = mean[batch]((x[batch, feature] - mu[feature]) ** 2);
+    let y[batch, feature] =
+        (x[batch, feature] - mu[feature]) / sqrt(var[feature] + eps)
+        * gamma[feature] + beta[feature];
+    y
+}
+
+// Inference mode: mean and variance are fixed (running statistics)
+fn batch_norm_infer[feature](x: [f32; batch, feature]) -> [f32; batch, feature] {
+    let y[batch, feature] =
+        (x[batch, feature] - running_mean[feature]) / sqrt(running_var[feature] + eps)
+        * gamma[feature] + beta[feature];
+    y
+}
+```
+
+For training mode, derive `@loss/@gamma` and `@loss/@beta`. Show that
+`@loss/@gamma` sums over `batch` because `gamma[feature]` is shared across the
+batch. This is the same pattern as the simple layer above.
+
+For inference mode, `running_mean[feature]` and `running_var[feature]` are
+constants. They receive no gradient. The coordinate audit changes: the mean and
+variance are no longer functions of `x`. This means fewer intermediate terms in
+the pullback, but the surviving coordinates are the same.
+
+When the model switches from training to inference, the *shapes* of all gradients
+remain identical. But the *paths* through intermediate values change — `mu` and
+`var` are no longer computed from `x`, so the gradient of `x` has fewer terms.
+A shape-only analysis sees no difference. A coordinate audit shows which
+intermediate values (`mu`, `var`) were consumed and whether they carry gradient
+paths.
 
 **Line to keep:** scalar rules are local calculus; coordinate structure tells
 where the value lands.
+
+### Where This Leads
+
+Part II is now complete. We have learned that hiding has consequences. Part I
+taught us to notice when a coordinate role is omitted. Part II taught us that
+the omission does not stay local — it propagates into the gradient. A forward
+term that omits `batch` produces a gradient that sums over `batch`. A reduction
+that consumes `class` produces a pullback that fans out over `class`. Every
+sharing decision in the forward pass becomes a sum in the backward pass. The
+notation either names the sharing, or the gradient inherits the silence.
+
+But Part II had a limitation we did not name until now: all our programs were
+static. A value depended on other values, but never on *earlier versions of
+itself*. The gradient traced sensitivity backward through a fixed graph. We
+never asked what happens when the graph itself has a direction — when `h[t]`
+reads `h[t-1]`, and the backward pass must run in reverse time, and the compiler
+must decide which time steps to store and which to recompute.
+
+Part III introduces time as a coordinate with inherent direction. The audit
+questions — survive, consume, omit — still apply. But now a new question joins
+them: which values depend on which earlier values? A loop hides the answer in
+mutable state. A recurrence names the index and makes the dependency an edge in
+the source. That edge determines what the compiler can optimize, what the
+autodiff engine can reverse, and what the reviewer can verify without tracing
+into the loop body.
+
+Chapter 10 begins with the simplest case: a time axis, a sliding window, and the
+question of whether the future is allowed to read the past — or the past is
+allowed to read the future.

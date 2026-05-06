@@ -1,5 +1,5 @@
 meta:
-  description: "Einlang is a source language for indexed tensor programs with explicit reductions, recurrences, and local derivative requests."
+  description: "Einlang is a source language for indexed tensor programs. Named axes, explicit reductions, recurrence, and local derivatives keep the mathematical structure visible — in the source, not in the comments."
   brand_tagline: ""
 
 navigation:
@@ -36,7 +36,7 @@ hero:
   deck_label: "Einlang"
   eyebrow: "A source language for indexed tensor programs, recurrence, and local derivatives."
   title: "Keep the mathematical structure in the source."
-  summary: "Einlang is built around the facts tensor compilers and readers need most: named axes, explicit reductions, recurrent dependencies, and derivative requests over named bindings. Use this page to choose between the tutorial, research writeups, and runnable repository."
+  summary: "Most tensor code knows the shape of every array and the role of no axis. Einlang keeps both on the page: named axes, explicit reductions, recurrent dependencies, and derivative requests that live beside the definitions they differentiate."
   actions:
     - label: "Read the book"
       url: "https://einlang.github.io/einlang/book/"
@@ -66,7 +66,7 @@ hero:
   status:
     title: "What to read"
     items:
-      - "Book: seven-section treatment of visible dimensions."
+      - "The Name in the Bracket: a book about what notation hides, and what happens when you refuse to let it."
       - "Paper: compact language-design argument."
       - "Thesis: compiler and runtime details."
 
@@ -193,9 +193,9 @@ slides:
     intro: "Each document answers a different question: how to learn the notation, what the language-design argument is, how the implementation works, or how to run the code."
     cards:
       - title: "Book"
-        text: "A seven-section book about explicit indices: named axes, index rules, dependency graphs, type contracts, compile-time autodiff, compiler transformations, and source-level contracts."
+        text: "Notation determines what you can notice. Sixteen chapters tracing one idea — the coordinate audit — from a Tuesday bug through gradients, recurrence, attention, and dynamic routing, to the principle that organizes them all."
         links:
-          - label: "Visible Dimensions"
+          - label: "The Name in the Bracket"
             url: "https://einlang.github.io/einlang/book/"
       - title: "Paper"
         text: "The compact research argument for keeping indexed definitions, recurrence, and derivative requests in one source language."
@@ -237,9 +237,9 @@ slides:
           - label: "Example tests"
             url: "https://github.com/einlang/einlang/tree/main/tests/examples"
       - title: "Dimensions are explicit"
-        text: "The public book focuses on one claim across seven sections: named indices state tensor intent where shape-only code leaves it implicit."
+        text: "The public book focuses on one claim across sixteen chapters: named coordinates state tensor intent where shape-only code leaves it implicit."
         links:
-          - label: "Visible Dimensions"
+          - label: "The Name in the Bracket"
             url: "https://einlang.github.io/einlang/book/"
           - label: "Compiler blindness"
             url: "https://einlang.github.io/einlang/book/chapter-01-compiler-blindness.html"
