@@ -66,7 +66,7 @@ hero:
   status:
     title: "What to read"
     items:
-      - "Book: seven-section treatment of visible dimensions."
+      - "The Name in the Bracket: what changes when tensor dimensions carry names."
       - "Paper: compact language-design argument."
       - "Thesis: compiler and runtime details."
 
@@ -193,9 +193,9 @@ slides:
     intro: "Each document answers a different question: how to learn the notation, what the language-design argument is, how the implementation works, or how to run the code."
     cards:
       - title: "Book"
-        text: "A seven-section book about explicit indices: named axes, index rules, dependency graphs, type contracts, compile-time autodiff, compiler transformations, and source-level contracts."
+        text: "A book about what changes when tensor dimensions have names: the coordinate audit, gradient tracing, recurrence as dependency graphs, attention as communication protocols, and the boundary between what the source should show and what the compiler should hide."
         links:
-          - label: "Visible Dimensions"
+          - label: "The Name in the Bracket"
             url: "https://einlang.github.io/einlang/book/"
       - title: "Paper"
         text: "The compact research argument for keeping indexed definitions, recurrence, and derivative requests in one source language."
@@ -237,9 +237,9 @@ slides:
           - label: "Example tests"
             url: "https://github.com/einlang/einlang/tree/main/tests/examples"
       - title: "Dimensions are explicit"
-        text: "The public book focuses on one claim across seven sections: named indices state tensor intent where shape-only code leaves it implicit."
+        text: "The public book focuses on one claim across sixteen chapters: named coordinates state tensor intent where shape-only code leaves it implicit."
         links:
-          - label: "Visible Dimensions"
+          - label: "The Name in the Bracket"
             url: "https://einlang.github.io/einlang/book/"
           - label: "Compiler blindness"
             url: "https://einlang.github.io/einlang/book/chapter-01-compiler-blindness.html"

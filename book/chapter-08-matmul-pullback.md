@@ -1,458 +1,421 @@
 ---
 layout: book
-title: "Chapter 8: Matrix Multiplication Teaches the Pullback"
+title: "Matrix Multiplication Teaches the Pullback"
 ---
 
 # Matrix Multiplication Teaches the Pullback
 
-The forward equation is:
+Why does the gradient of a matrix multiplication transpose the other matrix?
+Most practitioners memorize this fact. Few can derive it from the forward
+expression in thirty seconds. The reason is not calculus. It is coordinate
+accounting.
+
+Chapter 7 showed a linear map with one input and one output path. Matrix
+multiplication has two inputs and three coordinates. The inner coordinate `k` is
+consumed in the forward pass. The outer coordinates `i` and `j` survive. When
+sensitivity flows backward, it splits into two pullbacks, each reducing over a
+different outer coordinate. The transpose that practitioners memorize is a
+consequence of which coordinate name appears where.
+
+## The Bug That Memorizes the Transpose
+
+Your colleague is implementing a transformer from scratch. The attention layer
+works. The FFN works. The loss decreases. But the model is not learning—every
+few hundred steps, the loss spikes and resettles at a slightly worse value.
+
+After three days of staring, you find this:
+
+```python
+# Forward: C = A @ B      (correct)
+C = A @ B
+
+# Backward for A (intended: dA = G @ B.T)
+dA = G @ B    # BUG: missing transpose on B
+```
+
+`dA` has the right shape `[i, k]`. `G` is `[i, j]`, `B` is `[k, j]`. The
+multiplication `G[:, :] @ B[:, :]` would normally fail, but `j == k` in this
+layer (the FFN has a square weight matrix). So `G @ B` runs. The numbers are
+nonzero. The gradients flow. The optimizer takes steps. Everything looks correct.
+
+But `G @ B` computes `sum[j](G[i, j] * B[j, k])`—it reads `B` transposed. The
+gradient for `A` now depends on the wrong slice of `B`. Meanwhile `dB = A.T @ G`
+is correct—but `dA` is wrong, so the model's learning about `A` is corrupted. The
+loss goes down because `dB` still pushes `B` in a direction that compensates.
+The two weight matrices are jointly adapting to a bug.
+
+A shape checker sees `[i, k]` and reports success. A coordinate reader sees:
+
+```rust
+// Forward
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+
+// Correct pullback for A
+let dA[i, k] = sum[j](G[i, j] * B[k, j]);
+
+// Bug: sums over the wrong coordinate
+let dA[i, k] = sum[j](G[i, j] * B[j, k]);
+//                               ^^^^ should be B[k, j]
+```
+
+`B[k, j]` uses the local coordinate `k` paired with the route coordinate `j`.
+The bug, `B[j, k]`, swaps them—`j` now indexes the wrong dimension of `B`.
+When `j == k`, the swap is invisible to shape checks. When `j != k`, the shapes
+are compatible only accidentally. The coordinate names make the swap visible
+because `B[k, j]` and `B[j, k]` are different addresses.
+
+## The Forward Expression Already Knows
+
+Write the forward expression:
 
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
 ```
 
-This line already contains most of the backward pass. The coordinate `i`
-belongs to rows of `A` and rows of `C`. The coordinate `j` belongs to columns of `B` and
-columns of `C`. The coordinate `k` is the shared inner coordinate.
-
-Before differentiating anything, read the dependency of one output cell:
+Now read one output cell:
 
 ```text
 C[2, 5] = sum[k](A[2, k] * B[k, 5])
 ```
 
-Only row `2` of `A` and column `5` of `B` affect this output. That observation
-is small, but it contains the pullback. If a later loss changes because
-`C[2, 5]` changed, that sensitivity can flow backward only to the `A[2, k]`
-values and the `B[k, 5]` values that participated in the sum.
+Only row `2` of `A` and column `5` of `B` affect this output. If a later loss
+changes because `C[2, 5]` changed, that sensitivity can flow backward only to
+`A[2, k]` values and `B[k, 5]` values. Every other cell of `A` and `B` lies on
+a route that did not participate.
 
-This is the gentler way to meet the pullback: not by materializing a giant
-Jacobian, but by asking where one output cell could have come from. The zeros
-in the dense object are already visible as omitted coordinate routes.
+This is the whole trick. Hold one input cell still. Ask which output cells read
+it. Sum the incoming sensitivities along those routes. The rest of the chapter
+applies this to every cell.
 
-The pullback is easiest to read by holding one input cell fixed and asking
-which output cells could have noticed it. That address question removes most
-of the imaginary giant Jacobian before it is ever built.
+We are not tracing gradients for the exercise. We are asking whether the
+coordinate names we chose in the forward pass survive the backward pass. The
+forward expression declared that `A[i, k]` meets `B[k, j]` at `k`. The
+pullback must recover that same `k` and distinguish it from `i` and `j`. If
+the notation hides the name `k` behind a dimension integer, the pullback
+cannot verify the alignment — it can only hope the integer is still in the
+right position.
 
-For matrix multiplication, that reading becomes a five-step procedure:
+## The Five-Step Procedure
 
-```text
-1. Choose one input cell, such as A[i, k].
-2. List every output cell that directly reads it: C[i, j] for all j.
-3. Attach the incoming sensitivity at each such output: G[i, j].
-4. Multiply by the local derivative along that route: B[k, j].
-5. Sum the routes that meet back at the input address: sum[j](...).
-```
-
-This procedure is more than a mnemonic. It is the sparse Jacobian argument
-without the giant Jacobian. Holding one input cell still tells us which output
-cells can feel it, and therefore which incoming sensitivities must meet back at
-that input address. The wrong pullback often has the right-looking extents;
-what gives it away is that it sums over a survivor or preserves a route
-coordinate.
-
-The result is `dA[i, k] = sum[j](G[i, j] * B[k, j])`. The same five steps
-derive `dB` by holding a cell of `B` fixed.
-
-The symmetry is worth keeping in sight:
+Lock one input cell and follow its forward influence:
 
 ```text
-forward consumes k        backward reopens routes through output coordinates
-forward preserves i, j    backward preserves the input cell's coordinates
-forward broadcasts bias   backward collects the omitted coordinate
+1. Choose one input cell (e.g., A[i, k])
+2. List every output cell that directly reads it: C[i, j] for all j
+3. Attach the incoming sensitivity at each such output: G[i, j]
+4. Multiply by the local derivative along each route: B[k, j]
+5. Sum the routes that meet back at the input address: sum[j](...)
 ```
 
-The pullback is not a new kind of mystery. It is the same coordinate accounting
-run in the opposite direction.
-
-## Jacobian Object or Indexed Rule
-
-One possible design for derivatives is to treat every derivative as a large
-Jacobian. That is mathematically uniform, and usually the wrong object to
-compute. The useful computation is almost never the materialized Jacobian; it
-is the way sensitivities are pulled back through coordinates.
-
-Another design is to keep only high-level derivative rules such as "the
-gradient of matrix multiplication uses transposes." That is efficient, but it
-can make the transpose feel like a spell rather than a consequence.
-
-The indexed rule sits between those extremes. It does not build the giant
-Jacobian, and it does not ask the reader to accept the transpose rule on
-faith. It shows which coordinates stay and which are collected.
-
-The same is true if matrix multiplication is later exposed as a coordinate
-function:
-
-```text
-let C[i, j] = matmul[k](A[i, k], B[k, j])
-```
-
-The call can be short because `k` names the consumed coordinate. The function
-may lower to BLAS, but the pullback still knows which routes to reopen because
-the contraction coordinate crossed the boundary.
-
-Julia has explored a nearby surface through packages such as Tullio and
-TensorOperations:
-
-```julia
-@tullio C[i, j] := A[i, k] * B[k, j]
-```
-
-That is close in spirit to the line above: the programmer states an indexed
-relation instead of a sequence of loops, and the system can connect that
-relation to AD and generated kernels. Einlang's extra insistence is that the
-same relation can become a checked function boundary. As a signature sketch:
-
-```text
-fn matmul[i, j, k](a: [f32; ..batch, i, k],
-                  b: [f32; ..batch, k, j])
-    -> [f32; ..batch, i, j]
-```
-
-The coordinate `k` should not disappear merely because `matmul` became a
-library call.
-
-It is still useful to imagine the full Jacobian once. Each cell `C[i, j]`
-would have a derivative with respect to each cell `A[p, q]`. Most of those
-entries are zero, because `C[i, j]` only reads row `i` of `A`. The indexed
-pullback is the sparse story without ever materializing the sparse object.
-
-Suppose a scalar loss depends on `C`, and let `G[i, j]` be the sensitivity
-`@loss / @C[i, j]`. What shape should `@loss / @A` have? It must have the shape
-of `A`, so its coordinates are `[i, k]`.
-
-The only omitted coordinate from the output sensitivity is `j`, so `j` must be
-collected:
+Apply it to `A[i, k]`:
 
 ```rust
+// A[i, k] contributes to every C[i, j] for all j
+// The free coordinate j becomes the reduction coordinate
 let dA[i, k] = sum[j](G[i, j] * B[k, j]);
 ```
 
-Likewise, `@loss / @B` has coordinates `[k, j]`, so `i` must be collected:
+Apply it to `B[k, j]`:
 
 ```rust
-let dB[k, j] = sum[i](A[i, k] * G[i, j]);
+// B[k, j] contributes to every C[i, j] for all i
+// The free coordinate i becomes the reduction coordinate
+let dB[k, j] = sum[i](G[i, j] * A[i, k]);
 ```
 
-## The Pattern
+The procedure produces two formulas. They are mirror images because `A` and `B`
+sit in different coordinate roles in the forward expression. `A` owns `i` and
+`k`. `B` owns `k` and `j`. The transpose that practitioners memorize is not a
+rule of calculus — it is the coordinate names, read backward.
 
-This is not a coincidence. The derivative with respect to a value keeps the
-coordinates of that value. Any output coordinate that helped carry sensitivity
-but is not part of the requested value becomes local to a reduction.
+## Verify With Concrete Indices
 
-That sentence is worth reading slowly:
+Take a small case: `A` is `2 × 3`, `B` is `3 × 2`, `C` is `2 × 2`. Write out
+row 0 of `C`:
 
 ```text
-the requested value decides what survives
-the chain rule decides what gets summed
+C[0, 0] = A[0, 0] * B[0, 0] + A[0, 1] * B[1, 0] + A[0, 2] * B[2, 0]
+C[0, 1] = A[0, 0] * B[0, 1] + A[0, 1] * B[1, 1] + A[0, 2] * B[2, 1]
 ```
 
-In implementation terms, a compiler may lower these equations to transposed
-matrix multiplies. In source terms, the pullback is an index transformation.
-
-## One Cell of the Pullback
-
-Focus on `A[2, 3]`. Which output cells did it influence?
-
-In the forward equation:
+Where does `A[0, 1]` appear? In both `C[0, 0]` and `C[0, 1]`, but nowhere in
+row `1` of `C`. The pullback collects the incoming sensitivities at those two
+output cells:
 
 ```text
-C[i, j] = sum[k](A[i, k] * B[k, j])
+dA[0, 1] = G[0, 0] * B[1, 0] + G[0, 1] * B[1, 1]
 ```
 
-the value `A[2, 3]` contributes when `i = 2` and `k = 3`. The coordinate `j`
-is still free, so `A[2, 3]` contributes to every `C[2, j]`. Therefore its
-gradient must collect over `j`:
+This is exactly `sum[j](G[0, j] * B[1, j])`. The concrete indices verify what
+the five-step procedure derives.
+
+Now trace `B[1, 0]`:
 
 ```text
-dA[2, 3] = sum[j](G[2, j] * B[3, j])
+B[1, 0] appears in:
+  C[0, 0] through A[0, 1]
+  C[1, 0] through A[1, 1]
+
+dB[1, 0] = G[0, 0] * A[0, 1] + G[1, 0] * A[1, 1]
 ```
 
-This is the whole pullback in one coordinate. The formula for `dA[i, k]` is
-not an arbitrary transposed matmul trick. It is the result of asking which
-output coordinates one input coordinate helped produce.
+This is `sum[i](G[i, 0] * A[i, 1])`. Same logic, different sum coordinate.
 
-Now focus on `B[3, 5]`. It contributes when `k = 3` and `j = 5`; the free
-coordinate is `i`. So:
+```
+   Pullback Fan-Out: 2x3x2 matmul (i=2, k=3, j=2)
+
+   A[0,1] fan-out:              B[1,0] fan-out:
+   C[0,0] = ... + A[0,1]*B[1,0] C[0,0] = ... + A[0,1]*B[1,0]
+   C[0,1] = ... + A[0,1]*B[1,1] C[1,0] = ... + A[1,1]*B[1,0]
+       ^                           ^
+       |                           |
+   dA[0,1] = sum[j](G[0,j]*    dB[1,0] = sum[i](G[i,0]*
+             B[1,j])                       A[i,1])
+
+   +-----------+                   +-----------+
+   | A pulls j |                   | B pulls i |
+   +-----------+                   +-----------+
+   i,k survive, j consumed     k,j survive, i consumed
+
+   "Hold one input cell, ask which outputs feel it."
+```
+
+## The Transpose Is Not Magic
+
+The compact linear algebra formulas are:
 
 ```text
-dB[3, 5] = sum[i](A[i, 3] * G[i, 5])
+dA = G @ B^T
+dB = A^T @ G
 ```
 
-The two pullbacks are mirror images because the forward expression uses `A`
-and `B` in different coordinate roles.
+Engineers memorize these. The indexed version explains why the transposes
+appear. `dA` needs coordinates `[i, k]`. `G` has `[i, j]`. `B` has `[k, j]`.
+To multiply them, `B` must be read as `[k, j]` → the second coordinate aligns
+with `j` for the reduction. That alignment is what the transpose notation
+records, but the transpose is a consequence, not an axiom.
+
+A reader who remembers `dA = G @ B^T` as a rule can still write `dA = G @ B`
+if `B` happens to be square. The dimensions match. The code runs. The answer is
+wrong because the coordinates are wrong, but the shape check passes. The
+indexed form prevents this: `sum[j](G[i, j] * B[k, j])` has `j` paired with `j`
+by name, and no accidental transposition can fake that alignment.
+
+The transpose is not an axiom of calculus. It is a consequence of coordinate
+alignment — and consequences are only reliable when their premises are visible.
+The memorized rule `dA = G @ B^T` works when the reader remembers which
+coordinate `B^T` is transposing. The indexed rule `sum[j](G[i, j] * B[k, j])`
+works when the reader can read. The notation determines whether the transpose
+is a fact you recall or a fact you verify.
 
 ## Batched Pullbacks
 
-For batched matrix multiplication:
+Add a batch prefix:
 
-```text
-C[..batch, i, j] =
-    sum[k](A[..batch, i, k] * B[..batch, k, j])
+```rust
+let C[batch, i, j] = sum[k](A[batch, i, k] * B[batch, k, j]);
 ```
 
-the batch prefix survives in all three gradients:
+The batch coordinate is not part of the contraction. It survives in all three
+gradients:
 
-```text
-dA[..batch, i, k]
-dB[..batch, k, j]
-dC[..batch, i, j]
+```rust
+let dA[batch, i, k] = sum[j](G[batch, i, j] * B[batch, k, j]);
+let dB[batch, k, j] = sum[i](G[batch, i, j] * A[batch, i, k]);
 ```
 
-The batch coordinates do not participate in the contraction. They identify
-which member of the family is being multiplied. This is why naming the prefix
-is more than a convenience: it prevents the batch structure from being confused
-with the algebraic structure.
+A gradient formula that accidentally sums over `batch` would share sensitivity
+across examples. The loss curve would still go down—the numbers are nonzero,
+the shapes are plausible—but each example would receive an average of the
+batch's gradient rather than its own. The bug is invisible to dimensional
+analysis. It is visible in the coordinate source because `batch` appears in
+the reduction brackets only if the programmer put it there.
 
-For a single batch member:
+## The Giant Jacobian That Never Materializes
+
+A literal Jacobian from `C` to `A` would have four coordinates: `[i, j, p, q]`
+— output row, output column, input row, input column. Most entries are zero,
+and the zeros follow a pattern you already know. `C[i, j]` depends on `A[p, q]`
+only when the row indices match: `p = i`. When that holds, the local derivative
+is `B[q, j]` — the matching column from the other matrix.
+
+The pullback never builds the giant four-dimensional object. It reads the index
+relation `p = i` from the coordinate names and compresses immediately:
 
 ```text
-dA[batch..., i, k] =
-    sum[j](G[batch..., i, j] * B[batch..., k, j])
+dA[p, q] = sum[i, j](G[i, j] * dC_dA[i, j, p, q])
+         = sum[j](G[p, j] * B[q, j])    // after p = i
 ```
 
-The batch prefix stays fixed while `j` is collected. A bug that accidentally
-reduces over a batch coordinate would mean that examples in the batch are
-sharing gradient contributions. That may be intended in some reductions, but
-it is not the pullback of ordinary batched matrix multiplication. Visible
-batch coordinates make that distinction reviewable.
+The unnecessary coordinate disappears in one step because the names already
+know which entries are zero. The notation does not build the giant Jacobian and
+then compress it. It skips to the compressed form.
 
-The prefix is not special-cased by a matmul rule hidden in a library. It is
-present in the indexed equation, so the same rule that preserves `i` and `k`
-also preserves every coordinate in `..batch`.
+## What the Compiler Sees
 
-## What the Compiler Learns
-
-A compiler does not need to materialize a giant Jacobian to use this structure.
-It can recognize the index pattern and lower the pullback to efficient matrix
-multiplications. The important point is earlier than that
-optimization: the source already states enough coordinate structure to derive
-the shape of the pullback.
-
-There are two separable compiler jobs here. The first is semantic: derive an
-indexed pullback that preserves the right coordinates and reduces the rest.
-The second is operational: recognize that the resulting reductions can be
-implemented as ordinary matrix multiplications, perhaps with transposed views
-or fused kernels. If those jobs are blurred, the transpose formulas look like
-primitive magic. If they are separated, the transposes are just one lowering of
-the coordinate rule.
-
-This is the difference between asking "what operations happened?" and asking
-"which coordinates connect the value I care about to the value I am
-differentiating with respect to?" The latter question is visible in the
-formula.
-
-A coordinate-aware `matmul` keeps that visibility when the formula is hidden:
+When a coordinate-aware function boundary exists:
 
 ```rust
 fn matmul[i, j, k](a: [f32; ..batch, i, k],
-                  b: [f32; ..batch, k, j])
+                   b: [f32; ..batch, k, j])
     -> [f32; ..batch, i, j]
 ```
 
-The pullback rules do not need `matmul` to stay expanded forever. They need the
-function boundary to remember which coordinate was contracted and which prefix
-was carried.
-
-## What Must the Gradient Be Addressed Like?
-
-Before any implementation strategy appears, the request `@loss / @A` has a
-coordinate obligation: the answer must be addressed like `A`. That observation
-changes the feel of the pullback. The gradient is not an opaque artifact
-returned by an engine; it is a value whose coordinates were named before the
-engine began.
-
-## Pullback as Coordinate Accounting
-
-Matrix multiplication is the right example here because it sits at the crossing
-of three earlier ideas. It has surviving coordinates, a consumed coordinate,
-and a derivative that must decide which coordinates to preserve. Nothing about
-the pullback is arbitrary once those roles are visible.
-
-The forward pass says:
+the compiler knows three things before differentiation begins:
 
 ```text
-i survives for A and C
-j survives for B and C
-k is shared and consumed
+1. The consumed coordinate is k
+2. The output coordinates are i, j
+3. The prefix coordinates (..batch) are carried through unchanged
 ```
 
-The backward pass then asks a family of coordinate questions. For `A`, preserve
-`i` and `k`, collect `j`. For `B`, preserve `k` and `j`, collect `i`. For the
-output sensitivity, preserve `i` and `j`.
+The pullback for `a` preserves `i` and `k`, collects `j`. The pullback for `b`
+preserves `k` and `j`, collects `i`. The prefix survives in both. This is not
+a special-case rule for matmul. It is the same coordinate accounting from
+Chapter 7 applied to a function with a named contraction.
 
-This is the first place where the earlier pieces start to feel like one
-system. The same reading habits used for reshape, broadcasting, and reduction
-now explain a central autodiff rule. The reward is fewer special cases to
-carry separately.
+The compiler can lower these equations to transposed matrix multiplies and
+fuse kernels for the surrounding operations. The lowering is an implementation
+choice. The coordinate roles are already decided in the source.
 
-One symmetry will return in the next chapter:
+## Try It
+
+The pullback formula looks abstract until you trace one cell. Let's fix that.
+
+Trace the pullback for a concrete case. Let `A` be `2 × 3`, `B` be `3 × 2`,
+and `C = A @ B` be `2 × 2`. Write the forward expansion for every output cell.
+Circle every occurrence of `A[0, 1]` — it appears in both `C[0, 0]` and
+`C[0, 1]`. Sum the routes that include incoming sensitivity `G` to get
+`dA[0, 1] = G[0, 0] * B[1, 0] + G[0, 1] * B[1, 1]`. This is
+`sum[j](G[0, j] * B[1, j])`. Now circle `B[2, 0]` and trace its fan-out to
+get `dB[2, 0] = sum[i](G[i, 0] * A[i, 2])`. The reduction is over `j` for
+`dA`, over `i` for `dB`. The path-coordinate rule predicts this mechanically.
+
+Now try a batched bilinear form with two contractions:
 
 ```text
-forward broadcast  -> backward reduce
-forward reduce     -> backward broadcast-like fan-out
+let y[b, i] = sum[j, k](A[b, i, k] * B[b, k, j] * x[b, j]);
 ```
 
-The arrows are not slogans. They are coordinate accounting. A value reused
-across a coordinate receives many routes of sensitivity back. A coordinate
-summed away in the forward pass often reappears as a route along which an
-upstream sensitivity is distributed.
+Three inputs, two consumed coordinates. For `dA`, A's coords are `{b, i, k}`,
+y's are `{b, i}`, so the path is `{j}` — sum over `j`:
+`dA[b, i, k] = sum[j](dy[b, i] * B[b, k, j] * x[b, j])`. For `dB`, B's coords
+are `{b, k, j}`, path is `{i}`: `dB[b, k, j] = sum[i](dy[b, i] * A[b, i, k] *
+x[b, j])`. For `dx`, x's coords are `{b, j}`, but x also contracts over `k`:
+`dx[b, j] = sum[i, k](dy[b, i] * A[b, i, k] * B[b, k, j])`. When `i_count ==
+k_count == j_count`, all gradient shapes match the forward shapes, but the
+reduction coordinates differ. A positional system may transpose the wrong
+matrix while still producing the right output shape.
 
-A final check is to compare the pullback equations to the familiar transposes:
+The classic bug is `dA = G @ B` instead of `G @ B.T`. Both produce shape
+`[i, k]` when matrices are square. Write the coordinate formulas:
 
 ```text
-dA = G * B^T
-dB = A^T * G
+// Correct: dA[i, k] = sum[j](G[i, j] * B[k, j])
+//   j aligns G[i, j] with B[k, j] by name
+
+// Bug:     dA_wrong[i, k] = sum[j](G[i, j] * B[j, k])
+//   j is misaligned — B[j, k] reads the wrong axis
 ```
 
-Those formulas are compact and useful, but the indexed version explains why
-the transposes appear. `dA` needs `[i, k]`, so `B` must be read as `[k, j]`
-while `j` is summed. `dB` needs `[k, j]`, so `A` must be read as `[i, k]` while
-`i` is summed. The transpose is not arbitrary; it is a consequence of which
-coordinates must line up in the reduction.
+For `dA[2, 3]`, the correct version reads `G[2, j] * B[3, j]` — row 2 of G,
+row 3 of B, same column `j` in both. The bug reads `G[2, j] * B[j, 3]` — row
+2 of G, column 3 of B, completely different cells. When `B` is symmetric, the
+two versions produce identical numbers. The loss descends. The model trains for
+a week before anyone notices. The coordinate formula `sum[j](G[i, j] * B[k, j])`
+prevents this entirely because `j` aligns the two terms by name — the alignment
+is a visible fact, not a convention to remember.
 
-That is the level of explanation visible-index notation offers: not replacing
-familiar linear algebra, but making its coordinate reasons available in source.
+**Line to keep:** the sum coordinate in a pullback is never arbitrary. It is
+the coordinate the operand does not own.
 
-## Pullback Without Materializing the Jacobian
+## Why the Sum Coordinate Flips
 
-Let `A` be `2 x 3`, `B` be `3 x 2`, and `C` be `2 x 2`. The small sizes are
-not the lesson; they are a way to see why the real object is not the dense
-Jacobian:
+Why does `dA` sum over `j` while `dB` sums over `i`? The answer is not in the
+gradient. It is in the forward expression.
 
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
 ```
 
-Expand one output row:
+Look at `A`'s coordinates: `{i, k}`. Look at `C`'s coordinates: `{i, j}`. The
+output has `j`; `A` does not. So each `A[i, k]` fans out to every `C[i, j]` for
+all `j`. To collect the sensitivity back to `A[i, k]`, you must sum over `j`.
+
+Look at `B`'s coordinates: `{k, j}`. Look at `C`'s coordinates: `{i, j}`. The
+output has `i`; `B` does not. So each `B[k, j]` fans out to every `C[i, j]` for
+all `i`. To collect the sensitivity back to `B[k, j]`, you must sum over `i`.
+
+The rule is mechanical:
 
 ```text
-C[0, 0] = A[0, 0] * B[0, 0] +
-          A[0, 1] * B[1, 0] +
-          A[0, 2] * B[2, 0]
-
-C[0, 1] = A[0, 0] * B[0, 1] +
-          A[0, 1] * B[1, 1] +
-          A[0, 2] * B[2, 1]
+For each operand X:
+  1. Read X's coordinates from the forward expression.
+  2. Read C's coordinates (the output).
+  3. The path coordinates = C's coordinates ∖ X's coordinates.
+  4. The pullback sums over the path coordinates.
 ```
 
-Now ask where `A[0, 1]` appears. It appears in both `C[0, 0]` and `C[0, 1]`,
-but not in row `1` of `C`. If an incoming cotangent is named `G[i, j]`, the
-gradient cell for `A[0, 1]` is therefore:
-
+For `A`:
 ```text
-dA[0, 1] = G[0, 0] * B[1, 0] +
-           G[0, 1] * B[1, 1]
+A's coords: {i, k}
+C's coords: {i, j}
+Path: {j}  ←  the sum coordinate in dA
 ```
 
-Restoring names:
-
-```rust
-let dA[i, k] = sum[j](G[i, j] * B[k, j]);
-```
-
-The reduction coordinate is `j` because `A[i, k]` contributes to all output
-columns `j` for the same row `i`.
-
-Now do the same for `B[1, 0]`. It appears in:
-
+For `B`:
 ```text
-C[0, 0] through A[0, 1]
-C[1, 0] through A[1, 1]
+B's coords: {k, j}
+C's coords: {i, j}
+Path: {i}  ←  the sum coordinate in dB
 ```
 
-So:
+The sum coordinate is never arbitrary. It is always the coordinate the operand
+does NOT own but the output DOES. This rule generalizes from matmul to any
+reduction-based operation with named coordinates. You do not need to memorize
+which pullback transposes which input. You read the coordinates and the path
+falls out.
 
-```text
-dB[1, 0] = G[0, 0] * A[0, 1] +
-           G[1, 0] * A[1, 1]
-```
+This is the Hiding Law in its most mechanical form. The forward pass knows
+which coordinate was consumed and which survived. Later reasoning — the
+pullback, the optimizer, the person debugging — must recover that same fact
+to sum in the right place. When the notation records coordinates by name,
+recovery is set subtraction. When the notation records only dimension
+integers, recovery is archaeology. The mathematics is the same either way.
+The effort of verification is not.
 
-and in names:
+A positional API buries this rule under shapes: "if C is `[m, n]` and A is
+`[m, k]`, the missing dimension is `n`, so sum over it." But the missing
+dimension is not a number—it is a role. When the numbers coincide by accident
+(square matrices), the number says nothing about the role. The coordinate set
+difference `{i, j} ∖ {i, k} = {j}` always says what the path is, even when
+`|j| == |i| == |k|`.
 
-```rust
-let dB[k, j] = sum[i](G[i, j] * A[i, k]);
-```
+### Where This Leads
 
-This table is the long form of the familiar transposes. For `dA`, the bridge
-uses `B[k, j]`; for `dB`, the bridge uses `A[i, k]`. The transpose notation
-compresses that alignment, but the indexed form explains it.
+The transpose that practitioners memorize is not an axiom of calculus. It is a
+consequence of coordinate alignment. In the forward pass, `A[i, k]` and
+`B[k, j]` meet at `k`. In the backward pass, sensitivity to `A` flows through
+every `j`, and sensitivity to `B` flows through every `i`. The transpose appears
+because the surviving coordinate in one operand becomes the path coordinate for
+the other. Memorizing which matrix to transpose is fragile. Reading the forward
+coordinates and computing the path is mechanical. The notation determines which
+of these two modes of understanding is available.
 
-The compiler-facing value of this reading is that no dense four-dimensional
-Jacobian has to be the primary object. A literal Jacobian from `C[i, j]` to
-`A[p, q]` would have coordinates `[i, j, p, q]`, mostly filled with zero
-except when `p = i` and `q` matches the contraction coordinate. The pullback
-rule avoids materializing that object by immediately composing the incoming
-cotangent with the local dependency. The source indices show the same
-sparsity: most coordinates simply do not line up.
+The path-coordinate rule—output coordinates minus operand coordinates—is the
+last piece of the pullback puzzle. You now have everything needed to derive the
+gradient of any reduction-based expression:
 
-The mental test is compact and strict. For any proposed matmul gradient,
-choose one input cell. List the output cells that read it. If the proposed
-formula sums exactly those cells and preserves exactly the input cell's
-coordinates, the pullback shape is right. If it preserves an output coordinate
-that the input does not have, or forgets one that the input does have, the
-formula is wrong even if the resulting array happens to have a plausible
-shape.
+1. Name the output coordinates and the input coordinates.
+2. For each operand, compute the path: output ∖ operand.
+3. The pullback sums over the path, multiplied by the local derivative.
 
-## Why the Giant Object Disappears
+Chapter 9 shows how this composes across compound expressions. A batched conv2d
+has five locals—`ci`, `kh`, `kw` plus two spatial offsets. A self-attention
+layer has four reductions in sequence—score dot product over `d`, softmax over
+`k`, gather over `j`, output projection over `d`. Each reduction creates a path
+coordinate in the backward pass. The path-coordinate rule from this chapter
+applies unchanged at each reduction boundary.
 
-The full derivative of `C` with respect to `A` can be imagined as:
-
-```text
-dC_dA[i, j, p, q]
-```
-
-Most entries are zero. `C[i, j]` depends on `A[p, q]` only when `p = i`; when
-that holds, the local factor is `B[q, j]`. The pullback form composes this
-sparse relation with `G[i, j]` immediately:
-
-```text
-dA[p, q] = sum[i, j](G[i, j] * dC_dA[i, j, p, q])
-```
-
-After applying the equality `p = i`, the unnecessary coordinate disappears:
-
-```text
-dA[p, q] = sum[j](G[p, j] * B[q, j])
-```
-
-This is exactly the earlier rule with names changed back to `[i, k]`. The
-indexed notation lets the reader see why the dense Jacobian would be wasteful
-and why the pullback has the smaller shape. It is not a shortcut that loses
-meaning. It is coordinate accounting that removes zeros before they become an
-implementation burden.
-
-The same accounting explains batching. If a batch prefix is present:
-
-```rust
-let C[b, i, j] = sum[k](A[b, i, k] * B[b, k, j]);
-```
-
-then the pullbacks keep `b` rather than summing it:
-
-```text
-dA[b, i, k] = sum[j](G[b, i, j] * B[b, k, j])
-dB[b, k, j] = sum[i](G[b, i, j] * A[b, i, k])
-```
-
-Batch identifies independent matrix products. It is not a contraction
-coordinate. If a gradient formula sums over `b` here, it has changed the
-meaning from per-example sensitivity to a shared-parameter accumulation.
-
-That accumulation may be correct for shared parameters in a training loss, but
-it should be an explicit consequence of the surrounding loss reduction, not an
-accidental property of the matmul pullback itself.
-
-Hold one cell `A[p, q]` fixed and ask which cells of `C` can depend on it. One
-coordinate is forced equal; another remains to be summed in the pullback. That
-small address question is the whole trick.
-
-## Try It
-
-Given `C[i, j] = sum[k](A[i, k] * B[k, j])`, run the five-step procedure twice:
-first with one fixed cell `A[i, k]`, then with one fixed cell `B[k, j]`. Write
-the two gradient expressions and mark which coordinate was consumed in each
-pullback.
-
-**Line to keep:** hold one input cell fixed and ask which output cells can feel
-it.
+The challenge is keeping track of which coordinate plays which role when the
+expression has more than three names. Chapter 9 gives you the ledger.

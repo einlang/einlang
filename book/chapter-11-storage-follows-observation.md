@@ -1,110 +1,52 @@
 ---
 layout: book
-title: "Chapter 11: Storage Follows Observation"
+title: "Storage Follows Observation"
 ---
 
 # Storage Follows Observation
 
-A recurrence tells us which values depend on which earlier values. It does not
-automatically tell us how much history must be stored. Storage depends on two
-things together: what each point reads, and which points later code observes.
+You are debugging an autoregressive model. The sequence is 10,000 tokens long.
+Training has been running for an hour, then OOM. The memory profile shows: 10K
+time steps × batch 32 × hidden 768, all in float32, all materialized.
 
-That separation is easy to lose if we imagine a full array allocation the
-moment we see `h[t]`. But the source family `h[t]` is not automatically a demand
-to store every `h`. Storage depends on the dependency window and on which
-members of the family are later observed.
+Your colleague says "use `torch.no_grad()` for inference." That helps—but it's
+the wrong diagnosis. The real question is not whether gradients flow. It's
+whether the program ever said it needed 10,000 time steps of stored history.
 
-The mistake is to let one notation carry three different burdens at once:
-meaning, dependency, and storage. `h[t]` names a member of a family. The read
-of `h[t - 1]` states a dependency window. A later use such as `h[T - 1]` or
-`trace[t] = h[t]` states an observation. Only after those facts are separated
-does the buffer question have a well-formed answer.
+Chapter 10 established that a recurrence says `h[t]` reads `h[t-1]`; a loop is
+one way to run it. Now the harder question: if `h[t]` is a family of values,
+which ones must actually occupy memory?
 
-## Array Semantics or Family Semantics
+## Definition Is Not Storage
 
-If an indexed recurrence is treated immediately as an array allocation, the
-language has already chosen a storage policy. Every time point appears to need
-materialization because every time point has a name. That is simple, but it
-throws away an optimization opportunity before analysis begins.
+A recurrence defines what values exist. It does not say which ones must be
+stored simultaneously. That decision belongs to observation — which members of
+the family does later code actually ask for?
 
-The other choice is to treat the recurrence first as a family of values. The
-family has a dependency relation; storage is chosen later, after observations
-are known. This lets the same source definition support a rolling state, a full
-history, or a checkpointed evaluation depending on how the value is used.
+This separation — definition from storage, storage from observation — is the
+thesis of the book applied to memory. A loop notation merges all three into one
+mutable variable. It makes every value look equally real, equally stored. A
+recurrence notation separates them: what exists semantically, what must occupy
+memory, and what later code actually asks for. The notation determines what you
+can notice about storage, and a notation that merges definition with allocation
+makes it impossible to ask "which of these values does the program actually
+observe?" without tracing every use.
 
-Einlang's recurrence notation takes the second route. Define the values first;
-commit to memory only after the program shows what it will observe.
-
-This is a semantic claim first and an implementation hook second. The current
-compiler performs recurrence ordering and records lowered execution facts that
-backends can use, including vectorized and recurrence-aware execution paths.
-The book's checkpointing examples describe the policy space those facts make
-available; they are not a promise that every checkpoint schedule is already a
-separate user-visible pass.
-
-This is also where Tensor Comprehensions and TVM TE are the right comparison.
-They make tensor compute explicit enough for a compiler to transform:
-
-```python
-C = te.compute((M, N), lambda i, j: te.sum(A[i, k] * B[k, j], axis=k))
-s = te.create_schedule(C.op)
-```
-
-The compute says what `C[i, j]` means; the schedule later chooses splitting,
-tiling, caching, vectorization, and placement. Einlang's recurrence notation is
-not a replacement for tensor-compute DSLs or scheduling machinery. It is a way
-to state the semantic family and observation facts before a scheduler decides
-which buffers must exist:
-
-```rust
-let h[t in 1..T] = step(h[t - 1], x[t]);
-let final = h[T - 1];
-```
-
-The same placement applies to XLA, MLIR, IREE, Triton, and Halide. They are
-not primarily languages for saying that `h[t]` depends on `h[t - 1]`; they are
-ways to lower, schedule, tile, fuse, and run computations once the dependency
-structure is known. A good source notation should hand those systems a clean
-semantic object rather than a prematurely chosen buffer story. Storage follows
-observation; scheduling follows a relationship that has already been stated.
-
-Consider:
+Consider a one-step recurrence:
 
 ```rust
 let h[0] = init;
 let h[t in 1..T] = step(h[t - 1], x[t]);
+```
+
+The dependency window is one step: each `h[t]` needs only `h[t-1]`. If the only
+observed value is the final state:
+
+```rust
 let final = h[T - 1];
 ```
 
-The recurrence reads only one step back. If the only observed value is
-`final`, an implementation can evaluate the sequence with a rolling slot:
-
-```text
-previous -> current -> previous -> current
-```
-
-The full array `h[0..T]` does not have to exist as stored data, even though it
-exists as a family of values in the source model. This is a distinction between
-meaning and storage: the recurrence defines all of the values, but the runtime
-may not need to retain all of them.
-
-Ask for the same recurrence twice. First ask only for the last state. Then ask
-for a plot of every state. The recurrence did not change, but the storage
-obligation did. Observation is not an afterthought; it is half of the storage
-story.
-
-## A Small Execution Trace
-
-Take four time steps:
-
-```text
-h[0] = init
-h[1] = step(h[0], x[1])
-h[2] = step(h[1], x[2])
-h[3] = step(h[2], x[3])
-```
-
-If the program only asks for `h[3]`, the runtime can overwrite:
+An implementation can use a single rolling slot:
 
 ```text
 slot = h[0]
@@ -113,57 +55,121 @@ slot = step(slot, x[2])
 slot = step(slot, x[3])
 ```
 
-This execution does not deny that `h[1]` and `h[2]` are meaningful source
-values. It only says they do not need long-term storage for this observation.
-That distinction is hard to make when the source program is already written as
-mutation. The recurrence gives names to the whole family first; the storage
-plan comes second.
-
-Put differently, there are two valid views of the same definition:
-
-```text
-source family: h[0], h[1], h[2], h[3]
-runtime slots: previous, current
-```
-
-The first is the semantic object. The second is one legal storage plan under a
-particular observation.
-
-This is a small victory for the old separation between interface and
-implementation. The source family says what values exist as a mathematical
-object. The storage plan says which of those values must occupy memory at the
-same time. That is similar in spirit to separating a lazy value from its
-eventual evaluation, or a type signature from a compiled layout. The important
-thing is that the source can talk about `h[t]` without immediately demanding a
-full array.
-
-## When History Is Observed
+The full array `h[0..T]` never exists as stored data. The source family still
+contains every `h[t]`—the semantics have not changed—but storage did not follow
+definition. It followed observation.
 
 Now change only the observation:
 
 ```rust
-let all[t] = h[t];
+let trace[t] = h[t];
 ```
 
-The recurrence is the same. The dependency offset is still `t - 1`. But the
-program now asks for every member of the family, so the implementation must
-make the whole history available.
+The recurrence is identical. The dependency window is still one step. But the
+program now asks for every member of the family. A rolling slot is no longer
+enough. The runtime must make all values available.
 
-This distinction is important:
+Same recurrence, different observations, different storage.
 
-```text
-definition  what values mean
-observation which values are demanded
-storage     what the runtime must retain
+## Three Observations, Three Policies
+
+Take a concrete sequence of 8 time steps:
+
+```rust
+let h[0] = init;
+let h[t in 1..8] = step(h[t - 1], x[t]);
 ```
 
-In a loop, these concerns are often entangled with mutation. In a recurrence,
-they can be discussed separately. That separation is useful even when the final
-runtime still lowers the recurrence to a loop.
+**Observation A: final state only.**
+
+```rust
+let final = h[7];
+```
+
+Policy: rolling slot of size 1. The eight source values exist semantically; the
+runtime keeps one at a time.
+
+**Observation B: full trace.**
+
+```rust
+let trace[t] = h[t];
+```
+
+Policy: full materialization. All eight values must be available simultaneously
+because `trace[t]` reads arbitrary `t`.
+
+**Observation C: every other step.**
+
+```rust
+let every_other[u] = h[2 * u];
+```
+
+Policy: partial materialization. Even-indexed states are retained for output;
+odd-indexed states are computed transiently and discarded after their successor
+is produced.
+
+The recurrence definition never changed. Only the observation did. That one
+difference determines which storage policies remain possible.
+
+Trace one run. `h[0] = 1.0`. The first step reads `h[0]` and `x[1] = 2.0`,
+producing `h[1] = 2.5`. The second reads `h[1]` and `x[2] = 0.0`, producing
+`h[2] = 1.25`. By step seven, `h[7] = 2.3515625`. Eight values exist in the
+mathematical definition. How many occupy memory depends on what later code
+asks for:
+
+**Policy A** (only `h[7]` observed): one rolling slot.
+`slot` starts at 1.0, becomes 2.5, then 1.25, ..., finally 2.3515625. The
+seven intermediate values never coexist in memory.
+
+**Policy B** (full `trace[t] = h[t]`): all eight values materialized.
+`[1.0, 2.5, 1.25, 1.625, 0.8125, 1.40625, 0.703125, 2.3515625]`.
+
+**Policy C** (`every_other[u] = h[2*u]`): four values retained.
+`h[0]=1.0, h[2]=1.25, h[4]=0.8125, h[6]=0.703125`. The odd-indexed values
+`h[1], h[3], h[5], h[7]` are computed transiently when their successors need
+them, then discarded.
+
+```
+   Storage Follows Observation
+
+   Recurrence: h[t] = 0.5 * h[t-1] + x[t],  h[0] = 1.0
+
+   Values defined (all exist semantically):
+   t=0    t=1    t=2    t=3    t=4    t=5    t=6    t=7
+   [1.0] [2.5] [1.25] [1.625] [0.81] [1.41] [0.70] [2.35]
+     │      │      │       │       │       │       │       │
+     └──────┼──────┼───────┼───────┼───────┼───────┼───────┘
+            └──────┼───────┼───────┼───────┼───────┘
+                   └───────┼───────┼───────┼───────┘
+                           └───────┼───────┼───────┘
+                                   └───────┼───────┘
+                                           └───────┘
+   Policy A (observe h[7]):    [·]   [·]   [·]   [·]   [·]   [·]   [2.35]
+   One rolling slot.           stored: █ (1 slot rolling)
+
+   Policy B (observe all):     [1.0] [2.5] [1.25] [1.625] [0.81] [1.41] [0.70] [2.35]
+   Full materialization.       stored: ████████████████████████████████████████████
+
+   Policy C (observe even):    [1.0]  ·   [1.25]   ·    [0.81]   ·    [0.70]   ·
+   Partial materialization.    stored: █     -     █       -      █       -      █     -
+                               transient: h[1], h[3], h[5], h[7] computed and discarded
+```
+
+Same recurrence. Same values. Three different storage footprints. The
+difference is the observation set, and the observation set is visible in the
+source.
+
+This is the central thesis of Part III. Definition, storage, and observation
+are three separate things. A loop fuses them into one mutable variable: the
+variable IS the definition, IS the storage, and IS observed every time it is
+read. A recurrence notation splits them apart. The recurrence defines what
+exists. The observation says what is needed. Storage is the negotiation
+between the two. When the notation withholds this separation, the compiler
+cannot negotiate — it can only allocate.
 
 ## Print Is Observation Too
 
-Observation is not only a model output. Debugging can observe a value as well:
+Debugging statements are not harmless from a storage perspective:
 
 ```rust
 let h[0] = init;
@@ -171,41 +177,33 @@ let h[t in 1..T] = step(h[t - 1], x[t]);
 print(h);
 ```
 
-Before the `print`, an implementation may have room to keep only a rolling
-state if no later expression needs the full history. After `print(h)`, the
-program has asked to see the family. That request changes what must be
-evaluated and materialized. A debugging statement is therefore part of
-the storage story.
+Before the `print`, an implementation may have planned a rolling state—no other
+code observes intermediate values. After `print(h)`, the program has asked to
+witness the entire family. That request changes what must be materialized. A
+debugging print is an observation boundary.
 
-This is why printing is more subtle in a language of formulas. Printing is not
-only display. It is an observation boundary. It turns an expression, a
-recurrence family, or a derivative request into a concrete
-witness.
-
-For a smaller example:
+This applies beyond time. A shape inspection is also an observation:
 
 ```rust
 let z[i] = x[i] * x[i];
-print(z);
 print(shape(z));
 ```
 
-The first line defines a family of values. The print asks the runtime to show
-that family. The shape print asks for a different witness: not the values, but
-the coordinate extent. Both observations reduce implementation freedom because
-the program has made a demand.
+This does not demand the values of `z`, but it does demand the extent of `i`.
+Both are observations that reduce implementation freedom.
 
-Coordinate functions fit into the same discipline. A call such as
-`move_channel[channel](image)` or `scan[t](step, h0, x)` states a coordinate
-contract; it does not by itself demand a particular buffer layout. The
-implementation may choose a view, a copy, a fused loop, a rolling state, or a
-checkpointed schedule if the later observations permit it. What the function
-boundary preserves is the semantic fact: which coordinate moved, which
-coordinate ordered the recurrence, and which surrounding coordinates survived.
+A debugging print is an observation boundary. This fact is invisible in a
+loop — `print(h)` looks like a harmless diagnostic. In a recurrence notation,
+`print(h)` reveals itself as a request for the full family, and that request
+changes what the compiler may discard. The Hiding Law applies to observation
+as much as to computation: when the notation hides which values are observed,
+the compiler cannot distinguish a rolling window from a full materialization.
+The program pays the price in memory, and the programmer pays the price in
+surprise.
 
 ## A Wider Window
 
-Some recurrences need more history:
+Some recurrences need more than one step of history:
 
 ```rust
 let y[0] = a;
@@ -213,216 +211,52 @@ let y[1] = b;
 let y[t in 2..T] = y[t - 1] + y[t - 2];
 ```
 
-If only the final value is observed, a two-value rolling window is enough. The
-source makes that visible through the offsets `t - 1` and `t - 2`.
+The dependency window is two steps. If only `y[T - 1]` is observed, a two-slot
+rolling buffer suffices. The source makes the window visible through the offsets
+`t - 1` and `t - 2`. The compiler does not need to recover this fact from a
+loop body.
 
-If a later expression reads every `y[t]`, the storage plan changes. The
-meaning of the recurrence does not.
+## The Caveat: Observation Is Not Only Output
 
-## The Caveat
+The largest backward offset gives the local dependency window for forward
+computation. But storage is not determined by that window alone. Other forces
+may demand more:
 
-The largest backward offset is not a complete storage plan. It is only the
-local dependency window. Other forces may require more:
+- **Autodiff**: reverse-mode differentiation needs intermediate states for the
+  backward pass, even if the forward pass only observes the final state.
+- **Debugging**: a `print(h)` or a trace request changes the observation set.
+- **Checkpointing**: a policy may store some states and recompute others, trading
+  memory for recomputation.
 
-```text
-later code may observe intermediate states
-reverse-mode differentiation may need saved activations
-debugging may request a trace
-checkpointing may trade recomputation for memory
-```
+Visible recurrence does not solve these trade-offs. It makes the first fact
+explicit: what each point needs in order to be computed. Once that fact is
+visible, storage choices become compiler/runtime policy rather than guesswork
+hidden inside a loop.
 
-Visible recurrence does not solve those trade-offs by itself. It makes the
-first fact explicit: what each point needs in order to be computed. Once that
-fact is visible, storage choices become compiler/runtime policy rather than
-guesswork hidden inside a loop.
+## Checkpointing as Policy
 
-## Checkpointing as a Policy
+Training with backpropagation through time is the clearest case. The forward
+pass may observe only the final state, but the backward pass needs every
+intermediate activation. Keeping all states is simple but memory-heavy.
+Recomputing every state from scratch is memory-light but expensive.
+Checkpointing chooses points in between.
 
-Reverse-mode differentiation is the clearest case where the caveat matters. A
-training run may need intermediate states during the backward pass. Keeping
-every state is simple but memory-heavy. Recomputing every state is memory-light
-but expensive. Checkpointing chooses points in between: save some states,
-recompute segments as needed.
-
-The recurrence notation does not choose the checkpoint policy. It gives the
-policy the dependency facts:
-
-```text
-h[t] needs h[t - 1]
-y[t] needs y[t - 1] and y[t - 2]
-```
-
-With those facts, the compiler or runtime can reason about legal
-recomputation. Without them, it has to recover the temporal structure from a
-loop body and mutation pattern.
-
-This is why the chapter says storage follows observation, not "storage is
-solved by recurrence." Observation includes ordinary outputs, derivative
-requests, debug traces, and profiling hooks. Each observation changes what
-must be retained or recomputed.
-
-## Which Observations Force Memory?
-
-The largest backward offset in a recurrence gives the local history window for
-forward computation. But storage is not determined by that window alone. Later
-uses, derivative requests, and debugging observations can demand more storage
-than the recurrence itself. The source tells us the dependency; observation
-tells us how much of the family must become concrete.
-
-## Definition Before Storage
-
-The storage discussion keeps the recurrence story honest. It would be too easy
-to say "visible dependency offsets imply storage optimization" and stop there.
-The truth is subtler: visible offsets give the compiler a fact it can use, but
-storage remains a policy decision under observation.
-
-That distinction is important for production systems. A compiler should be
-able to use the one-step dependency of an RNN when only the final state is
-needed. It should also be able to keep all states when the output sequence is
-requested. It should be able to choose checkpointing when differentiation makes
-the memory/recompute trade-off worthwhile.
-
-The source notation should not pretend those policies are all the same. It
-should expose the dependency relation clearly enough that different policies
-can be justified. Visible structure does not remove implementation choices; it
-makes their inputs explicit.
-
-A useful warning follows from this: do not confuse a recurrence definition with
-an array allocation request. The notation:
+The recurrence notation does not choose the checkpoint schedule. It gives the
+schedule the graph it needs:
 
 ```text
-h[t] = ...
+h[t] needs h[t - 1]                       // one-step dependency
+y[t] needs y[t - 1] and y[t - 2]          // two-step dependency
 ```
 
-defines a family of values. It does not necessarily demand that every `h[t]`
-be stored simultaneously. Whether the family is materialized depends on later
-uses and runtime policy.
-
-That distinction is one of the quiet benefits of a declarative source form. It
-lets the program describe the mathematical object first and lets the
-implementation decide how much of that object must become memory at once. The
-better the dependency information, the more room the implementation has to make
-that decision responsibly.
-
-The practical advice is therefore conservative: never infer storage only from
-the surface existence of an indexed family. First read the dependency window.
-Then read the observations. Only then talk about materialization.
-
-## Same Recurrence, Different Observations
-
-Consider this recurrence. The dependency is simple; the storage question is
-not, because observation changes the contract:
-
-```rust
-let h[0] = init;
-let h[t in 1..8] = step(h[t - 1], x[t]);
-```
-
-The dependency window is one step. That fact alone permits a rolling execution
-for a final-state query:
-
-```rust
-let final = h[7];
-```
-
-An implementation can keep a single live state:
-
-```text
-slot = h[0]
-slot = step(slot, x[1])
-slot = step(slot, x[2])
-...
-slot = step(slot, x[7])
-```
-
-The source family still contains `h[0]` through `h[7]`. The storage plan does
-not. The difference is legal because the observation only demands the last
-member of the family.
-
-Now add one line:
-
-```rust
-let trace[t] = h[t];
-```
-
-The recurrence definition has not changed. The dependency window is still one
-step. But the observation now demands every time point, so the runtime must
-make all eight values available. A rolling slot is no longer enough unless the
-runtime also emits or stores each value as it is produced.
-
-A third observation changes the policy again:
-
-```rust
-let every_other[u] = h[2 * u];
-```
-
-Now not every time point is externally needed. A storage planner could retain
-only even states for the output while still using odd states transiently during
-computation. The source recurrence and the observation together determine the
-obligation.
-
-This is the audit:
-
-```text
-definition    h[t] depends on h[t - 1]
-observation   final, trace, or every_other
-policy        rolling slot, full history, partial materialization
-```
-
-Checkpointing is a more complex version of the same separation. Suppose
-a reverse pass needs intermediate states, but memory cannot hold all of them.
-The dependency graph says which states can be recomputed from which earlier
-states. A checkpoint schedule might store `h[0]`, `h[4]`, and `h[7]`, then
-recompute segments when the backward computation needs them. The recurrence
-notation does not choose that schedule, but it gives the schedule a graph that
-is explicit rather than recovered from mutation.
-
-Debugging belongs in the same analysis. A line such as:
-
-```rust
-print(h);
-```
-
-is not harmless from the storage point of view. It observes the family. If a
-compiler had planned to keep only the final state, the print changes the
-contract. The user has asked for a witness of all `h[t]` values, so the
-runtime must either materialize them or produce them in an observable stream.
-
-This concrete audit prevents two opposite mistakes. The first mistake is to
-assume every indexed family is an array allocation. That gives up optimization
-too early. The second is to assume a small dependency window always means
-small memory. That ignores observations, debugging, and autodiff. The visible
-source form lets the program state the family first and lets implementation
-policy respond to what is actually demanded.
+With these facts, the compiler can reason about legal recomputation. A schedule
+might store `h[0]`, `h[4]`, and `h[7]`, then recompute segments when the
+backward pass needs intermediate values. Without explicit dependency edges, the
+compiler must recover this structure from a loop body and mutation pattern.
 
 ## The Minimal Compiler Rule
 
 A practical compiler can begin with a conservative rule:
-
-```text
-dependency window gives what is needed next
-observation set gives what must remain available
-```
-
-For `h[t]` reading `h[t - 1]`, the next-step dependency is small. For
-`print(h)` or `let trace[t] = h[t]`, the observation set is large. For
-`let final = h[T - 1]`, the observation set is small. This rule does not solve
-all memory planning, but it prevents the most common confusion: source
-families are semantic objects, not automatic allocation demands.
-
-Once that distinction is stable, more advanced policies can be discussed
-without changing the source meaning. Full materialization, rolling buffers,
-streaming output, and checkpointing are different answers to the same visible
-dependency and observation facts.
-
-This is one reason coordinate-aware helpers are worth more than convenience.
-They allow the source to become more compact without collapsing the difference
-between meaning and storage. A shape-only helper often forces a reader to ask,
-"Was this a layout trick or a semantic transformation?" A coordinate function
-answers at the boundary: the semantic transformation is the named coordinate
-contract; the layout trick is still up to lowering.
-
-A minimal pass can be sketched like this:
 
 ```text
 for each recurrence family h:
@@ -437,21 +271,299 @@ for each recurrence family h:
         materialize observed points and keep transient window for evaluation
 ```
 
-Real systems need aliasing, autodiff, debugging, and checkpoint policy layered
-on top. The sketch is still useful because it shows the compiler question:
-first compute the dependency window, then compute the observation set, then
-choose storage.
+Real systems layer aliasing, autodiff, debugging, and checkpointing on top. The
+sketch is still useful because it shows the compiler question: first compute the
+dependency window, then compute the observation set, then choose storage.
 
-`let final = h[T - 1]` and `let trace[t] = h[t]` may share the same recurrence.
-They do not make the same observation. That one difference is enough to change
-which storage choices remain possible.
+Do not confuse a recurrence definition with an array allocation request. Writing
+`h[t] = ...` defines a family of values. It does not demand that every `h[t]` be
+stored simultaneously. Whether the family is materialized depends on later uses
+and runtime policy. The better the dependency information, the more room the
+implementation has to make that decision responsibly.
+
+A loop gives the compiler one instruction: allocate and overwrite. A
+recurrence gives the compiler a dependency graph and an observation set, and
+asks: what is the cheapest way to satisfy the observations? The first admits
+only one storage policy. The second admits as many policies as there are
+points on the trade-off between memory and recomputation. The notation does
+not choose the policy. It makes the choice possible.
 
 ## Try It
 
-Write the same RNN recurrence twice. In the first program, observe only
-`h[T - 1]`. In the second, bind `trace[t] = h[t]`. For each program, sketch the
-storage plan a compiler could choose: rolling state, full materialization, or a
-hybrid. The recurrence definition is the same; the observation changed.
+Before you solve the storage problem, write the version that runs but is wrong.
+This is the trap. It teaches more than the correct answer.
+
+### The Trap: Materialize Everything
+
+You have a 10-step recurrence. Only `h[9]` is used in the final loss:
+
+```text
+let h[0] = init;
+let h[t in 1..9] = step(h[t - 1], x[t]);
+loss = loss_fn(h[9], target);
+```
+
+Write the storage plan that keeps every `h[t]` in memory. All ten values. The
+shapes are all correct. The program runs. The loss computes. What is hidden?
+
+The hidden waste: you defined 10 values and observed 1, but stored 10. The
+compiler can't help because you never stated which values are observed — you
+just allocated an array. Storage didn't follow observation. Storage followed
+the definition.
+
+This is the shape-compatible wrong version of a storage plan. It runs. It
+computes the right loss. It uses ten times the memory it needs, and for a
+10-step recurrence nobody cares. For a 10,000-step recurrence, it's the
+difference between a program that fits in RAM and one that doesn't.
+
+Now write the coordinate reading that diagnoses it:
+
+```text
+defined: h[0], h[1], ..., h[9]          (10 values)
+observed: h[9]                           (1 value, via loss_fn)
+stored: all 10                           (materialized)
+waste: 9 values stored, never observed   (90% of allocation)
+```
+
+The fix: state the observation. `let final = h[9]` tells the compiler that only
+one value escapes. A compiler that respects observation can then choose a
+rolling slot — one location, overwritten 10 times.
+
+### The Second Trap: Wrong Stride
+
+Now a recurrence with a 2-step dependency window:
+
+```text
+let h[0] = init;
+let h[t in 1..6] = step(h[t - 1], h[t - 2], x[t]);
+```
+
+You decide to checkpoint with stride 3. Checkpoints at t=0 and t=3. During the
+backward pass, you need `h[5]`. It's not stored. You recompute from `h[3]`:
+`h[3] → h[4] → h[5]`. For `h[4]`, you need `h[3]` (stored) and `h[2]`
+(transient). You recompute `h[2]` from... what? The nearest earlier checkpoint
+is `h[0]`. To get `h[2]`, you need `h[1]` and `h[0]`. To get `h[1]`, you need
+`h[0]` (stored) and `h[-1]` — which doesn't exist.
+
+The shapes are all correct. The recurrence definition is correct. The stride
+looks reasonable. But the backward pass hits an index out of bounds because the
+checkpoint stride didn't account for the dependency window.
+
+Write the coordinate reading:
+
+```text
+dependency window: h[t] reads h[t-1], h[t-2]  → window = 2
+stride: 3
+constraint: stride must be ≤ window + 1 for recomputability
+           3 > 2 + 1 = 3 → stride 3 is at the boundary
+actual problem: recomputing h[2] from h[0] requires h[1],
+               which requires h[0] and h[-1] — out of bounds
+valid strides for window=2: stride ≤ 3, and with stride=3,
+               h[1] and h[2] must be recomputed from h[0],
+               but h[1] needs h[-1] — FAIL
+```
+
+The minimum safe stride for a window of size w is 1 (store everything).
+Stride s is safe when there exists a path from every `h[t]` to the nearest
+stored checkpoint using only values that are either stored or can be
+recomputed. For window=2, the practical maximum stride with one level of
+recomputation is also 2 — because you need two stored values to recompute a
+state that depends on two predecessors. With stride=3, you'd need to go back
+two transient steps from h[3] to h[0], and the dependency on h[-1] breaks.
+
+Now write the three valid storage plans for this recurrence:
+
+```text
+stride=1: store all 7 values → 7 stored, 0 transient
+stride=2: store h[0], h[2], h[4], h[6] → 4 stored, max 1 transient
+          recompute h[1] from h[0], h[3] from h[2], h[5] from h[4]  ✓
+stride=3: store h[0], h[3], h[6] → 3 stored
+          recompute h[1] from h[0] ✓
+          recompute h[2] from h[1], h[0] ✓ (h[1] just recomputed)
+          recompute h[4] from h[3], h[2] — h[2] is now gone
+          need to recompute h[2] AGAIN from h[1], h[0] — h[1] is gone
+          chain grows exponentially → recompute cost dominates
+```
+
+So stride=3 is technically possible but the recomputation cost explodes because
+transient values from earlier chains are discarded before later chains can reuse
+them. The practical limit is stride ≤ window + 1 with single recomputation, and
+stride ≤ window for efficient recomputation.
+
+### The Payoff
+
+Now return to the recurrence from the start of this chapter, and apply the
+observation rule to two different programs:
+
+```text
+let h[0] = init;
+let h[t in 1..8] = step(h[t - 1], x[t]);
+```
+
+First program: observe only `h[7]`. Second program: bind `trace[t] = h[t]`.
+For each, sketch the storage plan a compiler could choose: rolling state, full
+materialization, or a hybrid. The answers are already in the chapter — the
+exercise is to state them as coordinate readings.
+
+Now add a third version with a print:
+
+```text
+let h[0] = init;
+let h[t in 1..8] = step(h[t - 1], x[t]);
+let final = h[7];
+print(h);
+```
+
+Before the `print`, the compiler could use a rolling slot—only `final` is
+observed. After `print(h)`, the observation set changed. Does the compiler
+materialize the full history, or does it stream values during evaluation? The
+answer depends on whether the compiler can evaluate-and-print in a single pass.
+If it can, the rolling slot still works. If the print expects the full array,
+materialization is forced.
+
+A training loop for an RNN observes the full output sequence for the loss
+function. The forward pass needs every `h[t]`. Does the observation distinction
+from this chapter still matter, or is full materialization forced by the loss?
+The loss forces observation of every `h[t]`, so the minimal storage plan IS full
+materialization — but only during the forward pass. Once the forward pass
+completes and the loss is computed, the backward pass also needs every `h[t]`.
+You could store them all (simple, memory-heavy) or checkpoint some and recompute
+others (complex, memory-light). The observation distinction tells you which
+`h[t]` the forward pass itself needs, which is the minimum set you must either
+store or be able to recompute. When does checkpointing become relevant? When the
+sequence length is long enough that storing all `h[t]` exceeds memory. The
+checkpointing policy stores every k-th state and recomputes the intermediate
+states during the backward pass. This is a storage policy, not a change to the
+recurrence.
+
+Now implement gradient checkpointing using coordinate logic. Use the same 8-step
+recurrence from earlier in this chapter. A forward recurrence `h[t]` saves every
+`stride`-th state. For `stride = 3`:
+
+```text
+h[0] = 1.0        → stored (stride 0)
+h[1] = 2.5        → transient
+h[2] = 1.25       → transient
+h[3] = 1.625      → stored (stride 1)
+h[4] = 0.8125     → transient
+h[5] = 1.40625    → transient
+h[6] = 0.703125   → stored (stride 2)
+h[7] = 2.3515625  → transient (or stored if needed as final output)
+```
+
+Eight values defined. Three stored. Five recomputed on demand.
+
+During the backward pass, the autodiff engine needs `h[t]` for every `t` to
+compute the gradient of `step` with respect to its parameters. It starts at
+`t=7`:
+
+```text
+t=7: needs h[7] → not stored, recompute from h[6]:
+     h[7] = 0.5 * 0.703125 + 2.0 = 2.3515625  ✓
+t=6: needs h[6] → stored (stride 2), use directly
+t=5: needs h[5] → not stored, recompute from h[6]:
+     h[5] = 0.5 * h[4] + 1.0 → need h[4] first
+     h[4] = 0.5 * h[3] + 0.0 → h[3] is stored (stride 1)
+          = 0.5 * 1.625 + 0.0 = 0.8125
+     h[5] = 0.5 * 0.8125 + 1.0 = 1.40625  ✓
+t=4: needs h[4] → just recomputed above, reuse
+t=3: needs h[3] → stored (stride 1), use directly
+t=2: needs h[2] → not stored, recompute from h[3]:
+     h[2] = 0.5 * h[1] + 0.0 → need h[1] first
+     h[1] = 0.5 * h[0] + 2.0 → h[0] is stored (stride 0)
+          = 0.5 * 1.0 + 2.0 = 2.5
+     h[2] = 0.5 * 2.5 + 0.0 = 1.25  ✓
+t=1: needs h[1] → just recomputed above, reuse
+t=0: needs h[0] → stored (stride 0), use directly
+```
+
+The backward pass visits `t=7,6,5,4,3,2,1,0`. At each step, if the state is
+stored, use it. If not, recompute from the nearest earlier checkpoint. For
+stride 3 and a 1-step dependency window, the maximum recomputation chain length
+is `stride - 1 = 2` steps (recomputing `h[5]` required recomputing `h[4]`
+first).
+
+Now trace the memory at each backward step:
+
+```text
+Backward step    Stored in memory         Recomputed transient     Total in RAM
+─────────────────────────────────────────────────────────────────────────────────
+t=7 compute      h[0], h[3], h[6]         h[7]                    4 values
+t=7 grad done    h[0], h[3], h[6]         —                       3 values
+t=6 grad done    h[0], h[3], h[6]         —                       3 values
+t=5 compute      h[0], h[3], h[6]         h[4], h[5]              5 values (peak)
+t=5 grad done    h[0], h[3], h[6]         h[4] (keep for t=4)     4 values
+t=4 grad done    h[0], h[3], h[6]         —                       3 values
+t=3 grad done    h[0], h[3], h[6]         —                       3 values
+t=2 compute      h[0], h[3], h[6]         h[1], h[2]              5 values (peak)
+t=2 grad done    h[0], h[3], h[6]         h[1] (keep for t=1)     4 values
+t=1 grad done    h[0], h[3], h[6]         —                       3 values
+t=0 grad done    h[0], h[3], h[6]         —                       3 values
+```
+
+Full materialization would keep all 8 values. Checkpointing with stride 3 keeps
+3 stored plus up to 2 transient — 5 values maximum. For a 100-step sequence with
+stride 10, the maximum memory is 10 stored + 9 transient = 19 values instead of
+100. The trade is compute: each transient chain of length up to 9 must be
+re-run.
+
+Visualize the checkpointing schedule as a coordinate grid:
+
+```
+   Checkpointing with stride=3, 8 time steps
+
+   t=0    t=1    t=2    t=3    t=4    t=5    t=6    t=7
+   [█]    [·]    [·]    [█]    [·]    [·]    [█]    [·]
+    S              S              S              S
+
+   █ = stored (stride-aligned),  S = checkpoint
+   · = recomputed on demand during backward pass
+
+   Backward pass recomputation chains:
+   t=7: h[6] → h[7]                                          (1 step)
+   t=5: h[3] → h[4] → h[5]                                   (2 steps)
+   t=2: h[0] → h[1] → h[2]                                   (2 steps)
+
+   Maximum chain length = stride - 1 = 2
+   Storage factor = 1 / stride ≈ 1/3 of full materialization
+```
+
+This is the separation this chapter fought for. The recurrence `h[t] =
+step(h[t-1], x[t])` defines what values exist. The stride coordinate decides
+which ones are kept. The recurrence formula itself does not change when the
+stride changes — only the checkpointing policy changes. A loop buries this
+choice in mutable state and manual save/restore logic. A recurrence with a
+stride coordinate makes the policy visible in one parameter.
+
+The minimal stride is determined by the dependency window, not by the
+recurrence formula. For `h[t] = step(h[t-1], x[t])`, the backward dependency
+window is 1 step — each state needs only its immediate predecessor for
+recomputation. For `h[t] = step(h[t-1], h[t-2], x[t])`, the window is 2 steps,
+and the maximum chain length becomes `stride - 2`. A compiler can compute this
+from the recurrence definition: scan the index offsets in the definition of
+`h[t]`, find the largest backward offset `k` such that `h[t-k]` appears, and
+set the minimum stride constraint accordingly.
 
 **Line to keep:** storage allocation is a negotiation between what is defined
 and what is observed.
+
+### Where This Leads
+
+The triplet — recurrence, observation, stride — are three separate things. A
+loop merges them into one mutable variable and one control flow. Named
+coordinates keep them separate, so each can be reasoned about independently.
+This is not an optimization detail. It is the same principle from Chapter 1's
+reshape chain: when the notation withholds a distinction, the distinction
+becomes invisible to every tool that reads the notation. The compiler cannot
+optimize storage it cannot observe.
+
+Storage follows observation. That rule sounds simple until you draw the
+dependency graph for a real model. An RNN's recurrence reads one step back—a
+tiny window. But training with backpropagation through time needs every
+intermediate state for the backward pass. The observation set ballooned, and
+storage followed.
+
+Chapter 12 draws the full RNN dependency graph: time edges, weight edges,
+batch isolation, and the backward edges that autodiff adds. The graph shows why
+a one-step recurrence can still demand a full history—and where you can break
+that demand with truncated BPTT or gradient checkpointing.

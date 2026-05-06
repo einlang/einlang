@@ -1,12 +1,32 @@
 ---
 layout: book
-title: "Chapter 1: What Can the Compiler Not See?"
+title: "What Can the Compiler Not See?"
 ---
 
 # What Can the Compiler Not See?
 
-Most engineers see the next fragment as harmless shape plumbing. You probably
-will too. That is the trap: the code is legal before it is explainable.
+The CI run is green. Every test passes. The shapes at every layer are exactly
+what they were last week. You merge the PR, deploy, and go to lunch. Three hours
+later the metrics begin to drift — slowly, silently, with no error message and
+no crash. By evening every prediction is wrong by a small, systematic amount
+that none of your monitoring caught, because none of your monitoring checks
+whether axis 2 still means `time`.
+
+The PR that caused it was a one-line change: a data loader swapped two
+dimensions of the same size. The shapes never changed. The compiler saw nothing.
+Every downstream reshape accepted the numbers eagerly. The model continued to
+train and converge — on the wrong pattern.
+
+> "By relieving the brain of all unnecessary work, a good notation sets it free
+> to concentrate on more advanced problems."
+>
+> — Alfred North Whitehead, *An Introduction to Mathematics* (1911)
+
+Whitehead's point cuts both ways. A notation that omits a necessary fact does
+the opposite: it forces the brain to carry what the notation should have
+carried. A compiler can check that your program is well-formed. It cannot check
+that your program means what you think it means — unless the meaning lives in
+the source, where the compiler can see it.
 
 Start with a familiar fragment:
 
@@ -50,7 +70,8 @@ is the same idea at a boundary: the caller and later compiler passes can still
 see which split roles were packed. A real implementation still has to say how
 linearized coordinates are formed. The point here is smaller and sharper: once
 the relation is promoted to a library helper, the split roles should not fall
-back into comments and convention.
+back into comments and convention. A reshape that accepts an integer where it
+should have demanded a name is a bug waiting for a compatible shape.
 
 That is the first blind spot. Tensor code often preserves enough information
 to run, but not enough information to explain itself.
@@ -78,6 +99,13 @@ sizes. It is, or should be, a claim about where named coordinates went.
 So the reshape chain is not suspicious because it is complicated. It is
 suspicious because it proves element counts while leaving `b`, `feat`,
 `group`, and `slice` to be reconstructed by the reader.
+
+We are not inventing names for ceremony. We are naming the facts that the
+reshape arithmetic erases. The compiler sees integers and multiplication.
+The reader needs to see batch, feature, and the pairing decision. The gap
+between those two views is exactly the blind spot this chapter is about:
+the notation determines whether a fact passes into the compiler or stays
+locked in the author's memory.
 
 ## Shape Trace or Coordinate Claim
 
@@ -136,6 +164,13 @@ second output coordinate  feat * slice
 The equation is the final form of that sentence. It is not meant to impress
 the reader with clever packing arithmetic; it is meant to keep the pairing
 decision visible.
+
+This is the thesis in miniature. The arithmetic is not the hard part -- any
+reshape chain can compute the same linearized index. The hard part is
+keeping the semantic choice visible after the index is computed. When the
+notation buries which coordinate traveled with which, every future reader
+must recover that fact from the surrounding code -- and the surrounding
+code may have changed in the six months since this line was written.
 
 Once that relation is stable, it can be named without losing the contract:
 
@@ -210,6 +245,14 @@ may still have the same result shape. The difference is visible only because
 the equation exposes which coordinate is slow and which coordinate is fast in
 the packed address. Shape compatibility does not settle that question.
 
+Notice what just happened. Two layout equations, same output shape,
+completely different coordinate neighborhoods. A shape checker approves
+both. The only tool that distinguishes them is the names on the
+coordinates. This is not a hypothetical edge case -- it is the normal case
+whenever two axes share an extent. And it is why naming is not decoration.
+It is the difference between a check the compiler can run and a check only
+the author's memory can perform.
+
 ## What the Binding Adds
 
 An indexed `let` adds a family of values to the program environment. In:
@@ -275,16 +318,25 @@ syntax matters only when it turns an unwritten assumption into something the
 reader can inspect. The moment a reader can say "wait, why is `group` packed
 with `b`?" the notation has already done useful work.
 
-## Where This Leads
+### Where This Leads
 
-The rest of the first section follows this distinction from a single notation
-into real operators. Chapter 2 separates axis roles from axis positions.
-Chapter 3 reads standard-library coordinate maps such as transpose and
-`depth_to_space`.
+Part I asks one question in six settings: what facts does the notation preserve,
+and what facts does it let slip? This is the surface of the problem — the first
+thing you must learn is simply to *notice* when a coordinate role has been
+hidden. A reshape chain preserves element counts while dropping the coordinate
+story. A broadcast omits a coordinate without stating the omission. A reduction
+consumes a coordinate while hiding which one. Each operation has its own way of
+making a role invisible, and each way produces a program that still runs.
 
-For now, the only point is the first one: a shape can be correct while the
-program still withholds the reason it is correct. Named coordinates are the
-way visible-index notation asks the program to stop withholding that reason.
+By the end of Part I, you will read every tensor line as a small audit: which
+names survive, which are consumed, which are silently omitted. That audit is the
+book's fundamental reading discipline. But Part I only teaches you to *notice*
+hiding. It does not yet ask what happens *because* of it. That question — the
+first deepening — belongs to Part II.
+
+Chapter 2 separates axis roles from axis positions. Chapter 3 reads
+standard-library coordinate maps — transpose, `depth_to_space`, the operations
+that rearrange while the reader tries to keep the story straight.
 
 ## When Shape Is Not Meaning
 
@@ -360,6 +412,25 @@ The source relation says that `y[3, 9]` observes `x[1, 2, 1, 1]`. A reviewer
 can check the intended role of every term: `b` is packed with `group`, and
 `feat` is packed with `slice`.
 
+```
+   Coordinate Packing Map
+
+   Input: x[b, feat, group, slice]     Output: y[row, col]
+          group_count=2 slice_count=4   row=b*group  col=feat*slice
+
+   +---+------+---+---+                +---------+----------+
+   | b | feat | g | s |                | row     | col      |
+   +---+------+---+---+                +---------+----------+
+   | 1 |  2   | 1 | 1 |  ------>       | 3       | 9        |
+   +---+------+---+---+                +---------+----------+
+     |    |     |   |                     ^          ^
+     +--+-'     +---+---------------------+          |
+        |           +--------------------------------+
+   b*group=3                              feat*slice=9
+
+   One coordinate relation replaces reshape+T+reshape chain.
+```
+
 Now write the shape-only version:
 
 ```python
@@ -398,6 +469,14 @@ coordinate relation tells us how those addresses were constructed. The
 compiler cannot preserve a role that never enters the source. Once the program
 states the relation, later phases have something precise to check and lower.
 
+This is the Hiding Law in its simplest form. The coordinate relation is
+the fact that later reasoning must recover. If the source hides it --
+buries it in a chain of reshapes -- every downstream reader, checker, and
+optimizer must reconstruct it from positions and extents. If the source
+states it, the compiler can preserve it, the reviewer can audit it, and
+the error message can name the specific role that crossed the wrong
+boundary.
+
 ## What the Compiler Receives
 
 The difference can be stated as a small contract. In the shape-only version,
@@ -429,12 +508,117 @@ name every input coordinate that contributed to it. The awkward part is not
 recovering the answer; it is noticing how much of the answer came from memory
 rather than from the program text.
 
+## Summary
+
+A shape is a count of addresses. A coordinate relation is a statement about how
+those addresses were constructed from named roles. The compiler can check the
+count from shapes alone. It cannot recover the roles unless the source states
+them.
+
+The reshape chain `x.reshape(...).transpose(...).reshape(...)` is not wrong. It
+is incomplete: it preserves element counts while dropping the coordinate story.
+When two roles share the same extent—batch and time both at 32, group and head
+both at 4—a shape-only program cannot tell them apart. A coordinate relation like
+`y[b * group, feat * slice] = x[b, feat, group, slice]` makes the packing
+decision local and reviewable.
+
+This chapter introduced three habits that will return throughout the book:
+
+1. Read one output address and reconstruct every input coordinate that produced it.
+2. Make that reconstruction deliberately wrong while keeping the shape valid—if
+   two different role stories survive the same extent checks, the source failed
+   to say something important.
+3. Ask not only whether the shape is valid, but what relationship among named
+   coordinates the line states.
+
+The next chapter gives those roles a vocabulary. Where this chapter asked "did
+the source withhold the role?", Chapter 2 asks "what is a role, and how does it
+differ from a position?"
+
 ## Try It
 
-Try to describe the opening reshape chain using only positions `0`, `1`, `2`,
-and `3`. Then move `group` to the last position and describe it again. Notice
-how much of the work your memory is doing. Now write the coordinate relation
-with `b`, `feature`, `group`, and `slice`, and compare how quickly the intended
-packing becomes reviewable.
+This is the exercise that teaches the habit. Don't skip it.
+
+Take a tensor `x` with shape `[B, T, F]` where `B` is batch, `T` is time, and
+`F` is feature. Pick one output cell in the transposed tensor and write down
+every input coordinate that contributed to it, using the Chapter 1 habit: read
+one output address and reconstruct the input roles that produced it. Now write
+the shape-only PyTorch version: `x.permute(1, 0, 2)`. This runs. But suppose a
+refactor changes the input to `[T, B, F]` without changing the semantic
+roles—time is still time, batch is still batch. The `permute(1, 0, 2)` line
+still runs. What does it now compute? Write the coordinate relation for both the
+original and the silently-changed version, and circle the coordinate that changed
+meaning without changing value. You have just performed your first coordinate
+audit. The shape checker was satisfied both times. The coordinate relation was
+the only thing that noticed.
+
+A colleague checks in this line:
+
+```python
+x.reshape(B, H, -1, F).transpose(1, 2).reshape(B, -1, H * F)
+```
+
+They claim it packs `H` (head) with `F` (feature) and leaves the middle spatial
+dimension separate. Before you trust it, work backward: pick output cell
+`y[b, spatial, hf]` and reconstruct which input cell it reads. Then write the
+coordinate relation that makes their intent explicit:
+
+```text
+y[b, spatial, h * f_count + f] = x[b, h, spatial, f]
+```
+
+The formula states the packing decision. Now write the shape-compatible wrong
+version that accidentally unpacks `H` in a different order but still produces
+output shape `[B, spatial, H*F]`:
+
+```text
+wrong[b, spatial, f * h_count + h] = x[b, h, spatial, f]
+```
+
+Both assign `y[0, 5, 7]` to some input cell. They compute different cells. The
+shapes are identical. Now the hardest sub-question: your codebase has a
+downstream operation that does `sum` over the last axis (now `H*F`). In the
+correct version, that sum pools across head-and-feature. In the wrong version, it
+pools across... what, exactly? Which diagnostic question catches this before
+training starts? The diagnostic question is not "does the shape match?" It is
+"when I unpack index 7 on the last coordinate, do I recover the head I intended
+or the feature I intended?" This is a question only the coordinate relation can
+answer.
+
+Design a coordinate function `pack_grouped[g, s]` that packs `g` with batch and
+`s` with feature, working over any rank. Use rest packs so the function does not
+assume a fixed number of batch or feature coordinates:
+
+```text
+fn pack_grouped[g, s](x: [f32; ..batch, g, ..feature, s])
+    -> [f32; ..batch * g, ..feature * s]
+```
+
+Now design the sibling function `pack_grouped_transpose[g, s]` that packs `g`
+with feature and `s` with batch:
+
+```text
+fn pack_grouped_transpose[g, s](x: [f32; ..batch, s, ..feature, g])
+    -> [f32; ..batch * s, ..feature * g]
+```
+
+If `group_count == feature_count` in the input, calling the wrong function
+produces a result with the same output shape. Both functions produce
+`[batch_prefix * group_count, feature_prefix * group_count]`. The shapes agree.
+The compiler sees legal extents everywhere. But one function says "group travels
+with batch" and the other says "group travels with feature." Two coordinate
+functions, identical shapes, completely different semantics—and only the bracket
+tells you which is which.
+
+Try this: set `batch_count = 3`, `feature_count = 4`, `group_count = 4`. Call
+both functions and pick one output cell to trace through both paths. Show that
+the two functions read different input cells for the same output coordinate
+`[5, 9]`. If a reviewer sees `pack_grouped[group, slice](x)` and
+`pack_grouped_transpose[group, slice](x)` side by side in a diff, can they tell
+from the function name alone which one is correct? They cannot. They must read
+the brackets. The bracket carries the semantic weight that the function name
+cannot. Two characters—`[g, s]` versus the transposed variant—encode two
+completely different coordinate stories. No shape check can tell them apart.
+Only the named coordinates can.
 
 **Line to keep:** roles do not live in numbers; they live in meaning.

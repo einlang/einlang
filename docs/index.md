@@ -5,7 +5,7 @@ The docs stay intentionally small. This page is the public index; the fuller [do
 ## Einlang in Practice
 
 - [Getting started](GETTING_STARTED.md)
-- [Einlang: Formulas as Code](https://einlang.github.io/einlang/book/)
+- [The Name in the Bracket](https://einlang.github.io/einlang/book/)
 - [Examples guide](../examples/README.md)
 - [Autodiff guide](AUTODIFF.md)
 - [Why Einlang](WHY_EINLANG.md)

@@ -1,434 +1,599 @@
 ---
 layout: book
-title: "Chapter 6: Softmax Has Three Coordinate Roles"
+title: "Softmax Has Three Coordinate Roles"
 ---
 
 # Softmax Has Three Coordinate Roles
 
-Softmax is often described as an operation along an axis. That is true, but it
-is not quite enough. In a stable implementation, the same logical feature axis
-appears in several different roles.
+Softmax. You have written it a hundred times. Each time, you passed it one
+number: `dim`. That single number hid three distinct coordinate jobs behind it.
+This chapter names all three—the stability scan, the normalization denominator,
+and the surviving output—and in doing so, catches the bug that shipped for six
+weeks in production.
 
-The compact mathematical slogan is:
+## The Bug That Trained for Six Weeks
 
-```text
-softmax(x)_j = exp(x_j) / sum_k exp(x_k)
-```
-
-The stable implementation then adds a maximum, often written as if it were
-only a numerical trick. The trap is to think there is only one index because
-there is only one logical axis. Computationally, the returned feature, the
-denominator scan, and the stabilizing maximum have different scopes.
-
-The standard library writes the batched case as:
-
-```rust
-let output[..batch, j] =
-    exp(x[..batch, j] - max[q](x[..batch, q]))
-    / sum[k](exp(x[..batch, k] - max[q](x[..batch, q])));
-```
-
-The formula is longer than `softmax(x, axis=-1)`, but it exposes the structure
-that the compact call hides.
-
-This is the same comparison as before in a more demanding form:
+It is month three of the project. You own the classifier. The model shipped
+behind an API, and every Tuesday you check the dashboard: accuracy, latency,
+calibration error. The first two are fine. The third has been drifting upward
+since the sprint-17 data pipeline refactor. No one connected the two events,
+because the refactor was "just" a layout change—`[batch, class]` became `[class,
+batch]`—and every line of model code still runs.
 
 ```python
-output = softmax(x, dim=-1)
+# Sprint 16: logits shape [batch=128, class=10]
+probs = torch.softmax(logits, dim=-1)
+# dim=-1 is class. Each row sums to 1.0. Correct.
+
+# Sprint 17: data pipeline transposed. logits shape [class=10, batch=128]
+probs = torch.softmax(logits, dim=-1)
+# dim=-1 is now batch. Each row sums to 1.0. Still correct-looking.
 ```
 
-This names a position. A named-tensor API can name the axis more directly.
-Einlang's expanded formula separates three jobs:
+The shapes are fine. The normalization invariant (rows sum to 1) holds in both
+cases. The loss—cross-entropy—goes down in both cases. Cross-entropy only cares
+that `probs[correct_class]` is high. Whether the normalization competes against
+other classes or other examples, a gradient still flows toward the correct
+answer.
+
+But calibration error asks a different question: does `probs[class]=0.7` mean
+the model is actually correct 70% of the time? After sprint 17, the answer is
+no. The model's confidence scores are now computed relative to other examples in
+the batch, not relative to other classes for the same example. The number `0.7`
+has a different meaning. The shape is right. The meaning is wrong.
+
+Here is the concrete difference with three examples and three classes:
+
+```text
+Logits (correct layout [batch, class]):
+         cat  dog  fish
+  img1: [2.0, 1.0, 0.1]  →  softmax over class → [0.66, 0.24, 0.10]
+  img2: [0.5, 2.0, 0.3]  →  softmax over class → [0.14, 0.63, 0.23]
+  img3: [0.1, 0.2, 2.0]  →  softmax over class → [0.10, 0.12, 0.78]
+
+Logits (swapped layout [class, batch]):
+  img1: [2.0, 1.0, 0.1]  →  softmax over batch → [0.66, 0.24, 0.10]
+  img2: [0.5, 2.0, 0.3]  →  softmax over batch → [0.14, 0.63, 0.23]
+  img3: [0.1, 0.2, 2.0]  →  softmax over batch → [0.10, 0.12, 0.78]
+```
+
+When `batch_size == num_classes`, the numbers are identical—each cell happens to
+be the softmax of its column instead of its row, but the column and row have the
+same length. The probabilities sum to 1 either way. The loss curve is identical.
+The bug is mathematically invisible for square inputs.
+
+Now write softmax with named coordinates:
 
 ```rust
-let m[..batch] = max[q](x[..batch, q]);
-let z[..batch] = sum[k](exp(x[..batch, k] - m[..batch]));
-let output[..batch, j] = exp(x[..batch, j] - m[..batch]) / z[..batch];
+// Correct: normalize each example across classes
+let probs[batch, class] = softmax[class](logits[batch, class]);
+
+// Bug: normalize across batch for each class
+let probs[class, batch] = softmax[batch](logits[class, batch]);
 ```
 
-`j` is returned, while `q` and `k` are local scans. The coordinate function
-then puts the compact form back, but with the role still visible at the
-boundary.
+The second line is syntactically valid. But a reader who sees `softmax[batch]`
+next to a result declared `[class, batch]` can ask: am I normalizing the
+examples against each other? The coordinate inside the bracket names the
+competition. `softmax[class]` says "classes compete." `softmax[batch]` says
+"examples compete." The distinction lives in the source, not in a comment that
+drifts out of date.
 
-Once that structure is stated, it can become a coordinate function:
+## One Axis, Three Jobs
+
+Here is softmax, written as the stable formula you learned but broken into its
+coordinate parts:
 
 ```rust
-fn softmax[j](x: [f32; ..batch, j]) -> [f32; ..batch, j] {
-    let m[..batch] = max[j](x[..batch, j]);
-    let e[..batch, j] = exp(x[..batch, j] - m[..batch]);
-    let z[..batch] = sum[j](e[..batch, j]);
-    e[..batch, j] / z[..batch]
-}
-
-let output = softmax[j](x);
+let probs[b, j] = softmax[j](x[b, j]);
 ```
 
-This call is compact, but it is not positional. The bracketed `j` says which
-coordinate is normalized, while the result still carries `j`. The `..batch`
-pack is inferred from the argument. The standard library can hide the stable
-maximum and denominator scans only because the coordinate contract remains
-visible at the boundary.
+One line. Three jobs. The coordinate `b` (batch) is fixed—each example is its
+own normalization problem. The coordinate `j` (feature/class) is the one being
+normalized. Inside the implementation, there is a third role: the coordinate
+that scans all features to build the denominator.
 
-The compact call should be earned by first separating the returned coordinate,
-the denominator scan, and the stabilizing maximum. Only after those scopes are
-visible does `softmax[j]` become a safe abbreviation. The dangerous
-abbreviation is the one that normalizes over a batch-like coordinate while
-still returning an array whose shape looks plausible.
-
-Softmax has one logical feature axis, but several coordinate jobs: the
-feature being returned, the feature scanned by the denominator, and the feature
-scanned by the maximum. Since the output has the same shape as the input, it is
-easy to mistake softmax for an elementwise operation. Naming the scopes keeps
-that mistake from becoming invisible.
-
-## One Axis Name or Several Scopes
-
-A tempting notation would use one feature name everywhere. After all, softmax
-normalizes over one axis. But the expression has several local jobs: one
-feature is being returned, another local coordinate scans the denominator, and
-another may scan the maximum used for numerical stability.
-
-Using one name for all of those jobs makes the formula look simpler while
-making the scopes harder to see. Using distinct local names makes the formula
-slightly longer, but it reveals which occurrence is an address of the result
-and which occurrences are local scans.
-
-Einlang's choice is to make scope visible. A coordinate name is not only a
-label for an axis; it is also a statement about where that axis is live.
-
-Compute just one probability by hand. To produce `output[b, 7]`, the formula
-needs the score at feature `7`, the maximum over all features in the same row,
-and the denominator over all features in the same row. Calling all of those
-positions "the softmax axis" is true but too coarse. The single output value
-already contains three scopes.
-
-## The Three Roles
-
-The coordinate `j` is the feature being returned:
-
-```text
-output[..batch, j]
-```
-
-The coordinate `k` is the feature coordinate scanned by the denominator:
-
-```text
-sum[k](...)
-```
-
-The coordinate `q` is the feature coordinate scanned by the maximum:
-
-```text
-max[q](...)
-```
-
-All three range over the same conceptual axis, but they have different scopes.
-That is why they deserve different names. If a formula reused one letter for
-all three jobs, the reader would have to infer the scopes from punctuation
-alone.
-
-This is also why `j`, `k`, and `q` should not be collapsed simply because they
-range over the same feature extent. They have different binding sites. The
-output coordinate `j` is an address of the returned value. The denominator
-coordinate `k` is a local scan. The maximum coordinate `q` is another local
-scan whose result is shared across `j`. In reverse mode, those scopes induce
-different routes of sensitivity. Naming them separately is not decoration; it
-is respect for the derivative graph that will later be built from the formula.
-
-## Why Stability Adds a Role
-
-The maximum is not there to change the mathematical result. It is there to keep
-the exponentials numerically well behaved:
-
-```text
-exp(x[j] - max[q](x[q]))
-```
-
-Subtracting the maximum shifts every feature by the same amount for a fixed
-batch item. The softmax probabilities stay the same, but the largest exponent
-becomes `exp(0)` instead of possibly overflowing.
-
-That numerical trick introduces another local coordinate. The coordinate `q`
-does not choose the output feature. It scans all features to find the shift
-used by every output feature in the same row. In compact API code, this role is
-usually implicit. In the indexed expression, it is visible.
-
-This is a recurring theme: practical numerical code often has extra structure
-that the mathematical slogan omits. "Softmax over the last axis" is the slogan.
-The stable formula has an output coordinate, a denominator coordinate, and a
-maximum coordinate.
-
-That extra structure has a visible consequence. The stabilizing maximum is
-shared by every returned feature in the same batch row:
-
-```text
-output[b, 0] uses max[q](x[b, q])
-output[b, 7] uses max[q](x[b, q])
-output[b, 12] uses max[q](x[b, q])
-```
-
-The maximum does not depend on `j`. It is broadcast across the feature being
-returned, and the notation shows why.
-
-## Coordinate Reading
-
-For one batch item and one feature:
-
-```text
-output[b, 7]
-```
-
-the numerator uses `x[b, 7]`. The denominator scans every `x[b, k]`. The
-stabilizing maximum scans every `x[b, q]`. The batch coordinate is fixed
-throughout.
-
-The operation is not "broadcasting plus a reduction plus some exponentials" in
-the abstract. It is a set of coordinate relationships:
-
-```text
-j  choose the feature being produced
-k  collect all features for the denominator
-q  collect all features for the stabilizing maximum
-```
-
-## Why This Helps
-
-Softmax bugs often come from normalizing over the wrong axis. In anonymous
-shape code, the difference between "over features" and "over batch" may be one
-integer argument.
-
-With visible coordinates, the wrong program looks different:
-
-```text
-bad[b, j] =
-    exp(x[b, j]) / sum[bb](exp(x[bb, j]))
-```
-
-This normalizes across batch for each feature. Maybe a program wants that. Most
-classifiers do not. The coordinate `bb` makes the mistake visible.
-
-## The Shape of the Result
-
-Softmax preserves the feature coordinate. It normalizes values along that
-coordinate, but it does not remove it:
-
-```text
-input   x[..batch, j]
-output  output[..batch, j]
-```
-
-This distinguishes softmax from a reduction such as:
+Write the same formula with all roles explicit:
 
 ```rust
-let total[..batch] = sum[j](x[..batch, j]);
+let m[b]        = max[q](x[b, q]);           // (1) scan for maximum
+let e[b, k]     = exp(x[b, k] - m[b]);       // (2) stabilize, exponentiate
+let z[b]        = sum[k](e[b, k]);            // (3) build denominator
+let probs[b, j] = e[b, j] / z[b];             // (4) normalize each output
 ```
 
-Both expressions scan features. Only one keeps the feature coordinate in the
-result. In softmax, each feature receives a normalized value. In `sum`, all
-features contribute to one value and then disappear.
+The input `x[b, j]` appears once. But the output `probs[b, j]` depends on
+every `x[b, k]` through the denominator and every `x[b, q]` through the
+maximum. Three distinct scopes, all over the same feature range:
 
-That distinction is easy to blur when both operations are described as acting
-"over an axis." The names make the difference mechanical: if `j` appears on
-the left, `j` survives. If `j` appears only inside `sum[j]`, `j` leaves.
+| Role | Name | Scope | Consumed? |
+|------|------|-------|-----------|
+| Stabilizing reference | `q` | `max[q]` | Yes, leaves |
+| Denominator scan | `k` | `sum[k]` | Yes, leaves |
+| Output coordinate | `j` | `probs[b, j]` | No, survives |
 
-## What Gradients Will Notice
+The input and output have the same shape `[b, j]`. A shape-only story says
+"nothing changed." A coordinate story says "every `j`-output was computed by
+inspecting every `k`-input in the same row, stabilized by every `q`-input."
 
-Softmax is not elementwise in the feature coordinate. The value at `output[j]`
-depends on all `x[k]` in the same row through the denominator and the maximum.
-A derivative request must respect that coupling.
+```
+   Softmax: One Axis, Three Jobs
 
-The visible coordinates warn the reader before calculus begins. The expression
-itself says that one output feature reaches across the whole feature row. That
-is why a softmax Jacobian has interactions among features rather than a purely
-diagonal elementwise shape.
+   Input x[b, *] across feature range j for one batch b:
+   +------+------+------+------+
+   | x[0] | x[1] | x[2] | x[3] |  j = 0, 1, 2, 3
+   +------+------+------+------+
+      |      |      |      |
+      +------+------+------+
+             |
+   +---------v---------+
+   | max[q](x) -> m[b] |  q: scan for max reference, consumed
+   +-------------------+
+             |
+   +---------v---------+
+   | exp(x - m) -> e   |  e[b, k] for every k in feature range
+   +-------------------+
+             |
+   +---------v---------+
+   | sum[k](e) -> z[b] |  k: denominator scan, consumed
+   +-------------------+
+             |
+   +---------v---------+
+   | e[b,j] / z[b]     |  -> probs[b, j]  j: output survivor
+   +-------------------+
 
-## Which Coordinates Stay Fixed?
-
-The real softmax line turns on one question: which coordinates remain fixed
-while the denominator is computed? The answer is `..batch`. The feature
-coordinate is being scanned locally. That one distinction is the difference
-between a per-example normalization and a cross-example one, and it is exactly
-the kind of distinction a shape tuple cannot explain by itself.
-
-## Why Softmax Belongs Here
-
-Softmax belongs here because it combines the previous two ideas. It broadcasts
-the stabilizing maximum across the feature coordinate being returned, and it
-reduces the denominator across that same feature role. The coordinate is
-conceptually one axis, but operationally it appears in several scopes.
-
-That makes softmax a good stress test for the reading method. A simple slogan
-does not carry enough detail:
-
-```text
-softmax over features
+   q, k, j all range over the same feature axis.
+   dim=-1 sees one; coordinates name three distinct scopes.
+   Each role maps to a distinct gradient term (Chapter 7).
 ```
 
-The real expression asks the reader to distinguish the feature being produced,
-the features being summed, and the features being scanned for the maximum. If
-those roles are confused, the formula may still have plausible shapes while
-doing the wrong normalization.
+Pick one cell of the gradient. `@loss / @logits[2, 5]`. The index `5` appears in
+three places in the forward formula: as `q` (the query position in the
+numerator), as `k` (the key position in the sum), and as `j` (the output
+position that survives). Each appearance produces a different term in the
+pullback. `q=5` contributes through the max selection — a sparse term, nonzero
+only when `5` was the maximum. `k=5` contributes through the denominator sum —
+a dense term, every `j` position's denominator includes this `k`. `j=5`
+contributes directly — the output at position `5` receives gradient from the
+loss. Three gradient paths through the same integer `5`. A single `dim=-1`
+collapses them into one number. Three letters — `q`, `k`, `j` — leave them
+separate on the page.
 
-A production tensor language needs to handle this kind of ordinary complexity.
-Softmax is important here because one mathematical axis plays multiple local
-roles inside a stable numerical formula.
+## Why Three Roles and Not One
 
-Carry this forward: when one dimension appears more than once in an
-explanation, ask whether those appearances have the same scope. If they do not,
-give the scopes distinct names. That small act prevents many shape-correct but
-meaning-wrong programs.
+You might ask: if `q`, `k`, and `j` all range over the same set of class
+indices, why give them three different names? Why not use `j` everywhere and
+let the reader infer the scope from context?
 
-The same reading works for normalization layers. In LayerNorm, the feature
-coordinates used to compute the mean and variance are local to the reduction,
-while batch and often time-like coordinates survive. The learned scale and
-shift parameters omit the surviving example coordinates and are therefore
-broadcast. In GroupNorm, a channel coordinate is split into group and
-within-group roles; the reduction scans only the within-group feature and
-spatial coordinates for each group. The exercise is the same as softmax: name
-the coordinate being returned, name the coordinates being scanned, and name the
-parameters whose addresses are being reused.
+Because scope changes the gradient.
 
-Softmax also shows why visible dimensions cannot stop at shape checking. The
-input and output have the same shape, so a pure shape story would say almost
-nothing happened. But a great deal happened: every output feature was coupled
-to every input feature in the same row, and the row was normalized into a
-distribution.
+When you write `max[q](x[b, q])`, you are making a claim: the result `m[b]`
+does not depend on which `q` achieved the maximum—only on the maximum value
+itself. The gradient of `m[b]` with respect to `x[b, q]` is 1 for the argmax
+index and 0 for all others. The coordinate `q` is consumed.
 
-The coordinate names reveal that hidden work. `j` survives, but it survives
-after being compared against a denominator built from `k` and a stabilizing
-maximum built from `q`. Same shape, different dependency structure. That is a
-pattern the later chapters will reuse for gradients and attention.
+When you write `sum[k](e[b, k])`, you are making a different claim: the result
+`z[b]` depends on every `k` equally. The gradient of `z[b]` with respect to
+`e[b, k]` is 1 for every `k`. The coordinate `k` is consumed, but the gradient
+pattern is completely different from the `max` consumption.
 
-## Same Shape, Different Dependency Graph
+When you write `probs[b, j] = e[b, j] / z[b]`, you are making a third claim:
+the output has a coordinate `j` that survives. Its gradient with respect to
+`e[b, j]` is `1/z[b]` for the matching `j` and zero for non-matching because
+`e[b, j]` only appears in the numerator for that specific `j`.
 
-Use one batch row with three logits:
-
-```text
-x[b, 0] = 2.0
-x[b, 1] = 1.0
-x[b, 2] = 0.0
-```
-
-A stable softmax can be read as three coordinate stages:
+If you used `j` for all three roles, the source would look like this:
 
 ```rust
-let m[b] = max[q](x[b, q]);
-let e[b, k] = exp(x[b, k] - m[b]);
-let z[b] = sum[k](e[b, k]);
-let y[b, j] = e[b, j] / z[b];
+// DO NOT WRITE THIS — j has three different gradient behaviors
+let m[b]       = max[j](x[b, j]);
+let e[b, j]    = exp(x[b, j] - m[b]);
+let z[b]       = sum[j](e[b, j]);
+let probs[b, j] = e[b, j] / z[b];
 ```
 
-The maximum uses `q` because it scans the row to find a stabilizing reference.
-For this row, `m[b] = 2.0`. The exponentials are then:
+Lines 1 and 3 both say `[j]` but `j` means "consumed by max" in line 1 and
+"consumed by sum" in line 3. Line 2 and line 4 both say `e[b, j]` but the `j`
+in line 2 is "the coordinate being exponentiated" while the `j` in line 4 is
+"the output survivor." The compiler can disambiguate these, but the reader
+cannot do it at a glance.
+
+Three names—`q`, `k`, `j`—make the three gradient behaviors visually distinct.
+`q` is consumed by max (sparse gradient). `k` is consumed by sum (dense
+gradient). `j` survives (diagonal gradient in the numerator, dense through the
+denominator). The letters are not cosmetic. They are gradient contracts.
+
+A positional API calls all three `dim=-1` and relies on the reader to know
+which gradient pattern applies at each step. The named form surfaces the
+distinction at the source level.
+
+This is the thesis at its most practical. Three different gradient
+contracts, all hidden behind the same integer. When a reader sees
+`dim=-1` in a softmax implementation, they must reconstruct which of the
+three roles that integer refers to at each line. When they see `q`, `k`,
+or `j`, the gradient contract is visible in the letter. The notation does
+not make softmax simpler. It makes the complexity inspectable.
+
+## What This Means for Gradients
+
+Because `probs[b, j]` depends on every `x[b, k]`, the softmax Jacobian is not
+diagonal. A small change to `x[b, 1]` can change `probs[b, 0]`, `probs[b, 1]`,
+and `probs[b, 3]`. All three shift because the denominator shifted.
+
+Make this concrete for one batch member with three classes:
 
 ```text
-e[b, 0] = exp(0.0)
-e[b, 1] = exp(-1.0)
-e[b, 2] = exp(-2.0)
+x = [2.0, 1.0, 0.1]
+
+Step 1: m = max(x) = 2.0
+Step 2: e = exp(x - m) = [exp(0), exp(-1), exp(-1.9)]
+        = [1.0, 0.368, 0.150]
+Step 3: z = sum(e) = 1.0 + 0.368 + 0.150 = 1.518
+Step 4: probs = e / z = [0.659, 0.242, 0.099]
+
+Now perturb x[1] by +0.01: x = [2.0, 1.01, 0.1]
+Step 1: m = max(x) = 2.0  (unchanged — max still at index 0)
+Step 2: e = [1.0, exp(-0.99), exp(-1.9)]
+        = [1.0, 0.372, 0.150]
+Step 3: z = 1.522
+Step 4: probs = [0.657, 0.244, 0.099]
+
+probs[0] changed: 0.659 → 0.657  (even though x[0] was not perturbed!)
+probs[1] changed: 0.242 → 0.244  (expected — x[1] was perturbed)
+probs[2] changed: 0.099 → 0.099  (almost unchanged — but not exactly)
 ```
 
-The denominator uses `k` because it scans the row again to build the normalizer:
+`probs[0]` shifted because `z` changed, and `z` depends on every `x[k]`. This
+is the off-diagonal Jacobian: `@probs[b,0] / @x[b,1]` is not zero. It is
+`-probs[0] * probs[1]`, a quantity that exists purely because the denominator
+sums over all `k`.
 
-```text
-z[b] = exp(0.0) + exp(-1.0) + exp(-2.0)
-```
-
-Finally `j` names the output feature being returned:
-
-```text
-y[b, 0] = e[b, 0] / z[b]
-y[b, 1] = e[b, 1] / z[b]
-y[b, 2] = e[b, 2] / z[b]
-```
-
-The three output cells are different, but they share the same `m[b]` and
-`z[b]`. That is the coupling shape of softmax. The result still has coordinate
-`[b, j]`, yet each `y[b, j]` depends on every input `x[b, k]` through the
-denominator and on every input `x[b, q]` through the maximum. The hard part is
-not computing a three-element softmax; it is remembering that same shape does
-not imply same dependency graph.
-
-This is exactly why reusing one name for every role is misleading. If the
-formula wrote `j` for the output coordinate, the denominator coordinate, and
-the maximum coordinate, the scopes would blur. The expression would look as if
-one coordinate were doing one job. In reality, one logical feature axis is
-visited in several local scopes. The names `q`, `k`, and `j` do not describe
-different physical axes; they describe different binding sites over the same
-range.
-
-A useful bug check is to ask which coordinates remain fixed while the row is
-normalized. Batch `b` is fixed. The distribution is over features. If the
-formula accidentally scans `b` instead:
-
-```rust
-let z[j] = sum[b](e[b, j]);
-```
-
-then the program normalizes each feature across examples. That can produce the
-same output shape `[b, j]`, but it answers a different question. It makes
-examples compete with one another instead of making features compete inside an
-example. The coordinate names make that difference visible at the denominator,
-where the mistake is born.
-
-The derivative story also begins here. Because each `y[b, j]` depends on all
-`x[b, k]` in the same row, the pullback through softmax is not purely
-elementwise. A change to `x[b, 1]` can change `y[b, 0]`, `y[b, 1]`, and
-`y[b, 2]`. The output shape hides that coupling; the coordinate reading exposes
-it.
-
-## What Same Shape Hides
-
-Softmax is a useful stress test because it preserves rank and extents:
-
-```text
-input   x[b, j]
-output  y[b, j]
-```
-
-A pure shape story might describe this as an elementwise operation from a
-matrix to a matrix. That would be false. The coordinate `j` survives into the
-answer, but the value at one `j` was computed using all feature positions in
-the row. The dependency structure is row-global even though the output address
-is local.
-
-That distinction matters to optimization and differentiation. A backend may
-fuse the maximum, exponentials, sum, and division into one stable kernel, but
-it must preserve the fact that the normalization scope is per `b` and over
-feature positions. A differentiator must preserve the same coupling when
-sensitivities flow backward. A test that checks only output shape would miss
-the central contract.
-
-So the chapter's practical advice is: whenever an operation returns the same
-shape it received, do not assume it was coordinatewise. Ask which other
-coordinates each output cell inspected before it returned.
-
-A final concrete check is to compare softmax with a true elementwise sigmoid:
+A sigmoid is different:
 
 ```rust
 let s[b, j] = 1 / (1 + exp(-x[b, j]));
 ```
 
-Here `s[b, j]` reads only `x[b, j]`. No `k` or `q` scans the row. The output
-shape matches the input shape, just as softmax does, but the dependency
-structure is different. A change to `x[b, 1]` changes `s[b, 1]` only; it can
-change every `y[b, j]` in a softmax row. Same shape, different graph. That is
-why this chapter spent so much time on scopes instead of only on extents.
+Here `s[b, j]` reads only `x[b, j]`. A change to `x[b, 1]` changes `s[b, 1]`
+and nothing else. Same input shape, same output shape. Completely different
+dependency graph. The Jacobian of sigmoid IS diagonal.
 
-Once the scopes are clear, the stable formula no longer looks like an
-implementation trick. It becomes a sequence of coordinate claims: choose a row
-maximum, exponentiate each feature against it, sum the row, and return one
-normalized coordinate.
+The coordinate names reveal the difference at the source level. In the softmax
+formula, `k` and `q` appear because other positions in the row are consulted.
+In the sigmoid formula, only `j` appears. The scopes are the contract.
 
-For one cell `output[b, j]`, the numerator and denominator tell different
-stories. Name every coordinate they read; the surviving coordinate and the
-normalizing coordinate are not doing the same job.
+Now consider the batch. Does `probs[b, j]` depend on `x[b2, k]` for `b2 != b`?
+
+```rust
+let probs[b, j] = softmax[j](x[b, j]);
+```
+
+`softmax[j]` normalizes within the surviving coordinates—`b` is a survivor, so
+the normalization is per-batch-member. The bracket says `[j]`, not `[b, j]`. A
+positional API buries this guarantee inside a `dim` argument; the named form
+puts it in the bracket where the reader can verify it.
+
+Later chapters will need this distinction. When Chapter 7 traces a gradient
+back through softmax, the pullback will contain terms summed over `j` and terms
+that reference the full row. The three roles you name here become three paths
+in the backward pass.
+
+## The Softmax Audit: Four Questions Before You Write `dim`
+
+Before you type `softmax(logits, dim=-1)`, answer four questions. If you cannot
+answer them from the code alone, the `dim` is hiding something.
+
+| Question | Positional answer | Named answer |
+|---|---|---|
+| Which coordinate is being normalized? | `dim=-1` (whatever that is today) | `softmax[class]` — the bracket names it |
+| Which coordinates define independent problems? | Everything not `dim=-1` | The survivors on the left: `probs[batch, class]` |
+| Does the normalized coordinate survive? | Yes, but invisible—output has same shape as input | `class` on the left of `probs` confirms survival |
+| Is the Jacobian diagonal? | Depends on whether `dim` is also scanned elsewhere | `k` in `sum[k]` reveals the off-diagonal scan |
+
+Three coordinate relationships, one integer argument. `dim=-1` is not wrong. It is
+silent about which of the three you meant — and the three have different
+gradient contracts, different Jacobian structures, and different silent failure
+modes. The coordinate `j` survives into `probs[b, j]`. The coordinate `k` is consumed
+by `sum[k]`. The coordinate `q` is consumed by `max[q]`. Three different
+gradient patterns emerge from three different scope assignments. A single `dim`
+collapses all three.
+
+The audit table is not a checklist for ceremony. It is a tool for
+noticing what the positional notation hides. A reviewer who can answer
+all four questions from the code alone is reading a program that states
+its coordinate contracts. A reviewer who must answer from memory is
+reading a program that buries them. The difference is not a matter of
+style. When the softmax bug from the opening shipped to production, it
+shipped because the answer to question one -- "which coordinate is being
+normalized?" -- had silently changed from `class` to `batch`, and
+nothing in the source said so.
+
+## The Three-Role Template
+
+This pattern repeats across many normalization functions. The template is:
+
+```text
+1. Name the surviving coordinate (the one on the left)
+2. Name the reduction coordinate (the one inside sum/max/mean)
+3. Name the broadcast parameters (the ones that omit survivors)
+```
+
+Apply it to LayerNorm:
+
+```rust
+// LayerNorm over feature coordinate f
+let mu[b, t]       = mean[f](x[b, t, f]);           // (1) scan f
+let sigma2[b, t]   = mean[f]((x[b, t, f] - mu[b, t]) ** 2);  // (2) scan f
+let normed[b, t, f] = (x[b, t, f] - mu[b, t]) / sqrt(sigma2[b, t] + eps);
+let y[b, t, f]     = normed[b, t, f] * gamma[f] + beta[f];  // (3) broadcast params
+```
+
+Surviving coordinates: `b`, `t`, `f`. Reduction coordinate: `f` (local to
+`mean[...]`). Broadcast parameters: `gamma[f]`, `beta[f]` (omit `b` and `t`).
+
+The same `f` plays both survivor and local roles. It survives into the output
+because each feature gets a normalized value. It is local to `mean[f]` because
+computing the mean requires scanning all features. The compiler distinguishes
+the two scopes automatically. The source makes the distinction visible.
+
+Now apply the same template to GroupNorm:
+
+```rust
+// GroupNorm: channels split into groups
+// g = group index, c_in_group = channel within group
+let mu[b, g, i, j]        = mean[c_in_group, i2, j2](
+    x[b, g, c_in_group, i + i2, j + j2]
+);
+let sigma2[b, g, i, j]    = mean[c_in_group, i2, j2](
+    (x[b, g, c_in_group, i + i2, j + j2] - mu[b, g, i, j]) ** 2
+);
+let y[b, g, c_in_group, i, j] = (x[b, g, c_in_group, i, j] - mu[b, g, i, j])
+    / sqrt(sigma2[b, g, i, j] + eps) * gamma[g, c_in_group] + beta[g, c_in_group];
+```
+
+The reduction consumes `c_in_group`, `i2`, `j2`. The broadcast parameters
+`gamma`, `beta` omit `b`, `i`, `j`. The pattern is identical to softmax: name
+the survivors, name the locals, name the broadcasters. Scale to any number of
+coordinates without new rules.
+
+RMSNorm is the simplest case—no mean centering, just rescaling by the root mean
+square:
+
+```rust
+// RMSNorm over feature coordinate f
+let rms[b, t]    = sqrt(mean[f](x[b, t, f] ** 2));
+let normed[b, t, f] = x[b, t, f] / (rms[b, t] + eps);
+let y[b, t, f]   = normed[b, t, f] * gamma[f];
+```
+
+Survivors: `b`, `t`, `f`. Local: `f` (consumed by `mean[f]`). Broadcast: `gamma[f]`
+(omits `b`, `t`). The same `f` in three scopes: the `f` being squared, the `f`
+being averaged away, and the `f` that survives. RMSNorm is softmax stripped to
+its bare structure—a single reduction coordinate playing two local roles, with
+one broadcast parameter.
+
+Here is the comparison across four normalization functions:
+
+| Function | Reduction coords | Broadcast coords | Survivors |
+|---|---|---|---|
+| Softmax | `q` (max), `k` (sum) | `m[b]` (broadcast `j`) | `b`, `j` |
+| LayerNorm | `f` (mean ×2) | `gamma[f]`, `beta[f]` | `b`, `t`, `f` |
+| RMSNorm | `f` (mean) | `gamma[f]` | `b`, `t`, `f` |
+| GroupNorm | `c_in_group`, `i2`, `j2` | `gamma[g, c_in_group]`, `beta[g, c_in_group]` | `b`, `g`, `c_in_group`, `i`, `j` |
+
+Every normalization follows the same coordinate skeleton: reduce to get
+statistics, broadcast statistics back, apply elementwise. The skeleton is
+invisible in positional notation because `dim` looks the same whether the
+reduction is for mean, for variance, or for softmax denominator. The names make
+the skeleton a template you can check.
+
+This is the Hiding Law at scale. A single normalization function may
+involve four different coordinate relationships. In a positional API, all
+four collapse to a single `dim` argument whose meaning shifts with the
+surrounding layout. In a coordinate API, each relationship gets a name --
+survivor, local, broadcast -- and the names follow the coordinates through
+the entire function. The difference is not verbosity. It is whether a
+reviewer can verify that the broadcast coordinate in LayerNorm matches the
+broadcast coordinate in the gradient without reconstructing both from
+positional offsets.
+
+Three relationships folded into one integer. The integer fits in a register. The
+relationships require a sentence. A notation that has only room for the integer
+has already decided what you do not need to know — and made that decision before
+you arrived.
+
+## The Square Matrix Test
+
+Here is a concrete test for any reduction-based formula:
+
+```text
+1. Set all coordinate extents equal (make everything square).
+2. Swap two coordinates in the input.
+3. Ask: does the formula still compile?
+4. Ask: does the formula still mean the same thing?
+```
+
+Apply it to softmax:
+
+```rust
+// Original: softmax over class
+let probs[batch, class] = softmax[class](logits[batch, class]);
+
+// Square case: batch_size = num_classes = 128
+// Swap input: logits is [class, batch]
+let probs[batch, class] = softmax[class](logits[class, batch]);
+```
+
+The formula compiles. But `class` is now the *row* coordinate of `logits`, not
+the *column* coordinate. The softmax scans across rows. A positional API would
+compile `torch.softmax(logits, dim=1)` and silently normalize along whatever
+axis happens to be in position 1 after the swap.
+
+The named version does not prevent the swap from happening. But it makes the
+consequence visible: the coordinate inside `softmax[...]` no longer matches the
+role the reader expects for `class` in the input layout. The reader can see
+the change and ask the question.
+
+## Softmax and Broadcasting Together
+
+Chapter 4 showed broadcasting. Chapter 5 showed reduction. Softmax uses both
+in one formula:
+
+```rust
+let probs[b, j] = softmax[j](x[b, j]);
+```
+
+The broadcast: `m[b]` (the maximum) is reused for every `j` in the subtraction
+`x[b, j] - m[b]`. The coordinate `j` is absent from `m[b]`. The reduction:
+`sum[k](e[b, k])` consumes `k` and leaves `z[b]`. The broadcast and the
+reduction operate over the same feature range but in different scopes.
+
+Now ask: what happens if you add a constant to every logit?
+
+```text
+x' = x + c   (c added to every class score for a given batch member)
+m' = max(x') = max(x) + c
+e' = exp(x' - m') = exp(x - m) = e
+z' = sum(e') = sum(e) = z
+probs' = e' / z' = e / z = probs
+```
+
+The probabilities are unchanged. This is the softmax invariance: shifting all
+logits by the same constant does not change the output. In coordinate terms:
+
+```rust
+// This is an identity:
+let probs[b, j] = softmax[j](x[b, j] + offset[b]);
+//                                      ^^^^^^^^ omits j — broadcast
+// Softmax consumes j internally, so any term that omits j disappears.
+```
+
+The `offset[b]` omits `j`, so it is broadcast across all `j` inside the softmax.
+The softmax consumes `j` via `max[q]` (the shift is absorbed into `m[b]`), so
+the offset has no effect on the output. The invariance is a direct consequence
+of the coordinate structure: a term that is independent of the normalized
+coordinate cannot affect the normalized output.
+
+This is why the chapter belongs here—at the midpoint of the book. Softmax
+forces you to use everything from Chapters 2 through 5 at once. Named axes.
+Coordinate maps (the offsets in the subtraction). Broadcasting (maximum reuse).
+Reduction (denominator). And now the extra demand: distinguishing the same
+coordinate in different scopes. An invariance that falls out of the coordinate
+structure without a separate proof.
+
+If you can read softmax fluently, you can read anything in this book.
 
 ## Try It
 
-Analyze LayerNorm the same way. Name the coordinate being returned, the
-coordinates scanned to compute the mean, the coordinates scanned to compute the
-variance, and the coordinates owned by the learned scale and shift. You should
-find several roles even before writing a derivative.
+You have used softmax a thousand times. You may have never audited it. Let's fix
+that. Take three softmax calls from common model code:
 
-**Line to keep:** practical structure omitted by a mathematical slogan is
-exactly the structure source code must be able to carry.
+```python
+# 1. Classifier
+probs = torch.softmax(logits, dim=-1)   # logits: [batch, class]
+
+# 2. Attention weights
+attn = torch.softmax(scores, dim=-1)     # scores: [batch, head, query, key]
+
+# 3. Sequence model
+probs = torch.softmax(logits, dim=1)     # logits: [batch, time, vocab]
+```
+
+For each, name the normalized coordinate and the surviving coordinates. Write
+the Einlang equivalent. The classifier normalizes `class` and keeps `batch`.
+The attention normalizes `key` and keeps `batch`, `head`, `query`. The sequence
+model normalizes `vocab` and keeps `batch`, `time`. Three different bracketed
+coordinates, all hidden behind `dim=-1` or `dim=1`.
+
+Now take the softmax from your own attention implementation. Which coordinate is
+being normalized? Which coordinates survive? Which coordinate appears in BOTH a
+`sum[...]` and as a survivor? That coordinate is consumed to compute the
+denominator but survives because each position gets its own normalized output.
+If your attention is cross-attention, write the coordinates to show that `q`
+(query position) and `k` (key position) are different roles even when their
+extents match. With `num_heads == seq_len`, a refactor that swaps head and key
+dimensions produces identical shape tuples — the bracket character is the only
+thing that differs between correct and broken.
+
+Consider a common bug: `m = x.max()` used as the stability shift instead of
+`max[q](x[b, q])`. When `batch_size > 1`, the global max shifts every batch
+item by a potentially different mixed constant. The coordinate-level invariant
+catches it: "For any `offset[b]` that omits `j`, `softmax[j](x[b, j] +
+offset[b])` must equal `softmax[j](x[b, j])`." A scalar `m` omits both `b` and
+`j`, violating the invariant. The bug is a one-coordinate omission error.
+
+Finally, look at `log_softmax` — the numerically stable version that returns
+log-probabilities:
+
+```text
+fn log_softmax[j](x: [f32; b, j]) -> [f32; b, j] {
+    let m[b] = max[q](x[b, q]);
+    let lse[b] = log(sum[k](exp(x[b, k] - m[b]))) + m[b];
+    let y[b, j] = x[b, j] - lse[b];
+    y
+}
+```
+
+Its Jacobian differs from softmax's:
+
+```text
+d(log_softmax[b,j]) / d(x[b,i]) = [i==j] - softmax[b,i]
+d(softmax[b,j])     / d(x[b,i]) = softmax[b,j] * ([i==j] - softmax[b,i])
+```
+
+The difference is explainable purely through coordinate scopes. `log_softmax`
+separates into `x[b, j]` (gradient is `1` at `j`, `0` elsewhere) and `lse[b]`
+(gradient is `-softmax[b, i]` at every `i`). Softmax has an extra `softmax[b,
+j] * ...` factor because division makes the denominator's influence
+multiplicative. The log turns division into subtraction — the output no longer
+scales with the denominator. `j` survives, `k` is consumed by `sum[k]`, `q` is
+consumed by `max[q]`. Three scopes over one feature dimension. The `[i==j]` term
+comes from the `j` path. The `-softmax[b, i]` term comes from the `lse[b]` path.
+The `softmax[b, j] * ...` factor appears only when denominator and output
+interact multiplicatively. Three letters — `q`, `k`, `j` — carry the entire
+Jacobian story.
+
+**Line to keep:** every tensor line is a small audit of which coordinates
+survive, which are consumed, and which are silently omitted.
+
+### Where This Leads
+
+Part I is now complete. We have learned to notice hiding. Six operations —
+reshape, role assignment, coordinate maps, broadcast, reduction, normalization —
+and one question in each: which coordinate roles are visible, and which are
+silent? The coordinate audit — survive, consume, omit — is now a reading
+discipline. You can look at any tensor line and ask which names appear, which
+are absent, which are consumed.
+
+But noticing hiding is only the surface. The question Part I did not ask is:
+what happens *because* of the hiding? When a coordinate role is omitted from the
+source, what else becomes invisible? The answer is: everything downstream. The
+gradient. The optimizer. The reviewer. The person debugging at 3 AM. Each must
+recover the hidden fact independently — or fail silently.
+
+Part II turns the coordinate audit onto a new target: automatic differentiation.
+A forward expression already knows which input cells influence which output
+cells. The backward pass is just collecting sensitivity along those routes. If
+the forward notation names the sharing, the gradient is mechanical. If it hides
+the sharing, the gradient is guesswork — and guesswork with correct shapes is
+the hardest bug to find.
+
+Softmax gave us three coordinate roles — `q`, `k`, `j` — in four lines of code.
+When sensitivity flows backward through them, those three roles become three
+gradient terms with three different structures. The `q` consumed by `max`
+produces a sparse Jacobian. The `k` consumed by `sum` produces a dense one. The
+`j` that survives creates a diagonal term and an off-diagonal term through the
+denominator. The letters you learned to read here will appear, unchanged, in the
+pullback formulas of Chapter 7.
+
+You have now seen all three mechanisms of the language in single-expression form.
+The axis name and its audit are the primitive. Reduction, broadcast, and `where`
+are the means of combination. The coordinate-aware function is the means of
+abstraction. Part I built the vocabulary. Part II will run it backward through
+the chain rule. The primitive will not change. Survive, consume, omit will still
+be the three questions. Only the direction reverses.
+
+Chapter 7 begins the backward pass. Bring the three roles with you. They are
+the map — but now we will watch them survive a transformation that Part I never
+tested: the journey from forward pass to backward pass, where hidden facts become
+silent bugs.

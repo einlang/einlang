@@ -1,49 +1,79 @@
 ---
 layout: book
-title: "Chapter 3: Coordinate Maps in the Standard Library"
+title: "Coordinate Maps in the Standard Library"
 ---
 
 # Coordinate Maps in the Standard Library
 
-The standard library is where a notation has to earn its keep. It is easy to
+You added one line to the data pipeline. A batch dimension at the front of the
+tensor. The model no longer trains.
+
+The crash is 50 lines from where you made the change. Line 47:
+`x.transpose(0, 2, 1)`. That line was written when the tensor had rank 3:
+`[height, width, channels]`. Now it's rank 4: `[batch, height, width,
+channels]`. The axis numbers silently shifted. `0` used to mean height; now it
+means batch. The transpose that was supposed to swap spatial dimensions is now
+swapping batch with channels. The shapes still happen to be compatible—`[32, 64,
+64, 3]` transposed by `(0, 2, 1)` produces a valid shape for a 32-batch. The
+code runs. The numbers are garbage.
+
+Chapter 2 gave you names for axes. A role is not a position—you know that now.
+This chapter asks the next question: when a role moves, where exactly did it go?
+A transpose swaps two coordinates. A flatten packs two into one. A
+`depth_to_space` unpacks one into three. These operations rearrange your data
+without changing any values. And they go wrong silently because the operation
+name says what family of move it is, not which coordinates moved where.
+
+### A map navigation analogy
+
+You're driving to a friend's house. Your friend texts you two sets of
+directions.
+
+Set A: "Turn left at the third light. Go straight four blocks. Turn right at
+the big red building."
+
+Set B: "Turn left from Main St onto Oak Ave. Go four blocks to Elm St. Turn
+right onto Pine St."
+
+When a road is closed for construction, Set A breaks. What was the "third
+light" is now a different intersection, and the "big red building" might be
+hidden behind scaffolding. Set B still works because the street names are
+stable, not relative to a counting scheme.
+
+A coordinate map is Set B for tensors. Instead of saying "permute axes 0, 2,
+1" (which breaks the moment someone adds a batch dimension), it says "swap i
+and j while carrying the batch prefix unchanged." The compiler—and your
+teammate reading the code six months later—can verify the move without counting
+positions.
+
+The question is not whether permute works. It does. The question is whether
+the notation lets you see what it means after a dimension is inserted three
+calls up the stack. A positional notation says "axis 0 and axis 2 trade
+places" -- a sentence whose truth depends entirely on what the axes happen
+to be when the line executes. A coordinate notation says "`i` and `j` trade
+places" -- a sentence that means the same thing regardless of rank. The
+first is a command. The second is a claim.
+
+The standard library is where this notation has to earn its keep. It is easy to
 look good on a two-line example. It is harder to stay readable when the address
-map has real work to do.
+map has real work to do. Two examples from `stdlib/ml/transform_ops.ein` show
+the range: transpose is simple enough to read at a glance; `depth_to_space` is
+dense enough that names really matter.
 
-Two examples from `stdlib/ml/transform_ops.ein` show the range: transpose is
-simple enough to read at a glance; `depth_to_space` is dense enough that names
-really matter.
+The compiler reads coordinate names the same way you do. When you write
+`result[..batch, i, j] = x[..batch, j, i]`, the name `batch` tells the compiler
+"this axis is shared, don't touch it." The names `i` and `j` tell it "these two
+swapped." The compiler does not decode a positional permutation. It reads the
+same address equation you read. Every pass that follows — range inference, shape
+checking, backend lowering — reads the same names. The names are not decoration
+that gets stripped before the "real" compiler starts. They are the one thing
+every pass agrees on.
 
-The implementation path is concrete. Coordinate names are parsed into scoped
-symbols and carried through IR. Range analysis and shape analysis then reason
-about the same names the reader sees. A map such as
-`result[..batch, i, j] = x[..batch, j, i]` is not decoration before the "real"
-compiler starts; it is the thing later passes carry until a backend chooses a
-view, copy, or fused access.
-
-At this point the question shifts from "what are the axes called?" to "where
-did each coordinate travel?" A transpose, flatten, or layout operation may be
-implemented as storage arithmetic, but the source first has to say the map that
-arithmetic is supposed to preserve.
-
-The figures use a simple convention. A chip names a coordinate role before it
-names a size. Green chips are carried unchanged, blue chips move, and amber
-chips are packed or unpacked. The point is not to decorate the formula; it is
-to make the same source fact visible to the eye that the indexed expression
-makes visible to the compiler.
-
-For coordinate maps, the operation name is not enough. Transpose, flatten, and
-depth-to-space become reviewable only when the address relation is visible,
-especially when the next operation relies on adjacency.
-
-Before reading the examples, try to write a transpose without using the word
-`transpose`. Write only the source address for one result address. If that
-feels more precise than the operation name, you have found the chapter's main
-point.
-
-The useful discipline is to erase the operation name and keep only the address
-equation. If the equation can be run backward, say what assumption made that
-possible. If two packed roles can be exchanged while the total element count
-still agrees, the operation name has not carried enough meaning by itself.
+Keep one principle in mind as you read: **the operation name is not enough.**
+Transpose, flatten, and depth-to-space become reviewable only when the address
+relation is visible, especially when the next operation relies on adjacency. If
+you can erase the operation name and keep only the address equation, and the
+equation can still be run backward—you have found this chapter's main idea.
 
 ## Operation Name or Address Relation
 
@@ -143,6 +173,24 @@ definition can cover the reverse order if a library wants both directions.
   <figcaption>The prefix is carried unchanged; only the two trailing coordinates trade places.</figcaption>
 </figure>
 
+```
+   Transpose as Coordinate Rewrite
+
+   Before: x[i, j]                 After: y[j, i]
+   +-----+-----+-----+             +-----+-----+
+   |     | j=0 | j=1 |             |     | i=0 | i=1 |
+   +-----+-----+-----+             +-----+-----+-----+
+   | i=0 |  a  |  b  |             | j=0 |  a  |  *  |
+   +-----+-----+-----+             +-----+-----+-----+
+   | i=1 |  *  |  d  |             | j=1 |  b  |  d  |
+   +-----+-----+-----+             +-----+-----+-----+
+   * x[1,0]                        * y[0,1]
+
+   Position 0 was i, position 1 was j
+   Position 0 becomes j, position 1 becomes i
+   Transpose = swapping name positions, not memory layout.
+```
+
 The line says three things at once. First, the result is a new binding. Second,
 the batch-shaped prefix survives unchanged. Third, the last two coordinates
 swap roles.
@@ -165,6 +213,14 @@ address relation is the same.
 This is the pattern to keep: a coordinate map does not first say how memory
 moves. It says how one address in the result corresponds to an address in the
 input. Memory layout is a later question.
+
+This is a design principle that separates a coordinate map from a
+positional operation. A permute says "change the stride order." A
+coordinate map says "the role at `i` and the role at `j` exchange
+positions." The first tells the runtime what to do. The second tells the
+reader what it means. Both are necessary, but only one survives a change
+in rank or layout. Write the meaning first; let the backend choose the
+storage maneuver.
 
 ## What `..batch` Really Buys
 
@@ -367,6 +423,14 @@ After that map, a later expression that only sees `p` cannot distinguish
 "nearby row" from "nearby column" unless some other structure restores the
 roles. The coordinate map is honest about the forgetting.
 
+This is a fact later reasoning will need. A convolution that receives a
+flat vector may assume row-major adjacency. If the flattening was
+column-major, the convolution's receptive field crosses boundaries the
+author never intended. The shape is the same. The coordinate map is the
+only place the traversal order was stated. When the notation hides how
+the pack was performed, the downstream operation must guess -- and a
+wrong guess with a valid shape is the kind of bug that ships.
+
 ## A Reader's Checklist
 
 For any coordinate map, ask four questions:
@@ -442,6 +506,15 @@ real layout operators, including ones whose correctness depends on quotient and
 remainder arithmetic. A coordinate map may become a view, a copy, or a fused
 access pattern, but the source relation remains the same: each output
 coordinate must name the input coordinate it observes.
+
+We are doing more than separating concerns. We are putting a semantic
+claim where the compiler can preserve it. The backend will change --
+today a view, tomorrow a fused kernel, next year a hardware-specific
+layout. Through all of those changes, the coordinate map is the single
+fact that must remain true. If the source buries that fact in an
+imperative sequence of stride manipulations, each backend change risks
+reinterpreting the meaning. If the source states the map, the backends
+can compete on efficiency without competing on correctness.
 
 ## Reversible Does Not Mean Obvious
 
@@ -528,12 +601,146 @@ Choose one of these maps and run it backward. Part of the inverse is arithmetic;
 another part is an assumption about layout or adjacency that the next operation
 quietly relies on. That boundary is where the interesting mistakes live.
 
+## Summary
+
+A coordinate map is an address equation, not a storage instruction. The
+operation name (`transpose`, `reshape`, `permute`) says what family of move
+was requested. The coordinate map says exactly which output address reads which
+input address. When the map is source syntax, range analysis, shape analysis,
+and lowering can all reason about the same coordinate names the reader sees.
+
+Where Chapter 2 gave you the vocabulary of axis roles, this chapter gave you the
+grammar—the rules for how those roles move, pack, and unpack. Three patterns
+cover most layout-changing code:
+
+1. **Transpose.** `result[..batch, i, j] = x[..batch, j, i]` swaps two explicit
+   coordinates while carrying a rest prefix unchanged. The rest prefix lets the
+   source state rank-polymorphic intent without counting axes.
+2. **Flatten.** `flat[p] = x[p / width, p % width]` packs a row and column into
+   one coordinate using quotient and remainder. The inverse is `x[row, col] =
+   flat[row * width + col]`.
+3. **Depth to space.** `result[b, c, i, j] = input[b, c * (r*r) + (i%r)*r +
+   (j%r), i/r, j/r]` unpacks a depth coordinate into spatial resolution. The
+   quotients give the coarse spatial address; the remainders give the fine
+   spatial offset packed back into depth.
+
+All three maps share one property: they are reversible. Information moves
+through an address equation; nothing is summed, averaged, or discarded. This
+distinction separates coordinate maps from reductions, a separation that will
+become critical when we analyze gradient chapters (7–9).
+
+The chapter also introduced rest-pattern preprocessing: the bridge between
+human-facing rank polymorphism (`..batch`) and compiler-facing explicit
+coordinate lists. The source says "preserve the whole leading context"; the
+compiler expands the prefix before range analysis and lowering need concrete
+coordinates.
+
+### Where This Leads
+
+A coordinate map is more than a layout operation. It is a claim about which
+roles travel together through the computation and which roles separate. The
+transpose `result[j, i] = x[i, j]` says "the role at `i` and the role at `j`
+exchange positions." A positional notation says "axis 0 and axis 1 trade places"
+— and that sentence means nothing when a new axis is later prepended. The
+notation determines what the claim can refer to, and a notation with only
+positions cannot refer to roles.
+
+You now know how to read and write coordinate maps: the address equations that
+govern transpose, flatten, and depth-to-space. Chapter 2 gave you the
+vocabulary of axis roles. This chapter gave you the grammar—the rules for how
+those roles move, pack, and unpack through real standard-library operations.
+
+Chapter 4 will test that grammar against one of the trickiest conventions in
+array programming: broadcasting. When a scalar is added to a matrix, an axis is
+implicitly expanded. But _which_ axis? And what happens when two tensors have
+different ranks? You will learn to read broadcasting as a coordinate map
+problem—and see why named coordinates make implicit expansion explicit.
+
 ## Try It
 
-Rewrite one `einops.rearrange` pattern as an Einlang coordinate map. Then ask
-what changes when the map is source syntax instead of a string argument. Which
-parts can name resolution, range analysis, and shape analysis inspect before a
-backend chooses a layout?
+Write the coordinate map for a transpose that swaps the first two coordinates
+while preserving everything after them. Use a rest prefix:
+
+```text
+result[j, i, ..rest] = x[i, j, ..rest]
+```
+
+Now write the same map without a rest prefix for a tensor of exactly rank 3:
+
+```text
+result[j, i, k] = x[i, j, k]
+```
+
+Now the test: your tensor gains a batch dimension and becomes rank 4. Which
+version still works without a code change? Which one must be edited? The
+character that buys you rank polymorphism is `..rest`—three characters that
+encode "I do not care how many more coordinates there are."
+
+Recall the opening example from Chapter 1: `y[b * group, feat * slice] = x[b,
+feat, group, slice]`. Run it through this chapter's four-question checklist.
+Which coordinates appear in the result? `b * group` and `feat * slice`—two
+packed output coordinates. Which input coordinates are read? `b`, `feat`,
+`group`, `slice`—four input coordinates. Is any coordinate packed into
+arithmetic? Yes—`b` and `group` are packed into the first output coordinate;
+`feat` and `slice` are packed into the second. Is any coordinate unpacked by
+division or remainder? Not in the forward direction. The forward direction packs;
+unpacking requires division and remainder by the known product stride.
+
+Now the crucial question: is the map reversible? Only if you know `group_count`
+and `slice_count`. Given those, you can unpack. But the same output shape `[(B *
+G), (F * S)]` can be unpacked with the roles swapped—and the unpacking will
+produce different answers without any shape error. The reversibility check is not
+"can I compute an inverse?" It is "does the inverse recover the coordinate story
+I intended?" Only the names can answer that.
+
+You are implementing a spatial-to-depth operation for an image super-resolution
+model. The positional version is:
+
+```python
+# x has shape [B, C, H, W]
+# Fold 2x2 spatial blocks into the channel dimension
+x.reshape(B, C, H//2, 2, W//2, 2).transpose(3, 5).reshape(B, C*4, H//2, W//2)
+```
+
+Write the coordinate relation. The quotient gives coarse spatial position; the
+remainder gives the fine offset packed into channels:
+
+```text
+// dy, dx are the offsets within each 2x2 block
+// i, j are the coarse spatial positions
+let folded[b, c * 4 + dy * 2 + dx, i, j] =
+    x[b, c, i * 2 + dy, j * 2 + dx]
+```
+
+Now write the wrong version that accidentally swaps which spatial dimension is
+folded into channels:
+
+```text
+// Bug: dy and dx are swapped in the channel packing formula
+let bad[b, c * 4 + dx * 2 + dy, i, j] =
+    x[b, c, i * 2 + dy, j * 2 + dx]
+```
+
+When `H == W` (square image), both produce the same output shape `[B, C * 4, H
+// 2, W // 2]`. The extent of the packed channel dimension is `C * 4` in both
+cases. The shape checker is silent. But one version says "rows are packed first
+in the channel ordering" and the other says "columns are packed first." Now
+design two coordinate functions:
+
+```text
+fn space_to_depth[dy, dx](x: [f32; ..batch, c, i * dy + dy_idx, j * dx + dx_idx])
+    -> [f32; ..batch, c * (dy * dx) + dy_idx * dx + dx_idx, i, j]
+
+fn space_to_depth_transpose[dx, dy](x: [f32; ..batch, c, i * dx + dx_idx, j * dy + dy_idx])
+    -> [f32; ..batch, c * (dx * dy) + dx_idx * dy + dy_idx, i, j]
+```
+
+One bracket character—the order of `[dy, dx]` versus `[dx, dy]`—encodes the
+entire spatial folding decision. For a square input with `dy = dx`, both
+functions produce the same output shape. But they fold different spatial
+neighborhoods into adjacent channel positions. A convolution that expects a
+specific neighborhood sees different feature vectors. The shape says `C * 4`; the
+bracket says which 4.
 
 **Line to keep:** the address relation is the truth; the operation name is its
 surface expression.

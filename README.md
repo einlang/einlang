@@ -31,7 +31,7 @@ If you already know NumPy, JAX, or PyTorch, the easiest mental model is:
 
 That is the core of Einlang: keep the structure of the math visible, keep gradients local, and keep the notation consistent as programs grow.
 
-For the longer research writeups, read the [ACM-style paper](https://einlang.github.io/einlang/paper/einlang_paper.pdf) for the language-design argument and the [thesis-form report](https://einlang.github.io/einlang/thesis/einlang_thesis.pdf) for the implementation details. The [book](https://einlang.github.io/einlang/book/) is a seven-section treatment of explicit indices and compiler-visible tensor structure.
+For the longer research writeups, read the [ACM-style paper](https://einlang.github.io/einlang/paper/einlang_paper.pdf) for the language-design argument and the [thesis-form report](https://einlang.github.io/einlang/thesis/einlang_thesis.pdf) for the implementation details. [The Name in the Bracket](https://einlang.github.io/einlang/book/) is a book about what changes when tensor dimensions have names.
 
 ## Why it feels different
 
@@ -260,7 +260,7 @@ Supported functions compile through IREE; anything outside the current subset fa
 If you want to keep going after the path above, here is the practical split. None of these are required for the first run:
 
 - [examples/README](examples/README.md) is the place to browse more runnable programs, especially the heavier showcases with their own setup details.
-- [Visible Dimensions](https://einlang.github.io/einlang/book/) is a seven-section book about what tensor programs can state once dimensions have names.
+- [The Name in the Bracket](https://einlang.github.io/einlang/book/) is a book about what tensor programs can state once dimensions have names.
 - [docs/reference.md](docs/reference.md) is for syntax and semantics once you want the language spelled out precisely.
 - [docs/stdlib.md](docs/stdlib.md) is the lookup page for built-ins, modules, and library surface.
 - [docs/COORDINATE_FUNCTIONS.md](docs/COORDINATE_FUNCTIONS.md) explains coordinate-aware calls such as `softmax[class]` and `argmax[class]`.

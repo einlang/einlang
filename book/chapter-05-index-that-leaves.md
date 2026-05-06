@@ -1,495 +1,682 @@
 ---
 layout: book
-title: "Chapter 5: The Index That Leaves"
+title: "The Index That Leaves"
 ---
 
 # The Index That Leaves
 
-Reduction is what happens when a coordinate does its job and leaves.
+Chapter 4 showed what happens when a term omits a coordinate. The value is
+reused along that dimension. Broadcasting.
 
-In:
+This chapter shows what happens when a coordinate is deliberately *consumed*.
+The opposite move. A value that walks across the coordinate, collecting it cell
+by cell, until nothing remains.
+
+You have written this move a thousand times. You may have never named it.
+
+## The Bug That Log-Sum-Exp Hid
+
+It is 2 AM. You are staring at a training curve that is not converging the way
+it should. The loss descends. The shapes all check out. But the validation
+metric — calibration error — has been drifting upward for six weeks, and no one
+can explain why.
+
+The program computes a log-sum-exp over the `class` axis:
+
+```python
+# Original: logits shape [batch=100, class=10]
+lse = torch.logsumexp(logits, dim=-1)   # [batch]
+loss = lse.mean()
+```
+
+Six weeks ago, a colleague refactored the data pipeline. The new loader
+produces `[class, batch]` instead of `[batch, class]`. The shapes are now
+`[10, 100]`. The line `logsumexp(logits, dim=-1)` still runs. But now `dim=-1`
+points to `batch`, not `class`.
+
+The output shape is `[10]`. The `.mean()` produces a scalar either way. The
+loss goes down. The shapes are valid at every step. And yet: the model is now
+computing the log-sum-exp over batch items for each class, not over classes
+for each batch item. Every class receives a summary of all examples.
+
+You will not find this bug by checking shapes. `dim=-1` is always legal. You
+will find it when you trace a single miscalibrated prediction back through six
+layers of a deployed model and ask: which coordinate did `dim=-1` consume?
+
+Named reductions make the answer visible without the trace:
 
 ```rust
-let dot = sum[i](u[i] * v[i]);
+// Correct: consume class, keep batch
+let lse[b] = sum[c](logits[b, c]);
+
+// Bug: consume batch, keep class  (still runs when extents square up)
+let lse[c] = sum[b](logits[c, b]);
 ```
 
-the coordinate `i` exists inside the `sum`. It chooses matching elements of
-`u` and `v`. After the sum, it is gone. The result has no coordinate `i`
-because the point of the reduction was to consume it.
+`c` inside `sum[...]` means "I am consuming class." `b` on the left means
+"batch survives." If the data pipeline swaps axes, `logits[c, b]` still
+addresses the right cells — but the reader can SEE that `sum[c]` is consuming
+the row coordinate. The question has a place to live.
 
-That is a small idea. It is also the source of many tensor programs.
+## The Sum That Eats a Dimension
 
-The important word is "leaves." A reduction is not just an operator with an
-axis parameter. It is a local coordinate with a scope, a domain, and a reason
-for disappearing from the result.
+The mathematical operation is the log-sum-exp:
 
-There is a family resemblance here to linear logic and linear type systems. A
-linear variable is not casually reusable after it has been consumed. A
-reduction coordinate is not a value variable, but the discipline has the same
-flavor: `k` is introduced for local work, used to align terms, and then cannot
-be read as a coordinate of the result. The notation makes that resource
-boundary explicit.
+$$\text{lse}_b = \log \sum_c \exp(x_{b,c})$$
 
-A reduction should make its bargain explicit: some coordinates survive, one or
-more coordinates are local to the `sum`, and the result no longer has them.
-Square cases are the place where reducing the wrong one can stay quiet.
+The sum runs over $c$. The result has no $c$ — the coordinate was consumed.
+In a positional API, this is written by counting:
 
-One reliable way to read a reduction is to circle the coordinate inside the
-reducer and then try to use it after the reducer has returned. The attempt
-should feel wrong in the same way that reading a local variable outside its
-scope feels wrong. A reduction is an arithmetic operation, but it is also a
-scope boundary.
-
-## Axis Argument or Local Name
-
-The common interface for reduction is an axis argument:
-
-```text
-sum(x, axis=-1)
+```python
+lse = torch.logsumexp(logits, dim=-1)   # result: [batch]
 ```
 
-This is compact, but it turns the reduced coordinate into a position. If
-previous operations have moved axes around, the reader must reconstruct which role
-`-1` names. A language can add comments or shape annotations, but the reduction
-itself still consumes a number rather than a role.
+The result is one-dimensional. The `class` axis disappeared. Where did it go?
 
-Named tensor systems can improve the call by letting the axis be named:
+It was consumed. The sum walked across every class, accumulated the exponentials,
+and left nothing behind. The result has no memory of individual classes.
 
-```text
-sum(x, axis="class")
-```
-
-That is already a better contract than `-1`. The next step is to make the
-reduced coordinate a scoped name in the expression:
+Now write it in Einlang:
 
 ```rust
-let total[batch] = sum[class](logits[batch, class]);
+let lse[b] = sum[c](logits[b, c]);
 ```
 
-Now the notation says not only "reduce the class axis," but also "this local
-coordinate is live inside the reduction and absent afterward." That scoping
-fact is what later pullbacks, range checks, and address-domain checks need.
+Read this line three times, because it says more than a `dim=-1` ever could.
 
-Einlang chooses a local name:
+First read: the result has coordinate `b`. Each batch member gets one number.
 
-```text
-sum[j](x[..batch, j])
+Second read: `c` is introduced by `sum[c]`. It is local to the reduction. It
+does not survive into `lse`.
+
+Third read: the input is addressed by `logits[b, c]`. Both coordinates are
+used inside the sum. Only `b` escapes.
+
+This is the entire idea. A reduction introduces a local coordinate, uses it to
+align terms, and then consumes it. The result shape is whatever survived—the
+coordinates you did not put inside `sum[...]`.
+
+We are doing more than describing what a reduction computes. We are stating
+which coordinate the reduction consumed -- and that fact has no default.
+In a positional API, `dim=-1` consumes whatever axis happens to be last.
+In a coordinate API, `sum[class]` consumes `class` regardless of where
+`class` sits in the rank. The first is a command that changes meaning when
+the layout changes. The second is a claim that survives a transpose.
+
+Notice that the range of `c` is never stated. The compiler infers it from the
+shape of `logits` — `c` must cover whatever extent `logits` carries at that
+position. You can write `sum[c in 0..num_classes]` when explicitness matters,
+or `sum[c]` when the shape already answers. The compiler treats both the same.
+Explicit and implicit ranges unify into one representation. The notation does
+not care which you wrote.
+
+## The Bug That Hides in Square Matrices
+
+Here is a bug that a `dim=-1` API will not catch.
+
+```python
+# PyTorch: compute row sums
+row_sums = A.sum(dim=1)        # [rows]
+col_sums = A.sum(dim=0)        # [cols]
+
+# Refactored code: axes were transposed somewhere upstream
+A = A.T
+row_sums = A.sum(dim=1)        # still runs, but now this is a column sum
 ```
 
-Now the consumed coordinate is introduced exactly where it leaves. The name
-`j` does not survive into the result, and that absence is the point. The
-syntax is not longer for ceremony; it is longer because later gradient and
-shape reasoning will need to know which coordinate was consumed.
+If `A` is `[rows=3, cols=5]`, the shapes are different enough that you might
+notice. But what if `A` is square?
 
-Imagine pausing a debugger after the reduction. The value `result[..batch]`
-can tell you which batch member it belongs to, but it cannot tell you which
-`j` contributed which amount. That is not lost metadata by accident. It is the
-operation's meaning. Naming `j` locally makes the loss deliberate.
+```python
+A = torch.randn(128, 128)
 
-## Survivors and Locals
+# Intended: sum over the second axis (which was originally "class")
+# After a silent transpose, the second axis has changed roles
+loss = some_loss(A.sum(dim=1))   # runs fine, wrong meaning
+```
 
-A reduction expression has two kinds of coordinates. Some are free in the
-result. Some are local to the reducer. The free coordinates describe the family
-being produced. The local coordinates describe the work done for each member of
-that family.
+No crash. No shape error. The model trains. The metric drifts. You will not
+find this bug until you trace a single incorrect prediction back through six
+layers of a deployed model.
 
-Consider:
+With named reductions, the bug is visible at the write site:
 
 ```rust
-let row_total[row] = sum[col](A[row, col]);
+// Intended: sum over class
+let per_row[batch] = sum[class](A[batch, class]);
+
+// After a silent transpose in the data pipeline:
+// A now has shape [class, batch]
+let per_row[batch] = sum[class](A[class, batch]);  
+//  ↑ 'class' is now row coordinate of A, not column
+// The index positions of A have changed, and the reader can see it
 ```
 
-For each `row`, the expression scans every `col`. The result has one value per
-row because `row` remains free. The coordinate `col` never escapes the `sum`.
+The coordinates `batch` and `class` appear in both the result declaration and
+the input addresses. If the input layout changes, the mismatch is visible at
+the coordinate level, not buried under a `dim=1` that happens to stay
+syntactically valid.
 
-Now switch the names:
+## Survivors and Locals: A Two-Column Ledger
 
-```rust
-let col_total[col] = sum[row](A[row, col]);
-```
-
-The shape may look similar if the matrix is square, but the meaning is
-different. The first program totals rows. The second totals columns. Axis
-numbers can express the same distinction, but names make the distinction live
-inside the formula.
-
-## Matrix Multiplication
-
-Matrix multiplication is the same move with two surviving coordinates:
+Every reduction creates two sets of coordinates. Here is the ledger for a
+matrix multiply:
 
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
 ```
 
-The coordinates `i` and `j` survive because they appear on the left. The
-coordinate `k` is local to the sum. For a concrete output point:
+| Kind | Coordinates | Where they appear |
+|------|------------|-------------------|
+| Survivor | `i`, `j` | On the left (`C[i, j]`), in input terms (`A[i,*]`, `B[*,j]`), and on the right-hand side of any later assignment |
+| Local | `k` | Introduced by `sum[k]`, used inside the reduction body (`A[*,k]`, `B[k,*]`), absent from `C` |
+
+For a concrete cell:
 
 ```text
-C[2, 5] = sum[k](A[2, k] * B[k, 5])
+C[2, 5] = A[2, 0]*B[0, 5] + A[2, 1]*B[1, 5] + ... + A[2, n-1]*B[n-1, 5]
 ```
 
-That single coordinate reading is the whole operation. Row `2` of `A` meets
-column `5` of `B`; `k` walks across their shared positions and disappears.
+The fixed `2` and `5` are survivors. The walking `k` is local. The sum fills
+in every `k`-step and then discards the walker. The result has no `k`-shaped
+slot because no single `k`-value owns the cell.
 
-The lifecycle of `k` is worth writing once:
+Now re-read the same layout for a row sum and a column sum:
+
+```rust
+let r[i] = sum[j](A[i, j]);   // row sum: i survives, j consumed
+let c[j] = sum[i](A[i, j]);   // col sum: j survives, i consumed
+```
+
+The survivor is always the coordinate on the left. The local is always the
+coordinate inside `sum[...]`. No positional reasoning required.
+
+Here is the concrete expansion for a `2 × 3` matrix:
 
 ```text
-k is introduced by sum[k]
-k indexes A[i, k] and B[k, j]
-k is consumed by the reduction
-k is absent from C[i, j]
-k can reappear in a gradient address such as dA[i, k] or dB[k, j]
+A = [[1, 2, 3],
+     [4, 5, 6]]
+
+r[i] = sum[j](A[i, j])
+→ r[0] = 1 + 2 + 3 = 6
+→ r[1] = 4 + 5 + 6 = 15
+
+c[j] = sum[i](A[i, j])
+→ c[0] = 1 + 4 = 5
+→ c[1] = 2 + 5 = 7
+→ c[2] = 3 + 6 = 9
 ```
 
-Forward reduction removes `k` from the result. A later derivative request may
-bring `k` back, not because reduction failed, but because the question has
-changed from "what is `C`?" to "which input cell receives sensitivity?"
+The same matrix. One local coordinate swapped. Two different answers. A
+positional API can express this as `axis=0` versus `axis=1`, but only if the
+reader tracks which axis is which. The named form makes the swap a visible
+edit: change `sum[j]` to `sum[i]`, and now the survivor is `j` instead of `i`.
 
-If `A` and `B` are square, a mistaken reduction can still produce a square
-result. For example, reducing over `i` instead of `k` is not a small spelling
-variation; it asks a different set of values to meet. The local name is what
-lets a reviewer say "the inner coordinate is supposed to leave here."
+```
+   Reduction: One Coordinate Leaves
 
-## Why the Name Matters
+   Row sums r[i] = sum[j](A[i,j])   Col sums c[j] = sum[i](A[i,j])
 
-Many libraries express reduction by an axis number:
+   A[i,j]                           A[i,j]
+   +-----+-----+-----+              +-----+-----+-----+
+   |     | j=0 | j=1 | j=2          |     | j=0 | j=1 | j=2
+   +-----+-----+-----+              +-----+-----+-----+
+   | i=0 |  1  |  2  |  3  |        | i=0 |  1  |  2  |  3
+   +-----+-----+-----+              +-----+-----+-----+
+   | i=1 |  4  |  5  |  6  |        | i=1 |  4  |  5  |  6
+   +-----+-----+-----+              +-----+-----+-----+
+      |     |     |                  |     |     |     |
+      v     v     v                  v     v     v
+   j consumed, i survives         i consumed, j survives
+   r=[6, 15]                      c=[5, 7, 9]
 
-```python
-row_sum = A.sum(axis=1)
+   One bracket says which coordinate leaves.
 ```
 
-That is concise, but the meaning of `axis=1` depends on the surrounding shape
-contract. If the axes move, the number may still be valid while the intention
-is no longer valid.
+The question is not whether the sum is correct. The question is whether
+the reader, three months from now, can tell which coordinate was consumed
+without reconstructing the author's intention from a variable name. A
+positional API says `axis=0` and hopes the reader remembers what axis 0
+was. A coordinate API says `sum[i]` and the answer is the bracket itself.
+The difference is not convenience. It is whether the consumed coordinate
+survives the reader's limited memory.
 
-With named coordinates:
+## The Lifecycle of a Local Coordinate
 
-```rust
-let row_sum[row] = sum[col](A[row, col]);
-```
-
-the consumed coordinate is `col`, not "whatever currently sits at position 1."
-The output keeps `row` because `row` is the coordinate left free.
-
-## Multiple Indices Can Leave Together
-
-Convolution uses the same pattern with more local coordinates. A two-dimensional
-windowed sum can be written schematically as:
+A local coordinate has a clearly bounded lifecycle. Write it once, and every
+subsequent operation can assume it:
 
 ```text
-out[b, co, i, j] =
-    sum[ci, kh, kw](
-        x[b, ci, i + kh, j + kw] * kernel[co, ci, kh, kw]
-    )
+Phase 1: Introduction
+  k is introduced by sum[k] — its scope begins here
+
+Phase 2: Use
+  k aligns terms inside the reduction body
+  (A[i, k] and B[k, j] are both addressed with k)
+
+Phase 3: Consumption
+  k is consumed when the sum completes — it leaves scope
+
+Phase 4: Absence
+  k does not appear in the result type
+  let C[i, j] = ...  — no k in the output address
+
+Phase 5: Possible return
+  k may reappear in a gradient expression
+  let dA[i, k] = sum[j](dC[i, j] * B[k, j])  — k is back, but now
+  it's a survivor in a different reduction context
 ```
 
-The output keeps batch `b`, output channel `co`, and spatial position `i, j`.
-The local coordinates `ci`, `kh`, and `kw` leave. They describe the input
-channel and the two coordinates inside the kernel window.
+Phase 5 is the one that surprises people. A coordinate consumed in the forward
+pass can reappear in the backward pass. This is not a violation of scoping. The
+backward pass is a different expression with a different set of survivors. The
+forward local coordinate `k` was consumed for the forward answer. When you ask
+"which input cell receives sensitivity?", the question reintroduces `k` as a
+survivor in the gradient.
 
-This is a larger example, but no new reading rule is needed. Circle the
-coordinates on the left. Those survive. Circle the coordinates introduced by
-`sum`. Those are local. Everything else is a relationship between the two.
+Here is a concrete trace to make Phase 5 tangible. Start with named values:
 
-The standard library convolution code has more details: padding, dilation,
-groups, and bounds. Those details matter for implementation, but the center is
-still a reduction over local coordinates that do not survive into the output.
+```text
+A = [[2, 3, 1],    B = [[1, 0],
+     [0, 1, 4]]         [2, 1],
+                        [0, 3]]
 
-## A Reducer in the Library
+C = A @ B = [[2·1+3·2+1·0,  2·0+3·1+1·3],
+             [0·1+1·2+4·0,  0·0+1·1+4·3]]
 
-The standard library's `matmul` is exactly this:
-
-```rust
-let output[i, j] = sum[k](a[i, k] * b[k, j]);
+  = [[8,  6],
+     [2, 13]]
 ```
 
-The line is short because the idea is short. Two coordinates survive. One
-coordinate leaves. Any later optimization can recognize the familiar matrix
-multiply pattern, but the source remains a formula rather than a call with
-implicit axis meaning.
+Now trace the gradient of `A`. In the forward pass, `A[0, 1] = 3` contributed
+to `C[0, 0]` (multiplied by `B[1, 0] = 2`) and to `C[0, 1]` (multiplied by
+`B[1, 1] = 1`). Two routes. In the backward pass, if the incoming sensitivity
+at `C` is `G`, then:
 
-## What a Reducer Promises
-
-A reducer also carries an algebraic promise. `sum` adds values and has identity
-`0`. `prod` multiplies values and has identity `1`. `max` and `min` choose
-extreme values. These promises influence what optimizations are legal. A
-compiler may reorder some sums under assumptions about arithmetic. It may use a
-specialized matrix multiply kernel when it recognizes the contraction pattern.
-It may lower a `max` differently from a `sum`.
-
-Some operations need a second result if the consumed coordinate still matters.
-`max[col](A[row, col])` returns the largest value in each row; it does not by
-itself preserve which `col` won. If later code needs the winning coordinate,
-the program should ask for that coordinate explicitly:
-
-```rust
-let winner[row] = argmax[col](A[row, col]);
+```text
+dA[0, 1] = G[0, 0] * B[1, 0] + G[0, 1] * B[1, 1]
+         = G[0, 0] * 2       + G[0, 1] * 1
 ```
 
-This is the first selection-shaped coordinate function. It consumes `col` like
-a reduction, but the result is not the maximum value. It is an integer address
-in the `col` domain. This is another design boundary: reduction can consume a
-coordinate, but a language should not smuggle the consumed coordinate back in
-unless the source requested it.
+This is `sum[j](G[0, j] * B[1, j])`. Exactly Phase 5: `k` (which was consumed
+as `sum[k]` in `C = A @ B`) has returned — but now as the second coordinate of
+`dA`, a survivor in a DIFFERENT reduction context. The reduction coordinate in
+the gradient is `j`, not `k`. `k` is the address being answered. `j` is the
+path being summed.
 
-Once that boundary exists, a user-defined function can preserve it:
+The lifecycle is not a loophole. It is the chain rule with coordinates named.
+A coordinate consumed in one expression returns in another because a different
+question is being asked. The first question was "what is the aggregate?" The
+second question is "which input cell receives sensitivity?" The coordinates
+that answer each question differ, and the names track which is which.
+
+## When Reduction Goes Wrong
+
+Three real categories of reduction bugs. For each: the wrong code, the right
+code, and the diagnostic question that catches it.
+
+**1. Wrong coordinate consumed.** The most common pattern. `dim=-1` points to
+whatever axis happens to be last.
+
+```text
+Wrong:  logsumexp(logits, dim=-1)   -- dim=-1 silently changes meaning after transpose
+Right:  sum[class](logits[b, class]) -- class in the bracket follows the role
+
+Diagnostic: "After a transpose two lines up, what does dim=-1 point to now?"
+```
+
+**2. Square matrix silent swap.** When all extents are equal, row sums and
+column sums produce the same output shape.
+
+```text
+Wrong:  A.sum(dim=0) on a transposed A   -- shape [128], meaning: column sum named as row sum
+Right:  sum[i](A[i, j])                  -- i is consumed, j survives -- identities visible
+
+Diagnostic: "Is the consumed coordinate the row or the column? If you can't
+answer from the code alone, the notation has hidden something."
+```
+
+**3. Batch leakage through scope error.** A reduction that accidentally
+includes `batch` in its scope.
+
+```text
+Wrong:  sum[b, k](A[b, i, k] * B[b, k, j])   -- batch consumed! all examples averaged
+Right:  sum[k](A[b, i, k] * B[b, k, j])       -- only k consumed
+
+Diagnostic: "Circle the coordinates inside sum[...]. Is 'batch' in there? If
+yes, you're averaging across examples."
+```
+
+The loss curve goes down in all three cases. The shapes are valid in all three
+cases. The diagnostic question — "which coordinate was consumed?" — is the only
+thing that separates the right computation from the wrong one.
+
+This is the Hiding Law applied to reduction. The consumed coordinate is a
+fact that later reasoning must recover -- gradient computation needs to
+know which coordinate was summed, the reviewer needs to know what the
+result means, and the optimizer needs to know which axis to parallelize
+over. If the source buries that fact in a `dim=-1` whose meaning drifts
+with the layout, every downstream reader pays the cost of reconstructing it.
+If the source writes `sum[class]`, the fact is visible to every tool that
+reads the source, including the compiler that will later emit the backward
+pass.
+
+## Not All Reducers Return a Scalar
+
+`sum`, `prod`, `max`, and `min` all return a value per survivor cell. But not
+every reducer does. Some return a coordinate:
 
 ```rust
-fn top1[class](x: [f32; ..left, class, ..right])
-    -> [i32; ..left, ..right]
-{
+let winner[batch] = argmax[class](logits[batch, class]);
+```
+
+`argmax[class]` consumes `class` and returns, for each batch member, the
+integer index of the winning class. The result is not the maximum value. It is
+an address within the consumed domain.
+
+The survivor is still `batch`. The local is still `class`. The return type
+differs (`i32` instead of the input element type), but the scoping rule is
+identical.
+
+This is a design boundary worth marking. A reduction consumes a coordinate. If
+the program later needs the consumed coordinate's identity, it must ask for it
+explicitly—with `argmax`, `argmin`, or a user-defined selection function. The
+language should not smuggle the consumed coordinate back as hidden metadata.
+The source that wants the winning index should write `argmax`. The source that
+wants the winning value should write `max`. The distinction is visible.
+
+You can wrap this pattern:
+
+```rust
+fn top1[class](x: [f32; ..left, class, ..right]) -> [i32; ..left, ..right] {
     argmax[class](x[..left, class, ..right])
 }
 ```
 
-The caller writes `top1[class](logits)`. The function body may hide the local
-selection loop, but the signature still says that `class` is consumed and that
-all surrounding coordinates survive. That is the reusable form of "the index
-that leaves."
+The caller writes `top1[class](logits)`. The function signature says `class` is
+consumed and all surrounding coordinates survive. The body is one line. The
+contract is in the brackets, not in a comment.
 
-The return annotation is doing real work here. The final expression
-`argmax[class](...)` is a selection over `class`; the declared result
-`[i32; ..left, ..right]` supplies the coordinates that remain. You could spell
-that out with a local `let pred[..left, ..right] = ...; pred`, but the function
-signature already states the same contract, so the body can stay focused on
-the one fact that matters: which coordinate leaves.
+## The Shape of the Work, Not Just the Shape of the Result
 
-There is nothing special about rest packs in this rule. A fixed-rank version:
-
-```rust
-fn top1_2d[class](x: [f32; batch, class]) -> [i32; batch] {
-    argmax[class](x[batch, class])
-}
-```
-
-uses the same idea. `batch` is available because it appears in the parameter
-type; the return type reuses it rather than inventing it.
-
-This same pattern will recur: the operation may be compact, but the consumed
-coordinate remains visible in brackets. That is what keeps `argmax[col]` from
-being just another positional helper.
-
-The source does not have to prescribe the schedule. It only has to state which
-coordinate is local and which reduction is being performed. That is enough for
-the program to be read as a formula and for later passes to choose an
-implementation.
-
-## What Did the Result Forget?
-
-In this expression:
-
-```rust
-let col_norm[j] = sqrt(sum[i](A[i, j] * A[i, j]));
-```
-
-the surviving coordinate is `j`; the coordinate `i` leaves through the sum.
-The deeper point is that the result is not a compressed copy of `A`. It is a
-new object whose addresses are columns. The row coordinate mattered while the
-norm was computed, but the finished value has no place to store row-specific
-information.
-
-## The Shape of the Work
-
-A reduction changes not only the result shape, but also the shape of the work.
-For:
+A reduction tells you two shapes: the output shape (survivors) and the work
+shape (survivors × locals).
 
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
 ```
 
-there is one reduction over `k` for every pair `[i, j]`. The surviving
-coordinates define a family of independent reduction problems. This is why the
-formula can later become a loop nest, a tiled kernel, or a call to a matrix
-multiply library. The source has not fixed the schedule, but it has fixed the
-work structure.
-
-A reader can separate three layers:
+The output `C` has shape `[i, j]`. There is one reduction for every pair of `i`
+and `j`. Each reduction walks across `k`. If `i` has 64 values, `j` has 32, and
+`k` has 128, then:
 
 ```text
-result family   C[i, j]
-local work      sum[k](...)
-implementation  loop, kernel, vectorized primitive, or backend call
+Output cells:   64 × 32 = 2,048
+Work per cell:  128 multiplications + 127 additions
+Total work:     2,048 × 128 = 262,144 multiplications
 ```
 
-The result family and local work belong in the source model. Implementation
-belongs to lowering. Mixing those layers too early makes programs harder to
-reason about. Hiding the consumed coordinate makes them harder to check.
+The numbers matter. But the structure matters more. The survivors define a
+family of independent reduction problems. The local coordinate defines the work
+done for each family member. This is why the formula can lower to a loop nest,
+a tiled kernel, or a BLAS call without changing its meaning. The source fixes
+the work structure. The backend chooses the schedule.
 
-Omitted coordinates and consumed coordinates are dual ways for a dimension to
-leave the surface of an expression. Broadcasting reuses a value along a
-coordinate it never mentioned. Reduction uses a coordinate locally and then
-removes it from the answer. Together, they explain much of tensor shape
-behavior without reaching for axis-number folklore.
-
-There is also a useful semantic test: after a reduction, you should not expect
-to recover the individual pieces. A row sum does not remember which column
-contributed which amount. A dot product does not remember which coordinate
-made the vectors align strongly. A maximum may remember a value, but unless the
-program explicitly asks for an index as well, it does not preserve the whole
-input row.
-
-That loss is not a flaw. It is the purpose of the operation. Reduction is how a
-program says "this local coordinate mattered while computing the value, but it
-is not part of the answer." Once you read reductions that way, many tensor
-programs become less mysterious: the result shape is simply the list of
-coordinates that were not eaten.
-
-## A Lowering Sketch
-
-The reduction:
+Compare two sources that differ only in which coordinate is local:
 
 ```rust
-let r[i] = sum[j](A[i, j]);
+let r[i] = sum[j](A[i, j]);   // one reduction per row
+let c[j] = sum[i](A[i, j]);   // one reduction per column
 ```
 
-can lower to a loop shape like:
+Same input matrix. Same reducer (`sum`). Different work shapes. The source
+makes the choice explicit. A positional API hides the choice inside a number
+and hopes the reader knows what the number means.
+
+## Convolution: Multiple Locals, Same Rule
+
+A convolution introduces more local coordinates, but the rule does not change:
+
+```rust
+let out[b, co, i, j] = sum[ci, kh, kw](
+    x[b, ci, i + kh, j + kw] * kernel[co, ci, kh, kw]
+);
+```
+
+Survivors: `b`, `co`, `i`, `j`. Locals: `ci`, `kh`, `kw`.
+
+Three coordinates leave together. They describe the input channel and the two
+spatial offsets inside the kernel window. The result has no memory of which
+input channel or which kernel offset contributed most. It only has the
+aggregate.
+
+The rule for reading this expression: circle the coordinates on the left.
+Those survive. Circle the coordinates inside `sum[...]`. Those are local.
+Everything else—the offsets `i + kh`, the kernel address `co, ci, kh, kw`—is
+a relationship between the two sets. The rule scales to any number of
+coordinates without requiring new concepts.
+
+## The Inversion: Broadcasting's Opposite
+
+Chapter 4 introduced this pairing:
+
+```rust
+let y[b, f] = x[b, f] + bias[f];     // broadcast: bias omits b
+let total[b] = sum[f](x[b, f]);       // reduce: sum consumes f
+```
+
+The two lines are inverses. Omission keeps a coordinate absent. Reduction
+forces a coordinate to leave. Together, they explain most of tensor shape
+behavior.
+
+In the forward pass, a broadcast spreads a value along an omitted coordinate.
+In the backward pass, the gradient of that broadcast is a sum over the same
+coordinate:
+
+```rust
+// Forward: bias[f] is reused across every b
+let y[b, f] = x[b, f] + bias[f];
+
+// Backward: bias[f] collects sensitivity from every b
+let dbias[f] = sum[b](dy[b, f]);
+```
+
+The omitted coordinate in the forward term becomes the consumed coordinate in
+the backward gradient. This is not a special case for biases. It is the
+coordinate-level statement of the chain rule: a value that is reused along `b`
+receives sensitivity from every `b`.
+
+Chapter 8 will prove this with the matrix multiply pullback. For now, the
+heuristic is enough: if you broadcast along a coordinate, expect that
+coordinate to become a reduction in the backward pass.
+
+This symmetry is not a coincidence we exploit. It is a structural fact
+the notation makes visible. When a positional program writes `bias +
+x`, the compiler sees two tensors with compatible shapes. When a
+coordinate program writes `bias[f] + x[b, f]`, the compiler sees that
+`b` is absent from the first term -- and it knows, without being told,
+that the backward pass will sum over `b`. The forward omission is the
+backward reduction. One bracket carries both facts.
+
+## Practical Reading Rule
 
 ```text
-for i in range(rows):
-    acc = 0
-    for j in range(cols):
-        acc += A[i, j]
-    r[i] = acc
+1. Read the result declaration:   let name[survivors] = ...
+2. Read the reducer:               sum[local](...)
+3. Read the body:                  which coordinates address each term
+4. Confirm:                        local ∉ survivors
+5. Confirm:                        every survivor appears on the left
 ```
 
-The loop nest contains both `i` and `j`, but only `i` appears in the output
-address. That is the operational version of the source rule. The accumulator
-exists because `j` is local. The final store uses only survivor coordinates.
-
-This sketch also shows why the source should keep reducer names explicit.
-Changing the order of loops may be legal for a simple sum, but changing which
-coordinate is local is not the same transformation. A compiler can optimize
-execution only after it knows the semantic boundary between survivor and local
-work.
-
-## Reduction Direction in a Square Matrix
-
-Start with a square-matrix case where the wrong reduction can keep a plausible
-shape:
+For `let C[i, j] = sum[k](A[i, k] * B[k, j])`:
 
 ```text
-A[0, 0] = 1   A[0, 1] = 2   A[0, 2] = 3
-A[1, 0] = 4   A[1, 1] = 5   A[1, 2] = 6
+survivors       = {i, j}
+local           = {k}
+k in survivors  = false    ✓
+{i, j} on left  = true     ✓
 ```
 
-The row sum is:
+That is the entire typecheck for a reduction. No axis numbers. No positional
+alignment. The names do the work.
+
+Now apply the same rule to a common mistake:
 
 ```rust
-let r[i] = sum[j](A[i, j]);
+let r[i] = sum[j](A[i, j]);    // correct: row sum
+let r[i] = sum[j](A[j, i]);    // plausible, but this is a column sum named r[i]
 ```
 
-The coordinate `i` survives because it appears on the left. The coordinate
-`j` is local to the reduction. Expanding the two output cells gives:
+The second line is shape-legal if `A` is square. The source claims the survivor
+is `i`, but `i` indexes the columns of `A`. A careful reader catches the
+contradiction. A positional API describes both as valid reductions with
+different `axis` arguments; the names give the contradiction a place to live.
+
+Now scale the same rule to three coordinates. This is a batched weighted sum—a
+reduction that appears inside every attention head:
+
+```rust
+let context[b, i, d] = sum[j](weights[b, i, j] * values[b, j, d]);
+```
+
+Apply the five-step reading:
 
 ```text
-r[0] = A[0, 0] + A[0, 1] + A[0, 2]
-r[1] = A[1, 0] + A[1, 1] + A[1, 2]
+1. Result declaration:  context[b, i, d]     → survivors = {b, i, d}
+2. Reducer:             sum[j]               → local = {j}
+3. Body:                weights[b,i,j] reads {b,i,j}
+                        values[b,j,d] reads  {b,j,d}
+4. Confirm:             j ∉ {b,i,d}          ✓
+5. Confirm:             {b,i,d} on left      ✓
 ```
 
-So `r = [6, 15]`. The result did not "drop axis 1" in a mysterious way. It
-kept the row coordinate and consumed the column coordinate.
+The rule did not grow. Five steps, regardless of rank. The local `j` is consumed
+whether the tensor has two coordinates or twelve.
 
-The column sum uses the same data but a different local coordinate:
+Now the diagnostic. What if the data pipeline swapped the sequence axes?
 
 ```rust
-let c[j] = sum[i](A[i, j]);
+// Intended: j is the key position (source of values)
+let context[b, i, d] = sum[j](weights[b, i, j] * values[b, j, d]);
+
+// Bug: j accidentally indexes the query position
+let context[b, i, d] = sum[j](weights[b, i, j] * values[b, i, d]);
+//                                                         ^^^ should be j
 ```
 
-Now the expansion is:
+When `query_len == key_len`, `values[b, i, d]` and `values[b, j, d]` have
+identical shapes. The sum still runs. `context` still has shape `[b, i, d]`. The
+loss descends. But the gather reads from the query position instead of the key
+position—the model is attending to itself, not to the source. The five-step
+reading catches it at step 3: `values[b, i, d]` is missing the local coordinate
+`j`. The local was introduced but never used by that term.
 
-```text
-c[0] = A[0, 0] + A[1, 0]
-c[1] = A[0, 1] + A[1, 1]
-c[2] = A[0, 2] + A[1, 2]
-```
-
-The result is `[5, 7, 9]`. Again, the shape follows the survivor. The
-coordinate on the left is the one still available after the reduction.
-
-This example is small, but it captures the compiler rule. If `j` appears as the
-second index of `A[i, j]`, range analysis can infer that `j` ranges over the
-second extent of `A`. If the same `j` also indexed another array with a
-different extent, the compiler would have a shape agreement question before
-runtime. The local name is therefore not only explanatory. It is how the
-compiler ties together all uses of the same reduction variable.
-
-A common bug is to reduce the wrong coordinate in a square matrix, where shape
-does not help:
-
-```rust
-let maybe_rows[i] = sum[j](A[j, i]);
-```
-
-If `A` is `3 x 3`, this program is shape-compatible with a row sum, but it is
-actually a column sum addressed with the name `i`. The visible reading catches
-the contradiction: the surviving coordinate `i` appears in the second position
-of `A`, so it is not the row coordinate of the input. A positional API would
-often describe both as `axis=0` or `axis=1` depending on surrounding layout.
-The indexed form lets the reader inspect the exact address relation.
-
-Reductions also make the cost of the computation visible. For each surviving
-coordinate, the implementation must iterate over every local coordinate. The
-shape of `r` is two cells, but the work includes six reads and four additions.
-That distinction matters for lowering: the output family is addressed by
-survivors; the loop nest also contains locals. A reducer promises both a result
-shape and a work shape, and the index that leaves is the key to both.
-
-The source reducer draws that boundary before any loop order is chosen.
-
-## Range Inference Is the First Proof
-
-A reduction variable is useful only if the compiler knows where it ranges. In:
-
-```rust
-let C[i, j] = sum[k](A[i, k] * B[k, j]);
-```
-
-the source does not explicitly write `k in 0..K`. Range analysis recovers that
-fact from uses of `k`. The access `A[i, k]` says that `k` ranges over axis `1`
-of `A`; the access `B[k, j]` says that the same `k` ranges over axis `0` of
-`B`. Those two inferred ranges must agree. If `A` is `[m, 64]` and `B` is
-`[32, n]`, the compiler has a shape mismatch before execution.
-
-Explicit ranges participate in the same system:
-
-```rust
-let head[t in 0..10] = x[t];
-let tail[t in 10..20] = x[t];
-```
-
-Here the range does not have to be inferred from an indexed operand; the source
-states it. But shape analysis still needs the range fact to know how many
-cells the declaration covers and how literal-index clauses or adjacent ranges
-combine.
-
-Offset expressions add pressure:
-
-```rust
-let y[t in 1..T] = x[t - 1] + x[t];
-```
-
-The binder says `t` starts at `1`. That makes `t - 1` legal at the first
-iteration. If the range started at `0`, the same expression would try to read
-before the beginning of `x`. Range analysis has to run before shape analysis
-because output extents and index safety depend on the domain of the coordinate,
-not only on the rank of the arrays being indexed.
-
-Range inference is therefore the first proof the compiler attempts. It proves
-that each local coordinate has a domain, that repeated uses of the same
-coordinate agree on that domain, and that derived index expressions can be
-checked against known extents. Only then can the compiler ask what shape the
-result family has.
-
-Matrix multiply leaves a clean final test: mark the two surviving coordinates
-and the one consumed coordinate, then swap the consumed one with a survivor.
-Some shapes may still line up. The mathematical claim will not.
+This is the whole discipline. Read the left for survivors. Read `sum[...]` for
+locals. Confirm every local is absent from the left. Confirm every survivor
+appears on the left. The number of coordinates does not change the rule.
 
 ## Try It
 
-In a traditional framework, write `sum(axis=n)` and then imagine later code
-referring to that consumed axis as if it still existed. Now write the same
-program in Einlang and make the mistake explicit: try to use the reduced
-coordinate on the result. The useful failure is not numerical; it is the
-compile-time discovery that a local coordinate has left scope.
+The best way to learn the consumed-coordinate instinct is to audit code you
+already trust. Take three common reductions from your own codebase:
 
-**Line to keep:** a coordinate does its work, then disappears from the result.
+```python
+# PyTorch
+x.mean(dim=0)          # x has shape [batch, feature]
+A.sum(dim=1)           # A has shape [height, width]
+torch.max(logits, -1)  # logits has shape [batch, class]
+```
+
+For each, name the survivor and the consumed coordinate. Write the Einlang
+equivalent. Then pick one concrete output cell—say `mean_result[3]`—and trace
+which input cells were visited to compute it. The coordinate ledger tells you
+the work shape (survivors × locals). `mean(dim=0)` on `[batch, feature]` has
+one reduction per feature, each walking over batch. `sum(dim=1)` on `[height,
+width]` has one reduction per row, each walking over width. These are different
+work shapes that share the same positional signature `dim=...`. The ledger
+distinguishes them.
+
+Now go deeper. Take one reduction from your own code—a `.sum`, `.mean`, or
+`.max` call. Ask what coordinate role is being consumed. Not "axis 0" or
+"dim -1"—the role. Is it `class`, `channel`, `head`, `time`, `expert`? If a
+data pipeline refactor transposed two axes upstream, would this line still run?
+Would the shapes still match? Rewrite the reduction in Einlang, giving the
+consumed coordinate a name that matches its role.
+
+The hard case: a colleague writes `A.sum(dim=1)` on a square matrix where the
+first axis is `source` and the second is `target`. They intended a row sum.
+After a transpose, `A` becomes `[target, source]`, and `dim=1` now silently
+computes a column sum:
+
+```text
+let outgoing[source] = sum[target](A[source, target]);    // before transpose
+let outgoing[target] = sum[source](A[target, source]);    // after — still runs, wrong survivor
+```
+
+The names reveal that `outgoing` is now indexed by the wrong role. A shape
+checker sees `[128] → [128]` and is satisfied. A coordinate checker sees the
+survivor changed from `source` to `target`. This is not a shape error. It is a
+role error.
+
+Finally, consider a coordinate function `reduce_over[coord]` that accepts an
+associative binary operation and a tensor, reducing away the named coordinate:
+
+```text
+fn reduce_over[coord](op: (a, a) -> a, init: a, x: [a; ..left, coord, ..right])
+    -> [a; ..left, ..right]
+```
+
+Use it to implement `row_sum` and `col_sum` from the same input `A[i, j]`:
+
+```text
+let row_sum[i] = reduce_over[j](add, 0, A[i, j]);
+let col_sum[j] = reduce_over[i](add, 0, A[i, j]);
+```
+
+When `A` is square, both calls produce a 1-D result of the same extent. A
+shape-only API sees two calls with different `axis=` arguments but identical
+output shape. It cannot tell you which is the row sum without a comment. The
+rest packs `..left` and `..right` absorb all other coordinates. A single call
+`reduce_over[class](logits[batch, class])` produces `[batch]`, while
+`reduce_over[d](scores[b, h, q, k, d])` produces `[b, h, q, k]`—the function
+adapts to any rank. The bracket says what leaves. Everything else stays.
+
+**Line to keep:** the shape of the result is the list of coordinates that were
+not eaten.
+
+### Where This Leads
+
+Broadcasting and reduction are coordinate inverses. Broadcasting says "this term
+does not care which `j` you pick." Reduction says "this operation collects every
+`j` and leaves nothing behind." The two moves are symmetric, but positional
+notation treats them differently: broadcasting is implicit (shapes align,
+something happens), while reduction requires an explicit `dim` argument. Named
+coordinates make the symmetry visible — an omitted coordinate in a term and a
+consumed coordinate in a reduction are the same kind of fact, stated with the
+same kind of notation.
+
+You now have both halves of coordinate disappearance: omitted (broadcast) and
+consumed (reduce). Together they explain how tensors change shape. Every
+reduction you will ever write follows the same ledger.
+
+But a reduction consumes only one set of coordinates. What happens when a single
+function needs THREE different coordinate roles?
+
+The softmax function is not one reduction. It is three. First, a `max` scan over
+`class` that finds the stability constant—consuming `class` into a scalar per
+batch member. Second, an exp over `class` that produces normalized
+values—keeping `class` alive. Third, a `sum` over `class` that computes the
+denominator—consuming `class` again, but in a different scope than the `max`.
+The output has `class` as a survivor, but only because the division cancels the
+denominator's consumption.
+
+Three different roles. All three range over the same domain—the same set of
+class indices. A positional API flattens all three into `dim=-1` and hopes the
+reader cannot tell the difference. But the reader can. The `q` used for the
+stability scan is not the `k` that defines the numerator. The `k` that defines
+the numerator is not the `j` that survives into the output. Three letters, one
+axis, three different fates.
+
+Chapter 6 names them. Bring the ledger from this chapter—the survivor/local
+distinction—and watch what happens when a single operation needs the distinction
+three times over.

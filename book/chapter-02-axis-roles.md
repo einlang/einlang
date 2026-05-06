@@ -1,13 +1,40 @@
 ---
 layout: book
-title: "Chapter 2: Axis Roles Are Not Axis Positions"
+title: "Axis Roles Are Not Axis Positions"
 ---
 
 # Axis Roles Are Not Axis Positions
 
-An axis position is a number. An axis role is the reason that number matters.
+You are debugging a training run at 2 AM. The loss went down for three epochs,
+then exploded. You trace it to a normalization layer. Your input has shape
+`[32, 128, 768]`. The normalization is supposed to average over features—axis 2.
+But someone transposed the tensor three functions up the call stack. Axis 2 is
+now time steps. The shapes still match. The code still runs. The only thing wrong
+is the meaning of the number `2`.
 
-In this book, a role means the semantic responsibility an axis carries at a
+This chapter gives you a way to never debug this bug again. The idea is simple
+enough to fit in one sentence: **an axis position is a number; an axis role is
+the reason that number matters.** By the end of this chapter, you will know how
+to tell the compiler about roles—and how that changes what the compiler can tell
+you back.
+
+### A parking lot analogy
+
+Imagine a parking lot with rows labeled A through H and columns numbered 1
+through 20. You park your car in slot D-7. Three hours later, someone repaints
+the lot. Row D is now Row F. Your parking ticket still says D-7. You walk to the
+wrong spot.
+
+This is what happens in a tensor program when you write `x.transpose(1, 2)`. The
+data moved. The meaning moved. But nothing in the code tells you that transpose
+turned features into time steps. The shape `[32, 128, 768]` is like a ticket
+that says "your car is in an 8×20 lot"—true, but it doesn't tell you which row.
+
+Axis roles are like giving each row and column a permanent name that survives
+repainting. Even if someone rearranges the rows, the name on your ticket still
+matches the name painted on the ground.
+
+In this book, a **role** means the semantic responsibility an axis carries at a
 particular point in a computation. A role can be "batch example," "query
 position," "class," "previous hidden unit," or "feature coordinate being
 summed." The same physical axis may carry different local roles in different
@@ -31,10 +58,13 @@ are apart, later chapters can ask better questions than "which axis
 number was that?" Two axes can both have extent `32`; that does not make
 batch, time, and feature interchangeable.
 
-So the practical reading is to translate every "axis 1" or "last axis" into a
-role name. Then ask whether a different role of the same extent could have
-occupied the same position. If the answer is yes, the position was never the
-whole contract; it was only the place where the contract happened to sit.
+The question is not whether a shape tuple can describe the layout. It can.
+The question is whether a shape tuple distinguishes batch from time when
+both happen to equal 32. If the answer depends on a comment three lines
+up -- a comment that may have drifted out of date -- then the notation has
+already failed. A notation that cannot tell two roles apart in the source
+is a notation that forces the reader to carry that distinction in memory.
+And memory drifts.
 
 ## Position or Name
 
@@ -113,6 +143,14 @@ over slot numbers.
 So the argument is not "names on dimensions are useless." It is that names
 become much more powerful when operations are written in terms of them, rather
 than merely carrying them beside positional operations.
+
+We are not just naming for clarity. We are naming so the compiler can
+catch the error before the model trains on it. A name attached to a tensor
+as metadata may survive a reshape. A name used inside `sum[feature]` or
+`softmax[class]` becomes part of the operation's contract -- and the
+compiler can check that contract against the roles it infers from the
+surrounding expressions. The first is documentation. The second is a fact
+the compiler can act on.
 
 The third option is to make the role part of the expression:
 
@@ -224,6 +262,13 @@ This means "for batch item 3 and time step 12, compute output feature 7 by
 summing over input features." That sentence is not only a paraphrase. It is
 the coordinate structure of the expression.
 
+Read that sentence again: "summing over input features." Without the word
+`feature` in the source, the reader must infer which axis was summed. A
+positional API says `axis=1`; the reader must consult a shape comment
+or a mental model of the pipeline. The named form puts the inference in
+the line itself. The distinction between "the code runs" and "the code
+says what it means" lives in that one word.
+
 ## Same Shape, Different Program
 
 Two tensors can share a shape and still be different kinds of objects:
@@ -270,10 +315,11 @@ it is there.
 
 ## Naming Without Over-Naming
 
-There is a real danger here: if every tiny expression gets covered in long
-coordinate names, the notation becomes heavy. The goal is not ceremonial
-naming. The goal is to name the roles that determine whether the program is
-correct.
+At this point you may be thinking: if I have to name every axis in every
+expression, my code is going to look like a novel. That's a fair objection. There
+is a real danger here: if every tiny expression gets covered in long coordinate
+names, the notation becomes heavy. The goal is not ceremonial naming. The goal
+is to name the roles that determine whether the program is correct.
 
 A temporary scalar does not need a grand title. A local helper inside a small
 formula may not need more than `i` or `j`. But a dimension that distinguishes
@@ -401,22 +447,187 @@ Which coordinates are consumed?
 Which coordinate is being reused because it is absent from a term?
 ```
 
+```
+   Survive / Consume / Omit Ledger
+
+   y[b, f] = x[b, f] + bias[f]
+
+   x[b,f] ---- b --> survive ------> y[b,f]
+         ---- f --> survive ------>
+                                   y[b,f]
+   bias[f] --- f --> survive ------>
+            (b absent --> omit --> reused across every batch item)
+
+   Three coordinate fates stated in one line.
+   b: survive.  f: survive.  bias omits b -- one line, three facts.
+```
+
 If the answer matters to correctness, the name is carrying real work. It is
 not there for style. It gives the compiler and the reader a shared object to
 reason about before the program collapses into anonymous positions.
+
+This is the Hiding Law applied to the axis level. A positional program
+hides which axis means what. That fact is recovered from convention --
+from the order the dimensions were originally declared, from a comment
+at the top of the file, from the reader's memory of the data pipeline.
+A coordinate program puts the fact in the expression. The difference is
+not verbosity. It is whether the fact survives a refactor that changes
+the order of dimensions without changing their meaning.
 
 A tensor shaped `[32, 32, 128]` is a useful last example: give the two `32`
 axes different roles, then imagine an operation that remains legal after they
 are swapped. The diagnostic you would want is not "size 32". It is the name of
 the role that crossed the line.
 
+## Summary
+
+An axis position is a number. An axis role is the reason that number matters.
+
+Where Chapter 1 showed that shapes can be correct while withholding the reason
+they are correct, this chapter gave the missing vocabulary a name. A role name
+survives a transpose because it is not tied to a slot. It survives a reshape
+because it travels with meaning, not with layout. And it fails visibly when the
+wrong role is consumed: `sum[class](scores[b, class])` destroys `class`, while
+`sum[time](scores[b, class])` is the wrong reduction entirely—visible as a
+one-word difference in the source.
+
+The chapter introduced four enduring ideas:
+
+1. **Position vs. Role.** Two axes can both have extent 32. The shape is the
+   same. The roles—batch, time, feature—determine whether an operation is correct.
+2. **Survive, consume, omit.** Every expression can be audited by asking which
+   coordinates survive in the result, which are consumed by a reduction, and
+   which are omitted from a term (forcing a broadcast).
+3. **Names inside operations, not beside them.** The power of a role name comes
+   not from attaching it to a tensor, but from using it inside `sum[feature]`,
+   `softmax[class]`, and `max[row, col]`. The operation itself carries the
+   coordinate claim.
+4. **Name what would live in a comment.** If a dimension's meaning would
+   otherwise need a comment saying `[batch, time, feature]`, it earns its
+   place in the notation. Ceremonial names for temporary coordinates do not.
+
+The role audit—"which coordinates survive, which are consumed, which are
+omitted?"—will return in every subsequent chapter, culminating in the attention
+audit of Chapter 14. The next chapter applies this vocabulary to standard-library
+coordinate maps: transpose, flatten, and `depth_to_space`.
+
+### Where This Leads
+
+We have spent a chapter separating two things that positional tensor code merges
+into one. An axis position is a number the compiler can count. An axis role is a
+fact the notation either states or buries. The distinction is not a matter of
+style — it is the first consequence of the thesis we stated in the Introduction.
+When the notation has no place for the role, the role becomes invisible to every
+tool that reads the notation: the compiler, the autodiff engine, the reviewer.
+
+A name is a bridge between a number and its reason. Without it, you cross alone.
+
+The coordinate audit — survive, consume, omit — is the primitive of this book.
+Every combination you will learn leaves a trace in it. Every abstraction you
+will build carries its names across a boundary. The three questions are the
+atoms. The rest is composition.
+
+You now have the first tool in the coordinate toolkit: the ability to name a
+dimension by its role rather than its position. Chapter 1 showed you that
+anonymous axes hide the question "where did the coordinate go?" This chapter
+gave you the vocabulary to answer that question—by naming the coordinate and
+watching whether it survives, moves, or disappears.
+
+Chapter 3 will take the next step. Knowing that a coordinate name exists is one
+thing. Knowing what the compiler can *deduce* from those names—about ranges,
+about shapes, about which operations are legal—is another. You will learn to
+read coordinate maps: the rules that govern how names flow through expressions,
+and how the compiler uses those rules to catch mistakes before any numbers are
+computed.
+
 ## Try It
 
-Design a helper called `broadcast_like`. In a positional system, decide which
-axis expands by counting slots from the left or right. In a named system,
-decide by asking which coordinate is absent from the smaller value. Then make
-two axes have the same extent and ask which version can silently broadcast the
-wrong role.
+A tensor `scores[b, class]` and a tensor `tokens[b, time]` both have shape
+`[32, 128]`. For each of these operations, write the coordinate audit (survive,
+consume, omit) and mark whether it is semantically correct.
+`sum[class](scores[b, class])` computes a per-example normalization.
+`sum[time](tokens[b, time])` computes a sequence summary.
+`softmax[class](tokens[b, class])` attempts to normalize across something
+`tokens` does not have—`tokens` does not carry a `class` coordinate, so the
+expression would fail at name resolution.
+
+Now the insight: `sum[class](scores)` and `sum[time](tokens)` look different in
+named notation but would both be `sum(dim=1)` in a positional API. When `class`
+and `time` both have extent 128, they are the same positional operation. The
+named form distinguishes them in one character. The positional form needs a
+comment. Write one expression that is shape-legal for both tensors but
+semantically wrong for one, and ask yourself: which coordinate did you just
+consume?
+
+Your teammate writes a layer normalization as:
+
+```python
+# x has shape [batch, feature]
+normalized = (x - x.mean(dim=-1, keepdim=True)) / x.std(dim=-1, keepdim=True)
+```
+
+After a pipeline refactor that transposes the input from `[batch, feature]` to
+`[feature, batch]`, the code still runs. Because `dim=-1` still refers to the
+last axis—which is now `batch`. The code silently normalizes over examples
+instead of features. Write both versions with named coordinates:
+
+```text
+// Before refactor (correct)
+let mu[b, 1] = mean[f](x[b, f]);
+let sigma[b, 1] = std[f](x[b, f]);
+let normed[b, f] = (x[b, f] - mu[b, 1]) / sigma[b, 1];
+
+// After refactor (wrong, but runs)
+let mu[f, 1] = mean[b](x[f, b]);
+let sigma[f, 1] = std[b](x[f, b]);
+let normed[f, b] = (x[f, b] - mu[f, 1]) / sigma[f, 1];
+```
+
+Read the second version carefully. `mean[b]` consumes batch. The result `mu[f,
+1]` has only `f` surviving. Each feature gets its own mean—computed over all
+batch examples. The normalization now asks "how unusual is this example relative
+to the batch?" instead of "how unusual is this feature value relative to other
+features?" The shapes are identical. The code runs. The model trains. The
+coordinate audit reveals the semantic difference instantly: one consumes `f`, the
+other consumes `b`. There is no positional equivalent of this audit—you would
+need to trace the transpose, remember the refactor, and mentally remap `dim=-1`.
+The coordinate name tells you in one look.
+
+Design a coordinate function `normalize_over[coord](x)` where the bracketed
+coordinate is the one consumed by the normalization:
+
+```text
+fn normalize_over[coord](x: [f32; ..left, coord, ..right])
+    -> [f32; ..left, coord, ..right]
+{
+    let mu[..left, ..right] = mean[coord](x[..left, coord, ..right]);
+    let sigma[..left, ..right] = std[coord](x[..left, coord, ..right]);
+    let y[..left, coord, ..right] =
+        (x[..left, coord, ..right] - mu[..left, ..right])
+        / sigma[..left, ..right];
+    y
+}
+```
+
+Now write three calls that differ only in the bracketed coordinate:
+
+```text
+let normed_by_feature = normalize_over[feature](x[batch, time, feature]);
+let normed_by_time    = normalize_over[time](x[batch, time, feature]);
+let normed_by_batch   = normalize_over[batch](x[batch, time, feature]);
+```
+
+Three different normalization stories. Same input tensor. Same output shape. No
+positional argument changed—only the name in the bracket. In a positional API,
+these three calls would be `normalize_over(x, dim=f_idx)`, `normalize_over(x,
+dim=t_idx)`, and `normalize_over(x, dim=b_idx)`. When `batch_count == time_count
+== feature_count == 128`, the shape tuple is `[128, 128, 128]`. All three
+positional calls produce the same output shape `[128, 128, 128]`. The positional
+API relies on the reader to know that `dim=0` is batch, `dim=1` is time, and
+`dim=2` is feature at this specific call site in this specific file. The
+coordinate API encodes that knowledge in the bracket character itself. The
+coordinate name tells you instantly which role is being consumed. You do not
+reconstruct roles from axis numbers. The bracket is the answer.
 
 **Line to keep:** equal lengths do not make two axes semantically
 interchangeable.
