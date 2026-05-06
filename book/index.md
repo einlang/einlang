@@ -1,7 +1,7 @@
 ---
 layout: book
 title: "The Name in the Bracket"
-description: "The Name in the Bracket — a book about what tensor programs can state once dimensions have names."
+description: "The Name in the Bracket — a book about what notation hides, and what happens when you refuse to let it."
 ---
 
 # The Name in the Bracket

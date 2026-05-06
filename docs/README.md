@@ -13,7 +13,7 @@ This doc set is intentionally small. If you are using Einlang, start with the us
 ## Einlang in Practice
 
 - [Getting started](GETTING_STARTED.md): install, first run, and the shortest learning path.
-- [The Name in the Bracket](https://einlang.github.io/einlang/book/): a book about what changes when tensor dimensions have names.
+- [The Name in the Bracket](https://einlang.github.io/einlang/book/): a book about what notation hides, and what happens when you refuse to let it.
 - [Examples guide](../examples/README.md): curated runnable programs by goal.
 - [Autodiff guide](AUTODIFF.md): how `@x`, `@y / @x`, and related forms work.
 - [Coordinate-aware functions](COORDINATE_FUNCTIONS.md): how `softmax[class]`, `argmax[class]`, and coordinate-parameterized `fn` declarations work.
