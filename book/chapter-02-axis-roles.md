@@ -523,7 +523,15 @@ notation either states or buries. When the notation has no place for the role,
 the role becomes invisible — to the compiler, to the autodiff engine, to the next
 person reading the code.
 
+You have now felt the difference. A parking ticket with just a shape is an
+invitation to walk the wrong row. A tensor declared as `x[batch, time, feature]`
+carries its own ticket — it knows what it is, not just how big it is. The
+longing for a name, once you have debugged a silent axis swap at 3 AM, is not
+aesthetic. It is scar tissue.
+
 A name is a bridge between a number and its reason. Without it, you cross alone.
+With it, the compiler crosses with you — and can tell you when the bridge is
+broken.
 
 Chapter 1 showed you that anonymous axes hide the question "where did the
 coordinate go?" This chapter gave you the vocabulary to answer: the coordinate

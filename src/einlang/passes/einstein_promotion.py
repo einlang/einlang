@@ -42,6 +42,7 @@ def try_promote_to_einstein(var_decl, scope=None) -> Optional["EinsteinDeclarati
         IndexVar,
         WhereExpression,
         CastExpression,
+        FunctionCall,
     )
 
     # Unwrap WhereExpression to find the core expression (e.g. sum[i](A[i]) where cond)
@@ -67,8 +68,19 @@ def try_promote_to_einstein(var_decl, scope=None) -> Optional["EinsteinDeclarati
 
     if isinstance(core, ReductionExpression):
         # Explicit reduction: reduction vars from over_clause, rest are free
-        contracted = _extract_reduction_var_names(core)
-        free = [n for n in all_names if n not in contracted]
+        consumed = _extract_reduction_var_names(core)
+        free = [n for n in all_names if n not in consumed]
+    elif isinstance(core, FunctionCall):
+        # Coordinate function call whose arguments contain Einstein patterns
+        # (e.g. topk[class](y[class, hidden] + sum[i](...))).
+        # Regular function calls (e.g. print) with nested comprehensions are NOT coordinate.
+        if not core.coordinate_args:
+            return None
+        if not _contains_rectangular_access_with_identifier(core):
+            return None
+        consumed = _extract_reduction_var_names(value)
+        consumed |= _get_coordinate_consumed_names(core, scope)
+        free = [n for n in all_names if n not in consumed]
     elif _is_compound_einstein_expression(value):
         # Element-wise Einstein expression: a compound expression (binary,
         # unary, etc.) containing RectangularAccess with identifier indices.
@@ -77,8 +89,8 @@ def try_promote_to_einstein(var_decl, scope=None) -> Optional["EinsteinDeclarati
         # Exclude any identifiers that belong to reductions nested inside
         # the expression (e.g. sum[n](A[n]) / 2 — n is a reduction var,
         # not a free Einstein index).
-        contracted = _extract_reduction_var_names(value)
-        free = [n for n in all_names if n not in contracted]
+        consumed = _extract_reduction_var_names(value)
+        free = [n for n in all_names if n not in consumed]
     else:
         # Single array access like `arr[i]` — could be a regular variable
         # index, don't promote.
@@ -152,20 +164,30 @@ def promote_inline_einstein_expressions(ast) -> None:
         if not scan:
             return False
         # Check if there are any free indices
-        from ..shared.nodes import ReductionExpression
+        from ..shared.nodes import ReductionExpression, FunctionCall as ASTFunctionCall
         core = expr
         from ..shared.nodes import WhereExpression
         if isinstance(expr, WhereExpression):
             core = expr.expr
         if isinstance(core, ReductionExpression):
-            contracted = _extract_reduction_var_names(core)
+            consumed = _extract_reduction_var_names(core)
             all_names = list(dict.fromkeys(n for n, _ in scan))
-            free = [n for n in all_names if n not in contracted]
+            free = [n for n in all_names if n not in consumed]
+            return len(free) > 0
+        if isinstance(core, ASTFunctionCall):
+            if not core.coordinate_args:
+                return False
+            if not _contains_rectangular_access_with_identifier(core):
+                return False
+            consumed = _extract_reduction_var_names(expr)
+            consumed |= _get_coordinate_consumed_names(core)
+            all_names = list(dict.fromkeys(n for n, _ in scan))
+            free = [n for n in all_names if n not in consumed]
             return len(free) > 0
         if _is_compound_einstein_expression(expr):
-            contracted = _extract_reduction_var_names(expr)
+            consumed = _extract_reduction_var_names(expr)
             all_names = list(dict.fromkeys(n for n, _ in scan))
-            free = [n for n in all_names if n not in contracted]
+            free = [n for n in all_names if n not in consumed]
             return len(free) > 0
         return False
 
@@ -322,6 +344,59 @@ def _scan_index_identifiers(expr, results: List[Tuple[str, int]]) -> None:
     # Literal, Identifier (standalone), etc. → no indices to scan
 
 
+def _get_coordinate_consumed_names(func_call, scope=None) -> Set[str]:
+    """
+    Determine which coordinate arg names are consumed (not free indices).
+
+    A coordinate arg is consumed only if its formal coordinate param does NOT
+    appear in the function's return type shape as a symbolic dimension. If the
+    formal param does appear in the return type, the actual name passes through
+    to the output and should be a free index.
+
+    Falls back to consuming all coordinate arg names when the function
+    definition cannot be found (e.g., during the inline promotion pre-pass
+    which runs before name resolution).
+    """
+    from ..shared.nodes import FunctionDefinition, Identifier as ASTIdentifier
+    from ..shared.types import RectangularType
+
+    actual_names: List[str] = []
+    for arg in (func_call.coordinate_args or []):
+        name = arg if isinstance(arg, str) else getattr(arg, 'name', None)
+        if name:
+            actual_names.append(str(name))
+    if not actual_names:
+        return set()
+
+    func_def = None
+    func_expr = func_call.function_expr
+    if isinstance(func_expr, ASTIdentifier) and scope is not None:
+        func_name = func_expr.name
+        binding = scope.lookup(func_name)
+        if binding is not None:
+            func_def = binding.definition
+
+    if func_def is None or not isinstance(func_def, FunctionDefinition):
+        return set(actual_names)
+
+    formal_params = func_def.coordinate_params or []
+    return_type = func_def.return_type
+
+    return_dims: Set[str] = set()
+    if isinstance(return_type, RectangularType) and return_type.shape:
+        for dim in return_type.shape:
+            if isinstance(dim, str):
+                name = dim[2:] if dim.startswith('..') else dim
+                return_dims.add(name)
+
+    consumed: Set[str] = set()
+    for formal, actual in zip(formal_params, actual_names):
+        if formal not in return_dims:
+            consumed.add(actual)
+
+    return consumed
+
+
 def _extract_reduction_var_names(reduction_expr) -> Set[str]:
     """Extract ALL reduction variable names from a ReductionExpression, including nested ones."""
     from ..shared.nodes import ReductionExpression
@@ -338,6 +413,7 @@ def _extract_reduction_var_names_impl(expr, names: Set[str]) -> None:
         UnaryExpression,
         WhereExpression,
         CastExpression,
+        FunctionCall,
     )
     if isinstance(expr, ReductionExpression):
         over = expr.over_clause
@@ -358,6 +434,9 @@ def _extract_reduction_var_names_impl(expr, names: Set[str]) -> None:
         _extract_reduction_var_names_impl(expr.expr, names)
     elif isinstance(expr, WhereExpression):
         _extract_reduction_var_names_impl(expr.expr, names)
+    elif isinstance(expr, FunctionCall):
+        for arg in expr.arguments or []:
+            _extract_reduction_var_names_impl(arg, names)
 
 
 def _is_compound_einstein_expression(expr) -> bool:

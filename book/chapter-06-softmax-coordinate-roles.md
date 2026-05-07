@@ -514,7 +514,49 @@ Reduction (denominator). And now the extra demand: distinguishing the same
 coordinate in different scopes. An invariance that falls out of the coordinate
 structure without a separate proof.
 
-If you can read softmax fluently, you can read anything in this book.
+> If you can read softmax fluently, you can read anything in this book.
+
+### Part I Stage Report
+
+Part I has been about a single question: what can the compiler *not* see?
+Chapter 1 showed that a reshape drops the coordinate story — the shape
+trace survives, the role claim does not. Chapter 2 showed that axis
+positions do not capture roles: two axes can swap and the shape looks
+identical. Chapter 3 showed that transpose, flatten, and depth\_to\_space
+are coordinate maps whose meaning evaporates when written as integer
+permutations. Chapter 4 showed that broadcasting hides omission — a
+missing coordinate is the program's way of saying "this term does not
+depend on this axis," and a notation that buries the omission buries the
+fact a reviewer needs. Chapter 5 showed that reduction consumes a
+coordinate and leaves the survivors to carry forward, and that the
+ledger of survivors and locals is the contract every later line depends
+on. This chapter — softmax — demanded all of those tools at once: named
+axes, broadcasting, reduction, and the new demand of distinguishing the
+same coordinate in three different scopes.
+
+Three tools now live in your audit kit: survive, consume, omit. Three
+questions you can ask of any tensor line, in any framework. The compiler
+sees shapes. You now see roles. But noticing is only the surface. Part I
+did not touch what happens *because* of the hiding. When a coordinate
+role is hidden in the forward pass, the gradient inherits the silence.
+The autodiff engine becomes a reader that cannot read. Part II turns the
+audit onto automatic differentiation. The tools do not change. The
+direction does. A forward expression already knows which input cells
+influence which output cells. The backward pass is just collecting
+sensitivity along those routes — and if the forward notation named the
+routes, the gradient is mechanical. If it hid them, the gradient is a
+guess.
+
+<div class="pause" markdown="1">
+**Pause.** Open your own codebase and find a softmax call. Any softmax call.
+Now answer three questions from the code alone: (1) Which coordinate is being
+normalized? (2) Which coordinates survive? (3) Which coordinate appears in
+both a `sum[...]` and as a survivor? If you cannot answer all three from the
+source without checking upstream variable names or documentation, the `dim`
+argument is hiding something. Write the answers down. The three roles — `q`,
+`k`, `j` — are the map. Chapter 7 will run them backward through the chain
+rule.
+</div>
 
 ## Try It
 

@@ -569,6 +569,15 @@ set the minimum stride constraint accordingly.
 **Line to keep:** storage allocation is a negotiation between what is defined
 and what is observed.
 
+Why did we ever merge definition, storage, and observation into a single loop
+variable? Because it was simpler — for the first program, for the first
+prototype, for the first gradient checkpoint. The loop variable is the path of
+least resistance. But every time the sequence grew longer, or the checkpoint
+interval changed, or the backward pass needed a different observation window
+than the forward pass, the loop variable became the path of most regret. The
+notation that merges the three can only allocate and hope. The notation that
+separates them can answer the storage question before the OOM answers it first.
+
 ### Where This Leads
 
 Recurrence, observation, and stride are three separate things. A loop merges them

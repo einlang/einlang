@@ -1137,27 +1137,41 @@ gift. That is the difference between code that runs and code that can be read,
 reviewed, refactored, and trusted by people who were not in the room when it was
 written.
 
-We began this book with a Tuesday. The shapes were right. The loss descended.
-The model was wrong — silently, invisibly, for hours. The bug was invisible to
-every tool because the notation had no place for the fact that axis 2 was
-`class`, not `time`. A notation that recorded only shapes gave the reader no
-place to notice the error. A notation that records roles makes the error a
-mismatch the compiler can name.
+We began this book with a Tuesday. A data loader swapped two dimensions of the
+same size. A one-line PR. The CI was green. Every test passed. Three hours later
+the metrics began to drift — slowly, silently, with no crash. By evening every
+prediction was wrong by a small, systematic amount. At 3 AM, a human traced one
+number backward through twelve layers and realized that axis 2 had stopped being
+`class` three weeks earlier. The notation had no place for the fact, so the
+compiler had no check. The shape had been right all along.
 
-If that Tuesday has a name now, if you can look at a tensor line and feel the
-missing coordinate role the way a musician feels a missing beat, then the book
+That Tuesday was not a story about a bug. It was a story about a gap — between
+what the notation recorded and what the program meant. Sixteen chapters have
+traced that gap through reshape, reduction, broadcast, gradient, recurrence,
+attention, and dynamic routing. The gap appears wherever a coordinate role is
+buried in an integer and the integer happens to be the right size for the wrong
+reason. The Hiding Law gave the gap a name. The coordinate audit gave it a
+procedure. The four questions gave it a habit.
+
+If that Tuesday has a name now — if you can look at a tensor line and feel the
+missing coordinate role the way a musician feels a missing beat — then the book
 has done its work. The notation was always just the instrument. The habit was
 always the point.
 
 You came to this book for a notation. You are leaving with a habit. The
 notation will change — new languages, new frameworks, new backends. The habit
-will not. Ask what is hidden. Name what matters. The rest is syntax.
+will not. Ask what is hidden. Name what matters. When a coordinate role decides
+correctness, write it down — in a comment if that is all you have, in a bracket
+if the language allows it, in a sticky note on your monitor if nothing else.
+The rest is syntax.
 
 Notation determines what you can notice. When a notation names the coordinate
 role, the role becomes a fact the compiler can check and the next reader can see.
 When the notation omits it, the role becomes invisible — to the compiler, to the
 autodiff engine, to the act of reading itself. That was the thesis of the
-Introduction. It held through every chapter.
+Introduction. It held through every chapter — through static graphs and dynamic
+routes, through single tensors and module boundaries, through the simplest
+reduction and the most complex dispatch. The principle did not bend.
 
 The Habit is four questions. The Bargain is one rule. Fifteen characters in three
 places, and the compiler checks the fact forever.
