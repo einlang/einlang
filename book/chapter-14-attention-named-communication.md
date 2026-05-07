@@ -5,6 +5,12 @@ title: "Attention as Named Communication"
 
 # Attention as Named Communication
 
+> "Programs must be written for people to read, and only incidentally for
+> machines to execute."
+>
+> — Harold Abelson and Gerald Jay Sussman, preface to the first edition of
+> *Structure and Interpretation of Computer Programs* (1985)
+
 You are staring at a bug. The Transformer trains fine on short sequences but
 diverges silently on long ones. Loss curves look normal. Shapes check out.
 But somewhere in the attention block, the values being gathered are from the
@@ -663,27 +669,20 @@ carries — and every role deserves a name in the source.
 
 ### Where This Leads
 
-We have spent a chapter reading attention as a communication protocol. `i` asks,
-`j` answers, `d` carries the vocabulary, `h` selects the channel. Each bracketed
-name is a role in that protocol. The shapes work out either way — `Q K^T V` is
-correct regardless of what you call the axes. But the protocol lives in the
-names. When a future reader traces a bug through an attention block, they are
-not asking whether the shapes multiply. They are asking which position gathered
-from which other position. The notation either gives them a name to check or
-asks them to deduce it from a transpose three layers up.
+Attention is a communication protocol. `i` asks, `j` answers, `d` carries the
+vocabulary, `h` selects the channel. The shapes work either way — `Q K^T V` is
+correct regardless of what you call the axes. But the protocol lives in the names.
+When you trace a bug through an attention block, you are not asking whether the
+shapes multiply. You are asking which position gathered from which other position.
+The notation either gives you a name to check or asks you to deduce it from a
+transpose three layers up.
 
-Attention is a communication protocol written in coordinates. `i` asks, `j`
-answers, `d` carries the feature, `h` selects the head. Each role is a label
-on an index. The compiler sees them all.
+A conversation where nobody has a name still works. But when something goes wrong,
+you cannot ask "who said that?" You can only point at a position and hope.
 
-A conversation where nobody has a name still works — the words travel, the
-meaning lands. But when something goes wrong, you cannot ask "who said that?"
-You can only point at a position and hope.
-
-But here is the uncomfortable question: if you can write attention with named
-coordinates, why would any notation choose to hide them? When you write
-`softmax(dim=-1)` instead of `softmax[class]`, what exactly are you refusing
-to see?
-
-Chapter 15 asks that question directly: what happens to a program when every
-index contract is allowed to go unnamed?
+Chapter 15 draws the line: what should a notation refuse to hide? After fourteen
+chapters of watching the Hiding Law play out — in reshape, in broadcast, in
+gradient, in recurrence, in attention — the question turns inward. What does it
+mean for a notation to have integrity? When should a coordinate name, once
+introduced, be impossible to erase without the programmer writing the deletion
+explicitly?

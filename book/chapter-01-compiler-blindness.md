@@ -28,6 +28,13 @@ carried. A compiler can check that your program is well-formed. It cannot check
 that your program means what you think it means — unless the meaning lives in
 the source, where the compiler can see it.
 
+Part I asks one question in six settings: what facts about tensor axes can the
+notation preserve, and what facts does it let slip? Six chapters. Six places
+where a hidden coordinate role can produce a shape-correct bug. By the end of
+Part I, you will read every tensor line as a small audit: which names survive,
+which are consumed, which are silently omitted. You will never look at
+`dim=-1` the same way again.
+
 Start with a familiar fragment:
 
 ```python
@@ -320,19 +327,22 @@ with `b`?" the notation has already done useful work.
 
 ### Where This Leads
 
-Part I asks one question in six settings: what facts does the notation preserve,
-and what facts does it let slip? This is the surface of the problem — the first
-thing you must learn is simply to *notice* when a coordinate role has been
-hidden. A reshape chain preserves element counts while dropping the coordinate
-story. A broadcast omits a coordinate without stating the omission. A reduction
-consumes a coordinate while hiding which one. Each operation has its own way of
-making a role invisible, and each way produces a program that still runs.
+This chapter showed one operation — reshape — and one question: when dimensions
+move, does the source say where they went? The rest of Part I asks the same
+question about different operations. Broadcast. Reduction. Softmax. Each hides a
+coordinate fact in its own way. Each produces a program that still runs.
 
-By the end of Part I, you will read every tensor line as a small audit: which
-names survive, which are consumed, which are silently omitted. That audit is the
-book's fundamental reading discipline. But Part I only teaches you to *notice*
-hiding. It does not yet ask what happens *because* of it. That question — the
-first deepening — belongs to Part II.
+By the end of Part I, reading a tensor line will mean reading which names survive,
+which are consumed, which are silently omitted. That audit is the book's
+fundamental reading discipline. But Part I only teaches you to *notice* hiding.
+It does not yet ask what happens *because* of it — what breaks downstream when a
+hidden role propagates through a gradient, a recurrence, or a module boundary.
+That question — the first deepening — belongs to Part II.
+
+A reshape that swallowed a coordinate name is the smallest hiding. The cost is
+invisible to the compiler and the shape checker. But a hidden role is a debt:
+the gradient will need it, the recurrence will depend on it, the module boundary
+will mismatch without it. Part I gives you the eyes. Part II gives you the bill.
 
 Chapter 2 separates axis roles from axis positions. Chapter 3 reads
 standard-library coordinate maps — transpose, `depth_to_space`, the operations
@@ -622,3 +632,25 @@ completely different coordinate stories. No shape check can tell them apart.
 Only the named coordinates can.
 
 **Line to keep:** roles do not live in numbers; they live in meaning.
+
+### Where This Leads
+
+You have now seen what happens when a coordinate role is hidden inside an integer:
+a reshape produces compatible shapes, the compiler approves, and the bug goes
+undetected. The lesson is not that reshape is dangerous. It is that the notation
+determines what the compiler can check.
+
+From this, a rule begins to take shape. It is not yet the full Hiding Law, but
+its first draft: **the notation must record every fact that correctness depends
+on.** A correctness fact that lives only in a comment, a convention, or a memory
+is a correctness fact the compiler cannot enforce. The notation is the contract
+between the programmer and the machine. What the notation omits, the machine
+cannot verify.
+
+This chapter examined one kind of hidden role: a coordinate name swallowed by a
+reshape. The next chapter asks a sharper question. If roles survive their first
+encounter with the notation, how do we tell the compiler which roles are
+*consumed* by an operation, which *survive*, and which are *omitted* from a
+term? The answer requires us to separate what an axis is (its role) from where
+it happens to live (its position). The distinction is the foundation of
+everything that follows.

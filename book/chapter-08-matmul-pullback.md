@@ -5,6 +5,11 @@ title: "Matrix Multiplication Teaches the Pullback"
 
 # Matrix Multiplication Teaches the Pullback
 
+> "The purpose of abstraction is not to be vague, but to create a new semantic
+> level in which one can be absolutely precise."
+>
+> — Edsger W. Dijkstra, "The Humble Programmer" (1972)
+
 Why does the gradient of a matrix multiplication transpose the other matrix?
 Most practitioners memorize this fact. Few can derive it from the forward
 expression in thirty seconds. The reason is not calculus. It is coordinate
@@ -23,7 +28,7 @@ Your colleague is implementing a transformer from scratch. The attention layer
 works. The FFN works. The loss decreases. But the model is not learning—every
 few hundred steps, the loss spikes and resettles at a slightly worse value.
 
-After three days of staring, you find this:
+After three days of staring, you find it at 11 PM:
 
 ```python
 # Forward: C = A @ B      (correct)
@@ -207,6 +212,14 @@ The memorized rule `dA = G @ B^T` works when the reader remembers which
 coordinate `B^T` is transposing. The indexed rule `sum[j](G[i, j] * B[k, j])`
 works when the reader can read. The notation determines whether the transpose
 is a fact you recall or a fact you verify.
+
+Julia's Zygote computes the same pullback. `gradient(() -> sum(A * B), A)` traces
+`A * B`, records the tape, and plays it backward. The pullback it produces is
+`G * transpose(B)` — mathematically identical to `sum[j](G[i,j] * B[k,j])`. But
+the `j` that was summed, and the `k` that survived, are properties of the tape
+execution, not facts in the source. If `B` is square, you cannot tell from the
+Zygote output whether the pullback transposed the right matrix or the wrong one.
+The numbers match either way. The coordinate names would have told you.
 
 ## Batched Pullbacks
 
@@ -393,29 +406,21 @@ difference `{i, j} ∖ {i, k} = {j}` always says what the path is, even when
 
 ### Where This Leads
 
-The transpose that practitioners memorize is not an axiom of calculus. It is a
-consequence of coordinate alignment. In the forward pass, `A[i, k]` and
-`B[k, j]` meet at `k`. In the backward pass, sensitivity to `A` flows through
-every `j`, and sensitivity to `B` flows through every `i`. The transpose appears
-because the surviving coordinate in one operand becomes the path coordinate for
-the other. Memorizing which matrix to transpose is fragile. Reading the forward
-coordinates and computing the path is mechanical. The notation determines which
-of these two modes of understanding is available.
+The transpose that practitioners memorize is coordinate alignment, not an axiom of
+calculus. In the forward pass, `A[i, k]` and `B[k, j]` meet at `k`. In the
+backward pass, sensitivity to `A` flows through `j`, sensitivity to `B` flows
+through `i`. The path-coordinate rule — output coordinates minus operand
+coordinates — gives you the sum coordinate mechanically.
 
-The path-coordinate rule—output coordinates minus operand coordinates—is the
-last piece of the pullback puzzle. You now have everything needed to derive the
-gradient of any reduction-based expression:
+A memorized rule works until the shapes get complicated — until there are five
+coordinates, two contractions, and a batch prefix. A coordinate rule works as
+long as the source names what it consumes. The rule does not get harder with more
+coordinates. Set subtraction is set subtraction with three names or with ten. The
+memorized rule rots when the architecture changes. The coordinate rule is the
+same audit in a larger ledger.
 
-1. Name the output coordinates and the input coordinates.
-2. For each operand, compute the path: output ∖ operand.
-3. The pullback sums over the path, multiplied by the local derivative.
-
-Chapter 9 shows how this composes across compound expressions. A batched conv2d
-has five locals—`ci`, `kh`, `kw` plus two spatial offsets. A self-attention
-layer has four reductions in sequence—score dot product over `d`, softmax over
-`k`, gather over `j`, output projection over `d`. Each reduction creates a path
-coordinate in the backward pass. The path-coordinate rule from this chapter
-applies unchanged at each reduction boundary.
-
-The challenge is keeping track of which coordinate plays which role when the
-expression has more than three names. Chapter 9 gives you the ledger.
+But what happens when the forward expression has multiple terms — a bias,
+a broadcast, a shared parameter that fans out across batch and time? The local
+derivative is still a scalar. The gradient may carry four sum coordinates. How
+does a one-line scalar rule produce a gradient with four reductions? Chapter 9
+asks: how does the local become global?

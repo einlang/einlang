@@ -5,8 +5,12 @@ title: "Storage Follows Observation"
 
 # Storage Follows Observation
 
-You are debugging an autoregressive model. The sequence is 10,000 tokens long.
-Training has been running for an hour, then OOM. The memory profile shows: 10K
+> "Premature optimization is the root of all evil."
+>
+> — Donald E. Knuth, "Structured Programming with go to Statements" (1974)
+
+You are debugging an autoregressive model at midnight. The sequence is 10,000
+tokens long. Training has been running for an hour, then OOM. The memory profile shows: 10K
 time steps × batch 32 × hidden 768, all in float32, all materialized.
 
 Your colleague says "use `torch.no_grad()` for inference." That helps—but it's
@@ -253,6 +257,24 @@ With these facts, the compiler can reason about legal recomputation. A schedule
 might store `h[0]`, `h[4]`, and `h[7]`, then recompute segments when the
 backward pass needs intermediate values. Without explicit dependency edges, the
 compiler must recover this structure from a loop body and mutation pattern.
+
+Both JAX and PyTorch give the programmer a manual checkpointing primitive.
+`jax.checkpoint` (formerly `jax.remat`) wraps a function and tells the autodiff
+engine: do not store intermediate activations from this function; recompute them
+during the backward pass. `torch.utils.checkpoint.checkpoint` does the same
+thing with a slightly different contract — it takes `function, *args` and
+returns outputs, discarding intermediate activations. Both work. Both let you
+trade memory for compute. But both require the programmer to decide which
+functions to checkpoint, with which stride, and whether the recomputation
+dependency window is satisfied. The stride constraint from this chapter — that
+a checkpoint stride larger than the dependency window makes recomputation
+exponentially expensive — is invisible in these APIs. The programmer receives
+no warning when stride exceeds window + 1. The shapes are correct. The code
+runs. The memory savings appear in the profiler. The recomputation overhead
+appears weeks later as a training throughput regression that nobody can trace
+to the checkpoint annotation. When the dependency window is visible in the
+source, the compiler can at least warn. When it is hidden inside a function
+body, the compiler can only execute.
 
 ## The Minimal Compiler Rule
 
@@ -549,21 +571,19 @@ and what is observed.
 
 ### Where This Leads
 
-The triplet — recurrence, observation, stride — are three separate things. A
-loop merges them into one mutable variable and one control flow. Named
-coordinates keep them separate, so each can be reasoned about independently.
-This is not an optimization detail. It is the same principle from Chapter 1's
-reshape chain: when the notation withholds a distinction, the distinction
-becomes invisible to every tool that reads the notation. The compiler cannot
-optimize storage it cannot observe.
+Recurrence, observation, and stride are three separate things. A loop merges them
+into one mutable variable — the variable IS the definition, IS the storage, IS the
+observation. Named coordinates keep them separate, so each can be reasoned about
+independently. The compiler cannot optimize storage it cannot observe. The
+programmer cannot control storage the notation does not let them name.
 
-Storage follows observation. That rule sounds simple until you draw the
-dependency graph for a real model. An RNN's recurrence reads one step back—a
-tiny window. But training with backpropagation through time needs every
-intermediate state for the backward pass. The observation set ballooned, and
-storage followed.
+Storage follows observation. The rule is simple until you draw the dependency
+graph for a real model. An RNN's recurrence reads one step back — a tiny window.
+But training with backpropagation through time needs every intermediate state.
+The observation set ballooned, and storage followed. What changed was not the
+recurrence. It was which values someone asked to see. The notation that separates
+definition from observation can answer that question at a glance. The notation
+that merges them can only allocate — and hope.
 
-Chapter 12 draws the full RNN dependency graph: time edges, weight edges,
-batch isolation, and the backward edges that autodiff adds. The graph shows why
-a one-step recurrence can still demand a full history—and where you can break
-that demand with truncated BPTT or gradient checkpointing.
+Chapter 12 draws the full RNN dependency graph: time edges, weight edges, batch
+isolation, and the backward edges that autodiff adds.

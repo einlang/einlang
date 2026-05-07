@@ -431,6 +431,12 @@ class NameResolutionPass(BasePass):
                 # Einstein grouping (part of name resolution): group decls by (scope, name) for Fibonacci pattern
                 _group_einstein_declarations_on_ast(ast)
 
+                # Promote inline Einstein expressions (pre-pass before name resolution):
+                # wrap expression statements and block final expressions that contain
+                # Einstein patterns into implicit VariableDeclarations.
+                from ..passes.einstein_promotion import promote_inline_einstein_expressions
+                promote_inline_einstein_expressions(ast)
+
                 # Pre-pass: register all top-level functions so mutual recursion resolves (is_even/is_odd etc.)
                 from ..shared.nodes import FunctionDefinition, VariableDeclaration
                 for stmt in ast.statements:
@@ -1073,6 +1079,17 @@ class NameResolverVisitor(ASTVisitor[None]):
     
     def visit_variable_declaration(self, node: VariableDeclaration) -> None:
         """Resolve value FIRST (Rust: RHS sees pre-binding scope), then define the variable."""
+        # Try to promote to Einstein declaration before resolving (auto-derive LHS indices)
+        if isinstance(node.pattern, str) and node.value is not None:
+            from ..passes.einstein_promotion import try_promote_to_einstein
+            current_scope = self.scope_manager.current_scope()
+            einstein_decl = try_promote_to_einstein(node, scope=current_scope)
+            if einstein_decl is not None:
+                object.__setattr__(node, '_promoted_einstein_decl', einstein_decl)
+                self.visit_einstein_declaration(einstein_decl)
+                # Transfer defid from EinsteinDeclaration to VariableDeclaration
+                object.__setattr__(node, 'defid', einstein_decl.defid)
+                return
         if node.value:
             node.value.accept(self)
         scope = self.scope_manager.current_scope()

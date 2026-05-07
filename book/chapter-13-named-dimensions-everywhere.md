@@ -149,9 +149,9 @@ Now coordinates must cross boundaries where the writer of the encoder and the
 writer of the decoder may be different people, working in different repositories,
 who have never spoken. The name is the contract. If it disappears at the
 boundary, the contract becomes a convention — and conventions survive only in
-memory. An abstraction is only as strong as the primitive it carries across the
-boundary. When the primitive is a position, the abstraction is a comment. When
-the primitive is a name, the abstraction is a check.
+memory. An abstraction carries its primitive across the boundary. If the
+primitive is a position, the abstraction is a comment. If the primitive is a
+name, the abstraction is a check — the compiler can verify it.
 
 Once names exist at boundaries, they can travel. An encoder produces
 `output[time, batch, feature]`. A decoder consumes `input[time, batch, hidden]`.
@@ -169,8 +169,8 @@ names say the last coordinate is `feature` on one side and `hidden` on the
 other. The mismatch is not between numbers; it is between concepts.
 
 This is not a type-safety argument dressed up as philosophy. It is the Hiding
-Law crossing a file boundary. When `encoder.rs` exports `output[time, batch,
-feature]` and `decoder.rs` imports `input[time, batch, hidden]`, the join is a
+Law crossing a file boundary. When `encoder.ein` exports `output[time, batch,
+feature]` and `decoder.ein` imports `input[time, batch, hidden]`, the join is a
 fact that spans two modules. The compiler can check the role only if the role
 survived the boundary. The Hiding Law does not care about file organization. It
 cares about whether the fact is available where the check must happen.
@@ -323,6 +323,30 @@ At framework scale, this is the change: an axis role stops being a convention
 remembered by the caller and becomes something the operation can actually refer
 to.
 
+Two real systems have tried this. xarray labels dimensions with names throughout
+the scientific Python stack. `da.mean(dim="time")` is more readable than
+`da.mean(axis=0)`. But xarray's names are runtime metadata — they annotate the
+data, they do not constrain the compiler. You can write `da.mean(dim="time")`
+when the array has no dimension called `time`, and the error arrives at
+execution, not at parse time. The name is a label on the value, not a fact in
+the type.
+
+PyTorch introduced named tensors in 2019 as an experimental feature.
+`torch.randn(2, 3, names=('batch', 'feature'))` let operations align by name
+instead of position. Two named tensors could broadcast by matching names, and
+the runtime would warn on misalignment. The feature never graduated — it was
+opt-in, many ops did not support names, and the cost of retrofitting names onto
+a positional codebase proved too high. Names were a skin. The skeleton was still
+positional.
+
+Einlang makes a different trade. Coordinates are named from the start — there is
+no positional fallback, no runtime metadata, no opt-in. A function that takes
+`[batch, time, feature]` will not accept `[feature, batch, time]` unless the
+caller writes a reorder. The name is not a label. It is the address. xarray
+proves that named dimensions are useful. PyTorch named tensors prove that
+bolting them on after the fact is hard. Einlang's bet is that starting with
+names from the first line of the first example is the only way they survive.
+
 Part I taught us to name coordinates. Part II taught us to trace their
 gradients. Part III taught us to give time a direction. Now Part IV asks:
 can these names survive a real program, with module boundaries, multi-head
@@ -434,22 +458,10 @@ everywhere at once.
 
 ### Where This Leads
 
-Part IV is the stress test. Parts I, II, and III worked one operation at a time
-— a reshape, a gradient, a recurrence. Each chapter asked: can named coordinates
-make this operation readable? Part IV asks the harder question: can the same
-small vocabulary survive the full complexity of a production model?
+Parts I through III worked one operation at a time. Part IV asks whether named
+coordinates survive system scale — module boundaries, multi-head attention,
+dynamic routing. If the same small vocabulary works across all of them, it is not
+a textbook notation. It is for the code you actually write.
 
-Chapter 13 takes coordinates across module boundaries, asking whether names can
-survive APIs, files, and framework joins. Chapter 14 applies them to multi-head
-attention — the operation that dominates modern architectures. Chapter 15 draws
-the line between what notation should show and what it should hide. Chapter 16,
-the final stress test, asks whether named coordinates can survive dynamic
-routing, where the communication graph is chosen by the data itself.
-
-If the principle holds through all four chapters — if the coordinate role
-remains visible through APIs, attention patterns, the hiding-law boundary, and
-runtime routing decisions — then it is not a notation for textbooks. It is a
-notation for the code you actually write.
-
-Notation has to be willing to show you something. Chapter 14 asks: when you
-write attention, what does the notation refuse to hide?
+Chapter 14 tests attention — seven conventions hidden in a positional
+multi-head block, each one a coordinate role the notation could name or bury.

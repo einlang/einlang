@@ -5,10 +5,9 @@ title: "Time Steps Are Not Loops"
 
 # Time Steps Are Not Loops
 
-> "What then is time? If no one asks me, I know what it is. If I wish to explain
-> it to him who asks, I do not know."
+> "Everything should be made as simple as possible, but not simpler."
 >
-> — Augustine of Hippo, *Confessions* (c. 400)
+> — Albert Einstein
 
 Everyone can write a loop. The hard part is saying what depends on what: which
 values must come before which others, which can run in parallel, which must be
@@ -30,10 +29,11 @@ You wrote a language model. The training loop runs for three days. When it
 finishes, you check the metrics. Perplexity on the training set: 42. Perplexity
 on the validation set: 38.
 
-Validation is better than training. That never happens. Your first thought:
-the validation set is easier. You compute unigram entropy on both—identical.
-Your second thought: the checkpoint was taken at a lucky moment. You restart
-from scratch—same result. Your third thought is the one you should have had
+Validation is better than training. That never happens. It is 3 AM when the
+dashboard alert wakes you. Your first thought: the validation set is easier.
+You compute unigram entropy on both—identical. Your second thought: the
+checkpoint was taken at a lucky moment. You restart from scratch—same result.
+Your third thought, at 4 AM with cold coffee, is the one you should have had
 first.
 
 You check the model code:
@@ -121,6 +121,20 @@ Version A commits early to one mutable slot and one serial schedule. The
 dependency `h[t]` reads `h[t-1]` must be recovered from `step`'s body. Version
 B states the dependency edge at the definition site. `h[t - 1]` is not an
 implementation detail—it is the mark that today depends on yesterday.
+
+JAX's `lax.scan` sits between the loop and the recurrence. It is a functional
+primitive: `lax.scan(step_fn, init, xs)` returns `(final_carry, stacked_ys)`.
+No mutable variable. The step function is pure — it takes `(carry, x)` and
+returns `(new_carry, y)`. The iteration order is implicit; the compiler knows
+the structure is a scan and can apply recurrence-specific optimizations. But
+the source does not name the time coordinate. `carry` and `x` are positional
+arguments. The dependency direction is encoded in the iteration order of the
+scan, not declared as an index offset. A `lax.scan` that accidentally passes
+`x[t+1]` as the input reads tomorrow — same bug as the loop, same invisible
+dependency. The scan improves on the loop by committing to a functional
+interface the compiler can recognize. It stops short of giving the dependency
+its own name. The compiler knows a recurrence exists. The reader must still
+infer which coordinate is time and which direction it points.
 
 The contrast is clearest when a dependency is wrong:
 
@@ -425,25 +439,19 @@ you say "I meant the past."
 
 ### Where This Leads
 
-Part III changes the question. Parts I and II examined static programs — a
-reshape, a reduction, a gradient. The coordinates were fixed. The communication
-graph was determined by the formula and did not change. Part III introduces
-time, the first coordinate in this book with an inherent direction.
+Parts I and II examined static programs — a reshape, a gradient, a reduction.
+The coordinates were fixed. Part III introduces time, a coordinate with a
+direction. When later values depend on earlier values, the notation must answer a
+new question: does a valid evaluation order exist? A loop buries the answer in
+mutable state. A recurrence names the dependency index, and the check becomes
+mechanical: does every read use a smaller index?
 
-When a coordinate carries causality — when later values depend on earlier values
-— the notation must answer a new question: does a valid evaluation order exist?
-The answer cannot be recovered from a loop body because the loop buries the
-dependency direction inside mutable state. A recurrence notation names the
-dependency index, and the check becomes mechanical: does every read use a
-smaller index than the value being defined?
-
-We have separated execution from dependency. A loop is one way to run a
-recurrence; a recurrence is a statement about which time index reads which other
-time index. But separating execution from dependency raises the next question:
-if `h[t]` is a family of values, which ones must be stored? The three chapters
-of Part III separate three ideas that a loop merges into one: the definition of
-a value family, the direction of dependency, and the choice of what to keep in
-memory.
+But separating execution from dependency raises a harder question: if `h[t]` is a
+family of values, which ones must actually occupy memory? Not all of them. But
+which ones? The three chapters of Part III separate three ideas that a loop
+merges into one: the definition of a value family, the direction of dependency,
+and what to keep and what to discard. Chapter 11 asks: when does storage follow
+observation?
 
 Chapter 11 shows how the same recurrence makes a different storage demand
 depending on which values are observed. The rule is simple: storage follows

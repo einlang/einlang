@@ -36,7 +36,23 @@
 
 - **Not “einsum in a string”** — NumPy’s `einsum('ik,kj->ij', A, B)` gives you no static checking. Einlang’s indices are part of the language; the compiler sees every index and validates shapes and ranks.
 - **Not “gradient as a separate API”** — You don’t call `gradient(f, x)` or `jax.grad(f)(x)`. You write `@loss / @w`, `@state / @dt`, or `@C / @A` exactly where the math is. One mechanism for all derivatives, and usually the first thing to reach for instead of finite differences when you need sensitivities.
-- **Not “axis as an integer convention”** — You can write `softmax[class](logits)` instead of remembering whether `class` happens to be axis `1`, `-1`, or something else after a reshape.
+- **Not “axis as an integer convention”** — You can write `softmax[class](logits)` instead of remembering whether `class` happens to be axis `1`, `-1`, or something else after a reshape. The same bracket syntax distinguishes three different normalizations that a positional API can only express as three different `dim` integers:
+
+```python
+# PyTorch — all produce [128, 128, 128]. Only the dim integer differs.
+F.layer_norm(x, (128,))               # dim=-1: normalize over feature
+(x - x.mean(1)) / x.std(1)             # dim=1: normalize over time
+(x - x.mean(0)) / x.std(0)             # dim=0: normalize over batch
+```
+
+```rust
+// Einlang — the bracket names the coordinate role.
+normalize_over[feature](x[batch, time, feature])
+normalize_over[time](x[batch, time, feature])
+normalize_over[batch](x[batch, time, feature])
+```
+
+When `batch == time == feature == 128`, all six calls produce the same output shape. The PyTorch calls differ by one integer. The Einlang calls differ by one name. Swap `time` and `feature` in the tensor layout, and `dim=1` silently changes meaning. `normalize_over[time]` does not — `time` is still `time`, wherever it lives in the shape.
 - **Not “loops + manual indexing”** — Recurrences and reductions are declarations with ranges; the compiler handles order and lowering. You write the recurrence, not the loop.
 - **Not “simulation vs ML split”** — One language. ODE/PDE examples and MNIST/ViT/Whisper use the same notation, same autodiff, same stdlib.
 

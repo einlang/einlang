@@ -39,8 +39,23 @@ For the longer research writeups, read the [ACM-style paper](https://einlang.git
 |---------------|---------------|
 | `y = np.einsum("bi,ci->bc", x, W) + bias` | `let y[b, c] = sum[i](x[b, i] * W[c, i]) + bias[c];` |
 | `dloss_dW = jax.grad(loss_fn)(W)` | `let dloss_dW = @loss / @W;` |
+| `x.mean(dim=1)` — axis 1 is time today, feature tomorrow | `normalize_over[time](x)` — the bracket says what the number cannot |
 
-Einlang can run this kind of code, and it keeps the structure you care about visible.
+That last row is the argument in one line. When `batch == time == feature == 128`, normalizing over each produces the same output shape. The positional calls differ by a single integer. The bracket calls differ by a name. A refactor that swaps layout silently changes what `dim=1` means. The bracket survives the refactor because `time` is still `time`, wherever it lives in the shape.
+
+```python
+# PyTorch — all three produce shape [128, 128, 128]. Which is which?
+normed_feature = F.layer_norm(x, (128,))          # dim=-1, by convention
+normed_time    = (x - x.mean(1, True)) / x.std(1, True)   # dim=1
+normed_batch   = (x - x.mean(0, True)) / x.std(0, True)   # dim=0
+```
+
+```rust
+// Einlang — the bracket carries the intent
+let normed_feature = normalize_over[feature](x[batch, time, feature]);
+let normed_time    = normalize_over[time](x[batch, time, feature]);
+let normed_batch   = normalize_over[batch](x[batch, time, feature]);
+```
 
 ## Syntax at a Glance
 

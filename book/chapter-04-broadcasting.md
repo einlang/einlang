@@ -5,6 +5,10 @@ title: "What Does Broadcasting Hide?"
 
 # What Does Broadcasting Hide?
 
+> "Whereof one cannot speak, thereof one must be silent."
+>
+> — Ludwig Wittgenstein, *Tractatus Logico-Philosophicus* (1922), Proposition 7
+
 When you borrow a friend's car, you don't ask which friend. The car works the
 same regardless. Broadcasting is the tensor equivalent: when a term omits a
 coordinate, it claims independence from that coordinate. The claim is often
@@ -450,20 +454,18 @@ that omitted `b`.
 
 ### Where This Leads
 
-Broadcasting is not a layout trick. It is an existential claim: the term that
-omits a coordinate asserts, for every cell it produces, that the omitted
-coordinate's value does not matter. The claim is often correct — a bias vector
-does not depend on batch identity. When the claim is wrong, the bug is the most
-dangerous kind: the program runs, the shapes match, the loss descends, and the
-model learns a pattern that silently conflates two roles. The notation we choose
-determines whether the claim is visible. In a named-coordinate style, an
-omission is a fact: the coordinate is absent from the term. In a positional
-style, the same omission is a convention — and conventions survive only in
-memory.
+Broadcasting is not a layout trick. It is a claim: the term that omits a
+coordinate asserts, for every cell it produces, that the omitted coordinate's
+value does not matter. A bias vector does not depend on batch identity — the
+claim is usually right. When it is wrong, the program runs, the shapes match,
+the loss descends, and the model learns a pattern that conflates two roles.
 
-You can now read any tensor expression with two questions instead of one.
-Which coordinates are present? Which coordinates are deliberately absent? The
-second question is what broadcasting usually hides.
+When the notation names the omission, the claim is visible in the source — a
+blank where the coordinate should be. When the notation hides the omission, the
+claim is a convention, and conventions survive only in the reader's memory.
+This is the Hiding Law in its positive form: do not just avoid hiding. Give the
+fact a place to live. The absence of a coordinate is a fact. The bracket that
+omits it but leaves the name visible is the place.
 
 But absence is only half the story. Some coordinates are not merely absent
 from a term—they are *consumed* by an operation and removed from the result

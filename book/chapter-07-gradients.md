@@ -33,6 +33,14 @@ coordinates—only that it went through *some* coordinates that produced a
 nonzero result. A gradient that leaks across the batch dimension can still
 produce a perfectly smooth loss curve. It's just optimizing the wrong question.
 
+Three months later you are debugging this at 3 AM. The model deployed fine. The
+metrics looked normal. But the predictions are slightly wrong in a way no
+dashboard catches. You trace one gradient cell backward through twelve
+operations and realize the sum coordinate was `batch` when it should have been
+`class`. The shapes were right. The gradient was wrong. The notation never told
+you. This is the question of Part II: when sensitivity flows backward, do the
+coordinate names hold?
+
 This chapter shows how names make gradient shapes predictable before a single
 number is computed.
 
@@ -339,6 +347,14 @@ differentiation as a source transformation. The tape records what happened. The
 source already states where sensitivity can go. With named coordinates, the
 source states more.
 
+In Julia, Zygote's `gradient(loss_fn, W)` traces operations and records a tape.
+Enzyme works lower — it differentiates LLVM IR, so control flow and mutation pass
+through unchanged. Both compute correct gradients. Neither names the coordinate
+being reduced. That fact is recovered from the graph, not stated in the source. A
+Zygote pullback for `W * x` implicitly sums over the contracted dimension. The
+sum is correct. Which coordinate it summed remains invisible unless you inspect
+the generated code.
+
 ## Try It
 
 The fastest way to understand a gradient is to trace one cell. Pick `W[4, 9]` in
@@ -445,20 +461,15 @@ protocol in the source language.
 
 ### Where This Leads
 
-Part II turns the coordinate audit from Part I onto a new target: automatic
-differentiation. In Part I we asked which coordinates survive and which are
-consumed. In Part II we ask a deeper question: if a small change to one cell
-propagates through the computation, which output cells feel it? The answer
-depends entirely on which coordinates that cell was shared across in the forward
-program. A gradient is not magic — it is the forward program's coordinate
-sharing decisions, collected and summed back. The denominator's coordinates and
-the output's coordinates, compared as sets, give you every reduction before a
-single number is computed.
+Part II asks a different question than Part I. Part I asked which coordinates
+survive and which are consumed. Part II asks: if a small change to one cell
+propagates forward, which output cells feel it — and how does sensitivity flow
+back? The answer depends on which coordinates that cell was shared across. A
+gradient is the forward program's sharing decisions, collected and summed back.
 
-We have seen the simplest case: a scalar loss, a linear map, and a single
-denominator. The gradient shape follows from coordinate names. But linear maps
-are easy. In Chapter 8, the forward expression is matrix multiplication — two
-inputs, three coordinates, one contraction — and the derivative question asks
-for both sides. You will see exactly how `k` reappears in each gradient, why
-`@loss/@A` reduces over `j` while `@loss/@B` reduces over `i`, and how the
-pullback structure falls out of the forward formula.
+We have seen the simplest case: a scalar loss, a linear map, one denominator. The
+gradient shape follows from coordinate names. Chapter 8 applies the same audit to
+matrix multiplication — two inputs, three coordinates, one contraction. You will
+watch `k` reappear in each pullback, see why `@loss/@A` sums over `j` while
+`@loss/@B` sums over `i`, and learn that the transpose you memorized is set
+subtraction on coordinate names.

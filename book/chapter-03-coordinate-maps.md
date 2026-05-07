@@ -5,6 +5,10 @@ title: "Coordinate Maps in the Standard Library"
 
 # Coordinate Maps in the Standard Library
 
+> "The art of progress is to preserve order amid change."
+>
+> — Alfred North Whitehead, *Process and Reality* (1929)
+
 You added one line to the data pipeline. A batch dimension at the front of the
 tensor. The model no longer trains.
 
@@ -15,7 +19,10 @@ channels]`. The axis numbers silently shifted. `0` used to mean height; now it
 means batch. The transpose that was supposed to swap spatial dimensions is now
 swapping batch with channels. The shapes still happen to be compatible—`[32, 64,
 64, 3]` transposed by `(0, 2, 1)` produces a valid shape for a 32-batch. The
-code runs. The numbers are garbage.
+code runs. The numbers are garbage. You are debugging this at 1 AM, staring at
+the transpose call and counting axis positions on your fingers, trying to
+remember which axis number meant what before the batch dimension was added.
+The notation has the numbers but not the names.
 
 Chapter 2 gave you names for axes. A role is not a position—you know that now.
 This chapter asks the next question: when a role moves, where exactly did it go?
@@ -60,14 +67,11 @@ map has real work to do. Two examples from `stdlib/ml/transform_ops.ein` show
 the range: transpose is simple enough to read at a glance; `depth_to_space` is
 dense enough that names really matter.
 
-The compiler reads coordinate names the same way you do. When you write
-`result[..batch, i, j] = x[..batch, j, i]`, the name `batch` tells the compiler
-"this axis is shared, don't touch it." The names `i` and `j` tell it "these two
-swapped." The compiler does not decode a positional permutation. It reads the
-same address equation you read. Every pass that follows — range inference, shape
-checking, backend lowering — reads the same names. The names are not decoration
-that gets stripped before the "real" compiler starts. They are the one thing
-every pass agrees on.
+The compiler reads coordinate names the same way you do. `result[..batch, i, j] =
+x[..batch, j, i]` tells the compiler: `batch` is shared, leave it alone; `i` and
+`j` swapped. The compiler doesn't decode a positional permutation. It reads the
+address equation you read. Range inference, shape checking, backend lowering —
+every pass reads the same names.
 
 Keep one principle in mind as you read: **the operation name is not enough.**
 Transpose, flatten, and depth-to-space become reviewable only when the address
@@ -637,24 +641,19 @@ coordinates.
 
 ### Where This Leads
 
-A coordinate map is more than a layout operation. It is a claim about which
-roles travel together through the computation and which roles separate. The
-transpose `result[j, i] = x[i, j]` says "the role at `i` and the role at `j`
-exchange positions." A positional notation says "axis 0 and axis 1 trade places"
-— and that sentence means nothing when a new axis is later prepended. The
-notation determines what the claim can refer to, and a notation with only
-positions cannot refer to roles.
+A coordinate map is a claim about which roles travel together. `result[j, i] =
+x[i, j]` says "the role at `i` and the role at `j` exchange positions." A
+positional notation says "axis 0 and axis 1 trade places" — and that sentence
+means nothing when someone prepends a new axis. Positions cannot refer to roles.
+A transpose is not a matrix operation. It is a statement about which coordinate
+name goes where. When the names are missing, the statement becomes a number, and
+numbers cannot survive a reshape they did not anticipate.
 
-You now know how to read and write coordinate maps: the address equations that
-govern transpose, flatten, and depth-to-space. Chapter 2 gave you the
-vocabulary of axis roles. This chapter gave you the grammar—the rules for how
-those roles move, pack, and unpack through real standard-library operations.
-
-Chapter 4 will test that grammar against one of the trickiest conventions in
-array programming: broadcasting. When a scalar is added to a matrix, an axis is
-implicitly expanded. But _which_ axis? And what happens when two tensors have
-different ranks? You will learn to read broadcasting as a coordinate map
-problem—and see why named coordinates make implicit expansion explicit.
+Chapter 2 gave you the vocabulary. This chapter gave you the grammar — how roles
+move, pack, and unpack through transpose, flatten, and depth-to-space. But there
+is a simpler move than any of these, and it is the most deceptive. What happens
+when a term simply omits a coordinate — not swapping it, not packing it, just
+leaving it out? Chapter 4 asks: what does broadcasting hide?
 
 ## Try It
 

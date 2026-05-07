@@ -5,6 +5,11 @@ title: "Axis Roles Are Not Axis Positions"
 
 # Axis Roles Are Not Axis Positions
 
+> "There are only two hard things in Computer Science: cache invalidation
+> and naming things."
+>
+> — Phil Karlton
+
 You are debugging a training run at 2 AM. The loss went down for three epochs,
 then exploded. You trace it to a normalization layer. Your input has shape
 `[32, 128, 768]`. The normalization is supposed to average over features—axis 2.
@@ -513,32 +518,21 @@ coordinate maps: transpose, flatten, and `depth_to_space`.
 
 ### Where This Leads
 
-We have spent a chapter separating two things that positional tensor code merges
-into one. An axis position is a number the compiler can count. An axis role is a
-fact the notation either states or buries. The distinction is not a matter of
-style — it is the first consequence of the thesis we stated in the Introduction.
-When the notation has no place for the role, the role becomes invisible to every
-tool that reads the notation: the compiler, the autodiff engine, the reviewer.
+An axis position is a number the compiler can count. An axis role is a fact the
+notation either states or buries. When the notation has no place for the role,
+the role becomes invisible — to the compiler, to the autodiff engine, to the next
+person reading the code.
 
 A name is a bridge between a number and its reason. Without it, you cross alone.
 
-The coordinate audit — survive, consume, omit — is the primitive of this book.
-Every combination you will learn leaves a trace in it. Every abstraction you
-will build carries its names across a boundary. The three questions are the
-atoms. The rest is composition.
+Chapter 1 showed you that anonymous axes hide the question "where did the
+coordinate go?" This chapter gave you the vocabulary to answer: the coordinate
+audit — survive, consume, omit. A role and a position are different facts. The
+compiler can count positions. It cannot count what it does not have a name for.
 
-You now have the first tool in the coordinate toolkit: the ability to name a
-dimension by its role rather than its position. Chapter 1 showed you that
-anonymous axes hide the question "where did the coordinate go?" This chapter
-gave you the vocabulary to answer that question—by naming the coordinate and
-watching whether it survives, moves, or disappears.
-
-Chapter 3 will take the next step. Knowing that a coordinate name exists is one
-thing. Knowing what the compiler can *deduce* from those names—about ranges,
-about shapes, about which operations are legal—is another. You will learn to
-read coordinate maps: the rules that govern how names flow through expressions,
-and how the compiler uses those rules to catch mistakes before any numbers are
-computed.
+Chapter 3 applies that vocabulary to the standard library, where coordinate maps
+written as positional permutations hide the address equations that govern
+transpose, flatten, and depth-to-space.
 
 ## Try It
 
@@ -628,6 +622,45 @@ API relies on the reader to know that `dim=0` is batch, `dim=1` is time, and
 coordinate API encodes that knowledge in the bracket character itself. The
 coordinate name tells you instantly which role is being consumed. You do not
 reconstruct roles from axis numbers. The bracket is the answer.
+
+Now write the same three calls in PyTorch and JAX. The tensor has shape
+`[batch, time, feature]`, all 128. At this call site, axis 0 is batch, axis 1
+is time, axis 2 is feature. The reader must know this:
+
+```python
+# PyTorch — which normalization is which?
+x = torch.randn(128, 128, 128)
+
+# Normalize over feature: dim=-1 (or dim=2)
+normed_feature = F.layer_norm(x, (128,))
+
+# Normalize over time: dim=1
+mu_t = x.mean(dim=1, keepdim=True)
+std_t = x.std(dim=1, keepdim=True)
+normed_time = (x - mu_t) / std_t
+
+# Normalize over batch: dim=0
+mu_b = x.mean(dim=0, keepdim=True)
+std_b = x.std(dim=0, keepdim=True)
+normed_batch = (x - mu_b) / std_b
+```
+
+```python
+# JAX — same positional logic, same risk
+import jax.numpy as jnp
+x = jnp.ones((128, 128, 128))
+
+normed_feature = jax.nn.standardize(x, axis=2)   # or axis=-1
+normed_time    = jax.nn.standardize(x, axis=1)
+normed_batch   = jax.nn.standardize(x, axis=0)
+```
+
+All three produce `[128, 128, 128]`. The loss curves descend. If a refactor
+swaps `time` and `feature` in the tensor layout, the positional calls `dim=1`
+and `dim=2` silently swap their targets. The Einlang calls
+`normalize_over[time]` and `normalize_over[feature]` do not — `time` is still
+`time`, wherever it lives in the shape. The bracket is the anchor that a
+position number can never be.
 
 **Line to keep:** equal lengths do not make two axes semantically
 interchangeable.

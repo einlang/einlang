@@ -64,55 +64,36 @@ safely forget. When a notation omits a fact, that fact becomes harder to reason
 about — not because the fact is hard, but because the notation offers no place to
 put it.
 
-This is the thesis of the book, and it will return at every turn. A notation is
-a lens: what it omits becomes invisible not only to the compiler but to the act
-of reading and reasoning itself. The rest of these pages explore a single
-question in sixteen settings — what happens when you refuse to let the notation
-hide the coordinate role?
+This is the thesis, and I am going to say it once plainly: notation is a lens. What
+it omits becomes invisible — not just to the compiler, but to anyone reading the
+code. The rest of this book asks one question repeatedly. What happens when you
+refuse to let the notation hide the coordinate role?
 
-We close the gap not by building a smarter debugger, not by adding more runtime
-checks, but by putting the role in the source where the shape already lives. If
-the shape gets a position in the tensor, the role gets a name.
+We close the gap by putting the role in the source where the shape already lives.
+If the shape gets a position in the tensor, the role gets a name.
 
-This book inherits a way of thinking about languages.
+There is an older way of thinking about this.
 
-*Structure and Interpretation of Computer Programs* opens with a claim that has
-organized every language-design argument since. A powerful language, it says,
-rests on three things: **primitive expressions** — the atoms that cannot be
-explained in terms of anything simpler; **means of combination** — the
-operations that build compound values from simpler ones; and **means of
-abstraction** — the ability to name a compound, give it a contract, and use it
-without remembering its internals. A notation that lacks any one of the three is
-not yet a language. It is a collection of gestures waiting for the other two.
+Structure and Interpretation of Computer Programs opens with a claim that has
+organized every language-design argument since. A powerful language, it says, rests
+on primitive expressions, means of combination, and means of abstraction. Take away any one and you have something less than a
+language. I read that as an undergraduate and did not understand how deep it went
+until I tried to design one.
 
-The claim sounds abstract until you test it against a notation you already know.
-In arithmetic, the primitives are numbers. The means of combination are `+`,
-`-`, `*`, `/`. The means of abstraction are variables: `let x = 3 + 4` names the
-compound `3 + 4` so that `x * x` can use it without repeating the sum. Take away
-variables, and you have a calculator. Take away operators, and you have a list
-of constants. All three must be present for the notation to become a language —
-for small ideas to compose into larger ones without the reader's working memory
-collapsing under the weight of the intermediates.
+Tensor programs have all three, but the primitive is wrong. The atom of a
+positional tensor program is an integer — the axis position. The means of
+combination are reshape, transpose, `einsum`, and `dim=` arguments. The machinery
+works. But an axis position is a number the compiler can count. It cannot carry
+the reason the number matters. That reason lives in variable names, in comments,
+in the memory of whoever wrote the code. It lives anywhere except in the notation
+itself. And because the primitive is silent, the combinations inherit the silence
+and the abstractions paper over it.
 
-Tensor programs have all three, but the primitives are wrong. The primitive of a
-positional tensor program is the axis position — an integer. The means of
-combination are reshape, transpose, `einsum`, and `dim=` arguments. The means of
-abstraction are functions and modules. The machinery works. But the primitive
-carries no meaning. An axis position is a number the compiler can count. It
-cannot carry the reason the number matters. That reason — *this axis is batch,
-this one is class, this one is time* — lives in variable names, in comments, in
-the whiteboard photograph nobody took. It lives anywhere except in the notation
-itself. And because the primitive is silent, every combination inherits the
-silence. Every abstraction papers over it.
-
-This book is about what happens when you fix the primitive. The axis name
-replaces the axis position as the atom of the language. The coordinate audit —
-survive, consume, omit — becomes the first thing you learn, because it is the
-first thing the notation can check. The means of combination — reduction,
-broadcast, recurrence — leave a visible trace in the audit. The means of
-abstraction — coordinate-aware functions, module contracts — carry the names
-across boundaries. What follows is a single question in sixteen settings: when
-the notation can state the role, what changes?
+This book is about what happens when you fix the primitive. The axis name replaces
+the axis position. The coordinate audit — survive, consume, omit — becomes the
+first thing you learn, because it is the first thing the notation can check.
+Reduction, broadcast, recurrence leave a trace in the audit. Coordinate-aware
+functions carry the names across boundaries.
 
 ## The Gap in One Example
 

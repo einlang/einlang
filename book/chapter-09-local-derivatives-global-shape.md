@@ -5,12 +5,17 @@ title: "Local Derivatives, Global Shape"
 
 # Local Derivatives, Global Shape
 
+> "Great things are done by a series of small things brought together."
+>
+> — Vincent van Gogh
+
 You ran the training script overnight. In the morning, the loss sits at 2.3.
 Flat. Eight hours, no movement. You check the shapes. Correct. You check the
 learning rate. Reasonable. You check for dead ReLUs. None. You add gradient
 clipping. Nothing changes.
 
-On the third afternoon you find it. The weight gradient:
+On the third afternoon you find it. Then, at midnight, you verify it by hand.
+The weight gradient:
 
 ```rust
 let dW[out, in] = sum[in](G[batch, in] * x[batch, out]);  // bug
@@ -171,6 +176,20 @@ The gradient does not judge intent. It invoices what the forward program
 declared. If `bias[1]` appeared in the forward expression, the gradient will
 sum across every coordinate that `bias` did not own but that appeared in the
 expression. The gradient is the shape invoice.
+
+Julia takes a different approach to the same problem. Its `.` operator makes
+broadcasting visible at every call site: `x .+ bias` declares that `bias` will
+be expanded across the dimensions of `x`. The dot is a local receipt — it says
+broadcasting happened here, at this operator. What it does not say is which
+coordinate was broadcast. `x .+ bias` and `x .+ scale` look identical when
+`bias` and `scale` are both vectors of length 512; one is meant to align with
+`feature`, the other with `time`. The dot marks the act of broadcasting but
+stays silent about the role. It is one step better than NumPy's invisible
+broadcast, and one step short of naming the coordinate that was omitted. Three
+notations, three places the fact can live: invisible (NumPy), marked (Julia),
+named (Einlang). The gradient invoice is the same in all three. What differs is
+whether the invoice line items are recoverable from the source or must be
+inferred from the shapes at runtime.
 
 An invoice is only useful if you can read it. A positional gradient delivers
 an invoice that says "summed axis 0, kept axes 1 and 2." The reader must know
@@ -372,28 +391,20 @@ where the value lands.
 
 ### Where This Leads
 
-Part II is now complete. We have learned that hiding has consequences. Part I
-taught us to notice when a coordinate role is omitted. Part II taught us that
-the omission does not stay local — it propagates into the gradient. A forward
-term that omits `batch` produces a gradient that sums over `batch`. A reduction
-that consumes `class` produces a pullback that fans out over `class`. Every
-sharing decision in the forward pass becomes a sum in the backward pass. The
-notation either names the sharing, or the gradient inherits the silence.
+Part II showed that a hidden coordinate in the forward pass becomes a silent
+gradient bug in the backward pass. A forward term that omits `batch` produces a
+gradient that sums over `batch`. A reduction that consumes `class` produces a
+pullback that fans out over `class`. Every sharing decision inherits. The
+notation names the sharing or the gradient inherits the silence.
 
-But Part II had a limitation we did not name until now: all our programs were
-static. A value depended on other values, but never on *earlier versions of
-itself*. The gradient traced sensitivity backward through a fixed graph. We
-never asked what happens when the graph itself has a direction — when `h[t]`
-reads `h[t-1]`, and the backward pass must run in reverse time, and the compiler
-must decide which time steps to store and which to recompute.
-
-Part III introduces time as a coordinate with inherent direction. The audit
-questions — survive, consume, omit — still apply. But now a new question joins
-them: which values depend on which earlier values? A loop hides the answer in
-mutable state. A recurrence names the index and makes the dependency an edge in
-the source. That edge determines what the compiler can optimize, what the
-autodiff engine can reverse, and what the reviewer can verify without tracing
-into the loop body.
+But every program in Parts I and II was static — a fixed DAG. A value depended
+on other values, never on an earlier version of itself. What changes when a value
+depends on an earlier version of itself? When `h[t]` reads `h[t-1]`, the
+backward pass runs in reverse time. The compiler must decide which steps to
+store and which to recompute. The arrow of time determines what the autodiff
+engine can reverse and what the reviewer can verify without tracing into the
+loop body. The question Part III asks: what happens when a coordinate has
+direction?
 
 Chapter 10 begins with the simplest case: a time axis, a sliding window, and the
 question of whether the future is allowed to read the past — or the past is

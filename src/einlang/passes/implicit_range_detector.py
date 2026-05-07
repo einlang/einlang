@@ -728,13 +728,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
         var_def = self._function_decls_by_defid.get(array_defid)
         if var_def is not None:
             return var_def
-        if self._tcx and hasattr(self._tcx, 'program_ir'):
-            program = getattr(self._tcx, 'program_ir', None)
-            if program:
-                for stmt in program.statements:
-                    if isinstance(stmt, BindingIR):
-                        if stmt.defid == array_defid:
-                            return stmt.expr
         return None
     
     def set_prior_declarations(self, decls: List[Any]) -> None:
@@ -753,7 +746,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
         self._current_declaration = declaration
 
 
-    def infer_implicit_range(self, expr: ExpressionIR, defid: DefId) -> Optional[RangeInfo]:
+    def infer_implicit_range(self, expr: ExpressionIR, defid: DefId, var_name: Optional[str] = None) -> Optional[RangeInfo]:
         """
         Infer implicit range for an index variable from how it's used.
         defid is required; variable identity is by DefId only.
@@ -761,10 +754,12 @@ class ImplicitRangeDetector(IRVisitor[None]):
         if defid is None:
             raise ValueError("infer_implicit_range requires defid")
         self._target_defid = defid
+        self._target_name = var_name
         try:
             return self._infer_implicit_range_impl(expr)
         finally:
             self._target_defid = None
+            self._target_name = None
 
     def _name_from_defid(self) -> Optional[str]:
         """Resolve name from _current_clause by defid (for solver/logging only)."""
@@ -786,6 +781,14 @@ class ImplicitRangeDetector(IRVisitor[None]):
         return isinstance(index_expr, (IdentifierIR, IndexVarIR)) and index_expr.defid == target_defid
 
     def _infer_implicit_range_impl(self, expr: ExpressionIR) -> Optional[RangeInfo]:
+        # If the body is a coordinate function call, try to infer the range
+        # from the function's return type mapped through argument layouts.
+        from ..ir.nodes import FunctionCallIR
+        if isinstance(expr, FunctionCallIR):
+            result = self._infer_range_from_coordinate_call(expr)
+            if result is not None:
+                return result
+
         array_accesses = self._find_array_accesses(expr)
         if not array_accesses:
             return None
@@ -963,7 +966,102 @@ class ImplicitRangeDetector(IRVisitor[None]):
                     return indirect_matches[0]
         
         return None
-    
+
+    def _infer_range_from_coordinate_call(self, call) -> Optional[RangeInfo]:
+        """Infer reduction variable range from a coordinate function call result.
+
+        When a reduction like ``sum[b](top1[class](logits))`` is used, the
+        reduction variable *b* corresponds to a return dimension of the
+        coordinate function.  Trace that dimension back through the function
+        signature to the argument that provides its range.
+        """
+        axis_bindings = dict(getattr(call, 'coordinate_axis_bindings', None) or {})
+        if not axis_bindings:
+            logger.debug("[_infer_range_from_coordinate_call] No axis_bindings on call")
+            return None
+
+        target_name = getattr(self, '_target_name', None)
+        if not target_name:
+            logger.debug("[_infer_range_from_coordinate_call] No target_name")
+            return None
+
+        # Find the formal parameter name that maps to the target name
+        formal_name = None
+        for fname, aname in axis_bindings.items():
+            if aname == target_name:
+                formal_name = fname
+                break
+        if formal_name is None:
+            logger.debug("[_infer_range_from_coordinate_call] target_name=%r not in bindings %r",
+                         target_name, axis_bindings)
+            return None
+
+        # Get function definition from program IR
+        tcx = getattr(self, '_tcx', None)
+        if tcx is None:
+            return None
+        program_ir = getattr(tcx, 'program_ir', None)
+        if program_ir is None:
+            logger.debug("[_infer_range_from_coordinate_call] No program_ir on tcx")
+            return None
+
+        func_binding = None
+        from ..ir.nodes import BindingIR
+        for stmt in program_ir.statements or ():
+            if isinstance(stmt, BindingIR) and stmt.defid == call.function_defid:
+                func_binding = stmt
+                break
+        if func_binding is None:
+            logger.debug("[_infer_range_from_coordinate_call] func defid %s not found in program", call.function_defid)
+            return None
+
+        func_value = getattr(func_binding, 'expr', None)
+        if func_value is None:
+            return None
+
+        # Find which parameter provides *formal_name* and at what position
+        from ..shared.types import RectangularType
+        param_idx = None
+        dim_idx = None
+        for pidx, param in enumerate(func_value.parameters or []):
+            param_type = getattr(param, 'param_type', None)
+            if isinstance(param_type, RectangularType) and param_type.shape:
+                for didx, dim in enumerate(param_type.shape):
+                    if isinstance(dim, str):
+                        name = dim[2:] if dim.startswith('..') else dim
+                        if name == formal_name:
+                            param_idx = pidx
+                            dim_idx = didx
+                            break
+                if param_idx is not None:
+                    break
+        if param_idx is None or dim_idx is None:
+            logger.debug("[_infer_range_from_coordinate_call] formal_name=%r not in param types", formal_name)
+            return None
+
+        # Get the argument at that position
+        args = call.arguments or ()
+        if param_idx >= len(args):
+            return None
+        arg = args[param_idx]
+
+        # Look up the argument's shape
+        arg_defid = getattr(arg, 'defid', None)
+        if arg_defid is None:
+            return None
+
+        shape = self._get_array_shape(arg_defid, dim_idx)
+        if shape is None:
+            logger.debug("[_infer_range_from_coordinate_call] shape not found for arg defid=%s dim=%d", arg_defid, dim_idx)
+            return None
+
+        if isinstance(shape, int):
+            return StaticRange(0, shape)
+        from ..shared.types import PrimitiveType
+        from ..ir.nodes import LiteralIR
+        start_lit = LiteralIR(value=0, location=call.location, type_info=PrimitiveType(name='i32'))
+        return DynamicRange(start=start_lit, end=shape)
+
     def _find_array_accesses(self, expr: ExpressionIR) -> List[Tuple[Optional[DefId], int, ExpressionIR, ExpressionIR]]:
         """Find array accesses that use the target variable (by defid). Returns (array_defid, index_position, index_expr, base_expr)."""
         target_defid = getattr(self, '_target_defid', None)
@@ -1025,6 +1123,40 @@ class ImplicitRangeDetector(IRVisitor[None]):
             index_lit = LiteralIR(value=index_position, location=loc, type_info=PrimitiveType(name='i32'))
             return RectangularAccessIR(array=shape_member, indices=[index_lit], location=loc)
 
+        if is_einstein_binding(var_def):
+            clauses = var_def.clauses
+            max_size = None
+            for clause in (clauses or []):
+                var_ranges = clause.variable_ranges or {}
+                if not (clause.indices or []) or index_position >= len(clause.indices):
+                    continue
+                idx_expr = clause.indices[index_position]
+                did = idx_expr.defid if isinstance(idx_expr, (IdentifierIR, IndexVarIR)) else None
+                range_ir = var_ranges.get(did) if did else None
+                if range_ir:
+                    if isinstance(range_ir, range):
+                        s = range_ir.stop
+                        if isinstance(s, int) and (max_size is None or s > max_size):
+                            max_size = s
+                    elif isinstance(range_ir.end, LiteralIR):
+                        s = range_ir.end.value
+                        if isinstance(s, int) and (max_size is None or s > max_size):
+                            max_size = s
+            if max_size is not None:
+                logger.debug(f"[_get_array_shape] Found shape from variable_ranges: defid {array_defid}[{index_position}] = {max_size}")
+                return max_size
+            num_dims = len(getattr(var_def, 'shape', None) or ()) if hasattr(var_def, 'shape') else 0
+            if num_dims == 0 and clauses and clauses[0].indices:
+                num_dims = len(clauses[0].indices)
+            if index_position < num_dims:
+                if not _name:
+                    return None
+                loc = var_def.location or SourceLocation('<unknown>', 0, 0, 0, 0)
+                array_id = IdentifierIR(name=_name, location=loc, defid=_defid_for_id)
+                shape_member = MemberAccessIR(object=array_id, member='shape', location=loc)
+                index_lit = LiteralIR(value=index_position, location=loc, type_info=PrimitiveType(name='i32'))
+                return RectangularAccessIR(array=shape_member, indices=[index_lit], location=loc)
+
         if isinstance(var_def, BindingIR) and var_def.expr is not None:
             var_def = var_def.expr
         if hasattr(var_def, 'shape_info') and var_def.shape_info:
@@ -1056,39 +1188,6 @@ class ImplicitRangeDetector(IRVisitor[None]):
                 current = current.expr
             if isinstance(current, ArrayLiteralIR):
                 return len(current.elements)
-
-        if is_einstein_binding(var_def):
-            max_size = None
-            for clause in (var_def.clauses or []):
-                var_ranges = clause.variable_ranges or {}
-                if not (clause.indices or []) or index_position >= len(clause.indices):
-                    continue
-                idx_expr = clause.indices[index_position]
-                did = idx_expr.defid if isinstance(idx_expr, (IdentifierIR, IndexVarIR)) else None
-                range_ir = var_ranges.get(did) if did else None
-                if range_ir:
-                    if isinstance(range_ir, range):
-                        s = range_ir.stop
-                        if isinstance(s, int) and (max_size is None or s > max_size):
-                            max_size = s
-                    elif isinstance(range_ir.end, LiteralIR):
-                        s = range_ir.end.value
-                        if isinstance(s, int) and (max_size is None or s > max_size):
-                            max_size = s
-            if max_size is not None:
-                logger.debug(f"[_get_array_shape] Found shape from variable_ranges: defid {array_defid}[{index_position}] = {max_size}")
-                return max_size
-            num_dims = len(var_def.shape) if getattr(var_def, 'shape', None) else 0  # optional on some decls
-            if num_dims == 0 and var_def.clauses and var_def.clauses[0].indices:
-                num_dims = len(var_def.clauses[0].indices)
-            if index_position < num_dims:
-                if not _name:
-                    return None
-                loc = var_def.location or SourceLocation('<unknown>', 0, 0, 0, 0)
-                array_id = IdentifierIR(name=_name, location=loc, defid=_defid_for_id)
-                shape_member = MemberAccessIR(object=array_id, member='shape', location=loc)
-                index_lit = LiteralIR(value=index_position, location=loc, type_info=PrimitiveType(name='i32'))
-                return RectangularAccessIR(array=shape_member, indices=[index_lit], location=loc)
 
         if getattr(var_def, 'shape', None) and isinstance(var_def.shape, (list, tuple)) and index_position < len(var_def.shape):
             return var_def.shape[index_position]
