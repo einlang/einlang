@@ -23,8 +23,8 @@ jobs:
       - name: Install pandoc and PDF engine
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq pandoc texlive-xetex texlive-latex-recommended \
-            texlive-fonts-recommended texlive-latex-extra lmodern
+          sudo apt-get install -y -qq pandoc
+          curl -fsSL https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-gnu.tar.gz | sudo tar xz -C /usr/local/bin --strip-components=1
 
       - name: Concatenate chapters
         run: |
@@ -77,14 +77,12 @@ jobs:
       - name: Build PDF with pandoc
         run: |
           pandoc book/_combined.md \
-            --pdf-engine=xelatex \
+            --pdf-engine=tectonic \
             --from=markdown+pipe_tables+fenced_code_blocks+grid_tables \
             --toc --toc-depth=2 \
             --metadata title="The Name in the Bracket" \
             --metadata author="einlang" \
             --metadata date="$(date +%Y-%m-%d)" \
-            -V mainfont="Latin Modern Roman" \
-            -V monofont="Latin Modern Mono" \
             -V fontsize=11pt \
             -V geometry=margin=1in \
             -V colorlinks=true \
@@ -97,7 +95,7 @@ jobs:
         uses: actions/jekyll-build-pages@v1
 
       - name: Copy PDF into Pages output
-        run: cp book/the-name-in-the-bracket.pdf _site/
+        run: sudo cp book/the-name-in-the-bracket.pdf _site/
 
       - name: Deploy to GitHub Pages
         id: deploy
