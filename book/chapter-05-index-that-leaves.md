@@ -86,15 +86,15 @@ Now write it in Einlang:
 let lse[b] = sum[c](logits[b, c]);
 ```
 
-Read this line three times, because it says more than a `dim=-1` ever could.
+Stay with this line for a moment. It says more than a `dim=-1` ever could.
 
-First read: the result has coordinate `b`. Each batch member gets one number.
+First: the result has coordinate `b`. Each batch member gets one number.
 
-Second read: `c` is introduced by `sum[c]`. It is local to the reduction. It
-does not survive into `lse`.
+Second: `c` is introduced by `sum[c]`. It is local to the reduction. It does
+not survive into `lse`.
 
-Third read: the input is addressed by `logits[b, c]`. Both coordinates are
-used inside the sum. Only `b` escapes.
+Third: the input is addressed by `logits[b, c]`. Both coordinates are used
+inside the sum. Only `b` escapes.
 
 This is the entire idea. A reduction introduces a local coordinate, uses it to
 align terms, and then consumes it. The result shape is whatever survived—the

@@ -290,6 +290,50 @@ and the guess can be numerically correct at every entry while still answering
 the wrong question. A bug that lives in the coordinate names is a bug that
 lives outside the reach of finite-difference checks.
 
+### Part II Stage Report
+
+Part II began with a single cell and one question: what does it
+influence? Chapter 7 traced one cell's sensitivity through one route — a
+denominator, a broadcast, a survivor — and showed that the
+chain rule is coordinate accounting: every input cell's sensitivity
+arrives at every output cell that read it, and the gradient is the sum
+over those arrivals. Chapter 8 added a second input and showed that the
+pullback of matrix multiplication is a set subtraction on coordinate
+names: which input owns which coordinate, and which output coordinates
+one cell influenced. The transpose appeared not as magic but as a
+coordinate-level answer to "which path did the sensitivity travel?"
+This chapter brought the two halves together under one roof: local
+derivatives carry the scalar story, global shape carries the coordinate
+story, and the four-pass checklist (local scalar, denominator
+coordinates, paths, reduction) is the compact payoff.
+
+Every sharing decision inherits. A forward term that omits `batch`
+produces a gradient that sums over `batch`. A reduction that consumes
+`class` produces a pullback that fans out over `class`. The reduction
+coordinates in the gradient are exactly the coordinates the parameter
+omitted in the forward pass. When the notation names the sharing, the
+gradient is mechanical. When it hides the sharing, the gradient is a
+guess — and guesswork with correct shapes is the hardest bug to find.
+
+But every program in Parts I and II was static — a fixed DAG. A value
+depended on other values, never on an earlier version of itself. Part
+III will ask a harder question: what changes when a value depends on an
+earlier version of itself? When time has a direction, the backward pass
+must reverse it. Storage must be planned. The audit kit needs one new
+tool: a recurrence edge that says which survivor carries the arrow of
+time.
+
+<div class="pause" markdown="1">
+**Pause.** Find one gradient in your own codebase — a `backward()` call, a
+`grad` computation, a hand-written pullback. Pick one parameter. Ask the four
+passes: (1) What is the local scalar derivative? (2) What coordinates does the
+denominator own? (3) What output coordinates did one denominator cell
+influence? (4) What are the reduction coordinates? If you cannot answer pass 3
+without tracing into the forward computation, the notation hid a fact the
+gradient needed. Write down the reduction coordinates anyway. They are the
+signature of the sharing the forward pass did not state.
+</div>
+
 ## Try It
 
 Broadcasts create the hardest gradient bugs because the forward pass looks

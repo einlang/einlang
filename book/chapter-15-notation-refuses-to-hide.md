@@ -37,9 +37,7 @@ and sometimes annoying. Both facts matter.
 
 The law that has guided the entire book is one sentence:
 
-```text
-Do not hide a fact that later reasoning must recover.
-```
+> **The Hiding Law:** Do not hide a fact that later reasoning must recover.
 
 Axis roles, consumed coordinates, omitted coordinates, derivative addresses,
 and time dependencies all pass this test. They are easy to state when the
@@ -582,3 +580,10 @@ preserved when the route is only known at runtime?
 Chapter 16 is the book's last stress test: dynamic routing with low-rank
 communication. It asks whether named coordinates can survive a world where
 values choose their own paths.
+
+The Hiding Law you met in this chapter is the principle behind every rule in
+the book. When you finish Chapter 16, turn to [Appendix A](appendix-coordinate-diagnostics.html)
+for the twelve failure patterns the law catches, and to
+[Appendix B](appendix-coordinate-laws.html) for the sixteen laws distilled into
+one sentence each. The laws are the permanent residue of the reading habit —
+the rules that survive when the examples are forgotten.

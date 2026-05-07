@@ -746,31 +746,37 @@ class ImplicitRangeDetector(IRVisitor[None]):
         self._current_declaration = declaration
 
 
-    def infer_implicit_range(self, expr: ExpressionIR, defid: DefId, var_name: Optional[str] = None) -> Optional[RangeInfo]:
+    def infer_implicit_range(self, expr: ExpressionIR, defid: DefId, position: Optional[int] = None) -> Optional[RangeInfo]:
         """
         Infer implicit range for an index variable from how it's used.
         defid is required; variable identity is by DefId only.
+        position is the 0-based index of this variable among loop/clause indices.
         """
         if defid is None:
             raise ValueError("infer_implicit_range requires defid")
         self._target_defid = defid
-        self._target_name = var_name
+        self._target_position = position
         try:
             return self._infer_implicit_range_impl(expr)
         finally:
             self._target_defid = None
-            self._target_name = None
+            self._target_position = None
 
     def _name_from_defid(self) -> Optional[str]:
-        """Resolve name from _current_clause by defid (for solver/logging only)."""
-        ctx = self._current_clause
+        """Resolve name from context by defid (for solver/logging only)."""
         target_defid = getattr(self, '_target_defid', None)
-        if ctx is None or target_defid is None:
+        if target_defid is None:
             return None
-        if ctx.indices:
+        ctx = self._current_clause
+        if ctx is not None and ctx.indices:
             for idx in ctx.indices:
                 if isinstance(idx, (IdentifierIR, IndexVarIR)) and idx.defid == target_defid:
                     return idx.name
+        var_def = self._resolve_var_def(target_defid)
+        if var_def is not None:
+            name = opt_name(var_def)
+            if name:
+                return name
         return None
 
     def _is_direct_index_expr(self, index_expr: ExpressionIR) -> bool:
@@ -970,33 +976,37 @@ class ImplicitRangeDetector(IRVisitor[None]):
     def _infer_range_from_coordinate_call(self, call) -> Optional[RangeInfo]:
         """Infer reduction variable range from a coordinate function call result.
 
-        When a reduction like ``sum[b](top1[class](logits))`` is used, the
-        reduction variable *b* corresponds to a return dimension of the
-        coordinate function.  Trace that dimension back through the function
-        signature to the argument that provides its range.
+        Uses position-based matching: the loop variable's position among
+        reduction loop vars determines which return-type dimension it
+        corresponds to.  No name-based matching.
         """
+        target_position = getattr(self, '_target_position', None)
+        if target_position is None:
+            return None
+
+        coordinate_layout = getattr(call, 'coordinate_layout', None)
+        if not coordinate_layout or target_position >= len(coordinate_layout):
+            return None
+
+        # The actual axis name at the target position in the return type
+        actual_axis_name = coordinate_layout[target_position]
+
         axis_bindings = dict(getattr(call, 'coordinate_axis_bindings', None) or {})
         if not axis_bindings:
-            logger.debug("[_infer_range_from_coordinate_call] No axis_bindings on call")
             return None
 
-        target_name = getattr(self, '_target_name', None)
-        if not target_name:
-            logger.debug("[_infer_range_from_coordinate_call] No target_name")
-            return None
-
-        # Find the formal parameter name that maps to the target name
+        # Map actual axis name → formal dim name (the bindings are formal→actual)
         formal_name = None
         for fname, aname in axis_bindings.items():
-            if aname == target_name:
+            if aname == actual_axis_name:
                 formal_name = fname
                 break
         if formal_name is None:
-            logger.debug("[_infer_range_from_coordinate_call] target_name=%r not in bindings %r",
-                         target_name, axis_bindings)
+            logger.debug("[_infer_range_from_coordinate_call] actual_axis=%r not in bindings %r",
+                         actual_axis_name, axis_bindings)
             return None
 
-        # Get function definition from program IR
+        # Get function definition to trace the formal dim to its parameter
         tcx = getattr(self, '_tcx', None)
         if tcx is None:
             return None
@@ -1019,7 +1029,7 @@ class ImplicitRangeDetector(IRVisitor[None]):
         if func_value is None:
             return None
 
-        # Find which parameter provides *formal_name* and at what position
+        # Find which parameter provides formal_name and at what dimension
         from ..shared.types import RectangularType
         param_idx = None
         dim_idx = None

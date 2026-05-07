@@ -650,10 +650,17 @@ name goes where. When the names are missing, the statement becomes a number, and
 numbers cannot survive a reshape they did not anticipate.
 
 Chapter 2 gave you the vocabulary. This chapter gave you the grammar — how roles
-move, pack, and unpack through transpose, flatten, and depth-to-space. But there
-is a simpler move than any of these, and it is the most deceptive. What happens
-when a term simply omits a coordinate — not swapping it, not packing it, just
-leaving it out? Chapter 4 asks: what does broadcasting hide?
+move, pack, and unpack through transpose, flatten, and depth-to-space.
+
+But there is a simpler move than any of these, and it is the most deceptive. What
+happens when a term simply omits a coordinate — not swapping it, not packing it,
+just leaving it out? Every tensor programmer does it a dozen times a day without
+thinking. A bias added to a feature map. A mean subtracted from a batch. The
+shapes line up. The code runs. And the most important fact — "this term does not
+depend on this coordinate" — is buried in a singleton dimension that may or may
+not still be a singleton after the next refactor.
+
+Chapter 4 asks: what does broadcasting hide? The answer is more than you think.
 
 ## Try It
 

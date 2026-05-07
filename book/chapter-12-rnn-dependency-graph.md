@@ -355,6 +355,42 @@ architectures because `time` still moves forward, `batch` still stays
 isolated, and `state` still holds memory. The operations change. The roles
 endure.
 
+### Part III Stage Report
+
+Part III asked what changes when a value depends on an earlier version
+of itself. Chapter 10 showed that a time step is not a loop — it is a
+dependency edge with a direction, and the direction determines what the
+compiler can check, schedule, and reverse. A loop buries the direction
+inside mutable state; a named recurrence boundary makes it a fact the
+compiler can read. Chapter 11 showed that storage follows observation:
+how you read the sequence determines what you must keep, and the
+checkpointing plan is a coordinate-level decision about which time steps
+to store and which to replay. The definition, the storage, and the
+observation are three different things — and a notation that names them
+separately lets the compiler manage the gap. This chapter showed that an
+RNN is a dependency graph — a communication structure made of named
+coordinates, not a loop calling a cell. The same four checks (base case,
+time direction, batch isolation, distinct roles) apply whether the cell
+is a simple `h[t] = tanh(W * h[t-1])`, an LSTM with four gates, or a
+state-space model with a structured convolution kernel.
+
+Three tools now extend your audit kit: recurrence direction, storage
+policy, and dependency graph. Survive, consume, omit still apply. But
+one of the survivors now carries an edge — and that edge is the
+difference between a program the compiler can schedule and one it can
+only execute.
+
+Parts I through III worked one operation at a time: a reduction, a
+gradient, a recurrence. Real programs connect an encoder to a decoder, a
+loss to both, a data loader upstream of everything. When a module emits
+`output[time, batch, feature]` and the next expects `input[time, batch,
+hidden]`, the coordinates `feature` and `hidden` must meet. If the names
+do not survive the boundary, the compiler cannot check the handshake.
+Part IV is the stress test: can the same small vocabulary — survive,
+consume, omit, gradient address, recurrence edge — hold up when
+coordinates cross module boundaries, split into heads, and route
+dynamically based on the data itself?
+
 ## Try It
 
 A dependency graph is learned by drawing it, not by reading about it. Draw the
@@ -418,8 +454,8 @@ lives on the cross edge — the gate was supposed to read `short_term[t-1]` but
 silently reads `long_term[t-1]`. Two tensors of identical shape distinguished
 only by their coordinate name. The name is the contract.
 
-**Line to keep:** an RNN is not a loop calling a cell; it is a communication
-graph made of named coordinates.
+> An RNN is not a loop calling a cell; it is a communication graph made of
+> named coordinates.
 
 The graph is not a picture of the code. The graph is what the code *means*. The
 loop is what the code *does*. The distance between them is the distance between

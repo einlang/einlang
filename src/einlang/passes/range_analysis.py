@@ -300,6 +300,11 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                 constraint.accept(self)
         detector = ImplicitRangeDetector(list(self._scope_stack), self.analyzer.tcx)
         detector._current_clause = None
+        # Build defid→position map for position-based matching (no names)
+        loop_var_positions: Dict[DefId, int] = {}
+        for pos, lv in enumerate(expr.loop_vars or []):
+            if isinstance(lv, (IdentifierIR, IndexVarIR)) and lv.defid is not None:
+                loop_var_positions[lv.defid] = pos
         detector.infer_reduction_ranges_from_where(expr)
         for loop_var_ident in (expr.loop_vars or []):
             if not isinstance(loop_var_ident, (IdentifierIR, IndexVarIR)):
@@ -307,7 +312,8 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
             loop_var_defid = loop_var_ident.defid
             if loop_var_defid is None or loop_var_defid in expr.loop_var_ranges:
                 continue
-            implicit_range = detector.infer_implicit_range(expr.body, loop_var_defid, var_name=loop_var_ident.name)
+            position = loop_var_positions.get(loop_var_defid)
+            implicit_range = detector.infer_implicit_range(expr.body, loop_var_defid, position=position)
             if implicit_range:
                 if hasattr(implicit_range, 'to_range_ir') and callable(implicit_range.to_range_ir):
                     range_ir = implicit_range.to_range_ir(expr.location)
@@ -695,7 +701,7 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                 # Use implicit range detector 
                 range_obj = None
                 if range_obj is None:
-                    implicit_range = detector.infer_implicit_range(clause.value, defid, var_name=var_name)
+                    implicit_range = detector.infer_implicit_range(clause.value, defid)
                     if implicit_range:
                         # Convert RangeInfo to RangeIR using built-in method
                         from ..passes.range_info import StaticRange, DynamicRange

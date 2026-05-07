@@ -10,6 +10,8 @@ Notation determines what you can notice. When a notation has no place for a fact
 
 This book traces one idea — the coordinate audit — through sixteen chapters: from a Tuesday bug through gradients, recurrence, attention, and dynamic routing, to the principle that organizes them all. Einlang is the microscope. The habit is the payload.
 
+[Download PDF](../the-name-in-the-bracket.pdf)
+
 ## Preface
 
 This is a book of ideas, not a tool manual.

@@ -128,7 +128,11 @@ relationship those operations are meant to preserve.
 
 Einlang follows the second path. It treats a shape transformation as a claim
 about coordinates before it treats it as a storage maneuver. The rule appears
-here for the first time: do not hide a fact that later reasoning must recover.
+here for the first time:
+
+> **The Hiding Law (first draft):** Do not hide a fact that later reasoning must recover.
+
+This sentence will carry through every chapter.
 
 Give a compiler only the three shapes in the opening example and ask it
 whether the transformation was correct. It can check element counts. It can
@@ -639,6 +643,16 @@ You have now seen what happens when a coordinate role is hidden inside an intege
 a reshape produces compatible shapes, the compiler approves, and the bug goes
 undetected. The lesson is not that reshape is dangerous. It is that the notation
 determines what the compiler can check.
+
+<div class="pause" markdown="1">
+**Pause.** Before you continue, open a file in your own codebase that contains
+a reshape, a transpose, or a `view`. Pick one. Ask: which coordinate roles
+does this operation assume? Are those roles stated in the source, or do they
+live in a comment three functions up? If a colleague swapped two axes of equal
+size in the data pipeline, would this line catch it — or would it silently
+produce the right shape with the wrong meaning? Do not answer here. Just look.
+The rest of this book is about what you noticed.
+</div>
 
 From this, a rule begins to take shape. It is not yet the full Hiding Law, but
 its first draft: **the notation must record every fact that correctness depends

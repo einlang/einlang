@@ -36,6 +36,9 @@ which?"
 **Still runs?** Yes, if `head_count == spatial_count`. The output shape is
 identical. Only the coordinate relation reveals the swap.
 
+**Latest discovery time:** 3 AM by a human. No shape error, no crash, no NaN —
+the model trains but the packed coordinates are semantically wrong.
+
 **Chapter:** 1, "What Can the Compiler Not See?"
 
 ---
@@ -61,6 +64,10 @@ broadcast over?"
 **Still runs?** Yes, when `feature_count == batch_count`. The shapes are
 identical. Only the coordinate roles differ.
 
+**Latest discovery time:** 3 AM by a human. The broadcast produces the right
+shape but over the wrong semantic dimension — the model trains with a silently
+different independence claim.
+
 **Chapter:** 4, "What Does Broadcasting Hide?"
 
 ---
@@ -85,6 +92,9 @@ coordinate is absent, something is wrong."
 
 **Still runs?** Yes, when the matrix is square. `A.sum(dim=0)` and `A.sum(dim=1)`
 both produce a vector of the same length.
+
+**Latest discovery time:** 3 AM by a human — the square-matrix case is the
+perfect storm. Same shape, no crash, wrong answer.
 
 **Chapter:** 5, "The Index That Leaves"
 
@@ -113,6 +123,10 @@ output? Which ones are consumed by `max` and `sum`?"
 **Still runs?** Yes. `softmax(dim=-1)` collapses all three roles. The output
 shape is correct regardless of which coordinate plays which role.
 
+**Latest discovery time:** 3 AM by a human — or worse, never. The model trains.
+The loss descends. The calibration drifts over weeks because the normalization
+axis silently changed.
+
 **Chapter:** 6, "Softmax Has Three Coordinate Roles"
 
 ---
@@ -137,6 +151,9 @@ Does your formula sum over the same coordinate?"
 
 **Still runs?** Yes, when matrices are square. `G @ B` and `G @ B.T` have the
 same shape. The numbers differ, but nothing crashes.
+
+**Latest discovery time:** 3 AM by a human — the gradient has the right shape
+and plausible values, but sums over the wrong path coordinate.
 
 **Chapter:** 8, "Matrix Multiplication Teaches the Pullback"
 
@@ -163,6 +180,10 @@ let h[t in 1..T] = step(h[t - 1], x[t]);   // backward edge
 **Still runs?** Yes, if `x[t+1]` exists. The loop body is just an expression.
 The dependency direction is not checked.
 
+**Latest discovery time:** Possibly caught by validation loss beating training
+loss (the model is "too good"). Otherwise 3 AM by a human tracing why the
+deployed model's predictions are improbably accurate.
+
 **Chapter:** 10, "Time Steps Are Not Loops"
 
 ---
@@ -181,6 +202,9 @@ be stored. `let final = h[T-1]` needs only a rolling window.
 
 **Still runs?** Yes. Storage is a performance question, not a correctness
 question — until you run out of memory.
+
+**Latest discovery time:** OOM at runtime (earliest), or never if you have
+enough memory but are checkpointing every step unnecessarily.
 
 **Chapter:** 11, "Storage Follows Observation"
 
@@ -208,6 +232,10 @@ or index `j`?"
 `query_len == key_len` (self-attention). The model still trains — it just
 attends to the wrong thing.
 
+**Latest discovery time:** 3 AM by a human. The model trains but attention
+patterns are semantically wrong — the gather reads from the query position
+instead of the key position.
+
 **Chapter:** 14, "Attention as Named Communication"
 
 ---
@@ -230,6 +258,10 @@ path?"
 
 **Still runs?** Yes. The shapes are valid for any `r`. Only the approximation
 quality changes — and that quality is invisible to shape checks.
+
+**Latest discovery time:** Never caught by tooling. Discovered only when
+accuracy plateaus and someone asks why the model cannot express the attention
+patterns the task requires.
 
 **Chapter:** 16, "Dynamic Routing and Low-Rank Communication"
 
@@ -255,6 +287,10 @@ much."
 **Still runs?** Yes. Dropped tokens receive a fallback value. The loss goes
 down. The model learns — just not what you think about the dropped tokens.
 
+**Latest discovery time:** 3 AM by a human — intermittent NaN or accuracy
+regression with no shape error. The overflow pattern depends on per-batch
+expert assignment skew, making it non-deterministic and hard to reproduce.
+
 **Chapter:** 16
 
 ---
@@ -277,6 +313,10 @@ helper is hiding the decision that matters."
 
 **Still runs?** Yes. `dim=-1` always refers to some axis. The question is
 whether it refers to the RIGHT axis.
+
+**Latest discovery time:** Code review or 3 AM debugging — the function call
+looks correct, but the coordinate it operates on has silently changed meaning
+upstream.
 
 **Chapter:** 2, "Axis Roles Are Not Axis Positions"
 
@@ -301,33 +341,66 @@ the brackets. Everything else belongs in the function body's rest packs."
 **Still runs?** Yes. The verbose version is correct, just ceremonial. But
 ceremony makes the important bracket invisible.
 
+**Latest discovery time:** Code review — this is a readability bug, not a
+correctness bug. The ceremony drowns the contract, making future correctness
+bugs more likely.
+
 **Chapter:** 15, "What the Notation Refuses to Hide"
 
 ---
 
 ## Diagnostic Workflow
 
-When you face a tensor shape problem, walk this decision tree:
+When you face a tensor shape problem, walk this decision tree. Each branch
+asks not just "what pattern?" but also "when would I find this bug if I didn't
+look now?"
 
 ```text
 Did the program crash with a shape error?
   ├── YES → The shapes don't match. But WHY?
+  │     → Discovery: caught immediately by runtime. Lucky.
   │     → Audit: write the expected coordinate relation.
   │       Which coordinate has the wrong extent?
   │       → Pattern #1 (swapped roles) or #3 (wrong reduction)
   │
-  └── NO → The shapes match, but the answer is wrong.
-        → The bug is semantic. It has the right shape.
-        → Ask: would the wrong role still have the right shape?
-        → If YES:
-            ├── Is it a broadcast bug?   → Pattern #2
-            ├── Is it a reduction bug?   → Pattern #3
-            ├── Is it a softmax bug?     → Pattern #4
-            ├── Is it a gradient bug?    → Pattern #5
-            ├── Is it a recurrence bug?  → Pattern #6
-            ├── Is it an attention bug?  → Patterns #8-9
-            └── Is it a routing bug?     → Pattern #10
+  └── NO → The shapes match, but is the answer right?
+        → Discovery: could be 3 AM, could be never.
+        → Ask: are any two coordinate extents equal?
+        │
+        ├── YES (square condition) → HIGH RISK.
+        │     The shape checker is blind. Every positional
+        │     operation that uses dim=... could be operating
+        │     on the wrong axis.
+        │     → Check: broadcast over equal-sized axes → Pattern #2
+        │     → Check: reduction over equal-sized axes → Pattern #3
+        │     → Check: softmax dim when batch==class → Pattern #4
+        │     → Check: matmul pullback when matrices square → Pattern #5
+        │     → Check: attention when query_len==key_len → Pattern #8
+        │
+        └── NO (no equal extents) → Lower risk but not safe.
+              The shapes may still hide a wrong role.
+              → Ask: would the wrong role still have the right shape?
+              → If YES:
+                  ├── Is it a broadcast bug?   → Pattern #2
+                  ├── Is it a reduction bug?   → Pattern #3
+                  ├── Is it a softmax bug?     → Pattern #4
+                  ├── Is it a gradient bug?    → Pattern #5
+                  ├── Is it a recurrence bug?  → Pattern #6
+                  ├── Is it a storage bug?     → Pattern #7
+                  ├── Is it an attention bug?  → Patterns #8-9
+                  ├── Is it a routing bug?     → Pattern #10
+                  ├── Hiding wrong fact?       → Pattern #11
+                  └── Too much ceremony?       → Pattern #12
 ```
+
+**The square-matrix condition** deserves special attention. When any two
+coordinate extents are equal — `batch_size == num_classes`, `query_len ==
+key_len`, `head_count == spatial_count`, `num_experts == capacity` — every
+positional `dim=` argument becomes ambiguous. The shape checker cannot
+distinguish `dim=0` from `dim=1`. Patterns 1, 2, 3, 4, 5, and 8 all share
+this condition. If you see equal extents in a shape tuple, audit every
+positional axis reference immediately. The bug is not a possibility. It is a
+statistical certainty over a long enough timeline.
 
 **For gradient bugs specifically**, add the gradient audit:
 

@@ -17,7 +17,7 @@ book's progression.
 
 ## Shape and Role Laws
 
-### 1. Role Is Not Extent
+### 1/16. Role Is Not Extent
 
 **The law:** Two coordinates can have the same size and still mean different
 things.
@@ -35,13 +35,11 @@ x = torch.randn(128, 128)
 y = torch.softmax(x, dim=-1)  # dim=-1 is... feature? time? both are 128
 ```
 
-**Why it matters:** A checker that reports "size 128" has found an extent. A
-useful diagnostic must also name the role. Without role names, the square
-matrix case is undetectable by shape alone. (Chapter 1)
+**Why it matters:** Same extent, different meaning — a square matrix hides role swaps from every shape checker. (Chapter 1)
 
 ---
 
-### 2. The Address Relation Comes Before Layout
+### 2/16. The Address Relation Comes Before Layout
 
 **The law:** A coordinate map states how output addresses relate to input
 addresses. The implementation may lower this to a view, a copy, or a fused
@@ -59,13 +57,11 @@ y[group * b + b, feat * slice_count + slice] =  // wrong packing order
     x[b, feat, group, slice]
 ```
 
-**Why it matters:** A shape trace `[2,3,2,4] → [4,12]` records what happened. A
-coordinate relation records what was MEANT to happen. The second survives
-questioning. (Chapter 1)
+**Why it matters:** A shape trace records what happened; a coordinate relation records what was meant to happen — and survives questioning. (Chapter 1)
 
 ---
 
-### 3. Free Coordinates Form the Result Family
+### 3/16. Free Coordinates Form the Result Family
 
 **The law:** In an indexed binding, the coordinates that remain free on the
 left describe the result family.
@@ -82,13 +78,11 @@ The coordinate `k` is local work, not part of the result address.
 let y[i, k] = sum[j](A[i, k] * B[k, j])  // k survives? k was supposed to be consumed
 ```
 
-**Why it matters:** The survivors on the left-hand side are the contract.
-Changing which coordinates survive changes what the formula computes — even
-if the extents are compatible. (Chapter 5)
+**Why it matters:** The left-hand side is the contract — change the survivors, change the computation, identical extents and all. (Chapter 5)
 
 ---
 
-### 4. Omission Means Independence
+### 4/16. Omission Means Independence
 
 **The law:** If a term does not mention a result coordinate, the term does not
 depend on that coordinate.
@@ -110,15 +104,13 @@ y = x + bias                      # broadcasts over batch, not feature
 When `feature == batch`, the shapes are square and the independence claim is
 wrong but unchecked.
 
-**Why it matters:** Broadcasting is a semantic claim (independence) dressed as
-a shape rule (singleton expansion). When the semantic claim is wrong and the
-shapes are compatible, you get the bug that trained. (Chapter 4)
+**Why it matters:** Broadcasting is a semantic claim dressed as a shape rule — when the claim is wrong and shapes match, you get the bug that trained. (Chapter 4)
 
 ---
 
 ## Reduction and Broadcast Laws
 
-### 5. Reduction Consumes a Local Coordinate
+### 5/16. Reduction Consumes a Local Coordinate
 
 **The law:** A reducer introduces a coordinate for local work and removes it
 from the result.
@@ -135,15 +127,11 @@ let row_total[j] = sum[i](A[i, j])   // j on the left, but i was consumed
 When `A` is square, both produce a vector of the same length. They compute
 different things.
 
-**Why it matters:** The survivor is the coordinate on the left. The consumed
-coordinate is the one inside `sum[...]`. The shape of the result is "the
-coordinates that were not eaten." Selection-shaped reducers follow the same
-rule: `argmax[class]` consumes `class` but returns an address in the consumed
-domain. (Chapter 5)
+**Why it matters:** The survivor is on the left; the consumed is inside `sum[...]`. When the matrix is square, both produce the same shape. (Chapter 5)
 
 ---
 
-### 6. The Broadcast-Reduce Inverse Law
+### 6/16. The Broadcast-Reduce Inverse Law
 
 **The law:** A value broadcast along a coordinate in the forward pass receives
 a summed gradient over that same coordinate in the backward pass.
@@ -164,15 +152,13 @@ let dbias[f] = dy[0, f];  // only reads batch 0, others silently dropped
 Produces the right shape `[f]`. Ignores sensitivity from every other batch
 item.
 
-**Why it matters:** The omitted coordinate in the forward term becomes the
-consumed coordinate in the backward gradient. This is not a special case for
-biases — it is the coordinate-level statement of the chain rule. (Chapters 4-5, 8)
+**Why it matters:** Forward omission becomes backward summation — the coordinate-level statement of the chain rule. (Chapters 4-5, 8)
 
 ---
 
 ## Derivative Laws
 
-### 7. Gradients Are Addressed by the Denominator
+### 7/16. Gradients Are Addressed by the Denominator
 
 **The law:** The shape of a derivative answer is determined by the value being
 differentiated with respect to. `@loss / @W` has the coordinates of `W`.
@@ -189,13 +175,11 @@ let dW[j, i] = dy[i] * x[j]    // transposed — right values, wrong layout
 ```
 Produces the right set of numbers but addressed under swapped coordinates.
 
-**Why it matters:** The denominator's coordinates are the gradient's natural
-address. Any other coordinate that appears in the route must be reduced,
-broadcast, or justified by the chain rule. (Chapter 7)
+**Why it matters:** The denominator's coordinates are the gradient's address — every other coordinate in the route must be justified. (Chapter 7)
 
 ---
 
-### 8. The Pullback Path Coordinate Law
+### 8/16. The Pullback Path Coordinate Law
 
 **The law:** For a binary operation `C[survivors] = op(A[coords_a], B[coords_b])`,
 the gradient of A sums over `output_coordinates ∖ coords_a`, and the gradient
@@ -218,13 +202,11 @@ let dA[i, k] = sum[i](dC[i, j] * B[k, j])  // sums over i instead of j
 ```
 Produces shape `[i, k]` but `sum[i]` collapses the wrong coordinate.
 
-**Why it matters:** The sum coordinate is never arbitrary. It is the coordinate
-that A does NOT own but C does. This rule generalizes from matmul to any
-bilinear operation with named coordinates. (Chapter 8)
+**Why it matters:** The path coordinate is set subtraction on names — A's gradient sums over what A doesn't own but the output does. (Chapter 8)
 
 ---
 
-### 9. The Denominator Jacobian Law
+### 9/16. The Denominator Jacobian Law
 
 **The law:** When a forward expression reads multiple positions of the same
 input through a reduction, the Jacobian has non-zero off-diagonal entries. The
@@ -243,15 +225,13 @@ coordinate names reveal this at the source level.
 Treating softmax as elementwise (like sigmoid) when deriving the gradient.
 The missed off-diagonal terms are the ones the denominator scan created.
 
-**Why it matters:** Same input shape, same output shape. Completely different
-dependency graph. The coordinate names (`j`, `k`, `q` in softmax) make the
-difference visible before calculus. (Chapter 6)
+**Why it matters:** Same shape, completely different Jacobian — the coordinate names reveal the dependency graph before a single derivative is taken. (Chapter 6)
 
 ---
 
 ## Recurrence Laws
 
-### 10. Time Is a Directed Coordinate
+### 10/16. Time Is a Directed Coordinate
 
 **The law:** A recurrence should expose the dependency edge before it becomes a
 loop. A causal coordinate only references smaller index values.
@@ -269,14 +249,11 @@ let h[t in 0..T-1] = step(h[t + 1], x[t]);   // forward edge — reads the futur
 The index `t + 1` points forward. A forward simulation cannot compute this
 without a different contract (boundary-value problem, backward pass, or cheat).
 
-**Why it matters:** A loop hides the dependency direction inside the loop body.
-A recurrence states the direction at the definition site. A compiler pass can
-mechanically verify that every read of the recurrence family uses a smaller
-index. (Chapter 10)
+**Why it matters:** A loop buries the arrow of time; a recurrence states it at the definition site where the compiler can check it. (Chapter 10)
 
 ---
 
-### 11. Observation Determines Storage
+### 11/16. Observation Determines Storage
 
 **The law:** Defining a family is not the same as materializing every member.
 Storage follows observation, not definition.
@@ -292,13 +269,11 @@ let final = h[T - 1]                        // observes only the last member
 Allocating a full `[T, ...]` array when only `h[T-1]` is observed, or using
 a rolling window when gradient computation needs every intermediate.
 
-**Why it matters:** The recurrence defines what values exist. The observation
-defines what must be retained. Storage is a policy over dependency and
-observation facts, not a property of the recurrence itself. (Chapter 11)
+**Why it matters:** Definition, observation, storage — three different things. Confuse them and you allocate what you'll never need or discard what the gradient must replay. (Chapter 11)
 
 ---
 
-### 12. Batch Isolation During Recurrence
+### 12/16. Batch Isolation During Recurrence
 
 **The law:** A recurrence that walks over time must not mix batch items. Each
 batch member's hidden state is a separate recurrence instance.
@@ -320,14 +295,13 @@ let h[t in 1..T, b] = step(
 The result still has shape `[T, batch, hidden]`. The loss still decreases.
 But each batch item now receives a summary of ALL batch items' histories.
 
-**Why it matters:** Batch isolation is a coordinate contract. The recurrence
-must state which coordinates it walks and which it keeps fixed. (Chapters 10, 12)
+**Why it matters:** A recurrence that mixes batch items still produces the right shape — the bug lives in the coordinate the source didn't name as fixed. (Chapters 10, 12)
 
 ---
 
 ## Notation Laws
 
-### 13. Coordinate Functions Hide Mechanics, Not Contracts
+### 13/16. Coordinate Functions Hide Mechanics, Not Contracts
 
 **The law:** A coordinate function is useful only if the call still says which
 coordinate choice matters.
@@ -346,15 +320,11 @@ normalize(logits)               // WHAT is normalized? class? batch? feature?
 The call compiles. It runs. But the call site no longer states which
 coordinate decision the function embodies.
 
-**Why it matters:** The body can hide scalar arithmetic, loop shape, temporary
-buffers, and kernel details. It should not hide the normalized coordinate,
-moved coordinate, or ordered coordinate. The bracket is the abstraction
-boundary — the caller must name the role; the implementation hides everything
-else. (Chapter 15)
+**Why it matters:** Hide the mechanics, not the contract — the bracket must name the coordinate role that decides correctness. (Chapter 15)
 
 ---
 
-### 14. The Hiding Law
+### 14/16. The Hiding Law
 
 **The law:** Do not hide a fact that later reasoning must recover.
 
@@ -376,14 +346,11 @@ must recover this fact from upstream context, variable names, or comments.
 If the upstream context changes (data pipeline refactor), the fact is wrong
 but the code still runs.
 
-**Why it matters:** The boundary between "show" and "hide" is not about
-complexity. It is about which facts a future explanation will need. Register
-allocation won't be needed. Which coordinate was normalized will be.
-(Chapter 15)
+**Why it matters:** The show/hide boundary is not about complexity — it is about which facts a future explanation will need. Register allocation won't be. The normalized coordinate will. (Chapter 15)
 
 ---
 
-### 15. The Capacity Law
+### 15/16. The Capacity Law
 
 **The law:** A dynamic route creates a capacity coordinate. Dropped tokens
 must be named. The capacity decision must be visible in the source.
@@ -401,15 +368,11 @@ let keep[b, t]  = slot[b, t] < capacity;
 let dispatched[e, c, d] = scatter(x, route);  // if c >= capacity, silently overwritten
 ```
 
-**Why it matters:** If too many tokens choose the same expert, some tokens are
-dropped. The gradient doesn't flow through dropped tokens. Load imbalance,
-accuracy loss, and training instability all become harder to explain when the
-discarded coordinate has no name. The `keep` mask is a semantic witness — it
-tells whether each token survived routing. (Chapter 16)
+**Why it matters:** Dropped tokens are invisible to shape checks — the `keep` mask is the semantic witness that names the discarded. (Chapter 16)
 
 ---
 
-### 16. The Coordinate Function Law
+### 16/16. The Coordinate Function Law
 
 **The law:** A coordinate function must name the role it consumes or transforms
 in its bracketed arguments. Other axes may be packed. The bracketed role is
@@ -429,10 +392,7 @@ fn softmax_explicit[batch, class, time](x: [f32; batch, class, time])
 The caller must supply all three. But only `class` is the decision. The extra
 names are ceremony that dilute the contract.
 
-**Why it matters:** The bracket should carry exactly the coordinates that are
-the semantic choice. Everything else is the implementation's concern. A good
-coordinate function makes the decision visible without making the common case
-ceremonial. (Chapters 15-16)
+**Why it matters:** The bracket names the decision; the rest pack absorbs the ceremony. A good coordinate function makes the choice visible without making the common case verbose. (Chapters 15-16)
 
 ---
 
@@ -442,16 +402,35 @@ Which law catches which bug type, by operation:
 
 | Operation | Laws to Check |
 |---|---|
-| reshape / pack | 1 (role), 2 (address), 13 (hide contract) |
-| transpose | 1 (role), 2 (address) |
-| broadcast / add bias | 4 (independence), 6 (inverse) |
-| reduce / sum / mean | 3 (free coords), 5 (consumption), 6 (inverse) |
-| softmax | 1 (role), 4 (independence), 5 (consumption), 9 (Jacobian) |
-| matmul / dot product | 3 (free coords), 5 (consumption), 7 (denominator), 8 (path) |
-| gradient / backward | 6 (inverse), 7 (denominator), 8 (path) |
-| recurrence / scan | 10 (direction), 11 (storage), 12 (batch isolation) |
-| attention | 1 (role), 4 (independence), 5 (consumption), 9 (Jacobian) |
-| dynamic routing / MoE | 15 (capacity), 16 (coordinate function) |
+| reshape / pack | 1/16 (role), 2/16 (address), 13/16 (hide contract) |
+| transpose | 1/16 (role), 2/16 (address) |
+| broadcast / add bias | 4/16 (independence), 6/16 (inverse) |
+| reduce / sum / mean | 3/16 (free coords), 5/16 (consumption), 6/16 (inverse) |
+| softmax | 1/16 (role), 4/16 (independence), 5/16 (consumption), 9/16 (Jacobian) |
+| matmul / dot product | 3/16 (free coords), 5/16 (consumption), 7/16 (denominator), 8/16 (path) |
+| gradient / backward | 6/16 (inverse), 7/16 (denominator), 8/16 (path) |
+| recurrence / scan | 10/16 (direction), 11/16 (storage), 12/16 (batch isolation) |
+| attention | 1/16 (role), 4/16 (independence), 5/16 (consumption), 9/16 (Jacobian) |
+| dynamic routing / MoE | 15/16 (capacity), 16/16 (coordinate function) |
+
+## Failure-to-Law Cross-Index
+
+Each failure pattern from [Appendix A](appendix-coordinate-diagnostics.html) maps to the laws that diagnose it:
+
+| Failure Pattern (Appendix A) | Primary Laws | Diagnostic Question |
+|---|---|---|
+| 1. Same shape, swapped roles | 1/16 (role ≠ extent), 2/16 (address before layout) | Which coordinate is slow, which is fast? |
+| 2. Broadcast over wrong role | 4/16 (omission = independence), 6/16 (broadcast-reduce inverse) | Which coordinate does each term omit? |
+| 3. Reduction consumes wrong coordinate | 5/16 (reduction consumes local), 3/16 (free coords = result) | Which coordinate disappeared from the result? |
+| 4. One axis, several scopes | 9/16 (denominator Jacobian), 3/16 (free coords), 5/16 (consumption) | Which scope is the survivor, which are the locals? |
+| 5. Pullback sums wrong route | 8/16 (path coordinate), 7/16 (denominator address) | Which output coordinates did this cell influence? |
+| 6. Time hidden inside mutation | 10/16 (time is directed), 12/16 (batch isolation) | Do any edges point forward in time? |
+| 7. Storage inferred too early | 11/16 (observation determines storage) | Which values are observed vs. defined? |
+| 8. Attention reads wrong position | 1/16 (role), 8/16 (path coordinate) | Does the gather read index `i` or index `j`? |
+| 9. Low-rank bottleneck unnamed | 16/16 (coordinate function), 14/16 (hiding law) | Which coordinate replaced the direct communication? |
+| 10. Dynamic routing hides overflow | 15/16 (capacity law), 14/16 (hiding law) | Can you trace whether each token survived routing? |
+| 11. Coordinate function hides wrong fact | 13/16 (hide mechanics not contracts), 14/16 (hiding law) | Which bracketed coordinate grounds the operation? |
+| 12. Coordinate function asks too much | 16/16 (coordinate function law) | Which coordinate is the decision vs. ceremony? |
 
 ## The Study Loop
 

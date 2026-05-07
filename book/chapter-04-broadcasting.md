@@ -474,6 +474,17 @@ happens when you need it back?
 
 Chapter 5 answers that question: the index that leaves.
 
+<div class="pause" markdown="1">
+**Pause.** Find the last three places in your codebase where you used
+broadcasting — a bias added to a tensor, a mean subtracted, a scalar multiplied
+across a batch. For each one, write down which coordinate the broadcast value
+is independent of. Now ask: if the data pipeline swapped two axes of equal
+size, would the broadcast still apply to the right coordinate? If the answer is
+"the shape would still be compatible," you have found a silent bug waiting to
+happen. Write the coordinate name down. Even in a comment. Even on a sticky
+note. The act of naming it is the first half of the audit.
+</div>
+
 ## Try It
 
 Recall from Chapter 3 the coordinate map: `result[b, c, i, j] = input[b, c *

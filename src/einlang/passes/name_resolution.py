@@ -817,7 +817,34 @@ class NameResolverVisitor(ASTVisitor[None]):
         """
         from ..shared.nodes import ModuleAccess
         from ..shared.defid import DefType
-        
+
+        # Register coordinate args (e.g. ``class`` in topk[class](...)) as
+        # Einstein index variables in the current EINSTEIN scope so that
+        # bare array-index references like y[class, hidden] resolve.
+        if node.coordinate_args:
+            current_scope = self.scope_manager.current_scope() if self.scope_manager else None
+            if current_scope is not None:
+                from ..shared.scope import ScopeKind
+                if current_scope.kind == ScopeKind.EINSTEIN:
+                    for coord_arg in node.coordinate_args:
+                        coord_name = coord_arg if isinstance(coord_arg, str) else getattr(coord_arg, 'name', None)
+                        if coord_name and not current_scope.defined_in_this_scope(str(coord_name)):
+                            coord_defid = self.resolver.allocate_for_local()
+                            object.__setattr__(coord_arg, 'defid', coord_defid)
+                            _define_in_scope(
+                                current_scope,
+                                str(coord_name),
+                                Binding(
+                                    name=str(coord_name),
+                                    binding_type=BindingType.VARIABLE,
+                                    definition=node,
+                                    defid=coord_defid,
+                                    scope=current_scope,
+                                ),
+                                coord_arg if hasattr(coord_arg, 'location') else node,
+                                self.tcx.reporter,
+                            )
+
         # PRIORITY 1: Qualified module calls (std::math::sin, math::sqrt)
         if isinstance(node.function_expr, ModuleAccess):
             # Module access like std::array::concatenate
