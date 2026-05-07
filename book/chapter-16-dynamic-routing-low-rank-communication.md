@@ -5,6 +5,10 @@ title: "Dynamic Routing and Low-Rank Communication"
 
 # Dynamic Routing and Low-Rank Communication
 
+> "The best way to predict the future is to invent it."
+>
+> — Alan Kay
+
 The mixture-of-experts model has been training for two days. The loss is
 descending. The throughput is excellent — only two experts active per token. On
 day three someone checks the expert utilization dashboard and discovers that
@@ -1149,18 +1153,13 @@ You came to this book for a notation. You are leaving with a habit. The
 notation will change — new languages, new frameworks, new backends. The habit
 will not. Ask what is hidden. Name what matters. The rest is syntax.
 
-Notation determines what you can notice. When the notation names the coordinate
-role, the role becomes a fact the compiler can check, the autodiff engine can
-preserve, and the next reader can see without reconstructing it from memory.
-When the notation omits the role, the role becomes invisible — not just to the
-compiler, but to the act of reading and reasoning itself. This was the thesis of
-the Introduction. It is the thesis of every chapter between. It is the thesis
-you now have the tools to test, in your own code, on your own deadlines, with
-your own notation — whatever that notation happens to be.
+Notation determines what you can notice. When a notation names the coordinate
+role, the role becomes a fact the compiler can check and the next reader can see.
+When the notation omits it, the role becomes invisible — to the compiler, to the
+autodiff engine, to the act of reading itself. That was the thesis of the
+Introduction. It held through every chapter.
 
-The Habit is four questions. The Bargain is one rule. That is what an
-abstraction is: a thing small enough to carry, sharp enough to cut. Fifteen
-characters in three places is a small price for a fact the compiler can check
-forever.
+The Habit is four questions. The Bargain is one rule. Fifteen characters in three
+places, and the compiler checks the fact forever.
 
 Turn the page. There is nothing more to learn here. Only something to try.

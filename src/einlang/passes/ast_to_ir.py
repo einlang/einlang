@@ -1925,6 +1925,12 @@ class ASTToIRLowerer(ASTVisitor[Optional[IRNode]]):
         Lower variable declaration to BindingIR.
         For tuple destructuring returns list of BindingIR.
         """
+        # If this was promoted to an Einstein declaration during name resolution,
+        # delegate to the Einstein declaration lowering path.
+        promoted = getattr(node, '_promoted_einstein_decl', None)
+        if promoted is not None:
+            return self.visit_einstein_declaration(promoted)
+
         from ..shared.nodes import TupleDestructurePattern
         from ..ir.nodes import TupleAccessIR, IdentifierIR
 

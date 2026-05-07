@@ -5,6 +5,10 @@ title: "Softmax Has Three Coordinate Roles"
 
 # Softmax Has Three Coordinate Roles
 
+> "Information is the resolution of uncertainty."
+>
+> — Claude Shannon, "A Mathematical Theory of Communication" (1948)
+
 Softmax. You have written it a hundred times. Each time, you passed it one
 number: `dim`. That single number hid three distinct coordinate jobs behind it.
 This chapter names all three—the stability scan, the normalization denominator,
@@ -35,6 +39,12 @@ cases. The loss—cross-entropy—goes down in both cases. Cross-entropy only ca
 that `probs[correct_class]` is high. Whether the normalization competes against
 other classes or other examples, a gradient still flows toward the correct
 answer.
+
+At 2 AM you finally run the calibration report by hand on a single batch and
+realize: the probabilities sum to 1.0 across examples, not across classes. The
+number 0.7 has meant something different for six weeks. No shape checker caught
+it. No gradient check caught it. The notation never recorded which axis was the
+distribution.
 
 But calibration error asks a different question: does `probs[class]=0.7` mean
 the model is actually correct 70% of the time? After sprint 17, the answer is
@@ -145,6 +155,29 @@ inspecting every `k`-input in the same row, stabilized by every `q`-input."
    q, k, j all range over the same feature axis.
    dim=-1 sees one; coordinates name three distinct scopes.
    Each role maps to a distinct gradient term (Chapter 7).
+```
+
+In PyTorch, all three roles collapse into a single argument:
+
+```python
+probs = torch.softmax(logits, dim=-1)
+```
+
+In JAX, the same:
+
+```python
+probs = jax.nn.softmax(logits, axis=-1)
+```
+
+Both produce correct numbers. Neither distinguishes `q` (the stability scan),
+`k` (the denominator sum), and `j` (the output survivor). The integer `-1` is
+three different coordinate jobs, flattened into one positional convention. The
+gradient that flows backward through `dim=-1` carries three distinct terms to
+three distinct targets. The autodiff engine handles this correctly — it traces
+through `max`, `exp`, `sum`, and `div` separately. But the reader who writes
+`dim=-1` and the reviewer who reads `dim=-1` have no place to verify that the
+max, the sum, and the output are all operating on the same set of positions.
+The coordinate names `q`, `k`, `j` give each role its own receipt.
 ```
 
 Pick one cell of the gradient. `@loss / @logits[2, 5]`. The index `5` appears in
@@ -558,20 +591,15 @@ survive, which are consumed, and which are silently omitted.
 
 ### Where This Leads
 
-Part I is now complete. We have learned to notice hiding. Six operations —
-reshape, role assignment, coordinate maps, broadcast, reduction, normalization —
-and one question in each: which coordinate roles are visible, and which are
-silent? The coordinate audit — survive, consume, omit — is now a reading
-discipline. You can look at any tensor line and ask which names appear, which
-are absent, which are consumed.
+Part I taught you to notice when a coordinate role is hidden. A reshape drops the
+coordinate story. A broadcast omits a name without stating the omission. A
+`dim=-1` consumes whatever axis happens to be last. Six chapters, one reading
+discipline: survive, consume, omit.
 
-But noticing hiding is only the surface. The question Part I did not ask is:
-what happens *because* of the hiding? When a coordinate role is omitted from the
-source, what else becomes invisible? The answer is: everything downstream. The
-gradient. The optimizer. The reviewer. The person debugging at 3 AM. Each must
-recover the hidden fact independently — or fail silently.
-
-Part II turns the coordinate audit onto a new target: automatic differentiation.
+But noticing is only the surface. The question Part I did not touch is what
+happens *because* of the hiding. When the source omits a coordinate role, the
+gradient inherits the silence. The autodiff engine becomes a reader that cannot
+read. Part II turns the audit onto automatic differentiation.
 A forward expression already knows which input cells influence which output
 cells. The backward pass is just collecting sensitivity along those routes. If
 the forward notation names the sharing, the gradient is mechanical. If it hides

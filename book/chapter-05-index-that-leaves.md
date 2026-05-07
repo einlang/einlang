@@ -5,6 +5,10 @@ title: "The Index That Leaves"
 
 # The Index That Leaves
 
+> "Nothing is lost, nothing is created, everything is transformed."
+>
+> — Antoine Lavoisier, *Traité Élémentaire de Chimie* (1789)
+
 Chapter 4 showed what happens when a term omits a coordinate. The value is
 reused along that dimension. Broadcasting.
 
@@ -215,20 +219,31 @@ edit: change `sum[j]` to `sum[i]`, and now the survivor is `j` instead of `i`.
 ```
    Reduction: One Coordinate Leaves
 
-   Row sums r[i] = sum[j](A[i,j])   Col sums c[j] = sum[i](A[i,j])
+   Row sums r[i] = sum[j](A[i,j]) — walk across j, keep i:
 
-   A[i,j]                           A[i,j]
-   +-----+-----+-----+              +-----+-----+-----+
-   |     | j=0 | j=1 | j=2          |     | j=0 | j=1 | j=2
-   +-----+-----+-----+              +-----+-----+-----+
-   | i=0 |  1  |  2  |  3  |        | i=0 |  1  |  2  |  3
-   +-----+-----+-----+              +-----+-----+-----+
-   | i=1 |  4  |  5  |  6  |        | i=1 |  4  |  5  |  6
-   +-----+-----+-----+              +-----+-----+-----+
-      |     |     |                  |     |     |     |
-      v     v     v                  v     v     v
-   j consumed, i survives         i consumed, j survives
-   r=[6, 15]                      c=[5, 7, 9]
+        A[i,j]
+   +----+----+----+----+
+   |    | j=0| j=1| j=2|
+   +----+----+----+----+
+   |i=0 | 1  | 2  | 3  | → r[0] = 1 + 2 + 3 = 6
+   +----+----+----+----+
+   |i=1 | 4  | 5  | 6  | → r[1] = 4 + 5 + 6 = 15
+   +----+----+----+----+
+
+   Column sums c[j] = sum[i](A[i,j]) — walk down i, keep j:
+
+        A[i,j]
+   +----+----+----+----+
+   |    | j=0| j=1| j=2|
+   +----+----+----+----+
+   |i=0 | 1  | 2  | 3  |
+   +----+----+----+----+
+   |i=1 | 4  | 5  | 6  |
+   +----+----+----+----+
+        |    |    |
+        v    v    v
+      c[0]  c[1]  c[2]
+      =5    =7    =9
 
    One bracket says which coordinate leaves.
 ```
@@ -646,21 +661,16 @@ not eaten.
 
 ### Where This Leads
 
-Broadcasting and reduction are coordinate inverses. Broadcasting says "this term
-does not care which `j` you pick." Reduction says "this operation collects every
-`j` and leaves nothing behind." The two moves are symmetric, but positional
-notation treats them differently: broadcasting is implicit (shapes align,
-something happens), while reduction requires an explicit `dim` argument. Named
-coordinates make the symmetry visible — an omitted coordinate in a term and a
-consumed coordinate in a reduction are the same kind of fact, stated with the
-same kind of notation.
+Broadcasting and reduction are inverses. One omits a coordinate; the other
+consumes one. Positional notation treats them differently — broadcasting is
+implicit, reduction demands an explicit `dim` argument. Named coordinates make
+the symmetry obvious: an omitted coordinate and a consumed coordinate are the
+same kind of fact, stated with the same brackets.
 
-You now have both halves of coordinate disappearance: omitted (broadcast) and
-consumed (reduce). Together they explain how tensors change shape. Every
-reduction you will ever write follows the same ledger.
+You now have both halves of coordinate disappearance. Together they explain how
+tensors change shape.
 
-But a reduction consumes only one set of coordinates. What happens when a single
-function needs THREE different coordinate roles?
+But a reduction consumes only one set of coordinates. Softmax needs three.
 
 The softmax function is not one reduction. It is three. First, a `max` scan over
 `class` that finds the stability constant—consuming `class` into a scalar per

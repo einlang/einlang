@@ -5,6 +5,11 @@ title: "What the Notation Refuses to Hide"
 
 # What the Notation Refuses to Hide
 
+> "Perfection is achieved not when there is nothing more to add, but when there
+> is nothing left to take away."
+>
+> — Antoine de Saint-Exupéry, *Terre des Hommes* (1939)
+
 Six months into the project, a senior engineer proposes a cleanup: "The
 coordinate brackets are noise. We know `class` is always the last axis.
 Abstract them behind a helper and the code gets shorter." The team agrees. The
@@ -17,7 +22,11 @@ compatible either way. The loss descends. The model converges. The predictions
 are wrong for a reason invisible to every tool in the pipeline.
 
 The cleanup didn't hide an implementation detail. It hid the one fact that
-later reasoning had to recover. That is the line this chapter draws.
+later reasoning had to recover. Three weeks later, someone else debugs the
+multi-label loss at 3 AM. The loss descends. The shapes are fine. The bug is
+invisible because the coordinate role was visible once — and then it wasn't.
+The cleanup traded a local fact for a silent failure. That is the line this
+chapter draws.
 
 Every notation hides something. That is not a flaw; it is the price of being
 usable. The question is whether it hides the right thing. Einlang's
@@ -55,122 +64,25 @@ show: derivative addresses, recurrence edges, dynamic routes
 The boundary is not about simplicity versus complexity. It is about which facts
 a future explanation will need.
 
-What follows is the book's metacircular moment — the point where we stop
-applying the rule and examine the rule itself, by walking backward through every
-chapter to see what each one taught us about hiding.
+The fourteen chapters were not a list. They were an arc.
 
-The fourteen chapters did not simply repeat the same lesson in different
-settings. They *deepened* it. Each Part revealed something about hiding that the
-previous Part could not see.
+You cannot understand why a hidden coordinate breaks a gradient until you first
+learn to notice the coordinate was hidden at all. You cannot understand why time
+compounds the problem until you have watched a single backward pass silently sum
+over the wrong axis. Each chapter assumed the scar tissue from the previous one.
 
-**Part I (Chapters 1–6): Hiding is possible.** The surface lesson. A reshape
-chain can preserve element counts while erasing the coordinate story. A
-broadcast can mask the fact that a value is shared across a role. A `dim=-1` can
-hide which of three coordinate relationships — survive, consume, omit — is in
-play. Part I taught us to *notice* hiding. The question was: what facts does the
-notation let slip? The answer, at this stage, was: many. And the loss still
-descends.
+The book opens with a reshape that swallowed an integer where it should have
+demanded a name. It closes with a multi-head attention block whose communication
+protocol — who asks, who answers, which head is speaking — is either stated in
+the source or stored in the reader's head. The distance between those two
+sentences is the distance this book was built to cross. Fourteen chapters. One
+rule.
 
-Chapter 1 showed that a reshape chain hides the packing relation. Chapter 2
-showed that a position hides the role. Chapter 3 showed that a coordinate map
-written as a sequence of positional operations hides the address equation.
-Chapter 4 showed that broadcasting hides the claim of independence. Chapters 5
-and 6 showed that a reduction and a normalization each hide which coordinate was
-consumed — and that three distinct coordinate relationships can hide behind a
-single integer argument.
-
-By the end of Part I, the coordinate audit — survive, consume, omit — was a
-reading discipline. But the discipline was static. We could audit a single
-expression. We had not yet asked what happens when one expression feeds another,
-or when the autodiff engine traces backward through them, or when values depend
-on earlier versions of themselves.
-
-**Part II (Chapters 7–9): Hiding has consequences.** The first deepening. Part I
-was about what the forward pass states. Part II revealed that the forward pass
-also *implies* — it implies a gradient structure. And whether that structure is
-visible depends on whether the coordinate names survive the backward pass. The
-autodiff engine is a reader too. If the forward notation hid a sharing decision,
-the backward pass cannot reveal it — it can only reproduce the ambiguity as a
-gradient that silently sums over the wrong coordinate.
-
-Chapter 7 showed that a gradient denominator is an address: `@loss/@W` means
-"collect sensitivity at W's coordinates." Chapter 8 showed that the transpose
-practitioners memorize is coordinate alignment, not an axiom of calculus — the
-sum coordinate in a pullback is set subtraction on coordinate sets. Chapter 9
-showed that local scalar derivatives and global gradient shapes are separated by
-one fact: which coordinates the value was shared across. The scalar rule is
-always the same. The shape rule is always an invoice. The invoice is legible
-only if the coordinates are named.
-
-By the end of Part II, we understood that hiding is not just a readability
-problem. It is a *correctness* problem. A hidden coordinate in the forward pass
-becomes a silent gradient bug in the backward pass. But all our programs were
-still static DAGs. We had not yet introduced a coordinate whose values depend on
-earlier values of that same coordinate.
-
-**Part III (Chapters 10–12): Hiding compounds over time.** The second
-deepening. Time is the first coordinate with inherent direction — `t` reads
-`t-1`, never `t+1`. A loop hides that direction in mutable state. The same
-variable `h` that reads `h[t-1]` also writes `h[t]`. The dependency edge — who
-reads whom — is invisible in the loop but explicit in the recurrence. And when
-time direction is hidden, three things break at once: the reviewer cannot verify
-causality, the compiler cannot plan storage, and the autodiff engine cannot
-schedule the backward pass.
-
-Chapter 10 showed that a loop is an execution order; time is a dependency
-relationship. Chapter 11 showed that storage is a negotiation between what is
-defined, what is observed, and what can be recomputed — and the compiler cannot
-optimize storage it cannot observe. Chapter 12 showed that an RNN is not a loop
-calling a cell; it is a communication graph made of named coordinates, with
-edges labeled by time direction, hidden-unit role, and batch isolation.
-
-By the end of Part III, we understood that hiding compounds. In a recurrence,
-hiding the time direction does not just hide one fact — it hides the distinction
-between a program that can be optimized (causal, storable, reversible) and a
-program that can only be executed. But all our recurrences, all our gradients,
-all our audits had been performed on single operations in isolation. We had not
-yet asked what happens when named coordinates cross a module boundary.
-
-**Part IV (Chapters 13–14): Hiding scales.** The third deepening. Parts I–III
-worked one operation at a time. A reshape. A softmax. A matmul pullback. A
-recurrence. Part IV asked: can the same coordinate vocabulary survive *system*
-scale? When an encoder emits `output[time, batch, feature]` and a decoder
-expects `input[time, batch, unit]`, the coordinates `feature` and `unit` must
-meet. If the notation cannot name that transition, the compiler cannot check it.
-A mismatch of `768` and `512` crashes at runtime. A mismatch of `feature` and
-`unit` could be caught at compile time — if the names survived the boundary.
-
-Chapter 13 showed that named dimensions at module edges turn silent semantic
-mismatches into compiler errors. Chapter 14 showed that attention is not matrix
-multiplication — it is a communication protocol, and the notation either names
-the protocol or buries it in a transpose. Seven conventions must be held in the
-programmer's head to read a positional multi-head attention block correctly.
-Named coordinates make each convention a fact the compiler can check.
-
-**Chapter 15: The law behind the deepenings.** Part I showed that hiding is
-possible. Part II showed that hiding has consequences. Part III showed that
-hiding compounds. Part IV showed that hiding scales. Each Part was necessary.
-You cannot understand the consequences of hiding (Part II) until you can notice
-hiding (Part I). You cannot understand how hiding compounds (Part III) until you
-understand its consequences for a single backward pass (Part II). You cannot
-understand how hiding scales (Part IV) until you understand what happens when it
-compounds (Part III) and what its consequences are (Part II) and what it looks
-like in the first place (Part I).
-
-Every chapter was a corollary of one sentence: *Do not hide a fact that later
-reasoning must recover.* But the fourteen chapters were not fourteen repetitions
-of the same insight. They were fourteen steps up a single staircase. At the
-bottom: a reshape that accepted an integer where it should have demanded a name.
-At the top: a multi-head attention block whose communication protocol is either
-a fact in the source or a memory in the reader's head. The distance between
-those two is the distance this book was built to cross.
-
-This is not a rule about software. It is a rule about cognition. Every notation
-is a prosthetic memory — it carries facts so your brain does not have to. A good
-notation carries the facts that later reasoning will need. A bad one carries the
-facts that are easy to encode, and leaves the hard ones to your memory. The
-difference between them is not the notation's power. It is the notation's
-honesty about what it refuses to record.
+A notation is a prosthetic memory. It carries facts so your brain does not have
+to. A good one carries the facts that later reasoning will need. A bad one
+carries the facts that are easy to encode and leaves the hard ones to you. The
+difference is not the notation's power. It is the notation's honesty about what
+it refuses to record.
 
 ## The Compiler Reads Coordinates Too
 
@@ -236,35 +148,18 @@ single kernel. The backends differ. The coordinate audit is constant. That is
 the design separation that names enable: the notation records *what* the
 coordinates do; the compiler chooses *how* to execute them.
 
-And here is the turn. The Hiding Law is not a rule the compiler enforces on
-programmers. It is a rule the compiler's own architecture obeys. The same
-principle that tells the programmer "do not hide the coordinate role" tells the
-compiler writer "do not hide the coordinate role from the next pass." The
-compiler that enforces the Hiding Law is itself built on it.
+The Hiding Law is not just a rule the compiler enforces on programmers. The
+compiler's own passes obey it. Shape inference reads axis names to check legality.
+Gradient lowering reads them to build the backward pass. Storage planning reads
+them to decide what lives in memory. Each pass is a reader. When a pass hides a
+fact from the next pass, the compiler breaks for the same reason a program breaks
+when it hides a coordinate role from the next reader.
 
-This is not a coincidence. It is the Hiding Law at full depth: a single
-principle that organizes both the notation the programmer writes and the
-compiler that reads it. Every pass is a reader. Every reader needs the names.
-The compiler is the final proof that the names are not decoration. They are the
-one thing every pass agrees on — and the one thing no pass can afford to lose.
-
-And because the names are load-bearing, change stays additive. Insert a head
-dimension — the new name `h` appears in the projection that creates it and the
-concatenation that consumes it. The softmax still normalizes over `j`. The batch
-coordinate `b` is untouched. Nothing reindexes. Nothing shifts. The old names
-did not move because they were never tied to a position in the first place.
-Additive change is not a separate principle from the Hiding Law. It is the same
-principle, viewed from the future: do not hide what reasoning must recover, and
-the old facts will not need to be rewritten when the new facts arrive.
-
-You have now seen the same pattern in every chapter of this book: a mathematical
-operation stated in coordinates, written first in the positional style the
-reader already knows, then in the named style that keeps the coordinate roles on
-the page. The sum that consumes a coordinate. The derivative that collects at a
-name. The recurrence that chains a value through successive steps. The rest
-pattern that says "the rest" without counting. Each chapter taught one
-mechanism. The mechanism was the same: name the coordinate, audit the roles, let
-the notation carry what the reader would otherwise have to remember.
+Because the names are load-bearing, change stays additive. Insert a head
+dimension. The new name `h` appears in the projection that creates it and the
+concatenation that consumes it. Softmax still normalizes over `j`. Batch is
+untouched. Nothing reindexes. The old names did not move because they were never
+tied to a position.
 
 ## The Deletion Test
 

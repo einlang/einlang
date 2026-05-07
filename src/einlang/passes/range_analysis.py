@@ -298,20 +298,7 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
         if expr.where_clause:
             for constraint in expr.where_clause.constraints:
                 constraint.accept(self)
-        program = self.analyzer.program_ir
-
-        scope_stack: List[Dict[DefId, Any]] = []
-        if program:
-            program_scope: Dict[DefId, Any] = {}
-            for stmt in program.statements:
-                if isinstance(stmt, BindingIR) and not is_function_binding(stmt) and stmt.defid is not None:
-                    program_scope[stmt.defid] = stmt.expr
-                    val_did = stmt.expr.defid if isinstance(stmt.expr, (IdentifierIR, IndexVarIR)) else None
-                    if val_did is not None and val_did != stmt.defid:
-                        program_scope[val_did] = stmt.expr
-            scope_stack.append(program_scope)
-        scope_stack.extend(self._scope_stack)
-        detector = ImplicitRangeDetector(scope_stack, self.analyzer.tcx)
+        detector = ImplicitRangeDetector(list(self._scope_stack), self.analyzer.tcx)
         detector._current_clause = None
         detector.infer_reduction_ranges_from_where(expr)
         for loop_var_ident in (expr.loop_vars or []):
@@ -320,7 +307,7 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
             loop_var_defid = loop_var_ident.defid
             if loop_var_defid is None or loop_var_defid in expr.loop_var_ranges:
                 continue
-            implicit_range = detector.infer_implicit_range(expr.body, loop_var_defid)
+            implicit_range = detector.infer_implicit_range(expr.body, loop_var_defid, var_name=loop_var_ident.name)
             if implicit_range:
                 if hasattr(implicit_range, 'to_range_ir') and callable(implicit_range.to_range_ir):
                     range_ir = implicit_range.to_range_ir(expr.location)
@@ -367,20 +354,8 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
             expr.primal_body.accept(self)
         if expr.diff_body:
             expr.diff_body.accept(self)
-        program = self.analyzer.program_ir
 
-        scope_stack: List[Dict[DefId, Any]] = []
-        if program:
-            program_scope: Dict[DefId, Any] = {}
-            for stmt in program.statements:
-                if isinstance(stmt, BindingIR) and not is_function_binding(stmt) and stmt.defid is not None:
-                    program_scope[stmt.defid] = stmt.expr
-                    val_did = stmt.expr.defid if isinstance(stmt.expr, (IdentifierIR, IndexVarIR)) else None
-                    if val_did is not None and val_did != stmt.defid:
-                        program_scope[val_did] = stmt.expr
-            scope_stack.append(program_scope)
-        scope_stack.extend(self._scope_stack)
-        detector = ImplicitRangeDetector(scope_stack, self.analyzer.tcx)
+        detector = ImplicitRangeDetector(list(self._scope_stack), self.analyzer.tcx)
         detector._current_clause = None
         for loop_var_ident in (expr.loop_vars or []):
             if not isinstance(loop_var_ident, (IdentifierIR, IndexVarIR)):
@@ -566,6 +541,9 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
             clauses = node.clauses or []
             if not clauses:
                 return
+            did = node.defid
+            if did is not None:
+                self.set_var(did, node)
             with self._einstein_scope(node):
                 rank = 0
                 for c in clauses:
@@ -663,32 +641,7 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
             clause.value.accept(self)
 
         program = self.analyzer.program_ir
-        def _defid_key(d):
-            if d is None:
-                return None
-            if isinstance(d, DefId):
-                return d
-            if hasattr(d, 'krate') and hasattr(d, 'index'):
-                return DefId(d.krate, d.index)
-            if hasattr(d, '__getitem__') and len(d) >= 2:
-                return DefId(d[0], d[1])
-            return d
-        clause_scope_stack: List[Dict[DefId, Any]] = []
-        if program:
-            program_scope: Dict[DefId, Any] = {}
-            for stmt in program.statements:
-                if isinstance(stmt, BindingIR) and not is_function_binding(stmt) and stmt.defid is not None:
-                    val = stmt.expr
-                    key = _defid_key(stmt.defid)
-                    if key is not None:
-                        program_scope[key] = val
-                    if isinstance(val, (IdentifierIR, IndexVarIR)) and val.defid is not None and val.defid != stmt.defid:
-                        vkey = _defid_key(val.defid)
-                        if vkey is not None:
-                            program_scope[vkey] = val
-            clause_scope_stack.append(program_scope)
-        clause_scope_stack.extend(self._scope_stack)
-        detector = ImplicitRangeDetector(clause_scope_stack, self.analyzer.tcx)
+        detector = ImplicitRangeDetector(list(self._scope_stack), self.analyzer.tcx)
         prior_decls = []
         if hasattr(self, '_current_function_einstein_decls') and self._current_function_einstein_decls:
             try:
@@ -742,7 +695,7 @@ class RangeAnalysisVisitor(ScopedIRVisitor[ParameterIR]):
                 # Use implicit range detector 
                 range_obj = None
                 if range_obj is None:
-                    implicit_range = detector.infer_implicit_range(clause.value, defid)
+                    implicit_range = detector.infer_implicit_range(clause.value, defid, var_name=var_name)
                     if implicit_range:
                         # Convert RangeInfo to RangeIR using built-in method
                         from ..passes.range_info import StaticRange, DynamicRange

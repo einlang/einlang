@@ -45,7 +45,10 @@ let h = relu(conv3d(x, weight, bias));
 let p = softmax[class](logits);
 let pred = argmax[class](logits);
 let route = argmax[expert](gate_prob);
+let normed = normalize_over[time](x[batch, time, feature]);
 ```
+
+The last call is the same pattern applied to a different operation. `normalize_over[time]` says "compute mean and standard deviation over the time coordinate, then normalize." The bracket names the coordinate that is consumed by the statistics. Three calls — `normalize_over[feature]`, `normalize_over[time]`, `normalize_over[batch]` — differ only in the bracket name but produce different normalizations with identical output shapes. In a positional API, the three calls differ by a single `dim` integer, and `dim=1` silently changes meaning when the tensor layout changes.
 
 The guiding rule is:
 

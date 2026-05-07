@@ -5,6 +5,10 @@ title: "An RNN Is a Dependency Graph"
 
 # An RNN Is a Dependency Graph
 
+> "Time is what prevents everything from happening at once."
+>
+> — attributed to John Archibald Wheeler
+
 A colleague reviews your RNN code:
 
 ```python
@@ -16,9 +20,10 @@ for t in range(T):
 She pauses at `@ h`. "Are you sure `hidden[t]` reads `hidden[t-1]` from the
 same batch element? Or is `h` accidentally mixing batch and hidden dimensions?"
 
-You check. The shapes are `(batch, hidden)`. `W_h @ h` contracts the hidden
-dimension. Batch stays independent. But this is knowledge in your head, not in
-the code. The loop says `h` is overwritten; it doesn't say `hidden[t, b, h_cur]`
+You check. It is late, and you are tired. The shapes are `(batch, hidden)`.
+`W_h @ h` contracts the hidden dimension. Batch stays independent. But this is
+knowledge in your head, not in the code — and at 3 AM, knowledge in your head
+is the first thing to go. The loop says `h` is overwritten; it doesn't say `hidden[t, b, h_cur]`
 reads `hidden[t-1, b, h_prev]`. A shape checker sees `(batch, hidden) × (hidden,
 hidden) → (batch, hidden)` and nods. Shape is a silhouette—it tells you
 dimensions match, not what each dimension means.
@@ -331,6 +336,25 @@ let h[t in 1..T, b, u] = {
 Two gates instead of four. Same `u` vs `u_prev` distinction. Same `t-1` edge.
 The recurrence contract checklist applies unchanged.
 
+Recent state-space models extend the same dependency graph in a different
+direction. S4 (Structured State Space) replaces the elementwise gating of an
+LSTM with a structured matrix `A` that governs how the internal state evolves
+over time. Mamba removes the linear time-invariance — its `A` matrix depends on
+the input, so the dependency graph becomes input-dependent. But the coordinate
+structure is unchanged: state channels (`n`) evolve over time (`t`) while
+batch (`b`) stays isolated. The equations are written with the same three
+coordinates. The difference is which operations are learned and which are
+fixed. In an RNN, the state transition is a dense matrix multiply. In S4, it
+is a structured convolution whose kernel is parameterized by a handful of
+numbers. In Mamba, it is an input-dependent selection from a continuous state
+space. Three different computational strategies, same three coordinate roles.
+A positional implementation would bury all three under `(batch, seq_len,
+d_model)` and the structural difference between RNN, S4, and Mamba would
+disappear into dimension integers. The coordinate names survive across
+architectures because `time` still moves forward, `batch` still stays
+isolated, and `state` still holds memory. The operations change. The roles
+endure.
+
 ## Try It
 
 A dependency graph is learned by drawing it, not by reading about it. Draw the
@@ -410,33 +434,19 @@ between a program the compiler can schedule and a program it can only execute.
 
 ### Where This Leads
 
-Part III is now complete. We have learned that hiding compounds. Part I taught
-us to notice hiding. Part II taught us that hiding has consequences — the
-gradient inherits the silence. Part III taught us that when time is involved,
-hiding does not just add one more hidden fact. It multiplies. Hiding the time
-direction hides causality, hides the storage plan, hides the backward-pass
-schedule, hides the distinction between a program you can optimize and a program
-you can only execute. One hidden index, four invisible properties.
+Part III showed that hiding compounds when time is involved. A loop buries the
+dependency direction inside mutable state. Hiding time direction doesn't hide one
+fact — it hides causality, the storage plan, the backward-pass schedule, and the
+distinction between a program you can optimize and one you can only execute. Four
+consequences from one hidden name.
 
-But Parts I through III all worked on single operations in isolation. A
-recurrence. A gradient. A softmax. We have been examining individual trees.
-Real programs are forests: an encoder feeding a decoder, a loss function reading
-both, a data loader upstream of everything. Each module names its coordinates
-independently. The question Part IV asks is: can the names survive the
-boundaries between them?
-
-When an encoder emits `output[time, batch, feature]` and a decoder expects
-`input[time, batch, unit]`, the coordinates `feature` and `unit` must meet. If
-the notation cannot name that transition, the compiler cannot check it. A
-mismatch of `768` and `512` crashes at runtime. A mismatch of `feature` and
-`unit` could be caught at compile time — but only if the names survive the
-module boundary.
-
-Part IV is the stress test. The same coordinate vocabulary that survived
-reshape, reduction, gradient, and recurrence must now survive module boundaries,
-multi-head parallelism, attention protocols, and dynamic expert routing. If it
-can, the principle is not a local convenience — it is a system property. If it
-cannot, we have learned something important about the limits of naming.
+But Parts I through III all worked on single operations. A reduction. A gradient.
+A recurrence. Real programs connect an encoder to a decoder, a loss to both, a
+data loader upstream of everything. When a module emits `output[time, batch,
+feature]` and the next expects `input[time, batch, unit]`, the coordinates
+`feature` and `unit` must meet. If the names don't survive the boundary, the
+compiler can't check the handshake. Part IV asks whether named coordinates hold
+up at system scale.
 
 Chapter 13 begins the test: a program where every tensor dimension has a name,
 and the compiler reads those names across every function boundary.
