@@ -1,0 +1,81 @@
+name: Build Book PDF
+description: Install pandoc + tectonic, concatenate chapters, and build the book PDF
+
+runs:
+  using: composite
+  steps:
+    - name: Install pandoc and PDF engine
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq pandoc
+        TECTONIC_URL="https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-gnu.tar.gz"
+        curl -fsSL "$TECTONIC_URL" -o /tmp/tectonic.tar.gz
+        sudo mkdir -p /tmp/tectonic-extract
+        sudo tar xzf /tmp/tectonic.tar.gz -C /tmp/tectonic-extract
+        sudo find /tmp/tectonic-extract -name tectonic -type f -exec cp {} /usr/local/bin/tectonic \;
+        sudo chmod +x /usr/local/bin/tectonic
+
+    - name: Concatenate chapters
+      shell: bash
+      run: |
+        python3 << 'PYEOF'
+        import os
+
+        chapters = [
+            "chapter-00-why.md",
+            "chapter-01-compiler-blindness.md",
+            "chapter-02-axis-roles.md",
+            "chapter-03-coordinate-maps.md",
+            "chapter-04-broadcasting.md",
+            "chapter-05-index-that-leaves.md",
+            "chapter-06-softmax-coordinate-roles.md",
+            "chapter-07-gradients.md",
+            "chapter-08-matmul-pullback.md",
+            "chapter-09-local-derivatives-global-shape.md",
+            "chapter-10-time-steps.md",
+            "chapter-11-storage-follows-observation.md",
+            "chapter-12-rnn-dependency-graph.md",
+            "chapter-13-named-dimensions-everywhere.md",
+            "chapter-14-attention-named-communication.md",
+            "chapter-15-notation-refuses-to-hide.md",
+            "chapter-16-dynamic-routing-low-rank-communication.md",
+            "appendix-coordinate-diagnostics.md",
+            "appendix-coordinate-laws.md",
+        ]
+
+        parts = []
+        for ch in chapters:
+            path = os.path.join("book", ch)
+            if not os.path.exists(path):
+                print(f"WARNING: {path} not found, skipping")
+                continue
+            with open(path) as f:
+                content = f.read()
+            if content.startswith("---"):
+                end = content.find("---", 3)
+                if end != -1:
+                    content = content[end + 3:].lstrip()
+            parts.append(content)
+            parts.append(r"\newpage")
+
+        with open("book/_combined.md", "w") as f:
+            f.write("\n\n".join(parts))
+
+        print(f"Combined {len(chapters)} chapters")
+        PYEOF
+
+    - name: Build PDF with pandoc
+      shell: bash
+      run: |
+        pandoc book/_combined.md \
+          --pdf-engine=tectonic \
+          --from=markdown+pipe_tables+fenced_code_blocks+grid_tables \
+          --toc --toc-depth=2 \
+          --metadata title="The Name in the Bracket" \
+          --metadata author="einlang" \
+          --metadata date="$(date +%Y-%m-%d)" \
+          -V fontsize=11pt \
+          -V geometry=margin=1in \
+          -V colorlinks=true \
+          -o book/the-name-in-the-bracket.pdf

@@ -1,0 +1,104 @@
+// coordinate_nesting.ein
+// Inline nesting of coordinate function calls — patterns where coordinate-aware
+// reductions and selections compose inside element-wise expressions.
+//
+// Each section shows something that requires careful axis-tracking in
+// NumPy/PyTorch but is explicit about coordinate identity in einlang.
+
+// ============================================================================
+// 1: Inline element-wise: coordinate function with free indices
+//
+// `id_axis[i](E[i] + F[j])` — the coordinate function preserves axis i,
+// while j is a free Einstein index. Output shape is [i, j] = (2, 3).
+//
+// In NumPy, this would be `B[:, None] + C[None, :]` — you must remember which
+// axis is which. Here, coordinates carry the meaning.
+// ============================================================================
+
+fn id_axis[j](x: [f32; ..left, j, ..right]) -> [f32; ..left, j, ..right] { x }
+
+let E[i in 0..2] = i as f32;
+let F[j in 0..3] = j as f32;
+let inline_nested = id_axis[i](E[i] + F[j]);
+inline_nested;    // shape: (2, 3)
+
+// ============================================================================
+// 2: Nested reduction body — reduction of a reduction
+//
+// `max[hidden](sum[k](W[i, k] * X[k, hidden]))` — reduce over k first,
+// then reduce over hidden. The inner sum contracts k, the outer max
+// contracts hidden, leaving only i.
+//
+// NumPy equivalent: `np.max(np.sum(W[..., None, :] * X[None, :, :], axis=-1), axis=-1)`
+// — two positional axes, easy to mix up.
+// ============================================================================
+
+let Wg[i in 0..4, k in 0..2] = i as f32 + k as f32;
+let Xg[k in 0..2, hidden in 0..3] = k as f32 * 10.0 + hidden as f32;
+let nested_reduce = max[hidden](sum[k](Wg[i, k] * Xg[k, hidden]));
+nested_reduce;    // shape: (4,)
+
+// ============================================================================
+// 3: Chained coordinate calls — results from two reductions combined
+//
+// `argmax[n](Ag[k, n]) as f32 * max[n](Bg[n, j])` — argmax selects over n
+// (returns int index), max reduces over n (returns value). Both results
+// broadcast element-wise. Free indices [k, j].
+//
+// The coordinate name `n` means the same domain in both calls — the compiler
+// enforces this. In NumPy, nothing stops you from argmax-ing axis 0 of one
+// tensor and max-ing axis 0 of a different-sized tensor.
+// ============================================================================
+
+let Ag[k in 0..2, n in 0..3] = (10 * k + n) as f32;
+let Bg[n in 0..3, j in 0..4] = (n * 100 + j) as f32;
+let chained = argmax[n](Ag[k, n]) as f32 * max[n](Bg[n, j]);
+chained;           // shape: (2, 4)
+
+// ============================================================================
+// 4: Triple-nested reduction: sum of max of min
+//
+// `sum[i](max[j](min[k](T[i, j, k])))` — three reductions nested.
+// i, j, and k are all contracted, so the result is scalar.
+//
+// In NumPy: `np.sum(np.max(np.min(A, axis=2), axis=1), axis=0)` — count
+// the axes backward when the tensor is >3D and you'll see why coordinate
+// names win.
+// ============================================================================
+
+let T[i in 0..2, j in 0..3, k in 0..2] =
+    (i * 100 + j * 10 + k) as f32;
+let triple = sum[i](max[j](min[k](T[i, j, k])));
+triple;            // scalar
+
+// ============================================================================
+// 5: Element-wise between two coordinate results
+//
+// `argmax[n](Cg[k, n]) as f32 + max[n](Dg[n, j])` — combining a selection
+// result with a reduction result. Both consume n, leaving [k] and [j].
+// The element-wise + broadcasts to shape [k, j] = (2, 4).
+//
+// NumPy: combine `np.argmax(A, axis=1)` and `np.max(B, axis=0)` — these
+// have different shapes and axis semantics. The mental model breaks at 3 AM.
+// ============================================================================
+
+let Cg[k in 0..2, n in 0..3] = (10 * k + n) as f32;
+let Dg[n in 0..3, j in 0..4] = (10 * n + j) as f32;
+let combined = argmax[n](Cg[k, n]) as f32 + max[n](Dg[n, j]);
+combined;          // shape: (2, 4)
+
+// ============================================================================
+// 6: Reduction with free index promotion — mixed domain
+//
+// `sum[k](max[n](Ag3[k, n])) + Bg3[i]` — the double-reduction produces a scalar,
+// Bg3[i] adds a free index i via broadcasting. Result shape: (4,).
+//
+// This is `np.sum(np.max(A, axis=1)) + B` in NumPy — the broadcast is
+// implicit and you have to ensure the shapes align. Here, the coordinate
+// story tells you why it works.
+// ============================================================================
+
+let Ag3[k in 0..2, n in 0..3] = (k * 10 + n) as f32;
+let Bg3[i in 0..4] = i as f32;
+let mixed = sum[k](max[n](Ag3[k, n])) + Bg3[i];
+mixed;             // shape: (4,)

@@ -942,6 +942,116 @@ coordinate `class` in x and y have the same label but different domains.
 Use an explicit cast or rename if this alignment is intended.
 ```
 
+## Inline Nesting
+
+Coordinate reductions and selections compose inside element-wise Einstein
+expressions. A reduction body can contain another reduction. A coordinate
+function call can appear inside a `let` without an explicit LHS, and the free
+indices are promoted to the output layout.
+
+### Reduction nested in a reduction body
+
+```rust
+let W[i in 0..4, k in 0..2] = i as f32 + k as f32;
+let X[k in 0..2, hidden in 0..3] = k as f32 * 10.0 + hidden as f32;
+let y = max[hidden](sum[k](W[i, k] * X[k, hidden]));
+// y shape: (4,) — k and hidden contracted, i survives
+```
+
+The inner `sum[k]` contracts `k`, producing an intermediate with free indices
+`[i, hidden]`. The outer `max[hidden]` contracts `hidden`, leaving only `i`.
+No temporary binding is needed between the two reductions.
+
+In NumPy this requires counting axes backward through two calls:
+
+```python
+y = np.max(np.sum(W[:, :, None] * X[None, :, :], axis=-1), axis=-1)
+```
+
+### Triple nesting
+
+```rust
+let T[i in 0..2, j in 0..3, k in 0..2] = (i * 100 + j * 10 + k) as f32;
+let total = sum[i](max[j](min[k](T[i, j, k])));
+// scalar — all three coordinates contracted
+```
+
+Three reductions nest directly. Each coordinate name says which axis is
+consumed. The NumPy equivalent must track axes by position and re-count after
+each contraction:
+
+```python
+total = np.sum(np.max(np.min(T, axis=2), axis=1), axis=0)
+```
+
+### Chained coordinate calls sharing a domain
+
+When two coordinate operations refer to the same domain, the compiler
+enforces that they agree:
+
+```rust
+let A[k in 0..2, n in 0..3] = (10 * k + n) as f32;
+let B[n in 0..3, j in 0..4] = (n * 100 + j) as f32;
+let D = argmax[n](A[k, n]) as f32 * max[n](B[n, j]);
+// D shape: (2, 4) — free indices [k, j]
+```
+
+`argmax[n]` selects an address in the `n` domain. `max[n]` reduces over `n`.
+Both consume `n`, and the resulting scalars broadcast element-wise over the
+free indices `[k, j]`. The coordinate name `n` is the same token in both
+calls — the compiler verifies that it denotes the same domain.
+
+In NumPy, nothing stops you from calling `np.argmax` along axis 1 of one
+tensor and `np.max` along axis 0 of a different-sized tensor. The positional
+API silently accepts the mismatch.
+
+### Element-wise expression as coordinate function argument
+
+A coordinate function can receive an inline Einstein expression directly:
+
+```rust
+fn id_axis[j](x: [f32; ..left, j, ..right]) -> [f32; ..left, j, ..right] { x }
+
+let E[i in 0..2] = i as f32;
+let F[j in 0..3] = j as f32;
+let R = id_axis[i](E[i] + F[j]);
+// R shape: (2, 3) — i passes through (appears in return type), j is free
+```
+
+The body `E[i] + F[j]` has free indices `[i, j]`. The coordinate argument `i`
+maps to the formal parameter `j`, which appears in the return type, so `i`
+survives in the output layout.
+
+### Reduction result combined with free index
+
+A scalar from nested reductions broadcasts against a free index:
+
+```rust
+let A[k in 0..2, n in 0..3] = (k * 10 + n) as f32;
+let B[i in 0..4] = i as f32;
+let y = sum[k](max[n](A[k, n])) + B[i];
+// y shape: (4,)
+```
+
+The double reduction `sum[k](max[n](...))` produces a scalar. Adding `B[i]`
+promotes `i` to the output layout via broadcasting.
+
+### Selection combined with reduction in one expression
+
+```rust
+let C[k in 0..2, n in 0..3] = (10 * k + n) as f32;
+let D[n in 0..3, j in 0..4] = (10 * n + j) as f32;
+let R = argmax[n](C[k, n]) as f32 + max[n](D[n, j]);
+// R shape: (2, 4)
+```
+
+A selection (`argmax`) and a reduction (`max`) over the same domain `n`
+appear in a single element-wise addition. Both sides consume `n`; the
+surviving coordinates `[k]` and `[j]` broadcast to `(2, 4)`.
+
+See the runnable examples in
+[`examples/demos/coordinate_nesting.ein`](../examples/demos/coordinate_nesting.ein).
+
 ## Summary
 
 The design keeps the call-site burden low while preserving the facts that

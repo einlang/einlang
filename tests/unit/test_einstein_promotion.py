@@ -195,6 +195,80 @@ class TestDefaultIndexOrder:
         assert D.shape == (2, 3), f"expected shape (2, 3), got {D.shape}"
 
 
+    # ── Inline nesting: coordinate function calls ──
+
+    def test_coordinate_func_with_element_wise_body_promotes_free(self, compiler, runtime):
+        """let D = id_axis[i](B[i] + C[j]) — coordinate i passes through (in return type), free [i, j] → (2, 3)."""
+        source = """
+        fn id_axis[j](x: [f32; ..left, j, ..right]) -> [f32; ..left, j, ..right] { x }
+        let B[i in 0..2] = i as f32;
+        let C[j in 0..3] = j as f32;
+        let D = id_axis[i](B[i] + C[j]);
+        D;
+        """
+        result = _execute(source, compiler, runtime)
+        D = result.outputs['D']
+        assert D.shape == (2, 3), f"expected shape (2, 3), got {D.shape}"
+
+    def test_coordinate_func_with_nested_reduction_body(self, compiler, runtime):
+        """let y = max[hidden](sum[k](W[i, k] * X[k, hidden])) — reduction nested in reduction body."""
+        source = """
+        let W[i in 0..4, k in 0..2] = i as f32 + k as f32;
+        let X[k in 0..2, hidden in 0..3] = k as f32 * 10.0 + hidden as f32;
+        let y = max[hidden](sum[k](W[i, k] * X[k, hidden]));
+        y;
+        """
+        result = _execute(source, compiler, runtime)
+        y = result.outputs['y']
+        assert y.shape == (4,), f"expected shape (4,), got {y.shape}"
+
+    def test_element_wise_between_coordinate_func_results(self, compiler, runtime):
+        """let D = argmax[n](A[k, n]) + max[n](B[n, j]) — results used in element-wise add."""
+        source = """
+        let A[k in 0..2, n in 0..3] = (10 * k + n) as f32;
+        let B[n in 0..3, j in 0..4] = (10 * n + j) as f32;
+        let D = argmax[n](A[k, n]) as f32 + max[n](B[n, j]);
+        D;
+        """
+        result = _execute(source, compiler, runtime)
+        D = result.outputs['D']
+        assert D.shape == (2, 4), f"expected shape (2, 4), got {D.shape}"
+
+    def test_nested_reductions_with_free_index_promotion(self, compiler, runtime):
+        """let y = sum[k](max[n](A[k, n])) + B[i] — k,n consumed, i free → [i]."""
+        source = """
+        let A[k in 0..2, n in 0..3] = (k * 10 + n) as f32;
+        let B[i in 0..4] = i as f32;
+        let y = sum[k](max[n](A[k, n])) + B[i];
+        y;
+        """
+        result = _execute(source, compiler, runtime)
+        y = result.outputs['y']
+        assert y.shape == (4,), f"expected shape (4,), got {y.shape}"
+
+    def test_triple_nested_reduction_with_where(self, compiler, runtime):
+        """let z = sum[i](max[j](min[k](A[i, j, k]))) — all contracted → scalar."""
+        source = """
+        let A[i in 0..2, j in 0..3, k in 0..2] = (i * 100 + j * 10 + k) as f32;
+        let z = sum[i](max[j](min[k](A[i, j, k])));
+        z;
+        """
+        result = _execute(source, compiler, runtime)
+        assert 'z' in result.outputs
+
+    def test_chained_coordinate_calls_in_expression(self, compiler, runtime):
+        """let D = argmax[n](A[k, n]) as f32 * max[n](B[n, j]) — free [k, j] from two results."""
+        source = """
+        let A[k in 0..2, n in 0..3] = (k * 10 + n) as f32;
+        let B[n in 0..3, j in 0..4] = (n * 100 + j) as f32;
+        let D = argmax[n](A[k, n]) as f32 * max[n](B[n, j]);
+        D;
+        """
+        result = _execute(source, compiler, runtime)
+        D = result.outputs['D']
+        assert D.shape == (2, 4), f"expected shape (2, 4), got {D.shape}"
+
+
 class TestDefaultIndexOrderValues:
     """Verify correctness of computed values with default index order."""
 
@@ -225,3 +299,19 @@ class TestDefaultIndexOrderValues:
         c_val = result.outputs['c']
         # 1*4 + 2*5 + 3*6 = 32
         assert c_val == 32, f"expected 32, got {c_val}"
+
+
+class TestCoordinateNestingExample:
+    """Executes the coordinate_nesting.ein demo and validates its outputs."""
+
+    def test_nesting_demo_runs_and_produces_correct_shapes(self, compiler, runtime):
+        from pathlib import Path
+        example_path = Path(__file__).parent.parent.parent / "examples" / "demos" / "coordinate_nesting.ein"
+        source = example_path.read_text(encoding="utf-8")
+        # The example file has multiple sections each ending with an expression;
+        # only the last one (`mixed;`) is the program result.
+        result = compile_and_execute(source, compiler, runtime, source_file=str(example_path))
+        assert result.success, f"Compilation failed: {result.get_errors()}"
+        mixed = result.outputs.get('mixed')
+        assert mixed is not None, "expected 'mixed' in outputs"
+        assert mixed.shape == (4,), f"expected shape (4,), got {mixed.shape}"
