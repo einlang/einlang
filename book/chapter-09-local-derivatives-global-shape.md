@@ -323,16 +323,14 @@ must reverse it. Storage must be planned. The audit kit needs one new
 tool: a recurrence edge that says which survivor carries the arrow of
 time.
 
-<div class="pause" markdown="1">
-**Pause.** Find one gradient in your own codebase — a `backward()` call, a
-`grad` computation, a hand-written pullback. Pick one parameter. Ask the four
-passes: (1) What is the local scalar derivative? (2) What coordinates does the
-denominator own? (3) What output coordinates did one denominator cell
-influence? (4) What are the reduction coordinates? If you cannot answer pass 3
-without tracing into the forward computation, the notation hid a fact the
-gradient needed. Write down the reduction coordinates anyway. They are the
-signature of the sharing the forward pass did not state.
-</div>
+> **Pause.** Find one gradient in your own codebase — a `backward()` call, a
+> `grad` computation, a hand-written pullback. Pick one parameter. Ask the four
+> passes: (1) What is the local scalar derivative? (2) What coordinates does the
+> denominator own? (3) What output coordinates did one denominator cell
+> influence? (4) What are the reduction coordinates? If you cannot answer pass 3
+> without tracing into the forward computation, the notation hid a fact the
+> gradient needed. Write down the reduction coordinates anyway. They are the
+> signature of the sharing the forward pass did not state.
 
 ## Try It
 

@@ -480,17 +480,15 @@ product to a Transformer block, but the questions have not changed. That is
 the promise of a small notation: the reading discipline scales because the
 coordinate roles scale, even when the formulas do not.
 
-<div class="pause" markdown="1">
-**Pause.** Open your own attention implementation — or the one you copied from
-a library. Find the line that computes the attention output. Answer three
-questions: (1) Which coordinate is `i` (the asker) and which is `j` (the
-answerer)? (2) Does the gather read `V` at index `i` or index `j`? (3) If
-`query_len == key_len`, would a swap of `i` and `j` change the shape? If the
-answer to (3) is no, you have a silent bug waiting to happen. The
-communication protocol — i asks, j answers, d carries — is the contract. If
-the source does not name the participants, the contract is a convention. And
-conventions rot.
-</div>
+> **Pause.** Open your own attention implementation — or the one you copied from
+> a library. Find the line that computes the attention output. Answer three
+> questions: (1) Which coordinate is `i` (the asker) and which is `j` (the
+> answerer)? (2) Does the gather read `V` at index `i` or index `j`? (3) If
+> `query_len == key_len`, would a swap of `i` and `j` change the shape? If the
+> answer to (3) is no, you have a silent bug waiting to happen. The
+> communication protocol — i asks, j answers, d carries — is the contract. If
+> the source does not name the participants, the contract is a convention. And
+> conventions rot.
 
 ## Try It
 

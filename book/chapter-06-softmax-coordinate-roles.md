@@ -547,16 +547,14 @@ sensitivity along those routes — and if the forward notation named the
 routes, the gradient is mechanical. If it hid them, the gradient is a
 guess.
 
-<div class="pause" markdown="1">
-**Pause.** Open your own codebase and find a softmax call. Any softmax call.
-Now answer three questions from the code alone: (1) Which coordinate is being
-normalized? (2) Which coordinates survive? (3) Which coordinate appears in
-both a `sum[...]` and as a survivor? If you cannot answer all three from the
-source without checking upstream variable names or documentation, the `dim`
-argument is hiding something. Write the answers down. The three roles — `q`,
-`k`, `j` — are the map. Chapter 7 will run them backward through the chain
-rule.
-</div>
+> **Pause.** Open your own codebase and find a softmax call. Any softmax call.
+> Now answer three questions from the code alone: (1) Which coordinate is being
+> normalized? (2) Which coordinates survive? (3) Which coordinate appears in
+> both a `sum[...]` and as a survivor? If you cannot answer all three from the
+> source without checking upstream variable names or documentation, the `dim`
+> argument is hiding something. Write the answers down. The three roles — `q`,
+> `k`, `j` — are the map. Chapter 7 will run them backward through the chain
+> rule.
 
 ## Try It
 

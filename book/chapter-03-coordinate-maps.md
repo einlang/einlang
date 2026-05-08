@@ -149,33 +149,14 @@ packs are carried. The function does not assume rank. It only requires that
 `j` occur before `k` in the argument layout for this definition; a companion
 definition can cover the reverse order if a library wants both directions.
 
-<figure class="axis-map-figure">
-  <p class="axis-map-title">Named Axis Snapshot: Transpose</p>
-  <div class="axis-map-flow">
-    <div class="axis-snapshot">
-      <p class="axis-snapshot-label">Input `x`</p>
-      <ul class="axis-list">
-        <li class="axis-chip axis-chip-fixed">..batch</li>
-        <li class="axis-chip axis-chip-moved">j</li>
-        <li class="axis-chip axis-chip-moved">i</li>
-      </ul>
-    </div>
-    <div class="axis-map-arrow">-></div>
-    <div class="axis-snapshot">
-      <p class="axis-snapshot-label">Result `result`</p>
-      <ul class="axis-list">
-        <li class="axis-chip axis-chip-fixed">..batch</li>
-        <li class="axis-chip axis-chip-moved">i</li>
-        <li class="axis-chip axis-chip-moved">j</li>
-      </ul>
-    </div>
-  </div>
-  <div class="axis-map-rules">
-    <span>preserve: ..batch</span>
-    <span>swap: result[..., i, j] reads x[..., j, i]</span>
-  </div>
-  <figcaption>The prefix is carried unchanged; only the two trailing coordinates trade places.</figcaption>
-</figure>
+**Named Axis Snapshot: Transpose**
+
+Input `x`: `[..batch, j, i]`  →  Result `result`: `[..batch, i, j]`
+
+- preserve: `..batch`
+- swap: `result[..., i, j]` reads `x[..., j, i]`
+
+The prefix is carried unchanged; only the two trailing coordinates trade places.
 
 ```
    Transpose as Coordinate Rewrite
@@ -289,36 +270,15 @@ let result[b, c, i, j] = input[
 ];
 ```
 
-<figure class="axis-map-figure">
-  <p class="axis-map-title">Named Axis Snapshot: Depth to Space</p>
-  <div class="axis-map-flow">
-    <div class="axis-snapshot">
-      <p class="axis-snapshot-label">Input `input`</p>
-      <ul class="axis-list">
-        <li class="axis-chip axis-chip-fixed">b</li>
-        <li class="axis-chip axis-chip-packed">c * r * r + block</li>
-        <li class="axis-chip axis-chip-moved">i / r</li>
-        <li class="axis-chip axis-chip-moved">j / r</li>
-      </ul>
-    </div>
-    <div class="axis-map-arrow">-></div>
-    <div class="axis-snapshot">
-      <p class="axis-snapshot-label">Result `result`</p>
-      <ul class="axis-list">
-        <li class="axis-chip axis-chip-fixed">b</li>
-        <li class="axis-chip axis-chip-packed">c</li>
-        <li class="axis-chip axis-chip-moved">i</li>
-        <li class="axis-chip axis-chip-moved">j</li>
-      </ul>
-    </div>
-  </div>
-  <div class="axis-map-rules">
-    <span>block = (i % r) * r + (j % r)</span>
-    <span>old depth = c * (r * r) + block</span>
-    <span>old spatial = (i / r, j / r)</span>
-  </div>
-  <figcaption>The new spatial coordinates split into quotients and remainders; the remainders are packed back into the old depth coordinate.</figcaption>
-</figure>
+**Named Axis Snapshot: Depth to Space**
+
+Input `input`: `[b, c*r*r+block, i/r, j/r]`  →  Result `result`: `[b, c, i, j]`
+
+- `block = (i % r) * r + (j % r)`
+- `old depth = c * (r * r) + block`
+- `old spatial = (i / r, j / r)`
+
+The new spatial coordinates split into quotients and remainders; the remainders are packed back into the old depth coordinate.
 
 The operation expands spatial resolution by moving information out of depth.
 The formula explains how. The old spatial coordinates are the quotients:
@@ -384,31 +344,15 @@ The inverse map is:
 let x[row, col] = flat[row * width + col];
 ```
 
-<figure class="axis-map-figure">
-  <p class="axis-map-title">Named Axis Snapshot: Flatten and Unflatten</p>
-  <div class="axis-map-flow">
-    <div class="axis-snapshot">
-      <p class="axis-snapshot-label">Two-dimensional view</p>
-      <ul class="axis-list">
-        <li class="axis-chip axis-chip-moved">row</li>
-        <li class="axis-chip axis-chip-moved">col</li>
-      </ul>
-    </div>
-    <div class="axis-map-arrow">-></div>
-    <div class="axis-snapshot">
-      <p class="axis-snapshot-label">Flat view</p>
-      <ul class="axis-list">
-        <li class="axis-chip axis-chip-packed">p = row * width + col</li>
-      </ul>
-    </div>
-  </div>
-  <div class="axis-map-rules">
-    <span>unpack: row = p / width</span>
-    <span>unpack: col = p % width</span>
-    <span>pack: p = row * width + col</span>
-  </div>
-  <figcaption>The same size can preserve or destroy intent depending on whether the packed coordinate keeps its row and column story visible.</figcaption>
-</figure>
+**Named Axis Snapshot: Flatten and Unflatten**
+
+Two-dimensional: `[row, col]`  →  Flat: `[p = row * width + col]`
+
+- unpack: `row = p / width`
+- unpack: `col = p % width`
+- pack: `p = row * width + col`
+
+The same shape can preserve or destroy intent depending on whether the packed coordinate keeps its row and column story visible.
 
 Now row and column are packed into one position. Again, the formula is not
 about copying memory first; it explains which old coordinate
