@@ -59,8 +59,11 @@ prof/
 *.png
 
 # Book build artifacts
+book/_tmp.tex
+book/the-name-in-the-bracket.tex
 book/_combined.md
 book/_combined.tex
+book/_combined.pdf
 
 # Compiler IR dumps (EINLANG_DUMP_IR*, EINLANG_DUMP_FINAL_IR)
 ir_dump/
@@ -81,3 +84,4 @@ examples/*/samples/
 !examples/deit_tiny/samples/
 !examples/deit_tiny/samples/**
 examples/whisper_tiny/tokenizer.json
+book/build.sh

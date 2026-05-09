@@ -1,7 +1,8 @@
 \PassOptionsToPackage{unicode=true}{hyperref} % options for packages loaded elsewhere
 \PassOptionsToPackage{hyphens}{url}
+\PassOptionsToPackage{dvipsnames,svgnames*,x11names*}{xcolor}
 %
-\documentclass[]{article}
+\documentclass[11pt,titlepage]{article}
 \usepackage{lmodern}
 \usepackage{amssymb,amsmath}
 \usepackage{ifxetex,ifluatex}
@@ -27,11 +28,18 @@
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{6pt plus 2pt minus 1pt}
 }
+\usepackage{xcolor}
 \usepackage{hyperref}
 \hypersetup{
-            pdfborder={0 0 0},
+            pdftitle={The Name in the Bracket},
+            pdfauthor={einlang},
+            colorlinks=true,
+            linkcolor=Maroon,
+            citecolor=Blue,
+            urlcolor=Blue,
             breaklinks=true}
 \urlstyle{same}  % don't use monospace font for urls
+\usepackage[margin=0.8in]{geometry}
 \usepackage{color}
 \usepackage{fancyvrb}
 \newcommand{\VerbBar}{|}
@@ -102,10 +110,18 @@
 \makeatother
 
 
-\date{}
+\title{The Name in the Bracket}
+\author{einlang}
+\date{2026-05-10}
 
 \begin{document}
+\maketitle
 
+{
+\hypersetup{linkcolor=}
+\setcounter{tocdepth}{2}
+\tableofcontents
+}
 \newpage
 
 \hypertarget{prologue-the-error-that-didnt-error}{%
@@ -172,7 +188,7 @@ notice.
 
 This book is about closing that gap.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 The book you are holding is organized around a single pedagogical debt,
 borrowed from the opening pages of \emph{Structure and Interpretation of
@@ -239,7 +255,7 @@ nothing to ask. They catch the class of bugs that shape checks cannot.
 
 Chapters 12, 15, and 16 exist to make these questions automatic.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 A word about what this book is not.
 
@@ -257,8 +273,6 @@ Let's begin.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-1-every-dimension-deserves-a-name}{%
 \section{Chapter 1 · Every Dimension Deserves a
 Name}\label{chapter-1-every-dimension-deserves-a-name}}
@@ -272,7 +286,7 @@ abstraction.''
 
 \emph{Primitives · Naming coordinates}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 What is a tensor?
 
@@ -336,7 +350,7 @@ This is the shape-meanings gap. The shape says \emph{how many}. The role
 says \emph{which one}. Every framework knows the shape. None of them
 know the role.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 Let's make this concrete. Here is a reduction:
 
@@ -377,7 +391,7 @@ any particular notation. You can practice it in NumPy docstrings, in
 einops patterns, in the type annotations of your own code. The habit is
 the payload. The syntax is only the delivery mechanism.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 Before we move on, let's be precise about what ``naming a coordinate''
 means.
@@ -404,7 +418,7 @@ write \texttt{mean{[}channel{]}(x)}, you are using the name directly.
 The position becomes an implementation detail---the compiler's problem,
 not yours.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{an-analogy-the-parking-lot}{%
 \subsection{An Analogy: The Parking
@@ -430,7 +444,7 @@ A named-coordinate notation is like a ticket that says ``the blue Honda
 Civic'' instead of ``D-7.'' The car may move, but the description finds
 it.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 This chapter has said nothing you couldn't have figured out from fifteen
 minutes with a debugger and a whiteboard. That is by design. The ideas
@@ -453,8 +467,6 @@ name coordinates: so the code says what it means, not where it is.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-2-moving-flowers-without-losing-the-trail}{%
 \section{Chapter 2 · Moving Flowers Without Losing the
 Trail}\label{chapter-2-moving-flowers-without-losing-the-trail}}
@@ -467,7 +479,7 @@ Trail}\label{chapter-2-moving-flowers-without-losing-the-trail}}
 
 \emph{Primitives · Coordinate permutation}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 A permutation is an operation that changes the order of dimensions
 without changing any values. It is the simplest tensor operation there
@@ -510,7 +522,7 @@ The root cause: \texttt{(0,\ 3,\ 1,\ 2)} describes a rearrangement of
 rearrangement of \emph{identities}---``move the dimension called
 \texttt{channel} to the front, and keep everything else in order.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{an-analogy-driving-directions}{%
 \subsection{An Analogy: Driving
@@ -614,7 +626,7 @@ operations become self-documenting.} The same line of code that
 instructs the compiler also informs the reader. There is no separate
 channel of documentation that can drift out of sync.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 Positional permutation is not evil. It is the right abstraction for a
 compiler pass that only needs to know ``move this stride to that
@@ -641,8 +653,6 @@ discipline.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-3-a-small-farewell}{%
 \section{Chapter 3 · A Small
 Farewell}\label{chapter-3-a-small-farewell}}
@@ -656,7 +666,7 @@ it free to concentrate on more advanced problems.''
 
 \emph{Primitives · Coordinate elimination and reduction}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 A permutation moves coordinates around. A reduction makes one disappear.
 
@@ -676,7 +686,7 @@ tensor operations where the eliminated coordinate is named
 explicitly---where the code says \emph{what was lost}, not just
 \emph{where it used to live}.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{rectangular-declarations}{%
 \subsection{Rectangular Declarations}\label{rectangular-declarations}}
@@ -724,7 +734,7 @@ The index slots in the declaration bracket can take four forms:
   adjacent axes. We'll meet these in the next chapter.
 \end{itemize}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{reduction}{%
 \subsection{Reduction}\label{reduction}}
@@ -780,7 +790,7 @@ In a positional API, these would be \texttt{matrix.sum(dim=1)} and
 \texttt{matrix.sum(dim=0)}. The reader must remember which position is
 rows and which is columns. The code does not help.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{matrix-multiplication}{%
 \subsection{Matrix Multiplication}\label{matrix-multiplication}}
@@ -834,7 +844,7 @@ wrong---if you write \texttt{B{[}j,\ k{]}} instead of
 \texttt{B{[}k,\ j{]}}---the compiler catches it, because \texttt{k}'s
 range from \texttt{A} won't match \texttt{j}'s range from \texttt{B}.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{how-to-read-a-reduction-the-two-column-ledger}{%
 \subsection{How to Read a Reduction: The Two-Column
@@ -933,7 +943,7 @@ This takes five seconds. It catches the bug where
 \texttt{sum{[}class{]}} silently became \texttt{sum{[}batch{]}} after a
 refactoring.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{what-weve-just-learned}{%
 \subsection{What We've Just Learned}\label{what-weve-just-learned}}
@@ -985,8 +995,6 @@ never would.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-4-copy-and-a-promise}{%
 \section{Chapter 4 · Copy, and a
 Promise}\label{chapter-4-copy-and-a-promise}}
@@ -999,7 +1007,7 @@ Promise}\label{chapter-4-copy-and-a-promise}}
 
 \emph{Primitives · Broadcasting}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 Broadcasting is one of the most convenient features of modern tensor
 frameworks. It lets you write \texttt{x\ +\ bias} when \texttt{x} has
@@ -1030,7 +1038,7 @@ loaded it at the wrong shape---broadcasting silently smears the wrong
 values across 32 batch elements. The shapes are compatible. The result
 is wrong.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{broadcasting-in-einlang}{%
 \subsection{Broadcasting in einlang}\label{broadcasting-in-einlang}}
@@ -1088,7 +1096,7 @@ match. The broadcast happens. But \emph{which coordinate was broadcast
 over}? You have to know the shapes to answer that. And if the shapes
 change upstream, the answer changes with them, silently.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{named-rest-..batch}{%
 \subsection{\texorpdfstring{Named Rest:
@@ -1125,7 +1133,7 @@ a \texttt{head} dimension between \texttt{batch} and \texttt{time},
 dimension, \texttt{..batch} shrinks. The code does not need to change,
 because the code was written in terms of \emph{roles}, not positions.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-principle-of-explicit-omission}{%
 \subsection{The Principle of Explicit
@@ -1185,8 +1193,6 @@ the pack.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-5-when-promises-chain-together}{%
 \section{Chapter 5 · When Promises Chain
 Together}\label{chapter-5-when-promises-chain-together}}
@@ -1200,7 +1206,7 @@ Together}\label{chapter-5-when-promises-chain-together}}
 \emph{Primitives to Combinations · Broadcast self-audit, where clauses,
 and the first look at gradients}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 Chapter 4 ended with a principle: when a term omits a coordinate, it
 promises independence from that coordinate. This chapter asks what
@@ -1213,7 +1219,7 @@ We are crossing the bridge from primitives to combinations. The
 operations are still elementary, but we are about to compose them in
 ways that reveal hidden structure.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-broadcast-self-audit}{%
 \subsection{The Broadcast Self-Audit}\label{the-broadcast-self-audit}}
@@ -1270,7 +1276,7 @@ These three questions are the broadcast self-audit. They cost nothing to
 ask. They catch the class of bugs where a broadcast is shape-correct but
 semantically wrong.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{introducing-y-x}{%
 \subsection{\texorpdfstring{Introducing
@@ -1307,7 +1313,7 @@ didn't intend.
 optimization tool. Point it at any broadcast. The shape of the result
 will tell you whether the broadcast contract holds.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-where-clause}{%
 \subsection{\texorpdfstring{The \texttt{where}
@@ -1353,7 +1359,7 @@ operations. It is the natural extension of the idea that declarations
 state facts over coordinate domains. A where clause narrows the domain
 over which the fact holds. The syntax reflects the semantics directly.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{from-primitives-to-combinations}{%
 \subsection{From Primitives to
@@ -1396,8 +1402,6 @@ stays intact; the where clause scopes the domain, not the shape.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-6-putting-the-pieces-together}{%
 \section{Chapter 6 · Putting the Pieces
 Together}\label{chapter-6-putting-the-pieces-together}}
@@ -1410,7 +1414,7 @@ Together}\label{chapter-6-putting-the-pieces-together}}
 
 \emph{Combinations · Meeting einlang}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 We have spent five chapters learning to name coordinates. We name them
 when they survive, when they are consumed, when they are copied, and
@@ -1433,7 +1437,7 @@ preparation for it. Everything after this chapter builds on it.
 
 And at the end of the chapter, we give the language a name.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-softmax-decomposition}{%
 \subsection{The Softmax Decomposition}\label{the-softmax-decomposition}}
@@ -1471,7 +1475,7 @@ has to check that \texttt{j} in the \texttt{max} and \texttt{k} in the
 This is not wrong. It is just local. The coordinate story is told one
 statement at a time.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-coordinate-aware-function}{%
 \subsection{The Coordinate-Aware
@@ -1564,7 +1568,7 @@ batch element. This is a one-character bug (\texttt{b} instead of
 function signature says \texttt{b} should survive in \texttt{..left}.
 The coordinate contract catches the error at the call site.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{what-just-happened}{%
 \subsection{What Just Happened}\label{what-just-happened}}
@@ -1584,7 +1588,7 @@ information that the primitives established.
 The rest of this chapter names the language and explores what
 coordinate-aware functions unlock.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{one-coordinate-three-jobs}{%
 \subsection{One Coordinate, Three
@@ -1726,7 +1730,7 @@ reconstructing it from shape arithmetic.
 Einlang is the microscope. The coordinate habit is the specimen. This
 book teaches both.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{composition-without-pipelines}{%
 \subsection{Composition Without
@@ -1757,7 +1761,7 @@ what's already there. Pipeline operators, in particular, add a new
 control-flow concept for a benefit---reading transformations in
 execution order---that named \texttt{let} bindings already provide.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{what-we-carry-forward}{%
 \subsection{What We Carry Forward}\label{what-we-carry-forward}}
@@ -1793,8 +1797,6 @@ contract, and the compiler enforces it at every call site.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-7-the-refactoring-trap}{%
 \section{Chapter 7 · The Refactoring
 Trap}\label{chapter-7-the-refactoring-trap}}
@@ -1809,7 +1811,7 @@ the easiest person to fool.''
 \emph{Combinations · Immutability, where-clause bindings, and boolean
 guards}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 There is a species of refactoring that makes code shorter, cleaner, and
 wrong.
@@ -1830,7 +1832,7 @@ notation, that assumption is frequently false. In a named-coordinate
 notation, the syntax itself prevents the most common forms of semantic
 collapse.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{immutability-the-binding-that-doesnt-change}{%
 \subsection{Immutability: The Binding That Doesn't
@@ -1867,7 +1869,7 @@ Immutability eliminates this class of bug entirely. A \texttt{let}
 binding is a definition, not an assignment. It states a fact. Facts
 don't change.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-where-clause-naming-without-cluttering}{%
 \subsection{The Where Clause: Naming Without
@@ -1920,7 +1922,7 @@ safety. When you extract a computation into a where-clause binding, you
 are not changing the scope of any name visible to other code. You are
 localizing the change. Local changes are easier to audit.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{boolean-guards-filtering-without-masks}{%
 \subsection{Boolean Guards: Filtering Without
@@ -1960,7 +1962,7 @@ The where clause avoids all of this by attaching the filter to the
 reduction syntactically. The filter's domain is the reduction's domain.
 There is no separate mask whose shape must be audited.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{refactoring-with-names}{%
 \subsection{Refactoring with Names}\label{refactoring-with-names}}
@@ -2015,7 +2017,7 @@ contract is in the type signature. The compiler checks it at every call
 site. The refactoring did not hide anything, because the syntax had a
 place to put the facts.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 When you refactor, you are making a bet: that the new, shorter code is
 equivalent to the old, longer code. In a positional notation, verifying
@@ -2058,8 +2060,6 @@ tracks that difference.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-8-the-challenge-of-walking-backward}{%
 \section{Chapter 8 · The Challenge of Walking
 Backward}\label{chapter-8-the-challenge-of-walking-backward}}
@@ -2073,7 +2073,7 @@ you guess.''
 
 \emph{Combinations, mirrored · Automatic differentiation}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 Chapter 5 introduced \texttt{@y\ /\ @x} as a diagnostic tool for
 broadcast contracts. We used it in the simplest possible
@@ -2085,7 +2085,7 @@ multiplication, through convolution, through functions we define
 ourselves. At each step, the coordinate names tell the story of what the
 gradient must sum over---and what happens when the names are wrong.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-gradient-as-coordinate-subtraction}{%
 \subsection{The Gradient as Coordinate
@@ -2110,7 +2110,7 @@ broadcast, and every forward broadcast becomes a backward reduction.
 
 Let's trace this for matrix multiplication.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \begin{figure}
 \centering
@@ -2190,7 +2190,7 @@ just matrix multiplication. It works for convolutions, for bilinear
 layers, for attention score computations. The coordinates tell you what
 to sum over. The rest is just multiplication with the other operands.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-five-step-pullback-procedure}{%
 \subsection{The Five-Step Pullback
@@ -2239,7 +2239,7 @@ einlang. For convolution, the same five steps produce the weight
 gradient with the correct index arithmetic. The coordinate set
 subtraction is the engine. The five steps are the manual.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{convolution-gradients}{%
 \subsection{Convolution Gradients}\label{convolution-gradients}}
@@ -2274,7 +2274,7 @@ because they \emph{are} \texttt{weight}'s coordinates.
 Again: set subtraction. The formula is mechanically derivable from the
 coordinate sets.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{custom-differentiation-with-fn}{%
 \subsection{\texorpdfstring{Custom Differentiation with
@@ -2320,7 +2320,7 @@ passes the gradient through a discrete operation. - The derivative is
 simpler to write by hand than to let the compiler derive (rare, but it
 happens).
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{recurrence-and-gradients}{%
 \subsection{Recurrence and Gradients}\label{recurrence-and-gradients}}
@@ -2349,7 +2349,7 @@ insight: \textbf{the coordinate structure of a recurrence determines the
 coordinate structure of its gradient.} Forward and backward share the
 same index domain. The same bracket syntax serves both.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{where-clauses-in-the-backward-pass}{%
 \subsection{Where Clauses in the Backward
@@ -2372,7 +2372,7 @@ The consistency is automatic. You don't write a separate backward
 filter. The where clause defines the domain of the operation, and the
 domain applies in both directions.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 The gradient is not a separate computation from the forward pass. It is
 the forward pass, read backward. The coordinate names that organize the
@@ -2407,8 +2407,6 @@ broadcast becomes a backward reduction, and the names stay the same.?
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-9-updates-with-names}{%
 \section{Chapter 9 · Updates, with
 Names}\label{chapter-9-updates-with-names}}
@@ -2422,7 +2420,7 @@ it, and join the dance.''
 
 \emph{Combinations · Parameter updates and recurrence syntax}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 A trained model is a collection of parameter tensors whose values have
 been adjusted by an optimizer. The optimizer's job is to nudge each
@@ -2439,7 +2437,7 @@ layers. These distinctions are invisible in a parameter tensor named
 \texttt{w} with shape \texttt{(128,\ 64)}. They become visible when the
 tensor carries coordinate names.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{parameters-vs.hyperparameters}{%
 \subsection{Parameters
@@ -2476,7 +2474,7 @@ the names. When your tensor framework only records shapes, you can't
 name the axes; when you can't name the axes, you can't write a
 regularizer that distinguishes them.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{recurrence-for-parameter-updates}{%
 \subsection{Recurrence for Parameter
@@ -2507,7 +2505,7 @@ steps. You can compute
 change. The time dimension is not hidden inside a mutable variable---it
 is a coordinate like any other.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{declaration-bracket-rules}{%
 \subsection{Declaration Bracket Rules}\label{declaration-bracket-rules}}
@@ -2566,7 +2564,7 @@ hasn't been computed yet. This is not an arbitrary restriction. It is
 the mathematical definition of a recurrence: each value depends only on
 values with strictly smaller indices.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-shape-of-optimization}{%
 \subsection{The Shape of Optimization}\label{the-shape-of-optimization}}
@@ -2599,7 +2597,7 @@ simpler style with separate \texttt{let} bindings per step. But the
 recurrence form makes the temporal structure explicit, and explicitness
 is what the coordinate habit demands.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 We have now covered the combination layer. We can write functions that
 carry coordinate contracts (Chapter 6), refactor them safely (Chapter
@@ -2622,8 +2620,6 @@ catches what the position-based index would silently accept.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-10-building-your-own-blocks}{%
 \section{Chapter 10 · Building Your Own
 Blocks}\label{chapter-10-building-your-own-blocks}}
@@ -2638,7 +2634,7 @@ some.''
 \emph{Abstraction · Coordinate-aware functions, packs, selection
 reductions}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 Primitives let you say simple things. Combinations let you compose
 simple things into complex ones. Abstraction lets you name the complex
@@ -2651,7 +2647,7 @@ operation respects coordinate identities. You are building new
 operations whose coordinate identities are part of their public
 contract.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-anatomy-of-a-coordinate-aware-function}{%
 \subsection{The Anatomy of a Coordinate-Aware
@@ -2708,7 +2704,7 @@ it doesn't---if you accidentally consumed \texttt{coord} without
 reconstructing it, or dropped a pack---the compiler reports a coordinate
 mismatch.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{packs-and-polymorphism}{%
 \subsection{Packs and Polymorphism}\label{packs-and-polymorphism}}
@@ -2763,7 +2759,7 @@ Pack parameters make coordinate-aware functions rank-polymorphic: the
 same function works on 2D, 3D, 4D, or higher-dimensional tensors, as
 long as the coordinate of interest exists somewhere in the shape.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{selection-reductions}{%
 \subsection{Selection Reductions}\label{selection-reductions}}
@@ -2798,7 +2794,7 @@ Selection reductions are the natural complement to ordinary reductions.
 the coordinate from the result. Both name it in the same bracket syntax.
 Both participate in the coordinate contract system.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{one-skeleton-four-normalizations}{%
 \subsection{One Skeleton, Four
@@ -2879,7 +2875,7 @@ This is abstraction: recognizing a pattern, naming it, and reusing it.
 The pattern is ``normalize with named coordinates.'' Each instance fills
 in the specific coordinates. The skeleton is constant.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{coordinate-facts-and-their-flow}{%
 \subsection{Coordinate Facts and Their
@@ -2914,7 +2910,7 @@ caller, through the function body, and out to the result. The function
 doesn't need to re-derive what the caller already knew. The facts
 propagate.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{abstraction-as-naming}{%
 \subsection{Abstraction as Naming}\label{abstraction-as-naming}}
@@ -2960,8 +2956,6 @@ coordinate that was consumed tells you what \texttt{pred} indexes into.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-11-names-in-time}{%
 \section{Chapter 11 · Names in Time}\label{chapter-11-names-in-time}}
 
@@ -2974,7 +2968,7 @@ coordinate that was consumed tells you what \texttt{pred} indexes into.
 \emph{Abstraction extended · Recurrence relations, directional
 constraints, and gradients through time}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 A tensor is a map from coordinates to values. When one of those
 coordinates represents time, the map acquires a direction. The value at
@@ -2994,7 +2988,7 @@ definition.
 Einlang's recurrence syntax is designed to make the direction of time
 visible in the source and enforceable by the compiler.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{recurrence-syntax-revisited}{%
 \subsection{Recurrence Syntax,
@@ -3037,7 +3031,7 @@ domain \texttt{2..8}. The body says \emph{how} to compute it---by
 referencing elements at indices \texttt{n-1} and \texttt{n-2}. The left
 side is a definition. The right side is a computation.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-backward-only-constraint}{%
 \subsection{The Backward-Only
@@ -3081,7 +3075,7 @@ matching dimensions) is rejected. This catches the ``read the future''
 bug at compile time, rather than silently producing a value that happens
 to be in memory from a previous run.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{recurrence-and-autodiff}{%
 \subsection{Recurrence and Autodiff}\label{recurrence-and-autodiff}}
@@ -3114,7 +3108,7 @@ coordinate like any other. The fact that it represents time, with a
 directional constraint, is additional structure that the compiler uses
 to order computation, but it does not change the differentiation rules.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{time-steps-are-not-loops}{%
 \subsection{Time Steps Are Not Loops}\label{time-steps-are-not-loops}}
@@ -3184,7 +3178,7 @@ is whatever the loop body does---invisible to the compiler, discoverable
 only by running the code or reasoning about it carefully. The recurrence
 syntax makes the causal structure visible in the declaration.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{storage-follows-observation}{%
 \subsection{Storage Follows
@@ -3229,7 +3223,7 @@ depends on memory budget and compute cost. But the \emph{possibility} of
 checkpointing comes from the dependency graph being visible in the
 source.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{what-weve-built}{%
 \subsection{What We've Built}\label{what-weve-built}}
@@ -3250,7 +3244,7 @@ they can be used as primitives---coordinate-aware functions with packs
 and selection reductions, and recurrences that make time a first-class
 coordinate with directional constraints.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{patterns-of-recurrence}{%
 \subsection{Patterns of Recurrence}\label{patterns-of-recurrence}}
@@ -3329,7 +3323,7 @@ They differ only in what the body reads. A \texttt{for} loop obscures
 this symmetry by hardcoding direction into control flow. A recurrence
 makes direction a property of the index expression.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 The next chapter is a hinge. We step back from the syntax and ask: what
 habits has this journey taught us, independent of any particular
@@ -3351,8 +3345,6 @@ coordinate sets and backward references are sound.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-12-the-guardians-booklet}{%
 \section{Chapter 12 · The Guardian's
 Booklet}\label{chapter-12-the-guardians-booklet}}
@@ -3366,7 +3358,7 @@ habit.''
 
 \emph{Meta-cognition · Four habits, independent of syntax}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 This chapter contains no new syntax.
 
@@ -3381,7 +3373,7 @@ broadcast, a reduction that consumed the wrong coordinate. The questions
 are the permanent residue of those stories. The stories are evidence.
 The questions are the habit.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{habit-1-eliminate-with-a-name}{%
 \subsection{Habit 1: Eliminate with a
@@ -3416,7 +3408,7 @@ is not in the code, write it in a comment. Better: find a way to put it
 in the syntax. If your framework has named dimensions (einops, xarray,
 etc.), use them. If not, the comment is your bridge.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{habit-2-copy-with-a-signature}{%
 \subsection{Habit 2: Copy with a
@@ -3451,7 +3443,7 @@ a valid-but-wrong result? If the latter, make the broadcast
 explicit---with a comment, a named dimension, or an explicit
 \texttt{expand} call that names the axis.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{habit-3-permute-with-a-source}{%
 \subsection{Habit 3: Permute with a
@@ -3484,7 +3476,7 @@ comment showing the coordinate map. Better: use einops
 coordinate names are the primary addressing mechanism, and positions are
 derived from them.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{habit-4-forward-and-backward-symmetric}{%
 \subsection{Habit 4: Forward and Backward,
@@ -3520,7 +3512,7 @@ have summed over \texttt{feature} has the right shape but wrong
 semantics. Ask: which coordinates were consumed in the forward pass?
 Which are being summed in the backward pass? Are they the same?
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{these-habits-are-not-about-einlang}{%
 \subsection{These Habits Are Not About
@@ -3555,7 +3547,7 @@ place to put a name and a discipline to keep it honest.
 The habit is free. The habit is portable. The habit catches bugs that
 shape checks miss.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-principles-beneath-the-habits}{%
 \subsection{The Principles Beneath the
@@ -3610,7 +3602,7 @@ them in the documentation. The former makes the compiler a co-reader.
 The latter makes the compiler a blind executor and the human the sole
 bearer of meaning.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 The remaining chapters are exercises in applying the four habits with
 these principles as your compass.
@@ -3635,8 +3627,6 @@ carries the meaning, and that the compiler checks it.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-13-complex-terrain}{%
 \section{Chapter 13 · Complex
 Terrain}\label{chapter-13-complex-terrain}}
@@ -3650,7 +3640,7 @@ Terrain}\label{chapter-13-complex-terrain}}
 \emph{Applications · Splitting, merging, and self-interaction of
 coordinates}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 A coordinate is not a fixed, atomic thing. It can split into two. Two
 can merge into one. One coordinate can interact with another copy of
@@ -3664,7 +3654,7 @@ simple to complex. Each section introduces a pattern, shows the
 positional version (to see what gets hidden), and then shows the
 named-coordinate version (to see what becomes visible).
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{splitting-coordinates}{%
 \subsection{Splitting Coordinates}\label{splitting-coordinates}}
@@ -3700,7 +3690,7 @@ vs.~key \texttt{j}), in graph neural networks (source node vs.~target
 node), and in any computation that compares every element of a set to
 every other element.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{merging-coordinates}{%
 \subsection{Merging Coordinates}\label{merging-coordinates}}
@@ -3729,7 +3719,7 @@ rectangular grids. Sometimes a coordinate in one representation
 corresponds to a function of coordinates in another. The expressions
 make that function explicit.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{self-interaction-the-k-in-matrix-multiplication}{%
 \subsection{\texorpdfstring{Self-Interaction: The \texttt{k} in Matrix
@@ -3752,7 +3742,7 @@ In a named-coordinate API, it is a compile error with the coordinate
 name in the message: ``coordinate \texttt{k} has range 64 in A but range
 128 in B.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{depth-to-space-unpacking-coordinates}{%
 \subsection{Depth-to-Space: Unpacking
@@ -3800,7 +3790,7 @@ named \texttt{rearrange} string is clearer. Sometimes explicit index
 arithmetic is clearer. The principle is the same: \textbf{the coordinate
 map should be visible in the source, not reconstructed by the reader.}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{convolution-as-index-arithmetic}{%
 \subsection{Convolution as Index
@@ -3829,7 +3819,7 @@ indices from the output indices and the kernel coordinates. This is the
 same separation we saw in Chapter 11 for recurrences: the left side is a
 definition; the right side is a computation.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-declaration-bracket-vs.the-body}{%
 \subsection{The Declaration Bracket vs.~the
@@ -3855,7 +3845,7 @@ glance, the coordinate structure of the result. The reader drills into
 the body only when they need to understand how that result is computed
 from the inputs.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{packs-for-batch-polymorphism-revisited}{%
 \subsection{Packs for Batch Polymorphism,
@@ -3879,7 +3869,7 @@ is polymorphism through naming: the function doesn't need to know how
 many batch dimensions there are, only that they exist and should be
 preserved.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 The patterns in this chapter are not exotic. They are the daily work of
 tensor programming. Every one of them can be written in positional
@@ -3907,8 +3897,6 @@ check but visible to coordinate check: your eye expects
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-14-the-complete-picture}{%
 \section{Chapter 14 · The Complete
 Picture}\label{chapter-14-the-complete-picture}}
@@ -3921,7 +3909,7 @@ Picture}\label{chapter-14-the-complete-picture}}
 
 \emph{Formalization · A systematic review of einlang syntax}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 This chapter contains no new syntax. It is a map of territory we have
 already explored.
@@ -3935,7 +3923,7 @@ one place, organized by category rather than by pedagogical necessity.
 Think of it as the view from the summit. You climbed the mountain one
 trail at a time. Now you can see the whole range.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{declarations}{%
 \subsection{Declarations}\label{declarations}}
@@ -3964,7 +3952,7 @@ same scope:
 \end{Highlighting}
 \end{Shaded}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{rectangular-declarations-1}{%
 \subsection{Rectangular Declarations}\label{rectangular-declarations-1}}
@@ -3993,7 +3981,7 @@ for base cases in recurrences. - A named rest:
 Expressions are not allowed in the declaration bracket.
 \texttt{let\ fib{[}n-1{]}\ =\ ...} is an error.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{reductions}{%
 \subsection{Reductions}\label{reductions}}
@@ -4023,7 +4011,7 @@ Selection reductions return addresses rather than values:
 The selected coordinate is consumed from the result shape. The address
 domain is tracked by the compiler for later indexed reads.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{broadcasting}{%
 \subsection{Broadcasting}\label{broadcasting}}
@@ -4041,7 +4029,7 @@ omitted from a term is the coordinate being broadcast over:
 \end{Highlighting}
 \end{Shaded}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{named-rest-indices}{%
 \subsection{Named Rest Indices}\label{named-rest-indices}}
@@ -4059,7 +4047,7 @@ given a name:
 The same rest name must describe the same axis span within an
 expression.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{where-clauses}{%
 \subsection{Where Clauses}\label{where-clauses}}
@@ -4101,7 +4089,7 @@ derived coordinates:
 \end{Highlighting}
 \end{Shaded}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{coordinate-aware-functions}{%
 \subsection{Coordinate-Aware
@@ -4138,7 +4126,7 @@ Coordinate facts flow through pointwise expressions automatically. A
 tensor bound with coordinate names carries those names through
 arithmetic, function calls, and control flow.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{recurrence-relations}{%
 \subsection{Recurrence Relations}\label{recurrence-relations}}
@@ -4158,7 +4146,7 @@ The recurrence index range goes in the declaration bracket
 reads at indices greater than or equal to the declaration index along
 any dimension.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{automatic-differentiation}{%
 \subsection{Automatic Differentiation}\label{automatic-differentiation}}
@@ -4191,7 +4179,7 @@ Custom derivative rules use \texttt{@fn}:
 Coordinate-aware custom rules carry the same bracketed parameters as the
 primal function.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{why-the-compiler-reads-coordinates-too}{%
 \subsection{Why the Compiler Reads Coordinates
@@ -4252,7 +4240,7 @@ eager backend, an IREE compiled backend, or a future scheduler that
 fuses the sum and broadcast into a single kernel. The backends differ.
 The coordinate audit is constant.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{error-codes-coordinate-relevant-subset}{%
 \subsection{Error Codes (Coordinate-Relevant
@@ -4278,7 +4266,7 @@ These two errors are the compiler's contribution to the coordinate
 audit. They catch the bugs that positional APIs leave to runtime or to
 silence.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{what-the-syntax-serves}{%
 \subsection{What the Syntax Serves}\label{what-the-syntax-serves}}
@@ -4322,8 +4310,6 @@ them---will outlast any particular syntax.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-15-the-simulation-that-looked-right}{%
 \section{Chapter 15 · The Simulation That Looked
 Right}\label{chapter-15-the-simulation-that-looked-right}}
@@ -4338,7 +4324,7 @@ knowledge.''
 \emph{Diagnosis · A physicist audits a heat-equation simulation with the
 four habits}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 Late on a Thursday, a physicist you know---call her Mira---stares at two
 plots on her screen. Both show the temperature field of a 2D plate after
@@ -4361,7 +4347,7 @@ mismatches. She has been staring at this code for two hours.
 ``Walk me through it,'' you say. ``But this time, don't check the
 shapes. Check the names.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-code-plainly-stated}{%
 \subsection{The Code, Plainly Stated}\label{the-code-plainly-stated}}
@@ -4430,7 +4416,7 @@ find the bug.''
 You point to the first reduction. ``Let's start there. Not with what the
 code does. With what it claims.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{first-habit-eliminate-with-a-name}{%
 \subsection{First Habit: Eliminate with a
@@ -4485,7 +4471,7 @@ But the \emph{meaning} was wrong, and a shape checker could not tell.
 
 One bug found. Four remain.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{second-habit-copy-with-a-signature}{%
 \subsection{Second Habit: Copy with a
@@ -4555,7 +4541,7 @@ copy along?} When tensors of different ranks interact, something is
 being broadcast. The question is whether the broadcast is justified by
 the physics, and whether the code makes it visible.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{third-habit-permute-with-a-source}{%
 \subsection{Third Habit: Permute with a
@@ -4634,7 +4620,7 @@ bug survived because the human brain processes repeated integers as
 notation gave no signal that \texttt{w+1} was the wrong dimension for
 velocity-y.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{fourth-habit-the-boundaries}{%
 \subsection{Fourth Habit: The
@@ -4694,7 +4680,7 @@ The forward computation has a coordinate domain. When operations step
 outside that domain, the missing guard is a missing coordinate fact. The
 \texttt{where} clause restores it.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-fifth-error-integer-literals-as-coordinate-names}{%
 \subsection{The Fifth Error: Integer Literals as Coordinate
@@ -4744,7 +4730,7 @@ Mira opens a new file and begins to refactor. The field integers become
 named constants. The coordinate \texttt{field} keeps its name in every
 tensor. The physics and the notation realign.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{what-the-four-habits-found}{%
 \subsection{What the Four Habits
@@ -4791,7 +4777,7 @@ fact about identity, direction, or domain determines correctness, put
 that fact in the source where the compiler and the reader can see it.
 The four habits are four ways of asking whether you have done so.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 Mira's corrected simulation runs. The total energy is conserved to
 machine precision. The Fortran reference agrees to five decimal places.
@@ -4830,8 +4816,6 @@ to see the stencil or just the fact that a Laplacian was applied.
 
 \newpage
 
-\newpage
-
 \hypertarget{chapter-16-the-night-before-the-run}{%
 \section{Chapter 16 · The Night Before the
 Run}\label{chapter-16-the-night-before-the-run}}
@@ -4845,7 +4829,7 @@ Run}\label{chapter-16-the-night-before-the-run}}
 \emph{Graduation · A transformer audit, cross-attention, and the
 attention that survived a code review}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 It is 9:47 PM on a Friday. The cluster has 64 GPUs reserved for Saturday
 at 8 AM. The model is a 6-layer transformer with 8 attention heads, a
@@ -4862,7 +4846,7 @@ small-scale test.''
 
 ``Show me the source,'' Jesse says. ``Not the shapes. The names.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-code-as-written}{%
 \subsection{The Code, As Written}\label{the-code-as-written}}
@@ -5045,7 +5029,7 @@ questions. Same four questions we'd ask of any tensor program. Ready?''
 
 Dana nods. Jesse scrolls to the top.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{first-question-which-coordinate-is-being-eliminated}{%
 \subsection{First Question: Which Coordinate Is Being
@@ -5114,7 +5098,7 @@ He scrolls down to the LayerNorm.
 
 ``The reductions are clean. But there's a second question.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{second-question-which-coordinate-is-being-copied-along}{%
 \subsection{Second Question: Which Coordinate Is Being Copied
@@ -5198,7 +5182,7 @@ the broadcasting engine's behavior.''
 Dana makes a note. ``Use the function. It's one more abstraction, but
 the contract is checkable.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{third-question-can-you-trace-a-coordinate-from-source-to-destination}{%
 \subsection{Third Question: Can You Trace a Coordinate from Source to
@@ -5270,7 +5254,7 @@ If a coordinate has the same identity throughout the computation, use
 the same name. If it doesn't, the place where the name changes is the
 place where the identity changes. That place should be visible.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{fourth-question-the-declaration-bracket}{%
 \subsection{Fourth Question: The Declaration
@@ -5320,7 +5304,7 @@ constraint checkable. If \texttt{layer+1} were allowed in the bracket,
 the compiler couldn't statically verify that the recurrence only reads
 from the past.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-gradient-question}{%
 \subsection{The Gradient Question}\label{the-gradient-question}}
@@ -5367,7 +5351,7 @@ But the question---`does the backward reduction match the forward
 omission?'---is exactly the fourth habit. Forward and backward,
 symmetric. You ask it to verify that you trust the compiler's answer.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-conversation-continues-cross-attention}{%
 \subsection{The Conversation Continues:
@@ -5445,7 +5429,7 @@ Dana nods. ``And the compiler enforces it. If I try to compute
 the compiler will report that \texttt{dec\_seq} and \texttt{enc\_seq}
 don't match the declared coordinate. The names are part of the type.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{the-conversation-deepens-multi-query-attention}{%
 \subsection{The Conversation Deepens: Multi-Query
@@ -5518,7 +5502,7 @@ says. ``The notation doesn't just record the architecture. It constrains
 it. A shape-compatible bug---using the wrong KV head for a query
 head---is a coordinate mismatch. The compiler catches it.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{what-survives-the-audit}{%
 \subsection{What Survives the Audit}\label{what-survives-the-audit}}
@@ -5567,7 +5551,7 @@ correct when you're not the one reading it.''
 
 Jesse closes the laptop. ``See you Saturday.''
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 This is the graduation. You can now read a tensor program and see not
 just the shapes, but the coordinates---which survive, which are
@@ -5611,8 +5595,6 @@ it.
 
 \newpage
 
-\newpage
-
 \hypertarget{epilogue-a-friend-named-einlang}{%
 \section{Epilogue · A Friend Named
 einlang}\label{epilogue-a-friend-named-einlang}}
@@ -5625,7 +5607,7 @@ machines to execute.''
 Interpretation of Computer Programs}
 \end{quote}
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 In Chapter 6, einlang was a name. A label for the notation we'd been
 building since Chapter 3. Now, at the end of sixteen chapters, you know
@@ -5648,7 +5630,7 @@ compiler checks those declarations at every call site. Gradients
 preserve coordinate structure through differentiation. Recurrences make
 the direction of time a syntactic constraint.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 The SICP quotation that opens this epilogue is famous for a reason. It
 states a truth that is obvious once you hear it and difficult to
@@ -5668,7 +5650,7 @@ keystrokes of naming coordinates are repaid, with interest, in debugging
 sessions avoided, in refactoring confidence gained, in the quiet
 satisfaction of reading code that says what it means.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 SICP ends with a meta-circular evaluator---a Scheme interpreter written
 in Scheme---as if to say: you now understand the language deeply enough
@@ -5697,7 +5679,7 @@ match the forward broadcast?
 These questions cost seconds. The bugs they catch cost hours. The ratio
 is favorable.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 \hypertarget{how-to-start}{%
 \subsection{How to Start}\label{how-to-start}}
@@ -5723,7 +5705,7 @@ overnight. The goal is to develop the reflex: when you write an
 operation that depends on a coordinate's identity, put that identity in
 the source. Not in your head. Not in a Slack message. In the source.
 
-\begin{center}\rule{0.5\linewidth}{0.4pt}\end{center}
+\vspace{2em}
 
 There is a sentence I have been saving for the end. It is the
 one-sentence version of this book:
@@ -5733,7 +5715,5 @@ six months from now, when you return to this code to fix a bug, the
 intent will be gone, and only the names will remain.}
 
 Thank you for reading.
-
-\newpage
 
 \end{document}
