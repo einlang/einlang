@@ -74,7 +74,8 @@ runs:
         cd book/figures
         for f in *.svg; do
           echo "Converting $f ..."
-          rsvg-convert -f pdf -o "${f%.svg}.pdf" "$f"
+          w=$(python3 -c "print(int((8.5 - 2 * 0.8) * 96))")
+          rsvg-convert -f pdf -w "$w" -o "${f%.svg}.pdf" "$f"
         done
 
     - name: Build PDF with pandoc
@@ -99,9 +100,14 @@ runs:
           -V geometry=margin=0.8in \
           -V colorlinks=true \
           -o book/_combined.tex
-        sed -i 's/\[11pt,/\[11pt,titlepage/' book/_combined.tex
-        sed -i 's/\\linethickness/0.5pt/g' book/_combined.tex
-        sed -i 's/\\includegraphics{/\\includegraphics[width=\\textwidth]{/g' book/_combined.tex
+        python3 << 'PYEOF'
+        with open("book/_combined.tex") as f:
+            c = f.read()
+        c = c.replace('[11pt,', '[11pt,titlepage')
+        c = c.replace('{\\linethickness}', '{0.5pt}')
+        with open("book/_combined.tex", "w") as f:
+            f.write(c)
+        PYEOF
         tectonic book/_combined.tex
         mv book/_combined.pdf book/the-name-in-the-bracket.pdf
 

@@ -4,117 +4,111 @@
   kind: frontmatter
   section: Opening
   eyebrow:
-- title: "Introduction: The Shape-Meanings Gap"
-  url: /book/chapter-00-why.html
-  short_title: "Introduction"
+- title: "Prologue: The Error That Didn't Error"
+  url: /book/chapter-prologue.html
+  short_title: "Prologue"
   kind: chapter
   section: "Opening"
-  eyebrow: Introduction
-- title: "What Can the Compiler Not See?"
-  url: /book/chapter-01-compiler-blindness.html
-  short_title: "1. Compiler Blindness"
+  eyebrow: Prologue
+- title: "Chapter 1 · Every Dimension Deserves a Name"
+  url: /book/chapter-01-naming-coordinates.html
+  short_title: "1. Naming Coordinates"
   kind: chapter
   section: "Part I: Coordinates"
   eyebrow: "1"
-- title: "Axis Roles Are Not Axis Positions"
-  url: /book/chapter-02-axis-roles.html
-  short_title: "2. Axis Roles"
+- title: "Chapter 2 · Moving Flowers Without Losing the Trail"
+  url: /book/chapter-02-permutation.html
+  short_title: "2. Permutation"
   kind: chapter
   section: "Part I: Coordinates"
   eyebrow: "2"
-- title: "Coordinate Maps in the Standard Library"
-  url: /book/chapter-03-coordinate-maps.html
-  short_title: "3. Coordinate Maps"
+- title: "Chapter 3 · A Small Farewell"
+  url: /book/chapter-03-reduction.html
+  short_title: "3. Reduction"
   kind: chapter
   section: "Part I: Coordinates"
   eyebrow: "3"
-- title: "What Does Broadcasting Hide?"
+- title: "Chapter 4 · Copy, and a Promise"
   url: /book/chapter-04-broadcasting.html
   short_title: "4. Broadcasting"
   kind: chapter
   section: "Part I: Coordinates"
   eyebrow: "4"
-- title: "The Index That Leaves"
-  url: /book/chapter-05-index-that-leaves.html
-  short_title: "5. Consumed Indices"
+- title: "Chapter 5 · When Promises Chain Together"
+  url: /book/chapter-05-broadcast-selfcheck.html
+  short_title: "5. Broadcast Self‑Check"
   kind: chapter
   section: "Part I: Coordinates"
   eyebrow: "5"
-- title: "Softmax Has Three Coordinate Roles"
-  url: /book/chapter-06-softmax-coordinate-roles.html
-  short_title: "6. Softmax"
+- title: "Chapter 6 · Putting the Pieces Together"
+  url: /book/chapter-06-meet-einlang.html
+  short_title: "6. Meet einlang"
   kind: chapter
   section: "Part I: Coordinates"
   eyebrow: "6"
-- title: "What Is a Gradient?"
-  url: /book/chapter-07-gradients.html
-  short_title: "7. Gradients"
+- title: "Chapter 7 · The Refactoring Trap"
+  url: /book/chapter-07-refactoring-traps.html
+  short_title: "7. Refactoring Traps"
   kind: chapter
   section: "Part II: Derivatives"
   eyebrow: "7"
-- title: "Matrix Multiplication Teaches the Pullback"
-  url: /book/chapter-08-matmul-pullback.html
-  short_title: "8. Matmul Pullback"
+- title: "Chapter 8 · The Challenge of Walking Backward"
+  url: /book/chapter-08-gradients.html
+  short_title: "8. Gradients"
   kind: chapter
   section: "Part II: Derivatives"
   eyebrow: "8"
-- title: "Local Derivatives, Global Shape"
-  url: /book/chapter-09-local-derivatives-global-shape.html
-  short_title: "9. Local Derivatives"
+- title: "Chapter 9 · Updates, with Names"
+  url: /book/chapter-09-updates.html
+  short_title: "9. Updates"
   kind: chapter
   section: "Part II: Derivatives"
   eyebrow: "9"
-- title: "Time Steps Are Not Loops"
-  url: /book/chapter-10-time-steps.html
-  short_title: "10. Time Steps"
+- title: "Chapter 10 · Building Your Own Blocks"
+  url: /book/chapter-10-abstraction.html
+  short_title: "10. Abstraction"
   kind: chapter
   section: "Part III: Time and Recurrence"
   eyebrow: "10"
-- title: "Storage Follows Observation"
-  url: /book/chapter-11-storage-follows-observation.html
-  short_title: "11. Storage"
+- title: "Chapter 11 · Names in Time"
+  url: /book/chapter-11-time.html
+  short_title: "11. Time"
   kind: chapter
   section: "Part III: Time and Recurrence"
   eyebrow: "11"
-- title: "An RNN Is a Dependency Graph"
-  url: /book/chapter-12-rnn-dependency-graph.html
-  short_title: "12. RNN"
+- title: "Chapter 12 · The Guardian's Booklet"
+  url: /book/chapter-12-four-habits.html
+  short_title: "12. Four Habits"
   kind: chapter
   section: "Part III: Time and Recurrence"
   eyebrow: "12"
-- title: "If Dimensions Had Names Everywhere"
-  url: /book/chapter-13-named-dimensions-everywhere.html
-  short_title: "13. Named Dimensions"
+- title: "Chapter 13 · Complex Terrain"
+  url: /book/chapter-13-complex-terrain.html
+  short_title: "13. Complex Terrain"
   kind: chapter
   section: "Part IV: Full Applications"
   eyebrow: "13"
-- title: "Attention as Named Communication"
-  url: /book/chapter-14-attention-named-communication.html
-  short_title: "14. Attention"
+- title: "Chapter 14 · The Complete Picture"
+  url: /book/chapter-14-syntax-panorama.html
+  short_title: "14. Syntax Panorama"
   kind: chapter
   section: "Part IV: Full Applications"
   eyebrow: "14"
-- title: "What the Notation Refuses to Hide"
-  url: /book/chapter-15-notation-refuses-to-hide.html
-  short_title: "15. Refusals"
+- title: "Chapter 15 · The Simulation That Looked Right"
+  url: /book/chapter-15-audit-non-ml.html
+  short_title: "15. Audit (Non‑ML)"
   kind: chapter
   section: "Part IV: Full Applications"
   eyebrow: "15"
-- title: "Dynamic Routing and Low-Rank Communication"
-  url: /book/chapter-16-dynamic-routing-low-rank-communication.html
-  short_title: "16. Routing"
+- title: "Chapter 16 · The Night Before the Run"
+  url: /book/chapter-16-audit-ml.html
+  short_title: "16. Audit (ML)"
   kind: chapter
   section: "Part IV: Full Applications"
   eyebrow: "16"
-- title: "Appendix: Coordinate Diagnostics"
-  url: /book/appendix-coordinate-diagnostics.html
-  short_title: "App. Diagnostics"
-  kind: frontmatter
+- title: "Epilogue · A Friend Named einlang"
+  url: /book/chapter-epilogue.html
+  short_title: "Epilogue"
+  kind: chapter
   section: Closing
-  eyebrow: Appendix
-- title: "Appendix: Coordinate Reading Laws"
-  url: /book/appendix-coordinate-laws.html
-  short_title: "App. Laws"
-  kind: frontmatter
-  section: Closing
-  eyebrow: Appendix
+  eyebrow: Epilogue
