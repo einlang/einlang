@@ -19,8 +19,8 @@ The docs stay intentionally small. This page is the public index; the fuller [do
 
 ## Research
 
-- [Paper](https://einlang.github.io/einlang/paper/einlang_paper.pdf)
-- [Thesis-form report](https://einlang.github.io/einlang/thesis/einlang_thesis.pdf)
+- [Paper](https://einlang.github.io/einlang/einlang_paper.pdf)
+- [Thesis-form report](https://einlang.github.io/einlang/einlang_thesis.pdf)
 
 ## Contribute
 

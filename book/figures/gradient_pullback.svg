@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 390" width="100%" height="100%">
+<defs>
+  <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="#4a4a4a"/>
+  </marker>
+</defs>
+
+<style>
+  text { font-family: "Latin Modern Roman", "STIX Two Math", "Times New Roman", serif; }
+  .title { font-size: 12px; fill: #262626; font-weight: bold; }
+  .body  { font-size: 10px; fill: #262626; }
+  .small { font-size: 8.5px; fill: #262626; }
+  .accent{ font-size: 8.5px; fill: #1f6d7a; font-weight: bold; }
+  .label { font-size: 7.5px; fill: #5c5c5c; }
+  .formula{font-size: 10px; fill: #262626; }
+  .set   { font-size: 9px; fill: #262626; font-weight: bold; }
+  .setBg { font-size: 9px; fill: #1f6d7a; font-weight: bold; }
+  .bf    { font-weight: bold; }
+  .it    { font-style: italic; }
+  .sub   { font-size: 0.8em; baseline-shift: sub; font-style: italic; }
+</style>
+
+<!-- Forward section -->
+<text x="230" y="22" class="title" text-anchor="middle">Forward:  <tspan class="bf">C</tspan>[<tspan class="it">i</tspan>, <tspan class="it">j</tspan>] = ∑<tspan class="sub">k</tspan> <tspan class="bf">A</tspan>[<tspan class="it">i</tspan>, <tspan class="it">k</tspan>] · <tspan class="bf">B</tspan>[<tspan class="it">k</tspan>, <tspan class="it">j</tspan>]</text>
+<text x="230" y="40" class="label" text-anchor="middle">Coordinate sets</text>
+
+<g transform="translate(58,50)">
+  <rect x="0" y="0" width="104" height="34" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
+  <text x="52" y="21" class="set" text-anchor="middle"><tspan class="bf">A</tspan> : {<tspan class="it">i</tspan>, <tspan class="it">k</tspan>}</text>
+
+  <rect x="118" y="0" width="104" height="34" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
+  <text x="170" y="21" class="set" text-anchor="middle"><tspan class="bf">B</tspan> : {<tspan class="it">k</tspan>, <tspan class="it">j</tspan>}</text>
+
+  <rect x="236" y="0" width="104" height="34" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>
+  <text x="288" y="21" class="setBg" text-anchor="middle"><tspan class="bf">C</tspan> : {<tspan class="it">i</tspan>, <tspan class="it">j</tspan>}</text>
+</g>
+
+<text x="230" y="106" class="small" text-anchor="middle"><tspan class="it">k</tspan> consumed by sum — vanishes from the output</text>
+
+<line x1="20" y1="122" x2="440" y2="122" stroke="#c4c4c4" stroke-width="0.3"/>
+
+<!-- Backward section -->
+<text x="230" y="148" class="title" text-anchor="middle">Backward: derive ∂A from ∂C and B</text>
+<text x="230" y="166" class="label" text-anchor="middle">Coordinate set subtraction</text>
+
+<g transform="translate(56,174)">
+  <rect x="0" y="0" width="96" height="34" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
+  <text x="48" y="21" class="set" text-anchor="middle">∂<tspan class="bf">C</tspan> : {<tspan class="it">i</tspan>, <tspan class="it">j</tspan>}</text>
+
+  <text x="110" y="22" class="body" text-anchor="middle">−</text>
+
+  <rect x="124" y="0" width="96" height="34" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>
+  <text x="172" y="21" class="setBg" text-anchor="middle"><tspan class="bf">A</tspan> : {<tspan class="it">i</tspan>, <tspan class="it">k</tspan>}</text>
+
+  <text x="235" y="22" class="body" text-anchor="middle">=</text>
+
+  <rect x="249" y="0" width="50" height="34" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>
+  <text x="274" y="21" class="setBg" text-anchor="middle">{<tspan class="it">j</tspan>}</text>
+</g>
+
+<text x="230" y="232" class="small" text-anchor="middle">The coordinate in ∂C that A lacks is the one summed over.</text>
+
+<text x="230" y="258" class="formula" text-anchor="middle">∂<tspan class="bf">A</tspan>[<tspan class="it">i</tspan>, <tspan class="it">k</tspan>] = ∑<tspan class="sub">j</tspan> ∂<tspan class="bf">C</tspan>[<tspan class="it">i</tspan>, <tspan class="it">j</tspan>] · <tspan class="bf">B</tspan>[<tspan class="it">k</tspan>, <tspan class="it">j</tspan>]</text>
+
+<line x1="220" y1="278" x2="220" y2="278" stroke="#ffffff" stroke-width="0"/>
+
+<g transform="translate(68,272)">
+  <rect x="0" y="0" width="156" height="40" fill="#ffffff" stroke="#c4c4c4" stroke-width="0.5"/>
+  <text x="78" y="18" class="small" text-anchor="middle"><tspan class="it">k</tspan> is reintroduced by <tspan class="bf">B</tspan></text>
+  <text x="78" y="33" class="small" text-anchor="middle">(the other operand)</text>
+
+  <rect x="172" y="0" width="156" height="40" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>
+  <text x="250" y="18" class="accent" text-anchor="middle">Result: <tspan class="bf">A</tspan> coordinates {<tspan class="it">i</tspan>, <tspan class="it">k</tspan>}</text>
+  <text x="250" y="33" class="accent" text-anchor="middle">checked by compiler</text>
+</g>
+
+<line x1="20" y1="350" x2="440" y2="350" stroke="#c4c4c4" stroke-width="0.3"/>
+<text x="230" y="372" class="body" text-anchor="middle">The pullback rule: sum over every coordinate the output has that the operand lacks.</text>
+</svg>

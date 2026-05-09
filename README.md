@@ -31,7 +31,7 @@ If you already know NumPy, JAX, or PyTorch, the easiest mental model is:
 
 That is the core of Einlang: keep the structure of the math visible, keep gradients local, and keep the notation consistent as programs grow.
 
-For the longer research writeups, read the [ACM-style paper](https://einlang.github.io/einlang/paper/einlang_paper.pdf) for the language-design argument and the [thesis-form report](https://einlang.github.io/einlang/thesis/einlang_thesis.pdf) for the implementation details. [The Name in the Bracket](https://einlang.github.io/einlang/book/) is a book about what notation hides, and what happens when you refuse to let it.
+For the longer research writeups, read the [ACM-style paper](https://einlang.github.io/einlang/einlang_paper.pdf) for the language-design argument and the [thesis-form report](https://einlang.github.io/einlang/einlang_thesis.pdf) for the implementation details. [The Name in the Bracket](https://einlang.github.io/einlang/book/) is a book about what notation hides, and what happens when you refuse to let it.
 
 ## Why it feels different
 

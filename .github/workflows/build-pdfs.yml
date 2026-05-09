@@ -1,13 +1,18 @@
-name: Build Book PDF
+name: Build and Deploy PDFs
 
 on:
   push:
     branches: [main]
     paths:
-      - "book/**.md"
+      - "book/**"
+      - "paper/**"
+      - "thesis/**"
+      - ".github/actions/build-pdfs/**"
+      - ".github/workflows/build-book-pdf.yml"
+  workflow_dispatch:
 
 jobs:
-  build-pdf:
+  build-pdfs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -20,17 +25,20 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Build book PDF
-        uses: ./.github/actions/build-book
+      - name: Build all PDFs
+        uses: ./.github/actions/build-pdfs
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Copy PDFs into site source
+        run: |
+          cp book/the-name-in-the-bracket.pdf .
+          cp paper/einlang_paper.pdf .
+          cp thesis/einlang_thesis.pdf .
+
       - name: Build Jekyll site
         uses: actions/jekyll-build-pages@v1
-
-      - name: Copy PDF into Pages output
-        run: sudo cp book/the-name-in-the-bracket.pdf _site/
 
       - name: Deploy to GitHub Pages
         id: deploy
