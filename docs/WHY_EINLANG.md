@@ -53,6 +53,23 @@ normalize_over[batch](x[batch, time, feature])
 ```
 
 When `batch == time == feature == 128`, all six calls produce the same output shape. The PyTorch calls differ by one integer. The Einlang calls differ by one name. Swap `time` and `feature` in the tensor layout, and `dim=1` silently changes meaning. `normalize_over[time]` does not — `time` is still `time`, wherever it lives in the shape.
+
+Coordinate nesting extends the same idea to composed operations. When reductions and selections chain together, each coordinate keeps its name through the chain:
+
+```python
+# NumPy — chained: count axes backward after each step
+best = np.argmax(np.sum(W[:, :, None] * X[None, :, :], axis=-1), axis=-1)
+total = np.sum(np.max(np.min(T, axis=2), axis=1), axis=0)
+```
+
+```rust
+// Einlang — coordinates compose: k sums, hidden survives, argmax sees it
+let scores[i, hidden] = sum[k](W[i, k] * X[k, hidden]);
+let best[i] = argmax[hidden](scores);
+let total = sum[i](max[j](min[k](T[i, j, k])));
+```
+
+A coordinate name means the same domain wherever it appears. The compiler checks that `n` in `argmax[n](...) + max[n](...)` refers to the same domain on both sides — something a positional `axis=` API cannot enforce.
 - **Not “loops + manual indexing”** — Recurrences and reductions are declarations with ranges; the compiler handles order and lowering. You write the recurrence, not the loop.
 - **Not “simulation vs ML split”** — One language. ODE/PDE examples and MNIST/ViT/Whisper use the same notation, same autodiff, same stdlib.
 

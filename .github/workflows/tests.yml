@@ -5,7 +5,34 @@ on:
     branches: [main]
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.filter.outputs.core }}
+      book: ${{ steps.filter.outputs.book }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            core:
+              - 'src/**'
+              - 'tests/**'
+              - 'setup.py'
+              - 'pyproject.toml'
+              - '.github/workflows/tests.yml'
+            book:
+              - 'book/**'
+              - 'paper/**'
+              - 'thesis/**'
+              - '.github/actions/build-pdfs/**'
+              - '.github/workflows/build-pdfs.yml'
+              - '.github/workflows/tests.yml'
+
   test:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -28,3 +55,50 @@ jobs:
         env:
           EINLANG_ROUND_TRIP: "1"
         run: python3 -m pytest tests/ -n auto --tb=short -q
+
+  build-pdfs:
+    needs: changes
+    if: needs.changes.outputs.book == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build all PDFs
+        uses: ./.github/actions/build-pdfs
+
+      - name: Upload book PDF
+        uses: actions/upload-artifact@v4
+        with:
+          name: book-pdf
+          path: book/the-name-in-the-bracket.pdf
+          retention-days: 5
+
+      - name: Upload paper PDF
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-pdf
+          path: paper/einlang_paper.pdf
+          retention-days: 5
+
+      - name: Upload thesis PDF
+        uses: actions/upload-artifact@v4
+        with:
+          name: thesis-pdf
+          path: thesis/einlang_thesis.pdf
+          retention-days: 5
+
+      - name: Comment PR with artifact links
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ARTIFACTS=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[] | "\(.name): \(.archive_download_url)"')
+          BOOK_URL=$(echo "$ARTIFACTS" | grep 'book-pdf:' | cut -d' ' -f2)
+          PAPER_URL=$(echo "$ARTIFACTS" | grep 'paper-pdf:' | cut -d' ' -f2)
+          THESIS_URL=$(echo "$ARTIFACTS" | grep 'thesis-pdf:' | cut -d' ' -f2)
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "PDFs built: [book](${BOOK_URL}) · [paper](${PAPER_URL}) · [thesis](${THESIS_URL})"

@@ -28,13 +28,8 @@ htmlcov/
 *.run.xml
 *.synctex.gz
 *.toc
-paper/*.pdf
-!paper/einlang_paper.pdf
 paper/*_draft.md
-paper/figures/*.png
 paper/figures/*.svg
-thesis/*.pdf
-!thesis/einlang_thesis.pdf
 thesis/*_draft.md
 
 # Local notes
@@ -59,8 +54,13 @@ skills/memory.md
 *.prof
 prof/
 
+# PDFs and PNGs (built by CI)
+*.pdf
+*.png
+
 # Book build artifacts
 book/_combined.md
+book/_combined.tex
 
 # Compiler IR dumps (EINLANG_DUMP_IR*, EINLANG_DUMP_FINAL_IR)
 ir_dump/

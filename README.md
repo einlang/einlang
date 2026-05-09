@@ -31,7 +31,7 @@ If you already know NumPy, JAX, or PyTorch, the easiest mental model is:
 
 That is the core of Einlang: keep the structure of the math visible, keep gradients local, and keep the notation consistent as programs grow.
 
-For the longer research writeups, read the [ACM-style paper](https://einlang.github.io/einlang/paper/einlang_paper.pdf) for the language-design argument and the [thesis-form report](https://einlang.github.io/einlang/thesis/einlang_thesis.pdf) for the implementation details. [The Name in the Bracket](https://einlang.github.io/einlang/book/) is a book about what notation hides, and what happens when you refuse to let it.
+For the longer research writeups, read the [ACM-style paper](https://einlang.github.io/einlang/einlang_paper.pdf) for the language-design argument and the [thesis-form report](https://einlang.github.io/einlang/einlang_thesis.pdf) for the implementation details. [The Name in the Bracket](https://einlang.github.io/einlang/book/) is a book about what notation hides, and what happens when you refuse to let it.
 
 ## Why it feels different
 
@@ -56,6 +56,24 @@ let normed_feature = normalize_over[feature](x[batch, time, feature]);
 let normed_time    = normalize_over[time](x[batch, time, feature]);
 let normed_batch   = normalize_over[batch](x[batch, time, feature]);
 ```
+
+The bracket keeps the coordinate name visible. And when operations compose, the coordinate story composes with them — reductions nest inside reductions, selections chain with value reductions, and a single coordinate name means the same domain in every call that mentions it:
+
+```python
+# NumPy — chained operations: count axes backward after each contraction
+scores = np.sum(W[:, :, None] * X[None, :, :], axis=-1)   # k contracted
+best   = np.argmax(scores, axis=-1)                         # which hidden?
+value  = np.max(np.max(A, axis=-1), axis=-1)                # k then n
+```
+
+```rust
+// Einlang — each coordinate carries its own name through the chain
+let scores[i, hidden] = sum[k](W[i, k] * X[k, hidden]);
+let best[i] = argmax[hidden](scores);
+let total = sum[k](max[n](A[k, n]));
+```
+
+When `W` is `(4, 2)` and `X` is `(2, 3)`, `scores` is `(4, 3)`. The `hidden` coordinate survives the inner `sum[k]` so the outer `argmax[hidden]` knows exactly which axis to reduce. Triple nesting (`sum[i](max[j](min[k](...)))`) works the same way — no axis integer to miscount after each step.
 
 ## Syntax at a Glance
 

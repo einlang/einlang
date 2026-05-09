@@ -1,0 +1,116 @@
+name: Build All PDFs
+description: Install pandoc + tectonic, build book/paper/thesis PDFs and render figures
+
+runs:
+  using: composite
+  steps:
+    - name: Install pandoc and PDF engine
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq pandoc poppler-utils
+        TECTONIC_URL="https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-gnu.tar.gz"
+        curl -fsSL "$TECTONIC_URL" -o /tmp/tectonic.tar.gz
+        sudo mkdir -p /tmp/tectonic-extract
+        sudo tar xzf /tmp/tectonic.tar.gz -C /tmp/tectonic-extract
+        sudo find /tmp/tectonic-extract -name tectonic -type f -exec cp {} /usr/local/bin/tectonic \;
+        sudo chmod +x /usr/local/bin/tectonic
+
+    - name: Concatenate chapters
+      shell: bash
+      run: |
+        python3 << 'PYEOF'
+        import os
+
+        chapters = [
+            "chapter-prologue.md",
+            "chapter-01-naming-coordinates.md",
+            "chapter-02-permutation.md",
+            "chapter-03-reduction.md",
+            "chapter-04-broadcasting.md",
+            "chapter-05-broadcast-selfcheck.md",
+            "chapter-06-meet-einlang.md",
+            "chapter-07-refactoring-traps.md",
+            "chapter-08-gradients.md",
+            "chapter-09-updates.md",
+            "chapter-10-abstraction.md",
+            "chapter-11-time.md",
+            "chapter-12-four-habits.md",
+            "chapter-13-complex-terrain.md",
+            "chapter-14-syntax-panorama.md",
+            "chapter-15-audit-non-ml.md",
+            "chapter-16-audit-ml.md",
+            "chapter-epilogue.md",
+        ]
+
+        parts = []
+        for ch in chapters:
+            path = os.path.join("book", ch)
+            if not os.path.exists(path):
+                print(f"WARNING: {path} not found, skipping")
+                continue
+            with open(path) as f:
+                content = f.read()
+            if content.startswith("---"):
+                end = content.find("---", 3)
+                if end != -1:
+                    content = content[end + 3:].lstrip()
+            parts.append(r"\newpage")
+            parts.append(content)
+
+        with open("book/_combined.md", "w") as f:
+            f.write("\n\n".join(parts))
+
+        print(f"Combined {len(chapters)} chapters")
+        PYEOF
+
+    - name: Install librsvg
+      shell: bash
+      run: sudo apt-get install -y -qq librsvg2-bin
+
+    - name: Render figures (svg → pdf)
+      shell: bash
+      run: |
+        cd book/figures
+        for f in *.svg; do
+          echo "Converting $f ..."
+          rsvg-convert -f pdf -o "${f%.svg}.pdf" "$f"
+        done
+
+    - name: Build PDF with pandoc
+      shell: bash
+      run: |
+        cat > /tmp/svg-to-pdf.lua << 'LUAEOF'
+        function Image(img) img.src = img.src:gsub('%.svg$', '.pdf'); return img end
+        function HorizontalRule()
+          return pandoc.RawBlock('latex', '\\vspace{2em}')
+        end
+        LUAEOF
+        pandoc book/_combined.md \
+          -s \
+          --resource-path=book \
+          --lua-filter=/tmp/svg-to-pdf.lua \
+          --from=markdown+pipe_tables+fenced_code_blocks+grid_tables \
+          --toc --toc-depth=2 \
+          --metadata title="The Name in the Bracket" \
+          --metadata author="einlang" \
+          --metadata date="$(date +%Y-%m-%d)" \
+          -V fontsize=11pt \
+          -V geometry=margin=0.8in \
+          -V colorlinks=true \
+          -o book/_combined.tex
+        sed -i 's/\[11pt,/\[11pt,titlepage/' book/_combined.tex
+        sed -i 's/\\linethickness/0.5pt/g' book/_combined.tex
+        sed -i 's/\\includegraphics{/\\includegraphics[width=\\textwidth]{/g' book/_combined.tex
+        tectonic book/_combined.tex
+        mv book/_combined.pdf book/the-name-in-the-bracket.pdf
+
+    - name: Build paper PDF
+      shell: bash
+      run: |
+        tectonic paper/einlang_paper.tex
+
+    - name: Build thesis PDF
+      shell: bash
+      run: |
+        tectonic thesis/einlang_thesis.tex
