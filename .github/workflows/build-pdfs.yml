@@ -8,7 +8,14 @@ on:
       - "paper/**"
       - "thesis/**"
       - ".github/actions/build-pdfs/**"
-      - ".github/workflows/build-book-pdf.yml"
+      - ".github/workflows/build-pdfs.yml"
+  pull_request:
+    paths:
+      - "book/**"
+      - "paper/**"
+      - "thesis/**"
+      - ".github/actions/build-pdfs/**"
+      - ".github/workflows/build-pdfs.yml"
   workflow_dispatch:
 
 jobs:
@@ -18,6 +25,8 @@ jobs:
       contents: read
       pages: write
       id-token: write
+      actions: write
+      pull-requests: write
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -28,18 +37,72 @@ jobs:
       - name: Build all PDFs
         uses: ./.github/actions/build-pdfs
 
+      - name: Upload book PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: book-the-name-in-the-bracket
+          path: book/the-name-in-the-bracket.pdf
+
+      - name: Upload paper PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-einlang-paper
+          path: paper/einlang_paper.pdf
+
+      - name: Upload thesis PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: thesis-einlang-thesis
+          path: thesis/einlang_thesis.pdf
+
       - name: Setup Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
 
       - name: Copy PDFs into site source
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           cp book/the-name-in-the-bracket.pdf .
           cp paper/einlang_paper.pdf .
           cp thesis/einlang_thesis.pdf .
 
       - name: Build Jekyll site
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/jekyll-build-pages@v1
 
       - name: Deploy to GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: deploy
         uses: actions/deploy-pages@v4
+
+      - name: Post PDF links
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runId = context.runId;
+            const { owner, repo } = context.repo;
+
+            const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner, repo, run_id: runId,
+            });
+
+            const links = artifacts.artifacts.map(a =>
+              `- [${a.name}.pdf](${a.archive_download_url})`
+            ).join('\n');
+
+            const body = `## PDFs built from ${context.sha.substring(0, 7)}\n\n${links}`;
+
+            if (context.eventName === 'pull_request') {
+              await github.rest.issues.createComment({
+                owner, repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            } else if (context.eventName === 'push') {
+              await github.rest.repos.createCommitComment({
+                owner, repo,
+                commit_sha: context.sha,
+                body,
+              });
+            }
