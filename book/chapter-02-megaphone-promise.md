@@ -35,6 +35,20 @@ let out[i, j] = A[i, j] + bias[j];
 
 This is broadcasting. Not a shape-compatibility hack. A semantic declaration: "this value does not depend on that coordinate." The claim is **statically verifiable**: every use of `bias` is traced, and if any context requires `bias` to vary with `i`, the omission is flagged. Broadcasting is a promise, and the promise is checked.
 
+Now stop. Look at that line again: `let out[i, j] = A[i, j] + bias[j]`. Ask yourself: does `bias` depend on `i`? How do you know?
+
+You probably just looked at the bracket after `bias`. It says `[j]`—no `i`. That is how you know. You compared `bias`'s coordinate set `{j}` against the output's coordinate set `{i, j}` and noticed that `i` is missing. You performed **coordinate set subtraction** in your head, without being taught the procedure.
+
+What you just did—comparing coordinate sets, finding the missing ones—is exactly what can be done by static analysis. Take the output coordinate set. Subtract each operand's coordinate set. The difference is the coordinates that operand broadcasts over:
+
+```
+Output coordinates: {i, j}
+A's coordinates:    {i, j}  → broadcasts over: {}     (no omission)
+bias's coordinates: {j}     → broadcasts over: {i}    (omitted i)
+```
+
+No execution required. The brackets contain all the information needed. Every broadcast is verified consistent across all uses of the broadcast value. If one expression claims `bias` is independent of `i` and another requires it to vary with `i`, it is a coordinate contract violation—caught before a single value is computed. Not magic. Set subtraction.
+
 Now the inverse. If broadcasting is silence—staying quiet on a coordinate so you are copied along it—reduction is speaking: naming the coordinate you consume, marking what disappeared.
 
 ```rust
@@ -212,6 +226,76 @@ In PyTorch, write `x = torch.randn(8, 10); b = torch.randn(10); y = x + b`. The 
 
 ---
 
+## Matrix Multiplication Variants
+
+The matrix multiplication `C[i, j] = sum[k](A[i, k] * B[k, j])` is the standard form. But coordinate names let you express variants without new API functions.
+
+**Batched matrix multiply.** The same formula, with leading batch dimensions:
+
+```rust
+let C[..batch, i, j] = sum[k](A[..batch, i, k] * B[..batch, k, j]);
+```
+
+If `..batch` absorbs two axes, this is a 4D batched matmul. No `torch.bmm` vs `torch.matmul` distinction. The coordinate structure says what contracts and what survives.
+
+**Elementwise products along a shared axis.** Instead of contracting `k`, multiply along it:
+
+```rust
+let D[i, k] = A[i, k] * B[k];  // B broadcasts over i
+```
+
+No reduction. `k` survives on both sides. `B` omits `i`, so it broadcasts.
+
+**Contraction over multiple axes.** Sum over more than one coordinate:
+
+```rust
+let C = sum[i, j](A[i, j] * B[i, j]);  // Frobenius inner product
+```
+
+The reduction bracket holds `i` and `j`. Both are consumed. The result is a scalar.
+
+**Transposed multiplication.** Without a `.T` or `transpose()`:
+
+```rust
+let C[i, j] = sum[k](A[k, i] * B[k, j]);  // A plays the role of A^T
+```
+
+`A[k, i]` instead of `A[i, k]`. The coordinate `k` appears first—traditionally the "transposed" axis. But nothing was transposed. The indexing pattern says where `k` goes. The compiler verifies that `k` is the shared axis.
+
+In a positional API, these four variants require four different function calls: `matmul`, `bmm`, `einsum('ij,ij->', A, B)`, `A.T @ B`. In einlang, the same `let C[...] = sum[...](...)` pattern expresses all four. The coordinate names carry the variation. The primitives are the same.
+
+---
+
+## The Two-Column Ledger Revisited
+
+Every reduction and broadcast can be read through the same lens: which coordinates survive, and which are consumed or copied. The Two-Column Ledger from Section 4 is the tool. Let's apply it to a more complex expression:
+
+```rust
+let norms[i] = sum[j]( (A[i, j] - mean[j](A[i, j])) ** 2.0 ) ** 0.5;
+```
+
+| Survivors | Consumed |
+|-----------|----------|
+| `i` (appears on the left-hand side) | `j` (consumed by `sum[j]` AND `mean[j]`) |
+
+Two reductions, both consuming `j`. The ledger tells us: `j` is gone from the output. `i` survives. If `j` should have survived—if this was supposed to be a per-element normalization rather than a row normalization—the ledger catches it. The `j` in the reduction brackets says "I am consuming `j`." The `j`'s absence from the output says "I am gone." The reader can verify the intent against the ledger.
+
+Now read the positional equivalent:
+
+```python
+norms = ((A - A.mean(dim=1, keepdim=True)) ** 2).sum(dim=1) ** 0.5
+```
+
+`dim=1` appears twice. Which coordinate is position 1? The code doesn't say. If `A` is transposed upstream, `dim=1` silently consumes the other coordinate. The two-column ledger for the positional version is empty—there are no names to record in the Survivors and Consumed columns. The ledger exists in the programmer's head. The named version puts it in the syntax.
+
+The ledger is not a tool you run once. It is a reading habit. Every time you see a reduction bracket or an omitted coordinate in an index pattern, draw the line. Write the survivors on the left, the consumed on the right. If the survivors don't match the output coordinates, something is wrong. If the consumed doesn't match what you intended to consume, the bracket is wrong. The ledger catches both errors before the program runs.
+
+---
+
 We have now covered the four primitives of tensor computation: naming (a coordinate has an identity), permutation (coordinates move by name, not position), reduction (the consumed coordinate is named in the bracket), and broadcasting (the omitted coordinate is visible by its absence). They all flow from a single idea: **the megaphone.** A tensor speaks on some coordinates and stays silent on others. Reduction silences a coordinate. Broadcast copies along one the tensor was already silent on. Naming makes the coordinates audible. Permutation moves them without changing who speaks.
 
 In the next chapter, we begin composing these primitives into functions—functions whose coordinate contracts are part of their type, statically checked at every call site.
+
+---
+
+*Find a broadcast in your code. Not one you intentionally wrote—one that happened because a shape broadcast aligned. Can you name the coordinate it copies along? Is the broadcast semantically justified? If you cannot answer both questions, you have found a silence that should be a claim.*

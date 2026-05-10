@@ -1,9 +1,9 @@
 ---
 layout: book
-title: "Chapter 14 · The Outline of the Name"
+title: "Chapter 15 · The Outline of the Name"
 ---
 
-# Chapter 14 · The Outline of the Name
+# Chapter 15 · The Outline of the Name
 
 > "We shall not cease from exploration. And the end of all our exploring will be to arrive where we started and know the place for the first time."
 >
@@ -103,6 +103,106 @@ If the name is in a comment, it can rot. If the name is in the code, it can be c
 
 ---
 
+## What the Names Did for You
+
+Before this book, you read tensor operations as arithmetic. `x.mean(dim=1)` was "reduce axis 1." The operation was complete. The text contained everything the compiler needed.
+
+After this book, you read `x.mean(dim=1)` and see an absence. The axis has no name. The coordinate it erases has no identity. The code records *where* but not *what*. The operation is incomplete. The text tells the compiler what to execute. It does not tell the reader what was intended.
+
+This shift—from seeing operations as complete to seeing them as underspecified—is the coordinate habit. It is not a skill. It is not a technique. It is a change in what you notice when you look at a tensor operation. Every person who reads this book starts at a different point and ends at a different point. But everyone ends by seeing the gaps.
+
+The gaps were always there. You just didn't have a name for what was missing.
+
+## The Reader's Review
+
+This chapter has traced the outline the names leave behind. But an outline is not a review. A review is not something you read—it is something you do.
+
+So before you close this book, do the review. Not by rereading. By answering. The following questions walk through every chapter, but they don't summarize. They ask you to notice what has changed in how you read.
+
+Take your time. There is no rush. The book will still be here when you finish.
+
+---
+
+**Chapter 1.** You read this line on page one:
+
+```python
+x = x.mean(dim=1)
+```
+
+At the time, you saw a tensor operation. `dim=1` was a position. Now read it again. What do you see?
+
+Do you see the absent name? The coordinate that `1` refers to—is it `channel`, `feature`, `class`? The code doesn't say. Three months ago, before this book, you might not have noticed the absence. Now the absence is the loudest thing on the line.
+
+---
+
+**Chapter 2.** You wrote `out[i, j] = A[i, j] + bias[j]`. The omission was the point: `bias` has no `i`, so it broadcasts.
+
+Now read `A + bias` in NumPy. What do you see? Do you see the broadcast that the code doesn't name? Do you see the coordinate that `bias` silently copies along? Do you know, from the code alone, whether the broadcast is intentional or accidental?
+
+If you can answer the third question, you have learned the broadcast self-audit. If you cannot—if the code gives you no information to answer with—you have learned why the self-audit is necessary.
+
+---
+
+**Chapter 3.** The Square Matrix Test. Read this:
+
+```python
+softmax(logits, dim=-1)
+```
+
+When `batch_size == num_classes`, `dim=0` and `dim=-1` both produce valid probability distributions. The code is correct either way. The *program* is correct only one way.
+
+Now read `softmax[class](logits)`. Does the name `class` appear on `logits`? If not, it's an error. If yes, it's checked at every call site. The Square Matrix Test is not a trick. It is a fact: when extents coincide, only names differ. If you don't write the names, you cannot tell the difference.
+
+---
+
+**Chapter 4.** GroupNorm. Read this PyTorch line:
+
+```python
+x = x.reshape(N, G, C//G, H, W).mean(dim=(2,3,4))
+```
+
+`dim=(2,3,4)` means "reduce over c_in_group, H, W." But only because the reshape put them at those positions. If the reshape changes, the tuple changes.
+
+Now read `mean[c_in_group, H, W](x[..batch, group, c_in_group, H, W])`. The bracket names the reduced coordinates. If the layout changes, the names don't. Which line would you rather be responsible for maintaining six months from now, at 11 PM, during an incident?
+
+---
+
+**Chapter 5.** Causality. `u[t+1, i]` on the right-hand side of a recurrence with declaration `u[t in 1..T, i]`. Before this book, would you have caught it? Would the compiler? In Python, the loop runs. In einlang, the compiler halts. The difference is whether time has a direction in your notation.
+
+---
+
+**Chapter 6.** The boundary. `oh + kh` is valid. `oh + 1000` is valid too—even if `oh + 1000` overflows the input. The compiler checks that `oh` and `kh` are coordinates. It does not check that their sum is in bounds.
+
+This boundary is a design choice. Why is it here? Because the coordinate system guarantees that `oh` and `kh` are the right *kind* of thing—spatial indices. It does not guarantee that they are the right *value*. Bounds checking is the runtime's job. Semantic correctness is yours. The names reduce the surface area of uncheckable facts. They do not eliminate it.
+
+---
+
+**Chapter 7.** The gradient. Read `dA[i, k] = sum[j](dC[i, j] * B[k, j])`. You derived this yourself in Chapter 7, from the coordinate sets alone. Now read `dA = dC @ B.T`. Do you know which axes are being contracted? Do you know why the transpose is there? If you had to re-derive it from the positional code, could you?
+
+The coordinate accounting gave you set subtraction: `C` has `{i, j}`, `A` has `{i, k}`, sum over `{j}`. The positional code gives you `dC @ B.T`. Both produce the same result. Only one explains itself.
+
+---
+
+**Chapters 8–10.** The comparisons. You saw LayerNorm, RMSNorm, GroupNorm, attention, and the heat equation in two notations. Each time, the positional code was correct. Each time, the named code made different facts visible.
+
+After reading all three comparison chapters, answer this: which bug would you rather debug at 3 AM—a `dim=-1` that should have been `dim=-2`, or a `softmax[class]` where `class` doesn't exist? The first is silent. The second is a compiler error. The compiler cannot prevent all bugs. But it can prevent the ones where the notation records enough information for the compiler to check.
+
+---
+
+**Chapters 11–13.** The compiler. You watched a name travel from source through IR through analysis through lowering to generated code. Five forms, one name. `class` survived every stage. It was verified at the stage where it was still a name—where the compiler could ask "does this name exist on this tensor?" and get a yes/no answer. Then it was burned into `axis=1`—after all checks had passed.
+
+The positional compiler could not have asked that question, because the positional compiler never knew the name. The name was in the programmer's head. The compiler burned a number that was already a number. No verification occurred.
+
+---
+
+Now close your eyes. Or look away from the page. Ask yourself one question:
+
+**If you had to explain to a colleague why named coordinates matter—not with arguments, but by showing them a single page from this book—which page would you choose?**
+
+Your answer to that question is your review. It is not the same as mine. It doesn't need to be. The book is not a doctrine. It is a lens. What you see through it depends on what you brought to it.
+
+---
+
 Now read this line:
 
 ```python
@@ -110,4 +210,18 @@ x = x.mean(dim=1)
 ```
 
 What appears in your mind?
+
+Does a coordinate name surface—`channel`, `feature`, `class`? Does a question arise: which coordinate is position 1, and how do I know? Does the gap between the number and the identity feel wider than it did seventeen chapters ago?
+
+If the answer to any of these is yes, the book has done its work. Not by converting you to einlang. Not by persuading you to rename every dimension in your codebase. By changing what you notice when you read a tensor operation. The coordinate habit is that change.
+
+---
+
+Before you turn the final page, one last exercise. Open a terminal. Navigate to your most recent project. Pick the first `.py` file that contains a tensor operation. Find the first `dim=`, `axis=`, or `permute` call. Read it. Ask: if the dimension order changed tomorrow, would this line still be correct?
+
+If you can answer with confidence—because a comment records the coordinate name, because an einops string names the dimensions, because the variable naming convention is consistent—you have applied the habit. If you cannot answer with confidence—because the number records only position, not identity—you have found a ghost. You now know its name. And you know that naming it is the first step toward making it visible.
+
+The ghost has been there since before you opened this book. The difference is that now you can see it. And what you can see, you can name. And what you can name, you can check.
+
+Turn the page.
 

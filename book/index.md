@@ -8,7 +8,7 @@ description: "The Name in the Bracket — a book about what notation hides, and 
 
 Notation determines what you can notice. When a notation has no place for a fact, that fact becomes invisible—not just to the compiler, but to the act of reading and reasoning itself.
 
-This book traces one idea—the coordinate audit—through fifteen chapters: from a Tuesday bug through naming, reduction, broadcasting, differentiation, comparison with PyTorch, and compiler construction. Einlang is the microscope. The habit is the payload.
+This book traces one idea—the coordinate audit—through seventeen chapters: from a Tuesday bug through naming, reduction, broadcasting, differentiation, comparison with PyTorch, and compiler construction. Einlang is the microscope. The habit is the payload.
 
 [Download PDF](../the-name-in-the-bracket.pdf)
 
@@ -24,11 +24,11 @@ The book uses a small language called Einlang to make the demonstrations precise
 
 **Who this book is for.** If you build things below the level of an API call—a compiler pass, a numerical library, an autodiff engine, a tensor DSL, or a notation shared by a team—this book is written for you. If you have ever stared at `RuntimeError: mat1 and mat2 shapes cannot be multiplied` at 3 AM and wished the traceback told you which dimension was supposed to be `head` and which one was supposed to be `feature`, this book is written for you. If you mainly want another framework function to call, it will probably spend too much time under the floorboards. That is by design.
 
-**How to read this book.** The Prologue is a ten-minute encounter with the notation and the habit. Do not skip it. Part I (Chapters 1–2) introduces the primitives—naming, permuting, reducing, broadcasting—with the megaphone model that unifies them. Part II (Chapters 3–7) teaches combination: coordinate-aware functions, normalization skeletons, recurrence, complex terrain, and differentiation. Part III (Chapters 8–10) puts einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. Part IV (Chapters 11–15) opens the compiler: intermediate representation, analysis and check rules, lowering, reflection, and a complete syntax reference.
+**How to read this book.** Part I (Chapters 1–2) introduces the primitives—naming, permuting, reducing, broadcasting—with the megaphone model that unifies them. Part II (Chapters 3–8) teaches combination: coordinate-aware functions, the broadcast self-audit, normalization skeletons, recurrence, complex terrain, and differentiation. Part III (Chapters 9–11) puts einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. Part IV (Chapters 12–17) opens the compiler: intermediate representation, analysis and check rules, lowering, reflection, the life of a name, and a complete syntax reference.
 
 A note on language. Throughout this book, "we" means the author and the reader together—we are tracing the same cells, debugging the same bugs, asking the same questions. The coordinate habit is learned collaboratively or not at all.
 
-The book is an argument in the form of fifteen chapters and one idea. Turn the page.
+The book is an argument in the form of seventeen chapters and one idea. Turn the page.
 
 ## Contents
 
@@ -38,21 +38,23 @@ The book is an argument in the form of fifteen chapters and one idea. Turn the p
 
 ### Part II: Combinations
 - [3. Names as Contracts](chapter-03-names-as-contracts.html)
-- [4. Blocks and Skeletons](chapter-04-blocks-skeletons.html)
-- [5. Names in Time](chapter-05-names-in-time.html)
-- [6. Complex Terrain](chapter-06-complex-terrain.html)
-- [7. Names Through Differentiation](chapter-07-gradients.html)
+- [4. The Broadcast Self-Audit](chapter-04-broadcast-self-audit.html)
+- [5. Blocks and Skeletons](chapter-05-blocks-skeletons.html)
+- [6. Names in Time](chapter-06-names-in-time.html)
+- [7. Complex Terrain](chapter-07-complex-terrain.html)
+- [8. Names Through Differentiation](chapter-08-gradients.html)
 
 ### Part III: Comparisons
-- [8. Comparison: Normalization](chapter-08-comparison-normalization.html)
-- [9. Comparison: Attention](chapter-09-comparison-attention.html)
-- [10. Comparison: Physics](chapter-10-comparison-physics.html)
+- [9. Comparison: Normalization](chapter-09-comparison-normalization.html)
+- [10. Comparison: Attention](chapter-10-comparison-attention.html)
+- [11. Comparison: Physics](chapter-11-comparison-physics.html)
 
 ### Part IV: Construction
-- [11. The Shape of Thought](chapter-11-shape-of-thought.html)
-- [12. The Name in the Mirror](chapter-12-name-in-mirror.html)
-- [13. Firewood](chapter-13-firewood.html)
-- [14. The Outline of the Name](chapter-14-outline-of-name.html)
-- [15. The Complete Picture](chapter-15-complete-picture.html)
+- [12. The Shape of Thought](chapter-12-shape-of-thought.html)
+- [13. The Name in the Mirror](chapter-13-name-in-mirror.html)
+- [14. Firewood](chapter-14-firewood.html)
+- [15. The Outline of the Name](chapter-15-outline-of-name.html)
+- [16. The Life of a Name](chapter-16-life-of-a-name.html)
+- [17. The Complete Picture](chapter-17-complete-picture.html)
 
 - [Epilogue: A Friend Named einlang](chapter-epilogue.html)

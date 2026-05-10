@@ -26,89 +26,103 @@
   section: "Part II: Combinations"
   eyebrow: "3"
 
-- title: "Chapter 4 · Blocks and Skeletons"
-  url: /book/chapter-04-blocks-skeletons.html
-  short_title: "4. Blocks and Skeletons"
+- title: "Chapter 4 · The Broadcast Self-Audit"
+  url: /book/chapter-04-broadcast-self-audit.html
+  short_title: "4. The Broadcast Self-Audit"
   kind: chapter
   section: "Part II: Combinations"
   eyebrow: "4"
 
-- title: "Chapter 5 · Names in Time"
-  url: /book/chapter-05-names-in-time.html
-  short_title: "5. Names in Time"
+- title: "Chapter 5 · Blocks and Skeletons"
+  url: /book/chapter-05-blocks-skeletons.html
+  short_title: "5. Blocks and Skeletons"
   kind: chapter
   section: "Part II: Combinations"
   eyebrow: "5"
 
-- title: "Chapter 6 · Complex Terrain"
-  url: /book/chapter-06-complex-terrain.html
-  short_title: "6. Complex Terrain"
+- title: "Chapter 6 · Names in Time"
+  url: /book/chapter-06-names-in-time.html
+  short_title: "6. Names in Time"
   kind: chapter
   section: "Part II: Combinations"
   eyebrow: "6"
 
-- title: "Chapter 7 · Names Through Differentiation"
-  url: /book/chapter-07-gradients.html
-  short_title: "7. Names Through Differentiation"
+- title: "Chapter 7 · Complex Terrain"
+  url: /book/chapter-07-complex-terrain.html
+  short_title: "7. Complex Terrain"
   kind: chapter
   section: "Part II: Combinations"
   eyebrow: "7"
 
-- title: "Chapter 8 · Comparison: Normalization"
-  url: /book/chapter-08-comparison-normalization.html
-  short_title: "8. Comparison: Normalization"
+- title: "Chapter 8 · Names Through Differentiation"
+  url: /book/chapter-08-gradients.html
+  short_title: "8. Names Through Differentiation"
   kind: chapter
-  section: "Part III: Comparisons"
+  section: "Part II: Combinations"
   eyebrow: "8"
 
-- title: "Chapter 9 · Comparison: Attention"
-  url: /book/chapter-09-comparison-attention.html
-  short_title: "9. Comparison: Attention"
+- title: "Chapter 9 · Comparison: Normalization"
+  url: /book/chapter-09-comparison-normalization.html
+  short_title: "9. Comparison: Normalization"
   kind: chapter
   section: "Part III: Comparisons"
   eyebrow: "9"
 
-- title: "Chapter 10 · Comparison: Physics"
-  url: /book/chapter-10-comparison-physics.html
-  short_title: "10. Comparison: Physics"
+- title: "Chapter 10 · Comparison: Attention"
+  url: /book/chapter-10-comparison-attention.html
+  short_title: "10. Comparison: Attention"
   kind: chapter
   section: "Part III: Comparisons"
   eyebrow: "10"
 
-- title: "Chapter 11 · The Shape of Thought"
-  url: /book/chapter-11-shape-of-thought.html
-  short_title: "11. The Shape of Thought"
+- title: "Chapter 11 · Comparison: Physics"
+  url: /book/chapter-11-comparison-physics.html
+  short_title: "11. Comparison: Physics"
   kind: chapter
-  section: "Part IV: Construction"
+  section: "Part III: Comparisons"
   eyebrow: "11"
 
-- title: "Chapter 12 · The Name in the Mirror"
-  url: /book/chapter-12-name-in-mirror.html
-  short_title: "12. The Name in the Mirror"
+- title: "Chapter 12 · The Shape of Thought"
+  url: /book/chapter-12-shape-of-thought.html
+  short_title: "12. The Shape of Thought"
   kind: chapter
   section: "Part IV: Construction"
   eyebrow: "12"
 
-- title: "Chapter 13 · Firewood"
-  url: /book/chapter-13-firewood.html
-  short_title: "13. Firewood"
+- title: "Chapter 13 · The Name in the Mirror"
+  url: /book/chapter-13-name-in-mirror.html
+  short_title: "13. The Name in the Mirror"
   kind: chapter
   section: "Part IV: Construction"
   eyebrow: "13"
 
-- title: "Chapter 14 · The Outline of the Name"
-  url: /book/chapter-14-outline-of-name.html
-  short_title: "14. The Outline of the Name"
+- title: "Chapter 14 · Firewood"
+  url: /book/chapter-14-firewood.html
+  short_title: "14. Firewood"
   kind: chapter
   section: "Part IV: Construction"
   eyebrow: "14"
 
-- title: "Chapter 15 · The Complete Picture"
-  url: /book/chapter-15-complete-picture.html
-  short_title: "15. The Complete Picture"
+- title: "Chapter 15 · The Outline of the Name"
+  url: /book/chapter-15-outline-of-name.html
+  short_title: "15. The Outline of the Name"
   kind: chapter
   section: "Part IV: Construction"
   eyebrow: "15"
+
+- title: "Chapter 16 · The Life of a Name"
+  url: /book/chapter-16-life-of-a-name.html
+  short_title: "16. The Life of a Name"
+  kind: chapter
+  section: "Part IV: Construction"
+  eyebrow: "16"
+
+- title: "Chapter 17 · The Complete Picture"
+  url: /book/chapter-17-complete-picture.html
+  short_title: "17. The Complete Picture"
+  kind: chapter
+  section: "Part IV: Construction"
+  eyebrow: "17"
 
 - title: "Epilogue · A Friend Named einlang"
   url: /book/chapter-epilogue.html

@@ -35,6 +35,28 @@ Positional notation is not *wrong*. It is *insufficient*. It records the arithme
 
 This book is about closing that gap.
 
+But before we go there—stop for a moment. Think about your own code.
+
+What is the hardest-to-debug tensor shape bug you have ever written? Not a crash, not a NaN—those are easy. A bug where everything ran, the loss went down, the metrics looked fine, and yet the program was systematically, invisibly wrong. Was there a time when `axis=-1` or `dim=1` made you think you were erasing `channel`, but you were actually erasing `spatial`? What finally helped you find it?
+
+Take a moment. Remember what that felt like.
+
+---
+
+The problem with `dim=1` is not that you wrote it wrong. The problem is that `dim=1` records nothing about your intent. When you wrote `dim=1`, you meant "erase the channel dimension." But `dim=1` doesn't say that. It says "erase dimension at position 1." And position 1 is not a fact about the data. It is a fact about the current layout—a layout that can change without the operation knowing.
+
+Now imagine writing it differently:
+
+```rust
+let y[b, s] = mean[channel](x[b, channel, s]);
+```
+
+The bracket after `mean` names `channel`—not a position, but an identity. If upstream changes the dimension order, `channel` is still `channel`. If `x` doesn't have a `channel` coordinate, it is caught before a single value is computed. Not during debugging. Not during code review. At the moment the code is written, when the fix costs seconds instead of weeks.
+
+This is the core claim of this book: **when coordinate names appear in the syntax, the notation itself becomes a form of static verification.** The same line that tells the reader what you meant also tells the machine what to check. There is no separate channel of documentation that can drift out of sync—because the documentation *is* the check, and the check *is* the code.
+
+Every chapter that follows is one step deeper into this claim. By the end, you will not just understand why names matter—you will have watched them be checked, transformed, and burned into the integers that actually execute. And when you return to your own code, you will read `x.mean(dim=1)` differently. The gap will still be there. But you will see it.
+
 ---
 
 ## What Is a Tensor?
@@ -167,4 +189,24 @@ This is a pattern that will recur through the entire book: **when coordinate nam
 
 Positional permutation is not evil. It is the right abstraction for a compiler pass that only needs to know "move this stride to that position." But source code is not written for compilers. It is written for the human who will debug it at 11 PM, three months after the original author left the team. That human needs to know *what moved where and why*. Position numbers answer the first question, but not the second. Names answer both.
 
+---
+
+## What the Bug Teaches
+
+The bug that opened this chapter was not special. It was not caused by negligence or inexperience. It was caused by a gap between what the programmer knew and what the notation could record. The programmer knew `dim=1` was `channel`. The notation recorded `1`.
+
+Every bug in this book shares that structure. A fact exists in the programmer's head. The notation has no slot for it. The fact drifts. The code runs. The bug survives.
+
+The coordinate habit is the discipline of putting the fact in the notation. When the notation has no slot—when you're writing PyTorch or JAX or NumPy—you create a slot: a comment, a naming convention, an einops string. When the notation has a slot—when you're writing einlang—you fill it with a bracket and a name.
+
+The slot is not the point. The name is not the point. The point is that the fact, once recorded, can be checked. A fact in a comment can rot. A fact in a bracket is verified at every call site. The distance between the two is the distance between hope and guarantee.
+
+You now know what a coordinate is: a name, a domain, a position. You know that naming the coordinate makes it survive position changes. You know that the parking lot ticket with the name of the car survives the repainting. You know that the driving directions with street names survive road closures.
+
+The rest of this book is about what happens when you take that knowledge seriously—when you require every reduction to name the coordinate it consumes, every broadcast to be visible by omission, every function to declare which coordinates it operates on. The result is not a new way of writing tensor code. It is a new way of reading it: with the expectation that the code tells you what it means, not just how it runs.
+
 In the next chapter, we introduce two operations that go beyond rearrangement: reduction and broadcasting. A reduction eliminates a coordinate. A broadcast copies along one. Together they form the core of every tensor computation—and they share an intuition model that will carry us through the rest of the book.
+
+---
+
+*Open your most recent tensor script. Search for `dim=`, `axis=`, `permute`, `transpose`, `reshape`. Count them. For each one, ask: if the dimension order changed three months from now, would this line still be correct? If you cannot answer with confidence—because the code records only the position, not the identity—you have found a ghost. You now know its name.*

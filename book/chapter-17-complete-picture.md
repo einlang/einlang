@@ -1,9 +1,9 @@
 ---
 layout: book
-title: "Chapter 15 · The Complete Picture"
+title: "Chapter 17 · The Complete Picture"
 ---
 
-# Chapter 15 · The Complete Picture
+# Chapter 17 · The Complete Picture
 
 > "The purpose of computing is insight, not numbers."
 >
@@ -19,9 +19,39 @@ The preceding fourteen chapters introduced einlang's grammar piece by piece, eac
 
 Think of it as the view from the summit. You climbed the mountain one trail at a time. Now you can see the whole range.
 
+But before I show you my map, draw your own.
+
 ---
 
-## The Thought Map
+## Build Your Own Map
+
+Take out a piece of paper. Or open a blank document. At the top, write: `dim=1 bug`.
+
+Now draw arrows downward. Each arrow is a question the bug forced us to ask. *"Which coordinate did I just erase?"* → naming. *"Which coordinate is being reduced?"* → reduction bracket. *"Why can't the compiler check this?"* → coordinate contracts.
+
+Don't look at the next section yet. Draw from memory. What were the big ideas? How do they connect? Which chapters depend on which?
+
+Five minutes. Go.
+
+---
+
+Done? Good. Now look at your map and ask three questions:
+
+1. **Which arrow did you forget?** Everyone forgets at least one. The arrow you forgot connects two ideas you hadn't realized were dependent on each other. That connection is the thing you haven't fully internalized yet.
+
+2. **Which arrow did you draw but can't explain why it exists?** You remembered that A depends on B, but you can't articulate the dependency. That arrow is a memory, not an understanding. Go back to the chapter where that arrow was first drawn and reread the transition.
+
+3. **Which idea has the most arrows pointing to it?** That idea is the load-bearing concept. In this book, it is almost certainly "a coordinate has a name." Everything else depends on it. If you had to explain the book in one sentence, that concept would be in it.
+
+The map you drew is not the final answer. It is a snapshot of your understanding at this moment. A month from now, draw it again. The arrows will have moved. Some will have disappeared—their dependencies now obvious. Others will have appeared—connections you didn't see the first time.
+
+Learning is not the accumulation of facts. It is the continuous redrawing of the map.
+
+---
+
+## The Thought Map (One Version)
+
+Here is one version of the map. It is not the only version. Compare it to yours. Where do they agree? Where do they differ? The differences are not errors—they are perspectives.
 
 Before the syntax reference, a map of how the ideas connect. Each arrow is a dependency: the idea at the tail must be understood before the idea at the head.
 
@@ -264,12 +294,47 @@ The preceding sections catalogued syntax. But syntax is only half the story. Eac
 
 ## Error Codes
 
-Two errors are especially relevant to the coordinate habit:
+Three errors are especially relevant to the coordinate habit. You won't memorize error codes from a book. But reading them now means you'll recognize them when they appear:
 
-- **E003 (Undefined Coordinate)**: a coordinate name is referenced but does not exist on the tensor. `softmax[nonexistent](logits)` — caught at the call site.
-- **E004 (Coordinate Range Mismatch)**: two uses of the same coordinate name infer incompatible ranges. `A[i, k] * B[k, j]` where `k` has range 64 in `A` but 128 in `B`.
+- **E003 (Undefined Coordinate)**: a coordinate name is referenced but does not exist on the tensor. `softmax[nonexistent](logits)` — caught at the call site. The error message names the missing coordinate and the tensor that lacks it. This is the compiler version of "you wrote `dim=1` but the tensor has no dimension 1." Unlike the positional version, the error tells you *which name* was expected.
 
-These errors catch the bugs that positional APIs leave to runtime or to silence.
+- **E004 (Coordinate Range Mismatch)**: two uses of the same coordinate name infer incompatible ranges. `A[i, k] * B[k, j]` where `k` has range 64 in `A` but 128 in `B`. The shapes would produce a runtime error. The compiler catches it at analysis time and tells you which tensor declares which range.
+
+- **E006 (Coordinate Contract Violation)**: a function call supplies a coordinate argument that does not match the function's declared coordinate parameter layout. `softmax[batch](logits[batch, class])` where `softmax` expects `j` and preserves it in the return type, but `batch` is in `..left` — the contract is violated. The error message shows the expected layout and the actual layout side by side.
+
+These errors catch the bugs that positional APIs leave to runtime or to silence. They exist because the coordinate names exist. No names → no E003. No coordinate-aware functions → no E006. The error codes are not arbitrary. They are the compiler saying, in structured form: "the name you wrote does not match the names the program declares."
+
+---
+
+## How to Use This Chapter
+
+This chapter is built to be revisited. Not read cover to cover—opened to the section you need.
+
+If you're writing a new einlang function and can't remember the exact syntax for a recurrence declaration, open to "Recurrence Relations." If you're debugging a coordinate mismatch and want to re-derive the pullback rule, open to "Automatic Differentiation." If you're designing a new operation and want to check whether it fits the existing primitives, trace it through the Thought Map.
+
+The syntax reference is the scaffolding. The thought map is the blueprint. Together they let you rebuild what you need without rereading the whole book.
+
+But the most important section of this chapter is not the syntax. It is the four-question audit table. Those four questions work in any framework. They are the coordinate habit, reduced to its smallest portable form. Copy them. Tape them to your monitor. Use them on your next tensor bug.
+
+---
+
+## Five Principles, Restated
+
+Before the syntax reference ends, the five principles that every chapter has demonstrated. They are not syntax. They are what the syntax serves.
+
+**1. Coordinates have identities.** `batch`, `channel`, `time`, `feature` are not positions. They are names. A position records where. A name records what. When the layout changes, the position breaks. The name survives.
+
+**2. Reductions must name what they consume.** `sum[class](x)` says "I am consuming `class`." `x.sum(dim=1)` says "I am consuming position 1." The first survives a transpose. The second does not.
+
+**3. Broadcasts must name what they copy along.** `out[i, j] = A[i, j] + bias[j]` says "`bias` is silent on `i`." `A + bias` says nothing. The first records the omission. The second infers it from shapes.
+
+**4. Functions must declare their coordinate contracts.** `fn softmax[j](x: [f32; ..left, j, ..right])` says "I operate on `j`." `def softmax(logits, dim=-1)` says "I operate on the last axis." The first is checked at every call site. The second is a convention.
+
+**5. Gradients read the forward pass backward.** What consumed forward is broadcast backward. What was silent forward is summed backward. The Inversion Rule is not a separate mechanism. It is the forward pass, read in reverse, with the same coordinate names on both sides.
+
+Five principles. They are not einlang-specific. They apply in any notation that records coordinate identities. The notation can be brackets. It can be einops strings. It can be comments. What matters is that the identity is recorded somewhere the reader can see it and the compiler can check it.
+
+The syntax will evolve. The thought map will grow. The habit—write the coordinate names, make the omissions explicit, let the compiler check the contracts—will outlast any particular syntax.
 
 ---
 
@@ -285,6 +350,22 @@ Every tensor operation can be audited with four questions. They are not einlang-
 | Does the backward reduction match the forward broadcast? | Gradient shape mismatch | 7 |
 
 Ask these four questions of any tensor line. The answers tell you whether the notation preserved the facts that correctness depends on.
+
+---
+
+## Debugging with the Audit
+
+The audit table is also a debugging tool. When a bug manifests as a wrong output shape or a wrong gradient, walk the audit questions backward from the symptom.
+
+**Symptom: gradient has wrong shape.** The backward reduction doesn't match the forward broadcast. Check Question 4: which coordinate was broadcast forward? Sum over it backward. If the backward sum is over a different coordinate, the shapes will differ at exactly that coordinate. Trace the forward broadcast. Find where the coordinate was omitted. The omission is the bug.
+
+**Symptom: output values look normalized over the wrong axis.** A softmax output summing to 1.0 over rows instead of columns. Check Question 1: which coordinate was consumed by the softmax reduction? If it was `dim=-1` but the intended coordinate is not the last one, the consumption is wrong. The fix is a `dim` change or a transpose before the softmax. The audit question tells you what to look for.
+
+**Symptom: loss is slightly worse after a refactoring, but all tensor shapes match.** A coordinate was silently permuted. Check Question 3: trace one coordinate from the data entry point (data loader) through every operation to the loss. Find where the coordinate's position changed without the code recording the change. The position change is the bug. The name that wasn't there is the root cause.
+
+**Symptom: batch normalization behaves differently after adding a sequence dimension.** The batch statistics are computed over the wrong set of coordinates. Check Question 1: which coordinates are reduced by `mean`? If the reduction consumed `batch` (correct) but also consumed `seq` (wrong), the statistics are being pooled across the wrong dimensions. In a positional API, this is a `dim` tuple audit. In a named API, the reduction bracket names the consumed coordinates, and adding a dimension doesn't change the bracket.
+
+The four questions are a checklist. Run through them in order. The answer to at least one will be "I don't know from reading the code." The I-don't-know is a gap. The gap is where the bug lives.
 
 ---
 
