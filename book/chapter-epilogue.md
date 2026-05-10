@@ -1,9 +1,9 @@
 ---
 layout: book
-title: "Epilogue · A Friend Named einlang"
+title: "Epilogue · A Friend Named Einlang"
 ---
 
-# Epilogue · A Friend Named einlang
+# Epilogue · A Friend Named Einlang
 
 > "Programs must be written for people to read, and only incidentally for machines to execute."
 >
@@ -11,7 +11,7 @@ title: "Epilogue · A Friend Named einlang"
 
 ---
 
-In Chapter 5, einlang was a name. A label for the notation we'd been building since Chapter 3. Now, at the end of seventeen chapters, you know what the name actually refers to.
+In Chapter 5, Einlang was a name. A label for the notation we'd been building since Chapter 3. Now, at the end of sixteen chapters, you know what the name actually refers to.
 
 Einlang is not a language in the sense that Python is a language, or C++, or Rust. It does not aspire to run your web server or render your UI. It is a language built on three ideas: primitive expressions, means of combination, and means of abstraction—organized around a single purpose.
 
@@ -31,9 +31,9 @@ This is the bet the book has asked you to make: that the extra keystrokes of nam
 
 SICP ends with a meta-circular evaluator—a Scheme interpreter written in Scheme—as if to say: you now understand the language deeply enough to implement it yourself.
 
-I am not going to ask you to implement einlang. I am going to ask you something smaller and harder.
+I am not going to ask you to implement Einlang. I am going to ask you something smaller and harder.
 
-Take the four habits into your next tensor program. Not an einlang program—the language is young, the tooling is sparse, and you have deadlines. Take them into PyTorch. Into JAX. Into whatever framework you use to get work done.
+Take the four habits into your next tensor program. Not an Einlang program—the language is young, the tooling is sparse, and you have deadlines. Take them into PyTorch. Into JAX. Into whatever framework you use to get work done.
 
 When you write a reduction, pause. Ask: which coordinate am I eliminating? Is the name in the code?
 
@@ -65,7 +65,7 @@ You will trace a bug through a reshape-permute-reshape chain and think: *if thes
 
 You will read attention code and notice whether `seq_q` and `seq_k` are the same coordinate or different coordinates, because you now know that when they happen to have the same length at development time, the positional code for self-attention and cross-attention is identical.
 
-You will not convert your entire codebase to einlang. The language is young. The tooling is sparse. You have a deadline. But you will start putting names where they cost nothing and prevent everything: in comments, in variable names, in the structure of your tensor shapes. `# dim=1 is channel`. `x: Tensor["batch", "channel", "spatial"]`. `rearrange(x, "batch channel spatial -> batch spatial channel")`.
+You will not convert your entire codebase to Einlang. The language is young. The tooling is sparse. You have a deadline. But you will start putting names where they cost nothing and prevent everything: in comments, in variable names, in the structure of your tensor shapes. `# dim=1 is channel`. `x: Tensor["batch", "channel", "spatial"]`. `rearrange(x, "batch channel spatial -> batch spatial channel")`.
 
 A name in a comment can rot. But it rots slower than a name that was never written.
 
@@ -77,37 +77,13 @@ If the answer is *nowhere*—you have found your starting point.
 
 ---
 
-## Three Scenarios
-
-You are not going to use einlang tomorrow. But you are going to encounter these three scenarios. Here is what the coordinate habit looks like in each.
-
-**Scenario 1: The legacy codebase.** You inherit a PyTorch model with 200 occurrences of `dim=-1`. Nobody remembers which dimension is which. The README doesn't say. The original author left the company.
-
-You have two choices. Choice A: print shapes at every layer, trace dimensions manually, build a mental map that lives in your head and dies when you context-switch. Choice B: spend one afternoon adding a comment at every `dim` argument. `# dim=-1 = feature`. `# dim=1 = channel`. `# dim=(2,3) = spatial`.
-
-Choice A costs one afternoon now and ten afternoons over the next year. Choice B costs two afternoons now and zero later. The coordinate habit is Choice B. The names don't need to be checked by a compiler to be useful. They need to be visible. A comment is a name that the compiler can't read but the next programmer can. That's already 80% of the value.
-
-**Scenario 2: The new project.** You are designing a data pipeline from scratch. You can name your dimensions however you want. You have the rare luxury of a greenfield.
-
-Here is the coordinate habit for a greenfield: name your dimensions in the data loader, not in the model. The moment a tensor enters your program—from a file, from a database, from a random generator—attach coordinate names. If your framework doesn't support named dimensions, use a convention: batch is always first, spatial is always last, feature is always second. Document the convention in the project README. Make every `dim` argument consistent with the convention.
-
-The goal is not compiler-checkable contracts. The goal is that six months from now, when you've forgotten the details, the convention tells you what `dim=1` means. A convention is a name that lives in the project rather than in the code. It's less reliable than a compiler check, but infinitely more reliable than nothing.
-
-**Scenario 3: The bug investigation.** It's 3 AM. The model's loss is NaN. You're printing tensor shapes, looking for a mismatch. You find one: a tensor has shape `(32, 64)` where you expected `(64, 32)`. The transpose is missing. Or is it? Maybe the shapes are correct and the transpose happened upstream. You can't tell from the shapes alone.
-
-The coordinate habit for debugging: before you print another shape, write down which coordinate you *think* each dimension is. `dim 0 = batch? dim 1 = feature?` Then check whether the operations make sense for those identities. If `x.mean(dim=0)` is normalizing over `batch`, something is wrong—regardless of whether the shapes match.
-
-This is the coordinate audit from Chapter 17, applied to a live bug. Four questions. Which coordinate is consumed? Which coordinate is copied along? Can you trace a coordinate from source to destination? Does the backward reduction match the forward broadcast? Ask them of the operation that produced the unexpected shape. The answers will tell you whether the bug is in the shapes or in the semantics—whether the transpose is missing or the reduction is over the wrong axis.
-
----
-
 ## The Invariant
 
 Fifteen chapters. One invariant. Say it once more before you go:
 
 **Every tensor operation that depends on a coordinate's identity must record that identity in the source code.**
 
-This is not a language rule. It is a practice rule. It applies in einlang, in PyTorch, in JAX, in NumPy, in any framework where tensors carry coordinates that mean different things. The notation you use determines *how* you record the identity—brackets, comments, variable names, einops strings—but the invariant is the same.
+This is not a language rule. It is a practice rule. It applies in Einlang, in PyTorch, in JAX, in NumPy, in any framework where tensors carry coordinates that mean different things. The notation you use determines *how* you record the identity—brackets, comments, variable names, einops strings—but the invariant is the same.
 
 The invariant does not prevent all bugs. It prevents the class of bugs where the coordinate identity was lost before the operation was performed. A reduction over `dim=1` does not know it's reducing over `channel`. A reduction over `channel` knows. When the channel moves to `dim=2`, the first reduction silently becomes wrong. The second reduction becomes a compile error. The difference is whether the identity was recorded.
 
@@ -117,7 +93,7 @@ You now know how to record it. The rest is practice.
 
 ## How to Start
 
-You don't need einlang to practice the coordinate habit. You need a place to put a name and a discipline to keep it honest.
+You don't need Einlang to practice the coordinate habit. You need a place to put a name and a discipline to keep it honest.
 
 Start small. Name one coordinate at a time. The data-entry boundary is the most important one—if coordinates are named when tensors enter the program, the names flow downstream. Name the reductions next—they are where coordinates are consumed, and the consumption is the hardest fact to reconstruct later. Name the broadcasts last—they are often implicit, and making them explicit is the most verbose change.
 
@@ -143,43 +119,23 @@ These four limitations do not weaken the case for named coordinates. They clarif
 
 ---
 
-## A Week with the Habit
+## Three Books, One Idea
 
-What does the coordinate habit look like in practice, day by day? Not a conversion project. A week of small changes.
+When I started writing this book, I thought it would be about a language. About syntax, about compiler passes, about the engineering of a notation that treats coordinates as first-class citizens.
 
-**Monday.** Open a file. Find a `dim=` argument. Write a comment next to it saying which coordinate it refers to. `x.mean(dim=1)  # dim 1 = channel`. Do this for five `dim=` arguments. Time: ten minutes.
+A third of the way through, I realized it was about a bug. One bug, from one line of code, that lived for three weeks because the notation had no place to record the fact that would have caught it. The bug was not unusual. It was not the programmer's fault. It was a gap in the notation, and the gap was invisible to anyone who had not learned to see it.
 
-**Tuesday.** Find a broadcast. `A + b`. Ask whether the broadcast is semantically justified. Write down which coordinate `b` is silent on. If the answer is not obvious from the variable names, rename `b` so that it is.
+Two thirds of the way through, I realized it was about a habit. Not the notation, not the compiler, not the language. The habit of pausing before a reduction and asking: which coordinate am I consuming? The habit of looking at `dim=-1` and seeing an absence where a name should be. The habit of tracing a coordinate from data entry to loss and noticing where its identity is lost.
 
-**Wednesday.** Find a permutation. `x.permute(0, 2, 1)`. Rewrite it as an einops `rearrange` string, naming the dimensions. `rearrange(x, "batch height width -> batch width height")`. Compare the two lines. Which one tells you what moved where?
+The language is a vehicle for the habit. The compiler is a proof that the habit can be mechanized. The bug is a demonstration of what happens without the habit. But the habit is the thing. It is portable. It works in any framework, in any language, with any notation—as long as there is a place to put a name.
 
-**Thursday.** Find a reduction used in a loss function. `loss = x.sum()`. Which coordinate did it sum over? All of them. Is that correct? If `x` has coordinates `(batch, class)`, `sum()` produces a scalar. But `sum[class]` followed by `mean[batch]` produces a per-batch average loss—which may be what you intended but is not what you wrote. Name the reduction. Check the intent.
+This book is three books. The first is about a language called Einlang. The second is about a bug that a positional notation could not catch. The third is about a habit that you can practice starting today, in the codebase you already have, with the tools you already use.
 
-**Friday.** Audit one function end to end. Pick a function with at least two tensor operations. Write its coordinate signature in a comment above the `def` line. `# fn(batch, feature) -> (batch, class)`. Walk through the body. Does every operation respect the declared coordinate flow? Does every reduction consume the right coordinate? Does every broadcast copy along the right coordinate? Time: twenty minutes.
-
-**Saturday.** You are not working. But if you think about tensor shapes anyway—and you will, because the habit is settling in—notice which coordinate you are uncertain about. The uncertainty is the gap. Write down the name you are unsure of. On Monday, put it in the code.
-
-A week. Five small actions. No new tools. No framework migration. Just a shift in what you notice when you read a tensor operation. The coordinate habit is not a flag you plant. It is a lens you wear. Once you put it on, you see the gaps. The gaps were always there. You just didn't have a name for what was missing.
+The language may not survive. Languages rarely do. The bug will survive—it is recreated every time a programmer writes `dim=-1` and trusts that the last axis will always be the right one. The habit can survive, if you choose to practice it.
 
 ---
 
-There is a sentence I have been saving for the end. It is the one-sentence version of this book:
-
-**Let your coordinate names be as visible as your intent—because six months from now, when you return to this code to fix a bug, the intent will be gone, and only the names will remain.**
-
----
-
-The book opened with a bug. A tensor of shape `(32, 64, 256)`. A programmer wrote `x.mean(dim=1)`. The intent was "average over channels." The text said `dim=1`. Three months later, `channel` moved to position 2. The bug lived for three weeks.
-
-The bug's name was never written. Its identity was in a comment, in a variable name, in the author's mental model. It was absent from the one place the compiler could see: the source text of the operation itself.
-
-Notation determines what you can notice. When a notation has no place for a fact, that fact becomes invisible. The fact—"I am erasing `channel`, not `spatial`"—was absent from `dim=1` because `dim=1` is a number, and a number has no slot for a name.
-
-You now know where the slot is. It is a bracket. It holds a name. And the name, once written, can be checked.
-
----
-
-Before you go, three questions to take with you. They are the coordinate habit, compressed into a pocket form:
+That is the book. The rest is practice.
 
 1. When you write a reduction, can you name the coordinate you are consuming—from the code alone, without checking shapes?
 2. When you write a broadcast, can you name the coordinate you are copying along—and is the independence justified?

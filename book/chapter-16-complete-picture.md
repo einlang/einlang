@@ -1,9 +1,9 @@
 ---
 layout: book
-title: "Chapter 17 · The Complete Picture"
+title: "Chapter 16 · The Complete Picture"
 ---
 
-# Chapter 17 · The Complete Picture
+# Chapter 16 · The Complete Picture
 
 > "The purpose of computing is insight, not numbers."
 >
@@ -15,7 +15,7 @@ title: "Chapter 17 · The Complete Picture"
 
 This chapter contains no new syntax. It is a map of territory already explored.
 
-The preceding fourteen chapters introduced einlang's grammar piece by piece, each piece arriving when the concept it served had earned its introduction. The result is a working knowledge of the language, but the pieces are scattered across chapters. This chapter assembles them into one place, organized by category rather than by pedagogical necessity.
+The preceding fourteen chapters introduced Einlang's grammar piece by piece, each piece arriving when the concept it served had earned its introduction. The result is a working knowledge of the language, but the pieces are scattered across chapters. This chapter assembles them into one place, organized by category rather than by pedagogical necessity.
 
 Think of it as the view from the summit. You climbed the mountain one trail at a time. Now you can see the whole range.
 
@@ -87,21 +87,21 @@ A coordinate has a name, a domain, a position (Ch1)
     │       │
     │       └──► @fn: custom derivative rules carry coordinate contracts (Ch7)
     │
-    ├──► Comparisons: same computation, two notations (Ch8–10)
+    ├──► Comparisons: same computation, two notations (Ch9–11)
     │       │
-    │       ├──► Normalization: GroupNorm reshape chain vs named groups (Ch8)
-    │       ├──► Attention: identical PyTorch, distinct einlang signatures (Ch9)
-    │       └──► Physics: integer field indices vs named field coordinates (Ch10)
+    │       ├──► Normalization: GroupNorm reshape chain vs named groups (Ch9)
+    │       ├──► Attention: identical PyTorch, distinct Einlang signatures (Ch10)
+    │       └──► Physics: integer field indices vs named field coordinates (Ch11)
     │
-    └──► Compiler construction (Ch11–13)
+    └──► Compiler construction (Ch12–14)
             │
-            ├──► IR: S-expressions preserve every name (Ch11)
+            ├──► IR: S-expressions preserve every name (Ch12)
             │
-            ├──► Analysis: range → shape → type, five check rules (Ch12)
+            ├──► Analysis: range → shape → type, five check rules (Ch13)
             │
-            └──► Lowering: names → integers, three strategies (Ch13)
+            └──► Lowering: names → integers, three strategies (Ch14)
                     │
-                    └──► Firewood: names burn, heat remains (Ch13)
+                    └──► Firewood: names burn, heat remains (Ch14)
 ```
 
 Every path begins at the `dim=1` bug. Every arrow is a question the bug forced us to ask. The map is not the territory—but it shows how the trails connect.
@@ -276,19 +276,19 @@ Coordinate-aware custom rules carry the same bracketed parameters as the primal 
 
 ## Why the Compiler Reads Coordinates Too
 
-The preceding sections catalogued syntax. But syntax is only half the story. Each compiler pass depends on coordinate names to do its job. *These passes are described in Chapters 11–13.*
+The preceding sections catalogued syntax. But syntax is only half the story. Each compiler pass depends on coordinate names to do its job. *These passes are described in Chapters 12–14.*
 
-**Shape inference** (Ch11–12) reads coordinate names to decide whether an expression is legal before it runs. `sum[k](A[i, k] * B[k, j])` succeeds if `k` appears in both `A` and `B`. Under names, the contract is: `i` survives from `A`, `j` survives from `B`, `k` appears in both and is consumed.
+**Shape inference** (Ch12–13) reads coordinate names to decide whether an expression is legal before it runs. `sum[k](A[i, k] * B[k, j])` succeeds if `k` appears in both `A` and `B`. Under names, the contract is: `i` survives from `A`, `j` survives from `B`, `k` appears in both and is consumed.
 
-**Range analysis** (Ch12) finds the domain of every axis: from array shapes, from literals, or from explicit declarations. Every coordinate gets a concrete range before code generation.
+**Range analysis** (Ch13) finds the domain of every axis: from array shapes, from literals, or from explicit declarations. Every coordinate gets a concrete range before code generation.
 
-**Five check rules** (Ch12) verify the IR: index existence, reduction consistency, broadcast recording, causality, and coordinate contract at call sites. Each catches a class of bug that positional notation silently accepts.
+**Five check rules** (Ch13) verify the IR: index existence, reduction consistency, broadcast recording, causality, and coordinate contract at call sites. Each catches a class of bug that positional notation silently accepts.
 
-**Gradient lowering** (Ch13) reads coordinate names to build the backward pass. The rule: preserve the coordinates of `W`, sum over everything else. Set subtraction, applied to coordinate names, derives the pullback.
+**Gradient lowering** (Ch14) reads coordinate names to build the backward pass. The rule: preserve the coordinates of `W`, sum over everything else. Set subtraction, applied to coordinate names, derives the pullback.
 
-**Storage planning** (Ch13) reads coordinate names to decide which tensors can share memory. A recurrence creates a dependency chain; the compiler allocates a rolling buffer.
+**Storage planning** (Ch14) reads coordinate names to decide which tensors can share memory. A recurrence creates a dependency chain; the compiler allocates a rolling buffer.
 
-**Kernel fusion** (Ch13) reads coordinate names to decide which operations can be merged. Operations that share surviving coordinates can fuse; operations across a reduction boundary cannot.
+**Kernel fusion** (Ch14) reads coordinate names to decide which operations can be merged. Operations that share surviving coordinates can fuse; operations across a reduction boundary cannot.
 
 ---
 
@@ -310,7 +310,7 @@ These errors catch the bugs that positional APIs leave to runtime or to silence.
 
 This chapter is built to be revisited. Not read cover to cover—opened to the section you need.
 
-If you're writing a new einlang function and can't remember the exact syntax for a recurrence declaration, open to "Recurrence Relations." If you're debugging a coordinate mismatch and want to re-derive the pullback rule, open to "Automatic Differentiation." If you're designing a new operation and want to check whether it fits the existing primitives, trace it through the Thought Map.
+If you're writing a new Einlang function and can't remember the exact syntax for a recurrence declaration, open to "Recurrence Relations." If you're debugging a coordinate mismatch and want to re-derive the pullback rule, open to "Automatic Differentiation." If you're designing a new operation and want to check whether it fits the existing primitives, trace it through the Thought Map.
 
 The syntax reference is the scaffolding. The thought map is the blueprint. Together they let you rebuild what you need without rereading the whole book.
 
@@ -332,15 +332,99 @@ Before the syntax reference ends, the five principles that every chapter has dem
 
 **5. Gradients read the forward pass backward.** What consumed forward is broadcast backward. What was silent forward is summed backward. The Inversion Rule is not a separate mechanism. It is the forward pass, read in reverse, with the same coordinate names on both sides.
 
-Five principles. They are not einlang-specific. They apply in any notation that records coordinate identities. The notation can be brackets. It can be einops strings. It can be comments. What matters is that the identity is recorded somewhere the reader can see it and the compiler can check it.
+Five principles. They are not Einlang-specific. They apply in any notation that records coordinate identities. The notation can be brackets. It can be einops strings. It can be comments. What matters is that the identity is recorded somewhere the reader can see it and the compiler can check it.
 
 The syntax will evolve. The thought map will grow. The habit—write the coordinate names, make the omissions explicit, let the compiler check the contracts—will outlast any particular syntax.
+
+### Five Principles in Practice
+
+Each principle is a claim about what the notation should record. But principles read differently when you see them applied to a single program. Here is one program—a linear layer with LayerNorm—written first without the principles, then with each applied in turn.
+
+**Without any principles.** PyTorch:
+
+```python
+def forward(x, W, b, gamma, beta):
+    h = x @ W.T + b
+    mean = h.mean(dim=-1, keepdim=True)
+    var = (h - mean).pow(2).mean(dim=-1, keepdim=True)
+    return gamma * (h - mean) / torch.sqrt(var + 1e-5) + beta
+```
+
+Seven lines. The operations are correct. The axes are implicit. `dim=-1` appears twice. If `h` changes from `(batch, feature)` to `(batch, seq, feature)`, `dim=-1` silently changes meaning from `feature` to `seq`. The code runs. The normalization is over the wrong axis.
+
+**Principle 1 applied: Coordinates have identities.**
+
+```python
+# h: (batch, feature) — feature is dim=-1
+def forward(x, W, b, gamma, beta):
+    h = x @ W.T + b
+    mean = h.mean(dim=-1, keepdim=True)  # dim=-1 = feature
+    var = (h - mean).pow(2).mean(dim=-1, keepdim=True)  # dim=-1 = feature
+    return gamma * (h - mean) / torch.sqrt(var + 1e-5) + beta
+```
+
+The comments record identity. They can rot. But they are present—a reader six months later can see what `dim=-1` was supposed to mean. When `h` gains a `seq` dimension, the comments say `feature` but the code now normalizes over `seq`. The comment is wrong. The reader has a chance to notice the mismatch. Without comments, there is no mismatch to notice—the code changed silently.
+
+**Principle 2 applied: Reductions must name what they consume.**
+
+```python
+# h: (batch, feature)
+def forward(x, W, b, gamma, beta):
+    h = x @ W.T + b
+    mean = mean[feature](h[batch, feature])
+    var = mean[feature]((h[batch, feature] - mean) ** 2)
+    return gamma * (h[batch, feature] - mean) / sqrt(var + 1e-5) + beta
+```
+
+The reduction names `feature`. The name appears in the bracket, not in a comment. If `h` gains a `seq` dimension, its declaration becomes `h[batch, seq, feature]`. The reduction `mean[feature]` still names `feature`—it does not silently switch to `seq`. The name protects the reduction from the layout change.
+
+**Principle 3 applied: Broadcasts must name what they copy along.**
+
+```python
+# mean[batch], var[batch] — silent on feature, broadcast back over it
+# gamma[feature], beta[feature] — silent on batch, broadcast along batch
+let normalized[batch, feature] = gamma[feature] * (h[batch, feature] - mean[batch]) / sqrt(var[batch] + 1e-5) + beta[feature];
+```
+
+Two broadcasts. `gamma` and `beta` silently copy over `batch`. `mean` and `var` silently copy over `feature`. Every omission is visible in the index patterns—the coordinate that is absent from the bracket is the coordinate the tensor broadcasts over. The backward pass will sum over the appropriate coordinate for each parameter.
+
+**Principle 4 applied: Functions must declare their coordinate contracts.**
+
+```python
+fn layer_norm[feature](x: [f32; ..batch, feature], gamma: [f32; feature], beta: [f32; feature])
+    -> [f32; ..batch, feature]
+```
+
+The coordinate parameter `feature` is part of the function's type. Every call site that passes `feature` is checked: does the tensor have a coordinate called `feature`? The contract is not a docstring. It is verified.
+
+**Principle 5 applied: Gradients read the forward pass backward.**
+
+```
+Forward: mean[feature](h[batch, feature]) → mean[batch] (broadcasts over feature)
+         gamma[feature] * ... (broadcasts over batch)
+Backward: d_mean[batch] = sum[feature](d_norm[batch, feature] * ...)
+          d_gamma[feature] = sum[batch](d_norm[batch, feature] * ...)
+```
+
+The backward sums are over the coordinates that were broadcast forward. `mean` consumed `feature` → backward sum consumes `feature`. `gamma` omitted `batch` → backward sum consumes `batch`. The Inversion Rule, applied mechanically from the forward coordinate sets.
+
+---
+
+### The Principles Stack
+
+None of the five principles requires the others. You can apply Principle 1 (name the coordinates) without changing your framework—add comments. You can apply Principle 2 (name the reductions) by choosing reduction functions that accept axis names. You can apply Principle 5 (the Inversion Rule) as a manual check when debugging gradient shapes.
+
+But the principles compose. When you name coordinates (1), you can name what reductions consume (2). When you name broadcasts (3), you can check the backward pass against the forward pass (5). When you declare coordinate contracts (4), the compiler can check every call site against every principle simultaneously.
+
+The five principles are a ladder. Each rung makes the next possible. The first three rungs are available in any framework—they require only discipline, not tooling. The last two require compiler support. But the first three, practiced consistently, catch the majority of coordinate bugs at code-review time, if not at compile time.
+
+The habit begins at rung one. Name the coordinate. The rest follows.
 
 ---
 
 ## One Table: The Coordinate Audit
 
-Every tensor operation can be audited with four questions. They are not einlang-specific. They work in any framework because they are questions about meaning, not syntax.
+Every tensor operation can be audited with four questions. They are not Einlang-specific. They work in any framework because they are questions about meaning, not syntax.
 
 | Question | What it catches | Chapter |
 |---|---|---|

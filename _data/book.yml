@@ -107,22 +107,15 @@
   url: /book/chapter-15-outline-of-name.html
   short_title: "15. The Outline of the Name"
   kind: chapter
-  section: "Part IV: Construction"
+  section: "Part V: Reflection"
   eyebrow: "15"
 
-- title: "Chapter 16 · The Life of a Name"
-  url: /book/chapter-16-life-of-a-name.html
-  short_title: "16. The Life of a Name"
+- title: "Chapter 16 · The Complete Picture"
+  url: /book/chapter-16-complete-picture.html
+  short_title: "16. The Complete Picture"
   kind: chapter
-  section: "Part IV: Construction"
+  section: "Part V: Reference"
   eyebrow: "16"
-
-- title: "Chapter 17 · The Complete Picture"
-  url: /book/chapter-17-complete-picture.html
-  short_title: "17. The Complete Picture"
-  kind: chapter
-  section: "Part IV: Construction"
-  eyebrow: "17"
 
 - title: "Epilogue · A Friend Named einlang"
   url: /book/chapter-epilogue.html

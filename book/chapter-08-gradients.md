@@ -31,9 +31,9 @@ let C[i, j] = sum[k](A[i, k] * B[k, j]);
 
 You have `dC[i, j]`—the gradient of the loss with respect to `C`. You need `dA[i, k]`. You don't want to look up the formula. You don't want to memorize the transpose rule. You just want to derive it from what the forward code says.
 
-Start from first principles. `A[i, k]` appears exactly where? Inside the `sum[k]`: it is multiplied by `B[k, j]` and then summed over `k`. For a specific element `A[i₀, k₀]`, which output cells does it contribute to? Every output cell where `i = i₀` AND the sum includes `k = k₀`. That means `C[i₀, j]` for *all* `j`.
+Start from first principles. `A[i, k]` appears exactly where? Inside the `sum[k]`: it is multiplied by `B[k, j]` and then summed over `k`. For a specific element `A[i0, k0]`, which output cells does it contribute to? Every output cell where `i = i0` AND the sum includes `k = k0`. That means `C[i0, j]` for *all* `j`.
 
-So `A[i₀, k₀]` sends a contribution `A[i₀, k₀] * B[k₀, j]` to `C[i₀, j]`. The gradient signal `dC[i₀, j]` must flow back along that same path. The local derivative of `A[i, k] * B[k, j]` with respect to `A[i, k]` is `B[k, j]`. So the contribution from output cell `C[i₀, j]` back to `A[i₀, k₀]` is `dC[i₀, j] * B[k₀, j]`.
+So `A[i0, k0]` sends a contribution `A[i0, k0] * B[k0, j]` to `C[i0, j]`. The gradient signal `dC[i0, j]` must flow back along that same path. The local derivative of `A[i, k] * B[k, j]` with respect to `A[i, k]` is `B[k, j]`. So the contribution from output cell `C[i0, j]` back to `A[i0, k0]` is `dC[i0, j] * B[k0, j]`.
 
 Now sum over all the output cells that received a contribution. Those are all `j` positions. The coordinate `j` is in `C` but NOT in `A`. Sum over it:
 
@@ -43,32 +43,11 @@ let dA[i, k] = sum[j](dC[i, j] * B[k, j]);
 
 You just derived the matmul pullback. You didn't memorize it. You didn't look it up. You did coordinate accounting: which coordinates does the output have that the operand doesn't? Sum over those.
 
-Now stop and notice what you just did. In your head, you traced which coordinates were "paths" from `A` to `C`. The coordinate `j` was a path—every output position along `j` received input from `A[i₀, k₀]`. To send the gradient back, you had to sum over that path. The coordinate `k` was consumed by the forward sum—it existed in `A` and was eliminated. The backward pass doesn't need to sum over `k` because `A[i, k]` only contributed to `C[i, j]` through the specific `k` value in the sum. Each `k` position's gradient is independent.
+Now stop and notice what you just did. In your head, you traced which coordinates were "paths" from `A` to `C`. The coordinate `j` was a path—every output position along `j` received input from `A[i0, k0]`. To send the gradient back, you had to sum over that path. The coordinate `k` was consumed by the forward sum—it existed in `A` and was eliminated. The backward pass doesn't need to sum over `k` because `A[i, k]` only contributed to `C[i, j]` through the specific `k` value in the sum. Each `k` position's gradient is independent.
 
 Here is the pattern. In the forward pass, some coordinates are *consumed*—a reduction (`sum[k]`) eliminates them. Some coordinates are *silent*—a broadcast copies a value along them without the value depending on them. In the backward pass, every consumption becomes a broadcast (the gradient must be spread back over what was consumed) and every silence becomes a reduction (all the copies must be collected).
 
-This is the pullback rule, stated as a shopping trip:
-
-**Forward pass = shopping.** You walk through the aisles with a cart. From each shelf (input tensor), you take items (values). At the register, some items are consumed: a reduction eliminated a coordinate (`sum[k]`). Other items were never on your list: a broadcast silently copied them along a coordinate you didn't care about (`bias[j]` was silent on `b`).
-
-The forward pass leaves a record:
-
-```
-// C[i, j] = sum[k](A[i, k] * B[k, j])
-// Record: A appeared with coordinates [i, k]. Output has [i, j].
-//         k was consumed by the sum. j is a path coordinate.
-//         B appeared with coordinates [k, j]. k was consumed. i is a path coordinate.
-```
-
-**Backward pass = restocking.** The store manager takes the record and works backward. For every coordinate that was consumed in the forward pass, the manager must broadcast replenishment back. For every coordinate that was a path (in the output but not in the operand), the manager must sum the gradient signals:
-
-```
-// dA[i, k] = sum[j](dC[i, j] * B[k, j])
-// Record reads: A has [i, k]. C has [i, j]. Path coordinate: j. Sum over j.
-//               k was consumed forward → will be reconstructed (B provides it).
-```
-
-The forward record and the backward record are the same document, read in opposite directions. What was consumed becomes broadcast. What was a path becomes a sum. The coordinate names tell you which is which.
+Think of it as a shopping trip: the forward pass walks the aisles, picking items from shelves. The receipt records which coordinates were consumed and which were paths. The backward pass—restocking—reads the same receipt in reverse. What was consumed gets broadcast back. What was a path gets summed over. The coordinate names tell you which is which.
 
 Now let's see this pattern systematically.
 
@@ -94,13 +73,61 @@ Coordinate accounting. No transpose rules. No memorization.
 
 Given a forward expression and a target operand, derive the gradient:
 
-1. **Hold one cell** of the target operand. Choose a specific element—say `A[i₀, k₀]`.
-2. **List every output cell that reads it.** For `C[i, j] = sum[k](A[i, k] * B[k, j])`, the held cell is read by every output where `i = i₀` and the sum includes `k = k₀`. That means `C[i₀, j]` for *all* `j`.
-3. **Attach the incoming gradient.** Each output cell `C[i₀, j]` carries a gradient signal `dC[i₀, j]`. The contribution from the path through `A[i₀, k₀]` is `dC[i₀, j] * B[k₀, j]`.
+1. **Hold one cell** of the target operand. Choose a specific element—say `A[i0, k0]`.
+2. **List every output cell that reads it.** For `C[i, j] = sum[k](A[i, k] * B[k, j])`, the held cell is read by every output where `i = i0` and the sum includes `k = k0`. That means `C[i0, j]` for *all* `j`.
+3. **Attach the incoming gradient.** Each output cell `C[i0, j]` carries a gradient signal `dC[i0, j]`. The contribution from the path through `A[i0, k0]` is `dC[i0, j] * B[k0, j]`.
 4. **Multiply by the local derivative.** For elementwise multiplication inside the sum, the local derivative of `A[i, k] * B[k, j]` with respect to `A[i, k]` is `B[k, j]`.
 5. **Sum the routes.** The path coordinate—the coordinate in `C` but not in `A`—is `j`. Sum over it.
 
 The result: `dA[i, k] = sum[j](dC[i, j] * B[k, j])`. No calculus memorization. No transpose rules. Just coordinate accounting.
+
+---
+
+### Follow Along: Two More Pullbacks
+
+Now you do it. Take out a pen or open a text file. Two forward expressions. Two gradient derivations. Use the five steps.
+
+**Scenario 1: Broadcast then reduce.** Forward:
+
+```rust
+let out[i, j] = A[i, j] + bias[j];
+```
+
+You have `d_out[i, j]`. You need `d_bias[j]`. Go through the five steps. What coordinates does the output have? What coordinates does `bias` have? What's the path coordinate? Sum over what?
+
+Take two minutes. Write your answer. Then compare.
+
+---
+
+Done? Here's the derivation:
+
+1. Hold one cell: `bias[j0]`.
+2. Every output cell reads it: `out[i, j0]` for *all* `i`. The held `j0` value is copied to every `i` position.
+3. Attach the incoming gradient: each output cell carries `d_out[i, j0]`. The contribution from the path through `bias[j0]` is `d_out[i, j0] * 1` (the local derivative of `x + bias` wrt `bias` is 1).
+4. Local derivative: 1.
+5. Sum over the path coordinates: output has `{i, j}`, bias has `{j}`. Difference: `{i}`. Sum over `i`.
+
+Result: `d_bias[j] = sum[i](d_out[i, j])`. The broadcast coordinate `i` becomes the reduction coordinate. The Inversion Rule, mechanically applied.
+
+**Scenario 2: Reduce to scalar.** Forward:
+
+```rust
+let total = sum[i](data[i]);
+```
+
+You have `d_total` (a scalar). You need `d_data[i]`. Go through the five steps.
+
+Hint: the output has no coordinates. `data` has `{i}`. The path coordinates are... the ones in `data` but not in the output. Wait—that's backwards. The output is a scalar. `data` has `{i}`. The output set minus data set is... negative? No. The path is from `data` to `total`: `data` has `{i}`, `total` has `{}`. The coordinate `i` is consumed by the forward `sum`. In the backward pass, the consumed coordinate is broadcast back.
+
+Result: `d_data[i] = d_total`. The scalar gradient is broadcast to every `i` position. Each element of `data` contributed equally to the sum (coefficient 1), so each receives the full gradient signal.
+
+Two scenarios. Two derivations. Same five steps. No calculus memorization. The coordinate sets tell you what to sum over. The forward expression tells you what to multiply by.
+
+Now verify both results with coordinate set subtraction alone. Forward: `out[i, j] = A[i, j] + bias[j]`. `out` has `{i, j}`, `bias` has `{j}`. Set difference: `{i}`. Sum over `{i}`. `d_bias[j] = sum[i](d_out[i, j])`. ✓
+
+Forward: `total = sum[i](data[i])`. `total` has `{}`, `data` has `{i}`. The forward reduction consumed `{i}` → the backward broadcast restores it. `d_data[i] = d_total`. ✓
+
+The coordinate sets confirm the derivations. If your answer looks different, trace the set subtraction again—the error is in which set was subtracted from which.
 
 ---
 
@@ -300,4 +327,22 @@ If the custom rule declares `@fn softmax[k]` (different coordinate parameter nam
 
 *Revisit the last gradient you debugged. Write the forward expression with coordinate names. Derive the backward expression using coordinate set subtraction. Does the backward sum match the forward broadcast? The answer to that question is the answer to whether your gradient was correct.*
 
-In the next chapter, we leave the single-language perspective and do something new. We put einlang side by side with PyTorch—same computation, two notations—and ask what the names let you see that positions hide.
+---
+
+### Stop and Think: Derive a Gradient by Hand
+
+You now have the five-step pullback procedure. Test it on your own code.
+
+1. **Find a gradient you've written or debugged.** It could be a custom backward pass, a `torch.autograd.Function`, or a manual gradient check. Write down the forward expression.
+
+2. **Write it with coordinate names.** Even if the original code is in PyTorch, write the Einlang equivalent. Name every coordinate. Write the reduction brackets. Write the index patterns.
+
+3. **Derive the gradient using coordinate set subtraction.** Don't look at the original backward code. Just use the five steps. What coordinates does the output have? What coordinates does the operand have? What's the difference? Sum over the difference.
+
+4. **Compare to the original.** Does your derived gradient match what you originally wrote? If yes—the coordinate accounting produced the same result as your manual derivation. If no—either your coordinate accounting was wrong, or your original gradient was. Check which.
+
+5. **Repeat for a more complex operation.** Try it on a convolution, a normalization, or an attention operation. The five steps are the same. The coordinate sets are larger. The procedure doesn't change.
+
+The pullback is not a separate computation from the forward pass. It is the forward pass, read backward, through the lens of the Inversion Rule. Every forward reduction becomes a backward broadcast. Every forward broadcast becomes a backward reduction. The coordinate names are the bridge between the two directions. The five steps are the procedure for crossing it.
+
+In the next chapter, we leave the single-language perspective and do something new. We put Einlang side by side with PyTorch—same computation, two notations—and ask what the names let you see that positions hide.

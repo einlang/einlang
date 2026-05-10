@@ -17,11 +17,11 @@ A compiler cannot operate on source code strings directly. It needs an internal 
 
 We use S-expressions—parenthesized lists—as this internal language. In this language, coordinate names are preserved exactly as written. They are not pre-resolved to integers. Model names remain model names. The structure mirrors the source, stripped of syntactic sugar, with all semantic relationships intact.
 
-The compiler's first job is translation: read einlang, write parentheses. Here is what that translation looks like.
+The compiler's first job is translation: read Einlang, write parentheses. Here is what that translation looks like.
 
 ---
 
-You just wrote a short einlang program.
+You just wrote a short Einlang program.
 
 ```
 let x = softmax[class](logits[batch, class]);
@@ -55,7 +55,7 @@ A compiler cannot operate on source code strings directly. It needs an internal 
 
 We use S-expressions—parenthesized lists—as this internal language. In this language, coordinate names are preserved exactly as written. They are not pre-resolved to integers. Model names remain model names. The structure mirrors the source, stripped of syntactic sugar, with all semantic relationships intact.
 
-The compiler's first job is translation: read einlang, write parentheses. Here is what that translation looks like.
+The compiler's first job is translation: read Einlang, write parentheses. Here is what that translation looks like.
 
 ---
 
@@ -257,11 +257,11 @@ Because parentheses are uniform. Every node is `(operator children...)`. There a
 
 Because parentheses have no ambiguity. In `x[i, j]`, the comma and brackets are syntax—they must be parsed, their precedence resolved against other operators. In `(index x (i j))`, the structure is explicit: `index` is the operator, `x` is the tensor, `(i j)` is the index list. No precedence to resolve. No grammar to extend. The parentheses *are* the parse tree.
 
-The IR's job is to be the simplest possible form that preserves all source-level information. Parenthesized prefix notation is that form. It has been that form since Lisp discovered it in 1958. The einlang IR does not innovate on representation. It inherits.
+The IR's job is to be the simplest possible form that preserves all source-level information. Parenthesized prefix notation is that form. It has been that form since Lisp discovered it in 1958. The Einlang IR does not innovate on representation. It inherits.
 
 ---
 
-The compiler's native tongue does not perform magic. It simply restates your einlang program in a different notation—syntactic sugar removed, core information preserved. Axis names remain. Reduction names remain. Clause relationships remain. The compiler has not *translated* your program. It has *said it again*, in parentheses.
+The compiler's native tongue does not perform magic. It simply restates your Einlang program in a different notation—syntactic sugar removed, core information preserved. Axis names remain. Reduction names remain. Clause relationships remain. The compiler has not *translated* your program. It has *said it again*, in parentheses.
 
 
 ---
@@ -274,7 +274,7 @@ Now the tree exists. But the names on the tree are still just names—they carry
 
 ## You Are the Compiler
 
-Before we hand the tree to Chapter 13's analysis passes, let's do one ourselves. Here is a small einlang program:
+Before we hand the tree to Chapter 13's analysis passes, let's do one ourselves. Here is a small Einlang program:
 
 ```
 let result[i, j] = sum[k](A[i, k] * B[k, j]) + bias[j];
@@ -378,3 +378,21 @@ Again, four lines of logic. The pass is small because the information it needs i
 The simplicity of the passes is the IR's justification. If the IR were a complex data structure—nested records with optional fields, implicit defaults, position-dependent layout—each pass would need to unpack, normalize, and reconstruct before it could ask its one question. The S-expression IR has no defaults, no implicit fields, no position-dependent layout. Every fact is a symbol in a known position in a known list. The pass asks its question. The answer is in the tree.
 
 This is the point of homoiconicity from Section 7. The IR is both the text the compiler reads and the data structure it queries. There is no AST → IR translation step. There is no AST. The parse tree IS the IR. What you wrote by hand in the "You Are the Compiler" exercise is exactly what the parser produces. The passes walk what you wrote.
+
+---
+
+### Why Names Must Survive Into the IR
+
+There is an alternative design: translate names to integers at parse time. `class` becomes `axis=1`. The IR has no names, only positions. Simpler—but wrong. If names are gone before analysis, every check rule asks "is position *p* the same as position *p*?" The answer is always yes. The rule that should catch `channel`-vs-`class` becomes a vacuous integer comparison. The IR preserves names not as a convenience, but because the five check rules require identities, not positions. Lowering burns names into integers only after every identity-based check has passed—at which point the number is guaranteed correct.
+
+
+### Stop and Think: Your Own IR
+
+Take the most recent tensor operation you wrote. Translate it into S-expression IR by hand:
+
+1. Write the source in Einlang: `let result[i, j] = sum[k](A[i, k] * B[k, j])`.
+2. Translate: `(let-decl (output result (i j)) (reduction sum (k) (* (index A (i k)) (index B (k j)))))`.
+3. Now ask: what can you determine from the IR alone? Survivors: `{i, j}`. Consumed: `{k}`. Shared: `k` appears on both `A` and `B`. Broadcasts: none — both operands index all output coordinates except `k`.
+4. Now ask: if the IR had integers instead of names — `(let-decl (output result (0 1)) (reduction sum (2) (* (index A (0 2)) (index B (2 1)))))` — could you determine which coordinate is shared? You could determine that axis 2 is contracted. You could not determine whether axis 2 is `k` or `feature` or `inner`. The identity is gone. The checks that depend on identity are impossible.
+
+The exercise takes two minutes. It shows why the IR preserves names. Not for elegance. For correctness.

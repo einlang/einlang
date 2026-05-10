@@ -93,7 +93,7 @@ let vy[t, i] = state[t, i, field=3];
 
 `field` is a coordinate. Its values are named: `field=0` is temperature, `field=1` is pressure. If humidity is added, it becomes `field=4`—a new coordinate value, not a new integer to remember. If the field order changes, the name `field=0` still means temperature, regardless of where it sits in the array.
 
-But the einlang version does more: it names the *physical coordinate* `i` and the *field coordinate* `field` separately. The coupling equations can reference them by name. A term that depends on temperature reads `state[t, i, field=0]`. A term that depends on the spatial gradient reads `state[t, i+1, field=0] - state[t, i-1, field=0]`. The code says which field and which spatial offset.
+But the Einlang version does more: it names the *physical coordinate* `i` and the *field coordinate* `field` separately. The coupling equations can reference them by name. A term that depends on temperature reads `state[t, i, field=0]`. A term that depends on the spatial gradient reads `state[t, i+1, field=0] - state[t, i-1, field=0]`. The code says which field and which spatial offset.
 
 ---
 
@@ -116,7 +116,7 @@ humidity = state[:, :, 4]  # new
 
 Every integer index must be verified. The compiler provides no help. If humidity was inserted at index 0 instead of appended at index 4, every subsequent index shifts by one.
 
-In the einlang version:
+In the Einlang version:
 
 ```
 let state[t in 0..T, i, field] = init_field(field, i);
@@ -176,7 +176,7 @@ The integer field index (`state[..., 2]`) is the weakest link in the positional 
 
 A convention is a fact that lives outside the notation. It is correct until someone reorganizes the field order, or inserts a new field at index 0, or reuses the same integer for a different field in a different function. The convention drifts. The integer stays the same. The bug is not in the arithmetic—it is in the gap between what the integer means and what the code records.
 
-In einlang, `field=0` and `field=1` are names. They survive reorganization because the name `field=0` is tied to the coordinate value, not to its position. If a new field is inserted at `field=0`, the compiler flags the conflict—two fields cannot both be `field=0`. The integer `2` would silently become a different field. The name `field=0` would refuse.
+In Einlang, `field=0` and `field=1` are names. They survive reorganization because the name `field=0` is tied to the coordinate value, not to its position. If a new field is inserted at `field=0`, the compiler flags the conflict—two fields cannot both be `field=0`. The integer `2` would silently become a different field. The name `field=0` would refuse.
 
 ---
 
@@ -193,7 +193,7 @@ B = state[:, :, 4]  # new — but is it really at index 4?
 
 If `B` was inserted at index 0, every subsequent index shifts: `temp` moves from 0 to 1, `press` from 1 to 2, and so on. The compiler provides no help. The integer `state[..., 0]` does not know it was supposed to be temperature.
 
-In the einlang version:
+In the Einlang version:
 
 ```
 let state[t in 0..T, i, field] = init_field(field, i);
@@ -250,7 +250,7 @@ Physical simulation exposes a failure mode distinct from machine learning. In ML
 
 The integer field index (`state[..., 2]`) and the positional stencil slices (`u[t-1, 2:]`) share the same root cause: **the mapping from integer to meaning lives outside the notation.** The integer `2` is velocity-x because the comment says so. The slice `2:` is the right neighbor because the reshape put it there. When the mapping drifts—a new field inserted, a dimension reordered—the integer stays the same and the meaning changes.
 
-In einlang, `field=2` is velocity-x because the coordinate value `2` is bound to the name `field`. If the field order changes, `field=2` still refers to the same physical quantity—or the compiler catches the inconsistency. The name is tied to the coordinate, not to its position. The stencil `i+1` is the right neighbor because `i` is the spatial coordinate and `+1` is the rightward offset. If the spatial dimension moves, `i` still means spatial—the name doesn't change.
+In Einlang, `field=2` is velocity-x because the coordinate value `2` is bound to the name `field`. If the field order changes, `field=2` still refers to the same physical quantity—or the compiler catches the inconsistency. The name is tied to the coordinate, not to its position. The stencil `i+1` is the right neighbor because `i` is the spatial coordinate and `+1` is the rightward offset. If the spatial dimension moves, `i` still means spatial—the name doesn't change.
 
 ---
 
@@ -258,7 +258,7 @@ In einlang, `field=2` is velocity-x because the coordinate value `2` is bound to
 
 Fluid dynamics is the grand challenge of computational physics. The Navier-Stokes equations couple velocity, pressure, and vorticity across three spatial dimensions and time. The codebase is typically hundreds of thousands of lines of Fortran or C++, with integer dimension indices scattered throughout. The most common bugs are coordinate swaps—confusing `x` for `y` velocity, or the `x` momentum equation for the `y` momentum equation.
 
-Here is a simplified 2D Navier-Stokes time step in einlang, using the same coordinate conventions from the heat equation and Burgers equation:
+Here is a simplified 2D Navier-Stokes time step in Einlang, using the same coordinate conventions from the heat equation and Burgers equation:
 
 ```
 let u[t in 1..T, i, j] = u[t-1, i, j]
@@ -273,7 +273,7 @@ The terms are recognizable: the first two lines are the viscous diffusion (Lapla
 
 In the positional Fortran/C++ version, the same code uses array indices like `U(I+1, J)`, `U(I, J+1)`, `P(I+1, J)`—the coordinate names `i` and `j` are loop variables, not part of the tensor structure. The field identity is in the variable name (`U`, `V`, `P`). The stencil is distributed across multiple array access expressions. If an index is typed wrong—`U(I, J+1)` where `U(I+1, J)` was intended—the compiler cannot catch it because both are valid array accesses. The bug survives compilation and produces physically plausible but incorrect results.
 
-The einlang version separates three concerns that the Fortran version merges:
+The Einlang version separates three concerns that the Fortran version merges:
 1. **Field identity**: `u`, `v`, `p` are different tensors, not different array names pointing into the same multi-field state tensor.
 2. **Coordinate identity**: `i` is the x-coordinate, `j` is the y-coordinate. The offsets `+1` and `-1` say which direction.
 3. **Stencil structure**: the finite difference terms are grouped by physical meaning (diffusion, advection, pressure).
@@ -284,7 +284,7 @@ In Fortran, all three concerns are compressed into `U(I+1, J)`. The compression 
 
 ## Comparison with JAX and Functional Physics
 
-JAX's functional approach to physics simulation—pure functions, no mutation, explicit state passing—shares philosophical ground with einlang. In JAX, a simulation step is:
+JAX's functional approach to physics simulation—pure functions, no mutation, explicit state passing—shares philosophical ground with Einlang. In JAX, a simulation step is:
 
 ```python
 def step(state, dt):
@@ -297,15 +297,34 @@ The fields are named dictionary keys. The stencils are in the function names (`l
 
 Einlang's contribution is a third axis of naming: not just the field (dictionary key) and the operation (function name), but the *coordinate*. `u[t-1, i+1, j]` names the field (`u`), the time recurrence (`t-1`), and the spatial offset (`i+1, j`). JAX names the field and the operation. Einlang adds the coordinate. When the coordinate is wrong—when `i+1` should be `j+1`—the name is visible at the point of error. In JAX, the error is inside `grad_x`, and the call site only knows it called `grad_x`, not which coordinate `grad_x` operates on.
 
-The three comparison chapters—normalization, attention, physics—converge on the same finding. Each notation makes different facts visible. Positional notation makes shapes visible. JAX's functional notation makes data dependencies visible. Einlang's coordinate notation makes coordinate identities visible. None is strictly better. But when the bug is a coordinate identity error—and a surprising fraction of tensor bugs are—the notation that records identities is the notation that catches the error.
+如果磁场的索引从4变成0，你需要改多少行代码？
+
+In JAX: every line that indexes `state[..., 4]` must be found and updated. In Einlang: zero. The coordinate name `Bx` stays `Bx` regardless of field order. The compiler maps the name to the new position. The question tests whether the coordinate identity lives in the code or in the convention.
 
 ---
 
-The three comparison chapters—normalization, attention, physics—have shown a consistent pattern. Positional notation is not incorrect. It is *underspecified*. It records shapes. It does not record identities. When identities matter—and they always matter—the difference between a correct program and a wrong one is a name that was never written down.
+## Two Notations, One Task
 
+The three comparison chapters end here. Positional notation is concise, universal, and runs directly on every accelerator—when coordinates are genuinely anonymous, `dim=-1` is all you need. Named notation makes coordinate identities checkable—when `class` and `batch` have the same extent, only the name distinguishes them. The difference is not efficiency. It is whether the code records the facts that correctness depends on.
+
+如果磁场的索引从4变成0，你需要改多少行代码？
 
 ---
 
 *If you saw `state[..., 2]` in a simulation code with no comments, could you be 100% certain it is velocity-x? If your answer is "yes, because of the convention"—ask yourself whether the convention survived the last refactoring. The integer stays the same. The meaning drifts. Only a name can anchor it.*
 
-Now we enter the book's most critical section. We stop comparing notations and start building: the engine that gives names their power. How does a compiler represent, analyze, and lower a program written in named coordinates? You are about to see what einlang looks like from the inside—and build the machinery that makes the first ten chapters checkable.
+---
+
+### Stop and Think: Integer Index Audit
+
+Physical simulation code is dense with integer indices. Every `state[..., k]` is a claim about which field lives at position `k`. Every `u[i+1]` is a claim about what `+1` means. Audit your own code — or any simulation code you've read:
+
+1. **Find every integer field index.** `state[..., 0]`, `state[..., 1]`, `state[..., 2]`. For each one, can you name the physical quantity? If the answer is "yes, because 0 is density, 1 is velocity-x, 2 is velocity-y" — where is that mapping recorded? In a comment? In an enum? In variable names? How far away from the index is the documentation?
+
+2. **Find every stencil offset.** `u[i+1, j]`, `u[i-1, j]`, `u[i, j+1]`, `u[i, j-1]`. For each one, which spatial direction does it represent? If the answer is "`i+1` is the right neighbor in x" — is that always true, or does it depend on the mesh convention? Could someone accidentally write `i-1` intending right?
+
+3. **Trace one physical quantity through the code.** Pick `temperature`. Find every place it's read and written. If the code uses integer indexing — `state[..., 3]` — you must find every `3` and check that it corresponds to temperature. If the field order changes (a new diagnostic field is inserted at position 2), every `3` becomes wrong. Some should become `4`. Some should stay `3` (if they referred to a different field that was originally at position 4). The refactoring requires manual verification of every integer index. There is no compiler to verify it for you.
+
+In Einlang, there is. `state[..., temp]` stays `temp` regardless of field order. The coordinate name is the anchor. The integer is the implementation detail. The difference is whether the anchor is in the code or in your head.
+
+Now we enter the book's most critical section. We stop comparing notations and start building: the engine that gives names their power. How does a compiler represent, analyze, and lower a program written in named coordinates? You are about to see what Einlang looks like from the inside—and build the machinery that makes the first ten chapters checkable.

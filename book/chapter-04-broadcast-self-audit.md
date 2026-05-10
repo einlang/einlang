@@ -186,6 +186,29 @@ The auditor's Question 2 catches this: "is independence genuinely justified?" Th
 
 In a positional framework, `temperature` is just a number. `logits / temperature` is valid regardless of whether `temperature` should be per-class or global. The positional notation doesn't distinguish between "this is a scalar because it's genuinely global" and "this is a scalar because I forgot to make it per-class." The broadcast self-audit forces the distinction.
 
+Now consider a more subtle failure—one that the audit catches but positional debugging would miss for hours. A programmer is implementing a weighted loss:
+
+```rust
+let losses[batch, class] = cross_entropy_per_class(logits[batch, class], labels[batch, class]);
+let class_weights[class] = get_class_weights();
+let weighted[batch] = mean[class](losses[batch, class] * class_weights[class]);
+```
+
+`class_weights[class]` broadcasts over `batch`. The audit asks: is `class_weights` independent of `batch`? Yes—class weights are per-class, shared across all batch elements. The broadcast is justified.
+
+Now the programmer refactors, making class weights adaptive based on batch statistics:
+
+```rust
+let class_weights = compute_adaptive_weights(losses);  // BUG: returns scalar by accident
+let weighted[batch] = mean[class](losses[batch, class] * class_weights);
+```
+
+`compute_adaptive_weights` was supposed to return `[f32; class]` but returns a scalar. The audit catches this: `class_weights` broadcasts over both `batch` and `class`. But `class_weights` should depend on `class`—the broadcast over `class` is semantically wrong. The loss will compile, run, and descend. But every class gets the same weight. The adaptive weighting is silently disabled.
+
+In a positional framework, this bug is invisible to shapes. `(batch, class) * scalar` is valid. `(batch, class) * (class,)` is also valid—it broadcasts differently. The shape of `class_weights` determines the behavior. If `compute_adaptive_weights` accidentally returns a scalar, the shapes still work, the broadcast is different, and the behavior silently changes.
+
+The Einlang compiler catches this if the return type of `compute_adaptive_weights` is declared: `fn compute_adaptive_weights(...) -> [f32; class]`. If the function body returns a scalar, the return type check fails. The coordinate contract at the function boundary catches the error before the broadcast self-audit ever runs. The audit catches what the contract doesn't; the contract catches what the audit doesn't. They are complementary lines of defense.
+
 ---
 
 ## The Inversion Rule in One Diagram
@@ -265,15 +288,76 @@ A double audit traces every broadcast in the expression and verifies that each b
 
 ---
 
+### Follow Along: Audit This Block
+
+Stop. Take out a pen or open a text file. Here is a smaller but complete attention block—the projection, not the full attention:
+
+```rust
+let context[..b, head, seq_q, d] =
+    sum[seq_k](weights[..b, head, seq_q, seq_k] * V[..b, head, seq_k, d]);
+let output[..b, seq_q, head, d_out] =
+    sum[d](context[..b, head, seq_q, d] * W_o[head, d, d_out]);
+let final[..b, seq_q, d_out] = output[..b, seq_q, d_out] + b_o[d_out];
+```
+
+Apply the auditor's toolkit to this block. For each expression, write:
+1. The output coordinate set
+2. Each operand's coordinate set
+3. The broadcast set for each operand (output set minus operand set)
+4. Whether each broadcast is semantically justified
+5. The backward reduction for each broadcast
+
+Take five minutes. Do the whole block. Then compare with the answers below.
+
+---
+
+Ready? Here is the audit, line by line.
+
+**Line 1: `sum[seq_k](weights * V)`**
+
+```
+Output coordinates: {..b, head, seq_q, d}
+weights: {..b, head, seq_q, seq_k}  → broadcast: {} (no omission, but seq_k is reduced)
+V:       {..b, head, seq_k, d}      → broadcast: {seq_q} (V omits seq_q)
+```
+
+`V` broadcasts over `seq_q` inside the reduction. This is correct: `V` provides values at each `seq_k` position, and those values are the same regardless of which `seq_q` is querying. The backward reduction: `dV[..b, head, seq_k, d] = sum[seq_q](d_context[..b, head, seq_q, d] * weights[..b, head, seq_q, seq_k])`. The broadcast set `{seq_q}` becomes the reduction set.
+
+**Line 2: `sum[d](context * W_o)`**
+
+```
+Output coordinates: {..b, seq_q, head, d_out}
+context: {..b, head, seq_q, d}  → broadcast: {} (no omission, d is reduced)
+W_o:     {head, d, d_out}       → broadcast: {..b, seq_q} (W_o omits batch and seq_q)
+```
+
+`W_o` broadcasts over `..b` and `seq_q`. This is correct: the output projection weight is the same for all batch elements and all query positions. The backward reduction: `dW_o[head, d, d_out] = sum[..b, seq_q](d_output[..b, seq_q, head, d_out] * context[..b, head, seq_q, d])`.
+
+**Line 3: `output + b_o`**
+
+```
+Output coordinates: {..b, seq_q, d_out}
+output: {..b, seq_q, d_out}  → broadcast: {}
+b_o:    {d_out}              → broadcast: {..b, seq_q}
+```
+
+`b_o` broadcasts over `..b` and `seq_q`. Correct: output bias is the same for all batch elements and query positions. Backward: `db_o[d_out] = sum[..b, seq_q](d_final[..b, seq_q, d_out])`.
+
+**Putting it together.** Three expressions. Five broadcasts (one hidden inside the first reduction, two explicit in the projections, one in the bias, one more inside the backward). Every broadcast has a semantic justification—"this value does not depend on that coordinate." Every broadcast has a corresponding backward reduction over the same coordinate set. The Inversion Rule holds for all of them.
+
+Now ask yourself: in the PyTorch version of this block, how many of these five broadcasts would you have noticed? The `b_o` broadcast is obvious—`projected + b_o` with different shapes. The `W_o` broadcast is less obvious—`torch.matmul` or `einsum` hides it. The `V` broadcast inside the `sum[seq_k]` reduction is nearly invisible—it's inside a `matmul` or `einsum` where the broadcasting is implicit. Two of the five broadcasts would have escaped notice entirely. The audit reveals them.
+
+---
+
 ## The Audit Without Einlang
 
-You do not need einlang to perform a broadcast self-audit. You need to know which coordinate is being broadcast over. The question is the same in any framework. The difference is how hard the framework makes it to answer.
+You do not need Einlang to perform a broadcast self-audit. You need to know which coordinate is being broadcast over. The question is the same in any framework. The difference is how hard the framework makes it to answer.
 
 In PyTorch, broadcasting is shape-driven. `(32, 64) + (64,)` broadcasts along axis 0. Which coordinate is axis 0? The code doesn't say. You infer it from context: axis 0 is probably `batch`, axis 1 is probably `feature`. But "probably" is not a check.
 
-In einlang, broadcasting is name-driven. `out[i, j] = A[i, j] + bias[j]` omits `i`. The omitted coordinate is the broadcast coordinate. The code says it.
+In Einlang, broadcasting is name-driven. `out[i, j] = A[i, j] + bias[j]` omits `i`. The omitted coordinate is the broadcast coordinate. The code says it.
 
-The audit questions are the same. But in PyTorch, answering Question 1 ("what coordinate am I broadcasting over?") requires shape reconstruction. In einlang, answering Question 1 requires reading a bracket. The audit is the same. The effort is not.
+The audit questions are the same. But in PyTorch, answering Question 1 ("what coordinate am I broadcasting over?") requires shape reconstruction. In Einlang, answering Question 1 requires reading a bracket. The audit is the same. The effort is not.
 
 Here is the PyTorch version of the attention block final line:
 
@@ -285,7 +369,7 @@ What coordinate is `b_o` broadcasting over? You must know the shapes. `projected
 
 Now change one thing upstream. `projected` is transposed to `(d_out, batch, seq_q)` by a refactoring. `output = projected + b_o` still runs. `b_o` now broadcasts over `(batch, seq_q)`—same set of coordinates, but the positional alignment is different. The shapes `(d_out, batch, seq_q)` and `(d_out,)` align on axis 0, broadcasting over axes 1 and 2. The result is correct. But only because the refactoring preserved `d_out` as the first axis. If it had moved `d_out` to the middle, the broadcast would silently change.
 
-The einlang version `projected[..batch, seq_q, d_out] + b_o[d_out]` does not care where `d_out` sits in the positional layout. The name `d_out` identifies the shared axis regardless of position. The broadcast is over `{..batch, seq_q}`—the coordinates in the output but not in `b_o`. The set subtraction is position-independent. The audit result is the same regardless of layout.
+The Einlang version `projected[..batch, seq_q, d_out] + b_o[d_out]` does not care where `d_out` sits in the positional layout. The name `d_out` identifies the shared axis regardless of position. The broadcast is over `{..batch, seq_q}`—the coordinates in the output but not in `b_o`. The set subtraction is position-independent. The audit result is the same regardless of layout.
 
 This is the broadcast self-audit's deepest value: it makes the audit layout-independent. The questions are about coordinate identities, not positions. The answers are stable under refactoring. The audit takes the same effort for a 2D tensor as for a 6D tensor—because the number of coordinate names, not the number of axes, determines the work.
 
@@ -294,3 +378,23 @@ In the next chapter, we see what happens when coordinate-aware functions compose
 ---
 
 *Stop. Find the last broadcast you wrote—intentionally or not. It's in your code right now, in some `A + b` or `scale * x` or `mean[dim]` with `keepdim=True`. Apply the three questions. Is the answer to Question 2 a confident yes? If not, you have found a claim that deserves a name.*
+
+---
+
+### Stop and Think: Audit Your Own Broadcasts
+
+Open your most recent project. Search for patterns where broadcasting happens implicitly: `+`, `*`, `/`, `-` between tensors of different ranks. Find three examples. For each one, perform the broadcast self-audit:
+
+1. **Write down the coordinate sets.** What are the output coordinates? What are each operand's coordinates? You may need to run the code or check `.shape` to determine ranks. Write them down.
+
+2. **Compute the broadcast set.** For each operand, subtract its coordinate set from the output set. The difference is what that operand broadcasts over. Write it down.
+
+3. **Name the broadcast coordinates.** For each broadcast set, can you name the coordinate? Not "axis 0" or "the first dimension"—the coordinate name. Is it `batch`? `channel`? `height`? `width`? If you can't name it, you've found a broadcast whose identity is untethered from any declaration.
+
+4. **Ask: is it justified?** Does the broadcasting operand genuinely not depend on those coordinates? If the answer is "probably" or "I think so" rather than "yes, by construction"—you've found a broadcast that deserves a second look.
+
+This exercise takes five minutes. It will find at least one broadcast in your code where the answer to question 4 is not a confident "yes." That broadcast is a bug waiting for the right input shape.
+
+The broadcast self-audit is not a tool. It is a reading habit. Every broadcast is a claim. The claim is written in the brackets—or, in a positional framework, inferred from the shapes. When the claim is explicit, you can audit it. When it's implicit, you can only hope it's correct. The difference between audit and hope is the difference between a bug caught at review time and a bug caught at 3 AM.
+
+The next chapter introduces the skeleton—the shared structure beneath normalization, softmax, and every operation that follows a reduce-broadcast-reduce pattern. The broadcast self-audit is the tool for reading that structure. The skeleton is what it reveals.

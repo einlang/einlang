@@ -37,7 +37,7 @@ In a spatial expression like `sum[i](A[i, k])`, `i` is just an index. You never 
 
 ## Recurrence Declarations
 
-In einlang, time is just another coordinate—but one that appears in index arithmetic. You declare it with a range:
+In Einlang, time is just another coordinate—but one that appears in index arithmetic. You declare it with a range:
 
 ```
 let u[t in 0..T, i] = init_temp(i);
@@ -71,6 +71,52 @@ If someone wrote this, what should happen? Stop and derive the rule yourself. Th
 The check does not need to know that `t` is "time." It does not need to know what "causality" means. It does exactly one thing: compare the reference index against the declared index, for every reference to the declared variable in the body. Reference index `<` declared index? Valid. Otherwise? Rejected. The coordinate can be called `t`, `x`, or `spatial_index`—the check is the same. Causality is not a name-declared property. It is subtraction.
 
 This has a consequence that spatial coordinates don't require. Only the time steps that are actually referenced backward need to be kept. If every step references only `t-1`, the storage needed is a rolling window of size 2, regardless of whether `T` is 100 or 100,000. This follows mechanically from the backward references—no annotation needed.
+
+---
+
+### Judge the Recurrence: An Exercise
+
+Here are four recurrence fragments. For each one, decide: does it pass the causality check? Take two minutes.
+
+**Fragment A:**
+```
+let u[t in 0..T, i] = u[t-1, i] + u[t-2, i];
+```
+
+**Fragment B:**
+```
+let h[t in 0..T, i] = h[t-1, i] + h[t, i-1];
+```
+
+**Fragment C:**
+```
+let v[t in 0..T] = v[t+1] + v[t-1];
+```
+
+**Fragment D:**
+```
+let x[t in 0..T] = f(x[t-1]) + g(x[t]);
+```
+
+Stop. Write your answers. Then read on.
+
+---
+
+Done? Here are the rulings:
+
+**Fragment A: passes.** `t-1 < t` and `t-2 < t`. Both references are strictly backward. Window size: 2 (references `t-1` and `t-2`).
+
+**Fragment B: passes.** `t-1 < t` (time reference, backward). `i-1 < i`? Wait—`i` is the declared coordinate, but `i` is a spatial coordinate, not a time coordinate. The body references `h[t, i-1]`—a value at the same time step `t` but an earlier spatial position `i-1`. Is this allowed?
+
+Yes. The causality check applies to the recurrence coordinate `t`, not to spatial coordinates. `i-1` is a spatial offset, not a time offset. The rule is: **references to the declared variable must have the recurrence coordinate strictly less than the declared recurrence coordinate.** `t-1 < t` is true. `i-1` isn't checked because `i` isn't the recurrence coordinate. Fragment B passes.
+
+But notice: `h[t, i-1]` means the computation at position `i` depends on position `i-1` at the same time `t`. If the spatial iteration goes left to right, this is fine—`i-1` is already computed. If the spatial iteration goes right to left, `i-1` isn't computed yet. The compiler doesn't check spatial causality by default because spatial coordinates don't have a declared direction. If you want spatial causality, you declare the spatial coordinate as directional too.
+
+**Fragment C: REJECTED.** `t+1 > t`. This is a forward reference on the time coordinate. The body references a value at `t+1`, which hasn't been computed yet (assuming forward iteration). Error.
+
+**Fragment D: REJECTED.** `x[t]` references the same time step being defined. `t < t` is false. A value at time `t` cannot depend on itself—that would be a circular definition. The reference index must be strictly less than the declared index. `t < t` is not strict.
+
+Three of four fragments caught by one rule: reference index `<` declared index. The spatial offset in Fragment B doesn't trigger the rule because spatial coordinates aren't checked for causality by default. The rule is simple. The check is mechanical.
 
 Now let's put this mechanism to work.
 
@@ -147,7 +193,7 @@ No iteration direction declared. Just `t in 0..T`. The body references `t+1`. Is
 
 It depends on whether the compiler infers the iteration direction from the reference pattern. If `t+1` references a time step that hasn't been computed yet (because iteration goes left to right), this is a forward reference and should be rejected. But if the compiler can infer that `t` should iterate from `T` down to `0`—making `t+1` already computed—it could be valid.
 
-The einlang rule is conservative: without an explicit reverse-direction declaration, forward references are rejected. `t+1` with `t in 0..T` is an error. The programmer must write `t in T..0` (or equivalent syntax) to declare the reverse iteration. The tool prevents the ambiguous case by default.
+The Einlang rule is conservative: without an explicit reverse-direction declaration, forward references are rejected. `t+1` with `t in 0..T` is an error. The programmer must write `t in T..0` (or equivalent syntax) to declare the reverse iteration. The tool prevents the ambiguous case by default.
 
 This is the same design choice as Chapter 3's Coordinate Contract and Chapter 4's Pack Disambiguation: when a reference pattern is ambiguous, the language requires the programmer to disambiguate. Default deny. Explicit allow.
 
@@ -170,6 +216,22 @@ let u[t in 2..T, i] = u[t-1, i] + 0.5 * (u[t-1, i] - u[t-2, i]);
 References: `t-1` and `t-2`. Maximum offset: 2. Rolling window size: 3 (current, t-1, t-2). The compiler derives this from the index expressions. No `@roll_window(3)` annotation. The information is in the code, not in a compiler directive.
 
 This is the pattern that recurs throughout this book: **make the structural fact visible in the source code, and let the compiler derive the engineering consequence.** The programmer writes `t-2`. The compiler derives window size 3. The programmer writes `sum[class]`. The compiler derives `axis=1`. The programmer writes `bias[j]` omitting `i`. The compiler derives the backward-pass sum over `i`. Source records intent. Compiler derives execution.
+
+---
+
+### Three Declarations, Three Storage Schemes
+
+The same recurrence declaration leads to different storage strategies depending on what the programmer references. The compiler reads the references and derives the strategy. Three scenarios:
+
+**Scenario 1: Rolling window.** `u[t] = f(u[t-1])`. References: `t-1` only. Window size: 2 (one past step plus current). Storage: two arrays. The compiler allocates `u_prev` and `u_curr`, swaps them after each step. No allocation proportional to `T`.
+
+**Scenario 2: Full materialization.** `u[t] = f(u[t-1])` followed by `mean[t](u[t, i])`. The entire time trajectory is needed for the final mean over `t`. The compiler sees that `t` is consumed by a reduction after the recurrence, so all time steps must be kept. Storage: full `(T, ...)` tensor.
+
+**Scenario 3: Strided observation.** `u[t] = f(u[t-1])` followed by `u[0], u[10], u[20], ...` (every 10th step). The compiler sees that only `u[k*10]` is used downstream. Storage: rolling window of size 10, with the current and last 9 steps buffered. At each multiple of 10, the current value is written to persistent storage and the buffer recycles.
+
+In all three scenarios, the declaration is the same: `let u[t in 0..T, i] = f(u[t-1, i])`. The difference is in what downstream code does with `u`. The compiler reads the downstream uses and derives the storage strategy. No annotations. No `@roll_window(3)`. No `@materialize`. The structural fact is in the code. The compiler derives the engineering consequence.
+
+Contrast with a positional framework, where you must manually choose between `torch.empty(T, ...)` (full materialization) and a rolling buffer (manual swapping). The choice is an optimization decision, not a semantic one. The compiler should make it—and can make it, if the code records the dependency structure. The recurrence body records the dependency. The downstream uses record the observation pattern. The compiler connects them.
 
 ---
 
@@ -212,7 +274,7 @@ for t in range(1, T):
 
 `w` is a single mutable tensor. `loss` is a scalar. The time dimension is the loop variable `t`—visible in the Python control flow but absent from the tensor structure. You cannot inspect `w[10]` without checkpointing the value at step 10 yourself. The training trajectory exists in execution time, not in the type system.
 
-The einlang version makes the training trajectory a data structure. The PyTorch version makes it a side effect. The difference is whether you can query the past.
+The Einlang version makes the training trajectory a data structure. The PyTorch version makes it a side effect. The difference is whether you can query the past.
 
 ---
 
@@ -234,7 +296,7 @@ In the backward pass (the learned denoising):
 let x_hat[t in T..1, b, c, h, w] = denoise(x[t, ...], t, model(x[t, ...], t));
 ```
 
-The iteration runs backward: `T..1`. The model receives `t` as conditioning—it needs to know which timestep it's denoising. In a positional framework, `t` is a positional encoding vector concatenated or added to the input, and the loop runs in Python. In einlang, `t` is a coordinate that flows through the model call: the model's signature can declare `fn denoise[t, ...](x: [f32; t, ...])` and the coordinate `t` is carried alongside the tensor data.
+The iteration runs backward: `T..1`. The model receives `t` as conditioning—it needs to know which timestep it's denoising. In a positional framework, `t` is a positional encoding vector concatenated or added to the input, and the loop runs in Python. In Einlang, `t` is a coordinate that flows through the model call: the model's signature can declare `fn denoise[t, ...](x: [f32; t, ...])` and the coordinate `t` is carried alongside the tensor data.
 
 This is the same mechanism that carried `class` through `softmax[class]` in Chapter 3, applied to time. The coordinate is the same kind of thing. The direction—forward or backward—is the only difference.
 
@@ -243,6 +305,22 @@ Time is not "special." It is a coordinate with a direction constraint. The const
 Now pause. Before you move to the next chapter, answer this: what other tensor operations have an implied direction? Think about your own code. Have you ever written a recurrence where the time axis was not the first axis? Where the dependency went both forward and backward? Where the "time" was not time at all—but a layer index in a residual network, an iteration counter in an optimizer, a step in a diffusion process?
 
 Recurrence is not unique to RNNs. Every iterative computation is a recurrence. Every optimizer step is a recurrence. Every diffusion timestep is a recurrence. The coordinate `t` is not "the time axis." It is "the axis along which things depend on earlier things." Causality is the constraint. The directional coordinate is the mechanism that enforces it.
+
+---
+
+### Stop and Think: Find the Time Axes in Your Code
+
+Not every axis is spatial. Some axes have direction—values depend on earlier positions along the same axis. Go find them in your code.
+
+1. **Search for `for t in range(` in your training scripts.** Each one is a recurrence. The loop body mutates a variable. The mutation order is the time direction. Now ask: could you write this recurrence declaratively, with `t` as a coordinate? What would the declaration look like? What would `t-1` reference?
+
+2. **Search for `reversed(range(` or backward loops.** Each one is a backward recurrence. The iteration direction is reversed. In a named-coordinate recurrence, the direction would be part of the declaration. In a positional loop, it's encoded in the `reversed` call. If the loop direction and the dependency direction disagree, the positional version runs silently. The named version rejects at compile time.
+
+3. **Find a loop where you manually manage a rolling window.** You allocate a buffer of size `k`, shift values at each iteration, and overwrite the oldest. The window size `k` is determined by how far back the computation looks. In a named-coordinate recurrence, the compiler would derive `k` from the index expressions. In your manual version, `k` is a constant you chose. If the computation changes to look back 3 steps instead of 2, you must update `k`. Would you remember?
+
+4. **Ask yourself: what other tensor operations have an implied direction?** Think about your own code. Have you ever written a recurrence where the time axis was not the first axis? Where the dependency went both forward and backward? Where the "time" was not time at all—but a layer index in a residual network, an iteration counter in an optimizer, a step in a diffusion process?
+
+The directional coordinate is not limited to time. Any coordinate where position `n` depends on position `n-1` is directional. The constraint is the same: you can only look backward along it. The mechanism is the same: a directional declaration with index arithmetic. The names `t`, `layer`, `step` are just names—the compiler checks the direction, not the label.
 
 ---
 
@@ -260,6 +338,6 @@ let d_h[t in T..0] = @loss[t] / @h[t] + @step(h[t], h[t-1], x[t]) / @h[t] * d_h[
 
 The backward recurrence runs from `T` down to `0`, referencing `t+1` (the future in the backward direction, which has already been computed). This is the same bidirectional mechanism from Section 6, applied to the gradient. The coordinate `t` still carries the causality constraint, but the iteration direction has reversed.
 
-In a positional framework, BPTT is implemented by writing a separate backward loop that iterates in reverse. The relationship between the forward loop `for t in range(T)` and the backward loop `for t in reversed(range(T))` is in the programmer's head—the two loops are separate code blocks. In einlang, the backward recurrence is generated from the forward recurrence by the same Inversion Rule that governs reductions and broadcasts. The forward recurrence declares `t in 1..T` with `t-1` references. The backward recurrence is `t in T..0` with `t+1` references, generated automatically. The time direction flips. The coordinate names stay the same. The compiler generates the backward loop from the forward declaration.
+In a positional framework, BPTT is implemented by writing a separate backward loop that iterates in reverse. The relationship between the forward loop `for t in range(T)` and the backward loop `for t in reversed(range(T))` is in the programmer's head—the two loops are separate code blocks. In Einlang, the backward recurrence is generated from the forward recurrence by the same Inversion Rule that governs reductions and broadcasts. The forward recurrence declares `t in 1..T` with `t-1` references. The backward recurrence is `t in T..0` with `t+1` references, generated automatically. The time direction flips. The coordinate names stay the same. The compiler generates the backward loop from the forward declaration.
 
 In the next chapter, we explore what happens when coordinates split, merge, and carry arithmetic—the complex terrain of distance matrices, convolutions, and fancy indexing.

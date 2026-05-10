@@ -27,7 +27,7 @@ The core operation:
 
 $$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d}}\right)V$$
 
-In einlang, the coordinate names tell the story:
+In Einlang, the coordinate names tell the story:
 
 ```rust
 fn attention[seq_q, seq_k, head, d](
@@ -84,7 +84,7 @@ The code does not distinguish between self-attention and cross-attention because
 fn self_attention[seq, head, d](Q: [f32; ..b, head, seq, d], K: [f32; ..b, head, seq, d], V: [f32; ..b, head, seq, d])
     -> [f32; ..b, head, seq, d]
 {
-    attention[seq_q=seq, seq_k=seq, head, d](Q, K, V)
+    attention[seq, seq, head, d](Q, K, V)
 }
 
 // Cross-attention: different coordinates for queries and keys
@@ -114,7 +114,7 @@ output = cross_attention(Q, K, V)  # silently becomes self-attention
 
 If `decoder_hidden` and `encoder_hidden` happen to have the same sequence length during development (both 32, or both padded to the same length), this bug is invisible. The shapes match. The loss descends. The model learns—just not what you intended.
 
-In einlang, `cross_attention[seq_q, seq_k, ...](Q, K, V)` with `Q` and `K` both bound to `decoder_hidden` would trigger a coordinate mismatch if `decoder_hidden` has `seq_q` but not `seq_k` as its declared coordinate. If both tensors carry both coordinates (because they were declared with different names), the mismatch is caught at the call site.
+In Einlang, `cross_attention[seq_q, seq_k, ...](Q, K, V)` with `Q` and `K` both bound to `decoder_hidden` would trigger a coordinate mismatch if `decoder_hidden` has `seq_q` but not `seq_k` as its declared coordinate. If both tensors carry both coordinates (because they were declared with different names), the mismatch is caught at the call site.
 
 ---
 
@@ -214,7 +214,7 @@ Now compare the three variants side by side:
 | GQA | `head_group × head_kv` | `head_kv` | `head_kv` shared; `head_group` only on Q |
 | MQA | `head_q` | `head_kv` (size 1) | `head_kv` on K, V; `head_q` only on Q |
 
-In the einlang signatures, the difference between the three variants is visible in which coordinates appear on which parameters. In the PyTorch implementations, the difference is buried in reshape chains and the value of `num_kv_heads`. The coordinate names make the architecture visible. The positional code makes it deducible—after counting dimensions and tracing reshapes.
+In the Einlang signatures, the difference between the three variants is visible in which coordinates appear on which parameters. In the PyTorch implementations, the difference is buried in reshape chains and the value of `num_kv_heads`. The coordinate names make the architecture visible. The positional code makes it deducible—after counting dimensions and tracing reshapes.
 
 ---
 
@@ -227,7 +227,7 @@ Every attention variant can be audited with four questions. Ask them of any posi
 3. **Which coordinate groups query heads with KV heads?** In GQA, `head_group` groups query heads over a shared KV head. In MQA, `head_kv` has size 1. In MHA, there's no grouping—`head` is the same coordinate on Q and K. The grouping structure is invisible in the positional `matmul`; visible in the named index patterns.
 4. **Does the backward pass know what to sum over?** The gradient of attention sums over `seq_q` for `dK` and `dV`, over `seq_k` for `dQ`, and over the head grouping for the KV projection. In positional autodiff, these sums happen silently. In named coordinates, they follow from the coordinate sets—same set-subtraction rule from Chapter 7 applied to attention.
 
-You don't need einlang to ask these questions. You need to know that they are the right questions. And the right questions are only visible when the notation has a place for the answers.
+You don't need Einlang to ask these questions. You need to know that they are the right questions. And the right questions are only visible when the notation has a place for the answers.
 
 Stop now and look at the last attention implementation you wrote. Can you answer all four questions from the code alone?
 
@@ -246,7 +246,7 @@ output = attention(Q_new, K_full, V_full)
 
 The `dim` argument to `torch.cat` is a position number. If `K_cache` has shape `(batch, head, past_len, d)` and `K_new` has shape `(batch, head, 1, d)`, then `seq_dim` is `2`. But if the layout is `(batch, past_len, head, d)`, `seq_dim` is `1`. The integer shifts with the layout. Change the layout, audit every `cat` call.
 
-In einlang, the concatenation axis is named:
+In Einlang, the concatenation axis is named:
 
 ```rust
 let K_full[..batch, head, seq_k, d] = concat[seq_k](
@@ -267,15 +267,9 @@ The coordinate names make the cache structure visible. The positional `dim=seq_d
 
 ---
 
-## What the Comparison Reveals
+如果 `seq_q == seq_k`，这是自注意力还是交叉注意力？代码能回答吗？
 
-Attention is the Square Matrix Test at scale. Almost every dimension can be square with some other dimension in some configuration. `seq_q` can equal `seq_k`. `head_q` can equal `head_kv`. `d` can equal any of them. When dimensions coincide, positional code for different architectures becomes textually identical.
-
-In einlang, the coordinate names persist through the coincidence. `self_attention[seq, ...]` and `cross_attention[seq_q, seq_k, ...]` are different functions with different signatures, even when `seq_q == seq_k` at runtime. The difference is in the source code, where a reader can see it and static analysis can check it.
-
-The attention chapter, more than the normalization chapter, reveals a tension that runs through the whole book. Positional APIs for attention are identical across variants—self, cross, MHA, MQA, GQA—because the positional `matmul` and `softmax` don't need to know which coordinates are which. The code is maximally reusable. And maximally ambiguous. The same line `torch.matmul(Q, K.transpose(-2, -1))` describes fundamentally different operations depending on the runtime shapes of Q and K. The notation compresses different meanings into the same symbol. The compression is efficient. It is also silent.
-
-Named coordinates decompress. Self-attention and cross-attention get different signatures. MHA and GQA get different coordinate structures. The decompression costs keystrokes—more brackets, more names, more declarations. But it recovers the information that the positional compression discarded. The information is the identity of each dimension. When you discard it, you gain genericity. When you keep it, you gain auditability. The choice between the two notations is not a choice between right and wrong. It is a choice between compression and legibility, evaluated at the specific point where the cost of ambiguity exceeds the cost of keystrokes.
+In PyTorch, the answer is no—self-attention and cross-attention have identical code. The distinction is in the runtime shapes of the tensors passed at the call site, not in the source. In Einlang, `self_attention[seq, ...]` and `cross_attention[seq_q, seq_k, ...]` are different signatures. The distinction is in the brackets. The code answers the question before it runs.
 
 ---
 
@@ -285,7 +279,7 @@ Flash Attention is a memory-efficient exact attention algorithm that fuses the Q
 
 This is a demonstration of the principle from Chapter 14: lowering is strategy-independent. The same coordinate structure maps to different execution strategies. Flash Attention is a lowering strategy—a choice of how to execute the computation, not what computation to execute. The coordinate names `seq_q`, `seq_k`, `head`, `d` are identical whether the lowering chooses the standard attention kernel or the Flash Attention kernel.
 
-In a positional API, Flash Attention is a drop-in replacement: replace `attention(Q, K, V)` with `flash_attention(Q, K, V)`. The shapes are the same. The coordinate structure is the same—but only implicitly, in the shapes. In an einlang API, the coordinate contract is the same—`fn attention[seq_q, seq_k, head, d](...)` for both. The lowering strategy (`standard` vs `flash`) is an annotation, not a signature change:
+In a positional API, Flash Attention is a drop-in replacement: replace `attention(Q, K, V)` with `flash_attention(Q, K, V)`. The shapes are the same. The coordinate structure is the same—but only implicitly, in the shapes. In an Einlang API, the coordinate contract is the same—`fn attention[seq_q, seq_k, head, d](...)` for both. The lowering strategy (`standard` vs `flash`) is an annotation, not a signature change:
 
 ```rust
 #[strategy(flash)]
@@ -302,5 +296,28 @@ This is the parting lesson of the comparison chapters. The coordinate structure 
 ---
 
 *Read the last attention implementation you wrote. Can you distinguish self-attention from cross-attention from the code alone—without checking tensor shapes at runtime? If the answer is no, the distinction lives in your head. That is the gap.*
+
+---
+
+### Stop and Think: The Attention Audit
+
+Open the last attention implementation you wrote. It might be self-attention, cross-attention, multi-head, multi-query, or grouped-query. For each attention variant in your code, answer these four questions from the Coordinate Audit in Section 6:
+
+1. **Which coordinate does `softmax` normalize over?** In positional code, this is `dim=-1` or `dim=seq_dim`. Can you name the coordinate without checking the tensor shape at runtime? If the answer is "the last dimension" — that's a position, not an identity.
+
+2. **Which coordinate distinguishes queries from keys?** In self-attention, it's the same coordinate. In cross-attention, they're different. Can you tell which variant you have from the code alone? If the code is `attention(Q, K, V)` for both — the distinction is in the tensor shapes, not in the source.
+
+3. **Which coordinate groups query heads with KV heads?** In GQA, query heads are grouped with KV heads. In MQA, KV heads = 1. In MHA, they're the same. Can you tell which architecture you have from the code? If the grouping is `repeat_factor = head_q // num_kv_heads` — the grouping is a runtime calculation, not a source-level fact.
+
+4. **Does the backward pass know what to sum over?** The gradient of attention needs to sum over `seq_q` for `dK`/`dV`, over `seq_k` for `dQ`, and over the head grouping for the KV projection. Are these sums explicit in the backward code? Or are they generated by autograd from positional matmuls?
+
+You don't need Einlang to ask these questions. You need to know they're the right questions. And they're only the right questions when the notation has a place for the answers.
+
+Now do one more thing. Write the Einlang signature for your attention function — just the signature, no body. `fn my_attention[seq_q, seq_k, head, d](Q: ..., K: ..., V: ...) -> ...`. Does the signature tell a reader:
+- Whether it's self-attention (`seq_q` = `seq_k`) or cross-attention (different)?
+- Whether it's MHA (same `head` on Q, K, V), GQA (`head_group, head_kv`), or MQA (`head_q, head_kv`)?
+- What `softmax` normalizes over?
+
+If the signature answers all three, you've discovered why the coordinate names matter for attention. If it doesn't, the distinction lives in your head — and in the tensor shapes at runtime.
 
 In the next chapter, we complete the comparison trilogy with physical simulation—where the coordinates represent temperature, pressure, and velocity fields, and confusing them means solving the wrong physics.

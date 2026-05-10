@@ -38,6 +38,16 @@ dist = ((points[:, None, :] - points[None, :, :]) ** 2).sum(-1) ** 0.5
 
 `None` inserts a dimension. `:` slices everything. Which dimension is `point_i` and which is `point_j`? You have to count positions. If `points` changes from `(N, D)` to `(D, N)`, the positional code silently computes the wrong matrix.
 
+The coordinate-split pattern appears in many domains. Once you recognize it, you see it everywhere:
+
+**Graph neural networks.** `source_node` and `target_node` split from the same node domain. Edges connect `source_node` to `target_node`. The adjacency matrix has `(source_node, target_node)` coordinates. A message-passing step gathers from `target_node` and scatters to `source_node`. In positional code, both are axis 0 and axis 1. In named code, they carry different identities even when they index the same domain.
+
+**Contrastive learning.** `anchor` and `positive` index the same set of samples. The similarity matrix has `(anchor, positive)` coordinates. The loss pulls `anchor[i]` close to `positive[i]` (pairwise) and pushes `anchor[i]` away from `positive[j]` for `i != j`. The coordinate split `anchor`/`positive` distinguishes "same sample, different view" from "different sample." In positional code, the distinction is in the mask tensor, not in the coordinate structure.
+
+**Collaborative filtering.** `user` and `item` share a latent factor `k` through a matrix factorization: `ratings[user, item] = sum[k](U[user, k] * V[item, k])`. The inner dimension `k` is shared and consumed. `user` and `item` are different coordinates indexing different domains. In positional code, `U @ V.T`—all three identities (`user`, `item`, `k`) collapsed into positions.
+
+In every case, the positional approach uses `unsqueeze`-and-`None` to create the cross-product dimensions. The named approach splits one coordinate into two with explicit names. The names record the split. The positional code records the mechanic.
+
 ---
 
 ## Convolution: Coordinates with Arithmetic
@@ -79,7 +89,7 @@ x = x.reshape(b, c // 4, h * 2, w * 2)
 
 Three operations. Six position numbers to track. The semantic claim—"channel pixels become spatial neighbors"—is invisible.
 
-In einlang:
+In Einlang:
 
 ```rust
 let y[b, c_out, h * 2 + dy, w * 2 + dx] =
@@ -101,7 +111,7 @@ result = matrix[indices_i, indices_j]
 
 In NumPy, this does *pairwise* indexing: `result[k] = matrix[indices_i[k], indices_j[k]]`. But if `indices_i` is a row vector and `indices_j` is a column vector, broadcasting produces *outer-product* indexing instead. The behavior depends on the shapes of the index arrays, not on anything written in the code.
 
-In einlang, the coordinate names disambiguate:
+In Einlang, the coordinate names disambiguate:
 
 ```rust
 // Pairwise gather: same coordinate name appears in both index positions
@@ -113,17 +123,13 @@ let outer[i, j] = matrix[indices_i[i], indices_j[j]];
 
 When `k` appears in both index positions, pairwise indexing is inferred: `indices_i` and `indices_j` are traversed together. When `i` and `j` are different coordinates, outer-product indexing is inferred: every combination is produced. The distinction is visible in the coordinate names, not hidden in the shapes of the index arrays.
 
-In NumPy, you need `np.ix_` or NEP 21's `oindex`/`vindex` to explicitly declare which behavior you want. In einlang, the names do it.
+In NumPy, you need `np.ix_` or NEP 21's `oindex`/`vindex` to explicitly declare which behavior you want. In Einlang, the names do it.
 
-Now stop and think about your own NumPy code. If you don't use `np.ix_`, how do you make NumPy produce outer-product indexing instead of pairwise indexing? What mental conversion do you perform?
+Open a terminal. In a Python interpreter, create two index arrays: `i = np.array([0, 1, 2])` and `j = np.array([0, 1, 3])`. Now index a 2D array `A` to get elements at `A[0,0], A[1,1], A[2,3]` (pairwise). Write the NumPy expression. Now index `A` to get all 3×3 combinations (outer-product). Write that expression. Compare the two. Which one required you to create a dummy axis?
 
-You probably create broadcast dimensions manually: `indices_i[:, None]` and `indices_j[None, :]`. You add a dummy axis. You count positions. You check that the shapes will broadcast correctly. Then you index and hope.
+What you did with `i[:, None]` and `j[None, :]` is encode two different semantic relationships—pairwise vs. outer-product—through shape manipulation. The distinction was in the shapes, not in the code. In Einlang, `A[i, k]` and `B[k, j]` share `k` → pairwise. `A[i, k]` and `B[q, j]` don't share → outer-product. The coordinate name carries the distinction. No shape manipulation needed.
 
-What you are doing in your head is distinguishing two relationships: *these two index arrays walk together* (pairwise) versus *these two index arrays walk independently* (outer-product). You encode the distinction through shape manipulation—adding dimensions, aligning axes, relying on broadcast semantics. The distinction exists in your mental model. It does not exist in the code.
-
-In einlang, the distinction is in the coordinate names. `k` in both index positions means pairwise. `i` and `j` as different coordinate names mean outer-product. The mental conversion you were doing manually—"this is pairwise, that is outer-product"—is now part of the notation. The code says what you meant, not the mechanical steps to achieve it.
-
-This is a specific instance of a general principle that has been quietly accumulating throughout these chapters: **the coordinate name is the unit of intent.** Every time you find yourself manually reshaping to encode a semantic distinction, ask: could a coordinate name carry this instead?
+This is a specific instance of a general principle: **the coordinate name is the unit of intent.** Every time you find yourself manually reshaping to encode a semantic distinction, ask: could a coordinate name carry this instead?
 
 ---
 
@@ -185,7 +191,7 @@ result = matrix[idx[:, None], col_idx[None, :]]
 
 If `idx` has length 5 and `col_idx` has length 5, both operations produce a `(5, 5)` result. But Operation A produces the diagonal (pairwise), while Operation B produces the full Cartesian product. From the code alone—without printing shapes or reading comments—can your colleague tell which is which?
 
-Now the einlang versions:
+Now the Einlang versions:
 
 ```rust
 // Operation A: pairwise
@@ -211,9 +217,9 @@ Forward: `conv[b, oc, oh, ow] = sum[ic, kh, kw](input[b, ic, oh + kh, ow + kw] *
 
 We need `d_input[b, ic, ih, iw]`. Apply the five-step procedure from Chapter 7:
 
-1. **Hold one cell** of `input`: `input[b₀, ic₀, ih₀, iw₀]`.
-2. **List every output cell that reads it.** The held cell is read by every `conv[b₀, oc, oh, ow]` where `oh + kh = ih₀` and `ow + kw = iw₀`, for all `oc`, all `kh`, all `kw`. That means `oh = ih₀ - kh` and `ow = iw₀ - kw`. For each `(kh, kw)`, the output at position `(oh, ow) = (ih₀ - kh, iw₀ - kw)` receives a contribution.
-3. **Attach the incoming gradient.** Each output cell `conv[b₀, oc, oh, ow]` carries `d_conv[b₀, oc, oh, ow]`. The contribution through the held input cell is `d_conv[b₀, oc, ih₀ - kh, iw₀ - kw] * weight[oc, ic₀, kh, kw]`.
+1. **Hold one cell** of `input`: `input[b0, ic0, ih0, iw0]`.
+2. **List every output cell that reads it.** The held cell is read by every `conv[b0, oc, oh, ow]` where `oh + kh = ih0` and `ow + kw = iw0`, for all `oc`, all `kh`, all `kw`. That means `oh = ih0 - kh` and `ow = iw0 - kw`. For each `(kh, kw)`, the output at position `(oh, ow) = (ih0 - kh, iw0 - kw)` receives a contribution.
+3. **Attach the incoming gradient.** Each output cell `conv[b0, oc, oh, ow]` carries `d_conv[b0, oc, oh, ow]`. The contribution through the held input cell is `d_conv[b0, oc, ih0 - kh, iw0 - kw] * weight[oc, ic0, kh, kw]`.
 4. **Multiply by the local derivative.** The derivative of `input * weight` with respect to `input` is `weight`.
 5. **Sum over the path coordinates.** The output has `{b, oc, oh, ow}`. The input has `{b, ic, ih, iw}`. The path coordinates are `{oc, kh, kw}`—they appear in the output (via `oh, ow`) but are absorbed into `ih, iw` through the index arithmetic. But `oh, ow` are not independent—they are coupled to `ih, iw` through `kh, kw`. The sum is over `{oc, kh, kw}`, with the index relationship inverted: `oh → ih - kh`, `ow → iw - kw`.
 
@@ -252,6 +258,24 @@ Names fail when the coordinate structure is truly unknown at compile time. A ful
 This is the boundary from Section 5, restated: names check consistency, not correctness. The compiler verifies that the coordinate story is internally coherent. It does not verify that the story matches reality. For that, you need runtime assertions. For that, you need tests. The names reduce the surface area of things that can go wrong silently. They do not eliminate the need for vigilance.
 
 But vigilance is easier when the code records what you were being vigilant about. A name is a note to your future self: *this coordinate matters, I checked it, and the compiler checks that I checked it.*
+
+The boundary between what names can and cannot check is not a weakness of the naming approach. It is a precise map of what is statically knowable. Every fact the names cannot check—bounds of index arithmetic, runtime-dependent shapes, semantic correctness of the formula itself—is a fact that *no* purely static system can check. The names don't fail at these boundaries. They mark them. The coordinate names are in the index expressions when the bounds are checked at runtime, in the declaration when the shape is resolved, in the function signature when the meaning is asserted. The names are there when the check happens—even if the check is runtime, not compile time.
+
+This is what "everything checkable is checked" means in practice. The compiler checks what it can from declarations alone. What it cannot check, it leaves visible—with names attached—so that runtime checks and human reviewers know what to look for. A name is more useful when it's checked at compile time, but it's still useful when it's only checked at runtime. `IndexError: oh + kh = 67 exceeds input width 64` names the coordinate that overflowed. `IndexError: dimension 3 out of bounds` names a position. Which error would you rather debug at 3 AM?
+
+---
+
+### Stop and Think: The Splits in Your Code
+
+Every time a coordinate splits into two roles—source and target, anchor and positive, user and item—you are doing coordinate splitting. The split is the operation. The names record it.
+
+Open your codebase. Find a place where you inserted a dimension with `None`, `unsqueeze`, or `np.newaxis` to create a pairwise matrix. For each one:
+
+1. **What coordinate split?** What single coordinate were you splitting into two? Write the two new names.
+2. **Why did you split it?** Was it for a distance matrix? A similarity matrix? An attention mask? An outer product?
+3. **Would a reader know which is which?** If they see `matrix[i]` and `matrix[j]` with `i` and `j` as different names, they know it's a split. If they see `matrix[:, None]` and `matrix[None, :]`, they see shape manipulation. The same intent. Different visibility.
+
+The splits are there. The names make them readable.
 
 
 ---

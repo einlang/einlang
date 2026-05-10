@@ -80,7 +80,7 @@ p = torch.softmax(logits, dim=-1)
 
 `dim=-1` says "the last one." If the last dimension is `class`, this is correct. If upstream changes the dimension order, `dim=-1` silently begins normalizing over `batch`, or `feature`, or whatever happens to be last. The code runs. The output is a valid probability distribution—just over the wrong coordinate.
 
-Now compare to a different einlang call:
+Now compare to a different Einlang call:
 
 ```rust
 let p[b, class] = softmax[b](logits[b, class]);
@@ -133,6 +133,57 @@ Let's trace exactly what happens when you call `softmax[class](logits)`.
 5. The return type is instantiated: `[f32; batch, class]`.
 6. The call is valid.
 
+---
+
+### Follow Along: Be the Compiler
+
+Stop. You just read the six steps. Now do them yourself, for a different call. Take two minutes. No scrolling ahead.
+
+The function signature is:
+
+```rust
+fn softmax[j](x: [f32; ..left, j, ..right]) -> [f32; ..left, j, ..right]
+```
+
+The call is:
+
+```rust
+let probs[b, c] = softmax[c](logits[b, c]);
+```
+
+Walk through the six steps. Write down:
+1. Which coordinate parameter is being bound?
+2. Which coordinate argument is bound to it?
+3. Does `logits` carry that coordinate?
+4. What are `..left` and `..right` bound to?
+5. What is the return type?
+6. Is the call valid?
+
+Done? Compare.
+
+| Step | Your answer |
+|:---|:---|
+| 1. Coordinate parameter | `j` |
+| 2. Coordinate argument | `c`, bound to `j` |
+| 3. Does `logits` carry `c`? | Yes—`logits[b, c]` |
+| 4. Pack bindings | `..left` = `[b]`, `..right` = `[]` |
+| 5. Return type | `[f32; b, c]` |
+| 6. Valid? | Yes |
+
+You just simulated the compiler's contract check. The six steps are mechanical—no intuition, no shape arithmetic, no guessing. For every function call, the compiler performs these six steps. For every function call, the answer is yes or no. If no, the compiler emits an error naming the missing coordinate.
+
+Now do it again for a call that should fail:
+
+```rust
+let probs[b, f] = softmax[c](logits[b, f]);
+```
+
+Walk through the steps. Where does it fail?
+
+Answer: Step 3. `logits` carries `b` and `f`. `c` is the coordinate argument. `c` is not in `{b, f}`. The compiler reports: "`logits` has no coordinate named `c`. Available coordinates: `b`, `f`."
+
+The error message names the missing coordinate and the available ones. The programmer looks at it and thinks: "Oh, I meant `softmax[f](logits[b, f])`." One character fix. Caught before execution.
+
 Now consider five wrong calls:
 
 | Call | What goes wrong | Caught by |
@@ -163,14 +214,14 @@ fn linear[in, out](x: [f32; ..batch, in], W: [f32; out, in], b: [f32; out])
 fn pipeline[in, class](x: [f32; ..batch, in], W: [f32; class, in], b: [f32; class])
     -> [f32; ..batch, class]
 {
-    let logits[..batch, class] = linear[in=in, out=class](x[..batch, in], W[class, in], b[class]);
+    let logits[..batch, class] = linear[in, class](x[..batch, in], W[class, in], b[class]);
     softmax[class](logits[..batch, class])
 }
 ```
 
-The coordinate `class` flows from the pipeline's signature through `linear[out=class]` into the result `logits`, then into `softmax[class]`. At each step, the compiler checks: does the argument carry the coordinate the function expects? `linear` expects `out`—the caller binds `class` to `out`. `logits` now carries `class`. `softmax[class]` expects `class` on its argument—`logits` has it. The chain is verified.
+The coordinate `class` flows from the pipeline's signature through `linear[in, class]` into the result `logits`, then into `softmax[class]`. At each step, the compiler checks: does the argument carry the coordinate the function expects? `linear` expects `in` and `out`—the caller binds `class` to `out`. `logits` now carries `class`. `softmax[class]` expects `class` on its argument—`logits` has it. The chain is verified.
 
-If a refactoring changes `linear`'s output coordinate from `class` to `category`, the pipeline still compiles—`linear[out=category]` produces a tensor with `category`, and `softmax[class]` complains that `category` is not `class`. The error is at the composition boundary. The compiler names both coordinates. The mismatch is visible.
+If a refactoring changes `linear`'s output coordinate from `class` to `category`, the pipeline still compiles—`linear[in, category]` produces a tensor with `category`, and `softmax[class]` complains that `category` is not `class`. The error is at the composition boundary. The compiler names both coordinates. The mismatch is visible.
 
 Positional composition has no such check. `logits = linear(x); softmax(logits, dim=-1)`. If `linear`'s output layout changes, `dim=-1` silently normalizes over a different coordinate. The chain is unverified.
 
@@ -209,13 +260,71 @@ No shape checker catches this. No gradient check catches this. Only a notation t
 
 The Square Matrix Test is named after this property: when all extents are equal, a coordinate swap can hide inside shape compatibility. If square matrices fool shape checkers—and they do, routinely—what can prevent this class of error?
 
+The Square Matrix Test is not specific to softmax. It applies to any operation where two coordinates can have equal extents. Consider three more cases:
+
+**Matrix multiplication.** `C[i, j] = sum[k](A[i, k] * B[k, j])` and `C[i, j] = sum[k](A[k, i] * B[k, j])` produce the same shape when `A` is square. The first uses `A`'s rows. The second uses `A`'s columns (equivalent to `A^T @ B`). When `A` is a square matrix of size `128 × 128`, both expressions produce a `128 × 128` output. Shape checkers see the same shape. Only the coordinate names distinguish the two computations.
+
+**Broadcast.** `let out[i, j] = A[i, j] + bias[j]` and `let out[i, j] = A[i, j] + bias[i]` both produce shape `(128, 128)` when `i` and `j` have the same extent. The first broadcasts `bias` over rows—bias depends on columns. The second broadcasts `bias` over columns—bias depends on rows. Semantically opposite. Shape-identical. Distinguishable only by which coordinate appears in `bias`'s bracket.
+
+**Attention.** Self-attention and cross-attention use the same `matmul(Q, K.transpose(-2, -1))` operation. When `seq_q == seq_k`, the code is textually identical (Chapter 9 will explore this in detail). The distinction between attending to yourself and attending to a different sequence lives in the tensor shapes at runtime—not in the source code. When the sequence lengths differ, the shapes diverge and the bug surfaces. During development, when they happen to be equal, the bug is invisible.
+
+In every case, the Square Matrix Test reveals the same gap: shape compatibility checks the arithmetic of dimensions. It does not check the identity of dimensions. When two dimensions have the same size, shape compatibility becomes identity-blind. Named coordinates restore sight.
+
+---
+
+## The Refactoring: A Detailed Demonstration
+
+Let's walk through a refactoring in both notations, step by step, to see where the errors surface—and where they don't.
+
+**The setup.** A model with three files: `data.rs` (declares `logits[batch, class]`), `model.rs` (calls `softmax[class](logits)`), and `loss.rs` (calls `cross_entropy[class](probs, labels)`).
+
+**The refactoring.** A colleague decides that `class` is a poor name—it suggests a classification head, but the dimension is more general. It should be called `category`. The colleague renames the coordinate in `data.rs`: `logits[batch, category]`.
+
+Now the colleague recompiles the project. Two errors appear:
+
+```
+error[E003]: model.rs:42: tensor `logits` has no coordinate named `class`
+  --> model.rs:42:20
+   |
+42 |     softmax[class](logits);
+   |                    ^^^^^^ `logits` has coordinates: batch, category
+   |     help: did you mean `category`?
+
+error[E003]: loss.rs:15: tensor `probs` has no coordinate named `class`
+  --> loss.rs:15:25
+   |
+15 |     cross_entropy[class](probs, labels);
+   |                         ^^^^^ `probs` has coordinates: batch, category
+   |     help: did you mean `category`?
+```
+
+The colleague fixes both errors: `softmax[class]` → `softmax[category]`, `cross_entropy[class]` → `cross_entropy[category]`. The project compiles. The refactoring is complete. The compiler verified that every use of `class` was updated.
+
+Now replay the same scenario with a positional API.
+
+**The setup.** `data.py`: `logits` has shape `(batch, class)`. `model.py`: `softmax(logits, dim=1)`. `loss.py`: `cross_entropy(probs, labels, dim=1)`.
+
+**The refactoring.** The colleague changes the comment in `data.py`: the shape is now conceptually `(batch, category)`. The tensor shape doesn't change. `dim=1` is still `1`. Every `dim=1` in the codebase is still correct—because the position didn't change.
+
+The project compiles. The tests pass. The refactoring is "complete."
+
+But what if the colleague had also changed the dimension order? What if the new layout were `(category, batch)`? The colleague updates the comment. The colleague does not update every `dim=1` in the codebase—there are twenty-three of them across eight files. Some should become `dim=0`. Some should stay `dim=1`. The colleague updates the ones they remember. The ones they forget compile silently.
+
+The compiler does not complain. `dim=1` is always a valid integer. The fact that some `dim=1`s should now be `dim=0`s is not recorded anywhere the compiler can see.
+
+The difference between the two refactorings is not the number of files changed. It is the number of errors emitted. The Einlang refactoring emits two errors—one for each call site that uses the old coordinate name. The positional refactoring emits zero errors—even when the dimension order changes and some `dim=1`s should become `dim=0`s. Zero errors is not zero bugs. It is zero *detected* bugs.
+
+The coordinate name is the audit trail. When you rename it, every use of the old name becomes a compile error. You fix them one by one. When they're all fixed, the project compiles. The compiler has verified that the rename is complete.
+
+A positional integer has no audit trail. When you change what position 1 means, no compile error points you to the places that depended on the old meaning. You find them by reading code, by running tests, by deploying to staging and hoping the metrics don't drift. The difference between an audit trail and no audit trail is the difference between a refactoring that takes ten minutes and a refactoring that takes three weeks to debug.
+
 ---
 
 ## The Language Gets a Name
 
 We have been writing in a notation that puts coordinate names in brackets, that requires reductions to state what they consume, that makes broadcasting explicit in the indexing pattern. This notation needs a name.
 
-It is called **einlang**—a contraction of "Einstein" and "language," acknowledging the debt to Einstein summation notation while distinguishing itself as a full programming language rather than a string-based convention.
+It is called **Einlang**—a contraction of "Einstein" and "language," acknowledging the debt to Einstein summation notation while distinguishing itself as a full programming language rather than a string-based convention.
 
 The name is not the point. The point is what the name represents: a language where coordinates are first-class syntactic entities, not comments embedded in variable names. Where coordinate contracts are statically checked. Where the reader can audit coordinate flow without reconstructing it from shape arithmetic.
 
@@ -235,6 +344,30 @@ This is the argument of the book, stated at the combination layer: when the coor
 ---
 
 *Design a coordinate-aware function. Write its signature. Now imagine a colleague calls it with the wrong coordinate name. What happens? In `dim=-1`, nothing—the call succeeds silently. In your function, the compiler stops and says: "this tensor has no coordinate named X." The difference is a bracket with a name in it.*
+
+---
+
+### Stop and Think: Audit Your Own Call Sites
+
+Open a file in your current project that calls a function with a `dim` or `axis` argument. Any function—`softmax`, `mean`, `sum`, `concat`, `norm`. Find three calls. For each call, answer:
+
+1. **What coordinate does `dim` refer to?** Not what integer—what coordinate. Is it `batch`? `channel`? `sequence`? `feature`? Write it down.
+
+2. **Could the dimension order change in a future refactoring?** Be honest. If you answer "probably not," ask: did you answer the same way about every refactoring that has already happened in this codebase?
+
+3. **If the dimension order changed, would this `dim` still be correct?** If the answer is no—if `dim=1` would silently point to a different coordinate—you have found a call site that depends on a position, not an identity.
+
+Now imagine each of those calls was written as `softmax[class](logits)` instead. Would the answers change?
+
+Question 1: the answer is in the bracket—`class`.
+Question 2: it doesn't matter. `class` is `class` regardless of position.
+Question 3: yes. `class` still means `class` even after a layout change.
+
+The named version answers all three questions with the same information: the name in the bracket. The positional version answers question 1 with context you must hold in your head, question 2 with a guess, and question 3 with "probably not."
+
+You don't need to rewrite your codebase in Einlang. You need to notice that every `dim=1` in your codebase is a question that the notation can't answer. The answer is in your head, or in a comment, or in a variable naming convention. The answer is not in the code, where the compiler could read it.
+
+The coordinate habit is noticing that gap. You have now noticed it in your own code. The rest of this book is about what happens when you fill it.
 
 ---
 

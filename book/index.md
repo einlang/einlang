@@ -24,7 +24,7 @@ The book uses a small language called Einlang to make the demonstrations precise
 
 **Who this book is for.** If you build things below the level of an API call—a compiler pass, a numerical library, an autodiff engine, a tensor DSL, or a notation shared by a team—this book is written for you. If you have ever stared at `RuntimeError: mat1 and mat2 shapes cannot be multiplied` at 3 AM and wished the traceback told you which dimension was supposed to be `head` and which one was supposed to be `feature`, this book is written for you. If you mainly want another framework function to call, it will probably spend too much time under the floorboards. That is by design.
 
-**How to read this book.** Part I (Chapters 1–2) introduces the primitives—naming, permuting, reducing, broadcasting—with the megaphone model that unifies them. Part II (Chapters 3–8) teaches combination: coordinate-aware functions, the broadcast self-audit, normalization skeletons, recurrence, complex terrain, and differentiation. Part III (Chapters 9–11) puts einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. Part IV (Chapters 12–17) opens the compiler: intermediate representation, analysis and check rules, lowering, reflection, the life of a name, and a complete syntax reference.
+**How to read this book.** Part I (Chapters 1–2) introduces the primitives—naming, permuting, reducing, broadcasting—with the megaphone model that unifies them. Part II (Chapters 3–8) teaches combination: coordinate-aware functions, the broadcast self-audit, normalization skeletons, recurrence, complex terrain, and differentiation. Part III (Chapters 9–11) puts Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. Part IV (Chapters 12–17) opens the compiler: intermediate representation, analysis and check rules, lowering, reflection, the life of a name, and a complete syntax reference.
 
 A note on language. Throughout this book, "we" means the author and the reader together—we are tracing the same cells, debugging the same bugs, asking the same questions. The coordinate habit is learned collaboratively or not at all.
 
@@ -57,4 +57,4 @@ The book is an argument in the form of seventeen chapters and one idea. Turn the
 - [16. The Life of a Name](chapter-16-life-of-a-name.html)
 - [17. The Complete Picture](chapter-17-complete-picture.html)
 
-- [Epilogue: A Friend Named einlang](chapter-epilogue.html)
+- [Epilogue: A Friend Named Einlang](chapter-epilogue.html)

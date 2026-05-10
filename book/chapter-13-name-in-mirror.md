@@ -120,7 +120,7 @@ The consumed coordinate must appear in every operand's index list within the red
   (* (index A (i k)) (index B (j q))))  // k missing from B
 ```
 
-**Catches**: reduction bracket says `k` but one index reference uses `q` by mistake. *If you have ever written `sum[class]` but one operand's index used `batch` instead—the result had the right shape but the wrong coordinate was consumed—this rule would have caught it. Every chapter of this book has used the same word: consume. A reduction consumes a coordinate. A broadcast omits one so the backward pass can consume it. A gradient collects over what was consumed. This rule is where that thread lands: did you actually consume what you claimed to consume?*
+**Catches**: reduction bracket says `k` but one index reference uses `q` by mistake. *If you have ever written `sum[class]` but one operand's index used `batch` instead—the result had the right shape but the wrong coordinate was consumed—this rule would have caught it. A reduction consumes a coordinate. The bracket names what disappears. Rule 2 checks: did you actually consume what you claimed to consume?*
 
 ### Rule 3: Broadcast Recording
 
@@ -176,7 +176,7 @@ When calling a coordinate-aware function, the coordinate arguments must exist on
 
 You have seen the five rules. You have read what each catches. But reading a list of rules and applying them are different things. Let's apply them together.
 
-Here is a broken einlang program. It was written by a programmer who intended to implement a simple linear layer with a bias, followed by a softmax over classes. It compiles. It runs. It produces wrong results. The programmer has been debugging for two hours.
+Here is a broken Einlang program. It was written by a programmer who intended to implement a simple linear layer with a bias, followed by a softmax over classes. It compiles. It runs. It produces wrong results. The programmer has been debugging for two hours.
 
 ```
 fn predict[class](x: [f32; batch, in], W: [f32; out, in], bias: [f32; out])
@@ -309,6 +309,212 @@ Five rules. Five nights. One wall.
 
 ---
 
+## Five Micro-Scenarios
+
+The wall was one program, broken in multiple ways. Now let's isolate each rule with its own scenario—one bug, one rule, one line. These are the shortest Einlang programs that trigger each check.
+
+### Micro-Scenario 1: Index Existence (Rule 1)
+
+A programmer refactors a data loader. The CSV column `temperature` is renamed to `temp`. The model code is updated—mostly:
+
+```
+let readings[station, temperature] = load_csv("weather.csv");
+let anomalies[station] = mean[temperature](readings[station, temperature]);
+//                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+//                                                    ✓ temperature exists
+```
+
+But the normalization function still references the old name:
+
+```
+fn normalize[feature](x: [f32; station, temperature]) -> [f32; station, temperature] {
+    let stats[station, channel] = mean[temperature](x[station, temperature]);
+    //                          ^^^^^^^ 坐标 channel doesn't exist in output
+}
+// wait—the bug is subtler
+```
+
+Better example. The data pipeline changed, but one file wasn't updated:
+
+```
+// file: data.ein — updated
+let readings[station, temp, hour] = load_csv("weather.csv");
+
+// file: model.ein — NOT updated
+let avg[station, temperature] = mean[temperature](readings[station, temperature, hour]);
+//                                            ^^^^^^^^^^^
+//                                            ERROR: 'temperature' not in (station, temp, hour)
+//                                            did you mean 'temp'?
+```
+
+The error message names the missing coordinate and suggests the closest match. The programmer sees it, fixes `temperature` → `temp`, and the code compiles. In a positional framework, `temperature` was axis 1, `temp` is axis 1—the integer hasn't changed. The bug would compile and run. At runtime, it would silently average over the wrong thing.
+
+**What Rule 1 catches**: a coordinate rename that the positional equivalent would silently absorb.
+
+### Micro-Scenario 2: Reduction Consistency (Rule 2)
+
+A programmer writes a bilinear form. Two matrices, one reduction:
+
+```
+let bilinear[i, j] = sum[k](A[i, k] * B[q, j]);
+//                                      ^
+//                                      ERROR: reduction consumes 'k', but 'B' uses 'q'
+```
+
+`k` is the reduction coordinate. It appears in `A[i, k]`. It does not appear in `B[q, j]`. The result shape would be `(i, q, j)`—three surviving coordinates from two-indexed tensors. The programmer meant `B[k, j]` but typed `q` by habit (`q` is used elsewhere in the function as a query coordinate).
+
+Rule 2 catches this: the reduction coordinate `k` does not appear in every operand. The reduction cannot consume what isn't there. The compiler reports: *reduction coordinate `k` missing from operand `B`*.
+
+In a positional framework: `A.shape = (n, m)`, `B.shape = (p, m)`. If `n == p`, the matmul produces a valid shape. The bug is that `B`'s first axis should contract with `A`'s second, but the shapes happen to allow a different contraction. The result has the right dimensions, the wrong values, and no error.
+
+**What Rule 2 catches**: a coordinate in the reduction bracket that doesn't appear in every operand—a bug that shape-compatible tensors would hide.
+
+### Micro-Scenario 3: Broadcast Recording (Rule 3)
+
+Rule 3 is not an error check—it records facts. But the facts it records prevent errors downstream. Consider:
+
+```
+let scaled[i, j] = x[i, j] * factor[j];
+//  factor omits i → broadcasts over i
+```
+
+The compiler records: `factor` broadcasts over `{i}`. Now consider the gradient:
+
+```
+// backward pass (automatic, from Rule 3's record)
+let d_factor[j] = sum[i](d_scaled[i, j] * x[i, j]);
+//                   ^^^ sum over i because factor broadcast over i forward
+```
+
+Without the record, the backward pass must infer the sum from shapes. If `factor` changes from a 1D `(j,)` to a 2D `(i, j)` during a refactoring, the shape-based inference changes silently—the backward sum might sum over different axes. With the record, the backward pass reads `broadcast over {i}` and sums over `{i}` regardless of shape.
+
+Now the scenario where it matters. A programmer adds a time dimension to `factor`:
+
+```
+// Before: factor[j] — static per-class weight
+let scaled[i, j] = x[i, j] * factor[j];
+
+// After: factor[t, j] — time-varying per-class weight
+let scaled[t, i, j] = x[t, i, j] * factor[t, j];
+//                                   factor omits i → broadcasts over {i}
+//                                   factor has {t, j} — t is present, i is omitted
+```
+
+The broadcast record updates: `factor` broadcasts over `{i}` (still). The backward pass continues to sum over `i`. The time dimension `t` passes through undisturbed—because it was never in the broadcast record. The gradient comes out correct without the programmer touching the backward pass.
+
+**What Rule 3 catches**: a backward pass that would silently change behavior when a forward broadcast's coordinate structure changes. The record survives shape changes.
+
+### Micro-Scenario 4: Causality (Rule 4)
+
+The simplest micro-scenario in the book. Two lines:
+
+```
+let h[t in 1..T, d] = activation(h[t-1, d] * W[d, d] + b[d]);
+// ✓ t-1 < t, valid backward reference
+
+let h[t in 1..T, d] = activation(h[t+1, d] * W[d, d] + b[d]);
+// ERROR: t+1 > t, forward reference
+```
+
+The second line is legal Python. In a positional loop:
+
+```python
+h = torch.zeros(T, D)
+for t in range(1, T):
+    h[t] = activation(h[t+1] @ W + b)  # reads uninitialized memory at first iteration, IndexError at last
+```
+
+The Python loop either reads garbage (if `h` is pre-allocated) or raises an IndexError (if `t+1 >= T`). Either way, the error is at runtime—possibly after thousands of correct iterations. The Einlang compiler rejects the second line at analysis time. `t+1` references a future that has not been computed.
+
+**What Rule 4 catches**: a forward reference in a recurrence. One character (`+` vs `-`) changes a correct program into a silent runtime error. Rule 4 catches it before the loop runs.
+
+### Micro-Scenario 5: Coordinate Contract (Rule 5)
+
+A colleague refactors the data pipeline. The CSV column `class` is renamed `category` for clarity. The colleague updates the data loader, the model declaration, and every call site they can find. But one call site is missed—it's in a different file, in a utility function that's rarely touched:
+
+```
+// file: pipeline.ein — updated by colleague
+fn pipeline[in, category](x: [f32; ..batch, in], W: [f32; category, in])
+    -> [f32; ..batch, category]
+{
+    let logits[..batch, category] = ...
+    softmax[category](logits[..batch, category])  // ✓ updated
+}
+
+// file: utils.ein — NOT updated
+fn debug_probs(x: [f32; ..batch, class]) -> [f32; ..batch, class] {
+    let p[..batch, class] = softmax[class](x[..batch, class]);
+    //                                ^^^^^
+    //                                ERROR: 'class' not found on 'x'
+    //                                x has coordinates (..batch, category)
+    //                                did you mean 'category'?
+}
+```
+
+The compiler catches it. The error message names the missing coordinate (`class`), the tensor it was expected on (`x`), the tensor's actual coordinates (`batch, category`), and a suggestion (`did you mean 'category'?`). The programmer sees it, fixes `class` → `category`, and the code compiles.
+
+In the positional equivalent, `debug_probs` calls `softmax(logits, dim=-1)`. The colleague changed the data layout but `dim=-1` is still valid—it just silently refers to a different coordinate now. The code runs. The output has the right shape. The loss looks fine. The bug survives. Rule 5 would have caught it at compile time, but Rule 5 requires a coordinate name to check.
+
+**What Rule 5 catches**: a coordinate rename that propagates incompletely through the codebase—the most common refactoring bug in large tensor programs.
+
+---
+
+### The Five, Separated
+
+Each rule catches a different shape of error. Together they cover the space of coordinate bugs:
+
+| Rule | Bug shape | Positional behavior |
+|---|---|---|
+| 1: Index Existence | Coordinate renamed upstream, reference lingers | Silent axis shift |
+| 2: Reduction Consistency | Reduction coordinate missing from one operand | Shape-compatible wrong contraction |
+| 3: Broadcast Recording | Broadcast structure changes, backward pass drifts | Silent gradient shape change |
+| 4: Causality | Forward reference in recurrence | Runtime garbage or IndexError |
+| 5: Coordinate Contract | Wrong coordinate argument at call site | Silent normalization over wrong axis |
+
+Not every tensor bug is a coordinate bug. But every coordinate bug is one of these five shapes. And every one of these shapes is silent in a positional framework—because the positional framework has no place to record the coordinate identity that would expose the mismatch.
+
+Five rules. Five micro-scenarios. Five compiler errors that replace five runtime silences. The wall and the micro-scenarios together are the compiler's argument that *the names are sufficient*—not sufficient to catch every bug, but sufficient to catch every bug whose root cause is a coordinate identity that was written in one place and wrong in another.
+
+---
+
+## Design a Rule: Concat
+
+The five rules were not handed down from above. Each was designed to catch a specific class of coordinate bug. Now you design one yourself.
+
+Here is a new operation: `concat`. It takes two tensors and a coordinate, and concatenates them along that coordinate:
+
+```
+let combined[batch, feature] = concat[feature](A[batch, feature_a], B[batch, feature_b]);
+```
+
+`feature_a` and `feature_b` are different coordinate names—they represent different extents of the same semantic dimension (e.g., two feature sets being joined). The result has coordinate `feature`, whose range is `range(feature_a) + range(feature_b)`.
+
+Take five minutes. Write down:
+
+1. **What must be checked?** The operation `concat[feature]` consumes no coordinates—`feature` survives in the output. But what must be true of the coordinates that are *not* being concatenated over? If `A` has `(batch, feature_a)` and `B` has `(batch, feature_b)`, the `batch` coordinate must match. If `A` had `(batch_a, feature_a)` and `B` had `(batch_b, feature_b)`, the concatenation would produce a result with two unrelated batch axes—nonsense.
+
+2. **Write the rule.** In one sentence: what does the compiler check before allowing `concat[feature](A, B)`?
+
+3. **What's the positional equivalent?** PyTorch's `torch.cat([A, B], dim=1)` checks that `A.shape[0] == B.shape[0]` (all non-concatenated dimensions match). It catches the shape mismatch. What does it NOT catch that a name-based check could?
+
+Don't scroll down until you've written your answers.
+
+---
+
+Done? Compare:
+
+**What must be checked.** Every coordinate that is NOT the concatenation coordinate must have the same name and same range in both operands. If `A` has `(batch, feature_a)` and `B` has `(seq, feature_b)`, the compiler should reject the concat—`batch` and `seq` are different coordinates, and concatenating across them would silently mix batch and sequence elements.
+
+**Write the rule.** *For every coordinate in the output that is not the concatenation coordinate, both operands must carry that coordinate with the same name and compatible range.* (Ranges must be equal, not just compatible—unlike broadcasting where omission is allowed.)
+
+**What's the positional equivalent miss?** `torch.cat([A, B], dim=1)` checks that `A.shape[0] == B.shape[0]`. If both have shape `(32, 64)`, the check passes. But `A` might have `(batch=32, feature_a=64)` and `B` might have `(seq=32, feature_b=64)`. The shapes match. The coordinates don't. The positional check verifies only that the numbers are equal. It cannot verify that the identities are consistent. The name-based check catches the identity mismatch before the tensors are joined.
+
+---
+
+You just designed a check rule. The five rules in this chapter were designed the same way: start with an operation, ask what can go wrong, write a rule that catches it. The rules are not magic. They are engineering. And they all depend on the same thing: coordinates that have names.
+
+---
+
 ## A Filled-In Tree
 
 Before analysis, the tree is bare parentheses with names:
@@ -342,6 +548,6 @@ Every question mark is gone. Every parenthesis is annotated with the answers the
 
 Names are not a convenience. They are information the compiler can reason about. You wrote `(i class)` and `(sum (class) ...)`. From that, the compiler derived shape, range, type, and coordinate layout—and verified five rules that catch the bugs positional notation leaves to comments.
 
-Throughout this book, a single word has threaded through the chapters: **consume**. A reduction consumes a coordinate—the bracket names what disappears. A broadcast omits a coordinate—the omission records what the value is independent of. A gradient collects over what was broadcast and broadcasts over what was consumed. The five check rules, taken together, are the compiler's answer to the question: *did you actually consume what you claimed to consume?* Rule 2 checks it directly—the consumed coordinate must appear in every operand's index list. Rule 3 records what was broadcast so the gradient can consume it. Rule 4 checks that time steps only consume the past. The word "consume" is not decorative. It is the verb that links the forward pass to the backward pass, the reduction bracket to the gradient sum, the where clause to the filtered backward.
+A reduction consumes a coordinate—the bracket names what disappears. A broadcast omits a coordinate—the omission records what the value is independent of. A gradient collects over what was broadcast and broadcasts over what was consumed. The five check rules are the compiler's answer to a single question: *did you actually consume what you claimed to consume?* Rule 2 checks it directly. Rule 3 records what was broadcast so the gradient can consume it. Rule 4 checks that time steps only consume the past. Rule 1 verifies the coordinate existed to be consumed. Rule 5 verifies the contract that binds consumed coordinates across function boundaries.
 
 The tree is now complete. Every slot that needed an answer has one. It can be safely handed to the next chapter—where the names are burned.
