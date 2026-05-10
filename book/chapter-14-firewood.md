@@ -345,27 +345,39 @@ The name exists so that the number can be correct. The name is the guarantee. Th
 
 ---
 
+Close your eyes for a moment. Or look away from the page. The five forms of `class` are still there—the source you wrote, the parentheses the parser built, the annotations analysis derived, the integer lowering produced, the NumPy that executes. Five forms, one name, zero loss of identity. Nothing in this book depends on you remembering every check rule or every IR node. The only thing that matters is that you now know: when a compiler has names, it can ask questions. When it has only integers, it cannot. The rest—the parentheses, the analysis passes, the lowering strategies—are engineering around that single fact. You do not need to retain them to practice the coordinate habit. You only need to notice the gap.
+
 ---
 
 You wrote `class`. Five characters. They survived parsing, resolution, analysis, lowering—each stage asking a question that a number could not. At the end, they became `axis=1` and were burned. But the burn was correct because the name was verified. The name is gone from the execution but not from the source—and the source is where questions are asked.
 
 Form 0 is the alternative: `dim=-1`, where no name enters the system and no question is asked. Compare the two: five keystrokes that enable five checks, or three keystrokes that enable none. The ratio is the distance between correct-by-construction and correct-by-coincidence.
 
-
-Names are a good thing. They let you write `class` instead of `1`. They let the compiler check coordinate alignment—by name, not position. They survive the five check rules.
-
-But names must eventually be burned. The CPU does not know `class`. It knows axis 1, loop range n_class, and floating-point instructions. Lowering is that fire. `(reduction sum (class) ...)` goes in; `axis=1, reduction` comes out. The backward pass reads the ash: every forward reduction becomes a backward broadcast, every forward silence becomes a backward sum. The names burn. The heat remains—a computation that can be handed directly to NumPy's C kernels.
-
-A good abstraction is not a good painting. A good abstraction is good firewood. Its beauty is not in its surface—but in the light the flame casts when it burns.
-
----
-
-The name is burned. `class` became `axis=1`. The word is not in the generated code. The CPU will never read it.
-
-But the name is not lost. It is in the source code, where you can read it. It is in the compiler's analysis log, where the checks are recorded. It is in the error message, if a future refactoring breaks the contract. It is in the lowering annotations, documenting why `axis=1` was chosen.
-
-The name burned. The heat remains. And the heat is a program whose axes are correct—not because the programmer memorized the dimension order, but because the compiler verified the coordinate names.
+Consume—that word has appeared in every chapter since Chapter 2. A reduction consumes a coordinate. A broadcast consumes silence. A gradient consumes the broadcast set. And now the compiler consumes the name itself. `class` goes in. `axis=1` comes out. The word for what the name does and the word for what the flame does are the same word. A good abstraction is not a good painting. A good abstraction is good firewood. Its beauty is not in its surface—but in the light the flame casts when it burns.
 
 *Look at any `axis=1` in your generated or handwritten NumPy code. Trace it backward: what name did it come from? If you cannot answer—if the integer has no recoverable identity—you are looking at a number that was never a name. The fire burned nothing, because there was nothing to burn. That is the positional default.*
 
 *You first wrote `class` in Chapter 3. It has now traveled through every chapter of this book—through primitives, combinations, comparisons, construction. It was written, preserved, verified, and burned. Close your eyes. Trace its journey in your mind. The path you trace is the coordinate habit.*
+
+---
+
+You now have a complete compiler frontend. It parses Einlang into S-expressions. It runs five check rules on the tree. It lowers names to integers. If you take one more step—write a checker that takes a single Einlang expression and runs Rule 1 against it—you have a tool that can audit its own source code. Einlang, checking Einlang. The language that verifies coordinate names can verify itself. That is not a metacircular evaluator. It is something simpler and more portable: a notation that records enough information to check itself.
+
+The core loop that makes all of this work fits in ten lines:
+
+```
+(define (check expr env)
+  (match expr
+    [(index T (coords ...))
+     (for-each (λ (c) (unless (declared? c T env)
+                         (error "undeclared coordinate" c)))
+               coords)]
+    [(reduction op (c) body)
+     (check body (cons c env))]
+    [(let-decl (output T coords) body)
+     (check body (append coords env))]
+    [...]))
+
+```
+
+Walk the tree. At each node, ask one question. If the answer is wrong, halt. If the answer is right, continue. The entire compiler is this loop, repeated for five rules instead of one, with shape propagation threaded through. The complexity is in the details—type inference, pack resolution, error message formatting. The structure is ten lines. You can hold the entire thing in your head. Tomorrow, when you write `x.mean(dim=1)` in PyTorch, that loop runs in your mind. It asks: *which coordinate is this consuming?* The code may not answer. But you will know that the question was never asked—and that is already the coordinate habit.

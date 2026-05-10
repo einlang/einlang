@@ -13,6 +13,10 @@ title: "Chapter 12 · The Shape of Thought"
 
 ---
 
+You have done three things. You learned to name coordinates—to put `channel` where positional code puts `1`. You saw named and positional notation side by side on real computations—normalization, attention, physics. You know what the names catch. One question remains: *how does the compiler make this happen?* The next three chapters answer it. We will build a compiler frontend—not read about it, build it. You will write the IR. You will trace the check rules. You will watch a name become an integer. At the end, you will have a miniature compiler that verifies the five rules from Chapter 13. It will not be industrial-grade. It will be yours.
+
+---
+
 A compiler cannot operate on source code strings directly. It needs an internal language. This language must satisfy two conditions. First, it must be able to express every structure in the source language with perfect fidelity—no information lost in translation. Second, it must be simple enough that checker passes can traverse it mechanically, without parsing or disambiguation.
 
 We use S-expressions—parenthesized lists—as this internal language. In this language, coordinate names are preserved exactly as written. They are not pre-resolved to integers. Model names remain model names. The structure mirrors the source, stripped of syntactic sugar, with all semantic relationships intact.
@@ -61,26 +65,76 @@ The compiler's first job is translation: read Einlang, write parentheses. Here i
 
 ## What You Write, and What the Compiler Sees
 
+Start with the simplest possible fragment. A single tensor access:
+
 ```
-A[i, j] = B[i, k] * C[k, j]
+A[i]
 ```
 
-After parsing, the compiler sees a tree:
+After parsing, the compiler sees:
 
 ```lisp
-(let-decl (output A (i j))
-  (* (index B (i k)) (index C (k j))))
+(index A (i))
 ```
 
-`A[i, j]` becomes `(let-decl (output A (i j)) ...)`. `B[i, k]` becomes `(index B (i k))`. `*` becomes `(*)`.
+That's it. `A` is the tensor. `i` is the coordinate. `index` is the operation. No positions. No numbers. Just a name and a tensor.
 
-One-to-one. On the left is source code; on the right, parentheses. Commas, equals signs, brackets—all gone. But every relationship remains. `i` and `j` are names. `k` is a name. Nothing has been turned into a number.
+Add a second coordinate:
 
-The compiler, at this stage, does not speak in numbers. It speaks in names. Because names carry information—numbers come later.
+```
+A[i, j]
+```
+
+```lisp
+(index A (i j))
+```
+
+The index list grows. The structure is the same. Now add an operation—two tensors, element-wise addition:
+
+```
+A[i, j] + B[i, j]
+```
+
+```lisp
+(+ (index A (i j)) (index B (i j)))
+```
+
+`+` becomes the operator. The two index expressions become children. The tree is `(+ left right)`. Still no numbers.
+
+Now wrap in a reduction. `sum[k]` says "eliminate k from the output":
+
+```
+sum[k](A[i, k] * B[k, j])
+```
+
+```lisp
+(reduction sum (k)
+  (* (index A (i k)) (index B (k j))))
+```
+
+`k` is the reduction coordinate—named, not numbered. `sum` is the reduction operator. The body sits one level below. This is the same structure as Σ notation: the operator, then the index variable, then the expression.
+
+Now bind the result to a name. `C[i, j]` declares the output coordinates:
+
+```
+C[i, j] = sum[k](A[i, k] * B[k, j])
+```
+
+```lisp
+(let-decl (output C (i j))
+  (reduction sum (k)
+    (* (index A (i k)) (index B (k j)))))
+```
+
+`let-decl` wraps the entire expression. `(output C (i j))` declares the result tensor and its surviving coordinates—`i` survives, `j` survives, `k` is gone. The declaration and the reduction agree: `k` was consumed.
+
+You just watched one tree grow from `(index A (i))` to a full declaration with reduction, multiplication, and coordinate tracking. Four steps. At each step, the tree preserved every name. At no step did a name become a number.
+
+The rest of this section shows each IR construct in detail. But the pattern is the same throughout: source code on the left, parentheses on the right, names everywhere, numbers nowhere.
 
 ---
 
-## Reduction
+## Reduction in Detail
 
 ```
 sum[i](A[i] * B[i])
@@ -329,61 +383,15 @@ What can you determine from this tree?
 
 Now ask: what if `x` had `(b, time, s)` instead? The IR would be `(index x (b time s))` and the reduction bracket would be `(reduction mean (channel) ...)`. The compiler would check: does `channel` appear in `(b time s)`? No. Error. The name `channel` caught the mismatch. A positional IR with `axis=1` would ask: is axis 1 valid on `x`? Yes—`x` has 3 axes. No error. Silent consumption of the wrong coordinate.
 
+In a positional compiler, the IR carries `(reduction mean 1 ...)` instead of `(reduction mean (channel) ...)`. The integer `1` is valid—it refers to axis 1, which exists. But the identity `channel` is gone. The compiler cannot ask "is `channel` the right coordinate to consume?" It can only ask "is `1` a valid axis?" The answer is always yes. Every check that depends on identity becomes a vacuous integer comparison. This is why the IR must preserve names: not for convenience, but because the five check rules in the next chapter require identities, not positions.
+
 The tree preserves what the positional IR loses: the identity of the consumed coordinate.
-
----
-
-## Writing a Simple Analysis Pass
-
-Let's write a pass together. Not in real code—in pseudocode, the way you'd sketch it on a whiteboard. The pass checks Rule 1: Index Existence. Every coordinate that appears in an `(index ...)` or `(reduction ...)` must exist on the tensor being indexed.
-
-```lisp
-;; PASS: check-index-existence
-;; Walk every (index T (c1 c2 ...)) node.
-;; For each coordinate ci:
-;;   1. Resolve T to its declaration.
-;;   2. Check that ci is in T's declared coordinate list.
-;;   3. If not, emit E003 with ci and T's name.
-
-;; Example tree:
-;; (index logits (batch class))  -- logits declared with (batch class): pass
-;; (index logits (batch channel)) -- channel not on logits: E003
-```
-
-That's the pass. Four lines of logic. The same structure works for `(reduction sum (k) (index A (i k)))`—`k` must exist on every tensor indexed inside the reduction body. `i` must exist on `A`.
-
-Now a second pass, checking Rule 5: Coordinate Contract at call sites:
-
-```lisp
-;; PASS: check-coordinate-contract
-;; Walk every (call fn ...) node.
-;; For each coordinate argument ci:
-;;   1. Resolve fn to its declaration.
-;;   2. Get fn's coordinate parameter layout (coord-params ...).
-;;   3. Bind ci to the corresponding parameter.
-;;   4. Walk the value arguments. For each, check that ci exists on the tensor.
-;;   5. If the call site passes ci but the tensor lacks ci, emit E006.
-
-;; Example:
-;; (call softmax (index logits (batch class)) (coord-args class))
-;; softmax expects j, class is bound to j.
-;; logits has (batch class): class exists. Pass.
-;;
-;; (call softmax (index logits (batch feature)) (coord-args class))
-;; logits has (batch feature): class does not exist. E006.
-```
-
-Again, four lines of logic. The pass is small because the information it needs is in the tree. The coordinate argument `class` is a symbol in `(coord-args class)`. The tensor's declared coordinates are symbols in the declaration node. The check is symbol comparison. No shapes. No positions. No inference. Just: "does this name appear in this list?"
-
-The simplicity of the passes is the IR's justification. If the IR were a complex data structure—nested records with optional fields, implicit defaults, position-dependent layout—each pass would need to unpack, normalize, and reconstruct before it could ask its one question. The S-expression IR has no defaults, no implicit fields, no position-dependent layout. Every fact is a symbol in a known position in a known list. The pass asks its question. The answer is in the tree.
-
-This is the point of homoiconicity from Section 7. The IR is both the text the compiler reads and the data structure it queries. There is no AST → IR translation step. There is no AST. The parse tree IS the IR. What you wrote by hand in the "You Are the Compiler" exercise is exactly what the parser produces. The passes walk what you wrote.
 
 ---
 
 ### Why Names Must Survive Into the IR
 
-There is an alternative design: translate names to integers at parse time. `class` becomes `axis=1`. The IR has no names, only positions. Simpler—but wrong. If names are gone before analysis, every check rule asks "is position *p* the same as position *p*?" The answer is always yes. The rule that should catch `channel`-vs-`class` becomes a vacuous integer comparison. The IR preserves names not as a convenience, but because the five check rules require identities, not positions. Lowering burns names into integers only after every identity-based check has passed—at which point the number is guaranteed correct.
+There is an alternative design: translate names to integers at parse time. `class` becomes `axis=1`. Simpler—but wrong. If names are gone before analysis, every check rule asks "is position *p* the same as position *p*?" The answer is always yes. The rule that should catch `channel`-vs-`class` becomes a vacuous integer comparison. Lowering burns names into integers only after every identity-based check has passed—at which point the number is guaranteed correct.
 
 
 ### Stop and Think: Your Own IR

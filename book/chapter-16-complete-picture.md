@@ -1,9 +1,9 @@
 ---
 layout: book
-title: "Chapter 16 · The Complete Picture"
+title: "Appendix · The Complete Picture"
 ---
 
-# Chapter 16 · The Complete Picture
+# Appendix · The Complete Picture
 
 > "The purpose of computing is insight, not numbers."
 >
@@ -456,5 +456,35 @@ The four questions are a checklist. Run through them in order. The answer to at 
 The syntax has a small surface area. Once you internalize the primitives—naming, reducing, broadcasting, recurring, differentiating—you can regenerate most of what you need from first principles. The thought map above shows how they connect. The syntax reference records what they are.
 
 The syntax will evolve. The thought map will grow. The habit—write the coordinate names, make the omissions explicit, let the compiler check the contracts—will outlast any particular syntax.
+
+---
+
+## The Book's Vocabulary
+
+This book built a naming system for the ideas it introduced. Here they are, gathered in one place.
+
+**Megaphone.** A tensor speaks on the coordinates in its brackets and stays silent on all others. Broadcasting is the repetition of silence.
+
+**Consume.** A reduction consumes a coordinate—eliminates it from the output. A broadcast consumes silence—repeats a value along a coordinate it does not have. A compiler consumes the name—burns it into an integer after all checks pass.
+
+**Shopping cart / Ledger.** The forward pass records which coordinates each tensor omits. The backward pass reads the record in reverse: what was omitted forward becomes summed backward.
+
+**Skeleton.** A normalization operation has a fixed coordinate structure: reduce some coordinates, broadcast statistics back, apply affine parameters. The skeleton is the same for BatchNorm, LayerNorm, InstanceNorm, GroupNorm, RMSNorm. Only which coordinates are reduced changes.
+
+**Firewood.** A name is firewood for the compiler. It burns into an integer at lowering. A good abstraction is good firewood—its beauty is in the light the flame casts when it burns.
+
+**Panorama.** The five forms of a name seen simultaneously: Source → IR → After Analysis → After Lowering → Generated Code. One name, five forms, zero loss of identity.
+
+**Coordinate habit.** The reflex of pausing before a tensor operation and asking: which coordinate is being consumed, copied, or moved—and is its name in the code? Not a skill. A change in what you notice.
+
+**Shape-meanings gap.** The shape says *how many*. The role says *which one*. Every framework knows the shape. None of them know the role. The gap is where the bugs live.
+
+**Inversion Rule.** Forward broadcast becomes backward reduction. Forward reduction becomes backward broadcast. The coordinate names are the thread connecting the two directions.
+
+**Five check rules.** Index Existence (Rule 1), Reduction Consistency (Rule 2), Broadcast Recording (Rule 3), Causality (Rule 4), Coordinate Contract (Rule 5). The five ways a name can be wrong, and the five questions the compiler asks to catch it.
+
+**Lowering.** The final stage of the compiler: names become integers. The name is burned. The integer is correct because the name was verified.
+
+These words are not decoration. They are the book's own coordinate system. Their job is the same as the job of the bracket: to give a fact a place to live, so it can be checked.
 
 Turn the page.

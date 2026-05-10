@@ -270,6 +270,29 @@ Skeletons compose because coordinate contracts compose. The output coordinates o
 
 ---
 
+## Spot the Skeleton
+
+Here are four Einlang function signatures. Three implement normalization variants. One doesn't. Can you spot the odd one out?
+
+```rust
+fn A[j](x: [f32; ..b, j]) -> [f32; ..b, j]
+fn B[coord](x: [f32; ..b, coord]) -> [f32; ..b]
+fn C[f](x: [f32; ..b, f]) -> [f32; ..b, f]
+fn D[t](x: [f32; ..b, t]) -> [f32; ..b, t]
+```
+
+Stop. Don't read the answer. Look at the return types.
+
+Done? Function B is the odd one out. Its return type is `[f32; ..b]`—the coordinate `coord` is missing. It was consumed and not reconstructed. Functions A, C, and D all return `[f32; ..b, <coordinate>]`—the coordinate survives. B is a reduction function (like `sum[coord]`). A, C, and D are normalization functions that preserve the coordinate.
+
+Now the deeper question: **why** is this distinction visible in the type signature? Because the skeleton is more than "reduce then broadcast." The skeleton is "reduce, then broadcast back to **reconstruct the consumed coordinate in the output.**" A pure reduction consumes and doesn't reconstruct—the coordinate disappears from the return type. A normalization consumes and reconstructs—the coordinate reappears. The difference between "gone forever" and "gone and returned" is the difference between a reduction and a normalization. The return type records it.
+
+The skeleton is visible in the type signature. The reduction bracket in the body (`max[coord]`, `mean[f]`, `sum[j]`) tells you what is consumed. The return type tells you whether it was reconstructed. A reader can distinguish a normalization from a reduction without reading the body—the coordinate flow is in the signature.
+
+This is the abstraction layer. The function signature says: "I operate on coordinate `j`. I preserve `j` in the output. Everything else passes through." The body fills in the specific computation. The signature is the contract. The body is the implementation. And the contract is checkable.
+
+---
+
 ## Derive InstanceNorm
 
 You've seen the table. Now derive one entry yourself. InstanceNorm normalizes each sample's each channel independently over the spatial dimensions. In 2D: for each `(N, C)`, compute mean and variance over `(H, W)`.
@@ -306,29 +329,6 @@ Now compare this to what you wrote. Did you:
 If you got all three, you understand the skeleton. The coordinate names carried the design: `mean[..spatial]` says "I am consuming the spatial dimensions." The return type `[f32; ..batch, c, ..spatial]` says "the spatial dimensions survive." The contradiction resolves: `..spatial` is consumed in the reduction but reconstructed in the output—the signature guarantees it.
 
 Now consider: what if InstanceNorm should normalize over `c` as well? You'd change the reduction bracket to `[c, ..spatial]`. One change. The skeleton is the same. The coordinate name carries the design decision.
-
----
-
-## Spot the Skeleton
-
-Here are four Einlang function signatures. Three implement normalization variants. One doesn't. Can you spot the odd one out?
-
-```rust
-fn A[j](x: [f32; ..b, j]) -> [f32; ..b, j]
-fn B[coord](x: [f32; ..b, coord]) -> [f32; ..b]
-fn C[f](x: [f32; ..b, f]) -> [f32; ..b, f]
-fn D[t](x: [f32; ..b, t]) -> [f32; ..b, t]
-```
-
-Stop. Don't read the answer. Look at the return types.
-
-Done? Function B is the odd one out. Its return type is `[f32; ..b]`—the coordinate `coord` is missing. It was consumed and not reconstructed. Functions A, C, and D all return `[f32; ..b, <coordinate>]`—the coordinate survives. B is a reduction function (like `sum[coord]`). A, C, and D are normalization functions that preserve the coordinate.
-
-Now the deeper question: **why** is this distinction visible in the type signature? Because the skeleton is more than "reduce then broadcast." The skeleton is "reduce, then broadcast back to **reconstruct the consumed coordinate in the output.**" A pure reduction consumes and doesn't reconstruct—the coordinate disappears from the return type. A normalization consumes and reconstructs—the coordinate reappears. The difference between "gone forever" and "gone and returned" is the difference between a reduction and a normalization. The return type records it.
-
-The skeleton is visible in the type signature. The reduction bracket in the body (`max[coord]`, `mean[f]`, `sum[j]`) tells you what is consumed. The return type tells you whether it was reconstructed. A reader can distinguish a normalization from a reduction without reading the body—the coordinate flow is in the signature.
-
-This is the abstraction layer. The function signature says: "I operate on coordinate `j`. I preserve `j` in the output. Everything else passes through." The body fills in the specific computation. The signature is the contract. The body is the implementation. And the contract is checkable.
 
 ---
 

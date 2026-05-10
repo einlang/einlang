@@ -13,11 +13,11 @@ title: "Chapter 11 · Comparison: Physics"
 
 ---
 
-You are simulating a two-dimensional thermodynamic system: temperature, pressure, velocity-x, velocity-y, evolving on a spatial grid over time. You store them in a tensor of shape `(T, N, 4)`. Integer `2` is velocity-x. Integer `3` is velocity-y. You're writing field-specific equations, slicing `[:,:,2]` and `[:,:,3]` throughout the code. It works.
+Normalization and attention revealed the same pattern: when two dimensions share the same extent, positional code loses the ability to distinguish them. The Square Matrix Test from Chapter 3—`batch_size == num_classes`—returned in attention as `seq_q == seq_k`. In both cases, the positional notation was correct-by-coincidence. The names made the distinction checkable.
 
-A colleague adds a magnetic field. Instead of appending it at index 4, they insert it at index 0—"put the most important field first." Every `[:,:,2]` now silently reads pressure instead of velocity-x. Every `[:,:,3]` reads velocity-x instead of velocity-y. The shapes are correct. The code runs. The physics is wrong. The simulation produces results that look plausible—pressure gradients where velocity should be, velocity where magnetic flux should be—and you discover the error three weeks later, staring at a contour plot that shouldn't be symmetric.
+Now we push this pattern to its oldest domain. Physical simulation predates machine learning by decades. Fortran physicists have been writing `U(I+1, J)` since before the term "tensor" entered our vocabulary—and if you ask one of them what `state[:,:,2]` means, they will give you the correct answer. Then they will tell you about the bug they fixed in 1997 where `2` was actually `3` and the simulation ran for two weeks before anyone noticed. The integer field index—`state[:,:,2]` for velocity-x—is the original ghost in the name.
 
-The first two comparison chapters looked at machine learning primitives—normalization and attention. This chapter looks at something older: physical simulation. The heat equation, fluid dynamics, multi-field coupling. Computations where coordinates carry physical meaning—temperature, pressure, velocity—and confusing them means solving the wrong physics.
+This chapter completes the comparison trilogy. It asks: when coordinates represent temperature, pressure, and velocity fields, and confusing them means solving the wrong physics, what does each notation make visible?
 
 ---
 
@@ -93,7 +93,7 @@ let vy[t, i] = state[t, i, field=3];
 
 `field` is a coordinate. Its values are named: `field=0` is temperature, `field=1` is pressure. If humidity is added, it becomes `field=4`—a new coordinate value, not a new integer to remember. If the field order changes, the name `field=0` still means temperature, regardless of where it sits in the array.
 
-But the Einlang version does more: it names the *physical coordinate* `i` and the *field coordinate* `field` separately. The coupling equations can reference them by name. A term that depends on temperature reads `state[t, i, field=0]`. A term that depends on the spatial gradient reads `state[t, i+1, field=0] - state[t, i-1, field=0]`. The code says which field and which spatial offset.
+But the Einlang version does more: it names the *physical coordinate* `i` and the *field coordinate* `field` separately. The coupling equations can reference them by name. A term that depends on temperature reads `state[t, i, field=0]`. A term that depends on the spatial gradient reads `state[t, i+1, field=0] - state[t, i-1, field=0]`. The code says which field and which spatial offset. This is the megaphone model at the level of physical quantities: `state` speaks on `t`, `i`, and `field`; operations that only care about `i` omit `t` and `field` from their brackets, and the omission is the claim that the stencil is spatial, not temporal or field-specific.
 
 ---
 
@@ -297,7 +297,7 @@ The fields are named dictionary keys. The stencils are in the function names (`l
 
 Einlang's contribution is a third axis of naming: not just the field (dictionary key) and the operation (function name), but the *coordinate*. `u[t-1, i+1, j]` names the field (`u`), the time recurrence (`t-1`), and the spatial offset (`i+1, j`). JAX names the field and the operation. Einlang adds the coordinate. When the coordinate is wrong—when `i+1` should be `j+1`—the name is visible at the point of error. In JAX, the error is inside `grad_x`, and the call site only knows it called `grad_x`, not which coordinate `grad_x` operates on.
 
-如果磁场的索引从4变成0，你需要改多少行代码？
+If the magnetic field index moves from 4 to 0, how many lines of code do you need to change?
 
 In JAX: every line that indexes `state[..., 4]` must be found and updated. In Einlang: zero. The coordinate name `Bx` stays `Bx` regardless of field order. The compiler maps the name to the new position. The question tests whether the coordinate identity lives in the code or in the convention.
 
@@ -305,9 +305,9 @@ In JAX: every line that indexes `state[..., 4]` must be found and updated. In Ei
 
 ## Two Notations, One Task
 
-The three comparison chapters end here. Positional notation is concise, universal, and runs directly on every accelerator—when coordinates are genuinely anonymous, `dim=-1` is all you need. Named notation makes coordinate identities checkable—when `class` and `batch` have the same extent, only the name distinguishes them. The difference is not efficiency. It is whether the code records the facts that correctness depends on.
+The three comparison chapters end here. Positional notation is concise, universal, and runs directly on every accelerator—when coordinates are genuinely anonymous, `dim=-1` is all you need. For a ReLU activation or an element-wise addition where no coordinate identity is at stake, the two notations cost the same keystrokes and the same thought. The named notation earns its keep where identities diverge: `class` vs `batch`, `seq_q` vs `seq_k`, `velocity-x` vs `pressure`. Named notation makes coordinate identities checkable—when `class` and `batch` have the same extent, only the name distinguishes them. The difference is not efficiency. It is whether the code records the facts that correctness depends on.
 
-如果磁场的索引从4变成0，你需要改多少行代码？
+If the magnetic field index moves from 4 to 0, how many lines of code do you need to change?
 
 ---
 

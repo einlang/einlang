@@ -79,6 +79,8 @@ Given a forward expression and a target operand, derive the gradient:
 4. **Multiply by the local derivative.** For elementwise multiplication inside the sum, the local derivative of `A[i, k] * B[k, j]` with respect to `A[i, k]` is `B[k, j]`.
 5. **Sum the routes.** The path coordinate—the coordinate in `C` but not in `A`—is `j`. Sum over it.
 
+> **Path coordinate.** A coordinate is a *path coordinate* for an operand if it appears in the output of a forward computation but does not appear in that operand's index pattern. The gradient with respect to that operand sums over all of its path coordinates. Formally: `paths(operand, output) = {coordinates in output} ∖ {coordinates in operand}`.
+
 The result: `dA[i, k] = sum[j](dC[i, j] * B[k, j])`. No calculus memorization. No transpose rules. Just coordinate accounting.
 
 ---
@@ -289,7 +291,17 @@ Every pullback you have seen follows the same rule. Given a forward expression a
 
 The other operand (`B[k, j]`) provides the missing coordinate `k`. The local derivative comes from differentiating the forward operation with respect to the operand. The path-sum structure comes from the coordinate sets.
 
-This is the pullback rule as coordinate accounting. No transpose rules memorized. No Jacobian dimensions counted. Just set subtraction, applied to coordinate names. The names tell you which coordinates to sum over. The forward expression tells you what to sum. The coordinate sets bridge the two.
+This is the pullback rule as coordinate accounting. No transpose rules memorized. No Jacobian dimensions counted. Just set subtraction, applied to coordinate names.
+
+In a single equation—carry this with you:
+
+```
+dA = Σ_{paths(A, C)}  dC · ∂(forward)/∂A
+
+where paths(A, C) = {coordinates in C} ∖ {coordinates in A}
+```
+
+`paths(A, C)` is the set of coordinates in the output `C` that are NOT in the operand `A`. Sum over them. Multiply by the local derivative. Done. This is the formula behind every gradient in this chapter. It is the formula behind every gradient you will ever derive from a tensor expression. The rest is accounting.
 
 ---
 
@@ -345,4 +357,6 @@ You now have the five-step pullback procedure. Test it on your own code.
 
 The pullback is not a separate computation from the forward pass. It is the forward pass, read backward, through the lens of the Inversion Rule. Every forward reduction becomes a backward broadcast. Every forward broadcast becomes a backward reduction. The coordinate names are the bridge between the two directions. The five steps are the procedure for crossing it.
 
-In the next chapter, we leave the single-language perspective and do something new. We put Einlang side by side with PyTorch—same computation, two notations—and ask what the names let you see that positions hide.
+In the next chapter, we do something different. For eight chapters, you have been inside Einlang—learning its primitives, composing its functions, tracing its gradients. Before we open the compiler and see how the engine works, we put Einlang next to the notation you already use. The next three chapters are a comparison: LayerNorm, attention, and heat equations, written twice—once in PyTorch/NumPy, once in Einlang.
+
+But before you turn the page, take sixty seconds. Predict: for the operations you now know—LayerNorm, GroupNorm, softmax, attention—what will the PyTorch versions reveal? Which coordinate operations will feel most fragile in positional notation? Which will surprise you by being clean? Write down two predictions. Then read the next three chapters with your predictions in hand. The gap between what you expected and what you found is where learning happens.

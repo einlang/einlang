@@ -23,6 +23,21 @@ We'll call this the megaphone model. Once you have it, you have the core of ever
 
 ---
 
+## The Four Operations: A First Look
+
+Every tensor computation is built from four primitive operations. You have already seen permutation in Chapter 1. This chapter covers reduction and broadcasting—the two operations that consume and copy coordinates. Contraction appears in Chapter 3. For now, here is what each one looks like in two notations, and what each notation records.
+
+| Operation | PyTorch/NumPy | Einlang | What the name records |
+|:---|:---|:---|:---|
+| **Reduce** | `x.mean(dim=1)` | `mean[channel](x[b, c, s])` | Which coordinate is consumed |
+| **Broadcast** | `x + bias[:, None, :]` | `x[b, c, s] + bias[c]` | Which coordinates bias is silent on |
+| **Permute** | `x.permute(0, 3, 1, 2)` | `y[b, c, h, w] = x[b, h, w, c]` | Where each coordinate ends up |
+| **Contract** | `torch.matmul(A, B)` | `sum[k](A[b, k] * B[k, f])` | Which coordinate is shared and consumed |
+
+Look at the "What the name records" column. In every case, the name records a fact about identity. In the positional version, that fact is not recorded—it lives in the programmer's head. When a refactoring changes the dimension order, the PyTorch column requires updates to every affected line. The Einlang column does not. `channel` is still `channel`, regardless of its position. The positional column records *how*. The named column records *what*.
+
+---
+
 ## The Megaphone
 
 Imagine a tensor `bias[j]` as a person holding a megaphone. The megaphone is pointed at coordinate `j`. On `j`, the value speaks—`bias[0]` is one number, `bias[1]` is another, each position carries its own meaning. On every other coordinate—coordinates not in the bracket—the megaphone is silent.
@@ -37,16 +52,26 @@ let out[i, j] = A[i, j] + bias[j];
 
 This is broadcasting. Not a shape-compatibility hack. A semantic declaration: "this value does not depend on that coordinate." The claim is **statically verifiable**: every use of `bias` is traced, and if any context requires `bias` to vary with `i`, the omission is flagged. Broadcasting is a promise, and the promise is checked.
 
+> **Silence and omission.** Throughout this book, two words describe the same phenomenon from different angles. *Silence* is the semantic side: a tensor's declaration that it does not depend on a particular coordinate. When `bias[j]` is silent on `i`, it claims independence from batch identity. *Omission* is the syntactic side: the coordinate name is absent from the tensor's index pattern. The bracket `[j]` contains `j` but not `i`—`i` is omitted. Silence is the meaning. Omission is the mechanism. You will see both words used throughout this book: *silence* when the topic is what the code asserts, *omission* when the topic is what the brackets show. The distinction is not pedantic—it is the difference between a claim and the evidence for it.
+
 Now stop. Look at that line again: `let out[i, j] = A[i, j] + bias[j]`. Ask yourself: does `bias` depend on `i`? How do you know?
 
 You probably just looked at the bracket after `bias`. It says `[j]`—no `i`. That is how you know. You compared `bias`'s coordinate set `{j}` against the output's coordinate set `{i, j}` and noticed that `i` is missing. You performed **coordinate set subtraction** in your head, without being taught the procedure.
 
-What you just did—comparing coordinate sets, finding the missing ones—is exactly what can be done by static analysis. Take the output coordinate set. Subtract each operand's coordinate set. The difference is the coordinates that operand broadcasts over:
+What you just did—comparing coordinate sets, finding the missing ones—is exactly what can be done by static analysis. Let's give this operation a name, because you will see it again and again:
+
+```
+paths(X, Out) = coordinates(Out) ∖ coordinates(X)
+```
+
+`paths(bias, out)` is the set of coordinates in `out` that `bias` is silent on. These are the broadcast coordinates. In the backward pass, they become the reduction coordinates—the coordinates the gradient sums over. Call it the path set. Remember it.
+
+Take the output coordinate set. Subtract each operand's coordinate set. The difference is the coordinates that operand broadcasts over:
 
 ```
 Output coordinates: {i, j}
-A's coordinates:    {i, j}  → broadcasts over: {}     (no omission)
-bias's coordinates: {j}     → broadcasts over: {i}    (omitted i)
+A's coordinates:    {i, j}  → paths(A, out) = {}     (no omission)
+bias's coordinates: {j}     → paths(bias, out) = {i}  (omitted i)
 ```
 
 No execution required. The brackets contain all the information needed. Every broadcast is verified consistent across all uses of the broadcast value. If one expression claims `bias` is independent of `i` and another requires it to vary with `i`, it is a coordinate contract violation—caught before a single value is computed. Not magic. Set subtraction.

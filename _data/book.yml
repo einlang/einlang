@@ -110,12 +110,12 @@
   section: "Part V: Reflection"
   eyebrow: "15"
 
-- title: "Chapter 16 · The Complete Picture"
+- title: "Appendix · The Complete Picture"
   url: /book/chapter-16-complete-picture.html
-  short_title: "16. The Complete Picture"
+  short_title: "Appendix"
   kind: chapter
-  section: "Part V: Reference"
-  eyebrow: "16"
+  section: Reference
+  eyebrow: Appendix
 
 - title: "Epilogue · A Friend Named einlang"
   url: /book/chapter-epilogue.html

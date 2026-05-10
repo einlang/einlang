@@ -134,6 +134,8 @@ For every term in an expression, compute its coordinate set. The output coordina
 ```
 
 *If you have ever traced a gradient that was silently summed over the wrong dimension because a forward broadcast was implicit, you know why this record must exist before the backward pass runs.*
+
+This is the shopping cart ledger from Chapter 4, now computed by the compiler instead of by hand. Every broadcast omission is recorded. Every record is read backward by the gradient. The Inversion Rule, mechanized.
 ```
 
 ### Rule 4: Causality Verification
@@ -301,11 +303,15 @@ Now replay the debugging session the programmer spent two hours on. In a positio
 
 In the named version, the compiler pins the bugs before the program runs. Rule 1: `k` is not a coordinate of `x`. Rule 5: return type mismatch. The programmer sees the errors, fixes the names, and moves on.
 
-The wall is not a metaphor. It is a design claim. The claim is: **every coordinate bug that can exist in a tensor program is caught by one of these five rules, or by the shape analysis that tracks whether declared coordinates match the coordinates that actually flow through expressions.** The five rules are not arbitrary. They are the five ways a name can be wrong: it can refer to a non-existent coordinate (Rule 1), it can fail to appear where the operation requires it (Rule 2), it can broadcast silently where it shouldn't—or worse, broadcast correctly but without the record the backward pass needs (Rule 3), it can reference the future in a recurrence (Rule 4), or it can violate the contract of a function call (Rule 5). That's it. Those are all the ways.
+A positional compiler processing the same broken program would see `sum[k]` as `sum(axis=1)` and `x[batch, in]` as `x(axis=0, axis=1)`. The integer would be valid. The shape would be correct. The five checks that caught every bug on this wall would reduce to a single check: "is the integer in range?" The answer would always be yes. The wall would be invisible.
+
+**Every coordinate bug that can exist in a tensor program is caught by one of these five rules, or by the shape analysis that tracks whether declared coordinates match the coordinates that actually flow through expressions.** The five rules are the five ways a name can be wrong: it can refer to a non-existent coordinate (Rule 1), it can fail to appear where the operation requires it (Rule 2), it can broadcast silently where it shouldn't—or worse, broadcast correctly but without the record the backward pass needs (Rule 3), it can reference the future in a recurrence (Rule 4), or it can violate the contract of a function call (Rule 5). That's it. Those are all the ways.
 
 Every rule was born from a night someone spent staring at a tensor shape that was correct and a computation that was wrong. The night that became Rule 1: a renamed column in a CSV that silently shifted every downstream index. The night that became Rule 2: a `sum[class]` where one operand accidentally used `batch` instead, producing the right shape with the wrong reduction axis. The night that became Rule 3: a broadcast that flipped direction after a refactoring, and a gradient that silently summed over the wrong dimension. The night that became Rule 4: an RNN that read from `t+1` instead of `t-1` and converged to garbage. The night that became Rule 5: a `softmax[class]` call where `class` didn't exist on the tensor anymore, and the code ran anyway because `dim=-1` still pointed to something.
 
 Five rules. Five nights. One wall.
+
+There should be a sixth night—the one where a bug doesn't happen because the compiler caught it at 10:15 AM, during a routine build. Nobody remembers that night. Nobody thanks the compiler for it. The nights we remember are the ones where the compiler was silent. The coordinate habit is the discipline of remembering the bugs that didn't happen.
 
 ---
 
@@ -550,4 +556,16 @@ Names are not a convenience. They are information the compiler can reason about.
 
 A reduction consumes a coordinate—the bracket names what disappears. A broadcast omits a coordinate—the omission records what the value is independent of. A gradient collects over what was broadcast and broadcasts over what was consumed. The five check rules are the compiler's answer to a single question: *did you actually consume what you claimed to consume?* Rule 2 checks it directly. Rule 3 records what was broadcast so the gradient can consume it. Rule 4 checks that time steps only consume the past. Rule 1 verifies the coordinate existed to be consumed. Rule 5 verifies the contract that binds consumed coordinates across function boundaries.
 
-The tree is now complete. Every slot that needed an answer has one. It can be safely handed to the next chapter—where the names are burned.
+The tree is now complete. But before the names are burned, you should burn one yourself.
+
+Take out a piece of paper. Write this Einlang fragment:
+
+```
+let result[b, s] = mean[channel](x[b, channel, s]);
+```
+
+Now do by hand what the lowering pass does. Declare coordinate extents: `batch=32`, `channel=64`, `spatial=256`. Assign each name an axis position: `b → 0`, `channel → 1`, `s → 2`. Then lower the expression: `mean[channel]` becomes `mean(axis=1, keepdims=False)`. The output `result[b, s]` becomes a tensor of shape `(32, 256)`. Write the lowered NumPy. It should be one line.
+
+Done? You just did what Chapter 14 will do mechanically. The five forms of a name—Source, IR, After Analysis, After Lowering, Generated Code—differ only in the stage at which you ask the question. The question is the same: *is the integer correct?* The name answers it. The integer cannot.
+
+The tree is complete. Every slot that needed an answer has one. It can be safely handed to the next chapter—where the names are burned.

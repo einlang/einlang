@@ -191,25 +191,6 @@ The 3D parking lot teaches something the 2D version couldn't: when you compose m
 
 ---
 
-## The Four Operations: A First Look
-
-Every tensor computation is built from four primitive operations. You'll meet them properly in the chapters ahead. For now, here is what each one looks like in two notations—and what each notation records.
-
-| Operation | PyTorch/NumPy | Einlang | What the name records |
-|:---|:---|:---|:---|
-| **Reduce** | `x.mean(dim=1)` | `mean[channel](x[b, c, s])` | Which coordinate is consumed |
-| **Broadcast** | `x + bias[:, None, :]` | `x[b, c, s] + bias[c]` | Which coordinates bias is silent on |
-| **Permute** | `x.permute(0, 3, 1, 2)` | `y[b, c, h, w] = x[b, h, w, c]` | Where each coordinate ends up |
-| **Contract** | `torch.matmul(A, B)` | `sum[k](A[b, k] * B[k, f])` | Which coordinate is shared and consumed |
-
-Look at the "What the name records" column. In every case, the name records a fact about identity. In the positional version, that fact is not recorded. It lives in the programmer's head.
-
-Now imagine a refactoring changes the dimension order. In the PyTorch column, every row might need to change: `dim=1` might become `dim=2`, `[:, None, :]` might become `[None, :, :]`, `permute(0, 3, 1, 2)` might become `permute(0, 2, 3, 1)`, and the `matmul` might silently produce different results. In the Einlang column, no row changes. `channel` is still `channel`, regardless of its position. `bias` is still silent on `b` and `s`, regardless of where those coordinates sit. `h` still maps to `h`, wherever it appears in the input.
-
-The positional column records *how*. The named column records *what*. The difference is whether a refactoring forces you to update every operation that touches the refactored tensor.
-
----
-
 ## Permutation: Moving Without Losing
 
 A permutation changes the order of dimensions without changing any values. It is the simplest tensor operation there is—no arithmetic, no reduction, just relabeling positions.
@@ -313,6 +294,8 @@ This exercise is the coordinate audit. You just performed it, by hand, on your o
 But even without the compiler, the audit has value. The lines you underlined are the lines that will break when the dimension order changes. You now know where they are. That knowledge, by itself, is a form of safety that you didn't have five minutes ago.
 
 The coordinate habit begins with noticing the gap. You have now noticed it. The rest of the book is about what to put in it.
+
+Six months from now, when you return to fix a bug, the intent will be gone. If the name is also gone—you have nothing.
 
 ---
 

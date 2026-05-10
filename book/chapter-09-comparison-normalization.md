@@ -160,7 +160,7 @@ fn group_norm[group, c_in_group, ..spatial](
 
 What the Einlang version makes visible:
 - `mean[c_in_group, ..spatial]` names exactly which coordinates are being reduced. No `dim=(2, 3, 4)` whose meaning depends on a reshape.
-- `gamma[group, c_in_group]` aligns with two coordinates. No `.view(1, -1, 1, 1)` to manually position the broadcast.
+- `gamma[group, c_in_group]` aligns with two coordinates. No `.view(1, -1, 1, 1)` to manually position the broadcast. The omission of batch and spatial from gamma's brackets is the megaphone at work—gamma speaks on group and c_in_group, stays silent on batch and spatial, and the silence is the broadcast.
 - No reshape is needed because the coordinates `group` and `c_in_group` are separate from the start. The function signature declares the grouped layout directly.
 
 ---
@@ -220,18 +220,6 @@ Now overlay all four normalization functions. The differences are exactly which 
 The body of every function is: reduce to get statistics, subtract-and-divide, scale-and-shift. The reduction bracket is the only structural difference. In the PyTorch versions, this unity is invisible—each function has its own `dim` argument, its own view-reshape chain, its own parameter shape conventions. The skeleton is scattered across four classes.
 
 ---
-
-## The Reshape Bug, Revisited
-
-Chapter 5 showed the GroupNorm reshape chain breaking when a temporal dimension is added: the `dim=(2,3,4)` tuple encodes positions that are only correct after the reshape, and adding `T` at position 1 shifts every subsequent position. The programmer must recalculate `(2,3,4)` → `(3,4,5)`. If they forget—and they do—the normalization collapses across groups, the loss still descends, and the model ships with blurrier segmentations.
-
-In the Einlang version, adding `T` changes nothing. `mean[c_in_group, ..spatial]` names the reduced coordinates directly. No positions to shift. No tuples to renumber. The coordinate names abstract over layout—the compiler maps them to whatever positions they occupy.
-
-If the input shape changes from `(batch, feature)` to `(batch, seq, feature)`, which line of code changes?
-
-In the PyTorch LayerNorm: nothing—`dim=-1` still refers to the last axis, and if `feature` is still last, it still works. In the PyTorch GroupNorm: the reshape chain breaks. In the Einlang versions: nothing changes. The coordinate names in the brackets don't change, only the positions they map to, and the compiler handles that mapping.
-
-Now ask the question in reverse. If the code *doesn't* change but the layout does—is that safety, or is it silence?
 
 ## BatchNorm: Where the Skeleton Breaks
 

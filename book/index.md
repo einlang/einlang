@@ -10,6 +10,8 @@ Notation determines what you can notice. When a notation has no place for a fact
 
 This book traces one idea—the coordinate audit—through seventeen chapters: from a Tuesday bug through naming, reduction, broadcasting, differentiation, comparison with PyTorch, and compiler construction. Einlang is the microscope. The habit is the payload.
 
+The bracket is where the name enters, where it is checked, and where it is finally burned. The bracket is the beginning and the end. Everything between is the life of a name in source code—the only life that a compiler can see.
+
 [Download PDF](../the-name-in-the-bracket.pdf)
 
 ## Preface
@@ -24,7 +26,17 @@ The book uses a small language called Einlang to make the demonstrations precise
 
 **Who this book is for.** If you build things below the level of an API call—a compiler pass, a numerical library, an autodiff engine, a tensor DSL, or a notation shared by a team—this book is written for you. If you have ever stared at `RuntimeError: mat1 and mat2 shapes cannot be multiplied` at 3 AM and wished the traceback told you which dimension was supposed to be `head` and which one was supposed to be `feature`, this book is written for you. If you mainly want another framework function to call, it will probably spend too much time under the floorboards. That is by design.
 
-**How to read this book.** Part I (Chapters 1–2) introduces the primitives—naming, permuting, reducing, broadcasting—with the megaphone model that unifies them. Part II (Chapters 3–8) teaches combination: coordinate-aware functions, the broadcast self-audit, normalization skeletons, recurrence, complex terrain, and differentiation. Part III (Chapters 9–11) puts Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. Part IV (Chapters 12–17) opens the compiler: intermediate representation, analysis and check rules, lowering, reflection, the life of a name, and a complete syntax reference.
+**How to read this book.** The book is designed for three kinds of readers. Pick the path that fits where you are.
+
+**The full journey (all chapters, in order).** For readers who want to understand what happens when tensor coordinates carry names—from the primitives through gradient derivation through compiler construction. This path traces one idea through seventeen chapters and builds a miniature compiler by the end. Start at Chapter 1. Do the Follow Along exercises. Derive the gradients. The chapters build on each other, and each one assumes the previous one's vocabulary.
+
+**The comparison path (Chapters 1–2, then 9–11).** For readers who are already comfortable with broadcasting and reduction, and want to see the two notations side by side on real code. Read Chapters 1–2 to learn the megaphone model and coordinate set subtraction—these are the vocabulary the comparison chapters use. Then jump to Chapters 9–11, where LayerNorm, GroupNorm, multi-head attention, Flash Attention, and physical simulation are written twice: once in PyTorch/NumPy, once in Einlang. The comparisons will show you what positional notation hides and what named notation reveals. If the comparisons convince you, return to Chapters 3–8 for the deeper machinery—coordinate-aware function signatures, the broadcast self-audit, and differentiation by coordinate accounting.
+
+**The compiler path (Chapters 1–4, then 12–14).** For readers who want to see how a name-based type system for tensors actually works. Read Chapters 1–4 to learn the primitives and the Inversion Rule. Then jump to Chapters 12–14, which build a compiler frontend: IR as S-expressions, five check rules, and lowering from names to integers. The compiler is small enough to hold in your head—the core loop is ten lines. If you have ever wondered what a type checker for tensor dimensions would look like, these chapters are your answer.
+
+**If you only have an afternoon.** Read Chapter 1 (the ghost in the name), Chapter 4 (the broadcast self-audit), and the Epilogue. That ninety-minute path gives you the core idea, the core diagnostic tool, and the core habit. Everything else is depth.
+
+Part I (Chapters 1–2) introduces the primitives—naming, permuting, reducing, broadcasting—with the megaphone model that unifies them. Part II (Chapters 3–8) teaches combination: coordinate-aware functions, the broadcast self-audit, normalization skeletons, recurrence, complex terrain, and differentiation. Part III (Chapters 9–11) puts Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. Part IV (Chapters 12–14) opens the compiler: intermediate representation, analysis and check rules, and lowering from names to integers. Chapters 15–16 and the Epilogue reflect on what was built and what it means.
 
 A note on language. Throughout this book, "we" means the author and the reader together—we are tracing the same cells, debugging the same bugs, asking the same questions. The coordinate habit is learned collaboratively or not at all.
 

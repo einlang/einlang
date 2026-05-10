@@ -252,6 +252,45 @@ But there is a deeper reason to practice the audit. Every time you ask "what coo
 
 ---
 
+## The Consumption Self-Audit
+
+Broadcast and consumption are duals. The broadcast self-audit asks: *what coordinate am I silent on?* The consumption self-audit asks: *what coordinate am I erasing?* Both deserve their own diagnostic tool.
+
+Just as a broadcast is a claim of independence, a reduction is a claim of dispensability. `sum[class](x[batch, class])` claims: *the coordinate `class` can be collapsed without losing information that other coordinates depend on.* If `class` carries structure that downstream operations rely on, the reduction is semantically wrong—even if the shapes match.
+
+Three questions for every reduction:
+
+**Question 1: What coordinate am I consuming?** Is the name visible in the code?
+
+In `let row_sums[i] = sum[j](matrix[i, j])`, the consumed coordinate is `j`. The reduction bracket says so. In `x.mean(dim=1)`, the consumed coordinate is "whatever is at position 1." The name is absent.
+
+**Question 2: Does this coordinate appear in every operand of the reduction body?**
+
+In `sum[k](A[i, k] * B[k, j])`, `k` appears in both `A` and `B`. The reduction is well-formed. In `sum[class](x[batch, channel] + bias[channel])`, `class` appears nowhere—the compiler reports "reduction coordinate `class` not found." The check is mechanical.
+
+**Question 3: What will the backward pass do?** The consumed coordinate becomes a broadcast in the gradient.
+
+Forward: `let row_sums[i] = sum[j](matrix[i, j])`. Consumed: `j`. Backward: `d_matrix[i, j] = d_row_sums[i]`. The forward reduction over `j` becomes a backward broadcast over `j`. The Inversion Rule, applied to consumption.
+
+Now put the two audits side by side:
+
+```
+BROADCAST SELF-AUDIT                    CONSUMPTION SELF-AUDIT
+─────────────────────                   ───────────────────────
+Q1: What coordinate am I silent on?     Q1: What coordinate am I consuming?
+Q2: Is independence genuinely true?     Q2: Is it in every operand?
+Q3: What will the gradient collect?     Q3: What will the gradient broadcast back?
+
+Forward: omit coordinate → broadcast   Forward: consume coordinate → reduce
+Backward: sum over omitted coordinate   Backward: broadcast the consumed coordinate
+```
+
+The two audits are the same audit, read in opposite directions. A broadcast claims independence. A reduction claims dispensability. Both claims are recorded in the brackets. Both claims are checkable. Both claims have backward consequences that the Inversion Rule predicts.
+
+The broadcast audit catches the bug where a value is copied over a coordinate it should depend on. The consumption audit catches the bug where a coordinate is erased that downstream operations need. Together, they cover the two ways a coordinate's identity can be lost: by being ignored, or by being destroyed.
+
+---
+
 ## The Double Audit: When Broadcasts Compose
 
 Most real code has more than one broadcast. A linear layer with bias has one (bias over batch). A layer normalization has four (mean over feature, variance over feature, gamma over batch, beta over batch). When broadcasts compose, their backward reductions compose too. The auditor's toolkit handles them mechanically—one broadcast at a time—but the interactions are worth tracing.
