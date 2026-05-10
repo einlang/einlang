@@ -4,108 +4,112 @@
   kind: frontmatter
   section: Opening
   eyebrow:
-- title: "Prologue: The Error That Didn't Error"
-  url: /book/chapter-prologue.html
-  short_title: "Prologue"
+
+- title: "Chapter 1 · The Ghost in the Name"
+  url: /book/chapter-01-ghost-in-the-name.html
+  short_title: "1. The Ghost in the Name"
   kind: chapter
-  section: "Opening"
-  eyebrow: Prologue
-- title: "Chapter 1 · Every Dimension Deserves a Name"
-  url: /book/chapter-01-naming-coordinates.html
-  short_title: "1. Naming Coordinates"
-  kind: chapter
-  section: "Part I: Coordinates"
+  section: "Part I: Primitives"
   eyebrow: "1"
-- title: "Chapter 2 · Moving Flowers Without Losing the Trail"
-  url: /book/chapter-02-permutation.html
-  short_title: "2. Permutation"
+
+- title: "Chapter 2 · The Megaphone's Promise"
+  url: /book/chapter-02-megaphone-promise.html
+  short_title: "2. The Megaphone's Promise"
   kind: chapter
-  section: "Part I: Coordinates"
+  section: "Part I: Primitives"
   eyebrow: "2"
-- title: "Chapter 3 · A Small Farewell"
-  url: /book/chapter-03-reduction.html
-  short_title: "3. Reduction"
+
+- title: "Chapter 3 · Names as Contracts"
+  url: /book/chapter-03-names-as-contracts.html
+  short_title: "3. Names as Contracts"
   kind: chapter
-  section: "Part I: Coordinates"
+  section: "Part II: Combinations"
   eyebrow: "3"
-- title: "Chapter 4 · Copy, and a Promise"
-  url: /book/chapter-04-broadcasting.html
-  short_title: "4. Broadcasting"
+
+- title: "Chapter 4 · Blocks and Skeletons"
+  url: /book/chapter-04-blocks-skeletons.html
+  short_title: "4. Blocks and Skeletons"
   kind: chapter
-  section: "Part I: Coordinates"
+  section: "Part II: Combinations"
   eyebrow: "4"
-- title: "Chapter 5 · When Promises Chain Together"
-  url: /book/chapter-05-broadcast-selfcheck.html
-  short_title: "5. Broadcast Self‑Check"
+
+- title: "Chapter 5 · Names in Time"
+  url: /book/chapter-05-names-in-time.html
+  short_title: "5. Names in Time"
   kind: chapter
-  section: "Part I: Coordinates"
+  section: "Part II: Combinations"
   eyebrow: "5"
-- title: "Chapter 6 · Putting the Pieces Together"
-  url: /book/chapter-06-meet-einlang.html
-  short_title: "6. Meet einlang"
+
+- title: "Chapter 6 · Complex Terrain"
+  url: /book/chapter-06-complex-terrain.html
+  short_title: "6. Complex Terrain"
   kind: chapter
-  section: "Part I: Coordinates"
+  section: "Part II: Combinations"
   eyebrow: "6"
-- title: "Chapter 7 · The Refactoring Trap"
-  url: /book/chapter-07-refactoring-traps.html
-  short_title: "7. Refactoring Traps"
+
+- title: "Chapter 7 · Names Through Differentiation"
+  url: /book/chapter-07-gradients.html
+  short_title: "7. Names Through Differentiation"
   kind: chapter
-  section: "Part II: Derivatives"
+  section: "Part II: Combinations"
   eyebrow: "7"
-- title: "Chapter 8 · The Challenge of Walking Backward"
-  url: /book/chapter-08-gradients.html
-  short_title: "8. Gradients"
+
+- title: "Chapter 8 · Comparison: Normalization"
+  url: /book/chapter-08-comparison-normalization.html
+  short_title: "8. Comparison: Normalization"
   kind: chapter
-  section: "Part II: Derivatives"
+  section: "Part III: Comparisons"
   eyebrow: "8"
-- title: "Chapter 9 · Updates, with Names"
-  url: /book/chapter-09-updates.html
-  short_title: "9. Updates"
+
+- title: "Chapter 9 · Comparison: Attention"
+  url: /book/chapter-09-comparison-attention.html
+  short_title: "9. Comparison: Attention"
   kind: chapter
-  section: "Part II: Derivatives"
+  section: "Part III: Comparisons"
   eyebrow: "9"
-- title: "Chapter 10 · Building Your Own Blocks"
-  url: /book/chapter-10-abstraction.html
-  short_title: "10. Abstraction"
+
+- title: "Chapter 10 · Comparison: Physics"
+  url: /book/chapter-10-comparison-physics.html
+  short_title: "10. Comparison: Physics"
   kind: chapter
-  section: "Part III: Time and Recurrence"
+  section: "Part III: Comparisons"
   eyebrow: "10"
-- title: "Chapter 11 · Names in Time"
-  url: /book/chapter-11-time.html
-  short_title: "11. Time"
+
+- title: "Chapter 11 · The Shape of Thought"
+  url: /book/chapter-11-shape-of-thought.html
+  short_title: "11. The Shape of Thought"
   kind: chapter
-  section: "Part III: Time and Recurrence"
+  section: "Part IV: Construction"
   eyebrow: "11"
-- title: "Chapter 12 · The Guardian's Booklet"
-  url: /book/chapter-12-four-habits.html
-  short_title: "12. Four Habits"
+
+- title: "Chapter 12 · The Name in the Mirror"
+  url: /book/chapter-12-name-in-mirror.html
+  short_title: "12. The Name in the Mirror"
   kind: chapter
-  section: "Part III: Time and Recurrence"
+  section: "Part IV: Construction"
   eyebrow: "12"
-- title: "Chapter 13 · Complex Terrain"
-  url: /book/chapter-13-complex-terrain.html
-  short_title: "13. Complex Terrain"
+
+- title: "Chapter 13 · Firewood"
+  url: /book/chapter-13-firewood.html
+  short_title: "13. Firewood"
   kind: chapter
-  section: "Part IV: Full Applications"
+  section: "Part IV: Construction"
   eyebrow: "13"
-- title: "Chapter 14 · The Complete Picture"
-  url: /book/chapter-14-syntax-panorama.html
-  short_title: "14. Syntax Panorama"
+
+- title: "Chapter 14 · The Outline of the Name"
+  url: /book/chapter-14-outline-of-name.html
+  short_title: "14. The Outline of the Name"
   kind: chapter
-  section: "Part IV: Full Applications"
+  section: "Part IV: Construction"
   eyebrow: "14"
-- title: "Chapter 15 · The Simulation That Looked Right"
-  url: /book/chapter-15-audit-non-ml.html
-  short_title: "15. Audit (Non‑ML)"
+
+- title: "Chapter 15 · The Complete Picture"
+  url: /book/chapter-15-complete-picture.html
+  short_title: "15. The Complete Picture"
   kind: chapter
-  section: "Part IV: Full Applications"
+  section: "Part IV: Construction"
   eyebrow: "15"
-- title: "Chapter 16 · The Night Before the Run"
-  url: /book/chapter-16-audit-ml.html
-  short_title: "16. Audit (ML)"
-  kind: chapter
-  section: "Part IV: Full Applications"
-  eyebrow: "16"
+
 - title: "Epilogue · A Friend Named einlang"
   url: /book/chapter-epilogue.html
   short_title: "Epilogue"

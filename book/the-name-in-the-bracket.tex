@@ -209,9 +209,10 @@ things:
 \end{itemize}
 
 Every chapter is anchored to one of these three layers. The primitives
-occupy Chapters 1 through 5. Combination occupies Chapters 6 through 9.
-Abstraction occupies Chapters 10 and 11. The remaining chapters apply,
-formalize, and stress-test what you've built.
+occupy Chapters 1 through 4. Combination occupies Chapters 5 through 9.
+Construction---seeing how the compiler represents, analyzes, and lowers
+your programs---occupies Chapters 10 through 13. The remaining chapters
+apply, formalize, and stress-test what you've built.
 
 A second structure runs beneath these layers. Starting in Chapter 3, we
 introduce the syntax of a small language called \textbf{einlang}---a
@@ -219,9 +220,9 @@ tensor notation where coordinate names live in brackets, where every
 reduction states which coordinate it consumes, and where the compiler
 can check the facts that positional notation leaves to comments. The
 syntax appears piece by piece, exactly when the concept it serves has
-earned its introduction. By Chapter 6 the language has a name. By
-Chapter 10 you can build your own abstractions in it. By Chapter 14 you
-can see the whole grammar in one place.
+earned its introduction. By Chapter 5 the language has a name. By
+Chapter 9 you can build your own abstractions in it. By the end of Part
+IV you can see the whole grammar in one place.
 
 But einlang is not the argument. It is the microscope.
 
@@ -253,7 +254,7 @@ the coordinate habit. They work in any framework because they are
 questions about \emph{meaning}, not about \emph{syntax}. They cost
 nothing to ask. They catch the class of bugs that shape checks cannot.
 
-Chapters 12, 15, and 16 exist to make these questions automatic.
+Chapters 12, 14, and 15 exist to make these questions automatic.
 
 \vspace{2em}
 
@@ -265,7 +266,7 @@ young language. It is not a neutral survey of tensor notations. Every
 chapter takes a side: when a coordinate's identity determines
 correctness, the source code should be able to state it.
 
-The book is an argument in the form of sixteen chapters, two appendices,
+The book is an argument in the form of fifteen chapters, two appendices,
 and one idea. The idea was stated two pages ago. Everything that follows
 is evidence.
 
@@ -728,7 +729,7 @@ The index slots in the declaration bracket can take four forms:
   you need to control the range directly.
 \item
   \textbf{A literal}: \texttt{0}---used for base cases in recurrences
-  (we'll see these in Chapter 9).
+  (we'll see these in Chapter 13).
 \item
   \textbf{A named rest}: \texttt{..batch}---stands for zero or more
   adjacent axes. We'll meet these in the next chapter.
@@ -1191,36 +1192,6 @@ or \texttt{(6,\ 7)}---the broadcast over \texttt{..rest} is explicit,
 and the compiler checks that \texttt{shift} omits every coordinate in
 the pack.
 
-\newpage
-
-\hypertarget{chapter-5-when-promises-chain-together}{%
-\section{Chapter 5 · When Promises Chain
-Together}\label{chapter-5-when-promises-chain-together}}
-
-\begin{quote}
-``Trust, but verify.''
-
---- Russian proverb
-\end{quote}
-
-\emph{Primitives to Combinations · Broadcast self-audit, where clauses,
-and the first look at gradients}
-
-\vspace{2em}
-
-Chapter 4 ended with a principle: when a term omits a coordinate, it
-promises independence from that coordinate. This chapter asks what
-happens when those promises interact---when one operation's broadcast
-feeds into another operation's reduction, when gradients flow backward
-through a broadcast, and when a conditional guard depends on the very
-values being combined.
-
-We are crossing the bridge from primitives to combinations. The
-operations are still elementary, but we are about to compose them in
-ways that reveal hidden structure.
-
-\vspace{2em}
-
 \hypertarget{the-broadcast-self-audit}{%
 \subsection{The Broadcast Self-Audit}\label{the-broadcast-self-audit}}
 
@@ -1302,7 +1273,7 @@ named binding \texttt{x}.'' For scalars, it evaluates to a number. The
 compiler computes it through the chain rule, tracing the dependency
 graph you constructed with \texttt{let} bindings.
 
-We will explore automatic differentiation in depth in Chapter 8. For
+We will explore automatic differentiation in depth in Chapter 7. For
 now, we use it in the simplest possible way: as a tool for verifying
 that our broadcast contracts are self-consistent. If the gradient has
 the wrong shape, the broadcast was wrong. If the gradient sums over a
@@ -1402,9 +1373,9 @@ stays intact; the where clause scopes the domain, not the shape.
 
 \newpage
 
-\hypertarget{chapter-6-putting-the-pieces-together}{%
-\section{Chapter 6 · Putting the Pieces
-Together}\label{chapter-6-putting-the-pieces-together}}
+\hypertarget{chapter-5-putting-the-pieces-together}{%
+\section{Chapter 5 · Putting the Pieces
+Together}\label{chapter-5-putting-the-pieces-together}}
 
 \begin{quote}
 ``The art of programming is the art of organizing complexity.''
@@ -1773,9 +1744,9 @@ coordinate-aware function, whose signature declares which coordinates it
 consumes, which it preserves, and which it is polymorphic over.
 
 The next three chapters explore what happens when combinations interact:
-the traps that refactoring creates (Chapter 7), the mirror world of
-gradients (Chapter 8), and the challenge of updating parameters across
-time (Chapter 9).
+the traps that refactoring creates (Chapter 6), the mirror world of
+gradients (Chapter 7), and the challenge of updating parameters across
+time (Chapter 8).
 
 Consider writing the softmax decomposition as a coordinate-aware
 function
@@ -1797,9 +1768,9 @@ contract, and the compiler enforces it at every call site.
 
 \newpage
 
-\hypertarget{chapter-7-the-refactoring-trap}{%
-\section{Chapter 7 · The Refactoring
-Trap}\label{chapter-7-the-refactoring-trap}}
+\hypertarget{chapter-6-the-refactoring-trap}{%
+\section{Chapter 6 · The Refactoring
+Trap}\label{chapter-6-the-refactoring-trap}}
 
 \begin{quote}
 ``The first principle is that you must not fool yourself---and you are
@@ -1875,7 +1846,7 @@ don't change.
 \subsection{The Where Clause: Naming Without
 Cluttering}\label{the-where-clause-naming-without-cluttering}}
 
-Chapter 5 introduced the \texttt{where} clause for boolean guards. But
+Chapter 4 introduced the \texttt{where} clause for boolean guards. But
 the where clause has a second, equally important role: it provides a
 scoped space for intermediate variables that are only relevant to a
 single declaration:
@@ -2060,9 +2031,9 @@ tracks that difference.
 
 \newpage
 
-\hypertarget{chapter-8-the-challenge-of-walking-backward}{%
-\section{Chapter 8 · The Challenge of Walking
-Backward}\label{chapter-8-the-challenge-of-walking-backward}}
+\hypertarget{chapter-7-the-challenge-of-walking-backward}{%
+\section{Chapter 7 · The Challenge of Walking
+Backward}\label{chapter-7-the-challenge-of-walking-backward}}
 
 \begin{quote}
 ``In the forward pass, you eliminate information. In the backward pass,
@@ -2075,7 +2046,7 @@ you guess.''
 
 \vspace{2em}
 
-Chapter 5 introduced \texttt{@y\ /\ @x} as a diagnostic tool for
+Chapter 4 introduced \texttt{@y\ /\ @x} as a diagnostic tool for
 broadcast contracts. We used it in the simplest possible
 setting---scalar derivatives---to verify that our forward broadcasts
 produced the expected backward reductions.
@@ -2196,9 +2167,8 @@ to sum over. The rest is just multiplication with the other operands.
 \subsection{The Five-Step Pullback
 Procedure}\label{the-five-step-pullback-procedure}}
 
-The pullback rule of Chapter 7 can be turned into a mechanical
-procedure. Given a forward expression and a target operand, derive the
-gradient:
+The pullback rule can be turned into a mechanical procedure. Given a
+forward expression and a target operand, derive the gradient:
 
 \begin{enumerate}
 \def\labelenumi{\arabic{enumi}.}
@@ -2344,7 +2314,7 @@ recurrence that propagates the tangent from \texttt{n=7} back to
 directions---\texttt{n} steps forward, and the gradient steps backward
 along \texttt{n}.
 
-We'll explore recurrence in depth in Chapter 11. For now, the key
+We'll explore recurrence in depth in Chapter 13. For now, the key
 insight: \textbf{the coordinate structure of a recurrence determines the
 coordinate structure of its gradient.} Forward and backward share the
 same index domain. The same bracket syntax serves both.
@@ -2407,9 +2377,9 @@ broadcast becomes a backward reduction, and the names stay the same.?
 
 \newpage
 
-\hypertarget{chapter-9-updates-with-names}{%
-\section{Chapter 9 · Updates, with
-Names}\label{chapter-9-updates-with-names}}
+\hypertarget{chapter-8-updates-with-names}{%
+\section{Chapter 8 · Updates, with
+Names}\label{chapter-8-updates-with-names}}
 
 \begin{quote}
 ``The only way to make sense of change is to plunge into it, move with
@@ -2496,7 +2466,7 @@ This defines \texttt{w} over a time coordinate \texttt{t}. At
 \texttt{t=0}, \texttt{w} is the random initialization. At each
 subsequent step, \texttt{w} is the previous \texttt{w} minus a gradient
 step. The recurrence reads backward in time (\texttt{t-1})---a
-fundamental constraint that we'll explore in Chapter 11.
+fundamental constraint that we'll explore in Chapter 13.
 
 The coordinate \texttt{t} makes the training trajectory explicit. You
 can inspect \texttt{w{[}10,\ out,\ in{]}} to see the weights after 10
@@ -2600,9 +2570,9 @@ is what the coordinate habit demands.
 \vspace{2em}
 
 We have now covered the combination layer. We can write functions that
-carry coordinate contracts (Chapter 6), refactor them safely (Chapter
-7), differentiate them (Chapter 8), and optimize them across time
-(Chapter 9). The next layer is abstraction: building our own primitives.
+carry coordinate contracts (Chapter 5), refactor them safely (Chapter
+6), differentiate them (Chapter 7), and optimize them across time
+(Chapter 8). The next layer is abstraction: building our own primitives.
 
 An exponential moving average
 recurrence---\texttt{ema{[}0{]}\ =\ x{[}0{]};\ ema{[}t\ in\ 1..T{]}\ =\ alpha\ *\ x{[}t{]}\ +\ (1\ -\ alpha)\ *\ ema{[}t-1{]}}---makes
@@ -2620,9 +2590,9 @@ catches what the position-based index would silently accept.
 
 \newpage
 
-\hypertarget{chapter-10-building-your-own-blocks}{%
-\section{Chapter 10 · Building Your Own
-Blocks}\label{chapter-10-building-your-own-blocks}}
+\hypertarget{chapter-9-building-your-own-blocks}{%
+\section{Chapter 9 · Building Your Own
+Blocks}\label{chapter-9-building-your-own-blocks}}
 
 \begin{quote}
 ``If you have a procedure with ten parameters, you probably missed
@@ -2653,7 +2623,7 @@ contract.
 \subsection{The Anatomy of a Coordinate-Aware
 Function}\label{the-anatomy-of-a-coordinate-aware-function}}
 
-Chapter 6 introduced the basic form. Here is the complete syntax:
+Chapter 5 introduced the basic form. Here is the complete syntax:
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -2956,680 +2926,1107 @@ coordinate that was consumed tells you what \texttt{pred} indexes into.
 
 \newpage
 
-\hypertarget{chapter-11-names-in-time}{%
-\section{Chapter 11 · Names in Time}\label{chapter-11-names-in-time}}
+\hypertarget{chapter-10-the-shape-of-thought}{%
+\section{Chapter 10 · The Shape of
+Thought}\label{chapter-10-the-shape-of-thought}}
 
 \begin{quote}
-``Time is what prevents everything from happening at once.''
+``A compiler is a program that reads a program written in one
+language---and says it again in another.''
 
---- John Archibald Wheeler
+--- Adapted from SICP
 \end{quote}
 
-\emph{Abstraction extended · Recurrence relations, directional
-constraints, and gradients through time}
+\emph{Construction · Skeleton of the program}
 
 \vspace{2em}
 
-A tensor is a map from coordinates to values. When one of those
-coordinates represents time, the map acquires a direction. The value at
-time \texttt{t} can depend on the value at time \texttt{t-1}. It cannot
-depend on the value at time \texttt{t+1}---that value does not exist
-yet.
+You just wrote a short einlang program.
 
-This is intuitively obvious when stated as a sentence. It is easy to
-violate when writing code. A \texttt{for} loop that mutates a state
-variable has no built-in protection against accidentally reading a
-future value through an aliased reference. A positional recurrence like
-\texttt{h{[}t{]}\ =\ f(h{[}t+1{]})} is accepted by most tensor
-frameworks as a valid indexing operation---the array exists, so the read
-succeeds---even though it is mathematically nonsensical as a causal
-definition.
+\begin{verbatim}
+let x = softmax[i class](logits[i class])
+let y = sum[class](x[i class] * labels[i class])
+\end{verbatim}
 
-Einlang's recurrence syntax is designed to make the direction of time
-visible in the source and enforceable by the compiler.
+Someone asks: what is the shape of \texttt{y}?
 
-\vspace{2em}
+You cannot run this code to find out---you have no data. But you need to
+know, because if shapes don't match, you want to catch it before
+training runs for an hour.
 
-\hypertarget{recurrence-syntax-revisited}{%
-\subsection{Recurrence Syntax,
-Revisited}\label{recurrence-syntax-revisited}}
+Think about it. Without running the program, how do you know
+\texttt{y}'s shape?
 
-A recurrence in einlang is a self-referential rectangular declaration
-with an explicit domain:
+Pick up a pen and trace: \texttt{softmax{[}i\ class{]}} produces
+something of shape \texttt{{[}batch,\ class{]}}. Its 0th dimension is
+named \texttt{i}, its 1st is named \texttt{class}. Then
+\texttt{sum{[}class{]}} reduces along the \texttt{class} axis,
+eliminating dimension 1. What remains is \texttt{{[}batch{]}}.
+
+The compiler does exactly the same thing you just did. What it needs is
+a way to write your program in a form that can be traced. A form
+stripped of syntax---only the relationships preserved.
+
+\hypertarget{what-you-write-and-what-the-compiler-sees}{%
+\subsection{What You Write, and What the Compiler
+Sees}\label{what-you-write-and-what-the-compiler-sees}}
+
+\begin{verbatim}
+A[i, j] = B[i, k] * C[k, j]
+\end{verbatim}
+
+After parsing, the compiler sees:
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ fib}\OperatorTok{[}\DecValTok{0}\OperatorTok{]}\NormalTok{ = }\DecValTok{0}\NormalTok{;}
-\KeywordTok{let}\NormalTok{ fib}\OperatorTok{[}\DecValTok{1}\OperatorTok{]}\NormalTok{ = }\DecValTok{1}\NormalTok{;}
-\KeywordTok{let}\NormalTok{ fib}\OperatorTok{[}\NormalTok{n }\KeywordTok{in} \DecValTok{2.}\NormalTok{.}\DecValTok{8}\OperatorTok{]}\NormalTok{ = fib}\OperatorTok{[}\NormalTok{n-}\DecValTok{1}\OperatorTok{]}\NormalTok{ + fib}\OperatorTok{[}\NormalTok{n-}\DecValTok{2}\OperatorTok{]}\NormalTok{;}
+\NormalTok{(einstein}
+\NormalTok{  (clause (i j)}
+\NormalTok{    (bin }\OperatorTok{*}\NormalTok{ (}\KeywordTok{access}\NormalTok{ B i k) (}\KeywordTok{access}\NormalTok{ C k j))))}
 \end{Highlighting}
 \end{Shaded}
 
-The base cases (\texttt{fib{[}0{]}}, \texttt{fib{[}1{]}}) are evaluated
-first. The recursive case is evaluated in increasing order of
-\texttt{n}, so that \texttt{fib{[}n-1{]}} and \texttt{fib{[}n-2{]}} are
-already computed when \texttt{fib{[}n{]}} is evaluated.
+\texttt{A{[}i,\ j{]}} → \texttt{(clause\ (i\ j)\ ...)}.
+\texttt{B{[}i,\ k{]}} → \texttt{(access\ B\ i\ k)}. \texttt{*} →
+\texttt{(bin\ *\ ...)}.
 
-The key syntactic constraint: \textbf{the index slot in the declaration
-bracket may only contain an identifier, a literal, or a named rest. No
-expressions.} You write \texttt{fib{[}n\ in\ 2..8{]}}, not
-\texttt{fib{[}n-1{]}}. The expression \texttt{n-1} belongs in the body,
-where it references a value already defined:
+One-to-one. On the left is source code; on the right, parentheses.
+Commas, equals signs, brackets---all gone. But every relationship
+remains. \texttt{i} and \texttt{j} are names. \texttt{k} is a name.
+Nothing has been turned into a number.
+
+The compiler, at this stage, does not speak in numbers. It speaks in
+names. Because names carry information---numbers come later.
+
+\hypertarget{reduction-1}{%
+\subsection{Reduction}\label{reduction-1}}
+
+\begin{verbatim}
+sum[i](A[i] * B[i])
+\end{verbatim}
+
+Becomes:
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ fib}\OperatorTok{[}\NormalTok{n }\KeywordTok{in} \DecValTok{2.}\NormalTok{.}\DecValTok{8}\OperatorTok{]}\NormalTok{ = fib}\OperatorTok{[}\NormalTok{n-}\DecValTok{1}\OperatorTok{]}\NormalTok{ + fib}\OperatorTok{[}\NormalTok{n-}\DecValTok{2}\OperatorTok{]}\NormalTok{;}
-\CommentTok{//  ^^^^^^^^^^^^^^   ^^^  ^^^}
-\CommentTok{//  declaration      body index expressions (backward references)}
-\CommentTok{//  bracket}
+\NormalTok{(sum (i)}
+\NormalTok{  (bin }\OperatorTok{*}\NormalTok{ (}\KeywordTok{access}\NormalTok{ A i) (}\KeywordTok{access}\NormalTok{ B i)))}
 \end{Highlighting}
 \end{Shaded}
 
-This separation is not arbitrary. The declaration bracket names
-\emph{what} is being defined---the element at index \texttt{n} over the
-domain \texttt{2..8}. The body says \emph{how} to compute it---by
-referencing elements at indices \texttt{n-1} and \texttt{n-2}. The left
-side is a definition. The right side is a computation.
+\texttt{sum{[}i{]}(...)} → \texttt{(sum\ (i)\ ...)}. The bracket holds
+the name of the reduction axis; the body sits one level below. The
+structure mirrors what you write in mathematical notation: Σ, then the
+index variable, then the expression being summed.
 
-\vspace{2em}
+Reduction with a where clause:
 
-\hypertarget{the-backward-only-constraint}{%
-\subsection{The Backward-Only
-Constraint}\label{the-backward-only-constraint}}
-
-The compiler enforces a simple rule: \textbf{when defining an element of
-a recurrence array, you may only read elements at strictly smaller
-indices along every dimension.}
-
-For a 1D recurrence, this means \texttt{h{[}t-1{]}} is allowed and
-\texttt{h{[}t+1{]}} is an error. For a 2D recurrence with time and space
-dimensions, the rule applies per dimension:
+\begin{verbatim}
+sum[i](A[i] * B[i]) where i > 5
+\end{verbatim}
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\CommentTok{// Valid: backward in time, backward in space}
-\KeywordTok{let}\NormalTok{ h}\OperatorTok{[}\NormalTok{t }\KeywordTok{in} \DecValTok{1.}\NormalTok{.T, i }\KeywordTok{in} \DecValTok{1.}\NormalTok{.N-}\DecValTok{1}\NormalTok{, j }\KeywordTok{in} \DecValTok{1.}\NormalTok{.N-}\DecValTok{1}\OperatorTok{]}\NormalTok{ =}
-\NormalTok{    f(h}\OperatorTok{[}\NormalTok{t-}\DecValTok{1}\NormalTok{, i, j}\OperatorTok{]}\NormalTok{, h}\OperatorTok{[}\NormalTok{t, i-}\DecValTok{1}\NormalTok{, j}\OperatorTok{]}\NormalTok{, h}\OperatorTok{[}\NormalTok{t, i, j-}\DecValTok{1}\OperatorTok{]}\NormalTok{);}
-
-\CommentTok{// Error: reads the future in time}
-\KeywordTok{let}\NormalTok{ h}\OperatorTok{[}\NormalTok{t }\KeywordTok{in} \DecValTok{0.}\NormalTok{.T-}\DecValTok{1}\NormalTok{, i, j}\OperatorTok{]}\NormalTok{ = f(h}\OperatorTok{[}\NormalTok{t+}\DecValTok{1}\NormalTok{, i, j}\OperatorTok{]}\NormalTok{);}
-\CommentTok{//                               ^^^^^^ ERROR}
-
-\CommentTok{// Error: reads the future in space}
-\KeywordTok{let}\NormalTok{ h}\OperatorTok{[}\NormalTok{t, i, j}\OperatorTok{]}\NormalTok{ = f(h}\OperatorTok{[}\NormalTok{t, i+}\DecValTok{1}\NormalTok{, j}\OperatorTok{]}\NormalTok{);}
-\CommentTok{//                      ^^^^^^ ERROR}
+\NormalTok{(sum (i)}
+\NormalTok{  (bin }\OperatorTok{*}\NormalTok{ (}\KeywordTok{access}\NormalTok{ A i) (}\KeywordTok{access}\NormalTok{ B i))}
+\NormalTok{  (where (bin }\OperatorTok{>}\NormalTok{ i (literal }\DecValTok{5}\NormalTok{))))}
 \end{Highlighting}
 \end{Shaded}
 
-This constraint has two justifications. The practical one: recurrences
-are evaluated in increasing index order, so future values don't exist
-yet. The mathematical one: a recurrence is a causal definition. The
-value at a point in the index space is determined by values that are
-strictly ``before'' it in the partial order induced by the coordinate
-axes.
+\texttt{where} becomes the third child of \texttt{sum}. It filters the
+reduction variable \texttt{i}---each iteration accumulates only elements
+that satisfy the condition. This is not a post-hoc mask. It is a gate on
+the reduction itself.
 
-The compiler checks the constraint statically. The index expressions in
-the body are compared against the declaration's index variables. Any
-read at an index greater than or equal to the declaration index (along
-matching dimensions) is rejected. This catches the ``read the future''
-bug at compile time, rather than silently producing a value that happens
-to be in memory from a previous run.
+\hypertarget{multiple-clauses}{%
+\subsection{Multiple Clauses}\label{multiple-clauses}}
 
-\vspace{2em}
+Einlang allows writing multiple clauses for the same tensor:
 
-\hypertarget{recurrence-and-autodiff}{%
-\subsection{Recurrence and Autodiff}\label{recurrence-and-autodiff}}
+\begin{verbatim}
+A[i, j] = B[i, j]
+A[i, j] += C[i, j]
+\end{verbatim}
 
-A recurrence defines a computation graph that unfolds along the time
-axis. The gradient of a recurrence is itself a recurrence, running
-backward in time.
-
-Consider:
+Underneath:
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ h}\OperatorTok{[}\DecValTok{0}\OperatorTok{]}\NormalTok{ = init;}
-\KeywordTok{let}\NormalTok{ h}\OperatorTok{[}\NormalTok{t }\KeywordTok{in} \DecValTok{1.}\NormalTok{.T}\OperatorTok{]}\NormalTok{ = step(h}\OperatorTok{[}\NormalTok{t-}\DecValTok{1}\OperatorTok{]}\NormalTok{, x}\OperatorTok{[}\NormalTok{t}\OperatorTok{]}\NormalTok{);}
-\KeywordTok{let}\NormalTok{ loss = loss_fn(h}\OperatorTok{[}\NormalTok{T-}\DecValTok{1}\OperatorTok{]}\NormalTok{);}
+\NormalTok{(einstein}
+\NormalTok{  (clause (i j) (}\KeywordTok{access}\NormalTok{ B i j))}
+\NormalTok{  (clause (i j) (bin }\OperatorTok{+}\NormalTok{ (}\KeywordTok{access}\NormalTok{ A i j) (}\KeywordTok{access}\NormalTok{ C i j))))}
 \end{Highlighting}
 \end{Shaded}
 
-The gradient \texttt{@loss\ /\ @h{[}0{]}} requires propagating the
-tangent from \texttt{t=T-1} backward to \texttt{t=0}, through each step
-of the recurrence. The compiler constructs this backward recurrence
-automatically. The user does not write a separate backward pass. The
-same coordinate \texttt{t} that organized the forward computation
-organizes the backward computation, running in reverse.
+One \texttt{einstein} node holds two clauses. They share axis
+names---\texttt{i} and \texttt{j} mean the same thing in both clauses.
+The compiler reads the second clause's \texttt{+=} and understands:
+initialize, then accumulate.
 
-This is not a special case. It is the same pullback rule from Chapter
-8---the gradient sums over the set-difference of coordinates---applied
-to a graph that happens to be sequential. The coordinate \texttt{t} is a
-coordinate like any other. The fact that it represents time, with a
-directional constraint, is additional structure that the compiler uses
-to order computation, but it does not change the differentiation rules.
+This information is \textbf{explicit} in the parentheses. In source
+code, you have to compare two statements to check they target the same
+LHS. In the tree, two clauses sit side by side under one
+\texttt{einstein}, sharing axis names at a glance.
 
-\vspace{2em}
+\hypertarget{functions-and-coordinate-parameters}{%
+\subsection{Functions and Coordinate
+Parameters}\label{functions-and-coordinate-parameters}}
 
-\hypertarget{time-steps-are-not-loops}{%
-\subsection{Time Steps Are Not Loops}\label{time-steps-are-not-loops}}
+Einlang functions have two kinds of parameters. Ordinary parameters go
+in parentheses; coordinate parameters go in brackets:
 
-A \texttt{for} loop is an execution story. It says: ``do this, then
-this, then this.'' A recurrence is a dependency story. It says: ``the
-value at time \texttt{t} depends on the value at time \texttt{t-1} in
-this specific way.''
+\begin{verbatim}
+fn[i j](x[i j]) { x[i j] + 1 }
+\end{verbatim}
 
-The difference matters when you ask questions that are not about
-execution order:
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(fn (i j) (x)}
+\NormalTok{  (bin }\OperatorTok{+}\NormalTok{ (}\KeywordTok{access}\NormalTok{ x i j) (literal }\DecValTok{1}\NormalTok{)))}
+\end{Highlighting}
+\end{Shaded}
 
-\begin{itemize}
-\item
-  \textbf{Storage}: which time steps must be kept in memory? The
-  recurrence declaration does not specify---it only states dependencies.
-  The compiler can allocate storage based on which time steps are
-  actually observed by later code (Chapter 11 of the existing book, now
-  folded into this discussion).
-\item
-  \textbf{Parallelism}: can time steps be computed in parallel? A
-  \texttt{for} loop says no (by fiat). A recurrence says: it depends on
-  the dependency graph. If the recurrence only references \texttt{t-1},
-  it is inherently sequential. If it references \texttt{t-k} for
-  \texttt{k\ \textgreater{}\ 1}, there may be pipeline parallelism. The
-  dependency structure, not the loop syntax, determines what can be
-  parallel.
-\item
-  \textbf{Gradient checkpointing}: which intermediate values must be
-  saved for the backward pass, vs.~recomputed? The recurrence's
-  dependency graph answers this question mechanically.
-\end{itemize}
+The first list of \texttt{fn} is the coordinate parameters
+\texttt{(i\ j)}. The second is the value parameter \texttt{(x)}. Inside
+the body, \texttt{(access\ x\ i\ j)} uses the coordinate
+names---matching the \texttt{(i\ j)} declared in \texttt{fn}.
 
-The recurrence syntax separates these concerns. The declaration states
-the dependency. The compiler decides the execution. The human reasons
-about the dependency. The compiler reasons about the execution.
+At the call site:
 
-A recurrence makes three causal claims. Each is checkable at the
-declaration site:
+\begin{verbatim}
+f[class batch](data)
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(call f (}\KeywordTok{access}\NormalTok{ data)}
+\NormalTok{  (coords }\KeywordTok{class}\NormalTok{ batch))}
+\end{Highlighting}
+\end{Shaded}
+
+Coordinates and value arguments are transmitted separately.
+\texttt{(access\ data)} is an expression---it carries its own coordinate
+layout. \texttt{(coords\ class\ batch)} tells the compiler the order of
+coordinates the caller is passing. A later pass uses this information to
+verify alignment.
+
+\hypertarget{the-full-skeleton-of-softmax}{%
+\subsection{The Full Skeleton of
+Softmax}\label{the-full-skeleton-of-softmax}}
+
+Take the softmax from earlier chapters. Source:
+
+\begin{verbatim}
+softmax[i class](logits[i class]) =
+  exp(logits[i class] - max[class](logits[i class]))
+  / sum[class](exp(logits[i class] - max[class](logits[i class])))
+\end{verbatim}
+
+Its IR:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(binding softmax}
+\NormalTok{  (einstein}
+\NormalTok{    (clause (i }\KeywordTok{class}\NormalTok{)}
+\NormalTok{      (bin }\OperatorTok{/}
+\NormalTok{        (call }\KeywordTok{exp}
+\NormalTok{          (bin }\OperatorTok{-}\NormalTok{ (}\KeywordTok{access}\NormalTok{ logits i }\KeywordTok{class}\NormalTok{)}
+\NormalTok{                 (}\KeywordTok{max}\NormalTok{ (}\KeywordTok{class}\NormalTok{) (}\KeywordTok{access}\NormalTok{ logits i }\KeywordTok{class}\NormalTok{))))}
+\NormalTok{        (sum (}\KeywordTok{class}\NormalTok{)}
+\NormalTok{          (call }\KeywordTok{exp}
+\NormalTok{            (bin }\OperatorTok{-}\NormalTok{ (}\KeywordTok{access}\NormalTok{ logits i }\KeywordTok{class}\NormalTok{)}
+\NormalTok{                   (}\KeywordTok{max}\NormalTok{ (}\KeywordTok{class}\NormalTok{) (}\KeywordTok{access}\NormalTok{ logits i }\KeywordTok{class}\NormalTok{)))))))))}
+\end{Highlighting}
+\end{Shaded}
+
+Read the tree and notice three things.
 
 \begin{enumerate}
 \def\labelenumi{\arabic{enumi}.}
 \item
-  \textbf{Monotonicity.} The index only moves forward. \texttt{t} goes
-  from \texttt{0} to \texttt{T-1}. The body references \texttt{t-1},
-  \texttt{t-2}, \texttt{t-k}---strictly smaller indices. A reference to
-  \texttt{t+1} is a compile error. This is the syntactic embodiment of
-  ``the future hasn't happened yet.''
+  \textbf{Names are everywhere.} \texttt{i} and \texttt{class} remain
+  names from start to finish. Nothing has become axis=0, axis=1. The IR
+  preserves names.
 \item
-  \textbf{Bounded memory.} The largest backward offset determines the
-  recurrence's memory window. If the body only reads \texttt{t-1}, the
-  compiler knows a rolling buffer of size 1 suffices. If it reads
-  \texttt{t-k}, the window is \texttt{k}. The declaration itself
-  advertises the memory requirement.
+  \textbf{Reductions name their axis.} \texttt{(max\ (class)\ ...)} and
+  \texttt{(sum\ (class)\ ...)}---the reduction operates on
+  \texttt{class}, not ``axis 1.''
 \item
-  \textbf{Acyclicity.} Every dimension of the recurrence must be
-  strictly monotonic in its own index. You cannot have
-  \texttt{let\ h{[}t,\ i{]}\ =\ f(h{[}t,\ i-1{]},\ h{[}t-1,\ i{]})}
-  where two dimensions chase each other in a cycle. The compiler checks
-  that each dimension's backward references form a DAG --- a directed
-  acyclic graph across the coordinate space.
+  \textbf{Array access uses names.}
+  \texttt{(access\ logits\ i\ class)}---the indices are \texttt{i} and
+  \texttt{class}, matching the names in the clause's axis declaration.
 \end{enumerate}
 
-These claims are not enforced by a \texttt{for} loop. A loop lets you
-read any element of any array at any time. The loop's causal structure
-is whatever the loop body does---invisible to the compiler, discoverable
-only by running the code or reasoning about it carefully. The recurrence
-syntax makes the causal structure visible in the declaration.
+This tree is the skeleton of your program. No syntactic sugar---no
+colons, no equals signs, no commas. But every semantic relationship is
+present.
 
-\vspace{2em}
+\hypertarget{a-complete-program}{%
+\subsection{A Complete Program}\label{a-complete-program}}
 
-\hypertarget{storage-follows-observation}{%
-\subsection{Storage Follows
-Observation}\label{storage-follows-observation}}
+Put it all together. A short program:
 
-A recurrence \emph{defines} a sequence of values. It does not
-\emph{materialize} all of them.
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ h}\OperatorTok{[}\DecValTok{0}\OperatorTok{]}\NormalTok{ = init;}
-\KeywordTok{let}\NormalTok{ h}\OperatorTok{[}\NormalTok{t }\KeywordTok{in} \DecValTok{1.}\NormalTok{.T}\OperatorTok{]}\NormalTok{ = step(h}\OperatorTok{[}\NormalTok{t-}\DecValTok{1}\OperatorTok{]}\NormalTok{, x}\OperatorTok{[}\NormalTok{t}\OperatorTok{]}\NormalTok{);}
-\end{Highlighting}
-\end{Shaded}
-
-These two lines define \texttt{h} for every \texttt{t} from \texttt{0}
-to \texttt{T-1}. But which values actually occupy memory depends on
-which values are \emph{observed} by later code:
+\begin{verbatim}
+let data = random([batch, class])
+let result = softmax[class batch](data)
+\end{verbatim}
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\KeywordTok{let} \KeywordTok{final}\NormalTok{ = h}\OperatorTok{[}\NormalTok{T-}\DecValTok{1}\OperatorTok{]}\NormalTok{;              }\CommentTok{// Only need the last → rolling buffer of 1}
-\KeywordTok{let}\NormalTok{ trace}\OperatorTok{[}\NormalTok{t}\OperatorTok{]}\NormalTok{ = h}\OperatorTok{[}\NormalTok{t}\OperatorTok{]}\NormalTok{;             }\CommentTok{// Need every value → full materialization}
-\KeywordTok{let}\NormalTok{ every_other}\OperatorTok{[}\NormalTok{u}\OperatorTok{]}\NormalTok{ = h}\OperatorTok{[}\DecValTok{2}\NormalTok{ * u}\OperatorTok{]}\NormalTok{;   }\CommentTok{// Need every other → partial materialization}
+\NormalTok{(program}
+\NormalTok{  (binding data}
+\NormalTok{    (call }\KeywordTok{random}\NormalTok{ (literal (batch }\KeywordTok{class}\NormalTok{))))}
+\NormalTok{  (binding result}
+\NormalTok{    (call softmax (}\KeywordTok{access}\NormalTok{ data)}
+\NormalTok{      (coords }\KeywordTok{class}\NormalTok{ batch))))}
 \end{Highlighting}
 \end{Shaded}
 
-The same recurrence, three different storage plans. The compiler decides
-based on the observation pattern, not the definition. The human states
-what they need. The compiler allocates accordingly.
+\texttt{program} is the outermost node---the container for the entire
+compilation unit. Inside are two \texttt{binding} trees.
+\texttt{(call\ random\ (literal\ ...))} is a function call whose
+argument is a shape literal.
+\texttt{(call\ softmax\ (access\ data)\ (coords\ class\ batch))} is
+another call, this one carrying coordinate arguments.
 
-This separation---definition, storage, observation---is impossible in a
-\texttt{for} loop. A loop fuses all three. You cannot ``observe every
-other time step'' without rewriting the loop. You cannot ``checkpoint
-and recompute'' without inserting framework-specific calls. The
-recurrence syntax keeps these concerns distinct.
-
-Gradient checkpointing is the same idea in reverse. The forward
-recurrence produces values the backward recurrence reads. Which
-intermediate values should be saved, and which recomputed? The answer
-depends on memory budget and compute cost. But the \emph{possibility} of
-checkpointing comes from the dependency graph being visible in the
-source.
+Everything is in parentheses. There are no exceptions.
 
 \vspace{2em}
 
-\hypertarget{what-weve-built}{%
-\subsection{What We've Built}\label{what-weve-built}}
+The compiler's native tongue does not perform magic. It simply restates
+your einlang program in a different notation---syntactic sugar removed,
+core information preserved. Axis names remain. Reduction names remain.
+Clause relationships remain.
 
-We now have all three layers:
+The compiler has not \emph{translated} your program. It has \emph{said
+it again}, in parentheses.
 
-\textbf{Primitives} (Chapters 1--5): naming coordinates, permuting them,
-reducing them, broadcasting them. The fundamental operations that
-manipulate individual coordinates.
-
-\textbf{Combinations} (Chapters 6--9): composing primitives into
-functions with coordinate contracts, refactoring without semantic
-collapse, differentiating through compositions, updating parameters
-across time.
-
-\textbf{Abstractions} (Chapters 10--11): naming coordinate patterns so
-they can be used as primitives---coordinate-aware functions with packs
-and selection reductions, and recurrences that make time a first-class
-coordinate with directional constraints.
-
-\vspace{2em}
-
-\hypertarget{patterns-of-recurrence}{%
-\subsection{Patterns of Recurrence}\label{patterns-of-recurrence}}
-
-The simple \texttt{h{[}t{]}\ =\ f(h{[}t-1{]},\ x{[}t{]})} pattern
-generalizes in two important directions.
-
-\hypertarget{multiple-gates-the-lstm}{%
-\subsubsection{Multiple Gates: The LSTM}\label{multiple-gates-the-lstm}}
-
-An LSTM cell has four gates, each scanning the previous hidden state
-with its own weight matrix. The coordinate pattern \texttt{h} (current
-output) vs \texttt{h\_prev} (previous output) keeps the roles distinct:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ hidden}\OperatorTok{[}\NormalTok{t }\KeywordTok{in} \DecValTok{1.}\NormalTok{.T, b, h}\OperatorTok{]}\NormalTok{ = }\OperatorTok{\{}
-    \KeywordTok{let}\NormalTok{ g_input = sigmoid(sum}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{(x}\OperatorTok{[}\NormalTok{t, b, i}\OperatorTok{]}\NormalTok{ * Wi}\OperatorTok{[}\NormalTok{h, i}\OperatorTok{]}\NormalTok{)}
-\NormalTok{                        + sum}\OperatorTok{[}\NormalTok{h_prev}\OperatorTok{]}\NormalTok{(hidden}\OperatorTok{[}\NormalTok{t-}\DecValTok{1}\NormalTok{, b, h_prev}\OperatorTok{]}\NormalTok{ * Ui}\OperatorTok{[}\NormalTok{h, h_prev}\OperatorTok{]}\NormalTok{)}
-\NormalTok{                        + bi}\OperatorTok{[}\NormalTok{h}\OperatorTok{]}\NormalTok{);}
-    \KeywordTok{let}\NormalTok{ g_forget = sigmoid(sum}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{(x}\OperatorTok{[}\NormalTok{t, b, i}\OperatorTok{]}\NormalTok{ * Wf}\OperatorTok{[}\NormalTok{h, i}\OperatorTok{]}\NormalTok{)}
-\NormalTok{                         + sum}\OperatorTok{[}\NormalTok{h_prev}\OperatorTok{]}\NormalTok{(hidden}\OperatorTok{[}\NormalTok{t-}\DecValTok{1}\NormalTok{, b, h_prev}\OperatorTok{]}\NormalTok{ * Uf}\OperatorTok{[}\NormalTok{h, h_prev}\OperatorTok{]}\NormalTok{)}
-\NormalTok{                         + bf}\OperatorTok{[}\NormalTok{h}\OperatorTok{]}\NormalTok{);}
-    \KeywordTok{let}\NormalTok{ g_output = sigmoid(sum}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{(x}\OperatorTok{[}\NormalTok{t, b, i}\OperatorTok{]}\NormalTok{ * Wo}\OperatorTok{[}\NormalTok{h, i}\OperatorTok{]}\NormalTok{)}
-\NormalTok{                         + sum}\OperatorTok{[}\NormalTok{h_prev}\OperatorTok{]}\NormalTok{(hidden}\OperatorTok{[}\NormalTok{t-}\DecValTok{1}\NormalTok{, b, h_prev}\OperatorTok{]}\NormalTok{ * Uo}\OperatorTok{[}\NormalTok{h, h_prev}\OperatorTok{]}\NormalTok{)}
-\NormalTok{                         + bo}\OperatorTok{[}\NormalTok{h}\OperatorTok{]}\NormalTok{);}
-    \KeywordTok{let}\NormalTok{ candidate = tanh(sum}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{(x}\OperatorTok{[}\NormalTok{t, b, i}\OperatorTok{]}\NormalTok{ * Wc}\OperatorTok{[}\NormalTok{h, i}\OperatorTok{]}\NormalTok{)}
-\NormalTok{                       + sum}\OperatorTok{[}\NormalTok{h_prev}\OperatorTok{]}\NormalTok{(hidden}\OperatorTok{[}\NormalTok{t-}\DecValTok{1}\NormalTok{, b, h_prev}\OperatorTok{]}\NormalTok{ * Uc}\OperatorTok{[}\NormalTok{h, h_prev}\OperatorTok{]}\NormalTok{)}
-\NormalTok{                       + bc}\OperatorTok{[}\NormalTok{h}\OperatorTok{]}\NormalTok{);}
-
-    \KeywordTok{let}\NormalTok{ cell}\OperatorTok{[}\NormalTok{t, b, h}\OperatorTok{]}\NormalTok{ = g_forget * cell}\OperatorTok{[}\NormalTok{t-}\DecValTok{1}\NormalTok{, b, h}\OperatorTok{]}\NormalTok{ + g_input * candidate;}
-\NormalTok{    g_output * tanh(cell}\OperatorTok{[}\NormalTok{t, b, h}\OperatorTok{]}\NormalTok{)}
-\OperatorTok{\}}\NormalTok{;}
-\end{Highlighting}
-\end{Shaded}
-
-The same pattern from the simple RNN---\texttt{h} for the current output
-unit, \texttt{h\_prev} for the previous unit that is being
-scanned---appears four times, once per gate. Each gate has independent
-weights. The coordinate names make the roles visible:
-\texttt{Wi{[}h,\ i{]}} projects input to hidden,
-\texttt{Ui{[}h,\ h\_prev{]}} projects previous hidden to current. The
-distinction between \texttt{h} and \texttt{h\_prev} is not a comment. It
-is in the indices. A reader who sees \texttt{Ui{[}h\_prev,\ h{]}}
-instead of \texttt{Ui{[}h,\ h\_prev{]}} knows immediately that the
-recurrence matrix has been transposed---even though a square matrix
-produces the same output shape either way.
-
-\hypertarget{two-directions-bidirectional-recurrence}{%
-\subsubsection{Two Directions: Bidirectional
-Recurrence}\label{two-directions-bidirectional-recurrence}}
-
-Some sequences depend on both past and future context. A bidirectional
-recurrence runs two passes---one forward, one backward---over the same
-time coordinate:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ h_f}\OperatorTok{[}\NormalTok{t }\KeywordTok{in} \DecValTok{1.}\NormalTok{.T, b, hidden}\OperatorTok{]}\NormalTok{ = step_f(h_f}\OperatorTok{[}\NormalTok{t-}\DecValTok{1}\NormalTok{, b, hidden}\OperatorTok{]}\NormalTok{, x}\OperatorTok{[}\NormalTok{t, b, feature}\OperatorTok{]}\NormalTok{);}
-\KeywordTok{let}\NormalTok{ h_b}\OperatorTok{[}\NormalTok{t }\KeywordTok{in} \DecValTok{0.}\NormalTok{.T-}\DecValTok{1}\NormalTok{, b, hidden}\OperatorTok{]}\NormalTok{ = step_b(h_b}\OperatorTok{[}\NormalTok{t+}\DecValTok{1}\NormalTok{, b, hidden}\OperatorTok{]}\NormalTok{, x}\OperatorTok{[}\NormalTok{t, b, feature}\OperatorTok{]}\NormalTok{);}
-\KeywordTok{let}\NormalTok{ h}\OperatorTok{[}\NormalTok{t, b, hidden * }\DecValTok{2}\OperatorTok{]}\NormalTok{ = concat}\OperatorTok{[}\NormalTok{hidden}\OperatorTok{]}\NormalTok{(h_f}\OperatorTok{[}\NormalTok{t, b, hidden}\OperatorTok{]}\NormalTok{, h_b}\OperatorTok{[}\NormalTok{t, b, hidden}\OperatorTok{]}\NormalTok{);}
-\end{Highlighting}
-\end{Shaded}
-
-The forward pass reads \texttt{t-1}. The backward pass reads
-\texttt{t+1}. Both are valid recurrences---the compiler accepts both
-because each body only references indices that are already computed
-given the enumeration order. The forward recurrence enumerates
-\texttt{t} from \texttt{1} to \texttt{T}; \texttt{t-1} is available. The
-backward recurrence enumerates from \texttt{T-1} down to \texttt{0};
-\texttt{t+1} is available. The compiler infers the enumeration direction
-from the index offsets.
-
-The key insight: forward and backward are the same syntactic construct.
-They differ only in what the body reads. A \texttt{for} loop obscures
-this symmetry by hardcoding direction into control flow. A recurrence
-makes direction a property of the index expression.
-
-\vspace{2em}
-
-The next chapter is a hinge. We step back from the syntax and ask: what
-habits has this journey taught us, independent of any particular
-language?
-
-A simple RNN hidden state
-recurrence---\texttt{h{[}t\ in\ 1..T,\ b,\ hidden{]}\ =\ tanh(sum{[}in{]}(x{[}t,\ b,\ in{]}\ *\ Wxh{[}hidden,\ in{]})\ +\ sum{[}h\_prev{]}(h{[}t-1,\ b,\ h\_prev{]}\ *\ Whh{[}hidden,\ h\_prev{]}))}---has
-exactly one backward reference: \texttt{h{[}t-1{]}}. The compiler
-verifies that every reference to \texttt{h} at time \texttt{t} reads
-only from earlier steps. If you try
-\texttt{let\ h{[}t\ in\ 0..T{]}\ =\ h{[}t+1{]}\ +\ 1}, the compiler
-rejects it---\texttt{t+1} is a forward reference, and the recurrence
-syntax enforces backward-only temporal flow. A colleague who writes
-\texttt{let\ x{[}t\ in\ 0..T{]}\ =\ if\ t\ ==\ 0\ \{\ init\ \}\ else\ \{\ f(x{[}t-1{]})\ \}}
-is writing a valid recurrence in a single-branch style. It differs from
-the two-line form only in syntax: the base case and recursive case share
-a single declaration bracket, and the compiler still checks that the
-coordinate sets and backward references are sound.
+You now know how the compiler sees your program. In the next chapter,
+you will see what the compiler does with this tree---how it derives
+ranges, shapes, and types from names, and writes the answers back onto
+the branches.
 
 \newpage
 
-\hypertarget{chapter-12-the-guardians-booklet}{%
-\section{Chapter 12 · The Guardian's
-Booklet}\label{chapter-12-the-guardians-booklet}}
+\hypertarget{chapter-11-the-guardians-mirror}{%
+\section{Chapter 11 · The Guardian's
+Mirror}\label{chapter-11-the-guardians-mirror}}
 
 \begin{quote}
-``We are what we repeatedly do. Excellence, then, is not an act, but a
-habit.''
+``The purpose of analysis is not to add information, but to make
+explicit the information that was already implicit in the names.''
 
---- Will Durant, paraphrasing Aristotle
+--- The compiler writer's maxim
 \end{quote}
 
-\emph{Meta-cognition · Four habits, independent of syntax}
+\emph{Construction · Range, shape, type, and coordinate alignment}
 
 \vspace{2em}
 
-This chapter contains no new syntax.
+In the last chapter you watched the compiler restate your program as a
+tree of parentheses. Every name was preserved---\texttt{i},
+\texttt{class}, \texttt{sum}, \texttt{access}, all carried forward
+faithfully.
 
-It contains something more portable: four questions. You can ask them in
-any tensor framework, in any language, with any notation. They require
-no tooling beyond your attention. They catch the class of bugs that
-shape checks cannot.
+But what names \emph{say} and what names let the compiler \emph{derive}
+are two different things.
 
-The preceding eleven chapters earned these questions one at a time. Each
-question emerged from a concrete bug story---a silent swap, an invisible
-broadcast, a reduction that consumed the wrong coordinate. The questions
-are the permanent residue of those stories. The stories are evidence.
-The questions are the habit.
+\hypertarget{what-names-say-and-what-they-dont}{%
+\subsection{What Names Say, and What They
+Don't}\label{what-names-say-and-what-they-dont}}
 
-\vspace{2em}
-
-\hypertarget{habit-1-eliminate-with-a-name}{%
-\subsection{Habit 1: Eliminate with a
-Name}\label{habit-1-eliminate-with-a-name}}
-
-\textbf{The question:} \emph{Which coordinate did this operation
-eliminate? Is the name still in the code?}
-
-Every reduction---\texttt{sum}, \texttt{mean}, \texttt{max},
-\texttt{min}---destroys a coordinate. The coordinate's variation is
-collapsed into a single value. That value is then used downstream, where
-its meaning depends entirely on which coordinate was collapsed.
-
-In a positional API, the eliminated coordinate is identified by a
-number: \texttt{dim=1}, \texttt{axis=-1}, \texttt{keepdims=False}. The
-number identifies a position. The position is a function of the current
-tensor shape. When the shape changes---as it does during refactoring,
-pipeline updates, or model architecture experiments---the number
-silently refers to a different coordinate. The code is still correct.
-The meaning is wrong.
-
-In a named-coordinate notation, the eliminated coordinate is identified
-by name: \texttt{sum{[}channel{]}(...)}, \texttt{mean{[}time{]}(...)},
-\texttt{max{[}class{]}(...)}. The name is stable under shape changes. If
-the coordinate doesn't exist, the compiler reports an error. If the
-coordinate exists but shouldn't be eliminated, the reader can audit it.
-
-\textbf{The habit:} When you see a reduction, pause. Say aloud (or in
-your head) which coordinate is being eliminated. If the answer is ``the
-one at position 2,'' ask: why position 2? What is its name? If the name
-is not in the code, write it in a comment. Better: find a way to put it
-in the syntax. If your framework has named dimensions (einops, xarray,
-etc.), use them. If not, the comment is your bridge.
-
-\vspace{2em}
-
-\hypertarget{habit-2-copy-with-a-signature}{%
-\subsection{Habit 2: Copy with a
-Signature}\label{habit-2-copy-with-a-signature}}
-
-\textbf{The question:} \emph{Which coordinate is this operation copying
-along? Is the copy explicit in the code?}
-
-Every broadcast---implicit or explicit---copies a value along a
-coordinate. The copy is a semantic claim: the value is independent of
-that coordinate. The claim is checked by the shape system (the sizes
-must align) but not by the semantic system (the value must genuinely be
-independent).
-
-In a positional API, broadcasting is inferred from shape compatibility.
-\texttt{x\ +\ bias} where \texttt{x} is \texttt{(32,\ 64)} and
-\texttt{bias} is \texttt{(64,)} broadcasts \texttt{bias} along dimension
-0. Which coordinate is that? You need to know the shapes to answer. If
-the shapes change upstream, the broadcast target changes silently.
-
-In a named-coordinate notation, broadcasting is visible in the indexing
-pattern: \texttt{let\ out{[}i,\ j{]}\ =\ A{[}i,\ j{]}\ +\ bias{[}j{]}}.
-The coordinate \texttt{i} appears on \texttt{A} and \texttt{out} but not
-on \texttt{bias}. The absence is the broadcast. The coordinate being
-copied along is \texttt{i}---visible, named, auditable.
-
-\textbf{The habit:} When you see a binary operation between tensors of
-different shapes, pause. Identify which coordinate is being broadcast
-over. Ask: is independence from that coordinate genuinely justified? If
-the broadcast is wrong, will the code error, or will it silently produce
-a valid-but-wrong result? If the latter, make the broadcast
-explicit---with a comment, a named dimension, or an explicit
-\texttt{expand} call that names the axis.
-
-\vspace{2em}
-
-\hypertarget{habit-3-permute-with-a-source}{%
-\subsection{Habit 3: Permute with a
-Source}\label{habit-3-permute-with-a-source}}
-
-\textbf{The question:} \emph{Where did this coordinate come from, and
-where is it going? Can you trace the route without reconstructing
-position numbers?}
-
-Every permutation---\texttt{transpose}, \texttt{permute},
-\texttt{reshape}, \texttt{rearrange}---moves coordinates. The movement
-is a semantic claim: ``this coordinate, which used to mean X, now means
-Y.'' The claim is stated in the permutation arguments:
-\texttt{permute(0,\ 3,\ 1,\ 2)}. The arguments describe how positions
-change. They do not describe what the positions mean.
-
-In a named-coordinate notation, permutations are implicit in the
-indexing pattern:
-\texttt{let\ y{[}b,\ c,\ h,\ w{]}\ =\ x{[}b,\ h,\ w,\ c{]}}. The
-coordinate \texttt{c} appears at position 1 on the left and position 3
-on the right. The movement is visible. No \texttt{permute} call is
-needed.
-
-\textbf{The habit:} When you see a \texttt{permute}, \texttt{transpose},
-or \texttt{reshape} chain, pause. Trace one coordinate from source to
-destination. Can you do it without writing down the intermediate shapes?
-If not, the code is hiding information that should be visible. Write a
-comment showing the coordinate map. Better: use einops
-\texttt{rearrange} with named axes. Best: use a notation where the
-coordinate names are the primary addressing mechanism, and positions are
-derived from them.
-
-\vspace{2em}
-
-\hypertarget{habit-4-forward-and-backward-symmetric}{%
-\subsection{Habit 4: Forward and Backward,
-Symmetric}\label{habit-4-forward-and-backward-symmetric}}
-
-\textbf{The question:} \emph{The forward pass eliminated a
-coordinate---how does the backward gradient handle it? Are the two
-directions symmetric?}
-
-Every forward broadcast becomes a backward reduction. Every forward
-reduction becomes a backward broadcast. The coordinates that were
-consumed in the forward pass reappear in the backward pass as the
-dimensions over which gradients are summed. If the forward pass consumed
-the wrong coordinate, the backward pass sums over the wrong
-dimension---and the gradient has the correct shape but the wrong values.
-
-In a positional API, the symmetry is invisible. You call
-\texttt{loss.backward()} and trust that the autodiff engine computed the
-right thing. If it computed the wrong thing because a coordinate was
-silently swapped upstream, you discover the error through anomalous
-gradients---small but systematic, easy to dismiss as ``noisy training.''
-
-In a named-coordinate notation, the gradient request names the
-coordinates it differentiates with respect to:
-\texttt{@loss\ /\ @W{[}out,\ in{]}}. The denominator's coordinates
-determine the result's coordinates. The compiler derives the reduction
-pattern from the coordinate sets, using the same rule from Chapter 8.
-
-\textbf{The habit:} When you inspect a gradient, check its shape against
-the parameter it updates. If the shapes match, check the coordinates
-they represent. A gradient summed over \texttt{batch} when it should
-have summed over \texttt{feature} has the right shape but wrong
-semantics. Ask: which coordinates were consumed in the forward pass?
-Which are being summed in the backward pass? Are they the same?
-
-\vspace{2em}
-
-\hypertarget{these-habits-are-not-about-einlang}{%
-\subsection{These Habits Are Not About
-einlang}\label{these-habits-are-not-about-einlang}}
-
-Einlang is the microscope we used to examine the specimens. The habits
-are what you take home.
-
-You can practice them in PyTorch:
+Look at this tree:
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\CommentTok{# Instead of:}
-\NormalTok{x.mean(dim}\OperatorTok{=}\DecValTok{1}\NormalTok{)}
-
-\CommentTok{# Write:}
-\NormalTok{x.mean(dim}\OperatorTok{=}\DecValTok{1}\NormalTok{)  }\CommentTok{# dim 1 = channel}
+\NormalTok{(clause (i }\KeywordTok{class}\NormalTok{)}
+\NormalTok{  (bin }\OperatorTok{/}\NormalTok{ ... (sum (}\KeywordTok{class}\NormalTok{) ...)))}
 \end{Highlighting}
 \end{Shaded}
 
-The comment is not as good as compiler-checked syntax. But it is better
-than nothing. It is a commitment, written down, that \texttt{dim=1}
-means \texttt{channel}. When upstream changes the dimension order and
-you update the code, the comment becomes a lie---and a lie in a comment
-is a bug you can notice, whereas a silent drift in a positional argument
-is not.
+The names have already said a lot. \texttt{i} and \texttt{class} are two
+axes. \texttt{(sum\ (class)\ ...)} means \texttt{class} is a reduction
+axis---it will be consumed. So the output keeps only \texttt{i}.
 
-You can practice them in JAX with einops. You can practice them in NumPy
-with docstrings. You can practice them in any framework that gives you a
-place to put a name and a discipline to keep it honest.
+But there are things the names have not said:
 
-The habit is free. The habit is portable. The habit catches bugs that
-shape checks miss.
+\begin{itemize}
+\tightlist
+\item
+  Where does \texttt{i} run? 0..100? 0..batch\_size?
+\item
+  What exactly is the output shape?
+  \texttt{{[}batch\_size,\ num\_classes{]}} or something else?
+\item
+  What are the types of all those intermediate expressions---exp,
+  subtraction, division?
+\end{itemize}
+
+The compiler must know the answers before it can generate code. This
+chapter is about how the compiler derives them from the names alone.
+
+\hypertarget{from-where-to-where}{%
+\subsection{From Where to Where}\label{from-where-to-where}}
+
+RangeAnalysis walks the entire tree and finds a range source for every
+axis.
+
+Axis ranges come from a few places.
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\item
+  \textbf{Array shapes.}
+  \texttt{(access\ logits\ i\ class)}---\texttt{i} appears at logits'
+  0th position, so \texttt{i}`s range is the length of logits' 0th
+  dimension. Similarly, \texttt{class}'s range is the length of the 1st
+  dimension.
+\item
+  \textbf{Literals.} If code says \texttt{A{[}i{]}} and A is defined
+  elsewhere with shape \texttt{(10)}, then \texttt{i}'s range is 0..10.
+\item
+  \textbf{Explicit declarations.}
+  \texttt{sum{[}i\ in\ 0..n{]}(...)}---the range \texttt{0..n} is given
+  directly. No derivation needed.
+\end{enumerate}
+
+When the walk reaches the outermost node, every axis has its range:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(clause (i }\KeywordTok{class}\NormalTok{) ...)}
+\CommentTok{;; i     → (range 0 batch_size)}
+\CommentTok{;; class → (range 0 num_classes)}
+\end{Highlighting}
+\end{Shaded}
+
+\hypertarget{from-range-to-shape}{%
+\subsection{From Range to Shape}\label{from-range-to-shape}}
+
+With a range for every axis, shape follows mechanically.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(clause (i }\KeywordTok{class}\NormalTok{) body)}
+\end{Highlighting}
+\end{Shaded}
+
+The output has two axes: \texttt{i} and \texttt{class}. \texttt{i}'s
+range is \texttt{batch\_size}, \texttt{class}'s range is
+\texttt{num\_classes}. So the output shape is
+\texttt{(batch\_size\ num\_classes)}.
+
+When there is a reduction, an axis is consumed:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(sum (}\KeywordTok{class}\NormalTok{) body)}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{class} is the reduction axis. The body initially carries both
+\texttt{i} and \texttt{class}. After the reduction, \texttt{class} is
+eliminated. Only \texttt{i} remains. Output shape:
+\texttt{(batch\_size)}.
+
+The rule is simple: \textbf{output shape = all axes, minus reduction
+axes, each remaining axis taking its range length, in declaration
+order.}
+
+Apply it to softmax. The clause declares \texttt{(i\ class)}---two axes.
+The body contains \texttt{(sum\ (class)\ ...)}---\texttt{class} is
+consumed. \texttt{(bin\ /\ a\ b)} has \texttt{a} of shape
+\texttt{(batch\_size\ num\_classes)} and \texttt{b} of shape
+\texttt{(batch\_size)}. The division requires broadcasting---\texttt{b}
+expands from \texttt{(batch\_size)} to
+\texttt{(batch\_size\ num\_classes)}. Output:
+\texttt{(batch\_size\ num\_classes)}.
+
+Same size as logits. Matches.
+
+If it didn't match---if the clause declared \texttt{(class)} but the
+body accessed an array requiring axis \texttt{k}---the compiler would
+report the error right here. Not at runtime.
+
+\hypertarget{how-types-propagate}{%
+\subsection{How Types Propagate}\label{how-types-propagate}}
+
+Types flow from leaves to root.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(literal }\FloatTok{3.14}\NormalTok{)   → f64}
+\NormalTok{(literal }\DecValTok{5}\NormalTok{)      → i64}
+\NormalTok{(id x)           → look up x's binding, }\KeywordTok{get}\NormalTok{ its }\KeywordTok{type}
+\NormalTok{(}\KeywordTok{access}\NormalTok{ A i)     → look up A's element }\KeywordTok{type}
+\NormalTok{(bin }\OperatorTok{+}\NormalTok{ f64 f64)  → f64}
+\NormalTok{(bin }\OperatorTok{/}\NormalTok{ f64 f64)  → f64}
+\NormalTok{(call }\KeywordTok{exp}\NormalTok{ f64)   → f64}
+\NormalTok{(sum (i) f64)    → f64}
+\end{Highlighting}
+\end{Shaded}
+
+The rule: leaves (literals, variables, array accesses) know their own
+type. Operators know the rule ``input type → output type.'' Propagate
+upward, one level at a time, until you reach the root.
+
+At softmax's root: the whole clause has element type f64. Because exp
+returns f64, division and subtraction are f64 → f64, and reduction
+preserves element type.
+
+If there is a conflict---\texttt{(bin\ +\ f64\ i64)}, for example---the
+compiler can promote i64 to f64 (the natural choice in a floating-point
+context). A more serious conflict is reported here.
+
+\hypertarget{coordinate-alignment}{%
+\subsection{Coordinate Alignment}\label{coordinate-alignment}}
+
+An einstein binding's clause axes have an order:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(binding softmax}
+\NormalTok{  (einstein}
+\NormalTok{    (clause (i }\KeywordTok{class}\NormalTok{) ...)))}
+\CommentTok{;; coordinate layout: (i class)}
+\end{Highlighting}
+\end{Shaded}
+
+The compiler records: softmax's coordinate layout = \texttt{(i\ class)}.
+First axis named \texttt{i}, second named \texttt{class}.
+
+Now the caller:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(call softmax (}\KeywordTok{access}\NormalTok{ data)}
+\NormalTok{  (coords }\KeywordTok{class}\NormalTok{ batch))}
+\CommentTok{;; call layout: (class batch)}
+\end{Highlighting}
+\end{Shaded}
+
+Align the declaration against the call. \textbf{Match by name, not by
+position.} The declaration says the first axis is \texttt{i}, but the
+call's first coordinate is \texttt{class}---the names don't match. The
+compiler reports: coordinate layout mismatch.
+
+Rewrite the call as \texttt{(coords\ i\ class)}---alignment passes. Even
+though \texttt{i} happens to match the first position in the
+declaration, the compiler matched the \textbf{name}, not the position.
+
+This is einlang's unique check. In most languages, parameters align by
+position---0th argument to 0th parameter. In einlang, coordinates align
+by name---\texttt{i} matches \texttt{i}, \texttt{class} matches
+\texttt{class}. Order matters (axis order is part of semantics), but the
+match itself is on the name.
+
+You annotate nothing by hand. You wrote \texttt{(i\ class)} in the
+declaration. The compiler finds every call site, compares every
+coordinate list, and reports mismatches. The names you already wrote are
+the spec.
+
+\hypertarget{a-filled-in-tree}{%
+\subsection{A Filled-In Tree}\label{a-filled-in-tree}}
+
+When the IR tree was first built, it was bare parentheses:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(binding softmax}
+\NormalTok{  (einstein}
+\NormalTok{    (clause (i }\KeywordTok{class}\NormalTok{)               }\CommentTok{;; only names}
+\NormalTok{      (bin }\OperatorTok{/}\NormalTok{ (call }\KeywordTok{exp}\NormalTok{ ...) ...))))  }\CommentTok{;; only structure}
+\end{Highlighting}
+\end{Shaded}
+
+After analysis:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(binding softmax}
+\NormalTok{  (einstein}
+\NormalTok{    (clause (i }\KeywordTok{class}\NormalTok{)               }\CommentTok{;; i: (range 0 batch), class: (range 0 n_class)}
+\NormalTok{      (bin }\OperatorTok{/}                        \CommentTok{;; type: f64, shape: (batch n_class)}
+\NormalTok{        (call }\KeywordTok{exp}\NormalTok{ ...)              }\CommentTok{;; type: f64, shape: (batch n_class)}
+\NormalTok{        (sum (}\KeywordTok{class}\NormalTok{) ...)))))       }\CommentTok{;; type: f64, shape: (batch)}
+\CommentTok{;; output shape: (batch n_class)}
+\CommentTok{;; coordinate layout: (i class)}
+\end{Highlighting}
+\end{Shaded}
+
+Every question mark is gone. Every parenthesis is annotated with the
+answers the compiler derived. Range, shape, type---they flowed out of
+the names, and now sit beside the names.
 
 \vspace{2em}
 
-\hypertarget{the-principles-beneath-the-habits}{%
-\subsection{The Principles Beneath the
-Habits}\label{the-principles-beneath-the-habits}}
+Names are not a convenience. They are information the compiler can
+reason about.
 
-The four habits are not arbitrary rules. They follow from a single
-principle that has guided the entire book:
+You wrote \texttt{(i\ class)} and \texttt{(sum\ (class)\ ...)}. From
+that, the compiler derived shape, range, type, and coordinate
+layout---without you writing a single annotation. Named axes don't just
+make your code easier to read. They make it possible for the compiler to
+\textbf{understand} your code.
 
-\begin{quote}
-\textbf{The Hiding Law.} Do not hide a fact that later reasoning must
-recover.
-\end{quote}
-
-Eliminated coordinates, broadcast targets, permutation routes, and
-gradient addresses all pass this test. They are easy to state when the
-formula is written. They are expensive---sometimes impossible---to
-rediscover after the formula has been lowered into axis numbers, layout
-operations, or execution traces.
-
-Other facts are good candidates for hiding. Register allocation.
-Temporary buffer reuse. Device placement. Kernel fusion order. Tiling
-shape. Vector width. These matter for performance, but they should not
-be facts a reader must recover to know whether \texttt{class} or
-\texttt{batch} was normalized.
-
-The boundary: hide implementation. Show semantics. The hard part is
-knowing which is which.
-
-\textbf{The Deletion Test.} Delete every comment and every variable name
-from a piece of tensor code. What facts remain in the syntax itself? If
-the answer does not include ``which coordinate was reduced,'' ``which
-coordinate was broadcast,'' and ``which coordinate was the gradient
-taken with respect to,'' the notation is hiding facts.
-
-Apply the Deletion Test to \texttt{x.mean(dim=1)}: only the position of
-the eliminated coordinate survives. The name is gone. Apply it to
-\texttt{mean{[}channel{]}(x)}: the name survives. The test is not about
-comments being bad. It is about syntax being the only channel that the
-compiler can enforce and that refactoring tools preserve.
-
-\textbf{The Placement Rule.} The programmer owns coordinates. The
-compiler owns lowering. When coordinate roles are recorded in the
-source, the compiler can read them for shape inference, gradient
-lowering, storage planning, and kernel fusion---each pass recovering the
-same facts from the same names, rather than reconstructing them from
-access patterns. The names are the single source of truth. The compiler
-passes are readers of that truth.
-
-This is not a theoretical distinction. It is a concrete design choice
-for any tensor notation: put the coordinate facts in the syntax, or put
-them in the documentation. The former makes the compiler a co-reader.
-The latter makes the compiler a blind executor and the human the sole
-bearer of meaning.
-
-\vspace{2em}
-
-The remaining chapters are exercises in applying the four habits with
-these principles as your compass.
-
-Take a piece of tensor code you wrote recently and audit it with the
-four questions. You will likely find a broadcast whose target coordinate
-wasn't obvious, a reduction whose eliminated coordinate you had to
-reconstruct from the shape, a permutation you traced by writing down
-intermediate positions on a scratch pad. The four habits are
-interdependent: a broadcast made explicit (Habit 2) makes the backward
-reduction explicit (Habit 4); a reduction named (Habit 1) makes the
-backward broadcast named (Habit 4). Fix one, and another often fixes
-itself---because they are not four separate rules so much as four faces
-of the same idea. A skeptic says: ``I just use einops for everything.
-Problem solved.'' Einops gives you named permutation and the string as a
-readability aid. But it does not check coordinate consistency across
-operations, it does not ground broadcast or reduction in coordinate
-names, and it leaves the semantic story---which coordinate means what,
-which is consumed, which is omitted---to comments and memory. The
-coordinate habit is not a library. It's an expectation that the notation
-carries the meaning, and that the compiler checks it.
+The tree is now complete. Every slot that needed an answer has one. It
+can be safely handed to the next chapter---lowering.
 
 \newpage
 
-\hypertarget{chapter-13-complex-terrain}{%
-\section{Chapter 13 · Complex
-Terrain}\label{chapter-13-complex-terrain}}
+\hypertarget{chapter-12-the-fire-that-reveals}{%
+\section{Chapter 12 · The Fire That
+Reveals}\label{chapter-12-the-fire-that-reveals}}
+
+\begin{quote}
+``A ship in harbor is safe, but that is not what ships are built for.''
+
+--- John A. Shedd
+\end{quote}
+
+\emph{Construction · Lowering: name-to-number translation}
+
+\vspace{2em}
+
+When Chapter 11 ended, your softmax looked like this:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(clause (i }\KeywordTok{class}\NormalTok{)}
+\NormalTok{  (bin }\OperatorTok{/}\NormalTok{ (call }\KeywordTok{exp}\NormalTok{ ...) (sum (}\KeywordTok{class}\NormalTok{) ...)))}
+\CommentTok{;; type: f64, shape: (batch n_class)}
+\CommentTok{;; i: (range 0 batch), class: (range 0 n_class)}
+\end{Highlighting}
+\end{Shaded}
+
+The tree is complete. It knows everything it needs to know. But it
+cannot be handed to NumPy. NumPy does not understand what \texttt{class}
+means. It needs \texttt{axis=1}.
+
+Translating the analyzed tree into instructions a machine can
+execute---this process is called \textbf{lowering}.
+
+\hypertarget{machines-dont-read-names}{%
+\subsection{Machines Don't Read Names}\label{machines-dont-read-names}}
+
+You wrote names. \texttt{i}, \texttt{class}, \texttt{sum}, \texttt{max}.
+
+The machine needs integers. axis 0, axis 1. Loop ranges. Execution
+strategy.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(clause (i }\KeywordTok{class}\NormalTok{) ...)}
+\CommentTok{;; i is the 0th axis}
+\CommentTok{;; class is the 1st axis}
+\end{Highlighting}
+\end{Shaded}
+
+The translation rules: - \texttt{(i\ class)} → output axes: axis=0 is i,
+axis=1 is class - \texttt{(sum\ (class)\ ...)} → reduction happens on
+axis=1 - \texttt{(access\ logits\ i\ class)} → read the whole logits
+array, both axes present, no slicing
+
+Lowering is the systematic translation of every name into a number. Not
+a heuristic. A deterministic rule.
+
+\hypertarget{the-lowered-form}{%
+\subsection{The Lowered Form}\label{the-lowered-form}}
+
+After lowering, the tree gains three kinds of annotation:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(clause (i }\KeywordTok{class}\NormalTok{)}
+\NormalTok{  (bin }\OperatorTok{/}\NormalTok{ (call }\KeywordTok{exp}\NormalTok{ ...) (sum (}\KeywordTok{class}\NormalTok{) ...))}
+\NormalTok{  (loops (i (range }\DecValTok{0}\NormalTok{ batch_size)))}
+\NormalTok{  (reduction (}\KeywordTok{class}\NormalTok{ (range }\DecValTok{0}\NormalTok{ num_classes)))}
+\NormalTok{  (strategy vectorized))}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{(loops\ ...)} --- the output axes to iterate over. \texttt{i}
+needs a loop; \texttt{(range\ 0\ batch\_size)} is its extent.
+\texttt{class} is not in loops---it's in reduction; it will be consumed.
+
+\texttt{(reduction\ ...)} --- the reduction axes. \texttt{class} will be
+eliminated by the reduction operation. During code generation, it
+becomes \texttt{axis=1}.
+
+\texttt{(strategy\ vectorized)} --- the execution strategy the compiler
+chose automatically, based on the shapes. Not specified by the user.
+
+\hypertarget{three-strategies}{%
+\subsection{Three Strategies}\label{three-strategies}}
+
+After lowering, every axis range is known. The compiler glances once and
+decides how to execute.
+
+\textbf{vectorized} --- hand everything to NumPy's C kernels. No Python
+loops.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{m }\OperatorTok{=}\NormalTok{ np.}\BuiltInTok{max}\NormalTok{(logits, axis}\OperatorTok{=}\DecValTok{1}\NormalTok{, keepdims}\OperatorTok{=}\VariableTok{True}\NormalTok{)}
+\NormalTok{e }\OperatorTok{=}\NormalTok{ np.exp(logits }\OperatorTok{-}\NormalTok{ m)}
+\ControlFlowTok{return}\NormalTok{ e }\OperatorTok{/}\NormalTok{ np.}\BuiltInTok{sum}\NormalTok{(e, axis}\OperatorTok{=}\DecValTok{1}\NormalTok{, keepdims}\OperatorTok{=}\VariableTok{True}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{class} → \texttt{axis=1}. \texttt{keepdims=True} because
+\texttt{logits\ -\ max} requires aligned shapes---the analysis phase
+determined that the two operands have different shapes
+(\texttt{{[}batch,\ n\_class{]}} and \texttt{{[}batch{]}}), so
+broadcasting is needed.
+
+\textbf{scalar} --- pure Python for loops. Used when arrays are jagged
+or when a dependency chain prevents vectorization.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ControlFlowTok{for}\NormalTok{ i }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(batch):}
+\NormalTok{  row_max }\OperatorTok{=} \BuiltInTok{max}\NormalTok{(logits[i])}
+\NormalTok{  row_exp }\OperatorTok{=}\NormalTok{ [exp(x }\OperatorTok{-}\NormalTok{ row_max) }\ControlFlowTok{for}\NormalTok{ x }\KeywordTok{in}\NormalTok{ logits[i]]}
+\NormalTok{  row_sum }\OperatorTok{=} \BuiltInTok{sum}\NormalTok{(row_exp)}
+\NormalTok{  result[i] }\OperatorTok{=}\NormalTok{ [e }\OperatorTok{/}\NormalTok{ row_sum }\ControlFlowTok{for}\NormalTok{ e }\KeywordTok{in}\NormalTok{ row_exp]}
+\end{Highlighting}
+\end{Shaded}
+
+\textbf{hybrid} --- some dimensions use NumPy broadcasting, others use
+Python loops. Used when most dimensions are regular but a few need
+flexibility.
+
+The strategy is not chosen by the user. The lowering phase decides
+automatically, based on the analysis results from Chapter 11. You never
+see the \texttt{(strategy\ ...)} annotation---it's internal to the
+compiler. You write the einstein clause; the compiler decides how to run
+it.
+
+\hypertarget{matrix-multiplication-read-from-axis-sharing}{%
+\subsection{Matrix Multiplication: Read from Axis
+Sharing}\label{matrix-multiplication-read-from-axis-sharing}}
+
+This is where lowering shows its elegance. Look at matrix
+multiplication:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(clause (i j)}
+\NormalTok{  (sum (k)}
+\NormalTok{    (bin }\OperatorTok{*}\NormalTok{ (}\KeywordTok{access}\NormalTok{ A i k) (}\KeywordTok{access}\NormalTok{ B k j))))}
+\end{Highlighting}
+\end{Shaded}
+
+Lowered:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(clause (i j)}
+\NormalTok{  (sum (k) (bin }\OperatorTok{*}\NormalTok{ (}\KeywordTok{access}\NormalTok{ A i k) (}\KeywordTok{access}\NormalTok{ B k j)))}
+\NormalTok{  (loops (i (range }\DecValTok{0}\NormalTok{ n)) (j (range }\DecValTok{0}\NormalTok{ m)))}
+\NormalTok{  (reduction (k (range }\DecValTok{0}\NormalTok{ p)))}
+\NormalTok{  (strategy vectorized))}
+\end{Highlighting}
+\end{Shaded}
+
+Code generation:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{C }\OperatorTok{=}\NormalTok{ A }\OperatorTok{@}\NormalTok{ B}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{k} appears in both A and B, but not in the output axes
+\texttt{(i\ j)} → a contracting dimension. The lowering recognizes this
+as matrix multiplication---no user annotation needed, no
+\texttt{np.einsum(\textquotesingle{}ik,kj-\textgreater{}ij\textquotesingle{},\ A,\ B)}.
+The axis sharing pattern \textbf{is} the expression of intent.
+
+If you later write something that can't use \texttt{@}---say, a jagged
+path---the lowering automatically selects the scalar strategy. Same
+einstein clause, different execution path, depending on the shapes the
+compiler sees.
+
+\hypertarget{lowering-multiple-clauses}{%
+\subsection{Lowering Multiple Clauses}\label{lowering-multiple-clauses}}
+
+Einlang's multi-clause declarations each receive their own lowering
+annotations:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(einstein}
+\NormalTok{  (clause (i j) (}\KeywordTok{access}\NormalTok{ B i j))}
+\NormalTok{  (clause (i j) (bin }\OperatorTok{+}\NormalTok{ (}\KeywordTok{access}\NormalTok{ A i j) (}\KeywordTok{access}\NormalTok{ C i j))))}
+\end{Highlighting}
+\end{Shaded}
+
+After lowering:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(einstein}
+\NormalTok{  (clause (i j) (}\KeywordTok{access}\NormalTok{ B i j)}
+\NormalTok{    (kind init)}
+\NormalTok{    (loops (i (range }\DecValTok{0}\NormalTok{ n)) (j (range }\DecValTok{0}\NormalTok{ m))))}
+\NormalTok{  (clause (i j) (bin }\OperatorTok{+}\NormalTok{ (}\KeywordTok{access}\NormalTok{ A i j) (}\KeywordTok{access}\NormalTok{ C i j))}
+\NormalTok{    (kind accum)}
+\NormalTok{    (loops (i (range }\DecValTok{0}\NormalTok{ n)) (j (range }\DecValTok{0}\NormalTok{ m))))}
+\NormalTok{  (strategy vectorized))}
+\end{Highlighting}
+\end{Shaded}
+
+The first clause \texttt{(kind\ init)} --- corresponds to \texttt{=} in
+source. The second \texttt{(kind\ accum)} --- corresponds to
+\texttt{+=}.
+
+Code generation:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{result }\OperatorTok{=}\NormalTok{ B.copy()}
+\NormalTok{result }\OperatorTok{+=}\NormalTok{ C}
+\end{Highlighting}
+\end{Shaded}
+
+If the shapes allow vectorization, NumPy's \texttt{+} handles both
+clauses in a single operation. If one clause is jagged, the lowering
+selects scalar for that clause and vectorized for the other. The
+compiler decides per clause.
+
+\hypertarget{softmax-end-to-end}{%
+\subsection{Softmax End-to-End}\label{softmax-end-to-end}}
+
+From source to execution, one unbroken thread.
+
+\textbf{Source}:
+
+\begin{verbatim}
+softmax[i class](logits[i class]) =
+  exp(logits[i class] - max[class](logits[i class]))
+  / sum[class](exp(logits[i class] - max[class](logits[i class])))
+\end{verbatim}
+
+\textbf{IR} (Chapter 10):
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(einstein}
+\NormalTok{  (clause (i }\KeywordTok{class}\NormalTok{)}
+\NormalTok{    (bin }\OperatorTok{/}\NormalTok{ (call }\KeywordTok{exp}\NormalTok{ (bin }\OperatorTok{-}\NormalTok{ ... (}\KeywordTok{max}\NormalTok{ (}\KeywordTok{class}\NormalTok{) ...)))}
+\NormalTok{           (sum (}\KeywordTok{class}\NormalTok{) (call }\KeywordTok{exp}\NormalTok{ (bin }\OperatorTok{-}\NormalTok{ ... (}\KeywordTok{max}\NormalTok{ (}\KeywordTok{class}\NormalTok{) ...)))))))}
+\end{Highlighting}
+\end{Shaded}
+
+All names present. The structure is the skeleton of the source.
+
+\textbf{After analysis} (Chapter 11):
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{;; shape: (batch n_class), type: f64}
+\CommentTok{;; i: (range 0 batch), class: (range 0 n_class)}
+\end{Highlighting}
+\end{Shaded}
+
+All annotations present. Every name has a range and a type.
+
+\textbf{After lowering} (this chapter):
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(clause (i }\KeywordTok{class}\NormalTok{) ...}
+\NormalTok{  (loops (i (range }\DecValTok{0}\NormalTok{ batch)))}
+\NormalTok{  (reduction (}\KeywordTok{class}\NormalTok{ (range }\DecValTok{0}\NormalTok{ n_class)))}
+\NormalTok{  (strategy vectorized))}
+\end{Highlighting}
+\end{Shaded}
+
+Names have become numbers and loop descriptions.
+
+\textbf{Code}:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{m }\OperatorTok{=}\NormalTok{ np.}\BuiltInTok{max}\NormalTok{(logits, axis}\OperatorTok{=}\DecValTok{1}\NormalTok{, keepdims}\OperatorTok{=}\VariableTok{True}\NormalTok{)}
+\NormalTok{e }\OperatorTok{=}\NormalTok{ np.exp(logits }\OperatorTok{-}\NormalTok{ m)}
+\ControlFlowTok{return}\NormalTok{ e }\OperatorTok{/}\NormalTok{ np.}\BuiltInTok{sum}\NormalTok{(e, axis}\OperatorTok{=}\DecValTok{1}\NormalTok{, keepdims}\OperatorTok{=}\VariableTok{True}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{class}---a word you typed by hand---was lowered into
+\texttt{axis=1}. Not magic. Deterministic translation. You can see every
+step.
+
+\hypertarget{firewood}{%
+\subsection{Firewood}\label{firewood}}
+
+Names are a good thing. They let you write \texttt{class} instead of
+\texttt{1}. They let the compiler check coordinate alignment---by name,
+not position. They make your code read like mathematical notes.
+
+But names must eventually be burned. Because the CPU does not know
+\texttt{class}. It knows axis 1, loop range n\_class, and floating-point
+instructions.
+
+Lowering is that fire. \texttt{(sum\ (class)\ ...)} goes in;
+\texttt{axis=1,\ reduction} comes out. \texttt{(i\ class)} goes in;
+\texttt{axis=0,\ axis=1,\ output} comes out.
+\texttt{(access\ logits\ i\ class)} goes in; \texttt{keepdims=True}
+comes out---because the analyzed shapes tell lowering that the division
+and subtraction require broadcasting.
+
+The names burn. The heat remains. And the heat is a computation that can
+be handed directly to NumPy's C kernels.
+
+A good abstraction is not a good painting. A good abstraction is good
+firewood. Its beauty is not in its surface---but in the light the flame
+casts when it burns.
+
+\newpage
+
+\hypertarget{chapter-13-a-friend-named-time}{%
+\section{Chapter 13 · A Friend Named
+Time}\label{chapter-13-a-friend-named-time}}
+
+\begin{quote}
+``Time is what keeps everything from happening at once.''
+
+--- Attributed to John Archibald Wheeler
+\end{quote}
+
+\emph{Construction · Recurrence: time as an axis with a direction}
+
+\vspace{2em}
+
+The previous chapters established the sequence: the compiler writes your
+einstein program in parentheses (Chapter 10), analyzes the tree to
+derive every missing fact (Chapter 11), and burns the names into numbers
+the machine can execute (Chapter 12).
+
+But there is one axis whose lowering rules differ from the rest. It is
+time.
+
+\hypertarget{not-all-axes-are-the-same}{%
+\subsection{Not All Axes Are the Same}\label{not-all-axes-are-the-same}}
+
+Look at this einstein binding:
+
+\begin{verbatim}
+u[t, i] = u[t-1, i] + f(u[t-1, i])
+\end{verbatim}
+
+\texttt{t} and \texttt{i} are both written in brackets. But \texttt{t}
+does something no other axis does---it looks backward. \texttt{t-1}.
+
+In a normal \texttt{(access\ A\ i\ k)}, \texttt{i} and \texttt{k} are
+spatial axes. They don't appear as \texttt{i-1}. Spatial indices are
+concurrent---you sum over them, reduce along them, permute them---but
+you don't \emph{recur} along them.
+
+\texttt{t} is different. \texttt{t-1} means step one depends on step
+zero, step two depends on step one. \texttt{t} is the direction of
+recurrence. Not space. Time.
+
+How does the compiler know? It scans every access in the body:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(}\KeywordTok{access}\NormalTok{ u (bin }\OperatorTok{-} \KeywordTok{t}\NormalTok{ (literal }\DecValTok{1}\NormalTok{)) i)}
+\end{Highlighting}
+\end{Shaded}
+
+The index expression contains \texttt{(bin\ -\ t\ 1)}. This is not
+\texttt{(id\ t)}, a plain index reference---it's arithmetic on
+\texttt{t}. The compiler sees it and marks \texttt{t} as a \textbf{time
+axis}.
+
+\hypertarget{lowering-a-recurrence}{%
+\subsection{Lowering a Recurrence}\label{lowering-a-recurrence}}
+
+The lowering rules from Chapter 12 apply to the time axis too---names
+become numbers, ranges become loops. But the time axis gains a few extra
+steps.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(einstein}
+\NormalTok{  (clause (}\KeywordTok{t}\NormalTok{ i) (init-expr))}
+\NormalTok{  (clause (}\KeywordTok{t}\NormalTok{ i) (bin }\OperatorTok{+}\NormalTok{ (}\KeywordTok{access}\NormalTok{ u (bin }\OperatorTok{-} \KeywordTok{t} \DecValTok{1}\NormalTok{) i)}
+\NormalTok{                       (call f (}\KeywordTok{access}\NormalTok{ u (bin }\OperatorTok{-} \KeywordTok{t} \DecValTok{1}\NormalTok{) i)))))}
+\end{Highlighting}
+\end{Shaded}
+
+Lowering splits the clauses into two blocks:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(recurrence u}
+\NormalTok{  (}\KeywordTok{loop}\NormalTok{ (}\KeywordTok{t}\NormalTok{ (range }\DecValTok{1}\NormalTok{ T)))}
+\NormalTok{  (initial}
+\NormalTok{    (clause (i) (init-expr)}
+\NormalTok{      (loops (i (range }\DecValTok{0}\NormalTok{ N)))))}
+\NormalTok{  (body}
+\NormalTok{    (clause (i) (bin }\OperatorTok{+}\NormalTok{ (}\KeywordTok{access}\NormalTok{ u (bin }\OperatorTok{-} \KeywordTok{t} \DecValTok{1}\NormalTok{) i)}
+\NormalTok{                       (call f (}\KeywordTok{access}\NormalTok{ u (bin }\OperatorTok{-} \KeywordTok{t} \DecValTok{1}\NormalTok{) i)))}
+\NormalTok{      (loops (i (range }\DecValTok{0}\NormalTok{ N)))))}
+\NormalTok{  (preserve }\DecValTok{2}\NormalTok{))}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{initial} --- the clause at t=0. No historical dependency. Runs
+once. Establishes the starting state.
+
+\texttt{body} --- runs once per time step, for t = 1, 2, 3, \ldots{} The
+body contains \texttt{(bin\ -\ t\ 1)}---a reference to the previous
+step's value.
+
+\texttt{(loop\ (t\ (range\ 1\ T)))} --- the time loop. From 1 to T-1.
+
+During code generation, the initial block runs once for setup. Then the
+loop runs T-1 times, each iteration using the previous step's result to
+compute the next.
+
+\hypertarget{preserve-the-compiler-figures-out-memory}{%
+\subsection{Preserve: The Compiler Figures Out
+Memory}\label{preserve-the-compiler-figures-out-memory}}
+
+What does \texttt{(preserve\ 2)} mean?
+
+The compiler scans all historical references in the body.
+\texttt{(bin\ -\ t\ 1)} --- looking back one step.
+\texttt{(bin\ -\ t\ 5)} is not present. So the maximum lookback distance
+is 1.
+
+preserve = maximum lookback + 1 (the current step) = 2.
+
+T might be ten thousand. But the compiler only needs to keep the most
+recent two time steps in memory. A circular buffer of length 2. Not the
+entire 10000×N array.
+
+If the body referenced \texttt{(bin\ -\ t\ 5)} --- looking back five
+steps --- preserve = 6.
+
+The compiler computes this on its own. You don't tell it ``this
+recurrence needs this much history.'' It examines the index expressions
+in the body, finds the largest backward step, adds one.
+
+\hypertarget{an-example-heat-diffusion}{%
+\subsection{An Example: Heat
+Diffusion}\label{an-example-heat-diffusion}}
+
+The one-dimensional heat equation, explicit Euler stepping:
+
+\begin{verbatim}
+u[t, i] = u[t-1, i] + alpha * (u[t-1, i+1] - 2 * u[t-1, i] + u[t-1, i-1])
+\end{verbatim}
+
+Each step looks back exactly one step. preserve = 2.
+
+The lowered recurrence:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{(recurrence u}
+\NormalTok{  (}\KeywordTok{loop}\NormalTok{ (}\KeywordTok{t}\NormalTok{ (range }\DecValTok{1}\NormalTok{ T)))}
+\NormalTok{  (initial}
+\NormalTok{    (clause (i) (init-temp i)}
+\NormalTok{      (loops (i (range }\DecValTok{0}\NormalTok{ N)))))}
+\NormalTok{  (body}
+\NormalTok{    (clause (i) (bin }\OperatorTok{+}\NormalTok{ (}\KeywordTok{access}\NormalTok{ u (bin }\OperatorTok{-} \KeywordTok{t} \DecValTok{1}\NormalTok{) i)}
+\NormalTok{                       (bin }\OperatorTok{*}\NormalTok{ alpha}
+\NormalTok{                         (bin }\OperatorTok{-}\NormalTok{ (bin }\OperatorTok{+}\NormalTok{ (}\KeywordTok{access}\NormalTok{ u (bin }\OperatorTok{-} \KeywordTok{t} \DecValTok{1}\NormalTok{) (bin }\OperatorTok{+}\NormalTok{ i }\DecValTok{1}\NormalTok{))}
+\NormalTok{                                       (}\KeywordTok{access}\NormalTok{ u (bin }\OperatorTok{-} \KeywordTok{t} \DecValTok{1}\NormalTok{) (bin }\OperatorTok{-}\NormalTok{ i }\DecValTok{1}\NormalTok{)))}
+\NormalTok{                                (bin }\OperatorTok{*}\NormalTok{ (literal }\DecValTok{2}\NormalTok{) (}\KeywordTok{access}\NormalTok{ u (bin }\OperatorTok{-} \KeywordTok{t} \DecValTok{1}\NormalTok{) i))))))}
+\NormalTok{      (loops (i (range }\DecValTok{0}\NormalTok{ N)))))}
+\NormalTok{  (preserve }\DecValTok{2}\NormalTok{))}
+\end{Highlighting}
+\end{Shaded}
+
+Generated code:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{u }\OperatorTok{=}\NormalTok{ np.zeros((}\DecValTok{2}\NormalTok{, N))     }\CommentTok{# preserve=2 → allocate only 2×N}
+\NormalTok{u[}\DecValTok{0}\NormalTok{] }\OperatorTok{=}\NormalTok{ init_temp(N)       }\CommentTok{# initial}
+\ControlFlowTok{for}\NormalTok{ t }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{1}\NormalTok{, T):}
+\NormalTok{    curr }\OperatorTok{=}\NormalTok{ t }\OperatorTok{%} \DecValTok{2}
+\NormalTok{    prev }\OperatorTok{=}\NormalTok{ (t }\OperatorTok{-} \DecValTok{1}\NormalTok{) }\OperatorTok{%} \DecValTok{2}
+\NormalTok{    u[curr, }\DecValTok{1}\NormalTok{:}\OperatorTok{-}\DecValTok{1}\NormalTok{] }\OperatorTok{=}\NormalTok{ u[prev, }\DecValTok{1}\NormalTok{:}\OperatorTok{-}\DecValTok{1}\NormalTok{] }\OperatorTok{+}\NormalTok{ alpha }\OperatorTok{*}\NormalTok{ (}
+\NormalTok{        u[prev, }\DecValTok{2}\NormalTok{:] }\OperatorTok{-} \DecValTok{2} \OperatorTok{*}\NormalTok{ u[prev, }\DecValTok{1}\NormalTok{:}\OperatorTok{-}\DecValTok{1}\NormalTok{] }\OperatorTok{+}\NormalTok{ u[prev, :}\OperatorTok{-}\DecValTok{2}\NormalTok{])}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{preserve=2} became \texttt{np.zeros((2,\ N))}. T=10000, memory
+used: just 2×N. \texttt{t\ \%\ 2} is the circular buffer---the new value
+overwrites the oldest step.
+
+If preserve were 6, the code would simply become
+\texttt{np.zeros((6,\ N))}. The logic is identical---only the buffer is
+larger.
+
+\hypertarget{an-example-training-loop}{%
+\subsection{An Example: Training Loop}\label{an-example-training-loop}}
+
+You can write a training loop in einlang:
+
+\begin{verbatim}
+loss[t] = cross_entropy(softmax[i class](logits[t i class]), labels[t i])
+
+grad[t i class] = @loss[t]
+param[i class] = param[i class] - lr * grad[t i class]
+\end{verbatim}
+
+\texttt{t} is time---each training step. The loss and grad bodies
+reference only the current step \texttt{(access\ logits\ t\ i\ class)},
+but \texttt{param} updates across steps.
+
+The lowering recognizes that \texttt{param} is step-crossing: all time
+steps share one parameter array, updated once per step (like
+\texttt{+=}). \texttt{loss} and \texttt{grad} do not cross steps---each
+\texttt{t} has its own independent value.
+
+The compiler sees different patterns and lowers them differently. Your
+code didn't change. What changed is how the compiler understands the
+\textbf{role} of each axis.
+
+\hypertarget{time-is-an-axis-with-a-direction}{%
+\subsection{Time Is an Axis with a
+Direction}\label{time-is-an-axis-with-a-direction}}
+
+On a spatial axis, you walk along a line---each position accessed once,
+all existing concurrently.
+
+On a time axis, you walk along a directed line---the current position
+depends on the previous one. Not concurrency. Recurrence.
+
+The lowering writes this distinction into the annotations.
+\texttt{(loops\ ...)} tells code generation ``iterate over these axes.''
+\texttt{(reduction\ ...)} tells code generation ``reduce along these
+axes.'' \texttt{(recurrence\ ...)} tells code generation ``this loop has
+an initialization step, a recurrence step, and you only need to keep the
+most recent n steps.''
+
+Three kinds of annotation. Three semantics. All derived from lowering
+names. All the compiler's understanding, written onto the tree.
+
+\vspace{2em}
+
+Spatial axes. Reduction axes. Time axes. You wrote them all in a single
+pair of brackets in the source---\texttt{{[}t,\ i,\ class{]}}. The
+compiler read their identities from context. Then it burned the names,
+and what remained was loops, reductions, recurrences.
+
+This is not ``compiler optimization.''
+
+This is the compiler having \textbf{understood your program}.
+
+\newpage
+
+\hypertarget{chapter-14-complex-terrain}{%
+\section{Chapter 14 · Complex
+Terrain}\label{chapter-14-complex-terrain}}
 
 \begin{quote}
 ``Everything should be made as simple as possible, but not simpler.''
@@ -3816,7 +4213,7 @@ the declaration bracket. The declaration bracket names the output
 coordinates \texttt{b,\ oc,\ oh,\ ow}---simple identifiers. The body
 index expressions \texttt{oh\ +\ kh} describe how to compute the input
 indices from the output indices and the kernel coordinates. This is the
-same separation we saw in Chapter 11 for recurrences: the left side is a
+same separation we saw in Chapter 13 for recurrences: the left side is a
 definition; the right side is a computation.
 
 \vspace{2em}
@@ -3895,434 +4292,9 @@ result is not the intended contraction. The bug is invisible to shape
 check but visible to coordinate check: your eye expects
 \texttt{B{[}k,\ j{]}} because the result promises \texttt{j}.
 
-\newpage
-
-\hypertarget{chapter-14-the-complete-picture}{%
-\section{Chapter 14 · The Complete
-Picture}\label{chapter-14-the-complete-picture}}
-
-\begin{quote}
-``The whole is greater than the sum of its parts.''
-
---- Aristotle
-\end{quote}
-
-\emph{Formalization · A systematic review of einlang syntax}
-
-\vspace{2em}
-
-This chapter contains no new syntax. It is a map of territory we have
-already explored.
-
-The preceding thirteen chapters introduced einlang's grammar piece by
-piece, each piece arriving when the concept it serves had earned its
-introduction. The result is a working knowledge of the language, but the
-pieces are scattered across chapters. This chapter assembles them into
-one place, organized by category rather than by pedagogical necessity.
-
-Think of it as the view from the summit. You climbed the mountain one
-trail at a time. Now you can see the whole range.
-
-\vspace{2em}
-
-\hypertarget{declarations}{%
-\subsection{Declarations}\label{declarations}}
-
-\textbf{\texttt{let}} binds an immutable name to a value:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ x = }\DecValTok{42}\NormalTok{;}
-\KeywordTok{let}\NormalTok{ pi: }\DataTypeTok{f64}\NormalTok{ = }\DecValTok{3.141592653589793}\NormalTok{;}
-\KeywordTok{let}\NormalTok{ matrix: }\OperatorTok{[}\DataTypeTok{f32}\NormalTok{; }\DecValTok{2}\NormalTok{, }\DecValTok{3}\OperatorTok{]}\NormalTok{ = }\OperatorTok{[[}\DecValTok{1.0}\NormalTok{, }\DecValTok{2.0}\NormalTok{, }\DecValTok{3.0}\OperatorTok{]}\NormalTok{, }\OperatorTok{[}\DecValTok{4.0}\NormalTok{, }\DecValTok{5.0}\NormalTok{, }\DecValTok{6.0}\OperatorTok{]]}\NormalTok{;}
-\end{Highlighting}
-\end{Shaded}
-
-Type annotations are optional. When present, the value must be
-compatible---same type, or a literal coercible to the annotated type.
-
-All \texttt{let} bindings are immutable. A name cannot be rebound in the
-same scope:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ x = }\DecValTok{10}\NormalTok{;}
-\KeywordTok{let}\NormalTok{ x = x + }\DecValTok{1}\NormalTok{;       }\CommentTok{// ERROR: redefinition of `x`}
-\KeywordTok{let}\NormalTok{ x_next = x + }\DecValTok{1}\NormalTok{;  }\CommentTok{// OK: new name}
-\end{Highlighting}
-\end{Shaded}
-
-\vspace{2em}
-
-\hypertarget{rectangular-declarations-1}{%
-\subsection{Rectangular Declarations}\label{rectangular-declarations-1}}
-
-A rectangular declaration binds a tensor by iterating over index
-variables:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ C}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{ = sum}\OperatorTok{[}\NormalTok{k}\OperatorTok{]}\NormalTok{(A}\OperatorTok{[}\NormalTok{i, k}\OperatorTok{]}\NormalTok{ * B}\OperatorTok{[}\NormalTok{k, j}\OperatorTok{]}\NormalTok{);}
-\end{Highlighting}
-\end{Shaded}
-
-The index variables on the left-hand side define the output tensor's
-coordinates. The compiler infers each variable's range by examining how
-it indexes arrays in the body. The index variables are in scope for the
-body and any attached \texttt{where} clause, but not outside the
-statement.
-
-Index slots in the declaration bracket may be: - A name: \texttt{i},
-\texttt{j}, \texttt{batch}---the standard case. - A name with an
-explicit domain: \texttt{i\ in\ 0..n}. - A literal: \texttt{0}---used
-for base cases in recurrences. - A named rest:
-\texttt{..batch}---standing for zero or more adjacent axes.
-
-Expressions are not allowed in the declaration bracket.
-\texttt{let\ fib{[}n-1{]}\ =\ ...} is an error.
-
-\vspace{2em}
-
-\hypertarget{reductions}{%
-\subsection{Reductions}\label{reductions}}
-
-A reduction consumes a coordinate:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ total = sum}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{(data}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{);}
-\KeywordTok{let}\NormalTok{ row_sums}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{ = sum}\OperatorTok{[}\NormalTok{j}\OperatorTok{]}\NormalTok{(matrix}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{);}
-\KeywordTok{let}\NormalTok{ col_sums}\OperatorTok{[}\NormalTok{j}\OperatorTok{]}\NormalTok{ = sum}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{(matrix}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{);}
-\end{Highlighting}
-\end{Shaded}
-
-Available operations: \texttt{sum}, \texttt{max}, \texttt{min},
-\texttt{prod}.
-
-Selection reductions return addresses rather than values:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ pred}\OperatorTok{[}\NormalTok{b}\OperatorTok{]}\NormalTok{ = argmax}\OperatorTok{[}\NormalTok{class}\OperatorTok{]}\NormalTok{(logits}\OperatorTok{[}\NormalTok{b, class}\OperatorTok{]}\NormalTok{);}
-\KeywordTok{let}\NormalTok{ route}\OperatorTok{[}\NormalTok{b, t}\OperatorTok{]}\NormalTok{ = argmax}\OperatorTok{[}\NormalTok{expert}\OperatorTok{]}\NormalTok{(gate_prob}\OperatorTok{[}\NormalTok{b, t, expert}\OperatorTok{]}\NormalTok{);}
-\end{Highlighting}
-\end{Shaded}
-
-The selected coordinate is consumed from the result shape. The address
-domain is tracked by the compiler for later indexed reads.
-
-\vspace{2em}
-
-\hypertarget{broadcasting}{%
-\subsection{Broadcasting}\label{broadcasting}}
-
-Einlang supports broadcasting in exactly two cases: - \textbf{Same
-rank}: two tensors with identical shapes can be combined elementwise. -
-\textbf{Tensor vs.~scalar}: a scalar can be combined with any tensor.
-
-For different-rank combinations, use explicit indexing. The coordinate
-omitted from a term is the coordinate being broadcast over:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ out}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{ = A}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{ + bias}\OperatorTok{[}\NormalTok{j}\OperatorTok{]}\NormalTok{;   }\CommentTok{// bias is broadcast over i}
-\end{Highlighting}
-\end{Shaded}
-
-\vspace{2em}
-
-\hypertarget{named-rest-indices}{%
-\subsection{Named Rest Indices}\label{named-rest-indices}}
-
-\texttt{..name} stands for zero or more adjacent axes, collectively
-given a name:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ result}\OperatorTok{[}\NormalTok{..batch, j}\OperatorTok{]}\NormalTok{ = x}\OperatorTok{[}\NormalTok{..batch, j}\OperatorTok{]}\NormalTok{ + bias}\OperatorTok{[}\NormalTok{j}\OperatorTok{]}\NormalTok{;}
-\KeywordTok{let}\NormalTok{ row_sum}\OperatorTok{[}\NormalTok{..batch}\OperatorTok{]}\NormalTok{ = sum}\OperatorTok{[}\NormalTok{j}\OperatorTok{]}\NormalTok{(x}\OperatorTok{[}\NormalTok{..batch, j}\OperatorTok{]}\NormalTok{);}
-\end{Highlighting}
-\end{Shaded}
-
-The same rest name must describe the same axis span within an
-expression.
-
-\vspace{2em}
-
-\hypertarget{where-clauses}{%
-\subsection{Where Clauses}\label{where-clauses}}
-
-A where clause attaches filters and intermediate bindings to a
-declaration:
-
-\textbf{Boolean guards} filter the domain:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ pos_sum = sum}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{(data}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{) }\KeywordTok{where}\NormalTok{ data}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{ > }\DecValTok{0}\NormalTok{;}
-\KeywordTok{let}\NormalTok{ upper}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{ = matrix}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]} \KeywordTok{where}\NormalTok{ i <= j;}
-\end{Highlighting}
-\end{Shaded}
-
-\textbf{Variable bindings} name intermediate values, scoped to the
-declaration:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ output}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{ = activated}
-    \KeywordTok{where}\NormalTok{ z = sum}\OperatorTok{[}\NormalTok{k}\OperatorTok{]}\NormalTok{(input}\OperatorTok{[}\NormalTok{i, k}\OperatorTok{]}\NormalTok{ * weight}\OperatorTok{[}\NormalTok{k, j}\OperatorTok{]}\NormalTok{) + bias}\OperatorTok{[}\NormalTok{j}\OperatorTok{]}\NormalTok{,}
-\NormalTok{          activated = }\KeywordTok{if}\NormalTok{ z > }\DecValTok{0.0} \OperatorTok{\{}\NormalTok{ z }\OperatorTok{\}} \KeywordTok{else} \OperatorTok{\{} \DecValTok{0.0} \OperatorTok{\}}\NormalTok{;}
-\end{Highlighting}
-\end{Shaded}
-
-Bindings are evaluated in order; later bindings can reference earlier
-ones.
-
-\textbf{Index arithmetic} in where-clause index positions computes
-derived coordinates:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ conv}\OperatorTok{[}\NormalTok{b, oc, oh, ow}\OperatorTok{]}\NormalTok{ = sum}\OperatorTok{[}\NormalTok{ic, kh, kw}\OperatorTok{]}\NormalTok{(}
-\NormalTok{    input}\OperatorTok{[}\NormalTok{b, ic, oh + kh, ow + kw}\OperatorTok{]}\NormalTok{ * weight}\OperatorTok{[}\NormalTok{oc, ic, kh, kw}\OperatorTok{]}
-\NormalTok{);}
-\end{Highlighting}
-\end{Shaded}
-
-\vspace{2em}
-
-\hypertarget{coordinate-aware-functions}{%
-\subsection{Coordinate-Aware
-Functions}\label{coordinate-aware-functions}}
-
-A function may declare coordinate parameters in brackets after its name:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{fn}\NormalTok{ softmax[j](x: }\OperatorTok{[}\DataTypeTok{f32}\NormalTok{; ..left, j, ..right}\OperatorTok{]}\NormalTok{)}
-\NormalTok{    -> }\OperatorTok{[}\DataTypeTok{f32}\NormalTok{; ..left, j, ..right}\OperatorTok{]}
-\OperatorTok{\{}\NormalTok{ ... }\OperatorTok{\}}
-\end{Highlighting}
-\end{Shaded}
-
-The caller passes coordinate arguments in the same bracket position:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ p}\OperatorTok{[}\NormalTok{b, class}\OperatorTok{]}\NormalTok{ = softmax}\OperatorTok{[}\NormalTok{class}\OperatorTok{]}\NormalTok{(logits}\OperatorTok{[}\NormalTok{b, class}\OperatorTok{]}\NormalTok{);}
-\end{Highlighting}
-\end{Shaded}
-
-Coordinate arguments must be grounded in the argument's layout. The
-bracketed name is part of the call contract, not a comment.
-
-Packs (\texttt{..left}, \texttt{..right}, \texttt{..spatial}) make
-functions polymorphic over surrounding coordinate structure. A pack
-parameter declared with \texttt{..} in the function signature accepts a
-parenthesized coordinate group from the caller when disambiguation is
-needed.
-
-Coordinate facts flow through pointwise expressions automatically. A
-tensor bound with coordinate names carries those names through
-arithmetic, function calls, and control flow.
-
-\vspace{2em}
-
-\hypertarget{recurrence-relations}{%
-\subsection{Recurrence Relations}\label{recurrence-relations}}
-
-Self-referential rectangular declarations define sequences:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ fib}\OperatorTok{[}\DecValTok{0}\OperatorTok{]}\NormalTok{ = }\DecValTok{0}\NormalTok{;}
-\KeywordTok{let}\NormalTok{ fib}\OperatorTok{[}\DecValTok{1}\OperatorTok{]}\NormalTok{ = }\DecValTok{1}\NormalTok{;}
-\KeywordTok{let}\NormalTok{ fib}\OperatorTok{[}\NormalTok{n }\KeywordTok{in} \DecValTok{2.}\NormalTok{.}\DecValTok{8}\OperatorTok{]}\NormalTok{ = fib}\OperatorTok{[}\NormalTok{n-}\DecValTok{1}\OperatorTok{]}\NormalTok{ + fib}\OperatorTok{[}\NormalTok{n-}\DecValTok{2}\OperatorTok{]}\NormalTok{;}
-\end{Highlighting}
-\end{Shaded}
-
-The recurrence index range goes in the declaration bracket
-(\texttt{n\ in\ 2..8}). Backward references only---the compiler rejects
-reads at indices greater than or equal to the declaration index along
-any dimension.
-
-\vspace{2em}
-
-\hypertarget{automatic-differentiation}{%
-\subsection{Automatic Differentiation}\label{automatic-differentiation}}
-
-\texttt{@x} is the identity tangent seed of a named binding.
-\texttt{@y\ /\ @x} is the derivative of \texttt{y} with respect to
-\texttt{x}:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\KeywordTok{let}\NormalTok{ dz_dx = @z / @x;}
-\end{Highlighting}
-\end{Shaded}
-
-For sum-of-products declarations (matmul, convolution), the compiler
-derives pullbacks automatically using coordinate set subtraction. The
-gradient of a recurrence is itself a recurrence, running backward along
-the time coordinate.
-
-Custom derivative rules use \texttt{@fn}:
-
-\begin{Shaded}
-\begin{Highlighting}[]
-\NormalTok{@fn relu(x) }\OperatorTok{\{}
-    \KeywordTok{if}\NormalTok{ x > }\DecValTok{0.0} \OperatorTok{\{}\NormalTok{ @x }\OperatorTok{\}} \KeywordTok{else} \OperatorTok{\{} \DecValTok{0.0} \OperatorTok{\}}
-\OperatorTok{\}}
-\end{Highlighting}
-\end{Shaded}
-
-Coordinate-aware custom rules carry the same bracketed parameters as the
-primal function.
-
-\vspace{2em}
-
-\hypertarget{why-the-compiler-reads-coordinates-too}{%
-\subsection{Why the Compiler Reads Coordinates
-Too}\label{why-the-compiler-reads-coordinates-too}}
-
-The preceding sections catalogued syntax. But syntax is only half the
-story. The other half is who reads it.
-
-The einlang compiler is not a single pass. It is a chain of readers, and
-each reader depends on coordinate names to do its job:
-
-\textbf{Shape inference} reads coordinate names to decide whether an
-expression is legal before it runs.
-\texttt{sum{[}k{]}(A{[}i,\ k{]}\ *\ B{[}k,\ j{]})} succeeds if
-\texttt{k} appears in both \texttt{A} and \texttt{B} and the non-reduced
-axes align. Without names, the check is integer matching: shape
-\texttt{{[}32,\ 64{]}} times shape \texttt{{[}64,\ 128{]}} is only legal
-if dimension 1 of the first equals dimension 0 of the second. Under
-names, the contract is: \texttt{i} survives from \texttt{A}, \texttt{j}
-survives from \texttt{B}, \texttt{k} appears in both and is consumed.
-The rule is the same rule a human uses to read the expression. The
-compiler becomes a reader of the same notation the programmer reads.
-
-\textbf{Gradient lowering} reads coordinate names to build the backward
-pass. When the compiler sees \texttt{@loss\ /\ @W{[}out,\ in{]}}, it
-must decide which coordinates to sum over. The rule: preserve the
-coordinates of \texttt{W}, sum over everything else. That rule works
-because the forward pass already recorded which coordinates survive,
-which are consumed, and which are omitted. The gradient passer reads
-that record backward.
-
-\textbf{Storage planning} reads coordinate names to decide which tensors
-can share memory. A recurrence
-\texttt{fib{[}n\ in\ 2..N{]}\ =\ fib{[}n-1{]}\ +\ fib{[}n-2{]}} creates
-a dependency along \texttt{n}. The compiler sees the index offset
-\texttt{n-1}, recognizes the backward edge, and allocates a rolling
-buffer---no materialization of the full sequence unless the full
-sequence is observed. The same logic applies to any recurrent
-coordinate: \texttt{t} in a time series, \texttt{layer} in a deep
-network unrolled as a recurrence.
-
-\textbf{Kernel fusion} reads coordinate names to decide which operations
-can be merged. Two elementwise operations on \texttt{x{[}b,\ t,\ d{]}}
-can fuse into one pass. A reduction over \texttt{d} cannot fuse with an
-operation that preserves \texttt{d}, because the coordinate disappears.
-The names draw the boundary: operations that share surviving coordinates
-can fuse; operations across a reduction boundary cannot.
-
-This is the design principle the compiler is built on. Every pass
-consumes a coordinate fact that the source makes explicit. No pass must
-reconstruct a coordinate fact from shapes, access patterns, or tracing.
-The source says it; the compiler reads it; the pass obeys it.
-
-The practical consequence: because the compiler reads coordinate names
-and not positional shapes, the execution strategy can change while the
-coordinate contract remains stable. The same program can run on a NumPy
-eager backend, an IREE compiled backend, or a future scheduler that
-fuses the sum and broadcast into a single kernel. The backends differ.
-The coordinate audit is constant.
-
-\vspace{2em}
-
-\hypertarget{error-codes-coordinate-relevant-subset}{%
-\subsection{Error Codes (Coordinate-Relevant
-Subset)}\label{error-codes-coordinate-relevant-subset}}
-
-Among einlang's error codes, two are especially relevant to the
-coordinate habit:
-
-\begin{itemize}
-\tightlist
-\item
-  \textbf{E003 (Undefined Variable)}: a coordinate name is referenced
-  but not declared. This catches typos in coordinate names that would
-  otherwise silently refer to the wrong dimension.
-\item
-  \textbf{E004 (Shape Mismatch)}: two uses of the same coordinate name
-  infer incompatible ranges. This catches the case where
-  \texttt{A{[}i,\ k{]}\ *\ B{[}k,\ j{]}} has mismatched \texttt{k}
-  sizes.
-\end{itemize}
-
-These two errors are the compiler's contribution to the coordinate
-audit. They catch the bugs that positional APIs leave to runtime or to
-silence.
-
-\vspace{2em}
-
-\hypertarget{what-the-syntax-serves}{%
-\subsection{What the Syntax Serves}\label{what-the-syntax-serves}}
-
-A grammar is not an end in itself. The einlang syntax exists to serve
-the coordinate habit:
-
-\begin{itemize}
-\tightlist
-\item
-  \textbf{Eliminate with a name}: \texttt{sum{[}channel{]}(...)} puts
-  the eliminated coordinate in the syntax.
-\item
-  \textbf{Copy with a signature}:
-  \texttt{out{[}i,\ j{]}\ =\ A{[}i,\ j{]}\ +\ bias{[}j{]}} puts the
-  broadcast coordinate in the indexing pattern.
-\item
-  \textbf{Permute with a source}:
-  \texttt{y{[}b,\ c,\ h,\ w{]}\ =\ x{[}b,\ h,\ w,\ c{]}} puts the
-  permutation in the coordinate correspondence.
-\item
-  \textbf{Forward and backward, symmetric}: \texttt{@loss\ /\ @W}
-  preserves coordinate structure through differentiation.
-\end{itemize}
-
-The syntax is the delivery mechanism. The habit is the payload.
-
-Without looking back at earlier chapters, try to write the einlang
-expression for: a matrix-vector product, a batched dot product, a
-softmax with numerical stability, a 1D convolution, a recurrent neural
-network cell. What did you remember? What did you reconstruct? The
-syntax has a small surface area---once you internalize the primitives,
-you can regenerate most of what you need from first principles. For each
-error you have seen in your own tensor programming, ask: would a
-named-coordinate compiler have caught this earlier? At what
-stage---parsing, shape inference, gradient lowering, runtime? The answer
-is almost always: earlier than where you caught it. This chapter is a
-map, not a reference manual. The syntax will evolve. The habit---write
-the coordinate names, make them explicit, let the compiler check
-them---will outlast any particular syntax.
-
-\newpage
-
-\hypertarget{chapter-15-the-simulation-that-looked-right}{%
-\section{Chapter 15 · The Simulation That Looked
-Right}\label{chapter-15-the-simulation-that-looked-right}}
-
-\begin{quote}
-``The great enemy of knowledge is not error, but the illusion of
-knowledge.''
-
---- Daniel J. Boorstin
-\end{quote}
-
-\emph{Diagnosis · A physicist audits a heat-equation simulation with the
-four habits}
+\hypertarget{diagnosis-the-simulation-that-looked-right}{%
+\subsection{Diagnosis: The Simulation That Looked
+Right}\label{diagnosis-the-simulation-that-looked-right}}
 
 \vspace{2em}
 
@@ -4816,9 +4788,9 @@ to see the stencil or just the fact that a Laplacian was applied.
 
 \newpage
 
-\hypertarget{chapter-16-the-night-before-the-run}{%
-\section{Chapter 16 · The Night Before the
-Run}\label{chapter-16-the-night-before-the-run}}
+\hypertarget{chapter-15-the-night-before-the-run}{%
+\section{Chapter 15 · The Night Before the
+Run}\label{chapter-15-the-night-before-the-run}}
 
 \begin{quote}
 ``The purpose of computing is insight, not numbers.''
@@ -5344,7 +5316,7 @@ go down---just for the wrong reasons.''
 Dana is silent for a moment. ``How do we verify this?''
 
 ``You don't need to. The compiler does. The autodiff rules from Chapter
-8 guarantee that \texttt{@loss\ /\ @out\_w} sums over exactly the
+7 guarantee that \texttt{@loss\ /\ @out\_w} sums over exactly the
 coordinates that \texttt{out\_w} omits. The coordinate structure of the
 gradient is determined by the coordinate structure of the forward pass.
 But the question---`does the backward reduction match the forward
@@ -5593,6 +5565,408 @@ the mask as a guard. The coordinate name \texttt{e} in the mask tells
 the reader: some expert slots may be empty, and the code accounted for
 it.
 
+\hypertarget{the-complete-picture}{%
+\subsection{The Complete Picture}\label{the-complete-picture}}
+
+\vspace{2em}
+
+This chapter contains no new syntax. It is a map of territory we have
+already explored.
+
+The preceding thirteen chapters introduced einlang's grammar piece by
+piece, each piece arriving when the concept it serves had earned its
+introduction. The result is a working knowledge of the language, but the
+pieces are scattered across chapters. This chapter assembles them into
+one place, organized by category rather than by pedagogical necessity.
+
+Think of it as the view from the summit. You climbed the mountain one
+trail at a time. Now you can see the whole range.
+
+\vspace{2em}
+
+\hypertarget{declarations}{%
+\subsection{Declarations}\label{declarations}}
+
+\textbf{\texttt{let}} binds an immutable name to a value:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ x = }\DecValTok{42}\NormalTok{;}
+\KeywordTok{let}\NormalTok{ pi: }\DataTypeTok{f64}\NormalTok{ = }\DecValTok{3.141592653589793}\NormalTok{;}
+\KeywordTok{let}\NormalTok{ matrix: }\OperatorTok{[}\DataTypeTok{f32}\NormalTok{; }\DecValTok{2}\NormalTok{, }\DecValTok{3}\OperatorTok{]}\NormalTok{ = }\OperatorTok{[[}\DecValTok{1.0}\NormalTok{, }\DecValTok{2.0}\NormalTok{, }\DecValTok{3.0}\OperatorTok{]}\NormalTok{, }\OperatorTok{[}\DecValTok{4.0}\NormalTok{, }\DecValTok{5.0}\NormalTok{, }\DecValTok{6.0}\OperatorTok{]]}\NormalTok{;}
+\end{Highlighting}
+\end{Shaded}
+
+Type annotations are optional. When present, the value must be
+compatible---same type, or a literal coercible to the annotated type.
+
+All \texttt{let} bindings are immutable. A name cannot be rebound in the
+same scope:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ x = }\DecValTok{10}\NormalTok{;}
+\KeywordTok{let}\NormalTok{ x = x + }\DecValTok{1}\NormalTok{;       }\CommentTok{// ERROR: redefinition of `x`}
+\KeywordTok{let}\NormalTok{ x_next = x + }\DecValTok{1}\NormalTok{;  }\CommentTok{// OK: new name}
+\end{Highlighting}
+\end{Shaded}
+
+\vspace{2em}
+
+\hypertarget{rectangular-declarations-1}{%
+\subsection{Rectangular Declarations}\label{rectangular-declarations-1}}
+
+A rectangular declaration binds a tensor by iterating over index
+variables:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ C}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{ = sum}\OperatorTok{[}\NormalTok{k}\OperatorTok{]}\NormalTok{(A}\OperatorTok{[}\NormalTok{i, k}\OperatorTok{]}\NormalTok{ * B}\OperatorTok{[}\NormalTok{k, j}\OperatorTok{]}\NormalTok{);}
+\end{Highlighting}
+\end{Shaded}
+
+The index variables on the left-hand side define the output tensor's
+coordinates. The compiler infers each variable's range by examining how
+it indexes arrays in the body. The index variables are in scope for the
+body and any attached \texttt{where} clause, but not outside the
+statement.
+
+Index slots in the declaration bracket may be: - A name: \texttt{i},
+\texttt{j}, \texttt{batch}---the standard case. - A name with an
+explicit domain: \texttt{i\ in\ 0..n}. - A literal: \texttt{0}---used
+for base cases in recurrences. - A named rest:
+\texttt{..batch}---standing for zero or more adjacent axes.
+
+Expressions are not allowed in the declaration bracket.
+\texttt{let\ fib{[}n-1{]}\ =\ ...} is an error.
+
+\vspace{2em}
+
+\hypertarget{reductions}{%
+\subsection{Reductions}\label{reductions}}
+
+A reduction consumes a coordinate:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ total = sum}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{(data}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{);}
+\KeywordTok{let}\NormalTok{ row_sums}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{ = sum}\OperatorTok{[}\NormalTok{j}\OperatorTok{]}\NormalTok{(matrix}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{);}
+\KeywordTok{let}\NormalTok{ col_sums}\OperatorTok{[}\NormalTok{j}\OperatorTok{]}\NormalTok{ = sum}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{(matrix}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{);}
+\end{Highlighting}
+\end{Shaded}
+
+Available operations: \texttt{sum}, \texttt{max}, \texttt{min},
+\texttt{prod}.
+
+Selection reductions return addresses rather than values:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ pred}\OperatorTok{[}\NormalTok{b}\OperatorTok{]}\NormalTok{ = argmax}\OperatorTok{[}\NormalTok{class}\OperatorTok{]}\NormalTok{(logits}\OperatorTok{[}\NormalTok{b, class}\OperatorTok{]}\NormalTok{);}
+\KeywordTok{let}\NormalTok{ route}\OperatorTok{[}\NormalTok{b, t}\OperatorTok{]}\NormalTok{ = argmax}\OperatorTok{[}\NormalTok{expert}\OperatorTok{]}\NormalTok{(gate_prob}\OperatorTok{[}\NormalTok{b, t, expert}\OperatorTok{]}\NormalTok{);}
+\end{Highlighting}
+\end{Shaded}
+
+The selected coordinate is consumed from the result shape. The address
+domain is tracked by the compiler for later indexed reads.
+
+\vspace{2em}
+
+\hypertarget{broadcasting}{%
+\subsection{Broadcasting}\label{broadcasting}}
+
+Einlang supports broadcasting in exactly two cases: - \textbf{Same
+rank}: two tensors with identical shapes can be combined elementwise. -
+\textbf{Tensor vs.~scalar}: a scalar can be combined with any tensor.
+
+For different-rank combinations, use explicit indexing. The coordinate
+omitted from a term is the coordinate being broadcast over:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ out}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{ = A}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{ + bias}\OperatorTok{[}\NormalTok{j}\OperatorTok{]}\NormalTok{;   }\CommentTok{// bias is broadcast over i}
+\end{Highlighting}
+\end{Shaded}
+
+\vspace{2em}
+
+\hypertarget{named-rest-indices}{%
+\subsection{Named Rest Indices}\label{named-rest-indices}}
+
+\texttt{..name} stands for zero or more adjacent axes, collectively
+given a name:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ result}\OperatorTok{[}\NormalTok{..batch, j}\OperatorTok{]}\NormalTok{ = x}\OperatorTok{[}\NormalTok{..batch, j}\OperatorTok{]}\NormalTok{ + bias}\OperatorTok{[}\NormalTok{j}\OperatorTok{]}\NormalTok{;}
+\KeywordTok{let}\NormalTok{ row_sum}\OperatorTok{[}\NormalTok{..batch}\OperatorTok{]}\NormalTok{ = sum}\OperatorTok{[}\NormalTok{j}\OperatorTok{]}\NormalTok{(x}\OperatorTok{[}\NormalTok{..batch, j}\OperatorTok{]}\NormalTok{);}
+\end{Highlighting}
+\end{Shaded}
+
+The same rest name must describe the same axis span within an
+expression.
+
+\vspace{2em}
+
+\hypertarget{where-clauses}{%
+\subsection{Where Clauses}\label{where-clauses}}
+
+A where clause attaches filters and intermediate bindings to a
+declaration:
+
+\textbf{Boolean guards} filter the domain:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ pos_sum = sum}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{(data}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{) }\KeywordTok{where}\NormalTok{ data}\OperatorTok{[}\NormalTok{i}\OperatorTok{]}\NormalTok{ > }\DecValTok{0}\NormalTok{;}
+\KeywordTok{let}\NormalTok{ upper}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{ = matrix}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]} \KeywordTok{where}\NormalTok{ i <= j;}
+\end{Highlighting}
+\end{Shaded}
+
+\textbf{Variable bindings} name intermediate values, scoped to the
+declaration:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ output}\OperatorTok{[}\NormalTok{i, j}\OperatorTok{]}\NormalTok{ = activated}
+    \KeywordTok{where}\NormalTok{ z = sum}\OperatorTok{[}\NormalTok{k}\OperatorTok{]}\NormalTok{(input}\OperatorTok{[}\NormalTok{i, k}\OperatorTok{]}\NormalTok{ * weight}\OperatorTok{[}\NormalTok{k, j}\OperatorTok{]}\NormalTok{) + bias}\OperatorTok{[}\NormalTok{j}\OperatorTok{]}\NormalTok{,}
+\NormalTok{          activated = }\KeywordTok{if}\NormalTok{ z > }\DecValTok{0.0} \OperatorTok{\{}\NormalTok{ z }\OperatorTok{\}} \KeywordTok{else} \OperatorTok{\{} \DecValTok{0.0} \OperatorTok{\}}\NormalTok{;}
+\end{Highlighting}
+\end{Shaded}
+
+Bindings are evaluated in order; later bindings can reference earlier
+ones.
+
+\textbf{Index arithmetic} in where-clause index positions computes
+derived coordinates:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ conv}\OperatorTok{[}\NormalTok{b, oc, oh, ow}\OperatorTok{]}\NormalTok{ = sum}\OperatorTok{[}\NormalTok{ic, kh, kw}\OperatorTok{]}\NormalTok{(}
+\NormalTok{    input}\OperatorTok{[}\NormalTok{b, ic, oh + kh, ow + kw}\OperatorTok{]}\NormalTok{ * weight}\OperatorTok{[}\NormalTok{oc, ic, kh, kw}\OperatorTok{]}
+\NormalTok{);}
+\end{Highlighting}
+\end{Shaded}
+
+\vspace{2em}
+
+\hypertarget{coordinate-aware-functions}{%
+\subsection{Coordinate-Aware
+Functions}\label{coordinate-aware-functions}}
+
+A function may declare coordinate parameters in brackets after its name:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{fn}\NormalTok{ softmax[j](x: }\OperatorTok{[}\DataTypeTok{f32}\NormalTok{; ..left, j, ..right}\OperatorTok{]}\NormalTok{)}
+\NormalTok{    -> }\OperatorTok{[}\DataTypeTok{f32}\NormalTok{; ..left, j, ..right}\OperatorTok{]}
+\OperatorTok{\{}\NormalTok{ ... }\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+The caller passes coordinate arguments in the same bracket position:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ p}\OperatorTok{[}\NormalTok{b, class}\OperatorTok{]}\NormalTok{ = softmax}\OperatorTok{[}\NormalTok{class}\OperatorTok{]}\NormalTok{(logits}\OperatorTok{[}\NormalTok{b, class}\OperatorTok{]}\NormalTok{);}
+\end{Highlighting}
+\end{Shaded}
+
+Coordinate arguments must be grounded in the argument's layout. The
+bracketed name is part of the call contract, not a comment.
+
+Packs (\texttt{..left}, \texttt{..right}, \texttt{..spatial}) make
+functions polymorphic over surrounding coordinate structure. A pack
+parameter declared with \texttt{..} in the function signature accepts a
+parenthesized coordinate group from the caller when disambiguation is
+needed.
+
+Coordinate facts flow through pointwise expressions automatically. A
+tensor bound with coordinate names carries those names through
+arithmetic, function calls, and control flow.
+
+\vspace{2em}
+
+\hypertarget{recurrence-relations}{%
+\subsection{Recurrence Relations}\label{recurrence-relations}}
+
+Self-referential rectangular declarations define sequences:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ fib}\OperatorTok{[}\DecValTok{0}\OperatorTok{]}\NormalTok{ = }\DecValTok{0}\NormalTok{;}
+\KeywordTok{let}\NormalTok{ fib}\OperatorTok{[}\DecValTok{1}\OperatorTok{]}\NormalTok{ = }\DecValTok{1}\NormalTok{;}
+\KeywordTok{let}\NormalTok{ fib}\OperatorTok{[}\NormalTok{n }\KeywordTok{in} \DecValTok{2.}\NormalTok{.}\DecValTok{8}\OperatorTok{]}\NormalTok{ = fib}\OperatorTok{[}\NormalTok{n-}\DecValTok{1}\OperatorTok{]}\NormalTok{ + fib}\OperatorTok{[}\NormalTok{n-}\DecValTok{2}\OperatorTok{]}\NormalTok{;}
+\end{Highlighting}
+\end{Shaded}
+
+The recurrence index range goes in the declaration bracket
+(\texttt{n\ in\ 2..8}). Backward references only---the compiler rejects
+reads at indices greater than or equal to the declaration index along
+any dimension.
+
+\vspace{2em}
+
+\hypertarget{automatic-differentiation}{%
+\subsection{Automatic Differentiation}\label{automatic-differentiation}}
+
+\texttt{@x} is the identity tangent seed of a named binding.
+\texttt{@y\ /\ @x} is the derivative of \texttt{y} with respect to
+\texttt{x}:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{let}\NormalTok{ dz_dx = @z / @x;}
+\end{Highlighting}
+\end{Shaded}
+
+For sum-of-products declarations (matmul, convolution), the compiler
+derives pullbacks automatically using coordinate set subtraction. The
+gradient of a recurrence is itself a recurrence, running backward along
+the time coordinate.
+
+Custom derivative rules use \texttt{@fn}:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{@fn relu(x) }\OperatorTok{\{}
+    \KeywordTok{if}\NormalTok{ x > }\DecValTok{0.0} \OperatorTok{\{}\NormalTok{ @x }\OperatorTok{\}} \KeywordTok{else} \OperatorTok{\{} \DecValTok{0.0} \OperatorTok{\}}
+\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+Coordinate-aware custom rules carry the same bracketed parameters as the
+primal function.
+
+\vspace{2em}
+
+\hypertarget{why-the-compiler-reads-coordinates-too}{%
+\subsection{Why the Compiler Reads Coordinates
+Too}\label{why-the-compiler-reads-coordinates-too}}
+
+The preceding sections catalogued syntax. But syntax is only half the
+story. The other half is who reads it.
+
+The einlang compiler is not a single pass. It is a chain of readers, and
+each reader depends on coordinate names to do its job:
+
+\textbf{Shape inference} reads coordinate names to decide whether an
+expression is legal before it runs.
+\texttt{sum{[}k{]}(A{[}i,\ k{]}\ *\ B{[}k,\ j{]})} succeeds if
+\texttt{k} appears in both \texttt{A} and \texttt{B} and the non-reduced
+axes align. Without names, the check is integer matching: shape
+\texttt{{[}32,\ 64{]}} times shape \texttt{{[}64,\ 128{]}} is only legal
+if dimension 1 of the first equals dimension 0 of the second. Under
+names, the contract is: \texttt{i} survives from \texttt{A}, \texttt{j}
+survives from \texttt{B}, \texttt{k} appears in both and is consumed.
+The rule is the same rule a human uses to read the expression. The
+compiler becomes a reader of the same notation the programmer reads.
+
+\textbf{Gradient lowering} reads coordinate names to build the backward
+pass. When the compiler sees \texttt{@loss\ /\ @W{[}out,\ in{]}}, it
+must decide which coordinates to sum over. The rule: preserve the
+coordinates of \texttt{W}, sum over everything else. That rule works
+because the forward pass already recorded which coordinates survive,
+which are consumed, and which are omitted. The gradient passer reads
+that record backward.
+
+\textbf{Storage planning} reads coordinate names to decide which tensors
+can share memory. A recurrence
+\texttt{fib{[}n\ in\ 2..N{]}\ =\ fib{[}n-1{]}\ +\ fib{[}n-2{]}} creates
+a dependency along \texttt{n}. The compiler sees the index offset
+\texttt{n-1}, recognizes the backward edge, and allocates a rolling
+buffer---no materialization of the full sequence unless the full
+sequence is observed. The same logic applies to any recurrent
+coordinate: \texttt{t} in a time series, \texttt{layer} in a deep
+network unrolled as a recurrence.
+
+\textbf{Kernel fusion} reads coordinate names to decide which operations
+can be merged. Two elementwise operations on \texttt{x{[}b,\ t,\ d{]}}
+can fuse into one pass. A reduction over \texttt{d} cannot fuse with an
+operation that preserves \texttt{d}, because the coordinate disappears.
+The names draw the boundary: operations that share surviving coordinates
+can fuse; operations across a reduction boundary cannot.
+
+This is the design principle the compiler is built on. Every pass
+consumes a coordinate fact that the source makes explicit. No pass must
+reconstruct a coordinate fact from shapes, access patterns, or tracing.
+The source says it; the compiler reads it; the pass obeys it.
+
+The practical consequence: because the compiler reads coordinate names
+and not positional shapes, the execution strategy can change while the
+coordinate contract remains stable. The same program can run on a NumPy
+eager backend, an IREE compiled backend, or a future scheduler that
+fuses the sum and broadcast into a single kernel. The backends differ.
+The coordinate audit is constant.
+
+\vspace{2em}
+
+\hypertarget{error-codes-coordinate-relevant-subset}{%
+\subsection{Error Codes (Coordinate-Relevant
+Subset)}\label{error-codes-coordinate-relevant-subset}}
+
+Among einlang's error codes, two are especially relevant to the
+coordinate habit:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{E003 (Undefined Variable)}: a coordinate name is referenced
+  but not declared. This catches typos in coordinate names that would
+  otherwise silently refer to the wrong dimension.
+\item
+  \textbf{E004 (Shape Mismatch)}: two uses of the same coordinate name
+  infer incompatible ranges. This catches the case where
+  \texttt{A{[}i,\ k{]}\ *\ B{[}k,\ j{]}} has mismatched \texttt{k}
+  sizes.
+\end{itemize}
+
+These two errors are the compiler's contribution to the coordinate
+audit. They catch the bugs that positional APIs leave to runtime or to
+silence.
+
+\vspace{2em}
+
+\hypertarget{what-the-syntax-serves}{%
+\subsection{What the Syntax Serves}\label{what-the-syntax-serves}}
+
+A grammar is not an end in itself. The einlang syntax exists to serve
+the coordinate habit:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Eliminate with a name}: \texttt{sum{[}channel{]}(...)} puts
+  the eliminated coordinate in the syntax.
+\item
+  \textbf{Copy with a signature}:
+  \texttt{out{[}i,\ j{]}\ =\ A{[}i,\ j{]}\ +\ bias{[}j{]}} puts the
+  broadcast coordinate in the indexing pattern.
+\item
+  \textbf{Permute with a source}:
+  \texttt{y{[}b,\ c,\ h,\ w{]}\ =\ x{[}b,\ h,\ w,\ c{]}} puts the
+  permutation in the coordinate correspondence.
+\item
+  \textbf{Forward and backward, symmetric}: \texttt{@loss\ /\ @W}
+  preserves coordinate structure through differentiation.
+\end{itemize}
+
+The syntax is the delivery mechanism. The habit is the payload.
+
+Without looking back at earlier chapters, try to write the einlang
+expression for: a matrix-vector product, a batched dot product, a
+softmax with numerical stability, a 1D convolution, a recurrent neural
+network cell. What did you remember? What did you reconstruct? The
+syntax has a small surface area---once you internalize the primitives,
+you can regenerate most of what you need from first principles. For each
+error you have seen in your own tensor programming, ask: would a
+named-coordinate compiler have caught this earlier? At what
+stage---parsing, shape inference, gradient lowering, runtime? The answer
+is almost always: earlier than where you caught it. This chapter is a
+map, not a reference manual. The syntax will evolve. The habit---write
+the coordinate names, make them explicit, let the compiler check
+them---will outlast any particular syntax.
+
 \newpage
 
 \hypertarget{epilogue-a-friend-named-einlang}{%
@@ -5609,8 +5983,8 @@ Interpretation of Computer Programs}
 
 \vspace{2em}
 
-In Chapter 6, einlang was a name. A label for the notation we'd been
-building since Chapter 3. Now, at the end of sixteen chapters, you know
+In Chapter 5, einlang was a name. A label for the notation we'd been
+building since Chapter 3. Now, at the end of fifteen chapters, you know
 what the name actually refers to.
 
 Einlang is not a language in the sense that Python is a language, or

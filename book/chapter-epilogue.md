@@ -11,7 +11,7 @@ title: "Epilogue · A Friend Named einlang"
 
 ---
 
-In Chapter 6, einlang was a name. A label for the notation we'd been building since Chapter 3. Now, at the end of sixteen chapters, you know what the name actually refers to.
+In Chapter 5, einlang was a name. A label for the notation we'd been building since Chapter 3. Now, at the end of fifteen chapters, you know what the name actually refers to.
 
 Einlang is not a language in the sense that Python is a language, or C++, or Rust. It does not aspire to run your web server or render your UI. It is a language built on three ideas: primitive expressions, means of combination, and means of abstraction—organized around a single purpose.
 
