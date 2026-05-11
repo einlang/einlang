@@ -13,13 +13,11 @@ title: "Appendix · The Complete Picture"
 
 ---
 
-This chapter contains no new syntax. It is a map of territory already explored.
-
-The preceding fourteen chapters introduced Einlang's grammar piece by piece, each piece arriving when the concept it served had earned its introduction. The result is a working knowledge of the language, but the pieces are scattered across chapters. This chapter assembles them into one place, organized by category rather than by pedagogical necessity.
+The preceding fourteen chapters introduced Einlang's grammar piece by piece, each piece arriving when the concept it served had earned its introduction. What follows assembles them into one place, organized by category rather than by pedagogical necessity.
 
 Think of it as the view from the summit. You climbed the mountain one trail at a time. Now you can see the whole range.
 
-But before I show you my map, draw your own.
+But first, draw your own map.
 
 ---
 
@@ -87,21 +85,21 @@ A coordinate has a name, a domain, a position (Ch1)
     │       │
     │       └──► @fn: custom derivative rules carry coordinate contracts (Ch7)
     │
-    ├──► Comparisons: same computation, two notations (Ch9–11)
+    ├──► Comparisons: same computation, two notations (Ch12–14)
     │       │
-    │       ├──► Normalization: GroupNorm reshape chain vs named groups (Ch9)
-    │       ├──► Attention: identical PyTorch, distinct Einlang signatures (Ch10)
-    │       └──► Physics: integer field indices vs named field coordinates (Ch11)
+    │       ├──► Normalization: GroupNorm reshape chain vs named groups (Ch12)
+    │       ├──► Attention: identical PyTorch, distinct Einlang signatures (Ch13)
+    │       └──► Physics: integer field indices vs named field coordinates (Ch14)
     │
-    └──► Compiler construction (Ch12–14)
+    └──► Compiler construction (Ch9–11)
             │
-            ├──► IR: S-expressions preserve every name (Ch12)
+            ├──► IR: S-expressions preserve every name (Ch9)
             │
-            ├──► Analysis: range → shape → type, five check rules (Ch13)
+            ├──► Analysis: range → shape → type, five check rules (Ch10)
             │
-            └──► Lowering: names → integers, three strategies (Ch14)
+            └──► Lowering: names → integers, three strategies (Ch11)
                     │
-                    └──► Firewood: names burn, heat remains (Ch14)
+                    └──► Firewood: names burn, heat remains (Ch11)
 ```
 
 Every path begins at the `dim=1` bug. Every arrow is a question the bug forced us to ask. The map is not the territory—but it shows how the trails connect.
@@ -278,17 +276,17 @@ Coordinate-aware custom rules carry the same bracketed parameters as the primal 
 
 The preceding sections catalogued syntax. But syntax is only half the story. Each compiler pass depends on coordinate names to do its job. *These passes are described in Chapters 12–14.*
 
-**Shape inference** (Ch12–13) reads coordinate names to decide whether an expression is legal before it runs. `sum[k](A[i, k] * B[k, j])` succeeds if `k` appears in both `A` and `B`. Under names, the contract is: `i` survives from `A`, `j` survives from `B`, `k` appears in both and is consumed.
+**Shape inference** (Ch9–10) reads coordinate names to decide whether an expression is legal before it runs. `sum[k](A[i, k] * B[k, j])` succeeds if `k` appears in both `A` and `B`. Under names, the contract is: `i` survives from `A`, `j` survives from `B`, `k` appears in both and is consumed.
 
-**Range analysis** (Ch13) finds the domain of every axis: from array shapes, from literals, or from explicit declarations. Every coordinate gets a concrete range before code generation.
+**Range analysis** (Ch10) finds the domain of every axis: from array shapes, from literals, or from explicit declarations. Every coordinate gets a concrete range before code generation.
 
-**Five check rules** (Ch13) verify the IR: index existence, reduction consistency, broadcast recording, causality, and coordinate contract at call sites. Each catches a class of bug that positional notation silently accepts.
+**Five check rules** (Ch10) verify the IR: index existence, reduction consistency, broadcast recording, causality, and coordinate contract at call sites. Each catches a class of bug that positional notation silently accepts.
 
-**Gradient lowering** (Ch14) reads coordinate names to build the backward pass. The rule: preserve the coordinates of `W`, sum over everything else. Set subtraction, applied to coordinate names, derives the pullback.
+**Gradient lowering** (Ch11) reads coordinate names to build the backward pass. The rule: preserve the coordinates of `W`, sum over everything else. Set subtraction, applied to coordinate names, derives the pullback.
 
-**Storage planning** (Ch14) reads coordinate names to decide which tensors can share memory. A recurrence creates a dependency chain; the compiler allocates a rolling buffer.
+**Storage planning** (Ch11) reads coordinate names to decide which tensors can share memory. A recurrence creates a dependency chain; the compiler allocates a rolling buffer.
 
-**Kernel fusion** (Ch14) reads coordinate names to decide which operations can be merged. Operations that share surviving coordinates can fuse; operations across a reduction boundary cannot.
+**Kernel fusion** (Ch11) reads coordinate names to decide which operations can be merged. Operations that share surviving coordinates can fuse; operations across a reduction boundary cannot.
 
 ---
 
@@ -296,25 +294,110 @@ The preceding sections catalogued syntax. But syntax is only half the story. Eac
 
 Three errors are especially relevant to the coordinate habit. You won't memorize error codes from a book. But reading them now means you'll recognize them when they appear:
 
-- **E003 (Undefined Coordinate)**: a coordinate name is referenced but does not exist on the tensor. `softmax[nonexistent](logits)` — caught at the call site. The error message names the missing coordinate and the tensor that lacks it. This is the compiler version of "you wrote `dim=1` but the tensor has no dimension 1." Unlike the positional version, the error tells you *which name* was expected.
+- **E003 (Undefined Coordinate)**: a coordinate name is referenced but does not exist on the tensor.
+- **E004 (Coordinate Range Mismatch)**: two uses of the same coordinate name infer incompatible ranges.
+- **E006 (Coordinate Contract Violation)**: a function call supplies a coordinate argument that does not match the function's declared coordinate parameter layout.
 
-- **E004 (Coordinate Range Mismatch)**: two uses of the same coordinate name infer incompatible ranges. `A[i, k] * B[k, j]` where `k` has range 64 in `A` but 128 in `B`. The shapes would produce a runtime error. The compiler catches it at analysis time and tells you which tensor declares which range.
+### Error Walkthrough
 
-- **E006 (Coordinate Contract Violation)**: a function call supplies a coordinate argument that does not match the function's declared coordinate parameter layout. `softmax[batch](logits[batch, class])` where `softmax` expects `j` and preserves it in the return type, but `batch` is in `..left` — the contract is violated. The error message shows the expected layout and the actual layout side by side.
+A list of error codes is a reference. A walkthrough is a skill. Here are the three errors as you would encounter them in practice: source, message, reading, and fix.
 
-These errors catch the bugs that positional APIs leave to runtime or to silence. They exist because the coordinate names exist. No names → no E003. No coordinate-aware functions → no E006. The error codes are not arbitrary. They are the compiler saying, in structured form: "the name you wrote does not match the names the program declares."
+---
+
+**E003: The typo that silence would swallow.**
+
+You write a softmax with a coordinate that doesn't exist:
+
+```rust
+let probs[batch, class] = softmax[clss](logits[batch, class]);
+```
+
+The compiler responds:
+
+```
+Error[E003]: Undefined coordinate `clss` in reduction `softmax[clss]`
+  → line 12, column 35
+  `clss` is not declared on any tensor in the reduction body.
+  Declared coordinates on `logits`: batch, class
+  Hint: did you mean `class`?
+```
+
+Reading the error: the compiler names the offending coordinate (`clss`), shows you which coordinates actually exist on the tensor (`batch, class`), and suggests the correction. In a positional API, `softmax(logits, dim=1)` would run without error—and silently normalize over whatever axis happens to be at position 1.
+
+Fix: `s/clss/class/`. One keystroke, caught at compile time.
+
+---
+
+**E004: The shape mismatch that surfaces before runtime.**
+
+You multiply two matrices with incompatible contraction dimensions:
+
+```rust
+let C[i, j] = sum[k](A[i, k] * B[k, j]);
+```
+
+If `A` has `k = 64` but `B` has `k = 128`:
+
+```
+Error[E004]: Coordinate range mismatch for `k`
+  → line 8, column 25
+  `k` inferred as 64 from `A[i, k]` (declared at line 5)
+  `k` inferred as 128 from `B[k, j]` (declared at line 6)
+  These ranges must be equal for contraction.
+```
+
+Reading the error: the compiler tracked the size of `k` through both declarations, compared them at the reduction site, and found a contradiction. The error names both tensors and both ranges. In a positional API, this becomes `RuntimeError: size mismatch, m1: [32 x 64], m2: [128 x 64]`—which tells you the shapes but not which axis is wrong, which declaration caused it, or what the expected size should be.
+
+Fix: align the declarations of `k`. The error tells you exactly where to look.
+
+---
+
+**E006: The contract that positional APIs leave as a comment.**
+
+You call a function with a coordinate parameter that violates its contract:
+
+```rust
+fn layer_norm[feature](x: [f32; batch, feature]) -> [f32; batch, feature] {
+    let mean[batch] = mean[feature](x);
+    let var[batch] = var[feature](x, mean[batch]);
+    (x - mean[batch]) / sqrt(var[batch] + 1e-5)
+}
+
+let h[batch, channel] = layer_norm[batch](x[batch, channel]);
+```
+
+The compiler responds:
+
+```
+Error[E006]: Coordinate contract violation in call to `layer_norm`
+  → line 20, column 27
+  `layer_norm` expects coordinate parameter `feature` (consumed by reduction)
+  Called with `batch`, which appears in `..left` position of argument `x`
+  Expected layout: feature is consumed; batch survives
+  Actual layout:   batch would be consumed; feature is not in reduction
+```
+
+Reading the error: `layer_norm`'s contract says "I consume `feature` and preserve `batch`." The call says "consume `batch`." The two don't match. The compiler shows both the expected contract and the actual call site, so you can compare them side by side. In a positional API, `layer_norm(x, dim=-1)` would run—and normalize over `batch` instead of `feature` if the tensor happened to be transposed.
+
+Fix: `layer_norm[feature](x[batch, channel])`. The coordinate parameter matches the contract.
+
+---
+
+These three errors share a structure. Each one: (1) names the coordinate involved, (2) shows where it was declared and where it was used, (3) states what was expected versus what was found. The structure is not Einlang-specific. It is the structure of any good type error. The coordinate names make it possible.
+
+No names → no E003. No coordinate-aware functions → no E006. The error codes are not arbitrary. They are the compiler saying, in structured form: "the name you wrote does not match the names the program declares."
 
 ---
 
 ## How to Use This Chapter
 
-This chapter is built to be revisited. Not read cover to cover—opened to the section you need.
+This reference is built to be revisited—opened to the section you need.
 
 If you're writing a new Einlang function and can't remember the exact syntax for a recurrence declaration, open to "Recurrence Relations." If you're debugging a coordinate mismatch and want to re-derive the pullback rule, open to "Automatic Differentiation." If you're designing a new operation and want to check whether it fits the existing primitives, trace it through the Thought Map.
 
 The syntax reference is the scaffolding. The thought map is the blueprint. Together they let you rebuild what you need without rereading the whole book.
 
-But the most important section of this chapter is not the syntax. It is the four-question audit table. Those four questions work in any framework. They are the coordinate habit, reduced to its smallest portable form. Copy them. Tape them to your monitor. Use them on your next tensor bug.
+But the most important section here is not the syntax. It is the four-question audit table. Those four questions work in any framework. They are the coordinate habit, reduced to its smallest portable form. Copy them. Tape them to your monitor. Use them on your next tensor bug.
 
 ---
 
@@ -390,7 +473,7 @@ Two broadcasts. `gamma` and `beta` silently copy over `batch`. `mean` and `var` 
 
 **Principle 4 applied: Functions must declare their coordinate contracts.**
 
-```python
+```rust
 fn layer_norm[feature](x: [f32; ..batch, feature], gamma: [f32; feature], beta: [f32; feature])
     -> [f32; ..batch, feature]
 ```
@@ -453,9 +536,89 @@ The four questions are a checklist. Run through them in order. The answer to at 
 
 ---
 
-The syntax has a small surface area. Once you internalize the primitives—naming, reducing, broadcasting, recurring, differentiating—you can regenerate most of what you need from first principles. The thought map above shows how they connect. The syntax reference records what they are.
+## Bug Bounty: Spot the Silent Bug
 
-The syntax will evolve. The thought map will grow. The habit—write the coordinate names, make the omissions explicit, let the compiler check the contracts—will outlast any particular syntax.
+The best way to internalize what the coordinate habit catches is to try catching bugs yourself. Below are five real-world patterns. Each one compiles and runs without error in a positional API. Each one is wrong. For each: (1) find the bug, (2) explain why the positional compiler is silent, (3) write the Einlang version that would have caught it.
+
+---
+
+**Bug 1: The Shifting Axis.**
+
+```python
+def process(x, w):
+    x = x.transpose(1, 2)          # swap spatial and channel
+    out = torch.softmax(x, dim=1)   # softmax over... which axis now?
+    return out @ w
+```
+
+The transpose changed which axis sits at position 1. `dim=1` refers to a different coordinate before and after the transpose. The code runs. The softmax normalizes over the wrong axis.
+
+In Einlang: `softmax[channel]` — the name doesn't shift when the tensor is transposed.
+
+---
+
+**Bug 2: The Vanishing Dimension.**
+
+```python
+def aggregate(features):
+    pooled = features.mean(dim=(2, 3))   # pool spatial dims
+    return pooled @ classifier            # [b, c] @ [c, classes]
+```
+
+`features` is `(batch, channel, height, width)`. `mean(dim=(2, 3))` pools over positions 2 and 3—which are `height` and `width`. Correct. But six months later, someone adds a temporal dimension: `(batch, channel, time, height, width)`. `(2, 3)` now pools `time` and `height`. `width` survives. The code runs. The pooling is over the wrong coordinates.
+
+In Einlang: `mean[height, width](features)` — the names are the same regardless of position. Adding `time` doesn't shift them.
+
+---
+
+**Bug 3: The Broadcast That Shouldn't Be.**
+
+```python
+def apply_mask(scores, mask):
+    return scores * mask
+```
+
+`scores` is `(batch, heads, seq_q, seq_k)`. `mask` is `(batch, 1, 1, seq_k)`. Broadcasting expands `mask` along `heads` (dim=1) and `seq_q` (dim=2). The code runs. But should the mask broadcast over `heads`? If different heads should see different masks—for example, head 0 attends locally, head 1 attends globally—broadcasting is semantically wrong. The positional broadcast is silent on *why* `heads` and `seq_q` are omitted.
+
+In Einlang: `scores[batch, head, q, k] * mask[batch, k]` — the absence of `head` and `q` from `mask`'s brackets is recorded. The compiler confirms: broadcast over `head` and `q`. If that broadcast is not justified, the brackets make the unjustified claim visible.
+
+---
+
+**Bug 4: The Gradient Gap.**
+
+```python
+def contrastive_loss(embeddings_a, embeddings_b):
+    logits = embeddings_a @ embeddings_b.T   # [b, b]
+    labels = torch.arange(logits.shape[0])
+    return F.cross_entropy(logits, labels)
+```
+
+`cross_entropy` consumes `dim=-1` (the class dimension). The output is a scalar. But the user intended `loss[batch]` — per-sample loss for later weighting. `cross_entropy(logits, labels, reduction='none')` would preserve the batch dimension, but that's a keyword argument, not a coordinate specification. The default reduction consumed a coordinate silently.
+
+In Einlang: `cross_entropy[class](logits[batch, class], labels[batch])` — the bracket says which coordinate is consumed. If you want `loss[batch]`, you see that `class` was consumed and `batch` survived. The output coordinates are explicit.
+
+---
+
+**Bug 5: The Contract That Was Only a Comment.**
+
+```python
+# x: (batch, seq, feature)
+# mask: (batch, seq) — broadcasts over feature
+def masked_mean(x, mask):
+    return (x * mask.unsqueeze(-1)).sum(dim=1) / mask.sum(dim=1, keepdim=True)
+```
+
+The comment says `mask.sum(dim=1)` reduces over `seq`. Someone refactors: `x` now has shape `(batch, seq, num_heads, feature)`. The `unsqueeze(-1)` still adds one dimension. `dim=1` now refers to `seq`—but wait, is `num_heads` at position 2? The `dim=1` reduction silently shifted from `seq` to... still `seq`? It depends on whether the refactor inserted `num_heads` before or after `seq`. The comment doesn't enforce anything. The position depends on convention, and convention is not checked.
+
+In Einlang: `fn masked_mean[seq](x: [f32; batch, seq, ..rest], mask: [f32; batch, seq])` — the contract declares that `seq` is consumed, and the compiler checks it at every call site. Inserting a new dimension doesn't change which coordinate `seq` refers to.
+
+---
+
+Five bugs. None of them throw an error in a positional API. All of them produce wrong results that pass silently into downstream computations, where the symptom will be a slightly worse metric, not a crash.
+
+The compiler checks described in this book—the five rules, the error codes, the lowering verifications—exist to catch these five bugs before they reach runtime. The compiler is not a luxury. It is a tool for making the coordinate habit machine-checkable.
+
+Try this yourself: open your most recent project. Find a `dim=` argument. Ask which coordinate it refers to. If you can't answer from the code alone—if you had to run the program or check the data loader to know—you have found a silent bug waiting to happen. The gap between the integer and the identity is the bug's hiding place.
 
 ---
 
@@ -485,6 +648,6 @@ This book built a naming system for the ideas it introduced. Here they are, gath
 
 **Lowering.** The final stage of the compiler: names become integers. The name is burned. The integer is correct because the name was verified.
 
-These words are not decoration. They are the book's own coordinate system. Their job is the same as the job of the bracket: to give a fact a place to live, so it can be checked.
+These words are not decoration. They are the text's own coordinate system. Their job is the same as the job of the bracket: to give a fact a place to live, so it can be checked.
 
 Turn the page.

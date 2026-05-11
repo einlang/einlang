@@ -15,17 +15,17 @@ title: "Chapter 2 · The Megaphone's Promise"
 
 A permutation moves coordinates around. A reduction makes one disappear. A broadcast makes one appear where it wasn't.
 
-Reduction and broadcasting are inverses. They govern which coordinates a value depends on—and which it doesn't. This chapter introduces both, unified by a single intuition: **a tensor is a speaker that speaks on some coordinates and stays silent on others.** The ones it stays silent on, it gets copied. The ones it speaks on, it can be summed away.
+Reduction and broadcasting are inverses. They govern which coordinates a value depends on—and which it doesn't. The intuition: **a tensor is a speaker that speaks on some coordinates and stays silent on others.** The ones it stays silent on, it gets copied. The ones it speaks on, it can be summed away.
 
 Chapter 1's parking lot showed what happens when a position moves: your ticket says D-7 but the car that was there is gone. Now face the more common case. The position didn't move. The car did. You sit in the same seat, but the class changed from math to history. `dim=1` still points to axis 1—but axis 1 used to be `channel`, and now it's `spatial`. The number is stable. The meaning drifted.
 
-We'll call this the megaphone model. Once you have it, you have the core of every tensor computation.
+This is the megaphone model. Once you have it, you have the core of every tensor computation.
 
 ---
 
 ## The Four Operations: A First Look
 
-Every tensor computation is built from four primitive operations. You have already seen permutation in Chapter 1. This chapter covers reduction and broadcasting—the two operations that consume and copy coordinates. Contraction appears in Chapter 3. For now, here is what each one looks like in two notations, and what each notation records.
+Every tensor computation is built from four primitive operations. Here is what each one looks like in two notations, and what each notation records.
 
 | Operation | PyTorch/NumPy | Einlang | What the name records |
 |:---|:---|:---|:---|
@@ -52,7 +52,7 @@ let out[i, j] = A[i, j] + bias[j];
 
 This is broadcasting. Not a shape-compatibility hack. A semantic declaration: "this value does not depend on that coordinate." The claim is **statically verifiable**: every use of `bias` is traced, and if any context requires `bias` to vary with `i`, the omission is flagged. Broadcasting is a promise, and the promise is checked.
 
-> **Silence and omission.** Throughout this book, two words describe the same phenomenon from different angles. *Silence* is the semantic side: a tensor's declaration that it does not depend on a particular coordinate. When `bias[j]` is silent on `i`, it claims independence from batch identity. *Omission* is the syntactic side: the coordinate name is absent from the tensor's index pattern. The bracket `[j]` contains `j` but not `i`—`i` is omitted. Silence is the meaning. Omission is the mechanism. You will see both words used throughout this book: *silence* when the topic is what the code asserts, *omission* when the topic is what the brackets show. The distinction is not pedantic—it is the difference between a claim and the evidence for it.
+> **Silence and omission.** Two words describe the same phenomenon from different angles. *Silence* is the semantic side: a tensor's declaration that it does not depend on a particular coordinate. When `bias[j]` is silent on `i`, it claims independence from batch identity. *Omission* is the syntactic side: the coordinate name is absent from the tensor's index pattern. The bracket `[j]` contains `j` but not `i`—`i` is omitted. Silence is the meaning. Omission is the mechanism. Use *silence* when the topic is what the code asserts, *omission* when the topic is what the brackets show. The distinction is not pedantic—it is the difference between a claim and the evidence for it.
 
 Now stop. Look at that line again: `let out[i, j] = A[i, j] + bias[j]`. Ask yourself: does `bias` depend on `i`? How do you know?
 
@@ -78,9 +78,7 @@ No execution required. The brackets contain all the information needed. Every br
 
 ---
 
-### Follow Along: Derive the Broadcast Yourself
-
-Stop reading. Pick up a pen or open a text file. We're going to work through a broadcast derivation together. The result will be one number—the set of coordinates that broadcast. But the process is the point.
+### The Broadcast Derivation
 
 Here is the expression:
 
@@ -90,18 +88,7 @@ let out[b, c, h, w] = x[b, c, h, w] + scale[c, w];
 
 `x` is a 4D tensor. `scale` is 2D. The output `out` is 4D. Broadcasting must be happening—`scale` has two coordinates, but the output has four. Which coordinates does `scale` broadcast over?
 
-Take two minutes. Write down:
-
-1. The output coordinate set.
-2. `x`'s coordinate set.
-3. `scale`'s coordinate set.
-4. For each operand: output set minus operand set. The difference is the broadcast coordinates.
-
-Don't scroll down until you have answers.
-
----
-
-Done? Compare.
+Look at what the brackets contain. The output has `{b, c, h, w}`. `x` has `{b, c, h, w}`. `scale` has `{c, w}`. The difference—output set minus operand set—is the broadcast:
 
 ```
 Output coordinates:  {b, c, h, w}
@@ -109,7 +96,9 @@ x's coordinates:     {b, c, h, w}  → broadcasts over: {}      (no omission)
 scale's coordinates: {c, w}        → broadcasts over: {b, h}  (omitted b and h)
 ```
 
-`scale` broadcasts over `b` and `h`. It is silent on batch and height. It speaks on channel and width.
+No arithmetic, no execution. The brackets contain the answer. `scale` broadcasts over `b` and `h`. It is silent on batch and height. It speaks on channel and width.
+
+What just happened: you compared coordinate sets. `x`'s brackets contain all four output coordinates—nothing missing. `scale`'s brackets contain only `{c, w}`—the missing two, `{b, h}`, are the broadcast. This is coordinate set subtraction, performed directly from the brackets, without shape arithmetic.
 
 Now the crucial follow-up question: **is this broadcast semantically correct?**
 
@@ -127,7 +116,7 @@ Where does `scale` broadcast? You'd need to decode the `None` positions, map the
 
 The Einlang version records the claim: `scale` is silent on `b` and `h`. The claim is visible. The claim is auditable. If the claim is wrong, the reader can see it. If the claim is right, the reader can verify it. Either way, the information is in the notation.
 
-You just performed coordinate set subtraction by hand. The compiler does the same thing, mechanically, for every expression in your program. The difference is that the compiler does it for all of them, every time, without fatigue.
+That is coordinate set subtraction—mechanical, exhaustible, requiring only the brackets. The compiler does the same thing for every expression in your program, every time, without fatigue. The difference is that the compiler does it for all of them.
 
 ---
 
@@ -145,7 +134,7 @@ Reduction and broadcasting are the same megaphone, pointed in opposite direction
 
 ### Three Megaphones, Three Claims
 
-The megaphone model becomes more interesting when multiple tensors interact, each with different silence patterns. Let's walk through three scenarios, each layering an additional claim.
+The megaphone model becomes more interesting when multiple tensors interact, each with different silence patterns. Three scenarios, each layering an additional claim.
 
 **Scenario 1: One megaphone.** `bias[j]` is silent on `i`. The claim is simple: bias is independent of the batch. The coordinate set subtraction says `{i, j} - {j} = {i}`—bias broadcasts over `i`. One megaphone, one silence, one claim.
 
@@ -179,13 +168,13 @@ A wrong name is a visible error. A missing name is an invisible one. This has be
 
 ## Rectangular Declarations
 
-Before we can eliminate or broadcast a coordinate, we need to name the ones we're keeping. In Einlang, you name coordinates with a **rectangular declaration**:
+To eliminate or broadcast a coordinate, name the ones being kept. In Einlang, you name coordinates with a **rectangular declaration**:
 
 ```rust
 let doubled[i, j] = matrix[i, j] * 2.0;
 ```
 
-The `let` binds a new, immutable tensor. The `[i, j]` on the left declares the output coordinates—the new tensor will have two dimensions, and we are naming them `i` and `j`. The `matrix[i, j]` on the right indexes the input tensor `matrix` by those same coordinates. It is inferred that `i` ranges from `0` to `matrix.shape[0]` and `j` from `0` to `matrix.shape[1]`.
+The `let` binds a new, immutable tensor. The `[i, j]` on the left declares the output coordinates—the new tensor will have two dimensions, named `i` and `j`. The `matrix[i, j]` on the right indexes the input tensor `matrix` by those same coordinates. It is inferred that `i` ranges from `0` to `matrix.shape[0]` and `j` from `0` to `matrix.shape[1]`.
 
 This is not a loop. It is a declaration. You are stating a fact: "for all `i` and `j` in their respective domains, `doubled[i, j]` equals `matrix[i, j] * 2.0`." Iteration is handled automatically. You handle the meaning.
 
@@ -245,7 +234,7 @@ This takes five seconds. It catches the bug where `sum[class]` silently became `
 
 ## Matrix Multiplication
 
-With rectangular declarations and reductions, we have enough machinery to write matrix multiplication:
+Rectangular declarations and reductions provide enough machinery to write matrix multiplication:
 
 ```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j]);
@@ -414,21 +403,18 @@ Output: [b,  c,  h,  w]
 
 The arrows trace where each coordinate goes. `b` stays. `c` moves from position 4 to position 2. `h` and `w` shift. The ledger records the mapping, not the positions. If the input layout changes—if it becomes `[b, w, h, c]`—the arrows still find their targets, because the arrows connect names, not numbers.
 
-Now try the ledger yourself on this expression. Take two minutes:
+The ledger applied to a complex expression:
 
 ```rust
 let norm[i] = sum[j]( (A[i, j] - mean[j](A[i, j])) ** 2.0 ) ** 0.5;
 ```
 
-Draw the ledger. Identify:
-1. Which coordinates survive?
-2. Which coordinates are consumed?
-3. Which coordinates broadcast (if any)?
+Look at the brackets. The left-hand side names `i`—that is the survivor. `sum[j]` and `mean[j]` both name `j`—that is consumed. Now the subtraction `A[i, j] - mean[j](A[i, j])`: `mean[j](A[i, j])` produces `{i}` because `mean` consumed `j`. But `A[i, j]` has `{i, j}`. Set subtraction: `{i, j} - {i} = {j}`. The mean result broadcasts back over `j`—the coordinate it just consumed.
 
-Answers:
+What just happened: the ledger reveals three things from the brackets alone:
 - Survivors: `{i}` (appears on the left-hand side)
 - Consumed: `{j}` (consumed by both `mean[j]` and `sum[j]`)
-- Broadcasts: The subtraction `A[i, j] - mean[j](A[i, j])` requires `mean[j](A[i, j])` to broadcast back over `j`. The broadcast is implicit in the expression but explicit in the coordinate sets: `A[i, j]` has `{i, j}`, `mean[j](A[i, j])` has `{i}` (because `mean` consumed `j`). Set subtraction: `{i, j} - {i} = {j}`. The mean broadcasts over `j`.
+- Broadcasts: `{j}` — the mean's result broadcasts back over the coordinate it consumed
 
 The positional equivalent of this three-column ledger is `A.mean(dim=1, keepdim=True)`. The `keepdim=True` is the positional way of saying "broadcast back over the consumed coordinate." The ledger for the named version records *which* coordinate. The ledger for the positional version records *that* a coordinate was kept—but not which one.
 
@@ -498,13 +484,11 @@ The four errors form a gradient. Error 1 is caught unconditionally (name mismatc
 
 ---
 
-We have now covered the four primitives of tensor computation: naming (a coordinate has an identity), permutation (coordinates move by name, not position), reduction (the consumed coordinate is named in the bracket), and broadcasting (the omitted coordinate is visible by its absence). They all flow from a single idea: **the megaphone.** A tensor speaks on some coordinates and stays silent on others. Reduction silences a coordinate. Broadcast copies along one the tensor was already silent on. Naming makes the coordinates audible. Permutation moves them without changing who speaks.
-
-In the next chapter, we begin composing these primitives into functions—functions whose coordinate contracts are part of their type, statically checked at every call site.
+The preceding sections covered the four primitives of tensor computation: naming (a coordinate has an identity), permutation (coordinates move by name, not position), reduction (the consumed coordinate is named in the bracket), and broadcasting (the omitted coordinate is visible by its absence). They all flow from a single idea: **the megaphone.** A tensor speaks on some coordinates and stays silent on others. Reduction silences a coordinate. Broadcast copies along one the tensor was already silent on. Naming makes the coordinates audible. Permutation moves them without changing who speaks.
 
 ---
 
-*Find a broadcast in your code. Not one you intentionally wrote—one that happened because a shape broadcast aligned. Can you name the coordinate it copies along? Is the broadcast semantically justified? If you cannot answer both questions, you have found a silence that should be a claim.*
+*Every codebase has broadcasts that happened because a shape aligned, not because a claim was made. Can you name the coordinate each one copies along? Is each broadcast semantically justified? A broadcast you cannot name and justify is a silence that should be a claim.*
 
 ---
 
@@ -516,4 +500,4 @@ Every broadcast is a claim. Before you move on, ask these three questions of any
 2. **Is it genuinely independent of that coordinate?** Does the value make sense without it?
 3. **If the dimension order changed, would this broadcast still be correct?**
 
-If you can't answer all three with confidence, the broadcast is an accident of shape alignment, not a defended claim. Chapter 4 will give you a formal framework for checking these answers—the Inversion Rule. For now, the questions themselves are the habit.
+If you can't answer all three with confidence, the broadcast is an accident of shape alignment, not a defended claim. For now, the questions themselves are the habit.

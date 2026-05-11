@@ -1,9 +1,9 @@
 ---
 layout: book
-title: "Chapter 11 · Comparison: Physics"
+title: "Chapter 14 · Comparison: Physics"
 ---
 
-# Chapter 11 · Comparison: Physics
+# Chapter 14 · Comparison: Physics
 
 > "The map is not the territory—but when the map says 'temperature' and the territory says 'pressure,' you have a problem that no amount of correct math can fix."
 >
@@ -15,9 +15,9 @@ title: "Chapter 11 · Comparison: Physics"
 
 Normalization and attention revealed the same pattern: when two dimensions share the same extent, positional code loses the ability to distinguish them. The Square Matrix Test from Chapter 3—`batch_size == num_classes`—returned in attention as `seq_q == seq_k`. In both cases, the positional notation was correct-by-coincidence. The names made the distinction checkable.
 
-Now we push this pattern to its oldest domain. Physical simulation predates machine learning by decades. Fortran physicists have been writing `U(I+1, J)` since before the term "tensor" entered our vocabulary—and if you ask one of them what `state[:,:,2]` means, they will give you the correct answer. Then they will tell you about the bug they fixed in 1997 where `2` was actually `3` and the simulation ran for two weeks before anyone noticed. The integer field index—`state[:,:,2]` for velocity-x—is the original ghost in the name.
+This pattern's oldest domain is physical simulation, which predates machine learning by decades. Fortran physicists have been writing `U(I+1, J)` since before the term "tensor" entered our vocabulary—and if you ask one of them what `state[:,:,2]` means, they will give you the correct answer. Then they will tell you about the bug they fixed in 1997 where `2` was actually `3` and the simulation ran for two weeks before anyone noticed. The integer field index—`state[:,:,2]` for velocity-x—is the original ghost in the name.
 
-This chapter completes the comparison trilogy. It asks: when coordinates represent temperature, pressure, and velocity fields, and confusing them means solving the wrong physics, what does each notation make visible?
+It asks: when coordinates represent temperature, pressure, and velocity fields, and confusing them means solving the wrong physics, what does each notation make visible?
 
 ---
 
@@ -172,7 +172,7 @@ The terms are identifiable by their coordinate arithmetic: `i+1` and `i-1` are s
 
 Physical simulation exposes a different failure mode than machine learning. In ML, wrong coordinates produce wrong gradients and degraded performance. In physics, wrong coordinates produce physically impossible results—negative temperatures, violated conservation laws—that may look plausible at a glance.
 
-The integer field index (`state[..., 2]`) is the weakest link in the positional chain. Stop and test yourself. If you saw `state[..., 2]` in a Fortran simulation code—no comments, no documentation, just the integer index—could you be 100% certain it is velocity-x? If you answered yes, ask yourself: is that certainty coming from the code, or from a convention you memorized?
+The integer field index (`state[..., 2]`) is the weakest link in the positional chain. If you saw `state[..., 2]` in a Fortran simulation code—no comments, no documentation, just the integer index—could you be 100% certain it is velocity-x? If you answered yes, notice: is that certainty coming from the code, or from a convention you memorized?
 
 A convention is a fact that lives outside the notation. It is correct until someone reorganizes the field order, or inserts a new field at index 0, or reuses the same integer for a different field in a different function. The convention drifts. The integer stays the same. The bug is not in the arithmetic—it is in the gap between what the integer means and what the code records.
 
@@ -307,6 +307,12 @@ In JAX: every line that indexes `state[..., 4]` must be found and updated. In Ei
 
 The three comparison chapters end here. Positional notation is concise, universal, and runs directly on every accelerator—when coordinates are genuinely anonymous, `dim=-1` is all you need. For a ReLU activation or an element-wise addition where no coordinate identity is at stake, the two notations cost the same keystrokes and the same thought. The named notation earns its keep where identities diverge: `class` vs `batch`, `seq_q` vs `seq_k`, `velocity-x` vs `pressure`. Named notation makes coordinate identities checkable—when `class` and `batch` have the same extent, only the name distinguishes them. The difference is not efficiency. It is whether the code records the facts that correctness depends on.
 
+There is a subtler argument for positional notation, and it deserves to be stated plainly: **sometimes `dim=-1` is correct by construction, and that correctness is not an accident.** A softmax that normalizes over the last dimension will be correct for any tensor whose last dimension happens to be the class dimension—and in many codebases, that invariant is genuinely stable. The fully-connected layer `linear(x, W)` is insensitive to whether `x` is `(batch, feature)` or `(feature, batch)` as long as `W` is transposed accordingly. Positional notation's "ambiguity" can be a form of flexibility: the same function works on different layouts because it only cares about relative position, not absolute identity.
+
+The coordinate habit does not deny this. It asks a narrower question: *when the operation depends on which coordinate is which, is that dependency recorded?* If your codebase has a stable convention that the last dimension is always the feature dimension, and that convention is enforced by assertions or code review, `dim=-1` is not a bug waiting to happen—it is a shorthand for a well-understood invariant. The problem is not `dim=-1` itself. The problem is `dim=-1` in a codebase where the invariant is undocumented, unenforced, and assumed.
+
+Names are not a replacement for conventions. They are a way to make conventions checkable. The coordinate habit says: if a convention exists, record it. If it doesn't, the name is where you discover that.
+
 If the magnetic field index moves from 4 to 0, how many lines of code do you need to change?
 
 ---
@@ -317,14 +323,12 @@ If the magnetic field index moves from 4 to 0, how many lines of code do you nee
 
 ### Stop and Think: Integer Index Audit
 
-Physical simulation code is dense with integer indices. Every `state[..., k]` is a claim about which field lives at position `k`. Every `u[i+1]` is a claim about what `+1` means. Audit your own code — or any simulation code you've read:
+Physical simulation code is dense with integer indices. Every `state[..., k]` is a claim about which field lives at position `k`. Every `u[i+1]` is a claim about what `+1` means. Look at any simulation code:
 
-1. **Find every integer field index.** `state[..., 0]`, `state[..., 1]`, `state[..., 2]`. For each one, can you name the physical quantity? If the answer is "yes, because 0 is density, 1 is velocity-x, 2 is velocity-y" — where is that mapping recorded? In a comment? In an enum? In variable names? How far away from the index is the documentation?
+1. **Every integer field index.** `state[..., 0]`, `state[..., 1]`, `state[..., 2]`. For each one, can you name the physical quantity? If the answer is "yes, because 0 is density, 1 is velocity-x, 2 is velocity-y" — where is that mapping recorded? In a comment? In an enum? In variable names? How far away from the index is the documentation?
 
-2. **Find every stencil offset.** `u[i+1, j]`, `u[i-1, j]`, `u[i, j+1]`, `u[i, j-1]`. For each one, which spatial direction does it represent? If the answer is "`i+1` is the right neighbor in x" — is that always true, or does it depend on the mesh convention? Could someone accidentally write `i-1` intending right?
+2. **Every stencil offset.** `u[i+1, j]`, `u[i-1, j]`, `u[i, j+1]`, `u[i, j-1]`. For each one, which spatial direction does it represent? If the answer is "`i+1` is the right neighbor in x" — is that always true, or does it depend on the mesh convention? Could someone accidentally write `i-1` intending right?
 
 3. **Trace one physical quantity through the code.** Pick `temperature`. Find every place it's read and written. If the code uses integer indexing — `state[..., 3]` — you must find every `3` and check that it corresponds to temperature. If the field order changes (a new diagnostic field is inserted at position 2), every `3` becomes wrong. Some should become `4`. Some should stay `3` (if they referred to a different field that was originally at position 4). The refactoring requires manual verification of every integer index. There is no compiler to verify it for you.
 
 In Einlang, there is. `state[..., temp]` stays `temp` regardless of field order. The coordinate name is the anchor. The integer is the implementation detail. The difference is whether the anchor is in the code or in your head.
-
-Now we enter the book's most critical section. We stop comparing notations and start building: the engine that gives names their power. How does a compiler represent, analyze, and lower a program written in named coordinates? You are about to see what Einlang looks like from the inside—and build the machinery that makes the first ten chapters checkable.

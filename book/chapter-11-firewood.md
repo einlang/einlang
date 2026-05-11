@@ -1,9 +1,9 @@
 ---
 layout: book
-title: "Chapter 14 · Firewood"
+title: "Chapter 11 · Firewood"
 ---
 
-# Chapter 14 · Firewood
+# Chapter 11 · Firewood
 
 > "A ship in harbor is safe, but that is not what ships are built for."
 >
@@ -13,7 +13,7 @@ title: "Chapter 14 · Firewood"
 
 ---
 
-When Chapter 12 ended, your softmax looked like this:
+When Chapter 9 ended, your softmax looked like this:
 
 ```lisp
 (let-decl (output probs (i class))
@@ -31,7 +31,7 @@ When Chapter 12 ended, your softmax looked like this:
 
 The tree is complete. It knows everything it needs to know. But it cannot be handed to NumPy. NumPy does not understand what `class` means. It needs `axis=1`.
 
-Translating the analyzed tree into instructions a machine can execute—this process is called **lowering**. This is the chapter where names are burned.
+Translating the analyzed tree into instructions a machine can execute—this process is called **lowering**. Here, names are burned.
 
 ---
 
@@ -48,9 +48,10 @@ The machine needs integers. axis 0, axis 1. Loop ranges. Execution strategy.
 ```
 
 The translation rules are deterministic:
-- Every axis name maps to its position in the declaration order.
-- Every reduction axis maps to the integer position it occupies.
-- Every index list maps to a slice or full-array access.
+
+1. Every axis name maps to its position in the declaration order.
+2. Every reduction axis maps to the integer position it occupies.
+3. Every index list maps to a slice or full-array access.
 
 Lowering is the systematic translation of every name into a number.
 
@@ -103,6 +104,41 @@ for i in range(batch):
 **hybrid** — some dimensions use NumPy, others use Python loops.
 
 The strategy is not chosen by the user. The compiler decides. You write the einstein clause. The compiler chooses how to run it.
+
+---
+
+## When Coordinates Are Only Known at Runtime
+
+Everything the compiler has done so far assumes that coordinate ranges are known before execution. `i` ranges from `0` to `batch_size`. `class` ranges from `0` to `n_class`. The lowering pass maps these to concrete loop bounds and `axis=` integers. The assumption holds for the tensor programs that dominate deep learning: fixed-shape tensors flowing through fixed-shape operations.
+
+But not all coordinates are known at compile time.
+
+Consider a batch of variable-length sequences. `input[batch, seq]` — but `seq` means something different for each `b`. For `batch=0`, `seq` ranges from `0` to `15`. For `batch=1`, `seq` ranges from `0` to `23`. The coordinate `seq` has a *ragged* domain: its extent depends on the value of `batch`.
+
+The compiler cannot lower `seq` to a single `axis=` integer because the axis extent is not a constant. The softmax over `seq` cannot be handed to `np.max(logits, axis=1)` because axis 1 has different lengths in different rows. The compiler must select the scalar strategy—a Python loop over `batch`, with each iteration handling its own `seq` length.
+
+```python
+for b in range(batch):
+    seq_len = lengths[b]
+    row = logits[b, :seq_len]
+    m = np.max(row)
+    e = np.exp(row - m)
+    result[b, :seq_len] = e / np.sum(e)
+```
+
+This is not a failure of the compiler. It is a genuine boundary: some coordinates have domains that are data-dependent. The compiler cannot lower what it cannot bound.
+
+Three kinds of runtime-dependence create this boundary:
+
+**Ragged dimensions.** A coordinate's extent varies with another coordinate. Batch elements have different sequence lengths. Graphs have different numbers of nodes. Images in a batch have different resolutions. The compiler can verify that `seq` is a declared coordinate and that operations consuming `seq` are consistent. It cannot lower `seq` to a compile-time integer. It must emit a loop with a dynamic bound.
+
+**Sparse coordinates.** Not all positions in a coordinate's domain carry data. A `(batch, class)` logit matrix where only a subset of classes are valid per batch element requires a mask or a where clause. The compiler can lower the coordinate but must also emit the mask logic. The where clause from Chapter 2 is the syntactic interface; the runtime mask is the implementation.
+
+**Data-dependent shapes.** The output shape of an operation depends on the input data, not just the input shapes. `top_k` returns a variable number of elements. Beam search expands dynamically. These operations cannot be fully lowered at compile time because the compiler does not know the output shape.
+
+The boundary is not a flaw in the name-based approach. It is the same boundary that every tensor compiler faces, name-based or positional. Positional compilers also cannot statically lower a ragged softmax—they emit dynamic loops or delegate to a runtime. The difference is diagnostic: when a name-based compiler encounters a runtime-dependent coordinate, it can tell you *which coordinate* is the problem. `seq` is ragged. `class` is sparse. The positional compiler can only tell you "axis 1 has dynamic extent"—and axis 1 might be anything.
+
+The lowering strategies—vectorized, scalar, hybrid—are the compiler's response to this boundary. Vectorized for static coordinates. Scalar for dynamic ones. Hybrid for programs that mix both. The strategy is chosen per coordinate, not per program. A tensor with three static coordinates and one ragged coordinate gets vectorized over the three and scalar over the one. The names tell the compiler which is which.
 
 ---
 
@@ -175,11 +211,11 @@ result += C
 
 You have now traveled through all four parts of this book. Part I gave you the primitives—naming, reducing, broadcasting. Part II composed them—functions, recurrences, gradients. Part III put them next to the notations you use every day. Part IV built the compiler that reads them.
 
-Now stop. Don't turn the page yet. We are going to do something we haven't done in any previous chapter: look at the same program in five forms, simultaneously. Like a museum exhibit with a gem displayed under five different lights, each revealing a different facet.
+This chapter does something no previous chapter has done: look at the same program in five forms, simultaneously. Like a museum exhibit with a gem displayed under five different lights, each revealing a different facet.
 
 The program is softmax. You first saw it in Chapter 3. It has traveled with you through every chapter since. It is the simplest non-trivial coordinate-aware function in the language—six lines, one coordinate parameter, one reduction. And in those six lines, the entire life cycle of a name is visible.
 
-Here it is. Read it slowly. Then we will unfold it.
+Here it is. Read it slowly.
 
 ---
 
@@ -240,7 +276,7 @@ The IR is not a translation. It is a *restatement*. Your source code, spoken in 
 
 ### Form 3: After Analysis
 
-Chapter 13's analysis passes walk the IR tree. They ask: what is the range of `i`? Where does `class` come from? Do the reductions consume what they claim to consume? What is the output shape? What is the type?
+Chapter 10's analysis passes walk the IR tree. They ask: what is the range of `i`? Where does `class` come from? Do the reductions consume what they claim to consume? What is the output shape? What is the type?
 
 When the passes finish, the tree carries answers:
 
@@ -273,7 +309,7 @@ Notice something: the positional softmax passes zero of these checks. There is n
 
 ### Form 4: After Lowering
 
-Now the names begin their transformation. Chapter 14's lowering pass maps every name to a number, every coordinate to a loop or a reduction axis.
+Now the names begin their transformation. Chapter 11's lowering pass maps every name to a number, every coordinate to a loop or a reduction axis.
 
 ```lisp
 (define-fn softmax (coord-params class) (value-params logits)
@@ -363,21 +399,45 @@ Consume—that word has appeared in every chapter since Chapter 2. A reduction c
 
 You now have a complete compiler frontend. It parses Einlang into S-expressions. It runs five check rules on the tree. It lowers names to integers. If you take one more step—write a checker that takes a single Einlang expression and runs Rule 1 against it—you have a tool that can audit its own source code. Einlang, checking Einlang. The language that verifies coordinate names can verify itself. That is not a metacircular evaluator. It is something simpler and more portable: a notation that records enough information to check itself.
 
-The core loop that makes all of this work fits in ten lines:
+The core loop is compact enough to read in one breath:
 
 ```
-(define (check expr env)
-  (match expr
-    [(index T (coords ...))
-     (for-each (λ (c) (unless (declared? c T env)
-                         (error "undeclared coordinate" c)))
-               coords)]
-    [(reduction op (c) body)
-     (check body (cons c env))]
-    [(let-decl (output T coords) body)
-     (check body (append coords env))]
-    [...]))
+check(expr, env, errors):
+  match expr:
+    case Index(T, coords):
+      for c in coords:
+        if not declared(c, T, env):
+          errors.push("undeclared", c, "in", T)
+      return coords
 
+    case Reduction(op, c, body):
+      out = check(body, env + [c], errors)
+      if c not in out:
+        errors.push(c, "not consumed")
+      return out - {c}
+
+    case Add(left, right):
+      L = check(left, env, errors)
+      R = check(right, env, errors)
+      for c in R:
+        if c not in L:
+          errors.push("broadcast", c, "into left")
+      for c in L:
+        if c not in R:
+          errors.push("broadcast", c, "into right")
+      return L | R
+
+    case LetDecl(output, T, coords, body):
+      check(body, env + coords, errors)
+      return coords
+
+    default:
+      errors.push("unknown node", expr)
+      return {}
 ```
 
-Walk the tree. At each node, ask one question. If the answer is wrong, halt. If the answer is right, continue. The entire compiler is this loop, repeated for five rules instead of one, with shape propagation threaded through. The complexity is in the details—type inference, pack resolution, error message formatting. The structure is ten lines. You can hold the entire thing in your head. Tomorrow, when you write `x.mean(dim=1)` in PyTorch, that loop runs in your mind. It asks: *which coordinate is this consuming?* The code may not answer. But you will know that the question was never asked—and that is already the coordinate habit.
+Walk the tree. At each node, ask one question. If the answer is wrong, record it and keep going—`errors.push` accumulates every problem into a list instead of halting at the first mistake, so the programmer sees all errors in one pass. If the answer is right, the node returns the set of coordinates it carries.
+
+Lines 11 through 16 are the broadcast merge. When the checker encounters `Add(left, right)`, it checks both sides independently, then compares their coordinate sets. Every coordinate on the right that is absent on the left means the left operand is silent on that coordinate and must broadcast into it—and vice versa. In `sum[k](A[i,k] * B[k,j]) + bias[j]`, the left side carries `{i, j}` (k was consumed by the reduction), the right side carries `{j}`, so `i` is recorded as a broadcast coordinate on `bias`. The output carries the union `{i, j}`. The `Add` node does not need to know what operation it is checking—only that both sides contribute coordinate sets and the broadcast relationship must be recorded.
+
+The entire compiler is this loop, repeated for five rules instead of one, with shape propagation threaded through. The complexity is in the details—type inference, pack resolution, error message formatting. The structure is fifteen lines. You can hold the entire thing in your head. Tomorrow, when you write `x.mean(dim=1)` in PyTorch, that loop runs in your mind. It asks: *which coordinate is this consuming?* The code may not answer. But you will know that the question was never asked—and that is already the coordinate habit.

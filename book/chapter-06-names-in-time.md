@@ -13,7 +13,7 @@ title: "Chapter 6 · Names in Time"
 
 ---
 
-Every coordinate we have met so far is a spatial coordinate. You can sum over it, broadcast along it, permute it. All positions along the coordinate exist simultaneously. No position depends on any other.
+Every coordinate so far is a spatial coordinate. You can sum over it, broadcast along it, permute it. All positions along the coordinate exist simultaneously. No position depends on any other.
 
 Time is different. Time has a direction.
 
@@ -74,9 +74,9 @@ This has a consequence that spatial coordinates don't require. Only the time ste
 
 ---
 
-### Judge the Recurrence: An Exercise
+### Judge the Recurrence
 
-Here are four recurrence fragments. For each one, decide: does it pass the causality check? Take two minutes.
+Here are four recurrence fragments. For each one, can you see whether it passes the causality check? The check is mechanical: reference index `<` declared index.
 
 **Fragment A:**
 ```
@@ -98,11 +98,9 @@ let v[t in 0..T] = v[t+1] + v[t-1];
 let x[t in 0..T] = f(x[t-1]) + g(x[t]);
 ```
 
-Stop. Write your answers. Then read on.
-
 ---
 
-Done? Here are the rulings:
+Here are the rulings:
 
 **Fragment A: passes.** `t-1 < t` and `t-2 < t`. Both references are strictly backward. Window size: 2 (references `t-1` and `t-2`).
 
@@ -118,8 +116,6 @@ But notice: `h[t, i-1]` means the computation at position `i` depends on positio
 
 Three of four fragments caught by one rule: reference index `<` declared index. The spatial offset in Fragment B doesn't trigger the rule because spatial coordinates aren't checked for causality by default. The rule is simple. The check is mechanical.
 
-Now let's put this mechanism to work.
-
 ---
 
 ## The Optimizer as a Recurrence
@@ -127,8 +123,8 @@ Now let's put this mechanism to work.
 Training a model is a recurrence over time:
 
 ```
-let w[t in 0..T, out, in] = init_random(out, in);
-let w[t in 1..T, out, in] = w[t-1, out, in] - lr * grad[t-1, out, in];
+let w[t in 0..T, out, feature] = init_random(out, feature);
+let w[t in 1..T, out, feature] = w[t-1, out, feature] - lr * grad[t-1, out, feature];
 ```
 
 At `t=0`, `w` is the random initialization. At each subsequent step, `w` is the previous `w` minus a gradient step. The recurrence reads backward in time (`t-1`). The time coordinate `t` makes the training trajectory explicit. You can inspect `w[10, out, in]` to see the weights after 10 steps. You can compute `w[T-1, out, in] - w[0, out, in]` to see the total change. The time dimension is not hidden inside a mutable variable—it is a coordinate like any other.
@@ -137,8 +133,8 @@ A full training step:
 
 ```
 let logits[t, b, class] = model(x[t, b, feature], w[t, out, feature]);
-let loss[t] = cross_entropy[class](logits[t, b, class], labels[t, b]);
-let grad[t, out, feature] = @loss[t] / @w[t, out, feature];
+let loss[t, b] = cross_entropy[class](logits[t, b, class], labels[t, b]);
+let grad[t, out, feature] = @loss[t, b] / @w[t, out, feature];
 let w[t+1, out, feature] = w[t, out, feature] - lr * grad[t, out, feature];
 ```
 
@@ -147,7 +143,7 @@ The time coordinate `t` threads through forward, loss, gradient, and update. Eve
 There is a quieter distinction at work here that deserves explicit attention: **parameters versus hyperparameters.** Both are `let` bindings. Both are immutable values in scope for subsequent code. But they have different roles in the optimization story:
 
 ```rust
-let weight: [f32; out, in] = init_random(out, in);
+let weight: [f32; out, feature] = init_random(out, feature);
 let learning_rate: f32 = 0.001;
 ```
 
@@ -155,7 +151,7 @@ let learning_rate: f32 = 0.001;
 
 `learning_rate` is a hyperparameter—it controls the optimizer's behavior but is not itself updated by gradients. It carries no coordinate names because it has no coordinate structure.
 
-This distinction is not a language feature. It is a naming discipline. But the discipline is only possible because the language provides a place to put the coordinate names. When your tensor framework only records shapes, you can't name the axes. When you can't name the axes, you can't write a regularizer that distinguishes them. The optimizer sees `(128, 64)` and doesn't know which number is `out` and which is `in`. The coordinate names on the parameter are the bridge between the optimizer's generic arithmetic and the architecture's specific structure.
+This distinction is not a language feature. It is a naming discipline. But the discipline is only possible because the language provides a place to put the coordinate names. Without named axes, the optimizer sees `(128, 64)` and cannot distinguish `out` from `in`.
 
 ---
 
@@ -183,7 +179,7 @@ The forward recurrence reads `t-1`—standard. The backward recurrence reads `t+
 
 The same coordinate domain, two different iteration directions, one linguistic mechanism. The declaration bracket names the domain and direction. The body states the dependency. Consistency is checked.
 
-Now stop. Someone writes this:
+Notice when someone writes this:
 
 ```
 let h[t in 0..T, i] = step(h[t+1, i], x[t, i]);
@@ -215,7 +211,7 @@ let u[t in 2..T, i] = u[t-1, i] + 0.5 * (u[t-1, i] - u[t-2, i]);
 
 References: `t-1` and `t-2`. Maximum offset: 2. Rolling window size: 3 (current, t-1, t-2). The compiler derives this from the index expressions. No `@roll_window(3)` annotation. The information is in the code, not in a compiler directive.
 
-This is the pattern that recurs throughout this book: **make the structural fact visible in the source code, and let the compiler derive the engineering consequence.** The programmer writes `t-2`. The compiler derives window size 3. The programmer writes `sum[class]`. The compiler derives `axis=1`. The programmer writes `bias[j]` omitting `i`. The compiler derives the backward-pass sum over `i`. Source records intent. Compiler derives execution.
+The programmer writes `t-2`. The compiler derives window size 3. The programmer writes `sum[class]`. The compiler derives `axis=1`. The programmer writes `bias[j]` omitting `i`. The compiler derives the backward-pass sum over `i`. Source records intent. Compiler derives execution.
 
 ---
 
@@ -231,7 +227,7 @@ The same recurrence declaration leads to different storage strategies depending 
 
 In all three scenarios, the declaration is the same: `let u[t in 0..T, i] = f(u[t-1, i])`. The difference is in what downstream code does with `u`. The compiler reads the downstream uses and derives the storage strategy. No annotations. No `@roll_window(3)`. No `@materialize`. The structural fact is in the code. The compiler derives the engineering consequence.
 
-Contrast with a positional framework, where you must manually choose between `torch.empty(T, ...)` (full materialization) and a rolling buffer (manual swapping). The choice is an optimization decision, not a semantic one. The compiler should make it—and can make it, if the code records the dependency structure. The recurrence body records the dependency. The downstream uses record the observation pattern. The compiler connects them.
+The recurrence body records the dependency. The downstream uses record the observation pattern. The compiler connects them.
 
 ---
 
@@ -241,14 +237,14 @@ The optimizer recurrence from earlier is worth tracing step by step:
 
 ```
 // Step 0: random initialization
-let w[0, out, in] = init_random(out, in);
+let w[0, out, feature] = init_random(out, feature);
 
 // Step 1: forward pass
 let logits[1, b, class] = model(x[1, b, feature], w[0, out, feature]);
-let loss[1] = cross_entropy[class](logits[1, b, class], labels[1, b]);
+let loss[1, b] = cross_entropy[class](logits[1, b, class], labels[1, b]);
 
 // Step 1: backward pass
-let grad[1, out, feature] = @loss[1] / @w[0, out, feature];
+let grad[1, out, feature] = @loss[1, b] / @w[0, out, feature];
 
 // Step 1: update
 let w[1, out, feature] = w[0, out, feature] - lr * grad[1, out, feature];
@@ -302,7 +298,7 @@ This is the same mechanism that carried `class` through `softmax[class]` in Chap
 
 Time is not "special." It is a coordinate with a direction constraint. The constraint is checked. The coordinate flows through functions. The training loop is a recurrence. The diffusion process is a recurrence. The optimizer is a recurrence. Three domains, one mechanism. The names make them recognizable as the same thing. It carries direction. It carries dependency. It carries a constraint: you can only look backward along it. These properties are not metaphorical. They are enforced at the level of index expressions. A colleague who writes `let h[t in 0..T] = step(h[t+1], x[t])` will get a compile error—not a runtime divergence, not a silent wrong answer. The syntax makes the constraint checkable.
 
-Now pause. Before you move to the next chapter, answer this: what other tensor operations have an implied direction? Think about your own code. Have you ever written a recurrence where the time axis was not the first axis? Where the dependency went both forward and backward? Where the "time" was not time at all—but a layer index in a residual network, an iteration counter in an optimizer, a step in a diffusion process?
+The question worth asking: what other tensor operations have an implied direction? Think about your own code. Have you ever written a recurrence where the time axis was not the first axis? Where the dependency went both forward and backward? Where the "time" was not time at all—but a layer index in a residual network, an iteration counter in an optimizer, a step in a diffusion process?
 
 Recurrence is not unique to RNNs. Every iterative computation is a recurrence. Every optimizer step is a recurrence. Every diffusion timestep is a recurrence. The coordinate `t` is not "the time axis." It is "the axis along which things depend on earlier things." Causality is the constraint. The directional coordinate is the mechanism that enforces it.
 
@@ -318,7 +314,7 @@ Not every axis is spatial. Some axes have direction—values depend on earlier p
 
 3. **Find a loop where you manually manage a rolling window.** You allocate a buffer of size `k`, shift values at each iteration, and overwrite the oldest. The window size `k` is determined by how far back the computation looks. In a named-coordinate recurrence, the compiler would derive `k` from the index expressions. In your manual version, `k` is a constant you chose. If the computation changes to look back 3 steps instead of 2, you must update `k`. Would you remember?
 
-4. **Ask yourself: what other tensor operations have an implied direction?** Think about your own code. Have you ever written a recurrence where the time axis was not the first axis? Where the dependency went both forward and backward? Where the "time" was not time at all—but a layer index in a residual network, an iteration counter in an optimizer, a step in a diffusion process?
+4. **What other tensor operations have an implied direction?** Think about your own code. Have you ever written a recurrence where the time axis was not the first axis? Where the dependency went both forward and backward? Where the "time" was not time at all—but a layer index in a residual network, an iteration counter in an optimizer, a step in a diffusion process?
 
 The directional coordinate is not limited to time. Any coordinate where position `n` depends on position `n-1` is directional. The constraint is the same: you can only look backward along it. The mechanism is the same: a directional declaration with index arithmetic. The names `t`, `layer`, `step` are just names—the compiler checks the direction, not the label.
 
@@ -338,6 +334,4 @@ let d_h[t in T..0] = @loss[t] / @h[t] + @step(h[t], h[t-1], x[t]) / @h[t] * d_h[
 
 The backward recurrence runs from `T` down to `0`, referencing `t+1` (the future in the backward direction, which has already been computed). This is the same bidirectional mechanism from Section 6, applied to the gradient. The coordinate `t` still carries the causality constraint, but the iteration direction has reversed.
 
-In a positional framework, BPTT is implemented by writing a separate backward loop that iterates in reverse. The relationship between the forward loop `for t in range(T)` and the backward loop `for t in reversed(range(T))` is in the programmer's head—the two loops are separate code blocks. In Einlang, the backward recurrence is generated from the forward recurrence by the same Inversion Rule that governs reductions and broadcasts. The forward recurrence declares `t in 1..T` with `t-1` references. The backward recurrence is `t in T..0` with `t+1` references, generated automatically. The time direction flips. The coordinate names stay the same. The compiler generates the backward loop from the forward declaration.
-
-In the next chapter, we explore what happens when coordinates split, merge, and carry arithmetic—the complex terrain of distance matrices, convolutions, and fancy indexing.
+In Einlang, the backward recurrence is generated from the forward recurrence by the same Inversion Rule that governs reductions and broadcasts: `t in 1..T` forward becomes `t in T..0` backward. The coordinate names stay the same; the compiler generates the backward loop from the forward declaration.

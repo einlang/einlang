@@ -33,8 +33,6 @@ This bug lived for three weeks because **the notation had no slot for the fact t
 
 Positional notation is not *wrong*. It is *insufficient*. It records the arithmetic of shapes. It does not record the identity of coordinates. When those two things diverge—when a shape is correct but a coordinate is wrong—positional notation gives you no place to notice.
 
-This book is about closing that gap.
-
 ---
 
 ### How the Bug Lived: A Timeline
@@ -67,6 +65,10 @@ Every earlier point on the timeline is a missed opportunity. Not because the pro
 
 The bug survived not because no one looked. It survived because the notation recorded position and only position. Identity was elsewhere—in a comment that drifted, in a variable name that wasn't checked, in a mental model that eroded over 90 days.
 
+A name in a bracket is an assertion that writes itself. `mean[channel](x)` contains the assertion "`channel` exists on `x`" baked into the syntax. That assertion runs every time the compiler runs. It does not need to be designed. It does not need to be remembered. It is co-located with the operation whose correctness depends on it. Unlike a test, which must be maintained as a separate artifact, a name is part of the operation itself—it cannot drift without the operation changing visibly.
+
+Put the identity where the operation is. Let the compiler carry it forward.
+
 ---
 
 But before we go there—stop for a moment. Think about your own code.
@@ -85,7 +87,7 @@ The compiler didn't read the comment because comments are not checked. The compi
 
 This is not a compiler failure. It is a notation failure. The notation gave the compiler nothing to check. `dim=1` encodes a *where*. The information that matters—the *what*—was never written in a form the compiler could see.
 
-This book is about writing the *what* in a form the compiler can see. And the form is simpler than you think. It is a name, in a bracket, next to the operation. That's it. Five characters—`class`, `batch`, `channel`—and the compiler has something to check. The rest of the book is about what happens when you take that seriously.
+The form is simpler than you think. It is a name, in a bracket, next to the operation. Five characters—`class`, `batch`, `channel`—and the compiler has something to check.
 
 ---
 
@@ -257,48 +259,34 @@ Now, a question. You have probably already thought it: "Can't I just be careful 
 
 You can. You have. For entire projects, you have held the dimension layout in your head—batch is 0, channel is 1, height is 2, width is 3. You have written `dim=1` everywhere and it has worked, because you were careful and the layout didn't change.
 
-This book is not arguing that positional notation is impossible to use correctly. It is arguing that it is impossible to **verify** correctly—not by a human holding context in their head, but by a tool that checks the code mechanically, every time, without fatigue, without forgetting, without leaving the team.
-
 The question is not "can you be careful?" The question is "should the compiler help?"
 
-Every engineer who has debugged a `dim=1` bug at 3 AM knows the answer to that question. The compiler should help. But the compiler can only help if the code contains information it can check. `dim=1` contains nothing checkable about identity—it is always a valid integer. `channel`, written in a bracket next to the operation, is checkable: does this tensor have a coordinate called `channel`? Yes or no. The compiler can answer that question. And from that single yes-or-no question, an entire class of bugs becomes impossible.
-
-This is the pattern that will recur through every chapter of this book. At each step, we will find operations that work by position—and ask: what if they worked by name instead? What would the compiler be able to check? What bugs would become impossible? The answers accumulate. By the end, you will have a working compiler that checks five rules—rules that positional notation cannot even ask, because it lacks the words to ask them.
+The compiler can only help if the code contains information it can check. `dim=1` contains nothing checkable about identity—it is always a valid integer. `channel`, written in a bracket next to the operation, is checkable: does this tensor have a coordinate called `channel`? Yes or no. The compiler can answer that question. And from that single yes-or-no question, an entire class of bugs becomes impossible.
 
 You now know what a coordinate is: a name, a domain, a position. You know that naming the coordinate makes it survive position changes. You know that the parking lot ticket with the name of the car survives the repainting.
-
-The rest of this book is about what happens when you take that knowledge seriously—when you require every reduction to name the coordinate it consumes, every broadcast to be visible by omission, every function to declare which coordinates it operates on. The result is not a new way of writing tensor code. It is a new way of reading it: with the expectation that the code tells you what it means, not just how it runs.
 
 ---
 
 ### Stop and Think
 
-Before you turn the page, do this once. It will take five minutes. It may change how you read tensor code for the rest of your career.
-
-Open your most recent tensor script. It doesn't matter what framework—PyTorch, JAX, NumPy, TensorFlow. Search for `dim=`, `axis=`, `permute`, `transpose`, `reshape`. Count them. Write the number down.
+Consider your most recent tensor script. It doesn't matter what framework—PyTorch, JAX, NumPy, TensorFlow. Search for `dim=`, `axis=`, `permute`, `transpose`, `reshape`. Notice how many there are.
 
 Now, for each one, ask:
 
-1. **What coordinate does this operation act on?** Not what position—what coordinate. Is it `channel`? `batch`? `sequence`? `feature`? Write the answer next to the line, as a comment.
+1. **What coordinate does this operation act on?** Not what position—what coordinate. Is it `channel`? `batch`? `sequence`? `feature`?
 
-2. **If the dimension order changed three months from now, would this line still be correct?** If the answer is no—if `dim=1` would silently change meaning—underline that line. It is a fragility point.
+2. **If the dimension order changed three months from now, would this line still be correct?** If the answer is no—if `dim=1` would silently change meaning—that line is a fragility point.
 
 3. **Is the coordinate identity recorded anywhere the toolchain can see?** A comment doesn't count—the compiler can't read comments. A variable name doesn't count—the compiler doesn't check that `channel_dim` equals the actual channel position. Is there anything in the code that a tool could mechanically verify?
 
 4. **If you had to convince a skeptical colleague that this line is correct, could you do it from the code alone—without running the program, without checking tensor shapes at runtime?** If the answer is no, the correctness of this line depends on runtime context, and runtime context can change.
 
-You don't need to change anything. Not yet. Just notice which lines you underlined. Notice how many of them there are. Notice that for most of them, the answers to questions 3 and 4 are "no."
-
-This exercise is the coordinate audit. You just performed it, by hand, on your own code. In the chapters ahead, we will build a notation and a compiler that perform it mechanically—so that you don't have to, and so that the questions have answers before the code runs.
-
-But even without the compiler, the audit has value. The lines you underlined are the lines that will break when the dimension order changes. You now know where they are. That knowledge, by itself, is a form of safety that you didn't have five minutes ago.
-
-The coordinate habit begins with noticing the gap. You have now noticed it. The rest of the book is about what to put in it.
+For most of the `dim=` and `axis=` calls in a typical codebase, the answers to questions 3 and 4 are "no." Those are the lines that will break when the dimension order changes. You now know where they are. That knowledge, by itself, is a form of safety.
 
 Six months from now, when you return to fix a bug, the intent will be gone. If the name is also gone—you have nothing.
 
 ---
 
-You just spent a few minutes auditing your own code. You found lines where `dim=1` would silently change meaning if the dimension order shifted. You now know where the fragility lives. This book will give you a notation and a set of tools so that this audit no longer requires a manual search—so that the questions you just asked by hand are answered mechanically, before the code runs.
+The questions you just considered—what coordinate does this position refer to, is it recorded anywhere, would it survive a refactoring—identify every line where `dim=1` would silently change meaning. Those are the fragility points. This book will give you a notation and a set of tools so that those questions are answered mechanically, before the code runs, by the brackets themselves.
 
 The next chapter introduces the first two tools: reduction and broadcasting. A reduction eliminates a coordinate. A broadcast copies along one. And they share a single intuition model—one that will carry us through everything that follows.

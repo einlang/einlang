@@ -1,9 +1,9 @@
 ---
 layout: book
-title: "Chapter 13 · The Name in the Mirror"
+title: "Chapter 10 · The Name in the Mirror"
 ---
 
-# Chapter 13 · The Name in the Mirror
+# Chapter 10 · The Name in the Mirror
 
 > "The purpose of analysis is not to add information, but to make explicit the information that was already implicit in the names."
 >
@@ -13,7 +13,7 @@ title: "Chapter 13 · The Name in the Mirror"
 
 ---
 
-The IR tree from Chapter 11 is full of names—`i`, `class`, `batch`, `sum`. But names *said* and names *checked* are two different things.
+The IR tree from Chapter 14 is full of names—`i`, `class`, `batch`, `sum`. But names *said* and names *checked* are two different things.
 
 Look at this tree:
 
@@ -29,7 +29,7 @@ The names have already said: `i` and `j` survive, `k` is consumed. But they have
 - What are the types?
 - Do the coordinate contracts match at every call site?
 
-The compiler must answer all four before it can generate code. This chapter is about how it answers them—and about five check rules that turn names from documentation into verification.
+The compiler must answer all four before it can generate code—using five check rules that turn names from documentation into verification.
 
 ---
 
@@ -136,7 +136,6 @@ For every term in an expression, compute its coordinate set. The output coordina
 *If you have ever traced a gradient that was silently summed over the wrong dimension because a forward broadcast was implicit, you know why this record must exist before the backward pass runs.*
 
 This is the shopping cart ledger from Chapter 4, now computed by the compiler instead of by hand. Every broadcast omission is recorded. Every record is read backward by the gradient. The Inversion Rule, mechanized.
-```
 
 ### Rule 4: Causality Verification
 
@@ -189,15 +188,11 @@ fn predict[class](x: [f32; batch, in], W: [f32; out, in], bias: [f32; out])
 }
 ```
 
-Stop. Before reading further, find the bugs yourself. There are multiple. Don't just glance—trace each coordinate. Which names appear where? Which names are missing? Which operations consume the right coordinate? Take two minutes. Write down every bug you find.
-
----
-
-Done? Good. Now let's hunt together.
+The bugs are visible before the explanation. Look at the program. Which names don't match? Now trace through each rule:
 
 ### The Wall
 
-Imagine a detective's wall. Five empty slots, each labeled with one rule. Every time we find a bug, we pin it to the slot of the rule that caught it. By the end, we will see whether these five rules are enough—or whether some bugs slip through.
+Imagine a detective's wall. Five empty slots, each labeled with one rule. Every time a bug is found, it gets pinned to the slot of the rule that caught it. The slots will show whether these five rules are enough—or whether some bugs slip through.
 
 The slots:
 
@@ -297,7 +292,7 @@ Three changes. `sum[k]` → `sum[in]`: the reduction now consumes the coordinate
 
 ### What the Wall Teaches
 
-Every bug we found was a name that didn't match. `k` was supposed to be `in`. `class` was declared in the output declaration but came from nowhere in the body. `out` was in the return type but not in the return value. Not one of these bugs was a shape error—the shapes would have been correct in a positional version. `sum[k]` over the second axis of `(batch, in)` and second axis of `(out, in)` would produce `(batch, out)`—a valid shape. The code would run. The loss would descend. And the model would be computing a meaningless function.
+Every bug on this wall was a name that didn't match. `k` was supposed to be `in`. `class` was declared in the output declaration but came from nowhere in the body. `out` was in the return type but not in the return value. Not one of these bugs was a shape error—the shapes would have been correct in a positional version. `sum[k]` over the second axis of `(batch, in)` and second axis of `(out, in)` would produce `(batch, out)`—a valid shape. The code would run. The loss would descend. And the model would be computing a meaningless function.
 
 Now replay the debugging session the programmer spent two hours on. In a positional framework, the first sign of trouble would be a runtime shape mismatch—maybe at the loss computation, maybe at the gradient step, maybe not at all if all shapes happened to align. The programmer would trace shapes backward, print `x.shape` and `logits.shape`, and eventually deduce that an axis was misnamed. The deduction would rely on the programmer's understanding of what each axis *should* be—an understanding not recorded anywhere in the code.
 
@@ -311,7 +306,7 @@ Every rule was born from a night someone spent staring at a tensor shape that wa
 
 Five rules. Five nights. One wall.
 
-There should be a sixth night—the one where a bug doesn't happen because the compiler caught it at 10:15 AM, during a routine build. Nobody remembers that night. Nobody thanks the compiler for it. The nights we remember are the ones where the compiler was silent. The coordinate habit is the discipline of remembering the bugs that didn't happen.
+There should be a sixth night—the one where a bug doesn't happen because the compiler caught it at 10:15 AM, during a routine build. Nobody remembers that night. Nobody thanks the compiler for it. The nights that are remembered are the ones where the compiler was silent. The coordinate habit is the discipline of remembering the bugs that didn't happen.
 
 ---
 
@@ -495,7 +490,7 @@ let combined[batch, feature] = concat[feature](A[batch, feature_a], B[batch, fea
 
 `feature_a` and `feature_b` are different coordinate names—they represent different extents of the same semantic dimension (e.g., two feature sets being joined). The result has coordinate `feature`, whose range is `range(feature_a) + range(feature_b)`.
 
-Take five minutes. Write down:
+Here is what must be checked:
 
 1. **What must be checked?** The operation `concat[feature]` consumes no coordinates—`feature` survives in the output. But what must be true of the coordinates that are *not* being concatenated over? If `A` has `(batch, feature_a)` and `B` has `(batch, feature_b)`, the `batch` coordinate must match. If `A` had `(batch_a, feature_a)` and `B` had `(batch_b, feature_b)`, the concatenation would produce a result with two unrelated batch axes—nonsense.
 
@@ -503,11 +498,7 @@ Take five minutes. Write down:
 
 3. **What's the positional equivalent?** PyTorch's `torch.cat([A, B], dim=1)` checks that `A.shape[0] == B.shape[0]` (all non-concatenated dimensions match). It catches the shape mismatch. What does it NOT catch that a name-based check could?
 
-Don't scroll down until you've written your answers.
-
----
-
-Done? Compare:
+The answers:
 
 **What must be checked.** Every coordinate that is NOT the concatenation coordinate must have the same name and same range in both operands. If `A` has `(batch, feature_a)` and `B` has `(seq, feature_b)`, the compiler should reject the concat—`batch` and `seq` are different coordinates, and concatenating across them would silently mix batch and sequence elements.
 
@@ -517,7 +508,7 @@ Done? Compare:
 
 ---
 
-You just designed a check rule. The five rules in this chapter were designed the same way: start with an operation, ask what can go wrong, write a rule that catches it. The rules are not magic. They are engineering. And they all depend on the same thing: coordinates that have names.
+You just designed a check rule. The five rules were designed the same way: start with an operation, ask what can go wrong, write a rule that catches it. The rules are not magic. They are engineering. And they all depend on the same thing: coordinates that have names.
 
 ---
 
@@ -566,6 +557,6 @@ let result[b, s] = mean[channel](x[b, channel, s]);
 
 Now do by hand what the lowering pass does. Declare coordinate extents: `batch=32`, `channel=64`, `spatial=256`. Assign each name an axis position: `b → 0`, `channel → 1`, `s → 2`. Then lower the expression: `mean[channel]` becomes `mean(axis=1, keepdims=False)`. The output `result[b, s]` becomes a tensor of shape `(32, 256)`. Write the lowered NumPy. It should be one line.
 
-Done? You just did what Chapter 14 will do mechanically. The five forms of a name—Source, IR, After Analysis, After Lowering, Generated Code—differ only in the stage at which you ask the question. The question is the same: *is the integer correct?* The name answers it. The integer cannot.
+Done. The five forms of a name—Source, IR, After Analysis, After Lowering, Generated Code—differ only in the stage at which you ask the question. The question is the same: *is the integer correct?* The name answers it. The integer cannot.
 
-The tree is complete. Every slot that needed an answer has one. It can be safely handed to the next chapter—where the names are burned.
+The tree is complete. Every slot that needed an answer has one. The names are ready to be burned.

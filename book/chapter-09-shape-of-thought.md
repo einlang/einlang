@@ -1,9 +1,9 @@
 ---
 layout: book
-title: "Chapter 12 · The Shape of Thought"
+title: "Chapter 9 · The Shape of Thought"
 ---
 
-# Chapter 12 · The Shape of Thought
+# Chapter 9 · The Shape of Thought
 
 > "A compiler is a program that reads a program written in one language—and says it again in another."
 >
@@ -13,7 +13,7 @@ title: "Chapter 12 · The Shape of Thought"
 
 ---
 
-You have done three things. You learned to name coordinates—to put `channel` where positional code puts `1`. You saw named and positional notation side by side on real computations—normalization, attention, physics. You know what the names catch. One question remains: *how does the compiler make this happen?* The next three chapters answer it. We will build a compiler frontend—not read about it, build it. You will write the IR. You will trace the check rules. You will watch a name become an integer. At the end, you will have a miniature compiler that verifies the five rules from Chapter 13. It will not be industrial-grade. It will be yours.
+You have done three things. You learned to name coordinates—to put `channel` where positional code puts `1`. You saw named and positional notation side by side on real computations—normalization, attention, physics. You know what the names catch. One question remains: *how does the compiler make this happen?* We will build a compiler frontend. It will not be industrial-grade. It will be yours.
 
 ---
 
@@ -320,25 +320,21 @@ The compiler's native tongue does not perform magic. It simply restates your Ein
 
 ---
 
-*Take a single line of your own tensor code. Translate it into S-expressions by hand—parenthesize every operation, preserve every name. What information survived? What was lost? The IR is not magic. It is your program, said again, in a form that a machine can query.*
+*Look at a single line of tensor code you have written. Translate it into S-expressions in your mind—parenthesize every operation, preserve every name. What information survived? What was lost? The IR is not magic. It is your program, said again, in a form that a machine can query.*
 
-Now the tree exists. But the names on the tree are still just names—they carry no range, no shape, no type. The next chapter asks: what can the compiler *derive* from those names, without running the program?
+Now the tree exists. But the names on the tree are still just names—they carry no range, no shape, no type. What can the compiler *derive* from those names, without running the program?
 
 ---
 
 ## You Are the Compiler
 
-Before we hand the tree to Chapter 13's analysis passes, let's do one ourselves. Here is a small Einlang program:
+Let's do one ourselves. Here is a small Einlang program:
 
 ```
 let result[i, j] = sum[k](A[i, k] * B[k, j]) + bias[j];
 ```
 
-Translate it into IR. Don't look at the answer below. Actually do it. Write it in parentheses.
-
----
-
-Done? Compare:
+Translate it into IR. The pattern is visible. Here is the translation:
 
 ```lisp
 (let-decl (output result (i j))
@@ -360,7 +356,7 @@ You can determine:
 
 All of this is mechanically derivable from the tree. No guessing. No shape arithmetic. Just coordinate names and their positions in index lists. The tree preserves everything the source said—and makes it queryable by compiler passes that only understand parentheses.
 
-This is why the IR must preserve names. If the IR replaced `k` with `axis=1`, the question "which coordinate is consumed?" would have an integer answer but no identity answer. The compiler could still generate code—`axis=1` is all NumPy needs. But it could not answer the *check* questions: does `k` appear in both `A` and `B`? Is `bias[j]` independent of `i`? These questions require names, not numbers. The IR preserves names so that the analysis passes in Chapter 13 can ask these questions—and get answers that are checkable facts, not deduced conventions.
+This is why the IR must preserve names. If the IR replaced `k` with `axis=1`, the question "which coordinate is consumed?" would have an integer answer but no identity answer. The compiler could still generate code—`axis=1` is all NumPy needs. But it could not answer the *check* questions: does `k` appear in both `A` and `B`? Is `bias[j]` independent of `i`? These questions require names, not numbers. The IR preserves names so that the analysis passes can ask these questions—and get answers that are checkable facts, not deduced conventions.
 
 Now let's test that claim with a harder case—one where the positional IR would be silent:
 
@@ -383,7 +379,7 @@ What can you determine from this tree?
 
 Now ask: what if `x` had `(b, time, s)` instead? The IR would be `(index x (b time s))` and the reduction bracket would be `(reduction mean (channel) ...)`. The compiler would check: does `channel` appear in `(b time s)`? No. Error. The name `channel` caught the mismatch. A positional IR with `axis=1` would ask: is axis 1 valid on `x`? Yes—`x` has 3 axes. No error. Silent consumption of the wrong coordinate.
 
-In a positional compiler, the IR carries `(reduction mean 1 ...)` instead of `(reduction mean (channel) ...)`. The integer `1` is valid—it refers to axis 1, which exists. But the identity `channel` is gone. The compiler cannot ask "is `channel` the right coordinate to consume?" It can only ask "is `1` a valid axis?" The answer is always yes. Every check that depends on identity becomes a vacuous integer comparison. This is why the IR must preserve names: not for convenience, but because the five check rules in the next chapter require identities, not positions.
+In a positional compiler, the IR carries `(reduction mean 1 ...)` instead of `(reduction mean (channel) ...)`. The integer `1` is valid—it refers to axis 1, which exists. But the identity `channel` is gone. The compiler cannot ask "is `channel` the right coordinate to consume?" It can only ask "is `1` a valid axis?" The answer is always yes. Every check that depends on identity becomes a vacuous integer comparison. The IR must preserve names because the five check rules require identities, not positions.
 
 The tree preserves what the positional IR loses: the identity of the consumed coordinate.
 
@@ -396,11 +392,11 @@ There is an alternative design: translate names to integers at parse time. `clas
 
 ### Stop and Think: Your Own IR
 
-Take the most recent tensor operation you wrote. Translate it into S-expression IR by hand:
+Look at your most recent tensor operation. The pattern of translation into S-expression IR is already visible:
 
-1. Write the source in Einlang: `let result[i, j] = sum[k](A[i, k] * B[k, j])`.
-2. Translate: `(let-decl (output result (i j)) (reduction sum (k) (* (index A (i k)) (index B (k j)))))`.
-3. Now ask: what can you determine from the IR alone? Survivors: `{i, j}`. Consumed: `{k}`. Shared: `k` appears on both `A` and `B`. Broadcasts: none — both operands index all output coordinates except `k`.
-4. Now ask: if the IR had integers instead of names — `(let-decl (output result (0 1)) (reduction sum (2) (* (index A (0 2)) (index B (2 1)))))` — could you determine which coordinate is shared? You could determine that axis 2 is contracted. You could not determine whether axis 2 is `k` or `feature` or `inner`. The identity is gone. The checks that depend on identity are impossible.
+1. Source in Einlang: `let result[i, j] = sum[k](A[i, k] * B[k, j])`.
+2. Translation: `(let-decl (output result (i j)) (reduction sum (k) (* (index A (i k)) (index B (k j)))))`.
+3. What can you determine from the IR alone? Survivors: `{i, j}`. Consumed: `{k}`. Shared: `k` appears on both `A` and `B`. Broadcasts: none — both operands index all output coordinates except `k`.
+4. If the IR had integers instead of names — `(let-decl (output result (0 1)) (reduction sum (2) (* (index A (0 2)) (index B (2 1)))))` — could you determine which coordinate is shared? You could determine that axis 2 is contracted. You could not determine whether axis 2 is `k` or `feature` or `inner`. The identity is gone. The checks that depend on identity are impossible.
 
-The exercise takes two minutes. It shows why the IR preserves names. Not for elegance. For correctness.
+This is why the IR preserves names. Not for elegance. For correctness.

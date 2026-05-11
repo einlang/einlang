@@ -1,9 +1,9 @@
 ---
 layout: book
-title: "Chapter 9 · Comparison: Normalization"
+title: "Chapter 12 · Comparison: Normalization"
 ---
 
-# Chapter 9 · Comparison: Normalization
+# Chapter 12 · Comparison: Normalization
 
 > "You don't understand a notation until you've seen what it hides."
 >
@@ -17,15 +17,15 @@ You are two weeks into a Transformer project. LayerNorm is working. You swap in 
 
 Each normalization normalizes over different coordinates. Each uses a position number to say which one. Switch from one to another, and every `dim` must be audited—because `dim=-1` means `feature` in LayerNorm, `channel` in GroupNorm, and nothing at all in RMSNorm.
 
-Every chapter so far has been in Einlang. We built the primitives, composed them into functions, traced their gradients, and gave the language a name.
+Every chapter so far has been in Einlang. The preceding chapters built the primitives, composed them into functions, traced their gradients, and gave the language a name.
 
-This chapter changes the lens. We take three real normalization functions—LayerNorm, RMSNorm, GroupNorm—and write each in both PyTorch and Einlang, side by side. The question is not "which is better." The question is: **what does each notation make visible, and what does each notation hide?**
+Three real normalization functions—LayerNorm, RMSNorm, GroupNorm—appear below in both PyTorch and Einlang, side by side. The question is not "which is better." The question is: **what does each notation make visible, and what does each notation hide?**
 
 ---
 
 ## The Normalization Skeleton
 
-Chapter 5 showed that LayerNorm, RMSNorm, GroupNorm, and InstanceNorm share a single skeleton: reduce to get statistics, broadcast them back, apply elementwise. The four functions differ only in *which coordinates* the reduction consumes. This chapter does not repeat that skeleton table. Instead, we lay the PyTorch and Einlang versions side by side and let the coordinate names tell the story.
+LayerNorm, RMSNorm, GroupNorm, and InstanceNorm share a single skeleton: reduce to get statistics, broadcast them back, apply elementwise. The four functions differ only in *which coordinates* the reduction consumes. The PyTorch and Einlang versions are laid side by side, and the coordinate names tell the story.
 
 ---
 
@@ -284,21 +284,21 @@ This is the boundary where the coordinate notation meets the runtime. The reduct
 
 ---
 
-*Open your LayerNorm or RMSNorm implementation. Find `dim=-1`. Ask: is `-1` still the feature dimension? How do you know? The answer should be in the code, not in your memory of what the tensor shape was when you wrote it.*
+*In your LayerNorm or RMSNorm implementation, there is a `dim=-1`. Notice: is `-1` still the feature dimension? How do you know? The answer should be in the code, not in your memory of what the tensor shape was when you wrote it.*
 
 ---
 
 ### Stop and Think: Audit Your Normalization
 
-Find the normalization code in your current project. It might be a `LayerNorm` call, an `RMSNorm`, a `GroupNorm`, or a custom `(x - mean) / std * gamma + beta`. For each one:
+The normalization code in any project — a `LayerNorm` call, an `RMSNorm`, a `GroupNorm`, or a custom `(x - mean) / std * gamma + beta` — is a reduction whose coordinate identity can be examined. For any normalization you encounter:
 
-1. **What coordinate does the reduction consume?** Not "which position" — which coordinate. If the code says `x.mean(dim=-1)`, the answer depends on what's at position -1. Trace it back to the data loader or the declaration. Write the coordinate name down.
+1. **What coordinate does the reduction consume?** Not "which position" — which coordinate. If the code says `x.mean(dim=-1)`, the answer depends on what's at position -1. Tracing it back to the data loader or the declaration reveals the coordinate name.
 
 2. **What would break if the dimension order changed?** If someone added a `head` dimension or a `time` dimension, would the reduction still consume the right coordinate? For LayerNorm with `dim=-1`, the answer might be "yes, feature is conventionally last." For GroupNorm with `dim=(2,3,4)`, the answer is almost certainly "no — those positions correspond to specific dimensions in the reshape chain."
 
-3. **Is the reduction semantically correct?** LayerNorm normalizes over `feature`. GroupNorm normalizes over `c_in_group` and `..spatial`. Are you normalizing over the coordinates you intend to normalize over? If the answer requires running the code to check shapes, the notation isn't carrying the intent.
+3. **Is the reduction semantically correct?** LayerNorm normalizes over `feature`. GroupNorm normalizes over `c_in_group` and `..spatial`. Is the normalization consuming the intended coordinates? If the answer requires running the code to check shapes, the notation isn't carrying the intent.
 
-Now imagine each normalization written with coordinate names. `mean[feature](x)` instead of `x.mean(dim=-1)`. `mean[c_in_group, ..spatial](x)` instead of `x.reshape(...).mean(dim=(2,3,4))`. For each one, the coordinate name answers question 1. The name's independence from position answers question 2. The semantic meaning of the name answers question 3.
+Look at each normalization written with coordinate names. `mean[feature](x)` instead of `x.mean(dim=-1)`. `mean[c_in_group, ..spatial](x)` instead of `x.reshape(...).mean(dim=(2,3,4))`. For each one, the coordinate name answers question 1. The name's independence from position answers question 2. The semantic meaning of the name answers question 3.
 
 The normalization audit is a specialization of the broadcast self-audit from Chapter 4. Every normalization is a reduce-broadcast-elementwise pattern. The reduction bracket names the consumed coordinates. The broadcast parameters name the alignment. The skeleton is the same. The names change. The audit is the same. The questions change.
 
@@ -311,7 +311,7 @@ Let's trace a reshape bug through its entire life, in both notations. This is th
 **Day 0.** A programmer writes GroupNorm for 4D input `(N, C, H, W)`:
 
 ```python
-def group_norm(x, num_groups, gamma, beta):
+def group_norm(x, num_groups, gamma, beta, eps=1e-5):
     N, C, H, W = x.shape
     x = x.reshape(N, num_groups, C // num_groups, H, W)
     mean = x.mean(dim=(2, 3, 4), keepdim=True)
@@ -359,4 +359,4 @@ Every normalization function can be audited with three questions. They are the s
 
 3. **Does the normalization axis change meaning if the layout changes?** If the input changes from `(batch, feature)` to `(batch, time, feature)`, does `dim=-1` still mean `feature`? In LayerNorm, yes—`feature` is conventionally the last axis. In GroupNorm after a reshape, no—the positions shift and `dim` must be updated. The Einlang versions are stable under layout changes because the coordinate names don't change, only the positions they map to.
 
-Three questions. The next chapter applies them to a harder case: attention, where self-attention and cross-attention have identical PyTorch code—and where the Square Matrix Test returns.
+Three questions. Applied to attention, where self-attention and cross-attention have identical PyTorch code, the Square Matrix Test returns.
