@@ -15,8 +15,6 @@ title: "Chapter 7 · Complex Terrain"
 
 So far our coordinates have been simple: one name per axis, each axis independent. Real tensor programs are messier. A coordinate can split in two. It can carry arithmetic. It can appear in patterns where the same name used twice means something different from two names used once.
 
-This chapter explores the terrain where naming earns its keep—where the coordinate story is too complex to hold in your head, and the notation either carries it or loses it.
-
 ---
 
 ## Distance Matrix: When One Coordinate Becomes Two
@@ -46,7 +44,7 @@ The coordinate-split pattern appears in many domains. Once you recognize it, you
 
 **Collaborative filtering.** `user` and `item` share a latent factor `k` through a matrix factorization: `ratings[user, item] = sum[k](U[user, k] * V[item, k])`. The inner dimension `k` is shared and consumed. `user` and `item` are different coordinates indexing different domains. In positional code, `U @ V.T`—all three identities (`user`, `item`, `k`) collapsed into positions.
 
-In every case, the positional approach uses `unsqueeze`-and-`None` to create the cross-product dimensions. The named approach splits one coordinate into two with explicit names. The names record the split. The positional code records the mechanic.
+The names record what was split. The positional code records only the mechanic of `unsqueeze`.
 
 ---
 
@@ -146,11 +144,9 @@ When `k` appears in both index positions, pairwise indexing is inferred: `indice
 
 In NumPy, you need `np.ix_` or NEP 21's `oindex`/`vindex` to explicitly declare which behavior you want. In Einlang, the names do it.
 
-Open a terminal. In a Python interpreter, create two index arrays: `i = np.array([0, 1, 2])` and `j = np.array([0, 1, 3])`. Now index a 2D array `A` to get elements at `A[0,0], A[1,1], A[2,3]` (pairwise). Write the NumPy expression. Now index `A` to get all 3×3 combinations (outer-product). Write that expression. Compare the two. Which one required you to create a dummy axis?
+Consider the indexing distinction in NumPy. Suppose you have two index arrays: `i = np.array([0, 1, 2])` and `j = np.array([0, 1, 3])`, and a 2D array `A`. To get elements at `A[0,0], A[1,1], A[2,3]` (pairwise), you write `A[i, j]`. To get all 3×3 combinations (outer-product), you write `A[i[:, None], j[None, :]]`. Compare the two expressions. Which one required you to create a dummy axis? The outer-product version did—you had to broadcast `i` and `j` into mutually orthogonal shapes with `None`/`np.newaxis`.
 
-What you did with `i[:, None]` and `j[None, :]` is encode two different semantic relationships—pairwise vs. outer-product—through shape manipulation. The distinction was in the shapes, not in the code. In Einlang, `A[i, k]` and `B[k, j]` share `k` → pairwise. `A[i, k]` and `B[q, j]` don't share → outer-product. The coordinate name carries the distinction. No shape manipulation needed.
-
-This is a specific instance of a general principle: **the coordinate name is the unit of intent.** Every time you find yourself manually reshaping to encode a semantic distinction, ask: could a coordinate name carry this instead?
+The pattern is visible: NumPy uses shape manipulation to disambiguate pairwise from outer-product indexing. The coordinate-sharing approach does it with names. Coordinate-sharing (`k` in both index positions) means pairwise; different names mean outer-product. The coordinate name carries the distinction. No shape manipulation needed.
 
 ---
 
@@ -192,13 +188,13 @@ let gathered[i, j] = matrix[idx[i], col_idx[j]];
 
 When `k` appears in both index positions, the compiler infers pairwise indexing. When `i` and `j` are different, outer-product is inferred. The coordinate name *is* the disambiguation. No shape-dependent behavior. No manual broadcasting.
 
-Now ask yourself: which version of fancy indexing do you use more often? Pairwise or outer-product? For most people, outer-product is rarer—but when you need it, the positional approach requires adding dummy axes by hand. The named approach requires changing one letter to two. The mental model is the same in both cases ("these index together" vs "these index independently"). The named notation records that model. The positional notation buries it in shapes.
+The named notation records the mental model ("these index together" vs "these index independently"). The positional notation buries it in shapes.
 
 ---
 
 ## The Coordinate Collision Test
 
-There is a simple test for whether your notation disambiguates well. Write down two operations that have the same shape but different coordinate semantics. Show them to a colleague. Ask which is which.
+There is a simple test for whether your notation disambiguates well. Consider two operations that have the same shape but different coordinate semantics. Can a colleague tell which is which just by looking at the code?
 
 For fancy indexing:
 
@@ -224,7 +220,7 @@ let result[i, j] = matrix[idx[i], col_idx[j]];
 
 The difference is in the coordinate names. `k` vs `(i, j)`. One coordinate means pairwise. Two means outer-product. Your colleague reads the code and sees the difference. The code records the intent.
 
-This is the Coordinate Collision Test: when two operations produce the same shape but different semantics, does your notation distinguish them? Positional notation often fails this test—by design. It records shapes, not semantics. Named notation passes it—by design. It records coordinates, and coordinates carry semantics.
+This is the Coordinate Collision Test: when two operations produce the same shape but different semantics, does your notation distinguish them?
 
 
 
@@ -232,11 +228,11 @@ This is the Coordinate Collision Test: when two operations produce the same shap
 
 ## Convolution Backward: Gradient as Index Arithmetic
 
-Chapter 7 introduced the convolution gradient for weights. Let's derive the input gradient—the one that backpropagates through the network—to see how index arithmetic survives differentiation.
+The input gradient—the one that backpropagates through the network—shows how index arithmetic survives differentiation.
 
 Forward: `conv[b, oc, oh, ow] = sum[ic, kh, kw](input[b, ic, oh + kh, ow + kw] * weight[oc, ic, kh, kw])`.
 
-We need `d_input[b, ic, ih, iw]`. Apply the five-step procedure from Chapter 7:
+To find `d_input[b, ic, ih, iw]`, apply the five-step procedure from Chapter 7:
 
 1. **Hold one cell** of `input`: `input[b0, ic0, ih0, iw0]`.
 2. **List every output cell that reads it.** The held cell is read by every `conv[b0, oc, oh, ow]` where `oh + kh = ih0` and `ow + kw = iw0`, for all `oc`, all `kh`, all `kw`. That means `oh = ih0 - kh` and `ow = iw0 - kw`. For each `(kh, kw)`, the output at position `(oh, ow) = (ih0 - kh, iw0 - kw)` receives a contribution.
@@ -270,9 +266,9 @@ The names are there so that when the runtime does report an out-of-bounds error,
 
 ---
 
-Named coordinates handle the complex terrain—splits, arithmetic, disambiguation—by giving each coordinate a persistent identity. The same identity that survived a permutation in Chapter 1 survives index arithmetic here. The notation scales because the names scale.
+Named coordinates handle the complex terrain by giving each coordinate a persistent identity. The notation scales because the names scale.
 
-But there is a question worth asking before we leave this terrain: **when do names fail?**
+**When do names fail?**
 
 Names fail when the coordinate structure is truly unknown at compile time. A fully dynamic computation graph where shapes depend on runtime values—the number of detected objects in an image, the length of a generated sequence—cannot be fully verified by coordinate names alone. The names can check that `obj` is a declared coordinate and that functions consuming it have consistent contracts. They cannot check that `obj` has range 0..7 in one run and 0..12 in the next.
 
@@ -316,5 +312,3 @@ In a positional autodiff engine like PyTorch's, this inversion is computed by th
 The difference is not correctness—both derive the same result. The difference is auditability. When the backward pass is written explicitly with coordinate names, a reader can trace `ih - kh` back to the forward `oh + kh` and verify that the inversion is correct. When the backward pass is generated by the autodiff engine, the inversion is a black box. It is correct until it isn't—and when it isn't (because a custom kernel was written with the wrong index arithmetic, or because a `@tf.custom_gradient` rule has a bug), the reader has no source-level path from the forward expression to the backward expression.
 
 Named coordinates don't replace autodiff. They give autodiff's output a form that a human can read, verify, and debug. The index arithmetic is in the source. The coordinate names tell you what is being inverted. The reader can trace the thread.
-
-In the next chapter, we turn to the operation that makes all of this learnable: differentiation. The forward pass builds a computation. The backward pass reads it in reverse. And the names are the thread that ties the two directions together.

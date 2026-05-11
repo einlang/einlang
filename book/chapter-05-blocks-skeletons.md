@@ -15,7 +15,7 @@ title: "Chapter 5 · Blocks and Skeletons"
 
 Primitives let you say simple things. Combinations let you compose simple things into complex ones. Abstraction lets you name the complex things and use them as if they were primitive.
 
-Chapter 3 showed how to wrap a coordinate pattern in a function signature. This chapter shows what happens when you have several such functions—and realize they are all the same skeleton, dressed in different coordinate names.
+A coordinate pattern wrapped in a function signature produces a reusable block. Several such blocks reveal a common skeleton, dressed in different coordinate names.
 
 ---
 
@@ -90,7 +90,7 @@ This is more than a convenience. The return value of `argmax[class]` is not just
 
 ## One Skeleton, Four Normalizations
 
-Before we see the skeleton table, let's discover it ourselves. Here are four PyTorch normalization implementations. Read them. Find what they share.
+Here are four normalization implementations. Read them. Find what they share.
 
 **LayerNorm:**
 ```python
@@ -127,11 +127,9 @@ def instance_norm(x, gamma, beta, eps=1e-5):
     return (x - mean) / (var + eps).sqrt() * gamma + beta
 ```
 
-Stop. Take three minutes. Find the common structure. Don't just say "they all normalize"—that's too broad. What specific sequence of operations do they all perform? What varies between them? Write it down.
+Look at the code. The common structure is visible across all four functions. Can you see the specific sequence of operations they all perform? What varies between them?
 
----
-
-Done? Here is what they share:
+Here is what they share:
 
 1. **Compute a statistic** (mean, rms, or both) by reducing over one or more dimensions.
 2. **Broadcast the statistic back** over the reduced dimensions (via `keepdim=True`).
@@ -162,7 +160,7 @@ In a named-coordinate API, the skeleton is a template you can check. The reducti
 
 This is abstraction: recognizing a pattern, naming it, and reusing it. The pattern is "normalize with named coordinates." Each instance fills in the specific coordinates. The skeleton is constant.
 
-The discovery exercise you just did—comparing four implementations, finding their shared structure—is what you do every time you read unfamiliar tensor code. In a positional API, the discovery requires shape reconstruction. In a named API, the discovery requires reading brackets. The cognitive difference between the two is the difference between "let me trace the shapes" and "let me read the names." Names carry the structure. Positions hide it.
+The discovery exercise—comparing four implementations, finding their shared structure—is what you do every time you read unfamiliar tensor code. Names carry the structure. Positions hide it.
 
 Now let's put this claim to the test. Here is a real GroupNorm implementation in PyTorch:
 
@@ -212,8 +210,6 @@ In the PyTorch version, you'd change `dim=(2, 3, 4)` to `dim=(3, 4)`—but only 
 You have already been thinking in terms of the skeleton. The four-normalizations table at the beginning of this section was not an abstract taxonomy—it was a description of the mental model you were already using. Named coordinates make that mental model executable.
 
 ---
-
-The normalization skeleton table reveals something deeper about named coordinates. In a positional API, "feature" is the last axis in a 2D tensor—but in a 4D tensor, what was one axis may now span multiple actual dimensions. Named coordinates handle this naturally: one semantic coordinate (`feature`) can correspond to one or more actual axes in the tensor, depending on the layout. Positional code requires a reshape-permute-reshape dance to group and ungroup those dimensions. Named code just names them.
 
 This is what packs buy you. `..spatial` absorbs however many spatial dimensions there are. The same `GroupNorm` skeleton works whether spatial covers one axis or three.
 
@@ -281,9 +277,9 @@ fn C[f](x: [f32; ..b, f]) -> [f32; ..b, f]
 fn D[t](x: [f32; ..b, t]) -> [f32; ..b, t]
 ```
 
-Stop. Don't read the answer. Look at the return types.
+Look at the return types and notice the pattern yourself before reading on.
 
-Done? Function B is the odd one out. Its return type is `[f32; ..b]`—the coordinate `coord` is missing. It was consumed and not reconstructed. Functions A, C, and D all return `[f32; ..b, <coordinate>]`—the coordinate survives. B is a reduction function (like `sum[coord]`). A, C, and D are normalization functions that preserve the coordinate.
+Here is the pattern: Function B is the odd one out. Its return type is `[f32; ..b]`—the coordinate `coord` is missing. It was consumed and not reconstructed. Functions A, C, and D all return `[f32; ..b, <coordinate>]`—the coordinate survives. B is a reduction function (like `sum[coord]`). A, C, and D are normalization functions that preserve the coordinate.
 
 Now the deeper question: **why** is this distinction visible in the type signature? Because the skeleton is more than "reduce then broadcast." The skeleton is "reduce, then broadcast back to **reconstruct the consumed coordinate in the output.**" A pure reduction consumes and doesn't reconstruct—the coordinate disappears from the return type. A normalization consumes and reconstructs—the coordinate reappears. The difference between "gone forever" and "gone and returned" is the difference between a reduction and a normalization. The return type records it.
 
@@ -297,13 +293,9 @@ This is the abstraction layer. The function signature says: "I operate on coordi
 
 You've seen the table. Now derive one entry yourself. InstanceNorm normalizes each sample's each channel independently over the spatial dimensions. In 2D: for each `(N, C)`, compute mean and variance over `(H, W)`.
 
-Take two minutes. Write the Einlang signature for InstanceNorm. What coordinates does it reduce over? What coordinates survive? What parameters broadcast?
+Look at InstanceNorm. The coordinates it reduces over and the coordinates that survive are visible in the operation's signature. Which coordinates does it consume? Which survive? What parameters broadcast? The answers are in the brackets. Use `..spatial` for the spatial dimensions and `c` for channel.
 
-Hint: use `..spatial` for the spatial dimensions and `c` for channel.
-
----
-
-Done? Compare:
+Here is the answer:
 
 ```rust
 fn instance_norm[c, ..spatial](x: [f32; ..batch, c, ..spatial],
@@ -321,12 +313,14 @@ fn instance_norm[c, ..spatial](x: [f32; ..batch, c, ..spatial],
 
 The reduced coordinates are `..spatial`. The surviving coordinates are `..batch`, `c`, and `..spatial`—the spatial coordinates are consumed for the statistics but preserved in the output (the output still has spatial dimensions). The broadcast parameters are `gamma[c]` and `beta[c]`, which broadcast over `..batch` and `..spatial`.
 
-Now compare this to what you wrote. Did you:
-- Use `..spatial` for the spatial dimensions? (It absorbs however many there are.)
-- Place `..spatial` in the reduction bracket? (It's consumed for the statistics.)
-- Keep `..spatial` in the return type? (The output is not a scalar—it's a tensor with spatial dimensions.)
+Notice the pattern in the answer. The reduced coordinates are `..spatial`. The surviving coordinates are `..batch`, `c`, and `..spatial`—the spatial coordinates are consumed for the statistics but preserved in the output (the output still has spatial dimensions). The broadcast parameters are `gamma[c]` and `beta[c]`, which broadcast over `..batch` and `..spatial`.
 
-If you got all three, you understand the skeleton. The coordinate names carried the design: `mean[..spatial]` says "I am consuming the spatial dimensions." The return type `[f32; ..batch, c, ..spatial]` says "the spatial dimensions survive." The contradiction resolves: `..spatial` is consumed in the reduction but reconstructed in the output—the signature guarantees it.
+Three things to observe:
+- `..spatial` absorbs however many spatial dimensions there are.
+- `..spatial` is placed in the reduction bracket because it's consumed for the statistics.
+- `..spatial` is kept in the return type because the output is not a scalar—it's a tensor with spatial dimensions.
+
+These three observations together capture the skeleton. The coordinate names carry the design: `mean[..spatial]` says "I am consuming the spatial dimensions." The return type `[f32; ..batch, c, ..spatial]` says "the spatial dimensions survive." The contradiction resolves: `..spatial` is consumed in the reduction but reconstructed in the output—the signature guarantees it.
 
 Now consider: what if InstanceNorm should normalize over `c` as well? You'd change the reduction bracket to `[c, ..spatial]`. One change. The skeleton is the same. The coordinate name carries the design decision.
 
@@ -342,7 +336,7 @@ This is a stronger property than type inference. Type inference deduces that `x 
 
 The difference between type inference and coordinate flow is that type inference is standard in every typed language, while coordinate flow is absent from every major tensor framework. A PyTorch tensor carries shape information at runtime—`(32, 64)`—but no coordinate identities. The identities are lost the moment the tensor leaves the data loader. In Einlang, the identities propagate through every operation, every function call, every intermediate binding. They are never inferred from shapes. They are propagated from declarations. The source is always the declaration. The flow is always forward.
 
-Now check your understanding. What happens to coordinate facts in these three cases?
+The pattern is visible across three cases:
 
 1. `let y = x + 1.0;` — coordinates flow through: `y` has the same coordinates as `x`.
 2. `let y = sum[j](x[i, j]);` — coordinate `j` is consumed: `y` has `[i]`.
@@ -352,15 +346,15 @@ The third case is worth pausing on. `y[i, j] = x[j, i]` is a transpose. The decl
 
 ---
 
-In the next chapter, we add a fourth role to our coordinates: time. A coordinate that doesn't just sit there, but flows.
+Coordinates also have a fourth role: time. A coordinate that doesn't just sit there, but flows.
 
 ---
 
-## The Skeleton Discovery Exercise
+## The Skeleton Pattern, Seen in Signatures
 
 The four-normalizations table revealed that LayerNorm, RMSNorm, GroupNorm, and InstanceNorm share a skeleton. But how do you discover the skeleton in the first place? Not by reading a table. By writing the functions and noticing what changes.
 
-Take the following exercise. Write the softmax skeleton as a coordinate-aware function using only the signature and the reduction brackets—no body, no computation:
+Notice the skeletons already visible in these signatures—no body needed, just the coordinate names and reduction brackets:
 
 ```rust
 fn softmax[j](x: [f32; ..b, j]) -> [f32; ..b, j];
@@ -368,7 +362,7 @@ fn layer_norm[f](x: [f32; ..b, f], gamma: [f32; f], beta: [f32; f]) -> [f32; ..b
 fn instance_norm[..s, c](x: [f32; ..b, c, ..s], gamma: [f32; c], beta: [f32; c]) -> [f32; ..b, c, ..s];
 ```
 
-Now look at only the signatures. Can you tell which one reduces over which coordinate? In `softmax[j]`, the coordinate parameter `j` tells you: normalize over `j`. In `layer_norm[f]`, `f` tells you: normalize over `f`. In `instance_norm[..s, c]`, both `..s` and `c` are in the signature—but which one is reduced? The answer depends on which coordinate is placed in the reduction bracket in the body. The signature alone can't tell you—it can only tell you which coordinates exist. The body tells you which ones are consumed.
+Look at only the signatures. Can you tell which one reduces over which coordinate? In `softmax[j]`, the coordinate parameter `j` tells you: normalize over `j`. In `layer_norm[f]`, `f` tells you: normalize over `f`. In `instance_norm[..s, c]`, both `..s` and `c` are in the signature—but which one is reduced? The answer depends on which coordinate is placed in the reduction bracket in the body. The signature alone can't tell you—it can only tell you which coordinates exist. The body tells you which ones are consumed.
 
 Now compare to the positional versions:
 
@@ -380,7 +374,7 @@ def instance_norm(x, ...): ...
 
 The positional signatures tell you even less. `softmax` has `dim`—a positional hint. `layer_norm` has `normalized_shape`—a shape hint, not a coordinate hint. `instance_norm` has no hint at all—you must read the body to know which dimensions are reduced.
 
-The skeleton discovery exercise trains you to look at a function signature and ask: which coordinates are needed for this computation? The ones in the brackets are the answer. The ones not in the brackets pass through. The signature is the skeleton's outline.
+What is happening when you read these signatures: you are asking "which coordinates are needed for this computation?" The ones in the brackets are the answer. The ones not in the brackets pass through. The signature is the skeleton's outline.
 
 ---
 
@@ -400,4 +394,4 @@ You've seen the skeleton in LayerNorm, RMSNorm, GroupNorm, and InstanceNorm. But
 
 4. **Design a new normalization variant.** What if you wanted to normalize over the batch dimension instead of the feature dimension? In a positional API, you'd change `dim=-1` to `dim=0`—and hope no other code depends on the output shape being `(..., feature)`. In Einlang, you'd change `layer_norm[f]` to `layer_norm[batch]`. The signature change documents the architectural decision. Design your variant's Einlang signature, then ask: would a colleague reading the signature understand what is normalized over?
 
-The skeleton is the bridge between Chapter 2's primitives and Chapter 7's gradients. Every skeleton's forward pass is a reduce-broadcast-elementwise pattern. Every skeleton's backward pass is the Inversion Rule applied to that pattern. When you see the skeleton forward, you can predict its backward. The coordinate names are the thread connecting the two directions.
+Every skeleton's forward pass is a reduce-broadcast-elementwise pattern. Every skeleton's backward pass is the Inversion Rule applied to that pattern. When you see the skeleton forward, you can predict its backward. The coordinate names are the thread connecting the two directions.
