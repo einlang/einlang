@@ -258,7 +258,7 @@ The index arithmetic `ih - kh` and `iw - kw` comes from inverting the forward re
 
 Named coordinates are powerful, but they have a boundary. That a coordinate *exists* on a tensor is verified. Index arithmetic bounds are not verified. `oh + kh` is syntactically checked—`oh` and `kh` must be in scope—but whether `oh + kh` exceeds the input's spatial extent is a runtime question.
 
-This boundary is not a flaw. It is a design choice. What can be proven from names and domains alone is checked. Bounds checking is the runtime's job. Semantic correctness—whether the formula means what you think it means—is yours.
+Names check consistency, not correctness. The compiler verifies that the coordinate story is internally coherent. It does not verify that the story matches reality.
 
 Arithmetic cannot be verified. But the guarantee is: **everything that CAN be automatically checked IS automatically checked. Everything that CANNOT be automatically checked is made explicitly visible for you to review.** The coordinate names are the bridge between the two categories. They make the checkable parts machine-verifiable and the uncheckable parts human-visible.
 

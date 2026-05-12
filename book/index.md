@@ -34,8 +34,6 @@ If you build things below the level of an API call—a compiler pass, a numerica
 
 Part I (Chapters 1–2) introduces naming, permuting, reducing, broadcasting—with the megaphone model that unifies them. Part II (Chapters 3–8) covers coordinate-aware functions, the broadcast self-audit, normalization skeletons, recurrence, complex terrain, and differentiation. Part III (Chapters 9–11) opens the compiler: intermediate representation, analysis and check rules, and lowering from names to integers. Part IV (Chapters 12–14) puts Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. Chapter 15 and the Epilogue reflect on what was built and what it means.
 
-Throughout, "we" means the author and the reader together—tracing the same cells, debugging the same bugs, asking the same questions.
-
 Turn the page.
 
 ## Contents

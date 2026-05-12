@@ -9,6 +9,8 @@ title: "Chapter 1 · The Ghost in the Name"
 
 ---
 
+> Every time you write `dim=-1`, you know what it means. The compiler doesn't. This is about what happens when it does.
+
 Here is a story about a bug.
 
 It is not a dramatic bug. It produces no stack trace, no NaN cascade, no `CUDA error: device-side assert triggered`. It does not crash the training run. It does not even make the loss go up.
@@ -287,6 +289,4 @@ Six months from now, when you return to fix a bug, the intent will be gone. If t
 
 ---
 
-The questions you just considered—what coordinate does this position refer to, is it recorded anywhere, would it survive a refactoring—identify every line where `dim=1` would silently change meaning. Those are the fragility points. This book will give you a notation and a set of tools so that those questions are answered mechanically, before the code runs, by the brackets themselves.
-
-The next chapter introduces the first two tools: reduction and broadcasting. A reduction eliminates a coordinate. A broadcast copies along one. And they share a single intuition model—one that will carry us through everything that follows.
+> Silence is not absence. Silence is a claim. And claims can be checked.

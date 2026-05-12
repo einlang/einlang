@@ -306,17 +306,15 @@ Recurrence is not unique to RNNs. Every iterative computation is a recurrence. E
 
 ### Stop and Think: Find the Time Axes in Your Code
 
-Not every axis is spatial. Some axes have direction—values depend on earlier positions along the same axis. Go find them in your code.
+Not every axis is spatial. Some axes have direction—values depend on earlier positions along the same axis.
 
-1. **Search for `for t in range(` in your training scripts.** Each one is a recurrence. The loop body mutates a variable. The mutation order is the time direction. Now ask: could you write this recurrence declaratively, with `t` as a coordinate? What would the declaration look like? What would `t-1` reference?
+Every `for t in range(` in a training script is a recurrence. The loop body mutates a variable. The mutation order is the time direction. In a named-coordinate recurrence, `t` would be a declared coordinate and the dependency `t-1` would be syntax, not convention.
 
-2. **Search for `reversed(range(` or backward loops.** Each one is a backward recurrence. The iteration direction is reversed. In a named-coordinate recurrence, the direction would be part of the declaration. In a positional loop, it's encoded in the `reversed` call. If the loop direction and the dependency direction disagree, the positional version runs silently. The named version rejects at compile time.
+Every `reversed(range(` is a backward recurrence. The iteration direction is reversed. In a named-coordinate recurrence, the direction would be part of the declaration. In a positional loop, it is encoded in the `reversed` call. If loop direction and dependency direction disagree, the positional version runs silently. The named version rejects at compile time.
 
-3. **Find a loop where you manually manage a rolling window.** You allocate a buffer of size `k`, shift values at each iteration, and overwrite the oldest. The window size `k` is determined by how far back the computation looks. In a named-coordinate recurrence, the compiler would derive `k` from the index expressions. In your manual version, `k` is a constant you chose. If the computation changes to look back 3 steps instead of 2, you must update `k`. Would you remember?
+Every manual rolling window—a buffer of size `k`, shifted at each iteration, overwriting the oldest—is a recurrence whose lookback distance `k` is determined by the index expressions. In a named-coordinate recurrence, the compiler derives `k` from the expressions. In the manual version, `k` is a constant. If the computation changes to look back 3 steps instead of 2, the constant must change. Whether the programmer remembers is an open question.
 
-4. **What other tensor operations have an implied direction?** Think about your own code. Have you ever written a recurrence where the time axis was not the first axis? Where the dependency went both forward and backward? Where the "time" was not time at all—but a layer index in a residual network, an iteration counter in an optimizer, a step in a diffusion process?
-
-The directional coordinate is not limited to time. Any coordinate where position `n` depends on position `n-1` is directional. The constraint is the same: you can only look backward along it. The mechanism is the same: a directional declaration with index arithmetic. The names `t`, `layer`, `step` are just names—the compiler checks the direction, not the label.
+The directional coordinate is not limited to time. A layer index in a residual network. An iteration counter in an optimizer. A step in a diffusion process. Any coordinate where position `n` depends on position `n-1` is directional. The constraint is the same: you can only look backward along it. The mechanism is the same: a directional declaration with index arithmetic. The names `t`, `layer`, `step` are just names—the compiler checks the direction, not the label.
 
 ---
 

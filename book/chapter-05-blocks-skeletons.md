@@ -384,14 +384,14 @@ What is happening when you read these signatures: you are asking "which coordina
 
 ### Stop and Think: Find the Skeletons in Your Code
 
-You've seen the skeleton in LayerNorm, RMSNorm, GroupNorm, and InstanceNorm. But skeletons aren't limited to normalization. Every operation that follows a reduce-broadcast-elementwise pattern is a skeleton. Go find them in your code.
+You've seen the skeleton in LayerNorm, RMSNorm, GroupNorm, and InstanceNorm. But skeletons aren't limited to normalization. Every operation that follows a reduce-broadcast-elementwise pattern is a skeleton.
 
-1. **Search for `mean(`, `sum(`, `max(` followed by `keepdim=True`.** Each of these is a reduction-statistic-broadcast pattern. For each one, ask: which coordinate is reduced? Which coordinate is the statistic broadcast over? If the `dim` argument is an integer, can you name the coordinate? If the answer is "it's whatever dimension is at that position," you've found a skeleton whose identity depends on layout.
+Every `mean(`, `sum(`, or `max(` followed by `keepdim=True` in a codebase is a reduction-statistic-broadcast pattern. Which coordinate is reduced? Which coordinate is the statistic broadcast over? If the `dim` argument is an integer, can the coordinate be named? If the answer is "it's whatever dimension is at that position," the skeleton's identity depends on layout.
 
-2. **Search for `* gamma + beta` or `* scale + shift`.** These are the broadcast-parameter suffixes of normalization skeletons. For each one, ask: which coordinates do `gamma` and `beta` broadcast over? Can you name them? If not, the broadcast is implicit.
+Every `* gamma + beta` or `* scale + shift` is a broadcast-parameter suffix of a normalization skeleton. Which coordinates do `gamma` and `beta` broadcast over? Can they be named? If not, the broadcast is implicit.
 
-3. **Find two functions in your code that you suspect share a skeleton.** They might both normalize something, or both pool something, or both compute some statistic. Write their Einlang signatures side by side—even if you're not using Einlang, just write `fn name[consumed](x: [..batch, consumed]) -> [..batch, consumed]` as a comment. Do they share the same skeleton? If yes, you've found a pattern. If no, they serve different purposes and should have different signatures.
+Any two functions that share a skeleton—normalizing, pooling, computing a statistic—have Einlang signatures. Even without using Einlang, writing `fn name[consumed](x: [..batch, consumed]) -> [..batch, consumed]` as a comment reveals the skeleton. If the signatures match, the functions share a skeleton. If they don't, they serve different purposes and should have different signatures.
 
-4. **Design a new normalization variant.** What if you wanted to normalize over the batch dimension instead of the feature dimension? In a positional API, you'd change `dim=-1` to `dim=0`—and hope no other code depends on the output shape being `(..., feature)`. In Einlang, you'd change `layer_norm[f]` to `layer_norm[batch]`. The signature change documents the architectural decision. Design your variant's Einlang signature, then ask: would a colleague reading the signature understand what is normalized over?
+A normalization variant that normalizes over `batch` instead of `feature` changes `layer_norm[f]` to `layer_norm[batch]`. The signature change documents the architectural decision. A colleague reading the signature understands what is normalized over. In a positional API, changing `dim=-1` to `dim=0` silently shifts the coordinate—and hopes no other code depends on the output shape.
 
 Every skeleton's forward pass is a reduce-broadcast-elementwise pattern. Every skeleton's backward pass is the Inversion Rule applied to that pattern. When you see the skeleton forward, you can predict its backward. The coordinate names are the thread connecting the two directions.
