@@ -1,9 +1,9 @@
 ---
 layout: book
-title: "Chapter 12 · Comparison: Normalization"
+title: "Chapter 10 · Comparison: Normalization"
 ---
 
-# Chapter 12 · Comparison: Normalization
+# Chapter 10 · Comparison: Normalization
 
 > "You don't understand a notation until you've seen what it hides."
 >
@@ -284,23 +284,15 @@ This is the boundary where the coordinate notation meets the runtime. The reduct
 
 ---
 
-*In your LayerNorm or RMSNorm implementation, there is a `dim=-1`. Notice: is `-1` still the feature dimension? How do you know? The answer should be in the code, not in your memory of what the tensor shape was when you wrote it.*
+## The Coordinate Audit in Practice
 
----
+Every normalization is a reduce-broadcast-elementwise pattern—a specialization of the broadcast self-audit from Chapter 4. The reduction bracket names the consumed coordinates. The broadcast parameters name the alignment. For any normalization you encounter, ask three questions.
 
-### Stop and Think: Audit Your Normalization
+What coordinate does the reduction consume? In `x.mean(dim=-1)`, the answer depends on what's at position -1. In `mean[feature](x)`, the coordinate name answers directly.
 
-The normalization code in any project — a `LayerNorm` call, an `RMSNorm`, a `GroupNorm`, or a custom `(x - mean) / std * gamma + beta` — is a reduction whose coordinate identity can be examined. For any normalization you encounter:
+What would break if the dimension order changed? For LayerNorm with `dim=-1`, feature is conventionally last—but the convention is not enforced. For GroupNorm with `dim=(2,3,4)`, the positions correspond to specific dimensions in a reshape chain, and any upstream change silently breaks the mapping.
 
-1. **What coordinate does the reduction consume?** Not "which position" — which coordinate. If the code says `x.mean(dim=-1)`, the answer depends on what's at position -1. Tracing it back to the data loader or the declaration reveals the coordinate name.
-
-2. **What would break if the dimension order changed?** If someone added a `head` dimension or a `time` dimension, would the reduction still consume the right coordinate? For LayerNorm with `dim=-1`, the answer might be "yes, feature is conventionally last." For GroupNorm with `dim=(2,3,4)`, the answer is almost certainly "no — those positions correspond to specific dimensions in the reshape chain."
-
-3. **Is the reduction semantically correct?** LayerNorm normalizes over `feature`. GroupNorm normalizes over `c_in_group` and `..spatial`. Is the normalization consuming the intended coordinates? If the answer requires running the code to check shapes, the notation isn't carrying the intent.
-
-Look at each normalization written with coordinate names. `mean[feature](x)` instead of `x.mean(dim=-1)`. `mean[c_in_group, ..spatial](x)` instead of `x.reshape(...).mean(dim=(2,3,4))`. For each one, the coordinate name answers question 1. The name's independence from position answers question 2. The semantic meaning of the name answers question 3.
-
-The normalization audit is a specialization of the broadcast self-audit from Chapter 4. Every normalization is a reduce-broadcast-elementwise pattern. The reduction bracket names the consumed coordinates. The broadcast parameters name the alignment. The skeleton is the same. The names change. The audit is the same. The questions change.
+Is the reduction semantically correct? LayerNorm normalizes over `feature`. GroupNorm normalizes over `c_in_group` and `..spatial`. If answering this question requires running the code to check shapes, the notation isn't carrying the intent.
 
 ---
 

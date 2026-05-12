@@ -23,18 +23,27 @@ This is the megaphone model. Once you have it, you have the core of every tensor
 
 ---
 
-## The Four Operations: A First Look
+## What Is a Tensor?
 
-Every tensor computation is built from four primitive operations. Here is what each one looks like in two notations, and what each notation records.
+Ask a framework documentation and it will tell you: a multidimensional array. Ask a tensor's `.shape` attribute and it will tell you: `(32, 64, 256)`. Ask a compiler and it will tell you: a pointer to a contiguous block of memory with strides and a dtype.
 
-| Operation | PyTorch/NumPy | Einlang | What the name records |
-|:---|:---|:---|:---|
-| **Reduce** | `x.mean(dim=1)` | `mean[channel](x[b, c, s])` | Which coordinate is consumed |
-| **Broadcast** | `x + bias[:, None, :]` | `x[b, c, s] + bias[c]` | Which coordinates bias is silent on |
-| **Permute** | `x.permute(0, 3, 1, 2)` | `y[b, c, h, w] = x[b, h, w, c]` | Where each coordinate ends up |
-| **Contract** | `torch.matmul(A, B)` | `sum[k](A[b, k] * B[k, f])` | Which coordinate is shared and consumed |
+All true. All missing the point.
 
-Look at the "What the name records" column. In every case, the name records a fact about identity. In the positional version, that fact is not recorded—it lives in the programmer's head. When a refactoring changes the dimension order, the PyTorch column requires updates to every affected line. The Einlang column does not. `channel` is still `channel`, regardless of its position. The positional column records *how*. The named column records *what*.
+A tensor is a function from coordinates to values. You give it a `batch` index, a `channel` index, and a `spatial` index; it gives you back a number. The three coordinates together form an address. Every element in the tensor lives at exactly one address.
+
+This definition is not exotic. It is how mathematicians have written tensor operations for a century:
+
+$$C_{ij} = \sum_k A_{ik} B_{kj}$$
+
+The letters `i`, `j`, and `k` are not axis numbers. They are coordinate names. `i` walks the rows of `A`. `j` walks the columns of `B`. `k` walks the dimension they share—the one that gets summed away. You can rename `i` to `row`, `j` to `col`, `k` to `inner`, and the mathematics is unchanged.
+
+Now look at how we write the same operation in a modern framework:
+
+```python
+C = torch.matmul(A, B)
+```
+
+Where are `i`, `j`, and `k`? They are gone. The names that gave the operation its meaning are not present in the source text. The compiler knows the shapes of `A` and `B`. It checks that the inner dimensions agree. It does not know—cannot know—that `A`'s second axis represents `feature` and not `time`, or that `B`'s first axis represents `feature` and not `vocab_size`. It only knows that both are `64`.
 
 ---
 
@@ -51,8 +60,6 @@ let out[i, j] = A[i, j] + bias[j];
 `bias` has no `i` in its brackets. It is silent on `i`. This silence is a declaration: "the value of `bias` does not depend on `i`. Whatever `i` you ask for, the answer is the same." So the value is copied across all 32 values of `i`—not because it saves keystrokes, but because the indexing pattern makes a semantic claim: `bias` is independent of batch identity.
 
 This is broadcasting. Not a shape-compatibility hack. A semantic declaration: "this value does not depend on that coordinate." The claim is **statically verifiable**: every use of `bias` is traced, and if any context requires `bias` to vary with `i`, the omission is flagged. Broadcasting is a promise, and the promise is checked.
-
-> **Silence and omission.** Two words describe the same phenomenon from different angles. *Silence* is the semantic side: a tensor's declaration that it does not depend on a particular coordinate. When `bias[j]` is silent on `i`, it claims independence from batch identity. *Omission* is the syntactic side: the coordinate name is absent from the tensor's index pattern. The bracket `[j]` contains `j` but not `i`—`i` is omitted. Silence is the meaning. Omission is the mechanism. Use *silence* when the topic is what the code asserts, *omission* when the topic is what the brackets show. The distinction is not pedantic—it is the difference between a claim and the evidence for it.
 
 Now stop. Look at that line again: `let out[i, j] = A[i, j] + bias[j]`. Ask yourself: does `bias` depend on `i`? How do you know?
 
@@ -132,40 +139,6 @@ Reduction and broadcasting are the same megaphone, pointed in opposite direction
 
 ---
 
-### Three Megaphones, Three Claims
-
-The megaphone model becomes more interesting when multiple tensors interact, each with different silence patterns. Three scenarios, each layering an additional claim.
-
-**Scenario 1: One megaphone.** `bias[j]` is silent on `i`. The claim is simple: bias is independent of the batch. The coordinate set subtraction says `{i, j} - {j} = {i}`—bias broadcasts over `i`. One megaphone, one silence, one claim.
-
-**Scenario 2: Multiple megaphones.** Consider a convolutional layer with bias:
-
-```rust
-let out[b, c, h, w] = conv(x)[b, c, h, w] + bias[c];
-```
-
-`bias[c]` is silent on three coordinates: `b`, `h`, and `w`. The claim is: bias is independent of batch, height, and width. Three omissions, one bracket. The coordinate set subtraction says `{b, c, h, w} - {c} = {b, h, w}`. The compiler verifies that `bias` indeed has no dependency on those three coordinates anywhere in the program. The claim is checked.
-
-Now consider `scale[c, w]` instead of `bias[c]`:
-
-```rust
-let out[b, c, h, w] = conv(x)[b, c, h, w] * scale[c, w];
-```
-
-`scale[c, w]` is silent on `b` and `h`. Two omissions. The claim is different: scale depends on channel and width, but not batch or height. The bracket `[c, w]` records exactly which coordinates scale speaks on. The omissions `b` and `h` are the ones it's silent on. Different bracket, different claim, different broadcast pattern. Same megaphone model.
-
-**Scenario 3: The broken megaphone.** `bias[c]` was supposed to depend on `h`—perhaps it's a per-row bias in an image. But the programmer wrote `bias[c]` instead of `bias[c, h]`. The megaphone is silent on `h`. The broadcast over `h` is shape-correct but semantically wrong.
-
-Will the compiler catch this? No—the compiler verifies that the broadcast is *consistent*, not that it is *correct*. `bias[c]` is consistent: it's silent on `h` everywhere. The error is in the claim itself—the claim that bias is independent of height. That claim is false, but it's internally consistent.
-
-This is the boundary of what names can check. Names verify consistency—does the same coordinate mean the same thing everywhere? They cannot verify correctness—does `bias` truly not depend on `h`? The latter requires domain knowledge.
-
-But here is what the named version gives you that the positional version doesn't: the claim is *visible*. `bias[c]` says "I am independent of `h`." The reader can see that claim and ask: "is that true?" In the positional version, `bias[:, None, :]` says nothing readable. The reader must deduce the broadcast pattern from the shapes and the `None` positions. The claim is there, but it's encoded as shape arithmetic, not as a semantic statement.
-
-A wrong name is a visible error. A missing name is an invisible one. This has been true since Chapter 1, and it holds here. The megaphone makes the silence visible. Visibility is not verification—but it is the prerequisite for it.
-
----
-
 ## Rectangular Declarations
 
 To eliminate or broadcast a coordinate, name the ones being kept. In Einlang, you name coordinates with a **rectangular declaration**:
@@ -231,24 +204,6 @@ Five steps for reading any reduction:
 This takes five seconds. It catches the bug where `sum[class]` silently became `sum[batch]` after a refactoring.
 
 ---
-
-## Matrix Multiplication
-
-Rectangular declarations and reductions provide enough machinery to write matrix multiplication:
-
-```rust
-let C[i, j] = sum[k](A[i, k] * B[k, j]);
-```
-
-![Coordinates flow through matmul: i and j survive, k is consumed](figures/matmul_coords.svg)
-
-If you've taken a linear algebra course, this line needs no explanation. It is the mathematical definition, transcribed character for character:
-
-$$C_{ij} = \sum_k A_{ik} B_{kj}$$
-
-The coordinate `k` is introduced by `sum`, used to index both `A` and `B` (forcing their shared dimension to agree—this is checked), and consumed. The coordinates `i` and `j` survive into the result.
-
-Notice what this line does *not* contain: no `transpose`, no `matmul` function name, no `@` operator. The line says exactly what it means. And if you get the coordinates wrong—if you write `B[j, k]` instead of `B[k, j]`—it is caught, because `k`'s range from `A` won't match `j`'s range from `B`.
 
 ---
 
@@ -330,28 +285,6 @@ This pairing catches more bugs than any other single rule in this book. If a bro
 In PyTorch, write `x = torch.randn(8, 10); b = torch.randn(10); y = x + b`. The bias `b` broadcasts over the first dimension—but nothing in the code says so. If `x` is transposed upstream to shape `(10, 8)`, `x + b` still runs, but now broadcasts over the *second* dimension silently. In Einlang, `let out[b, c] = logits[b, c] + class_bias[c]` makes the broadcast visible: `class_bias` depends only on `c`, so the reader knows it is independent of `b`. The code says what it means.
 
 ---
-
-## Matrix Multiplication Variants
-
-The matrix multiplication `C[i, j] = sum[k](A[i, k] * B[k, j])` is the standard form. Two variants show the flexibility of coordinate-indexed multiplication.
-
-**Batched matrix multiply.** The same formula, with leading batch dimensions:
-
-```rust
-let C[..batch, i, j] = sum[k](A[..batch, i, k] * B[..batch, k, j]);
-```
-
-If `..batch` absorbs two axes, this is a 4D batched matmul. No `torch.bmm` vs `torch.matmul` distinction. The coordinate structure says what contracts and what survives.
-
-**Transposed multiplication.** Without a `.T` or `transpose()`:
-
-```rust
-let C[i, j] = sum[k](A[k, i] * B[k, j]);  // A plays the role of A^T
-```
-
-`A[k, i]` instead of `A[i, k]`. The coordinate `k` appears first—traditionally the "transposed" axis. But nothing was transposed. The indexing pattern says where `k` goes. The compiler verifies that `k` is the shared axis.
-
-These two variants—batched and transposed—are the most common deviations from standard matrix multiplication. Both use the same `sum[k](...)` reduction. The coordinate indexing carries the variation.
 
 ---
 
@@ -485,6 +418,21 @@ The four errors form a gradient. Error 1 is caught unconditionally (name mismatc
 ---
 
 The preceding sections covered the four primitives of tensor computation: naming (a coordinate has an identity), permutation (coordinates move by name, not position), reduction (the consumed coordinate is named in the bracket), and broadcasting (the omitted coordinate is visible by its absence). They all flow from a single idea: **the megaphone.** A tensor speaks on some coordinates and stays silent on others. Reduction silences a coordinate. Broadcast copies along one the tensor was already silent on. Naming makes the coordinates audible. Permutation moves them without changing who speaks.
+
+---
+
+## The Four Operations
+
+Here is what each primitive looks like in two notations, and what each notation records:
+
+| Operation | PyTorch/NumPy | Einlang | What the name records |
+|:---|:---|:---|:---|
+| **Reduce** | `x.mean(dim=1)` | `mean[channel](x[b, c, s])` | Which coordinate is consumed |
+| **Broadcast** | `x + bias[:, None, :]` | `x[b, c, s] + bias[c]` | Which coordinates bias is silent on |
+| **Permute** | `x.permute(0, 3, 1, 2)` | `y[b, c, h, w] = x[b, h, w, c]` | Where each coordinate ends up |
+| **Contract** | `torch.matmul(A, B)` | `sum[k](A[b, k] * B[k, f])` | Which coordinate is shared and consumed |
+
+In every case, the name records a fact about identity. In the positional version, that fact is not recorded—it lives in the programmer's head. When a refactoring changes the dimension order, the PyTorch column requires updates to every affected line. The Einlang column does not. `channel` is still `channel`, regardless of its position. The positional column records *how*. The named column records *what*.
 
 ---
 

@@ -45,7 +45,7 @@ What just happened: tracing which coordinates were "paths" from `A` to `C`. The 
 
 Here is the pattern. In the forward pass, some coordinates are *consumed*—a reduction (`sum[k]`) eliminates them. Some coordinates are *silent*—a broadcast copies a value along them without the value depending on them. In the backward pass, every consumption becomes a broadcast (the gradient must be spread back over what was consumed) and every silence becomes a reduction (all the copies must be collected).
 
-Think of it as a shopping trip: the forward pass walks the aisles, picking items from shelves. The receipt records which coordinates were consumed and which were paths. The backward pass—restocking—reads the same receipt in reverse. What was consumed gets broadcast back. What was a path gets summed over. The coordinate names tell you which is which.
+The forward pass is shopping; the backward pass is restocking the same receipt in reverse.
 
 ---
 
@@ -211,7 +211,7 @@ let pos_sum = sum[i](data[i]) where data[i] > 0;
 
 In the forward pass, only positive elements are summed. In the backward pass, the gradient signal is distributed only to the positive elements. Elements that were filtered out receive zero gradient. You don't write a separate backward filter. The where clause defines the domain of the operation, and the domain applies in both directions.
 
-This is the shopping cart model extended: the where clause is the gate on the aisle door. During shopping (forward pass), only items matching the condition enter the cart. During restocking (backward pass), only shelves matching the condition receive replenishment. The gate is the same in both directions. The condition is written once.
+The where clause is the gate. Items that pass the condition in the forward pass receive gradient in the backward pass. Items that don't, don't. The condition is written once.
 
 Now a harder one. What if the where clause references a coordinate that is consumed by the operation?
 
@@ -300,8 +300,6 @@ where paths(A, C) = {coordinates in C} ∖ {coordinates in A}
 The gradient is not a separate computation from the forward pass. It is the forward pass, read backward. The coordinate names that organize the forward pass—which survive, which are consumed, which are omitted—organize the backward pass in exactly the same way. A coordinate eliminated by a forward sum becomes a coordinate introduced by a backward broadcast. A coordinate omitted by a forward broadcast becomes a coordinate summed by a backward reduction.
 
 The names are the same. The direction is reversed. The principle is symmetric.
-
-The shopping cart record, read forward, tells you what you bought. Read backward, it tells the store what to restock. The names of the items are on both sides of the receipt.
 
 ---
 

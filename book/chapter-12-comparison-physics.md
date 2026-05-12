@@ -1,9 +1,9 @@
 ---
 layout: book
-title: "Chapter 14 · Comparison: Physics"
+title: "Chapter 12 · Comparison: Physics"
 ---
 
-# Chapter 14 · Comparison: Physics
+# Chapter 12 · Comparison: Physics
 
 > "The map is not the territory—but when the map says 'temperature' and the territory says 'pressure,' you have a problem that no amount of correct math can fix."
 >
@@ -321,14 +321,10 @@ If the magnetic field index moves from 4 to 0, how many lines of code do you nee
 
 ---
 
-### Stop and Think: Integer Index Audit
+## The Coordinate Audit in Practice
 
-Physical simulation code is dense with integer indices. Every `state[..., k]` is a claim about which field lives at position `k`. Every `u[i+1]` is a claim about what `+1` means. Look at any simulation code:
+Physical simulation code is dense with integer indices, each one a claim about identity. `state[..., 0]` claims "density lives at position 0." `u[i+1]` claims "the right neighbor lies one index ahead." These claims live in comments, enums, and variable names—never in the notation itself.
 
-1. **Every integer field index.** `state[..., 0]`, `state[..., 1]`, `state[..., 2]`. For each one, can you name the physical quantity? If the answer is "yes, because 0 is density, 1 is velocity-x, 2 is velocity-y" — where is that mapping recorded? In a comment? In an enum? In variable names? How far away from the index is the documentation?
+Pick `temperature`. Find every place it's read and written. If the code uses `state[..., 3]`, you must verify every `3` corresponds to temperature. If a new diagnostic field is inserted at position 2, every `3` must be re-evaluated: some should become `4`, others should stay. The refactoring requires manual verification of every integer index. No compiler helps.
 
-2. **Every stencil offset.** `u[i+1, j]`, `u[i-1, j]`, `u[i, j+1]`, `u[i, j-1]`. For each one, which spatial direction does it represent? If the answer is "`i+1` is the right neighbor in x" — is that always true, or does it depend on the mesh convention? Could someone accidentally write `i-1` intending right?
-
-3. **Trace one physical quantity through the code.** Pick `temperature`. Find every place it's read and written. If the code uses integer indexing — `state[..., 3]` — you must find every `3` and check that it corresponds to temperature. If the field order changes (a new diagnostic field is inserted at position 2), every `3` becomes wrong. Some should become `4`. Some should stay `3` (if they referred to a different field that was originally at position 4). The refactoring requires manual verification of every integer index. There is no compiler to verify it for you.
-
-In Einlang, there is. `state[..., temp]` stays `temp` regardless of field order. The coordinate name is the anchor. The integer is the implementation detail. The difference is whether the anchor is in the code or in your head.
+In Einlang, `state[..., temp]` stays `temp` regardless of field order. The coordinate name is the anchor. The integer is the implementation detail. The difference is whether the anchor is in the code or in your head.

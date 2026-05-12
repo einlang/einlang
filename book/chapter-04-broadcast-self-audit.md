@@ -6,26 +6,12 @@ title: "Chapter 4 · The Broadcast Self-Audit"
 # Chapter 4 · The Broadcast Self-Audit
 
 > "Silence is not absence. Silence is a claim. And claims can be checked."
->
-> — The author, after a 4 AM broadcast bug
 
 *Combinations · The inversion rule: what broadcasts forward collects backward*
 
 ---
 
-You have now seen two coordinate operations: reduction (which consumes a coordinate) and broadcasting (which copies along one). Chapter 2 introduced them as separate primitives. Chapter 3 showed how coordinate-aware functions thread them through signatures.
-
-But there is a deeper relationship between them—one that this chapter is dedicated to making explicit. It is the relationship that governs every gradient, every parameter update, every backward pass you will ever write. And it can be stated in one sentence:
-
-**What broadcasts in the forward pass is reduced in the backward pass. What is reduced in the forward pass is broadcast in the backward pass.**
-
-This is the Inversion Rule.
-
----
-
-## Two Lines, Two Directions
-
-Read these two lines:
+Chapter 2 introduced reduction and broadcasting as separate primitives. Chapter 3 showed coordinate-aware functions. Now read two lines:
 
 ```rust
 // Forward
@@ -35,9 +21,11 @@ let out[i, j] = A[i, j] + bias[j];
 let d_bias[j] = sum[i](d_out[i, j]);
 ```
 
-Forward: `bias[j]` omits `i` in its index pattern. The coordinate `i` is absent. So `bias` is copied along `i`—every position along `i` receives the same `bias` value. This is a broadcast.
+Forward: `bias[j]` omits `i` in its index pattern. The coordinate `i` is absent, so `bias` is copied along `i`. Broadcast.
 
-Backward: `d_bias[j]` is the gradient with respect to `bias`. How to get it: `d_out[i, j]` carries gradient signals from every `(i, j)` position. `bias` contributed to all of them equally. To update `bias`, collect all those signals. The collection is a sum—over `i`. The coordinate that was broadcast forward is reduced backward.
+Backward: `d_bias[j]` is the gradient with respect to `bias`. `d_out[i, j]` carries gradient signals from every `(i, j)` position—`bias` contributed to all of them equally. To update `bias`, collect all those signals: sum over `i`. Reduction.
+
+The coordinate that was broadcast forward (`i`) is the coordinate reduced backward.
 
 Now the inverse:
 
@@ -152,26 +140,14 @@ Every gradient has the same coordinates as its parameter. The broadcast sets fro
 
 ## When the Audit Fails
 
-Now let's see what happens when a broadcast is shape-correct but semantically wrong.
-
-A programmer writes a temperature-scaled softmax:
-
-```rust
-let logits[batch, class] = model(x[batch, feature]);
-let scaled[batch, class] = logits[batch, class] / temperature;
-let probs[batch, class] = softmax[class](scaled[batch, class]);
-```
-
-`temperature` is a scalar. It broadcasts over both `batch` and `class`. The auditor asks Question 2: is independence justified? Yes—temperature is a global scaling factor that applies uniformly to all logits.
-
-But the programmer intended `temperature` to be per-class—different classes get different temperatures. They wrote:
+A programmer writes a temperature-scaled softmax. The intent is per-class temperatures:
 
 ```rust
 let temperature[class] = get_per_class_temperature();
 let scaled[batch, class] = logits[batch, class] / temperature[class];
 ```
 
-Now `temperature` broadcasts over `batch` but *not* over `class`. The auditor asks: is `temperature` independent of `batch`? Yes—all batch elements share the same per-class temperatures. Is `temperature` independent of `class`? No—and the index pattern `temperature[class]` does *not* broadcast over `class`. The code is correct.
+`temperature` broadcasts over `batch` but not `class`. The auditor asks: is `temperature` independent of `batch`? Yes. Independent of `class`? No—and the index pattern correctly omits `batch` but includes `class`.
 
 Now suppose the programmer accidentally wrote:
 
@@ -180,32 +156,18 @@ let temperature = get_per_class_temperature();  // returns scalar by mistake
 let scaled[batch, class] = logits[batch, class] / temperature;
 ```
 
-`temperature` is a scalar broadcasting over everything. The shapes work. The code runs. But the per-class variation is gone—every class gets the same temperature. The loss descends but plateaus higher. The bug is a broadcast that is wider than intended.
+`temperature` is a scalar—broadcasts over everything. The shapes work. The loss descends but plateaus higher. The auditor's Question 2 catches it: the broadcast claims `temperature` is independent of `class`. The claim is false.
 
-The auditor's Question 2 catches this: "is independence genuinely justified?" The programmer intended `temperature` to depend on `class`. But the scalar `temperature` is independent of `class`—it broadcasts over it. The broadcast is a claim that `temperature` doesn't depend on `class`. The claim is false. The audit fails.
-
-In a positional framework, `temperature` is just a number. The positional notation doesn't distinguish between "this is a scalar because it's genuinely global" and "this is a scalar because I forgot to make it per-class." The broadcast self-audit forces the distinction.
-
-Now consider a more subtle failure—one that the audit catches but positional debugging would miss for hours. A programmer is implementing a weighted loss:
-
-```rust
-let losses[batch, class] = cross_entropy_per_class(logits[batch, class], labels[batch, class]);
-let class_weights[class] = get_class_weights();
-let weighted[batch] = mean[class](losses[batch, class] * class_weights[class]);
-```
-
-`class_weights[class]` broadcasts over `batch`. The audit asks: is `class_weights` independent of `batch`? Yes—class weights are per-class, shared across all batch elements. The broadcast is justified.
-
-Now the programmer refactors, making class weights adaptive based on batch statistics:
+A second example. Adaptive class weights for a weighted loss:
 
 ```rust
 let class_weights = compute_adaptive_weights(losses);  // BUG: returns scalar by accident
 let weighted[batch] = mean[class](losses[batch, class] * class_weights);
 ```
 
-`compute_adaptive_weights` was supposed to return `[f32; class]` but returns a scalar. The audit catches this: `class_weights` broadcasts over both `batch` and `class`. But `class_weights` should depend on `class`—the broadcast over `class` is semantically wrong. The loss will compile, run, and descend. But every class gets the same weight. The adaptive weighting is silently disabled.
+`compute_adaptive_weights` was supposed to return `[f32; class]` but returns a scalar. The scalar broadcasts over `class`—every class gets the same weight. The adaptive weighting is silently disabled. The auditor asks: is `class_weights` independent of `class`? It shouldn't be.
 
-In a positional framework, `(batch, class) * scalar` and `(batch, class) * (class,)` are both valid—the shape of `class_weights` determines the behavior, and a shape mismatch produces a different broadcast instead of an error.
+In a positional framework, both bugs survive because `(batch, class) / scalar` and `(batch, class) * scalar` are perfectly valid. The broadcast is silent. The audit makes it speak.
 
 ---
 

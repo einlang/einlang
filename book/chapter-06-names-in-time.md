@@ -274,47 +274,26 @@ The Einlang version makes the training trajectory a data structure. The PyTorch 
 
 ---
 
-## Diffusion Models: Time as a Coordinate with a Schedule
+## Diffusion Models
 
-Diffusion models are the most time-intensive architecture in modern ML. A forward process adds noise over `T` timesteps. A backward process learns to reverse the noising. The time coordinate appears in two roles: as a recurrence index for the sampling chain, and as a conditioning signal for the denoising network.
+Diffusion models add noise over `T` timesteps and learn to reverse it. The time coordinate appears in two roles: recurrence index for the sampling chain, and conditioning signal for the denoising network.
 
 ```
 let x[t in 0..T, b, c, h, w] = ...;
-let eps[t in 1..T, b, c, h, w] = noise_schedule[t] * randn(...);
 let x[t in 1..T, b, c, h, w] = sqrt(1 - beta[t]) * x[t-1, ...] + sqrt(beta[t]) * eps[t, ...];
 ```
 
-The time index `t` threads through the forward noising process. At each step, noise is added. The schedule `beta[t]` controls how much noise—and `beta` is indexed by `t`, making the dependency visible.
-
-In the backward pass (the learned denoising):
+The schedule `beta[t]` is indexed by `t`, making the dependency visible. In the backward pass:
 
 ```
 let x_hat[t in T..1, b, c, h, w] = denoise(x[t, ...], t, model(x[t, ...], t));
 ```
 
-The iteration runs backward: `T..1`. The model receives `t` as conditioning—it needs to know which timestep it's denoising. In a positional framework, `t` is a positional encoding vector concatenated or added to the input, and the loop runs in Python. In Einlang, `t` is a coordinate that flows through the model call: the model's signature can declare `fn denoise[t, ...](x: [f32; t, ...])` and the coordinate `t` is carried alongside the tensor data.
+The iteration runs backward. The model receives `t` as conditioning. This is the same mechanism that carried `class` through `softmax[class]` in Chapter 3, applied to time. The direction—forward or backward—is the only difference.
 
-This is the same mechanism that carried `class` through `softmax[class]` in Chapter 3, applied to time. The coordinate is the same kind of thing. The direction—forward or backward—is the only difference.
-
-Time is not "special." It is a coordinate with a direction constraint. The constraint is checked. The coordinate flows through functions. The training loop is a recurrence. The diffusion process is a recurrence. The optimizer is a recurrence. Three domains, one mechanism. The names make them recognizable as the same thing. It carries direction. It carries dependency. It carries a constraint: you can only look backward along it. These properties are not metaphorical. They are enforced at the level of index expressions. A colleague who writes `let h[t in 0..T] = step(h[t+1], x[t])` will get a compile error—not a runtime divergence, not a silent wrong answer. The syntax makes the constraint checkable.
-
-The question worth asking: what other tensor operations have an implied direction? Think about your own code. Have you ever written a recurrence where the time axis was not the first axis? Where the dependency went both forward and backward? Where the "time" was not time at all—but a layer index in a residual network, an iteration counter in an optimizer, a step in a diffusion process?
-
-Recurrence is not unique to RNNs. Every iterative computation is a recurrence. Every optimizer step is a recurrence. Every diffusion timestep is a recurrence. The coordinate `t` is not "the time axis." It is "the axis along which things depend on earlier things." Causality is the constraint. The directional coordinate is the mechanism that enforces it.
+Time is a coordinate with a direction constraint. The constraint is checked. The coordinate flows through functions. The training loop is a recurrence. The diffusion process is a recurrence. The optimizer is a recurrence. Three domains, one mechanism.
 
 ---
-
-### Stop and Think: Find the Time Axes in Your Code
-
-Not every axis is spatial. Some axes have direction—values depend on earlier positions along the same axis.
-
-Every `for t in range(` in a training script is a recurrence. The loop body mutates a variable. The mutation order is the time direction. In a named-coordinate recurrence, `t` would be a declared coordinate and the dependency `t-1` would be syntax, not convention.
-
-Every `reversed(range(` is a backward recurrence. The iteration direction is reversed. In a named-coordinate recurrence, the direction would be part of the declaration. In a positional loop, it is encoded in the `reversed` call. If loop direction and dependency direction disagree, the positional version runs silently. The named version rejects at compile time.
-
-Every manual rolling window—a buffer of size `k`, shifted at each iteration, overwriting the oldest—is a recurrence whose lookback distance `k` is determined by the index expressions. In a named-coordinate recurrence, the compiler derives `k` from the expressions. In the manual version, `k` is a constant. If the computation changes to look back 3 steps instead of 2, the constant must change. Whether the programmer remembers is an open question.
-
-The directional coordinate is not limited to time. A layer index in a residual network. An iteration counter in an optimizer. A step in a diffusion process. Any coordinate where position `n` depends on position `n-1` is directional. The constraint is the same: you can only look backward along it. The mechanism is the same: a directional declaration with index arithmetic. The names `t`, `layer`, `step` are just names—the compiler checks the direction, not the label.
 
 ---
 

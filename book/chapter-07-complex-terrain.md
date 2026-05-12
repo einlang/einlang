@@ -13,7 +13,9 @@ title: "Chapter 7 · Complex Terrain"
 
 ---
 
-So far our coordinates have been simple: one name per axis, each axis independent. Real tensor programs are messier. A coordinate can split in two. It can carry arithmetic. It can appear in patterns where the same name used twice means something different from two names used once.
+This chapter is about one phenomenon seen through several lenses: a single coordinate splitting into two roles. `point` becomes `point_i` and `point_j` in a distance matrix. `node` becomes `source_node` and `target_node` in a graph. `sample` becomes `anchor` and `positive` in contrastive learning. The split is the operation. The names record it.
+
+Coordinates also carry arithmetic (`oh + kh`), disambiguate indexing patterns, and collide in ways that test whether a notation records intent. Every section in this chapter is a variation on one question: when a coordinate's role is more complex than "this axis exists," does your notation record the complexity—or bury it in shape arithmetic?
 
 ---
 
@@ -254,31 +256,11 @@ The index arithmetic `ih - kh` and `iw - kw` comes from inverting the forward re
 
 ---
 
-## The Boundary: What Names Can't Check
+## The Boundary
 
-Named coordinates are powerful, but they have a boundary. That a coordinate *exists* on a tensor is verified. Index arithmetic bounds are not verified. `oh + kh` is syntactically checked—`oh` and `kh` must be in scope—but whether `oh + kh` exceeds the input's spatial extent is a runtime question.
+Index arithmetic like `oh + kh` is syntactically checked—`oh` and `kh` must be in scope—but whether `oh + kh` exceeds the input's spatial extent is a runtime question. Arithmetic bounds are not verified at compile time. The names are there so that when the runtime does report an out-of-bounds error, the message can name the coordinate: `IndexError: oh + kh = 67 exceeds input width 64`.
 
-Names check consistency, not correctness. The compiler verifies that the coordinate story is internally coherent. It does not verify that the story matches reality.
-
-Arithmetic cannot be verified. But the guarantee is: **everything that CAN be automatically checked IS automatically checked. Everything that CANNOT be automatically checked is made explicitly visible for you to review.** The coordinate names are the bridge between the two categories. They make the checkable parts machine-verifiable and the uncheckable parts human-visible.
-
-The names are there so that when the runtime does report an out-of-bounds error, the error message can say which coordinate overflowed. `IndexError: oh + kh = 67 exceeds input width 64` is a better error than `IndexError: dimension 3 out of bounds`.
-
----
-
-Named coordinates handle the complex terrain by giving each coordinate a persistent identity. The notation scales because the names scale.
-
-**When do names fail?**
-
-Names fail when the coordinate structure is truly unknown at compile time. A fully dynamic computation graph where shapes depend on runtime values—the number of detected objects in an image, the length of a generated sequence—cannot be fully verified by coordinate names alone. The names can check that `obj` is a declared coordinate and that functions consuming it have consistent contracts. They cannot check that `obj` has range 0..7 in one run and 0..12 in the next.
-
-This is the boundary from Section 5, restated: names check consistency, not correctness. The compiler verifies that the coordinate story is internally coherent. It does not verify that the story matches reality. For that, you need runtime assertions. For that, you need tests. The names reduce the surface area of things that can go wrong silently. They do not eliminate the need for vigilance.
-
-But vigilance is easier when the code records what you were being vigilant about. A name is a note to your future self: *this coordinate matters, I checked it, and the compiler checks that I checked it.*
-
-The boundary between what names can and cannot check is not a weakness of the naming approach. It is a precise map of what is statically knowable. Every fact the names cannot check—bounds of index arithmetic, runtime-dependent shapes, semantic correctness of the formula itself—is a fact that *no* purely static system can check. The names don't fail at these boundaries. They mark them. The coordinate names are in the index expressions when the bounds are checked at runtime, in the declaration when the shape is resolved, in the function signature when the meaning is asserted. The names are there when the check happens—even if the check is runtime, not compile time.
-
-This is what "everything checkable is checked" means in practice. The compiler checks what it can from declarations alone. What it cannot check, it leaves visible—with names attached—so that runtime checks and human reviewers know what to look for. A name is more useful when it's checked at compile time, but it's still useful when it's only checked at runtime. `IndexError: oh + kh = 67 exceeds input width 64` names the coordinate that overflowed. `IndexError: dimension 3 out of bounds` names a position. Which error would you rather debug at 3 AM?
+What names can and cannot check is the subject of Chapter 13. For now: the compiler checks every fact derivable from declarations. What it cannot check—index bounds, runtime-dependent shapes, semantic correctness—it leaves visible, with names attached. `IndexError: oh + kh = 67 exceeds input width 64` names the coordinate. `IndexError: dimension 3 out of bounds` names a position. The difference is the distance between the two error messages.
 
 ---
 

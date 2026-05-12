@@ -9,87 +9,82 @@ title: "Chapter 9 · The Shape of Thought"
 >
 > — Adapted from SICP
 
-*Construction · Intermediate representation*
+*Construction · How the compiler reads names*
 
 ---
 
-You have done three things. You learned to name coordinates—to put `channel` where positional code puts `1`. You saw named and positional notation side by side on real computations—normalization, attention, physics. You know what the names catch. One question remains: *how does the compiler make this happen?* We will build a compiler frontend. It will not be industrial-grade. It will be yours.
-
----
-
-A compiler cannot operate on source code strings directly. It needs an internal language. This language must satisfy two conditions. First, it must be able to express every structure in the source language with perfect fidelity—no information lost in translation. Second, it must be simple enough that checker passes can traverse it mechanically, without parsing or disambiguation.
-
-We use S-expressions—parenthesized lists—as this internal language. In this language, coordinate names are preserved exactly as written. They are not pre-resolved to integers. Model names remain model names. The structure mirrors the source, stripped of syntactic sugar, with all semantic relationships intact.
-
-The compiler's first job is translation: read Einlang, write parentheses. Here is what that translation looks like.
-
----
-
-You just wrote a short Einlang program.
+You just wrote a short Einlang program:
 
 ```
 let x = softmax[class](logits[batch, class]);
 let y = sum[class](x[batch, class] * labels[batch, class]);
 ```
 
-Someone asks: what is the shape of `y`? You cannot run this code—there is no data. But you can still answer. How?
+Someone asks: what is the shape of `y`? You cannot run this code—there is no data. But you can still answer.
 
-Stop and actually do it. Trace the coordinates in your head. `logits` has `[batch, class]`. `softmax[class]` preserves the shape—output is still `[batch, class]`, bound to `x`. Then `sum[class]` consumes `class`. The surviving coordinate is `batch`. `y` has shape `[batch]`.
+Trace the coordinates. `logits` has `[batch, class]`. `softmax[class]` preserves the shape—output is `[batch, class]`, bound to `x`. Then `sum[class]` consumes `class`. The surviving coordinate is `batch`. `y` has shape `[batch]`.
 
 You just performed coordinate propagation in your head. You tracked each name—where it was introduced, how it flowed through the function call, whether it survived the reduction. You did not need data. You did not need to run the program. You needed only the names.
 
-Now ask: what exactly did your brain do? It maintained a mental table:
+This—exactly this—is what a compiler must do. For every line, without data, without execution, it must answer: what is the shape of every tensor? Which coordinates survive each operation? Does the coordinate contract at each call site match the function's declaration?
 
-```
-logits:  coordinates {batch, class}
-x:       coordinates {batch, class}   ← softmax preserves
-labels:  coordinates {batch, class}
-y:       coordinates {batch}           ← sum consumes class
-```
-
-At each step, you looked at the operation and asked: which coordinates go in, which come out? The answer was always in the brackets. `softmax[class]` says `class` is the normalized coordinate—preserved. `sum[class]` says `class` is the reduced coordinate—consumed.
-
-You did not think about positions. You did not count axes. You did not check shapes. You checked names. And you got the answer instantly.
-
-This—exactly this—is what a compiler must do. It must answer the same questions you just answered: what is the shape of every tensor? Which coordinates survive each operation? Does the coordinate contract at each call site match the function's declaration? The compiler needs to do this for every line of every program, without data, without execution. It needs an internal form in which these questions have mechanical answers.
-
-That form is the **intermediate representation**. And the first decision in designing it is the most important one: **names must survive translation.** If the IR replaced `class` with `axis=1`, the compiler would have to reconstruct the identity you just effortlessly traced. Reconstruction is brittle—it depends on conventions, on consistent naming, on the very human discipline that positional notation abandons. Preservation is mechanical—if the name is in the IR, the compiler can check it. If the name is gone, it cannot.
-
-A compiler cannot operate on source code strings directly. It needs an internal language. This language must satisfy two conditions. First, it must express every structure in the source language with perfect fidelity—no information lost in translation. Second, it must be simple enough that checker passes can traverse it mechanically, without parsing or disambiguation.
-
-We use S-expressions—parenthesized lists—as this internal language. In this language, coordinate names are preserved exactly as written. They are not pre-resolved to integers. Model names remain model names. The structure mirrors the source, stripped of syntactic sugar, with all semantic relationships intact.
-
-The compiler's first job is translation: read Einlang, write parentheses. Here is what that translation looks like.
+But before we see the machinery that answers these questions, let's watch the questions themselves catch bugs. Here is a broken program. It was written by a programmer who intended a linear layer with bias followed by softmax over classes. It compiles. It runs. It produces wrong results.
 
 ---
 
-## What You Write, and What the Compiler Sees
+## The Wall
 
-Start with the simplest possible fragment. A single tensor access:
+Imagine a detective's wall. Five slots, each labeled with one rule. When a bug is found, it gets pinned to the slot of the rule that caught it.
 
-```
-A[i]
-```
-
-After parsing, the compiler sees:
-
-```lisp
-(index A (i))
-```
-
-That's it. `A` is the tensor. `i` is the coordinate. `index` is the operation. No positions. No numbers. Just a name and a tensor.
-
-Add a second coordinate:
+Here is a broken program. It was written by a programmer who intended a linear layer with bias followed by softmax over classes. It compiles. It runs. It produces wrong results.
 
 ```
-A[i, j]
+fn predict[class](x: [f32; batch, in], W: [f32; out, in], bias: [f32; out])
+    -> [f32; batch, out]
+{
+    let logits[batch, class] = sum[k](x[batch, k] * W[out, k]) + bias[out];
+    softmax[class](logits[batch, class])
+}
 ```
 
-```lisp
-(index A (i j))
+Look at the program. Which names don't match?
+
+**Rule 1.** `k` is referenced on `x` and `W`, but both declare `in`, not `k`. The reduction introduces a ghost coordinate. Rule 1 pins: `k` is not a declared coordinate of `x` or `W`. The writer meant `in`.
+
+**Rule 2.** Syntactically, `k` appears in all operands. Rule 2 passes—but the wrong coordinate is being consumed. Rules 1 and 2 together cover both "coordinate doesn't exist" and "coordinate exists but isn't used consistently."
+
+**Shape analysis.** The output declaration says `(batch, class)` but the reduction body produces `(batch, out)`. `class` appears from nowhere. `out` is produced but not declared. The declared coordinates don't match the coordinates that actually flow through the expression.
+
+**Rule 5.** Return type says `[f32; batch, out]` but the body's `softmax[class](logits[batch, class])` returns `[f32; batch, class]`. The coordinate `out` in the return type doesn't match `class` in the return value. Pinned.
+
+**Rule 3.** `bias[out]` omits `batch`—a correct broadcast (bias is independent of batch). Recorded for the gradient. No bug.
+
+**Rule 4.** No recurrence. Silent.
+
+The corrected program:
+
+```
+fn predict[class](x: [f32; batch, in], W: [f32; class, in], bias: [f32; class])
+    -> [f32; batch, class]
+{
+    let logits[batch, class] = sum[in](x[batch, in] * W[class, in]) + bias[class];
+    softmax[class](logits[batch, class])
+}
 ```
 
-The index list grows. The structure is the same. Now add an operation—two tensors, element-wise addition:
+Three changes. `sum[k]` → `sum[in]`. `W[out, k]` → `W[class, in]`. Return type `out` → `class`. Every coordinate flows from declaration to use. Every name matches.
+
+Not one of these bugs was a shape error. In a positional framework, `sum(axis=1)` on `(batch, in)` and `(out, in)` would produce `(batch, out)`—a valid shape. The code would run. The loss would descend. And the model would be computing a meaningless function.
+
+The five rules are the five ways a name can be wrong: it can refer to a non-existent coordinate (Rule 1), it can fail to appear where the operation requires it (Rule 2), it can broadcast silently without the record the backward pass needs (Rule 3), it can reference the future in a recurrence (Rule 4), or it can violate the contract of a function call (Rule 5). That's it. Those are all the ways.
+
+But to apply these rules mechanically, the compiler needs a representation where names are preserved and operations are explicit. It needs an **intermediate representation**.
+
+---
+
+## The IR Tree
+
+The compiler translates Einlang into S-expressions—parenthesized lists where every name is preserved:
 
 ```
 A[i, j] + B[i, j]
@@ -99,9 +94,7 @@ A[i, j] + B[i, j]
 (+ (index A (i j)) (index B (i j)))
 ```
 
-`+` becomes the operator. The two index expressions become children. The tree is `(+ left right)`. Still no numbers.
-
-Now wrap in a reduction. `sum[k]` says "eliminate k from the output":
+Add a reduction:
 
 ```
 sum[k](A[i, k] * B[k, j])
@@ -112,9 +105,7 @@ sum[k](A[i, k] * B[k, j])
   (* (index A (i k)) (index B (k j))))
 ```
 
-`k` is the reduction coordinate—named, not numbered. `sum` is the reduction operator. The body sits one level below. This is the same structure as Σ notation: the operator, then the index variable, then the expression.
-
-Now bind the result to a name. `C[i, j]` declares the output coordinates:
+The reduction coordinate `k` is named, not numbered. A full declaration:
 
 ```
 C[i, j] = sum[k](A[i, k] * B[k, j])
@@ -126,277 +117,110 @@ C[i, j] = sum[k](A[i, k] * B[k, j])
     (* (index A (i k)) (index B (k j)))))
 ```
 
-`let-decl` wraps the entire expression. `(output C (i j))` declares the result tensor and its surviving coordinates—`i` survives, `j` survives, `k` is gone. The declaration and the reduction agree: `k` was consumed.
+`(output C (i j))` declares the surviving coordinates: `i` and `j` survive, `k` is consumed.
 
-You just watched one tree grow from `(index A (i))` to a full declaration with reduction, multiplication, and coordinate tracking. Four steps. At each step, the tree preserved every name. At no step did a name become a number.
-
-The rest of this section shows each IR construct in detail. But the pattern is the same throughout: source code on the left, parentheses on the right, names everywhere, numbers nowhere.
+Three things the IR preserves: **names** (`i` and `k` remain names, never become `axis=0`), **reduction targets** (`(reduction sum (k) ...)` operates on `k`), and **index patterns** (`(index A (i k))` matches what the source wrote). The IR has not *translated* your program. It has *said it again*, in parentheses.
 
 ---
 
-## Reduction in Detail
+## Lowering: Names Become Numbers
 
-```
-sum[i](A[i] * B[i])
-```
+The tree passed every check. But it cannot be handed to NumPy. NumPy does not understand `class`. It needs `axis=1`.
 
-Becomes:
+Translating the analyzed tree into executable instructions is **lowering**. The mapping is deterministic: every axis name maps to its position in declaration order. `i` is first → axis 0. `class` is second → axis 1. The name is burned.
 
-```lisp
-(reduction sum (i)
-  (* (index A (i)) (index B (i))))
-```
+After lowering, the softmax IR becomes:
 
-`sum[i](...)` becomes `(reduction sum (i) ...)`. The bracket holds the name of the reduction axis; the body sits one level below. The structure mirrors what you write in mathematical notation: Σ, then the index variable, then the expression.
-
-Reduction with a where clause:
-
-```
-sum[i](A[i] * B[i]) where i > 5
+```python
+def softmax(logits):
+    m = np.max(logits, axis=1, keepdims=True)
+    e = np.exp(logits - m)
+    return e / np.sum(e, axis=1, keepdims=True)
 ```
 
-```lisp
-(reduction sum (i)
-  (* (index A (i)) (index B (i)))
-  (where (> i (literal 5))))
-```
+`keepdims=True` was not in the source. The compiler inferred it: `logits - max` requires the max result to broadcast back over `class`. The analyzed shapes showed the mismatch—max produces `(batch)`, but the subtraction expects `(batch, class)`. `keepdims=True` bridges the gap. The programmer didn't write it. The compiler deduced it from the coordinate structure.
 
-`where` becomes the third child of `reduction`. It filters the reduction variable `i`—each iteration accumulates only elements that satisfy the condition. Not a post-hoc mask. A gate on the reduction itself.
+Matrix multiplication is a special case. `C[i, j] = sum[k](A[i, k] * B[k, j])` — `k` appears in both operands but not in the output. The compiler recognizes this as a contracting dimension and emits `C = A @ B`. No user annotation. The axis sharing pattern is the expression of intent.
 
 ---
 
-## Broadcasting
+## The Panorama: One Name, Five Forms
+
+Here is softmax, in five simultaneous forms:
 
 ```
-A[i, j] + bias[j]
+ max[class](logits[i class])                          ← what you wrote
+ (reduction max (class) (index logits (i class)))     ← what the compiler sees
+ class: (range 0 n_class), reduction axis, Rule 2 ✓   ← what the compiler derives
+ class → axis=1, reduction, keepdims=True              ← how the name becomes a number
+ np.max(logits, axis=1, keepdims=True)                 ← what executes
 ```
 
-Becomes:
+Five forms. One name. The name `class` traveled through all five without changing its identity. It was written as `class`, preserved as `class`, verified as `class`, mapped from `class` to `axis=1`. At no point was it guesswork.
 
-```lisp
-(+ (index A (i j)) (index bias (j)))
-```
+Now ask: if the positional version had a bug—if `dim=-1` was normalizing over the wrong axis—at which of the five stages would that bug be caught?
 
-`bias` is indexed only by `j`. `A` is indexed by `i` and `j`. The coordinate `i` is absent from `bias`'s index list. The compiler records this absence—not as a shape fact, but as a coordinate fact: `bias` declares independence from `i`. Broadcasting is not a shape-compatibility rule. It is a coordinate omission, visible in the index list.
+Source: not caught. `dim=-1` is a valid integer.
+IR: not caught. No names to verify.
+Analysis: not caught. No coordinate contract to check.
+Lowering: not caught. `-1` maps correctly—it's the *choice* of `-1` that is wrong.
+Generated code: not caught. `np.max(logits, axis=-1)` is valid NumPy.
+
+The answer: **none of them.** The positional bug is invisible to all five stages because the information that would expose it—the name of the coordinate—was never written down.
+
+The Einlang bug is caught at Form 3. Analysis checks: does `class` appear in every operand of the reduction? Does it exist on the tensor? The bug surfaces before the program runs, at the stage where names are still names and the compiler can still reason about them.
 
 ---
 
-## Multiple Clauses
+## The Core Loop
 
-Einlang allows multiple clauses for the same tensor:
+The entire compiler frontend fits in fifteen lines:
 
 ```
-A[i, j] = B[i, j];
-A[i, j] += C[i, j];
+check(expr, env, errors):
+  match expr:
+    case Index(T, coords):
+      for c in coords:
+        if not declared(c, T, env):
+          errors.push("undeclared", c, "in", T)
+      return coords
+
+    case Reduction(op, c, body):
+      out = check(body, env + [c], errors)
+      if c not in out:
+        errors.push(c, "not consumed")
+      return out - {c}
+
+    case Add(left, right):
+      L = check(left, env, errors)
+      R = check(right, env, errors)
+      for c in R:
+        if c not in L:
+          errors.push("broadcast", c, "into left")
+      for c in L:
+        if c not in R:
+          errors.push("broadcast", c, "into right")
+      return L | R
+
+    case LetDecl(output, T, coords, body):
+      check(body, env + coords, errors)
+      return coords
+
+    default:
+      errors.push("unknown node", expr)
+      return {}
 ```
 
-Underneath:
+Walk the tree. At each node, ask one question. If wrong, record it. If right, return the coordinate set.
 
-```lisp
-(let-decl (output A (i j))
-  (clause (=) (index B (i j)))
-  (clause (+=) (+ (index A (i j)) (index C (i j)))))
-```
+Lines 11–16 are the broadcast merge. When `Add(left, right)` is checked, every coordinate on the right absent on the left means the left operand must broadcast into it—and vice versa. The `Add` node doesn't need to know what operation it's checking—only that both sides contribute coordinate sets and the broadcast relationship must be recorded.
 
-One `let-decl` holds two clauses. They share axis names—`i` and `j` mean the same thing in both. `(=)` says "initialize." `(+=)` says "accumulate." The IR makes the relationship explicit.
+The complexity is in the details—type inference, pack resolution, error message formatting. The structure is fifteen lines. You can hold the entire thing in your head.
 
 ---
 
-## Coordinate-Aware Functions
+You wrote `class`. Five characters. They survived parsing, analysis, lowering—each stage asking a question that a number could not. At the end, they became `axis=1` and were burned. But the burn was correct because the name was verified.
 
-```
-fn softmax[j](x: [f32; ..left, j, ..right])
-    -> [f32; ..left, j, ..right] { ... }
-```
+The positional alternative is `dim=-1`: three keystrokes that enable zero checks. The ratio is the distance between correct-by-construction and correct-by-coincidence.
 
-```lisp
-(define-fn softmax (coord-params j) (value-params x)
-  (type-params (..left) (..right))
-  (body ...))
-```
-
-The coordinate parameter `j` is a child of `define-fn`. The packs `..left` and `..right` are type parameters—they represent coordinate structure, not values.
-
-At the call site:
-
-```
-softmax[class](logits)
-```
-
-```lisp
-(call softmax (index logits (..batch class))
-  (coord-args class))
-```
-
-The coordinate argument `class` is transmitted separately from the value argument `logits`. The compiler later verifies that `class` exists on `logits` and that the coordinate contract of `softmax` is satisfied.
-
----
-
-## Recurrence
-
-```
-let u[t in 0..T, i] = initial[i];
-let u[t in 1..T, i] = u[t-1, i] + f(u[t-1, i]);
-```
-
-```lisp
-(recurrence u (index-var t) (var i)
-  (clause (domain 0) (index initial (i)))
-  (clause (domain 1 T)
-    (+ (index u ((- t 1) i))
-       (call f (index u ((- t 1) i))))))
-```
-
-The time axis `t` is marked as `index-var`. Its domain is split: `(domain 0)` for the initial condition, `(domain 1 T)` for the recurrence body. The backward reference `t-1` becomes `(- t 1)` in the index position. The compiler sees the subtraction and marks `t` as a time axis—a coordinate with a direction.
-
----
-
-## Gradient
-
-```
-@loss / @w
-```
-
-```lisp
-(gradient (numerator loss) (denominator w))
-```
-
-The gradient node records what it differentiates. The compiler computes the pullback by reversing the forward graph—every forward reduction becomes a backward broadcast, every forward broadcast becomes a backward reduction. The shopping cart record, read in reverse.
-
----
-
-## A Complete Program
-
-Put it all together:
-
-```
-let data = random([batch, class]);
-let result = softmax[class](data);
-```
-
-```lisp
-(program
-  (let-decl (output data (batch class))
-    (call random (literal (batch class))))
-  (let-decl (output result (batch class))
-    (call softmax (index data (batch class))
-      (coord-args class))))
-```
-
-`program` is the outermost node—the container for the entire compilation unit. Inside are `let-decl` trees. Everything is in parentheses. There are no exceptions.
-
----
-
-## What the IR Preserves
-
-Read the softmax IR tree and notice three things.
-
-1. **Names are everywhere.** `i` and `class` remain names from start to finish. Nothing has become axis=0, axis=1. The IR preserves names.
-
-2. **Reductions name their axis.** `(reduction max (class) ...)` and `(reduction sum (class) ...)`—the reduction operates on `class`, not "axis 1."
-
-3. **Array access uses names.** `(index logits (i class))`—the indices are `i` and `class`, matching what the source wrote.
-
-This tree is the skeleton of your program. No syntactic sugar—no colons, no equals signs, no commas. But every semantic relationship is present. The names you wrote are still names. The coordinates you named are still coordinates. The IR has not *translated* your program. It has *said it again*, in parentheses.
-
----
-
-## Why Parentheses?
-
-Why S-expressions? Why not a JSON AST? Why not protobufs?
-
-Because parentheses are homoiconic: the IR is both the data structure the compiler manipulates and the text format a human can read. A compiler pass can traverse the tree with `car` and `cdr`. A programmer can read the same tree in a debug log. There is no gap between the internal representation and its printed form.
-
-Because parentheses are uniform. Every node is `(operator children...)`. There are no special cases. `(reduction sum (class) ...)` looks like `(let-decl (output C (i j)) ...)` looks like `(+ (index A (i)) (index B (i)))`. The uniformity makes passes easy to write: every pass is a tree walk with a case for each operator. Adding a new operator means adding one case.
-
-Because parentheses have no ambiguity. In `x[i, j]`, the comma and brackets are syntax—they must be parsed, their precedence resolved against other operators. In `(index x (i j))`, the structure is explicit: `index` is the operator, `x` is the tensor, `(i j)` is the index list. No precedence to resolve. No grammar to extend. The parentheses *are* the parse tree.
-
-The IR's job is to be the simplest possible form that preserves all source-level information. Parenthesized prefix notation is that form. It has been that form since Lisp discovered it in 1958. The Einlang IR does not innovate on representation. It inherits.
-
----
-
-The compiler's native tongue does not perform magic. It simply restates your Einlang program in a different notation—syntactic sugar removed, core information preserved. Axis names remain. Reduction names remain. Clause relationships remain. The compiler has not *translated* your program. It has *said it again*, in parentheses.
-
-
----
-
-*Look at a single line of tensor code you have written. Translate it into S-expressions in your mind—parenthesize every operation, preserve every name. What information survived? What was lost? The IR is not magic. It is your program, said again, in a form that a machine can query.*
-
-Now the tree exists. But the names on the tree are still just names—they carry no range, no shape, no type. What can the compiler *derive* from those names, without running the program?
-
----
-
-## You Are the Compiler
-
-Let's do one ourselves. Here is a small Einlang program:
-
-```
-let result[i, j] = sum[k](A[i, k] * B[k, j]) + bias[j];
-```
-
-Translate it into IR. The pattern is visible. Here is the translation:
-
-```lisp
-(let-decl (output result (i j))
-  (+ (reduction sum (k)
-       (* (index A (i k)) (index B (k j))))
-     (index bias (j))))
-```
-
-Every construct becomes a parenthesized form. `sum[k]` → `(reduction sum (k) ...)`. `A[i, k]` → `(index A (i k))`. `+` → `(+)`. The `let` declaration wraps the entire expression.
-
-Now ask yourself: what can you determine about this program just by reading the parentheses? No runtime. No data. Only the tree.
-
-You can determine:
-- `result` has coordinates `(i, j)`. Those are the survivor names in `let-decl`.
-- `k` is consumed inside the reduction. `sum` eliminates it.
-- `bias` is indexed only by `j`. It omits `i`—a broadcast.
-- `A` and `B` share `k`. The multiplication inside the sum operates on matching `k` positions.
-- The addition of `bias[j]` to the reduction result requires broadcasting `bias` along the `i` dimension—because the reduction output has `(i, j)` and `bias` only has `(j)`.
-
-All of this is mechanically derivable from the tree. No guessing. No shape arithmetic. Just coordinate names and their positions in index lists. The tree preserves everything the source said—and makes it queryable by compiler passes that only understand parentheses.
-
-This is why the IR must preserve names. If the IR replaced `k` with `axis=1`, the question "which coordinate is consumed?" would have an integer answer but no identity answer. The compiler could still generate code—`axis=1` is all NumPy needs. But it could not answer the *check* questions: does `k` appear in both `A` and `B`? Is `bias[j]` independent of `i`? These questions require names, not numbers. The IR preserves names so that the analysis passes can ask these questions—and get answers that are checkable facts, not deduced conventions.
-
-Now let's test that claim with a harder case—one where the positional IR would be silent:
-
-```
-let y[b, s] = mean[channel](x[b, channel, s]);
-```
-
-IR:
-
-```lisp
-(let-decl (output y (b s))
-  (reduction mean (channel)
-    (index x (b channel s))))
-```
-
-What can you determine from this tree?
-- `y` has `(b, s)`. The declaration says so.
-- `channel` is consumed by `mean`. It's in the reduction bracket and absent from the output.
-- `x` has `(b, channel, s)`. All three are in the index list.
-
-Now ask: what if `x` had `(b, time, s)` instead? The IR would be `(index x (b time s))` and the reduction bracket would be `(reduction mean (channel) ...)`. The compiler would check: does `channel` appear in `(b time s)`? No. Error. The name `channel` caught the mismatch. A positional IR with `axis=1` would ask: is axis 1 valid on `x`? Yes—`x` has 3 axes. No error. Silent consumption of the wrong coordinate.
-
-In a positional compiler, the IR carries `(reduction mean 1 ...)` instead of `(reduction mean (channel) ...)`. The integer `1` is valid—it refers to axis 1, which exists. But the identity `channel` is gone. The compiler cannot ask "is `channel` the right coordinate to consume?" It can only ask "is `1` a valid axis?" The answer is always yes. Every check that depends on identity becomes a vacuous integer comparison. The IR must preserve names because the five check rules require identities, not positions.
-
-The tree preserves what the positional IR loses: the identity of the consumed coordinate.
-
----
-
-### Why Names Must Survive Into the IR
-
-There is an alternative design: translate names to integers at parse time. `class` becomes `axis=1`. Simpler—but wrong. If names are gone before analysis, every check rule asks "is position *p* the same as position *p*?" The answer is always yes. The rule that should catch `channel`-vs-`class` becomes a vacuous integer comparison. Lowering burns names into integers only after every identity-based check has passed—at which point the number is guaranteed correct.
-
-
-### Stop and Think: Your Own IR
-
-Look at your most recent tensor operation. The pattern of translation into S-expression IR is already visible:
-
-1. Source in Einlang: `let result[i, j] = sum[k](A[i, k] * B[k, j])`.
-2. Translation: `(let-decl (output result (i j)) (reduction sum (k) (* (index A (i k)) (index B (k j)))))`.
-3. What can you determine from the IR alone? Survivors: `{i, j}`. Consumed: `{k}`. Shared: `k` appears on both `A` and `B`. Broadcasts: none — both operands index all output coordinates except `k`.
-4. If the IR had integers instead of names — `(let-decl (output result (0 1)) (reduction sum (2) (* (index A (0 2)) (index B (2 1)))))` — could you determine which coordinate is shared? You could determine that axis 2 is contracted. You could not determine whether axis 2 is `k` or `feature` or `inner`. The identity is gone. The checks that depend on identity are impossible.
-
-This is why the IR preserves names. Not for elegance. For correctness.
+Consume—that word has appeared in every chapter since Chapter 2. A reduction consumes a coordinate. A broadcast consumes silence. A gradient consumes the broadcast set. And now the compiler consumes the name itself. `class` goes in. `axis=1` comes out. A good abstraction is good firewood. Its beauty is not in its surface—but in the light the flame casts when it burns.

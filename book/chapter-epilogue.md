@@ -112,9 +112,9 @@ Walk back through the book and ask, at each stage: what would a positional notat
 
 **Chapter 8**: The gradient of a broadcast. Forward: `bias` omits `batch`, broadcasting over it. Backward: the gradient must sum over `batch` to recover `bias`'s shape. In a positional framework, this sum is implicit in the autodiff engine. If the broadcast changes because the shape changed, the gradient sum changes with it—silently. In the named version, the coordinate sets tell you exactly what the gradient must sum over: `C` has `{i, j}`, `A` has `{i, k}`, sum over `{j}`. The set subtraction is checkable.
 
-**Chapter 12**: GroupNorm's reshape chain: `x.reshape(N, G, C//G, H, W).mean(dim=(2,3,4))`. The positions `(2,3,4)` are only correct after the reshape. If the reshape changes, the positions change. The named version `mean[c_in_group, ..spatial]` names the coordinates directly. The reshape is unnecessary because the coordinates are separate from the start.
+**Chapter 10**: GroupNorm's reshape chain: `x.reshape(N, G, C//G, H, W).mean(dim=(2,3,4))`. The positions `(2,3,4)` are only correct after the reshape. If the reshape changes, the positions change. The named version `mean[c_in_group, ..spatial]` names the coordinates directly. The reshape is unnecessary because the coordinates are separate from the start.
 
-**Chapter 13**: Self-attention and cross-attention in PyTorch have identical code. The difference is only in the shapes of the tensors passed at runtime. The named version distinguishes `self_attention[seq, ...]` from `cross_attention[seq_q, seq_k, ...]` in the type signatures. A reader can see which is which without checking runtime shapes.
+**Chapter 11**: Self-attention and cross-attention in PyTorch have identical code. The difference is only in the shapes of the tensors passed at runtime. The named version distinguishes `self_attention[seq, ...]` from `cross_attention[seq_q, seq_k, ...]` in the type signatures. A reader can see which is which without checking runtime shapes.
 
 Every one of these bugs was shape-correct. Every one survived the checks that positional frameworks perform. Every one was caught by a name.
 
@@ -150,7 +150,7 @@ Suppose the programmer writes `softmax[batch](logits[batch, class])`. `batch` is
 
 The name was wrong. The check passed. The program is incorrect.
 
-This is the boundary from Chapter 7, restated for the final time: **names check consistency, not correctness.** `softmax[batch]` is internally consistent—every reduction, broadcast, and gradient aligns over `batch`. The error is that the programmer wanted `class`. The compiler cannot read the programmer's mind. It can only verify the contract the programmer wrote.
+Chapter 13 explored this: names check consistency, not correctness. `softmax[batch]` is internally consistent—every reduction, broadcast, and gradient aligns over `batch`. The error is that the programmer wanted `class`. The compiler cannot read the programmer's mind. It can only verify the contract the programmer wrote.
 
 But the name `batch` is visible. When the next programmer reads `softmax[batch](logits)`, they see the error immediately. The positional equivalent `softmax(logits, dim=0)` hides the error behind a number. The reader sees `dim=0` and must reconstruct whether axis 0 is batch or class. The reconstruction may be wrong.
 
@@ -219,169 +219,19 @@ You now know how to record it. The rest is practice.
 
 ## How to Start
 
-You don't need Einlang to practice the coordinate habit. You need a place to put a name and a discipline to keep it honest.
-
-Start small. Name one coordinate at a time. The data-entry boundary is the most important one—if coordinates are named when tensors enter the program, the names flow downstream. Name the reductions next—they are where coordinates are consumed, and the consumption is the hardest fact to reconstruct later. Name the broadcasts last—they are often implicit, and making them explicit is the most verbose change.
-
-In PyTorch, a comment is your first bridge: `x.mean(dim=1)  # dim 1 = channel`. In JAX, einops patterns are your bridge: `rearrange(x, "batch channel spatial -> batch spatial channel")`. The bridge doesn't have to be perfect. It has to be there.
-
-The goal is not to convert your entire codebase to named dimensions overnight. The goal is to develop the reflex: when you write an operation that depends on a coordinate's identity, put that identity in the source. Not in your head. Not in a Slack message. In the source.
-
-Here are five specific techniques. None requires a new language. Each works in PyTorch, JAX, or NumPy today.
-
-### 1. The comment beside the integer
-
-Every `dim=` or `axis=` argument is a place where a coordinate name was lost. Put it back:
-
-```python
-x.mean(dim=1)            # dim 1 = channel
-logits.softmax(dim=-1)    # dim -1 = class
-x.permute(0, 2, 1)        # batch height width -> batch width height
-```
-
-The comment format is always the same: `# dim <number> = <name>`. One name per integer. The comment lives on the same line as the operation, not in a docstring three functions away.
-
-When the dimension order changes, the comment drifts. But it drifts *visibly* — `# dim 1 = channel` on a line where `dim=1` is now spatial jumps out during code review. A comment that drifted is a flag. A missing comment is invisible.
-
-### 2. Einops: what it catches, what it doesn't
-
-```python
-from einops import rearrange, reduce, einsum
-
-# Instead of x.permute(0, 2, 1)
-rearrange(x, "batch height width -> batch width height")
-
-# Instead of x.mean(dim=1)
-reduce(x, "batch channel spatial -> batch spatial", "mean")
-
-# Instead of torch.matmul(A, B)
-einsum(A, B, "batch in, out in -> batch out")
-```
-
-What einops catches: the coordinate name is in the expression string. A reader sees `"batch channel spatial -> batch spatial"` and knows `channel` was consumed. This is local — within one expression, the names are present.
-
-What einops does not catch: names do not propagate across function boundaries. A function that receives an einops-rearranged tensor has no way to read the coordinate names — they are in the `rearrange` string of the caller, not in the tensor's type. The contract is local. The check is local. The name dies at the edge of the expression.
-
-Einops is a complement to the coordinate habit, not a replacement. Use it to make coordinate identities visible within expressions. Use comments and conventions to carry those identities across function boundaries.
-
-### 3. The code review checklist
-
-When reviewing a pull request, for every `dim=`, `axis=`, `permute`, `transpose`, or `reshape`, ask four questions:
-
-1. **Which coordinate does this integer refer to?** Is the answer visible in the code, or only in the author's head?
-2. **Would the integer change if the dimension order changed upstream?** If yes, the code is fragile to layout refactoring.
-3. **Is there a `keepdim` or equivalent?** If yes, a broadcast is happening. Which coordinate is being broadcast along?
-4. **Are two integers with different meanings adjacent?** `dim=(2, 3, 4)` often means spatial dimensions — but only by convention. Should there be a comment?
-
-If any question cannot be answered from the code alone, request a comment. The comment costs one line. The bug it prevents costs hours.
-
-### 4. Variable naming as poor man's named coordinates
-
-When a framework doesn't support named dimensions, the variable name carries the coordinate identity:
-
-```python
-# Instead of x, y, z:
-x_batch_channel_spatial = load_data()
-logits_batch_class = model(x_batch_channel_spatial)
-probs_batch_class = logits_batch_class.softmax(dim=-1)  # dim -1 = class
-```
-
-The convention: `name_coord1_coord2_...`. The coordinates are listed in order. A tensor named `x_batch_channel_spatial` declares: batch is dim 0, channel is dim 1, spatial is dim 2. The name is the documentation. It is also the audit trail — when `dim=1` appears, the reader glances at the variable name and confirms `channel` is indeed dim 1.
-
-This is the poorest form of named coordinates. The compiler cannot check the names. They can drift. But they are *in the code*, and that already makes them more useful than names in the programmer's head. A naming convention costs nothing to adopt and survives until the next refactoring — which is longer than most comments.
-
-### 5. The data loading boundary
-
-There is exactly one place in every program where coordinate identities are known with certainty: where tensors enter the program.
-
-```python
-def load_data(path: str) -> tuple[Tensor, Tensor]:
-    """Returns (features, labels).
-
-    features: (batch, channel, spatial) — float32
-    labels:   (batch, class) — int64
-    """
-    ...
-    return features, labels
-```
-
-The data loader is the only function that knows what each dimension actually *is*. The CSV column `class` is the class dimension. The image channel count is the channel dimension. After the data loader, every tensor is a derived quantity — its dimensions inherit meaning from the data loader's output, but that meaning is encoded nowhere.
-
-Put the coordinate declaration at this boundary. A docstring is one form. A named tensor (PyTorch `refine_names`, xarray `DataArray`) is stronger. A comment at the return statement is the minimum.
-
-If the data loader declares coordinate identities, and every downstream operation that depends on those identities carries a comment stating the dependency, the coordinate information flows from entry to loss without gaps. The gaps are where the bugs hide.
-
-These five techniques share a structure: put the name where the next reader can see it. Not in a design doc. Not in a meeting note. Not in the variable names of a different file. In the code, at the operation whose correctness depends on it.
-
-If you completed Chapters 12–14, you have something else: a miniature compiler. It checks five rules. It is not industrial-grade, but it is yours. When you write `x.mean(dim=1)` in PyTorch tomorrow, that compiler runs in your head. It notices that the reduction consumes a coordinate with no name. It asks: *which coordinate?* The compiler cannot halt your Python program—but you can.
-
-Think about what that means. The compiler you built is not primarily a tool for generating NumPy code. It is an **exoskeleton for the mind**—a way to externalize the coordinate-tracking that expert programmers already do in their heads, silently, without being taught. When you manually audit a broadcast by comparing coordinate sets, you are running the compiler by hand. The S-expression IR is a formalism for what your working memory does when you trace a coordinate from data entry to loss. The check rules are a written-down version of the questions you ask yourself when something feels wrong about a shape.
-
-The compiler's main value may not be as industrial software. It is as an internalized sense—a form of hearing. After these chapters, you cannot un-hear the silence where a coordinate name should be. You see `dim=-1` and a part of your mind automatically annotates it: *(reduction mean (axis -1 unknown-coordinate))*. You see a broadcast and your working memory performs coordinate set subtraction whether you ask it to or not. The compiler is not installed on your machine. It is installed in your attention. That is what the construction chapters built. Not a tool you install. A reflex you keep.
+You don't need Einlang to practice the coordinate habit. Start at the data-entry boundary: when tensors enter your program, put the coordinate names where they can be seen—a docstring, a comment, a naming convention. Then name the reductions (`# dim=1 = channel`), because consumption is the hardest fact to reconstruct later. Use einops strings where they fit, variable name conventions (`x_batch_channel_spatial`) where they don't, and a code review checklist—which coordinate does this integer refer to? would it change if the dimension order changed?—where neither is available. The bridge doesn't have to be perfect. It has to be there. Put the name where the next reader can see it. Not in a design doc. Not in a Slack message. In the code, at the operation whose correctness depends on it.
 
 ---
 
 ## Three Scenarios
 
-You are not going to use Einlang tomorrow. But you are going to encounter these three scenarios. Here is what the coordinate habit looks like in each.
+**The legacy codebase.** You inherit a PyTorch model with 200 occurrences of `dim=-1`. Spend one afternoon adding a comment at every `dim` argument: `# dim=-1 = feature`, `# dim=1 = channel`. One afternoon now beats ten afternoons of shape-tracing over the next year. The names need to be visible—not checked, not guaranteed, just visible.
 
-**Scenario 1: The legacy codebase.** You inherit a PyTorch model with 200 occurrences of `dim=-1`. Nobody remembers which dimension is which. The README doesn't say. The original author left the company.
+**The new project.** Name your dimensions at the data loader, not in the model. The moment a tensor enters your program, attach coordinate names—in a docstring, in a convention (`batch` always first, `spatial` always last), in a project README. Six months from now, the convention tells you what `dim=1` means.
 
-You have two choices. Choice A: print shapes at every layer, trace dimensions manually, build a mental map that lives in your head and dies when you context-switch. Choice B: spend one afternoon adding a comment at every `dim` argument. `# dim=-1 = feature`. `# dim=1 = channel`. `# dim=(2,3) = spatial`.
-
-Choice A costs one afternoon now and ten afternoons over the next year. Choice B costs two afternoons now and zero later. The coordinate habit is Choice B. The names don't need to be checked by a compiler to be useful. They need to be visible. A comment is a name that the compiler can't read but the next programmer can. That's already 80% of the value.
-
-**Scenario 2: The new project.** You are designing a data pipeline from scratch. You can name your dimensions however you want. You have the rare luxury of a greenfield.
-
-Here is the coordinate habit for a greenfield: name your dimensions in the data loader, not in the model. The moment a tensor enters your program—from a file, from a database, from a random generator—attach coordinate names. If your framework doesn't support named dimensions, use a convention: batch is always first, spatial is always last, feature is always second. Document the convention in the project README. Make every `dim` argument consistent with the convention.
-
-The goal is not compiler-checkable contracts. The goal is that six months from now, when you've forgotten the details, the convention tells you what `dim=1` means. A convention is a name that lives in the project rather than in the code. It's less reliable than a compiler check, but infinitely more reliable than nothing.
-
-**Scenario 3: The bug investigation.** It's 3 AM. The model's loss is NaN. You're printing tensor shapes, looking for a mismatch. You find one: a tensor has shape `(32, 64)` where you expected `(64, 32)`. The transpose is missing. Or is it? Maybe the shapes are correct and the transpose happened upstream. You can't tell from the shapes alone.
-
-The coordinate habit for debugging: before you print another shape, write down which coordinate you *think* each dimension is. `dim 0 = batch? dim 1 = feature?` Then check whether the operations make sense for those identities. If `x.mean(dim=0)` is normalizing over `batch`, something is wrong—regardless of whether the shapes match.
-
-This is the coordinate audit from the Appendix, applied to a live bug. Four questions. Which coordinate is consumed? Which coordinate is copied along? Can you trace a coordinate from source to destination? Does the backward reduction match the forward broadcast? Ask them of the operation that produced the unexpected shape. The answers will tell you whether the bug is in the shapes or in the semantics—whether the transpose is missing or the reduction is over the wrong axis.
+**The bug investigation.** Before you print another shape, write down which coordinate you think each dimension is. If `x.mean(dim=0)` is normalizing over `batch`, something is wrong—regardless of whether the shapes match. Which coordinate is consumed? Is the answer visible in the code? The question is the audit.
 
 ---
-
-## A Week with the Habit
-
-What does the coordinate habit look like in practice, day by day? Not a conversion project. A week of small changes.
-
-**Monday.** Open a file. Find a `dim=` argument. Write a comment next to it saying which coordinate it refers to. `x.mean(dim=1)  # dim 1 = channel`. Do this for five `dim=` arguments. Time: ten minutes.
-
-**Tuesday.** Find a broadcast. `A + b`. Ask whether the broadcast is semantically justified. Write down which coordinate `b` is silent on. If the answer is not obvious from the variable names, rename `b` so that it is.
-
-**Wednesday.** Find a permutation. `x.permute(0, 2, 1)`. Rewrite it as an einops `rearrange` string, naming the dimensions. `rearrange(x, "batch height width -> batch width height")`. Compare the two lines. Which one tells you what moved where?
-
-**Thursday.** Find a reduction used in a loss function. `loss = x.sum()`. Which coordinate did it sum over? All of them. Is that correct? If `x` has coordinates `(batch, class)`, `sum()` produces a scalar. But `sum[class]` followed by `mean[batch]` produces a per-batch average loss—which may be what you intended but is not what you wrote. Name the reduction. Check the intent.
-
-**Friday.** Audit one function end to end. Pick a function with at least two tensor operations. Write its coordinate signature in a comment above the `def` line. `# fn(batch, feature) -> (batch, class)`. Walk through the body. Does every operation respect the declared coordinate flow? Does every reduction consume the right coordinate? Does every broadcast copy along the right coordinate? Time: twenty minutes.
-
-**Saturday.** You are not working. But if you think about tensor shapes anyway—and you will, because the habit is settling in—notice which coordinate you are uncertain about. The uncertainty is the gap. Write down the name you are unsure of. On Monday, put it in the code.
-
-A week. Five small actions. No new tools. No framework migration. Just a shift in what you notice when you read a tensor operation. The coordinate habit is not a flag you plant. It is a lens you wear. Once you put it on, you see the gaps. The gaps were always there. You just didn't have a name for what was missing.
-
----
-
-## What the Coordinate Habit Does Not Solve
-
-Named coordinates have limits. It is worth naming them before you leave, so you do not carry false expectations into your next project.
-
-**Names do not guarantee correctness.** You can name the wrong coordinate. `mean[channel](x)` where you should have written `mean[spatial](x)` compiles without error. The name `channel` exists on `x`. The reduction is well-formed. The gradient will be correct—for the wrong reduction. Names catch inconsistency. They do not catch wrongness. A coordinate named `channel` that is actually `spatial` in the data is a semantic error, and semantic errors survive any notation.
-
-**Names do not replace testing.** The compiler checks that the coordinate structure is internally consistent. It does not check that the computation achieves what you intended. A softmax normalized over `batch` instead of `class` is internally consistent—every reduction, broadcast, and gradient aligns perfectly. The program compiles. It is still wrong. Only a test that checks the output's shape and statistical properties would catch it.
-
-**Names do not eliminate runtime shape errors.** Dynamic dimensions—sequence lengths, batch sizes that vary per call—cannot be checked at compile time. The compiler can verify that `seq` is a declared coordinate and that functions consuming it have consistent contracts. It cannot verify that `seq` has length 64 rather than 128. That check lives at runtime, in an assertion or a shape guard.
-
-**Names cost keystrokes.** `mean[channel](x)` is longer than `x.mean(dim=-1)`. The cost is real, and in a codebase where dimension order is stable and well-documented, the positional shorthand may be the right tradeoff. The coordinate habit is not a moral imperative. It is a tool. Use it where the cost of a silent axis swap exceeds the cost of typing a bracket.
-
-**Einlang itself is young.** The language used to make these arguments is a research prototype. Its tooling is sparse. Its error messages are the ones shown in these pages—no more. It does not compile to CUDA. It does not have a package manager. It does not integrate with PyTorch or JAX. The compiler described in the construction chapters is a frontend—it produces lowered NumPy, not optimized GPU kernels. A production-grade named-coordinate compiler would need an autodiff engine, a scheduler, and a backend that generates efficient code for the lowering patterns described here. None of that exists today. The coordinate habit works through comments, einops strings, and naming conventions in any framework, regardless of Einlang's maturity. But if you are tempted to build the rest: the IR, the check rules, and the lowering pass in these pages are a starting point. The distance from here to a production compiler is measured in engineering years, not ideas.
-
-These five limitations do not weaken the case for named coordinates. They clarify it. Named coordinates prevent one class of error: the error where the coordinate identity exists in the programmer's head but not in the source text, and the notation provides no place to record it. For that class of error—the silent axis swap, the broadcast that drifts with the layout, the reduction that changes meaning without changing syntax—names are the only defense. For errors outside that class, other defenses apply.
-
-**A note on existing named-tensor systems.** PyTorch has named tensors. xarray has labeled dimensions. Einops has named patterns. Why not just use those? Each catches a subset of the errors described in these pages. PyTorch's named tensors check broadcast alignment by name but are not part of the type system and do not survive through autograd. xarray labels dimensions for data analysis but does not compile to GPU kernels. Einops patterns are local to each call—they do not propagate across function boundaries. None of these systems provide the five-check wall, where every coordinate contract is verified at every call site before a single value is computed. A complete system was built not because the existing tools are useless—they are useful, and the coordinate habit works through them—but because only a complete system can show the full distance between what positional notation checks and what named notation can check. The distance is the argument.
 
 ---
 
@@ -444,6 +294,20 @@ x = x.mean(dim=1)
 `dim=1` was `channel` before the refactoring and `spatial` after. It compiled. It ran. It passed integration tests. It deployed to staging. It failed silently in production for three weeks. Found at 3 AM on Day 100, by a human tracing one number backward through twelve layers.
 
 The fix: rename `channel` to `feature` in model.ein:1. Ten seconds.
+
+---
+
+## What the Coordinate Habit Does Not Solve
+
+Named coordinates prevent one class of error: the silent axis swap, the broadcast that drifts with the layout, the reduction that changes meaning without changing syntax. Four limitations remain.
+
+**Names do not guarantee correctness.** `mean[channel](x)` where `mean[spatial](x)` was intended compiles without error. Names catch inconsistency, not wrongness.
+
+**Names do not replace testing.** A softmax normalized over `batch` instead of `class` is internally consistent. Only a test catches it.
+
+**Names cost keystrokes.** `mean[channel](x)` is longer than `x.mean(dim=-1)`. Use names where the cost of a silent axis swap exceeds the cost of typing a bracket.
+
+**Einlang itself is young.** The language in these pages is a research prototype—no CUDA backend, no package manager, no PyTorch integration. The coordinate habit works through comments, einops strings, and naming conventions in any framework today. But if you want to build the rest: the IR, the check rules, and the lowering pass are a starting point. The distance from here to a production compiler is measured in engineering years, not ideas.
 
 ---
 

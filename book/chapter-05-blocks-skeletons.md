@@ -88,7 +88,7 @@ This is more than a convenience. The return value of `argmax[class]` is not just
 
 ---
 
-## One Skeleton, Four Normalizations
+## Four Normalizations
 
 Here are four normalization implementations. Read them. Find what they share.
 
@@ -138,9 +138,9 @@ Here is what they share:
 
 Every one of these functions does: reduce, broadcast, elementwise, scale. The difference is only *which* dimensions are reduced and *which* parameters broadcast over *which* remaining dimensions.
 
-But look at the code again. Can you *see* the skeleton? In LayerNorm, it's `x.mean(dim=-1, keepdim=True)`. In GroupNorm, it's `x.mean(dim=(2,3,4), keepdim=True)`. In InstanceNorm, it's `x.mean(dim=(2,3), keepdim=True)`. The `dim` arguments are different integers. The `keepdim=True` flag is the same. The `* gamma + beta` ending is the same.
+But look at the code again. Can you *see* the shared structure? In LayerNorm, it's `x.mean(dim=-1, keepdim=True)`. In GroupNorm, it's `x.mean(dim=(2,3,4), keepdim=True)`. In InstanceNorm, it's `x.mean(dim=(2,3), keepdim=True)`. The `dim` arguments are different integers. The `keepdim=True` flag is the same. The `* gamma + beta` ending is the same.
 
-The skeleton IS there—but it's encoded as shape arithmetic. `dim=-1` means one thing in LayerNorm ("the last dimension") and a completely different set of integers in GroupNorm ("dimensions 2, 3, and 4"). The skeleton is visible to a human who understands the dimension layout. It is invisible to a compiler. And it changes when the layout changes.
+The pattern IS there—but it's encoded as shape arithmetic. This shared structure is a **skeleton**: a reduce-broadcast-elementwise-scale template parameterized by which coordinates are reduced and which are preserved. `dim=-1` means one thing in LayerNorm ("the last dimension") and a completely different set of integers in GroupNorm ("dimensions 2, 3, and 4"). The skeleton is visible to a human who understands the dimension layout. It is invisible to a compiler. And it changes when the layout changes.
 
 Now here is the same skeleton in Einlang:
 
@@ -207,17 +207,13 @@ Think about it. In the Einlang version, you change one thing: remove `c_in_group
 
 In the PyTorch version, you'd change `dim=(2, 3, 4)` to `dim=(3, 4)`—but only if the reshape hasn't changed the position of the spatial dimensions. If someone added a temporal axis between `c_in_group` and `H`, the tuple would need to shift to `dim=(4, 5)`. The fragility is not in the concept—it is in the notation's inability to record *which* dimensions are spatial.
 
-You have already been thinking in terms of the skeleton. The four-normalizations table at the beginning of this section was not an abstract taxonomy—it was a description of the mental model you were already using. Named coordinates make that mental model executable.
-
----
-
-This is what packs buy you. `..spatial` absorbs however many spatial dimensions there are. The same `GroupNorm` skeleton works whether spatial covers one axis or three.
-
 ---
 
 ## Skeletons Compose
 
 The normalization skeleton and the attention skeleton compose. A Transformer block is LayerNorm, then attention, then another LayerNorm, then a feedforward. In a positional implementation, the norm dimensions and attention dimensions share the `dim=-1` convention—until one of them shouldn't.
+
+Before reading the code, ask: which coordinates does a Transformer block consume and reconstruct? The answer should be visible in the function signature alone.
 
 Here is a complete Transformer block skeleton in Einlang:
 
