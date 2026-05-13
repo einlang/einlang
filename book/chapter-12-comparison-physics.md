@@ -180,37 +180,6 @@ In Einlang, `field=0` and `field=1` are names. They survive reorganization becau
 
 ---
 
-## Adding a Magnetic Field
-
-Now extend the simulation with a magnetic field `B` as a fifth physical quantity. In the positional version, this means changing the state shape from `(T, N, 4)` to `(T, N, 5)` and auditing every occurrence of the integer `4` and every slice that assumed four fields:
-
-```python
-# Before: state shape (T, N, 4)
-# After:  state shape (T, N, 5)
-# Must audit: every [..., 0:4], every [..., 3], every hardcoded "4"
-B = state[:, :, 4]  # new — but is it really at index 4?
-```
-
-If `B` was inserted at index 0, every subsequent index shifts: `temp` moves from 0 to 1, `press` from 1 to 2, and so on. The compiler provides no help. The integer `state[..., 0]` does not know it was supposed to be temperature.
-
-In the Einlang version:
-
-```
-let state[t in 0..T, i, field] = init_field(field, i);
-
-let temp[t, i] = state[t, i, field=0];
-let press[t, i] = state[t, i, field=1];
-let vx[t, i] = state[t, i, field=2];
-let vy[t, i] = state[t, i, field=3];
-let B[t, i] = state[t, i, field=4];     // new line — one change
-```
-
-The existing field assignments are unchanged. `field=0` is still temperature. If `B` were inserted at `field=0`, the compiler would flag every subsequent `field=N` reference as referring to a shifted domain—because each field value now maps to a different physical quantity. The coordinate name `field` is stable under insertions. The integer index `2` is not.
-
-The cost difference is not in writing the initial code. It is in every modification made after the original author has forgotten which integer meant what.
-
----
-
 ## The Wave Equation: A Stencil in Two Notations
 
 The 1D wave equation describes how a displacement propagates through a medium:
@@ -244,16 +213,6 @@ The Laplacian stencil is a single expression: `u[t-1, i+1] - 2*u[t-1, i] + u[t-1
 
 ---
 
-## The Inventory: What the Physics Chapter Found
-
-Physical simulation exposes a failure mode distinct from machine learning. In ML, wrong coordinates degrade performance—the loss is worse, the BLEU score drops. In physics, wrong coordinates produce physically impossible results: negative absolute temperatures, violated conservation laws, waves that amplify instead of propagating. The symptoms may look plausible at a glance—the contour plot has the right general shape, the time series has the right range. Only a physicist's eye catches them.
-
-The integer field index (`state[..., 2]`) and the positional stencil slices (`u[t-1, 2:]`) share the same root cause: **the mapping from integer to meaning lives outside the notation.** The integer `2` is velocity-x because the comment says so. The slice `2:` is the right neighbor because the reshape put it there. When the mapping drifts—a new field inserted, a dimension reordered—the integer stays the same and the meaning changes.
-
-In Einlang, `field=2` is velocity-x because the coordinate value `2` is bound to the name `field`. If the field order changes, `field=2` still refers to the same physical quantity—or the compiler catches the inconsistency. The name is tied to the coordinate, not to its position. The stencil `i+1` is the right neighbor because `i` is the spatial coordinate and `+1` is the rightward offset. If the spatial dimension moves, `i` still means spatial—the name doesn't change.
-
----
-
 ## The Navier-Stokes Skeleton
 
 Fluid dynamics is the grand challenge of computational physics. The Navier-Stokes equations couple velocity, pressure, and vorticity across three spatial dimensions and time. The codebase is typically hundreds of thousands of lines of Fortran or C++, with integer dimension indices scattered throughout. The most common bugs are coordinate swaps—confusing `x` for `y` velocity, or the `x` momentum equation for the `y` momentum equation.
@@ -279,6 +238,16 @@ The Einlang version separates three concerns that the Fortran version merges:
 3. **Stencil structure**: the finite difference terms are grouped by physical meaning (diffusion, advection, pressure).
 
 In Fortran, all three concerns are compressed into `U(I+1, J)`. The compression works. But it makes every stencil access look like every other stencil access. When they differ, only the reader's eye catches the difference.
+
+---
+
+## The Inventory: What the Physics Chapter Found
+
+Physical simulation exposes a failure mode distinct from machine learning. In ML, wrong coordinates degrade performance—the loss is worse, the BLEU score drops. In physics, wrong coordinates produce physically impossible results: negative absolute temperatures, violated conservation laws, waves that amplify instead of propagating. The symptoms may look plausible at a glance—the contour plot has the right general shape, the time series has the right range. Only a physicist's eye catches them.
+
+The integer field index (`state[..., 2]`) and the positional stencil slices (`u[t-1, 2:]`) share the same root cause: **the mapping from integer to meaning lives outside the notation.** The integer `2` is velocity-x because the comment says so. The slice `2:` is the right neighbor because the reshape put it there. When a new field is inserted or a dimension reordered, the mapping drifts. The integer doesn't change. Only the meaning does.
+
+In Einlang, `field=2` is velocity-x because the coordinate value `2` is bound to the name `field`. If the field order changes, `field=2` still refers to the same physical quantity—or the compiler catches the inconsistency. The name is tied to the coordinate, not to its position. The stencil `i+1` is the right neighbor because `i` is the spatial coordinate and `+1` is the rightward offset. If the spatial dimension moves, `i` still means spatial—the name doesn't change.
 
 ---
 
@@ -317,10 +286,6 @@ If the magnetic field index moves from 4 to 0, how many lines of code do you nee
 
 ---
 
-*If you saw `state[..., 2]` in a simulation code with no comments, could you be 100% certain it is velocity-x? If your answer is "yes, because of the convention"—ask yourself whether the convention survived the last refactoring. The integer stays the same. The meaning drifts. Only a name can anchor it.*
-
----
-
 ## The Coordinate Audit in Practice
 
 Physical simulation code is dense with integer indices, each one a claim about identity. `state[..., 0]` claims "density lives at position 0." `u[i+1]` claims "the right neighbor lies one index ahead." These claims live in comments, enums, and variable names—never in the notation itself.
@@ -328,3 +293,5 @@ Physical simulation code is dense with integer indices, each one a claim about i
 Pick `temperature`. Find every place it's read and written. If the code uses `state[..., 3]`, you must verify every `3` corresponds to temperature. If a new diagnostic field is inserted at position 2, every `3` must be re-evaluated: some should become `4`, others should stay. The refactoring requires manual verification of every integer index. No compiler helps.
 
 In Einlang, `state[..., temp]` stays `temp` regardless of field order. The coordinate name is the anchor. The integer is the implementation detail. The difference is whether the anchor is in the code or in your head.
+
+Three chapters of comparisons established what names make visible. Chapter 13 asks the necessary question: what can names *not* check? Every system has a boundary—facts that are statically knowable and facts that are not. The boundary is not a flaw. It is a map. And a good map tells you where the boundaries are.

@@ -17,9 +17,11 @@ You are two weeks into a Transformer project. LayerNorm is working. You swap in 
 
 Each normalization normalizes over different coordinates. Each uses a position number to say which one. Switch from one to another, and every `dim` must be audited—because `dim=-1` means `feature` in LayerNorm, `channel` in GroupNorm, and nothing at all in RMSNorm.
 
-Every chapter so far has been in Einlang. The preceding chapters built the primitives, composed them into functions, traced their gradients, and gave the language a name.
+Part III built the compiler—the proof that names can be checked mechanically. Part IV asks the practical question: does any of this matter for real code? The next three chapters put Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. No arguments. Just code, in two notations, side by side.
 
-Three real normalization functions—LayerNorm, RMSNorm, GroupNorm—appear below in both PyTorch and Einlang, side by side. The question is not "which is better." The question is: **what does each notation make visible, and what does each notation hide?**
+Each chapter demonstrates the same pattern—coordinate names visible vs. hidden—in a different domain. Read one or all three. The pattern is the same. The domains are different. The question in every case is the same: **what does each notation make visible, and what does each notation hide?**
+
+Three real normalization functions—LayerNorm, RMSNorm, GroupNorm—appear below in both PyTorch and Einlang, side by side.
 
 ---
 

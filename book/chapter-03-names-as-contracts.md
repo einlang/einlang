@@ -13,6 +13,8 @@ title: "Chapter 3 · Names as Contracts"
 
 ---
 
+Part I gave us the primitives: naming, permutation, reduction, broadcasting. Part II combines them. The next six chapters compose these primitives into functions, audit trails, normalization skeletons, recurrent patterns, index arithmetic, and gradients. Each chapter asks the same question: when primitives combine, do the names survive the combination? The answer is yes—if the combination itself is named.
+
 The preceding two chapters introduced coordinate naming: coordinates are named when they survive, when consumed, when copied, when rearranged.
 
 A softmax is not one operation. It is a max reduction, a subtraction, an exponentiation, a sum reduction, and a division. Five steps, each involving coordinates with distinct roles.
@@ -91,7 +93,7 @@ let logits[b, class] = model(x[b, feature]);
 let p[b, class] = softmax[class](logits[b, class]);
 ```
 
-The caller writes `softmax[class](...)`. The same bracket syntax as `mean[channel]`. The `class` in brackets is a coordinate argument—the name of the dimension the function normalizes over. That `logits` has a `class` coordinate is checked. If it doesn't, the call is a compile error.
+The caller writes `softmax[class](...)`. The same bracket syntax as `mean[channel]`. The `class` in brackets is a coordinate argument—the name of the dimension the function normalizes over. That `logits` has a `class` coordinate is checked: the compiler subtracts `{class}` from `logits`'s coordinate set `{batch, class}` and finds a match. If `class` were absent, the set subtraction would produce an empty intersection, and the call would be a compile error. This is coordinate set subtraction, introduced in Chapter 2, applied to function calls.
 
 Compare to the standard API:
 
@@ -99,7 +101,7 @@ Compare to the standard API:
 p = torch.softmax(logits, dim=-1)
 ```
 
-`dim=-1` says "the last one." If the last dimension is `class`, this is correct. If upstream changes the dimension order, `dim=-1` silently begins normalizing over `batch`, or `feature`, or whatever happens to be last. The code runs. The output is a valid probability distribution—just over the wrong coordinate.
+The same positional call. The same silent failure mode: if the last dimension changes, `dim=-1` follows the position, not the identity. The code runs. The output is a valid probability distribution—over the wrong coordinate.
 
 Now compare to a different Einlang call:
 
@@ -217,11 +219,9 @@ In every case, the Square Matrix Test reveals the same gap: shape compatibility 
 
 A refactoring in both notations, to see where the errors surface—and where they don't.
 
-**The setup.** A model with three files: `data.rs` (declares `logits[batch, class]`), `model.rs` (calls `softmax[class](logits)`), and `loss.rs` (calls `cross_entropy[class](probs, labels)`).
+**The setup.** Three files: `data.rs` declares `logits[batch, class]`. `model.rs` calls `softmax[class](logits)`. `loss.rs` calls `cross_entropy[class](probs, labels)`.
 
-**The refactoring.** A colleague decides that `class` is a poor name—it suggests a classification head, but the dimension is more general. It should be called `category`. The colleague renames the coordinate in `data.rs`: `logits[batch, category]`.
-
-Now the colleague recompiles the project. Two errors appear:
+**The refactoring.** A colleague renames `class` to `category`. Two errors appear:
 
 ```
 error[E0425]: model.rs:42: tensor `logits` has no coordinate named `class`
@@ -239,25 +239,13 @@ error[E0425]: loss.rs:15: tensor `probs` has no coordinate named `class`
    |     help: did you mean `category`?
 ```
 
-The colleague fixes both errors: `softmax[class]` → `softmax[category]`, `cross_entropy[class]` → `cross_entropy[category]`. The project compiles. The refactoring is complete. The compiler verified that every use of `class` was updated.
+The colleague fixes both: `class` → `category`. The project compiles. Done. The compiler verified every use of the old name was updated.
 
-Now replay the same scenario with a positional API.
+**Now replay with a positional API.** The colleague changes the comment in `data.py`: the shape is now `(batch, category)`. `dim=1` is still `1`. Every `dim=1` is still correct—because the position didn't change. The refactoring compiles silently.
 
-**The setup.** `data.py`: `logits` has shape `(batch, class)`. `model.py`: `softmax(logits, dim=1)`. `loss.py`: `cross_entropy(probs, labels, dim=1)`.
+But if the dimension order also changed—say `(category, batch)`—some `dim=1`s should become `dim=0`s. There are twenty-three of them across eight files. The colleague updates the ones they remember. The ones they forget compile silently. `dim=1` is always a valid integer. The compiler cannot distinguish the ones that should have changed from the ones that shouldn't.
 
-**The refactoring.** The colleague changes the comment in `data.py`: the shape is now conceptually `(batch, category)`. The tensor shape doesn't change. `dim=1` is still `1`. Every `dim=1` in the codebase is still correct—because the position didn't change.
-
-The project compiles. The tests pass. The refactoring is "complete."
-
-But what if the colleague had also changed the dimension order? What if the new layout were `(category, batch)`? The colleague updates the comment. The colleague does not update every `dim=1` in the codebase—there are twenty-three of them across eight files. Some should become `dim=0`. Some should stay `dim=1`. The colleague updates the ones they remember. The ones they forget compile silently.
-
-The compiler does not complain. `dim=1` is always a valid integer. The fact that some `dim=1`s should now be `dim=0`s is not recorded anywhere the compiler can see.
-
-The difference between the two refactorings is not the number of files changed. It is the number of errors emitted. The Einlang refactoring emits two errors—one for each call site that uses the old coordinate name. The positional refactoring emits zero errors—even when the dimension order changes and some `dim=1`s should become `dim=0`s. Zero errors is not zero bugs. It is zero *detected* bugs.
-
-The coordinate name is the audit trail. When you rename it, every use of the old name becomes a compile error. You fix them one by one. When they're all fixed, the project compiles. The compiler has verified that the rename is complete.
-
-A positional integer has no audit trail. When you change what position 1 means, no compile error points you to the places that depended on the old meaning. You find them by reading code, by running tests, by deploying to staging and hoping the metrics don't drift. The difference between an audit trail and no audit trail is the difference between a refactoring that takes ten minutes and a refactoring that takes three weeks to debug.
+The Einlang refactoring emits two errors—one per call site. The positional refactoring emits zero—even when the dimension order changes. Zero errors is not zero bugs. It is zero *detected* bugs. The coordinate name is the audit trail. The positional integer has none.
 
 ---
 
@@ -288,17 +276,11 @@ The coordinate identity, made part of the function's contract, becomes auditable
 
 ---
 
-### Stop and Think: Audit Your Own Call Sites
+### What Changes
 
-Consider a file in your current project that calls a function with a `dim` or `axis` argument. Any function—`softmax`, `mean`, `sum`, `concat`, `norm`. For any three calls, ask:
+If you look at a `dim=` argument in your own code right now, you can probably name the coordinate it refers to. `dim=1` means `channel`—you know that. The compiler doesn't. The name is in your head, not in the code.
 
-1. **What coordinate does `dim` refer to?** Not what integer—what coordinate. Is it `batch`? `channel`? `sequence`? `feature`?
-
-2. **Could the dimension order change in a future refactoring?** Be honest. If you answer "probably not," ask: did you answer the same way about every refactoring that has already happened in this codebase?
-
-3. **If the dimension order changed, would this `dim` still be correct?** If the answer is no—if `dim=1` would silently point to a different coordinate—you have found a call site that depends on a position, not an identity.
-
-Now imagine each of those calls was written as `softmax[class](logits)` instead. The name in the bracket answers all three questions: `class` is `class` regardless of position or future refactoring. The answer is in the code, where the compiler can read it.
+Three things change when the name moves from your head into the bracket. First, the compiler can check it: if `dim=1` was supposed to be `class` but the data loader put `spatial` at position 1, the bracket `mean[class]` catches the mismatch. The positional `dim=1` catches nothing. Second, refactoring becomes safe: if `channel` moves from position 1 to position 2, `mean[channel]` follows the name. `dim=1` follows the position—silently. Third, a reader six months later sees `mean[channel]` and knows what was intended. They see `dim=1` and have to reconstruct the intent from context.
 
 The coordinate habit is noticing that gap. The rest of this book is about what happens when you fill it.
 

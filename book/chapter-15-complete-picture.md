@@ -618,7 +618,7 @@ Five bugs. None of them throw an error in a positional API. All of them produce 
 
 The compiler checks described in this book—the five rules, the error codes, the lowering verifications—exist to catch these five bugs before they reach runtime. The compiler is not a luxury. It is a tool for making the coordinate habit machine-checkable.
 
-Try this yourself: open your most recent project. Find a `dim=` argument. Ask which coordinate it refers to. If you can't answer from the code alone—if you had to run the program or check the data loader to know—you have found a silent bug waiting to happen. The gap between the integer and the identity is the bug's hiding place.
+A `dim=` argument in a positional codebase is an integer. Which coordinate it refers to is a question the code cannot answer—the answer lives in the programmer's head, or in the data loader's output shape, or in the documentation comment that may or may not be up to date. When the answer is "run the program to find out," the integer has already won. The gap between the integer and the identity is the bug's hiding place.
 
 ---
 
@@ -634,7 +634,7 @@ This book built a naming system for the ideas it introduced. Here they are, gath
 
 **Skeleton.** A normalization operation has a fixed coordinate structure: reduce some coordinates, broadcast statistics back, apply affine parameters. The skeleton is the same for BatchNorm, LayerNorm, InstanceNorm, GroupNorm, RMSNorm. Only which coordinates are reduced changes.
 
-**Firewood.** A name is firewood for the compiler. It burns into an integer at lowering. A good abstraction is good firewood—its beauty is in the light the flame casts when it burns.
+**Firewood.** A name is firewood for the compiler. It burns into an integer at lowering.
 
 **Panorama.** The five forms of a name seen simultaneously: Source → IR → After Analysis → After Lowering → Generated Code. One name, five forms, zero loss of identity.
 

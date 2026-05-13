@@ -162,7 +162,7 @@ fn mqa_attention[head_q, head_kv, seq_q, seq_k, d](
 
 ## Grouped-Query Attention (GQA): The Middle Ground
 
-Between MHA (`head_q == head_kv`) and MQA (`head_kv == 1`) lies GQA: `head_kv` is a small number, say 4, that divides `head_q`. Each KV head is shared by a group of query heads. This is a coordinate *grouping* problem—structurally identical to GroupNorm from Chapter 8.
+Between MHA (`head_q == head_kv`) and MQA (`head_kv == 1`) lies GQA: `head_kv` is a small number, say 4, that divides `head_q`. Each KV head is shared by a group of query heads. This is a coordinate *grouping* problem—structurally identical to GroupNorm from Chapter 5.
 
 **PyTorch (GQA):**
 
@@ -218,20 +218,6 @@ In the Einlang signatures, the difference between the three variants is visible 
 
 ---
 
-## The Coordinate Audit in Practice
-
-Any attention implementation can be read through four questions—questions that are only meaningful when the notation has a place for the answers.
-
-Which coordinate does `softmax` normalize over? In positional code, `dim=-1` answers with a position, not an identity. Which coordinate distinguishes queries from keys? In self-attention, it's the same coordinate; in cross-attention, they're different. But `attention(Q, K, V)` reads identically for both—the distinction is in runtime tensor shapes, not in source. Which coordinate groups query heads with KV heads? MHA, GQA, and MQA differ only in this grouping, but the positional code buries the difference in `repeat_factor = head_q // num_kv_heads`—a runtime calculation, not a source-level fact. Does the backward pass know what to sum over? The gradient must sum over `seq_q` for `dK`/`dV`, over `seq_k` for `dQ`, over the head grouping for the KV projection. In positional code, autograd derives these silently. In named code, they're visible.
-
-Now observe just the Einlang signature for an attention function: `fn attention[seq_q, seq_k, head, d](Q: ..., K: ..., V: ...) -> ...`. The signature alone tells a reader whether it's self-attention or cross-attention, whether it's MHA or GQA or MQA, and what `softmax` normalizes over. The signature is the contract. The body is the implementation. Both are checkable.
-
-If the signature answers all three, the coordinate names carry the architecture. If it doesn't, the distinction lives outside the notation — and in the tensor shapes at runtime.
-
----
-
----
-
 ## The Attention Coordinate Audit
 
 Every attention variant can be audited with four questions. Ask them of any positional attention code you encounter:
@@ -239,7 +225,7 @@ Every attention variant can be audited with four questions. Ask them of any posi
 1. **Which coordinate does `softmax` normalize over?** In `softmax(scores, dim=-1)`, the answer is "whatever is last." In `softmax[seq_k](scores)`, the answer is `seq_k`.
 2. **Which coordinate distinguishes queries from keys?** In MHA, it's the same (`seq`). In cross-attention, it's different (`seq_q` vs `seq_k`). In positional code, this distinction is in the tensor shapes at runtime. In named code, it's in the function signature.
 3. **Which coordinate groups query heads with KV heads?** In GQA, `head_group` groups query heads over a shared KV head. In MQA, `head_kv` has size 1. In MHA, there's no grouping—`head` is the same coordinate on Q and K. The grouping structure is invisible in the positional `matmul`; visible in the named index patterns.
-4. **Does the backward pass know what to sum over?** The gradient of attention sums over `seq_q` for `dK` and `dV`, over `seq_k` for `dQ`, and over the head grouping for the KV projection. In positional autodiff, these sums happen silently. In named coordinates, they follow from the coordinate sets—same set-subtraction rule from Chapter 7 applied to attention.
+4. **Does the backward pass know what to sum over?** The gradient of attention sums over `seq_q` for `dK` and `dV`, over `seq_k` for `dQ`, and over the head grouping for the KV projection. In positional autodiff, these sums happen silently. In named coordinates, they follow from the coordinate sets—same set-subtraction rule from Chapter 2 applied to attention.
 
 You don't need Einlang to ask these questions. You need to know that they are the right questions. And the right questions are only visible when the notation has a place for the answers.
 
@@ -278,12 +264,6 @@ The audit questions for a KV-cache:
 3. Does the cached `seq_k` range differ from the new `seq_k` range? (They are different domains, now merged)
 
 The coordinate names make the cache structure visible. The positional `dim=seq_dim` records a position. The named `concat[seq_k]` records an identity.
-
----
-
-If `seq_q == seq_k`, is this self-attention or cross-attention? Can the code answer?
-
-In PyTorch, the answer is no—self-attention and cross-attention have identical code. The distinction is in the runtime shapes of the tensors passed at the call site, not in the source. In Einlang, `self_attention[seq, ...]` and `cross_attention[seq_q, seq_k, ...]` are different signatures. The distinction is in the brackets. The code answers the question before it runs.
 
 ---
 

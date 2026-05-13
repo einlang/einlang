@@ -13,6 +13,8 @@ title: "Chapter 9 · The Shape of Thought"
 
 ---
 
+Part II showed that coordinate names survive composition—through functions, through time, through differentiation. Part III asks: can this be automated? This chapter constructs a compiler frontend that reads named coordinates, checks them against five rules, and lowers them to integers. It is the proof that the checks you have been doing by hand—tracing `batch` and `class` through softmax, subtracting coordinate sets at broadcast sites, verifying that function contracts match—can be done by a machine.
+
 You just wrote a short Einlang program:
 
 ```
@@ -76,6 +78,8 @@ Three changes. `sum[k]` → `sum[in]`. `W[out, k]` → `W[class, in]`. Return ty
 
 Not one of these bugs was a shape error. In a positional framework, `sum(axis=1)` on `(batch, in)` and `(out, in)` would produce `(batch, out)`—a valid shape. The code would run. The loss would descend. And the model would be computing a meaningless function.
 
+Every one of these checks reads the same fact from every tensor: its **coordinate layout**—the ordered list of names the tensor carries. When you write `x: [f32; batch, in]`, the compiler records `layout(x) = [batch, in]`. Rule 1 checks whether `k` appears in that list. Rule 3 subtracts lists to find broadcast axes. Rule 5 compares the call-site list against the function's declared parameter list. The five rules are five queries against one data structure. The coordinate layout is the one fact every rule reads.
+
 The five rules are the five ways a name can be wrong: it can refer to a non-existent coordinate (Rule 1), it can fail to appear where the operation requires it (Rule 2), it can broadcast silently without the record the backward pass needs (Rule 3), it can reference the future in a recurrence (Rule 4), or it can violate the contract of a function call (Rule 5). That's it. Those are all the ways.
 
 But to apply these rules mechanically, the compiler needs a representation where names are preserved and operations are explicit. It needs an **intermediate representation**—a tree where every name is visible.
@@ -121,13 +125,15 @@ C[i, j] = sum[k](A[i, k] * B[k, j])
 
 Three things the IR preserves: **names** (`i` and `k` remain names, never become `axis=0`), **reduction targets** (`(reduction sum (k) ...)` operates on `k`), and **index patterns** (`(index A (i k))` matches what the source wrote). The IR has not *translated* your program. It has *said it again*, as a tree.
 
+But the IR preserves more than the tree shape. Each node carries its **coordinate set**—the names that survive at that point. `(index A (i k))` carries `{i, k}`. `(reduction sum (k) ...)` carries `{i}`—`k` was consumed. The compiler computes these sets by walking the tree: index nodes introduce coordinates, reductions subtract them, additions merge them. This is exactly what you did by hand at the start of this chapter—tracing `batch` and `class` through softmax and sum, without data, using only the names. The compiler does it mechanically, node by node, for every expression in the program.
+
 ---
 
 ## Lowering: Names Become Numbers
 
 The tree passed every check. But it cannot be handed to a numerical backend. NumPy does not understand `class`. It needs `axis=1`.
 
-Translating the analyzed tree into executable instructions is **lowering**. The mapping is deterministic: every axis name maps to its position in declaration order. `i` is first → axis 0. `class` is second → axis 1. The name is burned.
+Translating the analyzed tree into executable instructions is **lowering**. The mapping is deterministic: the compiler reads the coordinate layout stored on each tensor's IR node—the same layout that the five rules consulted during checking. `logits` was declared `[f32; batch, class]`, so its layout is `[batch, class]`. At lowering, the compiler walks the layout and assigns positions: `batch → 0`, `class → 1`. Then every index expression in the tree is rewritten: `(index logits (batch class))` touches both axes; `(reduction max (class) ...)` becomes a reduction over axis 1. The layout is the map. Lowering is the lookup. The name is burned.
 
 After lowering, the softmax conceptually becomes:
 
@@ -138,9 +144,13 @@ def softmax(logits):
     return e / np.sum(e, axis=1, keepdims=True)
 ```
 
-`keepdims=True` was not in the source. The compiler inferred it: `logits - max` requires the max result to broadcast back over `class`. The analyzed shapes showed the mismatch—max produces `(batch)`, but the subtraction expects `(batch, class)`. `keepdims=True` bridges the gap. The programmer didn't write it. The compiler deduced it from the coordinate structure.
+`keepdims=True` was not in the source. The compiler inferred it. Here is the principle, visible in the core loop at the end of this chapter:
 
-Matrix multiplication is a special case. `C[i, j] = sum[k](A[i, k] * B[k, j])` — `k` appears in both operands but not in the output. The compiler recognizes this as a contracting dimension and emits `C = A @ B`. No user annotation. The axis sharing pattern is the expression of intent.
+The subtraction `logits - max_result` has two operands. `logits` carries `{batch, class}`. `max_result`—the output of `max[class](logits)`—carries `{batch}` because `class` was consumed. The coordinate sets differ: left has `class`, right does not. Set difference: `{batch, class} - {batch} = {class}`. The missing coordinate is `class`. The compiler records the broadcast—not as a flag the programmer writes, but as a requirement the coordinate structure demands. This is not a heuristic. It is the same set subtraction from Chapter 2, applied to the operand coordinate sets at every binary operation.
+
+In the actual compiler, this check lives in the `CoordinateGroundingPass`: at every `BinaryOpIR` node, the left and right operand layouts are compared. When they are equal, the shared layout is stamped on the result. When they differ, no layout can be stamped—the coordinate structures are incompatible, and the mismatch is recorded as a broadcast that the lowering pass must resolve. The core loop at the end of this chapter reduces this logic to four lines: compare the sets, record the differences, return the union. The principle is the same. The implementation is more careful.
+
+The same set-difference logic applies to reductions. `sum[k](A[i, k] * B[k, j])` — `k` appears in both operands but not in the output `C[i, j]`. The compiler subtracts `{k}` from the body's coordinate set to produce the output layout `{i, j}`. The coordinate `k` is a contracting dimension—shared by both operands, consumed by the reduction, absent from the output. The pattern `(i, k) × (k, j) → (i, j)` follows from the coordinate structure alone. No annotation needed. The compiler lowers this to a nested loop with a reduction over `k`. The names told it which axis to contract.
 
 ---
 
@@ -172,7 +182,39 @@ The Einlang bug is caught at Form 3. Analysis checks: does `class` appear in eve
 
 ---
 
+## Index Arithmetic: The Constraint Solver
+
+The five rules check coordinate existence, consistency, broadcast recording, causality, and contracts. But Chapter 7 introduced a harder problem: index arithmetic. `input[b, ic, oh + kh, ow + kw]` — the expression `oh + kh` must not exceed the input's spatial extent. Is this checkable at compile time?
+
+When the domain sizes are known statically, the answer is yes. The compiler's constraint solver reads the index expression and the tensor's declared bounds, then solves for each index variable. The algorithm is pattern-matching on the expression tree.
+
+Take the convolution index `oh + kh`. The compiler knows:
+- `oh` ranges over `0..output_height` (from the output declaration)
+- `kh` ranges over `0..kernel_height` (from the weight declaration)
+- The input has `input_height` (from the input declaration)
+- Constraint: `oh + kh < input_height`
+
+The solver must verify that `oh + kh < input_height` for all valid `oh` and `kh`. It does this by solving for each variable in the worst case. For `oh + kh`, the maximum value is `(output_height - 1) + (kernel_height - 1)`. If this maximum is less than `input_height`, the constraint holds. If the domains are known, the check is a single comparison.
+
+But the solver handles more complex expressions. Consider `(i * 2 + offset) < N`. The solver pattern-matches the expression tree:
+
+1. **Top level is addition** `(i * 2) + offset < N`. Isolate the target: `i * 2 < N - offset`.
+2. **Recurse into multiplication** `i * 2 < N - offset`. Isolate: `i < (N - offset) / 2`.
+3. **Base case** `i < bound`. The range is `[0, ceil(bound))`.
+
+The solver chains these rewrites automatically. Addition adjusts the bound by subtraction. Multiplication adjusts by division (with ceiling, so `(a + b - 1) / b` for safety). Division by a constant adjusts by multiplication. When the target appears with a negative coefficient—`k - target < bound`—the solver returns nothing: negative coefficients require a lower bound, and the solver only computes upper bounds. The pattern is recognized. It is declared unsolvable by the current pass.
+
+The solver operates entirely on IR nodes, not Python integers. The bound `N` can be a dynamic expression like `image.shape[0]` rather than a compile-time constant. The ceiling division `ceil(a / b)` is implemented as `(a + b - 1) / b` at the IR level, so it works for any input size. This means the bounds inference produces symbolic ranges that are safe for any runtime shape.
+
+The constraint solver is not a general-purpose theorem prover. It handles the patterns that appear in real tensor index expressions: linear combinations with positive coefficients, simple arithmetic (`i*2`, `i/2`, `i+1`, `i-1`), and the common stencil patterns from Chapter 7. For patterns it cannot solve—modulo, negative coefficients, non-linear expressions—the solver returns no range, and lowering fails with a compile error. The failure is a compile error, not a runtime surprise. The name is attached to the error, as it is to every error in this compiler.
+
+What the solver proves: that a coordinate arithmetic expression, evaluated over its declared ranges, stays within the declared bounds of the tensor it indexes. What it cannot prove—correctness of the arithmetic itself—is not a failure of the solver. It is the boundary from Chapter 13. The solver narrows that boundary. Every expression it proves safe is one less degree of freedom for silent errors. Every expression it cannot prove is flagged before the program runs.
+
+---
+
 ## The Core Loop
+
+The Wall presented five rules. Before reading the implementation: Rules 1 and 2 (undeclared coordinates, missing operands) require checking every index expression against its tensor's declaration. Rule 3 (broadcast recording) requires comparing operand coordinate sets at every binary operation. Rule 4 (causality) applies only to recurrences. Rule 5 (contract matching) applies only at function call boundaries. Which of these does a tree-walking checker handle naturally? Which require additional machinery?
 
 The entire compiler frontend fits in fifteen lines:
 
@@ -213,9 +255,13 @@ check(expr, env, errors):
 
 Walk the tree. At each node, ask one question. If wrong, record it. If right, return the coordinate set.
 
+Rules 1 and 2 are the `Index` case: check every coordinate against its tensor's declaration. Rule 3 is the `Add` case: compare left and right coordinate sets, record the differences as broadcasts. Rule 5 is the `LetDecl` case: verify the function body's coordinate set against the declared output. Rule 4—causality—is not in this loop; recurrence checking is a separate pass with its own fifteen lines. The five rules from the Wall map to five cases in the tree walk. Four of them are above.
+
 Lines 11–16 are the broadcast merge. When `Add(left, right)` is checked, every coordinate on the right absent on the left means the left operand must broadcast into it—and vice versa. The `Add` node doesn't need to know what operation it's checking—only that both sides contribute coordinate sets and the broadcast relationship must be recorded.
 
 The complexity is in the details—type inference, pack resolution, error message formatting. The structure is fifteen lines. You can hold the entire thing in your head.
+
+If you implement these fifteen lines and add three things: **type inference** for scalar expressions (every literal is `f32`, every variable inherits from its declaration), **pack resolution** for `..rest` coordinates (unroll the pack into its concrete members at each call site), and **error formatting** that prints the coordinate name, the file, and the line—you have a working coordinate checker. Total: roughly three hundred lines. The fifteen lines above are the skeleton. The three additions are the flesh. The names are the firewood.
 
 ---
 
@@ -224,3 +270,5 @@ You wrote `class`. Five characters. They survived parsing, analysis, lowering—
 The positional alternative is `dim=-1`: three keystrokes that enable zero checks. The ratio is the distance between correct-by-construction and correct-by-coincidence.
 
 Consume—that word has appeared in every chapter since Chapter 2. A reduction consumes a coordinate. A broadcast consumes silence. A gradient consumes the broadcast set. And now the compiler consumes the name itself. `class` goes in. `axis=1` comes out. A good abstraction is good firewood. Its beauty is not in its surface—but in the light the flame casts when it burns.
+
+The compiler proved that names can be checked mechanically. But do they matter in practice? Chapters 10 through 12 put Einlang side by side with PyTorch and NumPy on real code: LayerNorm, multi-head attention, Flash Attention, and physical simulation. No arguments. Just code, in two notations, side by side. The question is not "which is better." It is what each notation makes visible—and what each notation hides.

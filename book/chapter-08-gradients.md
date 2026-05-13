@@ -81,19 +81,15 @@ The result: `dA[i, k] = sum[j](dC[i, j] * B[k, j])`. No calculus memorization. N
 
 ---
 
-### Two More Pullbacks
+### The Pullback in One Example
 
-Observe the pattern applied to two more cases. The five steps are the same. The coordinate sets tell you what to sum over.
-
-**Scenario 1: Broadcast then reduce.** Forward:
+Observe the five steps on a broadcast-add. Forward:
 
 ```rust
 let out[i, j] = A[i, j] + bias[j];
 ```
 
-Given `d_out[i, j]`, the goal is `d_bias[j]`. What coordinates does the output have? `{i, j}`. What coordinates does `bias` have? `{j}`. The path coordinate (in output but not in bias) is `{i}`. Sum over `{i}`.
-
-Here is the derivation:
+Given `d_out[i, j]`, find `d_bias[j]`. What coordinates does the output have? `{i, j}`. What coordinates does `bias` have? `{j}`. The path coordinate (in output but not in bias) is `{i}`. Sum over `{i}`.
 
 1. Hold one cell: `bias[j0]`.
 2. Every output cell reads it: `out[i, j0]` for *all* `i`. The held `j0` value is copied to every `i` position.
@@ -103,25 +99,9 @@ Here is the derivation:
 
 Result: `d_bias[j] = sum[i](d_out[i, j])`. The broadcast coordinate `i` becomes the reduction coordinate. The Inversion Rule, mechanically applied.
 
-**Scenario 2: Reduce to scalar.** Forward:
+Verify with coordinate set subtraction alone. Forward: `out[i, j] = A[i, j] + bias[j]`. `out` has `{i, j}`, `bias` has `{j}`. Set difference: `{i}`. Sum over `{i}`. `d_bias[j] = sum[i](d_out[i, j])`. ✓
 
-```rust
-let total = sum[i](data[i]);
-```
-
-You have `d_total` (a scalar). You need `d_data[i]`. Go through the five steps.
-
-Hint: the output has no coordinates. `data` has `{i}`. The path coordinates are... the ones in `data` but not in the output. Wait—that's backwards. The output is a scalar. `data` has `{i}`. The output set minus data set is... negative? No. The path is from `data` to `total`: `data` has `{i}`, `total` has `{}`. The coordinate `i` is consumed by the forward `sum`. In the backward pass, the consumed coordinate is broadcast back.
-
-Result: `d_data[i] = d_total`. The scalar gradient is broadcast to every `i` position. Each element of `data` contributed equally to the sum (coefficient 1), so each receives the full gradient signal.
-
-Two scenarios. Two derivations. Same five steps. No calculus memorization. The coordinate sets tell you what to sum over. The forward expression tells you what to multiply by.
-
-Now verify both results with coordinate set subtraction alone. Forward: `out[i, j] = A[i, j] + bias[j]`. `out` has `{i, j}`, `bias` has `{j}`. Set difference: `{i}`. Sum over `{i}`. `d_bias[j] = sum[i](d_out[i, j])`. ✓
-
-Forward: `total = sum[i](data[i])`. `total` has `{}`, `data` has `{i}`. The forward reduction consumed `{i}` → the backward broadcast restores it. `d_data[i] = d_total`. ✓
-
-The coordinate sets confirm the derivations. The pattern is: the gradient sums over whatever is in the output but not in the operand. Trace the set subtraction to see it.
+The pattern: the gradient sums over whatever is in the output but not in the operand. Five steps. No calculus memorization. The coordinate sets tell you what to sum over. The forward expression tells you what to multiply by.
 
 ---
 
@@ -331,20 +311,14 @@ If the custom rule declares `@fn softmax[k]` (different coordinate parameter nam
 
 ---
 
-### Stop and Think: Derive a Gradient by Hand
+### The Pullback in Practice
 
-The five-step pullback procedure applies to your own code in the same way it applied to matmul, broadcast-add, and sum-to-scalar. The procedure is: hold one cell, list every output cell that reads it, attach the incoming gradient, multiply by the local derivative, sum over the path coordinates.
+The five-step pullback procedure applies to matmul, broadcast-add, and sum-to-scalar. It also applies to convolution, normalization, and attention. The procedure is always the same: hold one cell, list every output cell that reads it, attach the incoming gradient, multiply by the local derivative, sum over the path coordinates.
 
-The steps to audit a gradient you've written:
+A gradient written or debugged by hand—a custom backward pass, a `torch.autograd.Function`, a manual gradient check—is a forward expression read backward. Writing the forward expression with coordinate names, even if the original code is in PyTorch, makes the backward derivation mechanical. What coordinates does the output have? What coordinates does the operand have? What's the difference? Sum over the difference. No insight required. Coordinate set subtraction, applied to the forward expression, produces the backward sum.
 
-1. **Find a gradient you've written or debugged.** It could be a custom backward pass, a `torch.autograd.Function`, or a manual gradient check. Write down the forward expression.
-
-2. **Write it with coordinate names.** Even if the original code is in PyTorch, write the Einlang equivalent. Name every coordinate. Write the reduction brackets. Write the index patterns.
-
-3. **Derive the gradient using coordinate set subtraction.** Just use the five steps. What coordinates does the output have? What coordinates does the operand have? What's the difference? Sum over the difference.
-
-4. **Compare to the original.** Does your derived gradient match what you originally wrote? If yes—the coordinate accounting produced the same result as your manual derivation. If no—either your coordinate accounting was wrong, or your original gradient was. Check which.
-
-5. **Repeat for a more complex operation.** Try it on a convolution, a normalization, or an attention operation. The five steps are the same. The coordinate sets are larger. The procedure doesn't change.
+When the derived gradient matches the original, the coordinate accounting confirms the manual derivation—both arrived at the same result through different paths. When they differ, either the coordinate accounting was wrong, or the original gradient was. Both possibilities are worth checking. The same procedure works for convolution, normalization, and attention. The coordinate sets are larger. The procedure doesn't change.
 
 The pullback is not a separate computation from the forward pass. It is the forward pass, read backward, through the lens of the Inversion Rule. Every forward reduction becomes a backward broadcast. Every forward broadcast becomes a backward reduction. The coordinate names are the bridge between the two directions. The five steps are the procedure for crossing it.
+
+The five-step pullback is coordinate accounting done by hand. But accounting is exactly what a compiler can do mechanically. Chapter 9 opens the compiler: how does it read names from source, check them against five rules, and lower them to integers—all without ever running the program? The answer turns out to be the same question you have been asking since Chapter 2: *which coordinates survive?*

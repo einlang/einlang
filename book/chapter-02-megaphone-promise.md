@@ -436,10 +436,6 @@ In every case, the name records a fact about identity. In the positional version
 
 ---
 
-*Every codebase has broadcasts that happened because a shape aligned, not because a claim was made. Can you name the coordinate each one copies along? Is each broadcast semantically justified? A broadcast you cannot name and justify is a silence that should be a claim.*
-
----
-
 ### Three Questions Before You Continue
 
 Every broadcast is a claim. Before you move on, ask these three questions of any broadcast you encounter:
@@ -449,3 +445,5 @@ Every broadcast is a claim. Before you move on, ask these three questions of any
 3. **If the dimension order changed, would this broadcast still be correct?**
 
 If you can't answer all three with confidence, the broadcast is an accident of shape alignment, not a defended claim. For now, the questions themselves are the habit.
+
+The three questions apply to single operations. But real programs compose operations: softmax is a max, a subtract, an exp, a sum, and a divide—five steps, each involving coordinates with distinct roles. Chapter 3 introduces coordinate-aware functions, the mechanism that checks whether these compositions preserve the coordinate story across call sites. The question "does this broadcast make sense?" becomes "does this function's coordinate contract match its body?"

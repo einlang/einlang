@@ -194,7 +194,7 @@ Every forward operation has a backward dual. The dual is not a separate rule. It
 
 Reduction → Broadcast. Broadcast → Reduction. Permute → Permute. Elementwise → Elementwise.
 
-The shopping cart model from Chapter 7 is this diagram, narrated as a story. The forward pass is shopping: you walk through the aisles, items enter your cart, some are consumed (reduction), some are copied (broadcast). The backward pass is restocking: the manager reads the record backward, replenishing what was consumed and collecting what was copied.
+The shopping cart model from Chapter 8 is this diagram, narrated as a story. The forward pass is shopping: you walk through the aisles, items enter your cart, some are consumed (reduction), some are copied (broadcast). The backward pass is restocking: the manager reads the record backward, replenishing what was consumed and collecting what was copied.
 
 The coordinate names are on both sides of the receipt. The Inversion Rule is the guarantee that the two sides match.
 
@@ -351,20 +351,12 @@ In PyTorch, `output = projected + b_o` requires knowing that `projected` has sha
 
 ---
 
-*The last broadcast you wrote—intentionally or not—is in your code right now, in some `A + b` or `scale * x` or `mean[dim]` with `keepdim=True`. Apply the three questions. Is the answer to Question 2 a confident yes? If not, that broadcast is a claim that deserves a name.*
+### What the Audit Reveals
 
----
+The last broadcast you wrote—intentionally or not—is in your code right now, in some `A + b` or `scale * x` or `mean[dim]` with `keepdim=True`. Apply the three questions. Every broadcast is a claim of independence. The broadcast set—the coordinates the operand omits—is the claim written in set-subtraction notation.
 
-### Stop and Think: Audit Your Own Broadcasts
+In a typical codebase, at least one broadcast fails the semantic question: does the broadcasting operand genuinely not depend on those coordinates? "Probably" or "I think so" is not a yes. That broadcast is a claim of independence that is not confidently true. It is a bug waiting for the right input shape.
 
-Your most recent project almost certainly contains implicit broadcasts: `+`, `*`, `/`, `-` between tensors of different ranks. Each broadcast is a claim of independence. The audit questions make the claims visible:
+The audit reveals it. Not because the audit is sophisticated—it is three questions and a set subtraction. Because the audit asks a question the code itself does not. Positional notation records that a broadcast happened. Named notation records which coordinate it happened over. The difference is whether the claim was recorded.
 
-1. **What are the coordinate sets?** What are the output coordinates? What are each operand's coordinates? If you know the shape conventions of your project, you already know the answer. If not, the `.shape` attribute tells you.
-
-2. **What is the broadcast set?** For each operand, subtract its coordinate set from the output set. The difference is what that operand broadcasts over. This is coordinate set subtraction—the same operation from Chapter 2.
-
-3. **Can you name the broadcast coordinate?** Not "axis 0" or "the first dimension"—the coordinate name. Is it `batch`? `channel`? `height`? `width`? If you cannot name it, the broadcast's identity is untethered from any declaration. The claim exists, but no one recorded it.
-
-4. **Is it justified?** Does the broadcasting operand genuinely not depend on those coordinates? If the answer is "probably" or "I think so" rather than "yes, by construction"—the broadcast deserves a second look.
-
-In a typical codebase, at least one broadcast fails question 4. That broadcast is a claim of independence that is not confidently true. It is a bug waiting for the right input shape.
+The audit catches individual broadcasts. But normalization functions—LayerNorm, RMSNorm, GroupNorm, InstanceNorm—share a deeper structure: a reduce-broadcast-elementwise skeleton that is identical across all of them, differing only in which coordinates play which roles. Chapter 5 extracts that skeleton. When four functions written by four people turn out to be the same function with different coordinate arguments, the pattern is not a coincidence. It is a design law.

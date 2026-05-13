@@ -152,7 +152,7 @@ Now here is the same skeleton in Einlang:
 | GroupNorm | `c_in_group`, `..spatial` | `gamma[g, c_in_group]`, `beta[g, c_in_group]` | `..batch`, `g`, `c_in_group`, `..spatial` |
 | InstanceNorm | `..spatial` | `gamma[c]`, `beta[c]` | `..batch`, `c`, `..spatial` |
 
-The skeleton is visible in the table because the coordinates are named. Each column says *what*, not *where*. The reduction column names the consumed coordinates. The broadcast column names the parameters and their coordinate sets. The survivors column names what's left.
+The skeleton is visible in the table because the coordinates are named. Each column says *what*, not *where*. The reduction column names the consumed coordinates. The broadcast column names the parameters and their coordinate sets—the difference between the output set and the parameter set is the broadcast claim. This is coordinate set subtraction from Chapter 2, applied to four functions at once. The survivors column names what's left.
 
 In a positional API, all four collapse to a single `dim` argument whose meaning shifts with the surrounding layout. `LayerNorm` and `RMSNorm` both use `dim=-1`—but normalize different statistics. `GroupNorm` uses three reduction dimensions buried in a `reshape` chain. The skeleton is invisible.
 
@@ -287,9 +287,7 @@ This is the abstraction layer. The function signature says: "I operate on coordi
 
 ## Derive InstanceNorm
 
-You've seen the table. Now derive one entry yourself. InstanceNorm normalizes each sample's each channel independently over the spatial dimensions. In 2D: for each `(N, C)`, compute mean and variance over `(H, W)`.
-
-Look at InstanceNorm. The coordinates it reduces over and the coordinates that survive are visible in the operation's signature. Which coordinates does it consume? Which survive? What parameters broadcast? The answers are in the brackets. Use `..spatial` for the spatial dimensions and `c` for channel.
+You've seen the table. InstanceNorm normalizes each sample's each channel independently over the spatial dimensions. In 2D: for each `(N, C)`, compute mean and variance over `(H, W)`. The coordinates it reduces over and the coordinates that survive are visible in the operation's signature. Which coordinates does it consume? Which survive? What parameters broadcast?
 
 Here is the answer:
 
@@ -378,16 +376,18 @@ What is happening when you read these signatures: you are asking "which coordina
 
 ---
 
-### Stop and Think: Find the Skeletons in Your Code
+### What Skeletons Reveal
 
-You've seen the skeleton in LayerNorm, RMSNorm, GroupNorm, and InstanceNorm. But skeletons aren't limited to normalization. Every operation that follows a reduce-broadcast-elementwise pattern is a skeleton.
+LayerNorm, RMSNorm, GroupNorm, InstanceNorm—five different normalization functions, one skeleton. The skeleton is not limited to normalization. Every operation that follows a reduce-broadcast-elementwise pattern is a skeleton.
 
-Every `mean(`, `sum(`, or `max(` followed by `keepdim=True` in a codebase is a reduction-statistic-broadcast pattern. Which coordinate is reduced? Which coordinate is the statistic broadcast over? If the `dim` argument is an integer, can the coordinate be named? If the answer is "it's whatever dimension is at that position," the skeleton's identity depends on layout.
+Consider the `mean(`, `sum(`, or `max(` calls in your codebase. Each one followed by a broadcast is a reduction-statistic-broadcast pattern. The skeleton is there, whether the code names it or not. When the `dim` argument is an integer, the question "which coordinate is reduced?" has no answer in the code—the reduction's identity is a position, and the position depends on layout. If the layout changes—a dimension inserted, a transpose applied—the integer now points at a different coordinate, and the skeleton silently shifts shape.
 
-Every `* gamma + beta` or `* scale + shift` is a broadcast-parameter suffix of a normalization skeleton. Which coordinates do `gamma` and `beta` broadcast over? Can they be named? If not, the broadcast is implicit.
+Consider every `* gamma + beta` or `* scale + shift`. It is a broadcast-parameter suffix of a normalization skeleton. Which coordinates do `gamma` and `beta` broadcast over? In a positional API, the answer is "all dimensions except the one gamma was defined on," which requires knowing gamma's rank and the convention for parameter placement. The broadcast is correct by convention, not by construction.
 
-Any two functions that share a skeleton—normalizing, pooling, computing a statistic—have Einlang signatures. Even without using Einlang, writing `fn name[consumed](x: [..batch, consumed]) -> [..batch, consumed]` as a comment reveals the skeleton. If the signatures match, the functions share a skeleton. If they don't, they serve different purposes and should have different signatures.
+Any two functions that share a skeleton have Einlang signatures. Even without using Einlang, writing `fn name[consumed](x: [..batch, consumed]) -> [..batch, consumed]` as a comment above the function reveals the skeleton. Two functions with matching signatures share a skeleton. Two functions with different signatures serve different purposes and should have different signatures. The comment costs one line of typing. The check costs zero.
 
-A normalization variant that normalizes over `batch` instead of `feature` changes `layer_norm[f]` to `layer_norm[batch]`. The signature change documents the architectural decision. A colleague reading the signature understands what is normalized over. In a positional API, changing `dim=-1` to `dim=0` silently shifts the coordinate—and hopes no other code depends on the output shape.
+A normalization variant that normalizes over `batch` instead of `feature` changes `layer_norm[f]` to `layer_norm[batch]`. The signature change documents the architectural decision. In a positional API, changing `dim=-1` to `dim=0` silently shifts the coordinate—and hopes no other code depends on the output shape.
 
-Every skeleton's forward pass is a reduce-broadcast-elementwise pattern. Every skeleton's backward pass is the Inversion Rule applied to that pattern. When you see the skeleton forward, you can predict its backward. The coordinate names are the thread connecting the two directions.
+Every skeleton's forward pass is a reduce-broadcast-elementwise pattern. Every skeleton's backward pass is the Inversion Rule applied to that pattern. The coordinate names are the thread connecting the two directions.
+
+Skeletons are spatial—they describe which coordinates are reduced and which survive at a single point in the computation graph. But coordinates can also flow through time. Chapter 6 introduces recurrence: coordinates indexed by `t`, `t-1`, `t+1`, carrying a causality constraint that the compiler can check. The skeleton's forward/backward symmetry extends into a forward/backward recurrence—the Inversion Rule, applied to time.
