@@ -78,19 +78,19 @@ Not one of these bugs was a shape error. In a positional framework, `sum(axis=1)
 
 The five rules are the five ways a name can be wrong: it can refer to a non-existent coordinate (Rule 1), it can fail to appear where the operation requires it (Rule 2), it can broadcast silently without the record the backward pass needs (Rule 3), it can reference the future in a recurrence (Rule 4), or it can violate the contract of a function call (Rule 5). That's it. Those are all the ways.
 
-But to apply these rules mechanically, the compiler needs a representation where names are preserved and operations are explicit. It needs an **intermediate representation**.
+But to apply these rules mechanically, the compiler needs a representation where names are preserved and operations are explicit. It needs an **intermediate representation**—a tree where every name is visible.
 
 ---
 
 ## The IR Tree
 
-The compiler translates Einlang into S-expressions—parenthesized lists where every name is preserved:
+Conceptually, the compiler's IR can be understood as a tree of expressions where names are first-class:
 
 ```
 A[i, j] + B[i, j]
 ```
 
-```lisp
+```
 (+ (index A (i j)) (index B (i j)))
 ```
 
@@ -100,7 +100,7 @@ Add a reduction:
 sum[k](A[i, k] * B[k, j])
 ```
 
-```lisp
+```
 (reduction sum (k)
   (* (index A (i k)) (index B (k j))))
 ```
@@ -111,7 +111,7 @@ The reduction coordinate `k` is named, not numbered. A full declaration:
 C[i, j] = sum[k](A[i, k] * B[k, j])
 ```
 
-```lisp
+```
 (let-decl (output C (i j))
   (reduction sum (k)
     (* (index A (i k)) (index B (k j)))))
@@ -119,17 +119,17 @@ C[i, j] = sum[k](A[i, k] * B[k, j])
 
 `(output C (i j))` declares the surviving coordinates: `i` and `j` survive, `k` is consumed.
 
-Three things the IR preserves: **names** (`i` and `k` remain names, never become `axis=0`), **reduction targets** (`(reduction sum (k) ...)` operates on `k`), and **index patterns** (`(index A (i k))` matches what the source wrote). The IR has not *translated* your program. It has *said it again*, in parentheses.
+Three things the IR preserves: **names** (`i` and `k` remain names, never become `axis=0`), **reduction targets** (`(reduction sum (k) ...)` operates on `k`), and **index patterns** (`(index A (i k))` matches what the source wrote). The IR has not *translated* your program. It has *said it again*, as a tree.
 
 ---
 
 ## Lowering: Names Become Numbers
 
-The tree passed every check. But it cannot be handed to NumPy. NumPy does not understand `class`. It needs `axis=1`.
+The tree passed every check. But it cannot be handed to a numerical backend. NumPy does not understand `class`. It needs `axis=1`.
 
 Translating the analyzed tree into executable instructions is **lowering**. The mapping is deterministic: every axis name maps to its position in declaration order. `i` is first → axis 0. `class` is second → axis 1. The name is burned.
 
-After lowering, the softmax IR becomes:
+After lowering, the softmax conceptually becomes:
 
 ```python
 def softmax(logits):
@@ -152,8 +152,8 @@ Here is softmax, in five simultaneous forms:
  max[class](logits[i class])                          ← what you wrote
  (reduction max (class) (index logits (i class)))     ← what the compiler sees
  class: (range 0 n_class), reduction axis, Rule 2 ✓   ← what the compiler derives
- class → axis=1, reduction, keepdims=True              ← how the name becomes a number
- np.max(logits, axis=1, keepdims=True)                 ← what executes
+ class → axis=1, reduction                                ← how the name becomes a number
+ np.max(logits, axis=1, keepdims=True)                 ← what executes (conceptually)
 ```
 
 Five forms. One name. The name `class` traveled through all five without changing its identity. It was written as `class`, preserved as `class`, verified as `class`, mapped from `class` to `axis=1`. At no point was it guesswork.

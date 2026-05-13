@@ -111,22 +111,6 @@ The coordinate habit works at every step. It only asks: *is the name in the code
 
 ---
 
-## The Rename Bridge
-
-When a tensor crosses a boundary between naming conventions, a rename at the boundary is a one-line bridge:
-
-```rust
-let x[batch, channel, height, width] = rename[source](raw[N, C, H, W]);
-```
-
-`rename` maps each source coordinate to a target coordinate. The compiler checks that every source coordinate is mapped and every target coordinate is supplied. It cannot map `C` to the wrong target—the programmer must choose which target coordinate `C` becomes.
-
-A data loader produces `[N, C, H, W]`. A vision model expects `[batch, channel, height, width]`. A library returns `[query, key]` but the calling code uses `[seq_q, seq_k]`. In each case, a rename at the boundary is a one-line bridge. The cost is a single line. The benefit is that the compiler checks the bridge—it cannot silently map the wrong coordinate to the wrong name.
-
-The rename is the boundary between naming conventions. It is also the place where the coordinate habit pays for itself. If all coordinates are named at entry and renamed at boundaries, the interior of the program never needs to guess what `dim=1` means. The names are in the brackets. The brackets are checked.
-
----
-
 ## What Survives
 
 Names do not eliminate runtime shape errors. They do not replace testing. They do not guarantee correctness. They do not cost zero keystrokes.

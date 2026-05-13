@@ -224,14 +224,14 @@ A refactoring in both notations, to see where the errors surface—and where the
 Now the colleague recompiles the project. Two errors appear:
 
 ```
-error[E003]: model.rs:42: tensor `logits` has no coordinate named `class`
+error[E0425]: model.rs:42: tensor `logits` has no coordinate named `class`
   --> model.rs:42:20
    |
 42 |     softmax[class](logits);
    |                    ^^^^^^ `logits` has coordinates: batch, category
    |     help: did you mean `category`?
 
-error[E003]: loss.rs:15: tensor `probs` has no coordinate named `class`
+error[E0425]: loss.rs:15: tensor `probs` has no coordinate named `class`
   --> loss.rs:15:25
    |
 15 |     cross_entropy[class](probs, labels);

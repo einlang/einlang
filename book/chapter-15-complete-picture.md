@@ -294,9 +294,9 @@ The preceding sections catalogued syntax. But syntax is only half the story. Eac
 
 Three errors are especially relevant to the coordinate habit. You won't memorize error codes from a book. But reading them now means you'll recognize them when they appear:
 
-- **E003 (Undefined Coordinate)**: a coordinate name is referenced but does not exist on the tensor.
-- **E004 (Coordinate Range Mismatch)**: two uses of the same coordinate name infer incompatible ranges.
-- **E006 (Coordinate Contract Violation)**: a function call supplies a coordinate argument that does not match the function's declared coordinate parameter layout.
+- **E0425 (Undefined Coordinate)**: a coordinate name is referenced but does not exist on the tensor.
+- **E0308 (Coordinate Range Mismatch)**: two uses of the same coordinate name infer incompatible ranges.
+- **E0061 (Coordinate Contract Violation)**: a function call supplies a coordinate argument that does not match the function's declared coordinate parameter layout.
 
 ### Error Walkthrough
 
@@ -304,7 +304,7 @@ A list of error codes is a reference. A walkthrough is a skill. Here are the thr
 
 ---
 
-**E003: The typo that silence would swallow.**
+**E0425: The typo that silence would swallow.**
 
 You write a softmax with a coordinate that doesn't exist:
 
@@ -315,7 +315,7 @@ let probs[batch, class] = softmax[clss](logits[batch, class]);
 The compiler responds:
 
 ```
-Error[E003]: Undefined coordinate `clss` in reduction `softmax[clss]`
+error[E0425]: coordinate `clss` not found in this scope
   → line 12, column 35
   `clss` is not declared on any tensor in the reduction body.
   Declared coordinates on `logits`: batch, class
@@ -328,7 +328,7 @@ Fix: `s/clss/class/`. One keystroke, caught at compile time.
 
 ---
 
-**E004: The shape mismatch that surfaces before runtime.**
+**E0308: The shape mismatch that surfaces before runtime.**
 
 You multiply two matrices with incompatible contraction dimensions:
 
@@ -339,7 +339,7 @@ let C[i, j] = sum[k](A[i, k] * B[k, j]);
 If `A` has `k = 64` but `B` has `k = 128`:
 
 ```
-Error[E004]: Coordinate range mismatch for `k`
+error[E0308]: coordinate range mismatch for `k`
   → line 8, column 25
   `k` inferred as 64 from `A[i, k]` (declared at line 5)
   `k` inferred as 128 from `B[k, j]` (declared at line 6)
@@ -352,7 +352,7 @@ Fix: align the declarations of `k`. The error tells you exactly where to look.
 
 ---
 
-**E006: The contract that positional APIs leave as a comment.**
+**E0061: The contract that positional APIs leave as a comment.**
 
 You call a function with a coordinate parameter that violates its contract:
 
@@ -369,7 +369,7 @@ let h[batch, channel] = layer_norm[batch](x[batch, channel]);
 The compiler responds:
 
 ```
-Error[E006]: Coordinate contract violation in call to `layer_norm`
+error[E0061]: coordinate contract violation in call to `layer_norm`
   → line 20, column 27
   `layer_norm` expects coordinate parameter `feature` (consumed by reduction)
   Called with `batch`, which appears in `..left` position of argument `x`
@@ -385,7 +385,7 @@ Fix: `layer_norm[feature](x[batch, channel])`. The coordinate parameter matches 
 
 These three errors share a structure. Each one: (1) names the coordinate involved, (2) shows where it was declared and where it was used, (3) states what was expected versus what was found. The structure is not Einlang-specific. It is the structure of any good type error. The coordinate names make it possible.
 
-No names → no E003. No coordinate-aware functions → no E006. The error codes are not arbitrary. They are the compiler saying, in structured form: "the name you wrote does not match the names the program declares."
+No names → no E0425. No coordinate-aware functions → no E0061. The error codes are not arbitrary. They are the compiler saying, in structured form: "the name you wrote does not match the names the program declares."
 
 ---
 

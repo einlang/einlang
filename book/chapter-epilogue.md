@@ -266,7 +266,7 @@ let y = predict(x);
 Save.
 
 ```
-Error[E006]: coordinate contract mismatch
+error[E0061]: coordinate contract mismatch
   --> main.ein:2:16
    |
  2 | let y = predict(x);

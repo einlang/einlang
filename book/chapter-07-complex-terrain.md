@@ -50,27 +50,6 @@ The names record what was split. The positional code records only the mechanic o
 
 ---
 
-## When Names Collide: Renaming Across Conventions
-
-Naming coordinates prevents one class of error—the silent axis swap. But it introduces a new problem: what happens when two tensors use different names for the same coordinate?
-
-A tensor from the data loader uses `[batch, class]`. A tensor from a pre-trained model uses `[sample, category]`. They describe the same dimensions—`batch` and `sample` both mean "which example"; `class` and `category` both mean "which output label." But the names differ. If you try to add them, the compiler reports a coordinate mismatch. The names that were supposed to prevent errors are now preventing a valid operation.
-
-This is not a flaw in named coordinates. It is the same problem that variable names have always had: two programmers call the same thing by different names. The solution is the same: a **rename** operation.
-
-```rust
-// y uses [sample, category]; we need [batch, class]
-let aligned[batch, class] = y[sample -> batch, category -> class];
-```
-
-The arrow `->` reads as "renamed to." The compiler checks that `sample` exists on `y`, that `batch` is the new name, and that the domains have matching sizes. After this line, `aligned` carries `[batch, class]` and can be used with any other tensor that shares those names.
-
-A rename is not a permutation—the coordinates stay in the same positions. It is not a reshape—the shapes are unchanged. It is a name change, and only a name change. The compiler verifies that every old name exists on the source and every new name is distinct from the others. After renaming, the new names participate in coordinate contracts exactly as if they had been declared from the start.
-
-This pattern appears wherever tensors cross a boundary between naming conventions. A data loader produces `[N, C, H, W]` but a vision model expects `[batch, channel, height, width]`. A library returns `[query, key]` but the calling code uses `[seq_q, seq_k]`. In each case, a rename at the boundary is a one-line bridge. The cost is a single line. The benefit is that the compiler checks the bridge—it cannot silently map the wrong coordinate to the wrong name.
-
----
-
 ## Convolution: Coordinates with Arithmetic
 
 A convolution is a sum of products with index arithmetic:
