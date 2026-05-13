@@ -322,21 +322,19 @@ Now consider: what if InstanceNorm should normalize over `c` as well? You'd chan
 
 ## Coordinate Facts Flow
 
-Coordinate facts flow through pointwise operations automatically. If `x` carries the fact that it has coordinates `[b, class]`, then `x ** 2.0` also has coordinates `[b, class]`. You don't need to re-declare them. Coordinate facts are preserved through arithmetic, through function calls that return tensors, through `if` expressions. The only operations that change coordinate facts are those that explicitly manipulate coordinates: reductions (which consume), rectangular declarations (which introduce), and coordinate-aware function calls (which thread them through signatures).
+Square a tensor. The coordinates don't change. Add a constant. The coordinates don't change. Pass the tensor through a pointwise function. The coordinates don't change.
 
-This flow is the foundation of abstraction. When you wrap a computation in a coordinate-aware function, the coordinate facts flow from the caller, through the function body, and out to the result. The function doesn't need to re-derive what the caller already knew. The facts propagate.
+This is not a coincidence. It is a rule: coordinate facts survive every operation that does not explicitly manipulate them. Reductions consume coordinates. Declarations introduce them. Coordinate-aware function calls thread them through signatures. Everything else—arithmetic, function calls that return tensors, `if` expressions—preserves them. You declare coordinates once. They propagate from that point forward.
 
-This is a stronger property than type inference. Type inference deduces that `x ** 2.0` has the same type as `x` (both `f32`). Coordinate flow deduces that `x ** 2.0` has the same coordinate structure as `x` (both `[b, class]`). The coordinate structure is not inferred from runtime shapes—it is propagated from declarations. If `x` is declared as `x[b, class]`, every expression built from `x` carries `(b, class)` unless an operation explicitly removes a coordinate.
+This is stronger than type inference. Type inference says `x ** 2.0` has the same type as `x`. Coordinate flow says it has the same *identity* as `x`. The identities are not inferred from runtime shapes—they are propagated from declarations. A PyTorch tensor carries `(32, 64)` at runtime. It does not carry `(batch, channel)`. The identities are lost the moment the tensor leaves the data loader. In Einlang, they survive every intermediate binding, every arithmetic expression, every function return. The source is the declaration. The flow is forward.
 
-The difference between type inference and coordinate flow is that type inference is standard in every typed language, while coordinate flow is absent from every major tensor framework. A PyTorch tensor carries shape information at runtime—`(32, 64)`—but no coordinate identities. The identities are lost the moment the tensor leaves the data loader. In Einlang, the identities propagate through every operation, every function call, every intermediate binding. They are never inferred from shapes. They are propagated from declarations. The source is always the declaration. The flow is always forward.
+Three cases capture the entire system:
 
-The pattern is visible across three cases:
+1. `let y = x + 1.0;` — `y` has the same coordinates as `x`.
+2. `let y = sum[j](x[i, j]);` — `j` is consumed. `y` has `[i]`.
+3. `let y[i, j] = x[j, i];` — same names, swapped positions. `y` has `[i, j]`.
 
-1. `let y = x + 1.0;` — coordinates flow through: `y` has the same coordinates as `x`.
-2. `let y = sum[j](x[i, j]);` — coordinate `j` is consumed: `y` has `[i]`.
-3. `let y[i, j] = x[j, i];` — coordinates are rearranged: `y` has `[i, j]` but from `x[j, i]`.
-
-The third case is worth pausing on. `y[i, j] = x[j, i]` is a transpose. The declaration bracket says `y` has coordinates `(i, j)`. The body references `x[j, i]`—the same names, swapped positions. `i` and `j` are preserved. Their order is changed. This is the coordinate-aware way to write a transpose: not `x.transpose(0, 1)`, but `y[i, j] = x[j, i]`. The names carry the permutation. No position counting needed.
+The third case is a transpose. Not `x.transpose(0, 1)`. Not `x.permute(1, 0)`. Just `y[i, j] = x[j, i]`. The names carry the permutation. No position counting needed.
 
 ---
 

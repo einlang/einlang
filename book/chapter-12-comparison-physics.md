@@ -13,11 +13,11 @@ title: "Chapter 12 · Comparison: Physics"
 
 ---
 
-Normalization and attention revealed the same pattern: when two dimensions share the same extent, positional code loses the ability to distinguish them. The Square Matrix Test from Chapter 3—`batch_size == num_classes`—returned in attention as `seq_q == seq_k`. In both cases, the positional notation was correct-by-coincidence. The names made the distinction checkable.
+Chapters 10 and 11 showed the pattern in machine learning: normalization proved it holds, attention proved it reveals. This chapter asks the final question: **what does the pattern prevent?**
 
-This pattern's oldest domain is physical simulation, which predates machine learning by decades. Fortran physicists have been writing `U(I+1, J)` since before the term "tensor" entered our vocabulary—and if you ask one of them what `state[:,:,2]` means, they will give you the correct answer. Then they will tell you about the bug they fixed in 1997 where `2` was actually `3` and the simulation ran for two weeks before anyone noticed. The integer field index—`state[:,:,2]` for velocity-x—is the original ghost in the name.
+The domain is physical simulation, which predates machine learning by decades. Fortran physicists have been writing `U(I+1, J)` since before the term "tensor" entered our vocabulary—and if you ask one of them what `state[:,:,2]` means, they will give you the correct answer. Then they will tell you about the bug they fixed in 1997 where `2` was actually `3` and the simulation ran for two weeks before anyone noticed. The integer field index—`state[:,:,2]` for velocity-x—is the original ghost in the name.
 
-It asks: when coordinates represent temperature, pressure, and velocity fields, and confusing them means solving the wrong physics, what does each notation make visible?
+The stakes are higher here. In ML, a coordinate swap degrades a metric. In physics, a coordinate swap produces negative absolute temperatures, violated conservation laws, waves that amplify instead of propagating. The results look plausible—the contour plot has the right shape, the time series has the right range. Only a physicist's eye catches them. The question is not *does the code run?* It is *does the code solve the right equations?*
 
 ---
 
@@ -294,4 +294,6 @@ Pick `temperature`. Find every place it's read and written. If the code uses `st
 
 In Einlang, `state[..., temp]` stays `temp` regardless of field order. The coordinate name is the anchor. The integer is the implementation detail. The difference is whether the anchor is in the code or in your head.
 
-Three chapters of comparisons established what names make visible. Chapter 13 asks the necessary question: what can names *not* check? Every system has a boundary—facts that are statically knowable and facts that are not. The boundary is not a flaw. It is a map. And a good map tells you where the boundaries are.
+Three chapters, one arc. Normalization showed the pattern holds. Attention showed what it reveals. Physics showed what it prevents—bugs that predate machine learning, that survive compilation, that produce plausible but wrong results. In every domain, the positional integer stayed the same while the meaning drifted. In every domain, the coordinate name anchored the meaning.
+
+Chapter 13 asks the necessary question: what can names *not* check? Every system has a boundary. The boundary is not a flaw. It is a map. And a good map tells you where the boundaries are.

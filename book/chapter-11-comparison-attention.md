@@ -13,11 +13,15 @@ title: "Chapter 11 · Comparison: Attention"
 
 ---
 
+Chapter 10 showed that the pattern holds for normalization—four variants, one skeleton. The coordinate name absorbs layout changes. The positional `dim=` does not.
+
+Attention raises the stakes. Normalization has one reduction axis. Attention has five coordinates with distinct roles, three architectural variants whose positional code is textually identical, and a runtime KV-cache whose correctness depends on which axis is concatenated. The question shifts from *does the pattern hold?* to *what does the pattern reveal that positional code cannot say?*
+
 You are writing an encoder-decoder model. During development, source and target happen to have the same sequence length—64 tokens. Self-attention works. Cross-attention works. The code for both is a single positional function: `attention(Q, K, V, mask)`. The shapes match. You ship.
 
-Six weeks later, a configuration change sets source length to 128, target to 64. The code still runs—same shapes at the `attention` call, broadcasting absorbs the mismatch. But your model now attends from every target position to every source position *twice*, silently. The BLEU score drops two points. You spend three days tracing the drop to a transposed mask that was broadcasting along the wrong axis. The Square Matrix Test, first encountered with softmax in Chapter 3, returns with a vengeance.
+Six weeks later, a configuration change sets source length to 128, target to 64. The code still runs—Broadcasting absorbs the shape mismatch. But your model now attends from every target position to every source position *twice*, silently. The BLEU score drops two points. You spend three days tracing the drop to a transposed mask that was broadcasting along the wrong axis. The Square Matrix Test, first encountered with softmax in Chapter 3, returns with a vengeance.
 
-Three numbers govern attention: the number of query heads, the number of key-value heads, and the sequence length. When any two coincide, positional code for one variant becomes textually identical to positional code for another. Only the coordinate names distinguish them.
+Three numbers govern attention: the number of query heads, the number of key-value heads, and the sequence length. When any two coincide, positional code for one variant becomes textually identical to positional code for another. The coordinates are different. The code is the same. Only the names can distinguish them.
 
 ---
 
@@ -284,9 +288,6 @@ The coordinate names don't change. The contract doesn't change. Only the executi
 
 When a new attention variant appears—a faster kernel, a sparse pattern, a sliding window—the coordinate contract remains the same. The lowering strategy changes. The names survive the optimization.
 
-This is the parting lesson of the comparison chapters. The coordinate structure is the invariant. The execution strategy is the variable. Named coordinates record the invariant. Positional notation records neither—it defers both to runtime. The difference is whether the invariant survives the next optimization.
+The coordinate structure is the invariant. The execution strategy is the variable. Named coordinates record the invariant. Positional notation records neither—it defers both to runtime.
 
-
----
-
-*Read the last attention implementation you wrote. Can you distinguish self-attention from cross-attention from the code alone—without checking tensor shapes at runtime? If the answer is no, the distinction lives in your head. That is the gap.*
+Normalization showed the pattern holds. Attention showed what the pattern reveals—distinctions invisible in positional code, visible in names. Chapter 12 takes the final question: *what does the pattern prevent?* The domain shifts from machine learning to physical simulation, where integer indices have been silently swapping coordinates since before the term "tensor" entered our vocabulary, and the bugs produce plausible-but-wrong physics that no compiler catches and no test suite detects.

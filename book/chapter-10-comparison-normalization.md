@@ -17,11 +17,15 @@ You are two weeks into a Transformer project. LayerNorm is working. You swap in 
 
 Each normalization normalizes over different coordinates. Each uses a position number to say which one. Switch from one to another, and every `dim` must be audited—because `dim=-1` means `feature` in LayerNorm, `channel` in GroupNorm, and nothing at all in RMSNorm.
 
-Part III built the compiler—the proof that names can be checked mechanically. Part IV asks the practical question: does any of this matter for real code? The next three chapters put Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. No arguments. Just code, in two notations, side by side.
+Part III built the compiler—the proof that names can be checked mechanically. Part IV asks the practical question: does any of this matter for real code? The next three chapters demonstrate the answer across three domains, each escalating the stakes.
 
-Each chapter demonstrates the same pattern—coordinate names visible vs. hidden—in a different domain. Read one or all three. The pattern is the same. The domains are different. The question in every case is the same: **what does each notation make visible, and what does each notation hide?**
+Chapter 10 asks: **does the pattern hold?** Normalization — the simplest skeleton, the fewest coordinates. If names don't earn their keep here, they don't earn it anywhere.
 
-Three real normalization functions—LayerNorm, RMSNorm, GroupNorm—appear below in both PyTorch and Einlang, side by side.
+Chapter 11 asks: **what does the pattern reveal?** Attention — where self-attention and cross-attention have identical positional code, and the distinction is in runtime shapes, not in source.
+
+Chapter 12 asks: **what does the pattern prevent?** Physics — the oldest domain, where integer indices have been silently swapping coordinates since Fortran, and the bugs produce plausible-but-wrong results that only a physicist's eye catches.
+
+This chapter takes the first question. Three normalization functions appear below in both PyTorch and Einlang, side by side.
 
 ---
 
@@ -353,4 +357,4 @@ Every normalization function can be audited with three questions. They are the s
 
 3. **Does the normalization axis change meaning if the layout changes?** If the input changes from `(batch, feature)` to `(batch, time, feature)`, does `dim=-1` still mean `feature`? In LayerNorm, yes—`feature` is conventionally the last axis. In GroupNorm after a reshape, no—the positions shift and `dim` must be updated. The Einlang versions are stable under layout changes because the coordinate names don't change, only the positions they map to.
 
-Three questions. Applied to attention, where self-attention and cross-attention have identical PyTorch code, the Square Matrix Test returns.
+Normalization established the baseline: the skeleton holds across four variants, and the coordinate name absorbs layout changes that would silently corrupt a positional `dim=`. Chapter 11 raises the stakes. Normalization has one reduction axis. Attention has five coordinates, three architectural variants, and a runtime cache whose correctness depends on which coordinate is concatenated. The question shifts from *does the pattern hold?* to *what does the pattern reveal that positional code cannot say?*
