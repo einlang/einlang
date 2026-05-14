@@ -85,21 +85,21 @@ A coordinate has a name, a domain, a position (Ch1)
     │       │
     │       └──► @fn: custom derivative rules carry coordinate contracts (Ch7)
     │
-    ├──► Comparisons: same computation, two notations (Ch12–14)
+    ├──► Comparisons: same computation, two notations (Ch11–13)
     │       │
-    │       ├──► Normalization: GroupNorm reshape chain vs named groups (Ch12)
-    │       ├──► Attention: identical PyTorch, distinct Einlang signatures (Ch13)
-    │       └──► Physics: integer field indices vs named field coordinates (Ch14)
+    │       ├──► Normalization: GroupNorm reshape chain vs named groups (Ch11)
+    │       ├──► Attention: identical PyTorch, distinct Einlang signatures (Ch12)
+    │       └──► Physics: integer field indices vs named field coordinates (Ch13)
     │
-    └──► Compiler construction (Ch9–11)
+    └──► Compiler construction (Ch9–10)
             │
             ├──► IR: S-expressions preserve every name (Ch9)
             │
-            ├──► Analysis: range → shape → type, five check rules (Ch10)
+            ├──► Analysis: range → shape → type, five check rules (Ch9)
             │
-            └──► Lowering: names → integers, three strategies (Ch11)
+            └──► Lowering: names → integers, strategies (Ch9–10)
                     │
-                    └──► Firewood: names burn, heat remains (Ch11)
+                    └──► Firewood: names burn, heat remains (Ch9)
 ```
 
 Every path begins at the `dim=1` bug. Every arrow is a question the bug forced us to ask. The map is not the territory—but it shows how the trails connect.
@@ -140,7 +140,7 @@ Expressions are not allowed in the declaration bracket. `let fib[n-1] = ...` is 
 
 ## Reductions
 
-A reduction consumes a coordinate. *Introduced in Chapter 2; selection reductions in Chapter 4.*
+A reduction consumes a coordinate. *Introduced in Chapter 2; selection reductions in Chapter 5.*
 
 Operations: `sum`, `max`, `min`, `prod`.
 
@@ -161,7 +161,7 @@ The consumed coordinate is eliminated from the result shape. The reduction brack
 
 ## Broadcasting
 
-Broadcasting is an omission in the indexing pattern. *Introduced in Chapter 2; self-audit in Chapter 7.*
+Broadcasting is an omission in the indexing pattern. *Introduced in Chapter 2; self-audit in Chapter 4.*
 
 ```rust
 let out[i, j] = A[i, j] + bias[j];   // bias omits i → broadcast over i
@@ -175,7 +175,7 @@ The Inversion Rule: what broadcasts in the forward pass is reduced in the backwa
 
 ## Named Rest Indices
 
-`..name` stands for zero or more adjacent axes, collectively named. *Introduced in Chapter 2; pack polymorphism in Chapter 4.*
+`..name` stands for zero or more adjacent axes, collectively named. *Introduced in Chapter 2; pack polymorphism in Chapter 5.*
 
 ```rust
 let result[..batch, j] = x[..batch, j] + bias[j];
@@ -188,7 +188,7 @@ The same rest name must describe the same axis span within an expression. Packs 
 
 ## Where Clauses
 
-A where clause filters or binds. *Introduced in Chapter 2; backward behavior in Chapter 7.*
+A where clause filters or binds. *Introduced in Chapter 2; backward behavior in Chapter 8.*
 
 Boolean guards narrow the domain:
 
@@ -211,7 +211,7 @@ In the backward pass, filtered elements receive zero gradient. The domain constr
 
 ## Coordinate-Aware Functions
 
-A function may declare coordinate parameters. *Introduced in Chapter 3; pack parameters in Chapter 4.*
+A function may declare coordinate parameters. *Introduced in Chapter 3; pack parameters in Chapter 5.*
 
 ```rust
 fn softmax[j](x: [f32; ..left, j, ..right])
@@ -233,7 +233,7 @@ Packs (`..left`, `..right`, `..spatial`) make functions polymorphic over surroun
 
 ## Recurrence Relations
 
-Self-referential declarations define sequences over time. *Introduced in Chapter 5.*
+Self-referential declarations define sequences over time. *Introduced in Chapter 6.*
 
 ```rust
 let u[t in 0..T, i] = initial[i];
@@ -252,7 +252,7 @@ let w[t in 1..T, out, in] = w[t-1, out, in] - lr * grad[t-1, out, in];
 
 ## Automatic Differentiation
 
-`@loss / @W` computes the gradient. *Introduced in Chapter 7.*
+`@loss / @W` computes the gradient. *Introduced in Chapter 8.*
 
 ```rust
 let dW = @loss / @W;
@@ -274,19 +274,19 @@ Coordinate-aware custom rules carry the same bracketed parameters as the primal 
 
 ## Why the Compiler Reads Coordinates Too
 
-The preceding sections catalogued syntax. But syntax is only half the story. Each compiler pass depends on coordinate names to do its job. *These passes are described in Chapters 12–14.*
+The preceding sections catalogued syntax. But syntax is only half the story. Each compiler pass depends on coordinate names to do its job. *These passes are described in Chapters 9–10.*
 
 **Shape inference** (Ch9–10) reads coordinate names to decide whether an expression is legal before it runs. `sum[k](A[i, k] * B[k, j])` succeeds if `k` appears in both `A` and `B`. Under names, the contract is: `i` survives from `A`, `j` survives from `B`, `k` appears in both and is consumed.
 
 **Range analysis** (Ch10) finds the domain of every axis: from array shapes, from literals, or from explicit declarations. Every coordinate gets a concrete range before code generation.
 
-**Five check rules** (Ch10) verify the IR: index existence, reduction consistency, broadcast recording, causality, and coordinate contract at call sites. Each catches a class of bug that positional notation silently accepts.
+**Five check rules** (Ch9) verify the IR: index existence, reduction consistency, broadcast recording, causality, and coordinate contract at call sites. Each catches a class of bug that positional notation silently accepts.
 
-**Gradient lowering** (Ch11) reads coordinate names to build the backward pass. The rule: preserve the coordinates of `W`, sum over everything else. Set subtraction, applied to coordinate names, derives the pullback.
+**Gradient lowering** (Ch9) reads coordinate names to build the backward pass. The rule: preserve the coordinates of `W`, sum over everything else. Set subtraction, applied to coordinate names, derives the pullback.
 
-**Storage planning** (Ch11) reads coordinate names to decide which tensors can share memory. A recurrence creates a dependency chain; the compiler allocates a rolling buffer.
+**Storage planning** (Ch9) reads coordinate names to decide which tensors can share memory. A recurrence creates a dependency chain; the compiler allocates a rolling buffer.
 
-**Kernel fusion** (Ch11) reads coordinate names to decide which operations can be merged. Operations that share surviving coordinates can fuse; operations across a reduction boundary cannot.
+**Kernel fusion** (Ch9) reads coordinate names to decide which operations can be merged. Operations that share surviving coordinates can fuse; operations across a reduction boundary cannot.
 
 ---
 
@@ -294,9 +294,9 @@ The preceding sections catalogued syntax. But syntax is only half the story. Eac
 
 Three errors are especially relevant to the coordinate habit. You won't memorize error codes from a book. But reading them now means you'll recognize them when they appear:
 
-- **E003 (Undefined Coordinate)**: a coordinate name is referenced but does not exist on the tensor.
-- **E004 (Coordinate Range Mismatch)**: two uses of the same coordinate name infer incompatible ranges.
-- **E006 (Coordinate Contract Violation)**: a function call supplies a coordinate argument that does not match the function's declared coordinate parameter layout.
+- **E0425 (Undefined Coordinate)**: a coordinate name is referenced but does not exist on the tensor.
+- **E0308 (Coordinate Range Mismatch)**: two uses of the same coordinate name infer incompatible ranges.
+- **E0061 (Coordinate Contract Violation)**: a function call supplies a coordinate argument that does not match the function's declared coordinate parameter layout.
 
 ### Error Walkthrough
 
@@ -304,7 +304,7 @@ A list of error codes is a reference. A walkthrough is a skill. Here are the thr
 
 ---
 
-**E003: The typo that silence would swallow.**
+**E0425: The typo that silence would swallow.**
 
 You write a softmax with a coordinate that doesn't exist:
 
@@ -315,7 +315,7 @@ let probs[batch, class] = softmax[clss](logits[batch, class]);
 The compiler responds:
 
 ```
-Error[E003]: Undefined coordinate `clss` in reduction `softmax[clss]`
+error[E0425]: coordinate `clss` not found in this scope
   → line 12, column 35
   `clss` is not declared on any tensor in the reduction body.
   Declared coordinates on `logits`: batch, class
@@ -328,7 +328,7 @@ Fix: `s/clss/class/`. One keystroke, caught at compile time.
 
 ---
 
-**E004: The shape mismatch that surfaces before runtime.**
+**E0308: The shape mismatch that surfaces before runtime.**
 
 You multiply two matrices with incompatible contraction dimensions:
 
@@ -339,7 +339,7 @@ let C[i, j] = sum[k](A[i, k] * B[k, j]);
 If `A` has `k = 64` but `B` has `k = 128`:
 
 ```
-Error[E004]: Coordinate range mismatch for `k`
+error[E0308]: coordinate range mismatch for `k`
   → line 8, column 25
   `k` inferred as 64 from `A[i, k]` (declared at line 5)
   `k` inferred as 128 from `B[k, j]` (declared at line 6)
@@ -352,7 +352,7 @@ Fix: align the declarations of `k`. The error tells you exactly where to look.
 
 ---
 
-**E006: The contract that positional APIs leave as a comment.**
+**E0061: The contract that positional APIs leave as a comment.**
 
 You call a function with a coordinate parameter that violates its contract:
 
@@ -369,7 +369,7 @@ let h[batch, channel] = layer_norm[batch](x[batch, channel]);
 The compiler responds:
 
 ```
-Error[E006]: Coordinate contract violation in call to `layer_norm`
+error[E0061]: coordinate contract violation in call to `layer_norm`
   → line 20, column 27
   `layer_norm` expects coordinate parameter `feature` (consumed by reduction)
   Called with `batch`, which appears in `..left` position of argument `x`
@@ -385,7 +385,7 @@ Fix: `layer_norm[feature](x[batch, channel])`. The coordinate parameter matches 
 
 These three errors share a structure. Each one: (1) names the coordinate involved, (2) shows where it was declared and where it was used, (3) states what was expected versus what was found. The structure is not Einlang-specific. It is the structure of any good type error. The coordinate names make it possible.
 
-No names → no E003. No coordinate-aware functions → no E006. The error codes are not arbitrary. They are the compiler saying, in structured form: "the name you wrote does not match the names the program declares."
+No names → no E0425. No coordinate-aware functions → no E0061. The error codes are not arbitrary. They are the compiler saying, in structured form: "the name you wrote does not match the names the program declares."
 
 ---
 
@@ -618,7 +618,7 @@ Five bugs. None of them throw an error in a positional API. All of them produce 
 
 The compiler checks described in this book—the five rules, the error codes, the lowering verifications—exist to catch these five bugs before they reach runtime. The compiler is not a luxury. It is a tool for making the coordinate habit machine-checkable.
 
-Try this yourself: open your most recent project. Find a `dim=` argument. Ask which coordinate it refers to. If you can't answer from the code alone—if you had to run the program or check the data loader to know—you have found a silent bug waiting to happen. The gap between the integer and the identity is the bug's hiding place.
+A `dim=` argument in a positional codebase is an integer. Which coordinate it refers to is a question the code cannot answer—the answer lives in the programmer's head, or in the data loader's output shape, or in the documentation comment that may or may not be up to date. When the answer is "run the program to find out," the integer has already won. The gap between the integer and the identity is the bug's hiding place.
 
 ---
 
@@ -634,7 +634,7 @@ This book built a naming system for the ideas it introduced. Here they are, gath
 
 **Skeleton.** A normalization operation has a fixed coordinate structure: reduce some coordinates, broadcast statistics back, apply affine parameters. The skeleton is the same for BatchNorm, LayerNorm, InstanceNorm, GroupNorm, RMSNorm. Only which coordinates are reduced changes.
 
-**Firewood.** A name is firewood for the compiler. It burns into an integer at lowering. A good abstraction is good firewood—its beauty is in the light the flame casts when it burns.
+**Firewood.** A name is firewood for the compiler. It burns into an integer at lowering.
 
 **Panorama.** The five forms of a name seen simultaneously: Source → IR → After Analysis → After Lowering → Generated Code. One name, five forms, zero loss of identity.
 

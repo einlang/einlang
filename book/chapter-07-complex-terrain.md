@@ -5,15 +5,17 @@ title: "Chapter 7 · Complex Terrain"
 
 # Chapter 7 · Complex Terrain
 
-> "The map is not the territory—but a good map tells you where the boundaries are."
+> "The shortest path between two truths in the real domain passes through the complex domain."
 >
-> — Adapted from Alfred Korzybski
+> — Jacques Hadamard
 
 *Combinations · Distance matrices, convolution, and fancy indexing*
 
 ---
 
-So far our coordinates have been simple: one name per axis, each axis independent. Real tensor programs are messier. A coordinate can split in two. It can carry arithmetic. It can appear in patterns where the same name used twice means something different from two names used once.
+This chapter is about one phenomenon seen through several lenses: a single coordinate splitting into two roles. `point` becomes `point_i` and `point_j` in a distance matrix. `node` becomes `source_node` and `target_node` in a graph. `sample` becomes `anchor` and `positive` in contrastive learning. The split is the operation. The names record it.
+
+Coordinates also carry arithmetic (`oh + kh`), disambiguate indexing patterns, and collide in ways that test whether a notation records intent. Every section in this chapter is a variation on one question: when a coordinate's role is more complex than "this axis exists," does your notation record the complexity—or bury it in shape arithmetic?
 
 ---
 
@@ -46,26 +48,7 @@ The coordinate-split pattern appears in many domains. Once you recognize it, you
 
 The names record what was split. The positional code records only the mechanic of `unsqueeze`.
 
----
-
-## When Names Collide: Renaming Across Conventions
-
-Naming coordinates prevents one class of error—the silent axis swap. But it introduces a new problem: what happens when two tensors use different names for the same coordinate?
-
-A tensor from the data loader uses `[batch, class]`. A tensor from a pre-trained model uses `[sample, category]`. They describe the same dimensions—`batch` and `sample` both mean "which example"; `class` and `category` both mean "which output label." But the names differ. If you try to add them, the compiler reports a coordinate mismatch. The names that were supposed to prevent errors are now preventing a valid operation.
-
-This is not a flaw in named coordinates. It is the same problem that variable names have always had: two programmers call the same thing by different names. The solution is the same: a **rename** operation.
-
-```rust
-// y uses [sample, category]; we need [batch, class]
-let aligned[batch, class] = y[sample -> batch, category -> class];
-```
-
-The arrow `->` reads as "renamed to." The compiler checks that `sample` exists on `y`, that `batch` is the new name, and that the domains have matching sizes. After this line, `aligned` carries `[batch, class]` and can be used with any other tensor that shares those names.
-
-A rename is not a permutation—the coordinates stay in the same positions. It is not a reshape—the shapes are unchanged. It is a name change, and only a name change. The compiler verifies that every old name exists on the source and every new name is distinct from the others. After renaming, the new names participate in coordinate contracts exactly as if they had been declared from the start.
-
-This pattern appears wherever tensors cross a boundary between naming conventions. A data loader produces `[N, C, H, W]` but a vision model expects `[batch, channel, height, width]`. A library returns `[query, key]` but the calling code uses `[seq_q, seq_k]`. In each case, a rename at the boundary is a one-line bridge. The cost is a single line. The benefit is that the compiler checks the bridge—it cannot silently map the wrong coordinate to the wrong name.
+The split was spatial—one coordinate name, two roles, same domain. Next: what happens when coordinates carry arithmetic, and a coordinate from the output combines with a coordinate from the kernel to produce an index?
 
 ---
 
@@ -116,6 +99,8 @@ let y[b, c_out, h * 2 + dy, w * 2 + dx] =
 ```
 
 One line. The index arithmetic says exactly what moved where. The names `dy` and `dx` declare the sub-pixel offsets. The multiplication `h * 2 + dy` expresses the output spatial coordinate in terms of the input. The coordinate names carry the story.
+
+Index arithmetic reshapes coordinates. Next: when coordinates determine *which* elements you read from a tensor, and the difference between "read together" and "read independently" depends entirely on whether the coordinate name is shared.
 
 ---
 
@@ -222,7 +207,7 @@ The difference is in the coordinate names. `k` vs `(i, j)`. One coordinate means
 
 This is the Coordinate Collision Test: when two operations produce the same shape but different semantics, does your notation distinguish them?
 
-
+Every section so far has been about the forward pass. Now: what happens when differentiation runs backward through these same patterns? Index arithmetic in the forward pass becomes inverted index arithmetic in the backward pass. Coordinate splits in the forward pass determine which coordinates get summed in the gradient. The names don't change. The direction does.
 
 ---
 
@@ -232,7 +217,7 @@ The input gradient—the one that backpropagates through the network—shows how
 
 Forward: `conv[b, oc, oh, ow] = sum[ic, kh, kw](input[b, ic, oh + kh, ow + kw] * weight[oc, ic, kh, kw])`.
 
-To find `d_input[b, ic, ih, iw]`, apply the five-step procedure from Chapter 7:
+To find `d_input[b, ic, ih, iw]`, apply the five-step procedure from Chapter 8:
 
 1. **Hold one cell** of `input`: `input[b0, ic0, ih0, iw0]`.
 2. **List every output cell that reads it.** The held cell is read by every `conv[b0, oc, oh, ow]` where `oh + kh = ih0` and `ow + kw = iw0`, for all `oc`, all `kh`, all `kw`. That means `oh = ih0 - kh` and `ow = iw0 - kw`. For each `(kh, kw)`, the output at position `(oh, ow) = (ih0 - kh, iw0 - kw)` receives a contribution.
@@ -254,61 +239,34 @@ The index arithmetic `ih - kh` and `iw - kw` comes from inverting the forward re
 
 ---
 
-## The Boundary: What Names Can't Check
+## The Boundary
 
-Named coordinates are powerful, but they have a boundary. That a coordinate *exists* on a tensor is verified. Index arithmetic bounds are not verified. `oh + kh` is syntactically checked—`oh` and `kh` must be in scope—but whether `oh + kh` exceeds the input's spatial extent is a runtime question.
+Index arithmetic like `oh + kh` is syntactically checked—`oh` and `kh` must be in scope. Whether `oh + kh < input_height` can be proved depends on what the compiler knows.
 
-This boundary is not a flaw. It is a design choice. What can be proven from names and domains alone is checked. Bounds checking is the runtime's job. Semantic correctness—whether the formula means what you think it means—is yours.
+When the domain sizes are known at compile time—`oh` ranges over `0..output_height`, `kh` over `0..kernel_height`, both static—the constraint solver can prove the bound. `(output_height - 1) + (kernel_height - 1) < input_height` is a single comparison. The proof is mechanical. Chapters 9 and 10 show how.
 
-Arithmetic cannot be verified. But the guarantee is: **everything that CAN be automatically checked IS automatically checked. Everything that CANNOT be automatically checked is made explicitly visible for you to review.** The coordinate names are the bridge between the two categories. They make the checkable parts machine-verifiable and the uncheckable parts human-visible.
+When the domain sizes are runtime values—image dimensions read from a file, sequence lengths that vary per batch—the compiler cannot prove the bound. The names are still there. The error message names the coordinate: `IndexError: oh + kh = 67 exceeds input width 64`. The positional equivalent names a position: `IndexError: dimension 3 out of bounds`. The difference is the distance between the two.
 
-The names are there so that when the runtime does report an out-of-bounds error, the error message can say which coordinate overflowed. `IndexError: oh + kh = 67 exceeds input width 64` is a better error than `IndexError: dimension 3 out of bounds`.
-
----
-
-Named coordinates handle the complex terrain by giving each coordinate a persistent identity. The notation scales because the names scale.
-
-**When do names fail?**
-
-Names fail when the coordinate structure is truly unknown at compile time. A fully dynamic computation graph where shapes depend on runtime values—the number of detected objects in an image, the length of a generated sequence—cannot be fully verified by coordinate names alone. The names can check that `obj` is a declared coordinate and that functions consuming it have consistent contracts. They cannot check that `obj` has range 0..7 in one run and 0..12 in the next.
-
-This is the boundary from Section 5, restated: names check consistency, not correctness. The compiler verifies that the coordinate story is internally coherent. It does not verify that the story matches reality. For that, you need runtime assertions. For that, you need tests. The names reduce the surface area of things that can go wrong silently. They do not eliminate the need for vigilance.
-
-But vigilance is easier when the code records what you were being vigilant about. A name is a note to your future self: *this coordinate matters, I checked it, and the compiler checks that I checked it.*
-
-The boundary between what names can and cannot check is not a weakness of the naming approach. It is a precise map of what is statically knowable. Every fact the names cannot check—bounds of index arithmetic, runtime-dependent shapes, semantic correctness of the formula itself—is a fact that *no* purely static system can check. The names don't fail at these boundaries. They mark them. The coordinate names are in the index expressions when the bounds are checked at runtime, in the declaration when the shape is resolved, in the function signature when the meaning is asserted. The names are there when the check happens—even if the check is runtime, not compile time.
-
-This is what "everything checkable is checked" means in practice. The compiler checks what it can from declarations alone. What it cannot check, it leaves visible—with names attached—so that runtime checks and human reviewers know what to look for. A name is more useful when it's checked at compile time, but it's still useful when it's only checked at runtime. `IndexError: oh + kh = 67 exceeds input width 64` names the coordinate that overflowed. `IndexError: dimension 3 out of bounds` names a position. Which error would you rather debug at 3 AM?
-
----
-
-### Stop and Think: The Splits in Your Code
-
-Every time a coordinate splits into two roles—source and target, anchor and positive, user and item—you are doing coordinate splitting. The split is the operation. The names record it.
-
-Open your codebase. Find a place where you inserted a dimension with `None`, `unsqueeze`, or `np.newaxis` to create a pairwise matrix. For each one:
-
-1. **What coordinate split?** What single coordinate were you splitting into two? Write the two new names.
-2. **Why did you split it?** Was it for a distance matrix? A similarity matrix? An attention mask? An outer product?
-3. **Would a reader know which is which?** If they see `matrix[i]` and `matrix[j]` with `i` and `j` as different names, they know it's a split. If they see `matrix[:, None]` and `matrix[None, :]`, they see shape manipulation. The same intent. Different visibility.
-
-The splits are there. The names make them readable.
-
-
----
-
-*Find the most complex tensor indexing line in your codebase—the one with multiple `unsqueeze`/`expand`/`permute` calls chained together. Rewrite it with coordinate names, even just in a comment. Notice how many of those operations disappear when dimensions have identities.*
+What names can and cannot check is the subject of Chapter 14. For now: the compiler checks every fact derivable from declarations and proves every bound that static ranges permit. What it cannot prove—runtime-dependent bounds, data-dependent shapes, semantic correctness—it leaves visible, with names attached.
 
 ---
 
 ## When Index Arithmetic Meets Gradients
 
-The convolution backward example earlier in this chapter derived the input gradient: `d_input[b, ic, ih, iw] = sum[oc, kh, kw](d_conv[b, oc, ih - kh, iw - kw] * weight[oc, ic, kh, kw])`. The index arithmetic `ih - kh` and `iw - kw` comes from inverting the forward relationship `oh + kh = ih`, solved for `oh → ih - kh`.
-
-This is a general pattern: index arithmetic in the forward pass produces inverted index arithmetic in the backward pass. If the forward pass has `input[..., oh + kh, ...]`, the backward pass has `d_conv[..., ih - kh, ...]`. The subtraction inverts the addition. The coordinates involved in the arithmetic—`kh`, `kw`—become reduction axes in the backward sum. The coordinates that were loop axes—`oh`, `ow`—become the path coordinates that get summed.
+The general pattern: index arithmetic in the forward pass produces inverted index arithmetic in the backward pass. Forward `input[..., oh + kh, ...]` becomes backward `d_conv[..., ih - kh, ...]`. The subtraction inverts the addition. The coordinates involved in the arithmetic—`kh`, `kw`—become reduction axes in the backward sum. The coordinates that were loop axes—`oh`, `ow`—become the path coordinates that get summed.
 
 In a positional autodiff engine like PyTorch's, this inversion is computed by the engine's internal graph. The programmer never writes `ih - kh`. The engine traces the forward operations, records the index arithmetic as node dependencies, and derives the backward computation automatically. The programmer writes `conv2d(input, weight)` and the gradient is handled by autograd.
 
 The difference is not correctness—both derive the same result. The difference is auditability. When the backward pass is written explicitly with coordinate names, a reader can trace `ih - kh` back to the forward `oh + kh` and verify that the inversion is correct. When the backward pass is generated by the autodiff engine, the inversion is a black box. It is correct until it isn't—and when it isn't (because a custom kernel was written with the wrong index arithmetic, or because a `@tf.custom_gradient` rule has a bug), the reader has no source-level path from the forward expression to the backward expression.
 
 Named coordinates don't replace autodiff. They give autodiff's output a form that a human can read, verify, and debug. The index arithmetic is in the source. The coordinate names tell you what is being inverted. The reader can trace the thread.
+
+---
+
+Every section in this chapter was a variation on one operation: a single coordinate splitting into two roles.
+
+Distance matrix: `point` becomes `point_i` and `point_j`. Convolution: `oh` and `kh` together index the spatial input — one coordinate from the output, one from the kernel. Depth-to-space: `c_out * 4 + dy * 2 + dx` splits the channel index into a channel group and two sub-pixel offsets. Fancy indexing: `k` appears in both index positions for pairwise, or `i` and `j` are different for outer-product — coordinate-sharing IS the disambiguation. Gather vs. scatter: same split, different direction.
+
+In every case, the split is the operation. The names record it. The positional notation records the mechanic — `unsqueeze`, `permute`, `reshape`, `None`, `:` — and buries the identity. When you read `points[:, None, :] - points[None, :, :]`, you see three dimension manipulations. When you read `points[point_i, dim] - points[point_j, dim]`, you see one split. The difference is the distance between a notation that records what happened and a notation that records why.
+
+Index arithmetic was the most complex coordinate manipulation in Part II. Next: what happens when we differentiate through every operation we have built. Chapter 8 applies the Inversion Rule systematically—to reductions, broadcasts, index arithmetic, and recurrence—and shows that the gradient is coordinate set subtraction, applied in reverse. The five-step pullback is the procedure. The coordinate names are the bridge between the forward and backward directions.

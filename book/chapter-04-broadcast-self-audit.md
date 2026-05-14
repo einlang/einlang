@@ -6,26 +6,20 @@ title: "Chapter 4 · The Broadcast Self-Audit"
 # Chapter 4 · The Broadcast Self-Audit
 
 > "Silence is not absence. Silence is a claim. And claims can be checked."
->
-> — The author, after a 4 AM broadcast bug
 
 *Combinations · The inversion rule: what broadcasts forward collects backward*
 
 ---
 
-You have now seen two coordinate operations: reduction (which consumes a coordinate) and broadcasting (which copies along one). Chapter 2 introduced them as separate primitives. Chapter 3 showed how coordinate-aware functions thread them through signatures.
+Every broadcast you write is a claim you didn't know you were making.
 
-But there is a deeper relationship between them—one that this chapter is dedicated to making explicit. It is the relationship that governs every gradient, every parameter update, every backward pass you will ever write. And it can be stated in one sentence:
+The claim is: *this value does not depend on the coordinate I am omitting.* When you write `out[i, j] = A[i, j] + bias[j]`, the omission of `i` from `bias[j]` claims the bias is the same for every `i`. When you write `scaled[batch, class] = logits[batch, class] / temperature[class]`, the omission of `batch` from `temperature[class]` claims the temperature is the same for every batch element.
 
-**What broadcasts in the forward pass is reduced in the backward pass. What is reduced in the forward pass is broadcast in the backward pass.**
+Most of the time, the claim is true. The bias genuinely doesn't depend on the batch element. The temperature genuinely doesn't depend on the class. But when the claim is false, the code still runs. The shapes still match. The loss still descends — just to a higher plateau. And you spend an afternoon wondering why your adaptive class weights aren't adapting.
 
-This is the Inversion Rule.
+The broadcast self-audit is three questions you ask before the broadcast becomes a bug. Thirty seconds. It catches the afternoon.
 
----
-
-## Two Lines, Two Directions
-
-Read these two lines:
+Now read two lines:
 
 ```rust
 // Forward
@@ -35,25 +29,23 @@ let out[i, j] = A[i, j] + bias[j];
 let d_bias[j] = sum[i](d_out[i, j]);
 ```
 
-Forward: `bias[j]` omits `i` in its index pattern. The coordinate `i` is absent. So `bias` is copied along `i`—every position along `i` receives the same `bias` value. This is a broadcast.
+Forward: `bias[j]` omits `i` in its index pattern. The coordinate `i` is absent, so `bias` is copied along `i`. Broadcast.
 
-Backward: `d_bias[j]` is the gradient with respect to `bias`. How to get it: `d_out[i, j]` carries gradient signals from every `(i, j)` position. `bias` contributed to all of them equally. To update `bias`, collect all those signals. The collection is a sum—over `i`. The coordinate that was broadcast forward is reduced backward.
+Backward: `d_bias[j]` is the gradient with respect to `bias`. `d_out[i, j]` carries gradient signals from every `(i, j)` position — `bias` contributed to all of them equally. To update `bias`, collect all those signals: sum over `i`. Reduction.
 
-Now the inverse:
+The coordinate that was broadcast forward (`i`) is the coordinate reduced backward. This is the Inversion Rule. Every forward operation has a backward dual. Broadcast becomes reduction. Reduction becomes broadcast.
 
 ```rust
-// Forward
+// Forward: reduction consumes j
 let row_sum[i] = sum[j](matrix[i, j]);
 
-// Backward: gradient of matrix
-let d_matrix[i, j] = d_row_sum[i];  // broadcast j back
+// Backward: broadcast j back
+let d_matrix[i, j] = d_row_sum[i];
 ```
 
-Forward: `sum[j]` consumes `j`. The output `row_sum[i]` has no `j`. Every `j` position was collapsed into a single sum.
+Forward: `sum[j]` consumes `j`. Every `j` position collapses into a single sum. Backward: `d_row_sum[i]` broadcasts along `j` — every `j` position receives the same gradient signal. The consumed coordinate is reborn as a broadcast.
 
-Backward: `d_row_sum[i]` is the gradient with respect to `row_sum`. To send it back to `matrix[i, j]`, broadcast `d_row_sum` along `j`—every `j` position receives the same gradient signal. The coordinate that was reduced forward is broadcast backward.
-
-Two lines. Two directions. One rule. The Inversion Rule is not a separate piece of mathematics bolted onto the coordinate system. It is the coordinate system, read in reverse.
+Two lines. Two directions. One rule. The Inversion Rule is not mathematics bolted onto the coordinate system. It is the coordinate system, read in reverse.
 
 ---
 
@@ -152,26 +144,14 @@ Every gradient has the same coordinates as its parameter. The broadcast sets fro
 
 ## When the Audit Fails
 
-Now let's see what happens when a broadcast is shape-correct but semantically wrong.
-
-A programmer writes a temperature-scaled softmax:
-
-```rust
-let logits[batch, class] = model(x[batch, feature]);
-let scaled[batch, class] = logits[batch, class] / temperature;
-let probs[batch, class] = softmax[class](scaled[batch, class]);
-```
-
-`temperature` is a scalar. It broadcasts over both `batch` and `class`. The auditor asks Question 2: is independence justified? Yes—temperature is a global scaling factor that applies uniformly to all logits.
-
-But the programmer intended `temperature` to be per-class—different classes get different temperatures. They wrote:
+A programmer writes a temperature-scaled softmax. The intent is per-class temperatures:
 
 ```rust
 let temperature[class] = get_per_class_temperature();
 let scaled[batch, class] = logits[batch, class] / temperature[class];
 ```
 
-Now `temperature` broadcasts over `batch` but *not* over `class`. The auditor asks: is `temperature` independent of `batch`? Yes—all batch elements share the same per-class temperatures. Is `temperature` independent of `class`? No—and the index pattern `temperature[class]` does *not* broadcast over `class`. The code is correct.
+`temperature` broadcasts over `batch` but not `class`. The auditor asks: is `temperature` independent of `batch`? Yes. Independent of `class`? No—and the index pattern correctly omits `batch` but includes `class`.
 
 Now suppose the programmer accidentally wrote:
 
@@ -180,32 +160,18 @@ let temperature = get_per_class_temperature();  // returns scalar by mistake
 let scaled[batch, class] = logits[batch, class] / temperature;
 ```
 
-`temperature` is a scalar broadcasting over everything. The shapes work. The code runs. But the per-class variation is gone—every class gets the same temperature. The loss descends but plateaus higher. The bug is a broadcast that is wider than intended.
+`temperature` is a scalar—broadcasts over everything. The shapes work. The loss descends but plateaus higher. The auditor's Question 2 catches it: the broadcast claims `temperature` is independent of `class`. The claim is false.
 
-The auditor's Question 2 catches this: "is independence genuinely justified?" The programmer intended `temperature` to depend on `class`. But the scalar `temperature` is independent of `class`—it broadcasts over it. The broadcast is a claim that `temperature` doesn't depend on `class`. The claim is false. The audit fails.
-
-In a positional framework, `temperature` is just a number. The positional notation doesn't distinguish between "this is a scalar because it's genuinely global" and "this is a scalar because I forgot to make it per-class." The broadcast self-audit forces the distinction.
-
-Now consider a more subtle failure—one that the audit catches but positional debugging would miss for hours. A programmer is implementing a weighted loss:
-
-```rust
-let losses[batch, class] = cross_entropy_per_class(logits[batch, class], labels[batch, class]);
-let class_weights[class] = get_class_weights();
-let weighted[batch] = mean[class](losses[batch, class] * class_weights[class]);
-```
-
-`class_weights[class]` broadcasts over `batch`. The audit asks: is `class_weights` independent of `batch`? Yes—class weights are per-class, shared across all batch elements. The broadcast is justified.
-
-Now the programmer refactors, making class weights adaptive based on batch statistics:
+A second example. Adaptive class weights for a weighted loss:
 
 ```rust
 let class_weights = compute_adaptive_weights(losses);  // BUG: returns scalar by accident
 let weighted[batch] = mean[class](losses[batch, class] * class_weights);
 ```
 
-`compute_adaptive_weights` was supposed to return `[f32; class]` but returns a scalar. The audit catches this: `class_weights` broadcasts over both `batch` and `class`. But `class_weights` should depend on `class`—the broadcast over `class` is semantically wrong. The loss will compile, run, and descend. But every class gets the same weight. The adaptive weighting is silently disabled.
+`compute_adaptive_weights` was supposed to return `[f32; class]` but returns a scalar. The scalar broadcasts over `class`—every class gets the same weight. The adaptive weighting is silently disabled. The auditor asks: is `class_weights` independent of `class`? It shouldn't be.
 
-In a positional framework, `(batch, class) * scalar` and `(batch, class) * (class,)` are both valid—the shape of `class_weights` determines the behavior, and a shape mismatch produces a different broadcast instead of an error.
+In a positional framework, both bugs survive because `(batch, class) / scalar` and `(batch, class) * scalar` are perfectly valid. The broadcast is silent. The audit makes it speak.
 
 ---
 
@@ -232,7 +198,7 @@ Every forward operation has a backward dual. The dual is not a separate rule. It
 
 Reduction → Broadcast. Broadcast → Reduction. Permute → Permute. Elementwise → Elementwise.
 
-The shopping cart model from Chapter 7 is this diagram, narrated as a story. The forward pass is shopping: you walk through the aisles, items enter your cart, some are consumed (reduction), some are copied (broadcast). The backward pass is restocking: the manager reads the record backward, replenishing what was consumed and collecting what was copied.
+Think of the forward pass as shopping: you walk through the aisles, items enter your cart, some are consumed (reduction), some are copied (broadcast). The backward pass is restocking: the manager reads the record backward, replenishing what was consumed and collecting what was copied. The shopping cart will return in Chapter 8 when we derive gradients systematically.
 
 The coordinate names are on both sides of the receipt. The Inversion Rule is the guarantee that the two sides match.
 
@@ -389,20 +355,12 @@ In PyTorch, `output = projected + b_o` requires knowing that `projected` has sha
 
 ---
 
-*The last broadcast you wrote—intentionally or not—is in your code right now, in some `A + b` or `scale * x` or `mean[dim]` with `keepdim=True`. Apply the three questions. Is the answer to Question 2 a confident yes? If not, that broadcast is a claim that deserves a name.*
+### What the Audit Reveals
 
----
+The last broadcast you wrote—intentionally or not—is in your code right now, in some `A + b` or `scale * x` or `mean[dim]` with `keepdim=True`. Apply the three questions. Every broadcast is a claim of independence. The broadcast set—the coordinates the operand omits—is the claim written in set-subtraction notation.
 
-### Stop and Think: Audit Your Own Broadcasts
+In a typical codebase, at least one broadcast fails the semantic question: does the broadcasting operand genuinely not depend on those coordinates? "Probably" or "I think so" is not a yes. That broadcast is a claim of independence that is not confidently true. It is a bug waiting for the right input shape.
 
-Your most recent project almost certainly contains implicit broadcasts: `+`, `*`, `/`, `-` between tensors of different ranks. Each broadcast is a claim of independence. The audit questions make the claims visible:
+The audit reveals it. Not because the audit is sophisticated—it is three questions and a set subtraction. Because the audit asks a question the code itself does not. Positional notation records that a broadcast happened. Named notation records which coordinate it happened over. The difference is whether the claim was recorded.
 
-1. **What are the coordinate sets?** What are the output coordinates? What are each operand's coordinates? If you know the shape conventions of your project, you already know the answer. If not, the `.shape` attribute tells you.
-
-2. **What is the broadcast set?** For each operand, subtract its coordinate set from the output set. The difference is what that operand broadcasts over. This is coordinate set subtraction—the same operation from Chapter 2.
-
-3. **Can you name the broadcast coordinate?** Not "axis 0" or "the first dimension"—the coordinate name. Is it `batch`? `channel`? `height`? `width`? If you cannot name it, the broadcast's identity is untethered from any declaration. The claim exists, but no one recorded it.
-
-4. **Is it justified?** Does the broadcasting operand genuinely not depend on those coordinates? If the answer is "probably" or "I think so" rather than "yes, by construction"—the broadcast deserves a second look.
-
-In a typical codebase, at least one broadcast fails question 4. That broadcast is a claim of independence that is not confidently true. It is a bug waiting for the right input shape.
+The audit catches individual broadcasts. But normalization functions—LayerNorm, RMSNorm, GroupNorm, InstanceNorm—share a deeper structure: a reduce-broadcast-elementwise skeleton that is identical across all of them, differing only in which coordinates play which roles. Chapter 5 extracts that skeleton. When four functions written by four people turn out to be the same function with different coordinate arguments, the pattern is not a coincidence. It is a design law.

@@ -9,125 +9,23 @@ title: "Chapter 1 · The Ghost in the Name"
 
 ---
 
+> Every time you write `dim=-1`, you know what it means. The compiler doesn't. This is about what happens when it does.
+
 Here is a story about a bug.
 
-It is not a dramatic bug. It produces no stack trace, no NaN cascade, no `CUDA error: device-side assert triggered`. It does not crash the training run. It does not even make the loss go up.
-
-It is worse than all of those things. It makes the loss go down, smoothly and convincingly, while the program learns the wrong thing.
-
-The tensor has shape `(32, 64, 256)`. A human being—the one who wrote the data loader—knows that these three dimensions are `batch`, `channel`, and `spatial`. The human wrote a comment. The human chose a variable name: `spatial_features`. The human did everything a responsible programmer does.
-
-Then the human wrote:
+A tensor has shape `(32, 64, 256)`. The data loader author knows these dimensions are `batch`, `channel`, and `spatial`. There is a comment. There is a variable name: `spatial_features`. Then:
 
 ```python
 x = x.mean(dim=1)
 ```
 
-`dim=1` erases a dimension. Which dimension? At the time of writing, position 1 held `channel`. The operation's *intent* was "average over channels." But the operation's *text* says nothing about channels. It says `dim=1`. A position. A number.
+`dim=1` erases a dimension. At the time of writing, position 1 holds `channel`. The intent is "average over channels." The text says `dim=1`. A position. A number.
 
-Three months pass. Another human—or the same human, after enough context has drained from memory—refactors the data pipeline. Channel moves to position 2. The new shape is `(32, 256, 64)`. `mean(dim=1)` now silently erases `spatial`.
+Three months later, the data pipeline is refactored. Channel moves to position 2. The new shape is `(32, 256, 64)`. `mean(dim=1)` now silently erases `spatial`. No errors. No warnings. The loss descends. The model deploys. The customer complaint arrives on Thursday.
 
-Shape check: pass. Type check: pass. Unit tests: pass. Integration tests: pass. The loss descends. The eval metrics look normal. The model deployed on Tuesday. The customer complaint arrived on Thursday.
+**The notation had no slot for the fact that would have caught it.** The fact—"erasing `channel`, not `spatial`"—was in a comment, in a variable name, in the author's head. It was absent from the one place the compiler could see: the source text of the operation itself.
 
-This bug lived for three weeks because **the notation had no slot for the fact that would have caught it.** The fact—"I am erasing `channel`, not `spatial`"—was present in a comment, in a variable name, in the author's mental model. It was absent from the one place the compiler could see: the source text of the operation itself.
-
-Positional notation is not *wrong*. It is *insufficient*. It records the arithmetic of shapes. It does not record the identity of coordinates. When those two things diverge—when a shape is correct but a coordinate is wrong—positional notation gives you no place to notice.
-
----
-
-### How the Bug Lived: A Timeline
-
-Let's trace the life of this bug, day by day. Not to dramatize it—the drama is already there, buried under three weeks of normal-looking training runs. We trace it to understand one thing: at every single point along this timeline, the notation had an opportunity to catch the bug. At every single point, it lacked the information to do so.
-
-**Day 0.** The data loader is written. Output shape: `(32, 64, 256)`. The author writes a comment: `# dims: (batch, channel, spatial)`. The author writes the model: `x = x.mean(dim=1)`. The comment says `channel`. The code says `dim=1`. The author knows they refer to the same thing. The compiler does not.
-
-**Day 90.** A colleague refactors the data pipeline. The new preprocessing step produces `(32, 256, 64)`—batch, spatial, channel. The colleague updates the data loader comment: `# dims: (batch, spatial, channel)`. The colleague does not read every model file. The model still says `mean(dim=1)`. Shape check: `(32, 256, 64).mean(dim=1)` → output shape `(32, 64)`. No error. No warning. `dim=1` still means position 1. Position 1 is now `spatial`. The operation that used to mean "average over channels" now means "average over spatial positions."
-
-**Day 97.** The model is deployed to staging. Integration tests pass—they check output shapes, not output semantics. The loss descends. The eval metrics look reasonable because the model has learned to compensate for the loss of spatial information by overfitting to batch-level patterns. It's not obviously broken—it's subtly, systematically wrong in a way that takes expertise to detect.
-
-**Day 99.** A customer reports that the model's predictions are "occasionally nonsensical on spatially asymmetric inputs." The report sits in a queue. It could be anything—a data issue, a training instability, a fluke.
-
-**Day 100.** 3 AM. An engineer—the same one who wrote the original data loader, or perhaps a new one who never saw the original comment—traces one number backward through twelve layers. The engineer notices that spatial information is being averaged away in the first operation. The engineer stares at `mean(dim=1)`. The engineer remembers: three months ago, channel was at position 1. The engineer checks the data loader comment. Channel moved. `dim=1` didn't.
-
-The engineer fixes the bug in one line. `mean(dim=1)` becomes `mean(dim=2)`. The fix takes ten seconds. The debugging took three hours.
-
-Now ask yourself: at which point in this timeline **should** the bug have been caught?
-
-Day 0, when the comment was written? The comment had the information. The code couldn't read it.
-
-Day 90, when the data pipeline was refactored? The refactoring changed what `dim=1` referred to. Nothing in the toolchain connected the refactoring to the operations that depended on it. A human being would have had to notice, manually, while reading diffs across multiple files.
-
-Day 97, when the model was deployed? The integration tests checked shapes, not identities. Shapes are cheap to check; identities require naming the coordinates.
-
-Day 100, at 3 AM? That's when it *was* caught. By a human being, with context, tracing numbers backward through layers. The most expensive moment on the timeline to catch a bug—and the only one where the bug was visible at all.
-
-Every earlier point on the timeline is a missed opportunity. Not because the programmers were careless. Because the notation gave them nothing to work with. `dim=1` carries no information about what dimension 1 *is*. When dimension 1 changed, `dim=1` changed its meaning silently. The operation text didn't change. The compiler didn't complain. The tests passed. The loss went down.
-
-The bug survived not because no one looked. It survived because the notation recorded position and only position. Identity was elsewhere—in a comment that drifted, in a variable name that wasn't checked, in a mental model that eroded over 90 days.
-
-A name in a bracket is an assertion that writes itself. `mean[channel](x)` contains the assertion "`channel` exists on `x`" baked into the syntax. That assertion runs every time the compiler runs. It does not need to be designed. It does not need to be remembered. It is co-located with the operation whose correctness depends on it. Unlike a test, which must be maintained as a separate artifact, a name is part of the operation itself—it cannot drift without the operation changing visibly.
-
-Put the identity where the operation is. Let the compiler carry it forward.
-
----
-
-But before we go there—stop for a moment. Think about your own code.
-
-What is the hardest-to-debug tensor shape bug you have ever written? Not a crash, not a NaN—those are easy. A bug where everything ran, the loss went down, the metrics looked fine, and yet the program was systematically, invisibly wrong. Was there a time when `axis=-1` or `dim=1` made you think you were erasing `channel`, but you were actually erasing `spatial`? What finally helped you find it?
-
-Take a moment. Remember what that felt like.
-
-Now ask yourself a harder question: what did you feel when you finally found it?
-
-Not relief. Or not *just* relief. Most engineers, asked this question, describe something closer to anger. Not at themselves. At the situation. At the fact that they spent three hours, or three days, tracing a bug that should have been caught the moment it was introduced. At the fact that the toolchain—the compiler, the type checker, the test suite, the linter, the code review—let this bug through, because none of them had a slot for the information that would have caught it.
-
-"That information was in my head the whole time," the engineer thinks. "I knew `dim=1` was channel. I wrote it in a comment. Why didn't the compiler read the comment?"
-
-The compiler didn't read the comment because comments are not checked. The compiler checked the shapes—`(32, 64, 256).mean(dim=1)` is valid, always, regardless of what dimension 1 represents. The compiler checked the types—`mean` returns a float tensor, always. The compiler could not check that `dim=1` was channel, because the compiler had no word for channel.
-
-This is not a compiler failure. It is a notation failure. The notation gave the compiler nothing to check. `dim=1` encodes a *where*. The information that matters—the *what*—was never written in a form the compiler could see.
-
-The form is simpler than you think. It is a name, in a bracket, next to the operation. Five characters—`class`, `batch`, `channel`—and the compiler has something to check.
-
----
-
-The problem with `dim=1` is not that you wrote it wrong. The problem is that `dim=1` records nothing about your intent. When you wrote `dim=1`, you meant "erase the channel dimension." But `dim=1` doesn't say that. It says "erase dimension at position 1." And position 1 is not a fact about the data. It is a fact about the current layout—a layout that can change without the operation knowing.
-
-Now imagine writing it differently:
-
-```rust
-let y[b, s] = mean[channel](x[b, channel, s]);
-```
-
-The bracket after `mean` names `channel`—not a position, but an identity. If upstream changes the dimension order, `channel` is still `channel`. If `x` doesn't have a `channel` coordinate, it is caught before a single value is computed. Not during debugging. Not during code review. At the moment the code is written, when the fix costs seconds instead of weeks.
-
-This is the core claim of this book: **when coordinate names appear in the syntax, the notation itself becomes a form of static verification.** The same line that tells the reader what you meant also tells the machine what to check. There is no separate channel of documentation that can drift out of sync—because the documentation *is* the check, and the check *is* the code.
-
-Every chapter that follows is one step deeper into this claim. By the end, you will not just understand why names matter—you will have watched them be checked, transformed, and burned into the integers that actually execute. And when you return to your own code, you will read `x.mean(dim=1)` differently. The gap will still be there. But you will see it.
-
----
-
-## What Is a Tensor?
-
-Ask a framework documentation and it will tell you: a multidimensional array. Ask a tensor's `.shape` attribute and it will tell you: `(32, 64, 256)`. Ask a compiler and it will tell you: a pointer to a contiguous block of memory with strides and a dtype.
-
-All true. All missing the point.
-
-A tensor is a function from coordinates to values. You give it a `batch` index, a `channel` index, and a `spatial` index; it gives you back a number. The three coordinates together form an address. Every element in the tensor lives at exactly one address.
-
-This definition is not exotic. It is how mathematicians have written tensor operations for a century:
-
-$$C_{ij} = \sum_k A_{ik} B_{kj}$$
-
-The letters `i`, `j`, and `k` are not axis numbers. They are coordinate names. `i` walks the rows of `A`. `j` walks the columns of `B`. `k` walks the dimension they share—the one that gets summed away. You can rename `i` to `row`, `j` to `col`, `k` to `inner`, and the mathematics is unchanged.
-
-Now look at how we write the same operation in a modern framework:
-
-```python
-C = torch.matmul(A, B)
-```
-
-Where are `i`, `j`, and `k`? They are gone. The names that gave the operation its meaning are not present in the source text. The compiler knows the shapes of `A` and `B`. It checks that the inner dimensions agree. It does not know—cannot know—that `A`'s second axis represents `feature` and not `time`, or that `B`'s first axis represents `feature` and not `vocab_size`. It only knows that both are `64`.
+Positional notation is not wrong. It is insufficient. It records the arithmetic of shapes. It does not record the identity of coordinates. When a shape is correct but a coordinate is wrong, positional notation gives no place to notice. When shapes and types were both correct, what information was missing?
 
 ---
 
@@ -237,56 +135,16 @@ You don't need a `permute` function. You don't need a `rearrange` string. You ju
 
 This is a pattern that will recur through the entire book: **when coordinate names appear in the syntax, operations become self-documenting.** The same line of code that instructs the machine also informs the reader. There is no separate channel of documentation that can drift out of sync.
 
+Before you move on, try this. Find a `permute`, `transpose`, or `swapaxes` in your own code — any line where you rearranged dimensions by position. Translate it into the named form: `y[coords] = x[coords]`. Did you have to look up the dimension order to know which coordinate goes where? The lookup is the bug surface. The named form removes it.
+
 ---
 
 Positional permutation is not evil. It is the right abstraction for a compiler pass that only needs to know "move this stride to that position." But source code is not written for compilers. It is written for the human who will debug it at 11 PM, three months after the original author left the team. That human needs to know *what moved where and why*. Position numbers answer the first question, but not the second. Names answer both.
 
 ---
 
-## What the Bug Teaches
-
-The bug that opened this chapter was not special. It was not caused by negligence or inexperience. It was caused by a gap between what the programmer knew and what the notation could record. The programmer knew `dim=1` was `channel`. The notation recorded `1`.
-
-Every bug in this book shares that structure. A fact exists in the programmer's head. The notation has no slot for it. The fact drifts. The code runs. The bug survives.
-
-The coordinate habit is the discipline of putting the fact in the notation. When the notation has no slot—when you're writing PyTorch or JAX or NumPy—you create a slot: a comment, a naming convention, an einops string. When the notation has a slot—when you're writing Einlang—you fill it with a bracket and a name.
-
-The slot is not the point. The name is not the point. The point is that the fact, once recorded, can be checked. A fact in a comment can rot. A fact in a bracket is verified at every call site. The distance between the two is the distance between hope and guarantee.
-
-Let's say that again, because it is the most important paragraph in this chapter. A fact in a comment is a hope—"I hope the next programmer reads this, I hope the refactoring tool updates it, I hope it's still true." A fact in a bracket is a guarantee—"the compiler checked this at the call site, three milliseconds ago, and if it were false, the code would not compile." The difference between hope and guarantee is the difference between a bug that survives three weeks and a bug that can't survive the first save.
-
-Now, a question. You have probably already thought it: "Can't I just be careful about `dim=1`? Can't I just remember which dimension is which?"
-
-You can. You have. For entire projects, you have held the dimension layout in your head—batch is 0, channel is 1, height is 2, width is 3. You have written `dim=1` everywhere and it has worked, because you were careful and the layout didn't change.
-
-The question is not "can you be careful?" The question is "should the compiler help?"
-
-The compiler can only help if the code contains information it can check. `dim=1` contains nothing checkable about identity—it is always a valid integer. `channel`, written in a bracket next to the operation, is checkable: does this tensor have a coordinate called `channel`? Yes or no. The compiler can answer that question. And from that single yes-or-no question, an entire class of bugs becomes impossible.
-
-You now know what a coordinate is: a name, a domain, a position. You know that naming the coordinate makes it survive position changes. You know that the parking lot ticket with the name of the car survives the repainting.
-
 ---
 
-### Stop and Think
+> Silence is not absence. Silence is a claim. And claims can be checked.
 
-Consider your most recent tensor script. It doesn't matter what framework—PyTorch, JAX, NumPy, TensorFlow. Search for `dim=`, `axis=`, `permute`, `transpose`, `reshape`. Notice how many there are.
-
-Now, for each one, ask:
-
-1. **What coordinate does this operation act on?** Not what position—what coordinate. Is it `channel`? `batch`? `sequence`? `feature`?
-
-2. **If the dimension order changed three months from now, would this line still be correct?** If the answer is no—if `dim=1` would silently change meaning—that line is a fragility point.
-
-3. **Is the coordinate identity recorded anywhere the toolchain can see?** A comment doesn't count—the compiler can't read comments. A variable name doesn't count—the compiler doesn't check that `channel_dim` equals the actual channel position. Is there anything in the code that a tool could mechanically verify?
-
-4. **If you had to convince a skeptical colleague that this line is correct, could you do it from the code alone—without running the program, without checking tensor shapes at runtime?** If the answer is no, the correctness of this line depends on runtime context, and runtime context can change.
-
-For most of the `dim=` and `axis=` calls in a typical codebase, the answers to questions 3 and 4 are "no." Those are the lines that will break when the dimension order changes. You now know where they are. That knowledge, by itself, is a form of safety.
-
-Six months from now, when you return to fix a bug, the intent will be gone. If the name is also gone—you have nothing.
-
----
-
-The questions you just considered—what coordinate does this position refer to, is it recorded anywhere, would it survive a refactoring—identify every line where `dim=1` would silently change meaning. Those are the fragility points. This book will give you a notation and a set of tools so that those questions are answered mechanically, before the code runs, by the brackets themselves.
-
-The next chapter introduces the first two tools: reduction and broadcasting. A reduction eliminates a coordinate. A broadcast copies along one. And they share a single intuition model—one that will carry us through everything that follows.
+Chapter 2 gives this claim its machinery: the megaphone model. A tensor speaks on some coordinates and stays silent on others. Reduction silences a coordinate. Broadcast copies along one the tensor was already silent on. Together they form a single rule—and the next chapter shows why that rule governs every tensor computation.

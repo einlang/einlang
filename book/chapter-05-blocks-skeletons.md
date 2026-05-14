@@ -13,9 +13,17 @@ title: "Chapter 5 · Blocks and Skeletons"
 
 ---
 
-Primitives let you say simple things. Combinations let you compose simple things into complex ones. Abstraction lets you name the complex things and use them as if they were primitive.
+You've written four normalization functions in the past month.
 
-A coordinate pattern wrapped in a function signature produces a reusable block. Several such blocks reveal a common skeleton, dressed in different coordinate names.
+LayerNorm for the Transformer. RMSNorm for the memory-efficient run. GroupNorm for the convolutional front-end. InstanceNorm for style transfer. Four functions, four different `dim` arguments, four different reshape chains. You checked each one in, wrote the tests, moved on.
+
+Now look at them side by side. Really look. They are the same function.
+
+Different `dim` values. Different internal statistics. But the structure — reduce, broadcast, elementwise, scale — is identical. The four functions differ only in *which coordinates* the reduction consumes and *which coordinates* the parameters broadcast over. Every other line is boilerplate that the skeleton demands.
+
+What you discovered by inspection — "these four functions share a skeleton" — is invisible in the positional code. The `dim` arguments are different integers. The reshape chains are different lengths. The parameter shapes follow different conventions. The skeleton is there, but it's encoded as shape arithmetic. Only the coordinate names make it visible.
+
+A coordinate pattern wrapped in a function signature produces a reusable block. Several such blocks reveal a common skeleton, dressed in different coordinate names. This chapter extracts that skeleton and shows what it buys.
 
 ---
 
@@ -72,6 +80,20 @@ id_axes[(height, width)](x)
 
 Pack parameters make coordinate-aware functions rank-polymorphic: the same function works on 2D, 3D, 4D, or higher-dimensional tensors, as long as the coordinate of interest exists somewhere in the shape.
 
+### How the Compiler Resolves Packs
+
+How does the compiler know how many dimensions `..batch` absorbs? The answer is the coordinate parameter.
+
+When you call `layer_norm[channel](x)` and `x` has layout `[batch, channel, spatial]`, the compiler knows one fact: `feature = channel`. It looks at `x`'s layout. `channel` sits at position 1. Everything before position 1 becomes `..batch` — that's `[batch]`. If the signature had `..right`, everything after `channel` would become `..right` — that's `[spatial]`.
+
+The named coordinate is the anchor. One known position resolves every pack around it.
+
+This is why `softmax[j](x: [f32; ..left, j, ..right])` needs no shape annotations at the call site. The caller writes `softmax[class](logits)`. The compiler finds `class` in `logits`'s layout. Everything left of `class` is `..left`. Everything right is `..right`. One name. Two packs. Zero ambiguity.
+
+The algorithm is a single walk. For each pack in the signature, try every possible span. At each position, check whether the named coordinate that follows lands on the actual coordinate the caller provided. If it does, the split is correct. If none works, the call is invalid. The search is bounded by the number of dimensions in the actual tensor — typically single digits. The backtracking is a dozen lines.
+
+A natural consequence: a pack must appear alone in at least one position for the compiler to determine its size. `..batch` cannot always appear alongside `..spatial` in every access — the compiler needs one place where `..batch` is the only pack, so it can count. This is not a limitation of the algorithm. It is a constraint on the notation: write your signatures so that each pack has an unambiguous anchor.
+
 ---
 
 ## Selection Reductions
@@ -88,7 +110,7 @@ This is more than a convenience. The return value of `argmax[class]` is not just
 
 ---
 
-## One Skeleton, Four Normalizations
+## Four Normalizations
 
 Here are four normalization implementations. Read them. Find what they share.
 
@@ -138,9 +160,9 @@ Here is what they share:
 
 Every one of these functions does: reduce, broadcast, elementwise, scale. The difference is only *which* dimensions are reduced and *which* parameters broadcast over *which* remaining dimensions.
 
-But look at the code again. Can you *see* the skeleton? In LayerNorm, it's `x.mean(dim=-1, keepdim=True)`. In GroupNorm, it's `x.mean(dim=(2,3,4), keepdim=True)`. In InstanceNorm, it's `x.mean(dim=(2,3), keepdim=True)`. The `dim` arguments are different integers. The `keepdim=True` flag is the same. The `* gamma + beta` ending is the same.
+But look at the code again. Can you *see* the shared structure? In LayerNorm, it's `x.mean(dim=-1, keepdim=True)`. In GroupNorm, it's `x.mean(dim=(2,3,4), keepdim=True)`. In InstanceNorm, it's `x.mean(dim=(2,3), keepdim=True)`. The `dim` arguments are different integers. The `keepdim=True` flag is the same. The `* gamma + beta` ending is the same.
 
-The skeleton IS there—but it's encoded as shape arithmetic. `dim=-1` means one thing in LayerNorm ("the last dimension") and a completely different set of integers in GroupNorm ("dimensions 2, 3, and 4"). The skeleton is visible to a human who understands the dimension layout. It is invisible to a compiler. And it changes when the layout changes.
+The pattern IS there—but it's encoded as shape arithmetic. This shared structure is a **skeleton**: a reduce-broadcast-elementwise-scale template parameterized by which coordinates are reduced and which are preserved. `dim=-1` means one thing in LayerNorm ("the last dimension") and a completely different set of integers in GroupNorm ("dimensions 2, 3, and 4"). The skeleton is visible to a human who understands the dimension layout. It is invisible to a compiler. And it changes when the layout changes.
 
 Now here is the same skeleton in Einlang:
 
@@ -152,7 +174,7 @@ Now here is the same skeleton in Einlang:
 | GroupNorm | `c_in_group`, `..spatial` | `gamma[g, c_in_group]`, `beta[g, c_in_group]` | `..batch`, `g`, `c_in_group`, `..spatial` |
 | InstanceNorm | `..spatial` | `gamma[c]`, `beta[c]` | `..batch`, `c`, `..spatial` |
 
-The skeleton is visible in the table because the coordinates are named. Each column says *what*, not *where*. The reduction column names the consumed coordinates. The broadcast column names the parameters and their coordinate sets. The survivors column names what's left.
+The skeleton is visible in the table because the coordinates are named. Each column says *what*, not *where*. The reduction column names the consumed coordinates. The broadcast column names the parameters and their coordinate sets—the difference between the output set and the parameter set is the broadcast claim. This is coordinate set subtraction from Chapter 2, applied to four functions at once. The survivors column names what's left.
 
 In a positional API, all four collapse to a single `dim` argument whose meaning shifts with the surrounding layout. `LayerNorm` and `RMSNorm` both use `dim=-1`—but normalize different statistics. `GroupNorm` uses three reduction dimensions buried in a `reshape` chain. The skeleton is invisible.
 
@@ -197,7 +219,7 @@ fn group_norm[g, c_in_group, ..spatial](x: [f32; ..batch, g, c_in_group, ..spati
 
 The reduced coordinates are named: `c_in_group` and `..spatial`. No reshape needed. No positional arithmetic needed. If a temporal dimension is added, `..spatial` absorbs it—the reduction bracket stays the same. If `num_groups` changes, the coordinate `g` handles it—its domain just has a different size.
 
-Here is the deeper point. In a positional API, "feature" is the last axis in a 2D tensor—`dim=-1`. But in a 4D tensor, what was one axis may span multiple actual dimensions: channels per group, height, width. Positional code requires a reshape-permute-reshape dance to group and ungroup those. Named coordinates handle this naturally: one semantic coordinate (`c_in_group`) plus a spatial pack (`..spatial`) together cover what `dim=(2,3,4)` covers in the positional version. The names don't change when the layout changes.
+The deeper point: in a positional API, "feature" is `dim=-1`—the last axis. That works when the tensor is 2D. When it becomes 4D, "feature" no longer fits in a single integer. It spans three positions: channels per group, height, width. Positional code handles this with a reshape-permute-reshape dance that groups and ungroups those dimensions. Named coordinates handle it without the dance: one semantic coordinate (`c_in_group`) plus a spatial pack (`..spatial`) cover what `dim=(2,3,4)` covers in the positional version. The names don't change when the layout changes.
 
 This is what packs buy you. `..spatial` absorbs however many spatial dimensions exist. The same `GroupNorm` skeleton works whether spatial covers one axis or three. `mean[c_in_group, ..spatial]` says exactly what is consumed—no reshape chain to reverse-engineer.
 
@@ -207,17 +229,13 @@ Think about it. In the Einlang version, you change one thing: remove `c_in_group
 
 In the PyTorch version, you'd change `dim=(2, 3, 4)` to `dim=(3, 4)`—but only if the reshape hasn't changed the position of the spatial dimensions. If someone added a temporal axis between `c_in_group` and `H`, the tuple would need to shift to `dim=(4, 5)`. The fragility is not in the concept—it is in the notation's inability to record *which* dimensions are spatial.
 
-You have already been thinking in terms of the skeleton. The four-normalizations table at the beginning of this section was not an abstract taxonomy—it was a description of the mental model you were already using. Named coordinates make that mental model executable.
-
----
-
-This is what packs buy you. `..spatial` absorbs however many spatial dimensions there are. The same `GroupNorm` skeleton works whether spatial covers one axis or three.
-
 ---
 
 ## Skeletons Compose
 
 The normalization skeleton and the attention skeleton compose. A Transformer block is LayerNorm, then attention, then another LayerNorm, then a feedforward. In a positional implementation, the norm dimensions and attention dimensions share the `dim=-1` convention—until one of them shouldn't.
+
+Before reading the code, ask: which coordinates does a Transformer block consume and reconstruct? The answer should be visible in the function signature alone.
 
 Here is a complete Transformer block skeleton in Einlang:
 
@@ -291,9 +309,7 @@ This is the abstraction layer. The function signature says: "I operate on coordi
 
 ## Derive InstanceNorm
 
-You've seen the table. Now derive one entry yourself. InstanceNorm normalizes each sample's each channel independently over the spatial dimensions. In 2D: for each `(N, C)`, compute mean and variance over `(H, W)`.
-
-Look at InstanceNorm. The coordinates it reduces over and the coordinates that survive are visible in the operation's signature. Which coordinates does it consume? Which survive? What parameters broadcast? The answers are in the brackets. Use `..spatial` for the spatial dimensions and `c` for channel.
+You've seen the table. InstanceNorm normalizes each sample's each channel independently over the spatial dimensions. In 2D: for each `(N, C)`, compute mean and variance over `(H, W)`. The coordinates it reduces over and the coordinates that survive are visible in the operation's signature. Which coordinates does it consume? Which survive? What parameters broadcast?
 
 Here is the answer:
 
@@ -311,9 +327,7 @@ fn instance_norm[c, ..spatial](x: [f32; ..batch, c, ..spatial],
 }
 ```
 
-The reduced coordinates are `..spatial`. The surviving coordinates are `..batch`, `c`, and `..spatial`—the spatial coordinates are consumed for the statistics but preserved in the output (the output still has spatial dimensions). The broadcast parameters are `gamma[c]` and `beta[c]`, which broadcast over `..batch` and `..spatial`.
-
-Notice the pattern in the answer. The reduced coordinates are `..spatial`. The surviving coordinates are `..batch`, `c`, and `..spatial`—the spatial coordinates are consumed for the statistics but preserved in the output (the output still has spatial dimensions). The broadcast parameters are `gamma[c]` and `beta[c]`, which broadcast over `..batch` and `..spatial`.
+The reduced coordinates are `..spatial`. The surviving coordinates are `..batch`, `c`, and `..spatial`—the spatial coordinates are consumed for the statistics but preserved in the output. The broadcast parameters are `gamma[c]` and `beta[c]`, which broadcast over `..batch` and `..spatial`.
 
 Three things to observe:
 - `..spatial` absorbs however many spatial dimensions there are.
@@ -328,21 +342,27 @@ Now consider: what if InstanceNorm should normalize over `c` as well? You'd chan
 
 ## Coordinate Facts Flow
 
-Coordinate facts flow through pointwise operations automatically. If `x` carries the fact that it has coordinates `[b, class]`, then `x ** 2.0` also has coordinates `[b, class]`. You don't need to re-declare them. Coordinate facts are preserved through arithmetic, through function calls that return tensors, through `if` expressions. The only operations that change coordinate facts are those that explicitly manipulate coordinates: reductions (which consume), rectangular declarations (which introduce), and coordinate-aware function calls (which thread them through signatures).
+In PyTorch, a tensor leaves the data loader as `(32, 64)`. By the time it reaches the loss function, it has passed through five layers, three reshapes, and a transpose. The numbers have changed. The identities — `batch`, `feature` — were never recorded. They are gone. Every function that receives the tensor must re-discover what the dimensions mean from their positions.
 
-This flow is the foundation of abstraction. When you wrap a computation in a coordinate-aware function, the coordinate facts flow from the caller, through the function body, and out to the result. The function doesn't need to re-derive what the caller already knew. The facts propagate.
+In Einlang, the identities survive. Not because the compiler is clever. Because the rule is brutally simple: coordinates only change when an operation explicitly changes them.
 
-This is a stronger property than type inference. Type inference deduces that `x ** 2.0` has the same type as `x` (both `f32`). Coordinate flow deduces that `x ** 2.0` has the same coordinate structure as `x` (both `[b, class]`). The coordinate structure is not inferred from runtime shapes—it is propagated from declarations. If `x` is declared as `x[b, class]`, every expression built from `x` carries `(b, class)` unless an operation explicitly removes a coordinate.
+Square a tensor. Coordinates unchanged. Add a constant. Coordinates unchanged. Pass through a pointwise function. Coordinates unchanged. This is not a coincidence. It is a design law: coordinate facts survive every operation that does not explicitly manipulate them. Reductions consume coordinates. Declarations introduce them. Coordinate-aware function calls thread them through signatures. Everything else — arithmetic, function calls that return tensors, `if` expressions — preserves them. You declare coordinates once. They propagate from that point forward.
 
-The difference between type inference and coordinate flow is that type inference is standard in every typed language, while coordinate flow is absent from every major tensor framework. A PyTorch tensor carries shape information at runtime—`(32, 64)`—but no coordinate identities. The identities are lost the moment the tensor leaves the data loader. In Einlang, the identities propagate through every operation, every function call, every intermediate binding. They are never inferred from shapes. They are propagated from declarations. The source is always the declaration. The flow is always forward.
+This is stronger than type inference. Type inference says `x ** 2.0` has the same type as `x`. Coordinate flow says it has the same *identity* as `x`. The identities are not inferred from runtime shapes — they are propagated from declarations. A PyTorch tensor carries `(32, 64)` at runtime. It does not carry `(batch, channel)`. The identities are lost the moment the tensor leaves the data loader. In Einlang, they survive every intermediate binding, every arithmetic expression, every function return. The source is the declaration. The flow is forward.
 
-The pattern is visible across three cases:
+Three cases capture the entire system:
 
-1. `let y = x + 1.0;` — coordinates flow through: `y` has the same coordinates as `x`.
-2. `let y = sum[j](x[i, j]);` — coordinate `j` is consumed: `y` has `[i]`.
-3. `let y[i, j] = x[j, i];` — coordinates are rearranged: `y` has `[i, j]` but from `x[j, i]`.
+1. `let y = x + 1.0;` — `y` has the same coordinates as `x`. Addition doesn't touch identity.
+2. `let y = sum[j](x[i, j]);` — `j` is consumed. `y` has `[i]`. Reduction is the only operation that removes a coordinate.
+3. `let y[i, j] = x[j, i];` — same names, swapped positions. `y` has `[i, j]`. This is a transpose. Not `x.transpose(0, 1)`. Not `x.permute(1, 0)`. Just `y[i, j] = x[j, i]`. The names carry the permutation. No position counting needed.
 
-The third case is worth pausing on. `y[i, j] = x[j, i]` is a transpose. The declaration bracket says `y` has coordinates `(i, j)`. The body references `x[j, i]`—the same names, swapped positions. `i` and `j` are preserved. Their order is changed. This is the coordinate-aware way to write a transpose: not `x.transpose(0, 1)`, but `y[i, j] = x[j, i]`. The names carry the permutation. No position counting needed.
+That's it. Three cases. Every coordinate flow in every Einlang program reduces to these three. The compiler traces them mechanically. You can trace them by hand. The names are the thread.
+
+---
+
+Pause here. Open a file you wrote last week—any file with tensor operations. Pick five lines that move data: a reshape, a reduction, a broadcast, a permute, an elementwise operation. For each: which of the three cases applies? Coordinate unchanged? Coordinate consumed? Coordinates swapped?
+
+If the answer is "I can't tell without printing shapes," you've found a place where a coordinate name would have helped your future self. If you can classify all five, you already think in names—you just haven't been writing them down. The three cases aren't the language's rules. They're the rules the coordinate structure already follows, whether or not your notation records it. The notation just makes them visible.
 
 ---
 
@@ -382,16 +402,18 @@ What is happening when you read these signatures: you are asking "which coordina
 
 ---
 
-### Stop and Think: Find the Skeletons in Your Code
+### What Skeletons Reveal
 
-You've seen the skeleton in LayerNorm, RMSNorm, GroupNorm, and InstanceNorm. But skeletons aren't limited to normalization. Every operation that follows a reduce-broadcast-elementwise pattern is a skeleton. Go find them in your code.
+Softmax, LayerNorm, RMSNorm, GroupNorm, InstanceNorm—five different functions, one skeleton. The skeleton is not limited to normalization. Every operation that follows a reduce-broadcast-elementwise pattern is a skeleton.
 
-1. **Search for `mean(`, `sum(`, `max(` followed by `keepdim=True`.** Each of these is a reduction-statistic-broadcast pattern. For each one, ask: which coordinate is reduced? Which coordinate is the statistic broadcast over? If the `dim` argument is an integer, can you name the coordinate? If the answer is "it's whatever dimension is at that position," you've found a skeleton whose identity depends on layout.
+Consider the `mean(`, `sum(`, or `max(` calls in your codebase. Each one followed by a broadcast is a reduction-statistic-broadcast pattern. The skeleton is there, whether the code names it or not. When the `dim` argument is an integer, the question "which coordinate is reduced?" has no answer in the code—the reduction's identity is a position, and the position depends on layout. If the layout changes—a dimension inserted, a transpose applied—the integer now points at a different coordinate, and the skeleton silently shifts shape.
 
-2. **Search for `* gamma + beta` or `* scale + shift`.** These are the broadcast-parameter suffixes of normalization skeletons. For each one, ask: which coordinates do `gamma` and `beta` broadcast over? Can you name them? If not, the broadcast is implicit.
+Consider every `* gamma + beta` or `* scale + shift`. It is a broadcast-parameter suffix of a normalization skeleton. Which coordinates do `gamma` and `beta` broadcast over? In a positional API, the answer is "all dimensions except the one gamma was defined on," which requires knowing gamma's rank and the convention for parameter placement. The broadcast is correct by convention, not by construction.
 
-3. **Find two functions in your code that you suspect share a skeleton.** They might both normalize something, or both pool something, or both compute some statistic. Write their Einlang signatures side by side—even if you're not using Einlang, just write `fn name[consumed](x: [..batch, consumed]) -> [..batch, consumed]` as a comment. Do they share the same skeleton? If yes, you've found a pattern. If no, they serve different purposes and should have different signatures.
+Any two functions that share a skeleton have Einlang signatures. Even without using Einlang, writing `fn name[consumed](x: [..batch, consumed]) -> [..batch, consumed]` as a comment above the function reveals the skeleton. Two functions with matching signatures share a skeleton. Two functions with different signatures serve different purposes and should have different signatures. The comment costs one line of typing. The check costs zero.
 
-4. **Design a new normalization variant.** What if you wanted to normalize over the batch dimension instead of the feature dimension? In a positional API, you'd change `dim=-1` to `dim=0`—and hope no other code depends on the output shape being `(..., feature)`. In Einlang, you'd change `layer_norm[f]` to `layer_norm[batch]`. The signature change documents the architectural decision. Design your variant's Einlang signature, then ask: would a colleague reading the signature understand what is normalized over?
+A normalization variant that normalizes over `batch` instead of `feature` changes `layer_norm[f]` to `layer_norm[batch]`. The signature change documents the architectural decision. In a positional API, changing `dim=-1` to `dim=0` silently shifts the coordinate—and hopes no other code depends on the output shape.
 
-Every skeleton's forward pass is a reduce-broadcast-elementwise pattern. Every skeleton's backward pass is the Inversion Rule applied to that pattern. When you see the skeleton forward, you can predict its backward. The coordinate names are the thread connecting the two directions.
+Every skeleton's forward pass is a reduce-broadcast-elementwise pattern. Every skeleton's backward pass is the Inversion Rule applied to that pattern. The coordinate names are the thread connecting the two directions.
+
+Skeletons are spatial—they describe which coordinates are reduced and which survive at a single point in the computation graph. But coordinates can also flow through time. Chapter 6 introduces recurrence: coordinates indexed by `t`, `t-1`, `t+1`, carrying a causality constraint that the compiler can check. The skeleton's forward/backward symmetry extends into a forward/backward recurrence—the Inversion Rule, applied to time.

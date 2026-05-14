@@ -13,11 +13,11 @@ title: "Chapter 3 · Names as Contracts"
 
 ---
 
-The preceding two chapters introduced coordinate naming. Coordinates are named when they survive, when they are consumed, when they are copied, and when they are rearranged. Every operation so far has been a single statement—a `let` declaration with brackets.
+A softmax is not one operation. It is a max reduction, a subtraction, an exponentiation, a sum reduction, and a division. Five steps, each involving coordinates with distinct roles. Five chances for a coordinate to go missing.
 
-Real programs are not single statements. They are compositions. A softmax is not one operation but three—a max reduction, a broadcast subtraction, an exponentiation, a sum reduction, and a division. Each step involves coordinates with distinct roles. Composing them naively, with intermediate `let` bindings for every step, produces working code. But it scatters the coordinate story across multiple lines, and it gives the reader no way to see, at a glance, which coordinates are structurally load-bearing and which are just passing through.
+In a positional framework, each step's `dim=` argument must be correct independently. If the max is over `dim=-1` but the sum is over `dim=0`, the shapes might still align — and the bug ships. The individual operations are correct. The composition is wrong. Nothing in the positional notation records that the five `dim` arguments are supposed to refer to the same coordinate.
 
-The mechanism that turns scattered primitives into a coherent composition is the **coordinate-aware function**.
+Part I taught us to name coordinates at individual operations. Part II asks: when operations compose, can the names survive the composition? The answer is yes — if the composition itself has a name, and that name is a contract.
 
 ---
 
@@ -36,13 +36,42 @@ let z = sum[k](e[k]);
 let probs[j] = e[j] / z;
 ```
 
-This works. Every coordinate is named. Every reduction states what it consumes. But notice the subtle thing that happened: the stability scan uses `j` as the scanned coordinate, and the normalization uses `k`. These are the *same* coordinate—the class dimension—used in two different roles. The notation doesn't capture that identity because the names are local to each statement.
+Every reduction states what it consumes. `max[j]` consumes `j`. `sum[k]` consumes `k`. The reader can see, at each line, which coordinate is being collapsed.
+
+Now look at that first line again. `max[j]`—a built-in reduction that accepts a coordinate in brackets. You have been writing these since Chapter 1: `mean[channel](x)`, `sum[batch](x)`, `max[j](logits[j])`. Built-in reductions take a coordinate parameter. The bracket after the operation name holds the coordinate identity. The compiler checks that the tensor has that coordinate.
+
+But the softmax above is four separate `let` statements. Write it once, fine. Write it in twelve places across a codebase, and the coordinate story scatters. The reader must reconstruct, at each call site, that `j` and `k` are the same underlying coordinate. The compiler cannot check it, because `j` and `k` are local to each statement.
+
+---
+
+## Can a User Function Take a Coordinate?
+
+The built-in reductions—`mean`, `sum`, `max`, `min`, `prod`—all accept coordinate parameters. You write `mean[channel](x)` and the compiler checks that `x` has a `channel` coordinate.
+
+The question: can a user-defined function do the same thing?
+
+Here is the standard positional approach:
+
+```python
+def softmax(logits, dim=-1):
+    m = logits.max(dim=dim, keepdim=True)
+    e = (logits - m).exp()
+    return e / e.sum(dim=dim, keepdim=True)
+```
+
+`dim=-1` says "the last one." If the last dimension is `class`, correct. If upstream changes the dimension order, `dim=-1` silently normalizes over whatever happens to be last. The code runs. The output is a valid probability distribution—over the wrong coordinate.
+
+The positional function cannot name which coordinate it normalizes over. The built-in `mean[channel]` can. The gap is not about convenience. It is about first-class status: in Einlang, coordinate parameters are available to any function—built-in or user-defined. The bracket is not a privilege reserved for `mean` and `sum`. It is a language mechanism, and user functions get the same mechanism.
+
+---
+
+**Derive it yourself.** You want to write `softmax` so it accepts a coordinate parameter the way `mean[channel]` does. What must the signature declare? The input has unknown surrounding dimensions plus the normalization coordinate. The output must preserve all input coordinates — the normalization doesn't remove any. The body needs a max, an exp, a sum, and a division. Which operation consumes the coordinate? Which broadcasts it back? Write the signature before turning the page.
 
 ---
 
 ## The Coordinate-Aware Function
 
-What if this pattern—"normalize over the coordinate named in brackets"—could be packaged as a single reusable operation, and the coordinate name made part of its **contract**?
+Here is the same softmax, written so that it accepts a coordinate parameter the same way `mean[channel]` does:
 
 ```rust
 fn softmax[j](x: [f32; ..left, j, ..right])
@@ -55,13 +84,11 @@ fn softmax[j](x: [f32; ..left, j, ..right])
 }
 ```
 
-Let's read this carefully.
+`fn softmax[j]`—the `j` in brackets after the function name is a coordinate parameter. The same bracket position that `mean[channel]` uses. This is not a new language feature. It is the existing coordinate-parameter mechanism, extended to user-defined functions. Coordinate parameters are first-class: any function, built-in or user-defined, can accept a coordinate in brackets.
 
-`fn softmax[j]`—the `j` in brackets after the function name is a **coordinate parameter**. It is not a value. It is not a number. It is a coordinate name that the caller supplies at the call site.
+`x: [f32; ..left, j, ..right]`—the parameter `x` is a tensor whose shape includes the coordinate `j`, plus zero or more leading coordinates (`..left`) and trailing coordinates (`..right`). These are packs—they stand for whatever coordinates surround `j` in the actual argument.
 
-`x: [f32; ..left, j, ..right]`—the parameter `x` is a tensor whose shape includes the coordinate `j`, plus zero or more leading coordinates (`..left`) and zero or more trailing coordinates (`..right`). These are **packs**—they stand for whatever coordinates surround `j` in the actual argument.
-
-`-> [f32; ..left, j, ..right]`—the return type has the same coordinate structure as the input. Normalization preserves the shape.
+`-> [f32; ..left, j, ..right]`—the return type has the same coordinate structure as the input. The function preserves the normalized coordinate.
 
 Now the call:
 
@@ -70,7 +97,7 @@ let logits[b, class] = model(x[b, feature]);
 let p[b, class] = softmax[class](logits[b, class]);
 ```
 
-The caller writes `softmax[class](...)`. The `class` in brackets is not a comment. It is not a string. It is a coordinate argument—the name of the dimension the function will normalize over. That `logits` has a `class` coordinate is checked. If it doesn't, the call is a compile error.
+The caller writes `softmax[class](...)`. The same bracket syntax as `mean[channel]`. The `class` in brackets is a coordinate argument—the name of the dimension the function normalizes over. That `logits` has a `class` coordinate is checked: the compiler subtracts `{class}` from `logits`'s coordinate set `{batch, class}` and finds a match. If `class` were absent, the set subtraction would produce an empty intersection, and the call would be a compile error. This is coordinate set subtraction, introduced in Chapter 2, applied to function calls.
 
 Compare to the standard API:
 
@@ -78,7 +105,7 @@ Compare to the standard API:
 p = torch.softmax(logits, dim=-1)
 ```
 
-`dim=-1` says "the last one." If the last dimension is `class`, this is correct. If upstream changes the dimension order, `dim=-1` silently begins normalizing over `batch`, or `feature`, or whatever happens to be last. The code runs. The output is a valid probability distribution—just over the wrong coordinate.
+The same positional call. The same silent failure mode: if the last dimension changes, `dim=-1` follows the position, not the identity. The code runs. The output is a valid probability distribution—over the wrong coordinate.
 
 Now compare to a different Einlang call:
 
@@ -117,72 +144,6 @@ In a `dim=-1` API, these three roles collapse into a single integer. The reader 
 Now ask yourself: why use three different letters (`q`, `k`, `j`) for the same coordinate? Why not just `j` everywhere? Because the *binding site* of each occurrence carries different gradient implications. `max[q]` says: "I consume `q` and return a scalar per batch element. The backward pass through me will broadcast the gradient signal to only the maximum element." `sum[j]` says: "I consume `j` and return a scalar per batch element. The backward pass through me will broadcast the gradient signal to *all* elements." Same coordinate domain. Different gradient contracts. Different letters make each contract's scope visible: `q` is consumed by `max` and never seen again. `k` is used in the exponent and survives. `j` is consumed by `sum` and reconstructed by the division.
 
 The letters are not decoration. They are the scope markers for the coordinate's three lives. In `dim=-1`, all three are the same integer. The scopes are invisible.
-
----
-
-## What Gets Checked at the Call Site
-
-Let's trace exactly what happens when you call `softmax[class](logits)`.
-
-1. The compiler looks up `softmax`'s signature: coordinate parameter `j`, value parameter `x` with layout `[..left, j, ..right]`.
-2. The coordinate argument `class` is bound to `j`.
-3. The value argument `logits` is checked: does it have a coordinate named `class`? Yes—`logits` was declared as `logits[batch, class]`.
-4. The packs are bound: `..left` = `[batch]`, `..right` = `[]` (nothing on the right).
-5. The return type is instantiated: `[f32; batch, class]`.
-6. The call is valid.
-
----
-
-### The Compiler's Six Steps, Applied
-
-Here is the function signature:
-
-```rust
-fn softmax[j](x: [f32; ..left, j, ..right]) -> [f32; ..left, j, ..right]
-```
-
-And the call:
-
-```rust
-let probs[b, c] = softmax[c](logits[b, c]);
-```
-
-The six steps, applied mechanically:
-
-| Step | Answer |
-|:---|:---|
-| 1. Coordinate parameter | `j` |
-| 2. Coordinate argument | `c`, bound to `j` |
-| 3. Does `logits` carry `c`? | Yes—`logits[b, c]` |
-| 4. Pack bindings | `..left` = `[b]`, `..right` = `[]` |
-| 5. Return type | `[f32; b, c]` |
-| 6. Valid? | Yes |
-
-No intuition, no shape arithmetic, no guessing. For every function call, the compiler performs these six steps. For every function call, the answer is yes or no. If no, the compiler emits an error naming the missing coordinate.
-
-Now a call that should fail:
-
-```rust
-let probs[b, f] = softmax[c](logits[b, f]);
-```
-
-Where does it fail? Step 3. `logits` carries `b` and `f`. `c` is the coordinate argument. `c` is not in `{b, f}`. The compiler reports: "`logits` has no coordinate named `c`. Available coordinates: `b`, `f`."
-
-The error message names the missing coordinate and the available ones. The programmer looks at it and thinks: "Oh, I meant `softmax[f](logits[b, f])`." One character fix. Caught before execution.
-
-Now consider five wrong calls:
-
-| Call | What goes wrong | Caught by |
-|---|---|---|
-| `softmax[class](logits[batch, feature])` | `logits` has no `class` | Step 3: index existence |
-| `softmax[batch](logits[batch, class])` | `batch` would be consumed, but `softmax` preserves `j` in the return type—`batch` would be consumed and returned, which is a contract violation | Step 5: return type enforcement |
-| `softmax[class](logits)` where `logits` is 1D | `class` exists but `..left` and `..right` are both empty—valid | No error (this is correct) |
-| `softmax[class](logits[batch, class, extra])` | `..right` binds to `[extra]`, which is fine—`softmax` is polymorphic over trailing dims | No error (this is correct) |
-| `softmax[class](logits[batch, class], wrong_arg)` | Wrong number of value arguments | Step 1: arity check |
-
-Each check is a single, mechanical verification. No shape guessing. No positional arithmetic. The coordinate names and the function signature together form the contract. The call site satisfies it—or doesn't.
-
----
 
 ## Function Composition
 
@@ -262,21 +223,19 @@ In every case, the Square Matrix Test reveals the same gap: shape compatibility 
 
 A refactoring in both notations, to see where the errors surface—and where they don't.
 
-**The setup.** A model with three files: `data.rs` (declares `logits[batch, class]`), `model.rs` (calls `softmax[class](logits)`), and `loss.rs` (calls `cross_entropy[class](probs, labels)`).
+**The setup.** Three files: `data.rs` declares `logits[batch, class]`. `model.rs` calls `softmax[class](logits)`. `loss.rs` calls `cross_entropy[class](probs, labels)`.
 
-**The refactoring.** A colleague decides that `class` is a poor name—it suggests a classification head, but the dimension is more general. It should be called `category`. The colleague renames the coordinate in `data.rs`: `logits[batch, category]`.
-
-Now the colleague recompiles the project. Two errors appear:
+**The refactoring.** A colleague renames `class` to `category`. Two errors appear:
 
 ```
-error[E003]: model.rs:42: tensor `logits` has no coordinate named `class`
+error[E0425]: model.rs:42: tensor `logits` has no coordinate named `class`
   --> model.rs:42:20
    |
 42 |     softmax[class](logits);
    |                    ^^^^^^ `logits` has coordinates: batch, category
    |     help: did you mean `category`?
 
-error[E003]: loss.rs:15: tensor `probs` has no coordinate named `class`
+error[E0425]: loss.rs:15: tensor `probs` has no coordinate named `class`
   --> loss.rs:15:25
    |
 15 |     cross_entropy[class](probs, labels);
@@ -284,25 +243,13 @@ error[E003]: loss.rs:15: tensor `probs` has no coordinate named `class`
    |     help: did you mean `category`?
 ```
 
-The colleague fixes both errors: `softmax[class]` → `softmax[category]`, `cross_entropy[class]` → `cross_entropy[category]`. The project compiles. The refactoring is complete. The compiler verified that every use of `class` was updated.
+The colleague fixes both: `class` → `category`. The project compiles. Done. The compiler verified every use of the old name was updated.
 
-Now replay the same scenario with a positional API.
+**Now replay with a positional API.** The colleague changes the comment in `data.py`: the shape is now `(batch, category)`. `dim=1` is still `1`. Every `dim=1` is still correct—because the position didn't change. The refactoring compiles silently.
 
-**The setup.** `data.py`: `logits` has shape `(batch, class)`. `model.py`: `softmax(logits, dim=1)`. `loss.py`: `cross_entropy(probs, labels, dim=1)`.
+But if the dimension order also changed—say `(category, batch)`—some `dim=1`s should become `dim=0`s. There are twenty-three of them across eight files. The colleague updates the ones they remember. The ones they forget compile silently. `dim=1` is always a valid integer. The compiler cannot distinguish the ones that should have changed from the ones that shouldn't.
 
-**The refactoring.** The colleague changes the comment in `data.py`: the shape is now conceptually `(batch, category)`. The tensor shape doesn't change. `dim=1` is still `1`. Every `dim=1` in the codebase is still correct—because the position didn't change.
-
-The project compiles. The tests pass. The refactoring is "complete."
-
-But what if the colleague had also changed the dimension order? What if the new layout were `(category, batch)`? The colleague updates the comment. The colleague does not update every `dim=1` in the codebase—there are twenty-three of them across eight files. Some should become `dim=0`. Some should stay `dim=1`. The colleague updates the ones they remember. The ones they forget compile silently.
-
-The compiler does not complain. `dim=1` is always a valid integer. The fact that some `dim=1`s should now be `dim=0`s is not recorded anywhere the compiler can see.
-
-The difference between the two refactorings is not the number of files changed. It is the number of errors emitted. The Einlang refactoring emits two errors—one for each call site that uses the old coordinate name. The positional refactoring emits zero errors—even when the dimension order changes and some `dim=1`s should become `dim=0`s. Zero errors is not zero bugs. It is zero *detected* bugs.
-
-The coordinate name is the audit trail. When you rename it, every use of the old name becomes a compile error. You fix them one by one. When they're all fixed, the project compiles. The compiler has verified that the rename is complete.
-
-A positional integer has no audit trail. When you change what position 1 means, no compile error points you to the places that depended on the old meaning. You find them by reading code, by running tests, by deploying to staging and hoping the metrics don't drift. The difference between an audit trail and no audit trail is the difference between a refactoring that takes ten minutes and a refactoring that takes three weeks to debug.
+The Einlang refactoring emits two errors—one per call site. The positional refactoring emits zero—even when the dimension order changes. Zero errors is not zero bugs. It is zero *detected* bugs. The coordinate name is the audit trail. The positional integer has none.
 
 ---
 
@@ -333,17 +280,11 @@ The coordinate identity, made part of the function's contract, becomes auditable
 
 ---
 
-### Stop and Think: Audit Your Own Call Sites
+### What Changes
 
-Consider a file in your current project that calls a function with a `dim` or `axis` argument. Any function—`softmax`, `mean`, `sum`, `concat`, `norm`. For any three calls, ask:
+If you look at a `dim=` argument in your own code right now, you can probably name the coordinate it refers to. `dim=1` means `channel`—you know that. The compiler doesn't. The name is in your head, not in the code.
 
-1. **What coordinate does `dim` refer to?** Not what integer—what coordinate. Is it `batch`? `channel`? `sequence`? `feature`?
-
-2. **Could the dimension order change in a future refactoring?** Be honest. If you answer "probably not," ask: did you answer the same way about every refactoring that has already happened in this codebase?
-
-3. **If the dimension order changed, would this `dim` still be correct?** If the answer is no—if `dim=1` would silently point to a different coordinate—you have found a call site that depends on a position, not an identity.
-
-Now imagine each of those calls was written as `softmax[class](logits)` instead. The name in the bracket answers all three questions: `class` is `class` regardless of position or future refactoring. The answer is in the code, where the compiler can read it.
+Three things change when the name moves from your head into the bracket. First, the compiler can check it: if `dim=1` was supposed to be `class` but the data loader put `spatial` at position 1, the bracket `mean[class]` catches the mismatch. The positional `dim=1` catches nothing. Second, refactoring becomes safe: if `channel` moves from position 1 to position 2, `mean[channel]` follows the name. `dim=1` follows the position—silently. Third, a reader six months later sees `mean[channel]` and knows what was intended. They see `dim=1` and have to reconstruct the intent from context.
 
 The coordinate habit is noticing that gap. The rest of this book is about what happens when you fill it.
 
@@ -362,5 +303,56 @@ The separation is syntactic but the implication is semantic. The coordinate para
 At the call site, the same separation applies: `softmax[class](logits)`. `class` is in brackets—it is a coordinate argument. `logits` is in parentheses—it is a value argument. The syntax tells the reader which is which. In `softmax(logits, dim=-1)`, `dim=-1` is syntactically identical to any other integer argument. The syntax does not distinguish "this integer controls the axis of reduction" from "this integer is a value being passed to the function." The distinction lives in the documentation. The named version puts it in the syntax.
 
 This separation between coordinate parameters and value parameters is what enables the compiler to check the coordinate contract. Without it, a coordinate name passed to a function would be just another string or symbol—the compiler couldn't know it was supposed to be verified. The brackets create a syntactic position that the compiler recognizes as "coordinate argument." Everything in that position gets checked. Everything outside it gets normal type-checking. The syntax carves out a space for coordinate verification.
+
+---
+
+## The Compiler's Six Steps
+
+Here is the function signature:
+
+```rust
+fn softmax[j](x: [f32; ..left, j, ..right]) -> [f32; ..left, j, ..right]
+```
+
+And the call:
+
+```rust
+let probs[b, c] = softmax[c](logits[b, c]);
+```
+
+The six steps the compiler performs, mechanically, for every call:
+
+| Step | Answer |
+|:---|:---|
+| 1. Coordinate parameter | `j` |
+| 2. Coordinate argument | `c`, bound to `j` |
+| 3. Does `logits` carry `c`? | Yes—`logits[b, c]` |
+| 4. Pack bindings | `..left` = `[b]`, `..right` = `[]` |
+| 5. Return type | `[f32; b, c]` |
+| 6. Valid? | Yes |
+
+No intuition, no shape arithmetic, no guessing. For every function call, the compiler performs these six steps. If any step fails, the compiler emits an error naming the missing coordinate.
+
+Now a call that should fail:
+
+```rust
+let probs[b, f] = softmax[c](logits[b, f]);
+```
+
+Step 3 catches it: `logits` carries `b` and `f`. `c` is not in `{b, f}`. The compiler reports: "`logits` has no coordinate named `c`. Available coordinates: `b`, `f`."
+
+Five wrong calls, and where each one breaks:
+
+| Call | What goes wrong | Caught by |
+|---|---|---|
+| `softmax[class](logits[batch, feature])` | `logits` has no `class` | Step 3: index existence |
+| `softmax[batch](logits[batch, class])` | `batch` would be consumed and returned—contract violation | Step 5: return type |
+| `softmax[class](logits)` where `logits` is 1D | `class` exists, packs are empty—valid | No error (correct) |
+| `softmax[class](logits[batch, class, extra])` | `..right` binds to `[extra]`—valid | No error (correct) |
+| `softmax[class](logits[batch, class], wrong_arg)` | Wrong number of value arguments | Step 1: arity check |
+
+Each check is a mechanical verification. The coordinate names and the function signature together form the contract. The call site satisfies it—or doesn't.
+
+---
 
 Coordinate-aware functions compose into reusable skeletons—patterns that are identical across softmax, LayerNorm, RMSNorm, and GroupNorm, differing only in which coordinates play which roles.

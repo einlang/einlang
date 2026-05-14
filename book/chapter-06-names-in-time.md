@@ -13,9 +13,11 @@ title: "Chapter 6 · Names in Time"
 
 ---
 
-Every coordinate so far is a spatial coordinate. You can sum over it, broadcast along it, permute it. All positions along the coordinate exist simultaneously. No position depends on any other.
+A spatial coordinate is a bookshelf. You can pull any book off any shelf in any order. Shelf 3 doesn't depend on shelf 2.
 
-Time is different. Time has a direction.
+A time coordinate is a novel. Page 50 can reference what happened on page 49. It cannot reference page 51 — page 51 hasn't been written yet. The direction is not a convention. It is a constraint, and violating it produces nonsense.
+
+Everything you have done so far assumed all positions exist at once. Now meet the coordinate that doesn't.
 
 ---
 
@@ -66,7 +68,7 @@ Now look at this line:
 let h[t in 0..T] = step(h[t+1], x[t])
 ```
 
-If someone wrote this, what should happen? Stop and derive the rule yourself. The declaration says `t in 0..T`—the statement defines `h` at time `t`. The body references `h[t+1]`—a value at time `t+1`. At the moment `h[t]` is being computed, `h[t+1]` has not been computed yet. `t+1` is strictly greater than `t`. The rule: **every index reference to the declared variable must be strictly less than the declared index.** `t+1 < t` is false. Error.
+What should happen? The declaration says `t in 0..T`—the statement defines `h` at time `t`. The body references `h[t+1]`—a value at time `t+1`. At the moment `h[t]` is being computed, `h[t+1]` has not been computed yet. `t+1` is strictly greater than `t`. The rule: **every index reference to the declared variable must be strictly less than the declared index.** `t+1 < t` is false. Error.
 
 The check does not need to know that `t` is "time." It does not need to know what "causality" means. It does exactly one thing: compare the reference index against the declared index, for every reference to the declared variable in the body. Reference index `<` declared index? Valid. Otherwise? Rejected. The coordinate can be called `t`, `x`, or `spatial_index`—the check is the same. Causality is not a name-declared property. It is subtraction.
 
@@ -203,6 +205,8 @@ When a recurrence body only references `t-1`, the compiler knows that only one p
 
 This optimization follows mechanically from the backward references. The compiler scans the body for time-indexed references. Every reference to `t - k` (positive `k`) requires storing `k` previous steps. The rolling window size is `max(k)`. No annotation needed. The coordinate names and index arithmetic carry enough information for the compiler to derive the memory plan.
 
+The same principle—coordinate set subtraction—is at work. The output coordinate set includes `t`. The body references `t - k`. The difference `t - (t - k) = k` tells the compiler how many previous steps to store. Set subtraction, introduced in Chapter 2 for broadcast detection, applied here to memory planning. The operation is the same. The application is different.
+
 Consider a second-order recurrence:
 
 ```
@@ -274,49 +278,26 @@ The Einlang version makes the training trajectory a data structure. The PyTorch 
 
 ---
 
-## Diffusion Models: Time as a Coordinate with a Schedule
+## Diffusion Models
 
-Diffusion models are the most time-intensive architecture in modern ML. A forward process adds noise over `T` timesteps. A backward process learns to reverse the noising. The time coordinate appears in two roles: as a recurrence index for the sampling chain, and as a conditioning signal for the denoising network.
+Diffusion models add noise over `T` timesteps and learn to reverse it. The time coordinate appears in two roles: recurrence index for the sampling chain, and conditioning signal for the denoising network.
 
 ```
 let x[t in 0..T, b, c, h, w] = ...;
-let eps[t in 1..T, b, c, h, w] = noise_schedule[t] * randn(...);
 let x[t in 1..T, b, c, h, w] = sqrt(1 - beta[t]) * x[t-1, ...] + sqrt(beta[t]) * eps[t, ...];
 ```
 
-The time index `t` threads through the forward noising process. At each step, noise is added. The schedule `beta[t]` controls how much noise—and `beta` is indexed by `t`, making the dependency visible.
-
-In the backward pass (the learned denoising):
+The schedule `beta[t]` is indexed by `t`, making the dependency visible. In the backward pass:
 
 ```
 let x_hat[t in T..1, b, c, h, w] = denoise(x[t, ...], t, model(x[t, ...], t));
 ```
 
-The iteration runs backward: `T..1`. The model receives `t` as conditioning—it needs to know which timestep it's denoising. In a positional framework, `t` is a positional encoding vector concatenated or added to the input, and the loop runs in Python. In Einlang, `t` is a coordinate that flows through the model call: the model's signature can declare `fn denoise[t, ...](x: [f32; t, ...])` and the coordinate `t` is carried alongside the tensor data.
+The iteration runs backward. The model receives `t` as conditioning. This is the same mechanism that carried `class` through `softmax[class]` in Chapter 3, applied to time. The direction—forward or backward—is the only difference.
 
-This is the same mechanism that carried `class` through `softmax[class]` in Chapter 3, applied to time. The coordinate is the same kind of thing. The direction—forward or backward—is the only difference.
-
-Time is not "special." It is a coordinate with a direction constraint. The constraint is checked. The coordinate flows through functions. The training loop is a recurrence. The diffusion process is a recurrence. The optimizer is a recurrence. Three domains, one mechanism. The names make them recognizable as the same thing. It carries direction. It carries dependency. It carries a constraint: you can only look backward along it. These properties are not metaphorical. They are enforced at the level of index expressions. A colleague who writes `let h[t in 0..T] = step(h[t+1], x[t])` will get a compile error—not a runtime divergence, not a silent wrong answer. The syntax makes the constraint checkable.
-
-The question worth asking: what other tensor operations have an implied direction? Think about your own code. Have you ever written a recurrence where the time axis was not the first axis? Where the dependency went both forward and backward? Where the "time" was not time at all—but a layer index in a residual network, an iteration counter in an optimizer, a step in a diffusion process?
-
-Recurrence is not unique to RNNs. Every iterative computation is a recurrence. Every optimizer step is a recurrence. Every diffusion timestep is a recurrence. The coordinate `t` is not "the time axis." It is "the axis along which things depend on earlier things." Causality is the constraint. The directional coordinate is the mechanism that enforces it.
+Time is a coordinate with a direction constraint. The constraint is checked. The coordinate flows through functions. The training loop is a recurrence. The diffusion process is a recurrence. The optimizer is a recurrence. Three domains, one mechanism.
 
 ---
-
-### Stop and Think: Find the Time Axes in Your Code
-
-Not every axis is spatial. Some axes have direction—values depend on earlier positions along the same axis. Go find them in your code.
-
-1. **Search for `for t in range(` in your training scripts.** Each one is a recurrence. The loop body mutates a variable. The mutation order is the time direction. Now ask: could you write this recurrence declaratively, with `t` as a coordinate? What would the declaration look like? What would `t-1` reference?
-
-2. **Search for `reversed(range(` or backward loops.** Each one is a backward recurrence. The iteration direction is reversed. In a named-coordinate recurrence, the direction would be part of the declaration. In a positional loop, it's encoded in the `reversed` call. If the loop direction and the dependency direction disagree, the positional version runs silently. The named version rejects at compile time.
-
-3. **Find a loop where you manually manage a rolling window.** You allocate a buffer of size `k`, shift values at each iteration, and overwrite the oldest. The window size `k` is determined by how far back the computation looks. In a named-coordinate recurrence, the compiler would derive `k` from the index expressions. In your manual version, `k` is a constant you chose. If the computation changes to look back 3 steps instead of 2, you must update `k`. Would you remember?
-
-4. **What other tensor operations have an implied direction?** Think about your own code. Have you ever written a recurrence where the time axis was not the first axis? Where the dependency went both forward and backward? Where the "time" was not time at all—but a layer index in a residual network, an iteration counter in an optimizer, a step in a diffusion process?
-
-The directional coordinate is not limited to time. Any coordinate where position `n` depends on position `n-1` is directional. The constraint is the same: you can only look backward along it. The mechanism is the same: a directional declaration with index arithmetic. The names `t`, `layer`, `step` are just names—the compiler checks the direction, not the label.
 
 ---
 
@@ -335,3 +316,5 @@ let d_h[t in T..0] = @loss[t] / @h[t] + @step(h[t], h[t-1], x[t]) / @h[t] * d_h[
 The backward recurrence runs from `T` down to `0`, referencing `t+1` (the future in the backward direction, which has already been computed). This is the same bidirectional mechanism from Section 6, applied to the gradient. The coordinate `t` still carries the causality constraint, but the iteration direction has reversed.
 
 In Einlang, the backward recurrence is generated from the forward recurrence by the same Inversion Rule that governs reductions and broadcasts: `t in 1..T` forward becomes `t in T..0` backward. The coordinate names stay the same; the compiler generates the backward loop from the forward declaration.
+
+Time was one coordinate with a direction. Chapter 7 enters terrain where one coordinate splits into two roles: `point` becomes `point_i` and `point_j` in a distance matrix, `sample` becomes `anchor` and `positive` in contrastive learning. Convolution adds index arithmetic (`oh + kh`). Fancy indexing asks whether `k` in two places means pairwise or outer-product—and the names answer. The split is the operation. The names record it.

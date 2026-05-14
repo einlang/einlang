@@ -26,15 +26,13 @@ If you build things below the level of an API call—a compiler pass, a numerica
 
 **The full journey (all chapters, in order).** For readers who want to understand what happens when tensor coordinates carry names—from the primitives through gradient derivation through compiler construction. Start at Chapter 1. Do the exercises. Derive the gradients. The chapters build on each other, and each one assumes the previous one's vocabulary.
 
-**The comparison path (Chapters 1–2, then 12–14).** Read Chapters 1–2 to learn the megaphone model and coordinate set subtraction. Then jump to Chapters 12–14, where LayerNorm, GroupNorm, multi-head attention, Flash Attention, and physical simulation are written twice: once in PyTorch/NumPy, once in Einlang. If the comparisons convince you, return to Chapters 3–8 for the deeper machinery—coordinate-aware function signatures, the broadcast self-audit, and differentiation by coordinate accounting.
+**The comparison path (Chapters 1–2, then 11–13).** Read Chapters 1–2 to learn the megaphone model and coordinate set subtraction. Then jump to Chapters 11–13, where LayerNorm, GroupNorm, multi-head attention, Flash Attention, and physical simulation are written twice: once in PyTorch/NumPy, once in Einlang. If the comparisons convince you, return to Chapters 3–8 for the deeper machinery—coordinate-aware function signatures, the broadcast self-audit, and differentiation by coordinate accounting.
 
-**The compiler path (Chapters 1–4, then 9–11).** Read Chapters 1–4 to learn the primitives and the Inversion Rule. Then jump to Chapters 9–11, which build a compiler frontend: IR as S-expressions, five check rules, and lowering from names to integers. The compiler is small enough to hold in your head—the core loop is fifteen lines.
+**The compiler path (Chapters 1–4, then 9–10).** Read Chapters 1–4 to learn the primitives and the Inversion Rule. Then jump to Chapters 9–10, which build a compiler frontend: IR as S-expressions, five check rules with the detective Wall, lowering from names to integers, range inference, shape analysis, and execution strategies. The core loop is fifteen lines.
 
-**If you only have an afternoon.** Read Chapter 1 (the ghost in the name), Chapter 4 (the broadcast self-audit), and the Epilogue. Everything else is depth.
+**If you only have an afternoon.** Read Chapter 1 (the ghost in the name), Chapter 4 (the broadcast self-audit), Chapter 14 (the edge of the name), and the Epilogue. Everything else is depth.
 
-Part I (Chapters 1–2) introduces naming, permuting, reducing, broadcasting—with the megaphone model that unifies them. Part II (Chapters 3–8) covers coordinate-aware functions, the broadcast self-audit, normalization skeletons, recurrence, complex terrain, and differentiation. Part III (Chapters 9–11) opens the compiler: intermediate representation, analysis and check rules, and lowering from names to integers. Part IV (Chapters 12–14) puts Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. Chapter 15 and the Epilogue reflect on what was built and what it means.
-
-Throughout, "we" means the author and the reader together—tracing the same cells, debugging the same bugs, asking the same questions.
+Part I (Chapters 1–2) introduces naming, permuting, reducing, broadcasting—with the megaphone model that unifies them. Part II (Chapters 3–8) covers coordinate-aware functions, the broadcast self-audit, normalization skeletons, recurrence, complex terrain, and differentiation. Part III (Chapters 9–10) opens the compiler: intermediate representation, five check rules, range inference, shape analysis, constraint solving, and lowering from names to integers. Part IV (Chapters 11–13) puts Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. Chapter 14 marks the boundary—what names can check and what they cannot. The Appendix and Epilogue reflect on what was built and what it means.
 
 Turn the page.
 
@@ -55,13 +53,14 @@ Turn the page.
 ### Part III: Construction
 - [9. The Shape of Thought](chapter-09-shape-of-thought.html)
 - [10. The Name in the Mirror](chapter-10-name-in-mirror.html)
-- [11. Firewood](chapter-11-firewood.html)
 
 ### Part IV: Comparisons
-- [12. Comparison: Normalization](chapter-12-comparison-normalization.html)
-- [13. Comparison: Attention](chapter-13-comparison-attention.html)
-- [14. Comparison: Physics](chapter-14-comparison-physics.html)
+- [11. Comparison: Normalization](chapter-11-comparison-normalization.html)
+- [12. Comparison: Attention](chapter-12-comparison-attention.html)
+- [13. Comparison: Physics](chapter-13-comparison-physics.html)
 
-- [15. Appendix · The Complete Picture](chapter-15-complete-picture.html)
+- [14. The Edge of the Name](chapter-14-boundary.html)
+
+- [Appendix · The Complete Picture](chapter-15-complete-picture.html)
 
 - [Epilogue](chapter-epilogue.html)
