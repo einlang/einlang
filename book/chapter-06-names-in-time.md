@@ -13,9 +13,11 @@ title: "Chapter 6 · Names in Time"
 
 ---
 
-Every coordinate so far is a spatial coordinate. You can sum over it, broadcast along it, permute it. All positions along the coordinate exist simultaneously. No position depends on any other.
+A spatial coordinate is a bookshelf. You can pull any book off any shelf in any order. Shelf 3 doesn't depend on shelf 2.
 
-Time is different. Time has a direction.
+A time coordinate is a novel. Page 50 can reference what happened on page 49. It cannot reference page 51 — page 51 hasn't been written yet. The direction is not a convention. It is a constraint, and violating it produces nonsense.
+
+Everything you have done so far assumed all positions exist at once. Now meet the coordinate that doesn't.
 
 ---
 

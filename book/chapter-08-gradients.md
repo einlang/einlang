@@ -6,14 +6,16 @@ title: "Chapter 8 · Names Through Differentiation"
 # Chapter 8 · Names Through Differentiation
 
 > "In the forward pass, you eliminate information. In the backward pass, you guess."
->
-> — The author, after a long debugging session
 
 *Combinations · Automatic differentiation and the pullback*
 
 ---
 
-A derivative measures sensitivity. `@loss / @W` asks: if I perturb `W` by a small amount, how much does `loss` change? For scalar `loss` and scalar `W`, the answer is a single number. For tensor `W`, the answer is a tensor of the same shape as `W`—each element says how `loss` responds to perturbing that specific element.
+You've been computing gradients all week. `loss.backward()` handles them. You don't think about them. Then you write a custom backward pass — a `torch.autograd.Function` or a manual gradient check — and suddenly you're staring at a sum over the wrong axis, wondering which coordinate you missed.
+
+The autograd engine computes gradients by tracing the forward pass and inverting each operation. When you write the backward pass by hand, you are the engine. And the engine's hardest question is: *over which coordinates do I sum?*
+
+The answer is always the same. It's the Inversion Rule from Chapter 2, applied to every operation in the forward graph: forward broadcast becomes backward reduction, forward reduction becomes backward broadcast. This chapter shows that the five-step pullback — the procedure for deriving any gradient by hand — is coordinate set subtraction, applied in reverse.
 
 ---
 
@@ -66,6 +68,8 @@ Coordinate accounting. No transpose rules. No memorization.
 ---
 
 ## The Five-Step Pullback Procedure
+
+Before reading the procedure, try it yourself. Forward: `C[i, j] = sum[k](A[i, k] * B[k, j])`. You have `dC[i, j]` — the gradient of the loss with respect to `C`. You want `dA[i, k]`. Which output cells does `A[i0, k0]` contribute to? What's the local derivative? Which coordinate must you sum over?
 
 Given a forward expression and a target operand, derive the gradient:
 

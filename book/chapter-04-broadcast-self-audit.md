@@ -11,7 +11,15 @@ title: "Chapter 4 · The Broadcast Self-Audit"
 
 ---
 
-Chapter 2 introduced reduction and broadcasting as separate primitives. Chapter 3 showed coordinate-aware functions. Now read two lines:
+Every broadcast you write is a claim you didn't know you were making.
+
+The claim is: *this value does not depend on the coordinate I am omitting.* When you write `out[i, j] = A[i, j] + bias[j]`, the omission of `i` from `bias[j]` claims the bias is the same for every `i`. When you write `scaled[batch, class] = logits[batch, class] / temperature[class]`, the omission of `batch` from `temperature[class]` claims the temperature is the same for every batch element.
+
+Most of the time, the claim is true. The bias genuinely doesn't depend on the batch element. The temperature genuinely doesn't depend on the class. But when the claim is false, the code still runs. The shapes still match. The loss still descends — just to a higher plateau. And you spend an afternoon wondering why your adaptive class weights aren't adapting.
+
+The broadcast self-audit is three questions you ask before the broadcast becomes a bug. Thirty seconds. It catches the afternoon.
+
+Now read two lines:
 
 ```rust
 // Forward
@@ -23,25 +31,21 @@ let d_bias[j] = sum[i](d_out[i, j]);
 
 Forward: `bias[j]` omits `i` in its index pattern. The coordinate `i` is absent, so `bias` is copied along `i`. Broadcast.
 
-Backward: `d_bias[j]` is the gradient with respect to `bias`. `d_out[i, j]` carries gradient signals from every `(i, j)` position—`bias` contributed to all of them equally. To update `bias`, collect all those signals: sum over `i`. Reduction.
+Backward: `d_bias[j]` is the gradient with respect to `bias`. `d_out[i, j]` carries gradient signals from every `(i, j)` position — `bias` contributed to all of them equally. To update `bias`, collect all those signals: sum over `i`. Reduction.
 
-The coordinate that was broadcast forward (`i`) is the coordinate reduced backward.
-
-Now the inverse:
+The coordinate that was broadcast forward (`i`) is the coordinate reduced backward. This is the Inversion Rule. Every forward operation has a backward dual. Broadcast becomes reduction. Reduction becomes broadcast.
 
 ```rust
-// Forward
+// Forward: reduction consumes j
 let row_sum[i] = sum[j](matrix[i, j]);
 
-// Backward: gradient of matrix
-let d_matrix[i, j] = d_row_sum[i];  // broadcast j back
+// Backward: broadcast j back
+let d_matrix[i, j] = d_row_sum[i];
 ```
 
-Forward: `sum[j]` consumes `j`. The output `row_sum[i]` has no `j`. Every `j` position was collapsed into a single sum.
+Forward: `sum[j]` consumes `j`. Every `j` position collapses into a single sum. Backward: `d_row_sum[i]` broadcasts along `j` — every `j` position receives the same gradient signal. The consumed coordinate is reborn as a broadcast.
 
-Backward: `d_row_sum[i]` is the gradient with respect to `row_sum`. To send it back to `matrix[i, j]`, broadcast `d_row_sum` along `j`—every `j` position receives the same gradient signal. The coordinate that was reduced forward is broadcast backward.
-
-Two lines. Two directions. One rule. The Inversion Rule is not a separate piece of mathematics bolted onto the coordinate system. It is the coordinate system, read in reverse.
+Two lines. Two directions. One rule. The Inversion Rule is not mathematics bolted onto the coordinate system. It is the coordinate system, read in reverse.
 
 ---
 
@@ -194,7 +198,7 @@ Every forward operation has a backward dual. The dual is not a separate rule. It
 
 Reduction → Broadcast. Broadcast → Reduction. Permute → Permute. Elementwise → Elementwise.
 
-The shopping cart model from Chapter 8 is this diagram, narrated as a story. The forward pass is shopping: you walk through the aisles, items enter your cart, some are consumed (reduction), some are copied (broadcast). The backward pass is restocking: the manager reads the record backward, replenishing what was consumed and collecting what was copied.
+Think of the forward pass as shopping: you walk through the aisles, items enter your cart, some are consumed (reduction), some are copied (broadcast). The backward pass is restocking: the manager reads the record backward, replenishing what was consumed and collecting what was copied. The shopping cart will return in Chapter 8 when we derive gradients systematically.
 
 The coordinate names are on both sides of the receipt. The Inversion Rule is the guarantee that the two sides match.
 

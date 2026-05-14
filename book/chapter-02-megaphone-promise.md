@@ -113,6 +113,18 @@ Now the crucial follow-up question: **is this broadcast semantically correct?**
 
 Here's the key: in the Einlang version, you can *see* the broadcast and *audit* it. The omission of `h` from `scale[c, w]` is visible. You can ask: "should `scale` really be silent on `h`?" The question has a place to land.
 
+---
+
+**Derive it yourself.** Before continuing, take this expression:
+
+```rust
+let out[batch, class] = logits[batch, class] - max_logit[class];
+```
+
+`logits` has coordinates `{batch, class}`. `max_logit` has `{class}`. Output has `{batch, class}`. What coordinate does `max_logit` broadcast over? Is the broadcast semantically justified? What should the gradient sum over?
+
+---
+
 Now look at the positional equivalent:
 
 ```python

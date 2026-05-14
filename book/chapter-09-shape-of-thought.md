@@ -18,8 +18,8 @@ Part II showed that coordinate names survive composition—through functions, th
 You just wrote a short Einlang program:
 
 ```
-let x = softmax[class](logits[batch, class]);
-let y = sum[class](x[batch, class] * labels[batch, class]);
+let x[batch, class] = softmax[class](logits[batch, class]);
+let y[batch] = sum[class](x[batch, class] * labels[batch, class]);
 ```
 
 Someone asks: what is the shape of `y`? You cannot run this code—there is no data. But you can still answer.
@@ -82,7 +82,25 @@ Every one of these checks reads the same fact from every tensor: its **coordinat
 
 The five rules are the five ways a name can be wrong: it can refer to a non-existent coordinate (Rule 1), it can fail to appear where the operation requires it (Rule 2), it can broadcast silently without the record the backward pass needs (Rule 3), it can reference the future in a recurrence (Rule 4), or it can violate the contract of a function call (Rule 5). That's it. Those are all the ways.
 
+---
+
+**Derive it yourself.** Here is a buggy program. Apply the five rules. Which rules fire? What does each rule catch?
+
+```rust
+fn forward[batch, out](x: [f32; batch, in], W: [f32; out, in], b: [f32; out])
+    -> [f32; batch, out]
+{
+    sum[k](x[batch, k] * W[out, k]) + b[out]
+}
+```
+
+Rules 1–5. Go.
+
+---
+
 But to apply these rules mechanically, the compiler needs a representation where names are preserved and operations are explicit. It needs an **intermediate representation**—a tree where every name is visible.
+
+Before we build the tree, try this: write `sum[k](A[i, k] * B[k, j])` on a piece of paper. Circle every name. Draw an arrow from each name to where it appears. Now erase the brackets and the `sum`. What's left? The structure of the computation—two indices multiplied, one coordinate reduced away, two coordinates surviving. That structure is the IR. The names are its bones.
 
 ---
 
@@ -112,7 +130,7 @@ sum[k](A[i, k] * B[k, j])
 The reduction coordinate `k` is named, not numbered. A full declaration:
 
 ```
-C[i, j] = sum[k](A[i, k] * B[k, j])
+let C[i, j] = sum[k](A[i, k] * B[k, j])
 ```
 
 ```
@@ -159,7 +177,7 @@ The same set-difference logic applies to reductions. `sum[k](A[i, k] * B[k, j])`
 Here is softmax, in five simultaneous forms:
 
 ```
- max[class](logits[i class])                          ← what you wrote
+ max[class](logits[i, class])                          ← what you wrote
  (reduction max (class) (index logits (i class)))     ← what the compiler sees
  class: (range 0 n_class), reduction axis, Rule 2 ✓   ← what the compiler derives
  class → axis=1, reduction                                ← how the name becomes a number
@@ -182,11 +200,29 @@ The Einlang bug is caught at Form 3. Analysis checks: does `class` appear in eve
 
 ---
 
+## Range Inference: Where Domains Come From
+
+The constraint solver needs ranges. `oh` ranges over `0..output_height`. Where does that range come from?
+
+Sometimes the user declares it: `oh in 0..output_height`. But in the common case, they don't. When you write `let result[i] = data[i] * 2`, the range of `i` is never stated. The compiler infers it.
+
+The algorithm: find every array access where `i` appears as an index. For each access, look at the array's declared shape at the position where `i` appears. If `data` has shape `[N]`, then `i < N`. If `i` also appears in `arr[i+1]` and `arr` has shape `[M]`, then `i+1 < M`, so `i < M-1`. Collect all inferred upper bounds. Take the minimum — the most restrictive one. That is `i`'s range.
+
+When you write `let result[i] = arr[i] + arr[i+1]`, the compiler finds two accesses:
+- `arr[i]` → `i < len(arr)` → `i in [0, N)`
+- `arr[i+1]` → `i+1 < len(arr)` → `i in [0, N-1)`
+
+Intersection: `i in [0, N-1)`. The compiler inferred that `i` cannot reach `N-1` because `arr[i+1]` would be out of bounds. No annotation needed. The name `i`, appearing in two positions, carries enough information.
+
+The entire algorithm is: sort accesses by expression complexity (direct `i` before `i+1`), back-compute a range from each, intersect. The coordinate-name philosophy makes this possible — every index variable appears literally in array accesses, so every range is inferrable from the shapes those arrays were declared with.
+
+---
+
 ## Index Arithmetic: The Constraint Solver
 
-The five rules check coordinate existence, consistency, broadcast recording, causality, and contracts. But Chapter 7 introduced a harder problem: index arithmetic. `input[b, ic, oh + kh, ow + kw]` — the expression `oh + kh` must not exceed the input's spatial extent. Is this checkable at compile time?
+With ranges in hand, the compiler can check a harder problem: index arithmetic. `input[b, ic, oh + kh, ow + kw]` — the expression `oh + kh` must not exceed the input's spatial extent. Given the ranges for `oh` and `kh`, is this checkable at compile time?
 
-When the domain sizes are known statically, the answer is yes. The compiler's constraint solver reads the index expression and the tensor's declared bounds, then solves for each index variable. The algorithm is pattern-matching on the expression tree.
+When the domain sizes are known statically, the answer is yes. The compiler's constraint solver reads the index expression and the declared bounds, then solves for each index variable. The algorithm is pattern-matching on the expression tree.
 
 Take the convolution index `oh + kh`. The compiler knows:
 - `oh` ranges over `0..output_height` (from the output declaration)
@@ -208,7 +244,7 @@ The solver operates entirely on IR nodes, not Python integers. The bound `N` can
 
 The constraint solver is not a general-purpose theorem prover. It handles the patterns that appear in real tensor index expressions: linear combinations with positive coefficients, simple arithmetic (`i*2`, `i/2`, `i+1`, `i-1`), and the common stencil patterns from Chapter 7. For patterns it cannot solve—modulo, negative coefficients, non-linear expressions—the solver returns no range, and lowering fails with a compile error. The failure is a compile error, not a runtime surprise. The name is attached to the error, as it is to every error in this compiler.
 
-What the solver proves: that a coordinate arithmetic expression, evaluated over its declared ranges, stays within the declared bounds of the tensor it indexes. What it cannot prove—correctness of the arithmetic itself—is not a failure of the solver. It is the boundary from Chapter 13. The solver narrows that boundary. Every expression it proves safe is one less degree of freedom for silent errors. Every expression it cannot prove is flagged before the program runs.
+What the solver proves: that a coordinate arithmetic expression, evaluated over its declared ranges, stays within the declared bounds of the tensor it indexes. What it cannot prove—correctness of the arithmetic itself—is not a failure of the solver. It is the boundary from Chapter 14. The solver narrows that boundary. Every expression it proves safe is one less degree of freedom for silent errors. Every expression it cannot prove is flagged before the program runs.
 
 ---
 
@@ -271,4 +307,4 @@ The positional alternative is `dim=-1`: three keystrokes that enable zero checks
 
 Consume—that word has appeared in every chapter since Chapter 2. A reduction consumes a coordinate. A broadcast consumes silence. A gradient consumes the broadcast set. And now the compiler consumes the name itself. `class` goes in. `axis=1` comes out. A good abstraction is good firewood. Its beauty is not in its surface—but in the light the flame casts when it burns.
 
-The compiler proved that names can be checked mechanically. But do they matter in practice? Chapters 10 through 12 put Einlang side by side with PyTorch and NumPy on real code: LayerNorm, multi-head attention, Flash Attention, and physical simulation. No arguments. Just code, in two notations, side by side. The question is not "which is better." It is what each notation makes visible—and what each notation hides.
+The compiler proved that names can be checked mechanically. But do they matter in practice? Chapters 11 through 13 put Einlang side by side with PyTorch and NumPy on real code: LayerNorm, multi-head attention, Flash Attention, and physical simulation. No arguments. Just code, in two notations, side by side. The question is not "which is better." It is what each notation makes visible—and what each notation hides.

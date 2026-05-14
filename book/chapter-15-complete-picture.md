@@ -85,21 +85,21 @@ A coordinate has a name, a domain, a position (Ch1)
     │       │
     │       └──► @fn: custom derivative rules carry coordinate contracts (Ch7)
     │
-    ├──► Comparisons: same computation, two notations (Ch12–14)
+    ├──► Comparisons: same computation, two notations (Ch11–13)
     │       │
-    │       ├──► Normalization: GroupNorm reshape chain vs named groups (Ch12)
-    │       ├──► Attention: identical PyTorch, distinct Einlang signatures (Ch13)
-    │       └──► Physics: integer field indices vs named field coordinates (Ch14)
+    │       ├──► Normalization: GroupNorm reshape chain vs named groups (Ch11)
+    │       ├──► Attention: identical PyTorch, distinct Einlang signatures (Ch12)
+    │       └──► Physics: integer field indices vs named field coordinates (Ch13)
     │
-    └──► Compiler construction (Ch9–11)
+    └──► Compiler construction (Ch9–10)
             │
             ├──► IR: S-expressions preserve every name (Ch9)
             │
-            ├──► Analysis: range → shape → type, five check rules (Ch10)
+            ├──► Analysis: range → shape → type, five check rules (Ch9)
             │
-            └──► Lowering: names → integers, three strategies (Ch11)
+            └──► Lowering: names → integers, strategies (Ch9–10)
                     │
-                    └──► Firewood: names burn, heat remains (Ch11)
+                    └──► Firewood: names burn, heat remains (Ch9)
 ```
 
 Every path begins at the `dim=1` bug. Every arrow is a question the bug forced us to ask. The map is not the territory—but it shows how the trails connect.
@@ -140,7 +140,7 @@ Expressions are not allowed in the declaration bracket. `let fib[n-1] = ...` is 
 
 ## Reductions
 
-A reduction consumes a coordinate. *Introduced in Chapter 2; selection reductions in Chapter 4.*
+A reduction consumes a coordinate. *Introduced in Chapter 2; selection reductions in Chapter 5.*
 
 Operations: `sum`, `max`, `min`, `prod`.
 
@@ -161,7 +161,7 @@ The consumed coordinate is eliminated from the result shape. The reduction brack
 
 ## Broadcasting
 
-Broadcasting is an omission in the indexing pattern. *Introduced in Chapter 2; self-audit in Chapter 7.*
+Broadcasting is an omission in the indexing pattern. *Introduced in Chapter 2; self-audit in Chapter 4.*
 
 ```rust
 let out[i, j] = A[i, j] + bias[j];   // bias omits i → broadcast over i
@@ -175,7 +175,7 @@ The Inversion Rule: what broadcasts in the forward pass is reduced in the backwa
 
 ## Named Rest Indices
 
-`..name` stands for zero or more adjacent axes, collectively named. *Introduced in Chapter 2; pack polymorphism in Chapter 4.*
+`..name` stands for zero or more adjacent axes, collectively named. *Introduced in Chapter 2; pack polymorphism in Chapter 5.*
 
 ```rust
 let result[..batch, j] = x[..batch, j] + bias[j];
@@ -188,7 +188,7 @@ The same rest name must describe the same axis span within an expression. Packs 
 
 ## Where Clauses
 
-A where clause filters or binds. *Introduced in Chapter 2; backward behavior in Chapter 7.*
+A where clause filters or binds. *Introduced in Chapter 2; backward behavior in Chapter 8.*
 
 Boolean guards narrow the domain:
 
@@ -211,7 +211,7 @@ In the backward pass, filtered elements receive zero gradient. The domain constr
 
 ## Coordinate-Aware Functions
 
-A function may declare coordinate parameters. *Introduced in Chapter 3; pack parameters in Chapter 4.*
+A function may declare coordinate parameters. *Introduced in Chapter 3; pack parameters in Chapter 5.*
 
 ```rust
 fn softmax[j](x: [f32; ..left, j, ..right])
@@ -233,7 +233,7 @@ Packs (`..left`, `..right`, `..spatial`) make functions polymorphic over surroun
 
 ## Recurrence Relations
 
-Self-referential declarations define sequences over time. *Introduced in Chapter 5.*
+Self-referential declarations define sequences over time. *Introduced in Chapter 6.*
 
 ```rust
 let u[t in 0..T, i] = initial[i];
@@ -252,7 +252,7 @@ let w[t in 1..T, out, in] = w[t-1, out, in] - lr * grad[t-1, out, in];
 
 ## Automatic Differentiation
 
-`@loss / @W` computes the gradient. *Introduced in Chapter 7.*
+`@loss / @W` computes the gradient. *Introduced in Chapter 8.*
 
 ```rust
 let dW = @loss / @W;
@@ -274,19 +274,19 @@ Coordinate-aware custom rules carry the same bracketed parameters as the primal 
 
 ## Why the Compiler Reads Coordinates Too
 
-The preceding sections catalogued syntax. But syntax is only half the story. Each compiler pass depends on coordinate names to do its job. *These passes are described in Chapters 12–14.*
+The preceding sections catalogued syntax. But syntax is only half the story. Each compiler pass depends on coordinate names to do its job. *These passes are described in Chapters 9–10.*
 
 **Shape inference** (Ch9–10) reads coordinate names to decide whether an expression is legal before it runs. `sum[k](A[i, k] * B[k, j])` succeeds if `k` appears in both `A` and `B`. Under names, the contract is: `i` survives from `A`, `j` survives from `B`, `k` appears in both and is consumed.
 
 **Range analysis** (Ch10) finds the domain of every axis: from array shapes, from literals, or from explicit declarations. Every coordinate gets a concrete range before code generation.
 
-**Five check rules** (Ch10) verify the IR: index existence, reduction consistency, broadcast recording, causality, and coordinate contract at call sites. Each catches a class of bug that positional notation silently accepts.
+**Five check rules** (Ch9) verify the IR: index existence, reduction consistency, broadcast recording, causality, and coordinate contract at call sites. Each catches a class of bug that positional notation silently accepts.
 
-**Gradient lowering** (Ch11) reads coordinate names to build the backward pass. The rule: preserve the coordinates of `W`, sum over everything else. Set subtraction, applied to coordinate names, derives the pullback.
+**Gradient lowering** (Ch9) reads coordinate names to build the backward pass. The rule: preserve the coordinates of `W`, sum over everything else. Set subtraction, applied to coordinate names, derives the pullback.
 
-**Storage planning** (Ch11) reads coordinate names to decide which tensors can share memory. A recurrence creates a dependency chain; the compiler allocates a rolling buffer.
+**Storage planning** (Ch9) reads coordinate names to decide which tensors can share memory. A recurrence creates a dependency chain; the compiler allocates a rolling buffer.
 
-**Kernel fusion** (Ch11) reads coordinate names to decide which operations can be merged. Operations that share surviving coordinates can fuse; operations across a reduction boundary cannot.
+**Kernel fusion** (Ch9) reads coordinate names to decide which operations can be merged. Operations that share surviving coordinates can fuse; operations across a reduction boundary cannot.
 
 ---
 

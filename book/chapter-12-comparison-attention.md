@@ -1,27 +1,25 @@
 ---
 layout: book
-title: "Chapter 11 · Comparison: Attention"
+title: "Chapter 12 · Comparison: Attention"
 ---
 
-# Chapter 11 · Comparison: Attention
+# Chapter 12 · Comparison: Attention
 
-> "The attention mechanism is the only thing standing between your model and the void. You should probably know which coordinates it's attending over."
+> "The difference between the right word and the almost right word is the difference between lightning and a lightning bug."
 >
-> — A reviewer
+> — Mark Twain
 
 *Comparisons · Self-attention, cross-attention, and multi-query attention in two notations*
 
 ---
 
-Chapter 10 showed that the pattern holds for normalization—four variants, one skeleton. The coordinate name absorbs layout changes. The positional `dim=` does not.
+You are writing an encoder-decoder Transformer. During development, source and target sequences happen to have the same length—64 tokens. Self-attention works. Cross-attention works. The code for both is a single positional function: `attention(Q, K, V, mask)`. The shapes match. The loss descends. You ship.
 
-Attention raises the stakes. Normalization has one reduction axis. Attention has five coordinates with distinct roles, three architectural variants whose positional code is textually identical, and a runtime KV-cache whose correctness depends on which axis is concatenated. The question shifts from *does the pattern hold?* to *what does the pattern reveal that positional code cannot say?*
+Six weeks later, a configuration change sets source length to 128, target to 64. The code still runs—broadcasting absorbs the shape mismatch. But your model now attends from every target position to every source position *twice*, silently. The BLEU score drops two points. You spend three days tracing the drop to a transposed mask broadcasting along the wrong axis. The Square Matrix Test, first encountered with softmax in Chapter 3, returns with a vengeance.
 
-You are writing an encoder-decoder model. During development, source and target happen to have the same sequence length—64 tokens. Self-attention works. Cross-attention works. The code for both is a single positional function: `attention(Q, K, V, mask)`. The shapes match. You ship.
+Here is the root cause: self-attention and cross-attention have identical positional code. Stop and let that sink in. Two operations—different semantics, different gradient flows, different architectural implications—expressed as the exact same Python function. The shapes differ at runtime. The source code does not. When source length equals target length, the two attentions are indistinguishable even at runtime. The coordinate names are different. The code is the same. Only the names can distinguish them.
 
-Six weeks later, a configuration change sets source length to 128, target to 64. The code still runs—Broadcasting absorbs the shape mismatch. But your model now attends from every target position to every source position *twice*, silently. The BLEU score drops two points. You spend three days tracing the drop to a transposed mask that was broadcasting along the wrong axis. The Square Matrix Test, first encountered with softmax in Chapter 3, returns with a vengeance.
-
-Three numbers govern attention: the number of query heads, the number of key-value heads, and the sequence length. When any two coincide, positional code for one variant becomes textually identical to positional code for another. The coordinates are different. The code is the same. Only the names can distinguish them.
+Chapter 11 showed that the pattern holds for normalization—one reduction axis, four variants, one skeleton. Attention raises the stakes: five coordinates with distinct roles, three architectural variants whose positional code is textually identical, a runtime KV-cache whose correctness depends on which axis is concatenated. The question shifts from *does the pattern hold?* to *what does the pattern reveal that positional code cannot say?*
 
 ---
 
@@ -229,7 +227,7 @@ Every attention variant can be audited with four questions. Ask them of any posi
 1. **Which coordinate does `softmax` normalize over?** In `softmax(scores, dim=-1)`, the answer is "whatever is last." In `softmax[seq_k](scores)`, the answer is `seq_k`.
 2. **Which coordinate distinguishes queries from keys?** In MHA, it's the same (`seq`). In cross-attention, it's different (`seq_q` vs `seq_k`). In positional code, this distinction is in the tensor shapes at runtime. In named code, it's in the function signature.
 3. **Which coordinate groups query heads with KV heads?** In GQA, `head_group` groups query heads over a shared KV head. In MQA, `head_kv` has size 1. In MHA, there's no grouping—`head` is the same coordinate on Q and K. The grouping structure is invisible in the positional `matmul`; visible in the named index patterns.
-4. **Does the backward pass know what to sum over?** The gradient of attention sums over `seq_q` for `dK` and `dV`, over `seq_k` for `dQ`, and over the head grouping for the KV projection. In positional autodiff, these sums happen silently. In named coordinates, they follow from the coordinate sets—same set-subtraction rule from Chapter 2 applied to attention.
+4. **Does the backward pass know what to sum over?** The gradient of attention sums over `seq_q` for `dK` and `dV`, over `seq_k` for `dQ`, and over the head grouping for the KV projection. In positional autodiff, these sums happen silently. In named coordinates, they follow from the coordinate sets—same coordinate set-subtraction rule from Chapter 8 applied to attention.
 
 You don't need Einlang to ask these questions. You need to know that they are the right questions. And the right questions are only visible when the notation has a place for the answers.
 
@@ -290,4 +288,4 @@ When a new attention variant appears—a faster kernel, a sparse pattern, a slid
 
 The coordinate structure is the invariant. The execution strategy is the variable. Named coordinates record the invariant. Positional notation records neither—it defers both to runtime.
 
-Normalization showed the pattern holds. Attention showed what the pattern reveals—distinctions invisible in positional code, visible in names. Chapter 12 takes the final question: *what does the pattern prevent?* The domain shifts from machine learning to physical simulation, where integer indices have been silently swapping coordinates since before the term "tensor" entered our vocabulary, and the bugs produce plausible-but-wrong physics that no compiler catches and no test suite detects.
+Normalization showed the pattern holds. Attention showed what the pattern reveals—distinctions invisible in positional code, visible in names. Chapter 13 takes the final question: *what does the pattern prevent?* The domain shifts from machine learning to physical simulation, where integer indices have been silently swapping coordinates since before the term "tensor" entered our vocabulary, and the bugs produce plausible-but-wrong physics that no compiler catches and no test suite detects.

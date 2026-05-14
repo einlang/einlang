@@ -13,11 +13,11 @@ title: "Chapter 3 · Names as Contracts"
 
 ---
 
-Part I gave us the primitives: naming, permutation, reduction, broadcasting. Part II combines them. The next six chapters compose these primitives into functions, audit trails, normalization skeletons, recurrent patterns, index arithmetic, and gradients. Each chapter asks the same question: when primitives combine, do the names survive the combination? The answer is yes—if the combination itself is named.
+A softmax is not one operation. It is a max reduction, a subtraction, an exponentiation, a sum reduction, and a division. Five steps, each involving coordinates with distinct roles. Five chances for a coordinate to go missing.
 
-The preceding two chapters introduced coordinate naming: coordinates are named when they survive, when consumed, when copied, when rearranged.
+In a positional framework, each step's `dim=` argument must be correct independently. If the max is over `dim=-1` but the sum is over `dim=0`, the shapes might still align — and the bug ships. The individual operations are correct. The composition is wrong. Nothing in the positional notation records that the five `dim` arguments are supposed to refer to the same coordinate.
 
-A softmax is not one operation. It is a max reduction, a subtraction, an exponentiation, a sum reduction, and a division. Five steps, each involving coordinates with distinct roles.
+Part I taught us to name coordinates at individual operations. Part II asks: when operations compose, can the names survive the composition? The answer is yes — if the composition itself has a name, and that name is a contract.
 
 ---
 
@@ -62,6 +62,10 @@ def softmax(logits, dim=-1):
 `dim=-1` says "the last one." If the last dimension is `class`, correct. If upstream changes the dimension order, `dim=-1` silently normalizes over whatever happens to be last. The code runs. The output is a valid probability distribution—over the wrong coordinate.
 
 The positional function cannot name which coordinate it normalizes over. The built-in `mean[channel]` can. The gap is not about convenience. It is about first-class status: in Einlang, coordinate parameters are available to any function—built-in or user-defined. The bracket is not a privilege reserved for `mean` and `sum`. It is a language mechanism, and user functions get the same mechanism.
+
+---
+
+**Derive it yourself.** You want to write `softmax` so it accepts a coordinate parameter the way `mean[channel]` does. What must the signature declare? The input has unknown surrounding dimensions plus the normalization coordinate. The output must preserve all input coordinates — the normalization doesn't remove any. The body needs a max, an exp, a sum, and a division. Which operation consumes the coordinate? Which broadcasts it back? Write the signature before turning the page.
 
 ---
 

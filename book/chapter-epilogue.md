@@ -112,9 +112,9 @@ Walk back through the book and ask, at each stage: what would a positional notat
 
 **Chapter 8**: The gradient of a broadcast. Forward: `bias` omits `batch`, broadcasting over it. Backward: the gradient must sum over `batch` to recover `bias`'s shape. In a positional framework, this sum is implicit in the autodiff engine. If the broadcast changes because the shape changed, the gradient sum changes with it—silently. In the named version, the coordinate sets tell you exactly what the gradient must sum over: `C` has `{i, j}`, `A` has `{i, k}`, sum over `{j}`. The set subtraction is checkable.
 
-**Chapter 10**: GroupNorm's reshape chain: `x.reshape(N, G, C//G, H, W).mean(dim=(2,3,4))`. The positions `(2,3,4)` are only correct after the reshape. If the reshape changes, the positions change. The named version `mean[c_in_group, ..spatial]` names the coordinates directly. The reshape is unnecessary because the coordinates are separate from the start.
+**Chapter 11**: GroupNorm's reshape chain: `x.reshape(N, G, C//G, H, W).mean(dim=(2,3,4))`. The positions `(2,3,4)` are only correct after the reshape. If the reshape changes, the positions change. The named version `mean[c_in_group, ..spatial]` names the coordinates directly. The reshape is unnecessary because the coordinates are separate from the start.
 
-**Chapter 11**: Self-attention and cross-attention in PyTorch have identical code. The difference is only in the shapes of the tensors passed at runtime. The named version distinguishes `self_attention[seq, ...]` from `cross_attention[seq_q, seq_k, ...]` in the type signatures. A reader can see which is which without checking runtime shapes.
+**Chapter 12**: Self-attention and cross-attention in PyTorch have identical code. The difference is only in the shapes of the tensors passed at runtime. The named version distinguishes `self_attention[seq, ...]` from `cross_attention[seq_q, seq_k, ...]` in the type signatures. A reader can see which is which without checking runtime shapes.
 
 Every one of these bugs was shape-correct. Every one survived the checks that positional frameworks perform. Every one was caught by a name.
 
@@ -138,17 +138,7 @@ Practical advice: if you cannot name a dimension, write `dim=-1`—but write a c
 
 And sometimes, after reflection, you realize the dimension genuinely does not have a stable identity. It is a transient intermediate that exists only inside this function, consumed by the next operation, never exposed to a caller. In that case, `dim=-1` may be the right choice permanently. Not every coordinate deserves a name. The coordinate habit is not a moral obligation. It is a judgment: *does the correctness of this operation depend on which coordinate this is?* If the answer is no, a number is fine. If the answer is yes, the name earns its keystrokes.
 
----
-
----
-
-## When the Name Is Wrong
-
-Chapter 13 explored the boundary: names check consistency, not correctness. `softmax[batch]` where `softmax[class]` was intended compiles without error.
-
-But `softmax[batch]` is visible. A reader sees the wrong name and catches the mistake. The positional equivalent `softmax(logits, dim=0)` hides the error behind a number—the reader must reconstruct which coordinate axis 0 refers to. The reconstruction may be wrong.
-
-A wrong name is a visible error. A missing name is an invisible one.
+When you do commit to a name, remember this: a wrong name is a visible error. Chapter 14 explored the boundary—`softmax[batch]` where `softmax[class]` was intended compiles without error. But a reader sees the wrong name and catches the mistake. The positional equivalent `softmax(logits, dim=0)` hides the error behind a number; the reader must reconstruct which coordinate axis 0 refers to, and the reconstruction may be wrong. A wrong name is visible. A missing name is invisible. The name earns its keystrokes twice: once by recording intent, once by making errors visible when intent is misrecorded.
 
 ---
 
@@ -182,7 +172,7 @@ The "if" is not hypothetical. Every one of these bugs has occurred in production
 
 ## Audit in the Wild: The Middle Grounds
 
-Chapter 13 surveyed the landscape between pure positional notation and a complete named-coordinate compiler: defensive assertions, einops, PyTorch Named Tensors, and Einlang's compiler. The distance between *no checking* and *complete checking* is measurable. Einops catches local errors. Named tensors catch errors that survive through supported operations. Einlang catches all of them—at the cost of a compiler.
+Chapter 14 surveyed the landscape between pure positional notation and a complete named-coordinate compiler: defensive assertions, einops, PyTorch Named Tensors, and Einlang's compiler. The distance between *no checking* and *complete checking* is measurable. Einops catches local errors. Named tensors catch errors that survive through supported operations. Einlang catches all of them—at the cost of a compiler.
 
 The coordinate habit works at every step. It only asks: *is the name in the code?* In an einops string, that's a name. In a PyTorch named tensor, that's a name. In a bracket that a compiler checks, that's a name with a guarantee. The habit does not prescribe the tool. It prescribes the information.
 ## The Invariant
@@ -370,9 +360,11 @@ The fix: rename `channel` to `feature` in model.ein:1. Ten seconds.
 
 ## What the Coordinate Habit Does Not Solve
 
-Chapter 13 catalogued the limits: names check consistency, not correctness; they do not replace testing; they cost keystrokes. One limitation belongs here, at the end.
+Chapter 14 catalogued the limits: names check consistency, not correctness; they do not replace testing; they cost keystrokes. Two limits belong here, at the end, because they define the boundary between this book's argument and its honest modesty.
 
-**Einlang itself is young.** The language in these pages is a research prototype—no CUDA backend, no package manager, no PyTorch integration. The coordinate habit works through comments, einops strings, and naming conventions in any framework today. But if you want to build the rest: the IR, the check rules, and the lowering pass are a starting point. The distance from here to a production compiler is measured in engineering years, not ideas.
+**Names don't write the program.** The coordinate habit tells you to record which coordinate a reduction consumes. It does not tell you whether the reduction should be a mean or a sum, whether the normalization should be over `feature` or `batch`, whether the attention should be self or cross. Those decisions are modeling decisions. The names record them; they don't make them. A well-named wrong model is still a wrong model. The difference is that the names make the model's structure visible, so the next reader—the colleague, the reviewer, the future you—can see what the model assumed and judge whether the assumption still holds.
+
+**Einlang itself is young.** The language in these pages is a research prototype—no CUDA backend, no package manager, no PyTorch integration. The coordinate habit works through comments, einops strings, and naming conventions in any framework today. But if you want to build the rest: the IR, the check rules, and the lowering pass described in Chapters 9 and 10 are a starting point. The distance from here to a production compiler is measured in engineering years, not ideas. The ideas are in this book. They are ready. The compiler will catch up.
 
 ---
 
@@ -386,4 +378,10 @@ Three works shaped the thinking behind these pages.
 
 **"Tensor Considered Harmful"** (Aleksander Mądry, 2018) and the named-tensor work at Harvard and Stanford asked: what happens when tensor dimensions have names that the compiler can check?
 
-These are not tutorials. They are not documentation. They are road signs.
+These are not tutorials. They are not documentation. They are road signs. They point to a destination—code that says what it means—and leave the walking to you.
+
+You know the question now. It's the one you ask at every tensor line. It doesn't require a new language. It doesn't require a compiler. It requires only that you pause, look at the integer after `dim=`, and refuse to let the coordinate's identity stay silent.
+
+Where is the name?
+
+Close the cover.

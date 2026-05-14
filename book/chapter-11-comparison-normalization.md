@@ -1,13 +1,13 @@
 ---
 layout: book
-title: "Chapter 10 · Comparison: Normalization"
+title: "Chapter 11 · Comparison: Normalization"
 ---
 
-# Chapter 10 · Comparison: Normalization
+# Chapter 11 · Comparison: Normalization
 
-> "You don't understand a notation until you've seen what it hides."
+> "A notation is a tool for thought."
 >
-> — The author
+> — Kenneth Iverson
 
 *Comparisons · LayerNorm, RMSNorm, GroupNorm in two notations*
 
@@ -19,11 +19,11 @@ Each normalization normalizes over different coordinates. Each uses a position n
 
 Part III built the compiler—the proof that names can be checked mechanically. Part IV asks the practical question: does any of this matter for real code? The next three chapters demonstrate the answer across three domains, each escalating the stakes.
 
-Chapter 10 asks: **does the pattern hold?** Normalization — the simplest skeleton, the fewest coordinates. If names don't earn their keep here, they don't earn it anywhere.
+Chapter 11 asks: **does the pattern hold?** Normalization — the simplest skeleton, the fewest coordinates. If names don't earn their keep here, they don't earn it anywhere.
 
-Chapter 11 asks: **what does the pattern reveal?** Attention — where self-attention and cross-attention have identical positional code, and the distinction is in runtime shapes, not in source.
+Chapter 12 asks: **what does the pattern reveal?** Attention — where self-attention and cross-attention have identical positional code, and the distinction is in runtime shapes, not in source.
 
-Chapter 12 asks: **what does the pattern prevent?** Physics — the oldest domain, where integer indices have been silently swapping coordinates since Fortran, and the bugs produce plausible-but-wrong results that only a physicist's eye catches.
+Chapter 13 asks: **what does the pattern prevent?** Physics — the oldest domain, where integer indices have been silently swapping coordinates since Fortran, and the bugs produce plausible-but-wrong results that only a physicist's eye catches.
 
 This chapter takes the first question. Three normalization functions appear below in both PyTorch and Einlang, side by side.
 
@@ -141,6 +141,8 @@ class GroupNorm(nn.Module):
 
 The reshape-permute-reshape dance is the positional price of grouping. `dim=(2, 3, 4)` means "reduce over channel_per_group, height, and width"—but those positions are only correct after the reshape. The reader must mentally compile the grouping semantics from the reshape chain: `reshape` splits channels into groups, `mean(dim=(2,3,4))` reduces within each group, `reshape` merges them back. The grouping is a manual compilation step, performed by the programmer, invisible in the source.
 
+Before you read the Einlang version, stop and ask: from the PyTorch code alone, which coordinates does `dim=(2, 3, 4)` reduce over? You know because the comment says `N, C, H, W` and you counted positions after the reshape. Now ask: if a temporal dimension is prepended next month, what does `dim=(2, 3, 4)` reduce over? You can't know without redoing the positional arithmetic. The answer is in the positions. The positions change. The code doesn't tell you.
+
 **Einlang:**
 
 ```rust
@@ -229,76 +231,16 @@ The body of every function is: reduce to get statistics, subtract-and-divide, sc
 
 ## BatchNorm: Where the Skeleton Breaks
 
-BatchNorm normalizes over the batch dimension, not the feature dimension. In training, it computes per-feature statistics across the batch. In inference, it uses running averages. This introduces a complication that none of the previous normalizations had: the normalization depends on the data distribution, and the data distribution changes between training and inference.
-
-```python
-# PyTorch BatchNorm
-class BatchNorm(nn.Module):
-    def __init__(self, num_features, eps=1e-5, momentum=0.1):
-        super().__init__()
-        self.gamma = nn.Parameter(torch.ones(num_features))
-        self.beta = nn.Parameter(torch.zeros(num_features))
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.eps = eps
-        self.momentum = momentum
-
-    def forward(self, x):
-        if self.training:
-            mean = x.mean(dim=0)  # over batch
-            var = x.var(dim=0, unbiased=False)
-            # update running stats...
-        else:
-            mean = self.running_mean
-            var = self.running_var
-        return (x - mean) / torch.sqrt(var + self.eps) * self.gamma + self.beta
-```
-
-The coordinate story: `dim=0` reduces over `batch`. The running statistics are shape `(feature,)`. In inference, they broadcast over the batch. The code works. But the distinction between "statistics computed from the current batch" (training) and "statistics accumulated from many batches" (inference) is captured in an `if self.training` branch and a `register_buffer` call. The coordinate structure is identical in both modes. The semantic difference—fresh vs. accumulated statistics—is a runtime flag, not a structural distinction.
-
-In Einlang, the training/inference distinction could be captured in the type system by whether the batch statistic carries a time coordinate:
+BatchNorm normalizes over the batch dimension. In training, it computes per-feature statistics across the batch. In inference, it uses running averages. The coordinate structure—reduce over `..batch`, broadcast back over `feature`—is the same in both modes. The semantic difference is *where the statistics come from*: the current tensor or an accumulated buffer. That distinction is invisible in the positional `dim=0` and in the named `mean[..batch]` alike.
 
 ```rust
-fn batch_norm[feature, ..batch](x: [f32; ..batch, feature],
-    gamma: [f32; feature], beta: [f32; feature],
-    running_mean: [f32; feature], running_var: [f32; feature])
-    -> [f32; ..batch, feature]
-{
-    // Training: compute fresh statistics from current batch
-    let batch_mean[feature] = mean[..batch](x[..batch, feature]);
-    let batch_var[feature] = mean[..batch](
-        (x[..batch, feature] - batch_mean[feature]) ** 2.0
-    );
-    // Training path
-    let train_out[..batch, feature] =
-        (x[..batch, feature] - batch_mean[feature])
-        / (batch_var[feature] ** 0.5 + 1e-5)
-        * gamma[feature] + beta[feature];
-    // Inference path
-    let infer_out[..batch, feature] =
-        (x[..batch, feature] - running_mean[feature])
-        / (running_var[feature] ** 0.5 + 1e-5)
-        * gamma[feature] + beta[feature];
-    // ...
-}
+// Both paths share the same coordinate structure:
+let batch_mean[feature] = mean[..batch](x[..batch, feature]);     // training: fresh
+let infer_mean[feature] = running_mean[feature];                  // inference: accumulated
 ```
 
-Both paths reduce over `..batch` to produce `{feature}`-shaped statistics. The difference is whether those statistics came from the current tensor or from a running accumulator. The reduction bracket is the same. The source of the statistics is different. The naming makes explicit what `self.training` hides: in training, `batch_mean` is derived from `x` (creating a data dependency for the backward pass); in inference, `running_mean` is a constant (no gradient flows through it).
+The reduction bracket names what is consumed. It does not name whether the statistics are fresh or accumulated. That distinction lives in the data dependency graph, not in the coordinate structure. The coordinate skeleton can only carry so much. The rest is in the code's semantics—and being honest about that boundary is as important as celebrating what names can check.
 
-This is the boundary where the coordinate notation meets the runtime. The reduction bracket names what is consumed. It does not name whether the statistics are fresh or accumulated. That distinction lives in the data dependency graph, not in the coordinate structure. The coordinate skeleton can only carry so much. The rest is in the code's semantics.
-
-
----
-
-## The Coordinate Audit in Practice
-
-Every normalization is a reduce-broadcast-elementwise pattern—a specialization of the broadcast self-audit from Chapter 4. The reduction bracket names the consumed coordinates. The broadcast parameters name the alignment. For any normalization you encounter, ask three questions.
-
-What coordinate does the reduction consume? In `x.mean(dim=-1)`, the answer depends on what's at position -1. In `mean[feature](x)`, the coordinate name answers directly.
-
-What would break if the dimension order changed? For LayerNorm with `dim=-1`, feature is conventionally last—but the convention is not enforced. For GroupNorm with `dim=(2,3,4)`, the positions correspond to specific dimensions in a reshape chain, and any upstream change silently breaks the mapping.
-
-Is the reduction semantically correct? LayerNorm normalizes over `feature`. GroupNorm normalizes over `c_in_group` and `..spatial`. If answering this question requires running the code to check shapes, the notation isn't carrying the intent.
 
 ---
 
@@ -347,9 +289,9 @@ The bug doesn't happen. Not because the programmer is smarter. Because the notat
 
 ---
 
-## The Coordinate Audit for Normalization
+## The Coordinate Audit
 
-Every normalization function can be audited with three questions. They are the same questions as the broadcast self-audit from Chapter 4, specialized for normalization's three-step skeleton:
+Every normalization function can be audited with three questions, each a specialization of the broadcast self-audit from Chapter 4:
 
 1. **Which coordinates does the reduction consume?** In `mean[feature]`, the consumed coordinate is `feature`. In `mean[c_in_group, ..spatial]`, the consumed coordinates are `c_in_group` and all spatial dimensions. The reduction bracket names them directly. In a positional `dim=-1` or `dim=(2,3,4)`, the consumed coordinates must be inferred from the layout and the reshape chain.
 
@@ -357,4 +299,4 @@ Every normalization function can be audited with three questions. They are the s
 
 3. **Does the normalization axis change meaning if the layout changes?** If the input changes from `(batch, feature)` to `(batch, time, feature)`, does `dim=-1` still mean `feature`? In LayerNorm, yes—`feature` is conventionally the last axis. In GroupNorm after a reshape, no—the positions shift and `dim` must be updated. The Einlang versions are stable under layout changes because the coordinate names don't change, only the positions they map to.
 
-Normalization established the baseline: the skeleton holds across four variants, and the coordinate name absorbs layout changes that would silently corrupt a positional `dim=`. Chapter 11 raises the stakes. Normalization has one reduction axis. Attention has five coordinates, three architectural variants, and a runtime cache whose correctness depends on which coordinate is concatenated. The question shifts from *does the pattern hold?* to *what does the pattern reveal that positional code cannot say?*
+Normalization established the baseline: the skeleton holds across four variants, and the coordinate name absorbs layout changes that would silently corrupt a positional `dim=`. Chapter 12 raises the stakes. Normalization has one reduction axis. Attention has five coordinates, three architectural variants, and a runtime cache whose correctness depends on which coordinate is concatenated. The question shifts from *does the pattern hold?* to *what does the pattern reveal that positional code cannot say?*

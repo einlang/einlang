@@ -135,6 +135,8 @@ You don't need a `permute` function. You don't need a `rearrange` string. You ju
 
 This is a pattern that will recur through the entire book: **when coordinate names appear in the syntax, operations become self-documenting.** The same line of code that instructs the machine also informs the reader. There is no separate channel of documentation that can drift out of sync.
 
+Before you move on, try this. Find a `permute`, `transpose`, or `swapaxes` in your own code — any line where you rearranged dimensions by position. Translate it into the named form: `y[coords] = x[coords]`. Did you have to look up the dimension order to know which coordinate goes where? The lookup is the bug surface. The named form removes it.
+
 ---
 
 Positional permutation is not evil. It is the right abstraction for a compiler pass that only needs to know "move this stride to that position." But source code is not written for compilers. It is written for the human who will debug it at 11 PM, three months after the original author left the team. That human needs to know *what moved where and why*. Position numbers answer the first question, but not the second. Names answer both.
