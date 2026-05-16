@@ -244,7 +244,7 @@ Now put the two audits side by side:
 
 ```
 BROADCAST SELF-AUDIT                    CONSUMPTION SELF-AUDIT
-─────────────────────                   ───────────────────────
+---------------------                   -----------------------
 Q1: What coordinate am I silent on?     Q1: What coordinate am I consuming?
 Q2: Is independence genuinely true?     Q2: Is it in every operand?
 Q3: What will the gradient collect?     Q3: What will the gradient broadcast back?

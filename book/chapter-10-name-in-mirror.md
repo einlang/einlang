@@ -13,17 +13,19 @@ title: "Chapter 10 · The Name in the Mirror"
 
 ---
 
-The compiler checked your program. Five rules. Zero errors. Every name matches its declaration. Every broadcast is recorded. Every contract is satisfied.
+Your program passed all five rules. You run it. It crashes.
 
-Now the compiler has to actually run your program. On a machine that has never heard of `class` or `batch`. "Run" means turning `class` into `axis=1`, `batch` into a loop, and `..spatial` into however many integers the spatial dimensions span.
+`index out of bounds: 32`
 
-Before it can do that, it must answer three questions about every expression in the tree:
+The index `i` was declared. The checker saw it. But the checker only asks "is this name declared?"—not "what values can it take?" The declaration said `i in 0..N`, and the compiler never computed `N`. It had no machinery to compute `N`. The name was verified. The range was not.
+
+Now the compiler has to actually answer the question it skipped: what does each name *imply*? Before it can lower `class` into `axis=1` or `batch` into a loop, it must answer three questions about every expression in the tree:
 
 1. **Range.** `i` was declared — but what values can it take? 0 to 10? 0 to `batch_size`?
 2. **Shape.** Which coordinates survive? What is the output shape?
 3. **Type.** Is this expression `f32` or `f64`? Integer or float?
 
-The 15-line checker asks "is this name declared?" These three questions ask "what does this name imply?" The checker verifies. The analyzer infers. Together they form the complete compiler frontend—one that can take a program without a single runtime value and determine the shape of every tensor in it.
+The 15-line checker asks "is this name declared?" These three questions ask "what does this name imply?" The checker verifies. The analyzer infers. Together they form the complete compiler frontend—one that can take a program without a single runtime value and determine the shape of every tensor in it, so `i in 0..32` is known before `data[i]` is ever evaluated.
 
 ---
 
@@ -219,6 +221,22 @@ The error names every variable. Shows every range. States the constraint. The pr
 This is the difference between a named error and a positional one. The positional equivalent is `IndexError: dimension 3 out of bounds`. Which dimension is 3? What was supposed to be in bounds? The number answers neither question. The names answer both.
 
 The solver is not a general-purpose theorem prover. It is a pattern matcher for the expressions that appear in real tensor indices — linear combinations with positive coefficients, the arithmetic of stencils and convolutions and pooling windows. Every expression it proves safe is one less silent bug. Every expression it cannot prove is flagged, with names, before the program runs.
+
+---
+
+Before moving on, trace the inference for three more cases. `data` has shape `[N]`.
+
+`let result[i] = data[i] + data[i + 2];`
+
+Two accesses. `data[i]` says `i < N`. `data[i + 2]` says `i + 2 < N`, so `i < N - 2`. Intersection: `i` stops at `N - 2`. The compiler subtracts two from the bound without being asked. You did the same thing in your head just now.
+
+`let result[i] = data[2 * i] + data[2 * i + 1];`
+
+`2*i < N` and `2*i + 1 < N`. The second is tighter. Intersection: `i < ceil((N-1)/2)`. The compiler divides by two, takes the ceiling, and infers the bound. You didn't run the program. You looked at the index expressions and the shape.
+
+`let result[i] = data[i] + other[3 * i];` — `other` has shape `[M]`.
+
+Two different arrays, two different shapes. `data[i]` gives `i < N`. `other[3*i]` gives `3*i < M` → `i < ceil(M/3)`. Intersection: `i < min(N, ceil(M/3))`. The bound is the tighter of two constraints from two different tensors. The compiler traces the variable through every access, reads every shape, intersects. No annotation. No execution. The names and shapes carry the constraints.
 
 ---
 

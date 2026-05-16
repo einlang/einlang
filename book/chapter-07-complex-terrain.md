@@ -13,9 +13,11 @@ title: "Chapter 7 · Complex Terrain"
 
 ---
 
-This chapter is about one phenomenon seen through several lenses: a single coordinate splitting into two roles. `point` becomes `point_i` and `point_j` in a distance matrix. `node` becomes `source_node` and `target_node` in a graph. `sample` becomes `anchor` and `positive` in contrastive learning. The split is the operation. The names record it.
+You have a distance matrix. Shape `(N, N)`. Axis 0 and axis 1 both index over the same set of points. Which one is the source point, and which is the target? The shape does not tell you. The positions do not tell you. If you wrote a comment, the comment tells you—for now, until the comment rots.
 
-Coordinates also carry arithmetic (`oh + kh`), disambiguate indexing patterns, and collide in ways that test whether a notation records intent. Every section in this chapter is a variation on one question: when a coordinate's role is more complex than "this axis exists," does your notation record the complexity—or bury it in shape arithmetic?
+The matrix is square because the same coordinate appears twice, playing two different roles. The coordinate has split. `point` becomes `point_i` and `point_j`. The split is invisible to every positional tool you have. It is visible to the reader only if the notation records which copy is which.
+
+This chapter is about the split—one phenomenon seen through several lenses. Distance matrices, where one coordinate turns into two. Convolution index arithmetic, where coordinates carry formulas (`oh + kh`). Fancy indexing, where coordinate collisions are bugs or features depending on intent. Every section asks the same question: when a coordinate's role is more complex than "this axis exists," does your notation record the complexity—or bury it in shape arithmetic?
 
 ---
 
@@ -205,7 +207,7 @@ let result[i, j] = matrix[idx[i], col_idx[j]];
 
 The difference is in the coordinate names. `k` vs `(i, j)`. One coordinate means pairwise. Two means outer-product. Your colleague reads the code and sees the difference. The code records the intent.
 
-This is the Coordinate Collision Test: when two operations produce the same shape but different semantics, does your notation distinguish them?
+This is the Coordinate Collision Test: when two operations produce the same shape but different semantics, does your notation distinguish them? If the answer is no, the semantics are in your head. If the answer is yes, they are in the code. The distance between those two places is the distance between a bug found in review and a bug found in production.
 
 **Derive it yourself: Collision-proof your notation.** Here are three index-gathering operations. For each one, write both the pairwise and outer-product versions by choosing coordinates. Then check: would a reader see the difference?
 
@@ -315,5 +317,7 @@ Every section in this chapter was a variation on one operation: a single coordin
 Distance matrix: `point` becomes `point_i` and `point_j`. Convolution: `oh` and `kh` together index the spatial input — one coordinate from the output, one from the kernel. Depth-to-space: `c_out * 4 + dy * 2 + dx` splits the channel index into a channel group and two sub-pixel offsets. Fancy indexing: `k` appears in both index positions for pairwise, or `i` and `j` are different for outer-product — coordinate-sharing IS the disambiguation. Gather vs. scatter: same split, different direction.
 
 In every case, the split is the operation. The names record it. The positional notation records the mechanic — `unsqueeze`, `permute`, `reshape`, `None`, `:` — and buries the identity. When you read `points[:, None, :] - points[None, :, :]`, you see three dimension manipulations. When you read `points[point_i, dim] - points[point_j, dim]`, you see one split. The difference is the distance between a notation that records what happened and a notation that records why.
+
+A notation that records the split gives the split a name. A notation that records only the mechanic gives the mechanic a position. Positions shift. Names don't.
 
 Index arithmetic was the most complex coordinate manipulation in Part II. Next: what happens when we differentiate through every operation we have built. Chapter 8 applies the Inversion Rule systematically—to reductions, broadcasts, index arithmetic, and recurrence—and shows that the gradient is coordinate set subtraction, applied in reverse. The five-step pullback is the procedure. The coordinate names are the bridge between the forward and backward directions.

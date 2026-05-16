@@ -68,7 +68,7 @@ You probably just looked at the bracket after `bias`. It says `[j]`—no `i`. Th
 What you just did—comparing coordinate sets, finding the missing ones—is exactly what can be done by static analysis. Let's give this operation a name, because you will see it again and again:
 
 ```
-paths(X, Out) = coordinates(Out) ∖ coordinates(X)
+paths(X, Out) = coordinates(Out) \ coordinates(X)
 ```
 
 `paths(bias, out)` is the set of coordinates in `out` that `bias` is silent on. These are the broadcast coordinates. In the backward pass, they become the reduction coordinates—the coordinates the gradient sums over. Call it the path set. Remember it.

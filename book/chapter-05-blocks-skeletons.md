@@ -225,6 +225,8 @@ Now here is the same skeleton in Einlang:
 
 The skeleton is visible in the table because the coordinates are named. Each column says *what*, not *where*. The reduction column names the consumed coordinates. The broadcast column names the parameters and their coordinate sets—the difference between the output set and the parameter set is the broadcast claim. This is coordinate set subtraction from Chapter 2, applied to four functions at once. The survivors column names what's left.
 
+You might wonder: how does the compiler know that `mean[f]` reduces over `f` and not over `..batch`? The answer is that `f` is a named coordinate — the bracket says `mean[f]`, not `mean[..batch]`. Packs can appear in reduction brackets too (`mean[..spatial]`), but the compiler resolves them to concrete coordinates the same way it resolves them in signatures: from the anchor. The reduction bracket is coordinate flow. The pack is a group. The group resolves to its members. The reduction consumes them all.
+
 Here is the same pattern drawn instead of tabulated:
 
 ![One skeleton, four names. The same reduce–broadcast–elementwise–scale pipeline, differing only in which coordinates fill each slot.](figures/normalization_skeleton.svg)
@@ -239,7 +241,7 @@ This is abstraction: recognizing a pattern, naming it, and reusing it. The patte
 
 The discovery exercise—comparing four implementations, finding their shared structure—is what you do every time you read unfamiliar tensor code. Names carry the structure. Positions hide it.
 
-**Derive it yourself: Spot the broadcast set.** Take the LayerNorm row from the table above. The output has `{..batch, f}`. `gamma[f]` has `{f}`. What is the broadcast set for `gamma`? Compute it: `{..batch, f} ∖ {f} = {..batch}`. `gamma` broadcasts over every batch dimension. Now take GroupNorm. `gamma[g, c_in_group]` has `{g, c_in_group}`. The output has `{..batch, g, c_in_group, ..spatial}`. Broadcast set: `{..batch, ..spatial}`. `gamma` is silent on batch and spatial—exactly as intended. Try the same for InstanceNorm: what does `beta[c]` broadcast over? The answer is in the set subtraction. The table above tells you the answer if you're stuck. But do the subtraction yourself first. The subtraction is the check.
+**Derive it yourself: Spot the broadcast set.** Take the LayerNorm row from the table above. The output has `{..batch, f}`. `gamma[f]` has `{f}`. What is the broadcast set for `gamma`? Compute it: `{..batch, f} \ {f} = {..batch}`. `gamma` broadcasts over every batch dimension. Now take GroupNorm. `gamma[g, c_in_group]` has `{g, c_in_group}`. The output has `{..batch, g, c_in_group, ..spatial}`. Broadcast set: `{..batch, ..spatial}`. `gamma` is silent on batch and spatial—exactly as intended. Try the same for InstanceNorm: what does `beta[c]` broadcast over? The answer is in the set subtraction. The table above tells you the answer if you're stuck. But do the subtraction yourself first. The subtraction is the check.
 
 Now let's put this claim to the test. Here is a real GroupNorm implementation in PyTorch:
 
@@ -416,6 +418,8 @@ Three cases capture the entire system:
 3. `let y[i, j] = x[j, i];` — same names, swapped positions. `y` has `[i, j]`. This is a transpose. Not `x.transpose(0, 1)`. Not `x.permute(1, 0)`. Just `y[i, j] = x[j, i]`. The names carry the permutation. No position counting needed.
 
 That's it. Three cases. Every coordinate flow in every Einlang program reduces to these three. The compiler traces them mechanically. You can trace them by hand. The names are the thread.
+
+Reduction is the only consumer. Declaration is the only producer. Everything else is a pipe. Coordinates flow forward from declaration to consumption. Names are not inferred from runtime shapes. They are propagated from source declarations. A name, once declared, survives every operation that does not explicitly consume it.
 
 ---
 

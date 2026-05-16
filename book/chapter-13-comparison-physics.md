@@ -245,6 +245,20 @@ In Einlang, the coordinate name is the anchor. `mean[feature]` stays `mean[featu
 
 ---
 
+Here is a PDE stencil. Before reading the commentary, find the coordinate that carries recurrence:
+
+```
+let u[t, i, j] = u[t-1, i, j]
+    + c * (u[t-1, i+1, j] - 2.0 * u[t-1, i, j] + u[t-1, i-1, j])
+    + c * (u[t-1, i, j+1] - 2.0 * u[t-1, i, j] + u[t-1, i, j-1]);
+```
+
+`t` only appears as `t-1` on the right — never as `t+1`. The recurrence arrow constrains `t`. The compiler enforces that `t+1` cannot appear on the right-hand side of a definition for `t`. This expression passes.
+
+Now imagine a colleague accidentally swaps `i` and `j` in the second line — writes `u[t-1, j+1, i]` instead of `u[t-1, i, j+1]`. In a positional `u[t-1, :, :]`, the swap is invisible — the code runs, produces numbers, the contour plot looks right. But the x-derivative and y-derivative have been exchanged. The physics is wrong. In the named version, `i` and `j` are different names. `u[t-1, j+1, i]` puts a `j+1` expression where `i` is declared — the coordinate mismatch is in the source. The stencil doesn't silently swap. The names won't let it.
+
+---
+
 ## Two Notations, One Task
 
 The three comparison chapters end here. A fair assessment requires stating what positional notation does well.

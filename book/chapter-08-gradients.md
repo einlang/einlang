@@ -81,7 +81,7 @@ Given a forward expression and a target operand, derive the gradient:
 4. **Multiply by the local derivative.** For elementwise multiplication inside the sum, the local derivative of `A[i, k] * B[k, j]` with respect to `A[i, k]` is `B[k, j]`.
 5. **Sum the routes.** The path coordinate—the coordinate in `C` but not in `A`—is `j`. Sum over it.
 
-> **Path coordinate.** A coordinate is a *path coordinate* for an operand if it appears in the output of a forward computation but does not appear in that operand's index pattern. The gradient with respect to that operand sums over all of its path coordinates. Formally: `paths(operand, output) = {coordinates in output} ∖ {coordinates in operand}`.
+> **Path coordinate.** A coordinate is a *path coordinate* for an operand if it appears in the output of a forward computation but does not appear in that operand's index pattern. The gradient with respect to that operand sums over all of its path coordinates. Formally: `paths(operand, output) = {coordinates in output} \ {coordinates in operand}`.
 
 The result: `dA[i, k] = sum[j](dC[i, j] * B[k, j])`. No calculus memorization. No transpose rules. Just coordinate accounting.
 
@@ -105,7 +105,7 @@ Given `d_out[i, j]`, find `d_bias[j]`. What coordinates does the output have? `{
 
 Result: `d_bias[j] = sum[i](d_out[i, j])`. The broadcast coordinate `i` becomes the reduction coordinate. The Inversion Rule, mechanically applied.
 
-Verify with coordinate set subtraction alone. Forward: `out[i, j] = A[i, j] + bias[j]`. `out` has `{i, j}`, `bias` has `{j}`. Set difference: `{i}`. Sum over `{i}`. `d_bias[j] = sum[i](d_out[i, j])`. ✓
+Verify with coordinate set subtraction alone. Forward: `out[i, j] = A[i, j] + bias[j]`. `out` has `{i, j}`, `bias` has `{j}`. Set difference: `{i}`. Sum over `{i}`. `d_bias[j] = sum[i](d_out[i, j])`.
 
 The pattern: the gradient sums over whatever is in the output but not in the operand. Five steps. No calculus memorization. The coordinate sets tell you what to sum over. The forward expression tells you what to multiply by.
 
@@ -299,9 +299,9 @@ This is the pullback rule as coordinate accounting. No transpose rules memorized
 In a single equation—carry this with you:
 
 ```
-dA = Σ_{paths(A, C)}  dC · ∂(forward)/∂A
+dA = Σ_{paths(A, C)}  dC · d(forward)/dA
 
-where paths(A, C) = {coordinates in C} ∖ {coordinates in A}
+where paths(A, C) = {coordinates in C} \ {coordinates in A}
 ```
 
 `paths(A, C)` is the set of coordinates in the output `C` that are NOT in the operand `A`. Sum over them. Multiply by the local derivative. Done. It is the formula behind every gradient derived from a tensor expression. The rest is accounting.

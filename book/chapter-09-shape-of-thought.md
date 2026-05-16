@@ -179,7 +179,7 @@ Here is softmax, in five simultaneous forms:
 ```
  max[class](logits[i, class])                          ← what you wrote
  (reduction max (class) (index logits (i class)))     ← what the compiler sees
- class: (range 0 n_class), reduction axis, Rule 2 ✓   ← what the compiler derives
+ class: (range 0 n_class), reduction axis, Rule 2      ← what the compiler derives
  class → axis=1, reduction                                ← how the name becomes a number
  np.max(logits, axis=1, keepdims=True)                 ← what executes (conceptually)
 ```

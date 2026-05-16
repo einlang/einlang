@@ -361,4 +361,4 @@ Each check is a mechanical verification. You won't perform these steps by hand. 
 
 ---
 
-Coordinate-aware functions compose into reusable skeletons—patterns that are identical across softmax, LayerNorm, RMSNorm, and GroupNorm, differing only in which coordinates play which roles.
+Coordinate-aware functions compose. Chapter 5 extracts their shared skeleton—the pattern that makes LayerNorm, RMSNorm, GroupNorm, and InstanceNorm the same function with different coordinates. But first, Chapter 4 asks a more immediate question: when you write a broadcast, you are making a claim. What is the claim? And who checks it? The answer turns every broadcast into a self-audit.
