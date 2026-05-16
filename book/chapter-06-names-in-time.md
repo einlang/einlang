@@ -19,6 +19,10 @@ A time coordinate is a novel. Page 50 can reference what happened on page 49. It
 
 Everything you have done so far assumed all positions exist at once. Now meet the coordinate that doesn't.
 
+![A spatial coordinate is a bookshelf—any shelf, any order. A temporal coordinate is a novel—page n can only read page n−1.](figures/spatial_vs_temporal.svg)
+
+On the left, every shelf is open. A cell reads from above, from the left, from the diagonal—any computed neighbor, in any order. On the right, page `t-1` is fully readable. Page `t+1` does not exist. The recurrence arrow constrains one coordinate and one coordinate only. Every `i` at `t-1` remains accessible. The rest of the grid is still a bookshelf. The compiler enforces the arrow. `t+1` on the right-hand side of a definition for `t` is a static error.
+
 ---
 
 ## Not All Axes Are the Same
@@ -193,7 +197,7 @@ It depends on whether the compiler infers the iteration direction from the refer
 
 The Einlang rule is conservative: without an explicit reverse-direction declaration, forward references are rejected. `t+1` with `t in 0..T` is an error. The programmer must write `t in T..0` (or equivalent syntax) to declare the reverse iteration. The tool prevents the ambiguous case by default.
 
-This is the same design choice as Chapter 3's Coordinate Contract and Chapter 4's Pack Disambiguation: when a reference pattern is ambiguous, the language requires the programmer to disambiguate. Default deny. Explicit allow.
+This is the same design choice as Chapter 3's Coordinate Contract and Chapter 5's Pack Resolution: when a reference pattern is ambiguous, the language requires the programmer to disambiguate. Default deny. Explicit allow.
 
 ---
 
@@ -232,6 +236,8 @@ The same recurrence declaration leads to different storage strategies depending 
 In all three scenarios, the declaration is the same: `let u[t in 0..T, i] = f(u[t-1, i])`. The difference is in what downstream code does with `u`. The compiler reads the downstream uses and derives the storage strategy. No annotations. No `@roll_window(3)`. No `@materialize`. The structural fact is in the code. The compiler derives the engineering consequence.
 
 The recurrence body records the dependency. The downstream uses record the observation pattern. The compiler connects them.
+
+Take a moment. The same declaration `let u[t in 0..T, i] = f(u[t-1, i])` can compile to two arrays or a full trajectory tensor. The difference is not in the declaration—it is in what downstream code asks for. The compiler reads the code the way a reader reads a story: forward to understand what each step depends on, backward to determine what must be kept. No annotations. No `@roll_window`. The structural fact is in the code. The compiler derives the engineering consequence.
 
 ---
 

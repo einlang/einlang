@@ -68,7 +68,7 @@ You probably just looked at the bracket after `bias`. It says `[j]`—no `i`. Th
 What you just did—comparing coordinate sets, finding the missing ones—is exactly what can be done by static analysis. Let's give this operation a name, because you will see it again and again:
 
 ```
-paths(X, Out) = coordinates(Out) ∖ coordinates(X)
+paths(X, Out) = coordinates(Out) \ coordinates(X)
 ```
 
 `paths(bias, out)` is the set of coordinates in `out` that `bias` is silent on. These are the broadcast coordinates. In the backward pass, they become the reduction coordinates—the coordinates the gradient sums over. Call it the path set. Remember it.
@@ -149,6 +149,15 @@ let total = sum[i](data[i]);
 
 Reduction and broadcasting are the same megaphone, pointed in opposite directions. Broadcasting says "I am silent on `i`—copy me." Reduction says "I am speaking on `i`—consume me."
 
+**Draw the megaphone.** For each expression below, determine which way the megaphone points. If the megaphone points AT a coordinate, that coordinate is being consumed (reduction). If the megaphone points AWAY from a coordinate, the value is being copied along it (broadcast). If the megaphone is quiet—the coordinate appears in the brackets without a `sum`—the value speaks on that coordinate normally.
+
+1. `let out[i, j] = A[i, j] + bias[j];` — what does `bias`'s megaphone do on `i`? On `j`?
+2. `let total = sum[k](data[k]);` — where is the megaphone pointing? What happens to `k`?
+3. `let col_max[j] = max[i](matrix[i, j]);` — two coordinates. Which one gets consumed? Which one survives?
+4. `let out[b, c, h, w] = x[b, c, h, w] + scale[c, w];` — `scale` has two coordinates but the output has four. Which coordinates does `scale` speak on, and which is it silent on?
+
+The answers are not the point. The point is that you can answer all four questions by looking at the brackets, without knowing the shapes. Broadcasting is silence. Reduction is speech. The bracket tells you which is which.
+
 ---
 
 ## Rectangular Declarations
@@ -175,6 +184,12 @@ let total = sum[i](data[i]);
 
 `sum[i](...)` says: for every value of `i`, evaluate the body `data[i]`, and sum the results. The coordinate `i` is introduced by the `sum`, used in the body, and consumed by the reduction. It does not appear in `total`—`total` is a scalar.
 
+Here is a subtlety that matters later. The `i` in `sum[i](data[i])` is a **local index variable**, not a coordinate identity. If `data` was declared as `let data[k in 0..5] = ...`, then `sum[i](data[i])` still works—`i` is just the name you chose for the loop variable inside this reduction. It does not need to match the name `data` was declared with. `sum[k](data[k])`, `sum[i](data[i])`, `sum[q](data[q])` are all equivalent.
+
+You can even omit the brackets on the tensor entirely: `sum[i](data)`. No `[i]` on `data`—the compiler knows `data` has one coordinate and `sum[i]` consumes it. This is the **implicit** form of Einstein access. The explicit form (`data[i]`) and the implicit form (`data`) are both legal inside a reduction body. The index variables belong to the expression, not to the tensor.
+
+This is different from the **rectangular access** notation used in coordinate-aware functions. When you write `x[..batch, class]` inside a function body, `class` is not a local variable—it must match a coordinate that actually exists on `x`. Einstein index variables are scoped to the reduction body. Rectangular coordinates are scoped to the tensor's type. The distinction is invisible in simple examples, but it becomes the foundation of the type-checking system in Chapters 3 through 5.
+
 The four reduction operations are `sum`, `max`, `min`, and `prod`. Each has an identity element: `sum` starts from `0`, `prod` from `1`, `max` from negative infinity, `min` from positive infinity.
 
 A reduction can leave some coordinates intact—producing a tensor rather than a scalar:
@@ -187,6 +202,24 @@ let col_sums[j] = sum[i](matrix[i, j]);
 These two lines produce the same output shape (a 1D tensor of length equal to the surviving coordinate). But they mean completely different things. `row_sums[i]` sums over columns, leaving rows. `col_sums[j]` sums over rows, leaving columns. The difference is entirely in the bracket after `sum`—one character, carrying the full semantic weight of the operation.
 
 In a positional API, these would be `matrix.sum(dim=1)` and `matrix.sum(dim=0)`. The reader must remember which position is rows and which is columns. The code does not help.
+
+The same pattern scales to matrix multiplication. Here is the full picture:
+
+![A row of A and a column of B converge at a single element of C. The coordinate ledger on the right records survivors and consumed — the same two facts the five-step procedure extracts.](figures/matmul_coords.svg)
+
+A row of A and a column of B share `k`. The sum consumes it. A single element of C remains. The ledger on the right records the transaction: survivors and consumed. Those are the only two facts any reduction ever produces. The diagram is the ledger, drawn instead of tabulated. The five-step procedure is the ledger, written instead of drawn. They are the same check.
+
+Beyond the four numeric reductions, two more complete the set: `all` and `any`. They are boolean quantifiers. `all[i](x[i] > 0)` asks whether every position along `i` is positive. `any[i](x[i] > 0)` asks whether at least one is. The coordinate `i` is the quantified variable—exactly as in mathematical notation. The quantifier reduces over `i` and produces a boolean scalar. `i` is consumed.
+
+Multi-coordinate quantifiers work the same way:
+
+```rust
+let is_symmetric = all[i, j](matrix[i, j] == matrix[j, i]);
+```
+
+`all[i, j]` is the universal quantifier over two coordinates: for all `i` and `j`, check that `matrix[i, j]` equals `matrix[j, i]`. The coordinates `i` and `j` are the bound variables. Both are consumed. The result is a single boolean.
+
+Quantifiers are reductions. Their identity elements are `true` (for `all`) and `false` (for `any`). They compose with the same coordinate set subtraction, the same broadcasting rules, and the same gradient machinery as `sum` and `max`. The bracket names the quantified variable. The notation mirrors the mathematics. The distance is zero.
 
 ---
 
@@ -217,8 +250,6 @@ This takes five seconds. It catches the bug where `sum[class]` silently became `
 
 ---
 
----
-
 ## Broadcasting: The Explicit Omission
 
 Broadcasting is the inverse of reduction. A reduction consumes a coordinate. A broadcast copies along one.
@@ -235,7 +266,15 @@ Compare this to the implicit version: `A + bias`. The shapes match. The broadcas
 
 This is the principle of explicit omission: **if a term is independent of a coordinate, the indexing should show it.** When the indexing shows it, the reader can audit it. When the indexing hides it, the reader must guess.
 
-The verification follows a mechanical procedure. Take the output coordinate set. Subtract each operand's coordinate set. The difference for each operand is the set of coordinates that operand broadcasts over:
+Now look at a pair of broadcasts side by side:
+
+![Both produce out[i,j]. Identical shape, indistinguishable by shape. The coordinate name is the semantics.](figures/broadcasting.svg)
+
+On the left, `bias[j]` omits `i` — the value repeats for each row. On the right, `bias[i]` omits `j` — the value repeats for each column. Both produce `out[i, j]`. The output shape is the same. If you saw only the shape, you could not tell which broadcast happened. The coordinate name in the bracket is the only thing that records the difference.
+
+The verification that follows formalizes what the eye just saw:
+
+Take the output coordinate set. Subtract each operand's coordinate set. The difference for each operand is the set of coordinates that operand broadcasts over:
 
 ```
 Output coordinates: {i, j}

@@ -153,6 +153,31 @@ parameter-side signature, and the return type may reuse them. The rule is
 deliberately narrow: it applies to the function's final reduction expression,
 where the return signature is already a checked coordinate contract.
 
+### How Rest Packs Are Resolved
+
+In a coordinate-aware function, rest packs do not need to appear alone in
+any array access. The coordinate parameter is the anchor:
+
+```rust
+fn normalize[coord](x: [f32; ..left, coord, ..right]) -> [f32; ..left, coord, ..right] {
+    let m[..left, ..right] = max[coord](x[..left, coord, ..right]);
+    let centered[..left, coord, ..right] = x[..left, coord, ..right] - m[..left, ..right];
+    centered[..left, coord, ..right] / (scale[..left, ..right] ** 0.5 + 1e-5)
+}
+```
+
+Here `..left` and `..right` never appear alone — they always occur together
+with `coord` or with each other. The compiler resolves them by the position
+of `coord` in the parameter type signature: `..left` binds to everything
+before `coord`, `..right` to everything after. No solo appearance is needed.
+
+The older determination-first rule — each rest pack must appear alone in at
+least one array access before it can appear with others — applies only when
+rest packs are adjacent with no named coordinate between them (for example,
+`result[..batch, ..spatial, c]` with no anchor). In that case the packs
+cannot be separated by position alone; the caller must group them explicitly
+or the compiler needs a solo-use to measure each one.
+
 ## Same Name Means Unify
 
 Within one expression or one function instance, the same coordinate name is a

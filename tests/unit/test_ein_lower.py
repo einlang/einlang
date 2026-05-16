@@ -600,3 +600,96 @@ class TestEL:
         # C[i] = (i * 2) + 1
         expected = np.array([1, 3, 5, 7, 9])
         np.testing.assert_array_equal(C, expected)
+
+    # ── Einstein implicit vs explicit access ──
+    # Einstein index variables (i, j, k) are LOCAL loop variables.
+    # They do NOT need to match the tensor's declared coordinate name.
+    # This is distinct from rectangular access (x[..batch, class]) where
+    # coordinate names ARE part of the tensor's type-level identity.
+
+    def test_einstein_implicit_1d(self, compiler, runtime):
+        """sum[i](x) — implicit access, x without brackets."""
+        source = """
+        let x[i in 0..5] = [1.0, 2.0, 3.0, 4.0, 5.0][i];
+        let y = sum[i](x);
+        y;
+        """
+        result = compile_and_execute(source, compiler, runtime, source_file="<test>")
+        assert result.success, f"{result.get_errors()}"
+        assert result.outputs["y"] == 15.0
+
+    def test_einstein_explicit_different_name_1d(self, compiler, runtime):
+        """sum[j](x[j]) with x's coord named i — local var j, no match needed."""
+        source = """
+        let x[i in 0..3] = [1.0, 2.0, 3.0][i];
+        let z = sum[j](x[j]);
+        z;
+        """
+        result = compile_and_execute(source, compiler, runtime, source_file="<test>")
+        assert result.success, f"{result.get_errors()}"
+        assert result.outputs["z"] == 6.0
+
+    def test_einstein_explicit_same_name_1d(self, compiler, runtime):
+        """sum[i](x[i]) with same name — still local, not identity-checked."""
+        source = """
+        let x[i in 0..3] = [1.0, 2.0, 3.0][i];
+        let z = sum[i](x[i]);
+        z;
+        """
+        result = compile_and_execute(source, compiler, runtime, source_file="<test>")
+        assert result.success, f"{result.get_errors()}"
+        assert result.outputs["z"] == 6.0
+
+    def test_einstein_implicit_2d_reduce_one(self, compiler, runtime):
+        """sum[b](x) 2D — implicit access, survive a from LHS context."""
+        source = """
+        let x[a in 0..2, b in 0..3] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0][a * 3 + b];
+        let row[a] = sum[b](x);
+        let p0 = row[0];
+        let p1 = row[1];
+        (p0, p1);
+        """
+        result = compile_and_execute(source, compiler, runtime, source_file="<test>")
+        assert result.success, f"{result.get_errors()}"
+        assert float(np.asarray(result.outputs["p0"]).item()) == 6.0
+        assert float(np.asarray(result.outputs["p1"]).item()) == 15.0
+
+    def test_einstein_explicit_rename_2d(self, compiler, runtime):
+        """sum[p,q](x[p,q]) with x having coords (a,b) — p,q are local."""
+        source = """
+        let x[a in 0..2, b in 0..3] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0][a * 3 + b];
+        let y = sum[p, q](x[p, q]);
+        y;
+        """
+        result = compile_and_execute(source, compiler, runtime, source_file="<test>")
+        assert result.success, f"{result.get_errors()}"
+        assert result.outputs["y"] == 21.0
+
+    def test_einstein_explicit_partial_reduce_rename_2d(self, compiler, runtime):
+        """sum[q](x[a,q]) — only sum over 2nd dim, rename b→q locally."""
+        source = """
+        let x[a in 0..2, b in 0..3] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0][a * 3 + b];
+        let row = sum[q](x[a, q]);
+        let p0 = row[0];
+        let p1 = row[1];
+        (p0, p1);
+        """
+        result = compile_and_execute(source, compiler, runtime, source_file="<test>")
+        assert result.success, f"{result.get_errors()}"
+        assert float(np.asarray(result.outputs["p0"]).item()) == 6.0
+        assert float(np.asarray(result.outputs["p1"]).item()) == 15.0
+
+    def test_einstein_explicit_matmul(self, compiler, runtime):
+        """sum[k](A[i,k] * B[k,j]) — classic matmul, k is local."""
+        source = """
+        let A[i in 0..2, k in 0..3] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0][i * 3 + k];
+        let B[k in 0..3, j in 0..2] = [7.0, 8.0, 9.0, 10.0, 11.0, 12.0][k * 2 + j];
+        let C[i, j] = sum[k](A[i, k] * B[k, j]);
+        let p00 = C[0, 0];
+        let p11 = C[1, 1];
+        (p00, p11);
+        """
+        result = compile_and_execute(source, compiler, runtime, source_file="<test>")
+        assert result.success, f"{result.get_errors()}"
+        assert float(np.asarray(result.outputs["p00"]).item()) == 58.0
+        assert float(np.asarray(result.outputs["p11"]).item()) == 154.0

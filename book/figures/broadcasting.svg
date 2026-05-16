@@ -9,9 +9,9 @@
   text { font-family: "Latin Modern Roman", "STIX Two Math", "Times New Roman", serif; }
   .title { font-size: 12px; fill: #262626; font-weight: bold; }
   .body  { font-size: 10px; fill: #262626; }
-  .small { font-size: 8.5px; fill: #262626; font-style: italic; }
+  .small { font-size: 8.5px; fill: #262626; }
   .accent{ font-size: 8.5px; fill: #1f6d7a; font-weight: bold; }
-  .label { font-size: 8px; fill: #5c5c5c; font-style: italic; }
+  .label { font-size: 8px; fill: #5c5c5c; }
   .bf    { font-weight: bold; }
   .it    { font-style: italic; }
 </style>
@@ -21,15 +21,15 @@
   <rect x="0" y="0" width="116" height="86" fill="#ffffff" stroke="#262626" stroke-width="0.8"/>
   <text x="58" y="48" class="body" text-anchor="middle"><tspan class="bf">A</tspan>[<tspan class="it">i</tspan>, <tspan class="it">j</tspan>]</text>
 
-  <text x="58" y="100" class="label" text-anchor="middle">j</text>
+  <text x="58" y="-8" class="label" text-anchor="middle">j</text>
   <text x="-18" y="43" class="label" text-anchor="end" transform="rotate(-90,-18,43)">i</text>
 
   <rect x="0" y="104" width="116" height="20" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>
   <text x="58" y="118" class="accent" text-anchor="middle"><tspan class="bf">bias</tspan>[<tspan class="it">j</tspan>]</text>
 
-  <line x1="29" y1="104" x2="29" y2="4" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-  <line x1="58" y1="104" x2="58" y2="4" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-  <line x1="87" y1="104" x2="87" y2="4" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+  <line x1="29" y1="104" x2="29" y2="0" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+  <line x1="58" y1="104" x2="58" y2="0" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+  <line x1="87" y1="104" x2="87" y2="0" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
 
   <text x="58" y="140" class="small" text-anchor="middle">repeats for each i</text>
 </g>
@@ -41,7 +41,7 @@
   <rect x="0" y="0" width="116" height="86" fill="#ffffff" stroke="#262626" stroke-width="0.8"/>
   <text x="58" y="48" class="body" text-anchor="middle"><tspan class="bf">A</tspan>[<tspan class="it">i</tspan>, <tspan class="it">j</tspan>]</text>
 
-  <text x="58" y="100" class="label" text-anchor="middle">j</text>
+  <text x="58" y="-8" class="label" text-anchor="middle">j</text>
   <text x="-18" y="43" class="label" text-anchor="end" transform="rotate(-90,-18,43)">i</text>
 
   <rect x="-44" y="0" width="20" height="86" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>

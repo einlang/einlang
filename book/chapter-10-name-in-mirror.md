@@ -13,17 +13,19 @@ title: "Chapter 10 · The Name in the Mirror"
 
 ---
 
-The compiler checked your program. Five rules. Zero errors. Every name matches its declaration. Every broadcast is recorded. Every contract is satisfied.
+Your program passed all five rules. You run it. It crashes.
 
-Now the compiler has to actually run your program. On a machine that has never heard of `class` or `batch`. "Run" means turning `class` into `axis=1`, `batch` into a loop, and `..spatial` into however many integers the spatial dimensions span.
+`index out of bounds: 32`
 
-Before it can do that, it must answer three questions about every expression in the tree:
+The index `i` was declared. The checker saw it. But the checker only asks "is this name declared?"—not "what values can it take?" The declaration said `i in 0..N`, and the compiler never computed `N`. It had no machinery to compute `N`. The name was verified. The range was not.
+
+Now the compiler has to actually answer the question it skipped: what does each name *imply*? Before it can lower `class` into `axis=1` or `batch` into a loop, it must answer three questions about every expression in the tree:
 
 1. **Range.** `i` was declared — but what values can it take? 0 to 10? 0 to `batch_size`?
 2. **Shape.** Which coordinates survive? What is the output shape?
 3. **Type.** Is this expression `f32` or `f64`? Integer or float?
 
-The 15-line checker asks "is this name declared?" These three questions ask "what does this name imply?" The checker verifies. The analyzer infers. Together they form the complete compiler frontend—one that can take a program without a single runtime value and determine the shape of every tensor in it.
+The 15-line checker asks "is this name declared?" These three questions ask "what does this name imply?" The checker verifies. The analyzer infers. Together they form the complete compiler frontend—one that can take a program without a single runtime value and determine the shape of every tensor in it, so `i in 0..32` is known before `data[i]` is ever evaluated.
 
 ---
 
@@ -222,6 +224,22 @@ The solver is not a general-purpose theorem prover. It is a pattern matcher for 
 
 ---
 
+Before moving on, trace the inference for three more cases. `data` has shape `[N]`.
+
+`let result[i] = data[i] + data[i + 2];`
+
+Two accesses. `data[i]` says `i < N`. `data[i + 2]` says `i + 2 < N`, so `i < N - 2`. Intersection: `i` stops at `N - 2`. The compiler subtracts two from the bound without being asked. You did the same thing in your head just now.
+
+`let result[i] = data[2 * i] + data[2 * i + 1];`
+
+`2*i < N` and `2*i + 1 < N`. The second is tighter. Intersection: `i < ceil((N-1)/2)`. The compiler divides by two, takes the ceiling, and infers the bound. You didn't run the program. You looked at the index expressions and the shape.
+
+`let result[i] = data[i] + other[3 * i];` — `other` has shape `[M]`.
+
+Two different arrays, two different shapes. `data[i]` gives `i < N`. `other[3*i]` gives `3*i < M` → `i < ceil(M/3)`. Intersection: `i < min(N, ceil(M/3))`. The bound is the tighter of two constraints from two different tensors. The compiler traces the variable through every access, reads every shape, intersects. No annotation. No execution. The names and shapes carry the constraints.
+
+---
+
 ## Runtime-Dependent Coordinates
 
 Everything so far assumes ranges are known at compile time. Not all are.
@@ -290,6 +308,10 @@ The programmer did not choose the strategy. The compiler did. The programmer wro
 
 This is lowering. Names go in. Execution comes out.
 
+Three doors, one compiler. The programmer never writes `axis=0` or `axis=-1`. The programmer never chooses between a vectorized loop and a scalar loop. The programmer writes coordinates. The compiler reads them, classifies them, and picks the door. Static coordinates become fused dimensions. Dynamic coordinates become guarded loops. Ragged coordinates become runtime bounds. The same name `seq` can be static in one function and ragged in another. The compiler handles each case per operation, not per program.
+
+The three doors are not three compiler flags. They are three consequences of one fact: the coordinate `seq` has a range, and the range is known or unknown at compile time. The compiler checks that fact during range inference. The execution strategy falls out. Correctness first. Performance follows.
+
 ---
 
 ## What the Mirror Shows
@@ -354,6 +376,50 @@ for b_idx in range(batch_size):
 Same names. Same checks. Different execution strategy. The programmer didn't choose the loop. The coordinate `batch` being runtime-dependent chose it.
 
 This is the compiler's contract with the programmer: *name the coordinates, declare the shapes, write the computation. The compiler checks consistency, infers ranges, derives shapes, propagates types, proves bounds, and chooses the execution strategy. Names go in. Correct execution comes out.*
+
+---
+
+## Lowering: The Algorithm
+
+Lowering is the final pass. Names have been checked, ranges inferred, shapes derived, types propagated, bounds proved. What remains: translate every named operation into an operation on integers that a numerical backend can execute.
+
+The algorithm walks the IR tree one more time. At each node, it asks: given the axis assignments for this tensor, what integer operation does this named operation become?
+
+**Step 1: Assign positions.** Every tensor in the IR carries its layout — an ordered list of coordinate names, built during shape analysis. The lowering pass reads each layout and numbers the coordinates left to right:
+
+```
+logits layout: [batch, class]  →  batch→0, class→1
+```
+
+This mapping is local to each tensor. If a different tensor has layout `[class, batch]`, its mapping is `class→0, batch→1`. The name is the invariant. The position is per-tensor.
+
+**Step 2: Lower index expressions.** `(index logits (batch class))` becomes: read `logits` at all positions — axis 0 and axis 1. In NumPy, the slice `[:, :]`. The compiler doesn't emit slices for full reads; it emits the tensor name. The index node confirms that every requested coordinate exists and records the access pattern for later steps.
+
+**Step 3: Lower reductions.** `(reduction sum (class) body)` becomes `np.sum(body, axis=class_pos)`. The compiler looks up `class` in the body tensor's layout. If the body has layout `[batch, class]`, `class` is at position 1. The reduction becomes `axis=1`. If `keepdims` is needed — because a downstream operation expects `class` to still exist as a dimension of size 1 — the compiler adds it. The decision is not a flag in the source. It is a requirement of the coordinate structure: if a later operation reads `class` from the reduction's output, the reduction must preserve the dimension. If nothing downstream reads `class`, `keepdims` is omitted.
+
+**Step 4: Lower broadcasts.** At a binary operation like `logits - max_result`, the compiler compares the operand layouts. `logits` has `[batch, class]`. `max_result` has `[batch]` — `class` was consumed by the reduction that produced it. The coordinate sets differ: `{class}` is missing. The compiler records the broadcast. In the generated code, the broadcast becomes NumPy's automatic shape broadcasting — `logits` has shape `(B, C)`, `max_result` has shape `(B,)`, NumPy broadcasts `(B,) → (B, C)` automatically. If the missing coordinate is not the last one, the compiler inserts a `reshape` or `expand_dims` to align the dimensions.
+
+The compiler does not rely on NumPy's broadcasting rules. It relies on its own coordinate set subtraction — the same subtraction from Chapter 2. The coordinate sets tell it which axes are missing. NumPy's broadcasting is the implementation mechanism, not the specification. The specification is the coordinate sets.
+
+**Step 5: Lower index arithmetic.** `input[b, ic, oh + kh, ow + kw]` becomes a slice with computed offsets. The compiler emits loops over `kh` and `kw` — the reduction coordinates — and computes the input indices as `oh + kh`, `ow + kw` within each loop iteration. If the ranges are static and small, the loop is unrolled. If they are dynamic, the loop is emitted as written. The index expression `oh + kh` survives lowering as an expression, not as a precomputed offset. The generated code computes it at runtime with the correct bounds.
+
+**Step 6: Emit.** Walk the lowered tree. Emit NumPy operations for vectorized coordinates. Emit Python `for` loops for ragged coordinates. Emit `if` guards for `where` clauses. The emission is a recursive function that switches on the node type and writes the corresponding Python text.
+
+The six steps together are:
+
+```
+lower(ir_node, layout_map):
+  match ir_node:
+    Index(tensor, coords)     → record access, return tensor name
+    Reduction(op, c, body)    → "np.{op}({lower(body)}, axis={layout_map[c]})"
+    BinaryOp(op, left, right) → record broadcast if layouts differ,
+                                  return "{lower(left)} {op} {lower(right)}"
+    LetDecl(name, body)       → "{name} = {lower(body)}"
+```
+
+Four cases. The actual implementation has a few more — `Where`, `If`, function calls — but the structure is the same. Walk the tree. Look up the coordinate's position. Emit the integer.
+
+The lowering pass is the point where names die. After this pass, the IR contains no `class`, no `batch`, no `..spatial`. Every name has become an integer. The integers are correct because the names were checked. The fire is lit. The light is the only trace of the name that remains.
 
 ---
 

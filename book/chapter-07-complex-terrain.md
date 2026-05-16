@@ -13,9 +13,11 @@ title: "Chapter 7 · Complex Terrain"
 
 ---
 
-This chapter is about one phenomenon seen through several lenses: a single coordinate splitting into two roles. `point` becomes `point_i` and `point_j` in a distance matrix. `node` becomes `source_node` and `target_node` in a graph. `sample` becomes `anchor` and `positive` in contrastive learning. The split is the operation. The names record it.
+You have a distance matrix. Shape `(N, N)`. Axis 0 and axis 1 both index over the same set of points. Which one is the source point, and which is the target? The shape does not tell you. The positions do not tell you. If you wrote a comment, the comment tells you—for now, until the comment rots.
 
-Coordinates also carry arithmetic (`oh + kh`), disambiguate indexing patterns, and collide in ways that test whether a notation records intent. Every section in this chapter is a variation on one question: when a coordinate's role is more complex than "this axis exists," does your notation record the complexity—or bury it in shape arithmetic?
+The matrix is square because the same coordinate appears twice, playing two different roles. The coordinate has split. `point` becomes `point_i` and `point_j`. The split is invisible to every positional tool you have. It is visible to the reader only if the notation records which copy is which.
+
+This chapter is about the split—one phenomenon seen through several lenses. Distance matrices, where one coordinate turns into two. Convolution index arithmetic, where coordinates carry formulas (`oh + kh`). Fancy indexing, where coordinate collisions are bugs or features depending on intent. Every section asks the same question: when a coordinate's role is more complex than "this axis exists," does your notation record the complexity—or bury it in shape arithmetic?
 
 ---
 
@@ -205,7 +207,15 @@ let result[i, j] = matrix[idx[i], col_idx[j]];
 
 The difference is in the coordinate names. `k` vs `(i, j)`. One coordinate means pairwise. Two means outer-product. Your colleague reads the code and sees the difference. The code records the intent.
 
-This is the Coordinate Collision Test: when two operations produce the same shape but different semantics, does your notation distinguish them?
+This is the Coordinate Collision Test: when two operations produce the same shape but different semantics, does your notation distinguish them? If the answer is no, the semantics are in your head. If the answer is yes, they are in the code. The distance between those two places is the distance between a bug found in review and a bug found in production.
+
+**Derive it yourself: Collision-proof your notation.** Here are three index-gathering operations. For each one, write both the pairwise and outer-product versions by choosing coordinates. Then check: would a reader see the difference?
+
+1. A lookup table `L` maps `(token, feature)` pairs to values. Gather from it using a list of indices. Write the pairwise version (index `k` selects tokens and features together) and the outer-product version (indices `i` and `j` select tokens and features independently).
+2. A routing operation sends each item `item[i]` to a destination `dest[j]` using a routing table `route`. Write the pairwise version and the outer-product version.
+3. A graph convolution gathers features from neighbors: `adj[node, neighbor]` selects which neighbors to aggregate. Write the pairwise version (each `edge` selects a specific `(node, neighbor)` pair) and the outer-product version.
+
+The answer in each case: one coordinate means pairwise. Two means outer-product. The names carry the semantics. The shape alone—`(N,)` in both cases—carries none.
 
 Every section so far has been about the forward pass. Now: what happens when differentiation runs backward through these same patterns? Index arithmetic in the forward pass becomes inverted index arithmetic in the backward pass. Coordinate splits in the forward pass determine which coordinates get summed in the gradient. The names don't change. The direction does.
 
@@ -237,6 +247,10 @@ This is the convolution transpose—a transposed convolution with flipped kernel
 
 The index arithmetic `ih - kh` and `iw - kw` comes from inverting the forward relationship `oh + kh → ih`. The gradient "reads" from the output at the position where the input contributed. The inversion is mechanical: solve `oh + kh = ih` for `oh`, giving `oh = ih - kh`.
 
+Step back. You just derived a transposed convolution—the gradient of convolution—without memorizing a formula. The steps were: hold one input cell, list every output cell that reads it, invert the index relationship, sum over the path coordinates. These are the same five steps from Chapter 8's pullback procedure. The names `ih`, `iw`, `kh`, `kw`, `oc` stayed constant. The operation changed: forward addition (`oh + kh`) became backward subtraction (`ih - kh`). The structure—coordinate accounting—stayed the same.
+
+This is the central claim of Part II: coordinate names survive composition. They survive function boundaries (Chapter 3), broadcast (Chapter 4), normalization skeletons (Chapter 5), recurrence (Chapter 6), complex index arithmetic (this chapter), and differentiation (Chapter 8). The name is the invariant. The operation around it changes. The name remains.
+
 ---
 
 ## The Boundary
@@ -263,10 +277,47 @@ Named coordinates don't replace autodiff. They give autodiff's output a form tha
 
 ---
 
+## Ranges Are Expressions
+
+Every reduction so far has used a fixed range—`sum[i](data[i])` sums over all of `i`. But the range can be an expression. And the expression can reference another coordinate:
+
+```rust
+let cumsum[i] = sum[k in 0..i+1](data[k]);
+```
+
+The coordinate `i` appears in two places: on the left-hand side (the output index) and in the reduction range `k in 0..i+1`. Each output position `cumsum[0]`, `cumsum[1]`, `cumsum[2]` sums a different prefix of `data`.
+
+This is not a primitive `scan` operation. It is a reduction. The only difference from `sum[k](data[k])` is that the range depends on `i`. The coordinate `i` does double duty—it tells you which output cell you are computing, and it sets the boundary for how many inputs that cell sees.
+
+The same pattern produces every cumulative operation:
+
+```rust
+let cumprod[i] = prod[k in 0..i+1](data[k]);     // cumulative product
+let cummax[i] = max[k in 0..i+1](data[k]);        // cumulative maximum
+let running_avg[i] = sum[k in 0..i+1](data[k]) / (i + 1) as f32;  // running average
+```
+
+And it composes with other coordinates:
+
+```rust
+// Cumulative energy along time, per batch element
+let energy[b, t] = sum[k in 0..t+1](signal[b, k] * signal[b, k]);
+```
+
+`b` is a survivor—it passes through untouched. `t` is the scan axis—it sets the range for `k`. `k` is consumed by the sum. Three coordinates, three roles, one line.
+
+In a positional framework, `np.cumsum(data, axis=0)` gives you the cumulative sum. But `axis=0` tells you nothing about which coordinate is being scanned. If the layout changes—a temporal dimension is inserted, or the batch and time axes swap—`axis=0` silently scans the wrong coordinate. The named version says `cumsum[t]`. The scan is over `t`, regardless of where `t` sits in the layout.
+
+Ranges are expressions. Expressions can reference coordinates. Coordinates can appear in both the output declaration and the reduction range. The three roles—output index, range parameter, consumed variable—are all visible in the notation, all carried by names.
+
+---
+
 Every section in this chapter was a variation on one operation: a single coordinate splitting into two roles.
 
 Distance matrix: `point` becomes `point_i` and `point_j`. Convolution: `oh` and `kh` together index the spatial input — one coordinate from the output, one from the kernel. Depth-to-space: `c_out * 4 + dy * 2 + dx` splits the channel index into a channel group and two sub-pixel offsets. Fancy indexing: `k` appears in both index positions for pairwise, or `i` and `j` are different for outer-product — coordinate-sharing IS the disambiguation. Gather vs. scatter: same split, different direction.
 
 In every case, the split is the operation. The names record it. The positional notation records the mechanic — `unsqueeze`, `permute`, `reshape`, `None`, `:` — and buries the identity. When you read `points[:, None, :] - points[None, :, :]`, you see three dimension manipulations. When you read `points[point_i, dim] - points[point_j, dim]`, you see one split. The difference is the distance between a notation that records what happened and a notation that records why.
+
+A notation that records the split gives the split a name. A notation that records only the mechanic gives the mechanic a position. Positions shift. Names don't.
 
 Index arithmetic was the most complex coordinate manipulation in Part II. Next: what happens when we differentiate through every operation we have built. Chapter 8 applies the Inversion Rule systematically—to reductions, broadcasts, index arithmetic, and recurrence—and shows that the gradient is coordinate set subtraction, applied in reverse. The five-step pullback is the procedure. The coordinate names are the bridge between the forward and backward directions.

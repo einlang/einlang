@@ -55,51 +55,51 @@ Before the syntax reference, a map of how the ideas connect. Each arrow is a dep
 
 ```
 dim=1 bug (Prologue)
-    │
-    ▼
+    |
+    v
 A coordinate has a name, a domain, a position (Ch1)
-    │
-    ├──► Permutation: names survive position changes (Ch1)
-    │
-    ├──► Reduction: the consumed coordinate is named (Ch2)
-    │       │
-    │       └──► Broadcasting: the omitted coordinate is visible (Ch2)
-    │               │
-    │               └──► Inversion Rule: broadcast ↔ reduction dual (Ch2, Ch7)
-    │
-    ├──► Coordinate-aware functions: names as type-level contracts (Ch3)
-    │       │
-    │       ├──► Square Matrix Test: when extents equal, only names differ (Ch3)
-    │       │
-    │       ├──► Pack polymorphism: ..batch absorbs unknown leading dims (Ch4)
-    │       │
-    │       └──► Normalization skeleton: one pattern, four functions (Ch4)
-    │
-    ├──► Recurrence: time as a directional coordinate (Ch5)
-    │       │
-    │       └──► Causality constraint: t-1 valid, t+1 rejected (Ch5)
-    │
-    ├──► Complex terrain: splits, arithmetic, disambiguation (Ch6)
-    │
-    ├──► Differentiation: the pullback reads the forward pass backward (Ch7)
-    │       │
-    │       └──► @fn: custom derivative rules carry coordinate contracts (Ch7)
-    │
-    ├──► Comparisons: same computation, two notations (Ch11–13)
-    │       │
-    │       ├──► Normalization: GroupNorm reshape chain vs named groups (Ch11)
-    │       ├──► Attention: identical PyTorch, distinct Einlang signatures (Ch12)
-    │       └──► Physics: integer field indices vs named field coordinates (Ch13)
-    │
-    └──► Compiler construction (Ch9–10)
-            │
-            ├──► IR: S-expressions preserve every name (Ch9)
-            │
-            ├──► Analysis: range → shape → type, five check rules (Ch9)
-            │
-            └──► Lowering: names → integers, strategies (Ch9–10)
-                    │
-                    └──► Firewood: names burn, heat remains (Ch9)
+    |
+    |---> Permutation: names survive position changes (Ch1)
+    |
+    |---> Reduction: the consumed coordinate is named (Ch2)
+    |       |
+    |       +---> Broadcasting: the omitted coordinate is visible (Ch2)
+    |               |
+    |               +---> Inversion Rule: broadcast <-> reduction dual (Ch2, Ch4)
+    |
+    |---> Coordinate-aware functions: names as type-level contracts (Ch3)
+    |       |
+    |       |---> Square Matrix Test: when extents equal, only names differ (Ch3)
+    |       |
+    |       |---> Pack polymorphism: ..batch absorbs unknown leading dims (Ch5)
+    |       |
+    |       +---> Normalization skeleton: one pattern, four functions (Ch5)
+    |
+    |---> Recurrence: time as a directional coordinate (Ch6)
+    |       |
+    |       +---> Causality constraint: t-1 valid, t+1 rejected (Ch6)
+    |
+    |---> Complex terrain: splits, arithmetic, disambiguation (Ch7)
+    |
+    |---> Differentiation: the pullback reads the forward pass backward (Ch8)
+    |       |
+    |       +---> @fn: custom derivative rules carry coordinate contracts (Ch8)
+    |
+    |---> Comparisons: same computation, two notations (Ch11-13)
+    |       |
+    |       |---> Normalization: GroupNorm reshape chain vs named groups (Ch11)
+    |       |---> Attention: identical PyTorch, distinct Einlang signatures (Ch12)
+    |       +---> Physics: integer field indices vs named field coordinates (Ch13)
+    |
+    +---> Compiler construction (Ch9-10)
+            |
+            |---> IR: S-expressions preserve every name (Ch9)
+            |
+            |---> Analysis: range -> shape -> type, five check rules (Ch9)
+            |
+            +---> Lowering: names -> integers, strategies (Ch9-10)
+                    |
+                    +---> Firewood: names burn, heat remains (Ch9)
 ```
 
 Every path begins at the `dim=1` bug. Every arrow is a question the bug forced us to ask. The map is not the territory—but it shows how the trails connect.
@@ -512,9 +512,9 @@ Every tensor operation can be audited with four questions. They are not Einlang-
 | Question | What it catches | Chapter |
 |---|---|---|
 | Which coordinate is consumed? | Reduction over wrong axis | 2, 8 |
-| Which coordinate is copied along? | Broadcast over wrong axis | 2, 7 |
-| Can you trace a coordinate from source to destination? | Silent permutation/transpose | 1, 6, 9 |
-| Does the backward reduction match the forward broadcast? | Gradient shape mismatch | 7 |
+| Which coordinate is copied along? | Broadcast over wrong axis | 2, 4 |
+| Can you trace a coordinate from source to destination? | Silent permutation/transpose | 1, 5, 10 |
+| Does the backward reduction match the forward broadcast? | Gradient shape mismatch | 8 |
 
 Ask these four questions of any tensor line. The answers tell you whether the notation preserved the facts that correctness depends on.
 

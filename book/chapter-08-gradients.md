@@ -57,9 +57,11 @@ The general rule:
 
 `@loss / @W` has the same shape as `W`. The coordinates on the gradient result are exactly the coordinates on the denominator.
 
+Apply this to matrix multiplication. Here is `C[i,j] = sum[k](A[i,k] * B[k,j])` and its gradient, forward and backward, side by side:
+
 ![Forward and backward: the gradient sums over coordinates in C but not in A](figures/gradient_pullback.svg)
 
-The path from `W` to `loss` eliminates every coordinate that `W` carries. The gradient reconstructs those eliminations in reverse.
+On the left, `sum[k]` consumes `k` in the forward pass. On the right, the gradient `dA[i,k]` sums over `j` — the coordinate in `C` that is not in `A`. The figure reads the same in both directions: forward consumption becomes backward broadcast, forward broadcast becomes backward reduction.
 
 The pullback rule in one sentence: **the gradient sums over the set-difference of coordinates between the output and the operand.** Output has `{i, j}`. Operand `A` has `{i, k}`. Difference: `{j}`. Sum over `j`. The missing coordinate `k` is provided by the other operand `B[k, j]`.
 
@@ -79,7 +81,7 @@ Given a forward expression and a target operand, derive the gradient:
 4. **Multiply by the local derivative.** For elementwise multiplication inside the sum, the local derivative of `A[i, k] * B[k, j]` with respect to `A[i, k]` is `B[k, j]`.
 5. **Sum the routes.** The path coordinate—the coordinate in `C` but not in `A`—is `j`. Sum over it.
 
-> **Path coordinate.** A coordinate is a *path coordinate* for an operand if it appears in the output of a forward computation but does not appear in that operand's index pattern. The gradient with respect to that operand sums over all of its path coordinates. Formally: `paths(operand, output) = {coordinates in output} ∖ {coordinates in operand}`.
+> **Path coordinate.** A coordinate is a *path coordinate* for an operand if it appears in the output of a forward computation but does not appear in that operand's index pattern. The gradient with respect to that operand sums over all of its path coordinates. Formally: `paths(operand, output) = {coordinates in output} \ {coordinates in operand}`.
 
 The result: `dA[i, k] = sum[j](dC[i, j] * B[k, j])`. No calculus memorization. No transpose rules. Just coordinate accounting.
 
@@ -103,7 +105,7 @@ Given `d_out[i, j]`, find `d_bias[j]`. What coordinates does the output have? `{
 
 Result: `d_bias[j] = sum[i](d_out[i, j])`. The broadcast coordinate `i` becomes the reduction coordinate. The Inversion Rule, mechanically applied.
 
-Verify with coordinate set subtraction alone. Forward: `out[i, j] = A[i, j] + bias[j]`. `out` has `{i, j}`, `bias` has `{j}`. Set difference: `{i}`. Sum over `{i}`. `d_bias[j] = sum[i](d_out[i, j])`. ✓
+Verify with coordinate set subtraction alone. Forward: `out[i, j] = A[i, j] + bias[j]`. `out` has `{i, j}`, `bias` has `{j}`. Set difference: `{i}`. Sum over `{i}`. `d_bias[j] = sum[i](d_out[i, j])`.
 
 The pattern: the gradient sums over whatever is in the output but not in the operand. Five steps. No calculus memorization. The coordinate sets tell you what to sum over. The forward expression tells you what to multiply by.
 
@@ -130,6 +132,18 @@ let dW[oc, ic, kh, kw] = sum[b, oh, ow](
 The coordinates `b`, `oh`, `ow` are summed away because they appear in the output but not in `weight`. The coordinates `oc`, `ic`, `kh`, `kw` survive because they *are* `weight`'s coordinates.
 
 Again: set subtraction. The formula is mechanically derivable from the coordinate sets. The same five steps produce the weight gradient with the correct index arithmetic.
+
+**Derive it yourself: The weight gradient.** The linear layer is `z[b, out] = sum[in](x[b, in] * W[out, in]) + bias[out]`. You derived `d_bias[j]` above by coordinate set subtraction. Now derive `dW[out, in]`.
+
+Apply the five steps. The output `z[b, out]` has coordinates `{b, out}`. The operand `W[out, in]` has coordinates `{out, in}`. Path coordinates in the output but not in `W`: `{b}`. But `W` also has `in`, which the output does not have—because `in` was consumed by the forward `sum[in]`. Consumed coordinates survive in the weight gradient. The path coordinates to sum over are `{b}`—the coordinate `W` was silent on in the forward pass.
+
+Before reading further, write the answer. Then verify: does your `dW` have coordinates `{out, in}`? Does the sum go over `{b}`?
+
+```
+dW[out, in] = sum[b](dZ[b, out] * x[b, in])
+```
+
+The sum is over `b`—the coordinate `W` broadcasts over. `in` survives because each `in` position gets an independent gradient contribution through the forward sum. `out` survives because it is shared with the output. Two coordinates survive. One is summed away. The five steps, mechanically applied. You didn't memorize the formula. You read it off the coordinate sets.
 
 ---
 
@@ -196,6 +210,19 @@ let pos_sum = sum[i](data[i]) where data[i] > 0;
 In the forward pass, only positive elements are summed. In the backward pass, the gradient signal is distributed only to the positive elements. Elements that were filtered out receive zero gradient. You don't write a separate backward filter. The where clause defines the domain of the operation, and the domain applies in both directions.
 
 The where clause is the gate. Items that pass the condition in the forward pass receive gradient in the backward pass. Items that don't, don't. The condition is written once.
+
+The most common where clause in practice: masked softmax. You have a sequence with padding. The logits for padding positions should be ignored—both in the forward pass (they should not contribute to the sum) and in the backward pass (they should receive zero gradient):
+
+```rust
+let probs[b, j] = softmax_over_valid[class](logits[b, class])
+    where valid[b, class];
+```
+
+The `valid[b, class]` tensor is a boolean mask—`true` for real tokens, `false` for padding. The where clause gates every operation inside `softmax_over_valid`: the max reduction, the subtraction, the exponentiation, the sum reduction, and the division. Five operations. One gate.
+
+In PyTorch, you'd write a custom masked softmax, or add `float('-inf')` to masked positions before the softmax, or use `torch.where` after the softmax to zero out padding. Each approach has its own backward behavior. The `-inf` trick works for softmax but not for mean. The `torch.where` approach leaves non-zero gradients on padding positions (they were computed, then zeroed—waste). The custom function is correct but requires writing a custom backward pass.
+
+The where clause avoids all three. The gate is part of the operation's domain. The compiler reads it once, applies it to every operation inside the reduction, and generates both the forward gating and the backward gating. No custom backward code. No `-inf` hack. No wasted computation. The gate is written where it belongs—in the domain specification of the operation it gates.
 
 Now a harder one. What if the where clause references a coordinate that is consumed by the operation?
 
@@ -272,9 +299,9 @@ This is the pullback rule as coordinate accounting. No transpose rules memorized
 In a single equation—carry this with you:
 
 ```
-dA = Σ_{paths(A, C)}  dC · ∂(forward)/∂A
+dA = Σ_{paths(A, C)}  dC · d(forward)/dA
 
-where paths(A, C) = {coordinates in C} ∖ {coordinates in A}
+where paths(A, C) = {coordinates in C} \ {coordinates in A}
 ```
 
 `paths(A, C)` is the set of coordinates in the output `C` that are NOT in the operand `A`. Sum over them. Multiply by the local derivative. Done. It is the formula behind every gradient derived from a tensor expression. The rest is accounting.

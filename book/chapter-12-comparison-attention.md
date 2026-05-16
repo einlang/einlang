@@ -97,7 +97,13 @@ fn cross_attention[seq_q, seq_k, head, d](Q: [f32; ..b, head, seq_q, d], K: [f32
 }
 ```
 
-The distinction is in the type signatures. Self-attention uses `seq` for both queries and keys. Cross-attention uses `seq_q` and `seq_k`—two different coordinate names, potentially with different domain sizes. A reader can tell which is which without checking whether the tensors happen to have the same shape. This is the megaphone model from Chapter 2 applied to functions: a function declares which coordinates it speaks on, and the omission of a coordinate from its signature is a claim that must be checked.
+The distinction is in the type signatures. Self-attention uses `seq` for both queries and keys. Cross-attention uses `seq_q` and `seq_k`—two different coordinate names, potentially with different domain sizes. A reader can tell which is which without checking whether the tensors happen to have the same shape.
+
+Here is the attention skeleton with every coordinate named:
+
+![Self-attention: seq_q = seq_k. Cross-attention: seq_q != seq_k. The names tell you which is which.](figures/attention_flow.svg)
+
+Trace the arrows. `seq_q` rides Q into the scores and the output. `seq_k` rides K and V, and is consumed by `softmax[seq_k]` — it does not reach the output. `head` groups the attention heads. `d` is the inner dimension, contracted by `sum[d]` inside the scores. When `seq_q` and `seq_k` name the same sequence, the attention is self. When they name different sequences, it is cross. The diagram records the difference. The positional code for both is identical.
 
 ---
 
@@ -287,5 +293,21 @@ The coordinate names don't change. The contract doesn't change. Only the executi
 When a new attention variant appears—a faster kernel, a sparse pattern, a sliding window—the coordinate contract remains the same. The lowering strategy changes. The names survive the optimization.
 
 The coordinate structure is the invariant. The execution strategy is the variable. Named coordinates record the invariant. Positional notation records neither—it defers both to runtime.
+
+Here is a KV-cache that compiles. Read it once, then look away and try to name the coordinates in order:
+
+```rust
+let K_full[..batch, head, seq_k, d] = concat[seq_k](
+    K_cache[..batch, head, seq_past, d],
+    K_new[..batch, head, seq_new, d]
+);
+let output[..batch, head, seq_q, d] = attention[head, seq_q, seq_k, d](Q_new, K_full, V_full);
+```
+
+The call to `attention` passes `head` as the first coordinate argument and `seq_q` as the second. But the declaration was `fn attention[seq_q, seq_k, head, d]`. The coordinate arguments are in the wrong order. `head` is being passed where `seq_q` is expected. The positional equivalent — passing `dim=0` where `dim=1` was expected — is invisible in the code. The named version has the names in the brackets. The reader can see the mismatch.
+
+Which coordinate does `softmax` normalize over in the buggy call? The compiler maps positionally — the second bracket argument becomes `seq_k` in the body regardless of its name. But the *programmer* wrote `head` in that position. The coordinate name `head` is sitting in `seq_k`'s slot. A reader sees `attention[head, seq_q, ...]` and asks: why is `head` in `seq_k`'s position? The question is visible because the names are visible.
+
+Take a breath. Three chapters of comparisons, and a single thread runs through all of them: the coordinate name is the anchor. In normalization, `mean[feature]` survived layout changes. In attention, `seq_q` vs `seq_k` made cross-attention visible in the type signature. In KV-cache, `concat[seq_k]` named the concatenation axis. In Flash Attention, the same coordinate contract survived a complete kernel rewrite. The anchor does not prevent you from writing bugs. It prevents a specific class of bugs—the ones where the meaning of an axis drifts while its position stays the same. That class is larger than most programmers believe.
 
 Normalization showed the pattern holds. Attention showed what the pattern reveals—distinctions invisible in positional code, visible in names. Chapter 13 takes the final question: *what does the pattern prevent?* The domain shifts from machine learning to physical simulation, where integer indices have been silently swapping coordinates since before the term "tensor" entered our vocabulary, and the bugs produce plausible-but-wrong physics that no compiler catches and no test suite detects.

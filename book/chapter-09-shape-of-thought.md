@@ -179,7 +179,7 @@ Here is softmax, in five simultaneous forms:
 ```
  max[class](logits[i, class])                          ← what you wrote
  (reduction max (class) (index logits (i class)))     ← what the compiler sees
- class: (range 0 n_class), reduction axis, Rule 2 ✓   ← what the compiler derives
+ class: (range 0 n_class), reduction axis, Rule 2      ← what the compiler derives
  class → axis=1, reduction                                ← how the name becomes a number
  np.max(logits, axis=1, keepdims=True)                 ← what executes (conceptually)
 ```
@@ -297,7 +297,93 @@ Lines 11–16 are the broadcast merge. When `Add(left, right)` is checked, every
 
 The complexity is in the details—type inference, pack resolution, error message formatting. The structure is fifteen lines. You can hold the entire thing in your head.
 
-If you implement these fifteen lines and add three things: **type inference** for scalar expressions (every literal is `f32`, every variable inherits from its declaration), **pack resolution** for `..rest` coordinates (unroll the pack into its concrete members at each call site), and **error formatting** that prints the coordinate name, the file, and the line—you have a working coordinate checker. Total: roughly three hundred lines. The fifteen lines above are the skeleton. The three additions are the flesh. The names are the firewood.
+Fifteen lines. Read them again—slowly this time. The `Index` case checks that every coordinate in a bracket exists in its tensor's declaration. The `Add` case compares two coordinate sets and records the broadcast. The `LetDecl` case verifies the body against the declared output. Four of the five rules fit in ten of those fifteen lines. The Wall—the five rules from Chapter 4 that felt like a detective story—is a tree walk with five cases. A first-year CS student could type it during a lecture.
+
+The gap between "five abstract rules" and "fifteen lines of code" is the gap between notation and implementation. The notation made the rules visible. The implementation makes them mechanical. The names are the bridge.
+
+The fifteen lines are the skeleton. Three additions make them a working compiler. Here are the first two. (Pack resolution — the third — is Chapter 5's subject; you've already seen how the compiler resolves `..left` and `..right` around a named anchor.)
+
+### Type Inference: The Simplest Pass
+
+Type inference is the simplest pass in the compiler. You already know how to do it — you just haven't named it.
+
+Look at `3.14 + 0.5`. What is the type? `f32`. You didn't run the program. You didn't consult a type environment. You looked at two float literals, added them in your head, and concluded the result is a float. The compiler does exactly what you did. It just does it systematically, node by node, from leaves to root.
+
+The leaves are the easy part. A literal carries its type — `3.14` is `f32`, `5` is `i32`, `true` is `bool`. You see it instantly. The compiler sees it the same way: the literal node in the IR has a type field. Done.
+
+A variable inherits its type from its declaration. You wrote `let x: [f32; batch, in] = input()`. The `f32` is right there in the source. When the compiler encounters `x` in an expression, it looks up `x`'s declaration and reads the type. No inference. No guessing. The answer was written down.
+
+Now the interior nodes. A binary operation: `left + right`. You know the rule without being taught it: both sides must be the same type, and the result is that type. Float plus float is float. Integer plus float is an error — not because the hardware can't do it, but because the programmer probably didn't mean to mix them. The compiler enforces this. If `left` is `f32` and `right` is `i32`, it reports a type mismatch rather than silently promoting. No implicit coercion. No `1.0 + 2 = 3.0` surprises.
+
+A reduction: `sum[k](body)`. The sum iterates over `k` and accumulates values. The element type doesn't change — summing `f32` values produces an `f32`. Reducing `i32` produces `i32`. The reduction changes the shape (consuming `k`). It doesn't touch the type.
+
+A conditional: `if cond { a } else { b }`. `cond` must be `bool`. `a` and `b` must have the same type. The result is that type.
+
+That's the entire algorithm. Five cases. Walk the tree bottom-up. At each node, look at the children's types. Apply one rule. Propagate upward. When you reach the root, every node has a type.
+
+Walk a real expression to see it in action:
+
+```rust
+let z[b, out] = sum[in](x[b, in] * W[out, in]) + b[out] * 0.5;
+```
+
+Start at the leaves. `x` is `f32` (from its declaration). `W` is `f32`. `b` is `f32`. `0.5` is `f32` (literal).
+
+Move up. `x * W`: both `f32`, result `f32`. `sum[in](...)`: element type unchanged, `f32`. On the other branch: `b * 0.5`: both `f32`, result `f32`.
+
+Move up again. `sum_result + scaled_bias`: both `f32`, result `f32`. `z` is `f32`.
+
+Every type in this program is known before a single value is computed. The declarations at the leaves — `x: [f32; ...]`, `W: [f32; ...]` — determine every type in the tree. No `dtype` annotations on operations. No `astype` calls in the generated code. Twelve lines of code. Zero ambiguity.
+
+### Error Formatting: The Name in the Message
+
+The checker found an error. What does the programmer see?
+
+A positional error says: `IndexError: dimension 3 out of bounds`. The programmer counts dimensions. Guesses which one. Guesses why.
+
+A named error says:
+
+```
+error[E004]: coordinate not declared
+  → src/model.eln:42:18
+   |
+42 |     let result = sum[class](logits[batch, class]);
+   |                      ^^^^^ coordinate `class` not found in `logits`
+   |
+   = logits declared with coordinates: {batch, feature}
+   = did you mean `feature`?
+```
+
+Four parts. Each has a job.
+
+**The error code (`E004`).** Assign each of the five rules a number. The programmer who has seen `E001` (undeclared coordinate) three times recognizes it on the fourth. The code is for muscle memory.
+
+**The location (`src/model.eln:42:18`).** File, line, column. The caret (`^^^^^`) points to the exact span — `sum[class]`, five characters, underlined. The programmer's eye lands where the compiler's eye landed.
+
+**The message.** One sentence. Names the coordinate (`class`), names the tensor (`logits`), states the mismatch. Not "coordinate contract violation." Not "broadcast inconsistency." Plain words: "coordinate `class` not found in `logits`."
+
+**The context.** `logits declared with coordinates: {batch, feature}`. The compiler shows what it expected and what it found. The difference is visible: `class` vs `feature`. The programmer sees the typo instantly.
+
+Now a broadcast error:
+
+```
+error[E003]: broadcast inconsistency
+  → src/model.eln:67:10
+   |
+67 |     let out[b, c, h, w] = x[b, c, h, w] + scale[c];
+   |                                             ^^^^^^^^ coordinate `h` required by output but missing from `scale`
+   |
+   = output coordinates: {b, c, h, w}
+   = scale coordinates: {c}
+   = missing: {b, h, w}
+   = scale broadcasts over {b, h, w} — is this intended?
+```
+
+The missing coordinates are enumerated. The question at the end — "is this intended?" — is not rhetorical. It is the broadcast self-audit from Chapter 4, framed by the compiler. The programmer reads the missing set and decides: yes, `scale` should be silent on `b`, `h`, and `w`, or no, `scale` should also depend on `h`. The compiler cannot answer the semantic question. It can only ask it. But the question has a place to land — the missing coordinate set, computed by set subtraction, printed with names.
+
+The error formatter is forty lines of code. A third of it is the caret pointing. The rest is formatting the coordinate sets, looking up the declaration, and suggesting the nearest name. The principle: every error names the coordinate, shows the context, and asks a question the programmer can answer. The compiler is not the authority. It is the messenger. The names are the message.
+
+If you implement these fifteen lines and add the three additions — type inference (twelve lines), pack resolution (Chapter 5's algorithm), and error formatting (forty lines) — you have a working coordinate checker. Total: roughly three hundred lines. The fifteen lines above are the skeleton. The three additions are the flesh. The names are the firewood.
 
 ---
 

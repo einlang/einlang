@@ -13,11 +13,17 @@ title: "Chapter 14 · The Edge of the Name"
 
 ---
 
-Every chapter so far has argued for putting the name in the bracket. This chapter argues for knowing when the name is not enough.
+Suppose the programmer writes:
 
-A coordinate name records identity. The compiler checks that identity is respected—that `channel` means the same thing everywhere it appears, that reductions consume declared coordinates, that function contracts match call sites. These checks prevent an entire class of bugs: the silent axis swap, the broadcast that drifts with the layout, the reduction that changes meaning without changing syntax.
+```rust
+softmax[batch](logits[batch, class])
+```
 
-They do not prevent every bug. And they were never intended to.
+It compiles. Every name matches. `batch` exists on `logits`. The reduction consumes a declared coordinate. The contract is satisfied. The shapes are correct.
+
+But the programmer meant `softmax[class]`. Normalizing over batch instead of class is a bug—a model that silently computes the wrong probabilities, descends a valid loss, and deploys with a semantic error no tool can detect.
+
+The compiler cannot catch this. And it was never intended to.
 
 ---
 
@@ -33,25 +39,11 @@ This distinction is not a weakness of named coordinates. It is the same distinct
 
 Coordinate names extend this boundary. A reduction over `channel` where `spatial` was intended is a formula error—internally consistent, semantically wrong. A reduction over `class` where the tensor has no `class` is a consistency error—caught at compile time. The name makes the second kind of error visible. It does not prevent the first.
 
----
+Return to the opening example. `batch` exists on `logits`. The reduction consumes it. Every check passes. The program compiles. It produces a valid probability distribution—over the batch dimension, not the class dimension. The name was wrong. The check passed. The program is incorrect.
 
-## The Wrong Name That's Consistent
-
-Suppose the programmer writes:
-
-```rust
-softmax[batch](logits[batch, class])
-```
-
-`batch` is the coordinate argument. It exists on `logits`. The reduction consumes it. The gradient sums over it. Every check passes. The program compiles.
-
-It produces a valid probability distribution—over the batch dimension, not the class dimension. The name was wrong. The check passed. The program is incorrect.
-
-But the name `batch` is visible. When the next programmer reads `softmax[batch](logits)`, they see the error immediately: "this normalizes over batch, not class." The positional equivalent `softmax(logits, dim=0)` hides the error behind a number. The reader sees `dim=0` and must reconstruct whether axis 0 is batch or class. The reconstruction may be wrong.
+But the name `batch` is visible. When the next programmer reads `softmax[batch](logits)`, they see the error immediately. The positional equivalent `softmax(logits, dim=0)` hides the error behind a number. The reader sees `dim=0` and must reconstruct whether axis 0 is batch or class. The reconstruction may be wrong.
 
 A wrong name is a visible error. A missing name is an invisible one.
-
-The compiler cannot read the programmer's mind. `softmax[batch]` is consistent and wrong. `softmax(logits, dim=0)` is also consistent and wrong—but it is additionally anonymous. The named version gives the reviewer a handle. The positional version gives them an integer. The integer is always correct as an integer. It is wrong as a coordinate reference. But the notation has no slot for that fact.
 
 ---
 
@@ -146,6 +138,22 @@ Between a purely positional notation and a complete named-coordinate compiler li
 **Einlang.** The coordinate contract is part of the function type. Every call site is checked. Every operation preserves names or explicitly consumes them. The contract is global. The check is complete. The cost is a compiler.
 
 The distance between *no checking* and *complete checking* is measurable. Einops catches local bugs. Named tensors catch the ones that survive through supported operations. Einlang catches all of them. Which step you take depends on how much correctness you need and how much infrastructure you can afford. The coordinate habit works at every step. It only asks: *is the name in the code?* In an einops string, that's a name. In a bracket a compiler checks, that's a name with a guarantee. The habit does not prescribe the tool. It prescribes the information.
+
+---
+
+Five bugs. Which ones does the compiler catch?
+
+`softmax[class](logits[batch, channel])` — `class` is not on `logits`. Caught.
+
+`softmax[batch](logits[batch, class])` — `batch` exists, every check passes. Not caught. The wrong name is visible in the bracket, but the compiler cannot read intent.
+
+`sum[head](x[batch, head, d])` where the programmer meant `sum[d]`. `head` exists. Not caught. Same structure: the name is wrong, the check passes.
+
+A convolution where `oh + kh` exceeds the input width, width is a runtime variable. The compiler can't prove the bound statically. It emits a runtime guard with the coordinate name in the error. Not caught at compile time — guarded at runtime, with the name attached.
+
+`mean[spatial](x[batch, channel, spatial])` where `x` actually has `{batch, channel, time}` — `spatial` was renamed in a refactoring. Caught. Missing coordinate.
+
+The compiler catches two, guards one, and is silent on two. The two it misses are the ones where the name is consistent but wrong. No static system catches those. But in the named versions the wrong name is in the bracket. In the positional versions it is not in the code at all.
 
 ---
 

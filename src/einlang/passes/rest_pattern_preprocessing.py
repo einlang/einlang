@@ -386,11 +386,18 @@ class RestPatternPreprocessor(ScopedIRVisitor[None]):
     def _validate_rest_patterns(self, node: EinsteinClauseIR, output_rest_names: set) -> Optional[str]:
         """
         Validate rest patterns follow the determination-first rule.
-        
+
         Each rest pattern must appear alone in at least one array access
         before it can appear with other rest patterns. This ensures the compiler can
         determine how many dimensions each rest pattern spans.
-        
+
+        This rule applies to contexts without a coordinate anchor. In a
+        coordinate-aware function body where rest packs surround a named coordinate
+        parameter (e.g. x[..left, coord, ..right]), the coordinate parameter serves
+        as the anchor and the packs are resolved by position without needing solo
+        appearances. The determination-first rule governs adjacent packs with no
+        named coordinate between them.
+
         Returns: Error message if validation fails, None if valid
         """
         logger.debug(f"_validate_rest_patterns: output_rest_names={output_rest_names}")

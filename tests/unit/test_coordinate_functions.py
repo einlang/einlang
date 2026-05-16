@@ -478,6 +478,112 @@ def test_coordinate_parameter_pack_rejects_bare_multiple_call_args():
     assert "expects 1 coordinate argument at most, got 2" in "\n".join(result.get_errors())
 
 
+def test_one_pack_resolves_adjacent_pack_by_elimination():
+    """When only one pack is a coordinate param, the other resolves by elimination."""
+    from tests.test_utils import compile_and_execute
+
+    source = """
+    fn pool[..spatial](x: [f32; ..batch, ..spatial]) -> [f32; ..batch] {
+        max[..spatial](x[..batch, ..spatial])
+    }
+
+    let x[b in 0..2, h in 0..3, w in 0..4] = (100 * b + 10 * h + w) as f32;
+    let y = pool[(h, w)](x);
+    let probe0 = y[0];
+    let probe1 = y[1];
+    (probe0, probe1);
+    """
+
+    result = compile_and_execute(
+        source,
+        CompilerDriver(),
+        EinlangRuntime(),
+        source_file="<test>",
+    )
+    assert result.success, f"Compilation or execution failed: {result.errors}"
+    import numpy as np
+    assert float(np.asarray(result.outputs["probe0"]).item()) == 23.0
+    assert float(np.asarray(result.outputs["probe1"]).item()) == 123.0
+
+
+def test_two_named_coordinate_params_with_rests_between():
+    """Two named coord params serve as anchors for 3 surrounding rest packs."""
+    result = compile_and_execute(
+        """
+        fn max_over[j, k](x: [f32; ..left, j, ..right, k, ..rightmost])
+            -> [f32; ..left, ..right, ..rightmost]
+        {
+            max[j, k](x[..left, j, ..right, k, ..rightmost])
+        }
+
+        let x[a in 0..2, h in 0..2, w in 0..2] = (a + h + w) as f32;
+        let y = max_over[h, w](x);
+        let probe0 = y[0];
+        let probe1 = y[1];
+        (probe0, probe1);
+        """,
+        CompilerDriver(),
+        EinlangRuntime(),
+        source_file="<test>",
+    )
+    assert result.success, f"Compilation or execution failed: {result.errors}"
+    import numpy as np
+    assert float(np.asarray(result.outputs["probe0"]).item()) == 2.0
+    assert float(np.asarray(result.outputs["probe1"]).item()) == 3.0
+
+
+def test_two_adjacent_named_coord_params_no_rest_between():
+    """Two adjacent named coord params resolve by position: each is its own anchor."""
+    result = compile_and_execute(
+        """
+        fn twin_sum[j, k](x: [f32; ..left, j, k, ..right])
+            -> [f32; ..left, ..right]
+        {
+            sum[j, k](x[..left, j, k, ..right])
+        }
+
+        let x[a in 0..2, h in 0..2, w in 0..2] = (a + h + w) as f32;
+        let y = twin_sum[h, w](x);
+        let probe0 = y[0];
+        let probe1 = y[1];
+        (probe0, probe1);
+        """,
+        CompilerDriver(),
+        EinlangRuntime(),
+        source_file="<test>",
+    )
+    assert result.success, f"Compilation or execution failed: {result.errors}"
+    import numpy as np
+    assert float(np.asarray(result.outputs["probe0"]).item()) == 4.0
+    assert float(np.asarray(result.outputs["probe1"]).item()) == 8.0
+
+
+def test_multiple_named_coords_in_brackets_packs_only_in_value_params():
+    """Two named coords in brackets; rest packs only in value param shape — anchor-based."""
+    result = compile_and_execute(
+        """
+        fn max_over[j, k](x: [f32; ..left, j, ..right, k, ..rightmost])
+            -> [f32; ..left, ..right, ..rightmost]
+        {
+            max[j, k](x[..left, j, ..right, k, ..rightmost])
+        }
+
+        let x[a in 0..2, h in 0..2, w in 0..2, b in 0..3] = (a + h + w + b) as f32;
+        let y = max_over[h, w](x);
+        let probe0 = y[0, 0];
+        let probe1 = y[0, 2];
+        (probe0, probe1);
+        """,
+        CompilerDriver(),
+        EinlangRuntime(),
+        source_file="<test>",
+    )
+    assert result.success, f"Compilation or execution failed: {result.errors}"
+    import numpy as np
+    assert float(np.asarray(result.outputs["probe0"]).item()) == 2.0
+    assert float(np.asarray(result.outputs["probe1"]).item()) == 4.0
+
+
 def test_coordinate_parameter_pack_can_be_inferred_after_scalar_coordinate():
     result = compile_and_execute(
         """

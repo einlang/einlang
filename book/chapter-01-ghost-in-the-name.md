@@ -33,7 +33,7 @@ A coordinate has three properties. The framework records two of them. The third�
 
 ![Three properties of a coordinate: domain and position are checked; the name is not](figures/shape_meanings_gap.svg)
 
-This is the shape-meanings gap. The shape says *how many*. The role says *which one*. Every framework knows the shape. None of them know the role.
+Two columns are machine-readable. One column is not. That dashed line is the shape-meanings gap—the space between what the framework verifies and what the programmer intended. The shape says *how many*. The role says *which one*. The framework checks the first. Only you know the second.
 
 Now imagine a different notation:
 
@@ -109,7 +109,7 @@ No shape checker catches this. No type checker catches this. The bug will surfac
 
 The root cause: `(0, 3, 1, 2)` describes a rearrangement of *positions*. What the programmer needed to describe was a rearrangement of *identities*—"move the dimension called `channel` to the front, and keep everything else in order."
 
----
+Here is the same refactoring under both notations:
 
 ![Positional permute silently breaks when upstream changes; named permute survives](figures/permute_survival.svg)
 
@@ -148,3 +148,7 @@ Positional permutation is not evil. It is the right abstraction for a compiler p
 > Silence is not absence. Silence is a claim. And claims can be checked.
 
 Chapter 2 gives this claim its machinery: the megaphone model. A tensor speaks on some coordinates and stays silent on others. Reduction silences a coordinate. Broadcast copies along one the tensor was already silent on. Together they form a single rule—and the next chapter shows why that rule governs every tensor computation.
+
+---
+
+> Every example in this book runs. The compiler is at **github.com/einlang/einlang** — clone it, open Chapter 1, and start typing.
