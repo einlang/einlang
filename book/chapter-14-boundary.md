@@ -70,7 +70,7 @@ Three categories. Each one is a different kind of silence between what the code 
 A programmer writes:
 
 ```rust
-let result[..batch, feature] = softmax[batch](logits[..batch, feature]);
+let result[..b, feature] = softmax[batch](logits[..b, feature]);
 ```
 
 `batch` exists on `logits`. The reduction consumes it. The gradient sums over it. Every check passes. The program compiles. It produces a valid probability distribution — over the batch dimension, not the feature dimension. The name was wrong. The check passed. The program is incorrect.
@@ -168,6 +168,8 @@ The boundary is not a flaw. It is a map of what is statically knowable. Every fa
 This is the argument the book has been making since Chapter 1. Not that names make programming safe. That names make identity visible. And visibility is the difference between a bug found in review and a bug found at 3 AM, three weeks after it shipped, because the notation had no slot for the fact that would have caught it.
 
 ---
+
+But before you close the cover, the Appendix assembles the complete grammar and every check rule in one place — the view from the summit after fourteen chapters of climbing.
 
 Before you close the book, open your most recent tensor code. Find a `dim=` argument. Ask: which coordinate is that? If you can't answer from the code alone, the coordinate isn't in the code. It's in your head. The name is missing. And the name is the only thing that can go in the bracket.
 

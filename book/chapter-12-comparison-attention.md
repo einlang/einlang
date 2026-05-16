@@ -33,15 +33,15 @@ In Einlang, the coordinate names tell the story:
 
 ```rust
 fn attention[seq_q, seq_k, head, d](
-    Q: [f32; ..batch, head, seq_q, d],
-    K: [f32; ..batch, head, seq_k, d],
-    V: [f32; ..batch, head, seq_k, d]
-) -> [f32; ..batch, head, seq_q, d]
+    Q: [f32; ..b, head, seq_q, d],
+    K: [f32; ..b, head, seq_k, d],
+    V: [f32; ..b, head, seq_k, d]
+) -> [f32; ..b, head, seq_q, d]
 {
-    let scores[..batch, head, seq_q, seq_k] =
-        sum[d](Q[..batch, head, seq_q, d] * K[..batch, head, seq_k, d]) / (d ** 0.5);
-    let weights[..batch, head, seq_q, seq_k] = softmax[seq_k](scores[..batch, head, seq_q, seq_k]);
-    sum[seq_k](weights[..batch, head, seq_q, seq_k] * V[..batch, head, seq_k, d])
+    let scores[..b, head, seq_q, seq_k] =
+        sum[d](Q[..b, head, seq_q, d] * K[..b, head, seq_k, d]) / (d ** 0.5);
+    let weights[..b, head, seq_q, seq_k] = softmax[seq_k](scores[..b, head, seq_q, seq_k]);
+    sum[seq_k](weights[..b, head, seq_q, seq_k] * V[..b, head, seq_k, d])
 }
 ```
 
@@ -257,11 +257,11 @@ The `dim` argument to `torch.cat` is a position number. If `K_cache` has shape `
 In Einlang, the concatenation axis is named:
 
 ```rust
-let K_full[..batch, head, seq_k, d] = concat[seq_k](
-    K_cache[..batch, head, seq_past, d],
-    K_new[..batch, head, seq_new, d]
+let K_full[..b, head, seq_k, d] = concat[seq_k](
+    K_cache[..b, head, seq_past, d],
+    K_new[..b, head, seq_new, d]
 );
-let output[..batch, head, seq_q, d] = attention[head, seq_q, seq_k, d](Q_new, K_full, V_full);
+let output[..b, head, seq_q, d] = attention[head, seq_q, seq_k, d](Q_new, K_full, V_full);
 ```
 
 `concat[seq_k]` names the concatenation axis. The coordinate `seq_k` absorbs both `seq_past` and `seq_new` into a single coordinate. If the layout changes, the coordinate name doesn't. The `cat` happens over `seq_k` regardless of position.
@@ -297,11 +297,11 @@ The coordinate structure is the invariant. The execution strategy is the variabl
 Here is a KV-cache that compiles. Read it once, then look away and try to name the coordinates in order:
 
 ```rust
-let K_full[..batch, head, seq_k, d] = concat[seq_k](
-    K_cache[..batch, head, seq_past, d],
-    K_new[..batch, head, seq_new, d]
+let K_full[..b, head, seq_k, d] = concat[seq_k](
+    K_cache[..b, head, seq_past, d],
+    K_new[..b, head, seq_new, d]
 );
-let output[..batch, head, seq_q, d] = attention[head, seq_q, seq_k, d](Q_new, K_full, V_full);
+let output[..b, head, seq_q, d] = attention[head, seq_q, seq_k, d](Q_new, K_full, V_full);
 ```
 
 The call to `attention` passes `head` as the first coordinate argument and `seq_q` as the second. But the declaration was `fn attention[seq_q, seq_k, head, d]`. The coordinate arguments are in the wrong order. `head` is being passed where `seq_q` is expected. The positional equivalent — passing `dim=0` where `dim=1` was expected — is invisible in the code. The named version has the names in the brackets. The reader can see the mismatch.

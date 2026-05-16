@@ -188,7 +188,7 @@ Here is a subtlety that matters later. The `i` in `sum[i](data[i])` is a **local
 
 You can even omit the brackets on the tensor entirely: `sum[i](data)`. No `[i]` on `data`—the compiler knows `data` has one coordinate and `sum[i]` consumes it. This is the **implicit** form of Einstein access. The explicit form (`data[i]`) and the implicit form (`data`) are both legal inside a reduction body. The index variables belong to the expression, not to the tensor.
 
-This is different from the **rectangular access** notation used in coordinate-aware functions. When you write `x[..batch, class]` inside a function body, `class` is not a local variable—it must match a coordinate that actually exists on `x`. Einstein index variables are scoped to the reduction body. Rectangular coordinates are scoped to the tensor's type. The distinction is invisible in simple examples, but it becomes the foundation of the type-checking system in Chapters 3 through 5.
+This is different from the **rectangular access** notation used in coordinate-aware functions. When you write `x[..b, class]` inside a function body, `class` is not a local variable—it must match a coordinate that actually exists on `x`. Einstein index variables are scoped to the reduction body. Rectangular coordinates are scoped to the tensor's type. The distinction is invisible in simple examples, but it becomes the foundation of the type-checking system in Chapters 3 through 5.
 
 The four reduction operations are `sum`, `max`, `min`, and `prod`. Each has an identity element: `sum` starts from `0`, `prod` from `1`, `max` from negative infinity, `min` from positive infinity.
 
@@ -286,20 +286,20 @@ This set subtraction is statically computable from the indexing patterns alone�
 
 ---
 
-## Named Rest: `..batch`
+## Named Rest: `..b`
 
 So far our coordinates have been single, explicit names. But real tensor code often needs to be polymorphic over how many batch dimensions there are. A normalization function shouldn't care whether the input is `(batch, feature)`, `(batch, time, feature)`, or `(batch, head, time, feature)`. It only cares that `feature` is the last dimension and everything else is batch-like.
 
 Einlang provides **named rest indices** for this:
 
 ```rust
-let result[..batch, j] = x[..batch, j] + bias[j];
-let row_sum[..batch] = sum[j](x[..batch, j]);
+let result[..b, j] = x[..b, j] + bias[j];
+let row_sum[..b] = sum[j](x[..b, j]);
 ```
 
-The notation `..batch` stands for zero or more adjacent axes, collectively referred to as `batch`. The same rest name must describe the same axis span everywhere it appears within an expression. Which concrete axes `..batch` covers is inferred from the shape of `x`.
+The notation `..b` stands for zero or more adjacent axes, collectively referred to as `batch`. The same rest name must describe the same axis span everywhere it appears within an expression. Which concrete axes `..b` covers is inferred from the shape of `x`.
 
-This is not a wildcard. It is a named group. The name `batch` carries semantic weight—it says "these leading dimensions are all batch-like, and the operation treats them uniformly." If upstream adds a `head` dimension between `batch` and `time`, `..batch` absorbs it automatically.
+This is not a wildcard. It is a named group. The name `batch` carries semantic weight—it says "these leading dimensions are all batch-like, and the operation treats them uniformly." If upstream adds a `head` dimension between `batch` and `time`, `..b` absorbs it automatically.
 
 ---
 

@@ -94,10 +94,10 @@ This is not a limitation of the inference algorithm. It is a boundary of the not
 Packs don't change the inference. When the compiler sees:
 
 ```rust
-let result[..batch, i] = x[..batch, i] + 1.0;
+let result[..b, i] = x[..b, i] + 1.0;
 ```
 
-it resolves `..batch` first — anchoring on `i` to determine which dimensions `..batch` absorbs. Then it infers `i`'s range from `x`'s shape at the position where `i` appears. The pack is a group of dimensions. The index variable is a single position. They don't interfere.
+it resolves `..b` first — anchoring on `i` to determine which dimensions `..b` absorbs. Then it infers `i`'s range from `x`'s shape at the position where `i` appears. The pack is a group of dimensions. The index variable is a single position. They don't interfere.
 
 ### The Principle
 
@@ -419,7 +419,7 @@ lower(ir_node, layout_map):
 
 Four cases. The actual implementation has a few more — `Where`, `If`, function calls — but the structure is the same. Walk the tree. Look up the coordinate's position. Emit the integer.
 
-The lowering pass is the point where names die. After this pass, the IR contains no `class`, no `batch`, no `..spatial`. Every name has become an integer. The integers are correct because the names were checked. The fire is lit. The light is the only trace of the name that remains.
+The lowering pass is the point where names die. After this pass, the IR contains no `class`, no `batch`, no `..s`. Every name has become an integer. The integers are correct because the names were checked. The fire is lit. The light is the only trace of the name that remains.
 
 ---
 

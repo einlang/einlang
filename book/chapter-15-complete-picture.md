@@ -71,7 +71,7 @@ A coordinate has a name, a domain, a position (Ch1)
     |       |
     |       |---> Square Matrix Test: when extents equal, only names differ (Ch3)
     |       |
-    |       |---> Pack polymorphism: ..batch absorbs unknown leading dims (Ch5)
+    |       |---> Pack polymorphism: ..b absorbs unknown leading dims (Ch5)
     |       |
     |       +---> Normalization skeleton: one pattern, four functions (Ch5)
     |
@@ -132,7 +132,7 @@ Index slots in the declaration bracket may be:
 - A name: `i`, `j`, `batch` — the standard case.
 - A name with an explicit domain: `t in 0..T` — for recurrences.
 - A literal: `0` — used for base cases.
-- A named rest: `..batch` — absorbs zero or more adjacent axes.
+- A named rest: `..b` — absorbs zero or more adjacent axes.
 
 Expressions are not allowed in the declaration bracket. `let fib[n-1] = ...` is an error. The left side names what is being defined. The right side computes it.
 
@@ -178,8 +178,8 @@ The Inversion Rule: what broadcasts in the forward pass is reduced in the backwa
 `..name` stands for zero or more adjacent axes, collectively named. *Introduced in Chapter 2; pack polymorphism in Chapter 5.*
 
 ```rust
-let result[..batch, j] = x[..batch, j] + bias[j];
-let row_sum[..batch] = sum[j](x[..batch, j]);
+let result[..b, j] = x[..b, j] + bias[j];
+let row_sum[..b] = sum[j](x[..b, j]);
 ```
 
 The same rest name must describe the same axis span within an expression. Packs make functions rank-polymorphic: the same `layer_norm[feature]` works on 2D, 3D, or 4D inputs.
@@ -227,7 +227,7 @@ let p[b, class] = softmax[class](logits[b, class]);
 
 The compiler checks that `class` exists on `logits` and that the coordinate contract is satisfied. The bracketed name is part of the call contract, not a comment.
 
-Packs (`..left`, `..right`, `..spatial`) make functions polymorphic over surrounding structure. A caller disambiguates by grouping: `softmax[(height, width)](x)`.
+Packs (`..left`, `..right`, `..s`) make functions polymorphic over surrounding structure. A caller disambiguates by grouping: `softmax[(height, width)](x)`.
 
 ---
 
@@ -450,20 +450,18 @@ The comments record identity. They can rot. But they are present—a reader six 
 
 **Principle 2 applied: Reductions must name what they consume.**
 
-```python
-# h: (batch, feature)
-def forward(x, W, b, gamma, beta):
-    h = x @ W.T + b
-    mean = mean[feature](h[batch, feature])
-    var = mean[feature]((h[batch, feature] - mean) ** 2)
-    return gamma * (h[batch, feature] - mean) / sqrt(var + 1e-5) + beta
+```rust
+// h: (batch, feature)
+let avg[batch] = mean[feature](h[batch, feature]);
+let var[batch] = mean[feature]((h[batch, feature] - avg[batch]) ** 2.0);
+let normalized[batch, feature] = gamma[feature] * (h[batch, feature] - avg[batch]) / (var[batch] ** 0.5 + 1e-5) + beta[feature];
 ```
 
 The reduction names `feature`. The name appears in the bracket, not in a comment. If `h` gains a `seq` dimension, its declaration becomes `h[batch, seq, feature]`. The reduction `mean[feature]` still names `feature`—it does not silently switch to `seq`. The name protects the reduction from the layout change.
 
 **Principle 3 applied: Broadcasts must name what they copy along.**
 
-```python
+```rust
 # mean[batch], var[batch] — silent on feature, broadcast back over it
 # gamma[feature], beta[feature] — silent on batch, broadcast along batch
 let normalized[batch, feature] = gamma[feature] * (h[batch, feature] - mean[batch]) / sqrt(var[batch] + 1e-5) + beta[feature];
@@ -474,15 +472,15 @@ Two broadcasts. `gamma` and `beta` silently copy over `batch`. `mean` and `var` 
 **Principle 4 applied: Functions must declare their coordinate contracts.**
 
 ```rust
-fn layer_norm[feature](x: [f32; ..batch, feature], gamma: [f32; feature], beta: [f32; feature])
-    -> [f32; ..batch, feature]
+fn layer_norm[feature](x: [f32; ..b, feature], gamma: [f32; feature], beta: [f32; feature])
+    -> [f32; ..b, feature]
 ```
 
 The coordinate parameter `feature` is part of the function's type. Every call site that passes `feature` is checked: does the tensor have a coordinate called `feature`? The contract is not a docstring. It is verified.
 
 **Principle 5 applied: Gradients read the forward pass backward.**
 
-```
+```rust
 Forward: mean[feature](h[batch, feature]) → mean[batch] (broadcasts over feature)
          gamma[feature] * ... (broadcasts over batch)
 Backward: d_mean[batch] = sum[feature](d_norm[batch, feature] * ...)
@@ -650,4 +648,4 @@ This book built a naming system for the ideas it introduced. Here they are, gath
 
 These words are not decoration. They are the text's own coordinate system. Their job is the same as the job of the bracket: to give a fact a place to live, so it can be checked.
 
-Turn the page.
+The Epilogue returns to the Tuesday bug from Chapter 1 and asks what changes when a name has a place to live.

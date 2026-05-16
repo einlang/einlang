@@ -17,7 +17,7 @@ Part II showed that coordinate names survive composition—through functions, th
 
 You just wrote a short Einlang program:
 
-```
+```rust
 let x[batch, class] = softmax[class](logits[batch, class]);
 let y[batch] = sum[class](x[batch, class] * labels[batch, class]);
 ```
@@ -40,7 +40,7 @@ Imagine a detective's wall. Five slots, each labeled with one rule. When a bug i
 
 Here is a broken program. It was written by a programmer who intended a linear layer with bias followed by softmax over classes. It compiles. It runs. It produces wrong results.
 
-```
+```rust
 fn predict[class](x: [f32; batch, in], W: [f32; out, in], bias: [f32; out])
     -> [f32; batch, out]
 {
@@ -65,7 +65,7 @@ Look at the program. Which names don't match?
 
 The corrected program:
 
-```
+```rust
 fn predict[class](x: [f32; batch, in], W: [f32; class, in], bias: [f32; class])
     -> [f32; batch, class]
 {
@@ -108,7 +108,7 @@ Before we build the tree, try this: write `sum[k](A[i, k] * B[k, j])` on a piece
 
 Conceptually, the compiler's IR can be understood as a tree of expressions where names are first-class:
 
-```
+```rust
 A[i, j] + B[i, j]
 ```
 
@@ -118,7 +118,7 @@ A[i, j] + B[i, j]
 
 Add a reduction:
 
-```
+```rust
 sum[k](A[i, k] * B[k, j])
 ```
 
@@ -129,7 +129,7 @@ sum[k](A[i, k] * B[k, j])
 
 The reduction coordinate `k` is named, not numbered. A full declaration:
 
-```
+```rust
 let C[i, j] = sum[k](A[i, k] * B[k, j])
 ```
 
@@ -392,5 +392,7 @@ You wrote `class`. Five characters. They survived parsing, analysis, lowering—
 The positional alternative is `dim=-1`: three keystrokes that enable zero checks. The ratio is the distance between correct-by-construction and correct-by-coincidence.
 
 Consume—that word has appeared in every chapter since Chapter 2. A reduction consumes a coordinate. A broadcast consumes silence. A gradient consumes the broadcast set. And now the compiler consumes the name itself. `class` goes in. `axis=1` comes out. A good abstraction is good firewood. Its beauty is not in its surface—but in the light the flame casts when it burns.
+
+Before we test names against real code, the checker needs one more pass: range inference, shape analysis, and lowering — the subject of Chapter 10.
 
 The compiler proved that names can be checked mechanically. But do they matter in practice? Chapters 11 through 13 put Einlang side by side with PyTorch and NumPy on real code: LayerNorm, multi-head attention, Flash Attention, and physical simulation. No arguments. Just code, in two notations, side by side. The question is not "which is better." It is what each notation makes visible—and what each notation hides.

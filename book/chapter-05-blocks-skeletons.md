@@ -58,17 +58,17 @@ Four things to notice.
 
 Packs are what make coordinate-aware functions reusable across different tensor ranks. There are three patterns:
 
-**Leading packs** (`..left` or `..batch`): absorb dimensions that come before the coordinate of interest. Used when the function treats all leading dimensions uniformly.
+**Leading packs** (`..left` or `..b`): absorb dimensions that come before the coordinate of interest. Used when the function treats all leading dimensions uniformly.
 
 **Trailing packs** (`..right` or `..rest`): absorb dimensions that come after. Used when the function operates on a coordinate and doesn't care what follows.
 
-**Named spatial packs** (`..spatial`): absorb spatial dimensions as a group. A function that reshapes spatial coordinates can treat them as a unit:
+**Named spatial packs** (`..s`): absorb spatial dimensions as a group. A function that reshapes spatial coordinates can treat them as a unit:
 
 ```rust
-fn move_channel[channel, ..spatial](x: [f32; channel, ..spatial])
-    -> [f32; ..spatial, channel]
+fn move_channel[channel, ..s](x: [f32; channel, ..s])
+    -> [f32; ..s, channel]
 {
-    x[..spatial, channel]
+    x[..s, channel]
 }
 ```
 
@@ -82,7 +82,7 @@ Pack parameters make coordinate-aware functions rank-polymorphic: the same funct
 
 ### How the Compiler Resolves Packs
 
-How does the compiler know how many dimensions `..batch` absorbs? The answer is the coordinate parameter.
+How does the compiler know how many dimensions `..b` absorbs? The answer is the coordinate parameter.
 
 Walk through a concrete call. The signature is `fn layer_norm[coord](x: [f32; ..left, coord, ..right])`. The caller writes `layer_norm[channel](x)` where `x` has layout `[batch, channel, height, width]`. The compiler's job: assign concrete dimensions to `..left` and `..right`.
 
@@ -107,25 +107,25 @@ error: coordinate `channel` not found in argument layout
 
 No guessing. No silent mismatch. The anchor is missing, and the compiler says so.
 
-**Multiple packs, single anchor.** The same principle extends to signatures with several packs. `fn normalize[coord, ..left, ..right, ..spatial]` — three packs, one named coordinate. Step 1 finds `coord`. Step 2 splits `..left` (everything before `coord`). Step 3 splits `..right` (everything between `coord` and `..spatial`) and `..spatial` (everything after `..right`). Wait — how does the compiler know where `..right` ends and `..spatial` begins?
+**Multiple packs, single anchor.** The same principle extends to signatures with several packs. `fn normalize[coord, ..left, ..right, ..s]` — three packs, one named coordinate. Step 1 finds `coord`. Step 2 splits `..left` (everything before `coord`). Step 3 splits `..right` (everything between `coord` and `..s`) and `..s` (everything after `..right`). Wait — how does the compiler know where `..right` ends and `..s` begins?
 
 This is where pack disambiguation matters. Consider a pooling operation that collapses spatial dimensions:
 
 ```rust
-fn pool[..spatial](x: [f32; ..batch, ..spatial]) -> [f32; ..batch] {
-    max[..spatial](x[..batch, ..spatial])
+fn pool[..s](x: [f32; ..b, ..s]) -> [f32; ..b] {
+    max[..s](x[..b, ..s])
 }
 ```
 
-Only one pack — `..spatial` — is declared as a coordinate parameter. This is the pack the caller wants to name and control. The other pack, `..batch`, appears in the value parameter's shape but is not a coordinate parameter — it's resolved by elimination: whatever coordinates remain after subtracting `..spatial` from the argument's layout. The caller writes:
+Only one pack — `..s` — is declared as a coordinate parameter. This is the pack the caller wants to name and control. The other pack, `..b`, appears in the value parameter's shape but is not a coordinate parameter — it's resolved by elimination: whatever coordinates remain after subtracting `..s` from the argument's layout. The caller writes:
 
 ```rust
 pool[(h, w)](x)
 ```
 
-A single parenthesized group `(h, w)` binds to `..spatial`. `..batch` gets whatever is left: `[b]`. No ambiguity, because only one pack needs disambiguation.
+A single parenthesized group `(h, w)` binds to `..s`. `..b` gets whatever is left: `[b]`. No ambiguity, because only one pack needs disambiguation.
 
-The alternative design — declaring both packs as coordinate parameters with `fn pool[..batch, ..spatial]` and grouping at the call site as `pool[(batch), (height, width)]` — is legal but unnecessary. When two adjacent packs both need caller grouping, the design fights itself. The simpler rule: declare only the pack you need to name. Let the compiler infer the rest by elimination.
+The alternative design — declaring both packs as coordinate parameters with `fn pool[..b, ..s]` and grouping at the call site as `pool[(batch), (height, width)]` — is legal but unnecessary. When two adjacent packs both need caller grouping, the design fights itself. The simpler rule: declare only the pack you need to name. Let the compiler infer the rest by elimination.
 
 This is the constraint on pack placement from the end of this section. A pack must be resolvable from the anchor coordinate alone. If two packs are adjacent with no named coordinate between them, the signature cannot determine the split — but you rarely need to declare both. Declare one. Let the other resolve. Adjacent packs in a signature are a signal: you are asking for a disambiguation problem. Move one of them to be implicit, and the problem disappears.
 
@@ -217,15 +217,15 @@ Now here is the same skeleton in Einlang:
 
 | Function | Reduction coords | Broadcast params | Survivors |
 |---|---|---|---|
-| Softmax | `q` (max), `k` (sum) | none | `..batch`, `j` |
-| LayerNorm | `f` (mean ×2) | `gamma[f]`, `beta[f]` | `..batch`, `f` |
-| RMSNorm | `f` (mean) | `gamma[f]` | `..batch`, `f` |
-| GroupNorm | `c_in_group`, `..spatial` | `gamma[g, c_in_group]`, `beta[g, c_in_group]` | `..batch`, `g`, `c_in_group`, `..spatial` |
-| InstanceNorm | `..spatial` | `gamma[c]`, `beta[c]` | `..batch`, `c`, `..spatial` |
+| Softmax | `q` (max), `k` (sum) | none | `..b`, `j` |
+| LayerNorm | `f` (mean ×2) | `gamma[f]`, `beta[f]` | `..b`, `f` |
+| RMSNorm | `f` (mean) | `gamma[f]` | `..b`, `f` |
+| GroupNorm | `c_in_group`, `..s` | `gamma[g, c_in_group]`, `beta[g, c_in_group]` | `..b`, `g`, `c_in_group`, `..s` |
+| InstanceNorm | `..s` | `gamma[c]`, `beta[c]` | `..b`, `c`, `..s` |
 
 The skeleton is visible in the table because the coordinates are named. Each column says *what*, not *where*. The reduction column names the consumed coordinates. The broadcast column names the parameters and their coordinate sets—the difference between the output set and the parameter set is the broadcast claim. This is coordinate set subtraction from Chapter 2, applied to four functions at once. The survivors column names what's left.
 
-You might wonder: how does the compiler know that `mean[f]` reduces over `f` and not over `..batch`? The answer is that `f` is a named coordinate — the bracket says `mean[f]`, not `mean[..batch]`. Packs can appear in reduction brackets too (`mean[..spatial]`), but the compiler resolves them to concrete coordinates the same way it resolves them in signatures: from the anchor. The reduction bracket is coordinate flow. The pack is a group. The group resolves to its members. The reduction consumes them all.
+You might wonder: how does the compiler know that `mean[f]` reduces over `f` and not over `..b`? The answer is that `f` is a named coordinate — the bracket says `mean[f]`, not `mean[..b]`. Packs can appear in reduction brackets too (`mean[..s]`), but the compiler resolves them to concrete coordinates the same way it resolves them in signatures: from the anchor. The reduction bracket is coordinate flow. The pack is a group. The group resolves to its members. The reduction consumes them all.
 
 Here is the same pattern drawn instead of tabulated:
 
@@ -241,7 +241,7 @@ This is abstraction: recognizing a pattern, naming it, and reusing it. The patte
 
 The discovery exercise—comparing four implementations, finding their shared structure—is what you do every time you read unfamiliar tensor code. Names carry the structure. Positions hide it.
 
-**Derive it yourself: Spot the broadcast set.** Take the LayerNorm row from the table above. The output has `{..batch, f}`. `gamma[f]` has `{f}`. What is the broadcast set for `gamma`? Compute it: `{..batch, f} \ {f} = {..batch}`. `gamma` broadcasts over every batch dimension. Now take GroupNorm. `gamma[g, c_in_group]` has `{g, c_in_group}`. The output has `{..batch, g, c_in_group, ..spatial}`. Broadcast set: `{..batch, ..spatial}`. `gamma` is silent on batch and spatial—exactly as intended. Try the same for InstanceNorm: what does `beta[c]` broadcast over? The answer is in the set subtraction. The table above tells you the answer if you're stuck. But do the subtraction yourself first. The subtraction is the check.
+**Derive it yourself: Spot the broadcast set.** Take the LayerNorm row from the table above. The output has `{..b, f}`. `gamma[f]` has `{f}`. What is the broadcast set for `gamma`? Compute it: `{..b, f} \ {f} = {..b}`. `gamma` broadcasts over every batch dimension. Now take GroupNorm. `gamma[g, c_in_group]` has `{g, c_in_group}`. The output has `{..b, g, c_in_group, ..s}`. Broadcast set: `{..b, ..s}`. `gamma` is silent on batch and spatial—exactly as intended. Try the same for InstanceNorm: what does `beta[c]` broadcast over? The answer is in the set subtraction. The table above tells you the answer if you're stuck. But do the subtraction yourself first. The subtraction is the check.
 
 Now let's put this claim to the test. Here is a real GroupNorm implementation in PyTorch:
 
@@ -261,30 +261,30 @@ Stop and read this carefully. Ask yourself: which dimensions are being reduced b
 Now compare the Einlang version:
 
 ```rust
-fn group_norm[g, c_in_group, ..spatial](x: [f32; ..batch, g, c_in_group, ..spatial],
+fn group_norm[g, c_in_group, ..s](x: [f32; ..b, g, c_in_group, ..s],
     gamma: [f32; g, c_in_group], beta: [f32; g, c_in_group])
-    -> [f32; ..batch, g, c_in_group, ..spatial]
+    -> [f32; ..b, g, c_in_group, ..s]
 {
-    let m[..batch, g] = mean[c_in_group, ..spatial](x[..batch, g, c_in_group, ..spatial]);
-    let v[..batch, g] = mean[c_in_group, ..spatial](
-        (x[..batch, g, c_in_group, ..spatial] - m[..batch, g]) ** 2.0
+    let m[..b, g] = mean[c_in_group, ..s](x[..b, g, c_in_group, ..s]);
+    let v[..b, g] = mean[c_in_group, ..s](
+        (x[..b, g, c_in_group, ..s] - m[..b, g]) ** 2.0
     );
-    let y[..batch, g, c_in_group, ..spatial] =
-        (x[..batch, g, c_in_group, ..spatial] - m[..batch, g])
-        / (v[..batch, g] + 1e-5) ** 0.5;
-    y[..batch, g, c_in_group, ..spatial] * gamma[g, c_in_group] + beta[g, c_in_group]
+    let y[..b, g, c_in_group, ..s] =
+        (x[..b, g, c_in_group, ..s] - m[..b, g])
+        / (v[..b, g] + 1e-5) ** 0.5;
+    y[..b, g, c_in_group, ..s] * gamma[g, c_in_group] + beta[g, c_in_group]
 }
 ```
 
-The reduced coordinates are named: `c_in_group` and `..spatial`. No reshape needed. No positional arithmetic needed. If a temporal dimension is added, `..spatial` absorbs it—the reduction bracket stays the same. If `num_groups` changes, the coordinate `g` handles it—its domain just has a different size.
+The reduced coordinates are named: `c_in_group` and `..s`. No reshape needed. No positional arithmetic needed. If a temporal dimension is added, `..s` absorbs it—the reduction bracket stays the same. If `num_groups` changes, the coordinate `g` handles it—its domain just has a different size.
 
-The deeper point: in a positional API, "feature" is `dim=-1`—the last axis. That works when the tensor is 2D. When it becomes 4D, "feature" no longer fits in a single integer. It spans three positions: channels per group, height, width. Positional code handles this with a reshape-permute-reshape dance that groups and ungroups those dimensions. Named coordinates handle it without the dance: one semantic coordinate (`c_in_group`) plus a spatial pack (`..spatial`) cover what `dim=(2,3,4)` covers in the positional version. The names don't change when the layout changes.
+The deeper point: in a positional API, "feature" is `dim=-1`—the last axis. That works when the tensor is 2D. When it becomes 4D, "feature" no longer fits in a single integer. It spans three positions: channels per group, height, width. Positional code handles this with a reshape-permute-reshape dance that groups and ungroups those dimensions. Named coordinates handle it without the dance: one semantic coordinate (`c_in_group`) plus a spatial pack (`..s`) cover what `dim=(2,3,4)` covers in the positional version. The names don't change when the layout changes.
 
-This is what packs buy you. `..spatial` absorbs however many spatial dimensions exist. The same `GroupNorm` skeleton works whether spatial covers one axis or three. `mean[c_in_group, ..spatial]` says exactly what is consumed—no reshape chain to reverse-engineer.
+This is what packs buy you. `..s` absorbs however many spatial dimensions exist. The same `GroupNorm` skeleton works whether spatial covers one axis or three. `mean[c_in_group, ..s]` says exactly what is consumed—no reshape chain to reverse-engineer.
 
 Now one more question. Suppose you encounter a new normalization variant—say, normalize only over the spatial dimensions, keeping the channel-group dimension intact. What would you change?
 
-Think about it. In the Einlang version, you change one thing: remove `c_in_group` from the reduction bracket. `mean[..spatial](...)` instead of `mean[c_in_group, ..spatial](...)`. The skeleton is unchanged. The coordinate names carry the design decision.
+Think about it. In the Einlang version, you change one thing: remove `c_in_group` from the reduction bracket. `mean[..s](...)` instead of `mean[c_in_group, ..s](...)`. The skeleton is unchanged. The coordinate names carry the design decision.
 
 In the PyTorch version, you'd change `dim=(2, 3, 4)` to `dim=(3, 4)`—but only if the reshape hasn't changed the position of the spatial dimensions. If someone added a temporal axis between `c_in_group` and `H`, the tuple would need to shift to `dim=(4, 5)`. The fragility is not in the concept—it is in the notation's inability to record *which* dimensions are spatial.
 
@@ -300,7 +300,7 @@ Here is a complete Transformer block skeleton in Einlang:
 
 ```rust
 fn transformer_block[head, seq, d, d_ff](
-    x: [f32; ..batch, seq, d],
+    x: [f32; ..b, seq, d],
     W_q: [f32; head, d, d_k],
     W_k: [f32; head, d, d_k],
     W_v: [f32; head, d, d_v],
@@ -309,29 +309,29 @@ fn transformer_block[head, seq, d, d_ff](
     W_2: [f32; d_ff, d],
     gamma1: [f32; d], beta1: [f32; d],
     gamma2: [f32; d], beta2: [f32; d]
-) -> [f32; ..batch, seq, d]
+) -> [f32; ..b, seq, d]
 {
     // LayerNorm 1
-    let norm1[..batch, seq, d] = layer_norm[d](x[..batch, seq, d], gamma1[d], beta1[d]);
+    let norm1[..b, seq, d] = layer_norm[d](x[..b, seq, d], gamma1[d], beta1[d]);
     
     // Multi-head attention
-    let attn_out[..batch, seq, d] = attention[head, seq, seq, d](
-        norm1[..batch, seq, d], norm1[..batch, seq, d], norm1[..batch, seq, d],
+    let attn_out[..b, seq, d] = attention[head, seq, seq, d](
+        norm1[..b, seq, d], norm1[..b, seq, d], norm1[..b, seq, d],
         W_q[head, d, d_k], W_k[head, d, d_k], W_v[head, d, d_v], W_o[head, d_v, d]
     );
     
     // Residual connection
-    let res1[..batch, seq, d] = x[..batch, seq, d] + attn_out[..batch, seq, d];
+    let res1[..b, seq, d] = x[..b, seq, d] + attn_out[..b, seq, d];
     
     // LayerNorm 2
-    let norm2[..batch, seq, d] = layer_norm[d](res1[..batch, seq, d], gamma2[d], beta2[d]);
+    let norm2[..b, seq, d] = layer_norm[d](res1[..b, seq, d], gamma2[d], beta2[d]);
     
     // Feedforward
-    let ff[..batch, seq, d_ff] = relu(sum[d](norm2[..batch, seq, d] * W_1[d, d_ff]));
-    let ff_out[..batch, seq, d] = sum[d_ff](ff[..batch, seq, d_ff] * W_2[d_ff, d]);
+    let ff[..b, seq, d_ff] = relu(sum[d](norm2[..b, seq, d] * W_1[d, d_ff]));
+    let ff_out[..b, seq, d] = sum[d_ff](ff[..b, seq, d_ff] * W_2[d_ff, d]);
     
     // Residual connection
-    res1[..batch, seq, d] + ff_out[..batch, seq, d]
+    res1[..b, seq, d] + ff_out[..b, seq, d]
 }
 ```
 
@@ -375,29 +375,29 @@ You've seen the table. InstanceNorm normalizes each sample's each channel indepe
 Here is the answer:
 
 ```rust
-fn instance_norm[c, ..spatial](x: [f32; ..batch, c, ..spatial],
+fn instance_norm[c, ..s](x: [f32; ..b, c, ..s],
                                 gamma: [f32; c],
                                 beta: [f32; c])
-    -> [f32; ..batch, c, ..spatial]
+    -> [f32; ..b, c, ..s]
 {
-    let m[..batch, c] = mean[..spatial](x[..batch, c, ..spatial]);
-    let v[..batch, c] = mean[..spatial]((x[..batch, c, ..spatial] - m[..batch, c]) ** 2.0);
-    let y[..batch, c, ..spatial] =
-        (x[..batch, c, ..spatial] - m[..batch, c]) / (v[..batch, c] + 1e-5) ** 0.5;
-    y[..batch, c, ..spatial] * gamma[c] + beta[c]
+    let m[..b, c] = mean[..s](x[..b, c, ..s]);
+    let v[..b, c] = mean[..s]((x[..b, c, ..s] - m[..b, c]) ** 2.0);
+    let y[..b, c, ..s] =
+        (x[..b, c, ..s] - m[..b, c]) / (v[..b, c] + 1e-5) ** 0.5;
+    y[..b, c, ..s] * gamma[c] + beta[c]
 }
 ```
 
-The reduced coordinates are `..spatial`. The surviving coordinates are `..batch`, `c`, and `..spatial`—the spatial coordinates are consumed for the statistics but preserved in the output. The broadcast parameters are `gamma[c]` and `beta[c]`, which broadcast over `..batch` and `..spatial`.
+The reduced coordinates are `..s`. The surviving coordinates are `..b`, `c`, and `..s`—the spatial coordinates are consumed for the statistics but preserved in the output. The broadcast parameters are `gamma[c]` and `beta[c]`, which broadcast over `..b` and `..s`.
 
 Three things to observe:
-- `..spatial` absorbs however many spatial dimensions there are.
-- `..spatial` is placed in the reduction bracket because it's consumed for the statistics.
-- `..spatial` is kept in the return type because the output is not a scalar—it's a tensor with spatial dimensions.
+- `..s` absorbs however many spatial dimensions there are.
+- `..s` is placed in the reduction bracket because it's consumed for the statistics.
+- `..s` is kept in the return type because the output is not a scalar—it's a tensor with spatial dimensions.
 
-These three observations together capture the skeleton. The coordinate names carry the design: `mean[..spatial]` says "I am consuming the spatial dimensions." The return type `[f32; ..batch, c, ..spatial]` says "the spatial dimensions survive." The contradiction resolves: `..spatial` is consumed in the reduction but reconstructed in the output—the signature guarantees it.
+These three observations together capture the skeleton. The coordinate names carry the design: `mean[..s]` says "I am consuming the spatial dimensions." The return type `[f32; ..b, c, ..s]` says "the spatial dimensions survive." The contradiction resolves: `..s` is consumed in the reduction but reconstructed in the output—the signature guarantees it.
 
-Now consider: what if InstanceNorm should normalize over `c` as well? You'd change the reduction bracket to `[c, ..spatial]`. One change. The skeleton is the same. The coordinate name carries the design decision.
+Now consider: what if InstanceNorm should normalize over `c` as well? You'd change the reduction bracket to `[c, ..s]`. One change. The skeleton is the same. The coordinate name carries the design decision.
 
 ---
 
@@ -473,7 +473,7 @@ Consider the `mean(`, `sum(`, or `max(` calls in your codebase. Each one followe
 
 Consider every `* gamma + beta` or `* scale + shift`. It is a broadcast-parameter suffix of a normalization skeleton. Which coordinates do `gamma` and `beta` broadcast over? In a positional API, the answer is "all dimensions except the one gamma was defined on," which requires knowing gamma's rank and the convention for parameter placement. The broadcast is correct by convention, not by construction.
 
-Any two functions that share a skeleton have Einlang signatures. Even without using Einlang, writing `fn name[consumed](x: [..batch, consumed]) -> [..batch, consumed]` as a comment above the function reveals the skeleton. Two functions with matching signatures share a skeleton. Two functions with different signatures serve different purposes and should have different signatures. The comment costs one line of typing. The check costs zero.
+Any two functions that share a skeleton have Einlang signatures. Even without using Einlang, writing `fn name[consumed](x: [..b, consumed]) -> [..b, consumed]` as a comment above the function reveals the skeleton. Two functions with matching signatures share a skeleton. Two functions with different signatures serve different purposes and should have different signatures. The comment costs one line of typing. The check costs zero.
 
 A normalization variant that normalizes over `batch` instead of `feature` changes `layer_norm[f]` to `layer_norm[batch]`. The signature change documents the architectural decision. In a positional API, changing `dim=-1` to `dim=0` silently shifts the coordinate—and hopes no other code depends on the output shape.
 
