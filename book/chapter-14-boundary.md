@@ -70,7 +70,7 @@ Three categories. Each one is a different kind of silence between what the code 
 A programmer writes:
 
 ```rust
-let result[..batch, feature] = softmax[batch](logits[..batch, feature]);
+let result[..b, feature] = softmax[batch](logits[..b, feature]);
 ```
 
 `batch` exists on `logits`. The reduction consumes it. The gradient sums over it. Every check passes. The program compiles. It produces a valid probability distribution — over the batch dimension, not the feature dimension. The name was wrong. The check passed. The program is incorrect.

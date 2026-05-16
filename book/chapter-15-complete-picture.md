@@ -71,7 +71,7 @@ A coordinate has a name, a domain, a position (Ch1)
     |       |
     |       |---> Square Matrix Test: when extents equal, only names differ (Ch3)
     |       |
-    |       |---> Pack polymorphism: ..batch absorbs unknown leading dims (Ch5)
+    |       |---> Pack polymorphism: ..b absorbs unknown leading dims (Ch5)
     |       |
     |       +---> Normalization skeleton: one pattern, four functions (Ch5)
     |
@@ -132,7 +132,7 @@ Index slots in the declaration bracket may be:
 - A name: `i`, `j`, `batch` — the standard case.
 - A name with an explicit domain: `t in 0..T` — for recurrences.
 - A literal: `0` — used for base cases.
-- A named rest: `..batch` — absorbs zero or more adjacent axes.
+- A named rest: `..b` — absorbs zero or more adjacent axes.
 
 Expressions are not allowed in the declaration bracket. `let fib[n-1] = ...` is an error. The left side names what is being defined. The right side computes it.
 
@@ -178,8 +178,8 @@ The Inversion Rule: what broadcasts in the forward pass is reduced in the backwa
 `..name` stands for zero or more adjacent axes, collectively named. *Introduced in Chapter 2; pack polymorphism in Chapter 5.*
 
 ```rust
-let result[..batch, j] = x[..batch, j] + bias[j];
-let row_sum[..batch] = sum[j](x[..batch, j]);
+let result[..b, j] = x[..b, j] + bias[j];
+let row_sum[..b] = sum[j](x[..b, j]);
 ```
 
 The same rest name must describe the same axis span within an expression. Packs make functions rank-polymorphic: the same `layer_norm[feature]` works on 2D, 3D, or 4D inputs.
@@ -227,7 +227,7 @@ let p[b, class] = softmax[class](logits[b, class]);
 
 The compiler checks that `class` exists on `logits` and that the coordinate contract is satisfied. The bracketed name is part of the call contract, not a comment.
 
-Packs (`..left`, `..right`, `..spatial`) make functions polymorphic over surrounding structure. A caller disambiguates by grouping: `softmax[(height, width)](x)`.
+Packs (`..left`, `..right`, `..s`) make functions polymorphic over surrounding structure. A caller disambiguates by grouping: `softmax[(height, width)](x)`.
 
 ---
 
@@ -472,8 +472,8 @@ Two broadcasts. `gamma` and `beta` silently copy over `batch`. `mean` and `var` 
 **Principle 4 applied: Functions must declare their coordinate contracts.**
 
 ```rust
-fn layer_norm[feature](x: [f32; ..batch, feature], gamma: [f32; feature], beta: [f32; feature])
-    -> [f32; ..batch, feature]
+fn layer_norm[feature](x: [f32; ..b, feature], gamma: [f32; feature], beta: [f32; feature])
+    -> [f32; ..b, feature]
 ```
 
 The coordinate parameter `feature` is part of the function's type. Every call site that passes `feature` is checked: does the tensor have a coordinate called `feature`? The contract is not a docstring. It is verified.

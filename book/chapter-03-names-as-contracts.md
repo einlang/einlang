@@ -152,17 +152,17 @@ Coordinate-aware functions compose. The output of one becomes the input of anoth
 Consider a pipeline: linear layer, then softmax:
 
 ```rust
-fn linear[in, out](x: [f32; ..batch, in], W: [f32; out, in], b: [f32; out])
-    -> [f32; ..batch, out]
+fn linear[in, out](x: [f32; ..b, in], W: [f32; out, in], b: [f32; out])
+    -> [f32; ..b, out]
 {
-    sum[in](x[..batch, in] * W[out, in]) + b[out]
+    sum[in](x[..b, in] * W[out, in]) + b[out]
 }
 
-fn pipeline[in, class](x: [f32; ..batch, in], W: [f32; class, in], b: [f32; class])
-    -> [f32; ..batch, class]
+fn pipeline[in, class](x: [f32; ..b, in], W: [f32; class, in], b: [f32; class])
+    -> [f32; ..b, class]
 {
-    let logits[..batch, class] = linear[in, class](x[..batch, in], W[class, in], b[class]);
-    softmax[class](logits[..batch, class])
+    let logits[..b, class] = linear[in, class](x[..b, in], W[class, in], b[class]);
+    softmax[class](logits[..b, class])
 }
 ```
 

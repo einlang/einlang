@@ -60,22 +60,22 @@ class LayerNorm(nn.Module):
 **Einlang:**
 
 ```rust
-fn layer_norm[feature](x: [f32; ..batch, feature], gamma: [f32; feature], beta: [f32; feature])
-    -> [f32; ..batch, feature]
+fn layer_norm[feature](x: [f32; ..b, feature], gamma: [f32; feature], beta: [f32; feature])
+    -> [f32; ..b, feature]
 {
-    let mean[..batch] = mean[feature](x[..batch, feature]);
-    let centered[..batch, feature] = x[..batch, feature] - mean[..batch];
-    let var[..batch] = mean[feature](centered[..batch, feature] ** 2.0);
-    (centered[..batch, feature] / (var[..batch] ** 0.5 + 1e-5)) * gamma[feature] + beta[feature]
+    let mean[..b] = mean[feature](x[..b, feature]);
+    let centered[..b, feature] = x[..b, feature] - mean[..b];
+    let var[..b] = mean[feature](centered[..b, feature] ** 2.0);
+    (centered[..b, feature] / (var[..b] ** 0.5 + 1e-5)) * gamma[feature] + beta[feature]
 }
 ```
 
 What the Einlang version makes visible:
 - `mean[feature]` says "I am reducing over `feature`." The name is in the bracket.
-- `mean[..batch]` says "`mean` only has batch dimensions." The broadcast over `feature` is explicit in the subtraction `x[..batch, feature] - mean[..batch]`—`mean` omits `feature`, so it broadcasts along it.
-- `gamma[feature]` says "gamma aligns with the feature dimension." The pack `..batch` absorbs whatever batch structure exists.
+- `mean[..b]` says "`mean` only has batch dimensions." The broadcast over `feature` is explicit in the subtraction `x[..b, feature] - mean[..b]`—`mean` omits `feature`, so it broadcasts along it.
+- `gamma[feature]` says "gamma aligns with the feature dimension." The pack `..b` absorbs whatever batch structure exists.
 
-If the input changes from `(batch, seq, feature)` to `(batch, feature, seq)`, the Einlang code still works—`..batch` now absorbs `(batch,)` and `feature` is at position 1 instead of 2. The PyTorch code silently normalizes over `seq` instead of `feature`.
+If the input changes from `(batch, seq, feature)` to `(batch, feature, seq)`, the Einlang code still works—`..b` now absorbs `(batch,)` and `feature` is at position 1 instead of 2. The PyTorch code silently normalizes over `seq` instead of `feature`.
 
 ---
 
@@ -100,12 +100,12 @@ class RMSNorm(nn.Module):
 **Einlang:**
 
 ```rust
-fn rms_norm[feature](x: [f32; ..batch, feature], gamma: [f32; feature])
-    -> [f32; ..batch, feature]
+fn rms_norm[feature](x: [f32; ..b, feature], gamma: [f32; feature])
+    -> [f32; ..b, feature]
 {
-    let sq[..batch, feature] = x[..batch, feature] ** 2.0;
-    let ms[..batch] = mean[feature](sq[..batch, feature]);
-    x[..batch, feature] / (ms[..batch] ** 0.5 + 1e-5) * gamma[feature]
+    let sq[..b, feature] = x[..b, feature] ** 2.0;
+    let ms[..b] = mean[feature](sq[..b, feature]);
+    x[..b, feature] / (ms[..b] ** 0.5 + 1e-5) * gamma[feature]
 }
 ```
 
@@ -146,28 +146,28 @@ Before you read the Einlang version, stop and ask: from the PyTorch code alone, 
 **Einlang:**
 
 ```rust
-fn group_norm[group, c_in_group, ..spatial](
-    x: [f32; ..batch, group, c_in_group, ..spatial],
+fn group_norm[group, c_in_group, ..s](
+    x: [f32; ..b, group, c_in_group, ..s],
     gamma: [f32; group, c_in_group],
     beta: [f32; group, c_in_group]
-) -> [f32; ..batch, group, c_in_group, ..spatial]
+) -> [f32; ..b, group, c_in_group, ..s]
 {
-    let mean[..batch, group] = mean[c_in_group, ..spatial](
-        x[..batch, group, c_in_group, ..spatial]
+    let mean[..b, group] = mean[c_in_group, ..s](
+        x[..b, group, c_in_group, ..s]
     );
-    let centered[..batch, group, c_in_group, ..spatial] =
-        x[..batch, group, c_in_group, ..spatial] - mean[..batch, group];
-    let var[..batch, group] = mean[c_in_group, ..spatial](
-        centered[..batch, group, c_in_group, ..spatial] ** 2.0
+    let centered[..b, group, c_in_group, ..s] =
+        x[..b, group, c_in_group, ..s] - mean[..b, group];
+    let var[..b, group] = mean[c_in_group, ..s](
+        centered[..b, group, c_in_group, ..s] ** 2.0
     );
-    (centered[..batch, group, c_in_group, ..spatial]
-        / (var[..batch, group] ** 0.5 + 1e-5))
+    (centered[..b, group, c_in_group, ..s]
+        / (var[..b, group] ** 0.5 + 1e-5))
         * gamma[group, c_in_group] + beta[group, c_in_group]
 }
 ```
 
 What the Einlang version makes visible:
-- `mean[c_in_group, ..spatial]` names exactly which coordinates are being reduced. No `dim=(2, 3, 4)` whose meaning depends on a reshape.
+- `mean[c_in_group, ..s]` names exactly which coordinates are being reduced. No `dim=(2, 3, 4)` whose meaning depends on a reshape.
 - `gamma[group, c_in_group]` aligns with two coordinates. No `.view(1, -1, 1, 1)` to manually position the broadcast. The omission of batch and spatial from gamma's brackets is the megaphone at work—gamma speaks on group and c_in_group, stays silent on batch and spatial, and the silence is the broadcast.
 - No reshape is needed because the coordinates `group` and `c_in_group` are separate from the start. The function signature declares the grouped layout directly.
 
@@ -199,22 +199,22 @@ class InstanceNorm(nn.Module):
 **Einlang:**
 
 ```rust
-fn instance_norm[..spatial, channel](x: [f32; ..batch, channel, ..spatial],
+fn instance_norm[..s, channel](x: [f32; ..b, channel, ..s],
     gamma: [f32; channel], beta: [f32; channel])
-    -> [f32; ..batch, channel, ..spatial]
+    -> [f32; ..b, channel, ..s]
 {
-    let mean[..batch, channel] = mean[..spatial](x[..batch, channel, ..spatial]);
-    let centered[..batch, channel, ..spatial] =
-        x[..batch, channel, ..spatial] - mean[..batch, channel];
-    let var[..batch, channel] = mean[..spatial](
-        centered[..batch, channel, ..spatial] ** 2.0
+    let mean[..b, channel] = mean[..s](x[..b, channel, ..s]);
+    let centered[..b, channel, ..s] =
+        x[..b, channel, ..s] - mean[..b, channel];
+    let var[..b, channel] = mean[..s](
+        centered[..b, channel, ..s] ** 2.0
     );
-    (centered[..batch, channel, ..spatial] / (var[..batch, channel] ** 0.5 + 1e-5))
+    (centered[..b, channel, ..s] / (var[..b, channel] ** 0.5 + 1e-5))
         * gamma[channel] + beta[channel]
 }
 ```
 
-`..spatial` absorbs however many spatial dimensions there are—1, 2, 3. The reduction bracket `mean[..spatial]` doesn't change. The skeleton is the same as LayerNorm, RMSNorm, and GroupNorm. Only the coordinate in the bracket differs.
+`..s` absorbs however many spatial dimensions there are—1, 2, 3. The reduction bracket `mean[..s]` doesn't change. The skeleton is the same as LayerNorm, RMSNorm, and GroupNorm. Only the coordinate in the bracket differs.
 
 Now overlay all four normalization functions. The differences are exactly which coordinates appear in the reduction bracket:
 
@@ -222,8 +222,8 @@ Now overlay all four normalization functions. The differences are exactly which 
 |---|---|---|
 | LayerNorm | `mean[feature]` | `gamma[feature]` |
 | RMSNorm | `mean[feature]` | `gamma[feature]` |
-| InstanceNorm | `mean[..spatial]` | `gamma[channel]` |
-| GroupNorm | `mean[c_in_group, ..spatial]` | `gamma[group, c_in_group]` |
+| InstanceNorm | `mean[..s]` | `gamma[channel]` |
+| GroupNorm | `mean[c_in_group, ..s]` | `gamma[group, c_in_group]` |
 
 The body of every function is: reduce to get statistics, subtract-and-divide, scale-and-shift. The reduction bracket is the only structural difference. In the PyTorch versions, this unity is invisible—each function has its own `dim` argument, its own view-reshape chain, its own parameter shape conventions. The skeleton is scattered across four classes.
 
@@ -231,11 +231,11 @@ The body of every function is: reduce to get statistics, subtract-and-divide, sc
 
 ## BatchNorm: Where the Skeleton Breaks
 
-BatchNorm normalizes over the batch dimension. In training, it computes per-feature statistics across the batch. In inference, it uses running averages. The coordinate structure—reduce over `..batch`, broadcast back over `feature`—is the same in both modes. The semantic difference is *where the statistics come from*: the current tensor or an accumulated buffer. That distinction is invisible in the positional `dim=0` and in the named `mean[..batch]` alike.
+BatchNorm normalizes over the batch dimension. In training, it computes per-feature statistics across the batch. In inference, it uses running averages. The coordinate structure—reduce over `..b`, broadcast back over `feature`—is the same in both modes. The semantic difference is *where the statistics come from*: the current tensor or an accumulated buffer. That distinction is invisible in the positional `dim=0` and in the named `mean[..b]` alike.
 
 ```rust
 // Both paths share the same coordinate structure:
-let batch_mean[feature] = mean[..batch](x[..batch, feature]);     // training: fresh
+let batch_mean[feature] = mean[..b](x[..b, feature]);     // training: fresh
 let infer_mean[feature] = running_mean[feature];                  // inference: accumulated
 ```
 
@@ -277,17 +277,17 @@ Now replay in Einlang:
 
 ```rust
 // Original
-fn group_norm[g, c_in_group, ..spatial](x: [f32; ..batch, g, c_in_group, ..spatial], ...)
+fn group_norm[g, c_in_group, ..s](x: [f32; ..b, g, c_in_group, ..s], ...)
 
 // With temporal dimension added — same signature
-fn group_norm[g, c_in_group, ..spatial](x: [f32; ..batch, t, g, c_in_group, ..spatial], ...)
+fn group_norm[g, c_in_group, ..s](x: [f32; ..b, t, g, c_in_group, ..s], ...)
 ```
 
-The signature absorbs `t` into `..batch` (if it's a leading dimension) or `..spatial` (if temporal is treated as spatial). The reduction bracket `mean[c_in_group, ..spatial]` doesn't change. The coordinates being reduced are still named `c_in_group` and `..spatial`. The position of those coordinates in the tensor layout doesn't matter — the names find them.
+The signature absorbs `t` into `..b` (if it's a leading dimension) or `..s` (if temporal is treated as spatial). The reduction bracket `mean[c_in_group, ..s]` doesn't change. The coordinates being reduced are still named `c_in_group` and `..s`. The position of those coordinates in the tensor layout doesn't matter — the names find them.
 
 The bug doesn't happen. Not because the programmer is smarter. Because the notation doesn't require positional arithmetic. The coordinate names abstract over positions. Adding a dimension changes which positions the coordinates map to, but the reduction bracket still names the same coordinates. No `dim` tuple to update. No reshape chain to re-align.
 
-Pause here. You just watched a real bug trace across two notations. In the PyTorch version, the bug takes three days to surface, survives integration tests, and produces a model that trains but performs worse on wide videos. In the Einlang version, the bug cannot be written—`mean[c_in_group, ..spatial]` still means all channel-group and spatial dimensions regardless of where `t` is inserted. The difference is not that the Einlang programmer is more careful. The difference is that the notation has a place for the fact "I am normalizing over channel groups and spatial dimensions," and the PyTorch notation encodes that fact as a tuple of positions that silently rot when the layout changes.
+Pause here. You just watched a real bug trace across two notations. In the PyTorch version, the bug takes three days to surface, survives integration tests, and produces a model that trains but performs worse on wide videos. In the Einlang version, the bug cannot be written—`mean[c_in_group, ..s]` still means all channel-group and spatial dimensions regardless of where `t` is inserted. The difference is not that the Einlang programmer is more careful. The difference is that the notation has a place for the fact "I am normalizing over channel groups and spatial dimensions," and the PyTorch notation encodes that fact as a tuple of positions that silently rot when the layout changes.
 
 What facts in your own codebase are encoded as positional tuples?
 
@@ -297,7 +297,7 @@ What facts in your own codebase are encoded as positional tuples?
 
 Every normalization function can be audited with three questions, each a specialization of the broadcast self-audit from Chapter 4:
 
-1. **Which coordinates does the reduction consume?** In `mean[feature]`, the consumed coordinate is `feature`. In `mean[c_in_group, ..spatial]`, the consumed coordinates are `c_in_group` and all spatial dimensions. The reduction bracket names them directly. In a positional `dim=-1` or `dim=(2,3,4)`, the consumed coordinates must be inferred from the layout and the reshape chain.
+1. **Which coordinates does the reduction consume?** In `mean[feature]`, the consumed coordinate is `feature`. In `mean[c_in_group, ..s]`, the consumed coordinates are `c_in_group` and all spatial dimensions. The reduction bracket names them directly. In a positional `dim=-1` or `dim=(2,3,4)`, the consumed coordinates must be inferred from the layout and the reshape chain.
 
 2. **Which coordinates do the broadcast parameters align with?** In `gamma[feature]`, gamma aligns with `feature`—the same coordinate that was consumed by the reduction. This is the Inversion Rule from Chapter 4: the reduction consumes `feature`, then `gamma` broadcasts back along `feature`. In a positional `.view(1, -1, 1, 1)`, the alignment is encoded in the view shape, which must be reconstructed by the reader.
 
@@ -306,14 +306,14 @@ Every normalization function can be audited with three questions, each a special
 Before leaving normalization, read this function — one you have never seen:
 
 ```rust
-fn normalize[j, k](x: [f32; ..batch, j, k], gamma: [f32; j, k], beta: [f32; j, k]) -> [f32; ..batch, j, k] {
-    let m[..batch] = mean[j, k](x[..batch, j, k]);
-    let v[..batch] = mean[j, k]((x[..batch, j, k] - m[..batch]) ** 2.0);
-    (x[..batch, j, k] - m[..batch]) / (v[..batch] + 1e-5) ** 0.5 * gamma[j, k] + beta[j, k]
+fn normalize[j, k](x: [f32; ..b, j, k], gamma: [f32; j, k], beta: [f32; j, k]) -> [f32; ..b, j, k] {
+    let m[..b] = mean[j, k](x[..b, j, k]);
+    let v[..b] = mean[j, k]((x[..b, j, k] - m[..b]) ** 2.0);
+    (x[..b, j, k] - m[..b]) / (v[..b] + 1e-5) ** 0.5 * gamma[j, k] + beta[j, k]
 }
 ```
 
-The reduction bracket says `mean[j, k]` — so it consumes `j` and `k`. The output has `{..batch, j, k}` and `gamma` has `{j, k}` — so `gamma` broadcasts over `..batch`, the difference of those two sets. If `x` changes from `(batch, j, k)` to `(batch, time, j, k)`, the reduction bracket doesn't change. `j` and `k` are found by name. The positional equivalent `dim=(-2, -1)` would survive if `time` is prepended — but not if `time` lands between `j` and `k`. The named bracket doesn't care where `time` lands.
+The reduction bracket says `mean[j, k]` — so it consumes `j` and `k`. The output has `{..b, j, k}` and `gamma` has `{j, k}` — so `gamma` broadcasts over `..b`, the difference of those two sets. If `x` changes from `(batch, j, k)` to `(batch, time, j, k)`, the reduction bracket doesn't change. `j` and `k` are found by name. The positional equivalent `dim=(-2, -1)` would survive if `time` is prepended — but not if `time` lands between `j` and `k`. The named bracket doesn't care where `time` lands.
 
 Three questions, three answers, all visible in the signature without reading the body. That is the audit.
 

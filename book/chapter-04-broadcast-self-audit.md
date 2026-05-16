@@ -98,15 +98,15 @@ A systematic procedure. Given any expression that contains a broadcast, you can 
 Let's apply this to a realistic example. Here is a layer normalization with a learnable scale and shift:
 
 ```rust
-fn layer_norm[feature](x: [f32; ..batch, feature],
+fn layer_norm[feature](x: [f32; ..b, feature],
                         gamma: [f32; feature],
                         beta: [f32; feature])
-    -> [f32; ..batch, feature]
+    -> [f32; ..b, feature]
 {
-    let mean[..batch] = mean[feature](x[..batch, feature]);
-    let centered[..batch, feature] = x[..batch, feature] - mean[..batch];
-    let var[..batch] = mean[feature](centered[..batch, feature] ** 2.0);
-    (centered[..batch, feature] / (var[..batch] ** 0.5 + 1e-5)) * gamma[feature] + beta[feature]
+    let mean[..b] = mean[feature](x[..b, feature]);
+    let centered[..b, feature] = x[..b, feature] - mean[..b];
+    let var[..b] = mean[feature](centered[..b, feature] ** 2.0);
+    (centered[..b, feature] / (var[..b] ** 0.5 + 1e-5)) * gamma[feature] + beta[feature]
 }
 ```
 
@@ -114,33 +114,33 @@ Step through the auditor's toolkit.
 
 **Step 1: Coordinate sets.**
 
-- `x`: `{..batch, feature}`
-- `mean`: `{..batch}` — `feature` was consumed by `mean[feature]`
-- `centered`: `{..batch, feature}`
-- `var`: `{..batch}` — `feature` was consumed by `mean[feature]`
+- `x`: `{..b, feature}`
+- `mean`: `{..b}` — `feature` was consumed by `mean[feature]`
+- `centered`: `{..b, feature}`
+- `var`: `{..b}` — `feature` was consumed by `mean[feature]`
 - `gamma`: `{feature}`
 - `beta`: `{feature}`
 
 **Step 2: Broadcast sets.**
 
-The final expression is `centered / (var ** 0.5 + eps) * gamma + beta`. The output coordinates are `{..batch, feature}`.
+The final expression is `centered / (var ** 0.5 + eps) * gamma + beta`. The output coordinates are `{..b, feature}`.
 
-- `centered`: has `{..batch, feature}`. Broadcast set = `{}`. No broadcast.
-- `var`: has `{..batch}`. Broadcast set = `{feature}`. `var` broadcasts over `feature`.
-- `gamma`: has `{feature}`. Broadcast set = `{..batch}`. `gamma` broadcasts over `..batch`.
-- `beta`: has `{feature}`. Broadcast set = `{..batch}`. `beta` broadcasts over `..batch`.
+- `centered`: has `{..b, feature}`. Broadcast set = `{}`. No broadcast.
+- `var`: has `{..b}`. Broadcast set = `{feature}`. `var` broadcasts over `feature`.
+- `gamma`: has `{feature}`. Broadcast set = `{..b}`. `gamma` broadcasts over `..b`.
+- `beta`: has `{feature}`. Broadcast set = `{..b}`. `beta` broadcasts over `..b`.
 
 **Step 3: Justification.**
 
 - `var` broadcasts over `feature`: justified. The variance is computed per-batch-element, then applied to all features. This is the definition of layer normalization.
-- `gamma` broadcasts over `..batch`: justified. `gamma` is a per-feature parameter. Every batch element gets the same scale.
-- `beta` broadcasts over `..batch`: justified. Same reasoning as `gamma`.
+- `gamma` broadcasts over `..b`: justified. `gamma` is a per-feature parameter. Every batch element gets the same scale.
+- `beta` broadcasts over `..b`: justified. Same reasoning as `gamma`.
 
 **Step 4: Gradient prediction.**
 
-- `d_var[..batch] = sum[feature](d_out[..batch, feature] * ...)`. The gradient sums over `feature`—the broadcast set. Result: `{..batch}`, matching `var`.
-- `d_gamma[feature] = sum[..batch](d_out[..batch, feature] * ...)`. The gradient sums over `..batch`—the broadcast set. Result: `{feature}`, matching `gamma`.
-- `d_beta[feature] = sum[..batch](d_out[..batch, feature])`. Same. Result: `{feature}`, matching `beta`.
+- `d_var[..b] = sum[feature](d_out[..b, feature] * ...)`. The gradient sums over `feature`—the broadcast set. Result: `{..b}`, matching `var`.
+- `d_gamma[feature] = sum[..b](d_out[..b, feature] * ...)`. The gradient sums over `..b`—the broadcast set. Result: `{feature}`, matching `gamma`.
+- `d_beta[feature] = sum[..b](d_out[..b, feature])`. Same. Result: `{feature}`, matching `beta`.
 
 Every gradient has the same coordinates as its parameter. The broadcast sets from Step 2 become the reduction sets in Step 4. The Inversion Rule, applied mechanically.
 
@@ -266,11 +266,11 @@ Most real code has more than one broadcast. A linear layer with bias has one. A 
 Here is a complete attention projection block:
 
 ```rust
-let context[..batch, head, seq_q, d] =
-    sum[seq_k](weights[..batch, head, seq_q, seq_k] * V[..batch, head, seq_k, d]);
-let output[..batch, seq_q, head, d_out] =
-    sum[d](context[..batch, head, seq_q, d] * W_o[head, d, d_out]);
-let final[..batch, seq_q, d_out] = output[..batch, seq_q, d_out] + b_o[d_out];
+let context[..b, head, seq_q, d] =
+    sum[seq_k](weights[..b, head, seq_q, seq_k] * V[..b, head, seq_k, d]);
+let output[..b, seq_q, head, d_out] =
+    sum[d](context[..b, head, seq_q, d] * W_o[head, d, d_out]);
+let final[..b, seq_q, d_out] = output[..b, seq_q, d_out] + b_o[d_out];
 ```
 
 Three lines. Let the auditor walk through each.
@@ -278,32 +278,32 @@ Three lines. Let the auditor walk through each.
 **Line 1: `sum[seq_k](weights * V)`**
 
 ```
-Output coordinates: {..batch, head, seq_q, d}
-weights: {..batch, head, seq_q, seq_k}  → broadcast: {} (no omission, seq_k is reduced)
-V:       {..batch, head, seq_k, d}      → broadcast: {seq_q} (V omits seq_q)
+Output coordinates: {..b, head, seq_q, d}
+weights: {..b, head, seq_q, seq_k}  → broadcast: {} (no omission, seq_k is reduced)
+V:       {..b, head, seq_k, d}      → broadcast: {seq_q} (V omits seq_q)
 ```
 
-`V` broadcasts over `seq_q` inside the reduction. This is correct: `V` provides values at each `seq_k` position regardless of which `seq_q` is querying. The backward reduction: `dV[..batch, head, seq_k, d] = sum[seq_q](d_context[..batch, head, seq_q, d] * weights[..batch, head, seq_q, seq_k])`. The broadcast set `{seq_q}` becomes the reduction set.
+`V` broadcasts over `seq_q` inside the reduction. This is correct: `V` provides values at each `seq_k` position regardless of which `seq_q` is querying. The backward reduction: `dV[..b, head, seq_k, d] = sum[seq_q](d_context[..b, head, seq_q, d] * weights[..b, head, seq_q, seq_k])`. The broadcast set `{seq_q}` becomes the reduction set.
 
 **Line 2: `sum[d](context * W_o)`**
 
 ```
-Output coordinates: {..batch, seq_q, head, d_out}
-context: {..batch, head, seq_q, d}  → broadcast: {}
-W_o:     {head, d, d_out}       → broadcast: {..batch, seq_q}
+Output coordinates: {..b, seq_q, head, d_out}
+context: {..b, head, seq_q, d}  → broadcast: {}
+W_o:     {head, d, d_out}       → broadcast: {..b, seq_q}
 ```
 
-`W_o` broadcasts over `..batch` and `seq_q`. Correct: the weight is the same for all batch elements and query positions. Backward: `dW_o[head, d, d_out] = sum[..batch, seq_q](d_output[..batch, seq_q, head, d_out] * context[..batch, head, seq_q, d])`.
+`W_o` broadcasts over `..b` and `seq_q`. Correct: the weight is the same for all batch elements and query positions. Backward: `dW_o[head, d, d_out] = sum[..b, seq_q](d_output[..b, seq_q, head, d_out] * context[..b, head, seq_q, d])`.
 
 **Line 3: `output + b_o`**
 
 ```
-Output coordinates: {..batch, seq_q, d_out}
-output: {..batch, seq_q, d_out}  → broadcast: {}
-b_o:    {d_out}              → broadcast: {..batch, seq_q}
+Output coordinates: {..b, seq_q, d_out}
+output: {..b, seq_q, d_out}  → broadcast: {}
+b_o:    {d_out}              → broadcast: {..b, seq_q}
 ```
 
-Backward: `db_o[d_out] = sum[..batch, seq_q](d_final[..batch, seq_q, d_out])`.
+Backward: `db_o[d_out] = sum[..b, seq_q](d_final[..b, seq_q, d_out])`.
 
 **Putting it together.** Three expressions. Five broadcasts—two of them hidden inside reductions. Every broadcast has a backward reduction over the same coordinate set. The Inversion Rule holds for all of them.
 
@@ -327,7 +327,7 @@ In Einlang, broadcasting is name-driven. `out[i, j] = A[i, j] + bias[j]` omits `
 
 The audit questions are the same. But in PyTorch, answering Question 1 ("what coordinate am I broadcasting over?") requires shape reconstruction. In Einlang, answering Question 1 requires reading a bracket. The audit is the same. The effort is not.
 
-In PyTorch, `output = projected + b_o` requires knowing that `projected` has shape `(batch, seq_q, d_out)` and `b_o` has `(d_out,)`. Transpose `projected` upstream, and the broadcast alignment silently changes. The Einlang version `projected[..batch, seq_q, d_out] + b_o[d_out]` is layout-independent—the name `d_out` identifies the shared axis regardless of position. The audit is the same for 2D or 6D tensors, because the number of names, not the number of axes, determines the work.
+In PyTorch, `output = projected + b_o` requires knowing that `projected` has shape `(batch, seq_q, d_out)` and `b_o` has `(d_out,)`. Transpose `projected` upstream, and the broadcast alignment silently changes. The Einlang version `projected[..b, seq_q, d_out] + b_o[d_out]` is layout-independent—the name `d_out` identifies the shared axis regardless of position. The audit is the same for 2D or 6D tensors, because the number of names, not the number of axes, determines the work.
 
 ---
 

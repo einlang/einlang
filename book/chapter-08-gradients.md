@@ -245,39 +245,39 @@ Tracing the gradient of LayerNorm end to end:
 Forward pass:
 
 ```rust
-fn layer_norm[feature](x: [f32; ..batch, feature],
+fn layer_norm[feature](x: [f32; ..b, feature],
                       gamma: [f32; feature],
                       beta: [f32; feature])
-    -> [f32; ..batch, feature]
+    -> [f32; ..b, feature]
 {
-    let mean_val[..batch] = mean[feature](x[..batch, feature]);
-    let centered[..batch, feature] = x[..batch, feature] - mean_val[..batch];
-    let var[..batch] = mean[feature](centered[..batch, feature] ** 2.0);
-    (centered[..batch, feature] / (var[..batch] ** 0.5 + 1e-5)) * gamma[feature] + beta[feature]
+    let mean_val[..b] = mean[feature](x[..b, feature]);
+    let centered[..b, feature] = x[..b, feature] - mean_val[..b];
+    let var[..b] = mean[feature](centered[..b, feature] ** 2.0);
+    (centered[..b, feature] / (var[..b] ** 0.5 + 1e-5)) * gamma[feature] + beta[feature]
 }
 ```
 
-`d_out[..batch, feature]` is the gradient of the loss with respect to the LayerNorm output. Compute `dx[..batch, feature]`, `d_gamma[feature]`, and `d_beta[feature]`.
+`d_out[..b, feature]` is the gradient of the loss with respect to the LayerNorm output. Compute `dx[..b, feature]`, `d_gamma[feature]`, and `d_beta[feature]`.
 
-**Step 1: Gradient of beta.** The output expression ends with `+ beta[feature]`. This is an elementwise addition. `beta` omits `..batch` in its index pattern—it broadcasts over all batch dimensions. By the Inversion Rule, the gradient sums over the broadcast set:
+**Step 1: Gradient of beta.** The output expression ends with `+ beta[feature]`. This is an elementwise addition. `beta` omits `..b` in its index pattern—it broadcasts over all batch dimensions. By the Inversion Rule, the gradient sums over the broadcast set:
 
 ```rust
-let d_beta[feature] = sum[..batch](d_out[..batch, feature]);
+let d_beta[feature] = sum[..b](d_out[..b, feature]);
 ```
 
-`d_out` has `{..batch, feature}`. `beta` has `{feature}`. Difference: `{..batch}`. Sum over it. Result: `{feature}`, matching `beta`'s shape.
+`d_out` has `{..b, feature}`. `beta` has `{feature}`. Difference: `{..b}`. Sum over it. Result: `{feature}`, matching `beta`'s shape.
 
-**Step 2: Gradient of gamma.** Same pattern. `gamma[feature]` broadcasts over `..batch`. The gradient sums over `..batch`:
+**Step 2: Gradient of gamma.** Same pattern. `gamma[feature]` broadcasts over `..b`. The gradient sums over `..b`:
 
 ```rust
-let d_gamma[feature] = sum[..batch](
-    d_out[..batch, feature] * centered[..batch, feature] / (var[..batch] ** 0.5 + 1e-5)
+let d_gamma[feature] = sum[..b](
+    d_out[..b, feature] * centered[..b, feature] / (var[..b] ** 0.5 + 1e-5)
 );
 ```
 
 The local derivative of `gamma * x_norm` with respect to `gamma` is `x_norm`. Multiply by the incoming gradient. Sum over the broadcast set. Done.
 
-**Step 3: Gradient of x.** This is the complex one—`x` contributes to the output through three paths: directly through `centered` (which contains `x`), and indirectly through `mean_val` and `var` (which were computed from `x`). But the coordinate accounting still works: `x` has `{..batch, feature}`. The output has `{..batch, feature}`. No coordinate difference. The gradient must have the same shape. No sum—the contributions from all three paths accumulate at each `(..batch, feature)` position.
+**Step 3: Gradient of x.** This is the complex one—`x` contributes to the output through three paths: directly through `centered` (which contains `x`), and indirectly through `mean_val` and `var` (which were computed from `x`). But the coordinate accounting still works: `x` has `{..b, feature}`. The output has `{..b, feature}`. No coordinate difference. The gradient must have the same shape. No sum—the contributions from all three paths accumulate at each `(..b, feature)` position.
 
 Coordinate set subtraction tells you *which* coordinates get summed. The local computation tells you *what* to sum. Together they produce the gradient without shape memorization.
 
