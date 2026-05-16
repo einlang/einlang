@@ -248,6 +248,75 @@ class TestFibonacciE2EV2:
             for error in result.errors:
                 assert isinstance(error, str) or hasattr(error, 'message'), "Error should be a string or have a message attribute"
     
+    def test_recurrence_with_spatial_stencil_on_declared_variable(self, compiler, runtime):
+        """h[t,i] = h[t-1,i-1] + h[t-1,i] + h[t-1,i+1] — offsets on both dims of h.
+
+        All three reads are on h (the declared variable). t-1 makes t a recurrence dim.
+        i-1 and i+1 are also on h — both are offsets on the declared variable at dim i.
+        """
+        source = """
+        let T = 3;
+        let W = 5;
+        let h[0, i in 0..W] = (i + 1) as f64;
+        let h[t in 1..T, i in 1..W - 1] = h[t - 1, i - 1] + h[t - 1, i] + h[t - 1, i + 1];
+        let last = h[T - 1, W - 2];
+        last;
+        """
+        result = compile_and_execute(source, compiler, runtime)
+        assert result is not None
+        assert result.success, f"Stencil recurrence failed: {result.errors}"
+        if result.outputs:
+            h = result.outputs['h']
+            # h[0] = [1, 2, 3, 4, 5]
+            # h[1,i] for i in 1..3: sum of 3-wide window from h[0]
+            #   h[1,1] = h[0,0]+h[0,1]+h[0,2] = 1+2+3 = 6
+            #   h[1,2] = h[0,1]+h[0,2]+h[0,3] = 2+3+4 = 9
+            #   h[1,3] = h[0,2]+h[0,3]+h[0,4] = 3+4+5 = 12
+            # h[2,i] for i in 1..3: sum of 3-wide window from h[1]
+            #   h[2,1] = h[1,0]+h[1,1]+h[1,2] = 6+9 = ...
+            #   h[1,0] is only defined at t=0: h[0,0]=1; at t=1, i in 1..3 means h[1,0] is not written
+            np.testing.assert_array_equal(h[1, 1], 6.0)
+            np.testing.assert_array_equal(h[1, 2], 9.0)
+            np.testing.assert_array_equal(h[1, 3], 12.0)
+
+    def test_recurrence_with_spatial_stencil_from_input(self, compiler, runtime):
+        """Recurrence where spatial offsets (i-1,i+1) read from input, not the declared variable.
+
+        Only t (with t-1 on h) is a recurrence dim. i has offsets on input, not on h.
+        """
+        source = """
+        let T = 3;
+        let W = 5;
+        // input[t,i] = t*W + i + 1
+        let input[t in 0..T, i in 0..W] = (t * W + i) as f64 + 1.0;
+        // h[0,i] = input[0,i]
+        let h[0, i in 0..W] = input[0, i];
+        // h[t,i] = h[t-1,i] + sum of 3-wide window from input
+        let h[t in 1..T, i in 1..W - 1] = h[t - 1, i] + input[t, i - 1] + input[t, i] + input[t, i + 1];
+
+        let last = h[T - 1, W - 1];
+        last;
+        """
+        result = compile_and_execute(source, compiler, runtime)
+        assert result is not None
+        assert result.success, f"Stencil recurrence failed: {result.errors}"
+        if result.outputs:
+            # Check the output tensor
+            h = result.outputs['h']
+            # Expected values (hand-computed):
+            # h[0] = input[0] = [1, 2, 3, 4, 5]
+            # h[1,i] for i in 1..3:
+            #   i=1: h[0,1] + input[1,0]+input[1,1]+input[1,2] = 2 + 6+7+8 = 23
+            #   i=2: h[0,2] + input[1,1]+input[1,2]+input[1,3] = 3 + 7+8+9 = 27
+            #   i=3: h[0,3] + input[1,2]+input[1,3]+input[1,4] = 4 + 8+9+10 = 31
+            # h[2,i] for i in 1..3:
+            #   i=1: h[1,1] + input[2,0]+input[2,1]+input[2,2] = 23 + 11+12+13 = 59
+            #   i=2: h[1,2] + input[2,1]+input[2,2]+input[2,3] = 27 + 12+13+14 = 66
+            #   i=3: h[1,3] + input[2,2]+input[2,3]+input[2,4] = 31 + 13+14+15 = 73
+            np.testing.assert_array_equal(h[2, 1], 59.0)
+            np.testing.assert_array_equal(h[2, 2], 66.0)
+            np.testing.assert_array_equal(h[2, 3], 73.0)
+
     def test_fibonacci_with_expressions(self, compiler, runtime):
         """Test Fibonacci sequence with complex expressions using system"""
         source = """

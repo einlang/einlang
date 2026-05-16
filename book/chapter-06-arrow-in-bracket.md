@@ -19,9 +19,9 @@ A coordinate that appears with an offset is a novel. Page 50 can reference what 
 
 Everything you have done so far assumed all positions exist at once. Now meet the coordinate that appears with a minus sign.
 
-![A coordinate without offsets is a bookshelf—any shelf, any order. A coordinate with an offset is a novel—page n can only read page n−1.](figures/spatial_vs_temporal.svg)
+![Left: DP[i,j] reads DP[i-1,j], DP[i,j-1] — i-1 creates recurrence. Right: h[t,i] reads h[t-1,i±1] — t-1 creates recurrence, i±1 are spatial reads from the t-1 bookshelf.](figures/spatial_vs_temporal.svg)
 
-On the left, both `i` and `j` appear with offsets on the declared variable `DP` — both are novels. Every cell reads from earlier positions in both directions. On the right, only `t-1` is an offset on the declared variable `h` — `t` is a novel, `t+1` does not exist. The spatial stencil `i-1`, `i`, `i+1` reads from `x`, not `h`. Only offsets on the declared variable create recurrence. `i` is a bookshelf. The compiler checks which variable the minus sign is on.
+On the left, `DP[i,j]` reads `DP[i-1,j]` and `DP[i,j-1]`. Both have offsets on `DP`, but only `i` is a recurrence coord — `j-1` is satisfied by iteration order within the same `i` step. On the right, `h[t,i]` reads `h[t-1,i-1]`, `h[t-1,i]`, `h[t-1,i+1]`. All three are from `t-1` — only `t` is a recurrence coord. At `t-1`, the full `i` slice is available. Every `i` is a bookshelf, readable in any order. `t+1` does not exist. The compiler checks which offset creates a cross-step dependency. The minus sign on the declared variable, across the recurrence dimension — that is what the compiler reads.
 
 ---
 
