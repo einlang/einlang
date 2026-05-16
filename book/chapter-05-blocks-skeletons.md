@@ -84,15 +84,64 @@ Pack parameters make coordinate-aware functions rank-polymorphic: the same funct
 
 How does the compiler know how many dimensions `..batch` absorbs? The answer is the coordinate parameter.
 
-When you call `layer_norm[channel](x)` and `x` has layout `[batch, channel, spatial]`, the compiler knows one fact: `feature = channel`. It looks at `x`'s layout. `channel` sits at position 1. Everything before position 1 becomes `..batch` — that's `[batch]`. If the signature had `..right`, everything after `channel` would become `..right` — that's `[spatial]`.
+Walk through a concrete call. The signature is `fn layer_norm[coord](x: [f32; ..left, coord, ..right])`. The caller writes `layer_norm[channel](x)` where `x` has layout `[batch, channel, height, width]`. The compiler's job: assign concrete dimensions to `..left` and `..right`.
 
-The named coordinate is the anchor. One known position resolves every pack around it.
+The algorithm has four steps, executed once per call site:
 
-This is why `softmax[j](x: [f32; ..left, j, ..right])` needs no shape annotations at the call site. The caller writes `softmax[class](logits)`. The compiler finds `class` in `logits`'s layout. Everything left of `class` is `..left`. Everything right is `..right`. One name. Two packs. Zero ambiguity.
+**Step 1: Locate the anchor.** The caller supplied `coord = channel`. The compiler walks `x`'s layout `[batch, channel, height, width]` and finds `channel` at position 1. This is the only fact the compiler needs from the caller. Everything else follows from it.
 
-The algorithm is a single walk. For each pack in the signature, try every possible span. At each position, check whether the named coordinate that follows lands on the actual coordinate the caller provided. If it does, the split is correct. If none works, the call is invalid. The search is bounded by the number of dimensions in the actual tensor — typically single digits. The backtracking is a dozen lines.
+**Step 2: Resolve `..left`.** `..left` appears before `coord` in the signature. The compiler looks at everything before position 1 in the layout: `[batch]`. `..left` binds to `[batch]`. If `..left` had appeared elsewhere in the signature, the compiler would verify that every occurrence binds to the same set — the pack must be consistent across all positions in the signature.
 
-A natural consequence: a pack must appear alone in at least one position for the compiler to determine its size. `..batch` cannot always appear alongside `..spatial` in every access — the compiler needs one place where `..batch` is the only pack, so it can count. This is not a limitation of the algorithm. It is a constraint on the notation: write your signatures so that each pack has an unambiguous anchor.
+**Step 3: Resolve `..right`.** `..right` appears after `coord`. Everything after position 1: `[height, width]`. `..right` binds to `[height, width]`. Two steps, one anchor, zero ambiguity.
+
+**Step 4: Rewrite the function body.** Every occurrence of `..left` in the body is replaced with `[batch]`. Every `..right` becomes `[height, width]`. Every `coord` becomes `channel`. The body `max[coord](x[..left, coord, ..right])` becomes `max[channel](x[batch, channel, height, width])`. The function is now monomorphic for this call site.
+
+What if the layout doesn't match? The caller writes `layer_norm[channel](x)` but `x` has layout `[batch, seq, height, width]` — `channel` is nowhere in the layout. Step 1 fails. The compiler reports:
+
+```
+error: coordinate `channel` not found in argument layout
+  → argument layout: [batch, seq, height, width]
+  → called as: layer_norm[channel](x)
+  → the coordinate parameter `coord` must match one coordinate in the argument
+```
+
+No guessing. No silent mismatch. The anchor is missing, and the compiler says so.
+
+**Multiple packs, single anchor.** The same principle extends to signatures with several packs. `fn normalize[coord, ..left, ..right, ..spatial]` — three packs, one named coordinate. Step 1 finds `coord`. Step 2 splits `..left` (everything before `coord`). Step 3 splits `..right` (everything between `coord` and `..spatial`) and `..spatial` (everything after `..right`). Wait — how does the compiler know where `..right` ends and `..spatial` begins?
+
+This is where pack disambiguation matters. Consider a pooling operation that collapses spatial dimensions:
+
+```rust
+fn pool[..spatial](x: [f32; ..batch, ..spatial]) -> [f32; ..batch] {
+    max[..spatial](x[..batch, ..spatial])
+}
+```
+
+Only one pack — `..spatial` — is declared as a coordinate parameter. This is the pack the caller wants to name and control. The other pack, `..batch`, appears in the value parameter's shape but is not a coordinate parameter — it's resolved by elimination: whatever coordinates remain after subtracting `..spatial` from the argument's layout. The caller writes:
+
+```rust
+pool[(h, w)](x)
+```
+
+A single parenthesized group `(h, w)` binds to `..spatial`. `..batch` gets whatever is left: `[b]`. No ambiguity, because only one pack needs disambiguation.
+
+The alternative design — declaring both packs as coordinate parameters with `fn pool[..batch, ..spatial]` and grouping at the call site as `pool[(batch), (height, width)]` — is legal but unnecessary. When two adjacent packs both need caller grouping, the design fights itself. The simpler rule: declare only the pack you need to name. Let the compiler infer the rest by elimination.
+
+This is the constraint on pack placement from the end of this section. A pack must be resolvable from the anchor coordinate alone. If two packs are adjacent with no named coordinate between them, the signature cannot determine the split — but you rarely need to declare both. Declare one. Let the other resolve. Adjacent packs in a signature are a signal: you are asking for a disambiguation problem. Move one of them to be implicit, and the problem disappears.
+
+What about multiple named coordinates? A function can accept more than one coordinate in brackets:
+
+```rust
+fn max_over[j, k](x: [f32; ..left, j, ..right, k, ..rightmost])
+    -> [f32; ..left, ..right, ..rightmost]
+{
+    max[j, k](x[..left, j, ..right, k, ..rightmost])
+}
+```
+
+Two named coordinates — `j` and `k` — each acts as its own anchor. `..left` is everything before `j`. `..right` is everything between `j` and `k`. `..rightmost` is everything after `k`. Three surrounding packs, two anchors, one deterministic resolution. No caller grouping needed — the caller writes `max_over[h, w](x)`, two named coordinate arguments in brackets, and the compiler places each pack by position relative to the anchors.
+
+The rule: **brackets hold what the caller must specify.** Named coordinates and packs that need caller disambiguation go in brackets. Packs that can be determined by elimination stay out — they appear in the value parameter's shape but not in the bracket list.
 
 ---
 
@@ -183,6 +232,8 @@ In a named-coordinate API, the skeleton is a template you can check. The reducti
 This is abstraction: recognizing a pattern, naming it, and reusing it. The pattern is "normalize with named coordinates." Each instance fills in the specific coordinates. The skeleton is constant.
 
 The discovery exercise—comparing four implementations, finding their shared structure—is what you do every time you read unfamiliar tensor code. Names carry the structure. Positions hide it.
+
+**Derive it yourself: Spot the broadcast set.** Take the LayerNorm row from the table above. The output has `{..batch, f}`. `gamma[f]` has `{f}`. What is the broadcast set for `gamma`? Compute it: `{..batch, f} ∖ {f} = {..batch}`. `gamma` broadcasts over every batch dimension. Now take GroupNorm. `gamma[g, c_in_group]` has `{g, c_in_group}`. The output has `{..batch, g, c_in_group, ..spatial}`. Broadcast set: `{..batch, ..spatial}`. `gamma` is silent on batch and spatial—exactly as intended. Try the same for InstanceNorm: what does `beta[c]` broadcast over? The answer is in the set subtraction. The table above tells you the answer if you're stuck. But do the subtraction yourself first. The subtraction is the check.
 
 Now let's put this claim to the test. Here is a real GroupNorm implementation in PyTorch:
 
@@ -281,6 +332,8 @@ Every coordinate that is consumed is named in a bracket. Every coordinate that s
 Now ask: if you wanted to change this to a cross-attention block where queries come from one sequence and keys/values from another, what would you change? In a positional implementation, the code wouldn't change at all—the same `attention(Q, K, V)` call works for both. The difference is only in which tensors you pass. In the Einlang version, you'd change the signature: the first `norm1` gets coordinate `seq_q`, the second and third get coordinate `seq_k`. The code change is a coordinate name swap. The reader sees the architectural decision in the type signature.
 
 Skeletons compose because coordinate contracts compose. The output coordinates of one function become the input coordinates of the next. The compiler traces the flow. You trace the meaning.
+
+Pause here. Look back at the Transformer block on the previous page. Find every bracket. For each one, ask: is this coordinate being consumed, reconstructed, or passed through? The answer tells you whether the line is a reduction (consume), a normalization (consume then reconstruct), or a passthrough (neither). Three categories. The entire block—attention, layer norm, feedforward, residual—is built from them.
 
 ---
 

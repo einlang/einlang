@@ -148,3 +148,7 @@ Positional permutation is not evil. It is the right abstraction for a compiler p
 > Silence is not absence. Silence is a claim. And claims can be checked.
 
 Chapter 2 gives this claim its machinery: the megaphone model. A tensor speaks on some coordinates and stays silent on others. Reduction silences a coordinate. Broadcast copies along one the tensor was already silent on. Together they form a single rule—and the next chapter shows why that rule governs every tensor computation.
+
+---
+
+> Every example in this book runs. The compiler is at **github.com/einlang/einlang** — clone it, open Chapter 1, and start typing.

@@ -287,6 +287,10 @@ The signature absorbs `t` into `..batch` (if it's a leading dimension) or `..spa
 
 The bug doesn't happen. Not because the programmer is smarter. Because the notation doesn't require positional arithmetic. The coordinate names abstract over positions. Adding a dimension changes which positions the coordinates map to, but the reduction bracket still names the same coordinates. No `dim` tuple to update. No reshape chain to re-align.
 
+Pause here. You just watched a real bug trace across two notations. In the PyTorch version, the bug takes three days to surface, survives integration tests, and produces a model that trains but performs worse on wide videos. In the Einlang version, the bug cannot be written—`mean[c_in_group, ..spatial]` still means all channel-group and spatial dimensions regardless of where `t` is inserted. The difference is not that the Einlang programmer is more careful. The difference is that the notation has a place for the fact "I am normalizing over channel groups and spatial dimensions," and the PyTorch notation encodes that fact as a tuple of positions that silently rot when the layout changes.
+
+What facts in your own codebase are encoded as positional tuples?
+
 ---
 
 ## The Coordinate Audit

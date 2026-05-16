@@ -259,6 +259,12 @@ Names are not a replacement for conventions. They are a way to make conventions 
 
 If the magnetic field index moves from 4 to 0, how many lines of code do you need to change?
 
+Three domains, one finding. In normalization, a `dim=()` tuple rots when the layout changes. In attention, self-attention and cross-attention are the same positional code. In physics, confusing `i` and `j` in a stencil produces plausible-but-wrong results. In every case, the root cause is the same: the mapping from integer to meaning lives outside the notation.
+
+The comparison chapters are not an argument that positional notation is bad. They are a demonstration that positional notation is incomplete. The integer records a position. The name records an identity. Both are facts. Only one is in the source code.
+
+Now the question the book has been circling since Chapter 1: if names are so useful, what can they NOT do? Every tool has a boundary.
+
 ---
 
 Chapter 14 asks the necessary question: what can names *not* check? Every system has a boundary. The boundary is not a flaw. It is a map. And a good map tells you where the boundaries are.

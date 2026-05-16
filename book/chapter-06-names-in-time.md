@@ -193,7 +193,7 @@ It depends on whether the compiler infers the iteration direction from the refer
 
 The Einlang rule is conservative: without an explicit reverse-direction declaration, forward references are rejected. `t+1` with `t in 0..T` is an error. The programmer must write `t in T..0` (or equivalent syntax) to declare the reverse iteration. The tool prevents the ambiguous case by default.
 
-This is the same design choice as Chapter 3's Coordinate Contract and Chapter 4's Pack Disambiguation: when a reference pattern is ambiguous, the language requires the programmer to disambiguate. Default deny. Explicit allow.
+This is the same design choice as Chapter 3's Coordinate Contract and Chapter 5's Pack Resolution: when a reference pattern is ambiguous, the language requires the programmer to disambiguate. Default deny. Explicit allow.
 
 ---
 
@@ -232,6 +232,8 @@ The same recurrence declaration leads to different storage strategies depending 
 In all three scenarios, the declaration is the same: `let u[t in 0..T, i] = f(u[t-1, i])`. The difference is in what downstream code does with `u`. The compiler reads the downstream uses and derives the storage strategy. No annotations. No `@roll_window(3)`. No `@materialize`. The structural fact is in the code. The compiler derives the engineering consequence.
 
 The recurrence body records the dependency. The downstream uses record the observation pattern. The compiler connects them.
+
+Take a moment. The same declaration `let u[t in 0..T, i] = f(u[t-1, i])` can compile to two arrays or a full trajectory tensor. The difference is not in the declaration—it is in what downstream code asks for. The compiler reads the code the way a reader reads a story: forward to understand what each step depends on, backward to determine what must be kept. No annotations. No `@roll_window`. The structural fact is in the code. The compiler derives the engineering consequence.
 
 ---
 

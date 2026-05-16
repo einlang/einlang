@@ -2,36 +2,66 @@
 
 [![Tests](https://github.com/einlang/einlang/actions/workflows/tests.yml/badge.svg)](https://github.com/einlang/einlang/actions/workflows/tests.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python 3.7-3.14](https://img.shields.io/badge/Python-3.7--3.14-3776AB?logo=python&logoColor=white)](https://github.com/einlang/einlang/blob/main/README.md#start-here)
 
-Einlang is a language and compiler for tensor programs with explicit indices, reductions, recurrences, and built-in automatic differentiation.
+---
 
-If "tensor" sounds specialized, read it as "vectors, matrices, and higher-dimensional arrays." If "index" sounds abstract, think "row/column-style position."
+A tensor has shape `(32, 64, 256)`. The data loader author knows these are `batch`, `channel`, and `spatial`. Then:
 
-Today, you write `.ein` programs and run them from the CLI or from Python. The main way to execute them uses NumPy. There is also an IREE option that is still experimental.
-
-```rust
-let C[i, j] = sum[k](A[i, k] * B[k, j]);
-let p[b, class] = softmax[class](logits[b, class]);
-let dC_dA = @C / @A;
+```python
+x = x.mean(dim=1)
 ```
 
-Einlang keeps math-heavy code close to the math while catching shape and index mistakes before the program runs.
+`dim=1` erases a dimension. At the time of writing, position 1 holds `channel`. The intent is "average over channels."
 
-If you are wondering whether this is worth your time, the shortest honest path is simple: run one tiny program, run one autodiff example, then run one slightly more realistic example. This README follows that path.
+Three months later, the data pipeline is refactored. Channel moves to position 2. The shape is now `(32, 256, 64)`. `mean(dim=1)` now silently erases `spatial`. No errors. No warnings. The loss descends. The model deploys. The customer complaint arrives on Thursday.
 
-## What Einlang Is
+**The notation had no slot for the fact that would have caught it.** The fact—"erasing `channel`, not `spatial`"—was in a comment, in a variable name, in the author's head. It was absent from the one place the compiler could see.
 
-If you already know NumPy, JAX, or PyTorch, the easiest mental model is:
+Now imagine a different notation:
 
-- Einlang is a small language for the array-heavy, math-heavy part of a program, not a replacement for all of Python.
-- The notation is closer to how you would write matrix math on paper than to calling helper APIs around arrays.
-- Coordinate-aware calls such as `softmax[class](logits)` and `argmax[class](logits)` keep common library operations compact without hiding which coordinate they use.
-- Gradient and derivative requests are part of the language itself, so you write them where you need them instead of wrapping whole functions in a separate autodiff library.
+```rust
+let y[b, s] = mean[channel](x[b, channel, s]);
+```
 
-That is the core of Einlang: keep the structure of the math visible, keep gradients local, and keep the notation consistent as programs grow.
+The bracket after `mean` names the coordinate being consumed. That `channel` exists on `x` is statically checked. The reader sees the consumption without reconstructing it. The fact that was in a comment is now in the syntax, where the compiler can enforce it.
 
-For the longer research writeups, read the [ACM-style paper](https://einlang.github.io/einlang/einlang_paper.pdf) for the language-design argument and the [thesis-form report](https://einlang.github.io/einlang/einlang_thesis.pdf) for the implementation details. [The Name in the Bracket](https://einlang.github.io/einlang/book/) is a book about what notation hides, and what happens when you refuse to let it.
+You park your car in Row D, Slot 7. Your ticket says "D-7." You return to find the lot repainted—rows reoriented, Row D now somewhere else. The ticket sends you to the wrong car. This is what happens when you write `x.mean(dim=1)` and upstream changes the dimension order. A named-coordinate notation is a ticket that says "the blue Honda Civic." The car may move. The description finds it.
+
+---
+
+Einlang is an experimental language and compiler for tensor programs. Coordinates have names. The names are checked. This is the whole idea.
+
+**[The Name in the Bracket](https://einlang.github.io/einlang/book/)** is a free book that makes the argument in full. Every example runs.
+
+> Every time you write `dim=-1`, you know what it means. The compiler doesn't. This is about what happens when it does.
+
+## Quick start
+
+```bash
+git clone https://github.com/einlang/einlang.git && cd einlang
+python3 -m pip install -e .
+python3 -m einlang -c "let x = 1 + 1; print(x);"   # prints 2
+python3 -m einlang examples/hello.ein                # matrix multiplication
+python3 -m einlang examples/autodiff_small.ein       # @y / @x in action
+```
+
+## Syntax at a glance
+
+```rust
+let C[i, j] = sum[k](A[i, k] * B[k, j]);            // matrix multiply
+let p[b, class] = softmax[class](logits[b, class]);  // coordinate-aware call
+let dC_dA = @C / @A;                                 // built-in autodiff
+let fib[n in 2..25] = fib[n - 1] + fib[n - 2];       // recurrence
+```
+
+| Notation | Meaning |
+|----------|---------|
+| `let x = 3.0;` | Bind an immutable value |
+| `let C[i, j] = ...;` | Build `C` by output position |
+| `sum[k](expr)` | Add up `expr` over all values of `k` |
+| `softmax[class](logits)` | Name the coordinate this function operates on |
+| `@y / @x` | Derivative of `y` with respect to `x` |
+| `let fib[n in 2..25] = ...` | Fill in values across a range using earlier values |
 
 ## Why it feels different
 
@@ -39,15 +69,15 @@ For the longer research writeups, read the [ACM-style paper](https://einlang.git
 |---------------|---------------|
 | `y = np.einsum("bi,ci->bc", x, W) + bias` | `let y[b, c] = sum[i](x[b, i] * W[c, i]) + bias[c];` |
 | `dloss_dW = jax.grad(loss_fn)(W)` | `let dloss_dW = @loss / @W;` |
-| `x.mean(dim=1)` — axis 1 is time today, feature tomorrow | `normalize_over[time](x)` — the bracket says what the number cannot |
+| `x.mean(dim=1)` — axis 1 is time today, feature tomorrow | `mean[time](x)` — the bracket says what the number cannot |
 
-That last row is the argument in one line. When `batch == time == feature == 128`, normalizing over each produces the same output shape. The positional calls differ by a single integer. The bracket calls differ by a name. A refactor that swaps layout silently changes what `dim=1` means. The bracket survives the refactor because `time` is still `time`, wherever it lives in the shape.
+When `batch == time == feature == 128`, normalizing over each produces the same output shape. The positional calls differ by a single integer. The bracket calls differ by a name:
 
 ```python
-# PyTorch — all three produce shape [128, 128, 128]. Which is which?
-normed_feature = F.layer_norm(x, (128,))          # dim=-1, by convention
-normed_time    = (x - x.mean(1, True)) / x.std(1, True)   # dim=1
-normed_batch   = (x - x.mean(0, True)) / x.std(0, True)   # dim=0
+# PyTorch — all produce shape [128, 128, 128]. Which is which?
+normed_feature = F.layer_norm(x, (128,))               # dim=-1
+normed_time    = (x - x.mean(1, True)) / x.std(1, True) # dim=1
+normed_batch   = (x - x.mean(0, True)) / x.std(0, True) # dim=0
 ```
 
 ```rust
@@ -56,24 +86,6 @@ let normed_feature = normalize_over[feature](x[batch, time, feature]);
 let normed_time    = normalize_over[time](x[batch, time, feature]);
 let normed_batch   = normalize_over[batch](x[batch, time, feature]);
 ```
-
-The bracket keeps the coordinate name visible. And when operations compose, the coordinate story composes with them — reductions nest inside reductions, selections chain with value reductions, and a single coordinate name means the same domain in every call that mentions it:
-
-```python
-# NumPy — chained operations: count axes backward after each contraction
-scores = np.sum(W[:, :, None] * X[None, :, :], axis=-1)   # k contracted
-best   = np.argmax(scores, axis=-1)                         # which hidden?
-value  = np.max(np.max(A, axis=-1), axis=-1)                # k then n
-```
-
-```rust
-// Einlang — each coordinate carries its own name through the chain
-let scores[i, hidden] = sum[k](W[i, k] * X[k, hidden]);
-let best[i] = argmax[hidden](scores);
-let total = sum[k](max[n](A[k, n]));
-```
-
-When `W` is `(4, 2)` and `X` is `(2, 3)`, `scores` is `(4, 3)`. The `hidden` coordinate survives the inner `sum[k]` so the outer `argmax[hidden]` knows exactly which axis to reduce. Triple nesting (`sum[i](max[j](min[k](...)))`) works the same way — no axis integer to miscount after each step.
 
 ## Syntax at a Glance
 

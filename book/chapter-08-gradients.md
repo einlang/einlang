@@ -131,6 +131,18 @@ The coordinates `b`, `oh`, `ow` are summed away because they appear in the outpu
 
 Again: set subtraction. The formula is mechanically derivable from the coordinate sets. The same five steps produce the weight gradient with the correct index arithmetic.
 
+**Derive it yourself: The weight gradient.** The linear layer is `z[b, out] = sum[in](x[b, in] * W[out, in]) + bias[out]`. You derived `d_bias[j]` above by coordinate set subtraction. Now derive `dW[out, in]`.
+
+Apply the five steps. The output `z[b, out]` has coordinates `{b, out}`. The operand `W[out, in]` has coordinates `{out, in}`. Path coordinates in the output but not in `W`: `{b}`. But `W` also has `in`, which the output does not have—because `in` was consumed by the forward `sum[in]`. Consumed coordinates survive in the weight gradient. The path coordinates to sum over are `{b}`—the coordinate `W` was silent on in the forward pass.
+
+Before reading further, write the answer. Then verify: does your `dW` have coordinates `{out, in}`? Does the sum go over `{b}`?
+
+```
+dW[out, in] = sum[b](dZ[b, out] * x[b, in])
+```
+
+The sum is over `b`—the coordinate `W` broadcasts over. `in` survives because each `in` position gets an independent gradient contribution through the forward sum. `out` survives because it is shared with the output. Two coordinates survive. One is summed away. The five steps, mechanically applied. You didn't memorize the formula. You read it off the coordinate sets.
+
 ---
 
 ## The Broadcast Self-Audit
@@ -196,6 +208,19 @@ let pos_sum = sum[i](data[i]) where data[i] > 0;
 In the forward pass, only positive elements are summed. In the backward pass, the gradient signal is distributed only to the positive elements. Elements that were filtered out receive zero gradient. You don't write a separate backward filter. The where clause defines the domain of the operation, and the domain applies in both directions.
 
 The where clause is the gate. Items that pass the condition in the forward pass receive gradient in the backward pass. Items that don't, don't. The condition is written once.
+
+The most common where clause in practice: masked softmax. You have a sequence with padding. The logits for padding positions should be ignored—both in the forward pass (they should not contribute to the sum) and in the backward pass (they should receive zero gradient):
+
+```rust
+let probs[b, j] = softmax_over_valid[class](logits[b, class])
+    where valid[b, class];
+```
+
+The `valid[b, class]` tensor is a boolean mask—`true` for real tokens, `false` for padding. The where clause gates every operation inside `softmax_over_valid`: the max reduction, the subtraction, the exponentiation, the sum reduction, and the division. Five operations. One gate.
+
+In PyTorch, you'd write a custom masked softmax, or add `float('-inf')` to masked positions before the softmax, or use `torch.where` after the softmax to zero out padding. Each approach has its own backward behavior. The `-inf` trick works for softmax but not for mean. The `torch.where` approach leaves non-zero gradients on padding positions (they were computed, then zeroed—waste). The custom function is correct but requires writing a custom backward pass.
+
+The where clause avoids all three. The gate is part of the operation's domain. The compiler reads it once, applies it to every operation inside the reduction, and generates both the forward gating and the backward gating. No custom backward code. No `-inf` hack. No wasted computation. The gate is written where it belongs—in the domain specification of the operation it gates.
 
 Now a harder one. What if the where clause references a coordinate that is consumed by the operation?
 

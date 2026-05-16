@@ -219,17 +219,25 @@ In every case, the Square Matrix Test reveals the same gap: shape compatibility 
 
 ---
 
+Take a breath. Four cases. Softmax, matmul, broadcast, attention. All of them can fail silently when two extents match. The Square Matrix Test is not a trick — it is the normal state of deep learning models, where embedding dimensions, hidden sizes, and projection dimensions are routinely set to the same value. If your `d_model` is 512 and your `d_ff` is also 512 — which happens in the original Transformer — positional notation cannot distinguish them. Your code works. Your shapes match. Your coordinate identities are invisible to every tool you have.
+
+The test is not hypothetical. It is a property of your current codebase. Every pair of equal-sized dimensions is a potential Square Matrix Test that your tooling is failing right now. The only question is whether a bug has found one yet.
+
+---
+
 ## The Refactoring: A Detailed Demonstration
+
+**Derive it yourself.** You have three files. `data.ein` declares `logits[batch, class]`. `model.ein` calls `softmax[class](logits)`. `loss.rs` calls `cross_entropy[class](probs, labels)`. A colleague renames `class` to `category` in `data.ein`. Which files break? What do the error messages say? Write the two errors on paper. Then read on.
+
+---
 
 A refactoring in both notations, to see where the errors surface—and where they don't.
 
-**The setup.** Three files: `data.rs` declares `logits[batch, class]`. `model.rs` calls `softmax[class](logits)`. `loss.rs` calls `cross_entropy[class](probs, labels)`.
-
-**The refactoring.** A colleague renames `class` to `category`. Two errors appear:
+The colleague makes the rename. Two errors appear:
 
 ```
-error[E0425]: model.rs:42: tensor `logits` has no coordinate named `class`
-  --> model.rs:42:20
+error[E0425]: model.ein:42: tensor `logits` has no coordinate named `class`
+  --> model.ein:42:20
    |
 42 |     softmax[class](logits);
    |                    ^^^^^^ `logits` has coordinates: batch, category
@@ -276,7 +284,9 @@ The coordinate identity, made part of the function's contract, becomes auditable
 
 ---
 
-*A coordinate-aware function makes the coordinate part of the type-level contract. Imagine a colleague calls it with the wrong coordinate name. The compiler stops and says: "this tensor has no coordinate named X." The error names the missing coordinate. The fix is changing one name in the brackets. The difference between a bracket with a name and a `dim=-1` that silently drifts—that difference is the difference between a check and a hope.*
+A coordinate-aware function makes the coordinate part of the type-level contract. But the contract is not just a promise between programmer and compiler. It is a promise between the programmer who wrote the function and the programmer who calls it six months later. The bracket `softmax[class]` tells the future reader: "this function normalizes over `class`." The bracket `softmax(logits, dim=-1)` tells the future reader: "this function normalizes over the last dimension—whatever that is." One is a recorded decision. The other is a puzzle.
+
+What does it take to make this contract real? Two pieces: the syntax that separates coordinates from values, and the mechanical steps the compiler uses to check them. Both are worth seeing once—not because you'll do them by hand, but because knowing what the compiler checks tells you what the contract guarantees.
 
 ---
 
@@ -290,23 +300,17 @@ The coordinate habit is noticing that gap. The rest of this book is about what h
 
 ---
 
-## Coordinate Parameters vs. Value Parameters
+## Under the Hood
 
-A coordinate-aware function has two kinds of parameters, and the distinction matters.
+Two pieces make the contract checkable. First, the syntax separates coordinate parameters from value parameters. Second, the compiler follows a six-step mechanical procedure for every call. Neither is complex. Both are worth seeing once.
 
-**Coordinate parameters** (in brackets after the function name: `fn softmax[j]`) name the coordinate the function operates on. They control the structure of the computation—which axis is reduced, which axis is broadcast, which axis is preserved. They are not values; you cannot do arithmetic on them. They are compile-time identities.
+### Brackets and Parentheses
 
-**Value parameters** (in the parenthesized argument list: `x: [f32; ..left, j, ..right]`) hold the data. Their shapes reference the coordinate parameters. They are the tensors the function transforms.
+You have been writing two kinds of things without naming the distinction. `softmax[class](logits)` — the `class` in brackets names a coordinate. The `logits` in parentheses holds data. They are different syntactic positions because they are different kinds of arguments. The bracket position says: "this is a coordinate identity—check it against the tensor's layout." The parenthesis position says: "this is a value—type-check it normally."
 
-The separation is syntactic but the implication is semantic. The coordinate parameter says: "this function's behavior depends on the identity of this coordinate, not its position." The value parameter says: "this function consumes this tensor." A function that takes `j` as a coordinate parameter and `x` as a value parameter cannot confuse which is which. The brackets hold the coordinate. The parentheses hold the value.
+In `softmax(logits, dim=-1)`, `dim=-1` is syntactically identical to any other integer argument. If you pass `dim=42` by accident, the syntax has no opinion. It's just an integer. The bracket creates a syntactic position that the compiler recognizes as "coordinate argument." Everything in that position gets checked. The syntax carves out a space for coordinate verification—and the compiler fills it.
 
-At the call site, the same separation applies: `softmax[class](logits)`. `class` is in brackets—it is a coordinate argument. `logits` is in parentheses—it is a value argument. The syntax tells the reader which is which. In `softmax(logits, dim=-1)`, `dim=-1` is syntactically identical to any other integer argument. The syntax does not distinguish "this integer controls the axis of reduction" from "this integer is a value being passed to the function." The distinction lives in the documentation. The named version puts it in the syntax.
-
-This separation between coordinate parameters and value parameters is what enables the compiler to check the coordinate contract. Without it, a coordinate name passed to a function would be just another string or symbol—the compiler couldn't know it was supposed to be verified. The brackets create a syntactic position that the compiler recognizes as "coordinate argument." Everything in that position gets checked. Everything outside it gets normal type-checking. The syntax carves out a space for coordinate verification.
-
----
-
-## The Compiler's Six Steps
+### The Six Steps
 
 Here is the function signature:
 
@@ -331,7 +335,7 @@ The six steps the compiler performs, mechanically, for every call:
 | 5. Return type | `[f32; b, c]` |
 | 6. Valid? | Yes |
 
-No intuition, no shape arithmetic, no guessing. For every function call, the compiler performs these six steps. If any step fails, the compiler emits an error naming the missing coordinate.
+No intuition, no shape arithmetic, no guessing. If any step fails, the compiler emits an error naming the missing coordinate.
 
 Now a call that should fail:
 
@@ -351,7 +355,7 @@ Five wrong calls, and where each one breaks:
 | `softmax[class](logits[batch, class, extra])` | `..right` binds to `[extra]`—valid | No error (correct) |
 | `softmax[class](logits[batch, class], wrong_arg)` | Wrong number of value arguments | Step 1: arity check |
 
-Each check is a mechanical verification. The coordinate names and the function signature together form the contract. The call site satisfies it—or doesn't.
+Each check is a mechanical verification. You won't perform these steps by hand. But knowing they exist changes how you read a function call. `softmax[class](logits)` is not a request. It is a contract submission. The compiler either stamps it or rejects it. The stamp means the coordinate story is consistent.
 
 ---
 

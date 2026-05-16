@@ -49,6 +49,10 @@ Two lines. Two directions. One rule. The Inversion Rule is not mathematics bolte
 
 ---
 
+**Derive it yourself.** Given `let scaled[batch, class] = logits[batch, class] / temperature[class]`, write the backward gradient for `temperature`. Which coordinate does the sum go over? Why? Write it down before reading further.
+
+---
+
 ## The Self-Audit: Three Questions
 
 Now apply this to your own code. Every broadcast you write is a claim. The claim is: *this value does not depend on the coordinate I am omitting.* If the claim is false, the forward pass is wrong. If the claim is true but the backward pass doesn't reduce over the omitted coordinate, the gradient is wrong.
@@ -257,43 +261,9 @@ The broadcast audit catches the bug where a value is copied over a coordinate it
 
 ## The Double Audit: When Broadcasts Compose
 
-Most real code has more than one broadcast. A linear layer with bias has one (bias over batch). A layer normalization has four (mean over feature, variance over feature, gamma over batch, beta over batch). When broadcasts compose, their backward reductions compose too. The auditor's toolkit handles them mechanically—one broadcast at a time—but the interactions are worth tracing.
+Most real code has more than one broadcast. A linear layer with bias has one. A layer normalization has four. When broadcasts compose, their backward reductions compose too. The auditor's toolkit handles them mechanically—one broadcast at a time. But the interactions are worth tracing once, so you develop an instinct for finding the hidden ones.
 
-Here is a multi-head attention projection followed by a residual connection:
-
-```rust
-fn attention_block[head, seq_q, seq_k, d](
-    Q: [f32; ..batch, head, seq_q, d],
-    K: [f32; ..batch, head, seq_k, d],
-    V: [f32; ..batch, head, seq_k, d],
-    W_o: [f32; head, d, d_out],
-    b_o: [f32; d_out]
-) -> [f32; ..batch, seq_q, d_out]
-{
-    let scores[..batch, head, seq_q, seq_k] =
-        sum[d](Q[..batch, head, seq_q, d] * K[..batch, head, seq_k, d]) / (d ** 0.5);
-    let weights[..batch, head, seq_q, seq_k] = softmax[seq_k](scores[..batch, head, seq_q, seq_k]);
-    let context[..batch, head, seq_q, d] =
-        sum[seq_k](weights[..batch, head, seq_q, seq_k] * V[..batch, head, seq_k, d]);
-    let projected[..batch, seq_q, head, d_out] =
-        sum[d](context[..batch, head, seq_q, d] * W_o[head, d, d_out]);
-    projected[..batch, seq_q, d_out] + b_o[d_out]
-}
-```
-
-Walk through the auditor's toolkit for the final expression `projected + b_o`. Output coordinates: `{..batch, seq_q, d_out}`. `projected` has `{..batch, seq_q, d_out}`—no broadcast. `b_o` has `{d_out}`—broadcasts over `{..batch, seq_q}`.
-
-Now the gradient: `d_b_o[d_out] = sum[..batch, seq_q](d_out[..batch, seq_q, d_out])`. The broadcast set from Step 2 becomes the reduction set in the backward pass.
-
-But there are hidden broadcasts too. Look at the `context` computation: `sum[seq_k](weights * V)`. `V` has `{..batch, head, seq_k, d}`. The output `context` has `{..batch, head, seq_q, d}`. Inside the sum, `weights[..batch, head, seq_q, seq_k] * V[..batch, head, seq_k, d]`—`V` omits `seq_q`, so `V` broadcasts over `seq_q`. Every `(seq_q, seq_k)` position within a given `(batch, head)` receives the same `V` value from `seq_k`. That broadcast is inside a reduction over `seq_k`. The backward pass: `dV[..batch, head, seq_k, d] = sum[seq_q](d_context[..batch, head, seq_q, d] * weights[..batch, head, seq_q, seq_k])`. The forward broadcast over `seq_q` becomes the backward sum over `seq_q`.
-
-A double audit traces every broadcast in the expression and verifies that each backward reduction matches. The procedure is the same for one broadcast or ten. The coordinate sets tell you what to check.
-
----
-
-### Auditing an Attention Block
-
-Here is a smaller but complete attention block—the projection, not the full attention:
+Here is a complete attention projection block:
 
 ```rust
 let context[..b, head, seq_q, d] =
@@ -303,27 +273,27 @@ let output[..b, seq_q, head, d_out] =
 let final[..b, seq_q, d_out] = output[..b, seq_q, d_out] + b_o[d_out];
 ```
 
-The auditor's toolkit applied to each expression: output coordinate set, each operand's coordinate set, the broadcast set (output minus operand), the semantic justification, and the backward reduction. Here is the audit, line by line.
+Three lines. Let the auditor walk through each.
 
 **Line 1: `sum[seq_k](weights * V)`**
 
 ```
 Output coordinates: {..b, head, seq_q, d}
-weights: {..b, head, seq_q, seq_k}  → broadcast: {} (no omission, but seq_k is reduced)
+weights: {..b, head, seq_q, seq_k}  → broadcast: {} (no omission, seq_k is reduced)
 V:       {..b, head, seq_k, d}      → broadcast: {seq_q} (V omits seq_q)
 ```
 
-`V` broadcasts over `seq_q` inside the reduction. This is correct: `V` provides values at each `seq_k` position, and those values are the same regardless of which `seq_q` is querying. The backward reduction: `dV[..b, head, seq_k, d] = sum[seq_q](d_context[..b, head, seq_q, d] * weights[..b, head, seq_q, seq_k])`. The broadcast set `{seq_q}` becomes the reduction set.
+`V` broadcasts over `seq_q` inside the reduction. This is correct: `V` provides values at each `seq_k` position regardless of which `seq_q` is querying. The backward reduction: `dV[..b, head, seq_k, d] = sum[seq_q](d_context[..b, head, seq_q, d] * weights[..b, head, seq_q, seq_k])`. The broadcast set `{seq_q}` becomes the reduction set.
 
 **Line 2: `sum[d](context * W_o)`**
 
 ```
 Output coordinates: {..b, seq_q, head, d_out}
-context: {..b, head, seq_q, d}  → broadcast: {} (no omission, d is reduced)
-W_o:     {head, d, d_out}       → broadcast: {..b, seq_q} (W_o omits batch and seq_q)
+context: {..b, head, seq_q, d}  → broadcast: {}
+W_o:     {head, d, d_out}       → broadcast: {..b, seq_q}
 ```
 
-`W_o` broadcasts over `..b` and `seq_q`. This is correct: the output projection weight is the same for all batch elements and all query positions. The backward reduction: `dW_o[head, d, d_out] = sum[..b, seq_q](d_output[..b, seq_q, head, d_out] * context[..b, head, seq_q, d])`.
+`W_o` broadcasts over `..b` and `seq_q`. Correct: the weight is the same for all batch elements and query positions. Backward: `dW_o[head, d, d_out] = sum[..b, seq_q](d_output[..b, seq_q, head, d_out] * context[..b, head, seq_q, d])`.
 
 **Line 3: `output + b_o`**
 
@@ -333,11 +303,17 @@ output: {..b, seq_q, d_out}  → broadcast: {}
 b_o:    {d_out}              → broadcast: {..b, seq_q}
 ```
 
-`b_o` broadcasts over `..b` and `seq_q`. Correct: output bias is the same for all batch elements and query positions. Backward: `db_o[d_out] = sum[..b, seq_q](d_final[..b, seq_q, d_out])`.
+Backward: `db_o[d_out] = sum[..b, seq_q](d_final[..b, seq_q, d_out])`.
 
-**Putting it together.** Three expressions. Five broadcasts (one hidden inside the first reduction, two explicit in the projections, one in the bias, one more inside the backward). Every broadcast has a semantic justification—"this value does not depend on that coordinate." Every broadcast has a corresponding backward reduction over the same coordinate set. The Inversion Rule holds for all of them.
+**Putting it together.** Three expressions. Five broadcasts—two of them hidden inside reductions. Every broadcast has a backward reduction over the same coordinate set. The Inversion Rule holds for all of them.
 
-Now ask yourself: in the PyTorch version of this block, how many of these five broadcasts would you have noticed? The `b_o` broadcast is obvious—`projected + b_o` with different shapes. The `W_o` broadcast is less obvious—`torch.matmul` or `einsum` hides it. The `V` broadcast inside the `sum[seq_k]` reduction is nearly invisible—it's inside a `matmul` or `einsum` where the broadcasting is implicit. Two of the five broadcasts would have escaped notice entirely. The audit reveals them.
+Now ask yourself: in the PyTorch version of this block, how many would you notice? Bias over batch is obvious. Weight over batch and sequence is visible but easy to miss. `V` broadcasting over `seq_q` inside a reduction over `seq_k`—that's nearly invisible. Two of five broadcasts escape notice entirely. The audit reveals them.
+
+---
+
+Take a breath. This was the densest section of the chapter. Three lines of code, five broadcasts, five backward reductions. If it felt like a lot—good. It is a lot. But here is what matters: you never have to do this audit for these three lines again. The next time you see `sum[seq_k](weights * V)` in a transformer, you already know: `V` broadcasts over `seq_q`, and the backward pass sums over `seq_q`. The audit isn't a procedure you run every time. It's an instinct you build by running it once and then remembering the answer.
+
+The procedure worked. It gave you the answer. Now the answer is yours.
 
 ---
 

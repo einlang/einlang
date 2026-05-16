@@ -65,25 +65,25 @@ A coordinate has a name, a domain, a position (Ch1)
     │       │
     │       └──► Broadcasting: the omitted coordinate is visible (Ch2)
     │               │
-    │               └──► Inversion Rule: broadcast ↔ reduction dual (Ch2, Ch7)
+    │               └──► Inversion Rule: broadcast ↔ reduction dual (Ch2, Ch4)
     │
     ├──► Coordinate-aware functions: names as type-level contracts (Ch3)
     │       │
     │       ├──► Square Matrix Test: when extents equal, only names differ (Ch3)
     │       │
-    │       ├──► Pack polymorphism: ..batch absorbs unknown leading dims (Ch4)
+    │       ├──► Pack polymorphism: ..batch absorbs unknown leading dims (Ch5)
     │       │
-    │       └──► Normalization skeleton: one pattern, four functions (Ch4)
+    │       └──► Normalization skeleton: one pattern, four functions (Ch5)
     │
-    ├──► Recurrence: time as a directional coordinate (Ch5)
+    ├──► Recurrence: time as a directional coordinate (Ch6)
     │       │
-    │       └──► Causality constraint: t-1 valid, t+1 rejected (Ch5)
+    │       └──► Causality constraint: t-1 valid, t+1 rejected (Ch6)
     │
-    ├──► Complex terrain: splits, arithmetic, disambiguation (Ch6)
+    ├──► Complex terrain: splits, arithmetic, disambiguation (Ch7)
     │
-    ├──► Differentiation: the pullback reads the forward pass backward (Ch7)
+    ├──► Differentiation: the pullback reads the forward pass backward (Ch8)
     │       │
-    │       └──► @fn: custom derivative rules carry coordinate contracts (Ch7)
+    │       └──► @fn: custom derivative rules carry coordinate contracts (Ch8)
     │
     ├──► Comparisons: same computation, two notations (Ch11–13)
     │       │
@@ -512,9 +512,9 @@ Every tensor operation can be audited with four questions. They are not Einlang-
 | Question | What it catches | Chapter |
 |---|---|---|
 | Which coordinate is consumed? | Reduction over wrong axis | 2, 8 |
-| Which coordinate is copied along? | Broadcast over wrong axis | 2, 7 |
-| Can you trace a coordinate from source to destination? | Silent permutation/transpose | 1, 6, 9 |
-| Does the backward reduction match the forward broadcast? | Gradient shape mismatch | 7 |
+| Which coordinate is copied along? | Broadcast over wrong axis | 2, 4 |
+| Can you trace a coordinate from source to destination? | Silent permutation/transpose | 1, 5, 10 |
+| Does the backward reduction match the forward broadcast? | Gradient shape mismatch | 8 |
 
 Ask these four questions of any tensor line. The answers tell you whether the notation preserved the facts that correctness depends on.
 
