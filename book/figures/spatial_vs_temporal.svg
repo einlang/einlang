@@ -23,10 +23,10 @@
 <!-- Title -->
 <text x="290" y="20" class="title" text-anchor="middle">Two kinds of coordinate</text>
 
-<!-- ===== LEFT: 2D DP — all spatial ===== -->
+<!-- ===== LEFT: 2D DP — both coords have offsets ===== -->
 <g transform="translate(18, 44)">
-  <text x="120" y="0"  class="accent" text-anchor="middle">2D DP — all spatial</text>
-  <text x="120" y="15" class="label"  text-anchor="middle">Every cell accesses its neighbours. No time dimension.</text>
+  <text x="120" y="0"  class="accent" text-anchor="middle">2D DP — both coords have offsets</text>
+  <text x="120" y="15" class="label"  text-anchor="middle"><tspan class="it">i</tspan>−1 and <tspan class="it">j</tspan>−1 both create dependencies.</text>
 
   <!-- Grid: 4×4 dots -->
   <g fill="#262626">
@@ -57,16 +57,16 @@
   <line x1="125" y1="104" x2="146" y2="120" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)"/>
 
   <text x="120" y="176" class="small" text-anchor="middle"><tspan class="bf">DP</tspan>[<tspan class="it">i</tspan>,<tspan class="it">j</tspan>] = min(<tspan class="bf">DP</tspan>[<tspan class="it">i</tspan>−1,<tspan class="it">j</tspan>], <tspan class="bf">DP</tspan>[<tspan class="it">i</tspan>,<tspan class="it">j</tspan>−1], <tspan class="bf">DP</tspan>[<tspan class="it">i</tspan>−1,<tspan class="it">j</tspan>−1])</text>
-  <text x="120" y="194" class="small" text-anchor="middle"><tspan class="it">i</tspan> and <tspan class="it">j</tspan> are spatial. The recurrence lives in the algorithm.</text>
+  <text x="120" y="194" class="small" text-anchor="middle"><tspan class="it">i</tspan>−1, <tspan class="it">j</tspan>−1 — both have offsets. Both are recurrence coords.</text>
 </g>
 
 <!-- Divider -->
 <line x1="280" y1="44" x2="280" y2="256" stroke="#c4c4c4" stroke-width="0.3"/>
 
-<!-- ===== RIGHT: 1D time + 1D space ===== -->
+<!-- ===== RIGHT: One offset coord + one bookshelf ===== -->
 <g transform="translate(300, 44)">
-  <text x="112" y="0"  class="accent" text-anchor="middle">1D time + 1D space</text>
-  <text x="112" y="15" class="label"  text-anchor="middle">Recurrence on <tspan class="it">t</tspan>. At each <tspan class="it">t</tspan>, every <tspan class="it">i</tspan> is a full array.</text>
+  <text x="112" y="0"  class="accent" text-anchor="middle">One offset coord + one bookshelf</text>
+  <text x="112" y="15" class="label"  text-anchor="middle">Offset on <tspan class="it">t</tspan>. <tspan class="it">i</tspan> has no offset — fully parallel.</text>
 
   <!-- Time axis -->
   <line x1="20" y1="30" x2="20" y2="190" stroke="#c4c4c4" stroke-width="0.4"/>
@@ -122,10 +122,10 @@
 
   <!-- Equation -->
   <text x="112" y="202" class="small" text-anchor="middle"><tspan class="bf">X</tspan>[<tspan class="it">t</tspan>,<tspan class="it">i</tspan>] = f(<tspan class="bf">X</tspan>[<tspan class="it">t</tspan>−1, <tspan class="it">i</tspan>−1], <tspan class="bf">X</tspan>[<tspan class="it">t</tspan>−1, <tspan class="it">i</tspan>], <tspan class="bf">X</tspan>[<tspan class="it">t</tspan>−1, <tspan class="it">i</tspan>+1])</text>
-  <text x="112" y="218" class="small" text-anchor="middle"><tspan class="it">t</tspan> is a recurrence coord. <tspan class="it">t</tspan>−1: the full array. <tspan class="it">t</tspan>+1: nothing.</text>
+  <text x="112" y="218" class="small" text-anchor="middle"><tspan class="it">t</tspan>−1 makes <tspan class="it">t</tspan> a recurrence coord. <tspan class="it">i</tspan> has no offset — all <tspan class="it">i</tspan> at <tspan class="it">t</tspan>−1 are a bookshelf.</text>
 </g>
 
 <!-- Bottom rule -->
 <line x1="30" y1="270" x2="550" y2="270" stroke="#c4c4c4" stroke-width="0.3"/>
-<text x="290" y="290" class="small" text-anchor="middle">Left: no recurrence — all coords are spatial, any cell can read any computed cell.</text>
+<text x="290" y="290" class="small" text-anchor="middle">Left: both coords appear with offsets — both are recurrence coords. Right: only <tspan class="it">t</tspan> has an offset — <tspan class="it">t</tspan> is recurrence, <tspan class="it">i</tspan> is a bookshelf.</text>
 </svg>
