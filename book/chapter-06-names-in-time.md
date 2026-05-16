@@ -19,6 +19,10 @@ A time coordinate is a novel. Page 50 can reference what happened on page 49. It
 
 Everything you have done so far assumed all positions exist at once. Now meet the coordinate that doesn't.
 
+![A spatial coordinate is a bookshelf—any shelf, any order. A temporal coordinate is a novel—page n can only read page n−1.](figures/spatial_vs_temporal.svg)
+
+On the left, every shelf is open. A cell reads from above, from the left, from the diagonal—any computed neighbor, in any order. On the right, page `t-1` is fully readable. Page `t+1` does not exist. The recurrence arrow constrains one coordinate and one coordinate only. Every `i` at `t-1` remains accessible. The rest of the grid is still a bookshelf. The compiler enforces the arrow. `t+1` on the right-hand side of a definition for `t` is a static error.
+
 ---
 
 ## Not All Axes Are the Same

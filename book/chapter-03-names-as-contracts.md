@@ -203,7 +203,9 @@ When `batch_size == num_classes`, the probability matrix is square. Softmax over
 
 ![The Square Matrix Test: when dimensions have equal extent, only the coordinate name records which meaning was intended](figures/softmax_roles.svg)
 
-No shape checker catches this. No gradient check catches this. Only a notation that records *which coordinate is the distribution* catches this. `softmax[class](logits)` records it. `softmax(logits, dim=-1)` does not.
+Horizontal dividers: each row sums to 1. Vertical dividers: each column sums to 1. Same input, same output shape, different numbers. The only difference in the source code is the name inside the bracket. `class` versus `batch`. One word. `dim=-1` does not contain that word. It cannot. The word is in your head—exactly where the shape-meanings gap puts it.
+
+No shape checker catches this. No gradient check catches this. Only a notation that records *which coordinate is the distribution* catches this.
 
 The Square Matrix Test is named after this property: when all extents are equal, a coordinate swap can hide inside shape compatibility. If square matrices fool shape checkers—and they do, routinely—what can prevent this class of error?
 

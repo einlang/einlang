@@ -97,7 +97,13 @@ fn cross_attention[seq_q, seq_k, head, d](Q: [f32; ..b, head, seq_q, d], K: [f32
 }
 ```
 
-The distinction is in the type signatures. Self-attention uses `seq` for both queries and keys. Cross-attention uses `seq_q` and `seq_k`—two different coordinate names, potentially with different domain sizes. A reader can tell which is which without checking whether the tensors happen to have the same shape. This is the megaphone model from Chapter 2 applied to functions: a function declares which coordinates it speaks on, and the omission of a coordinate from its signature is a claim that must be checked.
+The distinction is in the type signatures. Self-attention uses `seq` for both queries and keys. Cross-attention uses `seq_q` and `seq_k`—two different coordinate names, potentially with different domain sizes. A reader can tell which is which without checking whether the tensors happen to have the same shape.
+
+Here is the attention skeleton with every coordinate named:
+
+![Self-attention: seq_q = seq_k. Cross-attention: seq_q ≠ seq_k. The names tell you which is which.](figures/attention_flow.svg)
+
+Trace the arrows. `seq_q` rides Q into the scores and the output. `seq_k` rides K and V, and is consumed by `softmax[seq_k]` — it does not reach the output. `head` groups the attention heads. `d` is the inner dimension, contracted by `sum[d]` inside the scores. When `seq_q` and `seq_k` name the same sequence, the attention is self. When they name different sequences, it is cross. The diagram records the difference. The positional code for both is identical.
 
 ---
 

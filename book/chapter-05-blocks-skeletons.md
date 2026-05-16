@@ -225,6 +225,12 @@ Now here is the same skeleton in Einlang:
 
 The skeleton is visible in the table because the coordinates are named. Each column says *what*, not *where*. The reduction column names the consumed coordinates. The broadcast column names the parameters and their coordinate sets—the difference between the output set and the parameter set is the broadcast claim. This is coordinate set subtraction from Chapter 2, applied to four functions at once. The survivors column names what's left.
 
+Here is the same pattern drawn instead of tabulated:
+
+![One skeleton, four names. The same reduce–broadcast–elementwise–scale pipeline, differing only in which coordinates fill each slot.](figures/normalization_skeleton.svg)
+
+Read across any row: the five columns are the same. The coordinate names change. That is the skeleton.
+
 In a positional API, all four collapse to a single `dim` argument whose meaning shifts with the surrounding layout. `LayerNorm` and `RMSNorm` both use `dim=-1`—but normalize different statistics. `GroupNorm` uses three reduction dimensions buried in a `reshape` chain. The skeleton is invisible.
 
 In a named-coordinate API, the skeleton is a template you can check. The reduction bracket names the consumed coordinates. The indexing pattern names the survivors. The broadcast parameters name the omission. A reviewer can verify that the broadcast coordinate in LayerNorm matches the broadcast coordinate in the gradient without reconstructing both from positional offsets.

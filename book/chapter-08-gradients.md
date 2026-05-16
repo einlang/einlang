@@ -57,9 +57,11 @@ The general rule:
 
 `@loss / @W` has the same shape as `W`. The coordinates on the gradient result are exactly the coordinates on the denominator.
 
+Apply this to matrix multiplication. Here is `C[i,j] = sum[k](A[i,k] * B[k,j])` and its gradient, forward and backward, side by side:
+
 ![Forward and backward: the gradient sums over coordinates in C but not in A](figures/gradient_pullback.svg)
 
-The path from `W` to `loss` eliminates every coordinate that `W` carries. The gradient reconstructs those eliminations in reverse.
+On the left, `sum[k]` consumes `k` in the forward pass. On the right, the gradient `dA[i,k]` sums over `j` — the coordinate in `C` that is not in `A`. The figure reads the same in both directions: forward consumption becomes backward broadcast, forward broadcast becomes backward reduction.
 
 The pullback rule in one sentence: **the gradient sums over the set-difference of coordinates between the output and the operand.** Output has `{i, j}`. Operand `A` has `{i, k}`. Difference: `{j}`. Sum over `j`. The missing coordinate `k` is provided by the other operand `B[k, j]`.
 
