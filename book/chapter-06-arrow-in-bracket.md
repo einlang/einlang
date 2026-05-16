@@ -21,7 +21,7 @@ Everything you have done so far assumed all positions exist at once. Now meet th
 
 ![A coordinate without offsets is a bookshelf—any shelf, any order. A coordinate with an offset is a novel—page n can only read page n−1.](figures/spatial_vs_temporal.svg)
 
-On the left, both `i` and `j` appear with offsets — both are recurrence coords. Every cell depends on earlier cells in both directions. On the right, only `t` has an offset. `t+1` does not exist. `t-1` is a bookshelf — every `i` at time `t-1` is readable in any order. The compiler enforces the offset. `t+1` on the right-hand side of a definition for `t` is a static error.
+On the left, both `i` and `j` appear with offsets — both are novels. Every cell reads from earlier positions in both directions. On the right, only `t` has an offset — `t` is a novel. `t+1` does not exist. `i` has no offset — at `t-1`, every `i` is a bookshelf, readable in any order. The minus sign is what the compiler checks.
 
 ---
 
