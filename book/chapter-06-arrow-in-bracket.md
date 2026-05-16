@@ -21,7 +21,7 @@ Everything you have done so far assumed all positions exist at once. Now meet th
 
 ![A coordinate without offsets is a bookshelf—any shelf, any order. A coordinate with an offset is a novel—page n can only read page n−1.](figures/spatial_vs_temporal.svg)
 
-On the left, both `i` and `j` appear with offsets — both are novels. Every cell reads from earlier positions in both directions. On the right, only `t` has an offset — `t` is a novel. `t+1` does not exist. `i` has no offset — at `t-1`, every `i` is a bookshelf, readable in any order. The minus sign is what the compiler checks.
+On the left, both `i` and `j` appear with offsets on the declared variable `DP` — both are novels. Every cell reads from earlier positions in both directions. On the right, only `t-1` is an offset on the declared variable `h` — `t` is a novel, `t+1` does not exist. The spatial stencil `i-1`, `i`, `i+1` reads from `x`, not `h`. Only offsets on the declared variable create recurrence. `i` is a bookshelf. The compiler checks which variable the minus sign is on.
 
 ---
 

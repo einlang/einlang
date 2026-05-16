@@ -63,10 +63,10 @@
 <!-- Divider -->
 <line x1="280" y1="44" x2="280" y2="256" stroke="#c4c4c4" stroke-width="0.3"/>
 
-<!-- ===== RIGHT: One offset coord + one bookshelf ===== -->
+<!-- ===== RIGHT: One recurrence coord + one bookshelf ===== -->
 <g transform="translate(300, 44)">
-  <text x="112" y="0"  class="accent" text-anchor="middle">One offset coord + one bookshelf</text>
-  <text x="112" y="15" class="label"  text-anchor="middle">Offset on <tspan class="it">t</tspan>. <tspan class="it">i</tspan> has no offset — fully parallel.</text>
+  <text x="112" y="0"  class="accent" text-anchor="middle">One recurrence coord + one bookshelf</text>
+  <text x="112" y="15" class="label"  text-anchor="middle">Offset on <tspan class="it">t</tspan> is on the declared variable. Offsets on <tspan class="it">i</tspan> are on a different variable.</text>
 
   <!-- Time axis -->
   <line x1="20" y1="30" x2="20" y2="190" stroke="#c4c4c4" stroke-width="0.4"/>
@@ -96,7 +96,7 @@
   <circle cx="134" cy="100" r="4.5" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
   <circle cx="160" cy="100" r="4.5" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
 
-  <text x="108" y="118" class="small" text-anchor="middle"><tspan class="bf">X</tspan>[<tspan class="it">t</tspan>,<tspan class="it">i</tspan>]</text>
+  <text x="108" y="118" class="small" text-anchor="middle"><tspan class="bf">h</tspan>[<tspan class="it">t</tspan>,<tspan class="it">i</tspan>]</text>
 
   <!-- ===== t-1: full row — all solid (available) ===== -->
   <text x="20" y="166" class="label" text-anchor="end"><tspan class="it">t</tspan>−1</text>
@@ -121,8 +121,8 @@
   <text x="188" y="168" class="label" text-anchor="start">all <tspan class="it">i</tspan> visible</text>
 
   <!-- Equation -->
-  <text x="112" y="202" class="small" text-anchor="middle"><tspan class="bf">X</tspan>[<tspan class="it">t</tspan>,<tspan class="it">i</tspan>] = f(<tspan class="bf">X</tspan>[<tspan class="it">t</tspan>−1, <tspan class="it">i</tspan>−1], <tspan class="bf">X</tspan>[<tspan class="it">t</tspan>−1, <tspan class="it">i</tspan>], <tspan class="bf">X</tspan>[<tspan class="it">t</tspan>−1, <tspan class="it">i</tspan>+1])</text>
-  <text x="112" y="218" class="small" text-anchor="middle"><tspan class="it">t</tspan>−1 makes <tspan class="it">t</tspan> a recurrence coord. <tspan class="it">i</tspan> has no offset — all <tspan class="it">i</tspan> at <tspan class="it">t</tspan>−1 are a bookshelf.</text>
+  <text x="112" y="202" class="small" text-anchor="middle"><tspan class="bf">h</tspan>[<tspan class="it">t</tspan>,<tspan class="it">i</tspan>] = f(<tspan class="bf">h</tspan>[<tspan class="it">t</tspan>−1, <tspan class="it">i</tspan>], <tspan class="bf">x</tspan>[<tspan class="it">t</tspan>, <tspan class="it">i</tspan>−1], <tspan class="bf">x</tspan>[<tspan class="it">t</tspan>, <tspan class="it">i</tspan>], <tspan class="bf">x</tspan>[<tspan class="it">t</tspan>, <tspan class="it">i</tspan>+1])</text>
+  <text x="112" y="218" class="small" text-anchor="middle"><tspan class="it">t</tspan>−1 on <tspan class="bf">h</tspan> makes <tspan class="it">t</tspan> a recurrence coord. Offsets on <tspan class="it">i</tspan> are on <tspan class="bf">x</tspan> — a different variable. <tspan class="it">i</tspan> is a bookshelf.</text>
 </g>
 
 <!-- Bottom rule -->
