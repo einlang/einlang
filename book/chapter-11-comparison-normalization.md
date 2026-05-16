@@ -306,14 +306,14 @@ Every normalization function can be audited with three questions, each a special
 Before leaving normalization, read this function — one you have never seen:
 
 ```rust
-fn normalize[j, k](x: [f32; ..b, j, k], gamma: [f32; j, k], beta: [f32; j, k]) -> [f32; ..b, j, k] {
-    let m[..b] = mean[j, k](x[..b, j, k]);
-    let v[..b] = mean[j, k]((x[..b, j, k] - m[..b]) ** 2.0);
-    (x[..b, j, k] - m[..b]) / (v[..b] + 1e-5) ** 0.5 * gamma[j, k] + beta[j, k]
+fn normalize[j, k](x: [f32; ..batch, j, k], gamma: [f32; j, k], beta: [f32; j, k]) -> [f32; ..batch, j, k] {
+    let m[..batch] = mean[j, k](x[..batch, j, k]);
+    let v[..batch] = mean[j, k]((x[..batch, j, k] - m[..batch]) ** 2.0);
+    (x[..batch, j, k] - m[..batch]) / (v[..batch] + 1e-5) ** 0.5 * gamma[j, k] + beta[j, k]
 }
 ```
 
-The reduction bracket says `mean[j, k]` — so it consumes `j` and `k`. The output has `{..b, j, k}` and `gamma` has `{j, k}` — so `gamma` broadcasts over `..b`, the difference of those two sets. If `x` changes from `(batch, j, k)` to `(batch, time, j, k)`, the reduction bracket doesn't change. `j` and `k` are found by name. The positional equivalent `dim=(-2, -1)` would survive if `time` is prepended — but not if `time` lands between `j` and `k`. The named bracket doesn't care where `time` lands.
+The reduction bracket says `mean[j, k]` — so it consumes `j` and `k`. The output has `{..batch, j, k}` and `gamma` has `{j, k}` — so `gamma` broadcasts over `..batch`, the difference of those two sets. If `x` changes from `(batch, j, k)` to `(batch, time, j, k)`, the reduction bracket doesn't change. `j` and `k` are found by name. The positional equivalent `dim=(-2, -1)` would survive if `time` is prepended — but not if `time` lands between `j` and `k`. The named bracket doesn't care where `time` lands.
 
 Three questions, three answers, all visible in the signature without reading the body. That is the audit.
 

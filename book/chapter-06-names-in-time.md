@@ -29,7 +29,7 @@ On the left, every shelf is open. A cell reads from above, from the left, from t
 
 Look at this declaration:
 
-```
+```rust
 u[t, i] = u[t-1, i] + f(u[t-1, i])
 ```
 
@@ -45,7 +45,7 @@ In a spatial expression like `sum[i](A[i, k])`, `i` is just an index. You never 
 
 In Einlang, time is just another coordinate—but one that appears in index arithmetic. You declare it with a range:
 
-```
+```rust
 let u[t in 0..T, i] = init_temp(i);
 let u[t in 1..T, i] = u[t-1, i] + alpha * (
     u[t-1, i+1] - 2.0 * u[t-1, i] + u[t-1, i-1]
@@ -58,7 +58,7 @@ This is a recurrence. The coordinate `t` carries time's directional structure in
 
 The declaration bracket names *what* is being defined. The body says *how*. The separation keeps the declaration side simple and declarative, while the body can use arbitrary index arithmetic:
 
-```
+```rust
 let fib[0] = 0;
 let fib[1] = 1;
 let fib[n in 2..8] = fib[n-1] + fib[n-2];
@@ -68,7 +68,7 @@ The recurrence index range `n in 2..8` goes in the declaration bracket—it defi
 
 Now look at this line:
 
-```
+```rust
 let h[t in 0..T] = step(h[t+1], x[t])
 ```
 
@@ -85,22 +85,22 @@ This has a consequence that spatial coordinates don't require. Only the time ste
 Here are four recurrence fragments. For each one, can you see whether it passes the causality check? The check is mechanical: reference index `<` declared index.
 
 **Fragment A:**
-```
+```rust
 let u[t in 0..T, i] = u[t-1, i] + u[t-2, i];
 ```
 
 **Fragment B:**
-```
+```rust
 let h[t in 0..T, i] = h[t-1, i] + h[t, i-1];
 ```
 
 **Fragment C:**
-```
+```rust
 let v[t in 0..T] = v[t+1] + v[t-1];
 ```
 
 **Fragment D:**
-```
+```rust
 let x[t in 0..T] = f(x[t-1]) + g(x[t]);
 ```
 
@@ -128,7 +128,7 @@ Three of four fragments caught by one rule: reference index `<` declared index. 
 
 Training a model is a recurrence over time:
 
-```
+```rust
 let w[t in 0..T, out, feature] = init_random(out, feature);
 let w[t in 1..T, out, feature] = w[t-1, out, feature] - lr * grad[t-1, out, feature];
 ```
@@ -137,7 +137,7 @@ At `t=0`, `w` is the random initialization. At each subsequent step, `w` is the 
 
 A full training step:
 
-```
+```rust
 let logits[t, b, class] = model(x[t, b, feature], w[t, out, feature]);
 let loss[t, b] = cross_entropy[class](logits[t, b, class], labels[t, b]);
 let grad[t, out, feature] = @loss[t, b] / @w[t, out, feature];
@@ -176,7 +176,7 @@ This distinction has consequences. A recurrence carries two properties that spat
 
 Not all recurrences look only to the past. A bidirectional RNN reads the sequence both ways:
 
-```
+```rust
 let h_forward[t in 1..T, i] = step(h_forward[t-1, i], x[t, i]);
 let h_backward[t in 0..T-1, i] = step_back(h_backward[t+1, i], x[t, i]);
 ```
@@ -187,7 +187,7 @@ The same coordinate domain, two different iteration directions, one linguistic m
 
 Notice when someone writes this:
 
-```
+```rust
 let h[t in 0..T, i] = step(h[t+1, i], x[t, i]);
 ```
 
@@ -213,7 +213,7 @@ The same principle—coordinate set subtraction—is at work. The output coordin
 
 Consider a second-order recurrence:
 
-```
+```rust
 let u[t in 2..T, i] = u[t-1, i] + 0.5 * (u[t-1, i] - u[t-2, i]);
 ```
 
@@ -245,7 +245,7 @@ Take a moment. The same declaration `let u[t in 0..T, i] = f(u[t-1, i])` can com
 
 The optimizer recurrence from earlier is worth tracing step by step:
 
-```
+```rust
 // Step 0: random initialization
 let w[0, out, feature] = init_random(out, feature);
 
@@ -288,14 +288,14 @@ The Einlang version makes the training trajectory a data structure. The PyTorch 
 
 Diffusion models add noise over `T` timesteps and learn to reverse it. The time coordinate appears in two roles: recurrence index for the sampling chain, and conditioning signal for the denoising network.
 
-```
+```rust
 let x[t in 0..T, b, c, h, w] = ...;
 let x[t in 1..T, b, c, h, w] = sqrt(1 - beta[t]) * x[t-1, ...] + sqrt(beta[t]) * eps[t, ...];
 ```
 
 The schedule `beta[t]` is indexed by `t`, making the dependency visible. In the backward pass:
 
-```
+```rust
 let x_hat[t in T..1, b, c, h, w] = denoise(x[t, ...], t, model(x[t, ...], t));
 ```
 
@@ -315,7 +315,7 @@ Forward: `h[t] = step(h[t-1], x[t])`. The output `h[t]` depends on `h[t-1]`, whi
 
 Backward: the gradient `d_loss/d_h[t]` must propagate to `d_loss/d_h[t-1]`, then to `d_loss/d_h[t-2]`, and so on. At each step, the gradient flows through the `step` function's Jacobian with respect to `h[t-1]`. The backward recurrence:
 
-```
+```rust
 let d_h[t in T..0] = @loss[t] / @h[t] + @step(h[t], h[t-1], x[t]) / @h[t] * d_h[t+1];
 ```
 

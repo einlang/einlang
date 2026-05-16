@@ -350,15 +350,15 @@ Pause here. Look back at the Transformer block on the previous page. Find every 
 Here are four Einlang function signatures. Three implement normalization variants. One doesn't. Can you spot the odd one out?
 
 ```rust
-fn A[j](x: [f32; ..b, j]) -> [f32; ..b, j]
-fn B[coord](x: [f32; ..b, coord]) -> [f32; ..b]
-fn C[f](x: [f32; ..b, f]) -> [f32; ..b, f]
-fn D[t](x: [f32; ..b, t]) -> [f32; ..b, t]
+fn A[j](x: [f32; ..batch, j]) -> [f32; ..batch, j]
+fn B[coord](x: [f32; ..batch, coord]) -> [f32; ..batch]
+fn C[f](x: [f32; ..batch, f]) -> [f32; ..batch, f]
+fn D[t](x: [f32; ..batch, t]) -> [f32; ..batch, t]
 ```
 
 Look at the return types and notice the pattern yourself before reading on.
 
-Here is the pattern: Function B is the odd one out. Its return type is `[f32; ..b]`—the coordinate `coord` is missing. It was consumed and not reconstructed. Functions A, C, and D all return `[f32; ..b, <coordinate>]`—the coordinate survives. B is a reduction function (like `sum[coord]`). A, C, and D are normalization functions that preserve the coordinate.
+Here is the pattern: Function B is the odd one out. Its return type is `[f32; ..batch]`—the coordinate `coord` is missing. It was consumed and not reconstructed. Functions A, C, and D all return `[f32; ..batch, <coordinate>]`—the coordinate survives. B is a reduction function (like `sum[coord]`). A, C, and D are normalization functions that preserve the coordinate.
 
 Now the deeper question: **why** is this distinction visible in the type signature? Because the skeleton is more than "reduce then broadcast." The skeleton is "reduce, then broadcast back to **reconstruct the consumed coordinate in the output.**" A pure reduction consumes and doesn't reconstruct—the coordinate disappears from the return type. A normalization consumes and reconstructs—the coordinate reappears. The difference between "gone forever" and "gone and returned" is the difference between a reduction and a normalization. The return type records it.
 
@@ -440,12 +440,12 @@ The four-normalizations table revealed that LayerNorm, RMSNorm, GroupNorm, and I
 Notice the skeletons already visible in these signatures—no body needed, just the coordinate names and reduction brackets:
 
 ```rust
-fn softmax[j](x: [f32; ..b, j]) -> [f32; ..b, j];
-fn layer_norm[f](x: [f32; ..b, f], gamma: [f32; f], beta: [f32; f]) -> [f32; ..b, f];
-fn instance_norm[..s, c](x: [f32; ..b, c, ..s], gamma: [f32; c], beta: [f32; c]) -> [f32; ..b, c, ..s];
+fn softmax[j](x: [f32; ..batch, j]) -> [f32; ..batch, j];
+fn layer_norm[f](x: [f32; ..batch, f], gamma: [f32; f], beta: [f32; f]) -> [f32; ..batch, f];
+fn instance_norm[..spatial, c](x: [f32; ..batch, c, ..spatial], gamma: [f32; c], beta: [f32; c]) -> [f32; ..batch, c, ..spatial];
 ```
 
-Look at only the signatures. Can you tell which one reduces over which coordinate? In `softmax[j]`, the coordinate parameter `j` tells you: normalize over `j`. In `layer_norm[f]`, `f` tells you: normalize over `f`. In `instance_norm[..s, c]`, both `..s` and `c` are in the signature—but which one is reduced? The answer depends on which coordinate is placed in the reduction bracket in the body. The signature alone can't tell you—it can only tell you which coordinates exist. The body tells you which ones are consumed.
+Look at only the signatures. Can you tell which one reduces over which coordinate? In `softmax[j]`, the coordinate parameter `j` tells you: normalize over `j`. In `layer_norm[f]`, `f` tells you: normalize over `f`. In `instance_norm[..spatial, c]`, both `..spatial` and `c` are in the signature—but which one is reduced? The answer depends on which coordinate is placed in the reduction bracket in the body. The signature alone can't tell you—it can only tell you which coordinates exist. The body tells you which ones are consumed.
 
 Now compare to the positional versions:
 

@@ -169,6 +169,8 @@ This is the argument the book has been making since Chapter 1. Not that names ma
 
 ---
 
+But before you close the cover, the Appendix assembles the complete grammar and every check rule in one place — the view from the summit after fourteen chapters of climbing.
+
 Before you close the book, open your most recent tensor code. Find a `dim=` argument. Ask: which coordinate is that? If you can't answer from the code alone, the coordinate isn't in the code. It's in your head. The name is missing. And the name is the only thing that can go in the bracket.
 
 The Appendix collects every check rule, every error code, and a complete program. The Epilogue returns to the Tuesday bug from Chapter 1 — replays Day 100 with a working compiler — and asks the question the book was always asking: what changes when a name has a place to live?

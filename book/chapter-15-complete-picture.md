@@ -450,20 +450,18 @@ The comments record identity. They can rot. But they are present—a reader six 
 
 **Principle 2 applied: Reductions must name what they consume.**
 
-```python
-# h: (batch, feature)
-def forward(x, W, b, gamma, beta):
-    h = x @ W.T + b
-    mean = mean[feature](h[batch, feature])
-    var = mean[feature]((h[batch, feature] - mean) ** 2)
-    return gamma * (h[batch, feature] - mean) / sqrt(var + 1e-5) + beta
+```rust
+// h: (batch, feature)
+let avg[batch] = mean[feature](h[batch, feature]);
+let var[batch] = mean[feature]((h[batch, feature] - avg[batch]) ** 2.0);
+let normalized[batch, feature] = gamma[feature] * (h[batch, feature] - avg[batch]) / (var[batch] ** 0.5 + 1e-5) + beta[feature];
 ```
 
 The reduction names `feature`. The name appears in the bracket, not in a comment. If `h` gains a `seq` dimension, its declaration becomes `h[batch, seq, feature]`. The reduction `mean[feature]` still names `feature`—it does not silently switch to `seq`. The name protects the reduction from the layout change.
 
 **Principle 3 applied: Broadcasts must name what they copy along.**
 
-```python
+```rust
 # mean[batch], var[batch] — silent on feature, broadcast back over it
 # gamma[feature], beta[feature] — silent on batch, broadcast along batch
 let normalized[batch, feature] = gamma[feature] * (h[batch, feature] - mean[batch]) / sqrt(var[batch] + 1e-5) + beta[feature];
@@ -482,7 +480,7 @@ The coordinate parameter `feature` is part of the function's type. Every call si
 
 **Principle 5 applied: Gradients read the forward pass backward.**
 
-```
+```rust
 Forward: mean[feature](h[batch, feature]) → mean[batch] (broadcasts over feature)
          gamma[feature] * ... (broadcasts over batch)
 Backward: d_mean[batch] = sum[feature](d_norm[batch, feature] * ...)
@@ -650,4 +648,4 @@ This book built a naming system for the ideas it introduced. Here they are, gath
 
 These words are not decoration. They are the text's own coordinate system. Their job is the same as the job of the bracket: to give a fact a place to live, so it can be checked.
 
-Turn the page.
+The Epilogue returns to the Tuesday bug from Chapter 1 and asks what changes when a name has a place to live.

@@ -139,7 +139,7 @@ Apply the five steps. The output `z[b, out]` has coordinates `{b, out}`. The ope
 
 Before reading further, write the answer. Then verify: does your `dW` have coordinates `{out, in}`? Does the sum go over `{b}`?
 
-```
+```rust
 dW[out, in] = sum[b](dZ[b, out] * x[b, in])
 ```
 

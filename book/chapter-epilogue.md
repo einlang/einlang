@@ -11,6 +11,8 @@ title: "Epilogue · A Friend Named Einlang"
 
 ---
 
+You just reviewed the complete grammar. Now step back and ask what it adds up to.
+
 In Chapter 5, Einlang was a name. A label for a notation under construction. Now, at the end, the name has a referent.
 
 Einlang is not a language in the sense that Python is a language, or C++, or Rust. It does not aspire to run your web server or render your UI. It is a language built on three ideas: primitive expressions, means of combination, and means of abstraction—organized around a single purpose.

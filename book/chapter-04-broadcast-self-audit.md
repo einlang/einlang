@@ -266,11 +266,11 @@ Most real code has more than one broadcast. A linear layer with bias has one. A 
 Here is a complete attention projection block:
 
 ```rust
-let context[..b, head, seq_q, d] =
-    sum[seq_k](weights[..b, head, seq_q, seq_k] * V[..b, head, seq_k, d]);
-let output[..b, seq_q, head, d_out] =
-    sum[d](context[..b, head, seq_q, d] * W_o[head, d, d_out]);
-let final[..b, seq_q, d_out] = output[..b, seq_q, d_out] + b_o[d_out];
+let context[..batch, head, seq_q, d] =
+    sum[seq_k](weights[..batch, head, seq_q, seq_k] * V[..batch, head, seq_k, d]);
+let output[..batch, seq_q, head, d_out] =
+    sum[d](context[..batch, head, seq_q, d] * W_o[head, d, d_out]);
+let final[..batch, seq_q, d_out] = output[..batch, seq_q, d_out] + b_o[d_out];
 ```
 
 Three lines. Let the auditor walk through each.
@@ -278,32 +278,32 @@ Three lines. Let the auditor walk through each.
 **Line 1: `sum[seq_k](weights * V)`**
 
 ```
-Output coordinates: {..b, head, seq_q, d}
-weights: {..b, head, seq_q, seq_k}  → broadcast: {} (no omission, seq_k is reduced)
-V:       {..b, head, seq_k, d}      → broadcast: {seq_q} (V omits seq_q)
+Output coordinates: {..batch, head, seq_q, d}
+weights: {..batch, head, seq_q, seq_k}  → broadcast: {} (no omission, seq_k is reduced)
+V:       {..batch, head, seq_k, d}      → broadcast: {seq_q} (V omits seq_q)
 ```
 
-`V` broadcasts over `seq_q` inside the reduction. This is correct: `V` provides values at each `seq_k` position regardless of which `seq_q` is querying. The backward reduction: `dV[..b, head, seq_k, d] = sum[seq_q](d_context[..b, head, seq_q, d] * weights[..b, head, seq_q, seq_k])`. The broadcast set `{seq_q}` becomes the reduction set.
+`V` broadcasts over `seq_q` inside the reduction. This is correct: `V` provides values at each `seq_k` position regardless of which `seq_q` is querying. The backward reduction: `dV[..batch, head, seq_k, d] = sum[seq_q](d_context[..batch, head, seq_q, d] * weights[..batch, head, seq_q, seq_k])`. The broadcast set `{seq_q}` becomes the reduction set.
 
 **Line 2: `sum[d](context * W_o)`**
 
 ```
-Output coordinates: {..b, seq_q, head, d_out}
-context: {..b, head, seq_q, d}  → broadcast: {}
-W_o:     {head, d, d_out}       → broadcast: {..b, seq_q}
+Output coordinates: {..batch, seq_q, head, d_out}
+context: {..batch, head, seq_q, d}  → broadcast: {}
+W_o:     {head, d, d_out}       → broadcast: {..batch, seq_q}
 ```
 
-`W_o` broadcasts over `..b` and `seq_q`. Correct: the weight is the same for all batch elements and query positions. Backward: `dW_o[head, d, d_out] = sum[..b, seq_q](d_output[..b, seq_q, head, d_out] * context[..b, head, seq_q, d])`.
+`W_o` broadcasts over `..batch` and `seq_q`. Correct: the weight is the same for all batch elements and query positions. Backward: `dW_o[head, d, d_out] = sum[..batch, seq_q](d_output[..batch, seq_q, head, d_out] * context[..batch, head, seq_q, d])`.
 
 **Line 3: `output + b_o`**
 
 ```
-Output coordinates: {..b, seq_q, d_out}
-output: {..b, seq_q, d_out}  → broadcast: {}
-b_o:    {d_out}              → broadcast: {..b, seq_q}
+Output coordinates: {..batch, seq_q, d_out}
+output: {..batch, seq_q, d_out}  → broadcast: {}
+b_o:    {d_out}              → broadcast: {..batch, seq_q}
 ```
 
-Backward: `db_o[d_out] = sum[..b, seq_q](d_final[..b, seq_q, d_out])`.
+Backward: `db_o[d_out] = sum[..batch, seq_q](d_final[..batch, seq_q, d_out])`.
 
 **Putting it together.** Three expressions. Five broadcasts—two of them hidden inside reductions. Every broadcast has a backward reduction over the same coordinate set. The Inversion Rule holds for all of them.
 

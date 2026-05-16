@@ -83,15 +83,15 @@ The code does not distinguish between self-attention and cross-attention because
 
 ```rust
 // Self-attention: same coordinate for queries and keys
-fn self_attention[seq, head, d](Q: [f32; ..b, head, seq, d], K: [f32; ..b, head, seq, d], V: [f32; ..b, head, seq, d])
-    -> [f32; ..b, head, seq, d]
+fn self_attention[seq, head, d](Q: [f32; ..batch, head, seq, d], K: [f32; ..batch, head, seq, d], V: [f32; ..batch, head, seq, d])
+    -> [f32; ..batch, head, seq, d]
 {
     attention[seq, seq, head, d](Q, K, V)
 }
 
 // Cross-attention: different coordinates for queries and keys
-fn cross_attention[seq_q, seq_k, head, d](Q: [f32; ..b, head, seq_q, d], K: [f32; ..b, head, seq_k, d], V: [f32; ..b, head, seq_k, d])
-    -> [f32; ..b, head, seq_q, d]
+fn cross_attention[seq_q, seq_k, head, d](Q: [f32; ..batch, head, seq_q, d], K: [f32; ..batch, head, seq_k, d], V: [f32; ..batch, head, seq_k, d])
+    -> [f32; ..batch, head, seq_q, d]
 {
     attention[seq_q, seq_k, head, d](Q, K, V)
 }
@@ -149,16 +149,16 @@ The code is identical to standard attention. The only difference is that `K` has
 
 ```rust
 fn mqa_attention[head_q, head_kv, seq_q, seq_k, d](
-    Q: [f32; ..b, head_q, seq_q, d],
-    K: [f32; ..b, head_kv, seq_k, d],
-    V: [f32; ..b, head_kv, seq_k, d]
-) -> [f32; ..b, head_q, seq_q, d]
+    Q: [f32; ..batch, head_q, seq_q, d],
+    K: [f32; ..batch, head_kv, seq_k, d],
+    V: [f32; ..batch, head_kv, seq_k, d]
+) -> [f32; ..batch, head_q, seq_q, d]
 {
-    let scores[..b, head_q, head_kv, seq_q, seq_k] =
-        sum[d](Q[..b, head_q, seq_q, d] * K[..b, head_kv, seq_k, d]) / (d ** 0.5);
-    let scores_merged[..b, head_q, seq_q, seq_k] = mean[head_kv](scores[..b, head_q, head_kv, seq_q, seq_k]);
-    let weights[..b, head_q, seq_q, seq_k] = softmax[seq_k](scores_merged[..b, head_q, seq_q, seq_k]);
-    sum[seq_k](weights[..b, head_q, seq_q, seq_k] * V[..b, head_kv, seq_k, d])
+    let scores[..batch, head_q, head_kv, seq_q, seq_k] =
+        sum[d](Q[..batch, head_q, seq_q, d] * K[..batch, head_kv, seq_k, d]) / (d ** 0.5);
+    let scores_merged[..batch, head_q, seq_q, seq_k] = mean[head_kv](scores[..batch, head_q, head_kv, seq_q, seq_k]);
+    let weights[..batch, head_q, seq_q, seq_k] = softmax[seq_k](scores_merged[..batch, head_q, seq_q, seq_k]);
+    sum[seq_k](weights[..batch, head_q, seq_q, seq_k] * V[..batch, head_kv, seq_k, d])
 }
 ```
 
@@ -197,22 +197,22 @@ The grouping logic—unsqueeze, expand, reshape—is spread across two lines. Th
 
 ```rust
 fn gqa_attention[head_group, head_kv, seq_q, seq_k, d](
-    Q: [f32; ..b, head_group, head_kv, seq_q, d],
-    K: [f32; ..b, head_kv, seq_k, d],
-    V: [f32; ..b, head_kv, seq_k, d]
-) -> [f32; ..b, head_group, head_kv, seq_q, d]
+    Q: [f32; ..batch, head_group, head_kv, seq_q, d],
+    K: [f32; ..batch, head_kv, seq_k, d],
+    V: [f32; ..batch, head_kv, seq_k, d]
+) -> [f32; ..batch, head_group, head_kv, seq_q, d]
 {
-    let scores[..b, head_group, head_kv, seq_q, seq_k] =
-        sum[d](Q[..b, head_group, head_kv, seq_q, d]
-             * K[..b, head_kv, seq_k, d]) / (d ** 0.5);
-    let weights[..b, head_group, head_kv, seq_q, seq_k] =
-        softmax[seq_k](scores[..b, head_group, head_kv, seq_q, seq_k]);
-    sum[seq_k](weights[..b, head_group, head_kv, seq_q, seq_k]
-             * V[..b, head_kv, seq_k, d])
+    let scores[..batch, head_group, head_kv, seq_q, seq_k] =
+        sum[d](Q[..batch, head_group, head_kv, seq_q, d]
+             * K[..batch, head_kv, seq_k, d]) / (d ** 0.5);
+    let weights[..batch, head_group, head_kv, seq_q, seq_k] =
+        softmax[seq_k](scores[..batch, head_group, head_kv, seq_q, seq_k]);
+    sum[seq_k](weights[..batch, head_group, head_kv, seq_q, seq_k]
+             * V[..batch, head_kv, seq_k, d])
 }
 ```
 
-`head_group` and `head_kv` are separate coordinates from the start. No reshape. No expand. No unsqueeze. `K` and `V` are indexed by `head_kv` alone—they broadcast over `head_group` because they omit it. The broadcast is visible in the indexing pattern: `K[..b, head_kv, seq_k, d]` has no `head_group`, while `Q` has both.
+`head_group` and `head_kv` are separate coordinates from the start. No reshape. No expand. No unsqueeze. `K` and `V` are indexed by `head_kv` alone—they broadcast over `head_group` because they omit it. The broadcast is visible in the indexing pattern: `K[..batch, head_kv, seq_k, d]` has no `head_group`, while `Q` has both.
 
 Now compare the three variants side by side:
 
@@ -285,7 +285,7 @@ In a positional API, Flash Attention is a drop-in replacement: replace `attentio
 
 ```rust
 #[strategy(flash)]
-let output[..b, head, seq_q, d] = attention[head, seq_q, seq_k, d](Q, K, V);
+let output[..batch, head, seq_q, d] = attention[head, seq_q, seq_k, d](Q, K, V);
 ```
 
 The coordinate names don't change. The contract doesn't change. Only the execution strategy changes. This is the separation that the compiler's lowering pass enables: coordinate contracts define what is computed. Lowering strategies define how it is computed. The names belong to the first. The optimizations belong to the second. They are orthogonal.

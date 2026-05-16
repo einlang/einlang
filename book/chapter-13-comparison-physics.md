@@ -48,7 +48,7 @@ The code works. But the Laplacian—the discrete second derivative—is spread a
 
 **Einlang:**
 
-```
+```rust
 let u[t in 0..T, i] = initial[i];
 let u[t in 1..T, i] = u[t-1, i] + alpha * (
     u[t-1, i+1] - 2.0 * u[t-1, i] + u[t-1, i-1]
@@ -82,7 +82,7 @@ def coupled_step(state, t, alpha, beta):
 
 **Einlang:**
 
-```
+```rust
 let state[t in 0..T, i, field] = init_field(field, i);
 
 let temp[t, i] = state[t, i, field=0];
@@ -118,7 +118,7 @@ Every integer index must be verified. The compiler provides no help. If humidity
 
 In the Einlang version:
 
-```
+```rust
 let state[t in 0..T, i, field] = init_field(field, i);
 
 let temp[t, i] = state[t, i, field=0];
@@ -157,7 +157,7 @@ The field identity (`v` vs `T`) is in variable names. The coordinate identity (`
 
 **Einlang:**
 
-```
+```rust
 let v[t in 1..T, i] = v[t-1, i]
     + dt * (nu * (v[t-1, i+1] - 2.0*v[t-1, i] + v[t-1, i-1]) / (dx**2)
             - v[t-1, i] * (v[t-1, i+1] - v[t-1, i-1]) / (2.0*dx)
@@ -190,7 +190,7 @@ The time index `t` is in variable position `u[t, ...]`. The spatial stencil `i-1
 
 **Einlang:**
 
-```
+```rust
 let u[t in 0..1, i] = initial[i] + dt * v_initial[i];
 let u[t in 2..T, i] =
     2.0 * u[t-1, i] - u[t-2, i]
@@ -207,7 +207,7 @@ Fluid dynamics is the grand challenge of computational physics. The Navier-Stoke
 
 Here is a simplified 2D Navier-Stokes time step in Einlang, using the same coordinate conventions from the heat equation and Burgers equation:
 
-```
+```rust
 let u[t in 1..T, i, j] = u[t-1, i, j]
     + dt * (nu * (u[t-1, i+1, j] - 2.0*u[t-1, i, j] + u[t-1, i-1, j]) / dx**2
            + nu * (u[t-1, i, j+1] - 2.0*u[t-1, i, j] + u[t-1, i, j-1]) / dy**2
@@ -247,7 +247,7 @@ In Einlang, the coordinate name is the anchor. `mean[feature]` stays `mean[featu
 
 Here is a PDE stencil. Before reading the commentary, find the coordinate that carries recurrence:
 
-```
+```rust
 let u[t, i, j] = u[t-1, i, j]
     + c * (u[t-1, i+1, j] - 2.0 * u[t-1, i, j] + u[t-1, i-1, j])
     + c * (u[t-1, i, j+1] - 2.0 * u[t-1, i, j] + u[t-1, i, j-1]);
