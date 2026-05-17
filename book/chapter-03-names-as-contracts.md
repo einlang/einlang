@@ -371,6 +371,21 @@ Five wrong calls, and where each one breaks:
 
 Each check is a mechanical verification. You won't perform these steps by hand. But knowing they exist changes how you read a function call. `softmax[class](logits)` is not a request. It is a contract submission. The compiler either stamps it or rejects it. The stamp means the coordinate story is consistent.
 
+### Where Coordinates Come From
+
+Step 3 asks "does `logits` carry `c`?" But the compiler asks an even more fundamental question first: does `c` exist at all? A coordinate that appears from nowhere — referenced but never declared — is not a type error. It is a grounding error. The compiler calls it E0701.
+
+You have now seen every way a coordinate can enter scope. There are exactly four:
+
+1. **Declaration.** `let x[i, j]` — the output coordinates `i` and `j` are grounded by the `let`.
+2. **Reduction.** `sum[k](...)` — the bracket introduces `k` as a bound variable inside the reduction body.
+3. **Parameter type.** `x: [f32; ..left, j, ..right]` — the parameter's shape grounds `..left`, `j`, and `..right` in the function body.
+4. **Coordinate parameter.** `fn softmax[j]` — the bracket after the function name grounds `j` as the coordinate the function operates on.
+
+If a coordinate can't be traced to one of these four, the compiler stops. Not "maybe it's a free variable." Not "let's infer it from context." Error E0701, compile time, with the coordinate's name in the message.
+
+The six steps check that coordinates are used *consistently*. The grounding check verifies that they *exist*. Together they guarantee that every coordinate you read has been declared somewhere — and that every declaration is checked against every use.
+
 ---
 
 Coordinate-aware functions compose. But before seeing the pattern they form together, there is a more immediate question: when you write a broadcast, you are making a claim about coordinate independence. What is the claim? And who checks it? Chapter 4 turns every broadcast into a self-audit — three questions and a set subtraction that reveal whether the independence is justified.
