@@ -161,7 +161,7 @@ sum[in] (f32)
     * (f32)
    / \
   /   \
-x     W
+ x     W
 (f32) (f32)
 ```
 
@@ -453,21 +453,28 @@ The lowering pass is the point where names die. After this pass, the IR contains
 
 ## Return to the Transformer
 
-You now know what the compiler does with the transformer block. Not what the transformer does — you knew that when you first saw it. What the compiler *does*.
+The compiler takes the attention expression and lowers it. Here is what it produces:
 
-Range inference on the sequence dimension. The compiler sees `seq_q` in `weights[head, seq_q, seq_k]`. It traces the variable to the input tensor's shape. It infers the bound — `seq_q` ranges from `0` to `sequence_length`. No annotation. No execution. The name `seq_q` and the shape of the input tensor together carry enough information. The compiler reads the name, walks the tree, and computes the bound.
+```
+// lowered IR (S-expression form)
+(red sum seq_k
+  (mul (index weights (head seq_q seq_k))
+       (index V       (head seq_k  d))))
+→ einsum string: "hqk,hkd->hqd"
+→ axis map: {head: 0, seq_q: 1, seq_k: 2, d: 3}
+```
 
-Shape analysis on the head split. The compiler sees `d` split into `head` and `d_head`. It records that `d = head * d_head`. It checks that the split is consistent across the query, key, value, and output projections. If the numbers do not align — if the query projection uses 8 heads but the key projection uses 16 — the compiler reports a shape mismatch. Before a single value is computed. Before a single weight is initialized. The names carry the constraint. The compiler enforces it.
+The name `seq_k` appears in the source. It disappears in the lowered code — replaced by the integer 2. But the compiler knew, at every step, that axis 2 was `seq_k`. It derived the range of `seq_k` from the input tensor's shape. It type-checked the broadcast of `V` over `seq_q` by confirming that `seq_q` does not appear in `V`'s index list. It chose the reduction order — `seq_k` as axis 2, not axis 1 — because the layout map placed it there.
 
-Type propagation through the MLP. `f32` at the input. `f32` through the attention projection. `f32` through the first linear layer. `f32` through the GELU activation. `f32` through the second linear. The compiler walks the tree bottom-up and confirms: every tensor in the block is `f32`. Twelve lines of code. Without it, the generated NumPy would silently cast to `float64` and double the memory. The simplest pass. Also the one that would silently corrupt every number if it were wrong.
+Trace the lowering of `seq_k`:
 
-The constraint solver on the positional encoding. `pos_encoding[seq, d]` is indexed by `seq` and `d`. When the attention reads `pos_encoding[seq_q, d] + x[seq_q, d]`, the compiler checks that `seq_q` stays within the encoding table's bounds. The check is a one-line comparison: `seq_q < max_seq_len`. The solver proves it and moves on. If the sequence length exceeds the encoding table, the error message names both: `seq_q` in range `[0, sequence_length)` cannot exceed `pos_encoding`'s declared range `[0, max_seq_len)`.
+1. **Parse.** The source `sum[seq_k](...)` becomes a `Reduction` node with coordinate `seq_k`.
+2. **Name resolution.** `seq_k` is looked up in the tensor layouts. `weights` declares it at position 2, `V` at position 1. The compiler records the mapping: `seq_k → layout_map["weights"][2], layout_map["V"][1]`.
+3. **Range inference.** The compiler traces `weights` to its input and reads the shape. `seq_k` ranges from `0` to `sequence_length`.
+4. **Shape analysis.** The reduction consumes `seq_k`, so the output shape drops it. The compiler confirms: output is `(head, seq_q, d)` — one fewer dimension than the operands.
+5. **Lowering.** The `Reduction` node emits `axis=layout_map[seq_k]`. The integer `2` replaces the name. The einsum string records the consumption as the absence of `k` on the output side of `hqk,hkd->hqd`.
 
-The lowering of `sum[seq_k]` to einsum loops. The compiler reads the reduction bracket. It looks up `seq_k` in the layout map. It emits `np.einsum('hqk,hkd->hqd', weights, V)` for the vectorized path — or nested loops if the sequence is ragged. The einsum string is the names, burned into letters. Each letter stands for a coordinate that the type-checker verified, the range-inference bounded, and the shape-analysis confirmed survives. The string is terse. It is not silent. Every character is the last trace of a name that earned its place.
-
-The block that you first saw as a promise — three boxes labeled Attention, MLP, and Add & Norm, with arrows you could follow but not verify — is now something you can compile yourself. Not because you memorized the architecture. Because the compiler's five passes answered the five questions you learned to ask: is it declared, does it survive, what is its range, what is its type, what does it lower to? The names carried the answers. The compiler made them explicit.
-
-The block hasn't changed. The compiler hasn't changed it. A compiler that does not change the program is doing its job. A compiler that *proves* the program is correct is doing something more. The transformer block that Chapter 1 showed as a picture is now a program whose correctness you can check before it runs.
+The names burn away during lowering. What remains is correct because they were there.
 
 ---
 

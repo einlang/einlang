@@ -603,17 +603,25 @@ This is the missing piece. The megaphone model gives you three operations on a c
 
 ## Return to the Transformer
 
-Remember the transformer block. It appeared early — a picture of attention and MLP you could point at but not read. Now return to it with the lens you have just ground.
+Look at this line again:
 
 ```rust
 let attn_out[head, seq_q, d] = sum[seq_k](weights[head, seq_q, seq_k] * V[head, seq_k, d]);
 ```
 
-Look at that expression. The sum over `seq_k` — that is a reduction. The coordinate `seq_k` is consumed. The weights broadcast over `head` and `d` before the multiplication. The value tensor `V` — indexed by `head`, `seq_k`, and `d` — omits `seq_q` from its brackets. That omission is a broadcast. `V` is silent on the query position: ask it with a different `seq_q`, you get the same answer.
+Read each bracket. Find every sum. Find every omission.
 
-Every bracket in that line is a declaration. Every omission is a claim of independence. Every sum is a consumption. You can now read the line as: consume `seq_k` via the weight matrix, broadcast `head` and `d` to the output. Reduction consumes. Broadcast copies. The brackets record both.
+The sum over `seq_k` — that is a reduction. `seq_k` appears on the right, in both `weights` and `V`, but it does not appear on the left. It is consumed. Gone after this line.
 
-You did not know any of this when you first saw the block. You could name the parts — attention, values, weights — but you could not read the brackets. Now you can. The block has not changed. You have.
+`weights` carries `head`, `seq_q`, `seq_k`. `V` carries `head`, `seq_k`, `d`. Neither carries `head` on the left of its own brackets — yet `head` appears in the output. That is a broadcast: `head` copies from the input to every cell of the output without being consumed.
+
+`d` appears in `V` and in the output. It does not appear in `weights`. The multiplication broadcasts `weights` over `d`. The bracket records the omission.
+
+`seq_q` appears in `weights` and in the output. It does not appear in `V`. `V` is silent on the query position. The same value tensor answers every query. That silence is a broadcast — and the design claim of attention.
+
+`seq_q` survives. `head` and `d` survive. `seq_k` is consumed.
+
+You couldn't read this line in Chapter 1. Now you can. Not because you memorized terminology — because the brackets speak.
 
 ---
 

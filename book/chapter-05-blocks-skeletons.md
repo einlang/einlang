@@ -513,28 +513,15 @@ What is happening when you read these signatures: you are asking "which coordina
 
 ## Discovering a Coordinate Contract
 
-The sections you have just read show finished products. Here is `layer_norm[f]` with its correct skeleton. Here is `group_norm[g, c_in_group, ..s]` with its correct skeleton. The skeletons are clean. The contracts pass every check. The coordinate choices look obvious in hindsight.
+The sections you just read show finished products. `layer_norm[f]` with its correct skeleton. `group_norm[g, c_in_group, ..s]` with its correct skeleton. The skeletons are clean. The coordinate choices look obvious.
 
-They were not obvious when first written.
+They were not obvious when first written. The finished signature is the last thing you arrive at, not the first. This section walks through the process. You are going to do the walking.
 
-This section walks through the process of discovering a coordinate contract for a concrete function. The goal is not the answer. The goal is the method—the questions you ask, the mistakes you catch, the adjustments you make. This is how you find the skeleton when the skeleton is not yet known.
+### Start Concrete
 
-### The Problem: Weighted LayerNorm
+Standard LayerNorm computes statistics uniformly over the feature dimension. Weighted LayerNorm relaxes this: each feature position has a learned weight that scales its contribution to the mean and variance.
 
-Standard LayerNorm computes statistics uniformly over the feature dimension. Every position contributes equally to the mean and variance. Weighted LayerNorm relaxes this: each feature position has a learned weight that scales its contribution to the statistics.
-
-The forward pass:
-
-- Compute a weighted mean: for each sample, sum over features of `x_f * w_f`, divided by the sum of the weights.
-- Compute a weighted variance: sum over features of `w_f * (x_f - mean)^2`, divided by the sum of the weights.
-- Normalize: `(x_f - mean) / sqrt(variance + eps)`.
-- Scale and shift: `result * gamma_f + beta_f`.
-
-The question: what is the coordinate contract for this function?
-
-### First Attempt: Feels Right
-
-You reach for the LayerNorm skeleton. LayerNorm normalizes over `f`. Weighted LayerNorm also normalizes over `f`. The only difference is the weights. You write:
+Here is your first attempt. It compiles.
 
 ```rust
 fn weighted_layer_norm[f](x: [f32; ..b, f],
@@ -552,37 +539,27 @@ fn weighted_layer_norm[f](x: [f32; ..b, f],
 }
 ```
 
-This compiles. The coordinate flow is clean: `f` is consumed in the reductions, reconstructed in the output. `w[f]` broadcasts over `..b` in the expression `x[..b, f] * w[f]`—the coordinate sets are `{..b, f}` and `{f}`, their union is `{..b, f}`, the broadcast is valid. The skeleton matches LayerNorm exactly. You are satisfied.
+Before reading on, look at the contract for `w`. What coordinate set does `w` claim? The annotation says `w: [f32; f]`. That means `w` has exactly one coordinate: `f`. The weight cannot depend on batch. The weight cannot depend on a group. The weight is per-feature, period.
 
-### Audit: The Assumption You Did Not Notice You Made
+This works for standard Weighted LayerNorm. The code compiles. The coordinate flow is clean. You run the five checks from Chapter 3 and every one passes. You commit.
 
-Run the five checks from Chapter 3.
+A week later, a colleague asks: "Can I use this for group-weighted normalization? I need the weights to vary per group and per channel-in-group."
 
-**Check 2: Independence.** The expression `sum[f](x[..b, f] * w[f])` multiplies every position in `..b` by the same weight vector `w[f]`. For a given `f`, every batch element gets the same weight. The weight does not depend on `b`. Is this right?
+You open the file. You stare at `w: [f32; f]`.
 
-Yes—in standard Weighted LayerNorm, the weights are per-feature, not per-sample. The broadcast claim (`w[f]` over `..b`) is justified. `w` is independent of `..b`.
+Find the baked-in assumption. Before reading on, write it down.
 
-**Check 3: Domain alignment.** `w[f]` has domain `{f}`. `x[..b, f]` has domain `{..b, f}`. The domains overlap on `f`. The broadcast adds `..b`. The alignment is correct.
+`w: [f32; f]` hardcodes the weight's coordinate set to `{f}`. The skeleton—weighted mean, weighted variance, normalize, scale—does not require `{f}`. The skeleton requires only that the weight live in whatever coordinate set the reduction consumes. The assumption was not wrong for the problem you solved. It was wrong for the skeleton.
 
-The contract passes all five checks. You are done.
+The colleague's question did not ask for a new skeleton. It asked the existing skeleton to accept a different weight coordinate set.
 
-Except—you are not. A week later, a colleague asks: "What if I want the weights to vary per group, like GroupNorm?"
+### Parameterize
 
-You stop. Your `weighted_layer_norm` signature forces `w` to have coordinate set `{f}`. If the weights need to vary by group, you need a different function. But the weighted-statistic skeleton—weight, reduce, normalize—is the same. The only difference is the coordinate set of the weight.
+Write the contract for the group-weighted version. What changes?
 
-The contract you chose (`w: [f32; f]`) baked in an assumption: weights are per-feature. That assumption was correct for the problem you were solving. But it is not correct for the skeleton. The skeleton should not hardcode which coordinates the weight depends on.
+You change the coordinate set of `w`. Instead of `w: [f32; f]`, you need `w: [f32; g, c_in_g]`. The reduction bracket changes from `sum[f]` to `sum[c_in_g, ..s]`. The parameters `gamma` and `beta` also move from `{f}` to `{g, c_in_g}`.
 
-### Second Attempt: Parameterizing the Weight
-
-You step back. What does the weighted normalization skeleton actually need?
-
-- An input tensor with coordinates being normalized.
-- A weight tensor whose coordinate set determines which positions contribute differentially to the statistics.
-- Scale and shift parameters that broadcast over the non-feature dimensions.
-
-The weight's coordinate set is the design degree of freedom. Sometimes it is `{f}`. Sometimes it is `{g, c_in_group}`. Sometimes it is `{..s}`. The skeleton should accept whatever coordinate set the caller provides.
-
-Write the concrete group-weighted version first, as a guide:
+Here is the result:
 
 ```rust
 fn group_weighted_norm[g, c_in_g, ..s](
@@ -607,9 +584,9 @@ fn group_weighted_norm[g, c_in_g, ..s](
 }
 ```
 
-This compiles. The weight `w[g, c_in_g]` broadcasts over `..b` and `..s`. The reduction `sum[c_in_g, ..s]` consumes the same coordinates the weight covers, plus spatial. The contract is consistent.
+The skeleton is identical to the first attempt. Compare the two, line by line. The only difference is the coordinate set of `w`, `gamma`, and `beta`, and the corresponding reduction brackets. The computation—weighted sum, centered, variance, normalize—is the same sequence in the same order.
 
-Now compare this to the first attempt. The difference is the weight's coordinate set: `w[g, c_in_g]` instead of `w[f]`. The skeleton is identical. The coordinate set of the weight is the only degree of freedom.
+Now compare the two contracts. In the first: `w` claims `{f}`. In the second: `w` claims `{g, c_in_g}`. The skeleton does not care which set. It cares only that the weight's coordinate set matches the reduction bracket and that the reduction bracket is a subset of the input's coordinate set.
 
 Here is the general skeleton:
 
@@ -622,17 +599,22 @@ fn weighted_norm[stat_coords, ..survivors](
 ) -> [f32; ..b, stat_coords, ..survivors]
 ```
 
-`stat_coords` names the coordinate set that the weight lives in and that the reduction consumes. `..survivors` names whatever additional coordinates exist in the input and must survive in the output—the reduction bracket includes them (`sum[stat_coords, ..survivors]`), and the return type reconstructs them. This single signature covers both standard Weighted LayerNorm (where `stat_coords = f`, `..survivors` is empty) and Group-Weighted LayerNorm (where `stat_coords = {g, c_in_g}`, `..survivors = ..s`).
+`stat_coords` names the coordinate set the weight lives in and the reduction consumes. `..survivors` names additional coordinates that exist in the input and survive in the output—the reduction bracket includes them, and the return type reconstructs them. Standard Weighted LayerNorm: `stat_coords = f`, `..survivors` empty. Group-Weighted LayerNorm: `stat_coords = {g, c_in_g}`, `..survivors = ..s`. One signature, every variant.
 
-### Convergence
+### The Loop
 
-You started with `w[f]`—a specific choice that happened to work for one use case. The audit revealed a baked-in assumption you had not noticed: the weight's coordinate set was hardcoded. The colleague's question exposed it. The second attempt parameterized the assumption, and the skeleton now covers every weighted normalization variant.
+You started with a concrete contract—`w: [f32; f]`—that compiled and passed every check. A question from outside the code exposed the assumption you did not notice you made. You parameterized the assumption. The skeleton now covers every weighted normalization variant, present and future.
 
-This is the design process: write the concrete version, audit the contract with the five checks, discover the assumption you baked in, parameterize it. Each audit question from Chapter 3 is a tool for finding the assumption. Each failure—or each moment of "this works, but only for one case"—is a signal that the contract needs adjustment.
+You did not arrive at the general skeleton by starting general. You arrived by starting concrete, finding the assumption, and widening it. The concrete is not a stepping stone you discard. The concrete is the only way to find the assumption.
 
-The finished skeletons in this chapter look obvious because someone already did the audit. The audit is the work. The skeleton is the result.
+This is the design loop:
 
-The design loop is: write concrete, audit, find the assumption, parameterize. The implementation follows the contract. The contract follows the coordinate structure.
+1. Write the concrete version. Make it compile.
+2. Find the assumption baked into the contract.
+3. Parameterize it.
+4. Verify the parameterized version still covers the concrete case.
+
+You just ran it.
 
 ---
 
