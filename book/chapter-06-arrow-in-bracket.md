@@ -13,17 +13,29 @@ title: "Chapter 6 · The Arrow in the Bracket"
 
 ---
 
-A coordinate that only appears as itself is a bookshelf. You can pull any book off any shelf in any order. Shelf 3 doesn't depend on shelf 2. The name doesn't matter — call it `i`, `j`, `k`, it's still a bookshelf as long as you never write `i-1` on the right-hand side of a declaration of that same variable.
+A coordinate you never see with an offset is a bookshelf. Pull any book off any shelf in any order — shelf 3 doesn't wait for shelf 2.
 
-A coordinate that appears with an offset on the variable being defined is a candidate for recurrence. If you write `state[i] = f(state[i-1])` — one dimension, one variable — then `i` carries a dependency: step 5 needs step 4, step 4 needs step 3, all the way back to the base case. Page 51 hasn't been written yet. `state[i+1]` on the RHS is an error. The name doesn't matter: call it `i` or `t`. The minus sign is the signal. It is not a convention. It is a constraint, and violating it produces nonsense.
+Now look at two programs that break that rule:
 
-But not every offset in the bracket names a recurrence coordinate. When an offset reads from a step that is fully materialized — `h[t, i] = h[t-1, i+1]` — the `i+1` is a spatial read from the `t-1` bookshelf. At `t-1`, every `i` exists. The `i+1` does not create a new dependency chain along `i`. Only `t` carries the arrow. Only `t` connects one step to the next. The compiler distinguishes which coordinate the offset is measured against. You are about to learn how.
+```rust
+DP[i,j] = min( DP[i-1,j],  DP[i,j-1],  DP[i-1,j-1] )
+```
 
-Everything you have done so far assumed all positions exist at once. Now meet the coordinate that appears with a minus sign.
+```rust
+h[t,i]  =   f( h[t-1,i-1], h[t-1,i],  h[t-1,i+1] )
+```
 
-![Left: DP[i,j] reads DP[i-1,j], DP[i,j-1] — i-1 creates recurrence. Right: h[t,i] reads h[t-1,i±1] — t-1 creates recurrence, i±1 are spatial reads from the t-1 bookshelf.](figures/spatial_vs_temporal.svg)
+Both have minus signs. Both read from earlier positions. But not every minus sign names a recurrence coordinate.
 
-On the left, `DP[i,j]` reads `DP[i-1,j]` and `DP[i,j-1]`. Both have offsets on `DP`, but only `i` is a recurrence coord — `j-1` is satisfied by iteration order within the same `i` step. On the right, `h[t,i]` reads `h[t-1,i-1]`, `h[t-1,i]`, `h[t-1,i+1]`. All three are from `t-1` — only `t` is a recurrence coord. At `t-1`, the full `i` slice is available. Every `i` is a bookshelf, readable in any order. `t+1` does not exist. The compiler checks which offset creates a cross-step dependency. The minus sign on the declared variable, across the recurrence dimension — that is what the compiler reads.
+![Left: DP[i,j] with offsets on both i and j. Right: h[t,i] with offset only on t.](figures/spatial_vs_temporal.svg)
+
+Look at the figure. Before reading on, answer this: on the left, which coordinates carry the dependency chain? On the right, which coordinate carries the arrow, and which are just spatial reads from a slice that already exists?
+
+---
+
+You saw it. On the left, both `i-1` and `j-1` appear on `DP` — both `i` and `j` are recurrence coords. The dependency flows in two directions. On the right, only `t-1` appears on `h`. The `i-1` and `i+1` read from `h` at `t-1` — where every `i` is already computed. `t` is recurrence; `i` is a bookshelf.
+
+The compiler reads the minus sign on the declared variable. If the offset is measured against a coordinate of the variable being defined — `DP[i-1,j]` on `DP[i,j]` — that coordinate carries the dependency. If the offset is measured against a coordinate of a fully-materialized slice — `h[t-1,i+1]` on `h[t,i]` — it's a spatial read. The distinction is not the name. It is which coordinate the minus sign moves.
 
 ---
 

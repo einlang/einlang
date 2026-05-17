@@ -111,7 +111,7 @@ The root cause: `(0, 3, 1, 2)` describes a rearrangement of *positions*. What th
 
 Here is the same refactoring under both notations:
 
-![Positional permute silently breaks when upstream changes; named permute survives](figures/permute_survival.svg)
+![Same refactoring, two notations. On the left: positional permute. On the right: named.](figures/permute_survival.svg)
 
 The figure tests both notations against a common refactoring. Top row: the original pipeline maps BHWC to BCHW. On the left, `permute(0,3,1,2)`—read "old axis 0 stays at 0, old axis 3 moves to 1, old axis 1 moves to 2, old axis 2 moves to 3"—produces the correct result. On the right, the named expression `y[b,c,h,w] = x[b,h,w,c]` produces the same correct result. Both pass. Bottom row: upstream swaps height and width, so the input is now BWHC. The positional instruction executes identically—`permute(0,3,1,2)` is still the same four numbers—but the output is now B,C,W,H. Height and width are silently exchanged. The named expression `y[b,c,h,w] = x[b,h,w,c]` adapts automatically: `h` maps to the second axis in the input regardless of where height landed, `w` maps to the third. The instruction did not change. The meaning did.
 

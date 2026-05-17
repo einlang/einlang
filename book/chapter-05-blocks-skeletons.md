@@ -147,21 +147,25 @@ The rule: **brackets hold what the caller must specify.** Named coordinates and 
 
 ## Selection Reductions
 
-A normal reduction returns a combined value. A selection reduction returns an address:
+You know `max[class]`. It gives you the largest value.
+
+Now meet its cousin:
 
 ```rust
 let pred[b] = argmax[class](logits[b, class]);
 ```
 
-`max[class](logits[b, class])` returns the maximum *value* for each `b`. `argmax[class](logits[b, class])` returns the index within the `class` domain where that maximum occurs. The result has the surviving coordinates—`[b]`—plus an implicit address domain: the integer stored at each `b` is understood to be an address in the `class` coordinate space.
+Both operate on the same input. Both consume `class`. They return different things.
 
-This is more than a convenience. The return value of `argmax[class]` is not just an integer tensor. It is an integer tensor whose values are addresses in the `class` domain. Later code can use this address to index back into the `class` dimension of another tensor.
+![max vs argmax on the same input tensor.](figures/argmax_address.svg)
 
-`argmax[class]` does not return a value. It returns an **address** within the coordinate domain `class`. This is a fundamentally different category of result from `sum` or `max`.
+Look at the figure. What does `max` return? What does `argmax` return? Before reading on: one returns a value extracted FROM the domain. The other returns an address that points INTO the domain. Which is which, and why does it matter?
 
-`sum[class]` extracts a value FROM the domain. The result is a scalar (per batch element) whose meaning is independent of `class`—it is a sum of things that happened to live in `class`. You could pass that scalar to any function. The `class` identity is gone from the value itself.
+---
 
-`argmax[class]` returns a pointer INTO the domain. The result is an integer, but not just any integer. It is an integer whose meaning is "a position in the `class` coordinate space." This integer carries a **domain contract**: the compiler knows that this value is only meaningful when used to index into a tensor that also carries the `class` coordinate.
+`max[class]` extracts. The result is a scalar—the value 0.9, stripped of its `class` identity. You could pass that scalar to any function. The fact that it came from `class` position 3 is forgotten.
+
+`argmax[class]` returns a pointer. The result is the integer 3—not just any integer, but an address in the `class` coordinate space. This integer carries a **domain contract**: the compiler knows it is only meaningful when used to index into a tensor that also carries `class`.
 
 This contract is enforced. If you write:
 
@@ -275,7 +279,7 @@ You might wonder: how does the compiler know that `mean[f]` reduces over `f` and
 
 Here is the same pattern drawn instead of tabulated:
 
-![One skeleton, four names. The same reduce–broadcast–elementwise–scale pipeline, differing only in which coordinates fill each slot.](figures/normalization_skeleton.svg)
+![Four normalization variants, five columns each. The pipeline is identical; only the coordinate names change.](figures/normalization_skeleton.svg)
 
 Read across any row: the five columns are the same. The coordinate names change. That is the skeleton.
 

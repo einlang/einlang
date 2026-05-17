@@ -97,7 +97,7 @@ The distinction is in the type signatures. Self-attention uses `seq` for both qu
 
 Here is the attention skeleton with every coordinate named:
 
-![Self-attention: seq_q = seq_k. Cross-attention: seq_q != seq_k. The names tell you which is which.](figures/attention_flow.svg)
+![The attention skeleton. Trace where seq_q and seq_k flow.](figures/attention_flow.svg)
 
 Trace the arrows. `seq_q` rides Q into the scores and the output. `seq_k` rides K and V, and is consumed by `softmax[seq_k]` — it does not reach the output. `head` groups the attention heads. `d` is the inner dimension, contracted by `sum[d]` inside the scores. When `seq_q` and `seq_k` name the same sequence, the attention is self. When they name different sequences, it is cross. The diagram records the difference. The positional code for both is identical.
 

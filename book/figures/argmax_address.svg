@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 200" width="100%" height="100%">
+<defs>
+  <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="#4A5053"/>
+  </marker>
+  <marker id="arr-teal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="#1F6C74"/>
+  </marker>
+</defs>
+
+<style>
+  text { font-family: "Latin Modern Roman", "STIX Two Math", "Times New Roman", serif; }
+  .body  { font-size: 10px; fill: #262626; }
+  .small { font-size: 8.5px; fill: #262626; }
+  .accent{ font-size: 8.5px; fill: #1F6C74; font-weight: bold; }
+  .label { font-size: 8px; fill: #5C6063; }
+  .idx   { font-size: 7px; fill: #BFC3C5; }
+  .val   { font-size: 9px; fill: #262626; }
+  .bf    { font-weight: bold; }
+  .it    { font-style: italic; }
+</style>
+
+<!-- ====== Input tensor ====== -->
+<g transform="translate(92,20)">
+  <rect x="0" y="0" width="276" height="46" fill="#ffffff" stroke="#262626" stroke-width="0.8"/>
+  <text x="138" y="-8" class="accent" text-anchor="middle"><tspan class="bf">class</tspan></text>
+  <text x="-20" y="23" class="label" text-anchor="end" transform="rotate(-90,-20,23)">batch</text>
+
+  <line x1="55" y1="0" x2="55" y2="46" stroke="#DDE1E3" stroke-width="0.3"/>
+  <line x1="110" y1="0" x2="110" y2="46" stroke="#DDE1E3" stroke-width="0.3"/>
+  <line x1="165" y1="0" x2="165" y2="46" stroke="#DDE1E3" stroke-width="0.3"/>
+  <line x1="220" y1="0" x2="220" y2="46" stroke="#DDE1E3" stroke-width="0.3"/>
+
+  <text x="27" y="18" class="val" text-anchor="middle">.1</text>
+  <text x="82" y="18" class="val" text-anchor="middle">.7</text>
+  <text x="137" y="18" class="val" text-anchor="middle">.2</text>
+  <text x="192" y="18" class="val" text-anchor="middle">.9</text>
+  <text x="247" y="18" class="val" text-anchor="middle">.3</text>
+
+  <text x="27" y="38" class="idx" text-anchor="middle">0</text>
+  <text x="82" y="38" class="idx" text-anchor="middle">1</text>
+  <text x="137" y="38" class="idx" text-anchor="middle">2</text>
+  <text x="192" y="38" class="idx" text-anchor="middle">3</text>
+  <text x="247" y="38" class="idx" text-anchor="middle">4</text>
+
+  <!-- Highlight cell 3 -->
+  <rect x="165" y="0" width="55" height="46" fill="#1F6C74" fill-opacity="0.08" stroke="none"/>
+</g>
+
+<!-- ====== LEFT: max[class] → value ====== -->
+<g transform="translate(92,124)">
+  <rect x="0" y="0" width="55" height="26" fill="#EDF3F4" stroke="#BFC3C5" stroke-width="0.5" rx="2"/>
+  <text x="27" y="18" class="body" text-anchor="middle">0.9</text>
+  <text x="27" y="44" class="label" text-anchor="middle">a value — domain forgotten</text>
+</g>
+
+<!-- Arrow: max output → cell 3 -->
+<line x1="119" y1="120" x2="284" y2="70" stroke="#4A5053" stroke-width="0.7" marker-end="url(#arr)"/>
+<text x="201" y="110" class="small" text-anchor="middle">max[class]</text>
+
+<!-- ====== RIGHT: argmax[class] → address ====== -->
+<g transform="translate(313,124)">
+  <rect x="0" y="0" width="55" height="26" fill="#EDF3F4" stroke="#1F6C74" stroke-width="0.8" rx="2"/>
+  <text x="27" y="18" class="body" text-anchor="middle">3</text>
+  <text x="27" y="44" class="accent" text-anchor="middle">an address — points into class</text>
+</g>
+
+<!-- Arrow: argmax output → cell 3 -->
+<line x1="340" y1="120" x2="284" y2="70" stroke="#1F6C74" stroke-width="0.8" marker-end="url(#arr-teal)"/>
+<text x="312" y="110" class="accent" text-anchor="middle">argmax[class]</text>
+
+<!-- Bottom caption -->
+<text x="230" y="188" class="body" text-anchor="middle" font-size="9">
+<tspan class="bf">max</tspan> extracts a value. <tspan class="bf">argmax</tspan> returns an address — the integer <tspan class="it">means</tspan> a position.
+</text>
+</svg>

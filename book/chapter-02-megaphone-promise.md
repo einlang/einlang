@@ -205,7 +205,7 @@ In a positional API, these would be `matrix.sum(dim=1)` and `matrix.sum(dim=0)`.
 
 The same pattern scales to matrix multiplication. Here is the full picture:
 
-![A row of A and a column of B converge at a single element of C. The coordinate ledger on the right records survivors and consumed — the same two facts the five-step procedure extracts.](figures/matmul_coords.svg)
+![Matrix multiplication with coordinate labels. The ledger on the right tracks survivors and consumed.](figures/matmul_coords.svg)
 
 A row of A and a column of B share `k`. The sum consumes it. A single element of C remains. The ledger on the right records the transaction: survivors and consumed. Those are the only two facts any reduction ever produces. The diagram is the ledger, drawn instead of tabulated. The five-step procedure is the ledger, written instead of drawn. They are the same check.
 
@@ -268,7 +268,7 @@ This is the principle of explicit omission: **if a term is independent of a coor
 
 Now look at a pair of broadcasts side by side:
 
-![Both produce out[i,j]. Identical shape, indistinguishable by shape. The coordinate name is the semantics.](figures/broadcasting.svg)
+![Two broadcasts. Both produce out[i,j]. One omits i, the other omits j.](figures/broadcasting.svg)
 
 On the left, `bias[j]` omits `i` — the value repeats for each row. On the right, `bias[i]` omits `j` — the value repeats for each column. Both produce `out[i, j]`. The output shape is the same. If you saw only the shape, you could not tell which broadcast happened. The coordinate name in the bracket is the only thing that records the difference.
 
