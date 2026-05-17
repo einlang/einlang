@@ -157,6 +157,52 @@ let pred[b] = argmax[class](logits[b, class]);
 
 This is more than a convenience. The return value of `argmax[class]` is not just an integer tensor. It is an integer tensor whose values are addresses in the `class` domain. Later code can use this address to index back into the `class` dimension of another tensor.
 
+`argmax[class]` does not return a value. It returns an **address** within the coordinate domain `class`. This is a fundamentally different category of result from `sum` or `max`.
+
+`sum[class]` extracts a value FROM the domain. The result is a scalar (per batch element) whose meaning is independent of `class`—it is a sum of things that happened to live in `class`. You could pass that scalar to any function. The `class` identity is gone from the value itself.
+
+`argmax[class]` returns a pointer INTO the domain. The result is an integer, but not just any integer. It is an integer whose meaning is "a position in the `class` coordinate space." This integer carries a **domain contract**: the compiler knows that this value is only meaningful when used to index into a tensor that also carries the `class` coordinate.
+
+This contract is enforced. If you write:
+
+```rust
+let pred[b] = argmax[class](logits[b, class]);
+let best[b] = embeddings[pred[b], class];
+```
+
+The compiler checks: does `pred[b]` carry the `class` address domain? Yes—it came from `argmax[class]`. Does `embeddings` have a `class` coordinate? Yes—it appears in the indexing expression. Do the domains match? Yes. The indexing is valid.
+
+Now suppose you accidentally write:
+
+```rust
+let pred[b] = argmax[class](logits[b, class]);
+let best[b] = vocabulary[pred[b], token];
+```
+
+The compiler reports:
+
+```
+error: address domain mismatch
+  → `pred` carries addresses in domain `class` (from argmax[class] at line 1)
+  → `vocabulary` has coordinate `token` at this position
+  → expected coordinate `class`, found `token`
+  → these domains are different; indexing across domains is not allowed
+```
+
+In PyTorch, this is silent. `pred` is a tensor of integers. `vocabulary[pred]` is a tensor of gathered values. Whether `pred`'s integers refer to class indices or token indices or pixel positions is invisible to the type system. Nothing prevents you from using classification predictions to index into a token embedding table. The bug survives testing until a user passes an out-of-range class index to a token embedding and the program crashes with a cryptic CUDA error, or worse, silently returns garbage.
+
+The address domain contract is what makes `argmax` conceptually different from `max`. `max` says "give me the biggest thing in this set." `argmax` says "tell me WHERE the biggest thing is, because I need to go there." The WHERE is only meaningful relative to the coordinate domain it points into. The compiler tracks which domain that is.
+
+This distinction propagates. If you have:
+
+```rust
+let top_k[b, k] = topk[class](logits[b, class], 5);
+```
+
+`top_k` is a tensor of five addresses per batch element, each an address in `class`. You can use it to index into any tensor that carries `class`. The compiler knows. The reader knows. The contract travels with the value.
+
+Selection reductions—`argmax`, `argmin`, `topk`—are the only operations that produce address-typed values. Their results are not interchangeable with plain integers. They are typed by the coordinate domain they reference. This is the domain contract from Chapter 2, applied to the concept of "where" instead of "what."
+
 ---
 
 ## Four Normalizations
@@ -462,6 +508,131 @@ What is happening when you read these signatures: you are asking "which coordina
 ---
 
 *The next time you write a function that takes a tensor and returns a tensor, write its coordinate signature in a comment before the body. Which coordinates survive? Which are consumed? Which broadcast? If you can't answer from the code alone, the signature is the place to start.*
+
+---
+
+## Discovering a Coordinate Contract
+
+The sections you have just read show finished products. Here is `layer_norm[f]` with its correct skeleton. Here is `group_norm[g, c_in_group, ..s]` with its correct skeleton. The skeletons are clean. The contracts pass every check. The coordinate choices look obvious in hindsight.
+
+They were not obvious when first written.
+
+This section walks through the process of discovering a coordinate contract for a concrete function. The goal is not the answer. The goal is the method—the questions you ask, the mistakes you catch, the adjustments you make. This is how you find the skeleton when the skeleton is not yet known.
+
+### The Problem: Weighted LayerNorm
+
+Standard LayerNorm computes statistics uniformly over the feature dimension. Every position contributes equally to the mean and variance. Weighted LayerNorm relaxes this: each feature position has a learned weight that scales its contribution to the statistics.
+
+The forward pass:
+
+- Compute a weighted mean: for each sample, sum over features of `x_f * w_f`, divided by the sum of the weights.
+- Compute a weighted variance: sum over features of `w_f * (x_f - mean)^2`, divided by the sum of the weights.
+- Normalize: `(x_f - mean) / sqrt(variance + eps)`.
+- Scale and shift: `result * gamma_f + beta_f`.
+
+The question: what is the coordinate contract for this function?
+
+### First Attempt: Feels Right
+
+You reach for the LayerNorm skeleton. LayerNorm normalizes over `f`. Weighted LayerNorm also normalizes over `f`. The only difference is the weights. You write:
+
+```rust
+fn weighted_layer_norm[f](x: [f32; ..b, f],
+                           w: [f32; f],
+                           gamma: [f32; f],
+                           beta: [f32; f])
+    -> [f32; ..b, f]
+{
+    let w_sum[..b] = sum[f](w[f]);
+    let mean[..b] = sum[f](x[..b, f] * w[f]) / w_sum[..b];
+    let centered[..b, f] = x[..b, f] - mean[..b];
+    let var[..b] = sum[f](w[f] * centered[..b, f] ** 2.0) / w_sum[..b];
+    let y[..b, f] = centered[..b, f] / (var[..b] + 1e-5) ** 0.5;
+    y[..b, f] * gamma[f] + beta[f]
+}
+```
+
+This compiles. The coordinate flow is clean: `f` is consumed in the reductions, reconstructed in the output. `w[f]` broadcasts over `..b` in the expression `x[..b, f] * w[f]`—the coordinate sets are `{..b, f}` and `{f}`, their union is `{..b, f}`, the broadcast is valid. The skeleton matches LayerNorm exactly. You are satisfied.
+
+### Audit: The Assumption You Did Not Notice You Made
+
+Run the five checks from Chapter 3.
+
+**Check 2: Independence.** The expression `sum[f](x[..b, f] * w[f])` multiplies every position in `..b` by the same weight vector `w[f]`. For a given `f`, every batch element gets the same weight. The weight does not depend on `b`. Is this right?
+
+Yes—in standard Weighted LayerNorm, the weights are per-feature, not per-sample. The broadcast claim (`w[f]` over `..b`) is justified. `w` is independent of `..b`.
+
+**Check 3: Domain alignment.** `w[f]` has domain `{f}`. `x[..b, f]` has domain `{..b, f}`. The domains overlap on `f`. The broadcast adds `..b`. The alignment is correct.
+
+The contract passes all five checks. You are done.
+
+Except—you are not. A week later, a colleague asks: "What if I want the weights to vary per group, like GroupNorm?"
+
+You stop. Your `weighted_layer_norm` signature forces `w` to have coordinate set `{f}`. If the weights need to vary by group, you need a different function. But the weighted-statistic skeleton—weight, reduce, normalize—is the same. The only difference is the coordinate set of the weight.
+
+The contract you chose (`w: [f32; f]`) baked in an assumption: weights are per-feature. That assumption was correct for the problem you were solving. But it is not correct for the skeleton. The skeleton should not hardcode which coordinates the weight depends on.
+
+### Second Attempt: Parameterizing the Weight
+
+You step back. What does the weighted normalization skeleton actually need?
+
+- An input tensor with coordinates being normalized.
+- A weight tensor whose coordinate set determines which positions contribute differentially to the statistics.
+- Scale and shift parameters that broadcast over the non-feature dimensions.
+
+The weight's coordinate set is the design degree of freedom. Sometimes it is `{f}`. Sometimes it is `{g, c_in_group}`. Sometimes it is `{..s}`. The skeleton should accept whatever coordinate set the caller provides.
+
+Write the concrete group-weighted version first, as a guide:
+
+```rust
+fn group_weighted_norm[g, c_in_g, ..s](
+    x: [f32; ..b, g, c_in_g, ..s],
+    w: [f32; g, c_in_g],
+    gamma: [f32; g, c_in_g],
+    beta: [f32; g, c_in_g]
+) -> [f32; ..b, g, c_in_g, ..s]
+{
+    let w_sum[..b, g] = sum[c_in_g, ..s](w[g, c_in_g]);
+    let mean[..b, g] = sum[c_in_g, ..s](
+        x[..b, g, c_in_g, ..s] * w[g, c_in_g]
+    ) / w_sum[..b, g];
+    let centered[..b, g, c_in_g, ..s] =
+        x[..b, g, c_in_g, ..s] - mean[..b, g];
+    let var[..b, g] = sum[c_in_g, ..s](
+        w[g, c_in_g] * centered[..b, g, c_in_g, ..s] ** 2.0
+    ) / w_sum[..b, g];
+    let y[..b, g, c_in_g, ..s] =
+        centered[..b, g, c_in_g, ..s] / (var[..b, g] + 1e-5) ** 0.5;
+    y[..b, g, c_in_g, ..s] * gamma[g, c_in_g] + beta[g, c_in_g]
+}
+```
+
+This compiles. The weight `w[g, c_in_g]` broadcasts over `..b` and `..s`. The reduction `sum[c_in_g, ..s]` consumes the same coordinates the weight covers, plus spatial. The contract is consistent.
+
+Now compare this to the first attempt. The difference is the weight's coordinate set: `w[g, c_in_g]` instead of `w[f]`. The skeleton is identical. The coordinate set of the weight is the only degree of freedom.
+
+Here is the general skeleton:
+
+```rust
+fn weighted_norm[stat_coords, ..survivors](
+    x: [f32; ..b, stat_coords, ..survivors],
+    w: [f32; stat_coords],
+    gamma: [f32; stat_coords, ..survivors],
+    beta: [f32; stat_coords, ..survivors]
+) -> [f32; ..b, stat_coords, ..survivors]
+```
+
+`stat_coords` names the coordinate set that the weight lives in and that the reduction consumes. `..survivors` names whatever additional coordinates exist in the input and must survive in the output—the reduction bracket includes them (`sum[stat_coords, ..survivors]`), and the return type reconstructs them. This single signature covers both standard Weighted LayerNorm (where `stat_coords = f`, `..survivors` is empty) and Group-Weighted LayerNorm (where `stat_coords = {g, c_in_g}`, `..survivors = ..s`).
+
+### Convergence
+
+You started with `w[f]`—a specific choice that happened to work for one use case. The audit revealed a baked-in assumption you had not noticed: the weight's coordinate set was hardcoded. The colleague's question exposed it. The second attempt parameterized the assumption, and the skeleton now covers every weighted normalization variant.
+
+This is the design process: write the concrete version, audit the contract with the five checks, discover the assumption you baked in, parameterize it. Each audit question from Chapter 3 is a tool for finding the assumption. Each failure—or each moment of "this works, but only for one case"—is a signal that the contract needs adjustment.
+
+The finished skeletons in this chapter look obvious because someone already did the audit. The audit is the work. The skeleton is the result.
+
+The design loop is: write concrete, audit, find the assumption, parameterize. The implementation follows the contract. The contract follows the coordinate structure.
 
 ---
 

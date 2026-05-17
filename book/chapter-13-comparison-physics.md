@@ -275,6 +275,74 @@ If the magnetic field index moves from 4 to 0, how many lines of code do you nee
 
 The comparison chapters are not an argument that positional notation is bad. They are a demonstration that positional notation is incomplete. The integer records a position. The name records an identity. Both are facts. Only one is in the source code.
 
+---
+
+## Three Chapters, One Verdict
+
+Three chapters, three domains, three escalating stakes. Normalization asked whether the pattern holds. Attention asked what the pattern reveals. Physics asked what the pattern prevents. The answers converge on a single threshold — and the threshold is the same in every domain.
+
+### The One-Bit Threshold
+
+A positional integer carries exactly one piece of information: *which dimension number this is.* Dimension 0, dimension 1, dimension -1. As long as every coordinate is interchangeable with every other — as long as axis 0 is axis 0 regardless of what it represents — that one piece of information is sufficient. A ReLU applied to `dim=-1` is correct whether `dim=-1` means `feature`, `channel`, or `time`. The operation does not care which coordinate it is. It only cares where.
+
+The threshold is crossed when the semantic role of a coordinate exceeds one bit. When `dim=-1` means `feature` in LayerNorm but `channel-group-index` in GroupNorm after a reshape. When the integer `2` means velocity-x in one file and pressure in another. When `seq_len` equals `seq_len` during development, making self-attention and cross-attention indistinguishable. At this threshold, the integer is no longer unambiguous. It still compiles. It still runs. It just no longer means what the programmer thinks it means.
+
+The threshold is objective. It is not a matter of programming discipline or code review diligence. It is an information-theoretic limit: one integer can carry one piece of information. When the coordinate's identity matters independently of its position — when you need to know not just *which axis* but *what that axis represents* — the integer is semantically underpowered. It has been asked to carry a payload it was never designed to hold.
+
+### Normalization: One Name
+
+In normalization, the coordinate name captures *which semantic group is being reduced over.* The positional code for LayerNorm, RMSNorm, InstanceNorm, and GroupNorm is identical except for the `dim` argument — a tuple of integers whose meaning depends on the tensor layout and reshape chain. When the layout changes, the tuple must be updated. When it is not, the normalization silently operates over the wrong axes.
+
+The Einlang versions differ only in the reduction bracket:
+
+```rust
+mean[feature]           // LayerNorm
+mean[feature]           // RMSNorm — same reduction, different body
+mean[..s]               // InstanceNorm
+mean[c_in_group, ..s]   // GroupNorm
+```
+
+`feature` is `feature` whether it sits at position -1 after a reshape or position 2. The name finds it. The integer counts to it. The difference between the four variants is one name in the bracket. The skeleton — reduce, subtract, divide, scale, shift — is identical. A reader can overlay the four functions and see that only the reduction bracket differs. The unity is visible in the code because the notation has a place for both the skeleton and the variation.
+
+### Attention: Two Names
+
+In attention, the coordinate names capture *whether this is self-attention or cross-attention.* The positional code for both is literally identical — the same Python function, the same `matmul`, the same `softmax(dim=-1)`. The distinction between query and key sequences lives in runtime shapes, not in source code. When the shapes happen to match during development, the two attentions are indistinguishable.
+
+The Einlang signatures make the distinction visible:
+
+```rust
+fn attention[seq_q, seq_k, head, d](Q, K, V)   // cross: seq_q ≠ seq_k
+fn attention[seq, head, d](Q, K, V)             // self: same coordinate
+```
+
+`seq_q` and `seq_k` are different names. A reader can see which attentions are self and which are cross without checking whether the tensors happen to have the same length. The names record the architectural decision. The integers record the positions. The positions are the same in both cases.
+
+The difference between self-attention and cross-attention is two names — `seq_q` and `seq_k`. In MHA, they are the same coordinate. In cross-attention, they are different. In GQA and MQA, `head` splits into `head_group` and `head_kv`. Every architectural variant is a different assignment of names to parameters. The names are the architecture.
+
+### Physics: Three Names
+
+In physics, the coordinate names capture *whether i is the x-grid or the y-grid.* A single typo — `u[j, i]` instead of `u[i, j]` — compiles, runs, and produces numbers. The contour plot has the right shape. The time series has the right range. The physics is destroyed, and nothing in the toolchain notices.
+
+In the Navier-Stokes skeleton, `i` is the x-coordinate and `j` is the y-coordinate. The Laplacian has two terms — `u[t-1, i+1, j] - 2*u[t-1, i, j] + u[t-1, i-1, j]` for x-diffusion and `u[t-1, i, j+1] - 2*u[t-1, i, j] + u[t-1, i, j-1]` for y-diffusion. The terms are identical except for which name is offset. If `i` and `j` are swapped, the x-derivative and y-derivative are exchanged. In positional Fortran — `U(I+1, J)` vs `U(I, J+1)` — the swap is a one-character typo that produces valid array accesses. In named coordinates, `u[t-1, j+1, i]` puts a `j+1` offset where `i` is declared, and the mismatch is in the source.
+
+The difference between correct physics and destroyed physics is three names: `t` for time, `i` for x-grid, `j` for y-grid. The names carry the semantic roles that the integers cannot.
+
+### The Verdict
+
+| Domain | What the integer hides | What the name reveals | Failure mode |
+|--------|----------------------|----------------------|--------------|
+| Normalization | Which axes are reduced | The semantic group (spatial, channel, batch) | Silent wrong normalization |
+| Attention | Whether two sequences are same or different | Self vs cross, query vs key | Indistinguishable forward passes |
+| Physics | Which physical dimension | x vs y, temperature vs pressure | Compiles, produces wrong physics |
+
+The table is the verdict. In every domain, the integer records a position. In every domain, the semantic role of the coordinate exceeds what a position can say. In every domain, the failure is silent — the code compiles, the loss descends, the contour plots look right. In every domain, the name catches what the integer cannot express.
+
+The margin of safety is the name. In normalization, one name. In attention, two names. In physics, three names. The number of names grows with the number of semantically distinct coordinates. The integer stays one integer — a position that works until the layout changes, the field order shifts, or the sequence lengths happen to match.
+
+The name in the bracket is not decoration. It is the one bit of information that an integer cannot carry — and when that information matters, the integer costs more than the name ever will.
+
+---
+
 Now the question the book has been circling since Chapter 1: if names are so useful, what can they NOT do? Every tool has a boundary.
 
 ---

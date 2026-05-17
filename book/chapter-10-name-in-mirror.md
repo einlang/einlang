@@ -451,6 +451,26 @@ The lowering pass is the point where names die. After this pass, the IR contains
 
 ---
 
+## Return to the Transformer
+
+You now know what the compiler does with the transformer block. Not what the transformer does — you knew that when you first saw it. What the compiler *does*.
+
+Range inference on the sequence dimension. The compiler sees `seq_q` in `weights[head, seq_q, seq_k]`. It traces the variable to the input tensor's shape. It infers the bound — `seq_q` ranges from `0` to `sequence_length`. No annotation. No execution. The name `seq_q` and the shape of the input tensor together carry enough information. The compiler reads the name, walks the tree, and computes the bound.
+
+Shape analysis on the head split. The compiler sees `d` split into `head` and `d_head`. It records that `d = head * d_head`. It checks that the split is consistent across the query, key, value, and output projections. If the numbers do not align — if the query projection uses 8 heads but the key projection uses 16 — the compiler reports a shape mismatch. Before a single value is computed. Before a single weight is initialized. The names carry the constraint. The compiler enforces it.
+
+Type propagation through the MLP. `f32` at the input. `f32` through the attention projection. `f32` through the first linear layer. `f32` through the GELU activation. `f32` through the second linear. The compiler walks the tree bottom-up and confirms: every tensor in the block is `f32`. Twelve lines of code. Without it, the generated NumPy would silently cast to `float64` and double the memory. The simplest pass. Also the one that would silently corrupt every number if it were wrong.
+
+The constraint solver on the positional encoding. `pos_encoding[seq, d]` is indexed by `seq` and `d`. When the attention reads `pos_encoding[seq_q, d] + x[seq_q, d]`, the compiler checks that `seq_q` stays within the encoding table's bounds. The check is a one-line comparison: `seq_q < max_seq_len`. The solver proves it and moves on. If the sequence length exceeds the encoding table, the error message names both: `seq_q` in range `[0, sequence_length)` cannot exceed `pos_encoding`'s declared range `[0, max_seq_len)`.
+
+The lowering of `sum[seq_k]` to einsum loops. The compiler reads the reduction bracket. It looks up `seq_k` in the layout map. It emits `np.einsum('hqk,hkd->hqd', weights, V)` for the vectorized path — or nested loops if the sequence is ragged. The einsum string is the names, burned into letters. Each letter stands for a coordinate that the type-checker verified, the range-inference bounded, and the shape-analysis confirmed survives. The string is terse. It is not silent. Every character is the last trace of a name that earned its place.
+
+The block that you first saw as a promise — three boxes labeled Attention, MLP, and Add & Norm, with arrows you could follow but not verify — is now something you can compile yourself. Not because you memorized the architecture. Because the compiler's five passes answered the five questions you learned to ask: is it declared, does it survive, what is its range, what is its type, what does it lower to? The names carried the answers. The compiler made them explicit.
+
+The block hasn't changed. The compiler hasn't changed it. A compiler that does not change the program is doing its job. A compiler that *proves* the program is correct is doing something more. The transformer block that Chapter 1 showed as a picture is now a program whose correctness you can check before it runs.
+
+---
+
 Part III asked: can a machine do what you have been doing by hand? Trace a coordinate name from source to integer, checking every contract along the way, never running the program. The answer is a compiler — fifteen lines for the core loop, five check rules pinned to a detective's wall, an S-expression IR that preserves every name, a lowering pass that burns each name into an integer only after it has been verified. You built it.
 
 But a compiler that checks names is an engineering artifact. The question that opened Chapter 1 was not "can we build this?" It was "when the notation has a place for the fact, does the bug survive?" The compiler is the proof that the checking is mechanical. The remaining question is whether the checking matters. Chapters 11 through 13 answer it — by placing Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. The question is not which notation is better. It is what each notation makes visible, and what each notation hides.

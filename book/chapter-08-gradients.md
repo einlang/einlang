@@ -511,6 +511,24 @@ The pullback is not a separate computation from the forward pass. It is the forw
 
 ---
 
+## Return to the Transformer
+
+Eight chapters ago, the transformer block was a teaser. You could point to the attention and say "that sums over the sequence." You could point to the MLP and say "that projects the features." But you could not audit a single bracket. Now return to it and read it with the eyes you have built.
+
+You can audit every broadcast in the attention block. Chapter 4 gave you the three-question self-audit: which coordinate does this broadcast copy over, is independence justified, what will the gradient do? `V[head, seq_k, d]` omits `seq_q` — the value does not depend on which query position is asking. Is that claim correct? Only if the value projections are shared across query positions — which they are, by design. The bracket makes the design visible. `weights[head, seq_q, seq_k]` omits `d` — the attention pattern is the same for every channel. Is that claim correct? Only if the attention is not channel-specific. The bracket makes the question askable. The answers are not trivial. They are the architectural decisions of the transformer, surfaced in the notation.
+
+You can extract its skeleton. Chapter 5 showed that four normalization variants share one structural core — just as masked self-attention, cross-attention, and multi-query attention share the same attention core. The difference between attending to yourself and attending to another sequence is a coordinate name: `seq_q == seq_k` or `seq_q != seq_k`. The code change is a name swap. The skeleton stays the same.
+
+You can verify its causality. Chapter 6 taught you that `t-1` in a bracket tells the compiler that time flows forward. In decoder self-attention, the constraint `seq_k <= seq_q` is a statement about the coordinate domain — not a separate mask tensor you create and multiply. The compiler can check it. The minus sign that organized recurrence organizes causality here as well.
+
+You can handle its head-splitting coordinate arithmetic. Chapter 7 worked through the split of one coordinate into two roles: `d` becomes `head` and `d_head`. The query, key, and value projections each split differently but compatibly. The names record which part is which. If the split is inconsistent across projections, the compiler reports a shape mismatch.
+
+You can derive its backward pass through set subtraction. Chapter 8 gave you the five-step pullback, and the procedure works on attention exactly as it works on matmul. The forward sum over `seq_k` becomes a backward broadcast over `seq_k` for the query gradient. The forward broadcast over `seq_q` on `V` becomes a backward sum over `seq_q` for the value gradient. The Inversion Rule, applied to the attention block. Not a formula you memorized. A consequence of the coordinate sets.
+
+The block hasn't changed. But you can now read every bracket in it, verify every broadcast, extract its structural skeleton, check its causality constraint, handle its coordinate arithmetic, and derive its backward pass. It was a teaser in Chapter 1. It is a test now — and you can pass it.
+
+---
+
 Part II began with a question: when operations compose, does the coordinate story survive? You tested that question against every operation in tensor programming. Functions (Chapter 3): yes, the contract is checked at the call site. Broadcasts (Chapter 4): yes, the three-question audit reveals unwarranted independence claims. Normalization (Chapter 5): yes, four variants share one skeleton, and the coordinate name absorbs all layout changes. Recurrence (Chapter 6): yes, the compiler detects the direction of time from a minus sign. Complex terrain (Chapter 7): yes, the split of one coordinate into two roles is the operation, and the names record it. Differentiation (this chapter): yes, the gradient is coordinate set subtraction, read in reverse — whether the forward pass is a matmul, a convolution, a recurrence, or an RNN.
 
 The five-step pullback is coordinate accounting done by hand. The question that opens Part III: can a machine do it? Chapter 9 builds a compiler frontend that reads names from source, checks them against five rules, and lowers them to integers — all without ever running the program. The answer turns out to be the same question you have been asking since Chapter 2: *which coordinates survive?*
