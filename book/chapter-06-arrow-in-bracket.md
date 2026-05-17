@@ -13,9 +13,11 @@ title: "Chapter 6 · The Arrow in the Bracket"
 
 ---
 
-A coordinate that only appears as itself is a bookshelf. You can pull any book off any shelf in any order. Shelf 3 doesn't depend on shelf 2. The name doesn't matter — call it `i`, `j`, `k`, it's still a bookshelf as long as you never write `i-1` on the right-hand side.
+A coordinate that only appears as itself is a bookshelf. You can pull any book off any shelf in any order. Shelf 3 doesn't depend on shelf 2. The name doesn't matter — call it `i`, `j`, `k`, it's still a bookshelf as long as you never write `i-1` on the right-hand side of a declaration of that same variable.
 
-A coordinate that appears with an offset is a novel. Page 50 can reference what happened on page 49. It cannot reference page 51 — page 51 hasn't been written yet. The name doesn't matter either — if you write `state[i-1]`, then `i` is a novel, whether you called it `i` or `t`. The offset is not a convention. It is a constraint, and violating it produces nonsense.
+A coordinate that appears with an offset on the variable being defined is a candidate for recurrence. If you write `state[i] = f(state[i-1])` — one dimension, one variable — then `i` carries a dependency: step 5 needs step 4, step 4 needs step 3, all the way back to the base case. Page 51 hasn't been written yet. `state[i+1]` on the RHS is an error. The name doesn't matter: call it `i` or `t`. The minus sign is the signal. It is not a convention. It is a constraint, and violating it produces nonsense.
+
+But not every offset in the bracket names a recurrence coordinate. When an offset reads from a step that is fully materialized — `h[t, i] = h[t-1, i+1]` — the `i+1` is a spatial read from the `t-1` bookshelf. At `t-1`, every `i` exists. The `i+1` does not create a new dependency chain along `i`. Only `t` carries the arrow. Only `t` connects one step to the next. The compiler distinguishes which coordinate the offset is measured against. You are about to learn how.
 
 Everything you have done so far assumed all positions exist at once. Now meet the coordinate that appears with a minus sign.
 
@@ -60,6 +62,16 @@ How does the compiler know? It does a mechanical scan. For every read of the dec
 
 Walk through `u[t-1, i] + alpha * (...)` with the declaration `u[t in 0..T, i]`. The compiler finds one read of `u` in the body: `u[t-1, i]`. At position 0, the expression is `t-1`. Is `t-1` exactly the loop variable `t`? No. Recurrence on dim 0. At position 1, the expression is `i`. Is `i` exactly the loop variable `i`? Yes. Not recurrence on dim 1. Result: dim 0 is recurrence, dim 1 is concurrent. The minus sign triggers it. No annotation. No `@recurrence`. The structural fact is in the code. The compiler derives it.
 
+Now walk through the stencil from the opening: `u[t-1, i+1] - 2.0 * u[t-1, i] + u[t-1, i-1]` with the same declaration `u[t in 0..T, i]`. The compiler finds three reads of `u` in the body. All three are at `t-1` on dim 0 — each gives `t-1 ≠ t`, so dim 0 is recurrence. At position 1, the expressions are `i+1`, `i`, `i-1`. Two of the three differ from the loop variable `i`. So by the scan rule, dim 1 also has non-matching expressions. And yet — dim 1 is not a recurrence coordinate. Why?
+
+Because every read is at `t-1`. The step `t-1` is fully materialized — every `i` exists. You can reach left to `i-1`, right to `i+1`. It's a bookshelf. The compiler knows this: if a read of the declared variable is from a *different* recurrence step, then only the offset that creates the cross-step dependency matters. The cross-step offset is `t-1`. The `i±1` offsets are within a completed step. The rule has two tiers:
+
+**Tier 1 — any offset on the declared variable?** For every read of the declared variable, at every coordinate position: is the expression exactly the loop variable? If any read differs, the dimension is *candidate recurrence*. This catches all dependencies, including `i±1`.
+
+**Tier 2 — does the offset cross steps, or stay within one?** If the read is at a different recurrence step (`t-1`), the spatial offsets from that read do not create recurrence. Only the dimension whose offset points across steps (`t-1`) is the *output recurrence dimension*. The spatial offsets on other dims are reads from a bookshelf — the previous step's full slice.
+
+These two tiers separate *which dimensions have offsets* from *which dimension carries the dependency chain.* The first tier is a scan. The second tier is a filter. Together they produce the lowered IR's `recurrence_output_dim` — the one dimension whose history must be stored across steps. All other dimensions are concurrent within each step.
+
 The declaration bracket names *what* is being defined and the domain of the recurrence coordinate. The body says *how*. The separation keeps the declaration side simple and declarative, while the body can use arbitrary index arithmetic:
 
 ```rust
@@ -88,7 +100,7 @@ This has a consequence that coordinates without offsets don't require. Only the 
 
 You now know what the compiler knows. For each fragment below, run the same mechanical scan. Find every read of the declared variable. Check each index expression against the loop variable. Then apply the causality rule: reference index `<` declared index.
 
-Here are four fragments:
+Here are five fragments:
 
 **Fragment A:**
 ```rust
@@ -110,6 +122,11 @@ let v[t in 0..T] = v[t+1] + v[t-1];
 let x[t in 0..T] = f(x[t-1]) + g(x[t]);
 ```
 
+**Fragment E:**
+```rust
+let A[i in 0..M, j in 0..N] = A[i, j-1] + A[i-1, j];
+```
+
 ---
 
 Here is what the compiler decides:
@@ -126,7 +143,9 @@ But notice: `x[t, i-1]` means the computation at position `i` reads position `i-
 
 **Fragment D: REJECTED.** `x[t]` references the same step being defined. `t < t` is false. A value at time `t` cannot depend on itself—that would be a circular definition. The reference index must be strictly less than the declared index. `t < t` is not strict.
 
-Three of four fragments caught by one rule: reference index `<` declared index. The spatial offset in Fragment B doesn't trigger the rule because the offset is on a different variable — `x[i-1]`, not `h[i-1]`. Only offsets on the declared variable create recurrence. The rule is simple. The check is mechanical.
+**Fragment E: passes, with both dims candidate recurrence.** `A[i, j-1]` gives an offset at dim 1 — `j-1 ≠ j`. `A[i-1, j]` gives an offset at dim 0 — `i-1 ≠ i`. Both dims have offsets on the declared variable `A`. Tier 1 marks both. Tier 2 asks: which offset creates the cross-step dependency? `j-1` is satisfied by iteration order within the same `i` step — walk left to right, and `j-1` is already computed. `i-1` requires the previous row — the full `j` slice from the previous `i`. Only `i` is the output recurrence dim. The causality check: `i-1 < i` and `j-1 < j` — both are backward, both pass.
+
+Five fragments, one rule: reference index `<` declared index. The spatial offset in Fragment B doesn't trigger the rule because the offset is on a different variable — `x[i-1]`, not `h[i-1]`. In Fragment E, both dims have offsets on the declared variable — but only one is the recurrence output dim, because only one offset creates a cross-step dependency. Only offsets on the declared variable create recurrence. The rule is simple. The check is mechanical.
 
 ---
 
@@ -244,6 +263,20 @@ In all three scenarios, the declaration is the same: `let u[t in 0..T, i] = f(u[
 The recurrence body records the dependency — the compiler found it by scanning for offsets. The downstream uses record the observation pattern. The compiler connects them. One scan, two purposes: correctness (causality check) and memory (window size). Both from the same minus sign.
 
 The compiler reads the code the way a reader reads a story: forward to understand what each step depends on, backward to determine what must be kept. The same declaration can compile to two arrays or a full trajectory tensor. The difference is not in the declaration. It is in what the code goes on to demand.
+
+---
+
+### From Recurrence Dims to Execution Strategy
+
+The two-tier scan you ran in Fragment E does more than classify dimensions. It picks the execution strategy.
+
+When **every read of the declared variable is at a strictly backward offset on the recurrence dimension** — Tier 2 satisfied — the compiler can vectorize the recurrence into a single pass. It allocates a rolling history buffer along the output recurrence dim, iterates that dim in a loop, and computes all spatial positions at each step in one tensor operation. The heat equation `u[t-1, i]`, `u[t-1, i±1]` uses this path. So do Fibonacci, the optimizer recurrence, and the bidirectional RNN — all reads are at `t-1` (or `t+1` for backward iteration). One recurrence output dim, vectorized spatial.
+
+When **offsets exist on the declared variable but no single dim is strictly backward across all reads** — Tier 2 fails, Tier 1 passes — the compiler falls back to *partition/step* execution. Fragment E is the example. `A[i-1, j]` is backward on dim 0 but `A[i, j-1]` has `i` not backward on dim 0. `A[i, j-1]` is backward on dim 1 but `A[i-1, j]` has `j` not backward on dim 1. Neither dim satisfies "all reads strictly backward." The compiler emits nested loops: iterate `i`, iterate `j`, compute each position one at a time, store the full previous row in a buffer.
+
+The same recurrence detection that checks causality also picks the execution path. Tier 1 alone: partition/step. Tier 2 satisfied: vectorized with rolling window. The compiler doesn't guess. It reads the offsets.
+
+This is the same design choice that appears throughout Einlang: the structural fact is in the code; the compiler derives the engineering consequence. The programmer writes `i-1`. The compiler determines whether that minus sign means "store one row" or "iterate one position at a time." No annotation. The minus sign is the annotation.
 
 ---
 
