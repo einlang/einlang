@@ -32,35 +32,29 @@ If you build things below the level of an API call—a compiler pass, a numerica
 
 **If you only have an afternoon.** Read Chapter 1 (the ghost in the name), Chapter 4 (the broadcast self-audit), Chapter 14 (the edge of the name), and the Epilogue. Everything else is depth.
 
-Part I (Chapters 1–2) introduces naming, permuting, reducing, broadcasting—with the megaphone model that unifies them. Part II (Chapters 3–8) covers coordinate-aware functions, the broadcast self-audit, normalization skeletons, recurrence, complex terrain, and differentiation. Part III (Chapters 9–10) opens the compiler: intermediate representation, five check rules, range inference, shape analysis, constraint solving, and lowering from names to integers. Part IV (Chapters 11–13) puts Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. Chapter 14 marks the boundary—what names can check and what they cannot. The Appendix and Epilogue reflect on what was built and what it means.
+Part I (Chapters 1–2) introduces naming, permuting, reducing, broadcasting—with the megaphone model that unifies them. Part II (Chapters 3–8) covers coordinate-aware functions, the broadcast self-audit, normalization skeletons, recurrence, complex terrain, and differentiation. Part III (Chapters 9–10) opens the compiler: intermediate representation, five check rules, range inference, shape analysis, constraint solving, and lowering from names to integers. Part IV (Chapters 11–14) puts Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation, then marks the boundary—what names can check and what they cannot. The Appendix and Epilogue reflect on what was built and what it means.
 
 Turn the page.
 
 ## Contents
 
-### Part I: Primitives
+### Part I · Primitives
 - [1. The Ghost in the Name](chapter-01-ghost-in-the-name.html)
 - [2. The Megaphone's Promise](chapter-02-megaphone-promise.html)
-
-### Part II: Combinations
+### Part II · Combinations
 - [3. Names as Contracts](chapter-03-names-as-contracts.html)
 - [4. The Broadcast Self-Audit](chapter-04-broadcast-self-audit.html)
 - [5. Blocks and Skeletons](chapter-05-blocks-skeletons.html)
 - [6. The Arrow in the Bracket](chapter-06-arrow-in-bracket.html)
 - [7. Complex Terrain](chapter-07-complex-terrain.html)
 - [8. Names Through Differentiation](chapter-08-gradients.html)
-
-### Part III: Construction
+### Part III · Construction
 - [9. The Shape of Thought](chapter-09-shape-of-thought.html)
 - [10. The Name in the Mirror](chapter-10-name-in-mirror.html)
-
-### Part IV: Comparisons
+### Part IV · Comparisons & Limits
 - [11. Comparison: Normalization](chapter-11-comparison-normalization.html)
 - [12. Comparison: Attention](chapter-12-comparison-attention.html)
 - [13. Comparison: Physics](chapter-13-comparison-physics.html)
-
 - [14. The Edge of the Name](chapter-14-boundary.html)
-
 - [Appendix · The Complete Picture](chapter-15-complete-picture.html)
-
-- [Epilogue](chapter-epilogue.html)
+- [Epilogue · A Friend Named Einlang](chapter-epilogue.html)

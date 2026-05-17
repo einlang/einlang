@@ -18,49 +18,7 @@ runs:
 
     - name: Concatenate chapters
       shell: bash
-      run: |
-        python3 << 'PYEOF'
-        import os
-
-        chapters = [
-            "chapter-01-ghost-in-the-name.md",
-            "chapter-02-megaphone-promise.md",
-            "chapter-03-names-as-contracts.md",
-            "chapter-04-broadcast-self-audit.md",
-            "chapter-05-blocks-skeletons.md",
-            "chapter-06-arrow-in-bracket.md",
-            "chapter-07-complex-terrain.md",
-            "chapter-08-gradients.md",
-            "chapter-09-shape-of-thought.md",
-            "chapter-10-name-in-mirror.md",
-            "chapter-11-comparison-normalization.md",
-            "chapter-12-comparison-attention.md",
-            "chapter-13-comparison-physics.md",
-            "chapter-14-boundary.md",
-            "chapter-15-complete-picture.md",
-            "chapter-epilogue.md",
-        ]
-
-        parts = []
-        for ch in chapters:
-            path = os.path.join("book", ch)
-            if not os.path.exists(path):
-                print(f"WARNING: {path} not found, skipping")
-                continue
-            with open(path) as f:
-                content = f.read()
-            if content.startswith("---"):
-                end = content.find("---", 3)
-                if end != -1:
-                    content = content[end + 3:].lstrip()
-            parts.append(r"\newpage")
-            parts.append(content)
-
-        with open("book/_combined.md", "w") as f:
-            f.write("\n\n".join(parts))
-
-        print(f"Combined {len(chapters)} chapters")
-        PYEOF
+      run: python3 book/generate.py combined
 
     - name: Install librsvg
       shell: bash

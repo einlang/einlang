@@ -205,7 +205,7 @@ In a positional API, these would be `matrix.sum(dim=1)` and `matrix.sum(dim=0)`.
 
 The same pattern scales to matrix multiplication. Here is the full picture:
 
-![A row of A and a column of B converge at a single element of C. The coordinate ledger on the right records survivors and consumed — the same two facts the five-step procedure extracts.](figures/matmul_coords.svg)
+![Matrix multiplication with coordinate labels. The ledger on the right tracks survivors and consumed.](figures/matmul_coords.svg)
 
 A row of A and a column of B share `k`. The sum consumes it. A single element of C remains. The ledger on the right records the transaction: survivors and consumed. Those are the only two facts any reduction ever produces. The diagram is the ledger, drawn instead of tabulated. The five-step procedure is the ledger, written instead of drawn. They are the same check.
 
@@ -220,6 +220,73 @@ let is_symmetric = all[i, j](matrix[i, j] == matrix[j, i]);
 `all[i, j]` is the universal quantifier over two coordinates: for all `i` and `j`, check that `matrix[i, j]` equals `matrix[j, i]`. The coordinates `i` and `j` are the bound variables. Both are consumed. The result is a single boolean.
 
 Quantifiers are reductions. Their identity elements are `true` (for `all`) and `false` (for `any`). They compose with the same coordinate set subtraction, the same broadcasting rules, and the same gradient machinery as `sum` and `max`. The bracket names the quantified variable. The notation mirrors the mathematics. The distance is zero.
+
+Before moving on, try this. `all[i](x[i] > 0)` is true only when every element satisfies the condition. How would you express the same check using only the numeric reductions you already know — `min`, `prod`, `sum`? What about `any[i]` using `max`? Take a minute. Write your answers. Then read on.
+
+---
+
+`all[i](x[i] > 0)` equals `min[i]((x[i] > 0) as i32) == 1`. It also equals `prod[i]((x[i] > 0) as i32) == 1`. And `sum[i]((x[i] > 0) as i32) == len(x)`.
+
+`any[i](x[i] > 0)` equals `max[i]((x[i] > 0) as i32) == 1`. It also equals `sum[i]((x[i] > 0) as i32) > 0`.
+
+Three different numeric paths to the same boolean result. `all` is a minimum in disguise — false if any element is false. `any` is a maximum in disguise — true if any element is true. The quantifier names the variable. The reduction does the work. Same coordinate. Same consumption. Same ledger.
+
+---
+
+## When Names Match: Broadcast or Contract?
+
+You've seen `A[i, j] + bias[j]` — `j` matches on both sides, so `bias` broadcasts along `i`. You've seen `sum[k](A[i, k] * B[k, j])` — `sum[k]` contracts `k`, consuming it.
+
+Now remove the sum:
+
+```rust
+let C = A[i, k] * B[k, j];
+```
+
+What is the output shape? If you come from NumPy einsum, your fingers type `ik,kj->ij` and `k` disappears. But there is no `sum` here. Does `k` contract just because it appears twice?
+
+Before reading on, decide what you think the answer should be.
+
+---
+
+`C` has shape `(i, k, j)`. Three free indices. No contraction.
+
+In einlang, matching coordinate names **broadcast**. Only an explicit reduction — `sum[k]`, `max[k]`, `prod[k]` — **contracts**. The absence of `sum` means no contraction. The presence of `sum` means contraction. There is no middle ground where matching names silently consume.
+
+This is deliberate. In NumPy einsum, the convention `ik,kj->ij` means "repeated indices are summed." Compact. Expressive. Also invisible — you cannot tell from `ik,kj` whether `k` is being broadcast or contracted, because the convention collapses both into the same notation.
+
+In einlang, `A[i, k] * B[k, j]` broadcasts along `k`. `sum[k](A[i, k] * B[k, j])` contracts along `k`. The notation distinguishes the two because the operations are different. Broadcast copies a value across positions that already exist. Contraction eliminates positions and replaces them with a single value. Hiding this difference behind a naming convention costs understanding.
+
+You now know the three operations a coordinate can undergo: it can be left free (survive), consumed by a reduction (contract), or omitted from a term (broadcast). Every coordinate in every expression is in exactly one of these three states. The states are visible in the source. The compiler checks them.
+
+---
+
+## How the Compiler Reads Your Mind
+
+You've been writing `let C = sum[k](A[i, k] * B[k, j])` without specifying the output shape. The compiler infers it. How?
+
+Here are two expressions. They differ only in the order of multiplication:
+
+```rust
+let C = sum[k](A[i, k] * B[k, j]);   // A × B
+let D = sum[k](B[k, j] * A[i, k]);   // B × A
+```
+
+Before reading on: what shapes do `C` and `D` have? Are they the same?
+
+---
+
+`C` is `[i, j]`. `D` is `[j, i]`.
+
+The compiler determines output coordinate order by scanning the expression **left to right, depth first, first occurrence**. In `A[i, k] * B[k, j]`, it encounters `i` first (inside `A[i, k]`), then `j` (inside `B[k, j]`). Output: `C[i, j]`. In `B[k, j] * A[i, k]`, it encounters `j` first. Output: `D[j, i]`.
+
+The order you write the indices is the order they appear in the output. The compiler reads your expression in exactly the order you do — and the output layout follows your reading order.
+
+This is not a coincidence. It means you can control the output layout by controlling the order of terms. If you want `C[j, i]`, write `B[k, j] * A[i, k]`. If you want `C[i, j]`, write `A[i, k] * B[k, j]`. No transposition needed. No `permute` call. The layout follows from the expression structure itself.
+
+Every tensor library has a concept of "output shape inference." NumPy einsum requires you to write `ik,kj->ij` — the `->ij` is mandatory if you want control. PyTorch infers shapes from input dimensions. Both treat output layout as something the library decides for you, or something you specify separately from the computation.
+
+Einlang treats output layout as something that falls out of the computation itself. The compiler reads left to right, first occurrence wins. You read left to right. The same rule. No separate notation. No hidden inference. The reading order *is* the layout.
 
 ---
 
@@ -268,7 +335,7 @@ This is the principle of explicit omission: **if a term is independent of a coor
 
 Now look at a pair of broadcasts side by side:
 
-![Both produce out[i,j]. Identical shape, indistinguishable by shape. The coordinate name is the semantics.](figures/broadcasting.svg)
+![Two broadcasts. Both produce out[i,j]. One omits i, the other omits j.](figures/broadcasting.svg)
 
 On the left, `bias[j]` omits `i` — the value repeats for each row. On the right, `bias[i]` omits `j` — the value repeats for each column. Both produce `out[i, j]`. The output shape is the same. If you saw only the shape, you could not tell which broadcast happened. The coordinate name in the bracket is the only thing that records the difference.
 
@@ -496,5 +563,137 @@ Every broadcast is a claim. Before you move on, ask these three questions of any
 3. **If the dimension order changed, would this broadcast still be correct?**
 
 If you can't answer all three with confidence, the broadcast is an accident of shape alignment, not a defended claim. For now, the questions themselves are the habit.
+
+---
+
+### Comprehensions: The Mirror of Reduction
+
+You now have two operations on coordinate domains. Reduction consumes a coordinate—it walks along `i`, combines every value, and `i` is gone from the result. Broadcasting copies along a coordinate—the value is silent on it, so it gets replicated. Together they form the Inversion Rule: what broadcasts forward is summed backward.
+
+But there is a third operation. And once you see it, you will wonder why it took so long to appear.
+
+A **comprehension** traverses a coordinate without consuming it. It walks along `i`, applies an expression to each position, and produces a new array—one where `i` still exists, but with transformed values:
+
+```rust
+let squared = [data[i] * data[i] | i in 0..len(data)];
+```
+
+The bracket `[...]` on the right is a comprehension. It says: for every `i` in the given range, compute `data[i] * data[i]`, and collect the results into a new array. The coordinate `i` is traversed, not consumed. The result `squared` carries the same coordinate as `data`—same length, same identity. Nothing disappeared. Every position was visited and transformed.
+
+Compare this to a reduction:
+
+```rust
+let total = sum[i](data[i]);           // i is consumed — total has no i
+let squared = [data[i] * data[i]       // i survives — squared has i
+              | i in 0..len(data)];
+```
+
+In the reduction, `sum[i]` points the megaphone at `i` and consumes it. In the comprehension, the megaphone is quiet—`i` is used but not eaten. The traversal leaves the coordinate intact.
+
+Now add a condition:
+
+```rust
+let positives = [data[i] | i in 0..N, data[i] > 0];
+```
+
+This is a filtered comprehension. It traverses `i` and keeps only the positions where the condition holds. The result has the same coordinate name `i`, but its extent may be smaller. The coordinate identity survives; its domain shrinks.
+
+**Three operations on a single coordinate.** When you face a coordinate `i` attached to a tensor, you have exactly three things you can do with it:
+
+| Operation | What it does to the coordinate | Notation |
+|:---|:---|:---|
+| **Reduce** | Consume it — `i` is gone from the result | `sum[i](data[i])` |
+| **Broadcast** | Copy along it — the value is silent on `i` | `bias[j]` in `out[i, j]` |
+| **Comprehend** | Traverse it — `i` survives, values are transformed | `[f(data[i]) | i in 0..N]` |
+
+Reduction and broadcast are inverses—the Inversion Rule already showed you that. Comprehension is the missing sibling, the one that traverses without consuming. Together, the three form a complete language for describing what happens to coordinates in a tensor program.
+
+Why does this matter? Because when you first learn tensor operations, you are taught two stories. Story one: "sum along an axis to get a smaller tensor." Story two: "broadcast a smaller tensor to match a larger one." These are presented as independent features—`sum` for reduction, shape alignment for broadcast. The coordinate that disappears in one and gets copied in the other is the same coordinate, but nothing in the notation connects them.
+
+Then the Inversion Rule connects them, and you see they are a pair. But the pair is incomplete. Where is the operation that walks a coordinate without losing it? Where is the traversal?
+
+It was always there. In Python:
+
+```python
+squared = [data[i] * data[i] for i in range(len(data))]
+```
+
+That is a list comprehension. It traverses `i` and produces a new list with the same number of elements. In NumPy, vectorized operations do this implicitly—`data ** 2` visits every position without consuming the axis. The traversal is buried in the operator. The coordinate story is the same either way: `data` has a coordinate, the operation visits every position along it, and the result has the same coordinate. Nothing was consumed. Nothing was broadcast. The coordinate was *traversed*.
+
+Einlang makes the traversal explicit:
+
+```rust
+let squared = [data[i] * data[i] | i in 0..len(data)];
+```
+
+The comprehension bracket says: "I am walking `i`. I am not consuming it. I am producing a new array with `i` intact." The notation records the traversal the same way `sum[i]` records the consumption and the omitted `[i]` on `bias[j]` records the broadcast.
+
+Here is the symmetry:
+
+```
+                    consume
+    sum[i](data[i]) ───────►  total         (i disappears)
+
+                    traverse
+    [data[i]*2 | i] ───────►  doubled[i]    (i survives)
+
+                    copy
+    bias[j]  +  out[i,j]                    (i absent from bias,
+                                              copied into existence)
+```
+
+Three operations. Three ways the megaphone relates to a coordinate. Consume it. Copy along it. Traverse it. Every tensor program you will ever write is some combination of these three.
+
+The boundary between traversal and reduction is thinner than it looks. Consider computing the L2 norm of every row in a matrix:
+
+```rust
+let norms = [sum[j](A[i, j] * A[i, j]) | i in 0..N];
+```
+
+The comprehension traverses `i`. For each `i`, the inner `sum[j]` reduces over `j`. The result is `norms[i]`—each position contains the squared norm of the corresponding row. Two operations, two coordinates. The comprehension handles `i`—traversal. The sum handles `j`—reduction. The brackets record which is which.
+
+Now the same expression, rearranged:
+
+```rust
+let norms[i] = sum[j](A[i, j] * A[i, j]);
+```
+
+Einlang infers the traversal over `i` from the output declaration `norms[i]`. The comprehension is implicit—the output coordinate `i` tells the compiler: "traverse `i` to produce this array." The explicit form and the implicit form are equivalent. The point is not which syntax you use. The point is that the traversal and the reduction are distinct operations on distinct coordinates. `i` is traversed. `j` is consumed. The brackets record the distinction.
+
+You have been doing this all along. Every `let doubled[i, j] = matrix[i, j] * 2.0` is a traversal over `i` and `j`—two coordinates traversed, zero consumed. The rectangular declaration *is* a comprehension in the common case. The explicit comprehension bracket is for when you need to make the traversal visible—when you are filtering, when you are mixing traversal and reduction in the same expression, or when the traversal range is different from the coordinate's full domain.
+
+---
+
+This is the missing piece. The megaphone model gives you three operations on a coordinate: consume it (reduction), copy along it (broadcast), or traverse it (comprehension). Together they form a complete language for describing what happens to coordinates in a tensor program. You will not need a fourth.
+
+---
+
+## Return to the Transformer
+
+Look at this line again:
+
+```rust
+let attn_out[head, seq_q, d] = sum[seq_k](weights[head, seq_q, seq_k] * V[head, seq_k, d]);
+```
+
+Read each bracket. Find every sum. Find every omission.
+
+The sum over `seq_k` — that is a reduction. `seq_k` appears on the right, in both `weights` and `V`, but it does not appear on the left. It is consumed. Gone after this line.
+
+`weights` carries `head`, `seq_q`, `seq_k`. `V` carries `head`, `seq_k`, `d`. Neither carries `head` on the left of its own brackets — yet `head` appears in the output. That is a broadcast: `head` copies from the input to every cell of the output without being consumed.
+
+`d` appears in `V` and in the output. It does not appear in `weights`. The multiplication broadcasts `weights` over `d`. The bracket records the omission.
+
+`seq_q` appears in `weights` and in the output. It does not appear in `V`. `V` is silent on the query position. The same value tensor answers every query. That silence is a broadcast — and the design claim of attention.
+
+`seq_q` survives. `head` and `d` survive. `seq_k` is consumed.
+
+You couldn't read this line in Chapter 1. Now you can. Not because you memorized terminology — because the brackets speak.
+
+---
+
+Part I gave you three primitives: naming a coordinate, reducing one, and broadcasting over one. The Inversion Rule turned reduction and broadcast into a single dual: what broadcasts forward is summed backward. You can now audit any single tensor operation — a `sum`, a `softmax`, a `bias[j] + A[i,j]` — by reading the coordinate names in its brackets. What you cannot yet do is make the audit survive composition. A softmax is five operations. LayerNorm is ten. When they chain, does the coordinate story survive from the first operation to the last? Part II answers that question. The answer begins with a mechanism that makes the coordinate story checkable across every operation in a function body — and rejects the call site if it doesn't match.
+
+---
 
 The three questions apply to single operations. But real programs compose operations: softmax is a max, a subtract, an exp, a sum, and a divide—five steps, each involving coordinates with distinct roles. Chapter 3 introduces coordinate-aware functions, the mechanism that checks whether these compositions preserve the coordinate story across call sites. The question "does this broadcast make sense?" becomes "does this function's coordinate contract match its body?"

@@ -186,6 +186,18 @@ The rest of this book builds on this distinction. Every chapter from here forwar
 
 ---
 
+## Domain and Extent
+
+A coordinate has three properties. You've seen the first two: a **name** (`batch`, `class`) and a **domain** (the set of values it ranges over). The third is **extent** — the size of the domain, the number you see in a shape tuple.
+
+Extent and domain are different things. `class` and `expert` may both have extent 1024. They are not the same coordinate. A tensor of shape `(1024, 1024)` could be `[class, expert]`, `[expert, class]`, `[batch, class]`, or `[seq, hidden]`. The extents are identical. The domains are different.
+
+Positional notation records only the extent: `(1024, 1024)` tells you the sizes. It does not tell you which is which. Named notation records both: `[class: 1024, expert: 1024]`. The distinction is not academic — it is the root cause of every Square Matrix Test failure in this book. When two extents are equal, shape checkers become domain-blind. Names restore sight.
+
+Keep this distinction in mind through the next section. The Square Matrix Test probes exactly this gap.
+
+---
+
 ## The Square Matrix Test
 
 There is a simple, brutal test for whether a piece of tensor code is robust to coordinate swaps. Set all dimension sizes equal. Swap two axes. Ask: does the program still mean the same thing?
@@ -201,7 +213,7 @@ Both lines produce a `(128, 128)` matrix where every row sums to 1. The cross-en
 
 When `batch_size == num_classes`, the probability matrix is square. Softmax over rows and softmax over columns produce the same numbers when the matrix has symmetric structure. The loss curves overlay. The calibration reports pass. Six weeks later, a deployed model silently normalizes examples against each other instead of classes against each other.
 
-![The Square Matrix Test: when dimensions have equal extent, only the coordinate name records which meaning was intended](figures/softmax_roles.svg)
+![Same input, same shape, softmax over two different coordinates.](figures/softmax_roles.svg)
 
 Horizontal dividers: each row sums to 1. Vertical dividers: each column sums to 1. Same input, same output shape, different numbers. The only difference in the source code is the name inside the bracket. `class` versus `batch`. One word. `dim=-1` does not contain that word. It cannot. The word is in your head—exactly where the shape-meanings gap puts it.
 
@@ -359,6 +371,21 @@ Five wrong calls, and where each one breaks:
 
 Each check is a mechanical verification. You won't perform these steps by hand. But knowing they exist changes how you read a function call. `softmax[class](logits)` is not a request. It is a contract submission. The compiler either stamps it or rejects it. The stamp means the coordinate story is consistent.
 
+### Where Coordinates Come From
+
+Step 3 asks "does `logits` carry `c`?" But the compiler asks an even more fundamental question first: does `c` exist at all? A coordinate that appears from nowhere — referenced but never declared — is not a type error. It is a grounding error. The compiler calls it E0701.
+
+You have now seen every way a coordinate can enter scope. There are exactly four:
+
+1. **Declaration.** `let x[i, j]` — the output coordinates `i` and `j` are grounded by the `let`.
+2. **Reduction.** `sum[k](...)` — the bracket introduces `k` as a bound variable inside the reduction body.
+3. **Parameter type.** `x: [f32; ..left, j, ..right]` — the parameter's shape grounds `..left`, `j`, and `..right` in the function body.
+4. **Coordinate parameter.** `fn softmax[j]` — the bracket after the function name grounds `j` as the coordinate the function operates on.
+
+If a coordinate can't be traced to one of these four, the compiler stops. Not "maybe it's a free variable." Not "let's infer it from context." Error E0701, compile time, with the coordinate's name in the message.
+
+The six steps check that coordinates are used *consistently*. The grounding check verifies that they *exist*. Together they guarantee that every coordinate you read has been declared somewhere — and that every declaration is checked against every use.
+
 ---
 
-Coordinate-aware functions compose. Chapter 5 extracts their shared skeleton—the pattern that makes LayerNorm, RMSNorm, GroupNorm, and InstanceNorm the same function with different coordinates. But first, Chapter 4 asks a more immediate question: when you write a broadcast, you are making a claim. What is the claim? And who checks it? The answer turns every broadcast into a self-audit.
+Coordinate-aware functions compose. But before seeing the pattern they form together, there is a more immediate question: when you write a broadcast, you are making a claim about coordinate independence. What is the claim? And who checks it? Chapter 4 turns every broadcast into a self-audit — three questions and a set subtraction that reveal whether the independence is justified.

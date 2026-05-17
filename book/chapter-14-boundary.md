@@ -73,9 +73,7 @@ A programmer writes:
 let result[..b, feature] = softmax[batch](logits[..b, feature]);
 ```
 
-`batch` exists on `logits`. The reduction consumes it. The gradient sums over it. Every check passes. The program compiles. It produces a valid probability distribution — over the batch dimension, not the feature dimension. The name was wrong. The check passed. The program is incorrect.
-
-But `batch` is sitting there in the bracket. When the next programmer reads `softmax[batch](logits)`, they see it immediately: "this normalizes over batch, not feature." The wrong name is visible. They can ask the question: "should this be `feature`?"
+`batch` exists on `logits`. The reduction consumes it. The gradient sums over it. Every check passes. The program compiles. It produces a valid probability distribution — over the batch dimension, not the feature dimension. The name was wrong. The check passed. The program is incorrect. But the wrong name sits in the bracket, visible to the next programmer who reads `softmax[batch](logits)` and immediately asks: "should this be `feature`?"
 
 Now the positional version:
 
@@ -121,7 +119,7 @@ Step back from the three categories and they resolve into a single taxonomy of w
 
 **The silence of the world.** You are simulating the Navier-Stokes equations. The code compiles. The shapes match. The simulation runs. It produces negative absolute temperatures. The coordinate names are correct — `u`, `v`, `p` are different tensors, `i` is x, `j` is y. Every check passes. And the physics is wrong because the discretization is unstable at the chosen Reynolds number. No programming language catches this. The boundary is not between named and positional notation. It is between computation and reality. Names record identities. They do not replace physics.
 
-The first silence is the one the book has spent fourteen chapters arguing against — the silence where the notation refuses to record a fact the programmer knows. The second silence is honest: the compiler checks what it can, guards what it can't, and names both. The third silence is the edge of the map. Here there be dragons, and no notation will chart them for you.
+The first silence is the one the book has spent fourteen chapters arguing against — the silence where the notation refuses to record a fact the programmer knows. The second silence is honest: the compiler checks what it can, guards what it can't, and names both. The third silence is the edge of the map. Here there be dragons — and no notation, named or positional, will chart them for you. But the map that marks the boundary honestly is better than the map that pretends the boundary does not exist.
 
 ---
 

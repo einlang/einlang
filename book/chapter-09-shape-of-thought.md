@@ -387,12 +387,58 @@ If you implement these fifteen lines and add the three additions — type infere
 
 ---
 
+### The Checker in Action: A Chained Reduction
+
+The fifteen-line checker above is abstract. Here it is on a concrete expression — a nested reduction drawn from the Einlang standard library of examples:
+
+```rust
+let W[i in 0..4, k in 0..2] = i as f32 + k as f32;
+let X[k in 0..2, h in 0..3] = k as f32 * 10.0 + h as f32;
+let nested = max[h](sum[k](W[i, k] * X[k, h]));
+```
+
+`W` has coordinate set `{i, k}`. `X` has `{k, h}`. The expression `max[h](sum[k](W[i, k] * X[k, h]))` has two reductions, one inside the other. Watch the 15-line checker walk it.
+
+**Step into the inner reduction:** `sum[k](W[i, k] * X[k, h])`.
+
+The body is the product `W[i, k] * X[k, h]`. The checker reaches the `*` node — it's an `Add`-like binary operation (the checker treats `*` the same as `+`: compare sets, record broadcasts, return union). Left operand `W[i, k]` has set `{i, k}`. Right operand `X[k, h]` has set `{k, h}`. The checker compares: `k` is in both — shared, contracting. `i` is only on the left — broadcast recorded. `h` is only on the right — broadcast recorded. Union: `{i, k, h}`.
+
+The `Reduction` case fires for `sum[k]`. The body returned `{i, k, h}`. The reduction consumes `k`: `{i, k, h} - {k} = {i, h}`. This is the coordinate set of the inner sum.
+
+**Step into the outer reduction:** `max[h](inner_result)`.
+
+The inner result carries `{i, h}`. The `Reduction` case fires again. The reduction consumes `h`: `{i, h} - {h} = {i}`. This is the coordinate set of the full expression.
+
+**Verification.** The declared output `nested` has coordinate `i`. The `LetDecl` case compares: does the body's coordinate set `{i}` match the declared output? `{i} = {i}`. Yes. Four cases — Index, BinaryOp, Reduction, LetDecl — processed the entire nested expression. Three lines of code each. The program passes every check.
+
+Walk the trace backward. `k` was consumed by the inner sum. `h` was consumed by the outer max. `i` is the sole survivor — it was present on `W` from the start, passed through both reductions untouched, and emerged as the output coordinate. The expression computes: for each `i`, take the maximum over `h` of the sum over `k` of `W[i, k] * X[k, h]`. The coordinate names recorded exactly what happened. The checker verified it mechanically. The names were both the specification and the proof.
+
+Now ask: what would a positional checker verify? `W` has shape `(4, 2)`. `X` has shape `(2, 3)`. `W @ X` produces `(4, 3)`. `np.max(..., axis=1)` produces `(4,)`. The shapes match. The positional checker is silent. It has nothing to verify beyond shape consistency.
+
+But the shapes are consistent *because* the coordinate names are consistent. `k` appears in both `W` and `X` — that's why `axis=1` of `(4, 2)` and `axis=0` of `(2, 3)` can contract. `h` is the coordinate to maximize over — that's why `axis=1` of `(4, 3)` is the right axis. The positional code is correct because the named structure is correct. The names were the proof. The positions were the consequence of the proof. But only the proof survives audit.
+
+**A second pattern: chained independent reductions.** Consider a different expression from the same example file — two reductions over the same coordinate name, on different tensors, combined element-wise:
+
+```rust
+let A[k in 0..2, n in 0..3] = (10 * k + n) as f32;
+let B[n in 0..3, j in 0..4] = (n * 100 + j) as f32;
+let chained = argmax[n](A[k, n]) as f32 * max[n](B[n, j]);
+```
+
+Walk the `*` node. Left: `argmax[n](A[k, n])` — body returns `{k, n}`, reduction subtracts `n`, result `{k}`. Right: `max[n](B[n, j])` — body returns `{n, j}`, reduction subtracts `n`, result `{j}`. BinaryOp merge: `{k} ∪ {j} = {k, j}`. Broadcast recorded for both directions — `k` absent from right, `j` absent from left.
+
+The same coordinate `n` is consumed by two different reductions on two different tensors. The checker verifies that `n` exists on both `A` and `B`. It records that the argmax result broadcasts over `j` and the max result broadcasts over `k`. The element-wise multiplication of a `(2,)` tensor and a `(4,)` tensor produces a `(2, 4)` tensor. The broadcast relationship is explicit — computed by set subtraction, not inferred from shapes.
+
+In a positional framework: `argmax(A, axis=1)` produces `(2,)`. `max(B, axis=0)` produces `(4,)`. Multiply them and NumPy broadcasts automatically. But nothing in the positional code records *why* the broadcast works — that `n` names the same domain in both tensors, that the domain sizes match, that the multiplication is semantically valid. The shapes happen to broadcast. The names guarantee that they *should*.
+
+The fifteen-line checker traces both patterns — nested reductions and chained independent reductions — with the same four cases. Index introduces coordinates. Reduction subtracts. BinaryOp merges with broadcast recording. LetDecl verifies the output. The structure is identical. The complexity of "nested vs. chained" is not in the checker. It is in the expression. The checker doesn't care whether reductions are nested or chained — it subtracts one coordinate set at a time, in tree order, and the result falls out.
+
+---
+
 You wrote `class`. Five characters. They survived parsing, analysis, lowering—each stage asking a question that a number could not. At the end, they became `axis=1` and were burned. But the burn was correct because the name was verified.
 
 The positional alternative is `dim=-1`: three keystrokes that enable zero checks. The ratio is the distance between correct-by-construction and correct-by-coincidence.
 
 Consume—that word has appeared in every chapter since Chapter 2. A reduction consumes a coordinate. A broadcast consumes silence. A gradient consumes the broadcast set. And now the compiler consumes the name itself. `class` goes in. `axis=1` comes out. A good abstraction is good firewood. Its beauty is not in its surface—but in the light the flame casts when it burns.
 
-Before we test names against real code, the checker needs one more pass: range inference, shape analysis, and lowering — the subject of Chapter 10.
-
-The compiler proved that names can be checked mechanically. But do they matter in practice? Chapters 11 through 13 put Einlang side by side with PyTorch and NumPy on real code: LayerNorm, multi-head attention, Flash Attention, and physical simulation. No arguments. Just code, in two notations, side by side. The question is not "which is better." It is what each notation makes visible—and what each notation hides.
+The checker has one more pass to learn: range inference, shape analysis, and lowering — the subject of Chapter 10. After that, Chapters 11 through 13 put the names to the real test.

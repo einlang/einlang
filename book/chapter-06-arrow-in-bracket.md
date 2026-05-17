@@ -13,17 +13,29 @@ title: "Chapter 6 · The Arrow in the Bracket"
 
 ---
 
-A coordinate that only appears as itself is a bookshelf. You can pull any book off any shelf in any order. Shelf 3 doesn't depend on shelf 2. The name doesn't matter — call it `i`, `j`, `k`, it's still a bookshelf as long as you never write `i-1` on the right-hand side of a declaration of that same variable.
+A coordinate you never see with an offset is a bookshelf. Pull any book off any shelf in any order — shelf 3 doesn't wait for shelf 2.
 
-A coordinate that appears with an offset on the variable being defined is a candidate for recurrence. If you write `state[i] = f(state[i-1])` — one dimension, one variable — then `i` carries a dependency: step 5 needs step 4, step 4 needs step 3, all the way back to the base case. Page 51 hasn't been written yet. `state[i+1]` on the RHS is an error. The name doesn't matter: call it `i` or `t`. The minus sign is the signal. It is not a convention. It is a constraint, and violating it produces nonsense.
+Now look at two programs that break that rule:
 
-But not every offset in the bracket names a recurrence coordinate. When an offset reads from a step that is fully materialized — `h[t, i] = h[t-1, i+1]` — the `i+1` is a spatial read from the `t-1` bookshelf. At `t-1`, every `i` exists. The `i+1` does not create a new dependency chain along `i`. Only `t` carries the arrow. Only `t` connects one step to the next. The compiler distinguishes which coordinate the offset is measured against. You are about to learn how.
+```rust
+DP[i,j] = min( DP[i-1,j],  DP[i,j-1],  DP[i-1,j-1] )
+```
 
-Everything you have done so far assumed all positions exist at once. Now meet the coordinate that appears with a minus sign.
+```rust
+h[t,i]  =   f( h[t-1,i-1], h[t-1,i],  h[t-1,i+1] )
+```
 
-![Left: DP[i,j] reads DP[i-1,j], DP[i,j-1] — i-1 creates recurrence. Right: h[t,i] reads h[t-1,i±1] — t-1 creates recurrence, i±1 are spatial reads from the t-1 bookshelf.](figures/spatial_vs_temporal.svg)
+Both have minus signs. Both read from earlier positions. But not every minus sign names a recurrence coordinate.
 
-On the left, `DP[i,j]` reads `DP[i-1,j]` and `DP[i,j-1]`. Both have offsets on `DP`, but only `i` is a recurrence coord — `j-1` is satisfied by iteration order within the same `i` step. On the right, `h[t,i]` reads `h[t-1,i-1]`, `h[t-1,i]`, `h[t-1,i+1]`. All three are from `t-1` — only `t` is a recurrence coord. At `t-1`, the full `i` slice is available. Every `i` is a bookshelf, readable in any order. `t+1` does not exist. The compiler checks which offset creates a cross-step dependency. The minus sign on the declared variable, across the recurrence dimension — that is what the compiler reads.
+![Left: DP[i,j] with offsets on both i and j. Right: h[t,i] with offset only on t.](figures/spatial_vs_temporal.svg)
+
+Look at the figure. Before reading on, answer this: on the left, which coordinates carry the dependency chain? On the right, which coordinate carries the arrow, and which are just spatial reads from a slice that already exists?
+
+---
+
+You saw it. On the left, both `i-1` and `j-1` appear on `DP` — both `i` and `j` are recurrence coords. The dependency flows in two directions. On the right, only `t-1` appears on `h`. The `i-1` and `i+1` read from `h` at `t-1` — where every `i` is already computed. `t` is recurrence; `i` is a bookshelf.
+
+The compiler reads the minus sign on the declared variable. If the offset is measured against a coordinate of the variable being defined — `DP[i-1,j]` on `DP[i,j]` — that coordinate carries the dependency. If the offset is measured against a coordinate of a fully-materialized slice — `h[t-1,i+1]` on `h[t,i]` — it's a spatial read. The distinction is not the name. It is which coordinate the minus sign moves.
 
 ---
 
@@ -268,15 +280,21 @@ The compiler reads the code the way a reader reads a story: forward to understan
 
 ### From Recurrence Dims to Execution Strategy
 
-The two-tier scan you ran in Fragment E does more than classify dimensions. It picks the execution strategy.
+The two-tier scan you ran in Fragment E does more than classify dimensions. It picks the execution strategy. But before reading the answer, ask yourself the question the compiler faces:
 
-When **every read of the declared variable is at a strictly backward offset on the recurrence dimension** — Tier 2 satisfied — the compiler can vectorize the recurrence into a single pass. It allocates a rolling history buffer along the output recurrence dim, iterates that dim in a loop, and computes all spatial positions at each step in one tensor operation. The heat equation `u[t-1, i]`, `u[t-1, i±1]` uses this path. So do Fibonacci, the optimizer recurrence, and the bidirectional RNN — all reads are at `t-1` (or `t+1` for backward iteration). One recurrence output dim, vectorized spatial.
+Fragment E has two recurrence dims — `i` and `j`. Neither alone satisfies Tier 2. The heat equation has one recurrence dim (`t`), and it does satisfy Tier 2. Should these two cases compile to the same loop structure? Or different ones?
 
-When **offsets exist on the declared variable but no single dim is strictly backward across all reads** — Tier 2 fails, Tier 1 passes — the compiler falls back to *partition/step* execution. Fragment E is the example. `A[i-1, j]` is backward on dim 0 but `A[i, j-1]` has `i` not backward on dim 0. `A[i, j-1]` is backward on dim 1 but `A[i-1, j]` has `j` not backward on dim 1. Neither dim satisfies "all reads strictly backward." The compiler emits nested loops: iterate `i`, iterate `j`, compute each position one at a time, store the full previous row in a buffer.
+Take a minute. What would *you* emit?
 
-The same recurrence detection that checks causality also picks the execution path. Tier 1 alone: partition/step. Tier 2 satisfied: vectorized with rolling window. The compiler doesn't guess. It reads the offsets.
+---
 
-This is the same design choice that appears throughout Einlang: the structural fact is in the code; the compiler derives the engineering consequence. The programmer writes `i-1`. The compiler determines whether that minus sign means "store one row" or "iterate one position at a time." No annotation. The minus sign is the annotation.
+The heat equation (`u[t-1, i]`, `u[t-1, i±1]`) reads only `t-1` on the declared variable. Tier 2 is satisfied on `t`. The compiler picks `t` as the **recurrence output dim** — step `t` forward one at a time, compute all `i` positions in parallel at each step. It allocates a rolling history buffer (two rows for lookback, plus tail steps for downstream reads), iterates the `t` loop, and runs the spatial computation as a single tensor operation per step. Fibonacci, the optimizer recurrence, and the bidirectional RNN all use this path. One recurrence output dim, vectorized spatial.
+
+Fragment E (`A[i,j] = A[i-1, j] + A[i, j-1]`) has no dim that satisfies Tier 2. `A[i-1, j]` is backward on dim 0, but `A[i, j-1]` is not — on dim 0, `i` appears without offset. Dim 1 has the symmetric problem: `j-1` is backward, but `A[i-1, j]` uses `j` without offset. Neither dim earns the strict-backward guarantee. The compiler falls back to **partition/step**: nested loops over `i` and `j`, compute one position at a time, buffer the full previous row.
+
+The same recurrence detection that checks causality also picks the execution path. Tier 1 alone → partition/step. Tier 2 satisfied → vectorized with rolling window. The compiler doesn't guess. It reads the offsets.
+
+The programmer writes `i-1`. The compiler determines whether that minus sign means "store one row" or "iterate one position at a time." No annotation. The minus sign is the annotation.
 
 ---
 
@@ -344,7 +362,44 @@ A coordinate with an offset carries a direction constraint. The constraint is ch
 
 ---
 
+## Return to the Recurrence: Kalman Filter
+
+You've seen recurrences over scalar fields (the heat equation), over parameters (the optimizer), and over noisy samples (diffusion). Here is a recurrence over matrix-valued state — a Kalman filter tracking position and velocity from noisy measurements:
+
+```rust
+let dt = 0.1;
+let F = [[1.0, dt], [0.0, 1.0]];       // state transition
+let H = [1.0, 0.0];                     // observation matrix
+let Q = [[0.01, 0.0], [0.0, 0.1]];      // process noise
+let R = 1.0;                             // measurement noise
+
+// State: x[t, i] where i in 0..2 (position, velocity)
+// Covariance: P[t, i, j] where i, j in 0..2
+let x[0, i in 0..2] = [0.0, 1.0][i];
+let P[0, i in 0..2, j in 0..2] = [[1.0, 0.0], [0.0, 1.0]][i, j];
+
+// Predict
+let x_pred[t in 1..T, i in 0..2] =
+    F[i, 0] * x[t-1, 0] + F[i, 1] * x[t-1, 1];
+let P_pred[t in 1..T, i in 0..2, j in 0..2] =
+    sum[k in 0..2](F[i, k] * sum[l in 0..2](P[t-1, k, l] * F[j, l])) + Q[i, j];
+
+// Update
+let y[t in 1..T] = z[t-1] - (H[0] * x_pred[t, 0] + H[1] * x_pred[t, 1]);
+let S[t in 1..T] = H[0] * P_pred[t, 0, 0] * H[0] + R;
+let K[t in 1..T, i in 0..2] = (P_pred[t, i, 0] * H[0]) / S[t];
+let x[t in 1..T, i in 0..2] = x_pred[t, i] + K[t, i] * y[t];
+```
+
+Before reading on, answer two questions. First: how many times does `t-1` appear in this code, and on which variables? Second: `i` ranges over the state (position, velocity) and `j` ranges over the same domain in the covariance. Are `i` and `j` recurrence coords or bookshelves? How do you know?
+
 ---
+
+`t-1` appears four times — on `x`, twice on `P`, and on `P_pred`. Four backward references. All at the same time step. The dependency chain flows through a 2×2 covariance matrix, not a scalar. Same mechanism as the heat equation. Same check. Only `t` carries the arrow.
+
+`i` and `j` are bookshelves. Every position at `t-1` is materialized — you can read `i=0` or `i=1`, `j=0` or `j=1`, in any order. The minus sign on `t-1` is the only signal that matters. Matrix-valued state doesn't change the rule.
+
+In PyTorch, the shapes are `(T, 2)` and `(T, 2, 2)`. Position 0 is probably time. But "probably" is not a check. Here, `t-1` is the check.
 
 ## The Gradient of a Recurrence
 

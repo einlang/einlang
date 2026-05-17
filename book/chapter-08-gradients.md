@@ -11,6 +11,8 @@ title: "Chapter 8 · Names Through Differentiation"
 
 ---
 
+The last chapter ended with index arithmetic — `oh + kh` in the forward pass became `ih - kh` in the backward pass. That inversion was not a coincidence. It was the Inversion Rule, applied to coordinates that carry arithmetic.
+
 You've been computing gradients all week. `loss.backward()` handles them. You don't think about them. Then you write a custom backward pass — a `torch.autograd.Function` or a manual gradient check — and suddenly you're staring at a sum over the wrong axis, wondering which coordinate you missed.
 
 The autograd engine computes gradients by tracing the forward pass and inverting each operation. When you write the backward pass by hand, you are the engine. And the engine's hardest question is: *over which coordinates do I sum?*
@@ -197,6 +199,28 @@ The `@fn` declaration shares the function's name and parameter list. Inside the 
 
 The coordinate parameter `j` appears in both the primal function and its derivative rule. The tangent computation follows the same coordinate contract as the primal.
 
+Now the case where `@fn` is not an optimization but a necessity. `argmax` is not differentiable — its true derivative is zero almost everywhere. The autodiff pass has no branch for `ReductionOp.ARGMAX`. If you want a gradient through a selection, you need a Straight-Through Estimator:
+
+```rust
+fn ste_top1[j](p: [f32; ..left, j, ..right]) -> [i32; ..left, ..right] {
+    argmax[j](p[..left, j, ..right])
+}
+
+@fn ste_top1[j](p: [f32; ..left, j, ..right]) {
+    soft_surrogate_tangent[j](p, @p)
+}
+```
+
+Before reading on, answer this: what connects the forward pass to the backward pass? Which name appears in both, and what does it guarantee?
+
+---
+
+The coordinate `j`. It appears in `argmax[j]` (hard selection along `j`) and in `soft_surrogate_tangent[j]` (soft surrogate along `j`). The compiler verifies the coordinate match — the tangent rule must consume the same coordinate the primal consumes. Forward and backward are locked to the same axis by name.
+
+PyTorch can do this — `torch.autograd.Function` with custom `forward`/`backward`. But `dim` is an integer. If the upstream tensor changes layout, `dim=1` silently points to the wrong axis. The STE still runs. The gradient still flows. It just flows to the wrong coordinate. The integer doesn't know.
+
+Here, `j` is a name. The coordinate contract extends from the forward pass into the tangent rule. Same name, checked in both directions.
+
 ---
 
 ## Where Clauses in the Backward Pass
@@ -283,6 +307,161 @@ Coordinate set subtraction tells you *which* coordinates get summed. The local c
 
 ---
 
+## The Recurrence Gradient: Time as a Path Coordinate
+
+Every gradient so far summed over spatial coordinates — `j` in matmul, `b` in bias, `oh, ow` in convolution. Recurrence introduces a new question: what happens when the forward pass steps through time?
+
+Consider the simplest recurrence — a scalar accumulator:
+
+```rust
+let h[0] = x;
+let h[t in 1..T] = h[t-1] + 1.0;
+```
+
+Before reading the answer, derive the gradient yourself. Forward: `h[0] = x`, `h[1] = h[0] + 1`, `h[2] = h[1] + 1`, `h[3] = h[2] + 1`. Given `dh[t]` (the gradient of the loss with respect to each `h[t]`), what is `dh[0]`? What is `dx`?
+
+Trace the dependence. `h[0]` contributes to `h[1]`. `h[1]` contributes to `h[2]`. `h[2]` contributes to `h[3]`. The gradient signal must flow backward along every link in this chain.
+
+Take a minute. Draw the dependence graph. Then read on.
+
+---
+
+`h[3]` depends on `h[2]`. By the chain rule, `dh[2]` receives `dh[3] * 1` (the local derivative of `h[t-1] + 1` with respect to `h[t-1]` is 1). But `h[2]` may also receive gradient directly if the loss reads `h[2]`. So `dh[2] = dh[2]_direct + dh[3] * 1`.
+
+`h[2]` contributes to `h[3]`. `h[1]` contributes to `h[2]`. All the way back to `h[0]`. The gradient at step `t` receives contributions from two sources: the direct loss signal at step `t`, and the backpropagated signal from step `t+1`. The second source chains backward through every subsequent time step.
+
+Unrolled for `T=4`:
+
+```
+dh[3] = dh[3]_direct
+dh[2] = dh[2]_direct + dh[3]
+dh[1] = dh[1]_direct + dh[2]
+dh[0] = dh[0]_direct + dh[1]
+dx    = dh[0]
+```
+
+Now a recurrence with a parameter — the kind that appears in every optimizer and RNN:
+
+```rust
+let h[0] = x;
+let h[t in 1..T] = h[t-1] * W + b;
+```
+
+Given `dh[t]` for all `t`, find `dW`. Apply the five-step pullback.
+
+**Step 1: Hold one cell** of `W`. `W` is a scalar (no coordinates). The held cell is `W`.
+
+**Step 2: List every output cell that reads it.** The output has `{t}`. The parameter `W` appears at every time step. `W` is read by every `h[t]` for `t in 1..T` — the recurrence body multiplies `h[t-1]` by `W` at each step.
+
+**Step 3: Attach the incoming gradient.** At step `t`, the contribution through `W` to `h[t]` is `dh[t] * h[t-1]` (local derivative of `h[t-1] * W` with respect to `W` is `h[t-1]`).
+
+**Step 4: Multiply by the local derivative.** `h[t-1]` at each step.
+
+**Step 5: Sum over the path coordinates.** The output has `{t}`. The operand `W` has `{}` (scalar). Path coordinate: `{t}`. Sum over `t`.
+
+```rust
+let dW = sum[t in 1..T](dh[t] * h[t-1]);
+```
+
+The coordinate set subtraction works exactly as before. `t` is the path coordinate — it appears in the output `h[t]` but not in the parameter `W`. Sum over `t`. The recurrence unrolling is the mechanism that makes the sum possible; the coordinate accounting tells you *what* to sum over.
+
+The same pattern applies to `db`:
+
+```rust
+let db = sum[t in 1..T](dh[t] * 1.0);
+```
+
+And to `dx` (the gradient of the initial state). `x` has no coordinates where `h` has `{t}`. The path coordinate is `{t}`. But `x` only appears at `h[0]` — not at every `t`. The sum over `t` collapses to a single term: `dh[0]`, which incorporates the backpropagated signal from all future steps through the chain rule.
+
+Now the general form. Forward:
+
+```rust
+let h[t in 0..T, i] = initial[i];
+let h[t in 1..T, i] = f(h[t-1, i], W, i);
+```
+
+The parameter `W` omits `t`. The gradient sums over `t`:
+
+```rust
+let dW = sum[t in 1..T, i](dh[t, i] * ∂f/∂W);
+```
+
+The recurrence dimension `t` becomes a path coordinate — summed over in the gradient, exactly like `j` in matmul or `b` in bias. The unrolling is the mechanism. The coordinate set subtraction picks the summation axes. No new rules. No special BPTT formula to memorize. `t` is just another coordinate that the output has and the parameter doesn't.
+
+**The recurrence backward pass is coordinate set subtraction where one of the coordinates happens to carry a dependence chain.** The chain rule unrolls the dependence. The coordinate sets determine the summation. Two mechanisms. One derivation.
+
+This is why the compiler's recurrence analysis from Chapter 6 matters for differentiation. When the compiler detects `history_lookback_steps = 1` and `downstream_tail_steps = 1`, it allocates a rolling buffer of size 2. The same analysis tells the backward pass how many steps to unroll and which coordinates must be summed. The structural fact (`t-1` in the forward pass) determines both the memory strategy AND the gradient summation. One minus sign. Two compiler passes. Same coordinate name.
+
+---
+
+### Be the Compiler: Derive the RNN Gradient
+
+An RNN cell with a hidden state and an output projection:
+
+```rust
+let h[t in 0..T, hidden] = initial[hidden];
+let h[t in 1..T, hidden] = tanh(
+    h[t-1, hidden] * W_h[hidden, hidden] + x[t, in] * W_x[in, hidden] + b[hidden]
+);
+let y[t, out] = h[t, hidden] * W_y[hidden, out];
+```
+
+Three parameter gradients to derive: `dW_h`, `dW_x`, `dW_y`, `db`. For each one, ask: what coordinate does the parameter omit that the output has? That coordinate is the path coordinate — sum over it.
+
+Before reading the answer, write each gradient. Use the five steps. The coordinate sets tell you what to sum. The forward expression tells you what to multiply.
+
+---
+
+The pattern from recurrent gradients is the same pattern from every pullback: hold one cell, trace its contribution to every output cell, sum over the path coordinates. The recurrence adds a dependence chain through time. The coordinate accounting does not change. `t` is a coordinate. The output has it. The parameter doesn't. Sum over `t`.
+
+The pullback procedure was always coordinate set subtraction. Recurrence proved it survives the hardest test.
+
+---
+
+## Fancy Indexing: Where the Gradient Scatters
+
+Chapter 7 distinguished pairwise indexing from outer-product indexing by coordinate name: `k` in both positions means pairwise; `i` and `j` different means outer-product. The gradient behavior differs in exactly the way the names predict.
+
+**Pairwise indexing.** Forward:
+
+```rust
+let gathered[k] = matrix[idx[k], col_idx[k]];
+```
+
+The output has `{k}`. The operand `matrix` has `{i, j}`. Path coordinate: `{k}`. The gradient must sum over `k` and restore the contribution to the `{i, j}` shape of `matrix`. But each `k` contributes to exactly one `(i, j)` position — `(idx[k], col_idx[k])`. The sum over `k` is a **scatter-add**: accumulate `d_gathered[k]` into `d_matrix[idx[k], col_idx[k]]` for each `k`.
+
+No dense sum. No broadcast. A sparse scatter, indexed by the same index arrays as the forward pass, accumulating at the gathered positions. The coordinate name `k` tells you the path coordinate. The index arrays tell you where each `k` maps.
+
+**Outer-product indexing.** Forward:
+
+```rust
+let outer[i, j] = matrix[idx[i], col_idx[j]];
+```
+
+The output has `{i, j}`. The operand `matrix` has the same `{i, j}` in its index pattern (via `idx` and `col_idx`). No coordinate to sum — the gradient flows directly: `d_matrix[idx[i], col_idx[j]] += d_outer[i, j]`.
+
+But here is the difference from pairwise: if `idx[i] = 3` and `col_idx[j] = 3` for multiple `(i, j)` pairs, the gradient at `matrix[3, 3]` accumulates contributions from every such pair. The outer-product scatter can have collisions. The pairwise scatter cannot — each `k` maps to a distinct `(idx[k], col_idx[k])` by construction.
+
+The coordinate names distinguish the two indexing modes. The same names determine the gradient accumulation pattern. Pairwise: sum over `k`, no collisions. Outer-product: no sum, collisions possible. One rule. Two behaviors. The names tell you which.
+
+The compiler does not have a special scatter-add pass for indexing gradients. It inlines the gather body into Einstein notation (`result[i,j] = data[indices[i], j]`) and differentiates through the `RectangularAccessIR` node: the differential of the array is wrapped in the same index access pattern. This general autodiff produces the correct gradient — `d_data[indices[i], j] += d_result[i, j]` — without recognizing it as a scatter. The coordinate accounting is a conceptual framework that predicts what the autodiff will produce. The autodiff is the mechanism that produces it.
+
+---
+
+## Where Set Subtraction Stops
+
+The coordinate set subtraction rule — sum over `{output coords} \ {operand coords}` — derives the gradient for most tensor operations: reductions, broadcasts, matmul, convolutions, recurrences, where clauses. Three operations require a different treatment.
+
+**Non-differentiable operations.** `argmax[j](x[i, j])` returns an index, not a continuous value. The output is an integer coordinate position. Perturbing `x` by ε does not change the argmax except at boundaries where two values are exactly equal. The gradient is zero almost everywhere, undefined at ties. The autodiff pass has no branch for `ReductionOp.ARGMAX` — the operation is not differentiable. The compiler leaves a zero gradient, but this is a silent default, not a checked error. A correct compiler should report `error: gradient of argmax is not defined` at the point where `@loss / @argmax_result` is written. Downstream code that needs a gradient through a selection must use a soft approximation (softmax with temperature) or a straight-through estimator wrapped in `@fn`. The `max` reduction *is* differentiable — the compiler uses `SelectAtArgmaxIR` to route the cotangent to the winning index. `argmax` returning an integer index is not. The distinction between `max` (differentiable, gradient routes to argmax position) and `argmax` (non-differentiable, returns integer) is a compiler-semantic distinction, not a syntactic one.
+
+**`prod`.** `result = prod[i](data[i])`. The gradient of `data[k]` is `d_result * result / data[k]` — the product of all elements EXCEPT `data[k]`. This does not fit the pure coordinate-set-subtraction pattern because the local derivative of `data[k]` depends on every other element's value. The compiler handles `prod` with a built-in gradient rule: the autodiff pass recognizes `ReductionOp.PROD` and emits `sum((total_product / body) * d_body)`. Unlike `sum` (which distributes the tangent as-is) or `max` (which routes to the winning index via `SelectAtArgmaxIR`), `prod` requires the full product to compute the local derivative. The coordinate accounting still works — `i` is the consumed coordinate, the gradient restores it — but the *value* of the local derivative requires knowing the total product, not just the coordinate structure.
+
+**Reshape and permute.** These operations change coordinate layout without changing values. The gradient is the inverse operation: a forward `permute` of `(batch, feature)` to `(feature, batch)` has a backward `permute` of `(feature, batch)` to `(batch, feature)`. The coordinate accounting is trivial — no sum, no path coordinate — because every output cell reads exactly one input cell. The gradient flows through the inverse layout change.
+
+For everything else — reductions, broadcasts, matmuls, convolutions, recurrences, where clauses, pack polymorphism, cumulative scans, normalization, attention — the five-step pullback is coordinate set subtraction. The names tell you what to sum. The forward expression tells you what to multiply. The rest is accounting.
+
+---
+
 ## The Pullback as Coordinate Set Subtraction: A Summary
 
 Every pullback you have seen follows the same rule. Given a forward expression and the operand whose gradient you want:
@@ -352,4 +531,37 @@ When the derived gradient matches the original, the coordinate accounting confir
 
 The pullback is not a separate computation from the forward pass. It is the forward pass, read backward, through the lens of the Inversion Rule. Every forward reduction becomes a backward broadcast. Every forward broadcast becomes a backward reduction. The coordinate names are the bridge between the two directions. The five steps are the procedure for crossing it.
 
-The five-step pullback is coordinate accounting done by hand. But accounting is exactly what a compiler can do mechanically. Chapter 9 opens the compiler: how does it read names from source, check them against five rules, and lower them to integers—all without ever running the program? The answer turns out to be the same question you have been asking since Chapter 2: *which coordinates survive?*
+---
+
+## Return to the Transformer
+
+You derived matmul gradients in Chapter 8. Now derive one for the transformer.
+
+```rust
+// forward
+let attn_out[head, seq_q, d] = sum[seq_k](weights[head, seq_q, seq_k] * V[head, seq_k, d]);
+```
+
+The backward pass needs `d_V` — the gradient of the loss with respect to the value tensor. Use the five-step pullback.
+
+Step one: hold one cell of `V` — a specific `(head, seq_k, d)`.
+Step two: list every cell of `attn_out` that reads it. The multiplication means every `seq_q` position reads this cell.
+Step three: attach the incoming gradient `d_attn_out[head, seq_q, d]`.
+Step four: the local derivative of `weights[...] * V[head, seq_k, d]` with respect to `V[head, seq_k, d]` is `weights[head, seq_q, seq_k]`.
+Step five: sum over the path coordinates. The path coordinate is `seq_q` — the coordinate that varies while `(head, seq_k, d)` is held fixed.
+
+What are the path coordinates? What does `d_V` sum over?
+
+```rust
+let d_V[head, seq_k, d] = sum[seq_q](d_attn_out[head, seq_q, d] * weights[head, seq_q, seq_k]);
+```
+
+In the forward pass, `seq_k` was consumed and `seq_q` survived. In the backward pass, `seq_q` is consumed and `seq_k` survives. Reduction and broadcast swapped places — the Inversion Rule, at the scale of attention.
+
+Part II gave you the tools. Part III builds the machine that runs them.
+
+---
+
+Part II began with a question: when operations compose, does the coordinate story survive? You tested that question against every operation in tensor programming. Functions (Chapter 3): yes, the contract is checked at the call site. Broadcasts (Chapter 4): yes, the three-question audit reveals unwarranted independence claims. Normalization (Chapter 5): yes, four variants share one skeleton, and the coordinate name absorbs all layout changes. Recurrence (Chapter 6): yes, the compiler detects the direction of time from a minus sign. Complex terrain (Chapter 7): yes, the split of one coordinate into two roles is the operation, and the names record it. Differentiation (this chapter): yes, the gradient is coordinate set subtraction, read in reverse — whether the forward pass is a matmul, a convolution, a recurrence, or an RNN.
+
+The five-step pullback is coordinate accounting done by hand. The question that opens Part III: can a machine do it? Chapter 9 builds a compiler frontend that reads names from source, checks them against five rules, and lowers them to integers — all without ever running the program. The answer turns out to be the same question you have been asking since Chapter 2: *which coordinates survive?*

@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 320" width="100%" height="100%">
 <defs>
   <marker id="arr" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto">
-    <path d="M0,0 L6,2.5 L0,5 Z" fill="#4a4a4a"/>
+    <path d="M0,0 L6,2.5 L0,5 Z" fill="#4A5053"/>
   </marker>
 </defs>
 
@@ -9,12 +9,12 @@
   text { font-family: "Latin Modern Roman", "STIX Two Math", "Times New Roman", serif; }
   .title { font-size: 12px; fill: #262626; font-weight: bold; }
   .body  { font-size: 10px; fill: #262626; }
-  .accent{ font-size: 8.5px; fill: #1f6d7a; font-weight: bold; }
-  .label { font-size: 7.5px; fill: #5c5c5c; }
+  .accent{ font-size: 8.5px; fill: #1F6C74; font-weight: bold; }
+  .label { font-size: 7.5px; fill: #5C6063; }
   .eq    { font-size: 10px; fill: #262626; }
   .matrix{ font-size: 10px; fill: #262626; font-weight: bold; }
   .ledger{ font-size: 9px; fill: #262626; font-weight: bold; }
-  .note  { font-size: 7.5px; fill: #5c5c5c; }
+  .note  { font-size: 7.5px; fill: #5C6063; }
   .bf    { font-weight: bold; }
   .it    { font-style: italic; }
 </style>
@@ -24,7 +24,7 @@
 <!-- A[i,k]: shaded row -->
 <g transform="translate(24,32)">
   <rect x="0" y="0" width="96" height="78" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
-  <rect x="0" y="28" width="96" height="22" fill="#e6f0f3" opacity="0.7"/>
+  <rect x="0" y="28" width="96" height="22" fill="#EDF3F4" opacity="0.7"/>
   <text x="48" y="44" class="matrix" text-anchor="middle">A</text>
   <g transform="translate(-8,44) rotate(-90)">
     <text x="0" y="3" class="label" text-anchor="middle"><tspan class="it">i</tspan></text>
@@ -35,7 +35,7 @@
 <!-- B[k,j]: shaded column -->
 <g transform="translate(198,32)">
   <rect x="0" y="0" width="96" height="78" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
-  <rect x="38" y="0" width="20" height="78" fill="#e6f0f3" opacity="0.7"/>
+  <rect x="38" y="0" width="20" height="78" fill="#EDF3F4" opacity="0.7"/>
   <text x="48" y="44" class="matrix" text-anchor="middle">B</text>
   <g transform="translate(-8,44) rotate(-90)">
     <text x="0" y="3" class="label" text-anchor="middle"><tspan class="it">k</tspan></text>
@@ -46,7 +46,7 @@
 <!-- C[i,j]: single element -->
 <g transform="translate(115,166)">
   <rect x="0" y="0" width="96" height="78" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
-  <rect x="38" y="28" width="20" height="22" fill="#e6f0f3" opacity="0.9"/>
+  <rect x="38" y="28" width="20" height="22" fill="#EDF3F4" opacity="0.9"/>
   <text x="48" y="44" class="matrix" text-anchor="middle">C</text>
   <g transform="translate(-8,44) rotate(-90)">
     <text x="0" y="3" class="label" text-anchor="middle"><tspan class="it">i</tspan></text>
@@ -55,26 +55,26 @@
 </g>
 
 <!-- Arrows -->
-<line x1="72" y1="110" x2="152" y2="192" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-<line x1="246" y1="110" x2="168" y2="192" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="72" y1="113" x2="149" y2="190" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="246" y1="113" x2="177" y2="190" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
 
 <text x="172" y="140" class="accent" text-anchor="middle">sum over k</text>
 
-<line x1="310" y1="8" x2="310" y2="272" stroke="#c4c4c4" stroke-width="0.3"/>
+<line x1="310" y1="8" x2="310" y2="272" stroke="#BFC3C5" stroke-width="0.3"/>
 
 <!-- Coordinate ledger -->
 <g transform="translate(322,26)">
   <text x="0" y="0" class="title">Coordinate ledger</text>
 
-  <rect x="0" y="14" width="104" height="40" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>
+  <rect x="0" y="14" width="104" height="40" fill="#EDF3F4"/>
   <text x="52" y="30" class="ledger" text-anchor="middle">Survivors: <tspan class="it">i</tspan>, <tspan class="it">j</tspan></text>
   <text x="52" y="46" class="note" text-anchor="middle">appear in <tspan class="bf">C</tspan></text>
 
-  <rect x="0" y="64" width="104" height="40" fill="#faf4f4" stroke="#b04246" stroke-width="0.5"/>
+  <rect x="0" y="64" width="104" height="40" fill="#F6EEEF"/>
   <text x="52" y="80" class="ledger" text-anchor="middle">Consumed: <tspan class="it">k</tspan></text>
   <text x="52" y="96" class="note" text-anchor="middle">gone from <tspan class="bf">C</tspan></text>
 </g>
 
-<line x1="4" y1="284" x2="436" y2="284" stroke="#c4c4c4" stroke-width="0.3"/>
+<line x1="4" y1="284" x2="436" y2="284" stroke="#BFC3C5" stroke-width="0.3"/>
 <text x="220" y="300" class="body" text-anchor="middle">A row slice of A and a column slice of B converge to a single element of C.</text>
 </svg>
