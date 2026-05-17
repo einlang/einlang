@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 298" width="100%" height="100%">
 <defs>
   <marker id="arrGray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-    <path d="M0,0 L8,3 L0,6 Z" fill="#4a4a4a"/>
+    <path d="M0,0 L8,3 L0,6 Z" fill="#4A5053"/>
   </marker>
 </defs>
 
@@ -10,13 +10,13 @@
   .title  { font-size: 12px; fill: #262626; font-weight: bold; }
   .body   { font-size: 10px; fill: #262626; }
   .small  { font-size: 8.5px; fill: #262626; }
-  .ok     { font-size: 9px; fill: #1f6d7a; font-weight: bold; }
-  .warn   { font-size: 9px; fill: #b04246; font-weight: bold; }
-  .label  { font-size: 8px; fill: #5c5c5c; }
+  .ok     { font-size: 9px; fill: #1F6C74; font-weight: bold; }
+  .warn   { font-size: 9px; fill: #86343C; font-weight: bold; }
+  .label  { font-size: 8px; fill: #5C6063; }
   .dim    { font-size: 9.5px; fill: #262626; font-weight: bold; }
-  .dimOk  { font-size: 9.5px; fill: #1f6d7a; font-weight: bold; }
-  .dimBug { font-size: 9.5px; fill: #b04246; font-weight: bold; }
-  .pos    { font-size: 7px; fill: #8a8a8a; }
+  .dimOk  { font-size: 9.5px; fill: #1F6C74; font-weight: bold; }
+  .dimBug { font-size: 9.5px; fill: #86343C; font-weight: bold; }
+  .pos    { font-size: 7px; fill: #8A8E91; }
   .bf     { font-weight: bold; }
   .it     { font-style: italic; }
   .sub    { font-size: 0.75em; baseline-shift: sub; font-style: italic; }
@@ -43,19 +43,19 @@
   <text x="172" y="15" class="dim" text-anchor="middle">C</text><text x="172" y="21" class="pos" text-anchor="middle">3</text>
 
   <!-- Arrows: B→B(0), H→C(1), W→H(2), C→W(3) showing permute(0,3,1,2) -->
-  <line x1="22" y1="27" x2="22" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
-  <line x1="72" y1="27" x2="122" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
-  <line x1="122" y1="27" x2="172" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
-  <line x1="172" y1="27" x2="72" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="22" y1="27" x2="22" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="72" y1="27" x2="122" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="122" y1="27" x2="172" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="172" y1="27" x2="72" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
 
   <!-- Result row -->
-  <rect x="0" y="48" width="44" height="24" fill="#e6f0f3"/>
+  <rect x="0" y="48" width="44" height="24" fill="#EDF3F4"/>
   <text x="22" y="63" class="dimOk" text-anchor="middle">B</text>
-  <rect x="50" y="48" width="44" height="24" fill="#e6f0f3"/>
+  <rect x="50" y="48" width="44" height="24" fill="#EDF3F4"/>
   <text x="72" y="63" class="dimOk" text-anchor="middle">C</text>
-  <rect x="100" y="48" width="44" height="24" fill="#e6f0f3"/>
+  <rect x="100" y="48" width="44" height="24" fill="#EDF3F4"/>
   <text x="122" y="63" class="dimOk" text-anchor="middle">H</text>
-  <rect x="150" y="48" width="44" height="24" fill="#e6f0f3"/>
+  <rect x="150" y="48" width="44" height="24" fill="#EDF3F4"/>
   <text x="172" y="63" class="dimOk" text-anchor="middle">W</text>
 
   <text x="97" y="88" class="ok" text-anchor="middle">OK</text>
@@ -72,24 +72,24 @@
   <rect x="150" y="0" width="44" height="24" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
   <text x="172" y="16" class="dim" text-anchor="middle">C</text>
 
-  <line x1="22" y1="27" x2="22" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
-  <line x1="72" y1="27" x2="122" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
-  <line x1="122" y1="27" x2="172" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
-  <line x1="172" y1="27" x2="72" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="22" y1="27" x2="22" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="72" y1="27" x2="122" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="122" y1="27" x2="172" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="172" y1="27" x2="72" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
 
-  <rect x="0" y="48" width="44" height="24" fill="#e6f0f3"/>
+  <rect x="0" y="48" width="44" height="24" fill="#EDF3F4"/>
   <text x="22" y="63" class="dimOk" text-anchor="middle">B</text>
-  <rect x="50" y="48" width="44" height="24" fill="#e6f0f3"/>
+  <rect x="50" y="48" width="44" height="24" fill="#EDF3F4"/>
   <text x="72" y="63" class="dimOk" text-anchor="middle">C</text>
-  <rect x="100" y="48" width="44" height="24" fill="#e6f0f3"/>
+  <rect x="100" y="48" width="44" height="24" fill="#EDF3F4"/>
   <text x="122" y="63" class="dimOk" text-anchor="middle">H</text>
-  <rect x="150" y="48" width="44" height="24" fill="#e6f0f3"/>
+  <rect x="150" y="48" width="44" height="24" fill="#EDF3F4"/>
   <text x="172" y="63" class="dimOk" text-anchor="middle">W</text>
 
   <text x="97" y="88" class="ok" text-anchor="middle">OK</text>
 </g>
 
-<line x1="58" y1="160" x2="542" y2="160" stroke="#c4c4c4" stroke-width="0.3"/>
+<line x1="58" y1="160" x2="542" y2="160" stroke="#BFC3C5" stroke-width="0.3"/>
 
 <text x="58" y="188" class="label" text-anchor="end">After swap</text>
 
@@ -105,18 +105,18 @@
   <text x="172" y="15" class="dim" text-anchor="middle">C</text><text x="172" y="21" class="pos" text-anchor="middle">3</text>
 
   <!-- After swap, positional: same arrows but wrong mapping -->
-  <line x1="22" y1="27" x2="22" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
-  <line x1="72" y1="27" x2="122" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
-  <line x1="122" y1="27" x2="172" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
-  <line x1="172" y1="27" x2="72" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="22" y1="27" x2="22" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="72" y1="27" x2="122" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="122" y1="27" x2="172" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="172" y1="27" x2="72" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
 
-  <rect x="0" y="48" width="44" height="24" fill="#faf4f4"/>
+  <rect x="0" y="48" width="44" height="24" fill="#F6EEEF"/>
   <text x="22" y="63" class="dimBug" text-anchor="middle">B</text>
-  <rect x="50" y="48" width="44" height="24" fill="#faf4f4"/>
+  <rect x="50" y="48" width="44" height="24" fill="#F6EEEF"/>
   <text x="72" y="63" class="dimBug" text-anchor="middle">C</text>
-  <rect x="100" y="48" width="44" height="24" fill="#faf4f4"/>
+  <rect x="100" y="48" width="44" height="24" fill="#F6EEEF"/>
   <text x="122" y="63" class="dimBug" text-anchor="middle">W</text>
-  <rect x="150" y="48" width="44" height="24" fill="#faf4f4"/>
+  <rect x="150" y="48" width="44" height="24" fill="#F6EEEF"/>
   <text x="172" y="63" class="dimBug" text-anchor="middle">H</text>
 
   <text x="97" y="88" class="warn" text-anchor="middle">Bug</text>
@@ -134,23 +134,23 @@
   <text x="172" y="16" class="dim" text-anchor="middle">C</text>
 
   <!-- Named: arrows find targets by name regardless of position -->
-  <line x1="22" y1="27" x2="22" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
-  <line x1="72" y1="27" x2="172" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
-  <line x1="122" y1="27" x2="122" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
-  <line x1="172" y1="27" x2="72" y2="44" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="22" y1="27" x2="22" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="72" y1="27" x2="172" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="122" y1="27" x2="122" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
+  <line x1="172" y1="27" x2="72" y2="44" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arrGray)" stroke-dasharray="3,3"/>
 
-  <rect x="0" y="48" width="44" height="24" fill="#e6f0f3"/>
+  <rect x="0" y="48" width="44" height="24" fill="#EDF3F4"/>
   <text x="22" y="63" class="dimOk" text-anchor="middle">B</text>
-  <rect x="50" y="48" width="44" height="24" fill="#e6f0f3"/>
+  <rect x="50" y="48" width="44" height="24" fill="#EDF3F4"/>
   <text x="72" y="63" class="dimOk" text-anchor="middle">C</text>
-  <rect x="100" y="48" width="44" height="24" fill="#e6f0f3"/>
+  <rect x="100" y="48" width="44" height="24" fill="#EDF3F4"/>
   <text x="122" y="63" class="dimOk" text-anchor="middle">H</text>
-  <rect x="150" y="48" width="44" height="24" fill="#e6f0f3"/>
+  <rect x="150" y="48" width="44" height="24" fill="#EDF3F4"/>
   <text x="172" y="63" class="dimOk" text-anchor="middle">W</text>
 
   <text x="97" y="88" class="ok" text-anchor="middle">OK</text>
 </g>
 
-<line x1="58" y1="274" x2="542" y2="274" stroke="#c4c4c4" stroke-width="0.3"/>
+<line x1="58" y1="274" x2="542" y2="274" stroke="#BFC3C5" stroke-width="0.3"/>
 <text x="300" y="292" class="body" text-anchor="middle">The same four numbers produce a bug after refactoring. The same four names find their targets regardless.</text>
 </svg>

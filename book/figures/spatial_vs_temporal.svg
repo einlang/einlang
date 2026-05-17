@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 580 320" width="100%" height="100%">
 <defs>
   <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-    <path d="M0,0 L8,3 L0,6 Z" fill="#4a4a4a"/>
+    <path d="M0,0 L8,3 L0,6 Z" fill="#4A5053"/>
   </marker>
   <marker id="arrRed" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-    <path d="M0,0 L8,3 L0,6 Z" fill="#b04246"/>
+    <path d="M0,0 L8,3 L0,6 Z" fill="#86343C"/>
   </marker>
 </defs>
 
@@ -13,9 +13,9 @@
   .title  { font-size: 12px; fill: #262626; font-weight: bold; }
   .body   { font-size: 10px; fill: #262626; }
   .small  { font-size: 8.5px; fill: #262626; }
-  .accent { font-size: 9px; fill: #1f6d7a; font-weight: bold; }
-  .warn   { font-size: 8.5px; fill: #b04246; font-weight: bold; }
-  .label  { font-size: 8px; fill: #5c5c5c; }
+  .accent { font-size: 9px; fill: #1F6C74; font-weight: bold; }
+  .warn   { font-size: 8.5px; fill: #86343C; font-weight: bold; }
+  .label  { font-size: 8px; fill: #5C6063; }
   .it     { font-style: italic; }
   .bf     { font-weight: bold; }
 </style>
@@ -38,7 +38,7 @@
     <circle cx="122" cy="100" r="3"/><circle cx="154" cy="100" r="3"/>
     <circle cx="58" cy="128" r="3"/><circle cx="90" cy="128" r="3"/>
     <circle cx="122" cy="128" r="3"/>
-    <circle cx="154" cy="128" r="7" fill="#e6f0f3"/>
+    <circle cx="154" cy="128" r="7" fill="#EDF3F4"/>
   </g>
 
   <text x="14" y="48"  class="small" text-anchor="end"><tspan class="it">i</tspan>=0</text>
@@ -52,16 +52,16 @@
   <text x="154" y="36" class="small" text-anchor="middle"><tspan class="it">j</tspan>=3</text>
 
   <!-- Arrows: (2,3)↓, (3,2)→, (2,2)↘ to (3,3) -->
-  <line x1="154" y1="103" x2="154" y2="120" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)"/>
-  <line x1="125" y1="128" x2="146" y2="128" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)"/>
-  <line x1="125" y1="104" x2="146" y2="120" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)"/>
+  <line x1="154" y1="106" x2="154" y2="117" stroke="#4A5053" stroke-width="0.7" marker-end="url(#arr)"/>
+  <line x1="128" y1="128" x2="143" y2="128" stroke="#4A5053" stroke-width="0.7" marker-end="url(#arr)"/>
+  <line x1="128" y1="106" x2="143" y2="117" stroke="#4A5053" stroke-width="0.7" marker-end="url(#arr)"/>
 
   <text x="120" y="176" class="small" text-anchor="middle"><tspan class="bf">DP</tspan>[<tspan class="it">i</tspan>,<tspan class="it">j</tspan>] = min(<tspan class="bf">DP</tspan>[<tspan class="it">i</tspan>−1,<tspan class="it">j</tspan>], <tspan class="bf">DP</tspan>[<tspan class="it">i</tspan>,<tspan class="it">j</tspan>−1], <tspan class="bf">DP</tspan>[<tspan class="it">i</tspan>−1,<tspan class="it">j</tspan>−1])</text>
   <text x="120" y="194" class="small" text-anchor="middle"><tspan class="it">i</tspan>−1, <tspan class="it">j</tspan>−1 — both have offsets. Both are recurrence coords.</text>
 </g>
 
 <!-- Divider -->
-<line x1="280" y1="44" x2="280" y2="256" stroke="#c4c4c4" stroke-width="0.3"/>
+<line x1="280" y1="44" x2="280" y2="256" stroke="#BFC3C5" stroke-width="0.3"/>
 
 <!-- ===== RIGHT: One recurrence coord + one bookshelf ===== -->
 <g transform="translate(300, 44)">
@@ -69,22 +69,22 @@
   <text x="112" y="15" class="label"  text-anchor="middle">Offset on <tspan class="it">t</tspan>. <tspan class="it">i</tspan>−1/<tspan class="it">i</tspan>+1 read from the <tspan class="it">t</tspan>−1 bookshelf — already computed.</text>
 
   <!-- Time axis -->
-  <line x1="20" y1="30" x2="20" y2="190" stroke="#c4c4c4" stroke-width="0.4"/>
-  <polygon points="20,22 16,30 24,30" fill="#c4c4c4"/>
+  <line x1="20" y1="30" x2="20" y2="190" stroke="#BFC3C5" stroke-width="0.4"/>
+  <polygon points="20,22 16,30 24,30" fill="#BFC3C5"/>
 
   <!-- ===== t+1: full row — all dashed (future, not available) ===== -->
   <text x="20" y="50" class="label" text-anchor="end"><tspan class="it">t</tspan>+1</text>
   <text x="172" y="50" class="warn" text-anchor="start">future — off limits</text>
 
-  <line x1="46" y1="44" x2="202" y2="44" stroke="#b04246" stroke-width="0.4" stroke-dasharray="3,2"/>
-  <circle cx="56"  cy="44" r="4" fill="#faf4f4" stroke-dasharray="3,2"/>
-  <circle cx="82"  cy="44" r="4" fill="#faf4f4" stroke-dasharray="3,2"/>
-  <circle cx="108" cy="44" r="4" fill="#faf4f4" stroke-dasharray="3,2"/>
-  <circle cx="134" cy="44" r="4" fill="#faf4f4" stroke-dasharray="3,2"/>
-  <circle cx="160" cy="44" r="4" fill="#faf4f4" stroke-dasharray="3,2"/>
+  <line x1="46" y1="44" x2="202" y2="44" stroke="#86343C" stroke-width="0.4" stroke-dasharray="3,2"/>
+  <circle cx="56"  cy="44" r="4" fill="#F6EEEF" stroke-dasharray="3,2"/>
+  <circle cx="82"  cy="44" r="4" fill="#F6EEEF" stroke-dasharray="3,2"/>
+  <circle cx="108" cy="44" r="4" fill="#F6EEEF" stroke-dasharray="3,2"/>
+  <circle cx="134" cy="44" r="4" fill="#F6EEEF" stroke-dasharray="3,2"/>
+  <circle cx="160" cy="44" r="4" fill="#F6EEEF" stroke-dasharray="3,2"/>
 
   <!-- Red dashed arrow from t to t+1 -->
-  <line x1="108" y1="78" x2="108" y2="50" stroke="#b04246" stroke-width="0.6" marker-end="url(#arrRed)" stroke-dasharray="4,3"/>
+  <line x1="108" y1="90" x2="108" y2="52" stroke="#86343C" stroke-width="0.6" marker-end="url(#arrRed)" stroke-dasharray="4,3"/>
 
   <!-- ===== t: full row — all solid (computing) ===== -->
   <text x="20" y="106" class="label" text-anchor="end"><tspan class="it">t</tspan></text>
@@ -92,7 +92,7 @@
   <line x1="46" y1="100" x2="202" y2="100" stroke="#262626" stroke-width="0.5"/>
   <circle cx="56"  cy="100" r="4.5" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
   <circle cx="82"  cy="100" r="4.5" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
-  <circle cx="108" cy="100" r="7" fill="#e6f0f3"/>
+  <circle cx="108" cy="100" r="7" fill="#EDF3F4"/>
   <circle cx="134" cy="100" r="4.5" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
   <circle cx="160" cy="100" r="4.5" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
 
@@ -113,9 +113,9 @@
   <text x="134" y="178" class="small" text-anchor="middle"><tspan class="it">i</tspan>+1</text>
 
   <!-- Arrows from t-1 cells to the t cell — all going upward -->
-  <line x1="82"  y1="154" x2="101" y2="106" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)"/>
-  <line x1="108" y1="154" x2="108" y2="106" stroke="#4a4a4a" stroke-width="0.8" marker-end="url(#arr)"/>
-  <line x1="134" y1="154" x2="115" y2="106" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)"/>
+  <line x1="82" y1="152" x2="104" y2="111" stroke="#4A5053" stroke-width="0.7" marker-end="url(#arr)"/>
+  <line x1="108" y1="152" x2="108" y2="111" stroke="#4A5053" stroke-width="0.8" marker-end="url(#arr)"/>
+  <line x1="134" y1="152" x2="112" y2="111" stroke="#4A5053" stroke-width="0.7" marker-end="url(#arr)"/>
 
   <!-- All cells at t-1: every i is accessible -->
   <text x="188" y="168" class="label" text-anchor="start">all <tspan class="it">i</tspan> visible</text>
@@ -126,6 +126,6 @@
 </g>
 
 <!-- Bottom rule -->
-<line x1="30" y1="270" x2="550" y2="270" stroke="#c4c4c4" stroke-width="0.3"/>
+<line x1="30" y1="270" x2="550" y2="270" stroke="#BFC3C5" stroke-width="0.3"/>
 <text x="290" y="290" class="small" text-anchor="middle">Left: <tspan class="it">i</tspan>−1 and <tspan class="it">j</tspan>−1 both on <tspan class="bf">DP</tspan> — <tspan class="it">i</tspan> is recurrence. Right: only <tspan class="it">t</tspan>−1 is on <tspan class="bf">h</tspan> — <tspan class="it">t</tspan> is recurrence, <tspan class="it">i</tspan> is a bookshelf.</text>
 </svg>

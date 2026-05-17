@@ -4,12 +4,12 @@
   .title  { font-size: 11px; fill: #262626; font-weight: bold; }
   .body   { font-size: 10px; fill: #262626; }
   .small  { font-size: 8.5px; fill: #262626; }
-  .acc    { font-size: 8.5px; fill: #1f6d7a; font-weight: bold; }
-  .faded  { font-size: 8.5px; fill: #9a9a9a; font-weight: bold; }
-  .label  { font-size: 7.5px; fill: #5c5c5c; }
+  .acc    { font-size: 8.5px; fill: #1F6C74; font-weight: bold; }
+  .faded  { font-size: 8.5px; fill: #9B9FA1; font-weight: bold; }
+  .label  { font-size: 7.5px; fill: #5C6063; }
   .dim    { font-size: 10px; fill: #262626; font-weight: bold; }
-  .pos    { font-size: 7.5px; fill: #8a8a8a; }
-  .hdr    { font-size: 7.5px; fill: #5c5c5c; font-weight: bold; letter-spacing: 0.4px; }
+  .pos    { font-size: 7.5px; fill: #8A8E91; }
+  .hdr    { font-size: 7.5px; fill: #5C6063; font-weight: bold; letter-spacing: 0.4px; }
   .it     { font-style: italic; }
   .bf     { font-weight: bold; }
 </style>
@@ -23,7 +23,7 @@
 <text x="332" y="68" class="hdr" text-anchor="middle">Name</text>
 
 <!-- Thin rule under headers -->
-<line x1="78" y1="74" x2="382" y2="74" stroke="#c4c4c4" stroke-width="0.3"/>
+<line x1="78" y1="74" x2="382" y2="74" stroke="#BFC3C5" stroke-width="0.3"/>
 
 <!-- Row 1: batch -->
 <g transform="translate(72,82)">
@@ -32,14 +32,14 @@
   <text x="146" y="27" class="pos" text-anchor="middle">axis</text>
 
   <!-- Gap line -->
-  <line x1="186" y1="0" x2="186" y2="30" stroke="#c4c4c4" stroke-width="0.4" stroke-dasharray="4,3"/>
+  <line x1="186" y1="0" x2="186" y2="30" stroke="#BFC3C5" stroke-width="0.4" stroke-dasharray="4,3"/>
 
   <text x="260" y="16" class="faded" text-anchor="middle">batch</text>
 
   <text x="-10" y="17" class="label" text-anchor="end">dim 1</text>
 </g>
 
-<line x1="78" y1="118" x2="382" y2="118" stroke="#e8e8e8" stroke-width="0.3"/>
+<line x1="78" y1="118" x2="382" y2="118" stroke="#E2E5E6" stroke-width="0.3"/>
 
 <!-- Row 2: channel -->
 <g transform="translate(72,124)">
@@ -47,14 +47,14 @@
   <text x="146" y="16" class="dim" text-anchor="middle">1</text>
   <text x="146" y="27" class="pos" text-anchor="middle">axis</text>
 
-  <line x1="186" y1="-6" x2="186" y2="30" stroke="#c4c4c4" stroke-width="0.4" stroke-dasharray="4,3"/>
+  <line x1="186" y1="-6" x2="186" y2="30" stroke="#BFC3C5" stroke-width="0.4" stroke-dasharray="4,3"/>
 
   <text x="260" y="16" class="faded" text-anchor="middle">channel</text>
 
   <text x="-10" y="17" class="label" text-anchor="end">dim 2</text>
 </g>
 
-<line x1="78" y1="160" x2="382" y2="160" stroke="#e8e8e8" stroke-width="0.3"/>
+<line x1="78" y1="160" x2="382" y2="160" stroke="#E2E5E6" stroke-width="0.3"/>
 
 <!-- Row 3: spatial -->
 <g transform="translate(72,166)">
@@ -62,20 +62,20 @@
   <text x="146" y="16" class="dim" text-anchor="middle">2</text>
   <text x="146" y="27" class="pos" text-anchor="middle">axis</text>
 
-  <line x1="186" y1="-6" x2="186" y2="30" stroke="#c4c4c4" stroke-width="0.4" stroke-dasharray="4,3"/>
+  <line x1="186" y1="-6" x2="186" y2="30" stroke="#BFC3C5" stroke-width="0.4" stroke-dasharray="4,3"/>
 
   <text x="260" y="16" class="faded" text-anchor="middle">spatial</text>
 
   <text x="-10" y="17" class="label" text-anchor="end">dim 3</text>
 </g>
 
-<line x1="78" y1="202" x2="382" y2="202" stroke="#c4c4c4" stroke-width="0.3"/>
+<line x1="78" y1="202" x2="382" y2="202" stroke="#BFC3C5" stroke-width="0.3"/>
 
 <!-- Labels below rows -->
 <text x="128" y="220" class="acc" text-anchor="middle">Tracked by framework</text>
 <text x="332" y="220" class="faded" text-anchor="middle">Invisible to framework</text>
 
 <!-- Bottom caption -->
-<line x1="20" y1="240" x2="440" y2="240" stroke="#c4c4c4" stroke-width="0.3"/>
+<line x1="20" y1="240" x2="440" y2="240" stroke="#BFC3C5" stroke-width="0.3"/>
 <text x="230" y="258" class="body" text-anchor="middle">The framework checks shape and position, not semantic role. The name lives only in the programmer's mind.</text>
 </svg>

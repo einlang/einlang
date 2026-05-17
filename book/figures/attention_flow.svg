@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 254" width="100%" height="100%">
 <defs>
   <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-    <path d="M0,0 L8,3 L0,6 Z" fill="#4a4a4a"/>
+    <path d="M0,0 L8,3 L0,6 Z" fill="#4A5053"/>
   </marker>
 </defs>
 
 <style>
   text { font-family: "Latin Modern Roman", "STIX Two Math", "Times New Roman", serif; }
   .body   { font-size: 10px; fill: #262626; }
-  .small  { font-size: 8px; fill: #5c5c5c; }
-  .accent { font-size: 8.5px; fill: #1f6d7a; font-weight: bold; }
-  .label  { font-size: 7.5px; fill: #5c5c5c; }
+  .small  { font-size: 8px; fill: #5C6063; }
+  .accent { font-size: 8.5px; fill: #1F6C74; font-weight: bold; }
+  .label  { font-size: 7.5px; fill: #5C6063; }
   .bf     { font-weight: bold; }
   .it     { font-style: italic; }
   .sub    { font-size: 0.75em; baseline-shift: sub; }
@@ -47,9 +47,9 @@
 </g>
 
 <!-- Arrows: x → Q, K, V -->
-<line x1="99" y1="100" x2="132" y2="36" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-<line x1="99" y1="100" x2="132" y2="92" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-<line x1="99" y1="100" x2="132" y2="148" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="99" y1="100" x2="132" y2="36" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="99" y1="100" x2="132" y2="92" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="99" y1="100" x2="132" y2="148" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
 
 <!-- Scores QK^T -->
 <g transform="translate(234,42)">
@@ -60,8 +60,8 @@
 </g>
 
 <!-- Arrows Q,K → scores -->
-<line x1="195" y1="36" x2="230" y2="64" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-<line x1="195" y1="92" x2="230" y2="92" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="195" y1="36" x2="230" y2="64" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="195" y1="92" x2="230" y2="92" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
 
 <!-- Softmax label -->
 <text x="335" y="82" class="accent" text-anchor="middle">softmax[<tspan class="bf">seq</tspan><tspan class="sub">k</tspan>]</text>
@@ -75,12 +75,12 @@
 </g>
 
 <!-- Arrow scores → O -->
-<line x1="301" y1="78" x2="364" y2="100" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="301" y1="78" x2="364" y2="100" stroke="#4A5053" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
 
 <!-- Arrow V → O -->
-<path d="M195,148 C273,190 316,180 364,100" stroke="#4a4a4a" stroke-width="0.6" fill="none" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<path d="M195,148 C273,190 316,180 364,100" stroke="#4A5053" stroke-width="0.6" fill="none" marker-end="url(#arr)" stroke-dasharray="3,3"/>
 
 <!-- Bottom text -->
-<line x1="10" y1="198" x2="450" y2="198" stroke="#c4c4c4" stroke-width="0.3"/>
+<line x1="10" y1="198" x2="450" y2="198" stroke="#BFC3C5" stroke-width="0.3"/>
 <text x="230" y="220" class="body" text-anchor="middle">Self-attention: <tspan class="bf">seq</tspan><tspan class="sub">q</tspan> = <tspan class="bf">seq</tspan><tspan class="sub">k</tspan>.  Cross-attention: <tspan class="bf">seq</tspan><tspan class="sub">q</tspan> ≠ <tspan class="bf">seq</tspan><tspan class="sub">k</tspan>.  The names tell you which is which.</text>
 </svg>
