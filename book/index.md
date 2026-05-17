@@ -46,7 +46,7 @@ Turn the page.
 - [3. Names as Contracts](chapter-03-names-as-contracts.html)
 - [4. The Broadcast Self-Audit](chapter-04-broadcast-self-audit.html)
 - [5. Blocks and Skeletons](chapter-05-blocks-skeletons.html)
-- [6. Names in Time](chapter-06-names-in-time.html)
+- [6. The Arrow in the Bracket](chapter-06-arrow-in-bracket.html)
 - [7. Complex Terrain](chapter-07-complex-terrain.html)
 - [8. Names Through Differentiation](chapter-08-gradients.html)
 

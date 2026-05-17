@@ -107,6 +107,26 @@ def test_recurrence_storage_keeps_window_for_multidimensional_tensor():
     assert rec.requires_full_output is False
 
 
+def test_offset_on_different_variable_does_not_create_recurrence():
+    """Spatial offsets on a different variable (not the declared one) do not make a dim recurrence."""
+    rec = _compile_recurrence_binding(
+        """
+        let W = 5;
+        let T = 4;
+        let input[t in 0..T, i in 0..W] = (t * W + i) as f64;
+        let h[0, i in 0..W] = input[0, i];
+        let h[t in 1..T, i in 0..W] = h[t - 1, i] + input[t, i - 1] + input[t, i] + input[t, i + 1];
+        let last = h[T - 1, 2];
+        last;
+        """,
+        "h",
+    )
+    # Only dim 0 (t) should be recurrence — t-1 is on the declared variable h.
+    # Dim 1 (i) has offsets i-1, i+1 but they are on input, not on h.
+    assert rec.recurrence_output_dim == 0
+    assert rec.history_lookback_steps == 1
+
+
 def test_recurrence_storage_falls_back_to_full_output_for_non_constant_tail_access():
     rec = _compile_recurrence_binding(
         """
