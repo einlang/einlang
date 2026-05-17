@@ -362,7 +362,40 @@ A coordinate with an offset carries a direction constraint. The constraint is ch
 
 ---
 
----
+## Return to the Recurrence: Kalman Filter
+
+You've seen recurrences over scalar fields (the heat equation), over parameters (the optimizer), and over noisy samples (diffusion). Here is a recurrence over matrix-valued state — a Kalman filter tracking position and velocity from noisy measurements:
+
+```rust
+let dt = 0.1;
+let F = [[1.0, dt], [0.0, 1.0]];       // state transition
+let H = [1.0, 0.0];                     // observation matrix
+let Q = [[0.01, 0.0], [0.0, 0.1]];      // process noise
+let R = 1.0;                             // measurement noise
+
+// State: x[t, i] where i in 0..2 (position, velocity)
+// Covariance: P[t, i, j] where i, j in 0..2
+let x[0, i in 0..2] = [0.0, 1.0][i];
+let P[0, i in 0..2, j in 0..2] = [[1.0, 0.0], [0.0, 1.0]][i, j];
+
+// Predict
+let x_pred[t in 1..T, i in 0..2] =
+    F[i, 0] * x[t-1, 0] + F[i, 1] * x[t-1, 1];
+let P_pred[t in 1..T, i in 0..2, j in 0..2] =
+    sum[k in 0..2](F[i, k] * sum[l in 0..2](P[t-1, k, l] * F[j, l])) + Q[i, j];
+
+// Update
+let y[t in 1..T] = z[t-1] - (H[0] * x_pred[t, 0] + H[1] * x_pred[t, 1]);
+let S[t in 1..T] = H[0] * P_pred[t, 0, 0] * H[0] + R;  // innovation covariance
+let K[t in 1..T, i in 0..2] = (P_pred[t, i, 0] * H[0]) / S[t];  // Kalman gain
+let x[t in 1..T, i in 0..2] = x_pred[t, i] + K[t, i] * y[t];
+```
+
+Look at what recurrence carries here. `t-1` appears on `x`, `P`, and `P_pred` — four separate backward references. The dependency chain flows through a 2×2 covariance matrix, not a scalar. The coordinate `i` ranges over the state dimensions (position, velocity); `j` ranges over the same domain in the covariance. These are bookshelves — every `i` and `j` at `t-1` is available. Only `t` carries the arrow.
+
+Now ask: in the PyTorch version of this code, how does the reader know which dimension is time? The shapes are `(T, 2)` and `(T, 2, 2)`. Position 0 is probably time. But "probably" is not a check. In the einlang version, `t-1` is the check. The minus sign names the coordinate that carries the dependency. Same mechanism as the heat equation. Same check. Matrix-shaped state doesn't change the rule.
+
+The Kalman filter migrated from a 223-line NumPy implementation to 25 lines of einlang. The matrix operations — `F[i,0]*x[t-1,0] + F[i,1]*x[t-1,1]` — are explicit elementwise arithmetic. A future version will use `sum[k](F[i,k] * x[t-1,k])` for the matrix-vector product. But even without that, the recurrence structure is visible. `t-1` tells you what depends on what. The coordinate names tell you which dimensions are state and which are time. The code documents itself.
 
 ## The Gradient of a Recurrence
 

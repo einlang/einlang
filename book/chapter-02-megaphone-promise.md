@@ -221,6 +221,44 @@ let is_symmetric = all[i, j](matrix[i, j] == matrix[j, i]);
 
 Quantifiers are reductions. Their identity elements are `true` (for `all`) and `false` (for `any`). They compose with the same coordinate set subtraction, the same broadcasting rules, and the same gradient machinery as `sum` and `max`. The bracket names the quantified variable. The notation mirrors the mathematics. The distance is zero.
 
+Before moving on, try this. `all[i](x[i] > 0)` is true only when every element satisfies the condition. How would you express the same check using only the numeric reductions you already know — `min`, `prod`, `sum`? What about `any[i]` using `max`? Take a minute. Write your answers. Then read on.
+
+---
+
+`all[i](x[i] > 0)` equals `min[i]((x[i] > 0) as i32) == 1`. It also equals `prod[i]((x[i] > 0) as i32) == 1`. And `sum[i]((x[i] > 0) as i32) == len(x)`.
+
+`any[i](x[i] > 0)` equals `max[i]((x[i] > 0) as i32) == 1`. It also equals `sum[i]((x[i] > 0) as i32) > 0`.
+
+Three different numeric paths to the same boolean result. `all` is a minimum in disguise — false if any element is false. `any` is a maximum in disguise — true if any element is true. The quantifier names the variable. The reduction does the work. Same coordinate. Same consumption. Same ledger.
+
+---
+
+## When Names Match: Broadcast or Contract?
+
+You've seen `A[i, j] + bias[j]` — `j` matches on both sides, so `bias` broadcasts along `i`. You've seen `sum[k](A[i, k] * B[k, j])` — `sum[k]` contracts `k`, consuming it.
+
+Now remove the sum:
+
+```rust
+let C = A[i, k] * B[k, j];
+```
+
+What is the output shape? If you come from NumPy einsum, your fingers type `ik,kj->ij` and `k` disappears. But there is no `sum` here. Does `k` contract just because it appears twice?
+
+Before reading on, decide what you think the answer should be.
+
+---
+
+`C` has shape `(i, k, j)`. Three free indices. No contraction.
+
+In einlang, matching coordinate names **broadcast**. Only an explicit reduction — `sum[k]`, `max[k]`, `prod[k]` — **contracts**. The absence of `sum` means no contraction. The presence of `sum` means contraction. There is no middle ground where matching names silently consume.
+
+This is deliberate. In NumPy einsum, the convention `ik,kj->ij` means "repeated indices are summed." Compact. Expressive. Also invisible — you cannot tell from `ik,kj` whether `k` is being broadcast or contracted, because the convention collapses both into the same notation.
+
+In einlang, `A[i, k] * B[k, j]` broadcasts along `k`. `sum[k](A[i, k] * B[k, j])` contracts along `k`. The notation distinguishes the two because the operations are different. Broadcast copies a value across positions that already exist. Contraction eliminates positions and replaces them with a single value. Hiding this difference behind a naming convention costs understanding.
+
+You now know the three operations a coordinate can undergo: it can be left free (survive), consumed by a reduction (contract), or omitted from a term (broadcast). Every coordinate in every expression is in exactly one of these three states. The states are visible in the source. The compiler checks them.
+
 ---
 
 ## The Two-Column Ledger

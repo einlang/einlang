@@ -199,6 +199,24 @@ The `@fn` declaration shares the function's name and parameter list. Inside the 
 
 The coordinate parameter `j` appears in both the primal function and its derivative rule. The tangent computation follows the same coordinate contract as the primal.
 
+Now the case where `@fn` is not an optimization but a necessity. `argmax` is not differentiable — its true derivative is zero almost everywhere. The autodiff pass has no branch for `ReductionOp.ARGMAX`. If you want a gradient through a selection, you need a Straight-Through Estimator:
+
+```rust
+fn ste_top1[j](p: [f32; ..left, j, ..right]) -> [i32; ..left, ..right] {
+    argmax[j](p[..left, j, ..right])
+}
+
+@fn ste_top1[j](p: [f32; ..left, j, ..right]) {
+    soft_surrogate_tangent[j](p, @p)
+}
+```
+
+The forward pass uses `argmax[j]` — hard selection, integer address. The backward pass uses `soft_surrogate_tangent[j]` — the incoming gradient `@p` is distributed along `j` according to softmax weights. The coordinate `j` appears in both: hard selection along `j` in the forward, soft surrogate along the same `j` in the backward. The compiler verifies the coordinate match.
+
+PyTorch can do this — `torch.autograd.Function` with custom `forward`/`backward`. But `dim` is an integer. If the upstream tensor changes layout, `dim=1` silently points to the wrong axis. The STE still runs. The gradient still flows. It just flows to the wrong coordinate. The integer doesn't know.
+
+Here, `j` is a name. The compiler knows it's the same `j`. If the upstream tensor's coordinate layout changes, the mismatch is caught at the call site. The coordinate contract extends from the forward pass into the tangent rule. Same names, checked in both directions.
+
 ---
 
 ## Where Clauses in the Backward Pass

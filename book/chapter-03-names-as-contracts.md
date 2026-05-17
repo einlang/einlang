@@ -186,6 +186,18 @@ The rest of this book builds on this distinction. Every chapter from here forwar
 
 ---
 
+## Domain and Extent
+
+A coordinate has three properties. You've seen the first two: a **name** (`batch`, `class`) and a **domain** (the set of values it ranges over). The third is **extent** — the size of the domain, the number you see in a shape tuple.
+
+Extent and domain are different things. `class` and `expert` may both have extent 1024. They are not the same coordinate. A tensor of shape `(1024, 1024)` could be `[class, expert]`, `[expert, class]`, `[batch, class]`, or `[seq, hidden]`. The extents are identical. The domains are different.
+
+Positional notation records only the extent: `(1024, 1024)` tells you the sizes. It does not tell you which is which. Named notation records both: `[class: 1024, expert: 1024]`. The distinction is not academic — it is the root cause of every Square Matrix Test failure in this book. When two extents are equal, shape checkers become domain-blind. Names restore sight.
+
+Keep this distinction in mind through the next section. The Square Matrix Test probes exactly this gap.
+
+---
+
 ## The Square Matrix Test
 
 There is a simple, brutal test for whether a piece of tensor code is robust to coordinate swaps. Set all dimension sizes equal. Swap two axes. Ask: does the program still mean the same thing?
