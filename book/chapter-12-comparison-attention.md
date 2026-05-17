@@ -73,11 +73,7 @@ def cross_attention(Q, K, V):
     return torch.matmul(weights, V)
 ```
 
-They are identical. Stop and look at that. Two pieces of code—self-attention and cross-attention—with different semantics, different gradient behavior, different architectural implications. Textually identical.
-
-Where is the difference? In the code? No—the code for both is `torch.matmul(Q, K.transpose(-2, -1))`. In the tensor shapes at runtime? Yes—`seq_q` equals `seq_k` in one case and differs in the other. But shapes are runtime values, not source-level facts. The notation tells you nothing about which case you're in. You must trace the shapes backward through the forward pass to know—and after a refactoring, you must do it again.
-
-The code does not distinguish between self-attention and cross-attention because the distinction—whether `seq_q == seq_k`—is not recorded anywhere in the source. It is recorded in the shapes of the tensors passed at runtime.
+They are identical. Two operations with different gradient flows and different architectural implications — textually identical. The distinction between them — whether `seq_q` equals `seq_k` — is not in the source code. It is in the shapes of the tensors passed at runtime. The notation records nothing.
 
 **Einlang:**
 

@@ -49,7 +49,7 @@
   <rect x="68"  y="0" width="60" height="26" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
   <text x="98"  y="17" class="small" text-anchor="middle"><tspan class="it">..b</tspan>, <tspan class="bf">f</tspan></text>
 
-  <rect x="140" y="0" width="44" height="26" fill="#faf4f4" stroke="#b04246" stroke-width="0.5"/>
+  <rect x="140" y="0" width="44" height="26" fill="#faf4f4"/>
   <text x="162" y="17" class="warn" text-anchor="middle"><tspan class="bf">f</tspan></text>
 
   <rect x="196" y="0" width="44" height="26" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
@@ -61,7 +61,7 @@
   <rect x="308" y="0" width="84" height="26" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
   <text x="350" y="17" class="small" text-anchor="middle">* <tspan class="bf">γ</tspan>[<tspan class="bf">f</tspan>] + <tspan class="bf">β</tspan>[<tspan class="bf">f</tspan>]</text>
 
-  <rect x="404" y="0" width="56" height="26" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>
+  <rect x="404" y="0" width="56" height="26" fill="#e6f0f3"/>
   <text x="432" y="17" class="small" text-anchor="middle"><tspan class="it">..b</tspan>, <tspan class="bf">f</tspan></text>
 </g>
 
@@ -72,7 +72,7 @@
   <rect x="68"  y="0" width="60" height="26" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
   <text x="98"  y="17" class="small" text-anchor="middle"><tspan class="it">..b</tspan>, <tspan class="bf">f</tspan></text>
 
-  <rect x="140" y="0" width="44" height="26" fill="#faf4f4" stroke="#b04246" stroke-width="0.5"/>
+  <rect x="140" y="0" width="44" height="26" fill="#faf4f4"/>
   <text x="162" y="17" class="warn" text-anchor="middle"><tspan class="bf">f</tspan></text>
 
   <rect x="196" y="0" width="44" height="26" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
@@ -84,7 +84,7 @@
   <rect x="308" y="0" width="84" height="26" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
   <text x="350" y="17" class="small" text-anchor="middle">* <tspan class="bf">γ</tspan>[<tspan class="bf">f</tspan>]</text>
 
-  <rect x="404" y="0" width="56" height="26" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>
+  <rect x="404" y="0" width="56" height="26" fill="#e6f0f3"/>
   <text x="432" y="17" class="small" text-anchor="middle"><tspan class="it">..b</tspan>, <tspan class="bf">f</tspan></text>
 </g>
 
@@ -95,7 +95,7 @@
   <rect x="68"  y="0" width="60" height="26" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
   <text x="98"  y="17" class="small" text-anchor="middle"><tspan class="it">..b</tspan>,<tspan class="bf">g</tspan>,<tspan class="bf">c</tspan>,<tspan class="it">..s</tspan></text>
 
-  <rect x="140" y="0" width="44" height="26" fill="#faf4f4" stroke="#b04246" stroke-width="0.5"/>
+  <rect x="140" y="0" width="44" height="26" fill="#faf4f4"/>
   <text x="162" y="17" class="warn" text-anchor="middle"><tspan class="bf">c</tspan>, <tspan class="it">..s</tspan></text>
 
   <rect x="196" y="0" width="44" height="26" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
@@ -107,7 +107,7 @@
   <rect x="308" y="0" width="84" height="26" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
   <text x="350" y="17" class="small" text-anchor="middle">* <tspan class="bf">γ</tspan>[<tspan class="bf">g</tspan>,<tspan class="bf">c</tspan>] + <tspan class="bf">β</tspan>[<tspan class="bf">g</tspan>,<tspan class="bf">c</tspan>]</text>
 
-  <rect x="404" y="0" width="56" height="26" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>
+  <rect x="404" y="0" width="56" height="26" fill="#e6f0f3"/>
   <text x="432" y="17" class="small" text-anchor="middle"><tspan class="it">..b</tspan>,<tspan class="bf">g</tspan>,<tspan class="bf">c</tspan>,<tspan class="it">..s</tspan></text>
 </g>
 
@@ -118,7 +118,7 @@
   <rect x="68"  y="0" width="60" height="26" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
   <text x="98"  y="17" class="small" text-anchor="middle"><tspan class="it">..b</tspan>,<tspan class="bf">c</tspan>,<tspan class="it">..s</tspan></text>
 
-  <rect x="140" y="0" width="44" height="26" fill="#faf4f4" stroke="#b04246" stroke-width="0.5"/>
+  <rect x="140" y="0" width="44" height="26" fill="#faf4f4"/>
   <text x="162" y="17" class="warn" text-anchor="middle"><tspan class="it">..s</tspan></text>
 
   <rect x="196" y="0" width="44" height="26" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
@@ -130,7 +130,7 @@
   <rect x="308" y="0" width="84" height="26" fill="#ffffff" stroke="#262626" stroke-width="0.5"/>
   <text x="350" y="17" class="small" text-anchor="middle">* <tspan class="bf">γ</tspan>[<tspan class="bf">c</tspan>] + <tspan class="bf">β</tspan>[<tspan class="bf">c</tspan>]</text>
 
-  <rect x="404" y="0" width="56" height="26" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>
+  <rect x="404" y="0" width="56" height="26" fill="#e6f0f3"/>
   <text x="432" y="17" class="small" text-anchor="middle"><tspan class="it">..b</tspan>,<tspan class="bf">c</tspan>,<tspan class="it">..s</tspan></text>
 </g>
 

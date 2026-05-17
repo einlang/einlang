@@ -268,15 +268,21 @@ The compiler reads the code the way a reader reads a story: forward to understan
 
 ### From Recurrence Dims to Execution Strategy
 
-The two-tier scan you ran in Fragment E does more than classify dimensions. It picks the execution strategy.
+The two-tier scan you ran in Fragment E does more than classify dimensions. It picks the execution strategy. But before reading the answer, ask yourself the question the compiler faces:
 
-When **every read of the declared variable is at a strictly backward offset on the recurrence dimension** — Tier 2 satisfied — the compiler can vectorize the recurrence into a single pass. It allocates a rolling history buffer along the output recurrence dim, iterates that dim in a loop, and computes all spatial positions at each step in one tensor operation. The heat equation `u[t-1, i]`, `u[t-1, i±1]` uses this path. So do Fibonacci, the optimizer recurrence, and the bidirectional RNN — all reads are at `t-1` (or `t+1` for backward iteration). One recurrence output dim, vectorized spatial.
+Fragment E has two recurrence dims — `i` and `j`. Neither alone satisfies Tier 2. The heat equation has one recurrence dim (`t`), and it does satisfy Tier 2. Should these two cases compile to the same loop structure? Or different ones?
 
-When **offsets exist on the declared variable but no single dim is strictly backward across all reads** — Tier 2 fails, Tier 1 passes — the compiler falls back to *partition/step* execution. Fragment E is the example. `A[i-1, j]` is backward on dim 0 but `A[i, j-1]` has `i` not backward on dim 0. `A[i, j-1]` is backward on dim 1 but `A[i-1, j]` has `j` not backward on dim 1. Neither dim satisfies "all reads strictly backward." The compiler emits nested loops: iterate `i`, iterate `j`, compute each position one at a time, store the full previous row in a buffer.
+Take a minute. What would *you* emit?
 
-The same recurrence detection that checks causality also picks the execution path. Tier 1 alone: partition/step. Tier 2 satisfied: vectorized with rolling window. The compiler doesn't guess. It reads the offsets.
+---
 
-This is the same design choice that appears throughout Einlang: the structural fact is in the code; the compiler derives the engineering consequence. The programmer writes `i-1`. The compiler determines whether that minus sign means "store one row" or "iterate one position at a time." No annotation. The minus sign is the annotation.
+The heat equation (`u[t-1, i]`, `u[t-1, i±1]`) reads only `t-1` on the declared variable. Tier 2 is satisfied on `t`. The compiler picks `t` as the **recurrence output dim** — step `t` forward one at a time, compute all `i` positions in parallel at each step. It allocates a rolling history buffer (two rows for lookback, plus tail steps for downstream reads), iterates the `t` loop, and runs the spatial computation as a single tensor operation per step. Fibonacci, the optimizer recurrence, and the bidirectional RNN all use this path. One recurrence output dim, vectorized spatial.
+
+Fragment E (`A[i,j] = A[i-1, j] + A[i, j-1]`) has no dim that satisfies Tier 2. `A[i-1, j]` is backward on dim 0, but `A[i, j-1]` is not — on dim 0, `i` appears without offset. Dim 1 has the symmetric problem: `j-1` is backward, but `A[i-1, j]` uses `j` without offset. Neither dim earns the strict-backward guarantee. The compiler falls back to **partition/step**: nested loops over `i` and `j`, compute one position at a time, buffer the full previous row.
+
+The same recurrence detection that checks causality also picks the execution path. Tier 1 alone → partition/step. Tier 2 satisfied → vectorized with rolling window. The compiler doesn't guess. It reads the offsets.
+
+The programmer writes `i-1`. The compiler determines whether that minus sign means "store one row" or "iterate one position at a time." No annotation. The minus sign is the annotation.
 
 ---
 

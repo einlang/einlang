@@ -224,6 +224,34 @@ The solver is not a general-purpose theorem prover. It is a pattern matcher for 
 
 ---
 
+### The Solver in the Wild: Strided Convolution in Whisper
+
+The solver's pattern-matching is not a toy. It handles the expressions that appear in production models. Consider the Whisper speech recognition encoder — a real model that transcribes audio to text. Its second convolution layer downsamples the time axis by a factor of 2:
+
+```rust
+let c2[co in 0..384, t in 0..1500] =
+    sum[ci in 0..384, k in 0..3](c1_pad[ci, t * 2 + k] * enc_conv2_w[co, ci, k])
+    + enc_conv2_b[co];
+```
+
+The novelty is `t * 2 + k`. This is a strided convolution — stride 2, kernel size 3. The output position `t` maps to input position `2*t` (the stride), plus `k` offsets the kernel window (0, 1, 2). The constraint solver must verify that `t * 2 + k < input_length` for all valid `t` and `k`.
+
+The solver walks the expression tree just as it did for `i * 2 + offset`:
+
+1. **Top level is addition.** `t * 2 + k < input_length`. Subtract `k`: `t * 2 < input_length - k`.
+2. **Recurse into multiplication.** `t * 2 < input_length - k`. Divide by 2 (with ceiling): `t < ceil((input_length - k) / 2)`.
+3. **Base case.** `t < bound`. The worst case is `k = 0` — the largest upper bound on `t`. Range: `t in [0, ceil(input_length / 2))`.
+
+The solver concludes: `t` ranges up to half of `input_length`. The output has 1500 time steps because the input (after padding) has 3002 time steps — `ceil(3002 / 2) = 1501`, and the kernel of size 3 subtracts one more from the valid range. The numbers check out. The compiler proved it without running a single value.
+
+Now look at the compiler's work from the other direction — the input's perspective. `c1_pad` has shape `(384, 3002)`. The index expression `t * 2 + k` reads from it. The ranges are: `t` up to 1500, `k` up to 3. Worst case: `t = 1499`, `k = 3` → `1499 * 2 + 3 = 3001`. The input's last valid index is 3001. The expression fits. The constraint is satisfied. The compiler checked it by solving for `t` given `k`, then verifying the worst-case bound against `input_length`. Two rewrites. One comparison. Zero runtime checks.
+
+This is the constraint solver earning its keep. The expression `t * 2 + k` is the defining pattern of strided convolution. Every model that downsamples — every convolutional encoder, every U-Net bottleneck, every feature pyramid — uses this arithmetic. The solver handles it with the same rewrite rules it uses for `i * 2 + offset`. Addition subtracts. Multiplication divides. The pattern is the same. The context — a 384-channel convolution in a speech recognition model — is different. The solver doesn't care. It sees the expression tree. It applies its rules. The proof falls out.
+
+And the names survive. When the solver reports that `t` is bounded by `ceil(input_length / 2)`, the bound is in terms of `input_length` — a name, not a number. The relationship between `t`'s range and `input_length` is visible in the error message. The programmer who changes the padding or the stride sees the constraint change. The name `t` carries the context. The name `input_length` carries the bound. The numbers in the generated code — `range(1500)` — are the last trace of the names that proved them.
+
+---
+
 Before moving on, trace the inference for three more cases. `data` has shape `[N]`.
 
 `let result[i] = data[i] + data[i + 2];`
@@ -423,4 +451,6 @@ The lowering pass is the point where names die. After this pass, the IR contains
 
 ---
 
-The compiler proved that names can be checked mechanically. The next three chapters prove that names matter in practice — placing Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. The question is not which notation is better. It is what each notation makes visible, and what each notation hides.
+Part III asked: can a machine do what you have been doing by hand? Trace a coordinate name from source to integer, checking every contract along the way, never running the program. The answer is a compiler — fifteen lines for the core loop, five check rules pinned to a detective's wall, an S-expression IR that preserves every name, a lowering pass that burns each name into an integer only after it has been verified. You built it.
+
+But a compiler that checks names is an engineering artifact. The question that opened Chapter 1 was not "can we build this?" It was "when the notation has a place for the fact, does the bug survive?" The compiler is the proof that the checking is mechanical. The remaining question is whether the checking matters. Chapters 11 through 13 answer it — by placing Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. The question is not which notation is better. It is what each notation makes visible, and what each notation hides.

@@ -24,12 +24,12 @@
   <text x="58" y="-8" class="label" text-anchor="middle">j</text>
   <text x="-18" y="43" class="label" text-anchor="end" transform="rotate(-90,-18,43)">i</text>
 
-  <rect x="0" y="104" width="116" height="20" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>
+  <rect x="0" y="104" width="116" height="20" fill="#e6f0f3"/>
   <text x="58" y="118" class="accent" text-anchor="middle"><tspan class="bf">bias</tspan>[<tspan class="it">j</tspan>]</text>
 
-  <line x1="29" y1="104" x2="29" y2="0" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-  <line x1="58" y1="104" x2="58" y2="0" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-  <line x1="87" y1="104" x2="87" y2="0" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+  <line x1="29" y1="101" x2="29" y2="3" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+  <line x1="58" y1="101" x2="58" y2="3" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+  <line x1="87" y1="101" x2="87" y2="3" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
 
   <text x="58" y="140" class="small" text-anchor="middle">repeats for each i</text>
 </g>
@@ -44,12 +44,12 @@
   <text x="58" y="-8" class="label" text-anchor="middle">j</text>
   <text x="-18" y="43" class="label" text-anchor="end" transform="rotate(-90,-18,43)">i</text>
 
-  <rect x="-44" y="0" width="20" height="86" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.5"/>
+  <rect x="-44" y="0" width="20" height="86" fill="#e6f0f3"/>
   <text x="-34" y="43" class="accent" text-anchor="middle" transform="rotate(-90,-34,43)"><tspan class="bf">bias</tspan>[<tspan class="it">i</tspan>]</text>
 
-  <line x1="-24" y1="22" x2="112" y2="22" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-  <line x1="-24" y1="43" x2="112" y2="43" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-  <line x1="-24" y1="64" x2="112" y2="64" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+  <line x1="-21" y1="22" x2="112" y2="22" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+  <line x1="-21" y1="43" x2="112" y2="43" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+  <line x1="-21" y1="64" x2="112" y2="64" stroke="#4a4a4a" stroke-width="0.7" marker-end="url(#arr)" stroke-dasharray="3,3"/>
 
   <text x="58" y="140" class="small" text-anchor="middle">repeats for each j</text>
 </g>

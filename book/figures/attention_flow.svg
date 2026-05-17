@@ -47,9 +47,9 @@
 </g>
 
 <!-- Arrows: x → Q, K, V -->
-<line x1="96" y1="100" x2="132" y2="36" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-<line x1="96" y1="100" x2="132" y2="92" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-<line x1="96" y1="100" x2="132" y2="148" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="99" y1="100" x2="132" y2="36" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="99" y1="100" x2="132" y2="92" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="99" y1="100" x2="132" y2="148" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
 
 <!-- Scores QK^T -->
 <g transform="translate(234,42)">
@@ -60,8 +60,8 @@
 </g>
 
 <!-- Arrows Q,K → scores -->
-<line x1="192" y1="36" x2="230" y2="64" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
-<line x1="192" y1="92" x2="230" y2="92" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="195" y1="36" x2="230" y2="64" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="195" y1="92" x2="230" y2="92" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
 
 <!-- Softmax label -->
 <text x="335" y="82" class="accent" text-anchor="middle">softmax[<tspan class="bf">seq</tspan><tspan class="sub">k</tspan>]</text>
@@ -75,10 +75,10 @@
 </g>
 
 <!-- Arrow scores → O -->
-<line x1="298" y1="78" x2="364" y2="100" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<line x1="301" y1="78" x2="364" y2="100" stroke="#4a4a4a" stroke-width="0.6" marker-end="url(#arr)" stroke-dasharray="3,3"/>
 
 <!-- Arrow V → O -->
-<path d="M192,148 C270,190 320,180 368,100" stroke="#4a4a4a" stroke-width="0.6" fill="none" marker-end="url(#arr)" stroke-dasharray="3,3"/>
+<path d="M195,148 C273,190 316,180 364,100" stroke="#4a4a4a" stroke-width="0.6" fill="none" marker-end="url(#arr)" stroke-dasharray="3,3"/>
 
 <!-- Bottom text -->
 <line x1="10" y1="198" x2="450" y2="198" stroke="#c4c4c4" stroke-width="0.3"/>

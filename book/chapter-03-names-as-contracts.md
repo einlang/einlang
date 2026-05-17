@@ -361,4 +361,4 @@ Each check is a mechanical verification. You won't perform these steps by hand. 
 
 ---
 
-Coordinate-aware functions compose. Chapter 5 extracts their shared skeleton—the pattern that makes LayerNorm, RMSNorm, GroupNorm, and InstanceNorm the same function with different coordinates. But first, Chapter 4 asks a more immediate question: when you write a broadcast, you are making a claim. What is the claim? And who checks it? The answer turns every broadcast into a self-audit.
+Coordinate-aware functions compose. But before seeing the pattern they form together, there is a more immediate question: when you write a broadcast, you are making a claim about coordinate independence. What is the claim? And who checks it? Chapter 4 turns every broadcast into a self-audit — three questions and a set subtraction that reveal whether the independence is justified.

@@ -497,4 +497,10 @@ Every broadcast is a claim. Before you move on, ask these three questions of any
 
 If you can't answer all three with confidence, the broadcast is an accident of shape alignment, not a defended claim. For now, the questions themselves are the habit.
 
+---
+
+Part I gave you three primitives: naming a coordinate, reducing one, and broadcasting over one. The Inversion Rule turned reduction and broadcast into a single dual: what broadcasts forward is summed backward. You can now audit any single tensor operation — a `sum`, a `softmax`, a `bias[j] + A[i,j]` — by reading the coordinate names in its brackets. What you cannot yet do is make the audit survive composition. A softmax is five operations. LayerNorm is ten. When they chain, does the coordinate story survive from the first operation to the last? Part II answers that question. The answer begins with a mechanism that makes the coordinate story checkable across every operation in a function body — and rejects the call site if it doesn't match.
+
+---
+
 The three questions apply to single operations. But real programs compose operations: softmax is a max, a subtract, an exp, a sum, and a divide—five steps, each involving coordinates with distinct roles. Chapter 3 introduces coordinate-aware functions, the mechanism that checks whether these compositions preserve the coordinate story across call sites. The question "does this broadcast make sense?" becomes "does this function's coordinate contract match its body?"

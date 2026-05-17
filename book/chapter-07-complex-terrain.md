@@ -312,6 +312,60 @@ Ranges are expressions. Expressions can reference coordinates. Coordinates can a
 
 ---
 
+### Ranges that Shape a Neighborhood
+
+The ranges so far have been one-sided: `k in 0..i+1` says "stop at the current position." But ranges can also exclude boundaries, and—combined with offset index expressions—they can define a spatial neighborhood that moves across a grid.
+
+Consider the 1D heat equation, discretized on a grid of 41 spatial points evolved over 80 time steps. The continuous equation is `∂u/∂t = α ∂²u/∂x²`. The discrete version uses a three-point centered difference:
+
+```rust
+let r = 0.2;
+let n = 41;
+
+let u[0, i in 0..41] = 0.0;
+let u[0, 20] = 10.0;                          // initial bump
+
+let u[t in 1..80, 0] = 0.0;                   // left boundary — fixed
+let u[t in 1..80, 40] = 0.0;                  // right boundary — fixed
+let u[t in 1..80, i in 1..40] =               // interior — stencil
+    u[t-1, i] + r * (u[t-1, i-1] - 2.0 * u[t-1, i] + u[t-1, i+1]);
+```
+
+Read the interior line: at time `t` and spatial position `i`, the new value is the old value plus a diffusion term that reads three neighbors from the previous time step — `i-1`, `i`, and `i+1`. The range `i in 1..40` excludes the boundaries (0 and 40 are handled separately). The range `t in 1..80` starts at 1 because the initial condition occupies `t=0`.
+
+The range expressions on the left side declare *which cells are computed*. The offsets on the right side declare *which already-computed cells are read*. `i in 1..40` says: compute every interior cell. `u[t-1, i-1]` says: read the cell one spatial step left, from the previous time step. The two ranges are different expressions, referencing the same coordinate `i` in two roles. The left range says "compute positions 1 through 40." The right offsets say "read positions 0 through 41." The overlap is exact — the interior reads both boundaries without computing them.
+
+The complete program — initial condition, boundary conditions, interior evolution — is four `let` statements. No loop construct. No time-stepping primitive. The ranges are the loops. The offsets are the stencil. The recurrence across `t` is the same mechanism from Chapter 6, applied to a spatial grid. The coordinate `t` carries time. The coordinate `i` carries space. The names distinguish them.
+
+In a positional framework, the equivalent is nested loops with manual index arithmetic:
+
+```python
+u = np.zeros((81, 41))
+u[0, 20] = 10.0
+for t in range(1, 81):
+    u[t, 0] = 0.0
+    u[t, 40] = 0.0
+    for i in range(1, 40):
+        u[t, i] = u[t-1, i] + r * (u[t-1, i-1] - 2*u[t-1, i] + u[t-1, i+1])
+```
+
+The loops are explicit. The ranges are numbers. The stencil pattern is visible — but it is visible in the arithmetic, not in the structure. If the grid expands to 2D (heat on a plate) or 3D (heat in a volume), the positional version adds nested loops. The named version adds coordinates:
+
+```rust
+let u[t in 1..80, i in 1..40, j in 1..40] =  // 2D interior
+    u[t-1, i, j] + r * (u[t-1, i-1, j] + u[t-1, i+1, j]
+                       + u[t-1, i, j-1] + u[t-1, i, j+1]
+                       - 4.0 * u[t-1, i, j]);
+```
+
+Two coordinates added. The stencil grew from three neighbors to five. The range `i in 1..40, j in 1..40` excludes the 2D boundary. The structure — ranges on the left, offsets on the right — is identical in 1D and 2D. The notation scales. The loops scale too, but they scale by nesting. The nests grow. The names don't.
+
+This is the third form of range expression. The first was a fixed range (`k in 0..3`). The second was a range that references a coordinate (`k in 0..i+1` for cumulative operations). The third is a range that excludes boundaries, combined with offsets, to define a moving stencil over a grid. All three use the same mechanism: a coordinate appears in a range expression on the left, and in index expressions (possibly with offsets) on the right. The range says what to compute. The offsets say what to read. The coordinate name ties them together.
+
+Ranges are expressions. Stencils are ranges with offsets. The PDE is the program.
+
+---
+
 Every section in this chapter was a variation on one operation: a single coordinate splitting into two roles.
 
 Distance matrix: `point` becomes `point_i` and `point_j`. Convolution: `oh` and `kh` together index the spatial input — one coordinate from the output, one from the kernel. Depth-to-space: `c_out * 4 + dy * 2 + dx` splits the channel index into a channel group and two sub-pixel offsets. Fancy indexing: `k` appears in both index positions for pairwise, or `i` and `j` are different for outer-product — coordinate-sharing IS the disambiguation. Gather vs. scatter: same split, different direction.

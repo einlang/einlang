@@ -38,7 +38,7 @@
     <circle cx="122" cy="100" r="3"/><circle cx="154" cy="100" r="3"/>
     <circle cx="58" cy="128" r="3"/><circle cx="90" cy="128" r="3"/>
     <circle cx="122" cy="128" r="3"/>
-    <circle cx="154" cy="128" r="7" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.9"/>
+    <circle cx="154" cy="128" r="7" fill="#e6f0f3"/>
   </g>
 
   <text x="14" y="48"  class="small" text-anchor="end"><tspan class="it">i</tspan>=0</text>
@@ -77,11 +77,11 @@
   <text x="172" y="50" class="warn" text-anchor="start">future — off limits</text>
 
   <line x1="46" y1="44" x2="202" y2="44" stroke="#b04246" stroke-width="0.4" stroke-dasharray="3,2"/>
-  <circle cx="56"  cy="44" r="4" fill="#faf4f4" stroke="#b04246" stroke-width="0.5" stroke-dasharray="3,2"/>
-  <circle cx="82"  cy="44" r="4" fill="#faf4f4" stroke="#b04246" stroke-width="0.5" stroke-dasharray="3,2"/>
-  <circle cx="108" cy="44" r="4" fill="#faf4f4" stroke="#b04246" stroke-width="0.5" stroke-dasharray="3,2"/>
-  <circle cx="134" cy="44" r="4" fill="#faf4f4" stroke="#b04246" stroke-width="0.5" stroke-dasharray="3,2"/>
-  <circle cx="160" cy="44" r="4" fill="#faf4f4" stroke="#b04246" stroke-width="0.5" stroke-dasharray="3,2"/>
+  <circle cx="56"  cy="44" r="4" fill="#faf4f4" stroke-dasharray="3,2"/>
+  <circle cx="82"  cy="44" r="4" fill="#faf4f4" stroke-dasharray="3,2"/>
+  <circle cx="108" cy="44" r="4" fill="#faf4f4" stroke-dasharray="3,2"/>
+  <circle cx="134" cy="44" r="4" fill="#faf4f4" stroke-dasharray="3,2"/>
+  <circle cx="160" cy="44" r="4" fill="#faf4f4" stroke-dasharray="3,2"/>
 
   <!-- Red dashed arrow from t to t+1 -->
   <line x1="108" y1="78" x2="108" y2="50" stroke="#b04246" stroke-width="0.6" marker-end="url(#arrRed)" stroke-dasharray="4,3"/>
@@ -92,7 +92,7 @@
   <line x1="46" y1="100" x2="202" y2="100" stroke="#262626" stroke-width="0.5"/>
   <circle cx="56"  cy="100" r="4.5" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
   <circle cx="82"  cy="100" r="4.5" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
-  <circle cx="108" cy="100" r="7" fill="#e6f0f3" stroke="#1f6d7a" stroke-width="0.9"/>
+  <circle cx="108" cy="100" r="7" fill="#e6f0f3"/>
   <circle cx="134" cy="100" r="4.5" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
   <circle cx="160" cy="100" r="4.5" fill="#ffffff" stroke="#262626" stroke-width="0.6"/>
 

@@ -401,23 +401,19 @@ But the most important section here is not the syntax. It is the four-question a
 
 ---
 
-## Five Principles, Restated
+## Five Principles
 
-Before the syntax reference ends, the five principles that every chapter has demonstrated. They are not syntax. They are what the syntax serves.
+**1. Coordinates have identities.** `batch`, `channel`, `time`, `feature` are not positions — they are names. A position records where; a name records what.
 
-**1. Coordinates have identities.** `batch`, `channel`, `time`, `feature` are not positions. They are names. A position records where. A name records what. When the layout changes, the position breaks. The name survives.
+**2. Reductions must name what they consume.** `sum[class](x)` names the erased coordinate. `x.sum(dim=1)` erases a position.
 
-**2. Reductions must name what they consume.** `sum[class](x)` says "I am consuming `class`." `x.sum(dim=1)` says "I am consuming position 1." The first survives a transpose. The second does not.
+**3. Broadcasts must name what they copy along.** `bias[j]` omits `i` — the omission records the broadcast.
 
-**3. Broadcasts must name what they copy along.** `out[i, j] = A[i, j] + bias[j]` says "`bias` is silent on `i`." `A + bias` says nothing. The first records the omission. The second infers it from shapes.
+**4. Functions must declare their coordinate contracts.** The bracketed parameter is part of the type. The compiler checks every call site.
 
-**4. Functions must declare their coordinate contracts.** `fn softmax[j](x: [f32; ..left, j, ..right])` says "I operate on `j`." `def softmax(logits, dim=-1)` says "I operate on the last axis." The first is checked at every call site. The second is a convention.
+**5. Gradients read the forward pass backward.** What consumed forward broadcasts backward. What omitted forward sums backward.
 
-**5. Gradients read the forward pass backward.** What consumed forward is broadcast backward. What was silent forward is summed backward. The Inversion Rule is not a separate mechanism. It is the forward pass, read in reverse, with the same coordinate names on both sides.
-
-Five principles. They are not Einlang-specific. They apply in any notation that records coordinate identities. The notation can be brackets. It can be einops strings. It can be comments. What matters is that the identity is recorded somewhere the reader can see it and the compiler can check it.
-
-The syntax will evolve. The thought map will grow. The habit—write the coordinate names, make the omissions explicit, let the compiler check the contracts—will outlast any particular syntax.
+These principles are not Einlang-specific. They apply in any notation that records coordinate identities — brackets, einops strings, comments. The habit outlasts any particular syntax.
 
 ### Five Principles in Practice
 
@@ -647,5 +643,108 @@ This book built a naming system for the ideas it introduced. Here they are, gath
 **Lowering.** The final stage of the compiler: names become integers. The name is burned. The integer is correct because the name was verified.
 
 These words are not decoration. They are the text's own coordinate system. Their job is the same as the job of the bracket: to give a fact a place to live, so it can be checked.
+
+---
+
+## Three Scenarios
+
+**The legacy codebase.** You inherit a PyTorch model with 200 occurrences of `dim=-1`. Spend one afternoon adding a comment at every `dim` argument: `# dim=-1 = feature`, `# dim=1 = channel`. One afternoon now beats ten afternoons of shape-tracing over the next year. The names need to be visible—not checked, not guaranteed, just visible.
+
+**The new project.** Name your dimensions at the data loader, not in the model. The moment a tensor enters your program, attach coordinate names—in a docstring, in a convention (`batch` always first, `spatial` always last), in a project README. Six months from now, the convention tells you what `dim=1` means.
+
+**The bug investigation.** Before you print another shape, write down which coordinate you think each dimension is. If `x.mean(dim=0)` is normalizing over `batch`, something is wrong—regardless of whether the shapes match. Which coordinate is consumed? Is the answer visible in the code? The question is the audit.
+
+---
+
+## A Practical Guide for Non-Migrators
+
+The coordinate habit does not require Einlang. It requires only that you put the name where the next reader can see it. Here are the patterns that work in PyTorch, JAX, and NumPy today.
+
+**At the data loader.** The moment a tensor enters your program, its coordinates have identities. Record them before they are lost.
+
+```python
+# x: (batch, channel, spatial) — order guaranteed by DataLoader
+x = next(iter(dataloader))
+```
+
+This is a single line. It costs nothing to maintain—when the DataLoader changes, the comment is right next to the code that needs updating. Six months later, a reader tracing `x.mean(dim=1)` through the model sees the comment and knows: `dim=1` is `channel`.
+
+**At every reduction.** A `dim=` argument consumes a coordinate. Which one? Write it.
+
+```python
+h = x.mean(dim=1)          # dim=1 = channel
+h = logits.softmax(dim=-1)  # dim=-1 = class
+h = scores.sum(dim=(2, 3))  # dims=(2,3) = (height, width)
+```
+
+The comment records intent. When a refactor changes the shape, the comment is a flag: *this integer should match the coordinate named here*. If they no longer match, the reader knows to investigate.
+
+**At every broadcast.** An operation between tensors of different ranks is a broadcast. Which coordinates are being replicated? Write the pattern.
+
+```python
+# broadcasting: bias[channel] over (batch, channel)
+out = x + bias
+
+# broadcasting: scale[1, channel, 1, 1] over (batch, channel, height, width)
+out = x * scale
+```
+
+The comment makes the silence audible. It records which coordinates the smaller tensor is silent on—the same information the compiler's broadcast ledger would record.
+
+**At every reshape.** A reshape changes the coordinate layout. What was the layout before? What is it after? The names answer both questions.
+
+```python
+# (batch, group, c_per_group, height, width) -> (batch, group, -1)
+x = x.reshape(batch, group, -1)
+```
+
+The comment is the map from the old layout to the new one. Without it, the reader must reconstruct the layout from context—or run the code and print shapes.
+
+**At every permutation.** A `permute`, `transpose`, or `swapaxes` reorders coordinates. Which coordinates moved? Write the correspondence.
+
+```python
+# (batch, seq, heads, d_head) -> (batch, heads, seq, d_head)
+x = x.permute(0, 2, 1, 3)
+```
+
+Or use einops, which records the correspondence as part of the expression:
+
+```python
+x = rearrange(x, "batch seq heads d -> batch heads seq d")
+```
+
+The einops string is checked at runtime. The comment is not. Both record the intent. Choose based on whether you need the runtime check.
+
+**At function boundaries.** A function that takes a tensor and returns a tensor has a coordinate contract. What does it consume? What does it produce? Write the contract in the docstring.
+
+```python
+def layer_norm(x: Tensor) -> Tensor:
+    """
+    x: (batch, ..., feature)
+    Returns: (batch, ..., feature)
+    Normalizes over: feature
+    """
+    mean = x.mean(dim=-1, keepdim=True)
+    var = x.var(dim=-1, keepdim=True)
+    return (x - mean) / (var + eps).sqrt() * gamma + beta
+```
+
+A reader of the call site does not need to read the implementation. The docstring tells them which coordinate is consumed and which survive. The contract is not checked by the compiler, but it is checked by the next programmer—and that is enough to catch the mistake where the author intended `layer_norm` but the reader expects `instance_norm`.
+
+**In code review.** Add one question to the checklist: *for each `dim=` argument in this diff, is the coordinate identity documented?* If the answer is no, ask the author to add a comment. The habit compounds.
+
+**When you can't name it.** Write the number. But write the uncertainty too.
+
+```python
+x = x.mean(dim=-1)  # dim=-1: last dim, currently feature-like; may change
+```
+
+The confession is better than silence.
+
+---
+
+Each of these patterns is a bridge. It does not check. It does not enforce. It does not survive a refactoring automatically. But it records. The name moves from the programmer's head into the source file, where the next reader—the colleague, the reviewer, the future you—can find it. The bridge is imperfect. But a bridge that exists is better than a bridge that was never built.
+
+---
 
 The Epilogue returns to the Tuesday bug from Chapter 1 and asks what changes when a name has a place to live.
