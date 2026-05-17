@@ -261,6 +261,35 @@ You now know the three operations a coordinate can undergo: it can be left free 
 
 ---
 
+## How the Compiler Reads Your Mind
+
+You've been writing `let C = sum[k](A[i, k] * B[k, j])` without specifying the output shape. The compiler infers it. How?
+
+Here are two expressions. They differ only in the order of multiplication:
+
+```rust
+let C = sum[k](A[i, k] * B[k, j]);   // A × B
+let D = sum[k](B[k, j] * A[i, k]);   // B × A
+```
+
+Before reading on: what shapes do `C` and `D` have? Are they the same?
+
+---
+
+`C` is `[i, j]`. `D` is `[j, i]`.
+
+The compiler determines output coordinate order by scanning the expression **left to right, depth first, first occurrence**. In `A[i, k] * B[k, j]`, it encounters `i` first (inside `A[i, k]`), then `j` (inside `B[k, j]`). Output: `C[i, j]`. In `B[k, j] * A[i, k]`, it encounters `j` first. Output: `D[j, i]`.
+
+The order you write the indices is the order they appear in the output. The compiler reads your expression in exactly the order you do — and the output layout follows your reading order.
+
+This is not a coincidence. It means you can control the output layout by controlling the order of terms. If you want `C[j, i]`, write `B[k, j] * A[i, k]`. If you want `C[i, j]`, write `A[i, k] * B[k, j]`. No transposition needed. No `permute` call. The layout follows from the expression structure itself.
+
+Every tensor library has a concept of "output shape inference." NumPy einsum requires you to write `ik,kj->ij` — the `->ij` is mandatory if you want control. PyTorch infers shapes from input dimensions. Both treat output layout as something the library decides for you, or something you specify separately from the computation.
+
+Einlang treats output layout as something that falls out of the computation itself. The compiler reads left to right, first occurrence wins. You read left to right. The same rule. No separate notation. No hidden inference. The reading order *is* the layout.
+
+---
+
 ## The Two-Column Ledger
 
 A reduction is the most semantically loaded operation in tensor programming. Every reduction makes two claims: which coordinate is being *consumed*, and which coordinates are *surviving*. When you read a reduction, draw an imaginary line down the middle of the page:

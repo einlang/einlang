@@ -386,16 +386,20 @@ let P_pred[t in 1..T, i in 0..2, j in 0..2] =
 
 // Update
 let y[t in 1..T] = z[t-1] - (H[0] * x_pred[t, 0] + H[1] * x_pred[t, 1]);
-let S[t in 1..T] = H[0] * P_pred[t, 0, 0] * H[0] + R;  // innovation covariance
-let K[t in 1..T, i in 0..2] = (P_pred[t, i, 0] * H[0]) / S[t];  // Kalman gain
+let S[t in 1..T] = H[0] * P_pred[t, 0, 0] * H[0] + R;
+let K[t in 1..T, i in 0..2] = (P_pred[t, i, 0] * H[0]) / S[t];
 let x[t in 1..T, i in 0..2] = x_pred[t, i] + K[t, i] * y[t];
 ```
 
-Look at what recurrence carries here. `t-1` appears on `x`, `P`, and `P_pred` — four separate backward references. The dependency chain flows through a 2×2 covariance matrix, not a scalar. The coordinate `i` ranges over the state dimensions (position, velocity); `j` ranges over the same domain in the covariance. These are bookshelves — every `i` and `j` at `t-1` is available. Only `t` carries the arrow.
+Before reading on, answer two questions. First: how many times does `t-1` appear in this code, and on which variables? Second: `i` ranges over the state (position, velocity) and `j` ranges over the same domain in the covariance. Are `i` and `j` recurrence coords or bookshelves? How do you know?
 
-Now ask: in the PyTorch version of this code, how does the reader know which dimension is time? The shapes are `(T, 2)` and `(T, 2, 2)`. Position 0 is probably time. But "probably" is not a check. In the einlang version, `t-1` is the check. The minus sign names the coordinate that carries the dependency. Same mechanism as the heat equation. Same check. Matrix-shaped state doesn't change the rule.
+---
 
-The Kalman filter migrated from a 223-line NumPy implementation to 25 lines of einlang. The matrix operations — `F[i,0]*x[t-1,0] + F[i,1]*x[t-1,1]` — are explicit elementwise arithmetic. A future version will use `sum[k](F[i,k] * x[t-1,k])` for the matrix-vector product. But even without that, the recurrence structure is visible. `t-1` tells you what depends on what. The coordinate names tell you which dimensions are state and which are time. The code documents itself.
+`t-1` appears four times — on `x`, twice on `P`, and on `P_pred`. Four backward references. All at the same time step. The dependency chain flows through a 2×2 covariance matrix, not a scalar. Same mechanism as the heat equation. Same check. Only `t` carries the arrow.
+
+`i` and `j` are bookshelves. Every position at `t-1` is materialized — you can read `i=0` or `i=1`, `j=0` or `j=1`, in any order. The minus sign on `t-1` is the only signal that matters. Matrix-valued state doesn't change the rule.
+
+In PyTorch, the shapes are `(T, 2)` and `(T, 2, 2)`. Position 0 is probably time. But "probably" is not a check. Here, `t-1` is the check.
 
 ## The Gradient of a Recurrence
 
