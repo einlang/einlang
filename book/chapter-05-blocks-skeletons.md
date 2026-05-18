@@ -80,19 +80,11 @@ Pack parameters make coordinate-aware functions rank-polymorphic: the same funct
 
 ### How the Compiler Resolves Packs
 
-How does the compiler know how many dimensions `..b` absorbs? The answer is the coordinate parameter.
+The compiler resolves packs by finding the coordinate argument in the layout and splitting the surrounding axes. The signature is `fn layer_norm[coord](x: [f32; ..left, coord, ..right])`. The caller writes `layer_norm[channel](x)` where `x` has layout `[batch, channel, height, width]`.
 
-Walk through a concrete call. The signature is `fn layer_norm[coord](x: [f32; ..left, coord, ..right])`. The caller writes `layer_norm[channel](x)` where `x` has layout `[batch, channel, height, width]`. The compiler's job: assign concrete dimensions to `..left` and `..right`.
+The compiler walks `x`'s layout and finds `channel` at position 1. `..left` — everything before position 1 — binds to `[batch]`. `..right` — everything after — binds to `[height, width]`. The function body rewrites: `..left` → `[batch]`, `..right` → `[height, width]`, `coord` → `channel`. The function is now monomorphic for this call site.
 
-The algorithm has four steps, executed once per call site:
-
-**Step 1: Locate the anchor.** The caller supplied `coord = channel`. The compiler walks `x`'s layout `[batch, channel, height, width]` and finds `channel` at position 1. This is the only fact the compiler needs from the caller. Everything else follows from it.
-
-**Step 2: Resolve `..left`.** `..left` appears before `coord` in the signature. The compiler looks at everything before position 1 in the layout: `[batch]`. `..left` binds to `[batch]`. If `..left` had appeared elsewhere in the signature, the compiler would verify that every occurrence binds to the same set — the pack must be consistent across all positions in the signature.
-
-**Step 3: Resolve `..right`.** `..right` appears after `coord`. Everything after position 1: `[height, width]`. `..right` binds to `[height, width]`. Two steps, one anchor, zero ambiguity.
-
-**Step 4: Rewrite the function body.** Every occurrence of `..left` in the body is replaced with `[batch]`. Every `..right` becomes `[height, width]`. Every `coord` becomes `channel`. The body `max[coord](x[..left, coord, ..right])` becomes `max[channel](x[batch, channel, height, width])`. The function is now monomorphic for this call site.
+If `channel` is nowhere in the layout — `x` has `[batch, seq, height, width]` — the compiler reports:
 
 What if the layout doesn't match? The caller writes `layer_norm[channel](x)` but `x` has layout `[batch, seq, height, width]` — `channel` is nowhere in the layout. Step 1 fails. The compiler reports:
 
@@ -104,28 +96,6 @@ error: coordinate `channel` not found in argument layout
 ```
 
 No guessing. No silent mismatch. The anchor is missing, and the compiler says so.
-
-**Multiple packs, single anchor.** The same principle extends to signatures with several packs. `fn normalize[coord, ..left, ..right, ..s]` — three packs, one named coordinate. Step 1 finds `coord`. Step 2 splits `..left` (everything before `coord`). Step 3 splits `..right` (everything between `coord` and `..s`) and `..s` (everything after `..right`). Wait — how does the compiler know where `..right` ends and `..s` begins?
-
-This is where pack disambiguation matters. Consider a pooling operation that collapses spatial dimensions:
-
-```rust
-fn pool[..s](x: [f32; ..b, ..s]) -> [f32; ..b] {
-    max[..s](x[..b, ..s])
-}
-```
-
-Only one pack — `..s` — is declared as a coordinate parameter. This is the pack the caller wants to name and control. The other pack, `..b`, appears in the value parameter's shape but is not a coordinate parameter — it's resolved by elimination: whatever coordinates remain after subtracting `..s` from the argument's layout. The caller writes:
-
-```rust
-pool[(h, w)](x)
-```
-
-A single parenthesized group `(h, w)` binds to `..s`. `..b` gets whatever is left: `[b]`. No ambiguity, because only one pack needs disambiguation.
-
-The alternative design — declaring both packs as coordinate parameters with `fn pool[..b, ..s]` and grouping at the call site as `pool[(batch), (height, width)]` — is legal but unnecessary. When two adjacent packs both need caller grouping, the design fights itself. The simpler rule: declare only the pack you need to name. Let the compiler infer the rest by elimination.
-
-This is the constraint on pack placement from the end of this section. A pack must be resolvable from the anchor coordinate alone. If two packs are adjacent with no named coordinate between them, the signature cannot determine the split — but you rarely need to declare both. Declare one. Let the other resolve. Adjacent packs in a signature are a signal: you are asking for a disambiguation problem. Move one of them to be implicit, and the problem disappears.
 
 What about multiple named coordinates? A function can accept more than one coordinate in brackets:
 
@@ -455,7 +425,7 @@ In PyTorch, a tensor leaves the data loader as `(32, 64)`. By the time it reache
 
 In Einlang, the identities survive. Not because the compiler is clever. Because the rule is brutally simple: coordinates only change when an operation explicitly changes them.
 
-Square a tensor. Coordinates unchanged. Add a constant. Coordinates unchanged. Pass through a pointwise function. Coordinates unchanged. This is not a coincidence. It is a design law: coordinate facts survive every operation that does not explicitly manipulate them. Reductions consume coordinates. Declarations introduce them. Coordinate-aware function calls thread them through signatures. Everything else — arithmetic, function calls that return tensors, `if` expressions — preserves them. You declare coordinates once. They propagate from that point forward.
+Square a tensor. Coordinates unchanged. Add a constant. Coordinates unchanged. Pass through a pointwise function. Coordinates unchanged. Coordinate facts survive every operation that does not explicitly manipulate them. Reductions consume coordinates. Declarations introduce them. Coordinate-aware function calls thread them through signatures. Everything else — arithmetic, function calls that return tensors, `if` expressions — preserves them. You declare coordinates once. They propagate from that point forward.
 
 This is stronger than type inference. Type inference says `x ** 2.0` has the same type as `x`. Coordinate flow says it has the same *identity* as `x`. The identities are not inferred from runtime shapes — they are propagated from declarations. A PyTorch tensor carries `(32, 64)` at runtime. It does not carry `(batch, channel)`. The identities are lost the moment the tensor leaves the data loader. In Einlang, they survive every intermediate binding, every arithmetic expression, every function return. The source is the declaration. The flow is forward.
 

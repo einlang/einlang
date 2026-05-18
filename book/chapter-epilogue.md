@@ -83,7 +83,7 @@ Every one of these bugs was shape-correct. Every one survived the checks that po
 
 ---
 
-## The Hermeneutics of Naming
+## When You Don't Know the Name
 
 Naming is a discipline—a habit to practice, an audit to perform. But there is a prior question: *what if you don't know what to call it?*
 
@@ -220,7 +220,7 @@ Not the framework. You're still using PyTorch, or JAX, or NumPy. Not the deadlin
 
 But something in how you read has changed.
 
-You will type `x.mean(dim=1)` and pause. Not because the line is wrong—because you now notice that `dim=1` is a number, and you know which coordinate it refers to, and you wonder whether the next person to read this line will know too.
+You will type `x.mean(dim=1)` and pause. Not because the line is wrong—because `dim=1` is a number, and you know which coordinate it refers to, and you wonder whether the next person to read this line will know too.
 
 You will write a broadcast and think: *which coordinate am I silent on?* Not because the framework requires you to answer—because you now know that the silence is a claim, and claims should be checkable.
 

@@ -297,7 +297,7 @@ Three kinds of runtime-dependence trigger this:
 
 **Data-dependent shapes.** The output shape depends on the data, not just the input shapes. `top_k` returns a variable number of elements. Beam search expands dynamically. The compiler cannot know the output shape at compile time because the output shape is the answer.
 
-This is not a flaw. Every tensor compiler faces this boundary, named or positional. The positional compiler says: "axis 1 has dynamic extent." Axis 1 might be `seq`, `class`, `head`, or `feature`. The number doesn't know. The name does. `seq` is ragged. The error names the coordinate. The strategy names the coordinate. The loop bound reads the coordinate's runtime length. The name survives analysis and lowering — it is the thread connecting the static check to the dynamic execution.
+Every tensor compiler faces this boundary, named or positional. The positional compiler says: "axis 1 has dynamic extent." Axis 1 might be `seq`, `class`, `head`, or `feature`. The number doesn't know. The name does. `seq` is ragged. The error names the coordinate. The strategy names the coordinate. The loop bound reads the coordinate's runtime length. The name survives analysis and lowering — it is the thread connecting the static check to the dynamic execution.
 
 ---
 

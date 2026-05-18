@@ -202,7 +202,7 @@ Every forward operation has a backward dual. The dual is not a separate rule. It
 
 Reduction → Broadcast. Broadcast → Reduction. Permute → Permute. Elementwise → Elementwise.
 
-Think of the forward pass as shopping: you walk through the aisles, items enter your cart, some are consumed (reduction), some are copied (broadcast). The backward pass is restocking: the manager reads the record backward, replenishing what was consumed and collecting what was copied. The shopping cart will return in Chapter 8 when we derive gradients systematically.
+Think of the forward pass as shopping: you walk through the aisles, items enter your cart, some are consumed (reduction), some are copied (broadcast). The backward pass is restocking: the manager reads the record backward, replenishing what was consumed and collecting what was copied.
 
 The coordinate names are on both sides of the receipt. The Inversion Rule is the guarantee that the two sides match.
 

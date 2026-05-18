@@ -227,7 +227,7 @@ The input gradient—the one that backpropagates through the network—shows how
 
 Forward: `conv[b, oc, oh, ow] = sum[ic, kh, kw](input[b, ic, oh + kh, ow + kw] * weight[oc, ic, kh, kw])`.
 
-To find `d_input[b, ic, ih, iw]`, apply the five-step procedure from Chapter 8:
+To find `d_input[b, ic, ih, iw]`: hold one input cell, list every output cell that reads it, invert the index relationship, sum over the path coordinates.
 
 1. **Hold one cell** of `input`: `input[b0, ic0, ih0, iw0]`.
 2. **List every output cell that reads it.** The held cell is read by every `conv[b0, oc, oh, ow]` where `oh + kh = ih0` and `ow + kw = iw0`, for all `oc`, all `kh`, all `kw`. That means `oh = ih0 - kh` and `ow = iw0 - kw`. For each `(kh, kw)`, the output at position `(oh, ow) = (ih0 - kh, iw0 - kw)` receives a contribution.
@@ -247,7 +247,7 @@ This is the convolution transpose—a transposed convolution with flipped kernel
 
 The index arithmetic `ih - kh` and `iw - kw` comes from inverting the forward relationship `oh + kh → ih`. The gradient "reads" from the output at the position where the input contributed. The inversion is mechanical: solve `oh + kh = ih` for `oh`, giving `oh = ih - kh`.
 
-Step back. You just derived a transposed convolution—the gradient of convolution—without memorizing a formula. The steps were: hold one input cell, list every output cell that reads it, invert the index relationship, sum over the path coordinates. These are the same five steps from Chapter 8's pullback procedure. The names `ih`, `iw`, `kh`, `kw`, `oc` stayed constant. The operation changed: forward addition (`oh + kh`) became backward subtraction (`ih - kh`). The structure—coordinate accounting—stayed the same.
+Step back. You just derived a transposed convolution—the gradient of convolution—without memorizing a formula. The steps were: hold one input cell, list every output cell that reads it, invert the index relationship, sum over the path coordinates. The names `ih`, `iw`, `kh`, `kw`, `oc` stayed constant. The operation changed: forward addition (`oh + kh`) became backward subtraction (`ih - kh`). Same coordinate accounting, different arithmetic.
 
 This is the central claim of Part II: coordinate names survive composition. They survive function boundaries (Chapter 3), broadcast (Chapter 4), normalization skeletons (Chapter 5), recurrence (Chapter 6), complex index arithmetic (this chapter), and differentiation (Chapter 8). The name is the invariant. The operation around it changes. The name remains.
 

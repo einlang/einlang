@@ -11,7 +11,7 @@ title: "Chapter 8 · Names Through Differentiation"
 
 ---
 
-The last chapter ended with index arithmetic — `oh + kh` in the forward pass became `ih - kh` in the backward pass. That inversion was not a coincidence. It was the Inversion Rule, applied to coordinates that carry arithmetic.
+The last chapter ended with index arithmetic — `oh + kh` in the forward pass became `ih - kh` in the backward pass. It was the Inversion Rule, applied to coordinates that carry arithmetic.
 
 You've been computing gradients all week. `loss.backward()` handles them. You don't think about them. Then you write a custom backward pass — a `torch.autograd.Function` or a manual gradient check — and suddenly you're staring at a sum over the wrong axis, wondering which coordinate you missed.
 
