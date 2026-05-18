@@ -374,4 +374,4 @@ In every case, the split is the operation. The names record it. The positional n
 
 A notation that records the split gives the split a name. A notation that records only the mechanic gives the mechanic a position. Positions shift. Names don't.
 
-Index arithmetic was the most complex coordinate manipulation in Part II. Next: what happens when we differentiate through every operation we have built. Chapter 8 applies the Inversion Rule systematically—to reductions, broadcasts, index arithmetic, and recurrence—and shows that the gradient is coordinate set subtraction, applied in reverse. The five-step pullback is the procedure. The coordinate names are the bridge between the forward and backward directions.
+Index arithmetic was the most complex coordinate manipulation in Part II. Next: what happens when we differentiate through every operation we have built—applying the Inversion Rule systematically to reductions, broadcasts, index arithmetic, and recurrence. The gradient is coordinate set subtraction, applied in reverse. The five-step pullback is the procedure. The coordinate names are the bridge between the forward and backward directions.

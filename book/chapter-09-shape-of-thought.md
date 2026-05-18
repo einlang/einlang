@@ -30,9 +30,7 @@ You just performed coordinate propagation in your head. You tracked each name—
 
 This—exactly this—is what a compiler must do. For every line, without data, without execution, it must answer: what is the shape of every tensor? Which coordinates survive each operation? Does the coordinate contract at each call site match the function's declaration?
 
-But before we see the machinery that answers these questions, let's watch the questions themselves catch bugs. Here is a broken program. It was written by a programmer who intended a linear layer with bias followed by softmax over classes. It compiles. It runs. It produces wrong results.
-
----
+Before we see the machinery that answers these questions, let's watch the questions themselves catch bugs.
 
 ## The Wall
 
@@ -441,4 +439,4 @@ The positional alternative is `dim=-1`: three keystrokes that enable zero checks
 
 Consume—that word has appeared in every chapter since Chapter 2. A reduction consumes a coordinate. A broadcast consumes silence. A gradient consumes the broadcast set. And now the compiler consumes the name itself. `class` goes in. `axis=1` comes out. A good abstraction is good firewood. Its beauty is not in its surface—but in the light the flame casts when it burns.
 
-The checker has one more pass to learn: range inference, shape analysis, and lowering — the subject of Chapter 10. After that, Chapters 11 through 13 put the names to the real test.
+The checker has one more pass to learn: range inference, shape analysis, and lowering. After that, the names face the real test.

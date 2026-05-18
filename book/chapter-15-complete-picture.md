@@ -746,5 +746,3 @@ The confession is better than silence.
 Each of these patterns is a bridge. It does not check. It does not enforce. It does not survive a refactoring automatically. But it records. The name moves from the programmer's head into the source file, where the next reader—the colleague, the reviewer, the future you—can find it. The bridge is imperfect. But a bridge that exists is better than a bridge that was never built.
 
 ---
-
-The Epilogue returns to the Tuesday bug from Chapter 1 and asks what changes when a name has a place to live.

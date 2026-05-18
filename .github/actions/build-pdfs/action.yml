@@ -16,9 +16,9 @@ runs:
         sudo find /tmp/tectonic-extract -name tectonic -type f -exec cp {} /usr/local/bin/tectonic \;
         sudo chmod +x /usr/local/bin/tectonic
 
-    - name: Concatenate chapters
+    - name: Generate TOC and combined files
       shell: bash
-      run: python3 book/generate.py combined
+      run: python3 book/generate.py all
 
     - name: Install librsvg
       shell: bash

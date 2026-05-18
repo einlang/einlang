@@ -29,15 +29,13 @@ The compiler cannot catch this. And it was never intended to.
 
 ## Consistency and Correctness
 
-The distinction that governs everything the compiler can and cannot do:
+A type checker verifies that `int` and `string` are used consistently. It catches `"hello" + 3`. It does not catch `interest = principal * (1 - rate)` when the formula should be `interest = principal * (1 + rate)`. One is a type error—the code is internally incoherent. The other is a formula error—the code is internally coherent but matches the wrong formula.
+
+Coordinate names extend this boundary. A reduction over a coordinate the tensor doesn't have is a type error—caught at compile time. A reduction over `batch` where `class` was intended is a formula error—internally consistent, semantically wrong.
 
 **Consistency** is internal. Does the coordinate story cohere? Does `channel` appear wherever the reduction claims it does? Does the function signature match the call site? The compiler can check consistency, because consistency is a relationship between declarations—and declarations are all in the source.
 
 **Correctness** is external. Does the computation achieve what the programmer intended? Does `mean[channel](x)` express the right thing? The compiler cannot check correctness, because correctness is a relationship between the source and the programmer's intent—and intent is not in the source.
-
-This distinction is not a weakness of named coordinates. It is the same distinction that separates type-checking from verification in every programming language. A type checker verifies that `int` and `string` are used consistently. It does not verify that the function computes the right answer. The compiler catches `"hello" + 3`. It does not catch `interest = principal * (1 - rate)` when the formula should be `interest = principal * (1 + rate)`. One is a type error. The other is a formula error. Both produce wrong results. Only one is caught.
-
-Coordinate names extend this boundary. A reduction over `channel` where `spatial` was intended is a formula error—internally consistent, semantically wrong. A reduction over `class` where the tensor has no `class` is a consistency error—caught at compile time. The name makes the second kind of error visible. It does not prevent the first.
 
 Return to the opening example. `batch` exists on `logits`. The reduction consumes it. Every check passes. The program compiles. It produces a valid probability distribution—over the batch dimension, not the class dimension. The name was wrong. The check passed. The program is incorrect.
 
@@ -47,17 +45,17 @@ A wrong name is a visible error. A missing name is an invisible one.
 
 ---
 
-## What Names Check (Recap)
+## What Names Check
 
-Before listing what names cannot check, recall what they can. The five rules from Chapter 9:
+Before what names cannot check, what they can:
 
-1. **Index Existence.** Every coordinate in an index list must exist on the tensor.
-2. **Reduction Consistency.** The consumed coordinate must appear in every operand.
-3. **Broadcast Recording.** Every omission is recorded for the backward pass.
-4. **Causality.** Recurrence references must be strictly backward in time.
-5. **Coordinate Contract.** Function call coordinate arguments must match the declaration.
+- Every coordinate in an index list must exist on the tensor.
+- The consumed coordinate must appear in every operand.
+- Every omission is recorded for the backward pass.
+- Recurrence references must be strictly backward in time.
+- Function call coordinate arguments must match the declaration.
 
-Every one of these checks is a consistency check. Every one operates on names declared in the source. None requires data. None requires execution. All five together define the boundary: *if a bug can be expressed as a mismatch between two declarations in the source, the compiler catches it. If the bug lives entirely in the gap between the source and the programmer's intent, the compiler cannot.*
+Every one of these is a consistency check. Every one operates on names declared in the source. None requires data. None requires execution. All five together define the boundary: *if a bug can be expressed as a mismatch between two declarations in the source, the compiler catches it. If the bug lives entirely in the gap between the source and the programmer's intent, the compiler cannot.*
 
 ---
 
@@ -167,8 +165,4 @@ This is the argument the book has been making since Chapter 1. Not that names ma
 
 ---
 
-But before you close the cover, the Appendix assembles the complete grammar and every check rule in one place — the view from the summit after fourteen chapters of climbing.
-
 Before you close the book, open your most recent tensor code. Find a `dim=` argument. Ask: which coordinate is that? If you can't answer from the code alone, the coordinate isn't in the code. It's in your head. The name is missing. And the name is the only thing that can go in the bracket.
-
-The Appendix collects every check rule, every error code, and a complete program. The Epilogue returns to the Tuesday bug from Chapter 1 — replays Day 100 with a working compiler — and asks the question the book was always asking: what changes when a name has a place to live?

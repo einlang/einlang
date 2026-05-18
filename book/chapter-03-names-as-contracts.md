@@ -388,4 +388,4 @@ The six steps check that coordinates are used *consistently*. The grounding chec
 
 ---
 
-Coordinate-aware functions compose. But before seeing the pattern they form together, there is a more immediate question: when you write a broadcast, you are making a claim about coordinate independence. What is the claim? And who checks it? Chapter 4 turns every broadcast into a self-audit — three questions and a set subtraction that reveal whether the independence is justified.
+Coordinate-aware functions compose. But before seeing the pattern they form together, there is a more immediate question: when you write a broadcast, you are making a claim about coordinate independence. What is the claim? And who checks it?

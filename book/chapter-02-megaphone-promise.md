@@ -535,10 +535,6 @@ The four errors form a gradient. Error 1 is caught unconditionally (name mismatc
 
 ---
 
-The preceding sections covered the four primitives of tensor computation: naming (a coordinate has an identity), permutation (coordinates move by name, not position), reduction (the consumed coordinate is named in the bracket), and broadcasting (the omitted coordinate is visible by its absence). They all flow from a single idea: **the megaphone.** A tensor speaks on some coordinates and stays silent on others. Reduction silences a coordinate. Broadcast copies along one the tensor was already silent on. Naming makes the coordinates audible. Permutation moves them without changing who speaks.
-
----
-
 ## The Four Operations
 
 Here is what each primitive looks like in two notations, and what each notation records:
@@ -664,10 +660,6 @@ You have been doing this all along. Every `let doubled[i, j] = matrix[i, j] * 2.
 
 ---
 
-This is the missing piece. The megaphone model gives you three operations on a coordinate: consume it (reduction), copy along it (broadcast), or traverse it (comprehension). Together they form a complete language for describing what happens to coordinates in a tensor program. You will not need a fourth.
-
----
-
 ## Return to the Transformer
 
 Look at this line again:
@@ -692,8 +684,4 @@ You couldn't read this line in Chapter 1. Now you can. Not because you memorized
 
 ---
 
-Part I gave you three primitives: naming a coordinate, reducing one, and broadcasting over one. The Inversion Rule turned reduction and broadcast into a single dual: what broadcasts forward is summed backward. You can now audit any single tensor operation — a `sum`, a `softmax`, a `bias[j] + A[i,j]` — by reading the coordinate names in its brackets. What you cannot yet do is make the audit survive composition. A softmax is five operations. LayerNorm is ten. When they chain, does the coordinate story survive from the first operation to the last? Part II answers that question. The answer begins with a mechanism that makes the coordinate story checkable across every operation in a function body — and rejects the call site if it doesn't match.
-
----
-
-The three questions apply to single operations. But real programs compose operations: softmax is a max, a subtract, an exp, a sum, and a divide—five steps, each involving coordinates with distinct roles. Chapter 3 introduces coordinate-aware functions, the mechanism that checks whether these compositions preserve the coordinate story across call sites. The question "does this broadcast make sense?" becomes "does this function's coordinate contract match its body?"
+The three questions apply to single operations. But real programs compose operations: softmax is a max, a subtract, an exp, a sum, and a divide—five steps, each involving coordinates with distinct roles. The question "does this broadcast make sense?" becomes "does this function's coordinate contract match its body?"

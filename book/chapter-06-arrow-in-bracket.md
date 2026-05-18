@@ -417,4 +417,4 @@ The backward recurrence runs from `T` down to `0`, referencing `t+1` (the future
 
 In Einlang, the backward recurrence is generated from the forward recurrence by the same Inversion Rule that governs reductions and broadcasts: `t in 1..T` forward becomes `t in T..0` backward. The coordinate names stay the same; the compiler generates the backward loop from the forward declaration.
 
-Time was one coordinate with a direction. Chapter 7 enters terrain where one coordinate splits into two roles: `point` becomes `point_i` and `point_j` in a distance matrix, `sample` becomes `anchor` and `positive` in contrastive learning. Convolution adds index arithmetic (`oh + kh`). Fancy indexing asks whether `k` in two places means pairwise or outer-product—and the names answer. The split is the operation. The names record it.
+Time was one coordinate with a direction. Next: terrain where one coordinate splits into two roles—`point` becomes `point_i` and `point_j` in a distance matrix, `sample` becomes `anchor` and `positive` in contrastive learning. Convolution adds index arithmetic (`oh + kh`). The split is the operation. The names record it.

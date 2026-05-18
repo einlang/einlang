@@ -103,28 +103,6 @@ When you do commit to a name, remember the boundary from Chapter 14: the compile
 
 ---
 
-## If the Names Had Been There
-
-Replay the book's key moments with names present from the start—not as a thought experiment, but as a counterfactual: what would have been different?
-
-The bug that opened Chapter 1 would not have occurred. When the programmer refactored `channel` from position 1 to position 2, the coordinate declaration would have changed from `[batch, channel, spatial]` to `[batch, spatial, channel]`. The line `mean[channel](x)` would have compiled without error—because `channel` still exists on `x`. The name absorbs the layout change. The positional version `dim=1` silently changes meaning; the named version `mean[channel]` doesn't. This is the simplest case, and the name handles it completely.
-
-A more interesting scenario: `A + bias` becomes `A[i, j] + bias[j]`. Six months later, a programmer adds a time dimension to `A`—it becomes `A[t, i, j]`. The broadcast `bias[j]` now omits both `t` and `i`. In positional NumPy, the broadcast silently extends to the new leading dimension and the gradient sums over both. The shapes match. But a bias independent of `i` (sample) might not be independent of `t` (time). The name `t` is present in `A` but absent from `bias`—the omission is a visible claim: bias doesn't depend on time. The programmer reviewing the diff sees `bias[j]` where `A` now has `A[t, i, j]` and asks: *should bias be constant across time?* The name doesn't catch the semantic error—it makes the assumption visible so the programmer can catch it.
-
-The Square Matrix Test becomes a development-time check rather than a dataset-dependent time bomb. A classifier with `batch_size = num_classes = 64` trains perfectly. Then a new dataset arrives with `num_classes = 100`. The positional code `softmax(logits, dim=-1)` had been normalizing over the last axis—which was `class` by coincidence, because `batch` and `class` were both 64. The named code `softmax[class](logits[batch, class])` normalizes over `class` regardless of whether the extents are equal. The name records the intent, and the intent doesn't change when the data changes.
-
-The GroupNorm reshape chain becomes a single line with no reshape. `x.reshape(N, G, C//G, H, W).mean(dim=(2,3,4))` becomes `mean[c_in_group, H, W](x[batch, group, c_in_group, H, W])`. The positions `(2,3,4)` are only correct after the reshape. If the reshape changes, the tuple changes. The names `c_in_group`, `H`, `W` name the reduced coordinates directly, and the coordinates are separate from the start—no reshape needed.
-
-Self-attention and cross-attention become visibly distinct at the call site. In PyTorch they are identical code; the difference is only in runtime shapes. A programmer debugging a cross-attention bug prints shapes: `q: (batch, seq, d)`, `k: (batch, seq, d)`. The shapes match—it's self-attention. With names, `self_attention[seq, ...]` and `cross_attention[seq_q, seq_k, ...]` are different signatures. `seq_q` and `seq_k` are different coordinate names. The reader sees which is which without checking runtime shapes.
-
-The recurrence bug becomes a compile-time error. `h[t] = h[t+1] + f(...)` runs in Python. The result is garbage or an IndexError. With names, the causality check rejects `t+1` because it is a forward reference. One character changes the program from correct to wrong, and the name `t`—combined with the recurrence domain—gives the compiler enough information to reject the wrong one.
-
-The gradient's backward sum stabilizes across shape changes. Forward: `factor[j]` broadcasts over `i`. Backward: `d_factor[j] = sum[i](d_scaled[i, j] * x[i, j])`. If `factor` changes from 1D `(j,)` to 2D `(i, j)`, a positional backward pass changes its sum silently. With names, the broadcast record says `factor omits {i}`. The backward sum is over `{i}`—unchanged by the shape change, because the name `i` is still the omitted coordinate.
-
-Six scenarios. In each, the positional code could be correct—it is correct, in the hands of a careful programmer. The question is not whether positional code can be correct. It is whether the notation makes the correctness checkable. In every scenario, the named code records the coordinate identity that correctness depends on. The positional code does not. The identity lives in the programmer's head, in a comment, or nowhere. The names move it into the source—where the compiler and the next reader can both check it.
-
-The "if" is not hypothetical. Every one of these bugs has occurred in production, in codebases you have used, in frameworks you have imported. They were caught—eventually—by tests, by code review, by the programmer staring at shapes at 3 AM. The question is not *can these bugs be caught?* It is *can they be caught at compile time, by the compiler, from information already present in the code?* The answer, for every scenario above, is yes—if the information is in the code. And the notation determines whether it is.
-
 ---
 
 ## The Invariant
