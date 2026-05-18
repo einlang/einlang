@@ -317,4 +317,4 @@ The reduction bracket says `mean[j, k]` — so it consumes `j` and `k`. The outp
 
 Three questions, three answers, all visible in the signature without reading the body. That is the audit.
 
-Normalization established the baseline: the skeleton holds across four variants, and the coordinate name absorbs layout changes that would silently corrupt a positional `dim=`. Chapter 12 raises the stakes. Normalization has one reduction axis. Attention has five coordinates, three architectural variants, and a runtime cache whose correctness depends on which coordinate is concatenated. The question shifts from *does the pattern hold?* to *what does the pattern reveal that positional code cannot say?*
+Normalization established the baseline: the skeleton holds across four variants, and the coordinate name absorbs layout changes that would silently corrupt a positional `dim=`. Attention has five coordinates, three architectural variants, and a runtime cache whose correctness depends on which coordinate is concatenated. The question shifts from *does the pattern hold?* to *what does the pattern reveal that positional code cannot say?*

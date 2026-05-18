@@ -11,7 +11,7 @@ title: "Chapter 8 · Names Through Differentiation"
 
 ---
 
-The last chapter ended with index arithmetic — `oh + kh` in the forward pass became `ih - kh` in the backward pass. That inversion was not a coincidence. It was the Inversion Rule, applied to coordinates that carry arithmetic.
+The last chapter ended with index arithmetic — `oh + kh` in the forward pass became `ih - kh` in the backward pass. It was the Inversion Rule, applied to coordinates that carry arithmetic.
 
 You've been computing gradients all week. `loss.backward()` handles them. You don't think about them. Then you write a custom backward pass — a `torch.autograd.Function` or a manual gradient check — and suddenly you're staring at a sum over the wrong axis, wondering which coordinate you missed.
 
@@ -390,7 +390,7 @@ The recurrence dimension `t` becomes a path coordinate — summed over in the gr
 
 **The recurrence backward pass is coordinate set subtraction where one of the coordinates happens to carry a dependence chain.** The chain rule unrolls the dependence. The coordinate sets determine the summation. Two mechanisms. One derivation.
 
-This is why the compiler's recurrence analysis from Chapter 6 matters for differentiation. When the compiler detects `history_lookback_steps = 1` and `downstream_tail_steps = 1`, it allocates a rolling buffer of size 2. The same analysis tells the backward pass how many steps to unroll and which coordinates must be summed. The structural fact (`t-1` in the forward pass) determines both the memory strategy AND the gradient summation. One minus sign. Two compiler passes. Same coordinate name.
+The compiler's recurrence analysis matters for differentiation. When the compiler detects `history_lookback_steps = 1` and `downstream_tail_steps = 1`, it allocates a rolling buffer of size 2. The same analysis tells the backward pass how many steps to unroll and which coordinates must be summed. The structural fact (`t-1` in the forward pass) determines both the memory strategy AND the gradient summation. One minus sign. Two compiler passes. Same coordinate name.
 
 ---
 
@@ -562,6 +562,6 @@ Part II gave you the tools. Part III builds the machine that runs them.
 
 ---
 
-Part II began with a question: when operations compose, does the coordinate story survive? You tested that question against every operation in tensor programming. Functions (Chapter 3): yes, the contract is checked at the call site. Broadcasts (Chapter 4): yes, the three-question audit reveals unwarranted independence claims. Normalization (Chapter 5): yes, four variants share one skeleton, and the coordinate name absorbs all layout changes. Recurrence (Chapter 6): yes, the compiler detects the direction of time from a minus sign. Complex terrain (Chapter 7): yes, the split of one coordinate into two roles is the operation, and the names record it. Differentiation (this chapter): yes, the gradient is coordinate set subtraction, read in reverse — whether the forward pass is a matmul, a convolution, a recurrence, or an RNN.
+Part II asked one question: when operations compose, does the coordinate story survive? You tested it against every operation in tensor programming. Functions: yes, the contract is checked at the call site. Broadcasts: yes, the three-question audit reveals unwarranted independence claims. Normalization: yes, four variants share one skeleton. Recurrence: yes, the compiler detects the direction of time from a minus sign. Complex terrain: yes, the split of one coordinate into two roles is the operation, and the names record it. Differentiation: yes, the gradient is coordinate set subtraction, read in reverse.
 
-The five-step pullback is coordinate accounting done by hand. The question that opens Part III: can a machine do it? Chapter 9 builds a compiler frontend that reads names from source, checks them against five rules, and lowers them to integers — all without ever running the program. The answer turns out to be the same question you have been asking since Chapter 2: *which coordinates survive?*
+The five-step pullback is coordinate accounting done by hand. Can a machine do it? The answer turns out to be the same question you have been asking since Chapter 2: *which coordinates survive?*

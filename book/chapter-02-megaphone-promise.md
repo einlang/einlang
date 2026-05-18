@@ -65,7 +65,7 @@ Now stop. Look at that line again: `let out[i, j] = A[i, j] + bias[j]`. Ask your
 
 You probably just looked at the bracket after `bias`. It says `[j]`—no `i`. That is how you know. You compared `bias`'s coordinate set `{j}` against the output's coordinate set `{i, j}` and noticed that `i` is missing. You performed **coordinate set subtraction** in your head, without being taught the procedure.
 
-What you just did—comparing coordinate sets, finding the missing ones—is exactly what can be done by static analysis. Let's give this operation a name, because you will see it again and again:
+What you just did—comparing coordinate sets, finding the missing ones—is exactly what can be done by static analysis. Let's give this operation a name:
 
 ```
 paths(X, Out) = coordinates(Out) \ coordinates(X)
@@ -188,7 +188,7 @@ Here is a subtlety that matters later. The `i` in `sum[i](data[i])` is a **local
 
 You can even omit the brackets on the tensor entirely: `sum[i](data)`. No `[i]` on `data`—the compiler knows `data` has one coordinate and `sum[i]` consumes it. This is the **implicit** form of Einstein access. The explicit form (`data[i]`) and the implicit form (`data`) are both legal inside a reduction body. The index variables belong to the expression, not to the tensor.
 
-This is different from the **rectangular access** notation used in coordinate-aware functions. When you write `x[..b, class]` inside a function body, `class` is not a local variable—it must match a coordinate that actually exists on `x`. Einstein index variables are scoped to the reduction body. Rectangular coordinates are scoped to the tensor's type. The distinction is invisible in simple examples, but it becomes the foundation of the type-checking system in Chapters 3 through 5.
+This is different from the **rectangular access** notation used in coordinate-aware functions. When you write `x[..b, class]` inside a function body, `class` is not a local variable—it must match a coordinate that actually exists on `x`. Einstein index variables are scoped to the reduction body. Rectangular coordinates are scoped to the tensor's type. The distinction is invisible in simple examples, but it becomes the foundation of the type-checking system.
 
 The four reduction operations are `sum`, `max`, `min`, and `prod`. Each has an identity element: `sum` starts from `0`, `prod` from `1`, `max` from negative infinity, `min` from positive infinity.
 
@@ -253,7 +253,7 @@ Before reading on, decide what you think the answer should be.
 
 In einlang, matching coordinate names **broadcast**. Only an explicit reduction — `sum[k]`, `max[k]`, `prod[k]` — **contracts**. The absence of `sum` means no contraction. The presence of `sum` means contraction. There is no middle ground where matching names silently consume.
 
-This is deliberate. In NumPy einsum, the convention `ik,kj->ij` means "repeated indices are summed." Compact. Expressive. Also invisible — you cannot tell from `ik,kj` whether `k` is being broadcast or contracted, because the convention collapses both into the same notation.
+In NumPy einsum, the convention `ik,kj->ij` means "repeated indices are summed." Compact. Expressive. Also invisible — you cannot tell from `ik,kj` whether `k` is being broadcast or contracted, because the convention collapses both into the same notation.
 
 In einlang, `A[i, k] * B[k, j]` broadcasts along `k`. `sum[k](A[i, k] * B[k, j])` contracts along `k`. The notation distinguishes the two because the operations are different. Broadcast copies a value across positions that already exist. Contraction eliminates positions and replaces them with a single value. Hiding this difference behind a naming convention costs understanding.
 
@@ -282,7 +282,7 @@ The compiler determines output coordinate order by scanning the expression **lef
 
 The order you write the indices is the order they appear in the output. The compiler reads your expression in exactly the order you do — and the output layout follows your reading order.
 
-This is not a coincidence. It means you can control the output layout by controlling the order of terms. If you want `C[j, i]`, write `B[k, j] * A[i, k]`. If you want `C[i, j]`, write `A[i, k] * B[k, j]`. No transposition needed. No `permute` call. The layout follows from the expression structure itself.
+You control the output layout by controlling the order of terms. If you want `C[j, i]`, write `B[k, j] * A[i, k]`. If you want `C[i, j]`, write `A[i, k] * B[k, j]`. No transposition needed. No `permute` call. The layout follows from the expression structure itself.
 
 Every tensor library has a concept of "output shape inference." NumPy einsum requires you to write `ik,kj->ij` — the `->ij` is mandatory if you want control. PyTorch infers shapes from input dimensions. Both treat output layout as something the library decides for you, or something you specify separately from the computation.
 
@@ -535,10 +535,6 @@ The four errors form a gradient. Error 1 is caught unconditionally (name mismatc
 
 ---
 
-The preceding sections covered the four primitives of tensor computation: naming (a coordinate has an identity), permutation (coordinates move by name, not position), reduction (the consumed coordinate is named in the bracket), and broadcasting (the omitted coordinate is visible by its absence). They all flow from a single idea: **the megaphone.** A tensor speaks on some coordinates and stays silent on others. Reduction silences a coordinate. Broadcast copies along one the tensor was already silent on. Naming makes the coordinates audible. Permutation moves them without changing who speaks.
-
----
-
 ## The Four Operations
 
 Here is what each primitive looks like in two notations, and what each notation records:
@@ -658,13 +654,9 @@ Now the same expression, rearranged:
 let norms[i] = sum[j](A[i, j] * A[i, j]);
 ```
 
-Einlang infers the traversal over `i` from the output declaration `norms[i]`. The comprehension is implicit—the output coordinate `i` tells the compiler: "traverse `i` to produce this array." The explicit form and the implicit form are equivalent. The point is not which syntax you use. The point is that the traversal and the reduction are distinct operations on distinct coordinates. `i` is traversed. `j` is consumed. The brackets record the distinction.
+Einlang infers the traversal over `i` from the output declaration `norms[i]`. The comprehension is implicit—the output coordinate `i` tells the compiler: "traverse `i` to produce this array." The explicit form and the implicit form are equivalent. The traversal and the reduction are distinct operations on distinct coordinates. `i` is traversed. `j` is consumed. The brackets record the distinction.
 
 You have been doing this all along. Every `let doubled[i, j] = matrix[i, j] * 2.0` is a traversal over `i` and `j`—two coordinates traversed, zero consumed. The rectangular declaration *is* a comprehension in the common case. The explicit comprehension bracket is for when you need to make the traversal visible—when you are filtering, when you are mixing traversal and reduction in the same expression, or when the traversal range is different from the coordinate's full domain.
-
----
-
-This is the missing piece. The megaphone model gives you three operations on a coordinate: consume it (reduction), copy along it (broadcast), or traverse it (comprehension). Together they form a complete language for describing what happens to coordinates in a tensor program. You will not need a fourth.
 
 ---
 
@@ -692,8 +684,4 @@ You couldn't read this line in Chapter 1. Now you can. Not because you memorized
 
 ---
 
-Part I gave you three primitives: naming a coordinate, reducing one, and broadcasting over one. The Inversion Rule turned reduction and broadcast into a single dual: what broadcasts forward is summed backward. You can now audit any single tensor operation — a `sum`, a `softmax`, a `bias[j] + A[i,j]` — by reading the coordinate names in its brackets. What you cannot yet do is make the audit survive composition. A softmax is five operations. LayerNorm is ten. When they chain, does the coordinate story survive from the first operation to the last? Part II answers that question. The answer begins with a mechanism that makes the coordinate story checkable across every operation in a function body — and rejects the call site if it doesn't match.
-
----
-
-The three questions apply to single operations. But real programs compose operations: softmax is a max, a subtract, an exp, a sum, and a divide—five steps, each involving coordinates with distinct roles. Chapter 3 introduces coordinate-aware functions, the mechanism that checks whether these compositions preserve the coordinate story across call sites. The question "does this broadcast make sense?" becomes "does this function's coordinate contract match its body?"
+The three questions apply to single operations. But real programs compose operations: softmax is a max, a subtract, an exp, a sum, and a divide—five steps, each involving coordinates with distinct roles. The question "does this broadcast make sense?" becomes "does this function's coordinate contract match its body?"

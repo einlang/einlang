@@ -297,7 +297,7 @@ Three kinds of runtime-dependence trigger this:
 
 **Data-dependent shapes.** The output shape depends on the data, not just the input shapes. `top_k` returns a variable number of elements. Beam search expands dynamically. The compiler cannot know the output shape at compile time because the output shape is the answer.
 
-This is not a flaw. Every tensor compiler faces this boundary, named or positional. The positional compiler says: "axis 1 has dynamic extent." Axis 1 might be `seq`, `class`, `head`, or `feature`. The number doesn't know. The name does. `seq` is ragged. The error names the coordinate. The strategy names the coordinate. The loop bound reads the coordinate's runtime length. The name survives analysis and lowering — it is the thread connecting the static check to the dynamic execution.
+Every tensor compiler faces this boundary, named or positional. The positional compiler says: "axis 1 has dynamic extent." Axis 1 might be `seq`, `class`, `head`, or `feature`. The number doesn't know. The name does. `seq` is ragged. The error names the coordinate. The strategy names the coordinate. The loop bound reads the coordinate's runtime length. The name survives analysis and lowering — it is the thread connecting the static check to the dynamic execution.
 
 ---
 
@@ -480,4 +480,4 @@ The names burn away during lowering. What remains is correct because they were t
 
 Part III asked: can a machine do what you have been doing by hand? Trace a coordinate name from source to integer, checking every contract along the way, never running the program. The answer is a compiler — fifteen lines for the core loop, five check rules pinned to a detective's wall, an S-expression IR that preserves every name, a lowering pass that burns each name into an integer only after it has been verified. You built it.
 
-But a compiler that checks names is an engineering artifact. The question that opened Chapter 1 was not "can we build this?" It was "when the notation has a place for the fact, does the bug survive?" The compiler is the proof that the checking is mechanical. The remaining question is whether the checking matters. Chapters 11 through 13 answer it — by placing Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. The question is not which notation is better. It is what each notation makes visible, and what each notation hides.
+But a compiler that checks names is an engineering artifact. The question that opened Chapter 1 was not "can we build this?" It was "when the notation has a place for the fact, does the bug survive?" The compiler is the proof that the checking is mechanical. The remaining question is whether the checking matters — placing Einlang side by side with PyTorch and NumPy on normalization, attention, and physical simulation. Not which notation is better. What each notation makes visible, and what each notation hides.

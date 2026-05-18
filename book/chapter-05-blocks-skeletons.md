@@ -42,27 +42,25 @@ fn normalize[coord](x: [f32; ..left, coord, ..right])
 }
 ```
 
-Four things to notice.
+Look at the coordinate parameter `[coord]` in the signature. It appears in brackets after the function name and in the type signatures. It is not a value—you cannot do arithmetic on it. It is a coordinate identity. When the function body uses `max[coord]` and `sum[coord]`, it is verified that `coord` is the same parameter declared in the signature.
 
-**First, the coordinate parameter `coord`.** It appears in brackets after the function name and in the type signatures. It is not a value—you cannot do arithmetic on it. It is a coordinate identity. When the function body uses `max[coord]` and `sum[coord]`, it is verified that `coord` is the same parameter declared in the signature.
+Now look at the rest packs `..left` and `..right`. They stand for whatever coordinates surround `coord` in the actual argument. If the caller passes `x[b, t, f]` and writes `normalize[f](x)`, then `..left` binds to `[b, t]` and `..right` binds to nothing. If the caller passes `x[b, h, f, d]` with `normalize[f](x)`, then `..left` binds to `[b, h]` and `..right` binds to `[d]`. The function body is polymorphic over the surrounding structure.
 
-**Second, the rest packs `..left` and `..right`.** They stand for whatever coordinates surround `coord` in the actual argument. If the caller passes `x[b, t, f]` and writes `normalize[f](x)`, then `..left` binds to `[b, t]` and `..right` binds to nothing. If the caller passes `x[b, h, f, d]` with `normalize[f](x)`, then `..left` binds to `[b, h]` and `..right` binds to `[d]`. The function body is polymorphic over the surrounding structure.
+Trace the coordinate flow. Inside the function body, the coordinate `coord` is in scope. It can be used in reductions (`max[coord]`, `sum[coord]`), in indexing, and implicitly in the output shape. The packs `..left` and `..right` flow from the input signature to the output signature.
 
-**Third, coordinate flow.** Inside the function body, the coordinate `coord` is in scope. It can be used in reductions (`max[coord]`, `sum[coord]`), in indexing, and implicitly in the output shape. The packs `..left` and `..right` flow from the input signature to the output signature.
-
-**Fourth, the return type annotation.** The `-> [f32; ..left, coord, ..right]` tells the reader which coordinates survive. If the function body accidentally consumed `coord` without reconstructing it, or dropped a pack, a coordinate mismatch is reported.
+Finally, the return type annotation `-> [f32; ..left, coord, ..right]` tells you which coordinates survive. If the function body accidentally consumed `coord` without reconstructing it, or dropped a pack, a coordinate mismatch is reported.
 
 ---
 
 ## Packs and Polymorphism
 
-Packs are what make coordinate-aware functions reusable across different tensor ranks. There are three patterns:
+Packs are what make coordinate-aware functions reusable across different tensor ranks.
 
-**Leading packs** (`..left` or `..b`): absorb dimensions that come before the coordinate of interest. Used when the function treats all leading dimensions uniformly.
+A pack that comes before the coordinate of interest absorbs leading dimensions. Write `..left` or `..b` and all leading axes collapse into one named group.
 
-**Trailing packs** (`..right` or `..rest`): absorb dimensions that come after. Used when the function operates on a coordinate and doesn't care what follows.
+A pack after the coordinate absorbs trailing dimensions. Write `..right` or `..rest` and everything after the named coordinate is captured.
 
-**Named spatial packs** (`..s`): absorb spatial dimensions as a group. A function that reshapes spatial coordinates can treat them as a unit:
+A named spatial pack absorbs spatial dimensions as a group rather than individually. Write `..s` and a function that reshapes spatial coordinates can treat them as a unit:
 
 ```rust
 fn move_channel[channel, ..s](x: [f32; channel, ..s])
@@ -82,19 +80,11 @@ Pack parameters make coordinate-aware functions rank-polymorphic: the same funct
 
 ### How the Compiler Resolves Packs
 
-How does the compiler know how many dimensions `..b` absorbs? The answer is the coordinate parameter.
+The compiler resolves packs by finding the coordinate argument in the layout and splitting the surrounding axes. The signature is `fn layer_norm[coord](x: [f32; ..left, coord, ..right])`. The caller writes `layer_norm[channel](x)` where `x` has layout `[batch, channel, height, width]`.
 
-Walk through a concrete call. The signature is `fn layer_norm[coord](x: [f32; ..left, coord, ..right])`. The caller writes `layer_norm[channel](x)` where `x` has layout `[batch, channel, height, width]`. The compiler's job: assign concrete dimensions to `..left` and `..right`.
+The compiler walks `x`'s layout and finds `channel` at position 1. `..left` — everything before position 1 — binds to `[batch]`. `..right` — everything after — binds to `[height, width]`. The function body rewrites: `..left` → `[batch]`, `..right` → `[height, width]`, `coord` → `channel`. The function is now monomorphic for this call site.
 
-The algorithm has four steps, executed once per call site:
-
-**Step 1: Locate the anchor.** The caller supplied `coord = channel`. The compiler walks `x`'s layout `[batch, channel, height, width]` and finds `channel` at position 1. This is the only fact the compiler needs from the caller. Everything else follows from it.
-
-**Step 2: Resolve `..left`.** `..left` appears before `coord` in the signature. The compiler looks at everything before position 1 in the layout: `[batch]`. `..left` binds to `[batch]`. If `..left` had appeared elsewhere in the signature, the compiler would verify that every occurrence binds to the same set — the pack must be consistent across all positions in the signature.
-
-**Step 3: Resolve `..right`.** `..right` appears after `coord`. Everything after position 1: `[height, width]`. `..right` binds to `[height, width]`. Two steps, one anchor, zero ambiguity.
-
-**Step 4: Rewrite the function body.** Every occurrence of `..left` in the body is replaced with `[batch]`. Every `..right` becomes `[height, width]`. Every `coord` becomes `channel`. The body `max[coord](x[..left, coord, ..right])` becomes `max[channel](x[batch, channel, height, width])`. The function is now monomorphic for this call site.
+If `channel` is nowhere in the layout — `x` has `[batch, seq, height, width]` — the compiler reports:
 
 What if the layout doesn't match? The caller writes `layer_norm[channel](x)` but `x` has layout `[batch, seq, height, width]` — `channel` is nowhere in the layout. Step 1 fails. The compiler reports:
 
@@ -106,28 +96,6 @@ error: coordinate `channel` not found in argument layout
 ```
 
 No guessing. No silent mismatch. The anchor is missing, and the compiler says so.
-
-**Multiple packs, single anchor.** The same principle extends to signatures with several packs. `fn normalize[coord, ..left, ..right, ..s]` — three packs, one named coordinate. Step 1 finds `coord`. Step 2 splits `..left` (everything before `coord`). Step 3 splits `..right` (everything between `coord` and `..s`) and `..s` (everything after `..right`). Wait — how does the compiler know where `..right` ends and `..s` begins?
-
-This is where pack disambiguation matters. Consider a pooling operation that collapses spatial dimensions:
-
-```rust
-fn pool[..s](x: [f32; ..b, ..s]) -> [f32; ..b] {
-    max[..s](x[..b, ..s])
-}
-```
-
-Only one pack — `..s` — is declared as a coordinate parameter. This is the pack the caller wants to name and control. The other pack, `..b`, appears in the value parameter's shape but is not a coordinate parameter — it's resolved by elimination: whatever coordinates remain after subtracting `..s` from the argument's layout. The caller writes:
-
-```rust
-pool[(h, w)](x)
-```
-
-A single parenthesized group `(h, w)` binds to `..s`. `..b` gets whatever is left: `[b]`. No ambiguity, because only one pack needs disambiguation.
-
-The alternative design — declaring both packs as coordinate parameters with `fn pool[..b, ..s]` and grouping at the call site as `pool[(batch), (height, width)]` — is legal but unnecessary. When two adjacent packs both need caller grouping, the design fights itself. The simpler rule: declare only the pack you need to name. Let the compiler infer the rest by elimination.
-
-This is the constraint on pack placement from the end of this section. A pack must be resolvable from the anchor coordinate alone. If two packs are adjacent with no named coordinate between them, the signature cannot determine the split — but you rarely need to declare both. Declare one. Let the other resolve. Adjacent packs in a signature are a signal: you are asking for a disambiguation problem. Move one of them to be implicit, and the problem disappears.
 
 What about multiple named coordinates? A function can accept more than one coordinate in brackets:
 
@@ -457,7 +425,7 @@ In PyTorch, a tensor leaves the data loader as `(32, 64)`. By the time it reache
 
 In Einlang, the identities survive. Not because the compiler is clever. Because the rule is brutally simple: coordinates only change when an operation explicitly changes them.
 
-Square a tensor. Coordinates unchanged. Add a constant. Coordinates unchanged. Pass through a pointwise function. Coordinates unchanged. This is not a coincidence. It is a design law: coordinate facts survive every operation that does not explicitly manipulate them. Reductions consume coordinates. Declarations introduce them. Coordinate-aware function calls thread them through signatures. Everything else — arithmetic, function calls that return tensors, `if` expressions — preserves them. You declare coordinates once. They propagate from that point forward.
+Square a tensor. Coordinates unchanged. Add a constant. Coordinates unchanged. Pass through a pointwise function. Coordinates unchanged. Coordinate facts survive every operation that does not explicitly manipulate them. Reductions consume coordinates. Declarations introduce them. Coordinate-aware function calls thread them through signatures. Everything else — arithmetic, function calls that return tensors, `if` expressions — preserves them. You declare coordinates once. They propagate from that point forward.
 
 This is stronger than type inference. Type inference says `x ** 2.0` has the same type as `x`. Coordinate flow says it has the same *identity* as `x`. The identities are not inferred from runtime shapes — they are propagated from declarations. A PyTorch tensor carries `(32, 64)` at runtime. It does not carry `(batch, channel)`. The identities are lost the moment the tensor leaves the data loader. In Einlang, they survive every intermediate binding, every arithmetic expression, every function return. The source is the declaration. The flow is forward.
 
@@ -487,7 +455,7 @@ Coordinates also have a fourth role: time. A coordinate that doesn't just sit th
 
 The four-normalizations table revealed that LayerNorm, RMSNorm, GroupNorm, and InstanceNorm share a skeleton. But how do you discover the skeleton in the first place? Not by reading a table. By writing the functions and noticing what changes.
 
-Notice the skeletons already visible in these signatures—no body needed, just the coordinate names and reduction brackets:
+The skeletons are already visible in these signatures—no body needed, just the coordinate names and reduction brackets:
 
 ```rust
 fn softmax[j](x: [f32; ..b, j]) -> [f32; ..b, j];
@@ -636,4 +604,4 @@ A normalization variant that normalizes over `batch` instead of `feature` change
 
 Every skeleton's forward pass is a reduce-broadcast-elementwise pattern. Every skeleton's backward pass is the Inversion Rule applied to that pattern. The coordinate names are the thread connecting the two directions.
 
-Skeletons are spatial—they describe which coordinates are reduced and which survive at a single point in the computation graph. But coordinates can also flow through time. Chapter 6 introduces recurrence: coordinates indexed by `t`, `t-1`, `t+1`, carrying a causality constraint that the compiler can check. The skeleton's forward/backward symmetry extends into a forward/backward recurrence—the Inversion Rule, applied to time.
+Skeletons are spatial—they describe which coordinates are reduced and which survive at a single point in the computation graph. But coordinates can also flow through time: coordinates indexed by `t`, `t-1`, `t+1`, carrying a causality constraint that the compiler can check. The skeleton's forward/backward symmetry extends into a forward/backward recurrence—the Inversion Rule, applied to time.

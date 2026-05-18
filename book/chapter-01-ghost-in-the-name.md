@@ -139,15 +139,7 @@ Before you move on, try this. Find a `permute`, `transpose`, or `swapaxes` in yo
 
 ---
 
-Positional permutation is not evil. It is the right abstraction for a compiler pass that only needs to know "move this stride to that position." But source code is not written for compilers. It is written for the human who will debug it at 11 PM, three months after the original author left the team. That human needs to know *what moved where and why*. Position numbers answer the first question, but not the second. Names answer both.
-
----
-
----
-
-> Silence is not absence. Silence is a claim. And claims can be checked.
-
-Chapter 2 gives this claim its machinery: the megaphone model. A tensor speaks on some coordinates and stays silent on others. Reduction silences a coordinate. Broadcast copies along one the tensor was already silent on. Together they form a single rule—and the next chapter shows why that rule governs every tensor computation.
+For a compiler pass that only needs to know "move this stride to that position," positional permutation is the right abstraction. But source code is not written for compilers. It is written for the human who will debug it at 11 PM, three months after the original author left the team. That human needs to know *what moved where and why*. Position numbers answer the first question, but not the second. Names answer both.
 
 ---
 

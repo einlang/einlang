@@ -227,7 +227,7 @@ The Square Matrix Test is not specific to softmax. It applies to any operation w
 
 **Broadcast.** `let out[i, j] = A[i, j] + bias[j]` and `let out[i, j] = A[i, j] + bias[i]` both produce shape `(128, 128)` when `i` and `j` have the same extent. The first broadcasts `bias` over rows—bias depends on columns. The second broadcasts `bias` over columns—bias depends on rows. Semantically opposite. Shape-identical. Distinguishable only by which coordinate appears in `bias`'s bracket.
 
-**Attention.** Self-attention and cross-attention use the same `matmul(Q, K.transpose(-2, -1))` operation. When `seq_q == seq_k`, the code is textually identical (this will be revisited later). The distinction between attending to yourself and attending to a different sequence lives in the tensor shapes at runtime—not in the source code. When the sequence lengths differ, the shapes diverge and the bug surfaces. During development, when they happen to be equal, the bug is invisible.
+**Attention.** Self-attention and cross-attention use the same `matmul(Q, K.transpose(-2, -1))` operation. When `seq_q == seq_k`, the code is textually identical. The distinction between attending to yourself and attending to a different sequence lives in the tensor shapes at runtime—not in the source code. When the sequence lengths differ, the shapes diverge and the bug surfaces. During development, when they happen to be equal, the bug is invisible.
 
 In every case, the Square Matrix Test reveals the same gap: shape compatibility checks the arithmetic of dimensions. It does not check the identity of dimensions. When two dimensions have the same size, shape compatibility becomes identity-blind. Named coordinates restore sight.
 
@@ -281,7 +281,7 @@ The preceding chapters have been written in a notation that puts coordinate name
 
 It is called **Einlang**—a contraction of "Einstein" and "language," acknowledging the debt to Einstein summation notation while distinguishing itself as a full programming language rather than a string-based convention.
 
-The name is not the point. The point is what the name represents: a language where coordinates are first-class syntactic entities, not comments embedded in variable names. Where coordinate contracts are statically checked. Where the reader can audit coordinate flow without reconstructing it from shape arithmetic.
+It is called **Einlang**—a contraction of "Einstein" and "language," acknowledging the debt to Einstein summation notation while distinguishing itself as a full programming language rather than a string-based convention. A language where coordinates are first-class syntactic entities, not comments embedded in variable names. Where coordinate contracts are statically checked. Where the reader can audit coordinate flow without reconstructing it from shape arithmetic.
 
 ---
 
@@ -388,4 +388,4 @@ The six steps check that coordinates are used *consistently*. The grounding chec
 
 ---
 
-Coordinate-aware functions compose. But before seeing the pattern they form together, there is a more immediate question: when you write a broadcast, you are making a claim about coordinate independence. What is the claim? And who checks it? Chapter 4 turns every broadcast into a self-audit — three questions and a set subtraction that reveal whether the independence is justified.
+Coordinate-aware functions compose. But before seeing the pattern they form together, there is a more immediate question: when you write a broadcast, you are making a claim about coordinate independence. What is the claim? And who checks it?
