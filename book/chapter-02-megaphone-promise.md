@@ -65,7 +65,7 @@ Now stop. Look at that line again: `let out[i, j] = A[i, j] + bias[j]`. Ask your
 
 You probably just looked at the bracket after `bias`. It says `[j]`—no `i`. That is how you know. You compared `bias`'s coordinate set `{j}` against the output's coordinate set `{i, j}` and noticed that `i` is missing. You performed **coordinate set subtraction** in your head, without being taught the procedure.
 
-What you just did—comparing coordinate sets, finding the missing ones—is exactly what can be done by static analysis. Let's give this operation a name, because you will see it again and again:
+What you just did—comparing coordinate sets, finding the missing ones—is exactly what can be done by static analysis. Let's give this operation a name:
 
 ```
 paths(X, Out) = coordinates(Out) \ coordinates(X)

@@ -455,7 +455,7 @@ Coordinates also have a fourth role: time. A coordinate that doesn't just sit th
 
 The four-normalizations table revealed that LayerNorm, RMSNorm, GroupNorm, and InstanceNorm share a skeleton. But how do you discover the skeleton in the first place? Not by reading a table. By writing the functions and noticing what changes.
 
-Notice the skeletons already visible in these signatures—no body needed, just the coordinate names and reduction brackets:
+The skeletons are already visible in these signatures—no body needed, just the coordinate names and reduction brackets:
 
 ```rust
 fn softmax[j](x: [f32; ..b, j]) -> [f32; ..b, j];

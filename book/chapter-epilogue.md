@@ -99,7 +99,7 @@ Practical advice: if you cannot name a dimension, write `dim=-1`—but write a c
 
 And sometimes, after reflection, you realize the dimension genuinely does not have a stable identity. It is a transient intermediate that exists only inside this function, consumed by the next operation, never exposed to a caller. In that case, `dim=-1` may be the right choice permanently. Not every coordinate deserves a name. The coordinate habit is not a moral obligation. It is a judgment: *does the correctness of this operation depend on which coordinate this is?* If the answer is no, a number is fine. If the answer is yes, the name earns its keystrokes.
 
-When you do commit to a name, remember the boundary from Chapter 14: the compiler cannot catch `softmax[batch]` where `softmax[class]` was intended. But a reader sees the wrong name and asks the question. The positional equivalent `softmax(logits, dim=0)` hides the error behind a number; the reader must reconstruct which coordinate axis 0 refers to, and the reconstruction may be wrong. The name earns its keystrokes twice: once by recording intent, once by making errors visible when intent is misrecorded.
+When you do commit to a name, the boundary from Chapter 14 still holds: the compiler cannot catch `softmax[batch]` where `softmax[class]` was intended. But a reader sees the wrong name and asks the question. The positional equivalent `softmax(logits, dim=0)` hides the error behind a number; the reader must reconstruct which coordinate axis 0 refers to, and the reconstruction may be wrong. The name earns its keystrokes twice: once by recording intent, once by making errors visible when intent is misrecorded.
 
 ---
 

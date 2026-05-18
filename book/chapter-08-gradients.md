@@ -390,7 +390,7 @@ The recurrence dimension `t` becomes a path coordinate — summed over in the gr
 
 **The recurrence backward pass is coordinate set subtraction where one of the coordinates happens to carry a dependence chain.** The chain rule unrolls the dependence. The coordinate sets determine the summation. Two mechanisms. One derivation.
 
-This is why the compiler's recurrence analysis from Chapter 6 matters for differentiation. When the compiler detects `history_lookback_steps = 1` and `downstream_tail_steps = 1`, it allocates a rolling buffer of size 2. The same analysis tells the backward pass how many steps to unroll and which coordinates must be summed. The structural fact (`t-1` in the forward pass) determines both the memory strategy AND the gradient summation. One minus sign. Two compiler passes. Same coordinate name.
+The compiler's recurrence analysis matters for differentiation. When the compiler detects `history_lookback_steps = 1` and `downstream_tail_steps = 1`, it allocates a rolling buffer of size 2. The same analysis tells the backward pass how many steps to unroll and which coordinates must be summed. The structural fact (`t-1` in the forward pass) determines both the memory strategy AND the gradient summation. One minus sign. Two compiler passes. Same coordinate name.
 
 ---
 
